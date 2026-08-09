@@ -16,7 +16,7 @@ The project is currently in Wayfinder planning. Its first destination is an impl
 
 The canonical language is maintained in [CONTEXT.md](./CONTEXT.md). Primary-source investigations are under [docs/research](./docs/research).
 
-Resolved product contracts and their architectural rationale are under [docs/specification](./docs/specification) and [docs/adr](./docs/adr), beginning with the [Coordinator interaction contract](./docs/specification/coordinator-interaction-contract.md).
+Resolved product contracts and their architectural rationale are under [docs/specification](./docs/specification) and [docs/adr](./docs/adr), including the [Coordinator interaction contract](./docs/specification/coordinator-interaction-contract.md) and [Work Item lifecycle contract](./docs/specification/work-item-lifecycle-contract.md).
 
 ## Scope
 

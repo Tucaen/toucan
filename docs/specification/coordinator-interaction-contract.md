@@ -316,9 +316,8 @@ The MVP interaction contract is satisfied when these scenarios pass through desk
 
 ## Deliberately deferred details
 
-This contract fixes interaction behavior while leaving these details to their owning tickets:
+The [Work Item lifecycle contract](./work-item-lifecycle-contract.md) defines Work Item states, transitions, Writer Leases, stopping behavior, and ambiguous-execution reconciliation. This interaction contract leaves these remaining details to their owning tickets:
 
-- Work Item states, transitions, leases, and ambiguous-execution reconciliation details;
 - Personal Vault retrieval, promotion, sensitivity, and expiry;
 - Session Adapter capability flags and provider telemetry mechanics;
 - Action Intent classification and exact approval policy;

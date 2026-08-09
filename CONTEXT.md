@@ -80,10 +80,50 @@ _Avoid_: chain of thought, terminal noise, heartbeat spam
 The durable record of an objective, scope, sessions, decisions, approvals, evidence, status, and result that the Coordinator manages across provider turns.
 _Avoid_: chat, transcript, agent session
 
+**Work Item State**:
+The single objective-level lifecycle condition of a Work Item. Ongoing states are Ready, Active, Waiting, Paused, Blocked, Reconciling, and Review Candidate; stopped outcomes are Completed, Failed, and Cancelled.
+_Avoid_: Agent Session status, worker liveness, needs-attention flag
+
+**Writer Lease**:
+A time-bounded, renewable, fenced grant that gives one Agent Session exclusive write authority over one mutable execution resource, such as a provider session or worktree. Expiry revokes authority but does not prove that prior execution stopped or make replay safe.
+_Avoid_: Work Item lock, ownership flag, mutex
+
+**Execution Epoch**:
+One auditable period of Work Item execution governed by a Delegation Brief. Explicitly reopening failed or cancelled work starts a new Execution Epoch rather than erasing the stopped outcome.
+_Avoid_: retry counter, reused run
+
+**Safe Boundary**:
+A point at which no provider turn, tool call, or Action Intent is in flight, observable effects and the latest checkpoint are durable, and no unresolved execution ambiguity affects the next action. Coordinator supervision does not pause while an Agent Session waits to reach one.
+_Avoid_: arbitrary timeout, token threshold, assumed idle
+
+**Reconciliation**:
+The evidence-driven recovery process that establishes execution ownership, observed effects, remaining uncertainty, and the next safe action after an interruption or ambiguous outcome. It never treats lease expiry, silence, or a worker claim as proof that execution stopped or that replay is safe.
+_Avoid_: blind retry, assumed rollback, failure guess
+
+**Wake Condition**:
+A recorded, observable condition that permits a Waiting Work Item to become eligible for execution again, such as an owner decision, dependency result, or verified provider reset.
+_Avoid_: polling guess, reported reset time
+
+**Dependency Edge**:
+An explicit ordering relationship requiring one Agent Session contribution to produce a named verified result or contracted durable checkpoint before another contribution may proceed.
+_Avoid_: assumed ordering, shared live working tree
+
 **Review Candidate**:
 A Work Item that reached a reasoned stopping point without evidence sufficient for verified completion and now requires the owner's judgment.
 _Avoid_: verified complete, abandoned work
 
+**Verified Completion**:
+A Work Item outcome in which every mandatory acceptance criterion is supported by durable, attributable evidence. Owner judgment may verify subjective criteria; changing or waiving an objective criterion requires an explicit preserved decision before completion.
+_Avoid_: worker-reported success, assumed success, done
+
+**Completion Invalidation**:
+A durable warning that evidence supporting a completed Work Item no longer holds. It preserves the historical outcome, requires owner attention, and may link to a corrective successor Work Item without reopening the completed item.
+_Avoid_: rewritten completion, silent reopen
+
 **Attention Event**:
-A state change that requires owner awareness or action and may produce an inbox badge or privacy-filtered notification according to its severity.
+A state change that requires owner awareness or action and may produce an inbox badge or privacy-filtered notification according to its severity. Outstanding Attention Events derive the owner-facing needs-attention condition without replacing the Work Item State.
 _Avoid_: routine progress update, full transcript notification
+
+**Needs Attention**:
+The derived owner-facing condition that one or more unresolved Attention Events exist for a Work Item. It is not a lifecycle state and does not imply that every independent execution branch must stop.
+_Avoid_: Work Item state, unread activity
