@@ -21,7 +21,7 @@ The local operational record of Agent Sessions, including their provider identit
 _Avoid_: vault, knowledge base
 
 **Context Packet**:
-A bounded, provenance-bearing selection of vault and project material assembled for one Agent Session.
+A bounded, provenance-bearing selection of authoritative ADE, vault, and project material assembled for one Coordinator Turn or Agent Session.
 _Avoid_: global prompt, full vault dump
 
 **Remote Client**:
@@ -59,6 +59,22 @@ _Avoid_: automatically discovered folder, arbitrary filesystem root
 **Coordinator Turn**:
 A short-lived model invocation assembled from current ADE state and a bounded Context Packet to answer, route, or supervise work.
 _Avoid_: permanent coordinator conversation, global chat history
+
+**Coordinator Request**:
+One owner intent accepted through the Coordinator and durably classified for direct answer, delegation, control, clarification, or rejection; it becomes a Work Item only when durable work tracking is needed.
+_Avoid_: prompt, chat message
+
+**Coordinator Context Packet**:
+The Context Packet assembled specifically for one Coordinator Turn from the current request and authoritative ADE state.
+_Avoid_: conversation history, coordinator memory
+
+**Delegation Brief**:
+The durable contract that gives one Agent Session its objective, scope, authority, context, verification expectations, and stopping conditions.
+_Avoid_: agent prompt, hand-wave, task message
+
+**Activity Event**:
+An ordered, owner-visible record of meaningful Coordinator or Work Item activity, including attributable questions, answers, and evidence, without hidden model reasoning or sensitive raw transcript content.
+_Avoid_: chain of thought, terminal noise, heartbeat spam
 
 **Work Item**:
 The durable record of an objective, scope, sessions, decisions, approvals, evidence, status, and result that the Coordinator manages across provider turns.
