@@ -84,6 +84,22 @@ _Avoid_: chat, transcript, agent session
 The single objective-level lifecycle condition of a Work Item. Ongoing states are Ready, Active, Waiting, Paused, Blocked, Reconciling, and Review Candidate; stopped outcomes are Completed, Failed, and Cancelled.
 _Avoid_: Agent Session status, worker liveness, needs-attention flag
 
+**Work Task**:
+The owner-visible unit of delegated work on the task canvas: one objective, one owning Task Thread, and exactly one Task Card. Its card status reports provider-turn liveness, not Work Item State. In the current slice one Work Task stands in for a Work Item and its single Agent Session.
+_Avoid_: subagent as a canvas object, one card per internal agent step
+
+**Task Card**:
+The single interactive canvas object for one Work Task: a compact status overview when collapsed, and that task's chat-like thread surface when opened.
+_Avoid_: terminal tile per agent, dashboard row, duplicate card per provider step
+
+**Task Thread**:
+The persistent provider conversation one Work Task owns for its whole life, including follow-up turns and answered clarifications.
+_Avoid_: fresh session per message, one shared global thread
+
+**Task Transcript**:
+The owner-visible message record inside one Task Card: the task's own questions and results plus the owner's follow-ups. Internal provider mechanics are counted and labelled activity, never presented as owner messages.
+_Avoid_: raw terminal log, chain of thought, provider transcript dump
+
 **Writer Lease**:
 A time-bounded, renewable, fenced grant that gives one Agent Session exclusive write authority over one mutable execution resource, such as a provider session or worktree. Expiry revokes authority but does not prove that prior execution stopped or make replay safe.
 _Avoid_: Work Item lock, ownership flag, mutex

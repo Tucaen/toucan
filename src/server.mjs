@@ -83,7 +83,18 @@ export function createAdeServer(runtime) {
       }
       if (request.method === "POST" && url.pathname === "/api/requests") {
         const body = await readJson(request);
-        json(response, 202, await runtime.startRequest(body.request));
+        json(response, 202, await runtime.submitRequest(body.request));
+        return;
+      }
+      const taskMessageMatch = url.pathname.match(/^\/api\/tasks\/([^/]+)\/messages$/);
+      if (request.method === "POST" && taskMessageMatch) {
+        const body = await readJson(request);
+        json(response, 202, await runtime.sendTaskMessage(decodeURIComponent(taskMessageMatch[1]), body.message, body.source));
+        return;
+      }
+      const taskMatch = url.pathname.match(/^\/api\/tasks\/([^/]+)$/);
+      if (request.method === "GET" && taskMatch) {
+        json(response, 200, runtime.inspectTask(decodeURIComponent(taskMatch[1])));
         return;
       }
       const questionMatch = url.pathname.match(/^\/api\/questions\/([^/]+)\/answer$/);
