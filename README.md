@@ -2,7 +2,13 @@
 
 ADE is a Windows-first, local-first Agentic Developer Environment: one secure Coordinator for directing development work across bounded Claude, Codex, and terminal-backed agent sessions from desktop or phone.
 
-The project is currently in Wayfinder planning. Its first destination is an implementation-ready MVP specification, not a production implementation.
+The project is currently in Wayfinder planning, with one deliberately thin runnable experiment: the prototype-led multi-agent vertical slice from issue #19. It is not a production implementation.
+
+## Runnable vertical slice
+
+The slice proves one local Project, a real model-backed Coordinator, concurrent bounded Agent Sessions, live runtime state, shared clarification handling, and an inspectable append-only event record. It uses the official Codex SDK with ChatGPT subscription authentication; it does not require an API key or separately billed API tokens.
+
+See [the vertical-slice demo guide](./docs/vertical-slice-demo.md) for the start command, fixture scenario, safety boundary, and verification steps.
 
 ## Current direction
 

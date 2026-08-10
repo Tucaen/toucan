@@ -1,0 +1,19 @@
+{
+  "name": "ade-vertical-slice",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Prototype-led ADE multi-agent vertical slice",
+  "scripts": {
+    "login": "codex login",
+    "auth:status": "codex login status",
+    "start": "node src/server.mjs",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@openai/codex-sdk": "^0.147.0"
+  }
+}
