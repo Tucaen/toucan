@@ -210,11 +210,31 @@ button {
 }
 
 .node-status {
-  margin-left: auto;
   color: #687280;
   font-size: 9px;
   font-weight: 800;
   letter-spacing: 0.08em;
+}
+
+.node-action {
+  margin-left: auto;
+  padding: 3px 7px;
+  border: 1px solid #3a4350;
+  border-radius: 5px;
+  color: #b9c1cc;
+  background: #222832;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.node-action:hover:not(:disabled) {
+  border-color: var(--node-accent);
+  color: #eef1f5;
+}
+
+.node-action:disabled {
+  opacity: 0.35;
+  cursor: default;
 }
 
 .terminal-host {

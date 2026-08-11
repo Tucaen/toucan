@@ -5,6 +5,8 @@ export interface TerminalApi {
   write(id: string, data: string): void
   resize(id: string, cols: number, rows: number): void
   kill(id: string): void
+  copyText(text: string): void
+  readClipboardText(): string
   onData(id: string, callback: (data: string) => void): () => void
   onExit(id: string, callback: (exitCode: number) => void): () => void
 }

@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { clipboard, contextBridge, ipcRenderer } from 'electron'
 import type {
   TerminalCreateRequest,
   TerminalCreateResult,
@@ -13,6 +13,8 @@ const terminalApi = {
   resize: (id: string, cols: number, rows: number): void =>
     ipcRenderer.send('terminal:resize', id, cols, rows),
   kill: (id: string): void => ipcRenderer.send('terminal:kill', id),
+  copyText: (text: string): void => clipboard.writeText(text),
+  readClipboardText: (): string => clipboard.readText(),
   onData: (id: string, callback: (data: string) => void): (() => void) => {
     const listener = (_event: Electron.IpcRendererEvent, output: TerminalOutput): void => {
       if (output.id === id) callback(output.data)

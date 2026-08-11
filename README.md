@@ -13,6 +13,8 @@ npm run dev
 
 Right-click the canvas and choose **Terminal**, **Claude Code**, or **Codex**. Agent entries launch the corresponding local `claude` or `codex` CLI and show an in-node message when the command is unavailable.
 
+Select terminal text with the mouse and use **Ctrl+Shift+C** (or the node's **Copy** button) to copy it. Use **Ctrl+Shift+V** to paste. The traditional **Ctrl+Insert** and **Shift+Insert** shortcuts work too.
+
 ## Deliberately excluded
 
 - Persistence and session restore

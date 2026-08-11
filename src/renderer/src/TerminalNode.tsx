@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { NodeResizer, type NodeProps } from '@xyflow/react'
 import { FitAddon } from '@xterm/addon-fit'
 import { Terminal } from '@xterm/xterm'
@@ -12,6 +12,13 @@ const accents = {
 
 export default function TerminalNode({ id, data, selected }: NodeProps<TerminalCanvasNode>): JSX.Element {
   const hostRef = useRef<HTMLDivElement>(null)
+  const terminalRef = useRef<Terminal | null>(null)
+  const [hasSelection, setHasSelection] = useState(false)
+
+  const copySelection = (): void => {
+    const selection = terminalRef.current?.getSelection()
+    if (selection) window.terminalApi.copyText(selection)
+  }
 
   useEffect(() => {
     if (!hostRef.current) return
@@ -32,6 +39,7 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
         selectionBackground: '#394456'
       }
     })
+    terminalRef.current = terminal
     const fitAddon = new FitAddon()
     terminal.loadAddon(fitAddon)
     terminal.open(hostRef.current)
@@ -50,6 +58,27 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
       terminal.write(`\r\n\x1b[90mSession exited with code ${exitCode}.\x1b[0m\r\n`)
     })
     const inputSubscription = terminal.onData((input) => window.terminalApi.write(id, input))
+    const selectionSubscription = terminal.onSelectionChange(() => setHasSelection(terminal.hasSelection()))
+    terminal.attachCustomKeyEventHandler((event) => {
+      if (event.type !== 'keydown') return true
+
+      const copyShortcut = (event.ctrlKey && event.shiftKey && event.code === 'KeyC')
+        || (event.ctrlKey && event.code === 'Insert')
+      if (copyShortcut) {
+        if (terminal.hasSelection()) window.terminalApi.copyText(terminal.getSelection())
+        return false
+      }
+
+      const pasteShortcut = (event.ctrlKey && event.shiftKey && event.code === 'KeyV')
+        || (event.shiftKey && event.code === 'Insert')
+      if (pasteShortcut) {
+        const clipboardText = window.terminalApi.readClipboardText()
+        if (clipboardText) window.terminalApi.write(id, clipboardText)
+        return false
+      }
+
+      return true
+    })
     const resizeObserver = new ResizeObserver(fit)
     resizeObserver.observe(hostRef.current)
 
@@ -78,7 +107,9 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
       removeDataListener()
       removeExitListener()
       inputSubscription.dispose()
+      selectionSubscription.dispose()
       window.terminalApi.kill(id)
+      terminalRef.current = null
       terminal.dispose()
     }
   }, [data.kind, data.label, id])
@@ -92,6 +123,16 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
       <header className="node-header">
         <span className="status-dot" />
         <strong>{data.label}</strong>
+        <button
+          type="button"
+          className="node-action nodrag"
+          disabled={!hasSelection}
+          title="Select terminal text, then copy it"
+          onMouseDown={(event) => event.stopPropagation()}
+          onClick={copySelection}
+        >
+          Copy
+        </button>
         <span className="node-status">LOCAL</span>
       </header>
       <div
