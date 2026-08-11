@@ -50,7 +50,7 @@ function launchFor(kind: TerminalKind): { executable: string; args: string[] } |
   if (extension === '.cmd' || extension === '.bat') {
     return {
       executable: process.env.ComSpec ?? 'cmd.exe',
-      args: ['/d', '/s', '/c', `"${resolved}"`]
+      args: ['/d', '/s', '/c', resolved]
     }
   }
 
