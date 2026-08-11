@@ -1,4 +1,5 @@
 import type {
+  ConversationPreview,
   ProjectDirectory,
   TerminalCreateRequest,
   TerminalCreateResult,
@@ -11,6 +12,7 @@ export interface TerminalApi {
   pickProject(): Promise<ProjectDirectory | null>
   loadWorkspace(): Promise<WorkspaceState | null>
   saveWorkspace(state: WorkspaceState): Promise<WorkspaceSaveResult>
+  getConversationPreview(kind: 'claude' | 'codex', conversationId: string): Promise<ConversationPreview | null>
   create(request: TerminalCreateRequest): Promise<TerminalCreateResult>
   write(id: string, data: string): void
   resize(id: string, cols: number, rows: number): void

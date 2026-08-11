@@ -1,9 +1,10 @@
 import { app, BrowserWindow, dialog, ipcMain, WebContents } from 'electron'
 import { execFileSync } from 'node:child_process'
-import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
+import { closeSync, existsSync, openSync, readFileSync, readSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { basename, extname, join, normalize } from 'node:path'
 import { IPty, spawn } from 'node-pty'
 import type {
+  ConversationPreview,
   TerminalCreateRequest,
   TerminalCreateResult,
   TerminalKind,
@@ -20,6 +21,7 @@ interface RunningTerminal {
 
 const terminals = new Map<string, RunningTerminal>()
 const claimedCodexSessions = new Set<string>()
+const conversationFiles = new Map<string, string>()
 
 interface WorkspaceStateV1 {
   version: 1
@@ -64,6 +66,14 @@ function isWorkspaceState(value: unknown): value is WorkspaceState {
     && typeof node.width === 'number'
     && typeof node.height === 'number'
     && (node.conversationId === undefined || typeof node.conversationId === 'string')
+    && (
+      node.preview === undefined
+      || (
+        typeof node.preview.updatedAt === 'string'
+        && (node.preview.user === undefined || typeof node.preview.user === 'string')
+        && (node.preview.assistant === undefined || typeof node.preview.assistant === 'string')
+      )
+    )
   ))
 }
 
@@ -150,7 +160,6 @@ function launchFor(request: TerminalCreateRequest): { executable: string; args: 
   return { executable: resolved, args: commandArgs }
 }
 
-
 function codexSessionDirectories(now: Date): string[] {
   const root = join(process.env.CODEX_HOME ?? join(app.getPath('home'), '.codex'), 'sessions')
   return [0, 1].map((daysAgo) => {
@@ -166,7 +175,7 @@ function codexSessionDirectories(now: Date): string[] {
 }
 
 function findNewCodexSession(cwd: string, startedAt: number): string | null {
-  const candidates: Array<{ id: string; startedAt: number }> = []
+  const candidates: Array<{ id: string; path: string; startedAt: number }> = []
   for (const directory of codexSessionDirectories(new Date(startedAt))) {
     if (!existsSync(directory)) continue
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
@@ -191,7 +200,7 @@ function findNewCodexSession(cwd: string, startedAt: number): string | null {
           && Number.isFinite(sessionStartedAt)
           && sessionStartedAt >= startedAt - 3000
         ) {
-          candidates.push({ id, startedAt: sessionStartedAt })
+          candidates.push({ id, path: filePath, startedAt: sessionStartedAt })
         }
       } catch {
         // The CLI may still be writing its first record; the next poll will retry.
@@ -200,7 +209,162 @@ function findNewCodexSession(cwd: string, startedAt: number): string | null {
   }
 
   candidates.sort((left, right) => Math.abs(left.startedAt - startedAt) - Math.abs(right.startedAt - startedAt))
-  return candidates[0]?.id ?? null
+  const match = candidates[0]
+  if (!match) return null
+  conversationFiles.set(`codex:${match.id}`, match.path)
+  return match.id
+}
+
+function findFile(root: string, filename: string): string | null {
+  if (!existsSync(root)) return null
+  const pending = [root]
+  while (pending.length > 0) {
+    const directory = pending.pop()!
+    try {
+      for (const entry of readdirSync(directory, { withFileTypes: true })) {
+        const path = join(directory, entry.name)
+        if (entry.isDirectory()) pending.push(path)
+        else if (entry.isFile() && entry.name === filename) return path
+      }
+    } catch {
+      // A provider may clean up a transcript directory while it is being searched.
+    }
+  }
+  return null
+}
+
+function conversationFile(kind: 'claude' | 'codex', conversationId: string): string | null {
+  const key = `${kind}:${conversationId}`
+  const cached = conversationFiles.get(key)
+  if (cached && existsSync(cached)) return cached
+
+  const root = kind === 'claude'
+    ? join(process.env.CLAUDE_CONFIG_DIR ?? join(app.getPath('home'), '.claude'), 'projects')
+    : join(process.env.CODEX_HOME ?? join(app.getPath('home'), '.codex'), 'sessions')
+  const path = kind === 'claude'
+    ? findFile(root, `${conversationId}.jsonl`)
+    : findCodexFile(root, conversationId)
+  if (path) conversationFiles.set(key, path)
+  return path
+}
+
+function findCodexFile(root: string, conversationId: string): string | null {
+  if (!existsSync(root)) return null
+  const pending = [root]
+  while (pending.length > 0) {
+    const directory = pending.pop()!
+    try {
+      for (const entry of readdirSync(directory, { withFileTypes: true })) {
+        const path = join(directory, entry.name)
+        if (entry.isDirectory()) pending.push(path)
+        else if (entry.isFile() && entry.name.endsWith(`${conversationId}.jsonl`)) return path
+      }
+    } catch {
+      // Session cleanup can race this read; a later preview request will retry.
+    }
+  }
+  return null
+}
+
+function readJsonlTail(path: string, maximumBytes = 4 * 1024 * 1024): string[] {
+  const size = statSync(path).size
+  const start = Math.max(0, size - maximumBytes)
+  const length = size - start
+  const buffer = Buffer.alloc(length)
+  const handle = openSync(path, 'r')
+  try {
+    readSync(handle, buffer, 0, length, start)
+  } finally {
+    closeSync(handle)
+  }
+  const lines = buffer.toString('utf8').split(/\r?\n/)
+  if (start > 0) lines.shift()
+  return lines.filter(Boolean)
+}
+
+function excerpt(value: string): string {
+  const normalized = value.replace(/\s+/g, ' ').trim()
+  return normalized.length > 280 ? `${normalized.slice(0, 277)}…` : normalized
+}
+
+function parseCodexPreview(lines: string[]): ConversationPreview | null {
+  let user: string | undefined
+  let assistant: string | undefined
+  let updatedAt = ''
+  for (const line of lines) {
+    try {
+      const record = JSON.parse(line) as {
+        type?: string
+        timestamp?: string
+        payload?: { type?: string; role?: string; content?: Array<{ type?: string; text?: string }> }
+      }
+      if (record.type !== 'response_item' || record.payload?.type !== 'message') continue
+      const contentType = record.payload.role === 'user' ? 'input_text' : 'output_text'
+      const text = record.payload.content
+        ?.filter((item) => item.type === contentType && item.text)
+        .map((item) => item.text!)
+        .join('\n')
+      if (!text) continue
+      if (record.payload.role === 'user') user = excerpt(text)
+      if (record.payload.role === 'assistant') assistant = excerpt(text)
+      if (record.timestamp) updatedAt = record.timestamp
+    } catch {
+      // Ignore partial or provider-specific records.
+    }
+  }
+  return user || assistant ? { user, assistant, updatedAt: updatedAt || new Date().toISOString() } : null
+}
+
+function claudeText(content: unknown): string | null {
+  if (typeof content === 'string') return content
+  if (!Array.isArray(content)) return null
+  const text = content
+    .filter((item): item is { type: string; text: string } => (
+      Boolean(item)
+      && typeof item === 'object'
+      && (item as { type?: unknown }).type === 'text'
+      && typeof (item as { text?: unknown }).text === 'string'
+    ))
+    .map((item) => item.text)
+    .join('\n')
+  return text || null
+}
+
+function parseClaudePreview(lines: string[]): ConversationPreview | null {
+  let user: string | undefined
+  let assistant: string | undefined
+  let updatedAt = ''
+  for (const line of lines) {
+    try {
+      const record = JSON.parse(line) as {
+        type?: string
+        timestamp?: string
+        isMeta?: boolean
+        isSidechain?: boolean
+        message?: { role?: string; content?: unknown }
+      }
+      if (record.isMeta || record.isSidechain || !['user', 'assistant'].includes(record.message?.role ?? '')) continue
+      const text = claudeText(record.message?.content)
+      if (!text) continue
+      if (record.message?.role === 'user') user = excerpt(text)
+      if (record.message?.role === 'assistant') assistant = excerpt(text)
+      if (record.timestamp) updatedAt = record.timestamp
+    } catch {
+      // Ignore partial or provider-specific records.
+    }
+  }
+  return user || assistant ? { user, assistant, updatedAt: updatedAt || new Date().toISOString() } : null
+}
+
+function getConversationPreview(kind: 'claude' | 'codex', conversationId: string): ConversationPreview | null {
+  const path = conversationFile(kind, conversationId)
+  if (!path) return null
+  try {
+    const lines = readJsonlTail(path)
+    return kind === 'claude' ? parseClaudePreview(lines) : parseCodexPreview(lines)
+  } catch {
+    return null
+  }
 }
 
 function discoverCodexSession(id: string, cwd: string, startedAt: number): void {
@@ -226,6 +390,14 @@ function discoverCodexSession(id: string, cwd: string, startedAt: number): void 
 }
 
 function registerTerminalIpc(): void {
+  ipcMain.handle(
+    'terminal:preview',
+    (_event, kind: 'claude' | 'codex', conversationId: string): ConversationPreview | null => {
+      if (!['claude', 'codex'].includes(kind) || typeof conversationId !== 'string') return null
+      return getConversationPreview(kind, conversationId)
+    }
+  )
+
   ipcMain.handle(
     'terminal:create',
     (event, request: TerminalCreateRequest): TerminalCreateResult => {

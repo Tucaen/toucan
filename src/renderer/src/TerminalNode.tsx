@@ -16,14 +16,33 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
   const selectedRef = useRef(selected)
   const exitedRef = useRef(false)
   const attentionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const previewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const conversationIdRef = useRef(data.conversationId)
   const [hasSelection, setHasSelection] = useState(false)
   const canResumeConversation = data.kind !== 'terminal' && Boolean(data.conversationId)
+  const previewTime = data.preview && Number.isFinite(Date.parse(data.preview.updatedAt))
+    ? new Date(data.preview.updatedAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })
+    : null
 
   selectedRef.current = selected
+  conversationIdRef.current = data.conversationId
 
   const clearAttentionTimer = (): void => {
     if (attentionTimerRef.current) clearTimeout(attentionTimerRef.current)
     attentionTimerRef.current = null
+  }
+
+  const refreshPreview = (): void => {
+    const conversationId = conversationIdRef.current
+    if (data.kind === 'terminal' || !conversationId) return
+    void window.terminalApi.getConversationPreview(data.kind, conversationId).then((preview) => {
+      if (preview) data.onPreview(id, preview)
+    })
+  }
+
+  const schedulePreviewRefresh = (): void => {
+    if (previewTimerRef.current) clearTimeout(previewTimerRef.current)
+    previewTimerRef.current = setTimeout(refreshPreview, 1100)
   }
 
   const acknowledgeActivity = (): void => {
@@ -76,6 +95,7 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
     exitedRef.current = false
     const removeDataListener = window.terminalApi.onData(id, (output) => {
       terminal.write(output)
+      schedulePreviewRefresh()
       clearAttentionTimer()
       if (!selectedRef.current) {
         attentionTimerRef.current = setTimeout(() => {
@@ -85,12 +105,15 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
     })
     const removeExitListener = window.terminalApi.onExit(id, (exitCode) => {
       clearAttentionTimer()
+      refreshPreview()
       exitedRef.current = true
       data.onStatusChange(id, 'exited')
       terminal.write(`\r\n\x1b[90mSession exited with code ${exitCode}.\x1b[0m\r\n`)
     })
     const removeSessionListener = window.terminalApi.onSession(id, (conversationId) => {
+      conversationIdRef.current = conversationId
       data.onConversationId(id, conversationId)
+      schedulePreviewRefresh()
     })
     const inputSubscription = terminal.onData((input) => {
       acknowledgeActivity()
@@ -152,6 +175,7 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
     return () => {
       active = false
       clearAttentionTimer()
+      if (previewTimerRef.current) clearTimeout(previewTimerRef.current)
       resizeObserver.disconnect()
       removeDataListener()
       removeExitListener()
@@ -216,6 +240,23 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
                   ? 'The previous CLI process ended, but its conversation can continue.'
                   : 'ADE could not link this node to a saved conversation.'}
             </small>
+            {data.preview && (data.preview.user || data.preview.assistant) && (
+              <div className="conversation-preview">
+                {data.preview.user && (
+                  <div>
+                    <span>You</span>
+                    <p>{data.preview.user}</p>
+                  </div>
+                )}
+                {data.preview.assistant && (
+                  <div>
+                    <span>{data.kind === 'claude' ? 'Claude' : 'Codex'}</span>
+                    <p>{data.preview.assistant}</p>
+                  </div>
+                )}
+                {previewTime && <time dateTime={data.preview.updatedAt}>Updated {previewTime}</time>}
+              </div>
+            )}
             <button
               type="button"
               className="resume-session nodrag"

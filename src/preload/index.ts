@@ -1,5 +1,6 @@
 import { clipboard, contextBridge, ipcRenderer } from 'electron'
 import type {
+  ConversationPreview,
   ProjectDirectory,
   TerminalCreateRequest,
   TerminalCreateResult,
@@ -16,6 +17,10 @@ const terminalApi = {
   loadWorkspace: (): Promise<WorkspaceState | null> => ipcRenderer.invoke('workspace:load'),
   saveWorkspace: (state: WorkspaceState): Promise<WorkspaceSaveResult> =>
     ipcRenderer.invoke('workspace:save', state),
+  getConversationPreview: (
+    kind: 'claude' | 'codex',
+    conversationId: string
+  ): Promise<ConversationPreview | null> => ipcRenderer.invoke('terminal:preview', kind, conversationId),
   create: (request: TerminalCreateRequest): Promise<TerminalCreateResult> =>
     ipcRenderer.invoke('terminal:create', request),
   write: (id: string, data: string): void => ipcRenderer.send('terminal:write', id, data),

@@ -20,6 +20,12 @@ export interface WorkspaceProject extends ProjectDirectory {
   color: string
 }
 
+export interface ConversationPreview {
+  user?: string
+  assistant?: string
+  updatedAt: string
+}
+
 export interface WorkspaceTerminalNode {
   id: string
   kind: TerminalKind
@@ -29,6 +35,7 @@ export interface WorkspaceTerminalNode {
   width: number
   height: number
   conversationId?: string
+  preview?: ConversationPreview
 }
 
 export interface WorkspaceState {

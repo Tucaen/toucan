@@ -11,6 +11,7 @@ import {
   type NodeTypes
 } from '@xyflow/react'
 import type {
+  ConversationPreview,
   ProjectDirectory,
   TerminalKind,
   WorkspaceProject,
@@ -31,10 +32,12 @@ export interface TerminalNodeData extends Record<string, unknown> {
   projectPath: string
   projectColor: string
   conversationId?: string
+  preview?: ConversationPreview
   dormant: boolean
   launchMode: 'new' | 'resume'
   onStatusChange: (nodeId: string, status: TerminalNodeStatus) => void
   onConversationId: (nodeId: string, conversationId: string) => void
+  onPreview: (nodeId: string, preview: ConversationPreview) => void
   onResume: (nodeId: string) => void
 }
 
@@ -84,7 +87,8 @@ function serializeNode(node: TerminalCanvasNode): WorkspaceTerminalNode {
     position: node.position,
     width: node.measured?.width ?? styleWidth,
     height: node.measured?.height ?? styleHeight,
-    conversationId: node.data.conversationId
+    conversationId: node.data.conversationId,
+    preview: node.data.preview
   }
 }
 
@@ -115,6 +119,23 @@ function Canvas(): JSX.Element {
   const handleConversationId = useCallback((nodeId: string, conversationId: string): void => {
     setNodes((current) => current.map((node) => node.id === nodeId
       ? { ...node, data: { ...node.data, conversationId } }
+      : node))
+  }, [setNodes])
+
+  const handlePreview = useCallback((nodeId: string, preview: ConversationPreview): void => {
+    setNodes((current) => current.map((node) => node.id === nodeId
+      ? {
+          ...node,
+          data: {
+            ...node.data,
+            preview: {
+              ...node.data.preview,
+              ...preview,
+              user: preview.user ?? node.data.preview?.user,
+              assistant: preview.assistant ?? node.data.preview?.assistant
+            }
+          }
+        }
       : node))
   }, [setNodes])
 
@@ -155,10 +176,12 @@ function Canvas(): JSX.Element {
               projectPath: project.path,
               projectColor: project.color,
               conversationId: savedNode.conversationId,
+              preview: savedNode.preview,
               dormant: true,
               launchMode: 'resume',
               onStatusChange: handleStatusChange,
               onConversationId: handleConversationId,
+              onPreview: handlePreview,
               onResume: resumeNode
             },
             style: { width: savedNode.width, height: savedNode.height }
@@ -192,7 +215,7 @@ function Canvas(): JSX.Element {
       setWorkspaceReady(true)
     })()
     return () => { active = false }
-  }, [handleConversationId, handleStatusChange, resumeNode, setNodes])
+  }, [handleConversationId, handlePreview, handleStatusChange, resumeNode, setNodes])
 
   useEffect(() => {
     if (!workspaceReady) return
@@ -299,6 +322,7 @@ function Canvas(): JSX.Element {
             launchMode: 'new',
             onStatusChange: handleStatusChange,
             onConversationId: handleConversationId,
+            onPreview: handlePreview,
             onResume: resumeNode
           },
           style: { width: 520, height: 340 }
@@ -307,7 +331,7 @@ function Canvas(): JSX.Element {
       setNodeStatuses((current) => ({ ...current, [id]: 'starting' }))
       setMenu(null)
     },
-    [activeProject, handleConversationId, handleStatusChange, menu, resumeNode, setNodes]
+    [activeProject, handleConversationId, handlePreview, handleStatusChange, menu, resumeNode, setNodes]
   )
 
   return (
