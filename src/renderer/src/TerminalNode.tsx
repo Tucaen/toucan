@@ -13,12 +13,31 @@ const accents = {
 export default function TerminalNode({ id, data, selected }: NodeProps<TerminalCanvasNode>): JSX.Element {
   const hostRef = useRef<HTMLDivElement>(null)
   const terminalRef = useRef<Terminal | null>(null)
+  const selectedRef = useRef(selected)
+  const exitedRef = useRef(false)
+  const attentionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [hasSelection, setHasSelection] = useState(false)
+
+  selectedRef.current = selected
+
+  const clearAttentionTimer = (): void => {
+    if (attentionTimerRef.current) clearTimeout(attentionTimerRef.current)
+    attentionTimerRef.current = null
+  }
+
+  const acknowledgeActivity = (): void => {
+    clearAttentionTimer()
+    if (!exitedRef.current) data.onStatusChange(id, 'running')
+  }
 
   const copySelection = (): void => {
     const selection = terminalRef.current?.getSelection()
     if (selection) window.terminalApi.copyText(selection)
   }
+
+  useEffect(() => {
+    if (selected) acknowledgeActivity()
+  }, [selected])
 
   useEffect(() => {
     if (!hostRef.current) return
@@ -53,11 +72,26 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
       }
     }
 
-    const removeDataListener = window.terminalApi.onData(id, (output) => terminal.write(output))
+    exitedRef.current = false
+    const removeDataListener = window.terminalApi.onData(id, (output) => {
+      terminal.write(output)
+      clearAttentionTimer()
+      if (!selectedRef.current) {
+        attentionTimerRef.current = setTimeout(() => {
+          if (!selectedRef.current && !exitedRef.current) data.onStatusChange(id, 'attention')
+        }, 1200)
+      }
+    })
     const removeExitListener = window.terminalApi.onExit(id, (exitCode) => {
+      clearAttentionTimer()
+      exitedRef.current = true
+      data.onStatusChange(id, 'exited')
       terminal.write(`\r\n\x1b[90mSession exited with code ${exitCode}.\x1b[0m\r\n`)
     })
-    const inputSubscription = terminal.onData((input) => window.terminalApi.write(id, input))
+    const inputSubscription = terminal.onData((input) => {
+      acknowledgeActivity()
+      window.terminalApi.write(id, input)
+    })
     const selectionSubscription = terminal.onSelectionChange(() => setHasSelection(terminal.hasSelection()))
     terminal.attachCustomKeyEventHandler((event) => {
       if (event.type !== 'keydown') return true
@@ -93,6 +127,7 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
           }
           if (result.ok) {
             started = true
+            data.onStatusChange(id, 'running')
             fit()
             terminal.focus()
           } else {
@@ -103,6 +138,7 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
 
     return () => {
       active = false
+      clearAttentionTimer()
       resizeObserver.disconnect()
       removeDataListener()
       removeExitListener()
@@ -112,7 +148,7 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
       terminalRef.current = null
       terminal.dispose()
     }
-  }, [data.kind, data.label, data.projectPath, id])
+  }, [data.kind, data.label, data.onStatusChange, data.projectPath, id])
 
   return (
     <article
@@ -145,7 +181,10 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
       <div
         ref={hostRef}
         className="terminal-host nodrag nopan nowheel"
-        onMouseDown={() => hostRef.current?.querySelector<HTMLTextAreaElement>('textarea')?.focus()}
+        onMouseDown={() => {
+          acknowledgeActivity()
+          hostRef.current?.querySelector<HTMLTextAreaElement>('textarea')?.focus()
+        }}
         onContextMenu={(event) => {
           event.preventDefault()
           event.stopPropagation()

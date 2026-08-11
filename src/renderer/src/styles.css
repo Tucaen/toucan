@@ -170,6 +170,11 @@ button {
   overflow: auto;
 }
 
+.project-section {
+  display: grid;
+  gap: 3px;
+}
+
 .project-row {
   display: flex;
   align-items: center;
@@ -265,6 +270,108 @@ button {
 .project-locate:disabled {
   opacity: 0.34;
   cursor: default;
+}
+
+.project-node-list {
+  display: grid;
+  gap: 2px;
+  margin: 0 0 5px 17px;
+  padding-left: 9px;
+  border-left: 1px solid #29313c;
+}
+
+.project-node-row {
+  min-width: 0;
+  height: 29px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 6px;
+  overflow: hidden;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: #929caa;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.project-node-row:hover,
+.project-node-row.selected {
+  color: #dce2ea;
+  background: #1a2028;
+}
+
+.project-node-row.selected {
+  border-color: #303946;
+}
+
+.project-node-kind {
+  width: 19px;
+  flex: 0 0 auto;
+  color: #687484;
+  font-family: Consolas, monospace;
+  font-size: 9px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.project-node-name {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  font-size: 10px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-node-state {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  color: #747f8e;
+  font-size: 8px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.node-status-indicator {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: #718096;
+}
+
+.project-node-state[data-status="running"] .node-status-indicator {
+  background: #74d8a2;
+  box-shadow: 0 0 7px rgba(116, 216, 162, 0.5);
+}
+
+.project-node-state[data-status="attention"] {
+  color: #efb36e;
+}
+
+.project-node-state[data-status="attention"] .node-status-indicator {
+  background: #efad61;
+  box-shadow: 0 0 9px rgba(239, 173, 97, 0.65);
+  animation: attention-pulse 1.4s ease-in-out infinite;
+}
+
+.project-node-state[data-status="exited"] {
+  color: #d97d83;
+}
+
+.project-node-state[data-status="exited"] .node-status-indicator {
+  background: #df737a;
+}
+
+@keyframes attention-pulse {
+  50% {
+    opacity: 0.48;
+    transform: scale(0.78);
+  }
 }
 
 .add-project {
