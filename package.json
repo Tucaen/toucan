@@ -8,7 +8,8 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "start": "electron-vite preview",
-    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json"
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "test:terminal-events": "tsc tests/terminal-events.test.ts src/main/terminal-events.ts --module commonjs --target ES2022 --moduleResolution node --outDir .test-out --types node --skipLibCheck && node --test .test-out/tests/terminal-events.test.js"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.11.0",

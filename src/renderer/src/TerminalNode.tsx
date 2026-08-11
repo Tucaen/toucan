@@ -17,6 +17,7 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
   const exitedRef = useRef(false)
   const attentionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [hasSelection, setHasSelection] = useState(false)
+  const canResumeConversation = data.kind !== 'terminal' && Boolean(data.conversationId)
 
   selectedRef.current = selected
 
@@ -27,7 +28,7 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
 
   const acknowledgeActivity = (): void => {
     clearAttentionTimer()
-    if (!exitedRef.current) data.onStatusChange(id, 'running')
+    if (!data.dormant && !exitedRef.current) data.onStatusChange(id, 'running')
   }
 
   const copySelection = (): void => {
@@ -36,11 +37,11 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
   }
 
   useEffect(() => {
-    if (selected) acknowledgeActivity()
-  }, [selected])
+    if (selected && !data.dormant) acknowledgeActivity()
+  }, [data.dormant, selected])
 
   useEffect(() => {
-    if (!hostRef.current) return
+    if (data.dormant || !hostRef.current) return
 
     let active = true
     let started = false
@@ -88,6 +89,9 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
       data.onStatusChange(id, 'exited')
       terminal.write(`\r\n\x1b[90mSession exited with code ${exitCode}.\x1b[0m\r\n`)
     })
+    const removeSessionListener = window.terminalApi.onSession(id, (conversationId) => {
+      data.onConversationId(id, conversationId)
+    })
     const inputSubscription = terminal.onData((input) => {
       acknowledgeActivity()
       window.terminalApi.write(id, input)
@@ -119,7 +123,15 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
     requestAnimationFrame(() => {
       fit()
       void window.terminalApi
-        .create({ id, kind: data.kind, cols: terminal.cols, rows: terminal.rows, cwd: data.projectPath })
+        .create({
+          id,
+          kind: data.kind,
+          cols: terminal.cols,
+          rows: terminal.rows,
+          cwd: data.projectPath,
+          conversationId: data.conversationId,
+          resume: data.launchMode === 'resume'
+        })
         .then((result) => {
           if (!active) {
             if (result.ok) window.terminalApi.kill(id)
@@ -131,6 +143,7 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
             fit()
             terminal.focus()
           } else {
+            data.onStatusChange(id, 'exited')
             terminal.write(`\x1b[31;1mCould not start ${data.label}.\x1b[0m\r\n${result.message}\r\n`)
           }
         })
@@ -142,13 +155,14 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
       resizeObserver.disconnect()
       removeDataListener()
       removeExitListener()
+      removeSessionListener()
       inputSubscription.dispose()
       selectionSubscription.dispose()
       window.terminalApi.kill(id)
       terminalRef.current = null
       terminal.dispose()
     }
-  }, [data.kind, data.label, data.onStatusChange, data.projectPath, id])
+  }, [data.dormant, data.kind, data.label, data.launchMode, data.onStatusChange, data.projectPath, id])
 
   return (
     <article
@@ -169,14 +183,14 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
         <button
           type="button"
           className="node-action nodrag"
-          disabled={!hasSelection}
+          disabled={data.dormant || !hasSelection}
           title="Select terminal text, then copy it"
           onMouseDown={(event) => event.stopPropagation()}
           onClick={copySelection}
         >
           Copy
         </button>
-        <span className="node-status">LOCAL</span>
+        <span className="node-status">{data.dormant ? 'SAVED' : 'LOCAL'}</span>
       </header>
       <div
         ref={hostRef}
@@ -190,7 +204,36 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
           event.stopPropagation()
           copySelection()
         }}
-      />
+      >
+        {data.dormant && (
+          <div className="dormant-session">
+            <span className="dormant-session-icon">{data.kind === 'terminal' ? '>_' : data.kind === 'claude' ? 'C' : '<>'}</span>
+            <strong>{data.kind === 'terminal' ? 'Saved terminal node' : 'Saved conversation'}</strong>
+            <small>
+              {data.kind === 'terminal'
+                ? 'The previous shell process ended with ADE.'
+                : canResumeConversation
+                  ? 'The previous CLI process ended, but its conversation can continue.'
+                  : 'ADE could not link this node to a saved conversation.'}
+            </small>
+            <button
+              type="button"
+              className="resume-session nodrag"
+              onMouseDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation()
+                data.onResume(id)
+              }}
+            >
+              {data.kind === 'terminal'
+                ? 'Reopen shell'
+                : canResumeConversation
+                  ? 'Resume conversation'
+                  : 'Start new conversation'}
+            </button>
+          </div>
+        )}
+      </div>
     </article>
   )
 }

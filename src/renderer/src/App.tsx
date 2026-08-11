@@ -10,12 +10,18 @@ import {
   type Node,
   type NodeTypes
 } from '@xyflow/react'
-import type { ProjectDirectory, TerminalKind, WorkspaceProject, WorkspaceState } from '../../shared/terminal'
+import type {
+  ProjectDirectory,
+  TerminalKind,
+  WorkspaceProject,
+  WorkspaceState,
+  WorkspaceTerminalNode
+} from '../../shared/terminal'
 import TerminalNode from './TerminalNode'
 
 type Project = WorkspaceProject
 
-export type TerminalNodeStatus = 'starting' | 'running' | 'attention' | 'exited'
+export type TerminalNodeStatus = 'dormant' | 'starting' | 'running' | 'attention' | 'exited'
 
 export interface TerminalNodeData extends Record<string, unknown> {
   kind: TerminalKind
@@ -24,7 +30,12 @@ export interface TerminalNodeData extends Record<string, unknown> {
   projectName: string
   projectPath: string
   projectColor: string
+  conversationId?: string
+  dormant: boolean
+  launchMode: 'new' | 'resume'
   onStatusChange: (nodeId: string, status: TerminalNodeStatus) => void
+  onConversationId: (nodeId: string, conversationId: string) => void
+  onResume: (nodeId: string) => void
 }
 
 export type TerminalCanvasNode = Node<TerminalNodeData, 'terminalNode'>
@@ -47,6 +58,7 @@ const labels: Record<TerminalKind, string> = {
 const projectColors = ['#71a9ff', '#e69a71', '#74d8a2', '#c992ff', '#f1c75b', '#e8799b']
 
 const statusLabels: Record<TerminalNodeStatus, string> = {
+  dormant: 'Saved',
   starting: 'Starting',
   running: 'Running',
   attention: 'Attention',
@@ -58,6 +70,21 @@ function createProject(directory: ProjectDirectory, index: number): Project {
     ...directory,
     id: crypto.randomUUID(),
     color: projectColors[index % projectColors.length]
+  }
+}
+
+function serializeNode(node: TerminalCanvasNode): WorkspaceTerminalNode {
+  const styleWidth = typeof node.style?.width === 'number' ? node.style.width : 520
+  const styleHeight = typeof node.style?.height === 'number' ? node.style.height : 340
+  return {
+    id: node.id,
+    kind: node.data.kind,
+    label: node.data.label,
+    projectId: node.data.projectId,
+    position: node.position,
+    width: node.measured?.width ?? styleWidth,
+    height: node.measured?.height ?? styleHeight,
+    conversationId: node.data.conversationId
   }
 }
 
@@ -78,6 +105,34 @@ function Canvas(): JSX.Element {
     [activeProjectId, projects]
   )
 
+  const handleStatusChange = useCallback((nodeId: string, status: TerminalNodeStatus): void => {
+    setNodeStatuses((current) => {
+      if (current[nodeId] === status) return current
+      return { ...current, [nodeId]: status }
+    })
+  }, [])
+
+  const handleConversationId = useCallback((nodeId: string, conversationId: string): void => {
+    setNodes((current) => current.map((node) => node.id === nodeId
+      ? { ...node, data: { ...node.data, conversationId } }
+      : node))
+  }, [setNodes])
+
+  const resumeNode = useCallback((nodeId: string): void => {
+    setNodes((current) => current.map((node) => node.id === nodeId
+      ? {
+          ...node,
+          selected: true,
+          data: {
+            ...node.data,
+            dormant: false,
+            launchMode: node.data.kind === 'terminal' || node.data.conversationId ? 'resume' : 'new'
+          }
+        }
+      : { ...node, selected: false }))
+    setNodeStatuses((current) => ({ ...current, [nodeId]: 'starting' }))
+  }, [setNodes])
+
   useEffect(() => {
     let active = true
     void (async () => {
@@ -85,7 +140,42 @@ function Canvas(): JSX.Element {
       if (!active) return
 
       if (saved && saved.projects.length > 0) {
+        const restoredNodes = saved.nodes.flatMap<TerminalCanvasNode>((savedNode) => {
+          const project = saved.projects.find((candidate) => candidate.id === savedNode.projectId)
+          if (!project) return []
+          return [{
+            id: savedNode.id,
+            type: 'terminalNode',
+            position: savedNode.position,
+            data: {
+              kind: savedNode.kind,
+              label: savedNode.label,
+              projectId: project.id,
+              projectName: project.name,
+              projectPath: project.path,
+              projectColor: project.color,
+              conversationId: savedNode.conversationId,
+              dormant: true,
+              launchMode: 'resume',
+              onStatusChange: handleStatusChange,
+              onConversationId: handleConversationId,
+              onResume: resumeNode
+            },
+            style: { width: savedNode.width, height: savedNode.height }
+          }]
+        })
+        const restoredStatuses = Object.fromEntries(
+          restoredNodes.map((node) => [node.id, 'dormant' as TerminalNodeStatus])
+        )
+        const highestSessionNumber = restoredNodes.reduce((highest, node) => {
+          const match = node.data.label.match(/ (\d+)$/)
+          return Math.max(highest, match ? Number(match[1]) : 0)
+        }, 0)
+
         setProjects(saved.projects)
+        setNodes(restoredNodes)
+        setNodeStatuses(restoredStatuses)
+        nextSessionNumber.current = highestSessionNumber + 1
         setActiveProjectId(
           saved.projects.some((project) => project.id === saved.activeProjectId)
             ? saved.activeProjectId
@@ -102,24 +192,25 @@ function Canvas(): JSX.Element {
       setWorkspaceReady(true)
     })()
     return () => { active = false }
-  }, [])
+  }, [handleConversationId, handleStatusChange, resumeNode, setNodes])
 
   useEffect(() => {
     if (!workspaceReady) return
     setSaveStatus('saving')
     const timeout = setTimeout(() => {
       const state: WorkspaceState = {
-        version: 1,
+        version: 2,
         projects,
         activeProjectId,
-        sidebarCollapsed
+        sidebarCollapsed,
+        nodes: nodes.map(serializeNode)
       }
       void window.terminalApi.saveWorkspace(state).then((result) => {
         setSaveStatus(result.ok ? 'saved' : 'error')
       })
     }, 180)
     return () => clearTimeout(timeout)
-  }, [activeProjectId, projects, sidebarCollapsed, workspaceReady])
+  }, [activeProjectId, nodes, projects, sidebarCollapsed, workspaceReady])
 
   const addProject = useCallback(async (): Promise<void> => {
     const directory = await window.terminalApi.pickProject()
@@ -155,13 +246,6 @@ function Canvas(): JSX.Element {
     setMenu(null)
   }, [activeProjectId, nodes, projects])
 
-  const handleStatusChange = useCallback((nodeId: string, status: TerminalNodeStatus): void => {
-    setNodeStatuses((current) => {
-      if (current[nodeId] === status) return current
-      return { ...current, [nodeId]: status }
-    })
-  }, [])
-
   const focusNode = useCallback((nodeId: string): void => {
     const target = nodes.find((node) => node.id === nodeId)
     if (!target) return
@@ -194,6 +278,7 @@ function Canvas(): JSX.Element {
       if (!menu || !activeProject) return
       const id = crypto.randomUUID()
       const label = `${labels[kind]} ${nextSessionNumber.current}`
+      const conversationId = kind === 'claude' ? crypto.randomUUID() : undefined
       nextSessionNumber.current += 1
       setNodes((current) => [
         ...current.map((node) => ({ ...node, selected: false })),
@@ -209,7 +294,12 @@ function Canvas(): JSX.Element {
             projectName: activeProject.name,
             projectPath: activeProject.path,
             projectColor: activeProject.color,
-            onStatusChange: handleStatusChange
+            conversationId,
+            dormant: false,
+            launchMode: 'new',
+            onStatusChange: handleStatusChange,
+            onConversationId: handleConversationId,
+            onResume: resumeNode
           },
           style: { width: 520, height: 340 }
         }
@@ -217,7 +307,7 @@ function Canvas(): JSX.Element {
       setNodeStatuses((current) => ({ ...current, [id]: 'starting' }))
       setMenu(null)
     },
-    [activeProject, handleStatusChange, menu, setNodes]
+    [activeProject, handleConversationId, handleStatusChange, menu, resumeNode, setNodes]
   )
 
   return (
@@ -322,7 +412,7 @@ function Canvas(): JSX.Element {
                   {!sidebarCollapsed && projectNodes.length > 0 && (
                     <div className="project-node-list">
                       {projectNodes.map((node) => {
-                        const status = nodeStatuses[node.id] ?? 'starting'
+                        const status = nodeStatuses[node.id] ?? (node.data.dormant ? 'dormant' : 'starting')
                         return (
                           <button
                             type="button"

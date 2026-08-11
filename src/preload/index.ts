@@ -5,6 +5,7 @@ import type {
   TerminalCreateResult,
   TerminalExit,
   TerminalOutput,
+  TerminalSession,
   WorkspaceSaveResult,
   WorkspaceState
 } from '../shared/terminal'
@@ -36,6 +37,13 @@ const terminalApi = {
     }
     ipcRenderer.on('terminal:exit', listener)
     return () => ipcRenderer.removeListener('terminal:exit', listener)
+  },
+  onSession: (id: string, callback: (conversationId: string) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, result: TerminalSession): void => {
+      if (result.id === id) callback(result.conversationId)
+    }
+    ipcRenderer.on('terminal:session', listener)
+    return () => ipcRenderer.removeListener('terminal:session', listener)
   }
 }
 

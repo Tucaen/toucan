@@ -6,6 +6,8 @@ export interface TerminalCreateRequest {
   cols: number
   rows: number
   cwd: string
+  conversationId?: string
+  resume?: boolean
 }
 
 export interface ProjectDirectory {
@@ -18,11 +20,23 @@ export interface WorkspaceProject extends ProjectDirectory {
   color: string
 }
 
+export interface WorkspaceTerminalNode {
+  id: string
+  kind: TerminalKind
+  label: string
+  projectId: string
+  position: { x: number; y: number }
+  width: number
+  height: number
+  conversationId?: string
+}
+
 export interface WorkspaceState {
-  version: 1
+  version: 2
   projects: WorkspaceProject[]
   activeProjectId: string | null
   sidebarCollapsed: boolean
+  nodes: WorkspaceTerminalNode[]
 }
 
 export interface WorkspaceSaveResult {
@@ -43,4 +57,9 @@ export interface TerminalOutput {
 export interface TerminalExit {
   id: string
   exitCode: number
+}
+
+export interface TerminalSession {
+  id: string
+  conversationId: string
 }

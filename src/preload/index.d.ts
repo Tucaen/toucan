@@ -19,6 +19,7 @@ export interface TerminalApi {
   readClipboardText(): string
   onData(id: string, callback: (data: string) => void): () => void
   onExit(id: string, callback: (exitCode: number) => void): () => void
+  onSession(id: string, callback: (conversationId: string) => void): () => void
 }
 
 declare global {

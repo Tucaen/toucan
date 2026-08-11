@@ -3,4 +3,5 @@
 node_modules/
 out/
 dist/
+.test-out/
 *.tsbuildinfo
