@@ -85,7 +85,7 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
     requestAnimationFrame(() => {
       fit()
       void window.terminalApi
-        .create({ id, kind: data.kind, cols: terminal.cols, rows: terminal.rows })
+        .create({ id, kind: data.kind, cols: terminal.cols, rows: terminal.rows, cwd: data.projectPath })
         .then((result) => {
           if (!active) {
             if (result.ok) window.terminalApi.kill(id)
@@ -112,17 +112,24 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
       terminalRef.current = null
       terminal.dispose()
     }
-  }, [data.kind, data.label, id])
+  }, [data.kind, data.label, data.projectPath, id])
 
   return (
     <article
       className={`terminal-node ${selected ? 'selected' : ''}`}
-      style={{ '--node-accent': accents[data.kind] } as React.CSSProperties}
+      style={{
+        '--node-accent': accents[data.kind],
+        '--project-color': data.projectColor
+      } as React.CSSProperties}
     >
       <NodeResizer minWidth={360} minHeight={240} isVisible={selected} color={accents[data.kind]} />
       <header className="node-header">
         <span className="status-dot" />
         <strong>{data.label}</strong>
+        <span className="node-project" title={data.projectPath}>
+          <span className="project-color-dot" />
+          {data.projectName}
+        </span>
         <button
           type="button"
           className="node-action nodrag"

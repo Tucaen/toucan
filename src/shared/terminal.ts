@@ -5,6 +5,12 @@ export interface TerminalCreateRequest {
   kind: TerminalKind
   cols: number
   rows: number
+  cwd: string
+}
+
+export interface ProjectDirectory {
+  name: string
+  path: string
 }
 
 export interface TerminalCreateResult {

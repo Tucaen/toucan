@@ -1,6 +1,8 @@
-import type { TerminalCreateRequest, TerminalCreateResult } from '../shared/terminal'
+import type { ProjectDirectory, TerminalCreateRequest, TerminalCreateResult } from '../shared/terminal'
 
 export interface TerminalApi {
+  getInitialProject(): Promise<ProjectDirectory>
+  pickProject(): Promise<ProjectDirectory | null>
   create(request: TerminalCreateRequest): Promise<TerminalCreateResult>
   write(id: string, data: string): void
   resize(id: string, cols: number, rows: number): void

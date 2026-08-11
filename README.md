@@ -11,7 +11,9 @@ npm install
 npm run dev
 ```
 
-Right-click the canvas and choose **Terminal**, **Claude Code**, or **Codex**. Agent entries launch the corresponding local `claude` or `codex` CLI and show an in-node message when the command is unavailable.
+The current folder starts as the first project. Use **Add project** in the left sidebar to choose more folders, then click a project to make it the creation target. All projects remain visible on one canvas. Right-click the canvas and choose **Terminal**, **Claude Code**, or **Codex**; the session starts in the selected project's folder and carries a project badge.
+
+The number beside a project is its live node count. Click it to bring that project's nodes into view.
 
 Select terminal text with the mouse and use **Ctrl+Shift+C** (or the node's **Copy** button) to copy it. Use **Ctrl+Shift+V** to paste. The traditional **Ctrl+Insert** and **Shift+Insert** shortcuts work too.
 
@@ -21,6 +23,7 @@ Select terminal text with the mouse and use **Ctrl+Shift+C** (or the node's **Co
 - Mobile and remote access
 - Authentication
 - Agent orchestration and worktrees
-- Canvas edges, groups, editors, and project management
+- Project persistence, reordering, and removal
+- Canvas edges, groups, and editors
 
 The renderer talks to PTYs only through a narrow preload API. That is the sole forward-looking seam retained so a later implementation can replace local IPC with a remote transport without rewriting the canvas.

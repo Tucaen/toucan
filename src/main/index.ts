@@ -1,6 +1,7 @@
-import { app, BrowserWindow, ipcMain, WebContents } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, WebContents } from 'electron'
 import { execFileSync } from 'node:child_process'
-import { extname, join } from 'node:path'
+import { existsSync, statSync } from 'node:fs'
+import { basename, extname, join, normalize } from 'node:path'
 import { IPty, spawn } from 'node-pty'
 import type { TerminalCreateRequest, TerminalCreateResult, TerminalKind } from '../shared/terminal'
 
@@ -66,12 +67,22 @@ function registerTerminalIpc(): void {
       const launch = launchFor(request.kind)
       if ('error' in launch) return { ok: false, message: launch.error }
 
+      let cwd: string
+      try {
+        cwd = normalize(request.cwd)
+        if (!existsSync(cwd) || !statSync(cwd).isDirectory()) {
+          return { ok: false, message: `The project folder no longer exists: ${cwd}` }
+        }
+      } catch {
+        return { ok: false, message: `The project folder is not accessible: ${request.cwd}` }
+      }
+
       try {
         const terminal = spawn(launch.executable, launch.args, {
           name: 'xterm-256color',
           cols: Math.max(2, request.cols),
           rows: Math.max(1, request.rows),
-          cwd: process.cwd(),
+          cwd,
           env: { ...process.env, TERM: 'xterm-256color' }
         })
 
@@ -102,6 +113,28 @@ function registerTerminalIpc(): void {
   ipcMain.on('terminal:kill', (_event, id: string) => {
     terminals.get(id)?.process.kill()
     terminals.delete(id)
+  })
+}
+
+function registerProjectIpc(): void {
+  ipcMain.handle('project:initial', () => {
+    const path = process.cwd()
+    return { name: basename(path), path }
+  })
+
+  ipcMain.handle('project:pick', async (event) => {
+    const owner = BrowserWindow.fromWebContents(event.sender)
+    const options: Electron.OpenDialogOptions = {
+      title: 'Add project folder',
+      properties: ['openDirectory']
+    }
+    const result = owner
+      ? await dialog.showOpenDialog(owner, options)
+      : await dialog.showOpenDialog(options)
+
+    if (result.canceled || result.filePaths.length === 0) return null
+    const path = normalize(result.filePaths[0])
+    return { name: basename(path), path }
   })
 }
 
@@ -142,6 +175,7 @@ function createWindow(): void {
 
 app.whenReady().then(() => {
   registerTerminalIpc()
+  registerProjectIpc()
   createWindow()
 
   app.on('activate', () => {

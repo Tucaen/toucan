@@ -1,5 +1,6 @@
 import { clipboard, contextBridge, ipcRenderer } from 'electron'
 import type {
+  ProjectDirectory,
   TerminalCreateRequest,
   TerminalCreateResult,
   TerminalExit,
@@ -7,6 +8,8 @@ import type {
 } from '../shared/terminal'
 
 const terminalApi = {
+  getInitialProject: (): Promise<ProjectDirectory> => ipcRenderer.invoke('project:initial'),
+  pickProject: (): Promise<ProjectDirectory | null> => ipcRenderer.invoke('project:pick'),
   create: (request: TerminalCreateRequest): Promise<TerminalCreateResult> =>
     ipcRenderer.invoke('terminal:create', request),
   write: (id: string, data: string): void => ipcRenderer.send('terminal:write', id, data),
