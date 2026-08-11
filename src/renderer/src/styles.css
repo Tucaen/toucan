@@ -1,0 +1,234 @@
+:root {
+  color: #d9dee8;
+  background: #0b0d12;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-synthesis: none;
+  text-rendering: geometricPrecision;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+button {
+  font: inherit;
+}
+
+.app-shell {
+  width: 100%;
+  height: 100%;
+  background: #0b0d12;
+}
+
+.app-header {
+  position: relative;
+  z-index: 10;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 18px;
+  border-bottom: 1px solid #222832;
+  background: rgba(14, 17, 23, 0.96);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.18);
+  user-select: none;
+}
+
+.app-header > div {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.brand-mark {
+  width: 12px;
+  height: 12px;
+  border: 2px solid #71a9ff;
+  border-radius: 4px;
+  box-shadow: 5px 5px 0 -2px #74d8a2;
+  margin-right: 3px;
+}
+
+.prototype-label,
+.hint {
+  color: #7e8795;
+  font-size: 12px;
+}
+
+.prototype-label {
+  padding-left: 9px;
+  border-left: 1px solid #303641;
+}
+
+.canvas-region {
+  height: calc(100% - 52px);
+}
+
+.react-flow__pane {
+  cursor: default;
+}
+
+.react-flow__controls {
+  overflow: hidden;
+  border: 1px solid #2c333e;
+  border-radius: 9px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.32);
+}
+
+.react-flow__controls-button {
+  border: 0;
+  border-bottom: 1px solid #2c333e;
+  background: #171b22;
+  fill: #aeb6c2;
+}
+
+.react-flow__controls-button:hover {
+  background: #222832;
+}
+
+.context-menu {
+  position: fixed;
+  z-index: 100;
+  width: 244px;
+  padding: 7px;
+  border: 1px solid #333b48;
+  border-radius: 11px;
+  background: rgba(24, 28, 36, 0.98);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.52);
+  backdrop-filter: blur(16px);
+}
+
+.context-menu p {
+  margin: 3px 8px 6px;
+  color: #778190;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.context-menu button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 9px;
+  border: 0;
+  border-radius: 7px;
+  color: #e3e7ee;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.context-menu button:hover,
+.context-menu button:focus-visible {
+  outline: none;
+  background: #2a313c;
+}
+
+.context-menu button span:last-child {
+  display: grid;
+  gap: 2px;
+}
+
+.context-menu small {
+  color: #818b99;
+  font-size: 11px;
+}
+
+.menu-icon {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border-radius: 8px;
+  font-family: Consolas, monospace;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.terminal-icon {
+  color: #74d8a2;
+  background: rgba(116, 216, 162, 0.12);
+}
+
+.claude-icon {
+  color: #e69a71;
+  background: rgba(230, 154, 113, 0.12);
+}
+
+.codex-icon {
+  color: #71a9ff;
+  background: rgba(113, 169, 255, 0.12);
+}
+
+.terminal-node {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border: 1px solid #343b47;
+  border-radius: 11px;
+  background: #101319;
+  box-shadow: 0 18px 55px rgba(0, 0, 0, 0.4);
+}
+
+.terminal-node.selected {
+  border-color: var(--node-accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--node-accent) 22%, transparent), 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.node-header {
+  height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 11px;
+  border-bottom: 1px solid #272d37;
+  color: #dce1e9;
+  background: #181c23;
+  font-size: 12px;
+  user-select: none;
+}
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--node-accent);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--node-accent) 70%, transparent);
+}
+
+.node-status {
+  margin-left: auto;
+  color: #687280;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.terminal-host {
+  width: 100%;
+  height: calc(100% - 38px);
+  padding: 8px 8px 5px;
+  background: #101319;
+}
+
+.terminal-host .xterm {
+  height: 100%;
+}
+
+.terminal-host .xterm-viewport {
+  scrollbar-color: #3b4553 transparent;
+  scrollbar-width: thin;
+}

@@ -1,0 +1,31 @@
+{
+  "name": "ade-canvas-terminal-prototype",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Throwaway Windows-first prototype for terminal and coding-agent nodes on a canvas.",
+  "main": "./out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "start": "electron-vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^5.5.0",
+    "@xyflow/react": "^12.11.2",
+    "node-pty": "^1.1.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
+    "@vitejs/plugin-react": "^4.3.1",
+    "electron": "^42.7.1",
+    "electron-vite": "^5.0.0",
+    "typescript": "^5.5.4",
+    "vite": "^7.3.6"
+  }
+}
