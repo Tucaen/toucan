@@ -18,7 +18,10 @@ function findCommand(command: string): string | null {
       windowsHide: true
     })
     const matches = output.split(/\r?\n/).filter(Boolean).map((path) => path.trim())
-    return matches.find((path) => extname(path).toLowerCase() === '.exe') ?? matches[0] ?? null
+    return matches.find((path) => {
+      if (path.includes('\\WindowsApps\\OpenAI.Codex_')) return false
+      return ['.exe', '.cmd', '.bat'].includes(extname(path).toLowerCase())
+    }) ?? null
   } catch {
     return null
   }
