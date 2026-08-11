@@ -139,6 +139,11 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
         ref={hostRef}
         className="terminal-host nodrag nopan nowheel"
         onMouseDown={() => hostRef.current?.querySelector<HTMLTextAreaElement>('textarea')?.focus()}
+        onContextMenu={(event) => {
+          event.preventDefault()
+          event.stopPropagation()
+          copySelection()
+        }}
       />
     </article>
   )
