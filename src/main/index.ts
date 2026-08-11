@@ -1,9 +1,15 @@
 import { app, BrowserWindow, dialog, ipcMain, WebContents } from 'electron'
 import { execFileSync } from 'node:child_process'
-import { existsSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { basename, extname, join, normalize } from 'node:path'
 import { IPty, spawn } from 'node-pty'
-import type { TerminalCreateRequest, TerminalCreateResult, TerminalKind } from '../shared/terminal'
+import type {
+  TerminalCreateRequest,
+  TerminalCreateResult,
+  TerminalKind,
+  WorkspaceSaveResult,
+  WorkspaceState
+} from '../shared/terminal'
 
 interface RunningTerminal {
   process: IPty
@@ -11,6 +17,26 @@ interface RunningTerminal {
 }
 
 const terminals = new Map<string, RunningTerminal>()
+
+function workspaceStatePath(): string {
+  return join(app.getPath('userData'), 'prototype-workspace.json')
+}
+
+function isWorkspaceState(value: unknown): value is WorkspaceState {
+  if (!value || typeof value !== 'object') return false
+  const state = value as Partial<WorkspaceState>
+  if (state.version !== 1 || !Array.isArray(state.projects)) return false
+  if (state.activeProjectId !== null && typeof state.activeProjectId !== 'string') return false
+  if (typeof state.sidebarCollapsed !== 'boolean') return false
+
+  return state.projects.every((project) => (
+    project
+    && typeof project.id === 'string'
+    && typeof project.name === 'string'
+    && typeof project.path === 'string'
+    && typeof project.color === 'string'
+  ))
+}
 
 function findCommand(command: string): string | null {
   try {
@@ -136,6 +162,29 @@ function registerProjectIpc(): void {
     const path = normalize(result.filePaths[0])
     return { name: basename(path), path }
   })
+
+  ipcMain.handle('workspace:load', (): WorkspaceState | null => {
+    try {
+      const parsed: unknown = JSON.parse(readFileSync(workspaceStatePath(), 'utf8'))
+      return isWorkspaceState(parsed) ? parsed : null
+    } catch {
+      return null
+    }
+  })
+
+  ipcMain.handle(
+    'workspace:save',
+    (_event, state: WorkspaceState): WorkspaceSaveResult => {
+      if (!isWorkspaceState(state)) return { ok: false, message: 'The workspace state is invalid.' }
+      try {
+        writeFileSync(workspaceStatePath(), `${JSON.stringify(state, null, 2)}\n`, 'utf8')
+        return { ok: true }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        return { ok: false, message }
+      }
+    }
+  )
 }
 
 function createWindow(): void {

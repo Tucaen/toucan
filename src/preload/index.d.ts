@@ -1,8 +1,16 @@
-import type { ProjectDirectory, TerminalCreateRequest, TerminalCreateResult } from '../shared/terminal'
+import type {
+  ProjectDirectory,
+  TerminalCreateRequest,
+  TerminalCreateResult,
+  WorkspaceSaveResult,
+  WorkspaceState
+} from '../shared/terminal'
 
 export interface TerminalApi {
   getInitialProject(): Promise<ProjectDirectory>
   pickProject(): Promise<ProjectDirectory | null>
+  loadWorkspace(): Promise<WorkspaceState | null>
+  saveWorkspace(state: WorkspaceState): Promise<WorkspaceSaveResult>
   create(request: TerminalCreateRequest): Promise<TerminalCreateResult>
   write(id: string, data: string): void
   resize(id: string, cols: number, rows: number): void

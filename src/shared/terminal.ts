@@ -13,6 +13,23 @@ export interface ProjectDirectory {
   path: string
 }
 
+export interface WorkspaceProject extends ProjectDirectory {
+  id: string
+  color: string
+}
+
+export interface WorkspaceState {
+  version: 1
+  projects: WorkspaceProject[]
+  activeProjectId: string | null
+  sidebarCollapsed: boolean
+}
+
+export interface WorkspaceSaveResult {
+  ok: boolean
+  message?: string
+}
+
 export interface TerminalCreateResult {
   ok: boolean
   message?: string

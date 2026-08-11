@@ -10,13 +10,10 @@ import {
   type Node,
   type NodeTypes
 } from '@xyflow/react'
-import type { ProjectDirectory, TerminalKind } from '../../shared/terminal'
+import type { ProjectDirectory, TerminalKind, WorkspaceProject, WorkspaceState } from '../../shared/terminal'
 import TerminalNode from './TerminalNode'
 
-interface Project extends ProjectDirectory {
-  id: string
-  color: string
-}
+type Project = WorkspaceProject
 
 export type TerminalNodeStatus = 'starting' | 'running' | 'attention' | 'exited'
 
@@ -70,6 +67,8 @@ function Canvas(): JSX.Element {
   const [nodeStatuses, setNodeStatuses] = useState<Record<string, TerminalNodeStatus>>({})
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [workspaceReady, setWorkspaceReady] = useState(false)
+  const [saveStatus, setSaveStatus] = useState<'saving' | 'saved' | 'error'>('saving')
   const [menu, setMenu] = useState<ContextMenuState | null>(null)
   const { fitView, screenToFlowPosition } = useReactFlow()
   const nextSessionNumber = useRef(1)
@@ -81,14 +80,46 @@ function Canvas(): JSX.Element {
 
   useEffect(() => {
     let active = true
-    void window.terminalApi.getInitialProject().then((directory) => {
+    void (async () => {
+      const saved = await window.terminalApi.loadWorkspace()
       if (!active) return
-      const project = createProject(directory, 0)
-      setProjects([project])
-      setActiveProjectId(project.id)
-    })
+
+      if (saved && saved.projects.length > 0) {
+        setProjects(saved.projects)
+        setActiveProjectId(
+          saved.projects.some((project) => project.id === saved.activeProjectId)
+            ? saved.activeProjectId
+            : saved.projects[0].id
+        )
+        setSidebarCollapsed(saved.sidebarCollapsed)
+      } else {
+        const directory = await window.terminalApi.getInitialProject()
+        if (!active) return
+        const project = createProject(directory, 0)
+        setProjects([project])
+        setActiveProjectId(project.id)
+      }
+      setWorkspaceReady(true)
+    })()
     return () => { active = false }
   }, [])
+
+  useEffect(() => {
+    if (!workspaceReady) return
+    setSaveStatus('saving')
+    const timeout = setTimeout(() => {
+      const state: WorkspaceState = {
+        version: 1,
+        projects,
+        activeProjectId,
+        sidebarCollapsed
+      }
+      void window.terminalApi.saveWorkspace(state).then((result) => {
+        setSaveStatus(result.ok ? 'saved' : 'error')
+      })
+    }, 180)
+    return () => clearTimeout(timeout)
+  }, [activeProjectId, projects, sidebarCollapsed, workspaceReady])
 
   const addProject = useCallback(async (): Promise<void> => {
     const directory = await window.terminalApi.pickProject()
@@ -115,6 +146,14 @@ function Canvas(): JSX.Element {
       void fitView({ nodes: matchingNodes, padding: 0.28, duration: 350 })
     }
   }, [fitView, nodes])
+
+  const removeProject = useCallback((projectId: string): void => {
+    if (projects.length <= 1 || nodes.some((node) => node.data.projectId === projectId)) return
+    const remaining = projects.filter((project) => project.id !== projectId)
+    setProjects(remaining)
+    if (activeProjectId === projectId) setActiveProjectId(remaining[0].id)
+    setMenu(null)
+  }, [activeProjectId, nodes, projects])
 
   const handleStatusChange = useCallback((nodeId: string, status: TerminalNodeStatus): void => {
     setNodeStatuses((current) => {
@@ -247,18 +286,36 @@ function Canvas(): JSX.Element {
                       )}
                     </button>
                     {!sidebarCollapsed && (
-                      <button
-                        type="button"
-                        className="project-locate"
-                        title={nodeCount > 0 ? `Show ${project.name} nodes` : 'No nodes on the canvas yet'}
-                        disabled={nodeCount === 0}
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          locateProject(project.id)
-                        }}
-                      >
-                        {nodeCount}
-                      </button>
+                      <div className="project-actions">
+                        <button
+                          type="button"
+                          className="project-locate"
+                          title={nodeCount > 0 ? `Show ${project.name} nodes` : 'No nodes on the canvas yet'}
+                          disabled={nodeCount === 0}
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            locateProject(project.id)
+                          }}
+                        >
+                          {nodeCount}
+                        </button>
+                        <button
+                          type="button"
+                          className="project-remove"
+                          title={nodeCount > 0
+                            ? 'Delete this project’s nodes first'
+                            : projects.length === 1
+                              ? 'ADE needs at least one project'
+                              : `Remove ${project.name}`}
+                          disabled={nodeCount > 0 || projects.length === 1}
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            removeProject(project.id)
+                          }}
+                        >
+                          &times;
+                        </button>
+                      </div>
                     )}
                   </div>
 
@@ -309,6 +366,10 @@ function Canvas(): JSX.Element {
             <div className="creation-target">
               <small>New nodes open in</small>
               <strong>{activeProject.name}</strong>
+              <span className="save-state" data-status={saveStatus}>
+                <span />
+                {saveStatus === 'saving' ? 'Saving…' : saveStatus === 'saved' ? 'Saved locally' : 'Save failed'}
+              </span>
             </div>
           )}
         </aside>

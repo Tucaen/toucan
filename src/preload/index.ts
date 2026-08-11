@@ -4,12 +4,17 @@ import type {
   TerminalCreateRequest,
   TerminalCreateResult,
   TerminalExit,
-  TerminalOutput
+  TerminalOutput,
+  WorkspaceSaveResult,
+  WorkspaceState
 } from '../shared/terminal'
 
 const terminalApi = {
   getInitialProject: (): Promise<ProjectDirectory> => ipcRenderer.invoke('project:initial'),
   pickProject: (): Promise<ProjectDirectory | null> => ipcRenderer.invoke('project:pick'),
+  loadWorkspace: (): Promise<WorkspaceState | null> => ipcRenderer.invoke('workspace:load'),
+  saveWorkspace: (state: WorkspaceState): Promise<WorkspaceSaveResult> =>
+    ipcRenderer.invoke('workspace:save', state),
   create: (request: TerminalCreateRequest): Promise<TerminalCreateResult> =>
     ipcRenderer.invoke('terminal:create', request),
   write: (id: string, data: string): void => ipcRenderer.send('terminal:write', id, data),

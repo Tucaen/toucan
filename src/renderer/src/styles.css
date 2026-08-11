@@ -251,7 +251,6 @@ button {
 .project-locate {
   min-width: 25px;
   height: 25px;
-  margin-right: 5px;
   padding: 0 6px;
   border: 1px solid #343d49;
   border-radius: 999px;
@@ -260,6 +259,38 @@ button {
   font-size: 9px;
   font-weight: 750;
   cursor: pointer;
+}
+
+.project-actions {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-right: 5px;
+}
+
+.project-remove {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  color: #6f7987;
+  background: transparent;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.project-remove:hover:not(:disabled) {
+  color: #ee8c92;
+  background: rgba(223, 115, 122, 0.1);
+}
+
+.project-remove:disabled {
+  opacity: 0.25;
+  cursor: default;
 }
 
 .project-locate:hover:not(:disabled) {
@@ -428,6 +459,34 @@ button {
   font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.save-state {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 5px;
+  color: #687280;
+  font-size: 9px;
+}
+
+.save-state > span {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: #7e8998;
+}
+
+.save-state[data-status="saved"] > span {
+  background: #74d8a2;
+}
+
+.save-state[data-status="error"] {
+  color: #d97d83;
+}
+
+.save-state[data-status="error"] > span {
+  background: #df737a;
 }
 
 .canvas-region {
