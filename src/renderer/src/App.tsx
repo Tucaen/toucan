@@ -7,7 +7,6 @@ import {
   ReactFlowProvider,
   useNodesState,
   useReactFlow,
-  type Node,
   type NodeTypes
 } from '@xyflow/react'
 import type {
@@ -15,33 +14,17 @@ import type {
   ProjectDirectory,
   TerminalKind,
   WorkspaceProject,
-  WorkspaceState,
-  WorkspaceTerminalNode
+  WorkspaceState
 } from '../../shared/terminal'
+import {
+  restoreCanvasWorkspace,
+  serializeCanvasNode,
+  type TerminalCanvasNode,
+  type TerminalNodeStatus
+} from './canvas-workspace'
 import TerminalNode from './TerminalNode'
 
 type Project = WorkspaceProject
-
-export type TerminalNodeStatus = 'dormant' | 'starting' | 'running' | 'attention' | 'exited'
-
-export interface TerminalNodeData extends Record<string, unknown> {
-  kind: TerminalKind
-  label: string
-  projectId: string
-  projectName: string
-  projectPath: string
-  projectColor: string
-  conversationId?: string
-  preview?: ConversationPreview
-  dormant: boolean
-  launchMode: 'new' | 'resume'
-  onStatusChange: (nodeId: string, status: TerminalNodeStatus) => void
-  onConversationId: (nodeId: string, conversationId: string) => void
-  onPreview: (nodeId: string, preview: ConversationPreview) => void
-  onResume: (nodeId: string) => void
-}
-
-export type TerminalCanvasNode = Node<TerminalNodeData, 'terminalNode'>
 
 interface ContextMenuState {
   clientX: number
@@ -73,22 +56,6 @@ function createProject(directory: ProjectDirectory, index: number): Project {
     ...directory,
     id: crypto.randomUUID(),
     color: projectColors[index % projectColors.length]
-  }
-}
-
-function serializeNode(node: TerminalCanvasNode): WorkspaceTerminalNode {
-  const styleWidth = typeof node.style?.width === 'number' ? node.style.width : 520
-  const styleHeight = typeof node.style?.height === 'number' ? node.style.height : 340
-  return {
-    id: node.id,
-    kind: node.data.kind,
-    label: node.data.label,
-    projectId: node.data.projectId,
-    position: node.position,
-    width: node.measured?.width ?? styleWidth,
-    height: node.measured?.height ?? styleHeight,
-    conversationId: node.data.conversationId,
-    preview: node.data.preview
   }
 }
 
@@ -161,49 +128,18 @@ function Canvas(): JSX.Element {
       if (!active) return
 
       if (saved && saved.projects.length > 0) {
-        const restoredNodes = saved.nodes.flatMap<TerminalCanvasNode>((savedNode) => {
-          const project = saved.projects.find((candidate) => candidate.id === savedNode.projectId)
-          if (!project) return []
-          return [{
-            id: savedNode.id,
-            type: 'terminalNode',
-            position: savedNode.position,
-            data: {
-              kind: savedNode.kind,
-              label: savedNode.label,
-              projectId: project.id,
-              projectName: project.name,
-              projectPath: project.path,
-              projectColor: project.color,
-              conversationId: savedNode.conversationId,
-              preview: savedNode.preview,
-              dormant: true,
-              launchMode: 'resume',
-              onStatusChange: handleStatusChange,
-              onConversationId: handleConversationId,
-              onPreview: handlePreview,
-              onResume: resumeNode
-            },
-            style: { width: savedNode.width, height: savedNode.height }
-          }]
+        const restored = restoreCanvasWorkspace(saved, {
+          onStatusChange: handleStatusChange,
+          onConversationId: handleConversationId,
+          onPreview: handlePreview,
+          onResume: resumeNode
         })
-        const restoredStatuses = Object.fromEntries(
-          restoredNodes.map((node) => [node.id, 'dormant' as TerminalNodeStatus])
-        )
-        const highestSessionNumber = restoredNodes.reduce((highest, node) => {
-          const match = node.data.label.match(/ (\d+)$/)
-          return Math.max(highest, match ? Number(match[1]) : 0)
-        }, 0)
 
         setProjects(saved.projects)
-        setNodes(restoredNodes)
-        setNodeStatuses(restoredStatuses)
-        nextSessionNumber.current = highestSessionNumber + 1
-        setActiveProjectId(
-          saved.projects.some((project) => project.id === saved.activeProjectId)
-            ? saved.activeProjectId
-            : saved.projects[0].id
-        )
+        setNodes(restored.nodes)
+        setNodeStatuses(restored.statuses)
+        nextSessionNumber.current = restored.nextSessionNumber
+        setActiveProjectId(restored.activeProjectId)
         setSidebarCollapsed(saved.sidebarCollapsed)
       } else {
         const directory = await window.terminalApi.getInitialProject()
@@ -226,7 +162,7 @@ function Canvas(): JSX.Element {
         projects,
         activeProjectId,
         sidebarCollapsed,
-        nodes: nodes.map(serializeNode)
+        nodes: nodes.map(serializeCanvasNode)
       }
       void window.terminalApi.saveWorkspace(state).then((result) => {
         setSaveStatus(result.ok ? 'saved' : 'error')

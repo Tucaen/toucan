@@ -1,6 +1,6 @@
-# ADE canvas terminal prototype
+# ADE canvas terminal foundation
 
-> **PROTOTYPE — throwaway code.** This branch exists to answer one question: does creating live terminal and coding-agent nodes directly on a spatial canvas feel like the right core interaction for ADE?
+> **FOUNDATION MILESTONE.** ADE is still a Windows-first prototype, but its working canvas, persistence, resumable sessions, and packaging path are now protected as a stable baseline for continued experiments.
 
 Windows-only for this prototype. Projects and canvas nodes are saved locally. PTY processes end with ADE, while Claude and Codex conversations can be resumed from restored nodes.
 
@@ -10,6 +10,34 @@ Windows-only for this prototype. Projects and canvas nodes are saved locally. PT
 npm install
 npm run dev
 ```
+
+## Verify
+
+```powershell
+npm run typecheck
+npm test
+npm run build
+```
+
+The tests exercise behavior through the workspace, provider, terminal-lifecycle, and canvas-persistence interfaces. They use temporary local files and do not invoke Claude or Codex.
+
+## Package for Windows
+
+```powershell
+npm run package:win
+```
+
+This creates the x64 portable executable at `dist/ADE-0.1.0-portable-x64.exe`. It needs no installer. The current prototype uses Electron's default icon and is not digitally signed, so Windows may display an unfamiliar-app warning.
+
+## Architecture
+
+- `src/main/index.ts` composes the application and wires Electron IPC.
+- `src/main/workspace-store.ts` owns workspace validation, migration, loading, and saving behind one store interface.
+- `src/main/session-providers.ts` hides Claude/Codex launch arguments, session discovery, transcript lookup, and preview parsing behind one provider interface.
+- `src/main/terminal-manager.ts` owns PTY processes, renderer ownership, Codex discovery polling, and shutdown behavior behind one lifecycle interface.
+- `src/renderer/src/canvas-workspace.ts` converts between persisted workspace nodes and live canvas nodes.
+
+`node-pty` 1.1.0 ships Windows x64 prebuilt native binaries, which are unpacked from the application archive. Packaging intentionally skips a source rebuild so contributors do not need Python and Visual Studio Build Tools merely to produce this Windows prototype.
 
 The current folder starts as the first project. Use **Add project** in the left sidebar to choose more folders, then click a project to make it the creation target. All projects remain visible on one canvas. Right-click the canvas and choose **Terminal**, **Claude Code**, or **Codex**; the session starts in the selected project's folder and carries a project badge.
 

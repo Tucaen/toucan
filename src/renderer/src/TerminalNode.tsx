@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { NodeResizer, type NodeProps } from '@xyflow/react'
 import { FitAddon } from '@xterm/addon-fit'
 import { Terminal } from '@xterm/xterm'
-import type { TerminalCanvasNode } from './App'
+import type { TerminalCanvasNode } from './canvas-workspace'
 
 const accents = {
   terminal: '#74d8a2',

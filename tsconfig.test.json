@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "module": "CommonJS",
+    "moduleResolution": "Node",
+    "target": "ES2022",
+    "strict": true,
+    "skipLibCheck": true,
+    "types": ["node"],
+    "outDir": ".test-out"
+  },
+  "include": [
+    "tests/**/*.test.ts",
+    "src/main/terminal-events.ts",
+    "src/main/session-providers.ts",
+    "src/main/terminal-manager.ts",
+    "src/main/workspace-store.ts",
+    "src/renderer/src/canvas-workspace.ts",
+    "src/shared/**/*.ts"
+  ]
+}

@@ -2,14 +2,43 @@
   "name": "ade-canvas-terminal-prototype",
   "version": "0.1.0",
   "private": true,
-  "description": "Throwaway Windows-first prototype for terminal and coding-agent nodes on a canvas.",
+  "description": "Windows-first spatial canvas for terminal and coding-agent sessions.",
+  "author": "ADE contributors",
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
-    "test:terminal-events": "tsc tests/terminal-events.test.ts src/main/terminal-events.ts --module commonjs --target ES2022 --moduleResolution node --outDir .test-out --types node --skipLibCheck && node --test .test-out/tests/terminal-events.test.js"
+    "test": "tsc -p tsconfig.test.json && node --test .test-out/tests/*.test.js",
+    "test:terminal-events": "tsc -p tsconfig.test.json && node --test .test-out/tests/terminal-events.test.js",
+    "package:win": "npm run build && electron-builder --win portable --x64",
+    "package:dir": "npm run build && electron-builder --dir --win --x64"
+  },
+  "build": {
+    "appId": "dev.ade.canvas",
+    "productName": "ADE",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "out/**/*"
+    ],
+    "asarUnpack": [
+      "node_modules/node-pty/**/*"
+    ],
+    "npmRebuild": false,
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "ADE-${version}-portable-${arch}.${ext}"
+    }
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.11.0",
@@ -25,6 +54,7 @@
     "@types/react-dom": "^18.3.7",
     "@vitejs/plugin-react": "^4.3.1",
     "electron": "^42.7.1",
+    "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
     "typescript": "^5.5.4",
     "vite": "^7.3.6"
