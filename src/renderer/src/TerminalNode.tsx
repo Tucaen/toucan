@@ -158,7 +158,7 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
         '--project-color': data.projectColor
       } as React.CSSProperties}
     >
-      <NodeResizer minWidth={360} minHeight={240} isVisible={selected} color={accents[data.kind]} />
+      <NodeResizer minWidth={360} minHeight={240} isVisible={selected} color={data.projectColor} />
       <header className="node-header">
         <span className="status-dot" />
         <strong>{data.label}</strong>
