@@ -6,6 +6,7 @@ import { spawn } from 'node-pty'
 import type { AgentCreateRequest } from '../shared/agent'
 import type { TerminalCreateRequest } from '../shared/terminal'
 import { createAcpSessionManager, type AcpSessionManager } from './acp-session-manager'
+import { createFirstMateRuntime, type FirstMateRuntime } from './firstmate-runtime'
 import { createSessionProviders, type SessionProviders } from './session-providers'
 import { createTerminalManager, type TerminalManager } from './terminal-manager'
 import { createWorkspaceStore } from './workspace-store'
@@ -63,6 +64,11 @@ function registerAgentIpc(manager: AcpSessionManager): void {
   ))
   ipcMain.on('agent:cancel', (_event, id: string) => manager.cancel(id))
   ipcMain.on('agent:kill', (_event, id: string) => manager.kill(id))
+}
+
+function registerFirstMateIpc(runtime: FirstMateRuntime): void {
+  ipcMain.handle('firstmate:status', () => runtime.status())
+  ipcMain.handle('firstmate:install', () => runtime.install())
 }
 
 function registerProjectIpc(): void {
@@ -157,10 +163,19 @@ app.whenReady().then(() => {
       env: { ...process.env, TERM: 'xterm-256color' }
     })
   })
-  const agentManager = createAcpSessionManager({ appPath: app.getAppPath() })
+  const firstMateRuntime = createFirstMateRuntime({
+    rootPath: join(app.getPath('userData'), 'firstmate'),
+    platform: process.platform,
+    resolveGit: () => findCommand('git')
+  })
+  const agentManager = createAcpSessionManager({
+    appPath: app.getAppPath(),
+    resolveFirstMateLaunch: () => firstMateRuntime.launch()
+  })
 
   registerTerminalIpc(manager, providers)
   registerAgentIpc(agentManager)
+  registerFirstMateIpc(firstMateRuntime)
   registerProjectIpc()
   createWindow(manager, agentManager)
 

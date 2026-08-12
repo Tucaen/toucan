@@ -1404,6 +1404,54 @@ button {
   grid-row: 2;
 }
 
+.agent-chat.has-status-bar {
+  grid-template-rows: minmax(0, 1fr) auto auto;
+}
+
+.agent-chat.has-status-bar .chat-composer {
+  grid-row: 3;
+}
+
+.agent-chat.has-status-bar .worklog-rail {
+  grid-row: 1 / 4;
+}
+
+.agent-chat-status-bar {
+  min-height: 30px;
+  grid-column: 1;
+  grid-row: 2;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 10px;
+  border-top: 1px solid #28303a;
+  color: #84909f;
+  background: #141920;
+  font-size: 8px;
+}
+
+.agent-chat-status-bar span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.agent-chat-status-bar i {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+}
+
+.agent-chat-status-bar i[data-tone="green"] { background: #74d8a2; }
+.agent-chat-status-bar i[data-tone="blue"] { background: #71a9ff; }
+.agent-chat-status-bar i[data-tone="gold"] { background: #f1c75b; }
+
+.agent-chat-status-bar small {
+  margin-left: auto;
+  color: #687483;
+  font-size: 8px;
+}
+
 .worklog-rail {
   grid-column: 2;
   grid-row: 1 / 3;
@@ -1520,4 +1568,214 @@ button {
   background: #252d38;
   font-size: 7px;
   text-align: center;
+}
+
+/* PROTOTYPE: ADE-wide FirstMate right-panel variants. */
+.firstmate-panel {
+  position: relative;
+  z-index: 6;
+  height: 100%;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border-left: 1px solid #2a313c;
+  color: #d9e0e9;
+  background: #10141a;
+  box-shadow: -14px 0 34px rgba(0, 0, 0, 0.18);
+}
+
+.firstmate-mark {
+  width: 31px;
+  height: 31px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border: 1px solid #47715d;
+  border-radius: 9px;
+  color: #91e2b7;
+  background: linear-gradient(145deg, #1a3328, #14231d);
+  box-shadow: inset 0 0 18px rgba(116, 216, 162, 0.06);
+  font: 800 9px/1 Consolas, monospace;
+  letter-spacing: -0.03em;
+}
+
+.firstmate-panel button {
+  cursor: pointer;
+}
+
+.firstmate-panel-header {
+  height: 57px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 13px;
+  border-bottom: 1px solid #29313b;
+  background: #171c23;
+}
+
+.firstmate-panel-header > div {
+  min-width: 0;
+  flex: 1;
+  display: grid;
+  gap: 3px;
+}
+
+.firstmate-panel-header strong {
+  font-size: 12px;
+}
+
+.firstmate-panel-header small {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #788493;
+  font-size: 9px;
+}
+
+.firstmate-panel-header small i {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: #74d8a2;
+  box-shadow: 0 0 7px rgba(116, 216, 162, 0.52);
+}
+
+.firstmate-panel-header small i[data-status="working"] {
+  background: #71a9ff;
+  box-shadow: 0 0 7px rgba(113, 169, 255, 0.52);
+}
+
+.firstmate-panel-header small i[data-status="auth_required"],
+.firstmate-panel-header small i[data-status="exited"] {
+  background: #f1c75b;
+  box-shadow: 0 0 7px rgba(241, 199, 91, 0.45);
+}
+
+.firstmate-settings-bar {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid #29313b;
+  background: #141920;
+}
+
+.firstmate-settings-bar > label {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.firstmate-settings-bar > label > span {
+  color: #697584;
+  font-size: 7px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.firstmate-settings-bar .node-picker-button {
+  width: 100%;
+  max-width: none;
+  justify-content: space-between;
+}
+
+.firstmate-settings-bar .node-picker[data-picker="model"] .node-picker-button {
+  max-width: none;
+}
+
+.firstmate-settings-bar .node-picker-menu {
+  width: min(250px, calc(370px - 20px));
+}
+
+/* ADE-wide FirstMate conversation dock. */
+.firstmate-dock {
+  width: 370px;
+  display: flex;
+  flex-direction: column;
+}
+
+.firstmate-dock > .agent-chat {
+  min-height: 0;
+  height: auto;
+  flex: 1;
+}
+
+.firstmate-worker-warning {
+  padding: 5px 10px;
+  border-bottom: 1px solid #4f4529;
+  color: #c9ad68;
+  background: #211d14;
+  font-size: 8px;
+}
+
+.firstmate-runtime-setup {
+  width: min(100% - 38px, 300px);
+  display: grid;
+  justify-items: center;
+  gap: 9px;
+  margin: auto;
+  padding: 20px;
+  border: 1px solid #303946;
+  border-radius: 12px;
+  background: #171c23;
+  text-align: center;
+}
+
+.firstmate-runtime-setup > .firstmate-mark {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  font-size: 11px;
+}
+
+.firstmate-runtime-setup strong {
+  color: #e2e7ed;
+  font-size: 13px;
+}
+
+.firstmate-runtime-setup p {
+  margin: 0;
+  color: #8c97a5;
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+.firstmate-runtime-setup small {
+  color: #c1a55f;
+  font-size: 8px;
+  line-height: 1.45;
+}
+
+.firstmate-runtime-setup button {
+  margin-top: 3px;
+  padding: 7px 11px;
+  border: 1px solid #4e7c65;
+  border-radius: 7px;
+  color: #dff8e9;
+  background: #214132;
+  font-size: 9px;
+  font-weight: 750;
+}
+
+.firstmate-runtime-setup button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.firstmate-detail {
+  position: absolute;
+  right: 10px;
+  bottom: 74px;
+  left: 10px;
+  z-index: 5;
+  overflow: hidden;
+  color: #788493;
+  font: 8px/1.4 Consolas, monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+@media (max-width: 950px) {
+  .firstmate-dock { width: 330px; }
 }

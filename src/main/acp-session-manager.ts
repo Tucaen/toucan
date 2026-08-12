@@ -27,6 +27,7 @@ import type {
 import { activityFromUpdate } from '../shared/agent-activity'
 import { modelSelectorFromConfigOptions } from '../shared/agent-models'
 import { buildAgentProcessLaunch } from './agent-process'
+import type { FirstMateLaunch } from './firstmate-runtime'
 
 interface PendingApproval {
   resolve(response: RequestPermissionResponse): void
@@ -40,6 +41,7 @@ interface RunningAgent {
   context: ClientContext
   adapterPath: string
   authMethods: AgentAuthMethod[]
+  environment: NodeJS.ProcessEnv
   sessionId?: string
   modelConfigId?: string
   pendingApprovals: Map<string, PendingApproval>
@@ -81,6 +83,7 @@ function simplifyModes(modes: {
 
 export interface AcpSessionManagerOptions {
   appPath: string
+  resolveFirstMateLaunch?(): FirstMateLaunch | null
 }
 
 export interface AcpSessionManager {
@@ -220,12 +223,23 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       const existing = agents.get(request.id)
       if (existing) return openSession(existing)
 
-      const path = adapterPath(request.provider)
+      const firstMateLaunch = request.scope === 'firstmate'
+        ? options.resolveFirstMateLaunch?.() ?? null
+        : null
+      if (request.scope === 'firstmate' && !firstMateLaunch) {
+        return { ok: false, status: 'error', message: 'FirstMate is not installed.' }
+      }
+      const effectiveRequest: AgentCreateRequest = firstMateLaunch
+        ? { ...request, cwd: firstMateLaunch.cwd }
+        : request
+      const environment = firstMateLaunch?.environment ?? process.env
+
+      const path = adapterPath(effectiveRequest.provider)
       if (!existsSync(path)) {
-        return { ok: false, status: 'error', message: `The ${request.provider} ACP adapter is not installed.` }
+        return { ok: false, status: 'error', message: `The ${effectiveRequest.provider} ACP adapter is not installed.` }
       }
 
-      const launch = buildAgentProcessLaunch(process.execPath, path, request.cwd, process.env)
+      const launch = buildAgentProcessLaunch(process.execPath, path, effectiveRequest.cwd, environment)
       const child = spawn(launch.executable, launch.args, {
         ...launch.options,
         stdio: ['pipe', 'pipe', 'pipe']
@@ -314,13 +328,14 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       )
       const connection = app.connect(stream)
       running = {
-        request,
+        request: effectiveRequest,
         owner,
         process: child,
         connection,
         context: connection.agent,
         adapterPath: path,
         authMethods: [],
+        environment,
         pendingApprovals,
         stopping: false
       }
@@ -428,7 +443,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
               process.execPath,
               running.adapterPath,
               running.request.cwd,
-              process.env,
+              running.environment,
               method.args
             )
             const auth = spawn(launch.executable, launch.args, {

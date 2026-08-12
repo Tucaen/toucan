@@ -4,6 +4,7 @@ import type {
   AgentEvent,
   AgentPromptResult
 } from '../shared/agent'
+import type { FirstMateInstallResult, FirstMateRuntimeStatus } from '../shared/firstmate'
 import type {
   ConversationPreview,
   ProjectDirectory,
@@ -42,9 +43,15 @@ export interface TerminalApi {
   onSession(id: string, callback: (conversationId: string) => void): () => void
 }
 
+export interface FirstMateApi {
+  status(): Promise<FirstMateRuntimeStatus>
+  install(): Promise<FirstMateInstallResult>
+}
+
 declare global {
   interface Window {
     terminalApi: TerminalApi
     agentApi: AgentApi
+    firstMateApi: FirstMateApi
   }
 }

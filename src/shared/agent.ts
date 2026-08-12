@@ -4,6 +4,7 @@ export interface AgentCreateRequest {
   id: string
   provider: AgentProvider
   cwd: string
+  scope?: 'project' | 'firstmate'
   sessionId?: string
   permissionMode?: string
   modelId?: string

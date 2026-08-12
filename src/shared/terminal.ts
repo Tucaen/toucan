@@ -1,4 +1,5 @@
 import type { AgentProvider } from './agent'
+import type { FirstMateWorkspaceState } from './firstmate'
 
 export type TerminalKind = 'terminal' | 'claude' | 'codex'
 
@@ -51,6 +52,7 @@ export interface WorkspaceState {
   activeProjectId: string | null
   sidebarCollapsed: boolean
   agentPermissionModes?: AgentPermissionModes
+  firstMate?: FirstMateWorkspaceState
   nodes: WorkspaceTerminalNode[]
 }
 

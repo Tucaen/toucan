@@ -1,38 +1,28 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { type NodeProps } from '@xyflow/react'
 import ReactMarkdown from 'react-markdown'
 import type {
   AgentActivity,
   AgentAuthMethod,
-  AgentEvent,
-  AgentModeState,
-  AgentModelState,
-  AgentPermissionOption,
   AgentPlanEntry
 } from '../../shared/agent'
 import { activityTitle } from '../../shared/agent-activity'
 import type { TerminalCanvasNode, TerminalNodeStatus } from './canvas-workspace'
 import NodeBorderResizer from './NodeBorderResizer'
 import VoiceInputPrototype from './VoiceInputPrototype'
+import {
+  useAgentConversation,
+  type AgentApprovalState,
+  type AgentChatMessage,
+  type AgentChatStatus
+} from './use-agent-conversation'
 
-interface ChatMessage {
-  id: string
-  role: 'user' | 'assistant' | 'thought'
-  text: string
-}
-
-interface ApprovalState {
-  id: string
-  title: string
-  options: AgentPermissionOption[]
-}
-
-interface ChatViewProps {
+export interface ChatViewProps {
   provider: 'claude' | 'codex'
-  messages: ChatMessage[]
+  messages: AgentChatMessage[]
   activities: AgentActivity[]
   plan: AgentPlanEntry[]
-  approval: ApprovalState | null
+  approval: AgentApprovalState | null
   authMethods: AgentAuthMethod[]
   status: string
   detail?: string
@@ -58,7 +48,7 @@ const pickerCopy = {
 } as const
 
 /** One dropdown shape for every agent-reported selector, so modes and models stay consistent. */
-function SelectorPicker(props: {
+export function SelectorPicker(props: {
   kind: keyof typeof pickerCopy
   options: PickerOption[]
   selectedId?: string
@@ -224,15 +214,25 @@ function ActivityCard({ activity }: { activity: AgentActivity }): JSX.Element {
   )
 }
 
-function ChatView(props: ChatViewProps & {
+export function ChatView(props: ChatViewProps & {
   worklogCollapsed: boolean
   setWorklogCollapsed(collapsed: boolean): void
+  empty?: { icon: string; title: string; description: string }
+  statusBar?: ReactNode
 }): JSX.Element {
   const workItemCount = props.activities.length + props.plan.length
   return (
-    <div className={`agent-chat ${props.worklogCollapsed ? 'worklog-collapsed' : ''}`}>
+    <div className={`agent-chat ${props.worklogCollapsed ? 'worklog-collapsed' : ''} ${props.statusBar ? 'has-status-bar' : ''}`}>
       <div className="chat-scroll nodrag nopan nowheel">
-        {props.messages.length === 0 && <EmptyConversation provider={props.provider} />}
+        {props.messages.length === 0 && (props.empty
+          ? (
+            <div className="chat-empty">
+              <span>{props.empty.icon}</span>
+              <strong>{props.empty.title}</strong>
+              <p>{props.empty.description}</p>
+            </div>
+          )
+          : <EmptyConversation provider={props.provider} />)}
         {props.messages.map((message) => message.role === 'thought'
           ? <details className="thought-card" key={message.id}><summary>Reasoning</summary><Markdown text={message.text} /></details>
           : (
@@ -282,15 +282,14 @@ function ChatView(props: ChatViewProps & {
           </>
         )}
       </aside>
+      {props.statusBar && <div className="agent-chat-status-bar">{props.statusBar}</div>}
       <Composer {...props} />
     </div>
   )
 }
 
-type ChatStatus = 'starting' | 'ready' | 'working' | 'auth_required' | 'exited'
-
 /** The sidebar only cares whether the agent is busy, blocked, or waiting on us. */
-function sidebarStatus(status: ChatStatus, awaitingApproval: boolean, unreadResult: boolean): TerminalNodeStatus {
+function sidebarStatus(status: AgentChatStatus, awaitingApproval: boolean, unreadResult: boolean): TerminalNodeStatus {
   if (status === 'exited') return 'exited'
   if (status === 'auth_required' || awaitingApproval) return 'attention'
   if (status === 'starting') return 'starting'
@@ -299,91 +298,22 @@ function sidebarStatus(status: ChatStatus, awaitingApproval: boolean, unreadResu
 }
 
 export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanvasNode>): JSX.Element {
-  const [messages, setMessages] = useState<ChatMessage[]>([])
-  const [activitiesById, setActivitiesById] = useState<Record<string, AgentActivity>>({})
-  const [plan, setPlan] = useState<AgentPlanEntry[]>([])
-  const [approval, setApproval] = useState<ApprovalState | null>(null)
-  const [authMethods, setAuthMethods] = useState<AgentAuthMethod[]>([])
-  const [modes, setModes] = useState<AgentModeState | null>(null)
-  const [models, setModels] = useState<AgentModelState | null>(null)
-  const [status, setStatus] = useState<ChatStatus>('starting')
   const [unreadResult, setUnreadResult] = useState(false)
-  const [detail, setDetail] = useState<string>()
-  const [draft, setDraft] = useState('')
-  const sentTextRef = useRef<string>()
-  const previousStatusRef = useRef<ChatStatus>('starting')
+  const previousStatusRef = useRef<AgentChatStatus>('starting')
   const provider = data.kind === 'claude' ? 'claude' : 'codex'
-  const activities = useMemo(() => Object.values(activitiesById), [activitiesById])
-
-  useEffect(() => {
-    if (data.dormant) return
-    let active = true
-    const removeListener = window.agentApi.onEvent(id, (event: AgentEvent) => {
-      if (!active) return
-      if (event.type === 'status') {
-        setStatus(event.status === 'idle' ? 'ready' : event.status)
-        setDetail(event.message)
-      } else if (event.type === 'session') {
-        data.onConversationId(id, event.sessionId)
-      } else if (event.type === 'message') {
-        if (event.role === 'user' && sentTextRef.current === event.text) {
-          sentTextRef.current = undefined
-          return
-        }
-        setMessages((current) => {
-          const existing = current.findIndex((message) => message.id === event.messageId && message.role === event.role)
-          if (existing < 0) return [...current, { id: event.messageId, role: event.role, text: event.text }]
-          return current.map((message, index) => index === existing ? { ...message, text: message.text + event.text } : message)
-        })
-      } else if (event.type === 'activity') {
-        setActivitiesById((current) => ({
-          ...current,
-          [event.activity.id]: { ...current[event.activity.id], ...event.activity }
-        }))
-      } else if (event.type === 'plan') {
-        setPlan(event.entries)
-      } else if (event.type === 'modes') {
-        setModes((current) => event.modes.availableModes.length > 0
-          ? event.modes
-          : { ...event.modes, availableModes: current?.availableModes ?? [] })
-      } else if (event.type === 'models') {
-        setModels(event.models)
-      } else if (event.type === 'approval') {
-        setApproval({ id: event.approvalId, title: event.title, options: event.options })
-      } else if (event.type === 'auth') {
-        setAuthMethods(event.methods)
-      } else if (event.type === 'error') {
-        setDetail(event.message)
-      }
-    })
-    void window.agentApi.create({
-      id,
-      provider,
-      cwd: data.projectPath,
-      sessionId: data.launchMode === 'resume' ? data.conversationId : undefined,
-      permissionMode: data.preferredPermissionMode,
-      modelId: data.modelId
-    }).then((result) => {
-      if (!active) return
-      if (result.sessionId) data.onConversationId(id, result.sessionId)
-      if (result.authMethods) setAuthMethods(result.authMethods)
-      if (result.modes) setModes(result.modes)
-      if (result.models) setModels(result.models)
-      if (result.status === 'ready') {
-        setStatus('ready')
-      } else if (result.status === 'auth_required') {
-        setStatus('auth_required')
-      } else {
-        setStatus('exited')
-        setDetail(result.message)
-      }
-    })
-    return () => {
-      active = false
-      removeListener()
-      window.agentApi.kill(id)
-    }
-  }, [data.dormant, data.launchMode, data.preferredPermissionMode, data.projectPath, id, provider])
+  const conversation = useAgentConversation({
+    id,
+    provider,
+    cwd: data.projectPath,
+    sessionId: data.launchMode === 'resume' ? data.conversationId : undefined,
+    permissionMode: data.preferredPermissionMode,
+    modelId: data.modelId,
+    enabled: !data.dormant,
+    onSessionId: (sessionId) => data.onConversationId(id, sessionId),
+    onPermissionMode: (modeId) => data.onPermissionModeChange(provider, modeId),
+    onModel: (modelId) => data.onModelChange(id, modelId)
+  })
+  const { status, approval, models, modes, detail } = conversation
 
   // A finished turn stays flagged as an unread result until the node is focused.
   useEffect(() => {
@@ -401,79 +331,9 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
     data.onStatusChange(id, sidebarStatus(status, approval !== null, unreadResult))
   }, [approval, data.dormant, data.onStatusChange, id, status, unreadResult])
 
-  const submit = (event: FormEvent): void => {
-    event.preventDefault()
-    const text = draft.trim()
-    if (!text || status !== 'ready') return
-    const messageId = crypto.randomUUID()
-    sentTextRef.current = text
-    setMessages((current) => [...current, { id: messageId, role: 'user', text }])
-    setDraft('')
-    setStatus('working')
-    void window.agentApi.prompt(id, text).then((result) => {
-      if (!result.ok) setDetail(result.message)
-    })
-  }
-
-  const authenticate = (methodId: string): void => {
-    setStatus('starting')
-    void window.agentApi.authenticate(id, methodId).then((result) => {
-      if (result.status === 'ready') {
-        setStatus('ready')
-        setAuthMethods([])
-      } else {
-        setStatus(result.status === 'auth_required' ? 'auth_required' : 'exited')
-        setDetail(result.message)
-      }
-    })
-  }
-
-  const resolveApproval = (approvalId: string, optionId?: string): void => {
-    window.agentApi.resolveApproval(id, approvalId, optionId)
-    setApproval(null)
-  }
-
-  const selectMode = (modeId: string): void => {
-    if (modeId === modes?.currentModeId) return
-    void window.agentApi.setMode(id, modeId).then((result) => {
-      if (result.ok) {
-        setModes((current) => current ? { ...current, currentModeId: modeId } : current)
-        data.onPermissionModeChange(provider, modeId)
-      } else {
-        setDetail(result.message)
-      }
-    })
-  }
-
-  const selectModel = (modelId: string): void => {
-    if (modelId === models?.currentModelId) return
-    void window.agentApi.setModel(id, modelId).then((result) => {
-      if (result.ok) {
-        setModels((current) => current ? { ...current, currentModelId: modelId } : current)
-        data.onModelChange(id, modelId)
-      } else {
-        setDetail(result.message)
-      }
-    })
-  }
-
-  const selectorsDisabled = status === 'starting' || status === 'auth_required' || status === 'exited'
-
   const props: ChatViewProps = {
     provider,
-    messages,
-    activities,
-    plan,
-    approval,
-    authMethods: status === 'auth_required' ? authMethods : [],
-    status,
-    detail,
-    draft,
-    setDraft,
-    submit,
-    cancel: () => window.agentApi.cancel(id),
-    authenticate,
-    resolveApproval
+    ...conversation
   }
 
   return (
@@ -492,15 +352,15 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
               kind="model"
               options={models?.availableModels ?? []}
               selectedId={models?.currentModelId}
-              disabled={selectorsDisabled}
-              select={selectModel}
+              disabled={conversation.selectorsDisabled}
+              select={conversation.selectModel}
             />
             <SelectorPicker
               kind="permission"
               options={modes?.availableModes ?? []}
               selectedId={modes?.currentModeId}
-              disabled={selectorsDisabled}
-              select={selectMode}
+              disabled={conversation.selectorsDisabled}
+              select={conversation.selectMode}
             />
           </>
         )}

@@ -38,6 +38,17 @@ export function isWorkspaceState(value: unknown): value is WorkspaceState {
       || (state.agentPermissionModes.codex !== undefined && typeof state.agentPermissionModes.codex !== 'string')
     )
   ) return false
+  if (
+    state.firstMate !== undefined
+    && (
+      !state.firstMate
+      || typeof state.firstMate !== 'object'
+      || (state.firstMate.conversationId !== undefined && typeof state.firstMate.conversationId !== 'string')
+      || (state.firstMate.permissionMode !== undefined && typeof state.firstMate.permissionMode !== 'string')
+      || (state.firstMate.modelId !== undefined && typeof state.firstMate.modelId !== 'string')
+      || (state.firstMate.worklogCollapsed !== undefined && typeof state.firstMate.worklogCollapsed !== 'boolean')
+    )
+  ) return false
 
   return state.nodes.every((node) => (
     node

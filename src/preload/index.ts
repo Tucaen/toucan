@@ -5,6 +5,7 @@ import type {
   AgentEventEnvelope,
   AgentPromptResult
 } from '../shared/agent'
+import type { FirstMateInstallResult, FirstMateRuntimeStatus } from '../shared/firstmate'
 import type {
   ConversationPreview,
   ProjectDirectory,
@@ -85,3 +86,10 @@ const agentApi = {
 }
 
 contextBridge.exposeInMainWorld('agentApi', agentApi)
+
+const firstMateApi = {
+  status: (): Promise<FirstMateRuntimeStatus> => ipcRenderer.invoke('firstmate:status'),
+  install: (): Promise<FirstMateInstallResult> => ipcRenderer.invoke('firstmate:install')
+}
+
+contextBridge.exposeInMainWorld('firstMateApi', firstMateApi)

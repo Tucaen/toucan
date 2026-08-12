@@ -12,6 +12,14 @@ Run `npm run dev`, right-click the canvas, and create a **Codex** or **Claude** 
 
 Agent nodes use a flowing chat layout with clearly separated user and assistant messages. A worklog beside the conversation shows plans, commands, edits, and other tool activity. Collapse it to a narrow tab when the conversation needs more room, then reopen it without resizing the node.
 
+## FirstMate dock
+
+ADE has one persistent FirstMate conversation dock on the right side of the workspace. It is ADE-wide rather than attached to a canvas project. On first use, choose **Install from GitHub**; ADE clones the FirstMate agent distro into its Electron user-data directory and creates one separate private `FM_HOME` beside it. The distro and home are never stored in an ADE project.
+
+The dock uses the same Codex ACP transport as Codex canvas nodes. Its conversation ID, selected model, permission mode, and worklog layout are saved in the ADE workspace and restored on restart. Authentication and tool approvals stay visible in the dock.
+
+FirstMate officially supports macOS and Linux worker backends. ADE itself remains Windows-first, so crew dispatch on Windows requires a configured WSL/Linux environment with tmux and FirstMate's required toolchain. The dock surfaces this requirement; missing worker tooling is reported by FirstMate rather than silently replaced with a different backend.
+
 ## Run
 
 ```powershell

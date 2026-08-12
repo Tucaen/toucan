@@ -32,6 +32,12 @@ test('saves and loads a valid workspace through the store', () => {
     activeProjectId: 'project-1',
     sidebarCollapsed: false,
     agentPermissionModes: { claude: 'acceptEdits', codex: 'read-only' },
+    firstMate: {
+      conversationId: 'firstmate-session',
+      permissionMode: 'read-only',
+      modelId: 'gpt-5',
+      worklogCollapsed: true
+    },
     nodes: []
   }
 

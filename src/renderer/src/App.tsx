@@ -17,6 +17,7 @@ import type {
   WorkspaceProject,
   WorkspaceState
 } from '../../shared/terminal'
+import type { FirstMateWorkspaceState } from '../../shared/firstmate'
 import {
   restoreCanvasWorkspace,
   serializeCanvasNode,
@@ -24,6 +25,7 @@ import {
   type TerminalNodeStatus
 } from './canvas-workspace'
 import SessionNode from './SessionNode'
+import FirstMatePanel from './FirstMatePanel'
 
 type Project = WorkspaceProject
 
@@ -69,6 +71,7 @@ function Canvas(): JSX.Element {
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [agentPermissionModes, setAgentPermissionModes] = useState<AgentPermissionModes>({})
+  const [firstMate, setFirstMate] = useState<FirstMateWorkspaceState>({ worklogCollapsed: true })
   const [workspaceReady, setWorkspaceReady] = useState(false)
   const [saveStatus, setSaveStatus] = useState<'saving' | 'saved' | 'error'>('saving')
   const [menu, setMenu] = useState<ContextMenuState | null>(null)
@@ -171,6 +174,7 @@ function Canvas(): JSX.Element {
         setActiveProjectId(restored.activeProjectId)
         setSidebarCollapsed(saved.sidebarCollapsed)
         setAgentPermissionModes(saved.agentPermissionModes ?? {})
+        setFirstMate(saved.firstMate ?? { worklogCollapsed: true })
       } else {
         const directory = await window.terminalApi.getInitialProject()
         if (!active) return
@@ -193,6 +197,7 @@ function Canvas(): JSX.Element {
         activeProjectId,
         sidebarCollapsed,
         agentPermissionModes,
+        firstMate,
         nodes: nodes.map(serializeCanvasNode)
       }
       void window.terminalApi.saveWorkspace(state).then((result) => {
@@ -200,7 +205,7 @@ function Canvas(): JSX.Element {
       })
     }, 180)
     return () => clearTimeout(timeout)
-  }, [activeProjectId, agentPermissionModes, nodes, projects, sidebarCollapsed, workspaceReady])
+  }, [activeProjectId, agentPermissionModes, firstMate, nodes, projects, sidebarCollapsed, workspaceReady])
 
   const addProject = useCallback(async (): Promise<void> => {
     const directory = await window.terminalApi.pickProject()
@@ -475,6 +480,13 @@ function Canvas(): JSX.Element {
             <Controls showInteractive={false} position="bottom-left" />
           </ReactFlow>
         </section>
+
+        {workspaceReady && (
+          <FirstMatePanel
+            state={firstMate}
+            onStateChange={setFirstMate}
+          />
+        )}
       </div>
 
       {menu && activeProject && (
