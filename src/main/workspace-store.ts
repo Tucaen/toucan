@@ -41,6 +41,7 @@ export function isWorkspaceState(value: unknown): value is WorkspaceState {
     && typeof node.width === 'number'
     && typeof node.height === 'number'
     && (node.conversationId === undefined || typeof node.conversationId === 'string')
+    && (node.worklogCollapsed === undefined || typeof node.worklogCollapsed === 'boolean')
     && (
       node.preview === undefined
       || (

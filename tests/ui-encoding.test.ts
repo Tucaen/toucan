@@ -6,11 +6,10 @@ import { test } from 'node:test'
 const uiTextFiles = [
   'README.md',
   'src/main/acp-session-manager.ts',
-  'src/renderer/src/ChatNode.prototype.tsx',
-  'src/renderer/src/PrototypeSwitcher.tsx'
+  'src/renderer/src/ChatNode.tsx'
 ]
 
-test('user-facing prototype text contains no UTF-8 mojibake markers', () => {
+test('user-facing chat text contains no UTF-8 mojibake markers', () => {
   for (const relativePath of uiTextFiles) {
     const source = readFileSync(join(process.cwd(), relativePath), 'utf8')
     assert.doesNotMatch(

@@ -18,7 +18,8 @@ test('restores saved canvas nodes and ignores nodes whose project is gone', () =
         position: { x: 30, y: 50 },
         width: 540,
         height: 360,
-        conversationId: 'conversation-7'
+        conversationId: 'conversation-7',
+        worklogCollapsed: true
       },
       {
         id: 'orphan',
@@ -35,12 +36,14 @@ test('restores saved canvas nodes and ignores nodes whose project is gone', () =
     onStatusChange: () => undefined,
     onConversationId: () => undefined,
     onPreview: () => undefined,
+    onWorklogCollapsed: () => undefined,
     onResume: () => undefined
   })
 
   assert.equal(restored.nodes.length, 1)
   assert.equal(restored.nodes[0].data.dormant, true)
   assert.equal(restored.nodes[0].data.projectPath, 'D:\\Development\\ADE')
+  assert.equal(restored.nodes[0].data.worklogCollapsed, true)
   assert.equal(restored.nextSessionNumber, 8)
   assert.equal(restored.activeProjectId, 'project-1')
   assert.deepEqual(serializeCanvasNode(restored.nodes[0]), state.nodes[0])

@@ -1,4 +1,3 @@
-// Three variants of the ACP chat node, switchable via ?variant=, on the existing canvas route.
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { NodeResizer, type NodeProps } from '@xyflow/react'
 import ReactMarkdown from 'react-markdown'
@@ -10,7 +9,6 @@ import type {
   AgentPlanEntry
 } from '../../shared/agent'
 import type { TerminalCanvasNode } from './canvas-workspace'
-import { useChatPrototypeVariant } from './PrototypeSwitcher'
 
 interface ChatMessage {
   id: string
@@ -42,44 +40,6 @@ interface ChatViewProps {
 }
 
 const providerNames = { claude: 'Claude', codex: 'Codex' } as const
-
-const examplePlan: AgentPlanEntry[] = [
-  { content: 'Inspect how saved agent sessions are resumed', priority: 'high', status: 'completed' },
-  { content: 'Normalize provider events into one chat model', priority: 'high', status: 'completed' },
-  { content: 'Update the node UI and process launcher', priority: 'high', status: 'in_progress' },
-  { content: 'Run type checks, tests, and a production build', priority: 'medium', status: 'pending' }
-]
-
-const exampleActivities: AgentActivity[] = [
-  {
-    id: 'example-search',
-    title: 'Searched for the session resume path',
-    kind: 'search',
-    status: 'completed',
-    content: '12 matches across 5 files'
-  },
-  {
-    id: 'example-read',
-    title: 'Inspected the Claude adapter launcher',
-    kind: 'read',
-    status: 'completed',
-    locations: ['node_modules/@agentclientprotocol/claude-agent-acp/dist/acp-agent.js']
-  },
-  {
-    id: 'example-edit',
-    title: 'Updated the shared ACP session manager',
-    kind: 'edit',
-    status: 'completed',
-    locations: ['src/main/acp-session-manager.ts']
-  },
-  {
-    id: 'example-test',
-    title: 'Running the regression tests',
-    kind: 'execute',
-    status: 'in_progress',
-    content: '12 passed, 2 still running'
-  }
-]
 
 function Markdown({ text }: { text: string }): JSX.Element {
   return <ReactMarkdown>{text}</ReactMarkdown>
@@ -179,9 +139,13 @@ function ActivityCard({ activity }: { activity: AgentActivity }): JSX.Element {
   )
 }
 
-export function VariantA(props: ChatViewProps): JSX.Element {
+function ChatView(props: ChatViewProps & {
+  worklogCollapsed: boolean
+  setWorklogCollapsed(collapsed: boolean): void
+}): JSX.Element {
+  const workItemCount = props.activities.length + props.plan.length
   return (
-    <div className="chat-variant chat-variant-a">
+    <div className={`agent-chat ${props.worklogCollapsed ? 'worklog-collapsed' : ''}`}>
       <div className="chat-scroll nodrag nopan nowheel">
         {props.messages.length === 0 && <EmptyConversation provider={props.provider} />}
         {props.messages.map((message) => message.role === 'thought'
@@ -192,85 +156,53 @@ export function VariantA(props: ChatViewProps): JSX.Element {
               <div><Markdown text={message.text} /></div>
             </article>
           ))}
-        {props.activities.length > 0 && (
-          <section className="inline-activities">
-            {props.activities.map((activity) => <ActivityCard activity={activity} key={activity.id} />)}
-          </section>
-        )}
         <ApprovalPanel {...props} />
         <AuthPanel {...props} />
       </div>
-      <Composer {...props} />
-    </div>
-  )
-}
-
-export function VariantB(props: ChatViewProps): JSX.Element {
-  const conversation = props.messages.filter((message) => message.role !== 'thought')
-  const showExamples = props.plan.length === 0 && props.activities.length === 0
-  const displayedPlan = showExamples ? examplePlan : props.plan
-  const displayedActivities = showExamples ? exampleActivities : props.activities
-  return (
-    <div className="chat-variant chat-variant-b">
-      <section className="worklog-conversation nodrag nopan nowheel">
-        <div className="worklog-heading"><span>Conversation</span><small>{conversation.length} messages</small></div>
-        {conversation.length === 0 && <EmptyConversation provider={props.provider} />}
-        {conversation.map((message) => (
-          <article className={`worklog-message ${message.role}`} key={message.id}>
-            <strong>{message.role === 'user' ? 'You' : providerNames[props.provider]}</strong>
-            <Markdown text={message.text} />
-          </article>
-        ))}
-        <ApprovalPanel {...props} />
-        <AuthPanel {...props} />
-      </section>
       <aside className="worklog-rail nodrag nopan nowheel">
-        <div className="worklog-heading">
-          <span>Worklog</span>
-          <small>{showExamples ? 'example preview' : `${props.activities.length} actions`}</small>
-        </div>
-        {showExamples && (
-          <p className="worklog-example-note">Sample data - replaced as soon as the agent reports real work.</p>
+        {props.worklogCollapsed ? (
+          <button
+            type="button"
+            className="worklog-expand"
+            aria-label="Show worklog"
+            aria-expanded="false"
+            onClick={() => props.setWorklogCollapsed(false)}
+          >
+            <span>{'<'}</span>
+            <strong>Worklog</strong>
+            <small>{workItemCount}</small>
+          </button>
+        ) : (
+          <>
+            <div className="worklog-heading">
+              <span>Worklog</span>
+              <small>{props.activities.length} actions</small>
+              <button
+                type="button"
+                aria-label="Hide worklog"
+                aria-expanded="true"
+                title="Hide worklog"
+                onClick={() => props.setWorklogCollapsed(true)}
+              >
+                {'>'}
+              </button>
+            </div>
+            {props.plan.length > 0 && (
+              <ol className="plan-list">
+                {props.plan.map((entry, index) => <li data-status={entry.status} key={`${index}-${entry.content}`}>{entry.content}</li>)}
+              </ol>
+            )}
+            {props.activities.map((activity) => <ActivityCard activity={activity} key={activity.id} />)}
+            {workItemCount === 0 && <p className="worklog-empty">Agent plans and activity will appear here.</p>}
+          </>
         )}
-        {displayedPlan.length > 0 && (
-          <ol className="plan-list">
-            {displayedPlan.map((entry, index) => <li data-status={entry.status} key={`${index}-${entry.content}`}>{entry.content}</li>)}
-          </ol>
-        )}
-        {displayedActivities.map((activity) => <ActivityCard activity={activity} key={activity.id} />)}
       </aside>
       <Composer {...props} />
     </div>
   )
 }
 
-export function VariantC(props: ChatViewProps): JSX.Element {
-  const latestAssistant = [...props.messages].reverse().find((message) => message.role === 'assistant')
-  const userMessages = props.messages.filter((message) => message.role === 'user')
-  return (
-    <div className="chat-variant chat-variant-c">
-      <div className="focus-prompts nodrag nopan nowheel">
-        {userMessages.map((message) => <span key={message.id}>{message.text}</span>)}
-      </div>
-      <main className="focus-answer nodrag nopan nowheel">
-        {!latestAssistant && <EmptyConversation provider={props.provider} />}
-        {latestAssistant && <Markdown text={latestAssistant.text} />}
-        <ApprovalPanel {...props} />
-        <AuthPanel {...props} />
-      </main>
-      {(props.activities.length > 0 || props.plan.length > 0) && (
-        <details className="focus-activity nodrag nopan nowheel" open={props.status === 'working'}>
-          <summary>{props.status === 'working' ? 'Working...' : 'Work completed'} - {props.activities.length} actions</summary>
-          {props.activities.map((activity) => <ActivityCard activity={activity} key={activity.id} />)}
-        </details>
-      )}
-      <Composer {...props} />
-    </div>
-  )
-}
-
 export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanvasNode>): JSX.Element {
-  const variant = useChatPrototypeVariant()
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [activitiesById, setActivitiesById] = useState<Record<string, AgentActivity>>({})
   const [plan, setPlan] = useState<AgentPlanEntry[]>([])
@@ -404,7 +336,7 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
 
   return (
     <article
-      className={`terminal-node chat-node ${selected ? 'selected' : ''} variant-${variant.toLocaleLowerCase()}`}
+      className={`terminal-node chat-node ${selected ? 'selected' : ''}`}
       style={{ '--node-accent': provider === 'claude' ? '#e69a71' : '#71a9ff', '--project-color': data.projectColor } as React.CSSProperties}
     >
       <NodeResizer minWidth={420} minHeight={320} isVisible={selected} color={data.projectColor} />
@@ -427,9 +359,11 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
         </div>
       ) : (
         <>
-          {variant === 'A' && <VariantA {...props} />}
-          {variant === 'B' && <VariantB {...props} />}
-          {variant === 'C' && <VariantC {...props} />}
+          <ChatView
+            {...props}
+            worklogCollapsed={data.worklogCollapsed}
+            setWorklogCollapsed={(collapsed) => data.onWorklogCollapsed(id, collapsed)}
+          />
           {detail && <div className="chat-detail" title={detail}>{detail}</div>}
         </>
       )}

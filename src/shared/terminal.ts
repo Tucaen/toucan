@@ -36,6 +36,7 @@ export interface WorkspaceTerminalNode {
   height: number
   conversationId?: string
   preview?: ConversationPreview
+  worklogCollapsed?: boolean
 }
 
 export interface WorkspaceState {

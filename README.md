@@ -4,19 +4,13 @@
 
 Windows-only for this prototype. Projects and canvas nodes are saved locally. PTY processes end with ADE, while Claude and Codex conversations can be resumed from restored nodes.
 
-## ACP chat-node prototype
+## ACP chat nodes
 
-This branch prototypes one provider-neutral chat node for both Codex and Claude. It uses stable ACP v1 with pinned `codex-acp` and `claude-agent-acp` adapters; ordinary terminal nodes continue to use the existing PTY/xterm implementation.
+ADE uses one provider-neutral chat node for both Codex and Claude. It uses stable ACP v1 with pinned `codex-acp` and `claude-agent-acp` adapters; ordinary terminal nodes continue to use the existing PTY/xterm implementation.
 
 Run `npm run dev`, right-click the canvas, and create a **Codex** or **Claude** node. If the provider is not already authenticated, choose its subscription login from the node. No prompt is sent during sign-in.
 
-Three disposable layouts are available on the existing canvas route:
-
-- `?variant=A` - flowing conversation with inline activity
-- `?variant=B` - conversation beside a persistent worklog
-- `?variant=C` - latest-answer focus with collapsed activity
-
-Use the floating development-only switcher or the left/right arrow keys to compare them. The switcher is deliberately omitted from production builds.
+Agent nodes use a flowing chat layout with clearly separated user and assistant messages. A worklog beside the conversation shows plans, commands, edits, and other tool activity. Collapse it to a narrow tab when the conversation needs more room, then reopen it without resizing the node.
 
 ## Run
 

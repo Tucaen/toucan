@@ -12,6 +12,7 @@ export interface TerminalNodeCallbacks {
   onStatusChange(nodeId: string, status: TerminalNodeStatus): void
   onConversationId(nodeId: string, conversationId: string): void
   onPreview(nodeId: string, preview: ConversationPreview): void
+  onWorklogCollapsed(nodeId: string, collapsed: boolean): void
   onResume(nodeId: string): void
 }
 
@@ -24,6 +25,7 @@ export interface TerminalNodeData extends Record<string, unknown>, TerminalNodeC
   projectColor: string
   conversationId?: string
   preview?: ConversationPreview
+  worklogCollapsed: boolean
   dormant: boolean
   launchMode: 'new' | 'resume'
 }
@@ -49,7 +51,8 @@ export function serializeCanvasNode(node: TerminalCanvasNode): WorkspaceTerminal
     width: node.measured?.width ?? styleWidth,
     height: node.measured?.height ?? styleHeight,
     ...(node.data.conversationId ? { conversationId: node.data.conversationId } : {}),
-    ...(node.data.preview ? { preview: node.data.preview } : {})
+    ...(node.data.preview ? { preview: node.data.preview } : {}),
+    ...(node.data.worklogCollapsed ? { worklogCollapsed: true } : {})
   }
 }
 
@@ -73,6 +76,7 @@ export function restoreCanvasWorkspace(
         projectColor: project.color,
         conversationId: savedNode.conversationId,
         preview: savedNode.preview,
+        worklogCollapsed: savedNode.worklogCollapsed ?? false,
         dormant: true,
         launchMode: 'resume',
         ...callbacks

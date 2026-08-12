@@ -1,5 +1,5 @@
 import type { NodeProps } from '@xyflow/react'
-import ChatNode from './ChatNode.prototype'
+import ChatNode from './ChatNode'
 import type { TerminalCanvasNode } from './canvas-workspace'
 import TerminalNode from './TerminalNode'
 

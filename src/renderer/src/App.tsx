@@ -22,7 +22,6 @@ import {
   type TerminalCanvasNode,
   type TerminalNodeStatus
 } from './canvas-workspace'
-import PrototypeSwitcher from './PrototypeSwitcher'
 import SessionNode from './SessionNode'
 
 type Project = WorkspaceProject
@@ -107,6 +106,12 @@ function Canvas(): JSX.Element {
       : node))
   }, [setNodes])
 
+  const handleWorklogCollapsed = useCallback((nodeId: string, collapsed: boolean): void => {
+    setNodes((current) => current.map((node) => node.id === nodeId
+      ? { ...node, data: { ...node.data, worklogCollapsed: collapsed } }
+      : node))
+  }, [setNodes])
+
   const resumeNode = useCallback((nodeId: string): void => {
     setNodes((current) => current.map((node) => node.id === nodeId
       ? {
@@ -133,6 +138,7 @@ function Canvas(): JSX.Element {
           onStatusChange: handleStatusChange,
           onConversationId: handleConversationId,
           onPreview: handlePreview,
+          onWorklogCollapsed: handleWorklogCollapsed,
           onResume: resumeNode
         })
 
@@ -152,7 +158,7 @@ function Canvas(): JSX.Element {
       setWorkspaceReady(true)
     })()
     return () => { active = false }
-  }, [handleConversationId, handlePreview, handleStatusChange, resumeNode, setNodes])
+  }, [handleConversationId, handlePreview, handleStatusChange, handleWorklogCollapsed, resumeNode, setNodes])
 
   useEffect(() => {
     if (!workspaceReady) return
@@ -255,11 +261,13 @@ function Canvas(): JSX.Element {
             projectPath: activeProject.path,
             projectColor: activeProject.color,
             conversationId,
+            worklogCollapsed: false,
             dormant: false,
             launchMode: 'new',
             onStatusChange: handleStatusChange,
             onConversationId: handleConversationId,
             onPreview: handlePreview,
+            onWorklogCollapsed: handleWorklogCollapsed,
             onResume: resumeNode
           },
           style: { width: 520, height: 340 }
@@ -268,7 +276,7 @@ function Canvas(): JSX.Element {
       setNodeStatuses((current) => ({ ...current, [id]: 'starting' }))
       setMenu(null)
     },
-    [activeProject, handleConversationId, handlePreview, handleStatusChange, menu, resumeNode, setNodes]
+    [activeProject, handleConversationId, handlePreview, handleStatusChange, handleWorklogCollapsed, menu, resumeNode, setNodes]
   )
 
   return (
@@ -466,7 +474,6 @@ function Canvas(): JSX.Element {
           </button>
         </div>
       )}
-      <PrototypeSwitcher />
     </main>
   )
 }
