@@ -10,14 +10,21 @@ export function forceHiddenWindows<T extends Record<string, unknown> | undefined
   return { ...(options ?? {}), windowsHide: true }
 }
 
+export function resolveUnpackedExecutable(command: string, pathExists: (path: string) => boolean): string {
+  const unpacked = command.replace(/([\\/])app\.asar([\\/])/, '$1app.asar.unpacked$2')
+  return unpacked !== command && pathExists(unpacked) ? unpacked : command
+}
+
 const hiddenWindowsPreload = [
   "import childProcess from 'node:child_process'",
+  "import { existsSync } from 'node:fs'",
   "import { syncBuiltinESMExports } from 'node:module'",
   `const forceHiddenWindows = ${forceHiddenWindows.toString()}`,
+  `const resolveUnpackedExecutable = ${resolveUnpackedExecutable.toString()}`,
   'const originalSpawn = childProcess.spawn.bind(childProcess)',
   'const originalSpawnSync = childProcess.spawnSync.bind(childProcess)',
-  'childProcess.spawn = (command, args, options) => originalSpawn(command, args, forceHiddenWindows(options))',
-  'childProcess.spawnSync = (command, args, options) => originalSpawnSync(command, args, forceHiddenWindows(options))',
+  'childProcess.spawn = (command, args, options) => originalSpawn(resolveUnpackedExecutable(command, existsSync), args, forceHiddenWindows(options))',
+  'childProcess.spawnSync = (command, args, options) => originalSpawnSync(resolveUnpackedExecutable(command, existsSync), args, forceHiddenWindows(options))',
   "Object.defineProperty(childProcess.spawn, '__adeForceHiddenWindows', { value: true })",
   "Object.defineProperty(childProcess.spawnSync, '__adeForceHiddenWindows', { value: true })",
   'syncBuiltinESMExports()'

@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { copyFileSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -62,4 +62,29 @@ test('the hidden-window preload propagates through an intermediate Node process'
 
   assert.equal(result.status, 0, result.stderr)
   assert.equal(result.stdout, 'true')
+})
+
+test('nested agent executables are redirected from app.asar to app.asar.unpacked', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'ade-agent-asar-'))
+  const packedDirectory = join(directory, 'resources', 'app.asar', 'vendor')
+  const unpackedDirectory = join(directory, 'resources', 'app.asar.unpacked', 'vendor')
+  const packedExecutable = join(packedDirectory, 'provider.exe')
+  const unpackedExecutable = join(unpackedDirectory, 'provider.exe')
+  const adapterPath = join(directory, 'adapter.mjs')
+  mkdirSync(unpackedDirectory, { recursive: true })
+  copyFileSync(process.execPath, unpackedExecutable)
+  writeFileSync(
+    adapterPath,
+    `import { spawnSync } from 'node:child_process'\nconst result = spawnSync(${JSON.stringify(packedExecutable)}, ['-e', "process.stdout.write('provider loaded')"], { encoding: 'utf8' })\nif (result.error) throw result.error\nprocess.stdout.write(result.stdout)\n`,
+    'utf8'
+  )
+  const launch = buildAgentProcessLaunch(process.execPath, adapterPath, directory, process.env)
+
+  const result = spawnSync(launch.executable, launch.args, {
+    ...launch.options,
+    encoding: 'utf8'
+  })
+
+  assert.equal(result.status, 0, result.stderr)
+  assert.equal(result.stdout, 'provider loaded')
 })
