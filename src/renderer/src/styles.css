@@ -619,6 +619,32 @@ button {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--project-color) 32%, transparent), 0 20px 60px rgba(0, 0, 0, 0.5);
 }
 
+/* Keep the resize border visually thin while making every edge easy to grab. */
+.node-resize-line::after,
+.node-resize-handle::after {
+  position: absolute;
+  content: "";
+  pointer-events: auto;
+}
+
+.node-resize-line.left::after,
+.node-resize-line.right::after {
+  inset: 0 -6px;
+}
+
+.node-resize-line.top::after,
+.node-resize-line.bottom::after {
+  inset: -6px 0;
+}
+
+.node-resize-handle {
+  z-index: 1;
+}
+
+.node-resize-handle::after {
+  inset: -6px;
+}
+
 .node-header {
   height: 38px;
   display: flex;

@@ -11,12 +11,9 @@ import {
   type ClientConnection,
   type ClientContext,
   type CreateElicitationRequest,
-  type RequestPermissionResponse,
-  type SessionUpdate,
-  type ToolCallContent
+  type RequestPermissionResponse
 } from '@agentclientprotocol/sdk'
 import type {
-  AgentActivity,
   AgentAuthMethod,
   AgentCreateRequest,
   AgentCreateResult,
@@ -24,6 +21,7 @@ import type {
   AgentPermissionOption,
   AgentPromptResult
 } from '../shared/agent'
+import { activityFromUpdate } from '../shared/agent-activity'
 import { buildAgentProcessLaunch } from './agent-process'
 
 interface PendingApproval {
@@ -58,28 +56,6 @@ function simplifyAuthMethod(method: AuthMethod): AgentAuthMethod {
     ...(method.description ? { description: method.description } : {}),
     type: 'type' in method ? method.type : 'agent',
     ...('args' in method && method.args ? { args: method.args } : {})
-  }
-}
-
-function toolContentText(content: ToolCallContent[] | null | undefined): string | undefined {
-  if (!content?.length) return undefined
-  const lines = content.flatMap((item) => {
-    if (item.type === 'content' && item.content.type === 'text') return [item.content.text]
-    if (item.type === 'diff') return [`Changed ${item.path}`]
-    if (item.type === 'terminal') return ['Terminal output is available.']
-    return []
-  })
-  return lines.length > 0 ? lines.join('\n') : undefined
-}
-
-function activityFromUpdate(update: Extract<SessionUpdate, { sessionUpdate: 'tool_call' | 'tool_call_update' }>): AgentActivity {
-  return {
-    id: update.toolCallId,
-    title: update.title ?? 'Agent activity',
-    ...(update.kind ? { kind: update.kind } : {}),
-    ...(update.status ? { status: update.status } : {}),
-    ...(toolContentText(update.content) ? { content: toolContentText(update.content) } : {}),
-    ...(update.locations ? { locations: update.locations.map((location) => location.path) } : {})
   }
 }
 

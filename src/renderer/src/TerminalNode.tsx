@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { NodeResizer, type NodeProps } from '@xyflow/react'
+import { type NodeProps } from '@xyflow/react'
 import { FitAddon } from '@xterm/addon-fit'
 import { Terminal } from '@xterm/xterm'
 import type { TerminalCanvasNode } from './canvas-workspace'
+import NodeBorderResizer from './NodeBorderResizer'
 
 const accents = {
   terminal: '#74d8a2',
@@ -196,7 +197,7 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
         '--project-color': data.projectColor
       } as React.CSSProperties}
     >
-      <NodeResizer minWidth={360} minHeight={240} isVisible={selected} color={data.projectColor} />
+      <NodeBorderResizer minWidth={360} minHeight={240} selected={selected} color={data.projectColor} />
       <header className="node-header">
         <span className="status-dot" />
         <strong>{data.label}</strong>

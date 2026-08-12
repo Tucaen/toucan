@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
-import { NodeResizer, type NodeProps } from '@xyflow/react'
+import { type NodeProps } from '@xyflow/react'
 import ReactMarkdown from 'react-markdown'
 import type {
   AgentActivity,
@@ -8,7 +8,9 @@ import type {
   AgentPermissionOption,
   AgentPlanEntry
 } from '../../shared/agent'
+import { activityTitle } from '../../shared/agent-activity'
 import type { TerminalCanvasNode } from './canvas-workspace'
+import NodeBorderResizer from './NodeBorderResizer'
 
 interface ChatMessage {
   id: string
@@ -130,7 +132,7 @@ function ActivityCard({ activity }: { activity: AgentActivity }): JSX.Element {
     <article className="activity-card" data-status={activity.status}>
       <span className="activity-icon">{activity.kind === 'edit' ? '+' : activity.kind === 'execute' ? '>_' : '*'}</span>
       <div>
-        <strong>{activity.title}</strong>
+        <strong>{activityTitle(activity)}</strong>
         {activity.content && <pre>{activity.content}</pre>}
         {activity.locations?.map((location) => <small key={location}>{location}</small>)}
       </div>
@@ -339,7 +341,7 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
       className={`terminal-node chat-node ${selected ? 'selected' : ''}`}
       style={{ '--node-accent': provider === 'claude' ? '#e69a71' : '#71a9ff', '--project-color': data.projectColor } as React.CSSProperties}
     >
-      <NodeResizer minWidth={420} minHeight={320} isVisible={selected} color={data.projectColor} />
+      <NodeBorderResizer minWidth={420} minHeight={320} selected={selected} color={data.projectColor} />
       <header className="node-header chat-node-header">
         <span className="status-dot" data-status={status} />
         <strong>{data.label}</strong>

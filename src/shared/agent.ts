@@ -42,7 +42,8 @@ export interface AgentPlanEntry {
 
 export interface AgentActivity {
   id: string
-  title: string
+  /** Omitted by patch-style ACP updates when the existing title is unchanged. */
+  title?: string
   kind?: string
   status?: 'pending' | 'in_progress' | 'completed' | 'failed'
   content?: string
