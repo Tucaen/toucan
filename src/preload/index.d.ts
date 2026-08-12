@@ -1,4 +1,10 @@
 import type {
+  AgentCreateRequest,
+  AgentCreateResult,
+  AgentEvent,
+  AgentPromptResult
+} from '../shared/agent'
+import type {
   ConversationPreview,
   ProjectDirectory,
   TerminalCreateRequest,
@@ -6,6 +12,16 @@ import type {
   WorkspaceSaveResult,
   WorkspaceState
 } from '../shared/terminal'
+
+export interface AgentApi {
+  create(request: AgentCreateRequest): Promise<AgentCreateResult>
+  prompt(id: string, text: string): Promise<AgentPromptResult>
+  authenticate(id: string, methodId: string): Promise<AgentCreateResult>
+  resolveApproval(id: string, approvalId: string, optionId?: string): void
+  cancel(id: string): void
+  kill(id: string): void
+  onEvent(id: string, callback: (event: AgentEvent) => void): () => void
+}
 
 export interface TerminalApi {
   getInitialProject(): Promise<ProjectDirectory>
@@ -27,5 +43,6 @@ export interface TerminalApi {
 declare global {
   interface Window {
     terminalApi: TerminalApi
+    agentApi: AgentApi
   }
 }

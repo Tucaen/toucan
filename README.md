@@ -4,6 +4,20 @@
 
 Windows-only for this prototype. Projects and canvas nodes are saved locally. PTY processes end with ADE, while Claude and Codex conversations can be resumed from restored nodes.
 
+## ACP chat-node prototype
+
+This branch prototypes one provider-neutral chat node for both Codex and Claude. It uses stable ACP v1 with pinned `codex-acp` and `claude-agent-acp` adapters; ordinary terminal nodes continue to use the existing PTY/xterm implementation.
+
+Run `npm run dev`, right-click the canvas, and create a **Codex** or **Claude** node. If the provider is not already authenticated, choose its subscription login from the node. No prompt is sent during sign-in.
+
+Three disposable layouts are available on the existing canvas route:
+
+- `?variant=A` â€” flowing conversation with inline activity
+- `?variant=B` â€” conversation beside a persistent worklog
+- `?variant=C` â€” latest-answer focus with collapsed activity
+
+Use the floating development-only switcher or the left/right arrow keys to compare them. The switcher is deliberately omitted from production builds.
+
 ## Run
 
 ```powershell
@@ -39,7 +53,7 @@ This creates the x64 portable executable at `dist/ADE-0.1.0-portable-x64.exe`. I
 
 `node-pty` 1.1.0 ships Windows x64 prebuilt native binaries, which are unpacked from the application archive. Packaging intentionally skips a source rebuild so contributors do not need Python and Visual Studio Build Tools merely to produce this Windows prototype.
 
-The current folder starts as the first project. Use **Add project** in the left sidebar to choose more folders, then click a project to make it the creation target. All projects remain visible on one canvas. Right-click the canvas and choose **Terminal**, **Claude Code**, or **Codex**; the session starts in the selected project's folder and carries a project badge.
+The current folder starts as the first project. Use **Add project** in the left sidebar to choose more folders, then click a project to make it the creation target. All projects remain visible on one canvas. Right-click the canvas and choose **Terminal**, **Claude**, or **Codex**; the session starts in the selected project's folder and carries a project badge. Terminal nodes expose the native shell, while Claude and Codex nodes share the ACP chat prototype.
 
 Projects, their colors, the active creation target, sidebar state, and terminal-node geometry are automatically saved to `prototype-workspace.json` in Electron's user-data folder. Empty projects can be removed from the sidebar; delete their nodes first when necessary.
 

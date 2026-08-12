@@ -1,5 +1,11 @@
 import { clipboard, contextBridge, ipcRenderer } from 'electron'
 import type {
+  AgentCreateRequest,
+  AgentCreateResult,
+  AgentEventEnvelope,
+  AgentPromptResult
+} from '../shared/agent'
+import type {
   ConversationPreview,
   ProjectDirectory,
   TerminalCreateRequest,
@@ -53,3 +59,25 @@ const terminalApi = {
 }
 
 contextBridge.exposeInMainWorld('terminalApi', terminalApi)
+
+const agentApi = {
+  create: (request: AgentCreateRequest): Promise<AgentCreateResult> => ipcRenderer.invoke('agent:create', request),
+  prompt: (id: string, text: string): Promise<AgentPromptResult> => ipcRenderer.invoke('agent:prompt', id, text),
+  authenticate: (id: string, methodId: string): Promise<AgentCreateResult> => (
+    ipcRenderer.invoke('agent:authenticate', id, methodId)
+  ),
+  resolveApproval: (id: string, approvalId: string, optionId?: string): void => (
+    ipcRenderer.send('agent:approval', id, approvalId, optionId)
+  ),
+  cancel: (id: string): void => ipcRenderer.send('agent:cancel', id),
+  kill: (id: string): void => ipcRenderer.send('agent:kill', id),
+  onEvent: (id: string, callback: (event: AgentEventEnvelope['event']) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, envelope: AgentEventEnvelope): void => {
+      if (envelope.id === id) callback(envelope.event)
+    }
+    ipcRenderer.on('agent:event', listener)
+    return () => ipcRenderer.removeListener('agent:event', listener)
+  }
+}
+
+contextBridge.exposeInMainWorld('agentApi', agentApi)

@@ -22,7 +22,8 @@ import {
   type TerminalCanvasNode,
   type TerminalNodeStatus
 } from './canvas-workspace'
-import TerminalNode from './TerminalNode'
+import PrototypeSwitcher from './PrototypeSwitcher'
+import SessionNode from './SessionNode'
 
 type Project = WorkspaceProject
 
@@ -33,7 +34,7 @@ interface ContextMenuState {
   flowY: number
 }
 
-const nodeTypes: NodeTypes = { terminalNode: TerminalNode }
+const nodeTypes: NodeTypes = { terminalNode: SessionNode }
 
 const labels: Record<TerminalKind, string> = {
   terminal: 'Terminal',
@@ -276,7 +277,7 @@ function Canvas(): JSX.Element {
         <div>
           <span className="brand-mark" aria-hidden="true" />
           <strong>ADE</strong>
-          <span className="prototype-label">canvas terminal prototype</span>
+          <span className="prototype-label">canvas agent prototype</span>
         </div>
         <div className="header-target">
           <span className="hint">Right-click to create a session</span>
@@ -457,14 +458,15 @@ function Canvas(): JSX.Element {
           </button>
           <button type="button" role="menuitem" onClick={() => createNode('claude')}>
             <span className="menu-icon claude-icon">C</span>
-            <span><strong>Claude Code</strong><small>Launch claude CLI</small></span>
+            <span><strong>Claude</strong><small>Unified ACP chat</small></span>
           </button>
           <button type="button" role="menuitem" onClick={() => createNode('codex')}>
             <span className="menu-icon codex-icon">&lt;&gt;</span>
-            <span><strong>Codex</strong><small>Launch codex CLI</small></span>
+            <span><strong>Codex</strong><small>Unified ACP chat</small></span>
           </button>
         </div>
       )}
+      <PrototypeSwitcher />
     </main>
   )
 }

@@ -3,7 +3,9 @@ import { execFileSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { basename, extname, join, normalize } from 'node:path'
 import { spawn } from 'node-pty'
+import type { AgentCreateRequest } from '../shared/agent'
 import type { TerminalCreateRequest } from '../shared/terminal'
+import { createAcpSessionManager, type AcpSessionManager } from './acp-session-manager'
 import { createSessionProviders, type SessionProviders } from './session-providers'
 import { createTerminalManager, type TerminalManager } from './terminal-manager'
 import { createWorkspaceStore } from './workspace-store'
@@ -48,6 +50,19 @@ function registerTerminalIpc(manager: TerminalManager, providers: SessionProvide
   ipcMain.on('terminal:kill', (_event, id: string) => manager.kill(id))
 }
 
+function registerAgentIpc(manager: AcpSessionManager): void {
+  ipcMain.handle('agent:create', (event, request: AgentCreateRequest) => manager.create(request, event.sender))
+  ipcMain.handle('agent:prompt', (_event, id: string, text: string) => manager.prompt(id, text))
+  ipcMain.handle('agent:authenticate', (_event, id: string, methodId: string) => (
+    manager.authenticate(id, methodId)
+  ))
+  ipcMain.on('agent:approval', (_event, id: string, approvalId: string, optionId?: string) => (
+    manager.resolveApproval(id, approvalId, optionId)
+  ))
+  ipcMain.on('agent:cancel', (_event, id: string) => manager.cancel(id))
+  ipcMain.on('agent:kill', (_event, id: string) => manager.kill(id))
+}
+
 function registerProjectIpc(): void {
   const workspace = createWorkspaceStore(join(app.getPath('userData'), 'prototype-workspace.json'))
 
@@ -73,7 +88,7 @@ function registerProjectIpc(): void {
   ipcMain.handle('workspace:save', (_event, state) => workspace.save(state))
 }
 
-function createWindow(manager: TerminalManager): void {
+function createWindow(terminalManager: TerminalManager, agentManager: AcpSessionManager): void {
   const window = new BrowserWindow({
     width: 1440,
     height: 900,
@@ -92,7 +107,10 @@ function createWindow(manager: TerminalManager): void {
 
   window.once('ready-to-show', () => window.show())
   const contents = window.webContents
-  contents.on('destroyed', () => manager.killOwned(contents))
+  contents.on('destroyed', () => {
+    terminalManager.killOwned(contents)
+    agentManager.killOwned(contents)
+  })
 
   if (process.env.ELECTRON_RENDERER_URL) {
     void window.loadURL(process.env.ELECTRON_RENDERER_URL)
@@ -117,15 +135,20 @@ app.whenReady().then(() => {
       env: { ...process.env, TERM: 'xterm-256color' }
     })
   })
+  const agentManager = createAcpSessionManager({ appPath: app.getAppPath() })
 
   registerTerminalIpc(manager, providers)
+  registerAgentIpc(agentManager)
   registerProjectIpc()
-  createWindow(manager)
+  createWindow(manager, agentManager)
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow(manager)
+    if (BrowserWindow.getAllWindows().length === 0) createWindow(manager, agentManager)
   })
-  app.on('before-quit', () => manager.killAll())
+  app.on('before-quit', () => {
+    manager.killAll()
+    agentManager.killAll()
+  })
 })
 
 app.on('window-all-closed', () => app.quit())
