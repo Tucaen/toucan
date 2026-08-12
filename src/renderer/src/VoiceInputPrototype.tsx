@@ -10,6 +10,11 @@ interface VoiceInputPrototypeProps {
   setDraft(value: string): void
 }
 
+const LOCAL_MODEL_URL = new URL(
+  './models/moonshine-small-streaming-en/',
+  window.location.href
+).toString()
+
 function joinTranscript(lines: string[], partial: string): string {
   const parts = [...lines]
   const tail = partial.trim()
@@ -62,6 +67,7 @@ export default function VoiceInputPrototype(props: VoiceInputPrototypeProps): JS
         transcriber = new MicTranscriber()
           .language('en')
           .modelArch(ModelArch.SmallStreaming)
+          .modelsFrom(LOCAL_MODEL_URL)
           .onProgress((fraction) => setProgress(fraction))
           .onText((text) => {
             partialRef.current = text
@@ -109,8 +115,11 @@ export default function VoiceInputPrototype(props: VoiceInputPrototypeProps): JS
     }
   }
 
+  const loadingLabel = progress > 0
+    ? `Preparing local speech model ${Math.round(progress * 100)}%`
+    : 'Preparing local speech model'
   const label = state === 'loading'
-    ? `Loading ${Math.round(progress * 100)}%`
+    ? loadingLabel
     : state === 'listening'
       ? 'Stop dictation'
       : state === 'stopping'
@@ -129,7 +138,7 @@ export default function VoiceInputPrototype(props: VoiceInputPrototypeProps): JS
         onClick={() => state === 'listening' ? void finish(true) : void begin()}
       >
         <span aria-hidden="true">{state === 'listening' ? '■' : '●'}</span>
-        {state === 'loading' ? `${Math.round(progress * 100)}%` : state === 'listening' ? 'Done' : 'Mic'}
+        {state === 'loading' ? 'Wait' : state === 'listening' ? 'Done' : 'Mic'}
       </button>
       {state === 'listening' && (
         <button
@@ -142,10 +151,14 @@ export default function VoiceInputPrototype(props: VoiceInputPrototypeProps): JS
           ×
         </button>
       )}
-      {(state === 'listening' || state === 'stopping') && (
-        <span className="voice-live-preview" title={partial || 'Listening…'}>{partial || 'Listening…'}</span>
+      {(state === 'loading' || state === 'listening' || state === 'stopping') && (
+        <span
+          className="voice-live-preview"
+          title={state === 'loading' ? loadingLabel : partial || 'Listening…'}
+        >
+          {state === 'loading' ? `${loadingLabel}…` : partial || 'Listening…'}
+        </span>
       )}
     </div>
   )
 }
-

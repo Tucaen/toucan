@@ -10,13 +10,13 @@ Run it with:
 npm run prototype:voice
 ```
 
-Create or resume a Claude/Codex node, then select **Mic** beside the composer. The first use downloads and caches Moonshine's English Small Streaming model. Once the button changes to **Done**, speak and watch the live preview. Select **Done** to insert the transcript at the saved cursor position, or **×** to discard it. Dictation never sends the prompt automatically.
+The command prepares Moonshine's English Small Streaming model before ADE launches. Create or resume a Claude/Codex node, then select **Mic** beside the composer. The button briefly shows **Wait** while the local model is loaded into memory. Once it changes to **Done**, speak and watch the live preview. Select **Done** to insert the transcript at the saved cursor position, or **×** to discard it. Dictation never sends the prompt automatically.
 
 Prototype constraints:
 
 - English only.
-- Model assets come from Moonshine's CDN on first use; subsequent use is local/offline through the browser cache.
+- Model assets total roughly 165 MB. Prototype setup downloads them from Moonshine's CDN before launch and stores them in the gitignored `src/renderer/public/models/moonshine-small-streaming-en/` directory. Mic clicks never download model data.
 - The feature runs Moonshine WASM in the renderer and enables cross-origin isolation in the development server.
 - The interaction and engine choice are deliberately not production abstractions yet.
 
-Verdict to record after hands-on testing: latency, transcription quality, model-download friction, CPU impact, and whether live partial text is worth keeping.
+Verdict to record after hands-on testing: latency, transcription quality, setup friction, CPU impact, and whether live partial text is worth keeping.

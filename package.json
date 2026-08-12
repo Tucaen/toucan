@@ -7,7 +7,11 @@
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
+    "prepare:voice-model": "node scripts/prepare-voice-model.mjs",
+    "check:voice-model": "node scripts/prepare-voice-model.mjs --check",
+    "preprototype:voice": "npm run prepare:voice-model",
     "prototype:voice": "electron-vite dev",
+    "prebuild": "npm run prepare:voice-model",
     "build": "electron-vite build",
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
