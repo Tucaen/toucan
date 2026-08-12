@@ -63,6 +63,7 @@ contextBridge.exposeInMainWorld('terminalApi', terminalApi)
 const agentApi = {
   create: (request: AgentCreateRequest): Promise<AgentCreateResult> => ipcRenderer.invoke('agent:create', request),
   prompt: (id: string, text: string): Promise<AgentPromptResult> => ipcRenderer.invoke('agent:prompt', id, text),
+  setMode: (id: string, modeId: string): Promise<AgentPromptResult> => ipcRenderer.invoke('agent:set-mode', id, modeId),
   authenticate: (id: string, methodId: string): Promise<AgentCreateResult> => (
     ipcRenderer.invoke('agent:authenticate', id, methodId)
   ),

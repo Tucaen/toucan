@@ -19,6 +19,7 @@ export interface AgentCreateResult {
   ok: boolean
   status: 'ready' | 'auth_required' | 'error'
   sessionId?: string
+  modes?: AgentModeState
   authMethods?: AgentAuthMethod[]
   message?: string
 }
@@ -26,6 +27,17 @@ export interface AgentCreateResult {
 export interface AgentPromptResult {
   ok: boolean
   message?: string
+}
+
+export interface AgentMode {
+  id: string
+  name: string
+  description?: string
+}
+
+export interface AgentModeState {
+  currentModeId: string
+  availableModes: AgentMode[]
 }
 
 export interface AgentPermissionOption {
@@ -56,6 +68,7 @@ export type AgentEvent =
   | { type: 'message'; role: 'user' | 'assistant' | 'thought'; messageId: string; text: string }
   | { type: 'activity'; activity: AgentActivity }
   | { type: 'plan'; entries: AgentPlanEntry[] }
+  | { type: 'modes'; modes: AgentModeState }
   | { type: 'approval'; approvalId: string; title: string; options: AgentPermissionOption[] }
   | { type: 'auth'; methods: AgentAuthMethod[] }
   | { type: 'usage'; used?: number; size?: number; cost?: string }

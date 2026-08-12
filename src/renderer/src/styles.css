@@ -865,6 +865,111 @@ button {
   letter-spacing: 0.08em;
 }
 
+.permission-mode-picker {
+  position: relative;
+  flex: none;
+}
+
+.permission-mode-button {
+  max-width: 110px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px;
+  overflow: hidden;
+  border: 1px solid #3a4350;
+  border-radius: 6px;
+  color: #b7c0cc;
+  background: #202630;
+  font-size: 8px;
+  font-weight: 750;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.permission-mode-button > span:first-child {
+  color: #f1c75b;
+}
+
+.permission-mode-button > span:last-child {
+  color: #697483;
+}
+
+.permission-mode-button:hover,
+.permission-mode-button[aria-expanded="true"] {
+  border-color: color-mix(in srgb, var(--node-accent) 55%, #3a4350);
+  color: #e1e6ed;
+}
+
+.permission-mode-button:disabled {
+  opacity: 0.48;
+  cursor: default;
+}
+
+.permission-mode-menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 7px);
+  right: 0;
+  width: 230px;
+  padding: 6px;
+  border: 1px solid #3a4350;
+  border-radius: 9px;
+  background: #171c23;
+  box-shadow: 0 14px 35px rgba(0, 0, 0, 0.5);
+}
+
+.permission-mode-menu > small {
+  display: block;
+  padding: 4px 7px 6px;
+  color: #717c8a;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.permission-mode-menu > button {
+  width: 100%;
+  display: block;
+  padding: 7px;
+  border: 0;
+  border-radius: 6px;
+  color: #cbd2dc;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.permission-mode-menu > button:hover,
+.permission-mode-menu > button[data-selected="true"] {
+  background: #252c37;
+}
+
+.permission-mode-menu > button[data-selected="true"] strong::after {
+  margin-left: 6px;
+  color: #74d8a2;
+  content: "✓";
+}
+
+.permission-mode-menu strong,
+.permission-mode-menu span {
+  display: block;
+}
+
+.permission-mode-menu strong {
+  font-size: 9px;
+}
+
+.permission-mode-menu span {
+  margin-top: 2px;
+  color: #7f8997;
+  font-size: 8px;
+  font-weight: 450;
+  line-height: 1.35;
+  white-space: normal;
+}
+
 .chat-node .status-dot[data-status="working"] {
   animation: chat-pulse 1.2s ease-in-out infinite;
 }

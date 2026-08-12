@@ -18,6 +18,7 @@ import type {
   AgentCreateRequest,
   AgentCreateResult,
   AgentEvent,
+  AgentModeState,
   AgentPermissionOption,
   AgentPromptResult
 } from '../shared/agent'
@@ -59,6 +60,21 @@ function simplifyAuthMethod(method: AuthMethod): AgentAuthMethod {
   }
 }
 
+function simplifyModes(modes: {
+  currentModeId: string
+  availableModes: Array<{ id: string; name: string; description?: string | null }>
+} | null | undefined): AgentModeState | undefined {
+  if (!modes) return undefined
+  return {
+    currentModeId: modes.currentModeId,
+    availableModes: modes.availableModes.map((mode) => ({
+      id: mode.id,
+      name: mode.name,
+      ...(mode.description ? { description: mode.description } : {})
+    }))
+  }
+}
+
 export interface AcpSessionManagerOptions {
   appPath: string
 }
@@ -66,6 +82,7 @@ export interface AcpSessionManagerOptions {
 export interface AcpSessionManager {
   create(request: AgentCreateRequest, owner: WebContents): Promise<AgentCreateResult>
   prompt(id: string, text: string): Promise<AgentPromptResult>
+  setMode(id: string, modeId: string): Promise<AgentPromptResult>
   authenticate(id: string, methodId: string): Promise<AgentCreateResult>
   resolveApproval(id: string, approvalId: string, optionId?: string): void
   cancel(id: string): void
@@ -93,23 +110,27 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
   const openSession = async (running: RunningAgent): Promise<AgentCreateResult> => {
     send(running, { type: 'status', status: 'starting' })
     try {
+      let modes: AgentModeState | undefined
       if (running.request.sessionId) {
-        await running.context.request(methods.agent.session.load, {
+        const response = await running.context.request(methods.agent.session.load, {
           sessionId: running.request.sessionId,
           cwd: running.request.cwd,
           mcpServers: []
         })
         running.sessionId = running.request.sessionId
+        modes = simplifyModes(response.modes)
       } else {
         const response = await running.context.request(methods.agent.session.new, {
           cwd: running.request.cwd,
           mcpServers: []
         })
         running.sessionId = response.sessionId
+        modes = simplifyModes(response.modes)
       }
       send(running, { type: 'session', sessionId: running.sessionId })
+      if (modes) send(running, { type: 'modes', modes })
       send(running, { type: 'status', status: 'ready' })
-      return { ok: true, status: 'ready', sessionId: running.sessionId }
+      return { ok: true, status: 'ready', sessionId: running.sessionId, ...(modes ? { modes } : {}) }
     } catch (error) {
       if (isAuthRequired(error)) {
         send(running, { type: 'auth', methods: running.authMethods })
@@ -180,6 +201,14 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
             send(running, { type: 'activity', activity: activityFromUpdate(update) })
           } else if (update.sessionUpdate === 'plan') {
             send(running, { type: 'plan', entries: update.entries })
+          } else if (update.sessionUpdate === 'current_mode_update') {
+            send(running, {
+              type: 'modes',
+              modes: {
+                currentModeId: update.currentModeId,
+                availableModes: []
+              }
+            })
           } else if (update.sessionUpdate === 'usage_update') {
             send(running, {
               type: 'usage',
@@ -280,6 +309,22 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         const message = errorMessage(error)
         send(running, { type: 'error', message })
         send(running, { type: 'status', status: 'idle' })
+        return { ok: false, message }
+      }
+    },
+
+    async setMode(id, modeId): Promise<AgentPromptResult> {
+      const running = agents.get(id)
+      if (!running?.sessionId) return { ok: false, message: 'The agent session is not ready.' }
+      try {
+        await running.context.request(methods.agent.session.setMode, {
+          sessionId: running.sessionId,
+          modeId
+        })
+        return { ok: true }
+      } catch (error) {
+        const message = errorMessage(error)
+        send(running, { type: 'error', message })
         return { ok: false, message }
       }
     },
