@@ -1,0 +1,24 @@
+{
+  // Build output must stay out of VS Code's reach. Watching or previewing files
+  // under dist/ leaves memory-mapped handles that make electron-builder fail with
+  // "EBUSY: resource busy or locked, unlink ... app.asar" on the next package run.
+  "files.exclude": {
+    "**/dist": true,
+    "**/dist-out": true,
+    "**/out": true,
+    "**/.test-out": true
+  },
+  "files.watcherExclude": {
+    "**/dist/**": true,
+    "**/dist-out/**": true,
+    "**/out/**": true,
+    "**/.test-out/**": true,
+    "**/node_modules/**": true
+  },
+  "search.exclude": {
+    "**/dist": true,
+    "**/dist-out": true,
+    "**/out": true,
+    "**/.test-out": true
+  }
+}
