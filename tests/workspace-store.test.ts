@@ -31,6 +31,7 @@ test('saves and loads a valid workspace through the store', () => {
     projects: [{ id: 'project-1', name: 'ADE', path: 'D:\\Development\\ADE', color: '#71a9ff' }],
     activeProjectId: 'project-1',
     sidebarCollapsed: false,
+    agentPermissionModes: { claude: 'acceptEdits', codex: 'read-only' },
     nodes: []
   }
 

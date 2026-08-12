@@ -10,6 +10,7 @@ import {
   type NodeTypes
 } from '@xyflow/react'
 import type {
+  AgentPermissionModes,
   ConversationPreview,
   ProjectDirectory,
   TerminalKind,
@@ -65,6 +66,7 @@ function Canvas(): JSX.Element {
   const [nodeStatuses, setNodeStatuses] = useState<Record<string, TerminalNodeStatus>>({})
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [agentPermissionModes, setAgentPermissionModes] = useState<AgentPermissionModes>({})
   const [workspaceReady, setWorkspaceReady] = useState(false)
   const [saveStatus, setSaveStatus] = useState<'saving' | 'saved' | 'error'>('saving')
   const [menu, setMenu] = useState<ContextMenuState | null>(null)
@@ -112,6 +114,15 @@ function Canvas(): JSX.Element {
       : node))
   }, [setNodes])
 
+  const handlePermissionModeChange = useCallback((provider: keyof AgentPermissionModes, modeId: string): void => {
+    setAgentPermissionModes((current) => current[provider] === modeId
+      ? current
+      : { ...current, [provider]: modeId })
+    setNodes((current) => current.map((node) => node.data.dormant && node.data.kind === provider
+      ? { ...node, data: { ...node.data, preferredPermissionMode: modeId } }
+      : node))
+  }, [setNodes])
+
   const resumeNode = useCallback((nodeId: string): void => {
     setNodes((current) => current.map((node) => node.id === nodeId
       ? {
@@ -139,6 +150,7 @@ function Canvas(): JSX.Element {
           onConversationId: handleConversationId,
           onPreview: handlePreview,
           onWorklogCollapsed: handleWorklogCollapsed,
+          onPermissionModeChange: handlePermissionModeChange,
           onResume: resumeNode
         })
 
@@ -148,6 +160,7 @@ function Canvas(): JSX.Element {
         nextSessionNumber.current = restored.nextSessionNumber
         setActiveProjectId(restored.activeProjectId)
         setSidebarCollapsed(saved.sidebarCollapsed)
+        setAgentPermissionModes(saved.agentPermissionModes ?? {})
       } else {
         const directory = await window.terminalApi.getInitialProject()
         if (!active) return
@@ -158,7 +171,7 @@ function Canvas(): JSX.Element {
       setWorkspaceReady(true)
     })()
     return () => { active = false }
-  }, [handleConversationId, handlePreview, handleStatusChange, handleWorklogCollapsed, resumeNode, setNodes])
+  }, [handleConversationId, handlePermissionModeChange, handlePreview, handleStatusChange, handleWorklogCollapsed, resumeNode, setNodes])
 
   useEffect(() => {
     if (!workspaceReady) return
@@ -169,6 +182,7 @@ function Canvas(): JSX.Element {
         projects,
         activeProjectId,
         sidebarCollapsed,
+        agentPermissionModes,
         nodes: nodes.map(serializeCanvasNode)
       }
       void window.terminalApi.saveWorkspace(state).then((result) => {
@@ -176,7 +190,7 @@ function Canvas(): JSX.Element {
       })
     }, 180)
     return () => clearTimeout(timeout)
-  }, [activeProjectId, nodes, projects, sidebarCollapsed, workspaceReady])
+  }, [activeProjectId, agentPermissionModes, nodes, projects, sidebarCollapsed, workspaceReady])
 
   const addProject = useCallback(async (): Promise<void> => {
     const directory = await window.terminalApi.pickProject()
@@ -262,12 +276,14 @@ function Canvas(): JSX.Element {
             projectColor: activeProject.color,
             conversationId,
             worklogCollapsed: kind !== 'terminal',
+            preferredPermissionMode: kind === 'terminal' ? undefined : agentPermissionModes[kind],
             dormant: false,
             launchMode: 'new',
             onStatusChange: handleStatusChange,
             onConversationId: handleConversationId,
             onPreview: handlePreview,
             onWorklogCollapsed: handleWorklogCollapsed,
+            onPermissionModeChange: handlePermissionModeChange,
             onResume: resumeNode
           },
           style: { width: 520, height: 340 }
@@ -276,7 +292,7 @@ function Canvas(): JSX.Element {
       setNodeStatuses((current) => ({ ...current, [id]: 'starting' }))
       setMenu(null)
     },
-    [activeProject, handleConversationId, handlePreview, handleStatusChange, handleWorklogCollapsed, menu, resumeNode, setNodes]
+    [activeProject, agentPermissionModes, handleConversationId, handlePermissionModeChange, handlePreview, handleStatusChange, handleWorklogCollapsed, menu, resumeNode, setNodes]
   )
 
   return (

@@ -5,6 +5,7 @@ export interface AgentCreateRequest {
   provider: AgentProvider
   cwd: string
   sessionId?: string
+  permissionMode?: string
 }
 
 export interface AgentAuthMethod {

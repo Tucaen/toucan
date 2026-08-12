@@ -324,7 +324,8 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
       id,
       provider,
       cwd: data.projectPath,
-      sessionId: data.launchMode === 'resume' ? data.conversationId : undefined
+      sessionId: data.launchMode === 'resume' ? data.conversationId : undefined,
+      permissionMode: data.preferredPermissionMode
     }).then((result) => {
       if (!active) return
       if (result.sessionId) data.onConversationId(id, result.sessionId)
@@ -347,7 +348,7 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
       removeListener()
       window.agentApi.kill(id)
     }
-  }, [data.dormant, data.launchMode, data.projectPath, id, provider])
+  }, [data.dormant, data.launchMode, data.preferredPermissionMode, data.projectPath, id, provider])
 
   const submit = (event: FormEvent): void => {
     event.preventDefault()
@@ -386,6 +387,7 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
     void window.agentApi.setMode(id, modeId).then((result) => {
       if (result.ok) {
         setModes((current) => current ? { ...current, currentModeId: modeId } : current)
+        data.onPermissionModeChange(provider, modeId)
       } else {
         setDetail(result.message)
       }

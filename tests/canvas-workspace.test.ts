@@ -9,6 +9,7 @@ test('restores saved canvas nodes and ignores nodes whose project is gone', () =
     projects: [{ id: 'project-1', name: 'ADE', path: 'D:\\Development\\ADE', color: '#71a9ff' }],
     activeProjectId: 'missing-project',
     sidebarCollapsed: false,
+    agentPermissionModes: { codex: 'read-only' },
     nodes: [
       {
         id: 'node-1',
@@ -37,6 +38,7 @@ test('restores saved canvas nodes and ignores nodes whose project is gone', () =
     onConversationId: () => undefined,
     onPreview: () => undefined,
     onWorklogCollapsed: () => undefined,
+    onPermissionModeChange: () => undefined,
     onResume: () => undefined
   })
 
@@ -44,6 +46,7 @@ test('restores saved canvas nodes and ignores nodes whose project is gone', () =
   assert.equal(restored.nodes[0].data.dormant, true)
   assert.equal(restored.nodes[0].data.projectPath, 'D:\\Development\\ADE')
   assert.equal(restored.nodes[0].data.worklogCollapsed, true)
+  assert.equal(restored.nodes[0].data.preferredPermissionMode, 'read-only')
   assert.equal(restored.nextSessionNumber, 8)
   assert.equal(restored.activeProjectId, 'project-1')
   assert.deepEqual(serializeCanvasNode(restored.nodes[0]), state.nodes[0])
@@ -55,6 +58,7 @@ test('starts legacy agent worklogs collapsed while preserving an explicit expand
     onConversationId: () => undefined,
     onPreview: () => undefined,
     onWorklogCollapsed: () => undefined,
+    onPermissionModeChange: () => undefined,
     onResume: () => undefined
   }
   const baseState: WorkspaceState = {

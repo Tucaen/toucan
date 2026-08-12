@@ -1,5 +1,6 @@
 import type { Node } from '@xyflow/react'
 import type {
+  AgentPermissionModes,
   ConversationPreview,
   TerminalKind,
   WorkspaceState,
@@ -13,6 +14,7 @@ export interface TerminalNodeCallbacks {
   onConversationId(nodeId: string, conversationId: string): void
   onPreview(nodeId: string, preview: ConversationPreview): void
   onWorklogCollapsed(nodeId: string, collapsed: boolean): void
+  onPermissionModeChange(provider: keyof AgentPermissionModes, modeId: string): void
   onResume(nodeId: string): void
 }
 
@@ -26,6 +28,7 @@ export interface TerminalNodeData extends Record<string, unknown>, TerminalNodeC
   conversationId?: string
   preview?: ConversationPreview
   worklogCollapsed: boolean
+  preferredPermissionMode?: string
   dormant: boolean
   launchMode: 'new' | 'resume'
 }
@@ -77,6 +80,9 @@ export function restoreCanvasWorkspace(
         conversationId: savedNode.conversationId,
         preview: savedNode.preview,
         worklogCollapsed: savedNode.worklogCollapsed ?? savedNode.kind !== 'terminal',
+        preferredPermissionMode: savedNode.kind === 'terminal'
+          ? undefined
+          : state.agentPermissionModes?.[savedNode.kind],
         dormant: true,
         launchMode: 'resume',
         ...callbacks

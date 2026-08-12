@@ -29,6 +29,15 @@ export function isWorkspaceState(value: unknown): value is WorkspaceState {
   if (!hasValidProjects(value)) return false
   const state = value as Partial<WorkspaceState>
   if (state.version !== 2 || !Array.isArray(state.nodes)) return false
+  if (
+    state.agentPermissionModes !== undefined
+    && (
+      !state.agentPermissionModes
+      || typeof state.agentPermissionModes !== 'object'
+      || (state.agentPermissionModes.claude !== undefined && typeof state.agentPermissionModes.claude !== 'string')
+      || (state.agentPermissionModes.codex !== undefined && typeof state.agentPermissionModes.codex !== 'string')
+    )
+  ) return false
 
   return state.nodes.every((node) => (
     node

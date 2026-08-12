@@ -1,4 +1,8 @@
+import type { AgentProvider } from './agent'
+
 export type TerminalKind = 'terminal' | 'claude' | 'codex'
+
+export type AgentPermissionModes = Partial<Record<AgentProvider, string>>
 
 export interface TerminalCreateRequest {
   id: string
@@ -44,6 +48,7 @@ export interface WorkspaceState {
   projects: WorkspaceProject[]
   activeProjectId: string | null
   sidebarCollapsed: boolean
+  agentPermissionModes?: AgentPermissionModes
   nodes: WorkspaceTerminalNode[]
 }
 

@@ -127,6 +127,17 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         running.sessionId = response.sessionId
         modes = simplifyModes(response.modes)
       }
+      if (
+        running.request.permissionMode
+        && modes?.availableModes.some((mode) => mode.id === running.request.permissionMode)
+        && modes.currentModeId !== running.request.permissionMode
+      ) {
+        await running.context.request(methods.agent.session.setMode, {
+          sessionId: running.sessionId,
+          modeId: running.request.permissionMode
+        })
+        modes = { ...modes, currentModeId: running.request.permissionMode }
+      }
       send(running, { type: 'session', sessionId: running.sessionId })
       if (modes) send(running, { type: 'modes', modes })
       send(running, { type: 'status', status: 'ready' })
