@@ -41,6 +41,11 @@ export default function VoiceInputPrototype(props: VoiceInputPrototypeProps): JS
   const partialRef = useRef('')
   const insertionRef = useRef({ start: 0, end: 0 })
 
+  const fail = (cause: unknown): void => {
+    setError(cause instanceof Error ? cause.message : String(cause))
+    setState('error')
+  }
+
   useEffect(() => () => {
     const transcriber = transcriberRef.current
     if (transcriber?.isRunning) void transcriber.stop()
@@ -88,8 +93,7 @@ export default function VoiceInputPrototype(props: VoiceInputPrototypeProps): JS
       await transcriber.start()
       setState('listening')
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause))
-      setState('error')
+      fail(cause)
     }
   }
 
@@ -110,8 +114,7 @@ export default function VoiceInputPrototype(props: VoiceInputPrototypeProps): JS
       setPartial('')
       setState('idle')
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause))
-      setState('error')
+      fail(cause)
     }
   }
 
