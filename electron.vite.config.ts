@@ -10,6 +10,10 @@ export default defineConfig({
   },
   renderer: {
     plugins: [react()],
+    optimizeDeps: {
+      // Keep Emscripten's generated module beside its moonshine.wasm sibling.
+      exclude: ['@moonshine-ai/moonshine-wasm']
+    },
     worker: {
       format: 'es'
     },
