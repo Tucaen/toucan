@@ -6,6 +6,7 @@ import type {
   AgentAuthMethod,
   AgentEvent,
   AgentModeState,
+  AgentModelState,
   AgentPermissionOption,
   AgentPlanEntry
 } from '../../shared/agent'
@@ -45,18 +46,34 @@ interface ChatViewProps {
 
 const providerNames = { claude: 'Claude', codex: 'Codex' } as const
 
-function PermissionModePicker(props: {
-  modes: AgentModeState | null
+interface PickerOption {
+  id: string
+  name: string
+  description?: string
+}
+
+const pickerCopy = {
+  permission: { icon: '*', heading: 'Permission mode', idle: 'Permissions', hint: 'Set the permission mode for this agent' },
+  model: { icon: '#', heading: 'Model', idle: 'Model', hint: 'Choose the model for this conversation' }
+} as const
+
+/** One dropdown shape for every agent-reported selector, so modes and models stay consistent. */
+function SelectorPicker(props: {
+  kind: keyof typeof pickerCopy
+  options: PickerOption[]
+  selectedId?: string
   disabled: boolean
-  selectMode(modeId: string): void
+  select(optionId: string): void
 }): JSX.Element {
   const [open, setOpen] = useState(false)
-  const selectedMode = props.modes?.availableModes.find((mode) => mode.id === props.modes?.currentModeId)
-  const canOpen = Boolean(props.modes?.availableModes.length) && !props.disabled
+  const copy = pickerCopy[props.kind]
+  const selected = props.options.find((option) => option.id === props.selectedId)
+  const canOpen = props.options.length > 0 && !props.disabled
 
   return (
     <div
-      className="permission-mode-picker nodrag"
+      className="node-picker nodrag"
+      data-picker={props.kind}
       onBlur={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false)
       }}
@@ -64,34 +81,34 @@ function PermissionModePicker(props: {
     >
       <button
         type="button"
-        className="permission-mode-button"
+        className="node-picker-button"
         aria-expanded={open}
         aria-haspopup="listbox"
         disabled={!canOpen}
-        title={selectedMode?.description ?? 'Set the permission mode for this agent'}
+        title={selected?.description ?? selected?.name ?? copy.hint}
         onClick={() => setOpen((current) => !current)}
       >
-        <span aria-hidden="true">*</span>
-        {selectedMode?.name ?? 'Permissions'}
+        <span aria-hidden="true">{copy.icon}</span>
+        {selected?.name ?? copy.idle}
         <span aria-hidden="true">⌄</span>
       </button>
-      {open && props.modes && (
-        <div className="permission-mode-menu" role="listbox" aria-label="Agent permission mode">
-          <small>Permission mode</small>
-          {props.modes.availableModes.map((mode) => (
+      {open && (
+        <div className="node-picker-menu" role="listbox" aria-label={copy.heading}>
+          <small>{copy.heading}</small>
+          {props.options.map((option) => (
             <button
               type="button"
               role="option"
-              aria-selected={mode.id === props.modes?.currentModeId}
-              data-selected={mode.id === props.modes?.currentModeId}
-              key={mode.id}
+              aria-selected={option.id === props.selectedId}
+              data-selected={option.id === props.selectedId}
+              key={option.id}
               onClick={() => {
-                props.selectMode(mode.id)
+                props.select(option.id)
                 setOpen(false)
               }}
             >
-              <strong>{mode.name}</strong>
-              {mode.description && <span>{mode.description}</span>}
+              <strong>{option.name}</strong>
+              {option.description && <span>{option.description}</span>}
             </button>
           ))}
         </div>
@@ -288,6 +305,7 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
   const [approval, setApproval] = useState<ApprovalState | null>(null)
   const [authMethods, setAuthMethods] = useState<AgentAuthMethod[]>([])
   const [modes, setModes] = useState<AgentModeState | null>(null)
+  const [models, setModels] = useState<AgentModelState | null>(null)
   const [status, setStatus] = useState<ChatStatus>('starting')
   const [unreadResult, setUnreadResult] = useState(false)
   const [detail, setDetail] = useState<string>()
@@ -328,6 +346,8 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
         setModes((current) => event.modes.availableModes.length > 0
           ? event.modes
           : { ...event.modes, availableModes: current?.availableModes ?? [] })
+      } else if (event.type === 'models') {
+        setModels(event.models)
       } else if (event.type === 'approval') {
         setApproval({ id: event.approvalId, title: event.title, options: event.options })
       } else if (event.type === 'auth') {
@@ -341,12 +361,14 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
       provider,
       cwd: data.projectPath,
       sessionId: data.launchMode === 'resume' ? data.conversationId : undefined,
-      permissionMode: data.preferredPermissionMode
+      permissionMode: data.preferredPermissionMode,
+      modelId: data.modelId
     }).then((result) => {
       if (!active) return
       if (result.sessionId) data.onConversationId(id, result.sessionId)
       if (result.authMethods) setAuthMethods(result.authMethods)
       if (result.modes) setModes(result.modes)
+      if (result.models) setModels(result.models)
       if (result.status === 'ready') {
         setStatus('ready')
       } else if (result.status === 'auth_required') {
@@ -423,6 +445,20 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
     })
   }
 
+  const selectModel = (modelId: string): void => {
+    if (modelId === models?.currentModelId) return
+    void window.agentApi.setModel(id, modelId).then((result) => {
+      if (result.ok) {
+        setModels((current) => current ? { ...current, currentModelId: modelId } : current)
+        data.onModelChange(id, modelId)
+      } else {
+        setDetail(result.message)
+      }
+    })
+  }
+
+  const selectorsDisabled = status === 'starting' || status === 'auth_required' || status === 'exited'
+
   const props: ChatViewProps = {
     provider,
     messages,
@@ -451,11 +487,22 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
         <strong>{data.label}</strong>
         <span className="node-project" title={data.projectPath}><span className="project-color-dot" />{data.projectName}</span>
         {!data.dormant && (
-          <PermissionModePicker
-            modes={modes}
-            disabled={status === 'starting' || status === 'auth_required' || status === 'exited'}
-            selectMode={selectMode}
-          />
+          <>
+            <SelectorPicker
+              kind="model"
+              options={models?.availableModels ?? []}
+              selectedId={models?.currentModelId}
+              disabled={selectorsDisabled}
+              select={selectModel}
+            />
+            <SelectorPicker
+              kind="permission"
+              options={modes?.availableModes ?? []}
+              selectedId={modes?.currentModeId}
+              disabled={selectorsDisabled}
+              select={selectMode}
+            />
+          </>
         )}
         <span className="chat-provider-badge">ACP</span>
         <span className="node-status">{status.replace('_', ' ')}</span>

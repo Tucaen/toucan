@@ -125,6 +125,13 @@ function Canvas(): JSX.Element {
       : node))
   }, [setNodes])
 
+  // A model choice belongs to its conversation, so it is remembered per node rather than per provider.
+  const handleModelChange = useCallback((nodeId: string, modelId: string): void => {
+    setNodes((current) => current.map((node) => node.id === nodeId
+      ? { ...node, data: { ...node.data, modelId } }
+      : node))
+  }, [setNodes])
+
   const resumeNode = useCallback((nodeId: string): void => {
     setNodes((current) => current.map((node) => node.id === nodeId
       ? {
@@ -153,6 +160,7 @@ function Canvas(): JSX.Element {
           onPreview: handlePreview,
           onWorklogCollapsed: handleWorklogCollapsed,
           onPermissionModeChange: handlePermissionModeChange,
+          onModelChange: handleModelChange,
           onResume: resumeNode
         })
 
@@ -173,7 +181,7 @@ function Canvas(): JSX.Element {
       setWorkspaceReady(true)
     })()
     return () => { active = false }
-  }, [handleConversationId, handlePermissionModeChange, handlePreview, handleStatusChange, handleWorklogCollapsed, resumeNode, setNodes])
+  }, [handleConversationId, handleModelChange, handlePermissionModeChange, handlePreview, handleStatusChange, handleWorklogCollapsed, resumeNode, setNodes])
 
   useEffect(() => {
     if (!workspaceReady) return
@@ -284,6 +292,7 @@ function Canvas(): JSX.Element {
             onPreview: handlePreview,
             onWorklogCollapsed: handleWorklogCollapsed,
             onPermissionModeChange: handlePermissionModeChange,
+            onModelChange: handleModelChange,
             onResume: resumeNode
           },
           style: { width: 520, height: 340 }
@@ -292,7 +301,7 @@ function Canvas(): JSX.Element {
       setNodeStatuses((current) => ({ ...current, [id]: 'starting' }))
       setMenu(null)
     },
-    [activeProject, agentPermissionModes, handleConversationId, handlePermissionModeChange, handlePreview, handleStatusChange, handleWorklogCollapsed, menu, resumeNode, setNodes]
+    [activeProject, agentPermissionModes, handleConversationId, handleModelChange, handlePermissionModeChange, handlePreview, handleStatusChange, handleWorklogCollapsed, menu, resumeNode, setNodes]
   )
 
   return (

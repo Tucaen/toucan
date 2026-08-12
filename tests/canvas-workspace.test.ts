@@ -20,6 +20,7 @@ test('restores saved canvas nodes and ignores nodes whose project is gone', () =
         width: 540,
         height: 360,
         conversationId: 'conversation-7',
+        modelId: 'gpt-5-codex',
         worklogCollapsed: true
       },
       {
@@ -39,6 +40,7 @@ test('restores saved canvas nodes and ignores nodes whose project is gone', () =
     onPreview: () => undefined,
     onWorklogCollapsed: () => undefined,
     onPermissionModeChange: () => undefined,
+    onModelChange: () => undefined,
     onResume: () => undefined
   })
 
@@ -47,6 +49,7 @@ test('restores saved canvas nodes and ignores nodes whose project is gone', () =
   assert.equal(restored.nodes[0].data.projectPath, 'D:\\Development\\ADE')
   assert.equal(restored.nodes[0].data.worklogCollapsed, true)
   assert.equal(restored.nodes[0].data.preferredPermissionMode, 'read-only')
+  assert.equal(restored.nodes[0].data.modelId, 'gpt-5-codex')
   assert.equal(restored.nextSessionNumber, 8)
   assert.equal(restored.activeProjectId, 'project-1')
   assert.deepEqual(serializeCanvasNode(restored.nodes[0]), state.nodes[0])
@@ -59,6 +62,7 @@ test('starts legacy agent worklogs collapsed while preserving an explicit expand
     onPreview: () => undefined,
     onWorklogCollapsed: () => undefined,
     onPermissionModeChange: () => undefined,
+    onModelChange: () => undefined,
     onResume: () => undefined
   }
   const baseState: WorkspaceState = {

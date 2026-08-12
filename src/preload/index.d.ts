@@ -17,6 +17,7 @@ export interface AgentApi {
   create(request: AgentCreateRequest): Promise<AgentCreateResult>
   prompt(id: string, text: string): Promise<AgentPromptResult>
   setMode(id: string, modeId: string): Promise<AgentPromptResult>
+  setModel(id: string, modelId: string): Promise<AgentPromptResult>
   authenticate(id: string, methodId: string): Promise<AgentCreateResult>
   resolveApproval(id: string, approvalId: string, optionId?: string): void
   cancel(id: string): void

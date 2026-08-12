@@ -6,6 +6,7 @@ export interface AgentCreateRequest {
   cwd: string
   sessionId?: string
   permissionMode?: string
+  modelId?: string
 }
 
 export interface AgentAuthMethod {
@@ -21,6 +22,7 @@ export interface AgentCreateResult {
   status: 'ready' | 'auth_required' | 'error'
   sessionId?: string
   modes?: AgentModeState
+  models?: AgentModelState
   authMethods?: AgentAuthMethod[]
   message?: string
 }
@@ -39,6 +41,17 @@ export interface AgentMode {
 export interface AgentModeState {
   currentModeId: string
   availableModes: AgentMode[]
+}
+
+export interface AgentModel {
+  id: string
+  name: string
+  description?: string
+}
+
+export interface AgentModelState {
+  currentModelId: string
+  availableModels: AgentModel[]
 }
 
 export interface AgentPermissionOption {
@@ -70,6 +83,7 @@ export type AgentEvent =
   | { type: 'activity'; activity: AgentActivity }
   | { type: 'plan'; entries: AgentPlanEntry[] }
   | { type: 'modes'; modes: AgentModeState }
+  | { type: 'models'; models: AgentModelState }
   | { type: 'approval'; approvalId: string; title: string; options: AgentPermissionOption[] }
   | { type: 'auth'; methods: AgentAuthMethod[] }
   | { type: 'usage'; used?: number; size?: number; cost?: string }

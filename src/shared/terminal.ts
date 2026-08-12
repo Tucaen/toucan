@@ -41,6 +41,8 @@ export interface WorkspaceTerminalNode {
   conversationId?: string
   preview?: ConversationPreview
   worklogCollapsed?: boolean
+  /** The agent model this conversation last ran on, as reported by its ACP adapter. */
+  modelId?: string
 }
 
 export interface WorkspaceState {

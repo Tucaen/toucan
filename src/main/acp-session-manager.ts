@@ -11,7 +11,8 @@ import {
   type ClientConnection,
   type ClientContext,
   type CreateElicitationRequest,
-  type RequestPermissionResponse
+  type RequestPermissionResponse,
+  type SessionConfigOption
 } from '@agentclientprotocol/sdk'
 import type {
   AgentAuthMethod,
@@ -19,10 +20,12 @@ import type {
   AgentCreateResult,
   AgentEvent,
   AgentModeState,
+  AgentModelState,
   AgentPermissionOption,
   AgentPromptResult
 } from '../shared/agent'
 import { activityFromUpdate } from '../shared/agent-activity'
+import { modelSelectorFromConfigOptions } from '../shared/agent-models'
 import { buildAgentProcessLaunch } from './agent-process'
 
 interface PendingApproval {
@@ -38,6 +41,7 @@ interface RunningAgent {
   adapterPath: string
   authMethods: AgentAuthMethod[]
   sessionId?: string
+  modelConfigId?: string
   pendingApprovals: Map<string, PendingApproval>
   stopping: boolean
 }
@@ -83,6 +87,7 @@ export interface AcpSessionManager {
   create(request: AgentCreateRequest, owner: WebContents): Promise<AgentCreateResult>
   prompt(id: string, text: string): Promise<AgentPromptResult>
   setMode(id: string, modeId: string): Promise<AgentPromptResult>
+  setModel(id: string, modelId: string): Promise<AgentPromptResult>
   authenticate(id: string, methodId: string): Promise<AgentCreateResult>
   resolveApproval(id: string, approvalId: string, optionId?: string): void
   cancel(id: string): void
@@ -107,10 +112,45 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
     'index.js'
   )
 
+  /** A conversation's saved model is a preference, so a rejected switch must not sink the session. */
+  const applySavedModel = async (
+    running: RunningAgent,
+    models: AgentModelState
+  ): Promise<AgentModelState> => {
+    const modelId = running.request.modelId
+    if (
+      !running.modelConfigId
+      || !modelId
+      || modelId === models.currentModelId
+      || !models.availableModels.some((model) => model.id === modelId)
+    ) return models
+    try {
+      await running.context.request(methods.agent.session.setConfigOption, {
+        sessionId: running.sessionId!,
+        configId: running.modelConfigId,
+        value: modelId
+      })
+      return { ...models, currentModelId: modelId }
+    } catch (error) {
+      send(running, { type: 'error', message: `Could not select the saved model: ${errorMessage(error)}` })
+      return models
+    }
+  }
+
   const openSession = async (running: RunningAgent): Promise<AgentCreateResult> => {
     send(running, { type: 'status', status: 'starting' })
     try {
       let modes: AgentModeState | undefined
+      let models: AgentModelState | undefined
+      const configure = (response: {
+        modes?: Parameters<typeof simplifyModes>[0]
+        configOptions?: SessionConfigOption[] | null
+      }): void => {
+        modes = simplifyModes(response.modes)
+        const selector = modelSelectorFromConfigOptions(response.configOptions)
+        running.modelConfigId = selector?.configId
+        models = selector?.models
+      }
       if (running.request.sessionId) {
         const response = await running.context.request(methods.agent.session.load, {
           sessionId: running.request.sessionId,
@@ -118,14 +158,14 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
           mcpServers: []
         })
         running.sessionId = running.request.sessionId
-        modes = simplifyModes(response.modes)
+        configure(response)
       } else {
         const response = await running.context.request(methods.agent.session.new, {
           cwd: running.request.cwd,
           mcpServers: []
         })
         running.sessionId = response.sessionId
-        modes = simplifyModes(response.modes)
+        configure(response)
       }
       if (
         running.request.permissionMode
@@ -138,10 +178,18 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         })
         modes = { ...modes, currentModeId: running.request.permissionMode }
       }
+      if (models) models = await applySavedModel(running, models)
       send(running, { type: 'session', sessionId: running.sessionId })
       if (modes) send(running, { type: 'modes', modes })
+      if (models) send(running, { type: 'models', models })
       send(running, { type: 'status', status: 'ready' })
-      return { ok: true, status: 'ready', sessionId: running.sessionId, ...(modes ? { modes } : {}) }
+      return {
+        ok: true,
+        status: 'ready',
+        sessionId: running.sessionId,
+        ...(modes ? { modes } : {}),
+        ...(models ? { models } : {})
+      }
     } catch (error) {
       if (isAuthRequired(error)) {
         send(running, { type: 'auth', methods: running.authMethods })
@@ -220,6 +268,12 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
                 availableModes: []
               }
             })
+          } else if (update.sessionUpdate === 'config_option_update') {
+            const selector = modelSelectorFromConfigOptions(update.configOptions)
+            if (selector) {
+              running.modelConfigId = selector.configId
+              send(running, { type: 'models', models: selector.models })
+            }
           } else if (update.sessionUpdate === 'usage_update') {
             send(running, {
               type: 'usage',
@@ -332,6 +386,27 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
           sessionId: running.sessionId,
           modeId
         })
+        return { ok: true }
+      } catch (error) {
+        const message = errorMessage(error)
+        send(running, { type: 'error', message })
+        return { ok: false, message }
+      }
+    },
+
+    async setModel(id, modelId): Promise<AgentPromptResult> {
+      const running = agents.get(id)
+      if (!running?.sessionId) return { ok: false, message: 'The agent session is not ready.' }
+      if (!running.modelConfigId) return { ok: false, message: 'This agent does not expose model selection.' }
+      try {
+        const response = await running.context.request(methods.agent.session.setConfigOption, {
+          sessionId: running.sessionId,
+          configId: running.modelConfigId,
+          value: modelId
+        })
+        // Setting a model can reshape the agent's other selectors (effort levels, fast mode).
+        const selector = modelSelectorFromConfigOptions(response.configOptions)
+        if (selector) send(running, { type: 'models', models: selector.models })
         return { ok: true }
       } catch (error) {
         const message = errorMessage(error)

@@ -15,6 +15,7 @@ export interface TerminalNodeCallbacks {
   onPreview(nodeId: string, preview: ConversationPreview): void
   onWorklogCollapsed(nodeId: string, collapsed: boolean): void
   onPermissionModeChange(provider: keyof AgentPermissionModes, modeId: string): void
+  onModelChange(nodeId: string, modelId: string): void
   onResume(nodeId: string): void
 }
 
@@ -29,6 +30,7 @@ export interface TerminalNodeData extends Record<string, unknown>, TerminalNodeC
   preview?: ConversationPreview
   worklogCollapsed: boolean
   preferredPermissionMode?: string
+  modelId?: string
   dormant: boolean
   launchMode: 'new' | 'resume'
 }
@@ -55,6 +57,7 @@ export function serializeCanvasNode(node: TerminalCanvasNode): WorkspaceTerminal
     height: node.measured?.height ?? styleHeight,
     ...(node.data.conversationId ? { conversationId: node.data.conversationId } : {}),
     ...(node.data.preview ? { preview: node.data.preview } : {}),
+    ...(node.data.modelId ? { modelId: node.data.modelId } : {}),
     ...(node.data.kind === 'terminal' ? {} : { worklogCollapsed: node.data.worklogCollapsed })
   }
 }
@@ -83,6 +86,7 @@ export function restoreCanvasWorkspace(
         preferredPermissionMode: savedNode.kind === 'terminal'
           ? undefined
           : state.agentPermissionModes?.[savedNode.kind],
+        modelId: savedNode.kind === 'terminal' ? undefined : savedNode.modelId,
         dormant: true,
         launchMode: 'resume',
         ...callbacks

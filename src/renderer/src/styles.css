@@ -1,4 +1,4 @@
-:root {
+﻿:root {
   color: #d9dee8;
   background: #0b0d12;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -874,6 +874,14 @@ button {
   margin-left: auto;
 }
 
+/* The model and permission pickers keep their width, so the title truncates first. */
+.chat-node-header > strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .chat-provider-badge {
   padding: 2px 5px;
   border: 1px solid color-mix(in srgb, var(--node-accent) 38%, #323a46);
@@ -884,12 +892,12 @@ button {
   letter-spacing: 0.08em;
 }
 
-.permission-mode-picker {
+.node-picker {
   position: relative;
   flex: none;
 }
 
-.permission-mode-button {
+.node-picker-button {
   max-width: 110px;
   display: flex;
   align-items: center;
@@ -906,26 +914,35 @@ button {
   cursor: pointer;
 }
 
-.permission-mode-button > span:first-child {
+/* Model names run longer than mode names, so give that picker more room. */
+.node-picker[data-picker="model"] .node-picker-button {
+  max-width: 128px;
+}
+
+.node-picker-button > span:first-child {
   color: #f1c75b;
 }
 
-.permission-mode-button > span:last-child {
+.node-picker[data-picker="model"] .node-picker-button > span:first-child {
+  color: #8fb8ff;
+}
+
+.node-picker-button > span:last-child {
   color: #697483;
 }
 
-.permission-mode-button:hover,
-.permission-mode-button[aria-expanded="true"] {
+.node-picker-button:hover,
+.node-picker-button[aria-expanded="true"] {
   border-color: color-mix(in srgb, var(--node-accent) 55%, #3a4350);
   color: #e1e6ed;
 }
 
-.permission-mode-button:disabled {
+.node-picker-button:disabled {
   opacity: 0.48;
   cursor: default;
 }
 
-.permission-mode-menu {
+.node-picker-menu {
   position: absolute;
   z-index: 20;
   top: calc(100% + 7px);
@@ -938,7 +955,7 @@ button {
   box-shadow: 0 14px 35px rgba(0, 0, 0, 0.5);
 }
 
-.permission-mode-menu > small {
+.node-picker-menu > small {
   display: block;
   padding: 4px 7px 6px;
   color: #717c8a;
@@ -948,7 +965,7 @@ button {
   text-transform: uppercase;
 }
 
-.permission-mode-menu > button {
+.node-picker-menu > button {
   width: 100%;
   display: block;
   padding: 7px;
@@ -960,27 +977,27 @@ button {
   cursor: pointer;
 }
 
-.permission-mode-menu > button:hover,
-.permission-mode-menu > button[data-selected="true"] {
+.node-picker-menu > button:hover,
+.node-picker-menu > button[data-selected="true"] {
   background: #252c37;
 }
 
-.permission-mode-menu > button[data-selected="true"] strong::after {
+.node-picker-menu > button[data-selected="true"] strong::after {
   margin-left: 6px;
   color: #74d8a2;
-  content: "✓";
+  content: "âœ“";
 }
 
-.permission-mode-menu strong,
-.permission-mode-menu span {
+.node-picker-menu strong,
+.node-picker-menu span {
   display: block;
 }
 
-.permission-mode-menu strong {
+.node-picker-menu strong {
   font-size: 9px;
 }
 
-.permission-mode-menu span {
+.node-picker-menu span {
   margin-top: 2px;
   color: #7f8997;
   font-size: 8px;
