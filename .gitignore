@@ -5,3 +5,4 @@ out/
 dist/
 .test-out/
 *.tsbuildinfo
+.stow-notes.md
