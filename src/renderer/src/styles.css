@@ -1274,6 +1274,17 @@ button {
   color: var(--node-accent);
 }
 
+.worklog-example-note {
+  margin: -4px 2px 2px;
+  padding: 7px 8px;
+  border: 1px dashed #354151;
+  border-radius: 7px;
+  color: #778596;
+  background: #131820;
+  font-size: 8px;
+  line-height: 1.4;
+}
+
 .worklog-empty {
   margin: auto 8px;
   color: #596371;

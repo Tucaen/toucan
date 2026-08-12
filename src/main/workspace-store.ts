@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync } from 'node:fs'
 import type { WorkspaceSaveResult, WorkspaceState } from '../shared/terminal'
+import { repairUtf8Mojibake } from '../shared/text'
 
 interface WorkspaceStateV1 {
   version: 1
@@ -52,7 +53,21 @@ export function isWorkspaceState(value: unknown): value is WorkspaceState {
 }
 
 export function parseWorkspaceState(value: unknown): WorkspaceState | null {
-  if (isWorkspaceState(value)) return value
+  if (isWorkspaceState(value)) {
+    return {
+      ...value,
+      nodes: value.nodes.map((node) => node.preview
+        ? {
+            ...node,
+            preview: {
+              ...node.preview,
+              ...(node.preview.user ? { user: repairUtf8Mojibake(node.preview.user) } : {}),
+              ...(node.preview.assistant ? { assistant: repairUtf8Mojibake(node.preview.assistant) } : {})
+            }
+          }
+        : node)
+    }
+  }
   if (!hasValidProjects(value) || (value as WorkspaceStateV1).version !== 1) return null
   const previous = value as WorkspaceStateV1
   return {

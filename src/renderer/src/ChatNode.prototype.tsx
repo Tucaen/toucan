@@ -43,6 +43,44 @@ interface ChatViewProps {
 
 const providerNames = { claude: 'Claude', codex: 'Codex' } as const
 
+const examplePlan: AgentPlanEntry[] = [
+  { content: 'Inspect how saved agent sessions are resumed', priority: 'high', status: 'completed' },
+  { content: 'Normalize provider events into one chat model', priority: 'high', status: 'completed' },
+  { content: 'Update the node UI and process launcher', priority: 'high', status: 'in_progress' },
+  { content: 'Run type checks, tests, and a production build', priority: 'medium', status: 'pending' }
+]
+
+const exampleActivities: AgentActivity[] = [
+  {
+    id: 'example-search',
+    title: 'Searched for the session resume path',
+    kind: 'search',
+    status: 'completed',
+    content: '12 matches across 5 files'
+  },
+  {
+    id: 'example-read',
+    title: 'Inspected the Claude adapter launcher',
+    kind: 'read',
+    status: 'completed',
+    locations: ['node_modules/@agentclientprotocol/claude-agent-acp/dist/acp-agent.js']
+  },
+  {
+    id: 'example-edit',
+    title: 'Updated the shared ACP session manager',
+    kind: 'edit',
+    status: 'completed',
+    locations: ['src/main/acp-session-manager.ts']
+  },
+  {
+    id: 'example-test',
+    title: 'Running the regression tests',
+    kind: 'execute',
+    status: 'in_progress',
+    content: '12 passed, 2 still running'
+  }
+]
+
 function Markdown({ text }: { text: string }): JSX.Element {
   return <ReactMarkdown>{text}</ReactMarkdown>
 }
@@ -70,7 +108,7 @@ function Composer(props: Pick<ChatViewProps, 'draft' | 'setDraft' | 'submit' | '
             event.currentTarget.form?.requestSubmit()
           }
         }}
-        placeholder={busy ? 'Agent is workingâ€¦' : 'Message the agentâ€¦'}
+        placeholder={busy ? 'Agent is working...' : 'Message the agent...'}
         disabled={busy || props.status === 'starting' || props.status === 'auth_required'}
       />
       {busy
@@ -90,7 +128,7 @@ function AuthPanel(props: Pick<ChatViewProps, 'provider' | 'authMethods' | 'auth
   const methods = subscriptionMethods.length > 0 ? subscriptionMethods : props.authMethods
   return (
     <section className="chat-auth-panel">
-      <span className="auth-lock">â—‡</span>
+      <span className="auth-lock">*</span>
       <div>
         <strong>Connect {providerNames[props.provider]}</strong>
         <p>Use your existing subscription login. API credentials are optional.</p>
@@ -130,7 +168,7 @@ function ApprovalPanel(props: Pick<ChatViewProps, 'approval' | 'resolveApproval'
 function ActivityCard({ activity }: { activity: AgentActivity }): JSX.Element {
   return (
     <article className="activity-card" data-status={activity.status}>
-      <span className="activity-icon">{activity.kind === 'edit' ? 'Â±' : activity.kind === 'execute' ? '&gt;_' : 'â—‡'}</span>
+      <span className="activity-icon">{activity.kind === 'edit' ? '+' : activity.kind === 'execute' ? '>_' : '*'}</span>
       <div>
         <strong>{activity.title}</strong>
         {activity.content && <pre>{activity.content}</pre>}
@@ -169,6 +207,9 @@ export function VariantA(props: ChatViewProps): JSX.Element {
 
 export function VariantB(props: ChatViewProps): JSX.Element {
   const conversation = props.messages.filter((message) => message.role !== 'thought')
+  const showExamples = props.plan.length === 0 && props.activities.length === 0
+  const displayedPlan = showExamples ? examplePlan : props.plan
+  const displayedActivities = showExamples ? exampleActivities : props.activities
   return (
     <div className="chat-variant chat-variant-b">
       <section className="worklog-conversation nodrag nopan nowheel">
@@ -184,14 +225,19 @@ export function VariantB(props: ChatViewProps): JSX.Element {
         <AuthPanel {...props} />
       </section>
       <aside className="worklog-rail nodrag nopan nowheel">
-        <div className="worklog-heading"><span>Worklog</span><small>{props.activities.length} actions</small></div>
-        {props.plan.length > 0 && (
+        <div className="worklog-heading">
+          <span>Worklog</span>
+          <small>{showExamples ? 'example preview' : `${props.activities.length} actions`}</small>
+        </div>
+        {showExamples && (
+          <p className="worklog-example-note">Sample data - replaced as soon as the agent reports real work.</p>
+        )}
+        {displayedPlan.length > 0 && (
           <ol className="plan-list">
-            {props.plan.map((entry, index) => <li data-status={entry.status} key={`${index}-${entry.content}`}>{entry.content}</li>)}
+            {displayedPlan.map((entry, index) => <li data-status={entry.status} key={`${index}-${entry.content}`}>{entry.content}</li>)}
           </ol>
         )}
-        {props.activities.map((activity) => <ActivityCard activity={activity} key={activity.id} />)}
-        {props.activities.length === 0 && <p className="worklog-empty">Commands, edits, and tools will appear here.</p>}
+        {displayedActivities.map((activity) => <ActivityCard activity={activity} key={activity.id} />)}
       </aside>
       <Composer {...props} />
     </div>
@@ -214,7 +260,7 @@ export function VariantC(props: ChatViewProps): JSX.Element {
       </main>
       {(props.activities.length > 0 || props.plan.length > 0) && (
         <details className="focus-activity nodrag nopan nowheel" open={props.status === 'working'}>
-          <summary>{props.status === 'working' ? 'Workingâ€¦' : 'Work completed'} Â· {props.activities.length} actions</summary>
+          <summary>{props.status === 'working' ? 'Working...' : 'Work completed'} - {props.activities.length} actions</summary>
           {props.activities.map((activity) => <ActivityCard activity={activity} key={activity.id} />)}
         </details>
       )}

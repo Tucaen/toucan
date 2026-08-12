@@ -12,9 +12,9 @@ Run `npm run dev`, right-click the canvas, and create a **Codex** or **Claude** 
 
 Three disposable layouts are available on the existing canvas route:
 
-- `?variant=A` â€” flowing conversation with inline activity
-- `?variant=B` â€” conversation beside a persistent worklog
-- `?variant=C` â€” latest-answer focus with collapsed activity
+- `?variant=A` - flowing conversation with inline activity
+- `?variant=B` - conversation beside a persistent worklog
+- `?variant=C` - latest-answer focus with collapsed activity
 
 Use the floating development-only switcher or the left/right arrow keys to compare them. The switcher is deliberately omitted from production builds.
 

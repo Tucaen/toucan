@@ -57,9 +57,9 @@ export default function PrototypeSwitcher(): JSX.Element | null {
   if (!import.meta.env.DEV) return null
   return (
     <nav className="prototype-switcher" aria-label="Chat node prototype variants">
-      <button type="button" onClick={() => cycle(-1)} aria-label="Previous variant">â†</button>
-      <span><small>PROTOTYPE</small>{current} â€” {variants[index].name}</span>
-      <button type="button" onClick={() => cycle(1)} aria-label="Next variant">â†’</button>
+      <button type="button" onClick={() => cycle(-1)} aria-label="Previous variant">{'<'}</button>
+      <span><small>PROTOTYPE</small>{current} - {variants[index].name}</span>
+      <button type="button" onClick={() => cycle(1)} aria-label="Next variant">{'>'}</button>
     </nav>
   )
 }

@@ -10,6 +10,7 @@
   },
   "include": [
     "tests/**/*.test.ts",
+    "src/main/agent-process.ts",
     "src/main/terminal-events.ts",
     "src/main/session-providers.ts",
     "src/main/terminal-manager.ts",

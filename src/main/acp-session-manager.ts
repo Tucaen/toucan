@@ -24,6 +24,7 @@ import type {
   AgentPermissionOption,
   AgentPromptResult
 } from '../shared/agent'
+import { buildAgentProcessLaunch } from './agent-process'
 
 interface PendingApproval {
   resolve(response: RequestPermissionResponse): void
@@ -168,11 +169,10 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         return { ok: false, status: 'error', message: `The ${request.provider} ACP adapter is not installed.` }
       }
 
-      const child = spawn(process.execPath, [path], {
-        cwd: request.cwd,
-        env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
-        stdio: ['pipe', 'pipe', 'pipe'],
-        windowsHide: true
+      const launch = buildAgentProcessLaunch(process.execPath, path, request.cwd, process.env)
+      const child = spawn(launch.executable, launch.args, {
+        ...launch.options,
+        stdio: ['pipe', 'pipe', 'pipe']
       })
       const pendingApprovals = new Map<string, PendingApproval>()
       let running: RunningAgent
@@ -313,15 +313,20 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       if (!running) return { ok: false, status: 'error', message: 'The agent session is not running.' }
       const method = running.authMethods.find((candidate) => candidate.id === methodId)
       if (!method) return { ok: false, status: 'error', message: 'That authentication method is unavailable.' }
-      send(running, { type: 'status', status: 'starting', message: `Signing in with ${method.name}â€¦` })
+      send(running, { type: 'status', status: 'starting', message: `Signing in with ${method.name}...` })
       try {
         if (method.type === 'terminal') {
           await new Promise<void>((resolve, reject) => {
-            const auth = spawn(process.execPath, [running.adapterPath, ...(method.args ?? [])], {
-              cwd: running.request.cwd,
-              env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
-              stdio: ['ignore', 'pipe', 'pipe'],
-              windowsHide: true
+            const launch = buildAgentProcessLaunch(
+              process.execPath,
+              running.adapterPath,
+              running.request.cwd,
+              process.env,
+              method.args
+            )
+            const auth = spawn(launch.executable, launch.args, {
+              ...launch.options,
+              stdio: ['ignore', 'pipe', 'pipe']
             })
             auth.stdout.setEncoding('utf8')
             auth.stderr.setEncoding('utf8')
