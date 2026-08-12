@@ -261,7 +261,7 @@ function Canvas(): JSX.Element {
             projectPath: activeProject.path,
             projectColor: activeProject.color,
             conversationId,
-            worklogCollapsed: false,
+            worklogCollapsed: kind !== 'terminal',
             dormant: false,
             launchMode: 'new',
             onStatusChange: handleStatusChange,

@@ -52,7 +52,7 @@ export function serializeCanvasNode(node: TerminalCanvasNode): WorkspaceTerminal
     height: node.measured?.height ?? styleHeight,
     ...(node.data.conversationId ? { conversationId: node.data.conversationId } : {}),
     ...(node.data.preview ? { preview: node.data.preview } : {}),
-    ...(node.data.worklogCollapsed ? { worklogCollapsed: true } : {})
+    ...(node.data.kind === 'terminal' ? {} : { worklogCollapsed: node.data.worklogCollapsed })
   }
 }
 
@@ -76,7 +76,7 @@ export function restoreCanvasWorkspace(
         projectColor: project.color,
         conversationId: savedNode.conversationId,
         preview: savedNode.preview,
-        worklogCollapsed: savedNode.worklogCollapsed ?? false,
+        worklogCollapsed: savedNode.worklogCollapsed ?? savedNode.kind !== 'terminal',
         dormant: true,
         launchMode: 'resume',
         ...callbacks
