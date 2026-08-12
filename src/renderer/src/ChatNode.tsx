@@ -12,6 +12,7 @@ import type {
 import { activityTitle } from '../../shared/agent-activity'
 import type { TerminalCanvasNode, TerminalNodeStatus } from './canvas-workspace'
 import NodeBorderResizer from './NodeBorderResizer'
+import VoiceInputPrototype from './VoiceInputPrototype'
 
 interface ChatMessage {
   id: string
@@ -115,9 +116,12 @@ function EmptyConversation({ provider }: Pick<ChatViewProps, 'provider'>): JSX.E
 
 function Composer(props: Pick<ChatViewProps, 'draft' | 'setDraft' | 'submit' | 'cancel' | 'status'>): JSX.Element {
   const busy = props.status === 'working'
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const composerDisabled = busy || props.status === 'starting' || props.status === 'auth_required'
   return (
     <form className="chat-composer nodrag" onSubmit={props.submit}>
       <textarea
+        ref={textareaRef}
         value={props.draft}
         onChange={(event) => props.setDraft(event.target.value)}
         onKeyDown={(event) => {
@@ -127,7 +131,13 @@ function Composer(props: Pick<ChatViewProps, 'draft' | 'setDraft' | 'submit' | '
           }
         }}
         placeholder={busy ? 'Agent is working...' : 'Message the agent...'}
-        disabled={busy || props.status === 'starting' || props.status === 'auth_required'}
+        disabled={composerDisabled}
+      />
+      <VoiceInputPrototype
+        draft={props.draft}
+        disabled={composerDisabled || props.status === 'exited'}
+        textareaRef={textareaRef}
+        setDraft={props.setDraft}
       />
       {busy
         ? <button type="button" className="stop-agent" onClick={props.cancel}>Stop</button>

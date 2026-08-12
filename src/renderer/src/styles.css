@@ -1286,6 +1286,55 @@ button {
   background: #321f22;
 }
 
+.voice-input-prototype {
+  position: relative;
+  display: flex;
+  gap: 4px;
+}
+
+.chat-composer .voice-input-button {
+  min-width: 48px;
+  padding: 0 9px;
+  border-color: #3d536b;
+  color: #b9d9f7;
+  background: #182534;
+}
+
+.chat-composer .voice-input-button > span {
+  margin-right: 4px;
+  color: #e26d76;
+}
+
+.chat-composer .voice-input-button[data-state="listening"] {
+  border-color: #a75359;
+  color: #ffd9dc;
+  background: #422429;
+}
+
+.chat-composer .voice-cancel-button {
+  padding: 0 8px;
+  border-color: #4d4144;
+  color: #b9a4a8;
+  background: #241d20;
+}
+
+.voice-live-preview {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 7px);
+  width: 220px;
+  overflow: hidden;
+  padding: 6px 8px;
+  border: 1px solid #51383d;
+  border-radius: 7px;
+  color: #e8c9cc;
+  background: #21171a;
+  font: 9px/1.35 Inter, system-ui, sans-serif;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
 .chat-detail {
   position: absolute;
   right: 10px;

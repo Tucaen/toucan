@@ -9,6 +9,20 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()]
   },
   renderer: {
-    plugins: [react()]
+    plugins: [react()],
+    optimizeDeps: {
+      // Keep Emscripten's generated module beside its moonshine.wasm sibling.
+      exclude: ['@moonshine-ai/moonshine-wasm']
+    },
+    worker: {
+      format: 'es'
+    },
+    server: {
+      // PROTOTYPE: Moonshine's threaded WASM build requires SharedArrayBuffer.
+      headers: {
+        'Cross-Origin-Opener-Policy': 'same-origin',
+        'Cross-Origin-Embedder-Policy': 'require-corp'
+      }
+    }
   }
 })
