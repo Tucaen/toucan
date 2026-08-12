@@ -47,7 +47,8 @@ const projectColors = ['#71a9ff', '#e69a71', '#74d8a2', '#c992ff', '#f1c75b', '#
 const statusLabels: Record<TerminalNodeStatus, string> = {
   dormant: 'Saved',
   starting: 'Starting',
-  running: 'Running',
+  idle: 'Idle',
+  working: 'Working',
   attention: 'Attention',
   exited: 'Exited'
 }
@@ -230,10 +231,8 @@ function Canvas(): JSX.Element {
     const target = nodes.find((node) => node.id === nodeId)
     if (!target) return
 
+    // Selecting a node is enough: each node reports its own status once it sees the focus.
     setNodes((current) => current.map((node) => ({ ...node, selected: node.id === nodeId })))
-    setNodeStatuses((current) => current[nodeId] === 'attention'
-      ? { ...current, [nodeId]: 'running' }
-      : current)
     setMenu(null)
     void fitView({ nodes: [target], padding: 0.32, duration: 350, maxZoom: 1.15 })
   }, [fitView, nodes, setNodes])

@@ -10,7 +10,7 @@ import type {
   AgentPlanEntry
 } from '../../shared/agent'
 import { activityTitle } from '../../shared/agent-activity'
-import type { TerminalCanvasNode } from './canvas-workspace'
+import type { TerminalCanvasNode, TerminalNodeStatus } from './canvas-workspace'
 import NodeBorderResizer from './NodeBorderResizer'
 
 interface ChatMessage {
@@ -260,6 +260,16 @@ function ChatView(props: ChatViewProps & {
   )
 }
 
+type ChatStatus = 'starting' | 'ready' | 'working' | 'auth_required' | 'exited'
+
+/** The sidebar only cares whether the agent is busy, blocked, or waiting on us. */
+function sidebarStatus(status: ChatStatus, awaitingApproval: boolean): TerminalNodeStatus {
+  if (status === 'exited') return 'exited'
+  if (status === 'auth_required' || awaitingApproval) return 'attention'
+  if (status === 'starting') return 'starting'
+  return status === 'working' ? 'working' : 'idle'
+}
+
 export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanvasNode>): JSX.Element {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [activitiesById, setActivitiesById] = useState<Record<string, AgentActivity>>({})
@@ -267,7 +277,7 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
   const [approval, setApproval] = useState<ApprovalState | null>(null)
   const [authMethods, setAuthMethods] = useState<AgentAuthMethod[]>([])
   const [modes, setModes] = useState<AgentModeState | null>(null)
-  const [status, setStatus] = useState<'starting' | 'ready' | 'working' | 'auth_required' | 'exited'>('starting')
+  const [status, setStatus] = useState<ChatStatus>('starting')
   const [detail, setDetail] = useState<string>()
   const [draft, setDraft] = useState('')
   const sentTextRef = useRef<string>()
@@ -282,13 +292,6 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
       if (event.type === 'status') {
         setStatus(event.status === 'idle' ? 'ready' : event.status)
         setDetail(event.message)
-        if (event.status === 'working' || event.status === 'ready' || event.status === 'idle') {
-          data.onStatusChange(id, 'running')
-        } else if (event.status === 'auth_required') {
-          data.onStatusChange(id, 'attention')
-        } else if (event.status === 'exited') {
-          data.onStatusChange(id, 'exited')
-        }
       } else if (event.type === 'session') {
         data.onConversationId(id, event.sessionId)
       } else if (event.type === 'message') {
@@ -333,14 +336,11 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
       if (result.modes) setModes(result.modes)
       if (result.status === 'ready') {
         setStatus('ready')
-        data.onStatusChange(id, 'running')
       } else if (result.status === 'auth_required') {
         setStatus('auth_required')
-        data.onStatusChange(id, 'attention')
       } else {
         setStatus('exited')
         setDetail(result.message)
-        data.onStatusChange(id, 'exited')
       }
     })
     return () => {
@@ -349,6 +349,11 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
       window.agentApi.kill(id)
     }
   }, [data.dormant, data.launchMode, data.preferredPermissionMode, data.projectPath, id, provider])
+
+  useEffect(() => {
+    if (data.dormant) return
+    data.onStatusChange(id, sidebarStatus(status, approval !== null))
+  }, [approval, data.dormant, data.onStatusChange, id, status])
 
   const submit = (event: FormEvent): void => {
     event.preventDefault()

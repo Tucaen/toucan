@@ -7,7 +7,7 @@ import type {
   WorkspaceTerminalNode
 } from '../../shared/terminal'
 
-export type TerminalNodeStatus = 'dormant' | 'starting' | 'running' | 'attention' | 'exited'
+export type TerminalNodeStatus = 'dormant' | 'starting' | 'idle' | 'working' | 'attention' | 'exited'
 
 export interface TerminalNodeCallbacks {
   onStatusChange(nodeId: string, status: TerminalNodeStatus): void

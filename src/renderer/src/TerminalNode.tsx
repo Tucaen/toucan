@@ -48,7 +48,7 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
 
   const acknowledgeActivity = (): void => {
     clearAttentionTimer()
-    if (!data.dormant && !exitedRef.current) data.onStatusChange(id, 'running')
+    if (!data.dormant && !exitedRef.current) data.onStatusChange(id, 'idle')
   }
 
   const copySelection = (): void => {
@@ -163,7 +163,7 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
           }
           if (result.ok) {
             started = true
-            data.onStatusChange(id, 'running')
+            data.onStatusChange(id, 'idle')
             fit()
             terminal.focus()
           } else {

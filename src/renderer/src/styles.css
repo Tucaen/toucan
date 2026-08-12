@@ -375,9 +375,19 @@ button {
   background: #718096;
 }
 
-.project-node-state[data-status="running"] .node-status-indicator {
+.project-node-state[data-status="idle"] .node-status-indicator {
   background: #74d8a2;
   box-shadow: 0 0 7px rgba(116, 216, 162, 0.5);
+}
+
+.project-node-state[data-status="working"] {
+  color: #8fbcff;
+}
+
+.project-node-state[data-status="working"] .node-status-indicator {
+  background: #71a9ff;
+  box-shadow: 0 0 9px rgba(113, 169, 255, 0.6);
+  animation: attention-pulse 1.4s ease-in-out infinite;
 }
 
 .project-node-state[data-status="dormant"] {
