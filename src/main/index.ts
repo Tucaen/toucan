@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, session } from 'electron'
 import { execFileSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { basename, extname, join, normalize } from 'node:path'
@@ -120,7 +120,27 @@ function createWindow(terminalManager: TerminalManager, agentManager: AcpSession
   }
 }
 
+function registerVoicePrototypePermissions(): void {
+  // PROTOTYPE: allow ADE's own window to request microphone audio, never camera video.
+  session.defaultSession.setPermissionCheckHandler((contents, permission, _origin, details) => (
+    permission === 'media'
+    && details.mediaType === 'audio'
+    && contents !== null
+    && BrowserWindow.fromWebContents(contents) !== null
+  ))
+  session.defaultSession.setPermissionRequestHandler((contents, permission, callback, details) => {
+    const mediaTypes = 'mediaTypes' in details ? details.mediaTypes : undefined
+    callback(
+      permission === 'media'
+      && mediaTypes?.length === 1
+      && mediaTypes[0] === 'audio'
+      && BrowserWindow.fromWebContents(contents) !== null
+    )
+  })
+}
+
 app.whenReady().then(() => {
+  registerVoicePrototypePermissions()
   const providers = createSessionProviders({
     homeDirectory: app.getPath('home'),
     environment: process.env,

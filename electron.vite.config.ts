@@ -9,6 +9,16 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()]
   },
   renderer: {
-    plugins: [react()]
+    plugins: [react()],
+    worker: {
+      format: 'es'
+    },
+    server: {
+      // PROTOTYPE: Moonshine's threaded WASM build requires SharedArrayBuffer.
+      headers: {
+        'Cross-Origin-Opener-Policy': 'same-origin',
+        'Cross-Origin-Embedder-Policy': 'require-corp'
+      }
+    }
   }
 })
