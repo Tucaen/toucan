@@ -263,11 +263,12 @@ function ChatView(props: ChatViewProps & {
 type ChatStatus = 'starting' | 'ready' | 'working' | 'auth_required' | 'exited'
 
 /** The sidebar only cares whether the agent is busy, blocked, or waiting on us. */
-function sidebarStatus(status: ChatStatus, awaitingApproval: boolean): TerminalNodeStatus {
+function sidebarStatus(status: ChatStatus, awaitingApproval: boolean, unreadResult: boolean): TerminalNodeStatus {
   if (status === 'exited') return 'exited'
   if (status === 'auth_required' || awaitingApproval) return 'attention'
   if (status === 'starting') return 'starting'
-  return status === 'working' ? 'working' : 'idle'
+  if (status === 'working') return 'working'
+  return unreadResult ? 'result' : 'idle'
 }
 
 export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanvasNode>): JSX.Element {
@@ -278,9 +279,11 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
   const [authMethods, setAuthMethods] = useState<AgentAuthMethod[]>([])
   const [modes, setModes] = useState<AgentModeState | null>(null)
   const [status, setStatus] = useState<ChatStatus>('starting')
+  const [unreadResult, setUnreadResult] = useState(false)
   const [detail, setDetail] = useState<string>()
   const [draft, setDraft] = useState('')
   const sentTextRef = useRef<string>()
+  const previousStatusRef = useRef<ChatStatus>('starting')
   const provider = data.kind === 'claude' ? 'claude' : 'codex'
   const activities = useMemo(() => Object.values(activitiesById), [activitiesById])
 
@@ -350,10 +353,21 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
     }
   }, [data.dormant, data.launchMode, data.preferredPermissionMode, data.projectPath, id, provider])
 
+  // A finished turn stays flagged as an unread result until the node is focused.
+  useEffect(() => {
+    const finishedTurn = previousStatusRef.current === 'working' && status === 'ready'
+    previousStatusRef.current = status
+    if (finishedTurn && !selected) setUnreadResult(true)
+  }, [selected, status])
+
+  useEffect(() => {
+    if (selected || status === 'working') setUnreadResult(false)
+  }, [selected, status])
+
   useEffect(() => {
     if (data.dormant) return
-    data.onStatusChange(id, sidebarStatus(status, approval !== null))
-  }, [approval, data.dormant, data.onStatusChange, id, status])
+    data.onStatusChange(id, sidebarStatus(status, approval !== null, unreadResult))
+  }, [approval, data.dormant, data.onStatusChange, id, status, unreadResult])
 
   const submit = (event: FormEvent): void => {
     event.preventDefault()

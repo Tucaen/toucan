@@ -390,6 +390,15 @@ button {
   animation: attention-pulse 1.4s ease-in-out infinite;
 }
 
+.project-node-state[data-status="result"] {
+  color: #c4a6ff;
+}
+
+.project-node-state[data-status="result"] .node-status-indicator {
+  background: #c992ff;
+  box-shadow: 0 0 9px rgba(201, 146, 255, 0.6);
+}
+
 .project-node-state[data-status="dormant"] {
   color: #8e98a6;
 }

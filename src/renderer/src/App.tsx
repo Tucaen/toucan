@@ -49,6 +49,7 @@ const statusLabels: Record<TerminalNodeStatus, string> = {
   starting: 'Starting',
   idle: 'Idle',
   working: 'Working',
+  result: 'Result',
   attention: 'Attention',
   exited: 'Exited'
 }
