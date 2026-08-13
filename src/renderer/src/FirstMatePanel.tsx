@@ -161,7 +161,7 @@ export default function FirstMatePanel({ state, onStateChange }: FirstMatePanelP
             </label>
           </div>
           {runtime.host === 'wsl' && (
-            <div className="firstmate-worker-warning" title={runtime.message}>
+            <div className="firstmate-worker-info" title={runtime.message}>
               Crew backend: tmux in {runtime.distribution ?? 'WSL'}
             </div>
           )}

@@ -1030,6 +1030,21 @@ button {
   scrollbar-width: thin;
 }
 
+/* React Flow disables selection on nodes; restore native copy selection in chat content. */
+.chat-scroll,
+.worklog-rail,
+.chat-dormant blockquote,
+.chat-composer textarea {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.chat-scroll button,
+.worklog-rail button {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
 .chat-empty {
   min-height: 100%;
   display: grid;
@@ -1700,11 +1715,11 @@ button {
   flex: 1;
 }
 
-.firstmate-worker-warning {
+.firstmate-worker-info {
   padding: 5px 10px;
-  border-bottom: 1px solid #4f4529;
-  color: #c9ad68;
-  background: #211d14;
+  border-bottom: 1px solid rgba(113, 169, 255, 0.18);
+  color: #8eb8ed;
+  background: rgba(54, 112, 174, 0.12);
   font-size: 8px;
 }
 
