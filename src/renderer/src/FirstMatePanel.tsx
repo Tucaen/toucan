@@ -125,6 +125,7 @@ export default function FirstMatePanel({ state, onStateChange }: FirstMatePanelP
     ...conversation
   }
   const ready = runtime?.state === 'ready'
+  const displayStatus = statusLabel(conversation.status)
 
   return (
     <aside className="firstmate-panel firstmate-dock" aria-label="FirstMate conversation dock">
@@ -132,7 +133,7 @@ export default function FirstMatePanel({ state, onStateChange }: FirstMatePanelP
         <FirstMateMark />
         <div>
           <strong>FirstMate</strong>
-          <small><i data-status={conversation.status} />{ready ? statusLabel(conversation.status) : 'ADE home'}</small>
+          <small><i data-status={conversation.status} />{ready ? displayStatus : 'ADE home'}</small>
         </div>
         <span className="chat-provider-badge">ACP</span>
       </header>
@@ -165,11 +166,11 @@ export default function FirstMatePanel({ state, onStateChange }: FirstMatePanelP
               Crew backend: tmux in {runtime.distribution ?? 'WSL'}
             </div>
           )}
-          {runtime.githubAuth === 'required' && (
+          {runtime.githubAuth === 'required' && conversation.status !== 'auth_required' && (
             <div className="firstmate-auth-warning">
               <span>GitHub sign-in is required for project and PR work.</span>
               <button type="button" onClick={authenticateGitHub} disabled={waitingForGitHub}>
-                {waitingForGitHub ? 'Waiting for sign-in...' : 'Sign in'}
+                {waitingForGitHub ? 'Waiting for sign-in...' : 'Sign in to GitHub'}
               </button>
             </div>
           )}
@@ -184,13 +185,15 @@ export default function FirstMatePanel({ state, onStateChange }: FirstMatePanelP
             setWorklogCollapsed={(worklogCollapsed) => updateState({ worklogCollapsed })}
             statusBar={(
               <>
-                <span><i data-tone={conversation.status === 'working' ? 'blue' : 'green'} />{statusLabel(conversation.status)}</span>
+                {conversation.status !== 'auth_required' && (
+                  <span><i data-tone={conversation.status === 'working' ? 'blue' : 'green'} />{displayStatus}</span>
+                )}
                 {conversation.approval && <span><i data-tone="gold" />1 decision</span>}
                 <small>{conversation.activities.filter((activity) => activity.status === 'in_progress').length} active actions</small>
               </>
             )}
           />
-          {conversation.detail && (
+          {conversation.detail && conversation.status !== 'auth_required' && (
             <div className="firstmate-detail" title={conversation.detail}>{conversation.detail}</div>
           )}
         </>

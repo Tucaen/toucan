@@ -89,6 +89,8 @@ export interface FirstMateWslOptions {
 export interface FirstMateRuntimeOptions {
   rootPath: string
   platform: NodeJS.Platform
+  /** Native Codex home shared by ADE's regular Codex nodes. */
+  codexHome?: string
   resolveGit(): string | null
   clone?(git: string, repository: string, target: string): Promise<void>
   wsl?: FirstMateWslOptions
@@ -114,6 +116,12 @@ function facts(output: string): Map<string, string> {
     if (separator > 0) result.set(line.slice(0, separator), line.slice(separator + 1))
   }
   return result
+}
+
+function windowsPathToWsl(path: string): string | undefined {
+  const normalized = path.replace(/\\/g, '/')
+  const match = /^([a-zA-Z]):\/(.+)$/.exec(normalized)
+  return match ? `/mnt/${match[1].toLocaleLowerCase()}/${match[2]}` : undefined
 }
 
 function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateRuntime {
@@ -172,6 +180,7 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
       const home = detected.get('home')
       if (!home?.startsWith('/')) throw new Error(`Could not resolve the ${distribution} user home.`)
       const paths = linuxPaths(home)
+      const sharedCodexHome = options.codexHome ? windowsPathToWsl(options.codexHome) : undefined
       const missing = WSL_REQUIRED_FACTS.filter((name) => detected.get(name) !== '1')
       if (missing.length > 0) {
         readyLaunch = null
@@ -196,6 +205,7 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
             '--exec', '/usr/bin/env',
             `FM_HOME=${paths.homePath}`,
             'FM_BACKEND=tmux',
+            ...(sharedCodexHome ? [`CODEX_HOME=${sharedCodexHome}`] : []),
             `PATH=${home}/.local/bin:/usr/local/bin:/usr/bin:/bin`,
             `APP_SERVER_LOGS=${paths.homePath}/state/acp-logs`,
             '/usr/bin/node', paths.runnerPath

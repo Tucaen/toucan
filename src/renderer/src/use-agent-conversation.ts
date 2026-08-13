@@ -217,7 +217,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     status,
     detail,
     draft,
-    selectorsDisabled: status === 'starting' || status === 'auth_required' || status === 'exited',
+    selectorsDisabled: status === 'starting' || status === 'exited',
     setDraft,
     submit,
     cancel: () => window.agentApi.cancel(options.id),

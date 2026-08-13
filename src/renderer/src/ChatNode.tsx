@@ -160,18 +160,16 @@ function AuthPanel(props: Pick<ChatViewProps, 'provider' | 'authMethods' | 'auth
     || method.name.toLocaleLowerCase().includes('subscription')
     || method.name.toLocaleLowerCase().includes('claude')
   ))
-  const methods = subscriptionMethods.length > 0 ? subscriptionMethods : props.authMethods
+  const method = subscriptionMethods[0] ?? props.authMethods[0]
   return (
     <section className="chat-auth-panel">
       <span className="auth-lock">*</span>
       <div>
-        <strong>Connect {providerNames[props.provider]}</strong>
-        <p>Use your existing subscription login. API credentials are optional.</p>
-        {methods.map((method) => (
-          <button type="button" key={method.id} onClick={() => props.authenticate(method.id)}>
-            {method.name}
-          </button>
-        ))}
+        <strong>Sign in to {providerNames[props.provider]}</strong>
+        <p>Connect your existing subscription to enable messages and voice input.</p>
+        <button type="button" onClick={() => props.authenticate(method.id)}>
+          {method.name}
+        </button>
       </div>
     </section>
   )
@@ -224,15 +222,17 @@ export function ChatView(props: ChatViewProps & {
   return (
     <div className={`agent-chat ${props.worklogCollapsed ? 'worklog-collapsed' : ''} ${props.statusBar ? 'has-status-bar' : ''}`}>
       <div className="chat-scroll nodrag nopan nowheel">
-        {props.messages.length === 0 && (props.empty
-          ? (
-            <div className="chat-empty">
-              <span>{props.empty.icon}</span>
-              <strong>{props.empty.title}</strong>
-              <p>{props.empty.description}</p>
-            </div>
-          )
-          : <EmptyConversation provider={props.provider} />)}
+        {props.status === 'auth_required'
+          ? <AuthPanel {...props} />
+          : props.messages.length === 0 && (props.empty
+            ? (
+              <div className="chat-empty">
+                <span>{props.empty.icon}</span>
+                <strong>{props.empty.title}</strong>
+                <p>{props.empty.description}</p>
+              </div>
+            )
+            : <EmptyConversation provider={props.provider} />)}
         {props.messages.map((message) => message.role === 'thought'
           ? <details className="thought-card" key={message.id}><summary>Reasoning</summary><Markdown text={message.text} /></details>
           : (
@@ -242,7 +242,6 @@ export function ChatView(props: ChatViewProps & {
             </article>
           ))}
         <ApprovalPanel {...props} />
-        <AuthPanel {...props} />
       </div>
       <aside className="worklog-rail nodrag nopan nowheel">
         {props.worklogCollapsed ? (

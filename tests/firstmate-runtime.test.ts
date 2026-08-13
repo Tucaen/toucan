@@ -75,6 +75,26 @@ test('builds the Linux ACP launch only after the complete WSL runtime is ready',
   assert.ok(launch?.agentProcess?.args.includes('/home/tucaen/.local/share/ade/firstmate/runner/node_modules/@agentclientprotocol/codex-acp/dist/index.js'))
 })
 
+test('reuses the host Codex home for the managed WSL agent', async () => {
+  const rootPath = mkdtempSync(join(tmpdir(), 'ade-firstmate-wsl-codex-auth-'))
+  const runtime = createFirstMateRuntime({
+    rootPath,
+    platform: 'win32',
+    codexHome: 'C:\\Users\\tester\\.codex',
+    resolveGit: () => 'git.exe',
+    wsl: {
+      run: async () => ({ stdout: readyWslInspection(), stderr: '' })
+    }
+  })
+
+  await runtime.status()
+
+  assert.ok(
+    runtime.launch()?.agentProcess?.args.includes('CODEX_HOME=/mnt/c/Users/tester/.codex'),
+    'FirstMate should see the same Codex login and configuration as native ADE Codex nodes'
+  )
+})
+
 test('opens GitHub authentication in the managed Ubuntu environment', async () => {
   const rootPath = mkdtempSync(join(tmpdir(), 'ade-firstmate-wsl-auth-'))
   let terminal: { title: string; executable: string; args: string[] } | undefined

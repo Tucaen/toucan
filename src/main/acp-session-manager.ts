@@ -27,6 +27,7 @@ import type {
 import { activityFromUpdate } from '../shared/agent-activity'
 import { modelSelectorFromConfigOptions } from '../shared/agent-models'
 import { buildAgentProcessLaunch } from './agent-process'
+import { readCachedCodexModels } from './codex-model-cache'
 import type { FirstMateLaunch } from './firstmate-runtime'
 
 interface PendingApproval {
@@ -42,6 +43,7 @@ interface RunningAgent {
   adapterPath: string
   authMethods: AgentAuthMethod[]
   environment: NodeJS.ProcessEnv
+  cachedModels?: AgentModelState
   sessionId?: string
   modelConfigId?: string
   pendingApprovals: Map<string, PendingApproval>
@@ -83,6 +85,7 @@ function simplifyModes(modes: {
 
 export interface AcpSessionManagerOptions {
   appPath: string
+  codexHome?: string
   resolveFirstMateLaunch?(): FirstMateLaunch | null
 }
 
@@ -182,6 +185,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         modes = { ...modes, currentModeId: running.request.permissionMode }
       }
       if (models) models = await applySavedModel(running, models)
+      if (models) running.cachedModels = models
       send(running, { type: 'session', sessionId: running.sessionId })
       if (modes) send(running, { type: 'modes', modes })
       if (models) send(running, { type: 'models', models })
@@ -195,9 +199,16 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       }
     } catch (error) {
       if (isAuthRequired(error)) {
+        const models = running.cachedModels
         send(running, { type: 'auth', methods: running.authMethods })
+        if (models) send(running, { type: 'models', models })
         send(running, { type: 'status', status: 'auth_required' })
-        return { ok: false, status: 'auth_required', authMethods: running.authMethods }
+        return {
+          ok: false,
+          status: 'auth_required',
+          authMethods: running.authMethods,
+          ...(models ? { models } : {})
+        }
       }
       const message = errorMessage(error)
       send(running, { type: 'error', message })
@@ -337,6 +348,9 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         adapterPath: path,
         authMethods: [],
         environment,
+        cachedModels: effectiveRequest.provider === 'codex' && options.codexHome
+          ? readCachedCodexModels(options.codexHome, effectiveRequest.modelId)
+          : undefined,
         pendingApprovals,
         stopping: false
       }
@@ -412,7 +426,16 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
 
     async setModel(id, modelId): Promise<AgentPromptResult> {
       const running = agents.get(id)
-      if (!running?.sessionId) return { ok: false, message: 'The agent session is not ready.' }
+      if (!running) return { ok: false, message: 'The agent session is not running.' }
+      if (!running.sessionId) {
+        if (!running.cachedModels?.availableModels.some((model) => model.id === modelId)) {
+          return { ok: false, message: 'That model is unavailable.' }
+        }
+        running.request.modelId = modelId
+        running.cachedModels = { ...running.cachedModels, currentModelId: modelId }
+        send(running, { type: 'models', models: running.cachedModels })
+        return { ok: true }
+      }
       if (!running.modelConfigId) return { ok: false, message: 'This agent does not expose model selection.' }
       try {
         const response = await running.context.request(methods.agent.session.setConfigOption, {
@@ -423,6 +446,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         // Setting a model can reshape the agent's other selectors (effort levels, fast mode).
         const selector = modelSelectorFromConfigOptions(response.configOptions)
         if (selector) send(running, { type: 'models', models: selector.models })
+        running.request.modelId = modelId
         return { ok: true }
       } catch (error) {
         const message = errorMessage(error)

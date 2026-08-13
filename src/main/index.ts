@@ -149,6 +149,7 @@ function registerVoicePrototypePermissions(): void {
 
 app.whenReady().then(() => {
   registerVoicePrototypePermissions()
+  const codexHome = process.env.CODEX_HOME ?? join(app.getPath('home'), '.codex')
   const providers = createSessionProviders({
     homeDirectory: app.getPath('home'),
     environment: process.env,
@@ -167,10 +168,12 @@ app.whenReady().then(() => {
   const firstMateRuntime = createFirstMateRuntime({
     rootPath: join(app.getPath('userData'), 'firstmate'),
     platform: process.platform,
+    codexHome,
     resolveGit: () => findCommand('git')
   })
   const agentManager = createAcpSessionManager({
     appPath: app.getAppPath(),
+    codexHome,
     resolveFirstMateLaunch: () => firstMateRuntime.launch()
   })
 
