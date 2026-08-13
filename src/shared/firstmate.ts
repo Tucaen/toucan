@@ -4,13 +4,21 @@ export interface FirstMateRuntimeStatus {
   state: FirstMateRuntimeState
   distroPath: string
   homePath: string
-  workerSupport: 'native' | 'wsl_required'
+  host: 'native' | 'wsl'
+  backend: 'tmux'
+  distribution?: string
+  githubAuth?: 'authenticated' | 'required'
   message?: string
 }
 
 export interface FirstMateInstallResult {
   ok: boolean
   status: FirstMateRuntimeStatus
+}
+
+export interface FirstMateActionResult {
+  ok: boolean
+  message?: string
 }
 
 export interface FirstMateWorkspaceState {

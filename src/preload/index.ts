@@ -5,7 +5,7 @@ import type {
   AgentEventEnvelope,
   AgentPromptResult
 } from '../shared/agent'
-import type { FirstMateInstallResult, FirstMateRuntimeStatus } from '../shared/firstmate'
+import type { FirstMateActionResult, FirstMateInstallResult, FirstMateRuntimeStatus } from '../shared/firstmate'
 import type {
   ConversationPreview,
   ProjectDirectory,
@@ -89,7 +89,8 @@ contextBridge.exposeInMainWorld('agentApi', agentApi)
 
 const firstMateApi = {
   status: (): Promise<FirstMateRuntimeStatus> => ipcRenderer.invoke('firstmate:status'),
-  install: (): Promise<FirstMateInstallResult> => ipcRenderer.invoke('firstmate:install')
+  install: (): Promise<FirstMateInstallResult> => ipcRenderer.invoke('firstmate:install'),
+  authenticateGitHub: (): Promise<FirstMateActionResult> => ipcRenderer.invoke('firstmate:github-auth')
 }
 
 contextBridge.exposeInMainWorld('firstMateApi', firstMateApi)

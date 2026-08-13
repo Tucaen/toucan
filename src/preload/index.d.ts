@@ -4,7 +4,7 @@ import type {
   AgentEvent,
   AgentPromptResult
 } from '../shared/agent'
-import type { FirstMateInstallResult, FirstMateRuntimeStatus } from '../shared/firstmate'
+import type { FirstMateActionResult, FirstMateInstallResult, FirstMateRuntimeStatus } from '../shared/firstmate'
 import type {
   ConversationPreview,
   ProjectDirectory,
@@ -46,6 +46,7 @@ export interface TerminalApi {
 export interface FirstMateApi {
   status(): Promise<FirstMateRuntimeStatus>
   install(): Promise<FirstMateInstallResult>
+  authenticateGitHub(): Promise<FirstMateActionResult>
 }
 
 declare global {

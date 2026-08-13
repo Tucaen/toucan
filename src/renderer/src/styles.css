@@ -1708,6 +1708,27 @@ button {
   font-size: 8px;
 }
 
+.firstmate-auth-warning {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(234, 179, 8, 0.18);
+  color: #d7c99a;
+  background: rgba(120, 89, 18, 0.12);
+  font-size: 11px;
+}
+
+.firstmate-auth-warning button {
+  flex: 0 0 auto;
+  padding: 5px 9px;
+  border: 1px solid rgba(234, 179, 8, 0.32);
+  border-radius: 5px;
+  color: #eadca7;
+  background: rgba(120, 89, 18, 0.2);
+}
+
 .firstmate-runtime-setup {
   width: min(100% - 38px, 300px);
   display: grid;

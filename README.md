@@ -14,11 +14,13 @@ Agent nodes use a flowing chat layout with clearly separated user and assistant 
 
 ## FirstMate dock
 
-ADE has one persistent FirstMate conversation dock on the right side of the workspace. It is ADE-wide rather than attached to a canvas project. On first use, choose **Install from GitHub**; ADE clones the FirstMate agent distro into its Electron user-data directory and creates one separate private `FM_HOME` beside it. The distro and home are never stored in an ADE project.
+ADE has one persistent FirstMate conversation dock on the right side of the workspace. It is ADE-wide rather than attached to a canvas project. On Windows, choose **Set up in Ubuntu** once: ADE provisions a private FirstMate distro, operational `FM_HOME`, Linux Codex ACP runner, tmux backend, Treehouse, and FirstMate's supported toolchain inside the user's Ubuntu WSL home. None of these files are stored in an ADE project or in Docker Desktop's internal distribution.
 
 The dock uses the same Codex ACP transport as Codex canvas nodes. Its conversation ID, selected model, permission mode, and worklog layout are saved in the ADE workspace and restored on restart. Authentication and tool approvals stay visible in the dock.
 
-FirstMate officially supports macOS and Linux worker backends. ADE itself remains Windows-first, so crew dispatch on Windows requires a configured WSL/Linux environment with tmux and FirstMate's required toolchain. The dock surfaces this requirement; missing worker tooling is reported by FirstMate rather than silently replaced with a different backend.
+FirstMate officially supports macOS and Linux. ADE remains a native Windows application and bridges its FirstMate ACP process over stdio through `wsl.exe`; FirstMate and its workers stay inside Ubuntu. The verified tmux reference backend is selected explicitly. ADE checks the complete managed runtime before enabling the dock and can repair missing packages idempotently without asking for the Linux sudo password.
+
+The two account grants remain interactive by design. The dock opens GitHub's `gh auth login` flow in Windows Terminal and detects its completion automatically. The existing ACP authentication panel handles Codex ChatGPT, device-code, or API-key sign-in. ADE never reads or copies either credential.
 
 ## Run
 

@@ -235,11 +235,12 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       const environment = firstMateLaunch?.environment ?? process.env
 
       const path = adapterPath(effectiveRequest.provider)
-      if (!existsSync(path)) {
+      if (!firstMateLaunch?.agentProcess && !existsSync(path)) {
         return { ok: false, status: 'error', message: `The ${effectiveRequest.provider} ACP adapter is not installed.` }
       }
 
-      const launch = buildAgentProcessLaunch(process.execPath, path, effectiveRequest.cwd, environment)
+      const launch = firstMateLaunch?.agentProcess
+        ?? buildAgentProcessLaunch(process.execPath, path, effectiveRequest.cwd, environment)
       const child = spawn(launch.executable, launch.args, {
         ...launch.options,
         stdio: ['pipe', 'pipe', 'pipe']

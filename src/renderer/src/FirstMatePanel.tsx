@@ -28,23 +28,25 @@ function RuntimeSetup({
   return (
     <div className="firstmate-runtime-setup">
       <FirstMateMark />
-      <strong>{checking ? 'Checking FirstMate…' : failed ? 'FirstMate setup failed' : 'Install FirstMate'}</strong>
+      <strong>{checking ? 'Checking FirstMate…' : failed ? 'FirstMate setup failed' : 'Set up FirstMate'}</strong>
       <p>
         {checking
           ? 'Looking for ADE’s managed FirstMate distro and operational home.'
           : failed
           ? runtime.message
+          : runtime?.host === 'wsl'
+          ? `ADE will provision FirstMate, Codex ACP, and tmux inside ${runtime.distribution ?? 'Ubuntu'}.`
           : 'ADE will download the FirstMate agent distro and create one private operational home on this machine.'}
       </p>
-      {runtime?.workerSupport === 'wsl_required' && !failed && (
-        <small>Windows crew workers require WSL with tmux and the FirstMate toolchain.</small>
+      {runtime?.host === 'wsl' && !failed && (
+        <small>Linux packages stay isolated inside WSL; ADE and its projects remain native Windows applications.</small>
       )}
       {!checking && (
         <button type="button" onClick={install} disabled={installing}>
-          {installing ? 'Installing…' : failed ? 'Retry installation' : 'Install from GitHub'}
+          {installing ? 'Installing…' : failed ? 'Retry setup' : runtime?.host === 'wsl' ? 'Set up in Ubuntu' : 'Install from GitHub'}
         </button>
       )}
-      {failed && <small>The existing files were preserved. Resolve the path problem before retrying.</small>}
+      {failed && <small>Existing files were preserved. Review the error above, then retry.</small>}
     </div>
   )
 }
@@ -60,6 +62,7 @@ function statusLabel(status: ReturnType<typeof useAgentConversation>['status']):
 export default function FirstMatePanel({ state, onStateChange }: FirstMatePanelProps): JSX.Element {
   const [runtime, setRuntime] = useState<FirstMateRuntimeStatus | null>(null)
   const [installing, setInstalling] = useState(false)
+  const [waitingForGitHub, setWaitingForGitHub] = useState(false)
 
   useEffect(() => {
     let active = true
@@ -68,6 +71,18 @@ export default function FirstMatePanel({ state, onStateChange }: FirstMatePanelP
     })
     return () => { active = false }
   }, [])
+
+  useEffect(() => {
+    if (!waitingForGitHub || runtime?.githubAuth !== 'required') return
+    const refresh = (): void => {
+      void window.firstMateApi.status().then((status) => {
+        setRuntime(status)
+        if (status.githubAuth === 'authenticated') setWaitingForGitHub(false)
+      })
+    }
+    const timer = window.setInterval(refresh, 3000)
+    return () => window.clearInterval(timer)
+  }, [runtime?.githubAuth, waitingForGitHub])
 
   const updateState = (patch: Partial<FirstMateWorkspaceState>): void => {
     onStateChange({ ...state, ...patch })
@@ -92,6 +107,16 @@ export default function FirstMatePanel({ state, onStateChange }: FirstMatePanelP
     void window.firstMateApi.install().then((result) => {
       setRuntime(result.status)
       setInstalling(false)
+    })
+  }
+
+  const authenticateGitHub = (): void => {
+    setWaitingForGitHub(true)
+    void window.firstMateApi.authenticateGitHub().then((result) => {
+      if (!result.ok) {
+        setWaitingForGitHub(false)
+        setRuntime((current) => current ? { ...current, message: result.message } : current)
+      }
     })
   }
 
@@ -135,9 +160,17 @@ export default function FirstMatePanel({ state, onStateChange }: FirstMatePanelP
               />
             </label>
           </div>
-          {runtime.workerSupport === 'wsl_required' && (
+          {runtime.host === 'wsl' && (
             <div className="firstmate-worker-warning" title={runtime.message}>
-              Crew backend: Linux or WSL required
+              Crew backend: tmux in {runtime.distribution ?? 'WSL'}
+            </div>
+          )}
+          {runtime.githubAuth === 'required' && (
+            <div className="firstmate-auth-warning">
+              <span>GitHub sign-in is required for project and PR work.</span>
+              <button type="button" onClick={authenticateGitHub} disabled={waitingForGitHub}>
+                {waitingForGitHub ? 'Waiting for sign-in...' : 'Sign in'}
+              </button>
             </div>
           )}
           <ChatView
