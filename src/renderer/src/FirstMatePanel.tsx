@@ -7,7 +7,7 @@ import type {
 } from '../../shared/firstmate'
 import type { WorkspaceProject } from '../../shared/terminal'
 import { ChatView, SelectorPicker, type ChatViewProps } from './ChatNode'
-import { firstMateProjectContext } from './firstmate-project-context'
+import { firstMateProjectTarget, firstMateRequest } from './firstmate-request-target'
 import {
   clampFirstMatePanelWidth,
   firstMatePanelWidthBounds,
@@ -114,6 +114,8 @@ export default function FirstMatePanel({ project, state, onStateChange }: FirstM
   const [resizing, setResizing] = useState(false)
   const panelRef = useRef<HTMLElement>(null)
   const resizeSession = useRef<(FirstMatePanelResizeSession & { pointerId: number }) | null>(null)
+  // The sidebar selection retargets the next request; it is never part of the conversation's identity.
+  const requestTarget = firstMateProjectTarget(project)
 
   useEffect(() => {
     let active = true
@@ -177,7 +179,7 @@ export default function FirstMatePanel({ project, state, onStateChange }: FirstM
     permissionMode: state.permissionMode,
     modelId: state.modelId,
     restartKey: sessionGeneration,
-    promptContext: firstMateProjectContext(project),
+    composePrompt: (text) => firstMateRequest(project, text),
     enabled: runtime?.state === 'ready' && (provider !== 'codex' || runtime.codexProjectTrust === 'trusted'),
     onSessionId: (conversationId) => updateState({ conversationId }),
     onPermissionMode: (permissionMode) => updateState({ permissionMode }),
@@ -366,6 +368,14 @@ export default function FirstMatePanel({ project, state, onStateChange }: FirstM
       </header>
       {ready ? (
         <>
+          <div
+            className="firstmate-request-target"
+            title={`${requestTarget.windowsPath}\n${requestTarget.wslPath}`}
+          >
+            <span>Next request</span>
+            <strong>{requestTarget.name}</strong>
+            <small>{requestTarget.windowsPath}</small>
+          </div>
           <div className="firstmate-settings-bar">
             <label>
               <span>Provider</span>

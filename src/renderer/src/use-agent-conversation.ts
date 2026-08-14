@@ -33,7 +33,8 @@ export interface AgentConversationOptions {
   permissionMode?: string
   modelId?: string
   restartKey?: number
-  promptContext?: string
+  /** Builds what the agent receives from the captain's text. Called at submission, never earlier. */
+  composePrompt?(text: string): string
   enabled: boolean
   onSessionId(sessionId: string): void
   onPermissionMode(modeId: string): void
@@ -166,7 +167,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     event.preventDefault()
     const text = draft.trim()
     if (!text || status !== 'ready') return
-    const prompt = options.promptContext ? `${options.promptContext}\n\n${text}` : text
+    const prompt = options.composePrompt ? options.composePrompt(text) : text
     sentTextRef.current = prompt
     setMessages((current) => [...current, { id: crypto.randomUUID(), role: 'user', text }])
     setDraft('')

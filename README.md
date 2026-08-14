@@ -14,7 +14,7 @@ Agent nodes use a flowing chat layout with clearly separated user and assistant 
 
 ## FirstMate dock
 
-ADE has one persistent FirstMate conversation dock on the right side of the workspace. The conversation is ADE-wide, while each request is assigned to the project currently selected in the left sidebar. On Windows, choose **Set up in Ubuntu** once: ADE provisions a private FirstMate distro, operational `FM_HOME`, Linux Codex ACP runner, tmux backend, Treehouse, and FirstMate's supported toolchain inside the user's Ubuntu WSL home. None of these files are stored in an ADE project or in Docker Desktop's internal distribution.
+ADE has one persistent FirstMate conversation dock on the right side of the workspace. The conversation is ADE-wide, while each request is assigned to the project currently selected in the left sidebar. The dock names that project and its full path above the conversation, so the target is visible before sending. Switching projects retargets the next request without restarting the captain conversation, and a submitted request keeps the project it was sent with. On Windows, choose **Set up in Ubuntu** once: ADE provisions a private FirstMate distro, operational `FM_HOME`, Linux Codex ACP runner, tmux backend, Treehouse, and FirstMate's supported toolchain inside the user's Ubuntu WSL home. None of these files are stored in an ADE project or in Docker Desktop's internal distribution.
 
 The dock uses the same Codex ACP transport as Codex canvas nodes. Its conversation ID, selected model, permission mode, and worklog layout are saved in the ADE workspace and restored on restart. Authentication and tool approvals stay visible in the dock.
 

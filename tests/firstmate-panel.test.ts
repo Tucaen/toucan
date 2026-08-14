@@ -151,12 +151,32 @@ test('assigns every FirstMate request to the project selected in the sidebar', (
   )
   assert.match(
     panel,
-    /promptContext:\s*firstMateProjectContext\(project\)/,
+    /composePrompt:\s*\(text\) => firstMateRequest\(project, text\)/,
     'FirstMate should identify the selected project on every request without changing its distro cwd'
   )
   assert.match(
     conversation,
-    /const prompt = options\.promptContext[\s\S]*?window\.agentApi\.prompt\(options\.id, prompt\)/,
-    'the project context should be sent to the agent while the visible chat keeps the captain\'s original text'
+    /composePrompt\(text\)[\s\S]*?window\.agentApi\.prompt\(options\.id, prompt\)/,
+    'the project assignment should be sent to the agent while the visible chat keeps the captain\'s original text'
   )
+
+  const sessionDependencies = conversation.match(/\}, \[options\.cwd[^\]]*\]\)/)?.[0]
+  assert.ok(sessionDependencies, 'the ACP session should declare its dependencies')
+  assert.doesNotMatch(
+    sessionDependencies,
+    /composePrompt/,
+    'retargeting the next request must not restart the persistent captain conversation'
+  )
+})
+
+test('shows the project the next FirstMate request will target', () => {
+  const panel = readFileSync(join(process.cwd(), 'src/renderer/src/FirstMatePanel.tsx'), 'utf8')
+  const styles = readFileSync(join(process.cwd(), 'src/renderer/src/styles.css'), 'utf8')
+
+  const target = panel.match(/className="firstmate-request-target"[\s\S]*?<\/div>/)?.[0]
+  assert.ok(target, 'the dock should name its request target before the captain submits')
+  assert.match(target, /requestTarget\.name/, 'the target row should name the project')
+  assert.match(target, /requestTarget\.windowsPath/, 'the target row should distinguish similarly named projects by path')
+  assert.match(target, /title=\{`\$\{requestTarget\.windowsPath\}[\s\S]*?requestTarget\.wslPath\}`\}/)
+  assert.match(styles, /\.firstmate-request-target\s*\{/, 'the target row needs its own style')
 })

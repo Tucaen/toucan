@@ -1798,6 +1798,44 @@ button {
   opacity: 0.45;
 }
 
+/* The project the next FirstMate request is assigned to. */
+.firstmate-request-target {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid #29313b;
+  background: #141920;
+}
+
+.firstmate-request-target > span {
+  flex: 0 0 auto;
+  color: #697584;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.firstmate-request-target > strong {
+  flex: 0 0 auto;
+  color: #d7deea;
+  font-size: 12px;
+}
+
+.firstmate-request-target > small {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  color: #697584;
+  direction: rtl;
+  text-align: left;
+  text-overflow: ellipsis;
+  unicode-bidi: plaintext;
+  white-space: nowrap;
+  font-size: 11px;
+}
+
 .firstmate-settings-bar {
   display: grid;
   grid-template-columns: minmax(0, 0.8fr) minmax(0, 1fr) minmax(0, 1.1fr);
