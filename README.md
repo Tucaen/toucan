@@ -18,7 +18,7 @@ ADE has one persistent FirstMate conversation dock on the right side of the work
 
 The dock uses the same Codex ACP transport as Codex canvas nodes. Its conversation ID, selected model, permission mode, and worklog layout are saved in the ADE workspace and restored on restart. Authentication and tool approvals stay visible in the dock.
 
-FirstMate officially supports macOS and Linux. ADE remains a native Windows application and bridges its FirstMate ACP process over stdio through `wsl.exe`; FirstMate and its workers stay inside Ubuntu. The verified tmux reference backend is selected explicitly. ADE checks the complete managed runtime before enabling the dock and can repair missing packages idempotently without asking for the Linux sudo password.
+FirstMate officially supports macOS and Linux. ADE remains a native Windows application and bridges its FirstMate ACP process over stdio through `wsl.exe`; FirstMate and its workers stay inside Ubuntu. The verified tmux reference backend is selected explicitly. ADE installs native Linux Claude and Codex CLIs, gives each provider its own credentials, and explicitly configures no-mistakes to use the provider selected for FirstMate. ADE checks the complete managed runtime before enabling the dock and can repair missing packages idempotently without asking for the Linux sudo password.
 
 The two account grants remain interactive by design. The dock opens GitHub's `gh auth login` flow in Windows Terminal and detects its completion automatically. The existing ACP authentication panel handles Codex ChatGPT, device-code, or API-key sign-in. ADE never reads or copies either credential.
 

@@ -17,8 +17,11 @@ function readyWslInspection(): string {
     'distro=1',
     'runner.codex=1',
     'runner.claude=1',
-    ...['node', 'git', 'gh', 'tmux', 'jq', 'treehouse', 'no-mistakes', 'gh-axi',
+    ...['node', 'git', 'gh', 'tmux', 'jq', 'claude', 'codex', 'treehouse', 'no-mistakes', 'gh-axi',
       'chrome-devtools-axi', 'lavish-axi', 'tasks-axi', 'quota-axi'].map((tool) => `tool.${tool}=1`),
+    'wrapper.claude=1',
+    'wrapper.codex=1',
+    'daemon.no-mistakes=1',
     'githubAuth=required',
     'codexTrust=required'
   ].join('\n')
@@ -42,7 +45,7 @@ test('reports the managed Ubuntu runtime before WSL provisioning', async () => {
     host: 'wsl',
     backend: 'tmux',
     distribution: 'Ubuntu',
-    message: 'ADE will provision FirstMate, Codex and Claude ACP, tmux, and 14 supporting tools in Ubuntu.'
+    message: 'ADE will provision FirstMate, native Claude and Codex agents, tmux, and the managed review toolchain in Ubuntu.'
   })
   assert.equal(runtime.launch(), null)
 })
@@ -65,12 +68,18 @@ test('builds the Linux ACP launch only after the complete WSL runtime is ready',
 
   const status = await runtime.status()
   const launch = runtime.launch()
+  const inspection = calls[0]?.at(-1) ?? ''
 
   assert.equal(status.state, 'ready')
   assert.equal(status.host, 'wsl')
   assert.equal(status.backend, 'tmux')
   assert.equal(status.githubAuth, 'required')
   assert.equal(status.codexProjectTrust, 'required')
+  assert.match(
+    inspection,
+    /export PATH="\$HOME\/\.local\/bin:\/usr\/local\/bin:\/usr\/bin:\/bin"/,
+    'runtime checks must ignore Windows shims that the Linux no-mistakes daemon cannot execute'
+  )
   assert.equal(launch?.cwd, '/home/tucaen/.local/share/ade/firstmate/distro')
   assert.equal(launch?.agentProcess?.executable, 'C:\\Windows\\System32\\wsl.exe')
   assert.deepEqual(launch?.agentProcess?.args.slice(0, 6), [
@@ -79,10 +88,17 @@ test('builds the Linux ACP launch only after the complete WSL runtime is ready',
     '--exec', '/bin/sh'
   ])
   assert.ok(launch?.agentProcess?.args.includes('FM_BACKEND=tmux'))
+  assert.ok(launch?.agentProcess?.args.includes('NM_HOME=/home/tucaen/.local/share/ade/firstmate/home/no-mistakes'))
   assert.ok(launch?.agentProcess?.args.includes('/home/tucaen/.local/share/ade/firstmate/runner/node_modules/@agentclientprotocol/codex-acp/dist/index.js'))
+  assert.ok(launch?.agentProcess?.args.includes('codex'))
   assert.match(calls[0].at(-1) ?? '', /in_section && \/\^\\\[\//)
   const claudeLaunch = (runtime.launch as (provider?: 'codex' | 'claude') => typeof launch)('claude')
   assert.ok(claudeLaunch?.agentProcess?.args.includes('/home/tucaen/.local/share/ade/firstmate/runner/node_modules/@agentclientprotocol/claude-agent-acp/dist/index.js'))
+  assert.ok(
+    claudeLaunch?.agentProcess?.args.some((arg) => arg.includes('agent_path_override:')) &&
+      claudeLaunch.agentProcess.args.includes('claude'),
+    'the selected FirstMate provider should become the no-mistakes pipeline agent'
+  )
 })
 
 test('reuses host Codex credentials without sharing Windows state databases', async () => {
@@ -114,6 +130,9 @@ test('reuses host Codex credentials without sharing Windows state databases', as
     /\/mnt\/c\/Users\/tester\/\.codex\/auth\.json[\s\S]*?\/home\/tucaen\/\.local\/share\/ade\/firstmate\/home\/codex/,
     'FirstMate should bootstrap only the existing file-backed Codex credentials'
   )
+  const managedCredential = launchArgs.indexOf('/home/tucaen/.local/share/ade/firstmate/home/codex/auth.json')
+  assert.equal(launchArgs[managedCredential + 1], 'codex')
+  assert.equal(launchArgs[managedCredential + 2], '/home/tucaen/.local/share/ade/firstmate/home/no-mistakes/config.yaml')
   assert.ok(launchArgs.some((arg) => arg.includes('cp "$host_auth" "$managed_auth"')))
 })
 
@@ -134,6 +153,9 @@ test('reuses host Claude credentials inside an isolated Linux config home', asyn
   const launch = runtime.launch('claude')
   const launchArgs = launch?.agentProcess?.args ?? []
   assert.ok(launchArgs.includes('CLAUDE_CONFIG_DIR=/home/tucaen/.local/share/ade/firstmate/home/claude'))
+  const managedCredential = launchArgs.indexOf('/home/tucaen/.local/share/ade/firstmate/home/claude/.credentials.json')
+  assert.equal(launchArgs[managedCredential + 1], 'claude')
+  assert.equal(launchArgs[managedCredential + 2], '/home/tucaen/.local/share/ade/firstmate/home/no-mistakes/config.yaml')
   assert.match(
     launchArgs.join(' '),
     /\/mnt\/c\/Users\/tester\/\.claude\/\.credentials\.json[\s\S]*?\/home\/tucaen\/\.local\/share\/ade\/firstmate\/home\/claude\/\.credentials\.json/,
@@ -248,7 +270,54 @@ test('provisions Ubuntu packages and the managed FirstMate toolchain', async () 
   assert.ok(prepare)
   assert.match(prepare.at(-1) ?? '', /mkdir -p "\$HOME\/.local\/bin"/)
   assert.match(prepare.at(-1) ?? '', /NPM_CONFIG_PREFIX="\$HOME\/.local"/)
+  assert.match(prepare.at(-1) ?? '', /@openai\/codex@/)
+  assert.match(prepare.at(-1) ?? '', /@anthropic-ai\/claude-code@/)
   assert.match(prepare.at(-1) ?? '', /@agentclientprotocol\/claude-agent-acp@/)
+  assert.match(
+    prepare.at(-1) ?? '',
+    /ln -sfn "\$base\/runner\/node_modules\/\.bin\/codex" "\$HOME\/\.local\/bin\/codex"/,
+    'the native Linux Codex bundled with codex-acp should be on FirstMate and no-mistakes daemon PATH'
+  )
+  assert.match(
+    prepare.at(-1) ?? '',
+    /ln -sfn "\$base\/runner\/node_modules\/\.bin\/claude" "\$HOME\/\.local\/bin\/claude"/,
+    'the native Linux Claude CLI should be on FirstMate and no-mistakes daemon PATH'
+  )
+  assert.match(prepare.at(-1) ?? '', /NM_HOME="\$base\/home\/no-mistakes"/)
+  assert.match(prepare.at(-1) ?? '', /CLAUDE_CONFIG_DIR="\$base\/home\/claude"/)
+  assert.match(prepare.at(-1) ?? '', /no-mistakes daemon restart/)
+})
+
+test('repairs a WSL runtime whose daemon PATH has no native Codex CLI', async () => {
+  const inspectionWithoutCodex = readyWslInspection()
+    .split('\n')
+    .filter((line) => line !== 'tool.codex=1')
+    .join('\n')
+  const runtime = createFirstMateRuntime({
+    rootPath: mkdtempSync(join(tmpdir(), 'ade-firstmate-wsl-no-codex-')),
+    platform: 'win32',
+    resolveGit: () => 'git.exe',
+    wsl: { run: async () => ({ stdout: inspectionWithoutCodex, stderr: '' }) }
+  })
+
+  assert.equal((await runtime.status()).state, 'missing')
+  assert.equal(runtime.launch(), null)
+})
+
+test('repairs a WSL runtime whose daemon PATH has no native Claude CLI', async () => {
+  const inspectionWithoutClaude = readyWslInspection()
+    .split('\n')
+    .filter((line) => line !== 'tool.claude=1')
+    .join('\n')
+  const runtime = createFirstMateRuntime({
+    rootPath: mkdtempSync(join(tmpdir(), 'ade-firstmate-wsl-no-claude-')),
+    platform: 'win32',
+    resolveGit: () => 'git.exe',
+    wsl: { run: async () => ({ stdout: inspectionWithoutClaude, stderr: '' }) }
+  })
+
+  assert.equal((await runtime.status()).state, 'missing')
+  assert.equal(runtime.launch('claude'), null)
 })
 
 test('installs one distro and prepares one isolated operational home', async () => {

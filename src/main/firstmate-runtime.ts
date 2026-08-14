@@ -9,7 +9,9 @@ import type { AgentProcessLaunch } from './agent-process'
 const execFileAsync = promisify(execFile)
 const FIRSTMATE_REPOSITORY = 'https://github.com/kunchenguid/firstmate.git'
 const CODEX_ACP_VERSION = '1.1.14'
+const CODEX_CLI_VERSION = '0.147.0'
 const CLAUDE_ACP_VERSION = '0.66.0'
+const CLAUDE_CLI_VERSION = '2.1.232'
 const WSL_BASE = '.local/share/ade/firstmate'
 const WSL_REQUIRED_FACTS = [
   'distro',
@@ -20,25 +22,33 @@ const WSL_REQUIRED_FACTS = [
   'tool.gh',
   'tool.tmux',
   'tool.jq',
+  'tool.claude',
+  'tool.codex',
   'tool.treehouse',
   'tool.no-mistakes',
   'tool.gh-axi',
   'tool.chrome-devtools-axi',
   'tool.lavish-axi',
   'tool.tasks-axi',
-  'tool.quota-axi'
+  'tool.quota-axi',
+  'wrapper.claude',
+  'wrapper.codex',
+  'daemon.no-mistakes'
 ]
 const WSL_INSPECT_SCRIPT = `
 set -u
 base="$HOME/${WSL_BASE}"
-export PATH="$HOME/.local/bin:$PATH"
+export PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin"
 printf 'home=%s\n' "$HOME"
 [ -f "$base/distro/AGENTS.md" ] && [ -f "$base/distro/bin/fm-spawn.sh" ] && printf 'distro=1\n' || true
 [ -f "$base/runner/node_modules/@agentclientprotocol/codex-acp/dist/index.js" ] && printf 'runner.codex=1\n' || true
 [ -f "$base/runner/node_modules/@agentclientprotocol/claude-agent-acp/dist/index.js" ] && printf 'runner.claude=1\n' || true
-for tool in node git gh tmux jq treehouse no-mistakes gh-axi chrome-devtools-axi lavish-axi tasks-axi quota-axi; do
+for tool in node git gh tmux jq claude codex treehouse no-mistakes gh-axi chrome-devtools-axi lavish-axi tasks-axi quota-axi; do
   command -v "$tool" >/dev/null 2>&1 && printf 'tool.%s=1\n' "$tool" || true
 done
+[ -x "$base/home/bin/claude" ] && printf 'wrapper.claude=1\n' || true
+[ -x "$base/home/bin/codex" ] && printf 'wrapper.codex=1\n' || true
+NM_HOME="$base/home/no-mistakes" no-mistakes daemon status >/dev/null 2>&1 && printf 'daemon.no-mistakes=1\n' || true
 gh auth status >/dev/null 2>&1 && printf 'githubAuth=authenticated\n' || printf 'githubAuth=required\n'
 config="$base/home/codex/config.toml"
 project="$base/distro"
@@ -59,12 +69,23 @@ set -eu
 umask 077
 host_auth="$1"
 managed_auth="$2"
-shift 2
+pipeline_agent="$3"
+pipeline_config="$4"
+pipeline_bin="$5"
+shift 5
 mkdir -p "$(dirname "$managed_auth")"
 if [ -f "$host_auth" ] && { [ ! -f "$managed_auth" ] || [ "$host_auth" -nt "$managed_auth" ]; }; then
   cp "$host_auth" "$managed_auth"
   chmod 600 "$managed_auth"
 fi
+mkdir -p "$(dirname "$pipeline_config")"
+pipeline_config_tmp="$pipeline_config.ade.$$"
+trap 'rm -f "$pipeline_config_tmp"' EXIT HUP INT TERM
+printf 'agent: %s\nagent_path_override:\n  claude: "%s/claude"\n  codex: "%s/codex"\n' \
+  "$pipeline_agent" "$pipeline_bin" "$pipeline_bin" > "$pipeline_config_tmp"
+chmod 600 "$pipeline_config_tmp"
+mv "$pipeline_config_tmp" "$pipeline_config"
+trap - EXIT HUP INT TERM
 exec /usr/bin/env "$@"
 `
 const WSL_TRUST_CODEX_PROJECT_SCRIPT = `
@@ -97,7 +118,9 @@ set -eu
 base="$HOME/${WSL_BASE}"
 distro="$base/distro"
 temporary="$base/distro-installing"
-mkdir -p "$HOME/.local/bin" "$base" "$base/home/data" "$base/home/state/acp-logs" "$base/home/config" "$base/home/projects" "$base/runner"
+mkdir -p "$HOME/.local/bin" "$base" "$base/home/bin" "$base/home/codex" "$base/home/claude" \
+  "$base/home/data" "$base/home/state/acp-logs" "$base/home/config" "$base/home/projects" \
+  "$base/home/no-mistakes" "$base/runner"
 cd "$base"
 if [ -e "$distro" ] && { [ ! -f "$distro/AGENTS.md" ] || [ ! -f "$distro/bin/fm-spawn.sh" ]; }; then
   printf 'The managed FirstMate distro exists but is incomplete: %s\n' "$distro" >&2
@@ -110,12 +133,30 @@ if [ ! -e "$distro" ]; then
 fi
 printf 'tmux\n' > "$base/home/config/backend"
 npm install --prefix "$base/runner" --omit=dev \
+  @openai/codex@${CODEX_CLI_VERSION} \
+  @anthropic-ai/claude-code@${CLAUDE_CLI_VERSION} \
   @agentclientprotocol/codex-acp@${CODEX_ACP_VERSION} \
   @agentclientprotocol/claude-agent-acp@${CLAUDE_ACP_VERSION}
-export PATH="$HOME/.local/bin:$PATH"
+ln -sfn "$base/runner/node_modules/.bin/codex" "$HOME/.local/bin/codex"
+ln -sfn "$base/runner/node_modules/.bin/claude" "$HOME/.local/bin/claude"
+cat > "$base/home/bin/codex" <<EOF
+#!/bin/sh
+export CODEX_HOME="$base/home/codex"
+exec "$HOME/.local/bin/codex" "\$@"
+EOF
+cat > "$base/home/bin/claude" <<EOF
+#!/bin/sh
+export CLAUDE_CONFIG_DIR="$base/home/claude"
+export DISABLE_AUTOUPDATER=1
+exec "$HOME/.local/bin/claude" "\$@"
+EOF
+chmod 700 "$base/home/bin/codex" "$base/home/bin/claude"
+export PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin"
 export NPM_CONFIG_PREFIX="$HOME/.local"
+export NM_HOME="$base/home/no-mistakes"
 FM_HOME="$base/home" FM_BACKEND=tmux "$distro/bin/fm-bootstrap.sh" install \
   treehouse no-mistakes gh-axi chrome-devtools-axi lavish-axi tasks-axi quota-axi
+no-mistakes daemon restart
 `
 
 export interface FirstMateLaunch {
@@ -262,18 +303,20 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
           host: 'wsl',
           backend: 'tmux',
           distribution,
-          message: lastError ?? `ADE will provision FirstMate, Codex and Claude ACP, tmux, and 14 supporting tools in ${distribution}.`
+          message: lastError ?? `ADE will provision FirstMate, native Claude and Codex agents, tmux, and the managed review toolchain in ${distribution}.`
         }
       }
       const commonEnvironment = [
         `FM_HOME=${paths.homePath}`,
         'FM_BACKEND=tmux',
+        `NM_HOME=${paths.homePath}/no-mistakes`,
         `PATH=${home}/.local/bin:/usr/local/bin:/usr/bin:/bin`
       ]
       const managedLaunch = (
         runnerPath: string,
         hostAuth: string,
         managedAuth: string,
+        pipelineAgent: AgentProvider,
         environment: string[],
         adapterArgs: string[] = []
       ): AgentProcessLaunch => ({
@@ -284,6 +327,9 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
           '--exec', '/bin/sh', '-lc', WSL_AGENT_SCRIPT, 'ade-firstmate-agent',
           hostAuth,
           managedAuth,
+          pipelineAgent,
+          `${paths.homePath}/no-mistakes/config.yaml`,
+          `${paths.homePath}/bin`,
           ...commonEnvironment,
           ...environment,
           '/usr/bin/node', runnerPath,
@@ -298,6 +344,7 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
           paths.runnerPaths.codex,
           sharedCodexHome ? `${sharedCodexHome}/auth.json` : '',
           `${managedCodexHome}/auth.json`,
+          'codex',
           [
             `CODEX_HOME=${managedCodexHome}`,
             `APP_SERVER_LOGS=${paths.homePath}/state/acp-logs`
@@ -307,6 +354,7 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
           paths.runnerPaths.codex,
           sharedCodexHome ? `${sharedCodexHome}/auth.json` : '',
           `${managedCodexHome}/auth.json`,
+          'codex',
           [`CODEX_HOME=${managedCodexHome}`],
           args
         )
@@ -318,12 +366,14 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
           paths.runnerPaths.claude,
           sharedClaudeHome ? `${sharedClaudeHome}/.credentials.json` : '',
           `${managedClaudeHome}/.credentials.json`,
+          'claude',
           [`CLAUDE_CONFIG_DIR=${managedClaudeHome}`]
         ),
         authProcess: (args) => managedLaunch(
           paths.runnerPaths.claude,
           sharedClaudeHome ? `${sharedClaudeHome}/.credentials.json` : '',
           `${managedClaudeHome}/.credentials.json`,
+          'claude',
           [`CLAUDE_CONFIG_DIR=${managedClaudeHome}`],
           args
         )
