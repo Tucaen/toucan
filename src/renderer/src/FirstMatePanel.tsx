@@ -67,6 +67,8 @@ export default function FirstMatePanel({ state, onStateChange }: FirstMatePanelP
   const [runtime, setRuntime] = useState<FirstMateRuntimeStatus | null>(null)
   const [installing, setInstalling] = useState(false)
   const [waitingForGitHub, setWaitingForGitHub] = useState(false)
+  const [enablingCodexHooks, setEnablingCodexHooks] = useState(false)
+  const [codexHookError, setCodexHookError] = useState<string>()
 
   useEffect(() => {
     let active = true
@@ -101,7 +103,7 @@ export default function FirstMatePanel({ state, onStateChange }: FirstMatePanelP
     sessionId: state.conversationId,
     permissionMode: state.permissionMode,
     modelId: state.modelId,
-    enabled: runtime?.state === 'ready',
+    enabled: runtime?.state === 'ready' && (provider !== 'codex' || runtime.codexProjectTrust === 'trusted'),
     onSessionId: (conversationId) => updateState({ conversationId }),
     onPermissionMode: (permissionMode) => updateState({ permissionMode }),
     onModel: (modelId) => updateState({ modelId })
@@ -122,6 +124,23 @@ export default function FirstMatePanel({ state, onStateChange }: FirstMatePanelP
         setWaitingForGitHub(false)
         setRuntime((current) => current ? { ...current, message: result.message } : current)
       }
+    })
+  }
+
+  const trustCodexProject = (): void => {
+    setEnablingCodexHooks(true)
+    setCodexHookError(undefined)
+    void window.firstMateApi.trustCodexProject().then((result) => {
+      if (!result.ok) {
+        setCodexHookError(result.message ?? 'Codex hooks could not be enabled.')
+        setRuntime((current) => current ? { ...current, message: result.message } : current)
+        setEnablingCodexHooks(false)
+        return
+      }
+      void window.firstMateApi.status().then((status) => {
+        setRuntime(status)
+        setEnablingCodexHooks(false)
+      })
     })
   }
 
@@ -187,6 +206,21 @@ export default function FirstMatePanel({ state, onStateChange }: FirstMatePanelP
           {runtime.host === 'wsl' && (
             <div className="firstmate-worker-info" title={runtime.message}>
               Crew backend: tmux in {runtime.distribution ?? 'WSL'}
+            </div>
+          )}
+          {provider === 'codex' && runtime.codexProjectTrust === 'required' && (
+            <div className="firstmate-auth-warning">
+              <span>
+                {codexHookError ?? (
+                  <>
+                    Codex needs permission to run FirstMate&apos;s repository hooks in ADE&apos;s isolated Codex profile.
+                    These hooks attach the session to the FirstMate harness and enforce its fleet lock.
+                  </>
+                )}
+              </span>
+              <button type="button" onClick={trustCodexProject} disabled={enablingCodexHooks}>
+                {enablingCodexHooks ? 'Enabling...' : 'Enable Codex hooks'}
+              </button>
             </div>
           )}
           {runtime.githubAuth === 'required' && conversation.status !== 'auth_required' && (

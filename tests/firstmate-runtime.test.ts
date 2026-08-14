@@ -19,7 +19,8 @@ function readyWslInspection(): string {
     'runner.claude=1',
     ...['node', 'git', 'gh', 'tmux', 'jq', 'treehouse', 'no-mistakes', 'gh-axi',
       'chrome-devtools-axi', 'lavish-axi', 'tasks-axi', 'quota-axi'].map((tool) => `tool.${tool}=1`),
-    'githubAuth=required'
+    'githubAuth=required',
+    'codexTrust=required'
   ].join('\n')
 }
 
@@ -48,13 +49,17 @@ test('reports the managed Ubuntu runtime before WSL provisioning', async () => {
 
 test('builds the Linux ACP launch only after the complete WSL runtime is ready', async () => {
   const rootPath = mkdtempSync(join(tmpdir(), 'ade-firstmate-wsl-ready-'))
+  const calls: string[][] = []
   const runtime = createFirstMateRuntime({
     rootPath,
     platform: 'win32',
     resolveGit: () => 'git.exe',
     wsl: {
       executable: 'C:\\Windows\\System32\\wsl.exe',
-      run: async () => ({ stdout: readyWslInspection(), stderr: '' })
+      run: async (args) => {
+        calls.push(args)
+        return { stdout: readyWslInspection(), stderr: '' }
+      }
     }
   })
 
@@ -65,15 +70,17 @@ test('builds the Linux ACP launch only after the complete WSL runtime is ready',
   assert.equal(status.host, 'wsl')
   assert.equal(status.backend, 'tmux')
   assert.equal(status.githubAuth, 'required')
+  assert.equal(status.codexProjectTrust, 'required')
   assert.equal(launch?.cwd, '/home/tucaen/.local/share/ade/firstmate/distro')
   assert.equal(launch?.agentProcess?.executable, 'C:\\Windows\\System32\\wsl.exe')
   assert.deepEqual(launch?.agentProcess?.args.slice(0, 6), [
     '--distribution', 'Ubuntu',
     '--cd', '/home/tucaen/.local/share/ade/firstmate/distro',
-    '--exec', '/usr/bin/env'
+    '--exec', '/bin/sh'
   ])
   assert.ok(launch?.agentProcess?.args.includes('FM_BACKEND=tmux'))
   assert.ok(launch?.agentProcess?.args.includes('/home/tucaen/.local/share/ade/firstmate/runner/node_modules/@agentclientprotocol/codex-acp/dist/index.js'))
+  assert.match(calls[0].at(-1) ?? '', /in_section && \/\^\\\[\//)
   const claudeLaunch = (runtime.launch as (provider?: 'codex' | 'claude') => typeof launch)('claude')
   assert.ok(claudeLaunch?.agentProcess?.args.includes('/home/tucaen/.local/share/ade/firstmate/runner/node_modules/@agentclientprotocol/claude-agent-acp/dist/index.js'))
 })
@@ -108,6 +115,61 @@ test('reuses host Codex credentials without sharing Windows state databases', as
     'FirstMate should bootstrap only the existing file-backed Codex credentials'
   )
   assert.ok(launchArgs.some((arg) => arg.includes('cp "$host_auth" "$codex_home/auth.json"')))
+})
+
+test('keeps Codex App Server configuration out of the Claude provider launch', async () => {
+  const rootPath = mkdtempSync(join(tmpdir(), 'ade-firstmate-wsl-claude-launch-'))
+  const runtime = createFirstMateRuntime({
+    rootPath,
+    platform: 'win32',
+    codexHome: 'C:\\Users\\tester\\.codex',
+    resolveGit: () => 'git.exe',
+    wsl: {
+      run: async () => ({ stdout: readyWslInspection(), stderr: '' })
+    }
+  })
+
+  await runtime.status()
+
+  const launchArgs = runtime.launch('claude')?.agentProcess?.args ?? []
+  assert.doesNotMatch(launchArgs.join(' '), /CODEX_HOME|APP_SERVER_LOGS|codex-acp/)
+  assert.match(launchArgs.join(' '), /claude-agent-acp/)
+})
+
+test('trusts only the managed FirstMate distro after explicit approval', async () => {
+  const rootPath = mkdtempSync(join(tmpdir(), 'ade-firstmate-wsl-trust-'))
+  const calls: string[][] = []
+  let trusted = false
+  const runtime = createFirstMateRuntime({
+    rootPath,
+    platform: 'win32',
+    resolveGit: () => 'git.exe',
+    wsl: {
+      run: async (args) => {
+        calls.push(args)
+        if (args.includes('ade-firstmate-trust')) trusted = true
+        return {
+          stdout: readyWslInspection().replace(
+            'codexTrust=required',
+            trusted ? 'codexTrust=trusted' : 'codexTrust=required'
+          ),
+          stderr: ''
+        }
+      }
+    }
+  })
+
+  assert.equal((await runtime.status()).codexProjectTrust, 'required')
+  const result = await runtime.trustCodexProject()
+
+  assert.equal(result.ok, true)
+  assert.equal((await runtime.status()).codexProjectTrust, 'trusted')
+  const trustCall = calls.find((args) => args.includes('ade-firstmate-trust'))
+  assert.ok(trustCall)
+  assert.ok(trustCall.includes('/home/tucaen/.local/share/ade/firstmate/home/codex/config.toml'))
+  assert.ok(trustCall.includes('/home/tucaen/.local/share/ade/firstmate/distro'))
+  assert.match(trustCall.join(' '), /in_section && \/\^\\\[\//)
+  assert.match(trustCall.join(' '), /existing non-trusted section/)
 })
 
 test('opens GitHub authentication in the managed Ubuntu environment', async () => {

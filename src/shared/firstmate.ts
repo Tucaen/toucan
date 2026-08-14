@@ -10,6 +10,7 @@ export interface FirstMateRuntimeStatus {
   backend: 'tmux'
   distribution?: string
   githubAuth?: 'authenticated' | 'required'
+  codexProjectTrust?: 'trusted' | 'required'
   message?: string
 }
 

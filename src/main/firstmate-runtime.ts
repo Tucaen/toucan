@@ -40,6 +40,19 @@ for tool in node git gh tmux jq treehouse no-mistakes gh-axi chrome-devtools-axi
   command -v "$tool" >/dev/null 2>&1 && printf 'tool.%s=1\n' "$tool" || true
 done
 gh auth status >/dev/null 2>&1 && printf 'githubAuth=authenticated\n' || printf 'githubAuth=required\n'
+config="$base/home/codex/config.toml"
+project="$base/distro"
+header="[projects.'$project']"
+if [ -f "$config" ] && awk -v header="$header" '
+  $0 == header { in_section = 1; next }
+  in_section && /^\\[/ { in_section = 0 }
+  in_section && /^[[:space:]]*trust_level[[:space:]]*=[[:space:]]*"trusted"[[:space:]]*$/ { trusted = 1 }
+  END { exit trusted ? 0 : 1 }
+' "$config"; then
+  printf 'codexTrust=trusted\n'
+else
+  printf 'codexTrust=required\n'
+fi
 `
 const WSL_AGENT_SCRIPT = `
 set -eu
@@ -53,6 +66,31 @@ if [ -f "$host_auth" ] && { [ ! -f "$codex_home/auth.json" ] || [ "$host_auth" -
   chmod 600 "$codex_home/auth.json"
 fi
 exec /usr/bin/env "$@"
+`
+const WSL_TRUST_CODEX_PROJECT_SCRIPT = `
+set -eu
+umask 077
+config="$1"
+project="$2"
+header="[projects.'$project']"
+mkdir -p "$(dirname "$config")"
+if [ -f "$config" ] && grep -Fqx "$header" "$config"; then
+  if awk -v header="$header" '
+    $0 == header { in_section = 1; next }
+    in_section && /^\\[/ { in_section = 0 }
+    in_section && /^[[:space:]]*trust_level[[:space:]]*=[[:space:]]*"trusted"[[:space:]]*$/ { trusted = 1 }
+    END { exit trusted ? 0 : 1 }
+  ' "$config"; then
+    exit 0
+  fi
+  printf 'Refusing to overwrite an existing non-trusted section for %s\n' "$project" >&2
+  exit 13
+fi
+if [ -s "$config" ]; then
+  printf '\n' >> "$config"
+fi
+printf '[projects.'"'"'%s'"'"']\ntrust_level = "trusted"\n' "$project" >> "$config"
+chmod 600 "$config"
 `
 const WSL_PREPARE_SCRIPT = `
 set -eu
@@ -90,6 +128,7 @@ export interface FirstMateRuntime {
   status(): Promise<FirstMateRuntimeStatus>
   install(): Promise<FirstMateInstallResult>
   authenticateGitHub(): Promise<FirstMateActionResult>
+  trustCodexProject(): Promise<FirstMateActionResult>
   launch(provider?: AgentProvider): FirstMateLaunch | null
 }
 
@@ -224,28 +263,22 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
       const commonEnvironment = [
         `FM_HOME=${paths.homePath}`,
         'FM_BACKEND=tmux',
-        `PATH=${home}/.local/bin:/usr/local/bin:/usr/bin:/bin`,
-        `APP_SERVER_LOGS=${paths.homePath}/state/acp-logs`
+        `PATH=${home}/.local/bin:/usr/local/bin:/usr/bin:/bin`
       ]
       const codexLaunch: FirstMateLaunch = {
         cwd: paths.distroPath,
         environment: process.env,
         agentProcess: {
           executable,
-          args: sharedCodexHome ? [
+          args: [
             '--distribution', distribution,
             '--cd', paths.distroPath,
             '--exec', '/bin/sh', '-lc', WSL_AGENT_SCRIPT, 'ade-firstmate-agent',
-            `${sharedCodexHome}/auth.json`, managedCodexHome,
+            sharedCodexHome ? `${sharedCodexHome}/auth.json` : '',
+            managedCodexHome,
             ...commonEnvironment,
             `CODEX_HOME=${managedCodexHome}`,
-            '/usr/bin/node', paths.runnerPaths.codex
-          ] : [
-            '--distribution', distribution,
-            '--cd', paths.distroPath,
-            '--exec', '/usr/bin/env',
-            ...commonEnvironment,
-            `CODEX_HOME=${managedCodexHome}`,
+            `APP_SERVER_LOGS=${paths.homePath}/state/acp-logs`,
             '/usr/bin/node', paths.runnerPaths.codex
           ],
           options: { env: process.env, windowsHide: true }
@@ -275,7 +308,8 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
         host: 'wsl',
         backend: 'tmux',
         distribution,
-        githubAuth: detected.get('githubAuth') === 'authenticated' ? 'authenticated' : 'required'
+        githubAuth: detected.get('githubAuth') === 'authenticated' ? 'authenticated' : 'required',
+        codexProjectTrust: detected.get('codexTrust') === 'trusted' ? 'trusted' : 'required'
       }
     } catch (error) {
       readyLaunches = null
@@ -350,6 +384,31 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
         return { ok: false, message: error instanceof Error ? error.message : String(error) }
       }
     },
+    async trustCodexProject(): Promise<FirstMateActionResult> {
+      const current = await inspect()
+      if (current.state !== 'ready') {
+        return { ok: false, message: current.message ?? 'FirstMate is not ready.' }
+      }
+      if (current.codexProjectTrust === 'trusted') return { ok: true }
+      try {
+        await run(
+          [
+            '--distribution', distribution,
+            '--exec', '/bin/sh', '-c', WSL_TRUST_CODEX_PROJECT_SCRIPT,
+            'ade-firstmate-trust',
+            `${current.homePath}/codex/config.toml`,
+            current.distroPath
+          ],
+          15_000
+        )
+        const updated = await inspect()
+        return updated.codexProjectTrust === 'trusted'
+          ? { ok: true }
+          : { ok: false, message: 'Codex project trust was not enabled.' }
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : String(error) }
+      }
+    },
     launch(provider = 'codex'): FirstMateLaunch | null {
       return readyLaunches?.[provider] ?? null
     }
@@ -420,6 +479,9 @@ function createNativeFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMa
     },
     async authenticateGitHub(): Promise<FirstMateActionResult> {
       return { ok: false, message: 'GitHub sign-in is managed only by the Windows WSL runtime.' }
+    },
+    async trustCodexProject(): Promise<FirstMateActionResult> {
+      return { ok: false, message: 'Codex project trust is managed only by the Windows WSL runtime.' }
     },
     launch(_provider: AgentProvider = 'codex'): FirstMateLaunch | null {
       if (!isDistro(distroPath)) return null

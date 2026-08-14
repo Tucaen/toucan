@@ -47,6 +47,7 @@ export interface FirstMateApi {
   status(): Promise<FirstMateRuntimeStatus>
   install(): Promise<FirstMateInstallResult>
   authenticateGitHub(): Promise<FirstMateActionResult>
+  trustCodexProject(): Promise<FirstMateActionResult>
 }
 
 declare global {

@@ -89,3 +89,21 @@ test('lets the user switch FirstMate between Codex and Claude even when one prov
   assert.match(panel, /\{ id: ['"]claude['"], name: ['"]Claude['"] \}/)
   assert.match(manager, /resolveFirstMateLaunch\?\.\(request\.provider\)/)
 })
+
+test('requires explicit approval for FirstMate Codex hooks without blocking Claude', () => {
+  const panel = readFileSync(join(process.cwd(), 'src/renderer/src/FirstMatePanel.tsx'), 'utf8')
+  const firstMate = readFileSync(join(process.cwd(), 'src/shared/firstmate.ts'), 'utf8')
+  const preload = readFileSync(join(process.cwd(), 'src/preload/index.ts'), 'utf8')
+
+  assert.match(firstMate, /codexProjectTrust\?:\s*['"]trusted['"]\s*\|\s*['"]required['"]/)
+  assert.match(panel, /provider === ['"]codex['"]\s*&&\s*runtime\.codexProjectTrust === ['"]required['"]/)
+  assert.match(panel, /Enable Codex hooks/)
+  assert.match(panel, /window\.firstMateApi\.trustCodexProject\(\)/)
+  assert.match(panel, /setCodexHookError\(result\.message/)
+  assert.match(
+    panel,
+    /enabled:\s*runtime\?\.state === ['"]ready['"]\s*&&\s*\(provider !== ['"]codex['"]\s*\|\|\s*runtime\.codexProjectTrust === ['"]trusted['"]\)/,
+    'unapproved Codex hooks should prevent a doomed Codex launch while Claude remains enabled'
+  )
+  assert.match(preload, /trustCodexProject:\s*\(\).*firstmate:trust-codex/)
+})

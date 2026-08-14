@@ -90,7 +90,8 @@ contextBridge.exposeInMainWorld('agentApi', agentApi)
 const firstMateApi = {
   status: (): Promise<FirstMateRuntimeStatus> => ipcRenderer.invoke('firstmate:status'),
   install: (): Promise<FirstMateInstallResult> => ipcRenderer.invoke('firstmate:install'),
-  authenticateGitHub: (): Promise<FirstMateActionResult> => ipcRenderer.invoke('firstmate:github-auth')
+  authenticateGitHub: (): Promise<FirstMateActionResult> => ipcRenderer.invoke('firstmate:github-auth'),
+  trustCodexProject: (): Promise<FirstMateActionResult> => ipcRenderer.invoke('firstmate:trust-codex')
 }
 
 contextBridge.exposeInMainWorld('firstMateApi', firstMateApi)
