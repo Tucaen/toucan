@@ -139,6 +139,33 @@ test('requires explicit unrestricted fleet access before restarting an operation
   assert.match(conversation, /if \(result\.ok\)[\s\S]*?return true[\s\S]*?return false/)
 })
 
+test('reports a recoverable validation dispatch state in the delivery lifecycle', () => {
+  const panel = readFileSync(join(process.cwd(), 'src/renderer/src/FirstMatePanel.tsx'), 'utf8')
+  const styles = readFileSync(join(process.cwd(), 'src/renderer/src/styles.css'), 'utf8')
+
+  assert.match(panel, /dispatching: 'Dispatching'/, 'a claimed dispatch needs its own visible stage')
+  assert.match(
+    panel,
+    /task\.dispatch\?\.status === 'unresolved'\) return `\$\{stage\} . recover dispatch`/,
+    'an unresolved dispatch must read as recoverable rather than as progress'
+  )
+  assert.match(
+    panel,
+    /task\.dispatch\?\.status === 'retryable'[\s\S]*?dispatch retry/,
+    'a rejected dispatch waiting on a retry must be distinguishable from a plain implementation'
+  )
+  assert.match(
+    panel,
+    /data-dispatch=\{task\.dispatch\?\.status\}/,
+    'the dispatch outcome should be addressable for styling'
+  )
+  assert.match(
+    styles,
+    /\.firstmate-lifecycle-task\[data-dispatch="unresolved"\] > strong/,
+    'a dispatch ADE cannot resolve should not look like a healthy stage'
+  )
+})
+
 test('assigns every FirstMate request to the project selected in the sidebar', () => {
   const app = readFileSync(join(process.cwd(), 'src/renderer/src/App.tsx'), 'utf8')
   const panel = readFileSync(join(process.cwd(), 'src/renderer/src/FirstMatePanel.tsx'), 'utf8')

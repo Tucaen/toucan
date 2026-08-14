@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import type {
   FirstMateLifecycleStatus,
   FirstMateLifecycleTask,
+  FirstMateTaskDispatch,
   FirstMateTaskStage,
   FirstMateValidatorRuntime
 } from '../shared/firstmate'
@@ -25,6 +26,7 @@ export interface FirstMateLifecycleRecord {
   detail: string
   statusHash: string
   nextAction?: FirstMateLifecycleTask['nextAction']
+  dispatch?: FirstMateTaskDispatch
   prUrl?: string
   updatedAt: string
 }
@@ -88,6 +90,93 @@ export function firstMateValidatorFromRuntimeConfig(text?: string): FirstMateVal
   }
 }
 
+const DISPATCH_STATUSES = new Set(['claimed', 'acknowledged', 'retryable', 'unresolved'])
+
+function recordedDispatch(value: unknown): FirstMateTaskDispatch | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const candidate = value as Partial<FirstMateTaskDispatch>
+  if (typeof candidate.id !== 'string' || !candidate.id) return undefined
+  if (typeof candidate.status !== 'string' || !DISPATCH_STATUSES.has(candidate.status)) return undefined
+  if (typeof candidate.attempt !== 'number' || !Number.isInteger(candidate.attempt) || candidate.attempt < 1) {
+    return undefined
+  }
+  return {
+    id: candidate.id,
+    status: candidate.status,
+    attempt: candidate.attempt,
+    ...(typeof candidate.message === 'string' ? { message: candidate.message } : {})
+  }
+}
+
+/**
+ * Identity of one validation dispatch attempt, derived only from durable task state so the
+ * same attempt is named identically after an ADE or FirstMate restart. It travels to the
+ * worker as an idempotency key and is safe to pass as a command argument.
+ */
+export function firstMateValidationDispatchId(taskId: string, statusHash: string, attempt: number): string {
+  return `${taskId}.${statusHash}.${attempt}`
+}
+
+export type FirstMateDispatchMemory = 'claimed' | 'acknowledged' | 'released'
+
+export type FirstMateValidationPlan =
+  | { action: 'none' }
+  | { action: 'dispatch'; dispatchId: string; attempt: number; final: boolean }
+  | { action: 'acknowledge'; dispatchId: string; attempt: number }
+  | { action: 'release'; dispatchId: string; attempt: number }
+  | {
+      action: 'block'
+      dispatchId: string
+      attempt: number
+      reason: 'unresolved-claim' | 'attempts-exhausted'
+    }
+
+export interface FirstMateValidationPlanInput {
+  task: FirstMateLifecycleTask
+  /** Dispatch ids this ADE process claimed, with the outcome it observed in memory. */
+  liveDispatches: ReadonlyMap<string, FirstMateDispatchMemory>
+  maxAttempts: number
+}
+
+/**
+ * Decides what reconciliation owes a task, from durable state plus what this process
+ * remembers about the claims it made. A durable claim whose outcome this process cannot
+ * account for is never re-dispatched: the continuation may already have run, so the task
+ * is blocked as recoverable instead.
+ */
+export function planValidationDispatch(input: FirstMateValidationPlanInput): FirstMateValidationPlan {
+  const { task, liveDispatches, maxAttempts } = input
+  const dispatch = task.dispatch
+
+  if (task.stage === 'dispatching' && dispatch?.status === 'claimed') {
+    const { id: dispatchId, attempt } = dispatch
+    const remembered = liveDispatches.get(dispatchId)
+    if (remembered === 'acknowledged') return { action: 'acknowledge', dispatchId, attempt }
+    if (remembered === 'released') return { action: 'release', dispatchId, attempt }
+    if (remembered === 'claimed') return { action: 'none' }
+    return { action: 'block', dispatchId, attempt, reason: 'unresolved-claim' }
+  }
+
+  if (task.stage !== 'implemented' || task.nextAction !== 'start-validation') return { action: 'none' }
+
+  const rejected = dispatch?.status === 'retryable' ? dispatch : undefined
+  const attempt = (rejected?.attempt ?? 0) + 1
+  if (rejected && attempt > maxAttempts) {
+    return {
+      action: 'block',
+      dispatchId: rejected.id,
+      attempt: rejected.attempt,
+      reason: 'attempts-exhausted'
+    }
+  }
+  return {
+    action: 'dispatch',
+    dispatchId: firstMateValidationDispatchId(task.id, task.statusHash, attempt),
+    attempt,
+    final: attempt >= maxAttempts
+  }
+}
+
 function prFromDone(verb: string, detail: string): string | undefined {
   if (verb !== 'done') return undefined
   const match = /\bPR\s+(https:\/\/[^\s]+)/i.exec(detail)
@@ -132,6 +221,7 @@ function recordedTask(
     }
   }
   if (durable && durable.statusHash === hash) {
+    const dispatch = recordedDispatch(durable.dispatch)
     return {
       id: raw.id,
       mode,
@@ -139,6 +229,7 @@ function recordedTask(
       detail: durable.detail,
       statusHash: hash,
       ...(durable.nextAction ? { nextAction: durable.nextAction } : {}),
+      ...(dispatch ? { dispatch } : {}),
       ...(durable.prUrl ? { prUrl: durable.prUrl } : {})
     }
   }
@@ -222,8 +313,15 @@ export function noMistakesInvocation(harness: string): string {
   return 'Load the no-mistakes skill and continue validation now.'
 }
 
-export function noMistakesContinuation(harness: string, runtimeConfigPath: string): string {
+export function noMistakesContinuation(
+  harness: string,
+  runtimeConfigPath: string,
+  dispatchId: string
+): string {
   return `${noMistakesInvocation(harness)}\n\n`
+    + `ADE validation dispatch id: ${dispatchId}. Treat this id as the idempotency key for this `
+    + 'continuation: if you have already started or finished no-mistakes validation for it, report that '
+    + 'and do not start a second validation run.\n\n'
     + `ADE has already selected the validator in ${runtimeConfigPath}. `
     + 'Use that structured runtime record and the propagated ADE_FIRSTMATE_VALIDATOR_AGENT and '
     + 'ADE_FIRSTMATE_VALIDATOR_MODEL values; do not infer the validator from filtered doctor text or guessed homes. '
@@ -235,4 +333,9 @@ export function firstMateAppWakeMessage(tasks: FirstMateLifecycleTask[]): string
   const summary = tasks.map((task) => `${task.id}=${task.stage}`).join(', ')
   return `\u2063FIRSTMATE_OP: v1 ade-app-wake: Durable task lifecycle changed: ${summary}. `
     + 'ADE is the captain conversation host; reconcile the listed task status and preserve the existing authority boundary.'
+}
+
+export function firstMateReconciliationFailureMessage(reason: string): string {
+  return `\u2063FIRSTMATE_OP: v1 ade-app-wake: Lifecycle reconciliation failed: ${reason}. `
+    + 'ADE will retry from durable task state; use the existing authority boundary if intervention is required.'
 }

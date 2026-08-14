@@ -1972,6 +1972,10 @@ button {
   color: #e9b36c;
 }
 
+.firstmate-lifecycle-task[data-dispatch="unresolved"] > strong {
+  color: #e29a9a;
+}
+
 .firstmate-lifecycle-task[data-stage="pr-ready"] > strong {
   color: #79d89a;
 }

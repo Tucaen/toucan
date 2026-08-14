@@ -232,7 +232,7 @@ test('continues validation with the persisted runtime validator instead of guess
   })
 
   await runtime.status()
-  const result = await runtime.continueValidation('resize')
+  const result = await runtime.continueValidation('resize', 'resize.a1b2c3.1')
 
   assert.equal(result.ok, true)
   const continuation = calls.find((args) => args.some((arg) => arg.endsWith('/bin/fm-send.sh')))
@@ -240,6 +240,7 @@ test('continues validation with the persisted runtime validator instead of guess
   assert.ok(continuation.includes('resize'))
   const continuationPrompt = continuation.find((arg) => arg.startsWith('$no-mistakes')) ?? ''
   assert.match(continuationPrompt, /ade-runtime\.json/)
+  assert.match(continuationPrompt, /ADE validation dispatch id: resize\.a1b2c3\.1/)
   assert.match(continuationPrompt, /do not infer the validator from filtered doctor text or guessed homes/i)
   assert.ok(continuation.includes('ADE_FIRSTMATE_RUNTIME_CONFIG=/home/tucaen/.local/share/ade/firstmate/home/config/ade-runtime.json'))
   assert.ok(continuation.includes('ADE_FIRSTMATE_VALIDATOR_AGENT=codex'))

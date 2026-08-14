@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, ty
 import type {
   FirstMateExternalProject,
   FirstMateLifecycleStatus,
+  FirstMateLifecycleTask,
   FirstMateRuntimeStatus,
   FirstMateTaskStage,
   FirstMateWorkspaceState
@@ -89,10 +90,22 @@ function statusLabel(status: ReturnType<typeof useAgentConversation>['status']):
 
 const lifecycleLabels: Record<FirstMateTaskStage, string> = {
   implemented: 'Implemented',
+  dispatching: 'Dispatching',
   validating: 'Validating',
   decision: 'Decision',
   blocked: 'Blocked',
   'pr-ready': 'PR ready'
+}
+
+/**
+ * The lifecycle row must say when a validation dispatch is merely claimed or unrecoverable by
+ * ADE alone, so a stalled task is never mistaken for one that is quietly making progress.
+ */
+function lifecycleTaskLabel(task: FirstMateLifecycleTask): string {
+  const stage = lifecycleLabels[task.stage]
+  if (task.dispatch?.status === 'unresolved') return `${stage} · recover dispatch`
+  if (task.dispatch?.status === 'retryable' && task.stage === 'implemented') return `${stage} · dispatch retry`
+  return stage
 }
 
 export default function FirstMatePanel({ project, state, onStateChange }: FirstMatePanelProps): JSX.Element {
@@ -483,9 +496,15 @@ export default function FirstMatePanel({ project, state, onStateChange }: FirstM
               </header>
               {lifecycle.message && <div className="firstmate-lifecycle-error">{lifecycle.message}</div>}
               {lifecycle.tasks.map((task) => (
-                <div className="firstmate-lifecycle-task" data-stage={task.stage} key={task.id} title={task.detail}>
+                <div
+                  className="firstmate-lifecycle-task"
+                  data-stage={task.stage}
+                  data-dispatch={task.dispatch?.status}
+                  key={task.id}
+                  title={task.detail}
+                >
                   <span>{task.id}</span>
-                  <strong>{lifecycleLabels[task.stage]}</strong>
+                  <strong>{lifecycleTaskLabel(task)}</strong>
                 </div>
               ))}
             </section>

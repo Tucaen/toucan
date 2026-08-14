@@ -6,6 +6,8 @@ import { test } from 'node:test'
 import type { FirstMateLifecycleStatus, FirstMateLifecycleTask } from '../src/shared/firstmate'
 import { createFirstMateLifecycleCoordinator } from '../src/main/firstmate-lifecycle-coordinator'
 import {
+  firstMateValidationDispatchId,
+  noMistakesContinuation,
   readFirstMateLifecycle,
   recordFirstMateLifecycle,
   type FirstMateLifecycleRecord
@@ -36,6 +38,64 @@ function taskHome(): { home: string; statusPath: string } {
   const statusPath = join(state, 'resize.status')
   writeFileSync(statusPath, 'done: committed resizable panel\n')
   return { home, statusPath }
+}
+
+interface JournalRuntimeOptions {
+  continueValidation?(taskId: string, dispatchId: string): { ok: boolean; message?: string }
+  beforeRecord?(taskId: string, record: FirstMateLifecycleRecord): void
+}
+
+interface JournalRuntime {
+  runtime: {
+    lifecycle(): Promise<FirstMateLifecycleStatus>
+    continueValidation(taskId: string, dispatchId: string): Promise<{ ok: boolean; message?: string }>
+    recordLifecycle(taskId: string, record: FirstMateLifecycleRecord): Promise<void>
+  }
+  continuations: Array<{ taskId: string; dispatchId: string }>
+}
+
+/**
+ * A runtime backed by the real on-disk journal, so a fresh coordinator over the same
+ * home reproduces an ADE restart: durable state survives, in-memory state does not.
+ * No coding-agent binary is involved; the continuation is a counted stub.
+ */
+function journalRuntime(home: string, options: JournalRuntimeOptions = {}): JournalRuntime {
+  const continuations: Array<{ taskId: string; dispatchId: string }> = []
+  return {
+    continuations,
+    runtime: {
+      lifecycle: () => readFirstMateLifecycle(home),
+      async continueValidation(taskId: string, dispatchId: string) {
+        continuations.push({ taskId, dispatchId })
+        return options.continueValidation?.(taskId, dispatchId) ?? { ok: true }
+      },
+      async recordLifecycle(taskId: string, record: FirstMateLifecycleRecord) {
+        options.beforeRecord?.(taskId, record)
+        await recordFirstMateLifecycle(home, taskId, record)
+      }
+    }
+  }
+}
+
+function throwOnAcknowledgement(message: string) {
+  return (_taskId: string, record: FirstMateLifecycleRecord): void => {
+    if (record.dispatch?.status === 'acknowledged') throw new Error(message)
+  }
+}
+
+function coordinatorFor(runtime: JournalRuntime['runtime'], maxDispatchAttempts?: number) {
+  return createFirstMateLifecycleCoordinator({
+    runtime,
+    now: () => new Date('2026-08-14T18:00:00.000Z'),
+    wakeCaptain: async () => ({ ok: true }),
+    ...(maxDispatchAttempts ? { maxDispatchAttempts } : {})
+  })
+}
+
+async function onlyTask(home: string): Promise<FirstMateLifecycleTask> {
+  const lifecycle = await readFirstMateLifecycle(home)
+  assert.equal(lifecycle.tasks.length, 1)
+  return lifecycle.tasks[0]!
 }
 
 test('durably reconciles a no-mistakes task from implementation through validation and PR readiness', async () => {
@@ -83,6 +143,25 @@ test('durably reconciles a no-mistakes task from implementation through validati
   assert.equal(lifecycle.tasks[0]?.nextAction, 'review-pr')
 })
 
+test('derives a validation dispatch identity that survives ADE and FirstMate restarts', () => {
+  const first = firstMateValidationDispatchId('resize', 'a1b2c3', 1)
+
+  assert.equal(first, firstMateValidationDispatchId('resize', 'a1b2c3', 1))
+  assert.notEqual(first, firstMateValidationDispatchId('resize', 'a1b2c3', 2))
+  assert.notEqual(first, firstMateValidationDispatchId('resize', 'd4e5f6', 1))
+  assert.notEqual(first, firstMateValidationDispatchId('panel', 'a1b2c3', 1))
+  assert.match(first, /^[a-zA-Z0-9._-]+$/, 'the identity travels as a command argument')
+})
+
+test('carries the dispatch identity into the continuation so FirstMate can deduplicate it', () => {
+  const continuation = noMistakesContinuation('codex', '/home/config/ade-runtime.json', 'resize.a1b2c3.1')
+
+  assert.match(continuation, /^\$no-mistakes/)
+  assert.match(continuation, /resize\.a1b2c3\.1/)
+  assert.match(continuation, /idempotenc/i)
+  assert.match(continuation, /do not start a second/i)
+})
+
 function implementedTask(): FirstMateLifecycleTask {
   return {
     id: 'resize',
@@ -103,8 +182,8 @@ test('continues a committed worker directly into validation exactly once and wak
     async lifecycle(): Promise<FirstMateLifecycleStatus> {
       return { supervision: 'app-native', tasks: [task] }
     },
-    async continueValidation(taskId: string): Promise<{ ok: boolean }> {
-      continuations.push(taskId)
+    async continueValidation(taskId: string, dispatchId: string): Promise<{ ok: boolean }> {
+      continuations.push(`${taskId}@${dispatchId}`)
       return { ok: true }
     },
     async recordLifecycle(_taskId: string, record: FirstMateLifecycleRecord): Promise<void> {
@@ -124,11 +203,17 @@ test('continues a committed worker directly into validation exactly once and wak
   await coordinator.poll()
   await coordinator.poll()
 
-  assert.deepEqual(continuations, ['resize'])
-  assert.deepEqual(records.map((record) => [record.stage, record.nextAction]), [
-    ['implemented', 'start-validation'],
-    ['validating', 'await-validation']
+  const dispatchId = firstMateValidationDispatchId('resize', 'implementation-1', 1)
+  assert.deepEqual(continuations, [`resize@${dispatchId}`])
+  assert.deepEqual(records.map((record) => [record.stage, record.nextAction, record.dispatch?.status]), [
+    ['dispatching', 'await-dispatch', 'claimed'],
+    ['validating', 'await-validation', 'acknowledged']
   ])
+  assert.equal(
+    records[0]?.dispatch?.id,
+    dispatchId,
+    'the intent to dispatch is durably recorded before the continuation runs'
+  )
   assert.equal(task.stage, 'validating')
   assert.equal(wakes.length, 1)
   assert.match(wakes[0], /resize=validating/)
@@ -149,6 +234,7 @@ test('makes a failed validation continuation durable and visible instead of clai
         task = { ...task, ...record }
       }
     },
+    maxDispatchAttempts: 1,
     wakeCaptain: async () => ({ ok: true })
   })
 
@@ -191,4 +277,154 @@ test('retries reconciliation after a transient persistence failure without losin
   assert.equal(task.stage, 'validating')
   assert.equal(continuations, 1)
   assert.match(wakes[0], /Lifecycle reconciliation failed: temporary journal lock/)
+})
+
+test('never repeats a continuation that succeeded before ADE crashed on the following lifecycle update', async () => {
+  const { home } = taskHome()
+  const crashing = journalRuntime(home, {
+    beforeRecord: throwOnAcknowledgement('ADE crashed before the lifecycle update')
+  })
+
+  await coordinatorFor(crashing.runtime).poll()
+
+  assert.equal(crashing.continuations.length, 1, 'the continuation must run once before the crash')
+  const claimed = await onlyTask(home)
+  assert.equal(claimed.stage, 'dispatching')
+  assert.equal(claimed.dispatch?.status, 'claimed')
+  assert.equal(claimed.dispatch?.id, crashing.continuations[0]!.dispatchId)
+
+  const restarted = journalRuntime(home)
+  const coordinator = coordinatorFor(restarted.runtime)
+  await coordinator.poll()
+  await coordinator.poll()
+
+  assert.deepEqual(restarted.continuations, [], 'a restart must not repeat a claimed dispatch')
+  const recovered = await onlyTask(home)
+  assert.equal(recovered.stage, 'blocked')
+  assert.equal(recovered.nextAction, 'await-help')
+  assert.equal(recovered.dispatch?.status, 'unresolved')
+  assert.equal(recovered.dispatch?.id, crashing.continuations[0]!.dispatchId)
+  assert.match(recovered.detail, /recover/i)
+})
+
+test('re-persists an acknowledged dispatch after a journal failure without dispatching again', async () => {
+  const { home } = taskHome()
+  let failedOnce = false
+  const harness = journalRuntime(home, {
+    beforeRecord: (_taskId, record) => {
+      if (record.dispatch?.status !== 'acknowledged' || failedOnce) return
+      failedOnce = true
+      throw new Error('temporary journal lock')
+    }
+  })
+  const coordinator = coordinatorFor(harness.runtime)
+
+  await coordinator.poll()
+  await coordinator.poll()
+
+  assert.equal(harness.continuations.length, 1)
+  const task = await onlyTask(home)
+  assert.equal(task.stage, 'validating')
+  assert.equal(task.nextAction, 'await-validation')
+  assert.equal(task.dispatch?.status, 'acknowledged')
+})
+
+test('keeps a task safely retryable when the dispatch claim cannot be persisted', async () => {
+  const { home } = taskHome()
+  let claimAttempts = 0
+  const harness = journalRuntime(home, {
+    beforeRecord: (_taskId, record) => {
+      if (record.dispatch?.status !== 'claimed') return
+      claimAttempts += 1
+      if (claimAttempts === 1) throw new Error('temporary journal lock')
+    }
+  })
+  const coordinator = coordinatorFor(harness.runtime)
+
+  await coordinator.poll()
+
+  assert.deepEqual(harness.continuations, [], 'nothing may be dispatched without a durable claim')
+  const pending = await onlyTask(home)
+  assert.equal(pending.stage, 'implemented')
+  assert.equal(pending.nextAction, 'start-validation')
+
+  await coordinator.poll()
+
+  assert.equal(harness.continuations.length, 1)
+  const validating = await onlyTask(home)
+  assert.equal(validating.stage, 'validating')
+  assert.equal(validating.dispatch?.status, 'acknowledged')
+})
+
+test('releases a rejected dispatch for a fresh attempt and blocks once the budget is spent', async () => {
+  const { home } = taskHome()
+  const harness = journalRuntime(home, {
+    continueValidation: () => ({ ok: false, message: 'task endpoint is unavailable' })
+  })
+  const coordinator = coordinatorFor(harness.runtime, 2)
+
+  await coordinator.poll()
+
+  const retryable = await onlyTask(home)
+  assert.equal(retryable.stage, 'implemented', 'a rejected dispatch stays actionable')
+  assert.equal(retryable.nextAction, 'start-validation')
+  assert.equal(retryable.dispatch?.status, 'retryable')
+  assert.equal(retryable.dispatch?.attempt, 1)
+
+  await coordinator.poll()
+
+  assert.deepEqual(
+    harness.continuations.map((call) => call.dispatchId),
+    [
+      firstMateValidationDispatchId('resize', retryable.statusHash, 1),
+      firstMateValidationDispatchId('resize', retryable.statusHash, 2)
+    ],
+    'each attempt carries its own dispatch identity'
+  )
+  const blocked = await onlyTask(home)
+  assert.equal(blocked.stage, 'blocked')
+  assert.equal(blocked.nextAction, 'await-help')
+  assert.equal(blocked.detail, 'task endpoint is unavailable')
+
+  await coordinator.poll()
+
+  assert.equal(harness.continuations.length, 2, 'a blocked task is not dispatched again')
+})
+
+test('blocks a claimed dispatch as recoverable when the continuation itself throws', async () => {
+  const { home } = taskHome()
+  const harness = journalRuntime(home, {
+    continueValidation: () => { throw new Error('wsl.exe terminated unexpectedly') }
+  })
+  const coordinator = coordinatorFor(harness.runtime)
+
+  await coordinator.poll()
+  await coordinator.poll()
+
+  assert.equal(harness.continuations.length, 1, 'an unknown outcome is never re-sent')
+  const task = await onlyTask(home)
+  assert.equal(task.stage, 'blocked')
+  assert.equal(task.nextAction, 'await-help')
+  assert.equal(task.dispatch?.status, 'unresolved')
+  assert.match(task.detail, /wsl\.exe terminated unexpectedly/)
+})
+
+test('resolves a claimed dispatch when FirstMate itself reports validation after a restart', async () => {
+  const { home, statusPath } = taskHome()
+  const crashing = journalRuntime(home, {
+    beforeRecord: throwOnAcknowledgement('ADE crashed before the lifecycle update')
+  })
+
+  await coordinatorFor(crashing.runtime).poll()
+  assert.equal(crashing.continuations.length, 1)
+
+  appendFileSync(statusPath, 'working: no-mistakes validation is running\n')
+
+  const restarted = journalRuntime(home)
+  await coordinatorFor(restarted.runtime).poll()
+
+  assert.deepEqual(restarted.continuations, [], 'FirstMate-reported validation acknowledges the claim')
+  const task = await onlyTask(home)
+  assert.equal(task.stage, 'validating')
+  assert.equal(task.nextAction, 'await-validation')
 })

@@ -373,7 +373,7 @@ export interface FirstMateRuntime {
   trustCodexProject(): Promise<FirstMateActionResult>
   lifecycle(): Promise<FirstMateLifecycleStatus>
   configureValidator(provider: AgentProvider, modelId?: string): Promise<FirstMateActionResult>
-  continueValidation(taskId: string): Promise<FirstMateActionResult>
+  continueValidation(taskId: string, dispatchId: string): Promise<FirstMateActionResult>
   recordLifecycle(taskId: string, record: FirstMateLifecycleRecord): Promise<void>
   /** Registers one ADE checkout as a durable external project; never modifies that checkout. */
   registerProject(selection: FirstMateProjectSelection): Promise<FirstMateProjectRegistration>
@@ -524,6 +524,17 @@ function taskHarness(files: FirstMateLifecycleFiles, taskId: string): string | u
   if (!meta) return undefined
   for (const line of meta.split(/\r?\n/)) {
     if (line.startsWith('harness=')) return line.slice('harness='.length)
+  }
+  return undefined
+}
+
+const SAFE_ARGUMENT = /^[a-zA-Z0-9._-]+$/
+
+/** Both ids reach the worker as command arguments, so neither may carry anything else. */
+function invalidDispatchTarget(taskId: string, dispatchId: string): FirstMateActionResult | undefined {
+  if (!SAFE_ARGUMENT.test(taskId)) return { ok: false, message: 'Invalid FirstMate task id.' }
+  if (!SAFE_ARGUMENT.test(dispatchId)) {
+    return { ok: false, message: 'Invalid FirstMate validation dispatch id.' }
   }
   return undefined
 }
@@ -944,8 +955,9 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
         return { ok: false, message: error instanceof Error ? error.message : String(error) }
       }
     },
-    async continueValidation(taskId: string): Promise<FirstMateActionResult> {
-      if (!/^[a-zA-Z0-9._-]+$/.test(taskId)) return { ok: false, message: 'Invalid FirstMate task id.' }
+    async continueValidation(taskId: string, dispatchId: string): Promise<FirstMateActionResult> {
+      const invalid = invalidDispatchTarget(taskId, dispatchId)
+      if (invalid) return invalid
       try {
         const files = await lifecycleFiles()
         const harness = taskHarness(files, taskId)
@@ -969,7 +981,7 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
             `ADE_FIRSTMATE_VALIDATOR_MODEL=${selectedValidator.model}`,
             `${readyPaths.distroPath}/bin/fm-send.sh`,
             taskId,
-            noMistakesContinuation(harness, `${readyPaths.homePath}/config/ade-runtime.json`)
+            noMistakesContinuation(harness, `${readyPaths.homePath}/config/ade-runtime.json`, dispatchId)
           ],
           30_000
         )
@@ -1159,8 +1171,9 @@ function createNativeFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMa
       await configureTmuxEnvironment(provider, selectedValidator.model)
       return { ok: true }
     },
-    async continueValidation(taskId: string): Promise<FirstMateActionResult> {
-      if (!/^[a-zA-Z0-9._-]+$/.test(taskId)) return { ok: false, message: 'Invalid FirstMate task id.' }
+    async continueValidation(taskId: string, dispatchId: string): Promise<FirstMateActionResult> {
+      const invalid = invalidDispatchTarget(taskId, dispatchId)
+      if (invalid) return invalid
       try {
         const files = await readFirstMateLifecycleFiles(homePath)
         const harness = taskHarness(files, taskId)
@@ -1172,7 +1185,7 @@ function createNativeFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMa
         }
         await execFileAsync(join(distroPath, 'bin', 'fm-send.sh'), [
           taskId,
-          noMistakesContinuation(harness, join(homePath, 'config', 'ade-runtime.json'))
+          noMistakesContinuation(harness, join(homePath, 'config', 'ade-runtime.json'), dispatchId)
         ], {
           cwd: distroPath,
           env: appHostedEnvironment(environment, homePath, selectedValidator.agent, selectedValidator.model),

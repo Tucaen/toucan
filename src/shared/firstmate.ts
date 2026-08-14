@@ -5,7 +5,30 @@ export const FIRSTMATE_PANEL_MAX_WIDTH = 720
 
 export type FirstMateRuntimeState = 'missing' | 'installing' | 'ready' | 'error'
 
-export type FirstMateTaskStage = 'implemented' | 'validating' | 'decision' | 'blocked' | 'pr-ready'
+export type FirstMateTaskStage =
+  | 'implemented'
+  | 'dispatching'
+  | 'validating'
+  | 'decision'
+  | 'blocked'
+  | 'pr-ready'
+
+/**
+ * Outcome of one validation dispatch attempt, as far as ADE can prove it durably.
+ *
+ * `claimed` records the intent to invoke the external continuation before it runs, so a
+ * crash can never be mistaken for a task that still needs dispatching. `unresolved` is the
+ * recoverable end state for a claim whose outcome cannot be established after a restart:
+ * the continuation may already have run, so ADE refuses to send it a second time.
+ */
+export type FirstMateDispatchStatus = 'claimed' | 'acknowledged' | 'retryable' | 'unresolved'
+
+export interface FirstMateTaskDispatch {
+  id: string
+  status: FirstMateDispatchStatus
+  attempt: number
+  message?: string
+}
 
 export interface FirstMateValidatorRuntime {
   agent: AgentProvider
@@ -19,7 +42,14 @@ export interface FirstMateLifecycleTask {
   stage: FirstMateTaskStage
   detail: string
   statusHash: string
-  nextAction?: 'start-validation' | 'await-validation' | 'await-decision' | 'await-help' | 'review-pr'
+  nextAction?:
+    | 'start-validation'
+    | 'await-dispatch'
+    | 'await-validation'
+    | 'await-decision'
+    | 'await-help'
+    | 'review-pr'
+  dispatch?: FirstMateTaskDispatch
   prUrl?: string
 }
 
