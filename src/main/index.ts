@@ -148,8 +148,28 @@ function registerVoicePrototypePermissions(): void {
   })
 }
 
+function registerVoicePrototypeCrossOriginIsolation(): void {
+  // PROTOTYPE: Moonshine's threaded WASM build needs SharedArrayBuffer, which
+  // Chromium only exposes to a crossOriginIsolated page. electron.vite.config.ts
+  // sets these headers for the dev server, but a packaged build loads the
+  // renderer via loadFile() (file://), which never goes through that dev
+  // server. Without this, the WASM module's worker thread dies silently on
+  // startup (no SharedArrayBuffer to back its shared memory) and the pending
+  // model-load promise never settles, leaving the mic button stuck loading.
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Cross-Origin-Opener-Policy': ['same-origin'],
+        'Cross-Origin-Embedder-Policy': ['require-corp']
+      }
+    })
+  })
+}
+
 app.whenReady().then(() => {
   registerVoicePrototypePermissions()
+  registerVoicePrototypeCrossOriginIsolation()
   const codexHome = process.env.CODEX_HOME ?? join(app.getPath('home'), '.codex')
   const providers = createSessionProviders({
     homeDirectory: app.getPath('home'),

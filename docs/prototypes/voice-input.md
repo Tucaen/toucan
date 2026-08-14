@@ -16,7 +16,7 @@ Prototype constraints:
 
 - English only.
 - Model assets total roughly 165 MB. Prototype setup downloads them from Moonshine's CDN before launch and stores them in the gitignored `src/renderer/public/models/moonshine-small-streaming-en/` directory. Mic clicks never download model data.
-- The feature runs Moonshine WASM in the renderer and enables cross-origin isolation in the development server.
+- The feature runs Moonshine WASM in the renderer. Its threaded build needs `SharedArrayBuffer`, which Chromium only exposes to a `crossOriginIsolated` page, so both the development server (`electron.vite.config.ts`) and the main process (`registerVoicePrototypeCrossOriginIsolation` in `src/main/index.ts`, for packaged builds loaded via `loadFile()`) set the required `Cross-Origin-Opener-Policy`/`Cross-Origin-Embedder-Policy` headers. Without cross-origin isolation, the WASM worker dies silently on startup and the mic button hangs on "Preparing local speech model..."; `VoiceInputPrototype`'s `withStallGuard` bounds that wait so it always resolves to a listening or error state instead.
 - The interaction and engine choice are deliberately not production abstractions yet.
 
 Hands-on verdict: local capture, live partial transcription, discard, and insertion into the composer work. Preparing the model before launch removes the confusing first-mic download, and the live partial text is useful enough to retain during the experiment. Longer-session latency, transcription quality across speakers, and CPU impact still need broader evaluation before treating the feature as production-ready.

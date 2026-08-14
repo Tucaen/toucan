@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import { MicTranscriber, ModelArch } from '@moonshine-ai/moonshine-wasm'
+import { withStallGuard } from './with-stall-guard'
 
 type VoiceState = 'idle' | 'loading' | 'listening' | 'stopping' | 'error'
 
@@ -14,6 +15,12 @@ const LOCAL_MODEL_URL = new URL(
   './models/moonshine-small-streaming-en/',
   window.location.href
 ).toString()
+
+// The model loads from ADE's own local server/disk, not the network, so this
+// only needs to absorb slow hardware — not a slow internet connection. It
+// exists so a dependency that never settles (see with-stall-guard.ts) can't
+// leave the "Preparing local speech model..." banner stuck forever.
+const VOICE_STALL_TIMEOUT_MS = 60_000
 
 function joinTranscript(lines: string[], partial: string): string {
   const parts = [...lines]
@@ -88,9 +95,17 @@ export default function VoiceInputPrototype(props: VoiceInputPrototypeProps): JS
             setState('error')
           })
         transcriberRef.current = transcriber
-        await transcriber.load()
+        await withStallGuard(
+          transcriber.load(),
+          VOICE_STALL_TIMEOUT_MS,
+          'Local speech model timed out while loading.'
+        )
       }
-      await transcriber.start()
+      await withStallGuard(
+        transcriber.start(),
+        VOICE_STALL_TIMEOUT_MS,
+        'Local speech model timed out while starting.'
+      )
       setState('listening')
     } catch (cause) {
       fail(cause)
