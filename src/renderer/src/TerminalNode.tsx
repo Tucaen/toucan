@@ -69,7 +69,7 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
       cursorBlink: true,
       cursorStyle: 'bar',
       fontFamily: 'Cascadia Code, CaskaydiaCove Nerd Font, Consolas, monospace',
-      fontSize: 13,
+      fontSize: 15,
       lineHeight: 1.18,
       scrollback: 5000,
       theme: {

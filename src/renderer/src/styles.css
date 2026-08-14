@@ -61,7 +61,7 @@ button {
 .prototype-label,
 .hint {
   color: #7e8795;
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .prototype-label {
@@ -86,7 +86,7 @@ button {
   border-radius: 999px;
   color: #cbd2dc;
   background: #191e26;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 650;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -132,7 +132,7 @@ button {
   justify-content: space-between;
   padding: 0 3px 7px 8px;
   color: #6f7988;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 750;
   letter-spacing: 0.09em;
   text-transform: uppercase;
@@ -144,15 +144,15 @@ button {
 }
 
 .sidebar-toggle {
-  width: 24px;
-  height: 24px;
+  width: 26px;
+  height: 26px;
   display: grid;
   place-items: center;
   border: 0;
   border-radius: 6px;
   color: #8a94a2;
   background: transparent;
-  font-size: 20px;
+  font-size: 22px;
   line-height: 1;
   cursor: pointer;
 }
@@ -221,7 +221,7 @@ button {
   border-radius: 8px;
   color: var(--project-color);
   background: color-mix(in srgb, var(--project-color) 10%, #151a21);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 800;
 }
 
@@ -239,13 +239,13 @@ button {
 }
 
 .project-copy strong {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 650;
 }
 
 .project-copy small {
   color: #687280;
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .project-locate {
@@ -256,7 +256,7 @@ button {
   border-radius: 999px;
   color: #9aa4b2;
   background: #222832;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 750;
   cursor: pointer;
 }
@@ -269,8 +269,8 @@ button {
 }
 
 .project-remove {
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   display: grid;
   place-items: center;
   padding: 0;
@@ -278,7 +278,7 @@ button {
   border-radius: 5px;
   color: #6f7987;
   background: transparent;
-  font-size: 15px;
+  font-size: 17px;
   line-height: 1;
   cursor: pointer;
 }
@@ -342,7 +342,7 @@ button {
   flex: 0 0 auto;
   color: #687484;
   font-family: Consolas, monospace;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 800;
   text-align: center;
 }
@@ -351,7 +351,7 @@ button {
   min-width: 0;
   flex: 1;
   overflow: hidden;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -363,7 +363,7 @@ button {
   gap: 4px;
   flex: 0 0 auto;
   color: #747f8e;
-  font-size: 8px;
+  font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
 }
@@ -444,12 +444,12 @@ button {
   border-radius: 8px;
   color: #8993a1;
   background: transparent;
-  font-size: 11px;
+  font-size: 13px;
   cursor: pointer;
 }
 
 .add-project span {
-  font-size: 17px;
+  font-size: 19px;
   line-height: 1;
 }
 
@@ -476,7 +476,7 @@ button {
 
 .creation-target small {
   color: #687280;
-  font-size: 9px;
+  font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
@@ -484,7 +484,7 @@ button {
 .creation-target strong {
   overflow: hidden;
   color: #cbd2dc;
-  font-size: 11px;
+  font-size: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -495,7 +495,7 @@ button {
   gap: 5px;
   margin-top: 5px;
   color: #687280;
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .save-state > span {
@@ -560,7 +560,7 @@ button {
 .context-menu p {
   margin: 3px 8px 6px;
   color: #778190;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.09em;
   text-transform: uppercase;
@@ -593,7 +593,7 @@ button {
 
 .context-menu small {
   color: #818b99;
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .menu-icon {
@@ -604,7 +604,7 @@ button {
   flex: 0 0 auto;
   border-radius: 8px;
   font-family: Consolas, monospace;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
 }
 
@@ -673,7 +673,7 @@ button {
   border-bottom: 1px solid #272d37;
   color: #dce1e9;
   background: #181c23;
-  font-size: 12px;
+  font-size: 14px;
   user-select: none;
 }
 
@@ -687,7 +687,7 @@ button {
 
 .node-status {
   color: #687280;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.08em;
 }
@@ -703,7 +703,7 @@ button {
   border: 1px solid #323a46;
   border-radius: 999px;
   color: #9da7b5;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 650;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -725,7 +725,7 @@ button {
   border-radius: 5px;
   color: #b9c1cc;
   background: #222832;
-  font-size: 10px;
+  font-size: 12px;
   cursor: pointer;
 }
 
@@ -775,18 +775,18 @@ button {
   color: var(--project-color);
   background: color-mix(in srgb, var(--project-color) 10%, #151a21);
   font-family: Consolas, monospace;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 800;
 }
 
 .dormant-session strong {
-  font-size: 13px;
+  font-size: 15px;
 }
 
 .dormant-session small {
   max-width: 290px;
   color: #788392;
-  font-size: 10px;
+  font-size: 12px;
   line-height: 1.45;
 }
 
@@ -813,7 +813,7 @@ button {
 .conversation-preview span {
   padding-top: 1px;
   color: var(--project-color);
-  font-size: 8px;
+  font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -824,7 +824,7 @@ button {
   margin: 0;
   overflow: hidden;
   color: #aeb7c3;
-  font-size: 9px;
+  font-size: 11px;
   line-height: 1.4;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -834,7 +834,7 @@ button {
   padding-top: 3px;
   border-top: 1px solid #252c35;
   color: #626d7b;
-  font-size: 8px;
+  font-size: 10px;
   text-align: right;
 }
 
@@ -845,7 +845,7 @@ button {
   border-radius: 7px;
   color: #e2e7ee;
   background: color-mix(in srgb, var(--project-color) 14%, #1a2028);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
   cursor: pointer;
 }
@@ -887,7 +887,7 @@ button {
   border: 1px solid color-mix(in srgb, var(--node-accent) 38%, #323a46);
   border-radius: 4px;
   color: var(--node-accent);
-  font-size: 8px;
+  font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.08em;
 }
@@ -908,7 +908,7 @@ button {
   border-radius: 6px;
   color: #b7c0cc;
   background: #202630;
-  font-size: 8px;
+  font-size: 10px;
   font-weight: 750;
   white-space: nowrap;
   cursor: pointer;
@@ -959,7 +959,7 @@ button {
   display: block;
   padding: 4px 7px 6px;
   color: #717c8a;
-  font-size: 8px;
+  font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -994,13 +994,13 @@ button {
 }
 
 .node-picker-menu strong {
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .node-picker-menu span {
   margin-top: 2px;
   color: #7f8997;
-  font-size: 8px;
+  font-size: 10px;
   font-weight: 450;
   line-height: 1.35;
   white-space: normal;
@@ -1071,13 +1071,13 @@ button {
 
 .chat-empty strong {
   color: #dfe4eb;
-  font-size: 14px;
+  font-size: 16px;
 }
 
 .chat-empty p {
   max-width: 280px;
   margin: 6px 0 0;
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.45;
 }
 
@@ -1091,7 +1091,7 @@ button {
 .chat-message > span {
   padding-top: 4px;
   color: #768190;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 750;
   text-transform: uppercase;
 }
@@ -1111,7 +1111,7 @@ button {
 
 .chat-message p {
   margin: 0 0 8px;
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.55;
 }
 
@@ -1127,7 +1127,7 @@ button {
   border-radius: 7px;
   color: #cbd4df;
   background: #0c0f14;
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .chat-message code {
@@ -1140,7 +1140,7 @@ button {
   padding: 6px 9px;
   border-left: 2px solid #3c4655;
   color: #798493;
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .thought-card summary {
@@ -1173,14 +1173,14 @@ button {
   color: var(--node-accent);
   background: color-mix(in srgb, var(--node-accent) 10%, #202631);
   font-family: Consolas, monospace;
-  font-size: 8px;
+  font-size: 10px;
 }
 
 .activity-card strong {
   display: block;
   overflow: hidden;
   color: #cbd2dc;
-  font-size: 10px;
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1190,7 +1190,7 @@ button {
   margin: 6px 0 0;
   overflow: auto;
   color: #8f9aa8;
-  font: 8px/1.4 Consolas, monospace;
+  font: 10px/1.4 Consolas, monospace;
   white-space: pre-wrap;
 }
 
@@ -1199,14 +1199,14 @@ button {
   margin-top: 3px;
   overflow: hidden;
   color: #6f7a89;
-  font-size: 8px;
+  font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .activity-state {
   color: #697483;
-  font-size: 7px;
+  font-size: 9px;
   font-weight: 750;
   text-transform: uppercase;
 }
@@ -1224,19 +1224,19 @@ button {
 
 .auth-lock {
   color: var(--node-accent);
-  font-size: 18px;
+  font-size: 20px;
 }
 
 .chat-auth-panel strong,
 .chat-approval-panel strong {
   display: block;
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .chat-auth-panel p {
   margin: 3px 0 9px;
   color: #818c9a;
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .chat-auth-panel button,
@@ -1247,7 +1247,7 @@ button {
   border-radius: 6px;
   color: #dbe1e9;
   background: #242b36;
-  font-size: 9px;
+  font-size: 11px;
   cursor: pointer;
 }
 
@@ -1259,7 +1259,7 @@ button {
 
 .chat-approval-panel > span {
   color: #d3aa52;
-  font-size: 8px;
+  font-size: 10px;
   font-weight: 800;
   text-transform: uppercase;
 }
@@ -1279,7 +1279,7 @@ button {
 
 .chat-composer textarea {
   min-width: 0;
-  height: 42px;
+  height: 46px;
   flex: 1;
   resize: none;
   padding: 9px 10px;
@@ -1288,7 +1288,7 @@ button {
   outline: none;
   color: #dfe4eb;
   background: #0f1217;
-  font: 10px/1.4 Inter, system-ui, sans-serif;
+  font: 12px/1.4 Inter, system-ui, sans-serif;
 }
 
 .chat-composer textarea:focus {
@@ -1302,7 +1302,7 @@ button {
   border-radius: 8px;
   color: #eef2f7;
   background: color-mix(in srgb, var(--node-accent) 22%, #1d2430);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 750;
   cursor: pointer;
 }
@@ -1361,7 +1361,7 @@ button {
   border-radius: 7px;
   color: #e8c9cc;
   background: #21171a;
-  font: 9px/1.35 Inter, system-ui, sans-serif;
+  font: 11px/1.35 Inter, system-ui, sans-serif;
   text-overflow: ellipsis;
   white-space: nowrap;
   pointer-events: none;
@@ -1370,12 +1370,12 @@ button {
 .chat-detail {
   position: absolute;
   right: 10px;
-  bottom: 67px;
+  bottom: 71px;
   left: 10px;
   z-index: 5;
   overflow: hidden;
   color: #788493;
-  font: 8px/1.4 Consolas, monospace;
+  font: 10px/1.4 Consolas, monospace;
   text-overflow: ellipsis;
   white-space: nowrap;
   pointer-events: none;
@@ -1392,7 +1392,7 @@ button {
   border-left: 2px solid var(--node-accent);
   color: #909ba9;
   background: #11151b;
-  font-size: 9px;
+  font-size: 11px;
   text-align: left;
 }
 
@@ -1442,7 +1442,7 @@ button {
   border-top: 1px solid #28303a;
   color: #84909f;
   background: #141920;
-  font-size: 8px;
+  font-size: 10px;
 }
 
 .agent-chat-status-bar span {
@@ -1464,7 +1464,7 @@ button {
 .agent-chat-status-bar small {
   margin-left: auto;
   color: #687483;
-  font-size: 8px;
+  font-size: 10px;
 }
 
 .worklog-rail {
@@ -1486,7 +1486,7 @@ button {
   align-items: center;
   margin-bottom: 10px;
   color: #828d9b;
-  font-size: 8px;
+  font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -1512,7 +1512,7 @@ button {
   border-radius: 8px;
   color: #909ba9;
   background: #151920;
-  font-size: 8px;
+  font-size: 10px;
   line-height: 1.35;
 }
 
@@ -1528,7 +1528,7 @@ button {
 .worklog-empty {
   margin: auto 8px;
   color: #596371;
-  font-size: 9px;
+  font-size: 11px;
   line-height: 1.4;
   text-align: center;
 }
@@ -1562,14 +1562,14 @@ button {
 
 .worklog-expand > span {
   color: var(--node-accent);
-  font: 800 11px/1 Consolas, monospace;
+  font: 800 13px/1 Consolas, monospace;
 }
 
 .worklog-expand strong {
   flex: 1;
   writing-mode: vertical-rl;
   color: inherit;
-  font-size: 8px;
+  font-size: 10px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   transform: rotate(180deg);
@@ -1581,7 +1581,7 @@ button {
   border-radius: 999px;
   color: #b9c2ce;
   background: #252d38;
-  font-size: 7px;
+  font-size: 9px;
   text-align: center;
 }
 
@@ -1609,7 +1609,7 @@ button {
   color: #91e2b7;
   background: linear-gradient(145deg, #1a3328, #14231d);
   box-shadow: inset 0 0 18px rgba(116, 216, 162, 0.06);
-  font: 800 9px/1 Consolas, monospace;
+  font: 800 11px/1 Consolas, monospace;
   letter-spacing: -0.03em;
 }
 
@@ -1635,7 +1635,7 @@ button {
 }
 
 .firstmate-panel-header strong {
-  font-size: 12px;
+  font-size: 14px;
 }
 
 .firstmate-panel-header small {
@@ -1643,7 +1643,7 @@ button {
   align-items: center;
   gap: 5px;
   color: #788493;
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .firstmate-panel-header small i {
@@ -1672,7 +1672,7 @@ button {
   border-radius: 5px;
   color: #aeb9c6;
   background: #11161c;
-  font-size: 8px;
+  font-size: 10px;
   font-weight: 700;
 }
 
@@ -1704,7 +1704,7 @@ button {
 
 .firstmate-settings-bar > label > span {
   color: #697584;
-  font-size: 7px;
+  font-size: 9px;
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -1742,7 +1742,7 @@ button {
   border-bottom: 1px solid rgba(113, 169, 255, 0.18);
   color: #8eb8ed;
   background: rgba(54, 112, 174, 0.12);
-  font-size: 8px;
+  font-size: 10px;
 }
 
 .firstmate-auth-warning {
@@ -1754,7 +1754,7 @@ button {
   border-bottom: 1px solid rgba(234, 179, 8, 0.18);
   color: #d7c99a;
   background: rgba(120, 89, 18, 0.12);
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .firstmate-auth-warning button {
@@ -1783,24 +1783,24 @@ button {
   width: 42px;
   height: 42px;
   border-radius: 12px;
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .firstmate-runtime-setup strong {
   color: #e2e7ed;
-  font-size: 13px;
+  font-size: 15px;
 }
 
 .firstmate-runtime-setup p {
   margin: 0;
   color: #8c97a5;
-  font-size: 9px;
+  font-size: 11px;
   line-height: 1.5;
 }
 
 .firstmate-runtime-setup small {
   color: #c1a55f;
-  font-size: 8px;
+  font-size: 10px;
   line-height: 1.45;
 }
 
@@ -1811,7 +1811,7 @@ button {
   border-radius: 7px;
   color: #dff8e9;
   background: #214132;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 750;
 }
 
@@ -1823,12 +1823,12 @@ button {
 .firstmate-detail {
   position: absolute;
   right: 10px;
-  bottom: 74px;
+  bottom: 78px;
   left: 10px;
   z-index: 5;
   overflow: hidden;
   color: #788493;
-  font: 8px/1.4 Consolas, monospace;
+  font: 10px/1.4 Consolas, monospace;
   text-overflow: ellipsis;
   white-space: nowrap;
   pointer-events: none;
