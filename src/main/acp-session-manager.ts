@@ -49,6 +49,7 @@ interface RunningAgent {
   sessionId?: string
   modelConfigId?: string
   pendingApprovals: Map<string, PendingApproval>
+  busy: boolean
   stopping: boolean
 }
 
@@ -94,7 +95,8 @@ function simplifyModes(modes: {
 export interface AcpSessionManagerOptions {
   appPath: string
   codexHome?: string
-  resolveFirstMateLaunch?(provider: AgentProvider): FirstMateLaunch | null
+  resolveFirstMateLaunch?(provider: AgentProvider, modelId?: string): FirstMateLaunch | null
+  configureFirstMateValidator?(provider: AgentProvider, modelId?: string): Promise<AgentPromptResult>
 }
 
 export function promptFailure(
@@ -123,6 +125,7 @@ export function promptFailure(
 export interface AcpSessionManager {
   create(request: AgentCreateRequest, owner: WebContents): Promise<AgentCreateResult>
   prompt(id: string, text: string): Promise<AgentPromptResult>
+  promptWhenIdle(id: string, text: string): Promise<AgentPromptResult>
   setMode(id: string, modeId: string): Promise<AgentPromptResult>
   setModel(id: string, modelId: string): Promise<AgentPromptResult>
   authenticate(id: string, methodId: string): Promise<AgentCreateResult>
@@ -232,6 +235,18 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       }
       if (models) models = await applySavedModel(running, models)
       if (models) running.cachedModels = models
+      if (running.request.scope === 'firstmate' && models) {
+        const configured = await options.configureFirstMateValidator?.(
+          running.request.provider,
+          models.currentModelId
+        )
+        if (configured && !configured.ok) {
+          send(running, {
+            type: 'error',
+            message: configured.message ?? 'Could not configure the FirstMate validation runtime.'
+          })
+        }
+      }
       send(running, { type: 'session', sessionId })
       if (modes) send(running, { type: 'modes', modes })
       if (models) send(running, { type: 'models', models })
@@ -275,16 +290,44 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
     agents.delete(id)
   }
 
+  const runPrompt = async (id: string, text: string): Promise<AgentPromptResult> => {
+    const running = agents.get(id)
+    if (!running?.sessionId) return { ok: false, message: 'The agent session is not ready.' }
+    if (running.busy) return { ok: false, message: 'The agent session is busy.' }
+    running.busy = true
+    send(running, { type: 'status', status: 'working' })
+    try {
+      const response = await running.context.request(methods.agent.session.prompt, {
+        sessionId: running.sessionId,
+        prompt: [{ type: 'text', text }]
+      })
+      send(running, { type: 'turn_complete', stopReason: response.stopReason })
+      send(running, { type: 'status', status: 'idle' })
+      return { ok: true }
+    } catch (error) {
+      const failure = promptFailure(error, running.authMethods)
+      for (const event of failure.events) send(running, event)
+      return failure.result
+    } finally {
+      running.busy = false
+    }
+  }
+
   return {
     async create(request, owner): Promise<AgentCreateResult> {
       const existing = agents.get(request.id)
       if (existing) return openSession(existing)
 
       const firstMateLaunch = request.scope === 'firstmate'
-        ? options.resolveFirstMateLaunch?.(request.provider) ?? null
+        ? options.resolveFirstMateLaunch?.(request.provider, request.modelId) ?? null
         : null
       if (request.scope === 'firstmate' && !firstMateLaunch) {
         return { ok: false, status: 'error', message: 'FirstMate is not installed.' }
+      }
+      try {
+        await firstMateLaunch?.prepare?.()
+      } catch (error) {
+        return { ok: false, status: 'error', message: errorMessage(error) }
       }
       const effectiveRequest: AgentCreateRequest = firstMateLaunch
         ? { ...request, cwd: firstMateLaunch.cwd }
@@ -399,6 +442,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
           ? readCachedCodexModels(options.codexHome, effectiveRequest.modelId)
           : undefined,
         pendingApprovals,
+        busy: false,
         stopping: false
       }
       agents.set(request.id, running)
@@ -435,24 +479,8 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       }
     },
 
-    async prompt(id, text): Promise<AgentPromptResult> {
-      const running = agents.get(id)
-      if (!running?.sessionId) return { ok: false, message: 'The agent session is not ready.' }
-      send(running, { type: 'status', status: 'working' })
-      try {
-        const response = await running.context.request(methods.agent.session.prompt, {
-          sessionId: running.sessionId,
-          prompt: [{ type: 'text', text }]
-        })
-        send(running, { type: 'turn_complete', stopReason: response.stopReason })
-        send(running, { type: 'status', status: 'idle' })
-        return { ok: true }
-      } catch (error) {
-        const failure = promptFailure(error, running.authMethods)
-        for (const event of failure.events) send(running, event)
-        return failure.result
-      }
-    },
+    prompt: runPrompt,
+    promptWhenIdle: runPrompt,
 
     async setMode(id, modeId): Promise<AgentPromptResult> {
       const running = agents.get(id)
@@ -493,6 +521,14 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         const selector = modelSelectorFromConfigOptions(response.configOptions)
         if (selector) send(running, { type: 'models', models: selector.models })
         running.request.modelId = modelId
+        if (running.request.scope === 'firstmate') {
+          const configured = await options.configureFirstMateValidator?.(running.request.provider, modelId)
+          if (configured && !configured.ok) {
+            const message = configured.message ?? 'Could not configure the FirstMate validation runtime.'
+            send(running, { type: 'error', message })
+            return { ok: false, message }
+          }
+        }
         return { ok: true }
       } catch (error) {
         const message = errorMessage(error)

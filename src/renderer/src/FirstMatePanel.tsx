@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react'
-import type { FirstMateRuntimeStatus, FirstMateWorkspaceState } from '../../shared/firstmate'
+import type {
+  FirstMateLifecycleStatus,
+  FirstMateRuntimeStatus,
+  FirstMateTaskStage,
+  FirstMateWorkspaceState
+} from '../../shared/firstmate'
 import type { WorkspaceProject } from '../../shared/terminal'
 import { ChatView, SelectorPicker, type ChatViewProps } from './ChatNode'
 import { firstMateProjectContext } from './firstmate-project-context'
@@ -81,9 +86,21 @@ function statusLabel(status: ReturnType<typeof useAgentConversation>['status']):
   return 'Ready'
 }
 
+const lifecycleLabels: Record<FirstMateTaskStage, string> = {
+  implemented: 'Implemented',
+  validating: 'Validating',
+  decision: 'Decision',
+  blocked: 'Blocked',
+  'pr-ready': 'PR ready'
+}
+
 export default function FirstMatePanel({ project, state, onStateChange }: FirstMatePanelProps): JSX.Element {
   const [sessionGeneration, setSessionGeneration] = useState(0)
   const [runtime, setRuntime] = useState<FirstMateRuntimeStatus | null>(null)
+  const [lifecycle, setLifecycle] = useState<FirstMateLifecycleStatus>({
+    supervision: 'app-native',
+    tasks: []
+  })
   const [installing, setInstalling] = useState(false)
   const [waitingForGitHub, setWaitingForGitHub] = useState(false)
   const [enablingCodexHooks, setEnablingCodexHooks] = useState(false)
@@ -105,6 +122,22 @@ export default function FirstMatePanel({ project, state, onStateChange }: FirstM
     })
     return () => { active = false }
   }, [])
+
+  useEffect(() => {
+    if (runtime?.state !== 'ready') return
+    let active = true
+    const refresh = (): void => {
+      void window.firstMateApi.lifecycle().then((status) => {
+        if (active) setLifecycle(status)
+      })
+    }
+    refresh()
+    const timer = window.setInterval(refresh, 2_500)
+    return () => {
+      active = false
+      window.clearInterval(timer)
+    }
+  }, [runtime?.state])
 
   useEffect(() => {
     if (!waitingForGitHub || runtime?.githubAuth !== 'required') return
@@ -373,10 +406,28 @@ export default function FirstMatePanel({ project, state, onStateChange }: FirstM
               />
             </label>
           </div>
-          {runtime.host === 'wsl' && (
-            <div className="firstmate-worker-info" title={runtime.message}>
-              Crew backend: tmux in {runtime.distribution ?? 'WSL'}
-            </div>
+          <div
+            className="firstmate-worker-info"
+            title="ADE delivers durable task wakes to this ACP conversation; no terminal pane is claimed as the captain."
+          >
+            Crew backend: tmux{runtime.host === 'wsl' ? ` in ${runtime.distribution ?? 'WSL'}` : ''} · app-native wake
+          </div>
+          {(lifecycle.tasks.length > 0 || lifecycle.message) && (
+            <section className="firstmate-lifecycle" aria-label="FirstMate task lifecycle">
+              <header>
+                <strong>Delivery lifecycle</strong>
+                {lifecycle.validator && (
+                  <small>{lifecycle.validator.agent} · {lifecycle.validator.model}</small>
+                )}
+              </header>
+              {lifecycle.message && <div className="firstmate-lifecycle-error">{lifecycle.message}</div>}
+              {lifecycle.tasks.map((task) => (
+                <div className="firstmate-lifecycle-task" data-stage={task.stage} key={task.id} title={task.detail}>
+                  <span>{task.id}</span>
+                  <strong>{lifecycleLabels[task.stage]}</strong>
+                </div>
+              ))}
+            </section>
           )}
           {provider === 'codex' && runtime.codexProjectTrust === 'required' && (
             <div className="firstmate-auth-warning">

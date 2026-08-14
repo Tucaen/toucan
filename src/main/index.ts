@@ -6,6 +6,7 @@ import { spawn } from 'node-pty'
 import type { AgentCreateRequest } from '../shared/agent'
 import type { TerminalCreateRequest } from '../shared/terminal'
 import { createAcpSessionManager, type AcpSessionManager } from './acp-session-manager'
+import { createFirstMateLifecycleCoordinator } from './firstmate-lifecycle-coordinator'
 import { createFirstMateRuntime, type FirstMateRuntime } from './firstmate-runtime'
 import { createSessionProviders, type SessionProviders } from './session-providers'
 import { createTerminalManager, type TerminalManager } from './terminal-manager'
@@ -71,6 +72,7 @@ function registerFirstMateIpc(runtime: FirstMateRuntime): void {
   ipcMain.handle('firstmate:install', () => runtime.install())
   ipcMain.handle('firstmate:github-auth', () => runtime.authenticateGitHub())
   ipcMain.handle('firstmate:trust-codex', () => runtime.trustCodexProject())
+  ipcMain.handle('firstmate:lifecycle', () => runtime.lifecycle())
 }
 
 function registerProjectIpc(): void {
@@ -196,7 +198,12 @@ app.whenReady().then(() => {
   const agentManager = createAcpSessionManager({
     appPath: app.getAppPath(),
     codexHome,
-    resolveFirstMateLaunch: (provider) => firstMateRuntime.launch(provider)
+    resolveFirstMateLaunch: (provider, modelId) => firstMateRuntime.launch(provider, modelId),
+    configureFirstMateValidator: (provider, modelId) => firstMateRuntime.configureValidator(provider, modelId)
+  })
+  const firstMateLifecycle = createFirstMateLifecycleCoordinator({
+    runtime: firstMateRuntime,
+    wakeCaptain: (message) => agentManager.promptWhenIdle('ade-firstmate', message)
   })
 
   registerTerminalIpc(manager, providers)
@@ -204,11 +211,13 @@ app.whenReady().then(() => {
   registerFirstMateIpc(firstMateRuntime)
   registerProjectIpc()
   createWindow(manager, agentManager)
+  firstMateLifecycle.start()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow(manager, agentManager)
   })
   app.on('before-quit', () => {
+    firstMateLifecycle.stop()
     manager.killAll()
     agentManager.killAll()
   })

@@ -1858,6 +1858,73 @@ button {
   font-size: 10px;
 }
 
+.firstmate-lifecycle {
+  max-height: 150px;
+  overflow-y: auto;
+  padding: 7px 10px;
+  border-bottom: 1px solid rgba(113, 169, 255, 0.18);
+  background: rgba(13, 20, 31, 0.82);
+}
+
+.firstmate-lifecycle > header,
+.firstmate-lifecycle-task {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.firstmate-lifecycle > header {
+  margin-bottom: 5px;
+  color: #aebed2;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.firstmate-lifecycle > header small {
+  overflow: hidden;
+  color: #7f95ad;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.firstmate-lifecycle-task {
+  padding: 3px 0;
+  color: #9eacbd;
+  font-size: 11px;
+}
+
+.firstmate-lifecycle-task > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.firstmate-lifecycle-task > strong {
+  flex: 0 0 auto;
+  color: #8eb8ed;
+  font-size: 10px;
+}
+
+.firstmate-lifecycle-error {
+  color: #e29a9a;
+  font-size: 12px;
+  line-height: 1.4;
+  padding: 9px 12px;
+}
+
+.firstmate-lifecycle-task[data-stage="decision"] > strong,
+.firstmate-lifecycle-task[data-stage="blocked"] > strong {
+  color: #e9b36c;
+}
+
+.firstmate-lifecycle-task[data-stage="pr-ready"] > strong {
+  color: #79d89a;
+}
+
 .firstmate-auth-warning {
   display: flex;
   align-items: center;

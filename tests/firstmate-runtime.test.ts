@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -44,6 +44,7 @@ test('reports the managed Ubuntu runtime before WSL provisioning', async () => {
     homePath: '/home/tucaen/.local/share/ade/firstmate/home',
     host: 'wsl',
     backend: 'tmux',
+    supervision: 'app-native',
     distribution: 'Ubuntu',
     message: 'ADE will provision FirstMate, native Claude and Codex agents, tmux, and the managed review toolchain in Ubuntu.'
   })
@@ -67,7 +68,7 @@ test('builds the Linux ACP launch only after the complete WSL runtime is ready',
   })
 
   const status = await runtime.status()
-  const launch = runtime.launch()
+  const launch = runtime.launch('codex', 'gpt-5.6-sol')
   const inspection = calls[0]?.at(-1) ?? ''
 
   assert.equal(status.state, 'ready')
@@ -89,6 +90,11 @@ test('builds the Linux ACP launch only after the complete WSL runtime is ready',
   ])
   assert.ok(launch?.agentProcess?.args.includes('FM_BACKEND=tmux'))
   assert.ok(launch?.agentProcess?.args.includes('NM_HOME=/home/tucaen/.local/share/ade/firstmate/home/no-mistakes'))
+  assert.ok(launch?.agentProcess?.args.includes('FM_SUPERVISOR_BACKEND=ade'))
+  assert.ok(launch?.agentProcess?.args.includes('FM_SUPERVISOR_TARGET=ade-firstmate-acp'))
+  assert.ok(launch?.agentProcess?.args.includes('ADE_FIRSTMATE_RUNTIME_CONFIG=/home/tucaen/.local/share/ade/firstmate/home/config/ade-runtime.json'))
+  assert.ok(launch?.agentProcess?.args.includes('ADE_FIRSTMATE_VALIDATOR_AGENT=codex'))
+  assert.ok(launch?.agentProcess?.args.includes('ADE_FIRSTMATE_VALIDATOR_MODEL=gpt-5.6-sol'))
   assert.ok(launch?.agentProcess?.args.includes('/home/tucaen/.local/share/ade/firstmate/runner/node_modules/@agentclientprotocol/codex-acp/dist/index.js'))
   assert.ok(launch?.agentProcess?.args.includes('codex'))
   assert.match(calls[0].at(-1) ?? '', /in_section && \/\^\\\[\//)
@@ -164,7 +170,7 @@ test('reuses host Claude credentials inside an isolated Linux config home', asyn
   assert.ok(launch?.authProcess?.(['--cli', 'auth', 'login', '--claudeai']).args.includes('--claudeai'))
 })
 
-test('keeps Codex App Server configuration out of the Claude provider launch', async () => {
+test('keeps provider-specific Codex App Server configuration out of the Claude launch', async () => {
   const rootPath = mkdtempSync(join(tmpdir(), 'ade-firstmate-wsl-claude-launch-'))
   const runtime = createFirstMateRuntime({
     rootPath,
@@ -179,8 +185,66 @@ test('keeps Codex App Server configuration out of the Claude provider launch', a
   await runtime.status()
 
   const launchArgs = runtime.launch('claude')?.agentProcess?.args ?? []
-  assert.doesNotMatch(launchArgs.join(' '), /CODEX_HOME|APP_SERVER_LOGS|codex-acp/)
+  assert.doesNotMatch(launchArgs.join(' '), /APP_SERVER_LOGS|codex-acp/)
+  assert.ok(
+    launchArgs.includes('CODEX_HOME=/home/tucaen/.local/share/ade/firstmate/home/codex'),
+    'all providers should receive the authoritative validator homes explicitly'
+  )
   assert.match(launchArgs.join(' '), /claude-agent-acp/)
+})
+
+test('continues validation with the persisted runtime validator instead of guessed home configuration', async () => {
+  const rootPath = mkdtempSync(join(tmpdir(), 'ade-firstmate-wsl-continue-'))
+  const calls: string[][] = []
+  const runtimeConfig = JSON.stringify({
+    version: 1,
+    host: { kind: 'ade-app', supervisor: 'app-native', terminalTarget: false },
+    validator: {
+      agent: 'codex',
+      model: 'gpt-5.6-sol',
+      nmHome: '/home/tucaen/.local/share/ade/firstmate/home/no-mistakes',
+      agentHome: '/home/tucaen/.local/share/ade/firstmate/home/codex'
+    }
+  })
+  const runtime = createFirstMateRuntime({
+    rootPath,
+    platform: 'win32',
+    resolveGit: () => 'git.exe',
+    wsl: {
+      run: async (args) => {
+        calls.push(args)
+        if (args.includes('-e')) {
+          return {
+            stdout: JSON.stringify({
+              runtimeConfig,
+              tasks: [{
+                id: 'resize',
+                meta: 'kind=ship\nmode=no-mistakes\nharness=codex\n',
+                status: 'done: committed implementation\n'
+              }]
+            }),
+            stderr: ''
+          }
+        }
+        return { stdout: readyWslInspection(), stderr: '' }
+      }
+    }
+  })
+
+  await runtime.status()
+  const result = await runtime.continueValidation('resize')
+
+  assert.equal(result.ok, true)
+  const continuation = calls.find((args) => args.some((arg) => arg.endsWith('/bin/fm-send.sh')))
+  assert.ok(continuation)
+  assert.ok(continuation.includes('resize'))
+  const continuationPrompt = continuation.find((arg) => arg.startsWith('$no-mistakes')) ?? ''
+  assert.match(continuationPrompt, /ade-runtime\.json/)
+  assert.match(continuationPrompt, /do not infer the validator from filtered doctor text or guessed homes/i)
+  assert.ok(continuation.includes('ADE_FIRSTMATE_RUNTIME_CONFIG=/home/tucaen/.local/share/ade/firstmate/home/config/ade-runtime.json'))
+  assert.ok(continuation.includes('ADE_FIRSTMATE_VALIDATOR_AGENT=codex'))
+  assert.ok(continuation.includes('ADE_FIRSTMATE_VALIDATOR_MODEL=gpt-5.6-sol'))
+  assert.ok(continuation.includes('NM_HOME=/home/tucaen/.local/share/ade/firstmate/home/no-mistakes'))
 })
 
 test('trusts only the managed FirstMate distro after explicit approval', async () => {
@@ -325,6 +389,7 @@ test('installs one distro and prepares one isolated operational home', async () 
   const runtime = createFirstMateRuntime({
     rootPath,
     platform: 'linux',
+    environment: { ...process.env, TMUX: '/tmp/unrelated-tmux', TMUX_PANE: '%0' },
     resolveGit: () => '/usr/bin/git',
     clone: async (_git, repository, target) => {
       assert.equal(repository, 'https://github.com/kunchenguid/firstmate.git')
@@ -339,10 +404,36 @@ test('installs one distro and prepares one isolated operational home', async () 
   for (const directory of ['data', 'state', 'config', 'projects']) {
     assert.equal(existsSync(join(rootPath, 'home', directory)), true)
   }
-  assert.deepEqual(runtime.launch(), {
-    cwd: join(rootPath, 'distro'),
-    environment: { ...process.env, FM_HOME: join(rootPath, 'home'), FM_BACKEND: 'tmux' }
+  const launch = runtime.launch('codex', 'gpt-5.6-sol')
+  assert.equal(launch?.cwd, join(rootPath, 'distro'))
+  assert.equal(launch?.environment.FM_HOME, join(rootPath, 'home'))
+  assert.equal(launch?.environment.FM_BACKEND, 'tmux')
+  assert.equal(launch?.environment.FM_SUPERVISOR_BACKEND, 'ade')
+  assert.equal(launch?.environment.FM_SUPERVISOR_TARGET, 'ade-firstmate-acp')
+  assert.equal(
+    launch?.environment.ADE_FIRSTMATE_RUNTIME_CONFIG,
+    join(rootPath, 'home', 'config', 'ade-runtime.json')
+  )
+  assert.equal(launch?.environment.ADE_FIRSTMATE_VALIDATOR_AGENT, 'codex')
+  assert.equal(launch?.environment.ADE_FIRSTMATE_VALIDATOR_MODEL, 'gpt-5.6-sol')
+  assert.equal(launch?.environment.TMUX, undefined, 'an inherited terminal pane must not become captain')
+  assert.equal(launch?.environment.TMUX_PANE, undefined, 'an inherited terminal pane must not become captain')
+  assert.equal(typeof launch?.prepare, 'function')
+  const structuredRuntime = JSON.parse(
+    readFileSync(join(rootPath, 'home', 'config', 'ade-runtime.json'), 'utf8')
+  )
+  assert.deepEqual(structuredRuntime.host, {
+    kind: 'ade-app',
+    supervisor: 'app-native',
+    terminalTarget: false
   })
+  assert.deepEqual(structuredRuntime.validator, {
+      agent: 'codex',
+      model: 'gpt-5.6-sol',
+      nmHome: join(rootPath, 'home', 'no-mistakes'),
+      agentHome: join(rootPath, 'home', 'codex')
+  })
+  assert.match(readFileSync(join(rootPath, 'home', 'no-mistakes', 'config.yaml'), 'utf8'), /^agent: codex$/m)
 })
 
 test('preserves an incomplete distro directory instead of overwriting it', async () => {
