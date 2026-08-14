@@ -70,6 +70,8 @@ export default function FirstMatePanel({ state, onStateChange }: FirstMatePanelP
   const [waitingForGitHub, setWaitingForGitHub] = useState(false)
   const [enablingCodexHooks, setEnablingCodexHooks] = useState(false)
   const [codexHookError, setCodexHookError] = useState<string>()
+  const [enablingFleetAccess, setEnablingFleetAccess] = useState(false)
+  const [fleetAccessError, setFleetAccessError] = useState<string>()
 
   useEffect(() => {
     let active = true
@@ -95,6 +97,7 @@ export default function FirstMatePanel({ state, onStateChange }: FirstMatePanelP
     onStateChange({ ...state, ...patch })
   }
   const provider = state.provider ?? 'codex'
+  const requiredFleetMode = provider === 'codex' ? 'agent-full-access' : 'bypassPermissions'
 
   const conversation = useAgentConversation({
     id: FIRSTMATE_AGENT_ID,
@@ -146,9 +149,29 @@ export default function FirstMatePanel({ state, onStateChange }: FirstMatePanelP
     })
   }
 
-  const startNewSession = (): void => {
-    updateState({ conversationId: undefined })
+  const startNewSession = (permissionMode?: string): void => {
+    updateState({
+      conversationId: undefined,
+      ...(permissionMode ? { permissionMode } : {})
+    })
     setSessionGeneration((current) => current + 1)
+  }
+
+  const enableFleetAccess = (): void => {
+    setEnablingFleetAccess(true)
+    setFleetAccessError(undefined)
+    void conversation.selectMode(requiredFleetMode)
+      .then((enabled) => {
+        if (!enabled) {
+          setFleetAccessError('ADE could not enable the provider\'s unrestricted fleet mode.')
+          return
+        }
+        startNewSession(requiredFleetMode)
+      })
+      .catch((error: unknown) => {
+        setFleetAccessError(error instanceof Error ? error.message : 'ADE could not enable fleet access.')
+      })
+      .finally(() => setEnablingFleetAccess(false))
   }
 
   const props: ChatViewProps = {
@@ -170,7 +193,7 @@ export default function FirstMatePanel({ state, onStateChange }: FirstMatePanelP
           <button
             type="button"
             className="firstmate-new-session"
-            onClick={startNewSession}
+            onClick={() => startNewSession()}
             disabled={conversation.status === 'starting'}
             title="Discard this captain conversation and run FirstMate startup again"
           >New session</button>
@@ -236,6 +259,21 @@ export default function FirstMatePanel({ state, onStateChange }: FirstMatePanelP
               </span>
               <button type="button" onClick={trustCodexProject} disabled={enablingCodexHooks}>
                 {enablingCodexHooks ? 'Enabling...' : 'Enable Codex hooks'}
+              </button>
+            </div>
+          )}
+          {conversation.modes && conversation.modes.currentModeId !== requiredFleetMode && (
+            <div className="firstmate-auth-warning">
+              <span>
+                {fleetAccessError ?? (
+                  <>
+                    Full FirstMate fleet operation requires unrestricted command, filesystem, and network access.
+                    ADE will apply the provider&apos;s full-access mode and start a fresh captain session.
+                  </>
+                )}
+              </span>
+              <button type="button" onClick={enableFleetAccess} disabled={enablingFleetAccess}>
+                {enablingFleetAccess ? 'Enabling...' : 'Enable fleet access'}
               </button>
             </div>
           )}

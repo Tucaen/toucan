@@ -113,7 +113,7 @@ test('lets the user replace a read-only captain with a genuinely fresh FirstMate
   const conversation = readFileSync(join(process.cwd(), 'src/renderer/src/use-agent-conversation.ts'), 'utf8')
 
   assert.match(panel, />New session</)
-  assert.match(panel, /updateState\(\{ conversationId: undefined \}\)/)
+  assert.match(panel, /conversationId: undefined/)
   assert.match(panel, /setSessionGeneration\(\(current\) => current \+ 1\)/)
   assert.match(panel, /sessionId:\s*sessionGeneration === 0 \? state\.conversationId : undefined/)
   assert.match(panel, /restartKey:\s*sessionGeneration/)
@@ -123,4 +123,18 @@ test('lets the user replace a read-only captain with a genuinely fresh FirstMate
     /\[options\.cwd, options\.enabled, options\.id, options\.provider, options\.restartKey, options\.scope\]/,
     'changing the restart key must tear down the old ACP process and create a new session'
   )
+})
+
+test('requires explicit unrestricted fleet access before restarting an operational captain', () => {
+  const panel = readFileSync(join(process.cwd(), 'src/renderer/src/FirstMatePanel.tsx'), 'utf8')
+  const conversation = readFileSync(join(process.cwd(), 'src/renderer/src/use-agent-conversation.ts'), 'utf8')
+
+  assert.match(panel, /provider === ['"]codex['"] \? ['"]agent-full-access['"] : ['"]bypassPermissions['"]/)
+  assert.match(panel, /Enable fleet access/)
+  assert.match(panel, /unrestricted command, filesystem, and network access/)
+  assert.match(panel, /conversation\.selectMode\(requiredFleetMode\)/)
+  assert.match(panel, /startNewSession\(requiredFleetMode\)/)
+  assert.match(conversation, /selectMode\(modeId: string\): Promise<boolean>/)
+  assert.match(conversation, /if \(modeId === modes\?\.currentModeId\) return true/)
+  assert.match(conversation, /if \(result\.ok\)[\s\S]*?return true[\s\S]*?return false/)
 })

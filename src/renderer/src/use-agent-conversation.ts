@@ -56,7 +56,7 @@ export interface AgentConversationController {
   cancel(): void
   authenticate(methodId: string): void
   resolveApproval(approvalId: string, optionId?: string): void
-  selectMode(modeId: string): void
+  selectMode(modeId: string): Promise<boolean>
   selectModel(modelId: string): void
 }
 
@@ -192,16 +192,16 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     setApproval(null)
   }
 
-  const selectMode = (modeId: string): void => {
-    if (modeId === modes?.currentModeId) return
-    void window.agentApi.setMode(options.id, modeId).then((result) => {
-      if (result.ok) {
-        setModes((current) => current ? { ...current, currentModeId: modeId } : current)
-        onPermissionMode.current(modeId)
-      } else {
-        setDetail(result.message)
-      }
-    })
+  const selectMode = async (modeId: string): Promise<boolean> => {
+    if (modeId === modes?.currentModeId) return true
+    const result = await window.agentApi.setMode(options.id, modeId)
+    if (result.ok) {
+      setModes((current) => current ? { ...current, currentModeId: modeId } : current)
+      onPermissionMode.current(modeId)
+      return true
+    }
+    setDetail(result.message)
+    return false
   }
 
   const selectModel = (modelId: string): void => {
