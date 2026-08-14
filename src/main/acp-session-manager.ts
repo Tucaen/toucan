@@ -27,7 +27,7 @@ import type {
 } from '../shared/agent'
 import { activityFromUpdate } from '../shared/agent-activity'
 import { modelSelectorFromConfigOptions } from '../shared/agent-models'
-import { buildAgentProcessLaunch } from './agent-process'
+import { buildAgentProcessLaunch, type AgentProcessLaunch } from './agent-process'
 import { readCachedCodexModels } from './codex-model-cache'
 import type { FirstMateLaunch } from './firstmate-runtime'
 
@@ -42,6 +42,7 @@ interface RunningAgent {
   connection: ClientConnection
   context: ClientContext
   adapterPath: string
+  authProcess?: (args: string[]) => AgentProcessLaunch
   authMethods: AgentAuthMethod[]
   environment: NodeJS.ProcessEnv
   cachedModels?: AgentModelState
@@ -52,7 +53,13 @@ interface RunningAgent {
 }
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
+  if (error instanceof Error) return error.message
+  if (
+    typeof error === 'object'
+    && error !== null
+    && typeof (error as { message?: unknown }).message === 'string'
+  ) return (error as { message: string }).message
+  return String(error)
 }
 
 function isAuthRequired(error: unknown): boolean {
@@ -88,6 +95,29 @@ export interface AcpSessionManagerOptions {
   appPath: string
   codexHome?: string
   resolveFirstMateLaunch?(provider: AgentProvider): FirstMateLaunch | null
+}
+
+export function promptFailure(
+  error: unknown,
+  authMethods: AgentAuthMethod[]
+): { events: AgentEvent[]; result: AgentPromptResult } {
+  const message = errorMessage(error)
+  if (isAuthRequired(error)) {
+    return {
+      events: [
+        { type: 'auth', methods: authMethods },
+        { type: 'status', status: 'auth_required', message }
+      ],
+      result: { ok: false, message }
+    }
+  }
+  return {
+    events: [
+      { type: 'error', message },
+      { type: 'status', status: 'idle' }
+    ],
+    result: { ok: false, message }
+  }
 }
 
 export interface AcpSessionManager {
@@ -362,6 +392,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         connection,
         context: connection.agent,
         adapterPath: path,
+        authProcess: firstMateLaunch?.authProcess,
         authMethods: [],
         environment,
         cachedModels: effectiveRequest.provider === 'codex' && options.codexHome
@@ -417,10 +448,9 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         send(running, { type: 'status', status: 'idle' })
         return { ok: true }
       } catch (error) {
-        const message = errorMessage(error)
-        send(running, { type: 'error', message })
-        send(running, { type: 'status', status: 'idle' })
-        return { ok: false, message }
+        const failure = promptFailure(error, running.authMethods)
+        for (const event of failure.events) send(running, event)
+        return failure.result
       }
     },
 
@@ -480,7 +510,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       try {
         if (method.type === 'terminal') {
           await new Promise<void>((resolve, reject) => {
-            const launch = buildAgentProcessLaunch(
+            const launch = running.authProcess?.(method.args ?? []) ?? buildAgentProcessLaunch(
               process.execPath,
               running.adapterPath,
               running.request.cwd,

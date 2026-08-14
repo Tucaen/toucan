@@ -58,12 +58,12 @@ const WSL_AGENT_SCRIPT = `
 set -eu
 umask 077
 host_auth="$1"
-codex_home="$2"
+managed_auth="$2"
 shift 2
-mkdir -p "$codex_home"
-if [ -f "$host_auth" ] && { [ ! -f "$codex_home/auth.json" ] || [ "$host_auth" -nt "$codex_home/auth.json" ]; }; then
-  cp "$host_auth" "$codex_home/auth.json"
-  chmod 600 "$codex_home/auth.json"
+mkdir -p "$(dirname "$managed_auth")"
+if [ -f "$host_auth" ] && { [ ! -f "$managed_auth" ] || [ "$host_auth" -nt "$managed_auth" ]; }; then
+  cp "$host_auth" "$managed_auth"
+  chmod 600 "$managed_auth"
 fi
 exec /usr/bin/env "$@"
 `
@@ -122,6 +122,7 @@ export interface FirstMateLaunch {
   cwd: string
   environment: NodeJS.ProcessEnv
   agentProcess?: AgentProcessLaunch
+  authProcess?(args: string[]): AgentProcessLaunch
 }
 
 export interface FirstMateRuntime {
@@ -149,6 +150,8 @@ export interface FirstMateRuntimeOptions {
   platform: NodeJS.Platform
   /** Native Codex home shared by ADE's regular Codex nodes. */
   codexHome?: string
+  /** Native Claude home shared by ADE's regular Claude nodes. */
+  claudeHome?: string
   resolveGit(): string | null
   clone?(git: string, repository: string, target: string): Promise<void>
   wsl?: FirstMateWslOptions
@@ -246,7 +249,9 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
       if (!home?.startsWith('/')) throw new Error(`Could not resolve the ${distribution} user home.`)
       const paths = linuxPaths(home)
       const sharedCodexHome = options.codexHome ? windowsPathToWsl(options.codexHome) : undefined
+      const sharedClaudeHome = options.claudeHome ? windowsPathToWsl(options.claudeHome) : undefined
       const managedCodexHome = `${paths.homePath}/codex`
+      const managedClaudeHome = `${paths.homePath}/claude`
       const missing = WSL_REQUIRED_FACTS.filter((name) => detected.get(name) !== '1')
       if (missing.length > 0) {
         readyLaunches = null
@@ -265,39 +270,63 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
         'FM_BACKEND=tmux',
         `PATH=${home}/.local/bin:/usr/local/bin:/usr/bin:/bin`
       ]
+      const managedLaunch = (
+        runnerPath: string,
+        hostAuth: string,
+        managedAuth: string,
+        environment: string[],
+        adapterArgs: string[] = []
+      ): AgentProcessLaunch => ({
+        executable,
+        args: [
+          '--distribution', distribution,
+          '--cd', paths.distroPath,
+          '--exec', '/bin/sh', '-lc', WSL_AGENT_SCRIPT, 'ade-firstmate-agent',
+          hostAuth,
+          managedAuth,
+          ...commonEnvironment,
+          ...environment,
+          '/usr/bin/node', runnerPath,
+          ...adapterArgs
+        ],
+        options: { env: process.env, windowsHide: true }
+      })
       const codexLaunch: FirstMateLaunch = {
         cwd: paths.distroPath,
         environment: process.env,
-        agentProcess: {
-          executable,
-          args: [
-            '--distribution', distribution,
-            '--cd', paths.distroPath,
-            '--exec', '/bin/sh', '-lc', WSL_AGENT_SCRIPT, 'ade-firstmate-agent',
-            sharedCodexHome ? `${sharedCodexHome}/auth.json` : '',
-            managedCodexHome,
-            ...commonEnvironment,
+        agentProcess: managedLaunch(
+          paths.runnerPaths.codex,
+          sharedCodexHome ? `${sharedCodexHome}/auth.json` : '',
+          `${managedCodexHome}/auth.json`,
+          [
             `CODEX_HOME=${managedCodexHome}`,
-            `APP_SERVER_LOGS=${paths.homePath}/state/acp-logs`,
-            '/usr/bin/node', paths.runnerPaths.codex
-          ],
-          options: { env: process.env, windowsHide: true }
-        }
+            `APP_SERVER_LOGS=${paths.homePath}/state/acp-logs`
+          ]
+        ),
+        authProcess: (args) => managedLaunch(
+          paths.runnerPaths.codex,
+          sharedCodexHome ? `${sharedCodexHome}/auth.json` : '',
+          `${managedCodexHome}/auth.json`,
+          [`CODEX_HOME=${managedCodexHome}`],
+          args
+        )
       }
       const claudeLaunch: FirstMateLaunch = {
         cwd: paths.distroPath,
         environment: process.env,
-        agentProcess: {
-          executable,
-          args: [
-            '--distribution', distribution,
-            '--cd', paths.distroPath,
-            '--exec', '/usr/bin/env',
-            ...commonEnvironment,
-            '/usr/bin/node', paths.runnerPaths.claude
-          ],
-          options: { env: process.env, windowsHide: true }
-        }
+        agentProcess: managedLaunch(
+          paths.runnerPaths.claude,
+          sharedClaudeHome ? `${sharedClaudeHome}/.credentials.json` : '',
+          `${managedClaudeHome}/.credentials.json`,
+          [`CLAUDE_CONFIG_DIR=${managedClaudeHome}`]
+        ),
+        authProcess: (args) => managedLaunch(
+          paths.runnerPaths.claude,
+          sharedClaudeHome ? `${sharedClaudeHome}/.credentials.json` : '',
+          `${managedClaudeHome}/.credentials.json`,
+          [`CLAUDE_CONFIG_DIR=${managedClaudeHome}`],
+          args
+        )
       }
       readyLaunches = { codex: codexLaunch, claude: claudeLaunch }
       lastError = undefined

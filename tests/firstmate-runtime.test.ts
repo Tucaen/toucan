@@ -114,7 +114,32 @@ test('reuses host Codex credentials without sharing Windows state databases', as
     /\/mnt\/c\/Users\/tester\/\.codex\/auth\.json[\s\S]*?\/home\/tucaen\/\.local\/share\/ade\/firstmate\/home\/codex/,
     'FirstMate should bootstrap only the existing file-backed Codex credentials'
   )
-  assert.ok(launchArgs.some((arg) => arg.includes('cp "$host_auth" "$codex_home/auth.json"')))
+  assert.ok(launchArgs.some((arg) => arg.includes('cp "$host_auth" "$managed_auth"')))
+})
+
+test('reuses host Claude credentials inside an isolated Linux config home', async () => {
+  const rootPath = mkdtempSync(join(tmpdir(), 'ade-firstmate-wsl-claude-auth-'))
+  const runtime = createFirstMateRuntime({
+    rootPath,
+    platform: 'win32',
+    claudeHome: 'C:\\Users\\tester\\.claude',
+    resolveGit: () => 'git.exe',
+    wsl: {
+      run: async () => ({ stdout: readyWslInspection(), stderr: '' })
+    }
+  })
+
+  await runtime.status()
+
+  const launch = runtime.launch('claude')
+  const launchArgs = launch?.agentProcess?.args ?? []
+  assert.ok(launchArgs.includes('CLAUDE_CONFIG_DIR=/home/tucaen/.local/share/ade/firstmate/home/claude'))
+  assert.match(
+    launchArgs.join(' '),
+    /\/mnt\/c\/Users\/tester\/\.claude\/\.credentials\.json[\s\S]*?\/home\/tucaen\/\.local\/share\/ade\/firstmate\/home\/claude\/\.credentials\.json/,
+    'FirstMate should bootstrap only the existing file-backed Claude credential'
+  )
+  assert.ok(launch?.authProcess?.(['--cli', 'auth', 'login', '--claudeai']).args.includes('--claudeai'))
 })
 
 test('keeps Codex App Server configuration out of the Claude provider launch', async () => {
