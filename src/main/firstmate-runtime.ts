@@ -427,12 +427,12 @@ function appHostedEnvironment(
     ...environment,
     FM_HOME: homePath,
     FM_BACKEND: 'tmux',
-    NM_HOME: `${homePath}/no-mistakes`,
-    CODEX_HOME: `${homePath}/codex`,
-    CLAUDE_CONFIG_DIR: `${homePath}/claude`,
+    NM_HOME: join(homePath, 'no-mistakes'),
+    CODEX_HOME: join(homePath, 'codex'),
+    CLAUDE_CONFIG_DIR: join(homePath, 'claude'),
     FM_SUPERVISOR_BACKEND: 'ade',
     FM_SUPERVISOR_TARGET: 'ade-firstmate-acp',
-    ADE_FIRSTMATE_RUNTIME_CONFIG: `${homePath}/config/ade-runtime.json`,
+    ADE_FIRSTMATE_RUNTIME_CONFIG: join(homePath, 'config', 'ade-runtime.json'),
     ADE_FIRSTMATE_VALIDATOR_AGENT: provider,
     ADE_FIRSTMATE_VALIDATOR_MODEL: model
   }
