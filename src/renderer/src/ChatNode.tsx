@@ -36,6 +36,12 @@ export interface ChatViewProps {
 
 const providerNames = { claude: 'Claude', codex: 'Codex' } as const
 
+// A 'working' session with no new message/activity/plan event for this long is flagged
+// as stalled. Long enough that a slow tool call (build, long shell command) doesn't
+// false-positive, short enough to catch a genuinely wedged agent.
+const STALL_THRESHOLD_MS = 5 * 60 * 1000
+const STALL_CHECK_INTERVAL_MS = 15 * 1000
+
 interface PickerOption {
   id: string
   name: string
@@ -288,12 +294,17 @@ export function ChatView(props: ChatViewProps & {
   )
 }
 
-/** The sidebar only cares whether the agent is busy, blocked, or waiting on us. */
-function sidebarStatus(status: AgentChatStatus, awaitingApproval: boolean, unreadResult: boolean): TerminalNodeStatus {
+/** The sidebar only cares whether the agent is busy, blocked, waiting on us, or stuck. */
+function sidebarStatus(
+  status: AgentChatStatus,
+  awaitingApproval: boolean,
+  unreadResult: boolean,
+  stalled: boolean
+): TerminalNodeStatus {
   if (status === 'exited') return 'exited'
   if (status === 'auth_required' || awaitingApproval) return 'attention'
   if (status === 'starting') return 'starting'
-  if (status === 'working') return 'working'
+  if (status === 'working') return stalled ? 'stalled' : 'working'
   return unreadResult ? 'result' : 'idle'
 }
 
@@ -313,7 +324,9 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
     onPermissionMode: (modeId) => data.onPermissionModeChange(provider, modeId),
     onModel: (modelId) => data.onModelChange(id, modelId)
   })
-  const { status, approval, models, modes, detail } = conversation
+  const { status, approval, models, modes, detail, messages, activities, plan } = conversation
+  const [stalled, setStalled] = useState(false)
+  const lastProgressAtRef = useRef(Date.now())
 
   // A finished turn stays flagged as an unread result until the node is focused.
   useEffect(() => {
@@ -326,10 +339,29 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
     if (selected || status === 'working') setUnreadResult(false)
   }, [selected, status])
 
+  // Any new message text, tool activity, or plan update counts as progress and resets the stall clock.
+  useEffect(() => {
+    lastProgressAtRef.current = Date.now()
+  }, [messages, activities, plan, detail])
+
+  // While working, periodically check whether progress has gone quiet for too long.
+  useEffect(() => {
+    if (status !== 'working') {
+      setStalled(false)
+      return
+    }
+    lastProgressAtRef.current = Date.now()
+    setStalled(false)
+    const interval = setInterval(() => {
+      setStalled(Date.now() - lastProgressAtRef.current > STALL_THRESHOLD_MS)
+    }, STALL_CHECK_INTERVAL_MS)
+    return () => clearInterval(interval)
+  }, [status])
+
   useEffect(() => {
     if (data.dormant) return
-    data.onStatusChange(id, sidebarStatus(status, approval !== null, unreadResult))
-  }, [approval, data.dormant, data.onStatusChange, id, status, unreadResult])
+    data.onStatusChange(id, sidebarStatus(status, approval !== null, unreadResult, stalled))
+  }, [approval, data.dormant, data.onStatusChange, id, status, unreadResult, stalled])
 
   const props: ChatViewProps = {
     provider,
@@ -343,7 +375,7 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
     >
       <NodeBorderResizer minWidth={420} minHeight={320} selected={selected} color={data.projectColor} />
       <header className="node-header chat-node-header">
-        <span className="status-dot" data-status={status} />
+        <span className="status-dot" data-status={status} data-stalled={stalled} title={stalled ? 'No progress for a while — this session may be stuck' : undefined} />
         <strong>{data.label}</strong>
         <span className="node-project" title={data.projectPath}><span className="project-color-dot" />{data.projectName}</span>
         {!data.dormant && (

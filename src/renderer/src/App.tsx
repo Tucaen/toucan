@@ -53,6 +53,7 @@ const statusLabels: Record<TerminalNodeStatus, string> = {
   working: 'Working',
   result: 'Result',
   attention: 'Attention',
+  stalled: 'Stalled',
   exited: 'Exited'
 }
 
@@ -82,6 +83,20 @@ function Canvas(): JSX.Element {
     () => projects.find((project) => project.id === activeProjectId) ?? projects[0],
     [activeProjectId, projects]
   )
+
+  // A global, always-visible read on the whole workspace: no need to open a node to see
+  // whether anything is still busy or looks stuck.
+  const statusSummary = useMemo(() => {
+    let working = 0
+    let stalled = 0
+    let attention = 0
+    for (const status of Object.values(nodeStatuses)) {
+      if (status === 'working') working += 1
+      else if (status === 'stalled') stalled += 1
+      else if (status === 'attention') attention += 1
+    }
+    return { working, stalled, attention, needsAttention: stalled + attention }
+  }, [nodeStatuses])
 
   const handleStatusChange = useCallback((nodeId: string, status: TerminalNodeStatus): void => {
     setNodeStatuses((current) => {
@@ -318,6 +333,29 @@ function Canvas(): JSX.Element {
           <span className="prototype-label">canvas agent prototype</span>
         </div>
         <div className="header-target">
+          {(statusSummary.working > 0 || statusSummary.needsAttention > 0) && (
+            <div className="global-status-summary" role="status">
+              {statusSummary.working > 0 && (
+                <span className="global-status-chip" data-kind="working">
+                  <span className="global-status-dot" />
+                  {statusSummary.working} working
+                </span>
+              )}
+              {statusSummary.needsAttention > 0 && (
+                <span
+                  className="global-status-chip"
+                  data-kind="attention"
+                  title={[
+                    statusSummary.stalled > 0 ? `${statusSummary.stalled} may be stuck` : null,
+                    statusSummary.attention > 0 ? `${statusSummary.attention} waiting on you` : null
+                  ].filter(Boolean).join(' · ')}
+                >
+                  <span className="global-status-dot" />
+                  {statusSummary.needsAttention} need attention
+                </span>
+              )}
+            </div>
+          )}
           <span className="hint">Right-click to create a session</span>
           {activeProject && (
             <span className="target-chip" title={activeProject.path}>

@@ -99,6 +99,65 @@ button {
   border-radius: 999px;
 }
 
+.global-status-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.global-status-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid #303844;
+  border-radius: 999px;
+  color: #cbd2dc;
+  background: #191e26;
+  font-size: 11px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.global-status-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: #718096;
+}
+
+.global-status-chip[data-kind="working"] {
+  color: #8fbcff;
+  border-color: #2c4570;
+  background: #172136;
+}
+
+.global-status-chip[data-kind="working"] .global-status-dot {
+  background: #71a9ff;
+  box-shadow: 0 0 9px rgba(113, 169, 255, 0.6);
+  animation: attention-pulse 1.4s ease-in-out infinite;
+}
+
+.global-status-chip[data-kind="attention"] {
+  color: #ffb2b7;
+  border-color: #6b2c31;
+  background: #2c1618;
+  animation: global-attention-glow 1.6s ease-in-out infinite;
+}
+
+.global-status-chip[data-kind="attention"] .global-status-dot {
+  background: #ff6b6f;
+  box-shadow: 0 0 9px rgba(255, 107, 111, 0.7);
+  animation: attention-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes global-attention-glow {
+  50% {
+    box-shadow: 0 0 0 3px rgba(255, 107, 111, 0.16);
+  }
+}
+
 .workspace-shell {
   height: calc(100% - 52px);
   display: flex;
@@ -415,6 +474,16 @@ button {
 .project-node-state[data-status="attention"] .node-status-indicator {
   background: #efad61;
   box-shadow: 0 0 9px rgba(239, 173, 97, 0.65);
+  animation: attention-pulse 1.4s ease-in-out infinite;
+}
+
+.project-node-state[data-status="stalled"] {
+  color: #ff9a9e;
+}
+
+.project-node-state[data-status="stalled"] .node-status-indicator {
+  background: #ff6b6f;
+  box-shadow: 0 0 9px rgba(255, 107, 111, 0.7);
   animation: attention-pulse 1.4s ease-in-out infinite;
 }
 
@@ -1013,6 +1082,12 @@ button {
 .chat-node .status-dot[data-status="auth_required"],
 .chat-node .status-dot[data-status="exited"] {
   background: #f1c75b;
+}
+
+.chat-node .status-dot[data-stalled="true"] {
+  background: #ff6b6f;
+  box-shadow: 0 0 9px rgba(255, 107, 111, 0.7);
+  animation: chat-pulse 1.2s ease-in-out infinite;
 }
 
 @keyframes chat-pulse {
