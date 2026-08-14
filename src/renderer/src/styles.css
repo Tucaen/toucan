@@ -1667,7 +1667,7 @@ button {
 
 .firstmate-settings-bar {
   display: grid;
-  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1fr) minmax(0, 1.1fr);
   gap: 8px;
   padding: 8px 10px;
   border-bottom: 1px solid #29313b;

@@ -174,7 +174,7 @@ app.whenReady().then(() => {
   const agentManager = createAcpSessionManager({
     appPath: app.getAppPath(),
     codexHome,
-    resolveFirstMateLaunch: () => firstMateRuntime.launch()
+    resolveFirstMateLaunch: (provider) => firstMateRuntime.launch(provider)
   })
 
   registerTerminalIpc(manager, providers)

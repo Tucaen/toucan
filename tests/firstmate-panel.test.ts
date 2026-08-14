@@ -67,3 +67,25 @@ test('keeps model selection available while ChatGPT authentication is required',
     'a pre-auth model choice should be saved and applied when the session opens'
   )
 })
+
+test('recovers FirstMate by starting fresh when its saved conversation cannot be resumed', () => {
+  const manager = readFileSync(join(process.cwd(), 'src/main/acp-session-manager.ts'), 'utf8')
+
+  assert.match(
+    manager,
+    /methods\.agent\.session\.load[\s\S]*?running\.request\.scope !== ['"]firstmate['"][\s\S]*?running\.request\.sessionId = undefined[\s\S]*?methods\.agent\.session\.new/,
+    'a missing or incompatible FirstMate rollout should fall back to a new session'
+  )
+})
+
+test('lets the user switch FirstMate between Codex and Claude even when one provider failed', () => {
+  const panel = readFileSync(join(process.cwd(), 'src/renderer/src/FirstMatePanel.tsx'), 'utf8')
+  const firstMate = readFileSync(join(process.cwd(), 'src/shared/firstmate.ts'), 'utf8')
+  const manager = readFileSync(join(process.cwd(), 'src/main/acp-session-manager.ts'), 'utf8')
+
+  assert.match(firstMate, /provider\?:\s*AgentProvider/)
+  assert.match(panel, /kind="provider"[\s\S]*?disabled=\{false\}/)
+  assert.match(panel, /\{ id: ['"]codex['"], name: ['"]Codex['"] \}/)
+  assert.match(panel, /\{ id: ['"]claude['"], name: ['"]Claude['"] \}/)
+  assert.match(manager, /resolveFirstMateLaunch\?\.\(request\.provider\)/)
+})

@@ -15,7 +15,8 @@ function readyWslInspection(): string {
   return [
     'home=/home/tucaen',
     'distro=1',
-    'runner=1',
+    'runner.codex=1',
+    'runner.claude=1',
     ...['node', 'git', 'gh', 'tmux', 'jq', 'treehouse', 'no-mistakes', 'gh-axi',
       'chrome-devtools-axi', 'lavish-axi', 'tasks-axi', 'quota-axi'].map((tool) => `tool.${tool}=1`),
     'githubAuth=required'
@@ -40,7 +41,7 @@ test('reports the managed Ubuntu runtime before WSL provisioning', async () => {
     host: 'wsl',
     backend: 'tmux',
     distribution: 'Ubuntu',
-    message: 'ADE will provision FirstMate, Codex ACP, tmux, and 13 supporting tools in Ubuntu.'
+    message: 'ADE will provision FirstMate, Codex and Claude ACP, tmux, and 14 supporting tools in Ubuntu.'
   })
   assert.equal(runtime.launch(), null)
 })
@@ -73,9 +74,11 @@ test('builds the Linux ACP launch only after the complete WSL runtime is ready',
   ])
   assert.ok(launch?.agentProcess?.args.includes('FM_BACKEND=tmux'))
   assert.ok(launch?.agentProcess?.args.includes('/home/tucaen/.local/share/ade/firstmate/runner/node_modules/@agentclientprotocol/codex-acp/dist/index.js'))
+  const claudeLaunch = (runtime.launch as (provider?: 'codex' | 'claude') => typeof launch)('claude')
+  assert.ok(claudeLaunch?.agentProcess?.args.includes('/home/tucaen/.local/share/ade/firstmate/runner/node_modules/@agentclientprotocol/claude-agent-acp/dist/index.js'))
 })
 
-test('reuses the host Codex home for the managed WSL agent', async () => {
+test('reuses host Codex credentials without sharing Windows state databases', async () => {
   const rootPath = mkdtempSync(join(tmpdir(), 'ade-firstmate-wsl-codex-auth-'))
   const runtime = createFirstMateRuntime({
     rootPath,
@@ -89,10 +92,22 @@ test('reuses the host Codex home for the managed WSL agent', async () => {
 
   await runtime.status()
 
+  const launchArgs = runtime.launch()?.agentProcess?.args ?? []
   assert.ok(
-    runtime.launch()?.agentProcess?.args.includes('CODEX_HOME=/mnt/c/Users/tester/.codex'),
-    'FirstMate should see the same Codex login and configuration as native ADE Codex nodes'
+    launchArgs.includes('CODEX_HOME=/home/tucaen/.local/share/ade/firstmate/home/codex'),
+    'FirstMate should keep its Codex state on the Linux filesystem'
   )
+  assert.doesNotMatch(
+    launchArgs.join(' '),
+    /CODEX_HOME=\/mnt\/c/i,
+    'FirstMate must not open Windows SQLite state from WSL'
+  )
+  assert.match(
+    launchArgs.join(' '),
+    /\/mnt\/c\/Users\/tester\/\.codex\/auth\.json[\s\S]*?\/home\/tucaen\/\.local\/share\/ade\/firstmate\/home\/codex/,
+    'FirstMate should bootstrap only the existing file-backed Codex credentials'
+  )
+  assert.ok(launchArgs.some((arg) => arg.includes('cp "$host_auth" "$codex_home/auth.json"')))
 })
 
 test('opens GitHub authentication in the managed Ubuntu environment', async () => {
@@ -146,6 +161,7 @@ test('provisions Ubuntu packages and the managed FirstMate toolchain', async () 
   assert.ok(prepare)
   assert.match(prepare.at(-1) ?? '', /mkdir -p "\$HOME\/.local\/bin"/)
   assert.match(prepare.at(-1) ?? '', /NPM_CONFIG_PREFIX="\$HOME\/.local"/)
+  assert.match(prepare.at(-1) ?? '', /@agentclientprotocol\/claude-agent-acp@/)
 })
 
 test('installs one distro and prepares one isolated operational home', async () => {

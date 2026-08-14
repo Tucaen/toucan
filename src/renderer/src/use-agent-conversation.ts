@@ -83,6 +83,15 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
   useEffect(() => {
     if (!options.enabled) return
     let active = true
+    setMessages([])
+    setActivitiesById({})
+    setPlan([])
+    setApproval(null)
+    setAuthMethods([])
+    setModes(null)
+    setModels(null)
+    setStatus('starting')
+    setDetail(undefined)
     const removeListener = window.agentApi.onEvent(options.id, (event: AgentEvent) => {
       if (!active) return
       if (event.type === 'status') {

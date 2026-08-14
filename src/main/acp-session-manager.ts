@@ -22,6 +22,7 @@ import type {
   AgentModeState,
   AgentModelState,
   AgentPermissionOption,
+  AgentProvider,
   AgentPromptResult
 } from '../shared/agent'
 import { activityFromUpdate } from '../shared/agent-activity'
@@ -86,7 +87,7 @@ function simplifyModes(modes: {
 export interface AcpSessionManagerOptions {
   appPath: string
   codexHome?: string
-  resolveFirstMateLaunch?(): FirstMateLaunch | null
+  resolveFirstMateLaunch?(provider: AgentProvider): FirstMateLaunch | null
 }
 
 export interface AcpSessionManager {
@@ -157,15 +158,28 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         running.modelConfigId = selector?.configId
         models = selector?.models
       }
+      let resumed = false
       if (running.request.sessionId) {
-        const response = await running.context.request(methods.agent.session.load, {
-          sessionId: running.request.sessionId,
-          cwd: running.request.cwd,
-          mcpServers: []
-        })
-        running.sessionId = running.request.sessionId
-        configure(response)
-      } else {
+        try {
+          const response = await running.context.request(methods.agent.session.load, {
+            sessionId: running.request.sessionId,
+            cwd: running.request.cwd,
+            mcpServers: []
+          })
+          running.sessionId = running.request.sessionId
+          configure(response)
+          resumed = true
+        } catch (error) {
+          if (running.request.scope !== 'firstmate' || isAuthRequired(error)) throw error
+          send(running, {
+            type: 'error',
+            message: 'The saved FirstMate conversation is unavailable; starting a new one.'
+          })
+          running.request.sessionId = undefined
+          running.sessionId = undefined
+        }
+      }
+      if (!resumed) {
         const response = await running.context.request(methods.agent.session.new, {
           cwd: running.request.cwd,
           mcpServers: []
@@ -173,27 +187,29 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         running.sessionId = response.sessionId
         configure(response)
       }
+      const sessionId = running.sessionId
+      if (!sessionId) throw new Error('The agent did not return a session ID.')
       if (
         running.request.permissionMode
         && modes?.availableModes.some((mode) => mode.id === running.request.permissionMode)
         && modes.currentModeId !== running.request.permissionMode
       ) {
         await running.context.request(methods.agent.session.setMode, {
-          sessionId: running.sessionId,
+          sessionId,
           modeId: running.request.permissionMode
         })
         modes = { ...modes, currentModeId: running.request.permissionMode }
       }
       if (models) models = await applySavedModel(running, models)
       if (models) running.cachedModels = models
-      send(running, { type: 'session', sessionId: running.sessionId })
+      send(running, { type: 'session', sessionId })
       if (modes) send(running, { type: 'modes', modes })
       if (models) send(running, { type: 'models', models })
       send(running, { type: 'status', status: 'ready' })
       return {
         ok: true,
         status: 'ready',
-        sessionId: running.sessionId,
+        sessionId,
         ...(modes ? { modes } : {}),
         ...(models ? { models } : {})
       }
@@ -235,7 +251,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       if (existing) return openSession(existing)
 
       const firstMateLaunch = request.scope === 'firstmate'
-        ? options.resolveFirstMateLaunch?.() ?? null
+        ? options.resolveFirstMateLaunch?.(request.provider) ?? null
         : null
       if (request.scope === 'firstmate' && !firstMateLaunch) {
         return { ok: false, status: 'error', message: 'FirstMate is not installed.' }

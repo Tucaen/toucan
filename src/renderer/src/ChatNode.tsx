@@ -43,6 +43,7 @@ interface PickerOption {
 }
 
 const pickerCopy = {
+  provider: { icon: '@', heading: 'Provider', idle: 'Provider', hint: 'Choose the agent provider' },
   permission: { icon: '*', heading: 'Permission mode', idle: 'Permissions', hint: 'Set the permission mode for this agent' },
   model: { icon: '#', heading: 'Model', idle: 'Model', hint: 'Choose the model for this conversation' }
 } as const

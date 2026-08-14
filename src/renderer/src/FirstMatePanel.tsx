@@ -4,6 +4,10 @@ import { ChatView, SelectorPicker, type ChatViewProps } from './ChatNode'
 import { useAgentConversation } from './use-agent-conversation'
 
 const FIRSTMATE_AGENT_ID = 'ade-firstmate'
+const FIRSTMATE_PROVIDERS = [
+  { id: 'codex', name: 'Codex' },
+  { id: 'claude', name: 'Claude' }
+]
 
 interface FirstMatePanelProps {
   state: FirstMateWorkspaceState
@@ -35,7 +39,7 @@ function RuntimeSetup({
           : failed
           ? runtime.message
           : runtime?.host === 'wsl'
-          ? `ADE will provision FirstMate, Codex ACP, and tmux inside ${runtime.distribution ?? 'Ubuntu'}.`
+          ? `ADE will provision FirstMate, Codex and Claude ACP, and tmux inside ${runtime.distribution ?? 'Ubuntu'}.`
           : 'ADE will download the FirstMate agent distro and create one private operational home on this machine.'}
       </p>
       {runtime?.host === 'wsl' && !failed && (
@@ -87,10 +91,11 @@ export default function FirstMatePanel({ state, onStateChange }: FirstMatePanelP
   const updateState = (patch: Partial<FirstMateWorkspaceState>): void => {
     onStateChange({ ...state, ...patch })
   }
+  const provider = state.provider ?? 'codex'
 
   const conversation = useAgentConversation({
     id: FIRSTMATE_AGENT_ID,
-    provider: 'codex',
+    provider,
     cwd: runtime?.distroPath ?? '',
     scope: 'firstmate',
     sessionId: state.conversationId,
@@ -121,7 +126,7 @@ export default function FirstMatePanel({ state, onStateChange }: FirstMatePanelP
   }
 
   const props: ChatViewProps = {
-    provider: 'codex',
+    provider,
     ...conversation
   }
   const ready = runtime?.state === 'ready'
@@ -140,6 +145,24 @@ export default function FirstMatePanel({ state, onStateChange }: FirstMatePanelP
       {ready ? (
         <>
           <div className="firstmate-settings-bar">
+            <label>
+              <span>Provider</span>
+              <SelectorPicker
+                kind="provider"
+                options={FIRSTMATE_PROVIDERS}
+                selectedId={provider}
+                disabled={false}
+                select={(selectedId) => {
+                  if (selectedId !== 'codex' && selectedId !== 'claude') return
+                  updateState({
+                    provider: selectedId,
+                    conversationId: undefined,
+                    modelId: undefined,
+                    permissionMode: undefined
+                  })
+                }}
+              />
+            </label>
             <label>
               <span>Model</span>
               <SelectorPicker

@@ -43,6 +43,7 @@ export function isWorkspaceState(value: unknown): value is WorkspaceState {
     && (
       !state.firstMate
       || typeof state.firstMate !== 'object'
+      || (state.firstMate.provider !== undefined && state.firstMate.provider !== 'codex' && state.firstMate.provider !== 'claude')
       || (state.firstMate.conversationId !== undefined && typeof state.firstMate.conversationId !== 'string')
       || (state.firstMate.permissionMode !== undefined && typeof state.firstMate.permissionMode !== 'string')
       || (state.firstMate.modelId !== undefined && typeof state.firstMate.modelId !== 'string')

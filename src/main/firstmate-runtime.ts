@@ -2,16 +2,19 @@ import { execFile, spawn } from 'node:child_process'
 import { existsSync, mkdirSync, renameSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
+import type { AgentProvider } from '../shared/agent'
 import type { FirstMateActionResult, FirstMateInstallResult, FirstMateRuntimeStatus } from '../shared/firstmate'
 import type { AgentProcessLaunch } from './agent-process'
 
 const execFileAsync = promisify(execFile)
 const FIRSTMATE_REPOSITORY = 'https://github.com/kunchenguid/firstmate.git'
-const FIRSTMATE_ACP_VERSION = '1.1.14'
+const CODEX_ACP_VERSION = '1.1.14'
+const CLAUDE_ACP_VERSION = '0.66.0'
 const WSL_BASE = '.local/share/ade/firstmate'
 const WSL_REQUIRED_FACTS = [
   'distro',
-  'runner',
+  'runner.codex',
+  'runner.claude',
   'tool.node',
   'tool.git',
   'tool.gh',
@@ -31,11 +34,25 @@ base="$HOME/${WSL_BASE}"
 export PATH="$HOME/.local/bin:$PATH"
 printf 'home=%s\n' "$HOME"
 [ -f "$base/distro/AGENTS.md" ] && [ -f "$base/distro/bin/fm-spawn.sh" ] && printf 'distro=1\n' || true
-[ -f "$base/runner/node_modules/@agentclientprotocol/codex-acp/dist/index.js" ] && printf 'runner=1\n' || true
+[ -f "$base/runner/node_modules/@agentclientprotocol/codex-acp/dist/index.js" ] && printf 'runner.codex=1\n' || true
+[ -f "$base/runner/node_modules/@agentclientprotocol/claude-agent-acp/dist/index.js" ] && printf 'runner.claude=1\n' || true
 for tool in node git gh tmux jq treehouse no-mistakes gh-axi chrome-devtools-axi lavish-axi tasks-axi quota-axi; do
   command -v "$tool" >/dev/null 2>&1 && printf 'tool.%s=1\n' "$tool" || true
 done
 gh auth status >/dev/null 2>&1 && printf 'githubAuth=authenticated\n' || printf 'githubAuth=required\n'
+`
+const WSL_AGENT_SCRIPT = `
+set -eu
+umask 077
+host_auth="$1"
+codex_home="$2"
+shift 2
+mkdir -p "$codex_home"
+if [ -f "$host_auth" ] && { [ ! -f "$codex_home/auth.json" ] || [ "$host_auth" -nt "$codex_home/auth.json" ]; }; then
+  cp "$host_auth" "$codex_home/auth.json"
+  chmod 600 "$codex_home/auth.json"
+fi
+exec /usr/bin/env "$@"
 `
 const WSL_PREPARE_SCRIPT = `
 set -eu
@@ -54,7 +71,9 @@ if [ ! -e "$distro" ]; then
   mv "$temporary" "$distro"
 fi
 printf 'tmux\n' > "$base/home/config/backend"
-npm install --prefix "$base/runner" --omit=dev @agentclientprotocol/codex-acp@${FIRSTMATE_ACP_VERSION}
+npm install --prefix "$base/runner" --omit=dev \
+  @agentclientprotocol/codex-acp@${CODEX_ACP_VERSION} \
+  @agentclientprotocol/claude-agent-acp@${CLAUDE_ACP_VERSION}
 export PATH="$HOME/.local/bin:$PATH"
 export NPM_CONFIG_PREFIX="$HOME/.local"
 FM_HOME="$base/home" FM_BACKEND=tmux "$distro/bin/fm-bootstrap.sh" install \
@@ -71,7 +90,7 @@ export interface FirstMateRuntime {
   status(): Promise<FirstMateRuntimeStatus>
   install(): Promise<FirstMateInstallResult>
   authenticateGitHub(): Promise<FirstMateActionResult>
-  launch(): FirstMateLaunch | null
+  launch(provider?: AgentProvider): FirstMateLaunch | null
 }
 
 export interface FirstMateCommandResult {
@@ -100,12 +119,19 @@ function isDistro(path: string): boolean {
   return existsSync(join(path, 'AGENTS.md')) && existsSync(join(path, 'bin', 'fm-spawn.sh'))
 }
 
-function linuxPaths(home: string): { distroPath: string; homePath: string; runnerPath: string } {
+function linuxPaths(home: string): {
+  distroPath: string
+  homePath: string
+  runnerPaths: Record<AgentProvider, string>
+} {
   const base = `${home}/${WSL_BASE}`
   return {
     distroPath: `${base}/distro`,
     homePath: `${base}/home`,
-    runnerPath: `${base}/runner/node_modules/@agentclientprotocol/codex-acp/dist/index.js`
+    runnerPaths: {
+      codex: `${base}/runner/node_modules/@agentclientprotocol/codex-acp/dist/index.js`,
+      claude: `${base}/runner/node_modules/@agentclientprotocol/claude-agent-acp/dist/index.js`
+    }
   }
 }
 
@@ -157,7 +183,7 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
   const placeholder = linuxPaths('~')
   let installing = false
   let lastError: string | undefined
-  let readyLaunch: FirstMateLaunch | null = null
+  let readyLaunches: Record<AgentProvider, FirstMateLaunch> | null = null
 
   const inspect = async (): Promise<FirstMateRuntimeStatus> => {
     if (installing) {
@@ -181,9 +207,10 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
       if (!home?.startsWith('/')) throw new Error(`Could not resolve the ${distribution} user home.`)
       const paths = linuxPaths(home)
       const sharedCodexHome = options.codexHome ? windowsPathToWsl(options.codexHome) : undefined
+      const managedCodexHome = `${paths.homePath}/codex`
       const missing = WSL_REQUIRED_FACTS.filter((name) => detected.get(name) !== '1')
       if (missing.length > 0) {
-        readyLaunch = null
+        readyLaunches = null
         return {
           state: lastError ? 'error' : 'missing',
           distroPath: paths.distroPath,
@@ -191,10 +218,40 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
           host: 'wsl',
           backend: 'tmux',
           distribution,
-          message: lastError ?? `ADE will provision FirstMate, Codex ACP, tmux, and ${missing.length} supporting tools in ${distribution}.`
+          message: lastError ?? `ADE will provision FirstMate, Codex and Claude ACP, tmux, and 14 supporting tools in ${distribution}.`
         }
       }
-      readyLaunch = {
+      const commonEnvironment = [
+        `FM_HOME=${paths.homePath}`,
+        'FM_BACKEND=tmux',
+        `PATH=${home}/.local/bin:/usr/local/bin:/usr/bin:/bin`,
+        `APP_SERVER_LOGS=${paths.homePath}/state/acp-logs`
+      ]
+      const codexLaunch: FirstMateLaunch = {
+        cwd: paths.distroPath,
+        environment: process.env,
+        agentProcess: {
+          executable,
+          args: sharedCodexHome ? [
+            '--distribution', distribution,
+            '--cd', paths.distroPath,
+            '--exec', '/bin/sh', '-lc', WSL_AGENT_SCRIPT, 'ade-firstmate-agent',
+            `${sharedCodexHome}/auth.json`, managedCodexHome,
+            ...commonEnvironment,
+            `CODEX_HOME=${managedCodexHome}`,
+            '/usr/bin/node', paths.runnerPaths.codex
+          ] : [
+            '--distribution', distribution,
+            '--cd', paths.distroPath,
+            '--exec', '/usr/bin/env',
+            ...commonEnvironment,
+            `CODEX_HOME=${managedCodexHome}`,
+            '/usr/bin/node', paths.runnerPaths.codex
+          ],
+          options: { env: process.env, windowsHide: true }
+        }
+      }
+      const claudeLaunch: FirstMateLaunch = {
         cwd: paths.distroPath,
         environment: process.env,
         agentProcess: {
@@ -203,16 +260,13 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
             '--distribution', distribution,
             '--cd', paths.distroPath,
             '--exec', '/usr/bin/env',
-            `FM_HOME=${paths.homePath}`,
-            'FM_BACKEND=tmux',
-            ...(sharedCodexHome ? [`CODEX_HOME=${sharedCodexHome}`] : []),
-            `PATH=${home}/.local/bin:/usr/local/bin:/usr/bin:/bin`,
-            `APP_SERVER_LOGS=${paths.homePath}/state/acp-logs`,
-            '/usr/bin/node', paths.runnerPath
+            ...commonEnvironment,
+            '/usr/bin/node', paths.runnerPaths.claude
           ],
           options: { env: process.env, windowsHide: true }
         }
       }
+      readyLaunches = { codex: codexLaunch, claude: claudeLaunch }
       lastError = undefined
       return {
         state: 'ready',
@@ -224,7 +278,7 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
         githubAuth: detected.get('githubAuth') === 'authenticated' ? 'authenticated' : 'required'
       }
     } catch (error) {
-      readyLaunch = null
+      readyLaunches = null
       const message = error instanceof Error ? error.message : String(error)
       return {
         state: 'error',
@@ -296,8 +350,8 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
         return { ok: false, message: error instanceof Error ? error.message : String(error) }
       }
     },
-    launch(): FirstMateLaunch | null {
-      return readyLaunch
+    launch(provider = 'codex'): FirstMateLaunch | null {
+      return readyLaunches?.[provider] ?? null
     }
   }
 }
@@ -367,7 +421,7 @@ function createNativeFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMa
     async authenticateGitHub(): Promise<FirstMateActionResult> {
       return { ok: false, message: 'GitHub sign-in is managed only by the Windows WSL runtime.' }
     },
-    launch(): FirstMateLaunch | null {
+    launch(_provider: AgentProvider = 'codex'): FirstMateLaunch | null {
       if (!isDistro(distroPath)) return null
       prepareHome()
       return {

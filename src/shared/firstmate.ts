@@ -1,3 +1,5 @@
+import type { AgentProvider } from './agent'
+
 export type FirstMateRuntimeState = 'missing' | 'installing' | 'ready' | 'error'
 
 export interface FirstMateRuntimeStatus {
@@ -22,6 +24,7 @@ export interface FirstMateActionResult {
 }
 
 export interface FirstMateWorkspaceState {
+  provider?: AgentProvider
   conversationId?: string
   permissionMode?: string
   modelId?: string
