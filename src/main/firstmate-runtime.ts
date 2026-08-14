@@ -1,15 +1,26 @@
 import { execFile, spawn } from 'node:child_process'
-import { existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import type { AgentProvider } from '../shared/agent'
 import type {
   FirstMateActionResult,
+  FirstMateExternalProject,
   FirstMateInstallResult,
   FirstMateLifecycleStatus,
+  FirstMateProjectRegistration,
+  FirstMateProjectSelection,
   FirstMateRuntimeStatus
 } from '../shared/firstmate'
 import type { AgentProcessLaunch } from './agent-process'
+import {
+  createFirstMateExternalProjects,
+  EXTERNAL_PROJECT_STORE_FILE,
+  FLEET_REGISTRY_FILE,
+  type FirstMateCheckoutFacts,
+  type FirstMateExternalProjectFiles,
+  type FirstMateExternalProjectHome
+} from './firstmate-external-projects'
 import {
   firstMateLifecycleFromFiles,
   firstMateValidatorFromRuntimeConfig,
@@ -195,6 +206,29 @@ fs.writeFileSync(temporary, JSON.stringify(journal, null, 2) + '\\n', { mode: 0o
 fs.renameSync(temporary, target)
 `
 
+const WSL_EXTERNAL_PROJECT_READ_SCRIPT = `
+const fs = require('node:fs')
+const path = require('node:path')
+const data = path.join(process.argv[1], 'data')
+const optional = (file) => { try { return fs.readFileSync(file, 'utf8') } catch { return undefined } }
+process.stdout.write(JSON.stringify({
+  store: optional(path.join(data, ${JSON.stringify(EXTERNAL_PROJECT_STORE_FILE)})),
+  registry: optional(path.join(data, ${JSON.stringify(FLEET_REGISTRY_FILE)}))
+}))
+`
+
+const WSL_EXTERNAL_PROJECT_WRITE_SCRIPT = `
+const fs = require('node:fs')
+const path = require('node:path')
+const data = path.join(process.argv[1], 'data')
+const text = Buffer.from(process.argv[2], 'base64url').toString('utf8')
+fs.mkdirSync(data, { recursive: true })
+const target = path.join(data, ${JSON.stringify(EXTERNAL_PROJECT_STORE_FILE)})
+const temporary = target + '.' + process.pid + '.' + Math.random().toString(16).slice(2) + '.tmp'
+fs.writeFileSync(temporary, text, { mode: 0o600 })
+fs.renameSync(temporary, target)
+`
+
 const WSL_VALIDATOR_CONFIGURE_SCRIPT = `
 set -eu
 home="$1"
@@ -341,6 +375,11 @@ export interface FirstMateRuntime {
   configureValidator(provider: AgentProvider, modelId?: string): Promise<FirstMateActionResult>
   continueValidation(taskId: string): Promise<FirstMateActionResult>
   recordLifecycle(taskId: string, record: FirstMateLifecycleRecord): Promise<void>
+  /** Registers one ADE checkout as a durable external project; never modifies that checkout. */
+  registerProject(selection: FirstMateProjectSelection): Promise<FirstMateProjectRegistration>
+  recordedProject(adeProjectId: string): Promise<FirstMateExternalProject | null>
+  authorizeProjectInitialization(adeProjectId: string): Promise<FirstMateProjectRegistration>
+  retireProject(adeProjectId: string): Promise<FirstMateActionResult>
   launch(provider?: AgentProvider, modelId?: string): FirstMateLaunch | null
 }
 
@@ -366,7 +405,79 @@ export interface FirstMateRuntimeOptions {
   claudeHome?: string
   resolveGit(): string | null
   clone?(git: string, repository: string, target: string): Promise<void>
+  /** Reads a selected checkout without changing it; defaults to Git's own read-only origin lookup. */
+  inspectCheckout?(windowsPath: string): Promise<FirstMateCheckoutFacts>
   wsl?: FirstMateWslOptions
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+/**
+ * Everything ADE learns about a selected project comes from reads: whether the directory is there and
+ * what Git already records as its origin. Nothing here writes to, refreshes, or resets the checkout.
+ */
+async function inspectWindowsCheckout(git: string | null, windowsPath: string): Promise<FirstMateCheckoutFacts> {
+  if (!existsSync(windowsPath)) return { exists: false }
+  if (!git) return { exists: true }
+  try {
+    const result = await execFileAsync(git, ['-C', windowsPath, 'remote', 'get-url', 'origin'], {
+      encoding: 'utf8',
+      timeout: 15_000,
+      windowsHide: true
+    })
+    const origin = String(result.stdout).trim()
+    return origin ? { exists: true, origin } : { exists: true }
+  } catch {
+    // A directory that is not a repository, or a repository with no origin remote, is a local-only project.
+    return { exists: true }
+  }
+}
+
+/**
+ * The external-project half of the runtime: identical for both hosts once the home is reachable, and
+ * reporting an unreachable home as a failed action rather than a thrown request.
+ */
+function createExternalProjectRuntime(
+  options: FirstMateRuntimeOptions,
+  home: FirstMateExternalProjectHome
+): Pick<FirstMateRuntime, 'registerProject' | 'recordedProject' | 'authorizeProjectInitialization' | 'retireProject'> {
+  const projects = createFirstMateExternalProjects({
+    home,
+    inspectCheckout: options.inspectCheckout
+      ?? ((windowsPath) => inspectWindowsCheckout(options.resolveGit(), windowsPath))
+  })
+  return {
+    async registerProject(selection: FirstMateProjectSelection): Promise<FirstMateProjectRegistration> {
+      try {
+        return await projects.register(selection)
+      } catch (error) {
+        return { ok: false, message: errorMessage(error) }
+      }
+    },
+    async recordedProject(adeProjectId: string): Promise<FirstMateExternalProject | null> {
+      try {
+        return await projects.recorded(adeProjectId)
+      } catch {
+        return null
+      }
+    },
+    async authorizeProjectInitialization(adeProjectId: string): Promise<FirstMateProjectRegistration> {
+      try {
+        return await projects.authorizeInitialization(adeProjectId)
+      } catch (error) {
+        return { ok: false, message: errorMessage(error) }
+      }
+    },
+    async retireProject(adeProjectId: string): Promise<FirstMateActionResult> {
+      try {
+        return await projects.retire(adeProjectId)
+      } catch (error) {
+        return { ok: false, message: errorMessage(error) }
+      }
+    }
+  }
 }
 
 function isDistro(path: string): boolean {
@@ -665,6 +776,34 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
     }
   }
 
+  const homePath = async (): Promise<string> => {
+    if (!readyPaths) await inspect()
+    if (!readyPaths) throw new Error('FirstMate is not ready.')
+    return readyPaths.homePath
+  }
+  const externalProjects = createExternalProjectRuntime(options, {
+    async read(): Promise<FirstMateExternalProjectFiles> {
+      const result = await run(
+        [
+          '--distribution', distribution,
+          '--exec', '/usr/bin/node', '-e', WSL_EXTERNAL_PROJECT_READ_SCRIPT, await homePath()
+        ],
+        15_000
+      )
+      return JSON.parse(result.stdout) as FirstMateExternalProjectFiles
+    },
+    async writeStore(text: string): Promise<void> {
+      await run(
+        [
+          '--distribution', distribution,
+          '--exec', '/usr/bin/node', '-e', WSL_EXTERNAL_PROJECT_WRITE_SCRIPT, await homePath(),
+          Buffer.from(text).toString('base64url')
+        ],
+        15_000
+      )
+    }
+  })
+
   const lifecycleFiles = async (): Promise<FirstMateLifecycleFiles> => {
     if (!readyPaths) await inspect()
     if (!readyPaths) return { tasks: [] }
@@ -681,6 +820,7 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
 
   return {
     status: inspect,
+    ...externalProjects,
     async install(): Promise<FirstMateInstallResult> {
       if (installing) return { ok: false, status: await inspect() }
       installing = true
@@ -918,6 +1058,27 @@ function createNativeFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMa
     )
   }
 
+  const dataPath = join(homePath, 'data')
+  const optionalFile = (path: string): string | undefined => {
+    try {
+      return readFileSync(path, 'utf8')
+    } catch {
+      return undefined
+    }
+  }
+  const externalProjects = createExternalProjectRuntime(options, {
+    async read(): Promise<FirstMateExternalProjectFiles> {
+      return {
+        store: optionalFile(join(dataPath, EXTERNAL_PROJECT_STORE_FILE)),
+        registry: optionalFile(join(dataPath, FLEET_REGISTRY_FILE))
+      }
+    },
+    async writeStore(text: string): Promise<void> {
+      mkdirSync(dataPath, { recursive: true })
+      atomicWrite(join(dataPath, EXTERNAL_PROJECT_STORE_FILE), text, 0o600)
+    }
+  })
+
   const configureTmuxEnvironment = async (provider: AgentProvider, model: string): Promise<void> => {
     const variables = [
       ['FM_HOME', homePath],
@@ -941,6 +1102,7 @@ function createNativeFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMa
 
   return {
     async status(): Promise<FirstMateRuntimeStatus> { return status() },
+    ...externalProjects,
     async install(): Promise<FirstMateInstallResult> {
       if (installing) return { ok: false, status: status() }
       if (isDistro(distroPath)) {

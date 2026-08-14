@@ -251,6 +251,8 @@ function Canvas(): JSX.Element {
   const removeProject = useCallback((projectId: string): void => {
     if (projects.length <= 1 || nodes.some((node) => node.data.projectId === projectId)) return
     const remaining = projects.filter((project) => project.id !== projectId)
+    // Retires only ADE's own FirstMate registration for this project; the checkout itself is untouched.
+    void window.firstMateApi.retireProject(projectId)
     setProjects(remaining)
     if (activeProjectId === projectId) setActiveProjectId(remaining[0].id)
     setMenu(null)

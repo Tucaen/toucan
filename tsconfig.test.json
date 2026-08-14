@@ -12,6 +12,8 @@
     "tests/**/*.test.ts",
     "src/main/agent-process.ts",
     "src/main/codex-model-cache.ts",
+    "src/main/firstmate-external-projects.ts",
+    "src/main/firstmate-project-origin.ts",
     "src/main/firstmate-runtime.ts",
     "src/main/terminal-events.ts",
     "src/main/session-providers.ts",

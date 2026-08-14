@@ -1836,6 +1836,19 @@ button {
   font-size: 11px;
 }
 
+.firstmate-project-posture {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border: 1px solid #2f3945;
+  border-radius: 999px;
+  background: #1b222b;
+  color: #8ea2b8;
+  font-size: 10px;
+  font-style: normal;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
 .firstmate-settings-bar {
   display: grid;
   grid-template-columns: minmax(0, 0.8fr) minmax(0, 1fr) minmax(0, 1.1fr);

@@ -6,8 +6,11 @@ import type {
 } from '../shared/agent'
 import type {
   FirstMateActionResult,
+  FirstMateExternalProject,
   FirstMateInstallResult,
   FirstMateLifecycleStatus,
+  FirstMateProjectRegistration,
+  FirstMateProjectSelection,
   FirstMateRuntimeStatus
 } from '../shared/firstmate'
 import type {
@@ -54,6 +57,10 @@ export interface FirstMateApi {
   authenticateGitHub(): Promise<FirstMateActionResult>
   trustCodexProject(): Promise<FirstMateActionResult>
   lifecycle(): Promise<FirstMateLifecycleStatus>
+  registerProject(selection: FirstMateProjectSelection): Promise<FirstMateProjectRegistration>
+  recordedProject(adeProjectId: string): Promise<FirstMateExternalProject | null>
+  authorizeProjectInitialization(adeProjectId: string): Promise<FirstMateProjectRegistration>
+  retireProject(adeProjectId: string): Promise<FirstMateActionResult>
 }
 
 declare global {

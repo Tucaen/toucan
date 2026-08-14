@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react'
 import type {
+  FirstMateExternalProject,
   FirstMateLifecycleStatus,
   FirstMateRuntimeStatus,
   FirstMateTaskStage,
@@ -7,7 +8,7 @@ import type {
 } from '../../shared/firstmate'
 import type { WorkspaceProject } from '../../shared/terminal'
 import { ChatView, SelectorPicker, type ChatViewProps } from './ChatNode'
-import { firstMateProjectTarget, firstMateRequest } from './firstmate-request-target'
+import { firstMateProjectSelection, firstMateProjectTarget, firstMateRequest } from './firstmate-request-target'
 import {
   clampFirstMatePanelWidth,
   firstMatePanelWidthBounds,
@@ -107,6 +108,9 @@ export default function FirstMatePanel({ project, state, onStateChange }: FirstM
   const [codexHookError, setCodexHookError] = useState<string>()
   const [enablingFleetAccess, setEnablingFleetAccess] = useState(false)
   const [fleetAccessError, setFleetAccessError] = useState<string>()
+  const [registration, setRegistration] = useState<FirstMateExternalProject | null>(null)
+  const [registrationError, setRegistrationError] = useState<string>()
+  const [authorizingInitialization, setAuthorizingInitialization] = useState(false)
   const [panelWidth, setPanelWidth] = useState(state.panelWidth)
   const [panelWidthBounds, setPanelWidthBounds] = useState<FirstMatePanelWidthBounds>(() => (
     firstMatePanelWidthBounds(window.innerWidth)
@@ -124,6 +128,17 @@ export default function FirstMatePanel({ project, state, onStateChange }: FirstM
     })
     return () => { active = false }
   }, [])
+
+  // Selecting a project only reads what ADE already recorded; registration happens on the request itself.
+  useEffect(() => {
+    if (runtime?.state !== 'ready') return
+    let active = true
+    setRegistrationError(undefined)
+    void window.firstMateApi.recordedProject(project.id).then((recorded) => {
+      if (active) setRegistration(recorded)
+    })
+    return () => { active = false }
+  }, [project.id, runtime?.state])
 
   useEffect(() => {
     if (runtime?.state !== 'ready') return
@@ -179,7 +194,12 @@ export default function FirstMatePanel({ project, state, onStateChange }: FirstM
     permissionMode: state.permissionMode,
     modelId: state.modelId,
     restartKey: sessionGeneration,
-    composePrompt: (text) => firstMateRequest(project, text),
+    composePrompt: async (text) => {
+      const result = await window.firstMateApi.registerProject(firstMateProjectSelection(project))
+      if (result.project) setRegistration(result.project)
+      setRegistrationError(result.ok ? undefined : result.message)
+      return firstMateRequest(project, text, result)
+    },
     enabled: runtime?.state === 'ready' && (provider !== 'codex' || runtime.codexProjectTrust === 'trusted'),
     onSessionId: (conversationId) => updateState({ conversationId }),
     onPermissionMode: (permissionMode) => updateState({ permissionMode }),
@@ -218,6 +238,16 @@ export default function FirstMatePanel({ project, state, onStateChange }: FirstM
         setRuntime(status)
         setEnablingCodexHooks(false)
       })
+    })
+  }
+
+  const authorizeInitialization = (): void => {
+    setAuthorizingInitialization(true)
+    setRegistrationError(undefined)
+    void window.firstMateApi.authorizeProjectInitialization(project.id).then((result) => {
+      if (result.project) setRegistration(result.project)
+      if (!result.ok) setRegistrationError(result.message ?? 'ADE could not record that authorization.')
+      setAuthorizingInitialization(false)
     })
   }
 
@@ -375,7 +405,28 @@ export default function FirstMatePanel({ project, state, onStateChange }: FirstM
             <span>Next request</span>
             <strong>{requestTarget.name}</strong>
             <small>{requestTarget.windowsPath}</small>
+            {registration && (
+              <em
+                className="firstmate-project-posture"
+                title={`Project name "${registration.registryName}"\n`
+                  + `${registration.origin ? `origin ${registration.origin}` : 'no remote'}\n`
+                  + `autonomy ${registration.autonomy ? 'on' : 'off'}`}
+              >{registration.mode}{registration.autonomy ? ' +yolo' : ''}</em>
+            )}
           </div>
+          {registrationError && <div className="firstmate-lifecycle-error">{registrationError}</div>}
+          {registration?.initialization === 'required' && (
+            <div className="firstmate-auth-warning">
+              <span>
+                This project ships through no-mistakes, whose one-time gate setup writes inside
+                {' '}{registration.windowsPath}. Selecting the project never changes it; ADE runs nothing
+                {' '}in your checkout until you authorize that setup.
+              </span>
+              <button type="button" onClick={authorizeInitialization} disabled={authorizingInitialization}>
+                {authorizingInitialization ? 'Authorizing...' : 'Authorize gate setup'}
+              </button>
+            </div>
+          )}
           <div className="firstmate-settings-bar">
             <label>
               <span>Provider</span>

@@ -7,8 +7,11 @@ import type {
 } from '../shared/agent'
 import type {
   FirstMateActionResult,
+  FirstMateExternalProject,
   FirstMateInstallResult,
   FirstMateLifecycleStatus,
+  FirstMateProjectRegistration,
+  FirstMateProjectSelection,
   FirstMateRuntimeStatus
 } from '../shared/firstmate'
 import type {
@@ -97,7 +100,19 @@ const firstMateApi = {
   install: (): Promise<FirstMateInstallResult> => ipcRenderer.invoke('firstmate:install'),
   authenticateGitHub: (): Promise<FirstMateActionResult> => ipcRenderer.invoke('firstmate:github-auth'),
   trustCodexProject: (): Promise<FirstMateActionResult> => ipcRenderer.invoke('firstmate:trust-codex'),
-  lifecycle: (): Promise<FirstMateLifecycleStatus> => ipcRenderer.invoke('firstmate:lifecycle')
+  lifecycle: (): Promise<FirstMateLifecycleStatus> => ipcRenderer.invoke('firstmate:lifecycle'),
+  registerProject: (selection: FirstMateProjectSelection): Promise<FirstMateProjectRegistration> => (
+    ipcRenderer.invoke('firstmate:register-project', selection)
+  ),
+  recordedProject: (adeProjectId: string): Promise<FirstMateExternalProject | null> => (
+    ipcRenderer.invoke('firstmate:recorded-project', adeProjectId)
+  ),
+  authorizeProjectInitialization: (adeProjectId: string): Promise<FirstMateProjectRegistration> => (
+    ipcRenderer.invoke('firstmate:authorize-project-init', adeProjectId)
+  ),
+  retireProject: (adeProjectId: string): Promise<FirstMateActionResult> => (
+    ipcRenderer.invoke('firstmate:retire-project', adeProjectId)
+  )
 }
 
 contextBridge.exposeInMainWorld('firstMateApi', firstMateApi)

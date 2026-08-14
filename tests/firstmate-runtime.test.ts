@@ -454,3 +454,105 @@ test('preserves an incomplete distro directory instead of overwriting it', async
   assert.match(result.status.message ?? '', /exists but is incomplete/)
   assert.equal(existsSync(join(distroPath, 'keep-me.txt')), true)
 })
+
+test('registers an ADE checkout as a durable external project inside the private home', async () => {
+  const rootPath = mkdtempSync(join(tmpdir(), 'ade-firstmate-external-'))
+  writeDistro(join(rootPath, 'distro'))
+  mkdirSync(join(rootPath, 'home', 'data'), { recursive: true })
+  writeFileSync(
+    join(rootPath, 'home', 'data', 'projects.md'),
+    '# Projects\n\n- firstmate [no-mistakes] - the managed distro (added 2026-01-01)\n',
+    'utf8'
+  )
+  const options = {
+    rootPath,
+    platform: 'linux' as const,
+    resolveGit: (): string => '/usr/bin/git',
+    inspectCheckout: async (): Promise<{ exists: boolean; origin?: string }> => ({
+      exists: true,
+      origin: 'git@github.com:acme/alpha-api.git'
+    })
+  }
+  const runtime = createFirstMateRuntime(options)
+
+  const registered = await runtime.registerProject({
+    projectId: 'alpha',
+    name: 'Api',
+    path: 'D:\\Development\\alpha\\api'
+  })
+  const afterRestart = await createFirstMateRuntime(options).recordedProject('alpha')
+
+  assert.equal(registered.ok, true)
+  assert.equal(registered.project?.registryName, 'api')
+  assert.equal(registered.project?.wslPath, '/mnt/d/Development/alpha/api')
+  assert.equal(registered.project?.mode, 'no-mistakes-prod-only')
+  assert.equal(registered.project?.initialization, 'required')
+  assert.deepEqual(afterRestart, registered.project)
+
+  const store = JSON.parse(readFileSync(join(rootPath, 'home', 'data', 'ade-external-projects.json'), 'utf8'))
+  assert.equal(store.version, 1)
+  assert.equal(store.projects.alpha.windowsPath, 'D:\\Development\\alpha\\api')
+  assert.equal(
+    readFileSync(join(rootPath, 'home', 'data', 'projects.md'), 'utf8'),
+    '# Projects\n\n- firstmate [no-mistakes] - the managed distro (added 2026-01-01)\n',
+    'the firstmate-private fleet registry belongs to the captain and is only read'
+  )
+  assert.equal(
+    existsSync(join(rootPath, 'home', 'projects', 'api')),
+    false,
+    'an external project must never be cloned or linked into the managed projects directory'
+  )
+})
+
+test('keeps the external-project mapping inside the WSL FirstMate home', async () => {
+  const rootPath = mkdtempSync(join(tmpdir(), 'ade-firstmate-external-wsl-'))
+  const files: { store?: string; registry?: string } = {}
+  const calls: string[][] = []
+  const runtime = createFirstMateRuntime({
+    rootPath,
+    platform: 'win32',
+    resolveGit: () => 'git.exe',
+    inspectCheckout: async () => ({ exists: true }),
+    wsl: {
+      run: async (args) => {
+        calls.push(args)
+        if (args[3] === '/bin/sh') return { stdout: readyWslInspection(), stderr: '' }
+        const script = args[5] ?? ''
+        if (script.includes('renameSync')) {
+          files.store = Buffer.from(args.at(-1) ?? '', 'base64url').toString('utf8')
+          return { stdout: '', stderr: '' }
+        }
+        return { stdout: JSON.stringify(files), stderr: '' }
+      }
+    }
+  })
+
+  const registered = await runtime.registerProject({
+    projectId: 'alpha',
+    name: 'Api',
+    path: 'D:\\Development\\alpha\\api'
+  })
+
+  assert.equal(registered.ok, true)
+  assert.equal(registered.project?.mode, 'local-only', 'a checkout with no origin stays local-only')
+  assert.equal(registered.project?.initialization, 'not-required')
+  assert.equal(
+    JSON.parse(files.store ?? '{}').projects.alpha.wslPath,
+    '/mnt/d/Development/alpha/api'
+  )
+  assert.equal(files.registry, undefined, 'the firstmate-private fleet registry is only ever read')
+
+  const homeCalls = calls.filter((args) => args[3] === '/usr/bin/node')
+  assert.ok(homeCalls.length >= 2, 'the mapping is read and written through the private WSL home')
+  for (const args of homeCalls) {
+    assert.ok(
+      args.includes('/home/tucaen/.local/share/ade/firstmate/home'),
+      'every mapping call targets ADE\'s private FirstMate home'
+    )
+  }
+  assert.equal(
+    calls.some((args) => args.some((argument) => /\bgit clone\b|ln -s|\/home\/projects\//.test(argument))),
+    false,
+    'registration must never clone or link the checkout into the managed projects directory'
+  )
+})

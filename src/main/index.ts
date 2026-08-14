@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs'
 import { basename, extname, join, normalize } from 'node:path'
 import { spawn } from 'node-pty'
 import type { AgentCreateRequest } from '../shared/agent'
+import type { FirstMateActionResult, FirstMateProjectSelection } from '../shared/firstmate'
 import type { TerminalCreateRequest } from '../shared/terminal'
 import { createAcpSessionManager, type AcpSessionManager } from './acp-session-manager'
 import { createFirstMateLifecycleCoordinator } from './firstmate-lifecycle-coordinator'
@@ -67,12 +68,45 @@ function registerAgentIpc(manager: AcpSessionManager): void {
   ipcMain.on('agent:kill', (_event, id: string) => manager.kill(id))
 }
 
+const UNREADABLE_PROJECT: FirstMateActionResult = {
+  ok: false,
+  message: 'ADE could not read the selected project.'
+}
+
+function isProjectSelection(value: unknown): value is FirstMateProjectSelection {
+  const selection = value as Partial<FirstMateProjectSelection> | null
+  return Boolean(selection)
+    && typeof selection?.projectId === 'string'
+    && typeof selection.name === 'string'
+    && typeof selection.path === 'string'
+}
+
 function registerFirstMateIpc(runtime: FirstMateRuntime): void {
   ipcMain.handle('firstmate:status', () => runtime.status())
   ipcMain.handle('firstmate:install', () => runtime.install())
   ipcMain.handle('firstmate:github-auth', () => runtime.authenticateGitHub())
   ipcMain.handle('firstmate:trust-codex', () => runtime.trustCodexProject())
   ipcMain.handle('firstmate:lifecycle', () => runtime.lifecycle())
+  const byProjectId = <T>(
+    channel: string,
+    action: (adeProjectId: string) => Promise<T>,
+    unreadable: () => T
+  ): void => {
+    ipcMain.handle(channel, (_event, adeProjectId: unknown) => (
+      typeof adeProjectId === 'string' && adeProjectId ? action(adeProjectId) : unreadable()
+    ))
+  }
+
+  ipcMain.handle('firstmate:register-project', (_event, selection: unknown) => (
+    isProjectSelection(selection) ? runtime.registerProject(selection) : UNREADABLE_PROJECT
+  ))
+  byProjectId('firstmate:recorded-project', (id) => runtime.recordedProject(id), () => null)
+  byProjectId(
+    'firstmate:authorize-project-init',
+    (id) => runtime.authorizeProjectInitialization(id),
+    () => UNREADABLE_PROJECT
+  )
+  byProjectId('firstmate:retire-project', (id) => runtime.retireProject(id), () => UNREADABLE_PROJECT)
 }
 
 function registerProjectIpc(): void {

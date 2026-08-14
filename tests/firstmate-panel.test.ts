@@ -151,12 +151,12 @@ test('assigns every FirstMate request to the project selected in the sidebar', (
   )
   assert.match(
     panel,
-    /composePrompt:\s*\(text\) => firstMateRequest\(project, text\)/,
+    /composePrompt:\s*async \(text\) => \{[\s\S]*?registerProject\(firstMateProjectSelection\(project\)\)[\s\S]*?return firstMateRequest\(project, text, result\)/,
     'FirstMate should identify the selected project on every request without changing its distro cwd'
   )
   assert.match(
     conversation,
-    /composePrompt\(text\)[\s\S]*?window\.agentApi\.prompt\(options\.id, prompt\)/,
+    /const prompt = compose \? await compose\(text\) : text[\s\S]*?window\.agentApi\.prompt\(options\.id, prompt\)/,
     'the project assignment should be sent to the agent while the visible chat keeps the captain\'s original text'
   )
 
@@ -179,4 +179,45 @@ test('shows the project the next FirstMate request will target', () => {
   assert.match(target, /requestTarget\.windowsPath/, 'the target row should distinguish similarly named projects by path')
   assert.match(target, /title=\{`\$\{requestTarget\.windowsPath\}[\s\S]*?requestTarget\.wslPath\}`\}/)
   assert.match(styles, /\.firstmate-request-target\s*\{/, 'the target row needs its own style')
+})
+
+test('registers the selected project on the request and keeps mere selection read-only', () => {
+  const panel = readFileSync(join(process.cwd(), 'src/renderer/src/FirstMatePanel.tsx'), 'utf8')
+  const app = readFileSync(join(process.cwd(), 'src/renderer/src/App.tsx'), 'utf8')
+  const preload = readFileSync(join(process.cwd(), 'src/preload/index.ts'), 'utf8')
+
+  const selectionEffect = panel.match(/\/\/ Selecting a project only reads[\s\S]*?\}, \[project\.id, runtime\?\.state\]\)/)?.[0]
+  assert.ok(selectionEffect, 'switching projects should read the recorded registration')
+  assert.match(selectionEffect, /recordedProject\(project\.id\)/)
+  assert.doesNotMatch(selectionEffect, /registerProject/, 'selecting a project must not register or mutate it')
+  assert.match(preload, /registerProject:[\s\S]*?firstmate:register-project/)
+  assert.match(preload, /recordedProject:[\s\S]*?firstmate:recorded-project/)
+  assert.match(
+    app,
+    /retireProject\(projectId\)/,
+    'removing a project from the sidebar should retire its registration'
+  )
+})
+
+test('holds no-mistakes gate setup behind an explicit authorization in the dock', () => {
+  const panel = readFileSync(join(process.cwd(), 'src/renderer/src/FirstMatePanel.tsx'), 'utf8')
+  const preload = readFileSync(join(process.cwd(), 'src/preload/index.ts'), 'utf8')
+
+  assert.match(panel, /registration\?\.initialization === ['"]required['"]/)
+  assert.match(panel, /Authorize gate setup/)
+  assert.match(panel, /authorizeProjectInitialization\(project\.id\)/)
+  assert.match(panel, /registration\.windowsPath/, 'the authorization must name the checkout it would write to')
+  assert.match(preload, /authorizeProjectInitialization:[\s\S]*?firstmate:authorize-project-init/)
+})
+
+test('shows the registered delivery posture of the project the next request targets', () => {
+  const panel = readFileSync(join(process.cwd(), 'src/renderer/src/FirstMatePanel.tsx'), 'utf8')
+  const styles = readFileSync(join(process.cwd(), 'src/renderer/src/styles.css'), 'utf8')
+
+  const target = panel.match(/className="firstmate-request-target"[\s\S]*?\n          <\/div>/)?.[0]
+  assert.ok(target, 'the dock should still name its request target')
+  assert.match(target, /registration\.mode/)
+  assert.match(target, /registration\.autonomy \? ' \+yolo' : ''/)
+  assert.match(target, /registration\.registryName/)
+  assert.match(styles, /\.firstmate-project-posture\s*\{/)
 })

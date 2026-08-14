@@ -33,8 +33,11 @@ export interface AgentConversationOptions {
   permissionMode?: string
   modelId?: string
   restartKey?: number
-  /** Builds what the agent receives from the captain's text. Called at submission, never earlier. */
-  composePrompt?(text: string): string
+  /**
+   * Builds what the agent receives from the captain's text. Called at submission, never earlier, so it
+   * may resolve request-time facts such as the selected project's durable FirstMate registration.
+   */
+  composePrompt?(text: string): string | Promise<string>
   enabled: boolean
   onSessionId(sessionId: string): void
   onPermissionMode(modeId: string): void
@@ -167,14 +170,16 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     event.preventDefault()
     const text = draft.trim()
     if (!text || status !== 'ready') return
-    const prompt = options.composePrompt ? options.composePrompt(text) : text
-    sentTextRef.current = prompt
+    const compose = options.composePrompt
     setMessages((current) => [...current, { id: crypto.randomUUID(), role: 'user', text }])
     setDraft('')
     setStatus('working')
-    void window.agentApi.prompt(options.id, prompt).then((result) => {
+    void (async () => {
+      const prompt = compose ? await compose(text) : text
+      sentTextRef.current = prompt
+      const result = await window.agentApi.prompt(options.id, prompt)
       if (!result.ok) setDetail(result.message)
-    })
+    })()
   }
 
   const authenticate = (methodId: string): void => {

@@ -1,5 +1,6 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
+import type { FirstMateProjectRegistration } from '../src/shared/firstmate'
 import type { WorkspaceProject } from '../src/shared/terminal'
 import { firstMateProjectTarget, firstMateRequest } from '../src/renderer/src/firstmate-request-target'
 
@@ -97,4 +98,63 @@ test('snapshots the selected project as an immutable target', () => {
     wslPath: '/mnt/d/Development/alpha/api'
   })
   assert.ok(Object.isFrozen(target), 'a submitted request must not be retargeted through its snapshot')
+})
+
+const registered: FirstMateProjectRegistration = {
+  ok: true,
+  project: {
+    adeProjectId: 'alpha',
+    registryName: 'api-alpha',
+    displayName: 'Api',
+    windowsPath: 'D:\\Development\\alpha\\api',
+    wslPath: '/mnt/d/Development/alpha/api',
+    origin: 'git@github.com:acme/alpha-api.git',
+    mode: 'no-mistakes-prod-only',
+    autonomy: false,
+    initialization: 'required',
+    registeredAt: '2026-08-14'
+  }
+}
+
+test('delivers the durable registration facts with the request', () => {
+  const prompt = firstMateRequest(alpha, 'Ship the release', registered)
+
+  assert.match(prompt, /- project name: "api-alpha"/)
+  assert.match(prompt, /- registered delivery posture: "no-mistakes-prod-only"/)
+  assert.match(prompt, /- autonomy \(\+yolo\): off/)
+  assert.match(prompt, /- origin: "git@github.com:acme\/alpha-api.git"/)
+  assert.match(prompt, /no-mistakes initialization: not run;[\s\S]*?authorizes it in ADE/)
+  assert.match(prompt, /must never be cloned, copied, or symlinked there/)
+  assert.match(
+    prompt,
+    /ADE does not write your firstmate-private fleet registry[\s\S]*?outranks it from then on/,
+    'the captain keeps ownership of add intake and of the registered posture'
+  )
+  assert.ok(prompt.endsWith('\n\nShip the release'))
+})
+
+test('states that a project has no remote and needs no initialization', () => {
+  const prompt = firstMateRequest(alpha, 'Ship the release', {
+    ok: true,
+    project: {
+      ...registered.project!,
+      mode: 'local-only',
+      origin: undefined,
+      initialization: 'not-required'
+    }
+  })
+
+  assert.match(prompt, /- registered delivery posture: "local-only"/)
+  assert.match(prompt, /- origin: none; this checkout has no remote/)
+  assert.match(prompt, /- no-mistakes initialization: not required for this posture/)
+})
+
+test('says plainly when a request could not be registered', () => {
+  const prompt = firstMateRequest(alpha, 'Ship the release', {
+    ok: false,
+    message: 'ADE could not find the project checkout at D:\\Development\\alpha\\api.'
+  })
+
+  assert.match(prompt, /- FirstMate registration: unavailable \(ADE could not find the project checkout/)
+  assert.match(prompt, /Confirm this project's path and delivery posture with the captain/)
 })
