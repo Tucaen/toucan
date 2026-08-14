@@ -101,6 +101,9 @@ const firstMateApi = {
   authenticateGitHub: (): Promise<FirstMateActionResult> => ipcRenderer.invoke('firstmate:github-auth'),
   trustCodexProject: (): Promise<FirstMateActionResult> => ipcRenderer.invoke('firstmate:trust-codex'),
   lifecycle: (): Promise<FirstMateLifecycleStatus> => ipcRenderer.invoke('firstmate:lifecycle'),
+  releaseDispatch: (taskId: string): Promise<FirstMateActionResult> => (
+    ipcRenderer.invoke('firstmate:release-dispatch', taskId)
+  ),
   registerProject: (selection: FirstMateProjectSelection): Promise<FirstMateProjectRegistration> => (
     ipcRenderer.invoke('firstmate:register-project', selection)
   ),

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, ty
 import type {
   FirstMateExternalProject,
   FirstMateLifecycleStatus,
+  FirstMateLifecycleTask,
   FirstMateRuntimeStatus,
   FirstMateTaskStage,
   FirstMateWorkspaceState
@@ -89,10 +90,23 @@ function statusLabel(status: ReturnType<typeof useAgentConversation>['status']):
 
 const lifecycleLabels: Record<FirstMateTaskStage, string> = {
   implemented: 'Implemented',
+  dispatching: 'Dispatching',
   validating: 'Validating',
   decision: 'Decision',
   blocked: 'Blocked',
   'pr-ready': 'PR ready'
+}
+
+/**
+ * The lifecycle row must say when a validation dispatch is merely claimed or unrecoverable by
+ * ADE alone, so a stalled task is never mistaken for one that is quietly making progress.
+ */
+function lifecycleTaskLabel(task: FirstMateLifecycleTask): string {
+  const stage = lifecycleLabels[task.stage]
+  if (task.dispatch?.status === 'unresolved') return `${stage} · dispatch unresolved`
+  if (task.dispatch?.status === 'released') return `${stage} · dispatch released`
+  if (task.dispatch?.status === 'retryable' && task.stage === 'implemented') return `${stage} · dispatch retry`
+  return stage
 }
 
 export default function FirstMatePanel({ project, state, onStateChange }: FirstMatePanelProps): JSX.Element {
@@ -104,6 +118,7 @@ export default function FirstMatePanel({ project, state, onStateChange }: FirstM
   })
   const [installing, setInstalling] = useState(false)
   const [waitingForGitHub, setWaitingForGitHub] = useState(false)
+  const [releasingDispatch, setReleasingDispatch] = useState<string>()
   const [enablingCodexHooks, setEnablingCodexHooks] = useState(false)
   const [codexHookError, setCodexHookError] = useState<string>()
   const [enablingFleetAccess, setEnablingFleetAccess] = useState(false)
@@ -221,6 +236,18 @@ export default function FirstMatePanel({ project, state, onStateChange }: FirstM
         setWaitingForGitHub(false)
         setRuntime((current) => current ? { ...current, message: result.message } : current)
       }
+    })
+  }
+
+  const releaseDispatch = (taskId: string): void => {
+    setReleasingDispatch(taskId)
+    void window.firstMateApi.releaseDispatch(taskId).then((result) => {
+      setReleasingDispatch(undefined)
+      if (result.ok) return
+      setLifecycle((current) => ({
+        ...current,
+        message: result.message ?? `ADE could not release the validation dispatch for ${taskId}.`
+      }))
     })
   }
 
@@ -483,9 +510,28 @@ export default function FirstMatePanel({ project, state, onStateChange }: FirstM
               </header>
               {lifecycle.message && <div className="firstmate-lifecycle-error">{lifecycle.message}</div>}
               {lifecycle.tasks.map((task) => (
-                <div className="firstmate-lifecycle-task" data-stage={task.stage} key={task.id} title={task.detail}>
+                <div
+                  className="firstmate-lifecycle-task"
+                  data-stage={task.stage}
+                  data-dispatch={task.dispatch?.status}
+                  key={task.id}
+                  title={task.detail}
+                >
                   <span>{task.id}</span>
-                  <strong>{lifecycleLabels[task.stage]}</strong>
+                  <strong>{lifecycleTaskLabel(task)}</strong>
+                  {task.dispatch?.status === 'unresolved' && (
+                    <button
+                      type="button"
+                      onClick={() => releaseDispatch(task.id)}
+                      disabled={releasingDispatch === task.id}
+                      title={
+                        'ADE cannot tell whether this continuation reached FirstMate. Releasing it resends '
+                        + 'the same dispatch identity, so a worker that already received it can ignore the repeat.'
+                      }
+                    >
+                      {releasingDispatch === task.id ? 'Releasing…' : 'Release'}
+                    </button>
+                  )}
                 </div>
               ))}
             </section>

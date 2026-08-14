@@ -139,6 +139,56 @@ test('requires explicit unrestricted fleet access before restarting an operation
   assert.match(conversation, /if \(result\.ok\)[\s\S]*?return true[\s\S]*?return false/)
 })
 
+test('reports a recoverable validation dispatch state in the delivery lifecycle', () => {
+  const panel = readFileSync(join(process.cwd(), 'src/renderer/src/FirstMatePanel.tsx'), 'utf8')
+  const styles = readFileSync(join(process.cwd(), 'src/renderer/src/styles.css'), 'utf8')
+
+  assert.match(panel, /dispatching: 'Dispatching'/, 'a claimed dispatch needs its own visible stage')
+  assert.match(
+    panel,
+    /task\.dispatch\?\.status === 'unresolved'\) return `\$\{stage\} . dispatch unresolved`/,
+    'an unresolved dispatch must read as unsettled rather than as progress'
+  )
+  assert.match(
+    panel,
+    /task\.dispatch\?\.status === 'retryable'[\s\S]*?dispatch retry/,
+    'a rejected dispatch waiting on a retry must be distinguishable from a plain implementation'
+  )
+  assert.match(
+    panel,
+    /data-dispatch=\{task\.dispatch\?\.status\}/,
+    'the dispatch outcome should be addressable for styling'
+  )
+  assert.match(
+    styles,
+    /\.firstmate-lifecycle-task\[data-dispatch="unresolved"\] > strong/,
+    'a dispatch ADE cannot resolve should not look like a healthy stage'
+  )
+})
+
+test('offers an explicit way out of a validation dispatch ADE cannot resolve', () => {
+  const panel = readFileSync(join(process.cwd(), 'src/renderer/src/FirstMatePanel.tsx'), 'utf8')
+  const preload = readFileSync(join(process.cwd(), 'src/preload/index.ts'), 'utf8')
+  const main = readFileSync(join(process.cwd(), 'src/main/index.ts'), 'utf8')
+
+  assert.match(
+    panel,
+    /task\.dispatch\?\.status === 'unresolved' && \([\s\S]*?onClick=\{\(\) => releaseDispatch\(task\.id\)\}/,
+    'an unresolved dispatch must be releasable from the row that reports it'
+  )
+  assert.match(
+    panel,
+    /window\.firstMateApi\.releaseDispatch\(taskId\)/,
+    'the release should go through the FirstMate bridge rather than a local state change'
+  )
+  assert.match(preload, /releaseDispatch: \(taskId: string\)[\s\S]*?'firstmate:release-dispatch'/)
+  assert.match(
+    main,
+    /'firstmate:release-dispatch'[\s\S]*?typeof taskId === 'string' && taskId \? lifecycle\.releaseDispatch\(taskId\)/,
+    'releasing a dispatch is reconciliation work, so it belongs to the lifecycle coordinator'
+  )
+})
+
 test('assigns every FirstMate request to the project selected in the sidebar', () => {
   const app = readFileSync(join(process.cwd(), 'src/renderer/src/App.tsx'), 'utf8')
   const panel = readFileSync(join(process.cwd(), 'src/renderer/src/FirstMatePanel.tsx'), 'utf8')
