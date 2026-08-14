@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import type { FirstMateRuntimeStatus, FirstMateWorkspaceState } from '../../shared/firstmate'
+import type { WorkspaceProject } from '../../shared/terminal'
 import { ChatView, SelectorPicker, type ChatViewProps } from './ChatNode'
+import { firstMateProjectContext } from './firstmate-project-context'
 import { useAgentConversation } from './use-agent-conversation'
 
 const FIRSTMATE_AGENT_ID = 'ade-firstmate'
@@ -10,6 +12,7 @@ const FIRSTMATE_PROVIDERS = [
 ]
 
 interface FirstMatePanelProps {
+  project: WorkspaceProject
   state: FirstMateWorkspaceState
   onStateChange(state: FirstMateWorkspaceState): void
 }
@@ -63,7 +66,7 @@ function statusLabel(status: ReturnType<typeof useAgentConversation>['status']):
   return 'Ready'
 }
 
-export default function FirstMatePanel({ state, onStateChange }: FirstMatePanelProps): JSX.Element {
+export default function FirstMatePanel({ project, state, onStateChange }: FirstMatePanelProps): JSX.Element {
   const [sessionGeneration, setSessionGeneration] = useState(0)
   const [runtime, setRuntime] = useState<FirstMateRuntimeStatus | null>(null)
   const [installing, setInstalling] = useState(false)
@@ -108,6 +111,7 @@ export default function FirstMatePanel({ state, onStateChange }: FirstMatePanelP
     permissionMode: state.permissionMode,
     modelId: state.modelId,
     restartKey: sessionGeneration,
+    promptContext: firstMateProjectContext(project),
     enabled: runtime?.state === 'ready' && (provider !== 'codex' || runtime.codexProjectTrust === 'trusted'),
     onSessionId: (conversationId) => updateState({ conversationId }),
     onPermissionMode: (permissionMode) => updateState({ permissionMode }),

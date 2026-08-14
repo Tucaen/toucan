@@ -33,6 +33,7 @@ export interface AgentConversationOptions {
   permissionMode?: string
   modelId?: string
   restartKey?: number
+  promptContext?: string
   enabled: boolean
   onSessionId(sessionId: string): void
   onPermissionMode(modeId: string): void
@@ -165,11 +166,12 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     event.preventDefault()
     const text = draft.trim()
     if (!text || status !== 'ready') return
-    sentTextRef.current = text
+    const prompt = options.promptContext ? `${options.promptContext}\n\n${text}` : text
+    sentTextRef.current = prompt
     setMessages((current) => [...current, { id: crypto.randomUUID(), role: 'user', text }])
     setDraft('')
     setStatus('working')
-    void window.agentApi.prompt(options.id, text).then((result) => {
+    void window.agentApi.prompt(options.id, prompt).then((result) => {
       if (!result.ok) setDetail(result.message)
     })
   }

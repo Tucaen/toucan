@@ -519,8 +519,9 @@ function Canvas(): JSX.Element {
           </ReactFlow>
         </section>
 
-        {workspaceReady && (
+        {workspaceReady && activeProject && (
           <FirstMatePanel
+            project={activeProject}
             state={firstMate}
             onStateChange={setFirstMate}
           />

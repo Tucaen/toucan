@@ -138,3 +138,25 @@ test('requires explicit unrestricted fleet access before restarting an operation
   assert.match(conversation, /if \(modeId === modes\?\.currentModeId\) return true/)
   assert.match(conversation, /if \(result\.ok\)[\s\S]*?return true[\s\S]*?return false/)
 })
+
+test('assigns every FirstMate request to the project selected in the sidebar', () => {
+  const app = readFileSync(join(process.cwd(), 'src/renderer/src/App.tsx'), 'utf8')
+  const panel = readFileSync(join(process.cwd(), 'src/renderer/src/FirstMatePanel.tsx'), 'utf8')
+  const conversation = readFileSync(join(process.cwd(), 'src/renderer/src/use-agent-conversation.ts'), 'utf8')
+
+  assert.match(
+    app,
+    /<FirstMatePanel[\s\S]*?project=\{activeProject\}/,
+    'the FirstMate dock should receive the current sidebar selection'
+  )
+  assert.match(
+    panel,
+    /promptContext:\s*firstMateProjectContext\(project\)/,
+    'FirstMate should identify the selected project on every request without changing its distro cwd'
+  )
+  assert.match(
+    conversation,
+    /const prompt = options\.promptContext[\s\S]*?window\.agentApi\.prompt\(options\.id, prompt\)/,
+    'the project context should be sent to the agent while the visible chat keeps the captain\'s original text'
+  )
+})
