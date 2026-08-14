@@ -107,3 +107,20 @@ test('requires explicit approval for FirstMate Codex hooks without blocking Clau
   )
   assert.match(preload, /trustCodexProject:\s*\(\).*firstmate:trust-codex/)
 })
+
+test('lets the user replace a read-only captain with a genuinely fresh FirstMate session', () => {
+  const panel = readFileSync(join(process.cwd(), 'src/renderer/src/FirstMatePanel.tsx'), 'utf8')
+  const conversation = readFileSync(join(process.cwd(), 'src/renderer/src/use-agent-conversation.ts'), 'utf8')
+
+  assert.match(panel, />New session</)
+  assert.match(panel, /updateState\(\{ conversationId: undefined \}\)/)
+  assert.match(panel, /setSessionGeneration\(\(current\) => current \+ 1\)/)
+  assert.match(panel, /sessionId:\s*sessionGeneration === 0 \? state\.conversationId : undefined/)
+  assert.match(panel, /restartKey:\s*sessionGeneration/)
+  assert.match(conversation, /restartKey\?:\s*number/)
+  assert.match(
+    conversation,
+    /\[options\.cwd, options\.enabled, options\.id, options\.provider, options\.restartKey, options\.scope\]/,
+    'changing the restart key must tear down the old ACP process and create a new session'
+  )
+})

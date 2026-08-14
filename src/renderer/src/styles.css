@@ -1665,6 +1665,28 @@ button {
   box-shadow: 0 0 7px rgba(241, 199, 91, 0.45);
 }
 
+.firstmate-new-session {
+  flex: 0 0 auto;
+  padding: 5px 7px;
+  border: 1px solid #34404d;
+  border-radius: 5px;
+  color: #aeb9c6;
+  background: #11161c;
+  font-size: 8px;
+  font-weight: 700;
+}
+
+.firstmate-new-session:hover:not(:disabled),
+.firstmate-new-session:focus-visible {
+  border-color: #5b7897;
+  color: #dce8f5;
+}
+
+.firstmate-new-session:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
 .firstmate-settings-bar {
   display: grid;
   grid-template-columns: minmax(0, 0.8fr) minmax(0, 1fr) minmax(0, 1.1fr);

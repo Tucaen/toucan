@@ -64,6 +64,7 @@ function statusLabel(status: ReturnType<typeof useAgentConversation>['status']):
 }
 
 export default function FirstMatePanel({ state, onStateChange }: FirstMatePanelProps): JSX.Element {
+  const [sessionGeneration, setSessionGeneration] = useState(0)
   const [runtime, setRuntime] = useState<FirstMateRuntimeStatus | null>(null)
   const [installing, setInstalling] = useState(false)
   const [waitingForGitHub, setWaitingForGitHub] = useState(false)
@@ -100,9 +101,10 @@ export default function FirstMatePanel({ state, onStateChange }: FirstMatePanelP
     provider,
     cwd: runtime?.distroPath ?? '',
     scope: 'firstmate',
-    sessionId: state.conversationId,
+    sessionId: sessionGeneration === 0 ? state.conversationId : undefined,
     permissionMode: state.permissionMode,
     modelId: state.modelId,
+    restartKey: sessionGeneration,
     enabled: runtime?.state === 'ready' && (provider !== 'codex' || runtime.codexProjectTrust === 'trusted'),
     onSessionId: (conversationId) => updateState({ conversationId }),
     onPermissionMode: (permissionMode) => updateState({ permissionMode }),
@@ -144,6 +146,11 @@ export default function FirstMatePanel({ state, onStateChange }: FirstMatePanelP
     })
   }
 
+  const startNewSession = (): void => {
+    updateState({ conversationId: undefined })
+    setSessionGeneration((current) => current + 1)
+  }
+
   const props: ChatViewProps = {
     provider,
     ...conversation
@@ -159,6 +166,15 @@ export default function FirstMatePanel({ state, onStateChange }: FirstMatePanelP
           <strong>FirstMate</strong>
           <small><i data-status={conversation.status} />{ready ? displayStatus : 'ADE home'}</small>
         </div>
+        {ready && (
+          <button
+            type="button"
+            className="firstmate-new-session"
+            onClick={startNewSession}
+            disabled={conversation.status === 'starting'}
+            title="Discard this captain conversation and run FirstMate startup again"
+          >New session</button>
+        )}
         <span className="chat-provider-badge">ACP</span>
       </header>
       {ready ? (

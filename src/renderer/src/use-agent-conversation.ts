@@ -32,6 +32,7 @@ export interface AgentConversationOptions {
   sessionId?: string
   permissionMode?: string
   modelId?: string
+  restartKey?: number
   enabled: boolean
   onSessionId(sessionId: string): void
   onPermissionMode(modeId: string): void
@@ -158,7 +159,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
       removeListener()
       window.agentApi.kill(options.id)
     }
-  }, [options.cwd, options.enabled, options.id, options.provider, options.scope])
+  }, [options.cwd, options.enabled, options.id, options.provider, options.restartKey, options.scope])
 
   const submit = (event: FormEvent): void => {
     event.preventDefault()
