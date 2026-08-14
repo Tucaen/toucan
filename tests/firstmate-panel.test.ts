@@ -184,7 +184,7 @@ test('offers an explicit way out of a validation dispatch ADE cannot resolve', (
   assert.match(preload, /releaseDispatch: \(taskId: string\)[\s\S]*?'firstmate:release-dispatch'/)
   assert.match(
     main,
-    /ipcMain\.handle\(\s*'firstmate:release-dispatch',\s*\(_event, taskId: string\) => lifecycle\.releaseDispatch\(taskId\)/,
+    /'firstmate:release-dispatch'[\s\S]*?typeof taskId === 'string' && taskId \? lifecycle\.releaseDispatch\(taskId\)/,
     'releasing a dispatch is reconciliation work, so it belongs to the lifecycle coordinator'
   )
 })

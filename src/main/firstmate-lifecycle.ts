@@ -228,12 +228,14 @@ const UNFINISHED_STAGES: Record<
   released: { stage: 'implemented', nextAction: 'start-validation' }
 }
 
-function unfinishedDispatch(
-  durable?: FirstMateLifecycleRecord
-): (FirstMateTaskDispatch & { status: UnfinishedDispatchStatus }) | undefined {
+function unfinishedDispatch(durable?: FirstMateLifecycleRecord): {
+  dispatch: FirstMateTaskDispatch
+  stage: FirstMateTaskStage
+  nextAction: FirstMateLifecycleTask['nextAction']
+} | undefined {
   const dispatch = recordedDispatch(durable?.dispatch)
-  if (!dispatch || !(dispatch.status in UNFINISHED_STAGES)) return undefined
-  return dispatch as FirstMateTaskDispatch & { status: UnfinishedDispatchStatus }
+  const presentation = dispatch && UNFINISHED_STAGES[dispatch.status as UnfinishedDispatchStatus]
+  return dispatch && presentation ? { dispatch, ...presentation } : undefined
 }
 
 function prFromDone(verb: string, detail: string): string | undefined {
@@ -300,11 +302,11 @@ function recordedTask(
     return {
       id: raw.id,
       mode,
-      stage: UNFINISHED_STAGES[unfinished.status].stage,
+      stage: unfinished.stage,
       detail: durable?.detail ?? detail,
       statusHash: hash,
-      nextAction: UNFINISHED_STAGES[unfinished.status].nextAction,
-      dispatch: unfinished
+      nextAction: unfinished.nextAction,
+      dispatch: unfinished.dispatch
     }
   }
   if (verb === 'done') {
