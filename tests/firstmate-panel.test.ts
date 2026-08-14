@@ -87,7 +87,7 @@ test('lets the user switch FirstMate between Codex and Claude even when one prov
   assert.match(panel, /kind="provider"[\s\S]*?disabled=\{false\}/)
   assert.match(panel, /\{ id: ['"]codex['"], name: ['"]Codex['"] \}/)
   assert.match(panel, /\{ id: ['"]claude['"], name: ['"]Claude['"] \}/)
-  assert.match(manager, /resolveFirstMateLaunch\?\.\(request\.provider\)/)
+  assert.match(manager, /resolveFirstMateLaunch\?\.\(request\.provider, request\.modelId\)/)
 })
 
 test('requires explicit approval for FirstMate Codex hooks without blocking Claude', () => {

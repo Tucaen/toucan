@@ -4,7 +4,12 @@ import type {
   AgentEvent,
   AgentPromptResult
 } from '../shared/agent'
-import type { FirstMateActionResult, FirstMateInstallResult, FirstMateRuntimeStatus } from '../shared/firstmate'
+import type {
+  FirstMateActionResult,
+  FirstMateInstallResult,
+  FirstMateLifecycleStatus,
+  FirstMateRuntimeStatus
+} from '../shared/firstmate'
 import type {
   ConversationPreview,
   ProjectDirectory,
@@ -48,6 +53,7 @@ export interface FirstMateApi {
   install(): Promise<FirstMateInstallResult>
   authenticateGitHub(): Promise<FirstMateActionResult>
   trustCodexProject(): Promise<FirstMateActionResult>
+  lifecycle(): Promise<FirstMateLifecycleStatus>
 }
 
 declare global {
