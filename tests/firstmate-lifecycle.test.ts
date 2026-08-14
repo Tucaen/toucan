@@ -240,6 +240,12 @@ test('makes a failed validation continuation durable and visible instead of clai
 
   await coordinator.poll()
 
+  assert.equal(task.stage, 'implemented', 'a rejection is durably retryable before it is judged')
+  assert.equal(task.dispatch?.status, 'retryable')
+  assert.equal(task.detail, 'task endpoint is unavailable')
+
+  await coordinator.poll()
+
   assert.equal(task.stage, 'blocked')
   assert.equal(task.nextAction, 'await-help')
   assert.equal(task.detail, 'task endpoint is unavailable')
@@ -304,7 +310,11 @@ test('never repeats a continuation that succeeded before ADE crashed on the foll
   assert.equal(recovered.nextAction, 'await-help')
   assert.equal(recovered.dispatch?.status, 'unresolved')
   assert.equal(recovered.dispatch?.id, crashing.continuations[0]!.dispatchId)
-  assert.match(recovered.detail, /recover/i)
+  assert.match(
+    recovered.detail,
+    /Release the dispatch to resend the same identity/,
+    'a blocked dispatch must name the way out of it'
+  )
 })
 
 test('re-persists an acknowledged dispatch after a journal failure without dispatching again', async () => {
@@ -379,12 +389,16 @@ test('releases a rejected dispatch for a fresh attempt and blocks once the budge
       firstMateValidationDispatchId('resize', retryable.statusHash, 1),
       firstMateValidationDispatchId('resize', retryable.statusHash, 2)
     ],
-    'each attempt carries its own dispatch identity'
+    'each attempt of a rejected dispatch carries its own identity'
   )
+
+  await coordinator.poll()
+
   const blocked = await onlyTask(home)
   assert.equal(blocked.stage, 'blocked')
   assert.equal(blocked.nextAction, 'await-help')
   assert.equal(blocked.detail, 'task endpoint is unavailable')
+  assert.equal(harness.continuations.length, 2, 'the attempt budget stops further dispatches')
 
   await coordinator.poll()
 
@@ -427,4 +441,80 @@ test('resolves a claimed dispatch when FirstMate itself reports validation after
   const task = await onlyTask(home)
   assert.equal(task.stage, 'validating')
   assert.equal(task.nextAction, 'await-validation')
+})
+
+test('keeps an unfinished dispatch when a new status line rehashes the task', async () => {
+  const { home, statusPath } = taskHome()
+  const crashing = journalRuntime(home, {
+    beforeRecord: throwOnAcknowledgement('ADE crashed before the lifecycle update')
+  })
+
+  await coordinatorFor(crashing.runtime).poll()
+  const claimedId = crashing.continuations[0]!.dispatchId
+
+  // FirstMate reports another implementation. The status hash changes, but the outstanding claim
+  // must survive it: this line is not evidence that the earlier continuation never arrived.
+  appendFileSync(statusPath, 'done: committed a follow-up fix\n')
+
+  const restarted = journalRuntime(home)
+  const coordinator = coordinatorFor(restarted.runtime)
+  await coordinator.poll()
+  await coordinator.poll()
+
+  assert.deepEqual(restarted.continuations, [], 'a rehashed task must not re-dispatch a live claim')
+  const task = await onlyTask(home)
+  assert.equal(task.stage, 'blocked')
+  assert.equal(task.dispatch?.status, 'unresolved')
+  assert.equal(task.dispatch?.id, claimedId)
+})
+
+test('resends the recorded identity when an operator releases an unresolved dispatch', async () => {
+  const { home } = taskHome()
+  const crashing = journalRuntime(home, {
+    beforeRecord: throwOnAcknowledgement('ADE crashed before the lifecycle update')
+  })
+
+  await coordinatorFor(crashing.runtime).poll()
+  const claimedId = crashing.continuations[0]!.dispatchId
+
+  const restarted = journalRuntime(home)
+  const coordinator = coordinatorFor(restarted.runtime)
+  await coordinator.poll()
+
+  const unresolved = await onlyTask(home)
+  assert.equal(unresolved.dispatch?.status, 'unresolved')
+
+  assert.deepEqual(await coordinator.releaseDispatch('resize'), { ok: true })
+  const released = await onlyTask(home)
+  assert.equal(released.stage, 'implemented', 'a released dispatch is actionable again')
+  assert.equal(released.nextAction, 'start-validation')
+  assert.equal(released.dispatch?.status, 'released')
+
+  await coordinator.poll()
+
+  assert.deepEqual(
+    restarted.continuations.map((call) => call.dispatchId),
+    [claimedId],
+    'the resend reuses the identity FirstMate may already have seen'
+  )
+  const validating = await onlyTask(home)
+  assert.equal(validating.stage, 'validating')
+  assert.equal(validating.dispatch?.status, 'acknowledged')
+})
+
+test('refuses to release a dispatch that is not unresolved', async () => {
+  const { home } = taskHome()
+  const harness = journalRuntime(home)
+  const coordinator = coordinatorFor(harness.runtime)
+
+  const missing = await coordinator.releaseDispatch('absent')
+  assert.equal(missing.ok, false)
+  assert.match(missing.message ?? '', /no durable state/i)
+
+  await coordinator.poll()
+
+  const validating = await coordinator.releaseDispatch('resize')
+  assert.equal(validating.ok, false)
+  assert.match(validating.message ?? '', /no unresolved validation dispatch/i)
+  assert.equal(harness.continuations.length, 1)
 })

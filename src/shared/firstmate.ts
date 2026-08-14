@@ -19,9 +19,15 @@ export type FirstMateTaskStage =
  * `claimed` records the intent to invoke the external continuation before it runs, so a
  * crash can never be mistaken for a task that still needs dispatching. `unresolved` is the
  * recoverable end state for a claim whose outcome cannot be established after a restart:
- * the continuation may already have run, so ADE refuses to send it a second time.
+ * the continuation may already have run, so ADE refuses to send it a second time until an
+ * operator says otherwise, which makes it `released` and resends the same identity.
  */
-export type FirstMateDispatchStatus = 'claimed' | 'acknowledged' | 'retryable' | 'unresolved'
+export type FirstMateDispatchStatus =
+  | 'claimed'
+  | 'acknowledged'
+  | 'retryable'
+  | 'unresolved'
+  | 'released'
 
 export interface FirstMateTaskDispatch {
   id: string

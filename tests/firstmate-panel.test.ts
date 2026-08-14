@@ -146,8 +146,8 @@ test('reports a recoverable validation dispatch state in the delivery lifecycle'
   assert.match(panel, /dispatching: 'Dispatching'/, 'a claimed dispatch needs its own visible stage')
   assert.match(
     panel,
-    /task\.dispatch\?\.status === 'unresolved'\) return `\$\{stage\} . recover dispatch`/,
-    'an unresolved dispatch must read as recoverable rather than as progress'
+    /task\.dispatch\?\.status === 'unresolved'\) return `\$\{stage\} . dispatch unresolved`/,
+    'an unresolved dispatch must read as unsettled rather than as progress'
   )
   assert.match(
     panel,
@@ -163,6 +163,29 @@ test('reports a recoverable validation dispatch state in the delivery lifecycle'
     styles,
     /\.firstmate-lifecycle-task\[data-dispatch="unresolved"\] > strong/,
     'a dispatch ADE cannot resolve should not look like a healthy stage'
+  )
+})
+
+test('offers an explicit way out of a validation dispatch ADE cannot resolve', () => {
+  const panel = readFileSync(join(process.cwd(), 'src/renderer/src/FirstMatePanel.tsx'), 'utf8')
+  const preload = readFileSync(join(process.cwd(), 'src/preload/index.ts'), 'utf8')
+  const main = readFileSync(join(process.cwd(), 'src/main/index.ts'), 'utf8')
+
+  assert.match(
+    panel,
+    /task\.dispatch\?\.status === 'unresolved' && \([\s\S]*?onClick=\{\(\) => releaseDispatch\(task\.id\)\}/,
+    'an unresolved dispatch must be releasable from the row that reports it'
+  )
+  assert.match(
+    panel,
+    /window\.firstMateApi\.releaseDispatch\(taskId\)/,
+    'the release should go through the FirstMate bridge rather than a local state change'
+  )
+  assert.match(preload, /releaseDispatch: \(taskId: string\)[\s\S]*?'firstmate:release-dispatch'/)
+  assert.match(
+    main,
+    /ipcMain\.handle\(\s*'firstmate:release-dispatch',\s*\(_event, taskId: string\) => lifecycle\.releaseDispatch\(taskId\)/,
+    'releasing a dispatch is reconciliation work, so it belongs to the lifecycle coordinator'
   )
 })
 

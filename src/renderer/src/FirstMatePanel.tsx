@@ -103,7 +103,8 @@ const lifecycleLabels: Record<FirstMateTaskStage, string> = {
  */
 function lifecycleTaskLabel(task: FirstMateLifecycleTask): string {
   const stage = lifecycleLabels[task.stage]
-  if (task.dispatch?.status === 'unresolved') return `${stage} · recover dispatch`
+  if (task.dispatch?.status === 'unresolved') return `${stage} · dispatch unresolved`
+  if (task.dispatch?.status === 'released') return `${stage} · dispatch released`
   if (task.dispatch?.status === 'retryable' && task.stage === 'implemented') return `${stage} · dispatch retry`
   return stage
 }
@@ -117,6 +118,7 @@ export default function FirstMatePanel({ project, state, onStateChange }: FirstM
   })
   const [installing, setInstalling] = useState(false)
   const [waitingForGitHub, setWaitingForGitHub] = useState(false)
+  const [releasingDispatch, setReleasingDispatch] = useState<string>()
   const [enablingCodexHooks, setEnablingCodexHooks] = useState(false)
   const [codexHookError, setCodexHookError] = useState<string>()
   const [enablingFleetAccess, setEnablingFleetAccess] = useState(false)
@@ -234,6 +236,18 @@ export default function FirstMatePanel({ project, state, onStateChange }: FirstM
         setWaitingForGitHub(false)
         setRuntime((current) => current ? { ...current, message: result.message } : current)
       }
+    })
+  }
+
+  const releaseDispatch = (taskId: string): void => {
+    setReleasingDispatch(taskId)
+    void window.firstMateApi.releaseDispatch(taskId).then((result) => {
+      setReleasingDispatch(undefined)
+      if (result.ok) return
+      setLifecycle((current) => ({
+        ...current,
+        message: result.message ?? `ADE could not release the validation dispatch for ${taskId}.`
+      }))
     })
   }
 
@@ -505,6 +519,19 @@ export default function FirstMatePanel({ project, state, onStateChange }: FirstM
                 >
                   <span>{task.id}</span>
                   <strong>{lifecycleTaskLabel(task)}</strong>
+                  {task.dispatch?.status === 'unresolved' && (
+                    <button
+                      type="button"
+                      onClick={() => releaseDispatch(task.id)}
+                      disabled={releasingDispatch === task.id}
+                      title={
+                        'ADE cannot tell whether this continuation reached FirstMate. Releasing it resends '
+                        + 'the same dispatch identity, so a worker that already received it can ignore the repeat.'
+                      }
+                    >
+                      {releasingDispatch === task.id ? 'Releasing…' : 'Release'}
+                    </button>
+                  )}
                 </div>
               ))}
             </section>

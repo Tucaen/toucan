@@ -7,7 +7,10 @@ import type { AgentCreateRequest } from '../shared/agent'
 import type { FirstMateActionResult, FirstMateProjectSelection } from '../shared/firstmate'
 import type { TerminalCreateRequest } from '../shared/terminal'
 import { createAcpSessionManager, type AcpSessionManager } from './acp-session-manager'
-import { createFirstMateLifecycleCoordinator } from './firstmate-lifecycle-coordinator'
+import {
+  createFirstMateLifecycleCoordinator,
+  type FirstMateLifecycleCoordinator
+} from './firstmate-lifecycle-coordinator'
 import { createFirstMateRuntime, type FirstMateRuntime } from './firstmate-runtime'
 import { createSessionProviders, type SessionProviders } from './session-providers'
 import { createTerminalManager, type TerminalManager } from './terminal-manager'
@@ -73,6 +76,11 @@ const UNREADABLE_PROJECT: FirstMateActionResult = {
   message: 'ADE could not read the selected project.'
 }
 
+const UNREADABLE_TASK: FirstMateActionResult = {
+  ok: false,
+  message: 'ADE could not read the task to act on.'
+}
+
 function isProjectSelection(value: unknown): value is FirstMateProjectSelection {
   const selection = value as Partial<FirstMateProjectSelection> | null
   return Boolean(selection)
@@ -81,7 +89,10 @@ function isProjectSelection(value: unknown): value is FirstMateProjectSelection 
     && typeof selection.path === 'string'
 }
 
-function registerFirstMateIpc(runtime: FirstMateRuntime): void {
+function registerFirstMateIpc(
+  runtime: FirstMateRuntime,
+  lifecycle: FirstMateLifecycleCoordinator
+): void {
   ipcMain.handle('firstmate:status', () => runtime.status())
   ipcMain.handle('firstmate:install', () => runtime.install())
   ipcMain.handle('firstmate:github-auth', () => runtime.authenticateGitHub())
@@ -107,6 +118,9 @@ function registerFirstMateIpc(runtime: FirstMateRuntime): void {
     () => UNREADABLE_PROJECT
   )
   byProjectId('firstmate:retire-project', (id) => runtime.retireProject(id), () => UNREADABLE_PROJECT)
+  ipcMain.handle('firstmate:release-dispatch', (_event, taskId: unknown) => (
+    typeof taskId === 'string' && taskId ? lifecycle.releaseDispatch(taskId) : UNREADABLE_TASK
+  ))
 }
 
 function registerProjectIpc(): void {
@@ -242,7 +256,7 @@ app.whenReady().then(() => {
 
   registerTerminalIpc(manager, providers)
   registerAgentIpc(agentManager)
-  registerFirstMateIpc(firstMateRuntime)
+  registerFirstMateIpc(firstMateRuntime, firstMateLifecycle)
   registerProjectIpc()
   createWindow(manager, agentManager)
   firstMateLifecycle.start()

@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type {
+  FirstMateDispatchStatus,
   FirstMateLifecycleStatus,
   FirstMateLifecycleTask,
   FirstMateTaskDispatch,
@@ -90,40 +91,49 @@ export function firstMateValidatorFromRuntimeConfig(text?: string): FirstMateVal
   }
 }
 
-const DISPATCH_STATUSES = new Set(['claimed', 'acknowledged', 'retryable', 'unresolved'])
+const DISPATCH_STATUSES: ReadonlySet<FirstMateDispatchStatus> = new Set([
+  'claimed',
+  'acknowledged',
+  'retryable',
+  'unresolved',
+  'released'
+])
 
 function recordedDispatch(value: unknown): FirstMateTaskDispatch | undefined {
   if (!value || typeof value !== 'object') return undefined
   const candidate = value as Partial<FirstMateTaskDispatch>
   if (typeof candidate.id !== 'string' || !candidate.id) return undefined
-  if (typeof candidate.status !== 'string' || !DISPATCH_STATUSES.has(candidate.status)) return undefined
+  const status = candidate.status
+  if (status === undefined || !DISPATCH_STATUSES.has(status)) return undefined
   if (typeof candidate.attempt !== 'number' || !Number.isInteger(candidate.attempt) || candidate.attempt < 1) {
     return undefined
   }
   return {
     id: candidate.id,
-    status: candidate.status,
+    status,
     attempt: candidate.attempt,
     ...(typeof candidate.message === 'string' ? { message: candidate.message } : {})
   }
 }
 
 /**
- * Identity of one validation dispatch attempt, derived only from durable task state so the
- * same attempt is named identically after an ADE or FirstMate restart. It travels to the
- * worker as an idempotency key and is safe to pass as a command argument.
+ * Mints the identity of a fresh validation dispatch attempt. Derived only from durable task
+ * state, so a restart in the middle of minting names the same attempt identically. Once minted
+ * the identity is journalled and read back rather than recomputed: it travels to the worker as
+ * an idempotency key, and a retry of the same logical dispatch must reuse it.
  */
 export function firstMateValidationDispatchId(taskId: string, statusHash: string, attempt: number): string {
   return `${taskId}.${statusHash}.${attempt}`
 }
 
-export type FirstMateDispatchMemory = 'claimed' | 'acknowledged' | 'released'
+/** What an ADE process observed for a claim it wrote, before it managed to journal the outcome. */
+export type FirstMateDispatchMemory = 'claimed' | 'acknowledged' | 'retryable'
 
 export type FirstMateValidationPlan =
   | { action: 'none' }
-  | { action: 'dispatch'; dispatchId: string; attempt: number; final: boolean }
+  | { action: 'dispatch'; dispatchId: string; attempt: number }
   | { action: 'acknowledge'; dispatchId: string; attempt: number }
-  | { action: 'release'; dispatchId: string; attempt: number }
+  | { action: 'retry'; dispatchId: string; attempt: number }
   | {
       action: 'block'
       dispatchId: string
@@ -152,12 +162,18 @@ export function planValidationDispatch(input: FirstMateValidationPlanInput): Fir
     const { id: dispatchId, attempt } = dispatch
     const remembered = liveDispatches.get(dispatchId)
     if (remembered === 'acknowledged') return { action: 'acknowledge', dispatchId, attempt }
-    if (remembered === 'released') return { action: 'release', dispatchId, attempt }
+    if (remembered === 'retryable') return { action: 'retry', dispatchId, attempt }
     if (remembered === 'claimed') return { action: 'none' }
     return { action: 'block', dispatchId, attempt, reason: 'unresolved-claim' }
   }
 
   if (task.stage !== 'implemented' || task.nextAction !== 'start-validation') return { action: 'none' }
+
+  // A released dispatch resends the identity FirstMate may already have seen, so a worker that
+  // did receive the first continuation can recognise the retry instead of validating twice.
+  if (dispatch?.status === 'released') {
+    return { action: 'dispatch', dispatchId: dispatch.id, attempt: dispatch.attempt }
+  }
 
   const rejected = dispatch?.status === 'retryable' ? dispatch : undefined
   const attempt = (rejected?.attempt ?? 0) + 1
@@ -172,9 +188,52 @@ export function planValidationDispatch(input: FirstMateValidationPlanInput): Fir
   return {
     action: 'dispatch',
     dispatchId: firstMateValidationDispatchId(task.id, task.statusHash, attempt),
-    attempt,
-    final: attempt >= maxAttempts
+    attempt
   }
+}
+
+/**
+ * The record that hands an unresolvable dispatch back to reconciliation, at an operator's
+ * explicit request. It keeps the recorded identity so the resend is deduplicable by the worker.
+ */
+export function firstMateReleasedDispatchRecord(
+  task: FirstMateLifecycleTask,
+  now: Date
+): FirstMateLifecycleRecord | undefined {
+  const dispatch = task.dispatch
+  if (!dispatch || dispatch.status !== 'unresolved') return undefined
+  return {
+    stage: 'implemented',
+    detail: `Validation dispatch ${dispatch.id} was released for another attempt with the same identity.`,
+    statusHash: task.statusHash,
+    nextAction: 'start-validation',
+    dispatch: { id: dispatch.id, status: 'released', attempt: dispatch.attempt },
+    updatedAt: now.toISOString()
+  }
+}
+
+type UnfinishedDispatchStatus = 'claimed' | 'unresolved' | 'released'
+
+/**
+ * How a task presents while a dispatch is still outstanding. `acknowledged` and `retryable` are
+ * absent on purpose: both are settled, so a new implementation line may legitimately restart the
+ * attempt count from them.
+ */
+const UNFINISHED_STAGES: Record<
+  UnfinishedDispatchStatus,
+  { stage: FirstMateTaskStage; nextAction: FirstMateLifecycleTask['nextAction'] }
+> = {
+  claimed: { stage: 'dispatching', nextAction: 'await-dispatch' },
+  unresolved: { stage: 'blocked', nextAction: 'await-help' },
+  released: { stage: 'implemented', nextAction: 'start-validation' }
+}
+
+function unfinishedDispatch(
+  durable?: FirstMateLifecycleRecord
+): (FirstMateTaskDispatch & { status: UnfinishedDispatchStatus }) | undefined {
+  const dispatch = recordedDispatch(durable?.dispatch)
+  if (!dispatch || !(dispatch.status in UNFINISHED_STAGES)) return undefined
+  return dispatch as FirstMateTaskDispatch & { status: UnfinishedDispatchStatus }
 }
 
 function prFromDone(verb: string, detail: string): string | undefined {
@@ -231,6 +290,21 @@ function recordedTask(
       ...(durable.nextAction ? { nextAction: durable.nextAction } : {}),
       ...(dispatch ? { dispatch } : {}),
       ...(durable.prUrl ? { prUrl: durable.prUrl } : {})
+    }
+  }
+  // A dispatch this journal never finished outlives the status line that provoked it. Without
+  // this, a second `done` line would rehash the task into fresh, actionable work and dispatch a
+  // continuation that may already be running.
+  const unfinished = unfinishedDispatch(durable)
+  if (unfinished) {
+    return {
+      id: raw.id,
+      mode,
+      stage: UNFINISHED_STAGES[unfinished.status].stage,
+      detail: durable?.detail ?? detail,
+      statusHash: hash,
+      nextAction: UNFINISHED_STAGES[unfinished.status].nextAction,
+      dispatch: unfinished
     }
   }
   if (verb === 'done') {

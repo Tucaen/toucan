@@ -531,7 +531,7 @@ function taskHarness(files: FirstMateLifecycleFiles, taskId: string): string | u
 const SAFE_ARGUMENT = /^[a-zA-Z0-9._-]+$/
 
 /** Both ids reach the worker as command arguments, so neither may carry anything else. */
-function invalidDispatchTarget(taskId: string, dispatchId: string): FirstMateActionResult | undefined {
+function dispatchTargetError(taskId: string, dispatchId: string): FirstMateActionResult | undefined {
   if (!SAFE_ARGUMENT.test(taskId)) return { ok: false, message: 'Invalid FirstMate task id.' }
   if (!SAFE_ARGUMENT.test(dispatchId)) {
     return { ok: false, message: 'Invalid FirstMate validation dispatch id.' }
@@ -956,8 +956,8 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
       }
     },
     async continueValidation(taskId: string, dispatchId: string): Promise<FirstMateActionResult> {
-      const invalid = invalidDispatchTarget(taskId, dispatchId)
-      if (invalid) return invalid
+      const rejected = dispatchTargetError(taskId, dispatchId)
+      if (rejected) return rejected
       try {
         const files = await lifecycleFiles()
         const harness = taskHarness(files, taskId)
@@ -1172,8 +1172,8 @@ function createNativeFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMa
       return { ok: true }
     },
     async continueValidation(taskId: string, dispatchId: string): Promise<FirstMateActionResult> {
-      const invalid = invalidDispatchTarget(taskId, dispatchId)
-      if (invalid) return invalid
+      const rejected = dispatchTargetError(taskId, dispatchId)
+      if (rejected) return rejected
       try {
         const files = await readFirstMateLifecycleFiles(homePath)
         const harness = taskHarness(files, taskId)

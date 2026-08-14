@@ -8,6 +8,7 @@ import type { FirstMateRuntime } from './firstmate-runtime'
 import {
   firstMateAppWakeMessage,
   firstMateReconciliationFailureMessage,
+  firstMateReleasedDispatchRecord,
   planValidationDispatch,
   type FirstMateDispatchMemory,
   type FirstMateLifecycleRecord
@@ -19,6 +20,12 @@ function errorMessage(error: unknown): string {
 
 export interface FirstMateLifecycleCoordinator {
   poll(): Promise<void>
+  /**
+   * Hands a dispatch ADE could not resolve back to reconciliation, on an explicit request from
+   * outside. This is the only way an unresolved dispatch is ever sent again, and it reuses the
+   * recorded identity so a worker that did receive the first continuation can deduplicate it.
+   */
+  releaseDispatch(taskId: string): Promise<FirstMateActionResult>
   start(): void
   stop(): void
 }
@@ -48,35 +55,38 @@ function recordFor(task: FirstMateLifecycleTask, now: Date): FirstMateLifecycleR
   }
 }
 
-function claimedTask(
-  task: FirstMateLifecycleTask,
-  dispatch: FirstMateTaskDispatch
-): FirstMateLifecycleTask {
+/** One dispatch attempt, addressed the way every reconciliation outcome addresses it. */
+interface DispatchAttempt {
+  id: string
+  attempt: number
+}
+
+function claimedTask(task: FirstMateLifecycleTask, { id, attempt }: DispatchAttempt): FirstMateLifecycleTask {
   return {
     ...task,
     stage: 'dispatching',
-    detail: `ADE claimed validation dispatch ${dispatch.id} (attempt ${dispatch.attempt}).`,
+    detail: `ADE claimed validation dispatch ${id} (attempt ${attempt}).`,
     nextAction: 'await-dispatch',
-    dispatch
+    dispatch: { id, status: 'claimed', attempt }
   }
 }
 
 function acknowledgedTask(
   task: FirstMateLifecycleTask,
-  dispatch: FirstMateTaskDispatch
+  { id, attempt }: DispatchAttempt
 ): FirstMateLifecycleTask {
   return {
     ...task,
     stage: 'validating',
     detail: 'ADE continued the committed worker directly into no-mistakes validation.',
     nextAction: 'await-validation',
-    dispatch: { ...dispatch, status: 'acknowledged' }
+    dispatch: { id, status: 'acknowledged', attempt }
   }
 }
 
-function releasedTask(
+function retryableTask(
   task: FirstMateLifecycleTask,
-  dispatch: FirstMateTaskDispatch,
+  { id, attempt }: DispatchAttempt,
   message: string
 ): FirstMateLifecycleTask {
   return {
@@ -84,7 +94,7 @@ function releasedTask(
     stage: 'implemented',
     detail: message,
     nextAction: 'start-validation',
-    dispatch: { ...dispatch, status: 'retryable', message }
+    dispatch: { id, status: 'retryable', attempt, message }
   }
 }
 
@@ -105,15 +115,8 @@ function blockedTask(
 function unresolvedDetail(dispatchId: string, cause?: string): string {
   return `ADE claimed validation dispatch ${dispatchId} but cannot establish whether it reached FirstMate`
     + `${cause ? ` (${cause})` : ''}. `
-    + 'Recover this task explicitly; ADE will not send the continuation a second time.'
-}
-
-function unresolved(dispatchId: string, attempt: number): FirstMateTaskDispatch {
-  return { id: dispatchId, status: 'unresolved', attempt }
-}
-
-function claim(dispatchId: string, attempt: number): FirstMateTaskDispatch {
-  return { id: dispatchId, status: 'claimed', attempt }
+    + 'Release the dispatch to resend the same identity, or resolve the task through FirstMate; '
+    + 'ADE will not send the continuation again on its own.'
 }
 
 export function createFirstMateLifecycleCoordinator(
@@ -140,63 +143,69 @@ export function createFirstMateLifecycleCoordinator(
     const plan = planValidationDispatch({ task, liveDispatches, maxAttempts: maxDispatchAttempts })
     if (plan.action === 'none') return task
 
-    const { dispatchId, attempt } = plan
+    const { dispatchId: id, attempt } = plan
+    const dispatch: DispatchAttempt = { id, attempt }
     const settle = async (next: FirstMateLifecycleTask): Promise<FirstMateLifecycleTask> => {
       const settled = await persist(next)
-      liveDispatches.delete(dispatchId)
+      liveDispatches.delete(id)
       return settled
     }
+    const unresolvedBlock = (cause?: string): FirstMateLifecycleTask => blockedTask(
+      task,
+      { id, status: 'unresolved', attempt },
+      unresolvedDetail(id, cause)
+    )
 
     if (plan.action === 'block') {
       return plan.reason === 'unresolved-claim'
-        ? settle(blockedTask(task, unresolved(dispatchId, attempt), unresolvedDetail(dispatchId)))
+        ? settle(unresolvedBlock())
         : settle(blockedTask(
             task,
-            { id: dispatchId, status: 'retryable', attempt },
+            { id, status: 'retryable', attempt },
             task.dispatch?.message
               ?? `ADE could not dispatch no-mistakes validation within ${maxDispatchAttempts} attempts.`
           ))
     }
 
     // Re-persist an outcome this process already observed; the dispatch itself never repeats.
-    if (plan.action === 'acknowledge') {
-      return settle(acknowledgedTask(task, claim(dispatchId, attempt)))
-    }
-    if (plan.action === 'release') {
+    if (plan.action === 'acknowledge') return settle(acknowledgedTask(task, dispatch))
+    if (plan.action === 'retry') {
       const message = task.dispatch?.message ?? 'ADE could not continue no-mistakes validation.'
-      return settle(releasedTask(task, claim(dispatchId, attempt), message))
+      return settle(retryableTask(task, dispatch, message))
     }
 
     // The intent to dispatch becomes durable before the external continuation runs, so a crash
     // in the gap reloads as a claim to recover rather than as work still to be sent.
-    const claimed = await persist(claimedTask(task, claim(dispatchId, attempt)))
-    liveDispatches.set(dispatchId, 'claimed')
+    const claimed = await persist(claimedTask(task, dispatch))
+    liveDispatches.set(id, 'claimed')
 
     let result: FirstMateActionResult
     try {
-      result = await options.runtime.continueValidation(task.id, dispatchId)
+      result = await options.runtime.continueValidation(task.id, id)
     } catch (error) {
       // A continuation that threw may still have been delivered, so its outcome is unknowable.
       // Clearing the claim first means a failed write recovers to the same conclusion.
-      liveDispatches.delete(dispatchId)
+      liveDispatches.delete(id)
       return persist(blockedTask(
         claimed,
-        unresolved(dispatchId, attempt),
-        unresolvedDetail(dispatchId, errorMessage(error))
+        { id, status: 'unresolved', attempt },
+        unresolvedDetail(id, errorMessage(error))
       ))
     }
 
     if (result.ok) {
-      liveDispatches.set(dispatchId, 'acknowledged')
-      return settle(acknowledgedTask(claimed, claim(dispatchId, attempt)))
+      liveDispatches.set(id, 'acknowledged')
+      return settle(acknowledgedTask(claimed, dispatch))
     }
 
     // A rejected continuation is proof nothing was delivered, so this attempt is safe to retire.
-    const message = result.message ?? 'ADE could not continue no-mistakes validation.'
-    liveDispatches.set(dispatchId, 'released')
-    return settle(plan.final
-      ? blockedTask(claimed, { id: dispatchId, status: 'retryable', attempt }, message)
-      : releasedTask(claimed, claim(dispatchId, attempt), message))
+    // Whether the budget allows another is the next pass's decision, from durable state alone.
+    liveDispatches.set(id, 'retryable')
+    return settle(retryableTask(
+      claimed,
+      dispatch,
+      result.message ?? 'ADE could not continue no-mistakes validation.'
+    ))
   }
 
   const poll = async (): Promise<void> => {
@@ -227,6 +236,21 @@ export function createFirstMateLifecycleCoordinator(
 
   return {
     poll,
+    async releaseDispatch(taskId: string): Promise<FirstMateActionResult> {
+      try {
+        const lifecycle = await options.runtime.lifecycle()
+        const task = lifecycle.tasks.find((candidate) => candidate.id === taskId)
+        if (!task) return { ok: false, message: `ADE has no durable state for task ${taskId}.` }
+        const record = firstMateReleasedDispatchRecord(task, now())
+        if (!record) {
+          return { ok: false, message: `Task ${taskId} has no unresolved validation dispatch to release.` }
+        }
+        await options.runtime.recordLifecycle(taskId, record)
+        return { ok: true }
+      } catch (error) {
+        return { ok: false, message: errorMessage(error) }
+      }
+    },
     start(): void {
       if (timer) return
       void poll()
