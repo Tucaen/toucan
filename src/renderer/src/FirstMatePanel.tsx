@@ -1,8 +1,16 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react'
 import type { FirstMateRuntimeStatus, FirstMateWorkspaceState } from '../../shared/firstmate'
 import type { WorkspaceProject } from '../../shared/terminal'
 import { ChatView, SelectorPicker, type ChatViewProps } from './ChatNode'
 import { firstMateProjectContext } from './firstmate-project-context'
+import {
+  clampFirstMatePanelWidth,
+  firstMatePanelWidthBounds,
+  resizeFirstMatePanel,
+  resizeFirstMatePanelWithKey,
+  type FirstMatePanelResizeSession,
+  type FirstMatePanelWidthBounds
+} from './firstmate-panel-resize'
 import { useAgentConversation } from './use-agent-conversation'
 
 const FIRSTMATE_AGENT_ID = 'ade-firstmate'
@@ -10,6 +18,13 @@ const FIRSTMATE_PROVIDERS = [
   { id: 'codex', name: 'Codex' },
   { id: 'claude', name: 'Claude' }
 ]
+
+function resizeAreaWidth(panel: HTMLElement | null): number {
+  const panelRect = panel?.getBoundingClientRect()
+  const canvasRect = panel?.previousElementSibling?.getBoundingClientRect()
+  if (panelRect && canvasRect) return panelRect.width + canvasRect.width
+  return panel?.parentElement?.getBoundingClientRect().width ?? window.innerWidth
+}
 
 interface FirstMatePanelProps {
   project: WorkspaceProject
@@ -75,6 +90,13 @@ export default function FirstMatePanel({ project, state, onStateChange }: FirstM
   const [codexHookError, setCodexHookError] = useState<string>()
   const [enablingFleetAccess, setEnablingFleetAccess] = useState(false)
   const [fleetAccessError, setFleetAccessError] = useState<string>()
+  const [panelWidth, setPanelWidth] = useState(state.panelWidth)
+  const [panelWidthBounds, setPanelWidthBounds] = useState<FirstMatePanelWidthBounds>(() => (
+    firstMatePanelWidthBounds(window.innerWidth)
+  ))
+  const [resizing, setResizing] = useState(false)
+  const panelRef = useRef<HTMLElement>(null)
+  const resizeSession = useRef<(FirstMatePanelResizeSession & { pointerId: number }) | null>(null)
 
   useEffect(() => {
     let active = true
@@ -95,6 +117,17 @@ export default function FirstMatePanel({ project, state, onStateChange }: FirstM
     const timer = window.setInterval(refresh, 3000)
     return () => window.clearInterval(timer)
   }, [runtime?.githubAuth, waitingForGitHub])
+
+  useEffect(() => {
+    const fitPanelToWorkspace = (): void => {
+      const bounds = firstMatePanelWidthBounds(resizeAreaWidth(panelRef.current))
+      setPanelWidthBounds(bounds)
+      setPanelWidth((current) => current === undefined ? current : clampFirstMatePanelWidth(current, bounds))
+    }
+    fitPanelToWorkspace()
+    window.addEventListener('resize', fitPanelToWorkspace)
+    return () => window.removeEventListener('resize', fitPanelToWorkspace)
+  }, [])
 
   const updateState = (patch: Partial<FirstMateWorkspaceState>): void => {
     onStateChange({ ...state, ...patch })
@@ -185,8 +218,102 @@ export default function FirstMatePanel({ project, state, onStateChange }: FirstM
   const ready = runtime?.state === 'ready'
   const displayStatus = statusLabel(conversation.status)
 
+  const currentPanelWidth = (): number => {
+    const measuredWidth = panelRef.current?.getBoundingClientRect().width ?? panelWidthBounds.min
+    return clampFirstMatePanelWidth(panelWidth ?? measuredWidth, panelWidthBounds)
+  }
+
+  const startResize = (event: PointerEvent<HTMLDivElement>): void => {
+    if (event.button !== 0) return
+    event.preventDefault()
+    event.stopPropagation()
+    const bounds = firstMatePanelWidthBounds(resizeAreaWidth(panelRef.current))
+    const startWidth = clampFirstMatePanelWidth(
+      panelRef.current?.getBoundingClientRect().width ?? panelWidth ?? bounds.min,
+      bounds
+    )
+    resizeSession.current = { pointerId: event.pointerId, startX: event.clientX, startWidth, bounds }
+    setPanelWidthBounds(bounds)
+    setPanelWidth(startWidth)
+    setResizing(true)
+    event.currentTarget.setPointerCapture(event.pointerId)
+  }
+
+  const continueResize = (event: PointerEvent<HTMLDivElement>): void => {
+    const session = resizeSession.current
+    if (!session || session.pointerId !== event.pointerId) return
+    event.preventDefault()
+    event.stopPropagation()
+    setPanelWidth(resizeFirstMatePanel(session, event.clientX))
+  }
+
+  const finishResize = (event: PointerEvent<HTMLDivElement>): void => {
+    const session = resizeSession.current
+    if (!session || session.pointerId !== event.pointerId) return
+    event.preventDefault()
+    event.stopPropagation()
+    const width = resizeFirstMatePanel(session, event.clientX)
+    resizeSession.current = null
+    setPanelWidth(width)
+    setResizing(false)
+    updateState({ panelWidth: width })
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+  }
+
+  const cancelResize = (event: PointerEvent<HTMLDivElement>): void => {
+    const session = resizeSession.current
+    if (!session || session.pointerId !== event.pointerId) return
+    event.preventDefault()
+    event.stopPropagation()
+    resizeSession.current = null
+    setPanelWidth(session.startWidth)
+    setResizing(false)
+  }
+
+  const resizeWithKeyboard = (event: KeyboardEvent<HTMLDivElement>): void => {
+    const width = resizeFirstMatePanelWithKey(currentPanelWidth(), event.key, panelWidthBounds)
+    if (width === undefined) return
+    event.preventDefault()
+    event.stopPropagation()
+    setPanelWidth(width)
+    updateState({ panelWidth: width })
+  }
+
   return (
-    <aside className="firstmate-panel firstmate-dock" aria-label="FirstMate conversation dock">
+    <aside
+      ref={panelRef}
+      className={`firstmate-panel firstmate-dock ${resizing ? 'is-resizing' : ''}`}
+      aria-label="FirstMate conversation dock"
+      style={panelWidth === undefined ? undefined : { width: panelWidth } as CSSProperties}
+    >
+      <div
+        className="firstmate-resize-handle"
+        role="separator"
+        aria-label="Resize FirstMate panel"
+        title="Drag to resize FirstMate"
+        aria-orientation="vertical"
+        aria-valuemin={panelWidthBounds.min}
+        aria-valuemax={panelWidthBounds.max}
+        aria-valuenow={Math.round(currentPanelWidth())}
+        tabIndex={0}
+        onClick={(event) => event.stopPropagation()}
+        onDoubleClick={(event) => event.stopPropagation()}
+        onContextMenu={(event) => {
+          event.preventDefault()
+          event.stopPropagation()
+        }}
+        onPointerDown={startResize}
+        onPointerMove={continueResize}
+        onPointerUp={finishResize}
+        onPointerCancel={cancelResize}
+        onLostPointerCapture={() => {
+          resizeSession.current = null
+          setResizing(false)
+        }}
+        onKeyDown={resizeWithKeyboard}
+      />
       <header className="firstmate-panel-header">
         <FirstMateMark />
         <div>

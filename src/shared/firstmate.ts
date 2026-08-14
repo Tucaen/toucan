@@ -1,5 +1,8 @@
 import type { AgentProvider } from './agent'
 
+export const FIRSTMATE_PANEL_MIN_WIDTH = 300
+export const FIRSTMATE_PANEL_MAX_WIDTH = 720
+
 export type FirstMateRuntimeState = 'missing' | 'installing' | 'ready' | 'error'
 
 export interface FirstMateRuntimeStatus {
@@ -30,4 +33,5 @@ export interface FirstMateWorkspaceState {
   permissionMode?: string
   modelId?: string
   worklogCollapsed?: boolean
+  panelWidth?: number
 }

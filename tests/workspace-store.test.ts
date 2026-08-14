@@ -36,13 +36,29 @@ test('saves and loads a valid workspace through the store', () => {
       conversationId: 'firstmate-session',
       permissionMode: 'read-only',
       modelId: 'gpt-5',
-      worklogCollapsed: true
+      worklogCollapsed: true,
+      panelWidth: 448
     },
     nodes: []
   }
 
   assert.deepEqual(store.save(state), { ok: true })
   assert.deepEqual(store.load(), state)
+})
+
+test('rejects persisted FirstMate panel widths outside the supported bounds', () => {
+  const workspace = {
+    version: 2,
+    projects: [{ id: 'project-1', name: 'ADE', path: 'D:\\Development\\ADE', color: '#71a9ff' }],
+    activeProjectId: 'project-1',
+    sidebarCollapsed: false,
+    nodes: []
+  }
+
+  assert.equal(parseWorkspaceState({ ...workspace, firstMate: { panelWidth: 299 } }), null)
+  assert.equal(parseWorkspaceState({ ...workspace, firstMate: { panelWidth: 721 } }), null)
+  assert.notEqual(parseWorkspaceState({ ...workspace, firstMate: { panelWidth: 300 } }), null)
+  assert.notEqual(parseWorkspaceState({ ...workspace, firstMate: { panelWidth: 720 } }), null)
 })
 
 test('repairs UTF-8 text that an older workspace cached as Windows-1252', () => {

@@ -1673,6 +1673,42 @@ button {
   box-shadow: -14px 0 34px rgba(0, 0, 0, 0.18);
 }
 
+.firstmate-resize-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 10;
+  width: 8px;
+  cursor: col-resize;
+  touch-action: none;
+  outline: none;
+}
+
+.firstmate-resize-handle::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 2px;
+  background: #2a313c;
+  transition: background 120ms ease, box-shadow 120ms ease;
+}
+
+.firstmate-resize-handle:hover::after,
+.firstmate-resize-handle:focus-visible::after,
+.firstmate-panel.is-resizing > .firstmate-resize-handle::after {
+  background: #71a9ff;
+  box-shadow: 0 0 8px rgba(113, 169, 255, 0.62);
+}
+
+.firstmate-panel.is-resizing,
+.firstmate-panel.is-resizing * {
+  cursor: col-resize !important;
+  user-select: none !important;
+}
+
 .firstmate-mark {
   width: 31px;
   height: 31px;
@@ -1802,6 +1838,8 @@ button {
 /* ADE-wide FirstMate conversation dock. */
 .firstmate-dock {
   width: 370px;
+  min-width: 300px;
+  max-width: 720px;
   display: flex;
   flex-direction: column;
 }
