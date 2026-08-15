@@ -11,10 +11,11 @@ import {
   type FirstMateTaskContext
 } from '../src/shared/firstmate-task-context'
 import { createFirstMateLifecycleCoordinator } from '../src/main/firstmate-lifecycle-coordinator'
-import { firstMateRequest } from '../src/renderer/src/firstmate-request-target'
+import { firstMateRequest } from '../src/renderer/src/firstmate-project-catalog'
 import type { FirstMateLifecycleJournal, FirstMateLifecycleRecord } from '../src/main/firstmate-lifecycle'
-import type { FirstMateProjectCatalog, FirstMateProjectRegistration } from '../src/shared/firstmate'
+import type { FirstMateProjectRegistration } from '../src/shared/firstmate'
 import type { WorkspaceProject } from '../src/shared/terminal'
+import { firstMateCatalogFromRequest } from './firstmate-catalog-test-helpers'
 
 function writeDistro(path: string): void {
   mkdirSync(join(path, 'bin'), { recursive: true })
@@ -379,9 +380,7 @@ test('keeps two switched external projects on their original providers through s
     model: 'claude-sonnet-4-5'
   })
   const carrier = (prompt: string): string => {
-    const json = /<ade-project-catalog>\n([^\n]+)\n<\/ade-project-catalog>/.exec(prompt)?.[1]
-    assert.ok(json)
-    const value = (JSON.parse(json) as FirstMateProjectCatalog).projects[0]?.taskContextMetadata
+    const value = firstMateCatalogFromRequest(prompt).projects[0]?.taskContextMetadata
     assert.ok(value)
     return value
   }
@@ -415,8 +414,8 @@ test('keeps two switched external projects on their original providers through s
 
   assert.ok(alphaPrompt.includes(alphaCrew.primaryWsl))
   assert.ok(betaPrompt.includes(betaCrew.primaryWsl))
-  assert.match(alphaPrompt, /effectiveDeliveryPosture as `--mode`/)
-  assert.match(betaPrompt, /effectiveDeliveryPosture as `--mode`/)
+  assert.match(alphaPrompt, /resolve the concrete task delivery mode[\s\S]*?pass the resolved `--mode`/)
+  assert.match(betaPrompt, /resolve the concrete task delivery mode[\s\S]*?pass the resolved `--mode`/)
 
   const alphaDispatch = fakeFirstMateShip(alphaPrompt, 'alpha-ship', alphaCrew.worktreeWsl)
   const betaDispatch = fakeFirstMateShip(betaPrompt, 'beta-ship', betaCrew.worktreeWsl)

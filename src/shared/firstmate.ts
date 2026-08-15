@@ -165,11 +165,6 @@ export interface FirstMateProjectCatalog {
     displayName: string
     reason: string
   }>
-  instructions: {
-    selection: string
-    onUnresolvedSelection: string
-    dispatch: string
-  }
 }
 
 export interface FirstMateProjectRegistration {

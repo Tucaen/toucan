@@ -217,13 +217,13 @@ test('shows the active project as a hint for the next FirstMate request', () => 
   const panel = readFileSync(join(process.cwd(), 'src/renderer/src/FirstMatePanel.tsx'), 'utf8')
   const styles = readFileSync(join(process.cwd(), 'src/renderer/src/styles.css'), 'utf8')
 
-  const target = panel.match(/className="firstmate-request-target"[\s\S]*?<\/div>/)?.[0]
-  assert.ok(target, 'the dock should show its active-project hint before the captain submits')
-  assert.match(target, /Active hint/, 'the row should identify its non-binding role')
-  assert.match(target, /requestTarget\.name/, 'the hint row should name the project')
-  assert.match(target, /requestTarget\.windowsPath/, 'the target row should distinguish similarly named projects by path')
-  assert.match(target, /title=\{`\$\{requestTarget\.windowsPath\}[\s\S]*?requestTarget\.wslPath\}`\}/)
-  assert.match(styles, /\.firstmate-request-target\s*\{/, 'the target row needs its own style')
+  const hint = panel.match(/className="firstmate-project-hint"[\s\S]*?<\/div>/)?.[0]
+  assert.ok(hint, 'the dock should show its active-project hint before the captain submits')
+  assert.match(hint, /Active hint/, 'the row should identify its non-binding role')
+  assert.match(hint, /activeProjectHint\.name/, 'the hint row should name the project')
+  assert.match(hint, /activeProjectHint\.windowsPath/, 'the hint row should distinguish similarly named projects by path')
+  assert.match(hint, /title=\{`\$\{activeProjectHint\.windowsPath\}[\s\S]*?activeProjectHint\.wslPath\}`\}/)
+  assert.match(styles, /\.firstmate-project-hint\s*\{/, 'the hint row needs its own style')
 })
 
 test('registers every catalog project on the request and keeps mere selection read-only', () => {
@@ -264,10 +264,10 @@ test('shows the registered delivery posture of the active project hint', () => {
   const panel = readFileSync(join(process.cwd(), 'src/renderer/src/FirstMatePanel.tsx'), 'utf8')
   const styles = readFileSync(join(process.cwd(), 'src/renderer/src/styles.css'), 'utf8')
 
-  const target = panel.match(/className="firstmate-request-target"[\s\S]*?\n          <\/div>/)?.[0]
-  assert.ok(target, 'the dock should still name its active project hint')
-  assert.match(target, /registration\.mode/)
-  assert.match(target, /registration\.autonomy \? ' \+yolo' : ''/)
-  assert.match(target, /registration\.registryName/)
+  const hint = panel.match(/className="firstmate-project-hint"[\s\S]*?\n          <\/div>/)?.[0]
+  assert.ok(hint, 'the dock should still name its active project hint')
+  assert.match(hint, /registration\.mode/)
+  assert.match(hint, /registration\.autonomy \? ' \+yolo' : ''/)
+  assert.match(hint, /registration\.registryName/)
   assert.match(styles, /\.firstmate-project-posture\s*\{/)
 })

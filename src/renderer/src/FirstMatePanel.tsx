@@ -9,7 +9,7 @@ import type {
 } from '../../shared/firstmate'
 import type { WorkspaceProject } from '../../shared/terminal'
 import { ChatView, SelectorPicker, type ChatViewProps } from './ChatNode'
-import { firstMateProjectSelection, firstMateProjectTarget, firstMateRequest } from './firstmate-request-target'
+import { firstMateProjectHint, firstMateProjectSelection, firstMateRequest } from './firstmate-project-catalog'
 import {
   clampFirstMatePanelWidth,
   firstMatePanelWidthBounds,
@@ -142,7 +142,7 @@ export default function FirstMatePanel({ projects, project, state, onStateChange
   const panelRef = useRef<HTMLElement>(null)
   const resizeSession = useRef<(FirstMatePanelResizeSession & { pointerId: number }) | null>(null)
   // The sidebar selection is a hint for the next request; it is never a request or task binding.
-  const requestTarget = firstMateProjectTarget(project)
+  const activeProjectHint = firstMateProjectHint(project)
 
   useEffect(() => {
     let active = true
@@ -441,12 +441,12 @@ export default function FirstMatePanel({ projects, project, state, onStateChange
       {ready ? (
         <>
           <div
-            className="firstmate-request-target"
-            title={`${requestTarget.windowsPath}\n${requestTarget.wslPath}`}
+            className="firstmate-project-hint"
+            title={`${activeProjectHint.windowsPath}\n${activeProjectHint.wslPath}`}
           >
             <span>Active hint</span>
-            <strong>{requestTarget.name}</strong>
-            <small>{requestTarget.windowsPath}</small>
+            <strong>{activeProjectHint.name}</strong>
+            <small>{activeProjectHint.windowsPath}</small>
             {registration && (
               <em
                 className="firstmate-project-posture"

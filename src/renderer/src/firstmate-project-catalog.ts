@@ -12,7 +12,7 @@ import {
 import type { WorkspaceProject } from '../../shared/terminal'
 
 /** The active sidebar project shown as context for the next request, never as a binding. */
-export interface FirstMateProjectTarget {
+export interface FirstMateProjectHint {
   projectId: string
   name: string
   windowsPath: string
@@ -36,7 +36,7 @@ function firstMatePath(path: string): string {
   return `/mnt/${drivePath[1].toLocaleLowerCase()}/${drivePath[2]}`
 }
 
-export function firstMateProjectTarget(project: WorkspaceProject): FirstMateProjectTarget {
+export function firstMateProjectHint(project: WorkspaceProject): FirstMateProjectHint {
   return Object.freeze({
     projectId: project.id,
     name: project.name,
@@ -118,12 +118,7 @@ export function firstMateProjectCatalog(
     activeProjectHint: { adeProjectId: activeProjectId, role: 'hint-only' },
     validator,
     projects,
-    unavailableProjects,
-    instructions: {
-      selection: 'Resolve every intended crew task to exactly one projects entry; different tasks may select different entries.',
-      onUnresolvedSelection: 'If any intended task has zero or multiple matches, request clarification and do not launch any crew.',
-      dispatch: 'At dispatch, use only the selected entry paths, posture, autonomy, and taskContextMetadata.'
-    }
+    unavailableProjects
   }
 }
 
@@ -135,7 +130,8 @@ function dispatchContract(): string {
     'For every resolved ship or scout task:',
     '- use that entry\'s canonicalPaths.wsl as the absolute checkout path for both `fm-brief.sh` and `fm-spawn.sh`;',
     '- use only managed `fm-spawn.sh`, whose Git guard proves the allocated directory is a disposable worktree rather than the primary checkout;',
-    '- for a ship, pass that entry\'s effectiveDeliveryPosture as `--mode` and autonomyPolicy as `--yolo` to both commands;',
+    '- for a ship, resolve the concrete task delivery mode once at semantic intake from that entry\'s effectiveDeliveryPosture, then pass the resolved `--mode` explicitly to both commands; `no-mistakes-prod-only` is conditional policy, not a flat task mode;',
+    '- for a ship, pass that entry\'s autonomyPolicy as `--yolo` to both commands;',
     '- for a scout, pass `--scout` to both commands and do not pass ship-only mode or autonomy flags;',
     '- pass the catalog validator agent as `--harness`; omit `--model` when its value is `default`, otherwise pass it explicitly;',
     '- after spawn, append only that selected entry\'s exact taskContextMetadata to durable `state/<id>.meta`, preserving existing metadata and publishing atomically before dispatch completes.',
@@ -143,7 +139,7 @@ function dispatchContract(): string {
   ].join('\n')
 }
 
-/** Gives the persistent FirstMate captain a catalog snapshot followed by the user's message unchanged. */
+/** Gives the persistent FirstMate captain a project-catalog snapshot followed by the user's message unchanged. */
 export function firstMateRequest(
   requestProjects: FirstMateRequestProject[],
   activeProjectId: string,

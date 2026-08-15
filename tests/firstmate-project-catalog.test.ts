@@ -7,10 +7,11 @@ import type {
 import { firstMateTaskContextFromMetadata } from '../src/shared/firstmate-task-context'
 import type { WorkspaceProject } from '../src/shared/terminal'
 import {
-  firstMateProjectTarget,
+  firstMateProjectHint,
   firstMateRequest,
   type FirstMateRequestProject
-} from '../src/renderer/src/firstmate-request-target'
+} from '../src/renderer/src/firstmate-project-catalog'
+import { firstMateCatalogFromRequest } from './firstmate-catalog-test-helpers'
 
 const alpha: WorkspaceProject = {
   id: 'alpha', name: 'Api', path: 'D:\\Development\\alpha\\api', color: '#71a9ff'
@@ -26,7 +27,7 @@ function registrationFor(
   project: WorkspaceProject,
   options: { origin?: string; mode?: 'no-mistakes-prod-only' | 'local-only'; autonomy?: boolean } = {}
 ): FirstMateProjectRegistration {
-  const target = firstMateProjectTarget(project)
+  const hint = firstMateProjectHint(project)
   return {
     ok: true,
     project: {
@@ -34,7 +35,7 @@ function registrationFor(
       registryName: `${project.name.toLocaleLowerCase()}-${project.id}`,
       displayName: project.name,
       windowsPath: project.path,
-      wslPath: target.wslPath,
+      wslPath: hint.wslPath,
       ...(options.origin === undefined && options.mode === 'local-only'
         ? {}
         : { origin: options.origin ?? `git@github.com:acme/${project.id}.git` }),
@@ -53,12 +54,6 @@ function requestProject(
   return { selection: project, registration }
 }
 
-function catalogFrom(prompt: string): FirstMateProjectCatalog {
-  const json = /<ade-project-catalog>\n([^\n]+)\n<\/ade-project-catalog>/.exec(prompt)?.[1]
-  assert.ok(json, 'the request should contain one machine-readable project catalog')
-  return JSON.parse(json) as FirstMateProjectCatalog
-}
-
 interface FakeCaptainDispatch {
   clarification?: string
   tasks: Array<{ projectId: string; metadata: string }>
@@ -66,20 +61,24 @@ interface FakeCaptainDispatch {
 
 /** Selects exactly as the captain is instructed to, without invoking a model or spawn machinery. */
 function fakeCaptainSelect(catalog: FirstMateProjectCatalog, projectIds: string[]): FakeCaptainDispatch {
-  const selected = projectIds.map((projectId) => ({
-    projectId,
-    matches: catalog.projects.filter((project) => project.adeProjectId === projectId)
+  const selected = projectIds.map((projectReference) => ({
+    projectReference,
+    matches: catalog.projects.filter((project) => (
+      project.adeProjectId === projectReference
+      || project.registryName === projectReference
+      || project.displayName === projectReference
+    ))
   }))
   const unresolved = selected.find(({ matches }) => matches.length !== 1)
   if (unresolved) {
     return {
-      clarification: `Clarify ${unresolved.projectId}: found ${unresolved.matches.length} catalog matches.`,
+      clarification: `Clarify ${unresolved.projectReference}: found ${unresolved.matches.length} catalog matches.`,
       tasks: []
     }
   }
   return {
-    tasks: selected.map(({ projectId, matches }) => ({
-      projectId,
+    tasks: selected.map(({ projectReference, matches }) => ({
+      projectId: matches[0]?.adeProjectId ?? projectReference,
       metadata: matches[0]!.taskContextMetadata
     }))
   }
@@ -92,7 +91,7 @@ test('delivers a machine-readable catalog with the active sidebar project marked
     'Ship the API',
     { provider: 'claude', model: 'claude-sonnet-4-5' }
   )
-  const catalog = catalogFrom(prompt)
+  const catalog = firstMateCatalogFromRequest(prompt)
 
   assert.deepEqual(catalog.activeProjectHint, { adeProjectId: 'beta', role: 'hint-only' })
   assert.deepEqual(catalog.validator, { agent: 'claude', model: 'claude-sonnet-4-5' })
@@ -133,7 +132,7 @@ test('a fake captain can pin a non-active project at dispatch', () => {
     { provider: 'codex', model: 'gpt-5.6-sol' }
   )
 
-  const dispatch = fakeCaptainSelect(catalogFrom(prompt), ['beta'])
+  const dispatch = fakeCaptainSelect(firstMateCatalogFromRequest(prompt), ['beta'])
   const context = firstMateTaskContextFromMetadata(dispatch.tasks[0]!.metadata)
 
   assert.equal(dispatch.clarification, undefined)
@@ -143,7 +142,7 @@ test('a fake captain can pin a non-active project at dispatch', () => {
 })
 
 test('a fake captain can pin separate projects for separate tasks from one request', () => {
-  const catalog = catalogFrom(firstMateRequest(
+  const catalog = firstMateCatalogFromRequest(firstMateRequest(
     [requestProject(alpha), requestProject(beta)],
     alpha.id,
     'Update the API and web app',
@@ -160,29 +159,31 @@ test('a fake captain can pin separate projects for separate tasks from one reque
 })
 
 test('a missing or ambiguous captain selection requests clarification and dispatches no task', () => {
-  const catalog = catalogFrom(firstMateRequest(
-    [requestProject(alpha), requestProject(beta)],
+  const sameNameBeta = { ...beta, name: 'Api' }
+  const catalog = firstMateCatalogFromRequest(firstMateRequest(
+    [requestProject(alpha), requestProject(sameNameBeta)],
     alpha.id,
     'Fix the service',
     { provider: 'codex' }
   ))
 
   const missing = fakeCaptainSelect(catalog, ['unknown'])
-  const ambiguous = fakeCaptainSelect({
-    ...catalog,
-    projects: [...catalog.projects, { ...catalog.projects[0]! }]
-  }, ['alpha'])
+  const ambiguous = fakeCaptainSelect(catalog, ['Api'])
 
   assert.match(missing.clarification ?? '', /found 0 catalog matches/)
   assert.deepEqual(missing.tasks, [])
   assert.match(ambiguous.clarification ?? '', /found 2 catalog matches/)
   assert.deepEqual(ambiguous.tasks, [])
-  assert.match(catalog.instructions.onUnresolvedSelection, /clarification/i)
-  assert.match(catalog.instructions.onUnresolvedSelection, /do not launch any crew/i)
+  assert.match(firstMateRequest(
+    [requestProject(alpha), requestProject(sameNameBeta)],
+    alpha.id,
+    'Fix the service',
+    { provider: 'codex' }
+  ), /missing or ambiguous[\s\S]*?clarification and launch no crew/i)
 })
 
 test('classifies remote-backed and local-only projects without losing their delivery policy', () => {
-  const catalog = catalogFrom(firstMateRequest(
+  const catalog = firstMateCatalogFromRequest(firstMateRequest(
     [
       requestProject(alpha),
       requestProject(local, registrationFor(local, { mode: 'local-only', autonomy: true }))
@@ -204,7 +205,7 @@ test('classifies remote-backed and local-only projects without losing their deli
 })
 
 test('unavailable projects remain machine-readable but cannot supply a dispatch context', () => {
-  const catalog = catalogFrom(firstMateRequest(
+  const catalog = firstMateCatalogFromRequest(firstMateRequest(
     [
       requestProject(alpha),
       requestProject(beta, {
@@ -234,7 +235,7 @@ test('changing the active sidebar hint after dispatch cannot retarget existing t
     'Fix beta',
     { provider: 'codex' }
   )
-  const dispatched = fakeCaptainSelect(catalogFrom(request), ['beta']).tasks[0]!
+  const dispatched = fakeCaptainSelect(firstMateCatalogFromRequest(request), ['beta']).tasks[0]!
 
   firstMateRequest(
     [requestProject(alpha), requestProject(beta)],
@@ -249,14 +250,14 @@ test('changing the active sidebar hint after dispatch cannot retarget existing t
   })
 })
 
-test('snapshots a sidebar project path for display without making it the request target', () => {
-  const target = firstMateProjectTarget(alpha)
+test('snapshots a sidebar project path for display without making it a request binding', () => {
+  const hint = firstMateProjectHint(alpha)
 
-  assert.deepEqual({ ...target }, {
+  assert.deepEqual({ ...hint }, {
     projectId: 'alpha',
     name: 'Api',
     windowsPath: 'D:\\Development\\alpha\\api',
     wslPath: '/mnt/d/Development/alpha/api'
   })
-  assert.ok(Object.isFrozen(target))
+  assert.ok(Object.isFrozen(hint))
 })
