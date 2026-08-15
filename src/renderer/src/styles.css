@@ -1798,8 +1798,8 @@ button {
   opacity: 0.45;
 }
 
-/* The project the next FirstMate request is assigned to. */
-.firstmate-request-target {
+/* The active sidebar project shown as a non-binding hint to FirstMate. */
+.firstmate-project-hint {
   display: flex;
   align-items: baseline;
   gap: 8px;
@@ -1808,7 +1808,7 @@ button {
   background: #141920;
 }
 
-.firstmate-request-target > span {
+.firstmate-project-hint > span {
   flex: 0 0 auto;
   color: #697584;
   font-size: 9px;
@@ -1817,13 +1817,13 @@ button {
   text-transform: uppercase;
 }
 
-.firstmate-request-target > strong {
+.firstmate-project-hint > strong {
   flex: 0 0 auto;
   color: #d7deea;
   font-size: 12px;
 }
 
-.firstmate-request-target > small {
+.firstmate-project-hint > small {
   min-width: 0;
   flex: 1 1 auto;
   overflow: hidden;

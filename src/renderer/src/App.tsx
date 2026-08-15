@@ -523,6 +523,7 @@ function Canvas(): JSX.Element {
 
         {workspaceReady && activeProject && (
           <FirstMatePanel
+            projects={projects}
             project={activeProject}
             state={firstMate}
             onStateChange={setFirstMate}

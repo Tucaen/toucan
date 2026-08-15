@@ -189,20 +189,20 @@ test('offers an explicit way out of a validation dispatch ADE cannot resolve', (
   )
 })
 
-test('assigns every FirstMate request to the project selected in the sidebar', () => {
+test('gives every FirstMate request the full project catalog and the active sidebar hint', () => {
   const app = readFileSync(join(process.cwd(), 'src/renderer/src/App.tsx'), 'utf8')
   const panel = readFileSync(join(process.cwd(), 'src/renderer/src/FirstMatePanel.tsx'), 'utf8')
   const conversation = readFileSync(join(process.cwd(), 'src/renderer/src/use-agent-conversation.ts'), 'utf8')
 
   assert.match(
     app,
-    /<FirstMatePanel[\s\S]*?project=\{activeProject\}/,
-    'the FirstMate dock should receive the current sidebar selection'
+    /<FirstMatePanel[\s\S]*?projects=\{projects\}[\s\S]*?project=\{activeProject\}/,
+    'the FirstMate dock should receive both the catalog source and current sidebar hint'
   )
   assert.match(
     panel,
-    /composePrompt:\s*async \(text\) => \{[\s\S]*?registerProject\(firstMateProjectSelection\(project\)\)[\s\S]*?return firstMateRequest\(project, text, \{[\s\S]*?registration: result,[\s\S]*?provider,[\s\S]*?model: state\.modelId/,
-    'FirstMate should identify the selected project on every request without changing its distro cwd'
+    /composePrompt:\s*async \(text\) => \{[\s\S]*?Promise\.all\(projects\.map[\s\S]*?registerProject\(firstMateProjectSelection\(catalogProject\)\)[\s\S]*?firstMateRequest\(requestProjects, project\.id, text, \{[\s\S]*?provider,[\s\S]*?model: state\.modelId/,
+    'FirstMate should receive every registered project plus the active hint without changing its distro cwd'
   )
   const sessionDependencies = conversation.match(/\}, \[options\.cwd[^\]]*\]\)/)?.[0]
   assert.ok(sessionDependencies, 'the ACP session should declare its dependencies')
@@ -213,19 +213,20 @@ test('assigns every FirstMate request to the project selected in the sidebar', (
   )
 })
 
-test('shows the project the next FirstMate request will target', () => {
+test('shows the active project as a hint for the next FirstMate request', () => {
   const panel = readFileSync(join(process.cwd(), 'src/renderer/src/FirstMatePanel.tsx'), 'utf8')
   const styles = readFileSync(join(process.cwd(), 'src/renderer/src/styles.css'), 'utf8')
 
-  const target = panel.match(/className="firstmate-request-target"[\s\S]*?<\/div>/)?.[0]
-  assert.ok(target, 'the dock should name its request target before the captain submits')
-  assert.match(target, /requestTarget\.name/, 'the target row should name the project')
-  assert.match(target, /requestTarget\.windowsPath/, 'the target row should distinguish similarly named projects by path')
-  assert.match(target, /title=\{`\$\{requestTarget\.windowsPath\}[\s\S]*?requestTarget\.wslPath\}`\}/)
-  assert.match(styles, /\.firstmate-request-target\s*\{/, 'the target row needs its own style')
+  const hint = panel.match(/className="firstmate-project-hint"[\s\S]*?<\/div>/)?.[0]
+  assert.ok(hint, 'the dock should show its active-project hint before the captain submits')
+  assert.match(hint, /Active hint/, 'the row should identify its non-binding role')
+  assert.match(hint, /activeProjectHint\.name/, 'the hint row should name the project')
+  assert.match(hint, /activeProjectHint\.windowsPath/, 'the hint row should distinguish similarly named projects by path')
+  assert.match(hint, /title=\{`\$\{activeProjectHint\.windowsPath\}[\s\S]*?activeProjectHint\.wslPath\}`\}/)
+  assert.match(styles, /\.firstmate-project-hint\s*\{/, 'the hint row needs its own style')
 })
 
-test('registers the selected project on the request and keeps mere selection read-only', () => {
+test('registers every catalog project on the request and keeps mere selection read-only', () => {
   const panel = readFileSync(join(process.cwd(), 'src/renderer/src/FirstMatePanel.tsx'), 'utf8')
   const app = readFileSync(join(process.cwd(), 'src/renderer/src/App.tsx'), 'utf8')
   const preload = readFileSync(join(process.cwd(), 'src/preload/index.ts'), 'utf8')
@@ -236,6 +237,11 @@ test('registers the selected project on the request and keeps mere selection rea
   assert.doesNotMatch(selectionEffect, /registerProject/, 'selecting a project must not register or mutate it')
   assert.match(preload, /registerProject:[\s\S]*?firstmate:register-project/)
   assert.match(preload, /recordedProject:[\s\S]*?firstmate:recorded-project/)
+  assert.match(
+    panel,
+    /Promise\.all\(projects\.map[\s\S]*?registerProject\(firstMateProjectSelection\(catalogProject\)\)/,
+    'submission should validate each sidebar project for the machine-readable catalog'
+  )
   assert.match(
     app,
     /retireProject\(projectId\)/,
@@ -254,14 +260,14 @@ test('holds no-mistakes gate setup behind an explicit authorization in the dock'
   assert.match(preload, /authorizeProjectInitialization:[\s\S]*?firstmate:authorize-project-init/)
 })
 
-test('shows the registered delivery posture of the project the next request targets', () => {
+test('shows the registered delivery posture of the active project hint', () => {
   const panel = readFileSync(join(process.cwd(), 'src/renderer/src/FirstMatePanel.tsx'), 'utf8')
   const styles = readFileSync(join(process.cwd(), 'src/renderer/src/styles.css'), 'utf8')
 
-  const target = panel.match(/className="firstmate-request-target"[\s\S]*?\n          <\/div>/)?.[0]
-  assert.ok(target, 'the dock should still name its request target')
-  assert.match(target, /registration\.mode/)
-  assert.match(target, /registration\.autonomy \? ' \+yolo' : ''/)
-  assert.match(target, /registration\.registryName/)
+  const hint = panel.match(/className="firstmate-project-hint"[\s\S]*?\n          <\/div>/)?.[0]
+  assert.ok(hint, 'the dock should still name its active project hint')
+  assert.match(hint, /registration\.mode/)
+  assert.match(hint, /registration\.autonomy \? ' \+yolo' : ''/)
+  assert.match(hint, /registration\.registryName/)
   assert.match(styles, /\.firstmate-project-posture\s*\{/)
 })

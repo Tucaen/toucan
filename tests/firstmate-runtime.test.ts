@@ -11,10 +11,11 @@ import {
   type FirstMateTaskContext
 } from '../src/shared/firstmate-task-context'
 import { createFirstMateLifecycleCoordinator } from '../src/main/firstmate-lifecycle-coordinator'
-import { firstMateRequest } from '../src/renderer/src/firstmate-request-target'
+import { firstMateRequest } from '../src/renderer/src/firstmate-project-catalog'
 import type { FirstMateLifecycleJournal, FirstMateLifecycleRecord } from '../src/main/firstmate-lifecycle'
 import type { FirstMateProjectRegistration } from '../src/shared/firstmate'
 import type { WorkspaceProject } from '../src/shared/terminal'
+import { firstMateCatalogFromRequest } from './firstmate-catalog-test-helpers'
 
 function writeDistro(path: string): void {
   mkdirSync(join(path, 'bin'), { recursive: true })
@@ -364,18 +365,22 @@ test('keeps two switched external projects on their original providers through s
       registeredAt: '2026-08-15'
     }
   })
-  const alphaPrompt = firstMateRequest(alpha, 'Ship alpha', {
-    registration: registration(alpha, 'api-alpha', alphaCrew.primaryWsl),
+  const alphaPrompt = firstMateRequest([{
+    selection: alpha,
+    registration: registration(alpha, 'api-alpha', alphaCrew.primaryWsl)
+  }], alpha.id, 'Ship alpha', {
     provider: 'codex',
     model: 'gpt-5.6-sol'
   })
-  const betaPrompt = firstMateRequest(beta, 'Ship beta', {
-    registration: registration(beta, 'api-beta', betaCrew.primaryWsl),
+  const betaPrompt = firstMateRequest([{
+    selection: beta,
+    registration: registration(beta, 'api-beta', betaCrew.primaryWsl)
+  }], beta.id, 'Ship beta', {
     provider: 'claude',
     model: 'claude-sonnet-4-5'
   })
   const carrier = (prompt: string): string => {
-    const value = /^- exact task metadata: `(ade_task_context=.*)`$/m.exec(prompt)?.[1]
+    const value = firstMateCatalogFromRequest(prompt).projects[0]?.taskContextMetadata
     assert.ok(value)
     return value
   }
@@ -407,10 +412,10 @@ test('keeps two switched external projects on their original providers through s
     }
   }
 
-  assert.ok(alphaPrompt.includes(`fm-brief.sh\` and \`fm-spawn.sh\`: ${JSON.stringify(alphaCrew.primaryWsl)}`))
-  assert.ok(betaPrompt.includes(`fm-brief.sh\` and \`fm-spawn.sh\`: ${JSON.stringify(betaCrew.primaryWsl)}`))
-  assert.match(alphaPrompt, /--mode` explicitly to both commands/)
-  assert.match(betaPrompt, /--mode` explicitly to both commands/)
+  assert.ok(alphaPrompt.includes(alphaCrew.primaryWsl))
+  assert.ok(betaPrompt.includes(betaCrew.primaryWsl))
+  assert.match(alphaPrompt, /resolve the concrete task delivery mode[\s\S]*?pass the resolved `--mode`/)
+  assert.match(betaPrompt, /resolve the concrete task delivery mode[\s\S]*?pass the resolved `--mode`/)
 
   const alphaDispatch = fakeFirstMateShip(alphaPrompt, 'alpha-ship', alphaCrew.worktreeWsl)
   const betaDispatch = fakeFirstMateShip(betaPrompt, 'beta-ship', betaCrew.worktreeWsl)
