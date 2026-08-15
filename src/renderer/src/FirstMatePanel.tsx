@@ -135,6 +135,7 @@ export default function FirstMatePanel({ projects, project, state, onStateChange
   const [installing, setInstalling] = useState(false)
   const [waitingForGitHub, setWaitingForGitHub] = useState(false)
   const [releasingDispatch, setReleasingDispatch] = useState<string>()
+  const [retryingDispatch, setRetryingDispatch] = useState<string>()
   const [enablingCodexHooks, setEnablingCodexHooks] = useState(false)
   const [codexHookError, setCodexHookError] = useState<string>()
   const [enablingFleetAccess, setEnablingFleetAccess] = useState(false)
@@ -270,6 +271,18 @@ export default function FirstMatePanel({ projects, project, state, onStateChange
       setLifecycle((current) => ({
         ...current,
         message: result.message ?? `ADE could not release the validation dispatch for ${taskId}.`
+      }))
+    })
+  }
+
+  const retryDispatch = (taskId: string): void => {
+    setRetryingDispatch(taskId)
+    void window.firstMateApi.retryDispatch(taskId).then((result) => {
+      setRetryingDispatch(undefined)
+      if (result.ok) return
+      setLifecycle((current) => ({
+        ...current,
+        message: result.message ?? `ADE could not retry the validation dispatch for ${taskId}.`
       }))
     })
   }
@@ -553,6 +566,19 @@ export default function FirstMatePanel({ projects, project, state, onStateChange
                       }
                     >
                       {releasingDispatch === task.id ? 'Releasing…' : 'Release'}
+                    </button>
+                  )}
+                  {task.stage === 'blocked' && task.dispatch?.status === 'retryable' && (
+                    <button
+                      type="button"
+                      onClick={() => retryDispatch(task.id)}
+                      disabled={retryingDispatch === task.id}
+                      title={
+                        'Every delivery attempt failed before reaching FirstMate, so no validation started. '
+                        + 'Retrying resets the attempt budget and re-sends the same dispatch identity.'
+                      }
+                    >
+                      {retryingDispatch === task.id ? 'Retrying…' : 'Retry'}
                     </button>
                   )}
                 </div>

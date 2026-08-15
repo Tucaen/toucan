@@ -2,13 +2,15 @@ import type { AgentPromptResult } from '../shared/agent'
 import type {
   FirstMateActionResult,
   FirstMateLifecycleTask,
-  FirstMateTaskDispatch
+  FirstMateTaskDispatch,
+  FirstMateValidationDelivery
 } from '../shared/firstmate'
 import type { FirstMateRuntime } from './firstmate-runtime'
 import {
   firstMateAppWakeMessage,
   firstMateReconciliationFailureMessage,
   firstMateReleasedDispatchRecord,
+  firstMateRetriedDispatchRecord,
   planValidationDispatch,
   type FirstMateDispatchMemory,
   type FirstMateLifecycleRecord
@@ -26,6 +28,12 @@ export interface FirstMateLifecycleCoordinator {
    * recorded identity so a worker that did receive the first continuation can deduplicate it.
    */
   releaseDispatch(taskId: string): Promise<FirstMateActionResult>
+  /**
+   * Hands an attempts-exhausted dispatch back to reconciliation with a fresh budget, on an explicit
+   * request from outside. Every attempt that exhausted the budget failed before the external send,
+   * so a clean attempt reuses the same stable identity and cannot start a second validation run.
+   */
+  retryDispatch(taskId: string): Promise<FirstMateActionResult>
   start(): void
   stop(): void
 }
@@ -187,32 +195,34 @@ export function createFirstMateLifecycleCoordinator(
     const claimed = await persist(claimedTask(task, dispatch))
     liveDispatches.set(id, 'claimed')
 
-    let result: FirstMateActionResult
+    let delivery: FirstMateValidationDelivery
     try {
-      result = await options.runtime.continueValidation(task.id, id)
+      delivery = await options.runtime.continueValidation(task.id, id)
     } catch (error) {
       // A continuation that threw may still have been delivered, so its outcome is unknowable.
-      // Clearing the claim first means a failed write recovers to the same conclusion.
-      liveDispatches.delete(id)
-      return persist(blockedTask(
-        claimed,
-        { id, status: 'unresolved', attempt },
-        unresolvedDetail(id, errorMessage(error))
-      ))
+      delivery = { outcome: 'indeterminate', message: errorMessage(error) }
     }
 
-    if (result.ok) {
+    if (delivery.outcome === 'acknowledged') {
       liveDispatches.set(id, 'acknowledged')
       return settle(acknowledgedTask(claimed, dispatch))
     }
 
-    // A rejected continuation is proof nothing was delivered, so this attempt is safe to retire.
-    // Whether the budget allows another is the next pass's decision, from durable state alone.
-    liveDispatches.set(id, 'retryable')
-    return settle(retryableTask(
+    // Proven to have failed before anything reached FirstMate: this attempt is safe to retire, and
+    // whether the budget allows another is the next pass's decision, from durable state alone.
+    if (delivery.outcome === 'rejected-before-send') {
+      liveDispatches.set(id, 'retryable')
+      return settle(retryableTask(claimed, dispatch, delivery.message))
+    }
+
+    // Indeterminate: a timeout, a failure after the send began, or a lost acknowledgement. The
+    // continuation may already be running, so ADE never re-sends it on its own; recovery is explicit.
+    // Clearing the claim first means a failed write recovers to the same conclusion.
+    liveDispatches.delete(id)
+    return persist(blockedTask(
       claimed,
-      dispatch,
-      result.message ?? 'ADE could not continue no-mistakes validation.'
+      { id, status: 'unresolved', attempt },
+      unresolvedDetail(id, delivery.message)
     ))
   }
 
@@ -245,23 +255,42 @@ export function createFirstMateLifecycleCoordinator(
     }
   }
 
+  /**
+   * The shared shape of every explicit dispatch recovery: find the durable task, ask a record
+   * builder whether the recovery applies to its current state, and persist the record it returns.
+   * The builder is the only difference between releasing an unresolved dispatch and retrying an
+   * exhausted one, so each recovery is just the builder plus the reason it does not apply.
+   */
+  const recoverDispatch = async (
+    taskId: string,
+    build: (task: FirstMateLifecycleTask, now: Date) => FirstMateLifecycleRecord | undefined,
+    inapplicable: string
+  ): Promise<FirstMateActionResult> => {
+    try {
+      const lifecycle = await options.runtime.lifecycle()
+      const task = lifecycle.tasks.find((candidate) => candidate.id === taskId)
+      if (!task) return { ok: false, message: `ADE has no durable state for task ${taskId}.` }
+      const record = build(task, now())
+      if (!record) return { ok: false, message: inapplicable }
+      await options.runtime.recordLifecycle(taskId, record)
+      return { ok: true }
+    } catch (error) {
+      return { ok: false, message: errorMessage(error) }
+    }
+  }
+
   return {
     poll,
-    async releaseDispatch(taskId: string): Promise<FirstMateActionResult> {
-      try {
-        const lifecycle = await options.runtime.lifecycle()
-        const task = lifecycle.tasks.find((candidate) => candidate.id === taskId)
-        if (!task) return { ok: false, message: `ADE has no durable state for task ${taskId}.` }
-        const record = firstMateReleasedDispatchRecord(task, now())
-        if (!record) {
-          return { ok: false, message: `Task ${taskId} has no unresolved validation dispatch to release.` }
-        }
-        await options.runtime.recordLifecycle(taskId, record)
-        return { ok: true }
-      } catch (error) {
-        return { ok: false, message: errorMessage(error) }
-      }
-    },
+    releaseDispatch: (taskId: string): Promise<FirstMateActionResult> => recoverDispatch(
+      taskId,
+      firstMateReleasedDispatchRecord,
+      `Task ${taskId} has no unresolved validation dispatch to release.`
+    ),
+    retryDispatch: (taskId: string): Promise<FirstMateActionResult> => recoverDispatch(
+      taskId,
+      firstMateRetriedDispatchRecord,
+      `Task ${taskId} has no exhausted validation dispatch to retry.`
+    ),
     start(): void {
       if (timer) return
       void poll()

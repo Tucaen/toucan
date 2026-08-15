@@ -314,15 +314,29 @@ test('continues validation with the task-pinned validator after the global provi
   })
 
   await runtime.status()
-  const result = await runtime.continueValidation('resize', 'resize.a1b2c3.1')
+  const result = await runtime.continueValidation('resize', 'resize.a1b2c3')
 
-  assert.equal(result.ok, true)
-  const continuation = calls.find((args) => args.some((arg) => arg.endsWith('/bin/fm-send.sh')))
+  assert.deepEqual(result, { outcome: 'acknowledged' })
+  const sendIndex = calls.findIndex((args) => args.some((arg) => arg.endsWith('/bin/fm-send.sh')))
+  const continuation = calls[sendIndex]
   assert.ok(continuation)
   assert.ok(continuation.includes('resize'))
+  const ledgerIndex = calls.findIndex((args) => (
+    args.some((arg) => arg.includes('.ade-validation-dispatches.json')) && args.includes('resize.a1b2c3')
+  ))
+  assert.ok(ledgerIndex >= 0, 'the dispatch identity is durably recorded so a repeat is recognisable')
+  assert.ok(
+    ledgerIndex < sendIndex,
+    'the durable dispatch evidence must exist before the external send, not after it'
+  )
   const continuationPrompt = continuation.find((arg) => arg.startsWith('$no-mistakes')) ?? ''
   assert.match(continuationPrompt, /state\/resize\.ade-runtime\.json/)
-  assert.match(continuationPrompt, /ADE validation dispatch id: resize\.a1b2c3\.1/)
+  assert.match(continuationPrompt, /ADE validation dispatch id: resize\.a1b2c3/)
+  assert.match(
+    continuationPrompt,
+    /\.ade-validation-dispatches\.json/,
+    'the continuation points the receiver at the durable ledger, not the prompt alone'
+  )
   assert.match(continuationPrompt, /do not use[\s\S]*filtered doctor text, or guessed homes/i)
   assert.ok(continuation.includes('ADE_FIRSTMATE_RUNTIME_CONFIG=/home/tucaen/.local/share/ade/firstmate/home/state/resize.ade-runtime.json'))
   assert.ok(continuation.includes('ADE_FIRSTMATE_VALIDATOR_AGENT=codex'))
@@ -356,6 +370,69 @@ test('continues validation with the task-pinned validator after the global provi
     Buffer.from(pipelineWrite.at(-1) ?? '', 'base64url').toString('utf8'),
     new RegExp(`agent: codex[\\s\\S]*${taskConfig.validator.agentPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`)
   )
+})
+
+test('recognises an already-acknowledged dispatch identity from the durable ledger and never sends it again', async () => {
+  const context: FirstMateTaskContext = {
+    version: 1,
+    project: {
+      adeProjectId: 'alpha',
+      registryName: 'api-alpha',
+      windowsPath: 'D:\\Development\\alpha\\api',
+      wslPath: '/mnt/d/Development/alpha/api',
+      mode: 'no-mistakes',
+      autonomy: false
+    },
+    validator: { agent: 'codex', model: 'gpt-5.6-sol' }
+  }
+  const sends: string[][] = []
+  const runtime = createFirstMateRuntime({
+    platform: 'win32',
+    resolveGit: () => 'git.exe',
+    wsl: {
+      run: async (args) => {
+        const scriptIndex = args.indexOf('-e')
+        const script = scriptIndex >= 0 ? args[scriptIndex + 1] ?? '' : ''
+        if (script.includes("endsWith('.meta')")) {
+          return {
+            stdout: JSON.stringify({
+              tasks: [{
+                id: 'resize',
+                meta: [
+                  'kind=ship', 'mode=no-mistakes', 'yolo=off',
+                  'project=/mnt/d/Development/alpha/api',
+                  'worktree=/home/tucaen/.treehouse/alpha/resize',
+                  'harness=codex', 'model=gpt-5.6-sol',
+                  firstMateTaskContextMetadata(context)
+                ].join('\n'),
+                status: 'done: committed implementation\n'
+              }],
+              dispatchLedger: JSON.stringify({
+                version: 1,
+                dispatches: {
+                  'resize.ackhash': {
+                    taskId: 'resize', status: 'acknowledged', recordedAt: '2026-08-15T00:00:00.000Z', deliveries: 1
+                  }
+                }
+              })
+            }),
+            stderr: ''
+          }
+        }
+        if (args.some((arg) => arg.endsWith('/bin/fm-send.sh'))) {
+          sends.push(args)
+          return { stdout: '', stderr: '' }
+        }
+        return { stdout: readyWslInspection(), stderr: '' }
+      }
+    }
+  })
+
+  await runtime.status()
+  const result = await runtime.continueValidation('resize', 'resize.ackhash')
+
+  assert.deepEqual(result, { outcome: 'acknowledged' })
+  assert.deepEqual(sends, [], 'a provably delivered identity is recognised from disk, not sent a second time')
 })
 
 test('keeps two switched external projects on their original providers through supervision and restart', async () => {
@@ -735,7 +812,6 @@ test('reports FirstMate as unsupported off Windows and offers no install or laun
     runtime.authenticateGitHub(),
     runtime.trustCodexProject(),
     runtime.configureValidator('codex', 'gpt-5.6-sol'),
-    runtime.continueValidation('alpha-ship', 'alpha-ship.hash.1'),
     runtime.registerProject({ projectId: 'alpha', name: 'Api', path: '/home/tucaen/alpha/api' }),
     runtime.authorizeProjectInitialization('alpha'),
     runtime.retireProject('alpha')
@@ -743,6 +819,12 @@ test('reports FirstMate as unsupported off Windows and offers no install or laun
     assert.equal(refusal.ok, false)
     assert.equal(refusal.message, status.message)
   }
+  const delivery = await runtime.continueValidation('alpha-ship', 'alpha-ship.hash')
+  assert.deepEqual(
+    delivery,
+    { outcome: 'rejected-before-send', message: status.message },
+    'an unsupported platform never begins an external send'
+  )
   await assert.rejects(
     runtime.recordLifecycle('alpha-ship', {
       stage: 'implemented',

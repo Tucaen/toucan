@@ -121,6 +121,9 @@ function registerFirstMateIpc(
   ipcMain.handle('firstmate:release-dispatch', (_event, taskId: unknown) => (
     typeof taskId === 'string' && taskId ? lifecycle.releaseDispatch(taskId) : UNREADABLE_TASK
   ))
+  ipcMain.handle('firstmate:retry-dispatch', (_event, taskId: unknown) => (
+    typeof taskId === 'string' && taskId ? lifecycle.retryDispatch(taskId) : UNREADABLE_TASK
+  ))
 }
 
 function registerProjectIpc(): void {

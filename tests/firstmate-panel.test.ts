@@ -189,6 +189,29 @@ test('offers an explicit way out of a validation dispatch ADE cannot resolve', (
   )
 })
 
+test('offers an explicit retry for a dispatch whose pre-send attempts were exhausted', () => {
+  const panel = readFileSync(join(process.cwd(), 'src/renderer/src/FirstMatePanel.tsx'), 'utf8')
+  const preload = readFileSync(join(process.cwd(), 'src/preload/index.ts'), 'utf8')
+  const main = readFileSync(join(process.cwd(), 'src/main/index.ts'), 'utf8')
+
+  assert.match(
+    panel,
+    /task\.stage === 'blocked' && task\.dispatch\?\.status === 'retryable' && \([\s\S]*?onClick=\{\(\) => retryDispatch\(task\.id\)\}/,
+    'an attempts-exhausted dispatch must be retryable from the row that reports it'
+  )
+  assert.match(
+    panel,
+    /window\.firstMateApi\.retryDispatch\(taskId\)/,
+    'the retry should go through the FirstMate bridge rather than a local state change'
+  )
+  assert.match(preload, /retryDispatch: \(taskId: string\)[\s\S]*?'firstmate:retry-dispatch'/)
+  assert.match(
+    main,
+    /'firstmate:retry-dispatch'[\s\S]*?typeof taskId === 'string' && taskId \? lifecycle\.retryDispatch\(taskId\)/,
+    'retrying a dispatch is reconciliation work, so it belongs to the lifecycle coordinator'
+  )
+})
+
 test('gives every FirstMate request the full project catalog and the active sidebar hint', () => {
   const app = readFileSync(join(process.cwd(), 'src/renderer/src/App.tsx'), 'utf8')
   const panel = readFileSync(join(process.cwd(), 'src/renderer/src/FirstMatePanel.tsx'), 'utf8')

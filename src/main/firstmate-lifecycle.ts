@@ -21,6 +21,8 @@ export interface FirstMateRawTask {
 export interface FirstMateLifecycleFiles {
   runtimeConfig?: string
   journal?: string
+  /** The durable dispatch ledger, read back so an already-delivered identity is recognisable. */
+  dispatchLedger?: string
   tasks: FirstMateRawTask[]
 }
 
@@ -41,6 +43,59 @@ export interface FirstMateLifecycleJournal {
 
 /** ADE's own durable lifecycle journal inside FirstMate's private state directory. */
 export const FIRSTMATE_LIFECYCLE_JOURNAL_FILE = '.ade-lifecycle.json'
+
+/**
+ * The durable ledger of validation dispatch identities ADE has delivered, kept in FirstMate's shared
+ * state directory rather than ADE's private journal so the receiving boundary can consult it too. It
+ * is the durable evidence that turns a stable dispatch identity into exactly-once processing: a
+ * repeated identity is recognisable here instead of only in a process's memory or a prompt.
+ */
+export const FIRSTMATE_DISPATCH_LEDGER_FILE = '.ade-validation-dispatches.json'
+
+/**
+ * One dispatch identity's row in the durable ledger. `dispatched` records that ADE began an external
+ * send of this identity; `acknowledged` records that a send of it completed. `deliveries` counts how
+ * many times the identity was sent, so a repeated delivery leaves durable evidence rather than none.
+ */
+export interface FirstMateDispatchLedgerEntry {
+  taskId: string
+  status: 'dispatched' | 'acknowledged'
+  recordedAt: string
+  deliveries: number
+}
+
+interface FirstMateDispatchLedger {
+  version: 1
+  dispatches: Record<string, FirstMateDispatchLedgerEntry>
+}
+
+function isLedgerEntry(value: unknown): value is FirstMateDispatchLedgerEntry {
+  if (!value || typeof value !== 'object') return false
+  const candidate = value as Partial<FirstMateDispatchLedgerEntry>
+  return typeof candidate.taskId === 'string'
+    && (candidate.status === 'dispatched' || candidate.status === 'acknowledged')
+}
+
+/**
+ * Reads back the durable evidence of a dispatch identity, so recognition of a repeat is code
+ * enforced from disk rather than left to a process's memory or the receiver's reading of a prompt.
+ * An identity already recorded as `acknowledged` was provably delivered once and must never be sent
+ * a second time; a `dispatched`-only identity has an unproven delivery an operator may still resend.
+ */
+export function firstMateRecognisedDispatch(
+  ledgerText: string | undefined,
+  dispatchId: string
+): FirstMateDispatchLedgerEntry | undefined {
+  if (!ledgerText) return undefined
+  try {
+    const parsed = JSON.parse(ledgerText) as Partial<FirstMateDispatchLedger>
+    if (parsed.version !== 1 || !parsed.dispatches || typeof parsed.dispatches !== 'object') return undefined
+    const entry = parsed.dispatches[dispatchId]
+    return isLedgerEntry(entry) ? entry : undefined
+  } catch {
+    return undefined
+  }
+}
 
 function parseKeyValues(text: string): Map<string, string> {
   const values = new Map<string, string>()
@@ -120,13 +175,15 @@ function recordedDispatch(value: unknown): FirstMateTaskDispatch | undefined {
 }
 
 /**
- * Mints the identity of a fresh validation dispatch attempt. Derived only from durable task
- * state, so a restart in the middle of minting names the same attempt identically. Once minted
- * the identity is journalled and read back rather than recomputed: it travels to the worker as
- * an idempotency key, and a retry of the same logical dispatch must reuse it.
+ * Mints the stable identity of a validation continuation. It names the logical operation — one
+ * implementation line reaching validation — not a delivery attempt, so every attempt of the same
+ * continuation reuses it and the attempt count is tracked separately. Derived only from durable
+ * task state, so a restart in the middle of minting names the same operation identically. Once
+ * minted the identity is journalled and read back rather than recomputed: it travels to the worker
+ * as an idempotency key, and the receiving boundary deduplicates repeated deliveries by it.
  */
-export function firstMateValidationDispatchId(taskId: string, statusHash: string, attempt: number): string {
-  return `${taskId}.${statusHash}.${attempt}`
+export function firstMateValidationDispatchId(taskId: string, statusHash: string): string {
+  return `${taskId}.${statusHash}`
 }
 
 /** What an ADE process observed for a claim it wrote, before it managed to journal the outcome. */
@@ -188,9 +245,11 @@ export function planValidationDispatch(input: FirstMateValidationPlanInput): Fir
       reason: 'attempts-exhausted'
     }
   }
+  // A retry reuses the identity the first attempt minted: it is the same logical continuation, so
+  // even a delivery the pre-send rejection could not rule out is deduplicable by the worker.
   return {
     action: 'dispatch',
-    dispatchId: firstMateValidationDispatchId(task.id, task.statusHash, attempt),
+    dispatchId: rejected?.id ?? firstMateValidationDispatchId(task.id, task.statusHash),
     attempt
   }
 }
@@ -211,6 +270,27 @@ export function firstMateReleasedDispatchRecord(
     statusHash: task.statusHash,
     nextAction: 'start-validation',
     dispatch: { id: dispatch.id, status: 'released', attempt: dispatch.attempt },
+    updatedAt: now.toISOString()
+  }
+}
+
+/**
+ * The record that hands an attempts-exhausted dispatch back to reconciliation with a fresh budget,
+ * at an operator's explicit request. Every attempt that exhausted the budget failed before the
+ * external send, so nothing reached FirstMate and a clean attempt is safe; clearing the dispatch
+ * lets reconciliation remint the same stable identity from the unchanged task.
+ */
+export function firstMateRetriedDispatchRecord(
+  task: FirstMateLifecycleTask,
+  now: Date
+): FirstMateLifecycleRecord | undefined {
+  const dispatch = task.dispatch
+  if (task.stage !== 'blocked' || dispatch?.status !== 'retryable') return undefined
+  return {
+    stage: 'implemented',
+    detail: `Validation dispatch ${dispatch.id} was reset for a fresh delivery attempt after its pre-send retries were exhausted.`,
+    statusHash: task.statusHash,
+    nextAction: 'start-validation',
     updatedAt: now.toISOString()
   }
 }
@@ -461,12 +541,16 @@ export function noMistakesInvocation(harness: string): string {
 export function noMistakesContinuation(
   harness: string,
   runtimeConfigPath: string,
-  dispatchId: string
+  dispatchId: string,
+  ledgerPath: string
 ): string {
   return `${noMistakesInvocation(harness)}\n\n`
     + `ADE validation dispatch id: ${dispatchId}. Treat this id as the idempotency key for this `
-    + 'continuation: if you have already started or finished no-mistakes validation for it, report that '
-    + 'and do not start a second validation run.\n\n'
+    + `continuation. ADE has durably recorded it in the shared dispatch ledger ${ledgerPath}. Before `
+    + 'starting validation, consult that ledger: if this dispatch id is already recorded there as '
+    + 'started or completed, do not begin a second validation run — report the existing run instead. '
+    + 'Otherwise record it as started before you begin and as completed when you finish, so a repeated '
+    + 'delivery of this identity is durably recognised rather than validated twice.\n\n'
     + `ADE has pinned this task's validator in ${runtimeConfigPath}. `
     + 'Treat that task-scoped structured record as authoritative. Before starting validation, use its validator to '
     + 'set ADE_FIRSTMATE_VALIDATOR_AGENT and ADE_FIRSTMATE_VALIDATOR_MODEL for this task; do not use a later global '

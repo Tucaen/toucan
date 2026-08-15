@@ -100,6 +100,21 @@ export interface FirstMateActionResult {
 }
 
 /**
+ * The outcome of one attempt to deliver a validation continuation to FirstMate, told apart by where
+ * the attempt stopped rather than collapsed into a boolean.
+ *
+ * `rejected-before-send` failed while ADE was still preparing the dispatch, so nothing reached
+ * FirstMate and the same stable identity is safe to send again automatically. `acknowledged` means
+ * the external send completed. `indeterminate` covers a timeout, a process failure after the send
+ * began, or a lost acknowledgement: the continuation may already be running, so ADE must never send
+ * it again on its own and hands recovery to an operator instead.
+ */
+export type FirstMateValidationDelivery =
+  | { outcome: 'acknowledged' }
+  | { outcome: 'rejected-before-send'; message: string }
+  | { outcome: 'indeterminate'; message: string }
+
+/**
  * FirstMate's registered delivery postures, in the vocabulary owned by the managed distro's
  * `bin/fm-project-mode.sh`. `no-mistakes-prod-only` is a conditional policy rather than a flat mode.
  */

@@ -10,7 +10,8 @@ import type {
   FirstMateLifecycleStatus,
   FirstMateProjectRegistration,
   FirstMateProjectSelection,
-  FirstMateRuntimeStatus
+  FirstMateRuntimeStatus,
+  FirstMateValidationDelivery
 } from '../shared/firstmate'
 import type { AgentProcessLaunch } from './agent-process'
 import { firstMateTaskContextFromMetadata, type FirstMateTaskContext } from '../shared/firstmate-task-context'
@@ -24,8 +25,10 @@ import {
   type FirstMateWslPathFacts
 } from './firstmate-external-projects'
 import {
+  FIRSTMATE_DISPATCH_LEDGER_FILE,
   FIRSTMATE_LIFECYCLE_JOURNAL_FILE,
   firstMateLifecycleFromFiles,
+  firstMateRecognisedDispatch,
   noMistakesContinuation,
   type FirstMateLifecycleFiles,
   type FirstMateLifecycleRecord
@@ -147,6 +150,7 @@ const tasks = names.filter((name) => name.endsWith('.meta')).map((name) => {
 process.stdout.write(JSON.stringify({
   runtimeConfig: optional(path.join(home, 'config', 'ade-runtime.json')),
   journal: optional(path.join(state, ${JSON.stringify(FIRSTMATE_LIFECYCLE_JOURNAL_FILE)})),
+  dispatchLedger: optional(path.join(state, ${JSON.stringify(FIRSTMATE_DISPATCH_LEDGER_FILE)})),
   tasks
 }))
 `
@@ -168,6 +172,32 @@ try {
 journal.tasks[taskId] = record
 const temporary = target + '.' + process.pid + '.' + Math.random().toString(16).slice(2) + '.tmp'
 fs.writeFileSync(temporary, JSON.stringify(journal, null, 2) + '\\n', { mode: 0o600 })
+fs.renameSync(temporary, target)
+`
+
+const WSL_DISPATCH_LEDGER_SCRIPT = `
+const fs = require('node:fs')
+const path = require('node:path')
+const home = process.argv[1]
+const dispatchId = process.argv[2]
+const entry = JSON.parse(Buffer.from(process.argv[3], 'base64url').toString('utf8'))
+const state = path.join(home, 'state')
+const target = path.join(state, ${JSON.stringify(FIRSTMATE_DISPATCH_LEDGER_FILE)})
+fs.mkdirSync(state, { recursive: true })
+let ledger = { version: 1, dispatches: {} }
+try {
+  const parsed = JSON.parse(fs.readFileSync(target, 'utf8'))
+  if (parsed.version === 1 && parsed.dispatches && typeof parsed.dispatches === 'object') ledger = parsed
+} catch {}
+const existing = ledger.dispatches[dispatchId] || {}
+const priorDeliveries = typeof existing.deliveries === 'number' ? existing.deliveries : 0
+ledger.dispatches[dispatchId] = {
+  ...existing,
+  ...entry,
+  deliveries: priorDeliveries + (entry.status === 'dispatched' ? 1 : 0)
+}
+const temporary = target + '.' + process.pid + '.' + Math.random().toString(16).slice(2) + '.tmp'
+fs.writeFileSync(temporary, JSON.stringify(ledger, null, 2) + '\\n', { mode: 0o600 })
 fs.renameSync(temporary, target)
 `
 
@@ -337,7 +367,7 @@ export interface FirstMateRuntime {
   trustCodexProject(): Promise<FirstMateActionResult>
   lifecycle(): Promise<FirstMateLifecycleStatus>
   configureValidator(provider: AgentProvider, modelId?: string): Promise<FirstMateActionResult>
-  continueValidation(taskId: string, dispatchId: string): Promise<FirstMateActionResult>
+  continueValidation(taskId: string, dispatchId: string): Promise<FirstMateValidationDelivery>
   recordLifecycle(taskId: string, record: FirstMateLifecycleRecord): Promise<void>
   /** Registers one ADE checkout as a durable external project; never modifies that checkout. */
   registerProject(selection: FirstMateProjectSelection): Promise<FirstMateProjectRegistration>
@@ -517,11 +547,16 @@ function taskEndpoint(files: FirstMateLifecycleFiles, taskId: string): FirstMate
 
 const SAFE_ARGUMENT = /^[a-zA-Z0-9._-]+$/
 
-/** Both ids reach the worker as command arguments, so neither may carry anything else. */
-function dispatchTargetError(taskId: string, dispatchId: string): FirstMateActionResult | undefined {
-  if (!SAFE_ARGUMENT.test(taskId)) return { ok: false, message: 'Invalid FirstMate task id.' }
+/**
+ * Both ids reach the worker as command arguments, so neither may carry anything else. A malformed id
+ * is caught before any external send, so it is a pre-send rejection the caller may safely retire.
+ */
+function dispatchTargetError(taskId: string, dispatchId: string): FirstMateValidationDelivery | undefined {
+  if (!SAFE_ARGUMENT.test(taskId)) {
+    return { outcome: 'rejected-before-send', message: 'Invalid FirstMate task id.' }
+  }
   if (!SAFE_ARGUMENT.test(dispatchId)) {
-    return { ok: false, message: 'Invalid FirstMate validation dispatch id.' }
+    return { outcome: 'rejected-before-send', message: 'Invalid FirstMate validation dispatch id.' }
   }
   return undefined
 }
@@ -562,6 +597,7 @@ function taskValidationDispatch(
   taskId: string,
   dispatchId: string,
   taskConfigPath: string,
+  ledgerPath: string,
   homePath: string
 ): TaskValidationDispatch | undefined {
   const endpoint = taskEndpoint(files, taskId)
@@ -590,7 +626,7 @@ function taskValidationDispatch(
     agentPath,
     pipelineConfig: `agent: ${agent}\nagent_path_override:\n  ${agent}: ${JSON.stringify(agentPath)}\n`,
     wrapper: `#!/bin/sh\n${providerHome}\nexec ${JSON.stringify(`$HOME/.local/bin/${agent}`)}${modelArgument} "$@"\n`,
-    continuation: noMistakesContinuation(endpoint.harness, taskConfigPath, dispatchId)
+    continuation: noMistakesContinuation(endpoint.harness, taskConfigPath, dispatchId, ledgerPath)
   }
 }
 
@@ -1023,21 +1059,63 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
         return { ok: false, message: error instanceof Error ? error.message : String(error) }
       }
     },
-    async continueValidation(taskId: string, dispatchId: string): Promise<FirstMateActionResult> {
+    async continueValidation(taskId: string, dispatchId: string): Promise<FirstMateValidationDelivery> {
       const rejected = dispatchTargetError(taskId, dispatchId)
       if (rejected) return rejected
+      const recordLedger = (home: string, status: 'dispatched' | 'acknowledged'): Promise<unknown> => run(
+        [
+          '--distribution', distribution,
+          '--exec', '/usr/bin/node', '-e', WSL_DISPATCH_LEDGER_SCRIPT,
+          home,
+          dispatchId,
+          Buffer.from(JSON.stringify({ taskId, status, recordedAt: new Date().toISOString() })).toString('base64url')
+        ],
+        15_000
+      )
+      // Everything up to the external send is pre-send preparation: a failure here proves nothing
+      // reached FirstMate, so the same stable identity stays safely retryable.
+      let dispatch: TaskValidationDispatch
+      let distroPath: string
+      let homePath: string
+      let continuationEnvironment: string[]
       try {
         const files = await lifecycleFiles()
-        if (!readyPaths) return { ok: false, message: 'The pinned task endpoint metadata is unavailable.' }
+        if (!readyPaths) {
+          return { outcome: 'rejected-before-send', message: 'The pinned task endpoint metadata is unavailable.' }
+        }
+        // Durable recognition, read back from disk: an identity already proven delivered is never
+        // sent a second time, even across a restart that lost every in-memory trace of it.
+        if (firstMateRecognisedDispatch(files.dispatchLedger, dispatchId)?.status === 'acknowledged') {
+          return { outcome: 'acknowledged' }
+        }
         const taskConfigPath = `${readyPaths.homePath}/state/${taskId}.ade-runtime.json`
-        const dispatch = taskValidationDispatch(
+        const ledgerPath = `${readyPaths.homePath}/state/${FIRSTMATE_DISPATCH_LEDGER_FILE}`
+        const built = taskValidationDispatch(
           files,
           taskId,
           dispatchId,
           taskConfigPath,
+          ledgerPath,
           readyPaths.homePath
         )
-        if (!dispatch) return { ok: false, message: 'The pinned task endpoint metadata is unavailable.' }
+        if (!built) {
+          return { outcome: 'rejected-before-send', message: 'The pinned task endpoint metadata is unavailable.' }
+        }
+        dispatch = built
+        distroPath = readyPaths.distroPath
+        homePath = readyPaths.homePath
+        continuationEnvironment = [
+          `FM_HOME=${readyPaths.homePath}`,
+          `NM_HOME=${readyPaths.homePath}/no-mistakes`,
+          `CODEX_HOME=${readyPaths.homePath}/codex`,
+          `CLAUDE_CONFIG_DIR=${readyPaths.homePath}/claude`,
+          `ADE_FIRSTMATE_RUNTIME_CONFIG=${dispatch.taskConfigPath}`,
+          `ADE_FIRSTMATE_VALIDATOR_AGENT=${dispatch.endpoint.context.validator.agent}`,
+          `ADE_FIRSTMATE_VALIDATOR_MODEL=${dispatch.endpoint.context.validator.model}`
+        ]
+        // Durable evidence of this dispatch identity must exist before the send, so a repeated
+        // delivery of the same identity is recognisable by the receiving boundary rather than lost.
+        await recordLedger(readyPaths.homePath, 'dispatched')
         for (const [path, contents] of [
           [dispatch.taskConfigPath, dispatch.taskConfig],
           [dispatch.agentPath, dispatch.wrapper],
@@ -1057,28 +1135,36 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
           '--distribution', distribution,
           '--exec', '/bin/chmod', '700', dispatch.agentPath
         ], 15_000)
+      } catch (error) {
+        return { outcome: 'rejected-before-send', message: errorMessage(error) }
+      }
+      // The external send. A timeout or non-zero exit here may still have delivered the continuation,
+      // so its outcome is indeterminate rather than a proven pre-send rejection.
+      try {
         await run(
           [
             '--distribution', distribution,
-            '--cd', readyPaths.distroPath,
+            '--cd', distroPath,
             '--exec', '/usr/bin/env',
-            `FM_HOME=${readyPaths.homePath}`,
-            `NM_HOME=${readyPaths.homePath}/no-mistakes`,
-            `CODEX_HOME=${readyPaths.homePath}/codex`,
-            `CLAUDE_CONFIG_DIR=${readyPaths.homePath}/claude`,
-            `ADE_FIRSTMATE_RUNTIME_CONFIG=${dispatch.taskConfigPath}`,
-            `ADE_FIRSTMATE_VALIDATOR_AGENT=${dispatch.endpoint.context.validator.agent}`,
-            `ADE_FIRSTMATE_VALIDATOR_MODEL=${dispatch.endpoint.context.validator.model}`,
-            `${readyPaths.distroPath}/bin/fm-send.sh`,
+            ...continuationEnvironment,
+            `${distroPath}/bin/fm-send.sh`,
             taskId,
             dispatch.continuation
           ],
           30_000
         )
-        return { ok: true }
       } catch (error) {
-        return { ok: false, message: error instanceof Error ? error.message : String(error) }
+        return { outcome: 'indeterminate', message: errorMessage(error) }
       }
+      // The send completed, so this identity is provably delivered. Upgrading the ledger to
+      // `acknowledged` is best-effort durable bookkeeping: a failure here does not unsettle a proven
+      // delivery, and the coordinator's own journal still records the acknowledgement.
+      try {
+        await recordLedger(homePath, 'acknowledged')
+      } catch {
+        // The delivery still succeeded; the durable acknowledgement is a convenience, not a gate.
+      }
+      return { outcome: 'acknowledged' }
     },
     async recordLifecycle(taskId: string, record: FirstMateLifecycleRecord): Promise<void> {
       if (!/^[a-zA-Z0-9._-]+$/.test(taskId)) throw new Error('Invalid FirstMate task id.')
@@ -1120,6 +1206,9 @@ function createUnsupportedFirstMateRuntime(platform: NodeJS.Platform): FirstMate
     message
   })
   const refuse = async (): Promise<FirstMateActionResult> => ({ ok: false, message })
+  const refuseDelivery = async (): Promise<FirstMateValidationDelivery> => (
+    { outcome: 'rejected-before-send', message }
+  )
   const refuseRegistration = async (): Promise<FirstMateProjectRegistration> => ({ ok: false, message })
   return {
     async status(): Promise<FirstMateRuntimeStatus> { return status() },
@@ -1130,7 +1219,7 @@ function createUnsupportedFirstMateRuntime(platform: NodeJS.Platform): FirstMate
       return { supervision: 'app-native', message, tasks: [] }
     },
     configureValidator: refuse,
-    continueValidation: refuse,
+    continueValidation: refuseDelivery,
     async recordLifecycle(): Promise<void> { throw new Error(message) },
     registerProject: refuseRegistration,
     async recordedProject(): Promise<FirstMateExternalProject | null> { return null },
