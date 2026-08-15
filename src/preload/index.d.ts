@@ -58,6 +58,7 @@ export interface FirstMateApi {
   trustCodexProject(): Promise<FirstMateActionResult>
   lifecycle(): Promise<FirstMateLifecycleStatus>
   releaseDispatch(taskId: string): Promise<FirstMateActionResult>
+  retryDispatch(taskId: string): Promise<FirstMateActionResult>
   registerProject(selection: FirstMateProjectSelection): Promise<FirstMateProjectRegistration>
   recordedProject(adeProjectId: string): Promise<FirstMateExternalProject | null>
   authorizeProjectInitialization(adeProjectId: string): Promise<FirstMateProjectRegistration>

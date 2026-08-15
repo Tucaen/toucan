@@ -104,6 +104,9 @@ const firstMateApi = {
   releaseDispatch: (taskId: string): Promise<FirstMateActionResult> => (
     ipcRenderer.invoke('firstmate:release-dispatch', taskId)
   ),
+  retryDispatch: (taskId: string): Promise<FirstMateActionResult> => (
+    ipcRenderer.invoke('firstmate:retry-dispatch', taskId)
+  ),
   registerProject: (selection: FirstMateProjectSelection): Promise<FirstMateProjectRegistration> => (
     ipcRenderer.invoke('firstmate:register-project', selection)
   ),

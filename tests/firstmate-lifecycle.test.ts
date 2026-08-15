@@ -3,7 +3,11 @@ import { appendFileSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import type { FirstMateLifecycleStatus, FirstMateLifecycleTask } from '../src/shared/firstmate'
+import type {
+  FirstMateLifecycleStatus,
+  FirstMateLifecycleTask,
+  FirstMateValidationDelivery
+} from '../src/shared/firstmate'
 import { firstMateTaskContextMetadata, type FirstMateTaskContext } from '../src/shared/firstmate-task-context'
 import { createFirstMateLifecycleCoordinator } from '../src/main/firstmate-lifecycle-coordinator'
 import {
@@ -62,14 +66,14 @@ function taskHome(context: FirstMateTaskContext = alphaCodexContext): { home: st
 }
 
 interface JournalRuntimeOptions {
-  continueValidation?(taskId: string, dispatchId: string): { ok: boolean; message?: string }
+  continueValidation?(taskId: string, dispatchId: string): FirstMateValidationDelivery
   beforeRecord?(taskId: string, record: FirstMateLifecycleRecord): void
 }
 
 interface JournalRuntime {
   runtime: {
     lifecycle(): Promise<FirstMateLifecycleStatus>
-    continueValidation(taskId: string, dispatchId: string): Promise<{ ok: boolean; message?: string }>
+    continueValidation(taskId: string, dispatchId: string): Promise<FirstMateValidationDelivery>
     recordLifecycle(taskId: string, record: FirstMateLifecycleRecord): Promise<void>
   }
   continuations: Array<{ taskId: string; dispatchId: string }>
@@ -88,7 +92,7 @@ function journalRuntime(home: string, options: JournalRuntimeOptions = {}): Jour
       lifecycle: () => readFirstMateLifecycle(home),
       async continueValidation(taskId: string, dispatchId: string) {
         continuations.push({ taskId, dispatchId })
-        return options.continueValidation?.(taskId, dispatchId) ?? { ok: true }
+        return options.continueValidation?.(taskId, dispatchId) ?? { outcome: 'acknowledged' }
       },
       async recordLifecycle(taskId: string, record: FirstMateLifecycleRecord) {
         options.beforeRecord?.(taskId, record)
@@ -344,9 +348,9 @@ test('keeps the shared validation gate pinned while an acknowledged task awaits 
           }]
         }
       },
-      async continueValidation(taskId: string) {
+      async continueValidation(taskId: string): Promise<FirstMateValidationDelivery> {
         continuations.push(taskId)
-        return { ok: true }
+        return { outcome: 'acknowledged' }
       },
       async recordLifecycle() {}
     },
@@ -358,23 +362,40 @@ test('keeps the shared validation gate pinned while an acknowledged task awaits 
   assert.deepEqual(continuations, [], 'another task cannot replace the paused pipeline selector')
 })
 
-test('derives a validation dispatch identity that survives ADE and FirstMate restarts', () => {
-  const first = firstMateValidationDispatchId('resize', 'a1b2c3', 1)
+test('derives a stable dispatch identity for one continuation, independent of the delivery attempt', () => {
+  const identity = firstMateValidationDispatchId('resize', 'a1b2c3')
 
-  assert.equal(first, firstMateValidationDispatchId('resize', 'a1b2c3', 1))
-  assert.notEqual(first, firstMateValidationDispatchId('resize', 'a1b2c3', 2))
-  assert.notEqual(first, firstMateValidationDispatchId('resize', 'd4e5f6', 1))
-  assert.notEqual(first, firstMateValidationDispatchId('panel', 'a1b2c3', 1))
-  assert.match(first, /^[a-zA-Z0-9._-]+$/, 'the identity travels as a command argument')
+  assert.equal(
+    identity,
+    firstMateValidationDispatchId('resize', 'a1b2c3'),
+    'the same logical continuation always names one identity, so every attempt reuses it'
+  )
+  assert.notEqual(
+    identity,
+    firstMateValidationDispatchId('resize', 'd4e5f6'),
+    'a new implementation line is a new operation with its own identity'
+  )
+  assert.notEqual(identity, firstMateValidationDispatchId('panel', 'a1b2c3'))
+  assert.match(identity, /^[a-zA-Z0-9._-]+$/, 'the identity travels as a command argument')
 })
 
-test('carries the dispatch identity into the continuation so FirstMate can deduplicate it', () => {
-  const continuation = noMistakesContinuation('codex', '/home/config/ade-runtime.json', 'resize.a1b2c3.1')
+test('carries the dispatch identity and its durable ledger into the continuation so FirstMate can deduplicate it', () => {
+  const continuation = noMistakesContinuation(
+    'codex',
+    '/home/config/ade-runtime.json',
+    'resize.a1b2c3',
+    '/home/state/.ade-validation-dispatches.json'
+  )
 
   assert.match(continuation, /^\$no-mistakes/)
-  assert.match(continuation, /resize\.a1b2c3\.1/)
+  assert.match(continuation, /resize\.a1b2c3/)
   assert.match(continuation, /idempotenc/i)
-  assert.match(continuation, /do not start a second/i)
+  assert.match(continuation, /do not begin a second/i)
+  assert.match(
+    continuation,
+    /\.ade-validation-dispatches\.json/,
+    'the receiver must be pointed at durable evidence, not asked to trust the prompt alone'
+  )
 })
 
 function implementedTask(): FirstMateLifecycleTask {
@@ -397,9 +418,9 @@ test('continues a committed worker directly into validation exactly once and wak
     async lifecycle(): Promise<FirstMateLifecycleStatus> {
       return { supervision: 'app-native', tasks: [task] }
     },
-    async continueValidation(taskId: string, dispatchId: string): Promise<{ ok: boolean }> {
+    async continueValidation(taskId: string, dispatchId: string): Promise<FirstMateValidationDelivery> {
       continuations.push(`${taskId}@${dispatchId}`)
-      return { ok: true }
+      return { outcome: 'acknowledged' }
     },
     async recordLifecycle(_taskId: string, record: FirstMateLifecycleRecord): Promise<void> {
       records.push(record)
@@ -418,7 +439,7 @@ test('continues a committed worker directly into validation exactly once and wak
   await coordinator.poll()
   await coordinator.poll()
 
-  const dispatchId = firstMateValidationDispatchId('resize', 'implementation-1', 1)
+  const dispatchId = firstMateValidationDispatchId('resize', 'implementation-1')
   assert.deepEqual(continuations, [`resize@${dispatchId}`])
   assert.deepEqual(records.map((record) => [record.stage, record.nextAction, record.dispatch?.status]), [
     ['dispatching', 'await-dispatch', 'claimed'],
@@ -442,8 +463,8 @@ test('makes a failed validation continuation durable and visible instead of clai
       async lifecycle(): Promise<FirstMateLifecycleStatus> {
         return { supervision: 'app-native', tasks: [task] }
       },
-      async continueValidation(): Promise<{ ok: boolean; message: string }> {
-        return { ok: false, message: 'task endpoint is unavailable' }
+      async continueValidation(): Promise<FirstMateValidationDelivery> {
+        return { outcome: 'rejected-before-send', message: 'task endpoint is unavailable' }
       },
       async recordLifecycle(_taskId: string, record: FirstMateLifecycleRecord): Promise<void> {
         task = { ...task, ...record }
@@ -476,9 +497,9 @@ test('retries reconciliation after a transient persistence failure without losin
       async lifecycle(): Promise<FirstMateLifecycleStatus> {
         return { supervision: 'app-native', tasks: [task] }
       },
-      async continueValidation(): Promise<{ ok: boolean }> {
+      async continueValidation(): Promise<FirstMateValidationDelivery> {
         continuations += 1
-        return { ok: true }
+        return { outcome: 'acknowledged' }
       },
       async recordLifecycle(_taskId: string, record: FirstMateLifecycleRecord): Promise<void> {
         recordAttempts += 1
@@ -584,7 +605,7 @@ test('keeps a task safely retryable when the dispatch claim cannot be persisted'
 test('releases a rejected dispatch for a fresh attempt and blocks once the budget is spent', async () => {
   const { home } = taskHome()
   const harness = journalRuntime(home, {
-    continueValidation: () => ({ ok: false, message: 'task endpoint is unavailable' })
+    continueValidation: () => ({ outcome: 'rejected-before-send', message: 'task endpoint is unavailable' })
   })
   const coordinator = coordinatorFor(harness.runtime, 2)
 
@@ -598,14 +619,13 @@ test('releases a rejected dispatch for a fresh attempt and blocks once the budge
 
   await coordinator.poll()
 
+  const stableId = firstMateValidationDispatchId('resize', retryable.statusHash)
   assert.deepEqual(
     harness.continuations.map((call) => call.dispatchId),
-    [
-      firstMateValidationDispatchId('resize', retryable.statusHash, 1),
-      firstMateValidationDispatchId('resize', retryable.statusHash, 2)
-    ],
-    'each attempt of a rejected dispatch carries its own identity'
+    [stableId, stableId],
+    'every attempt of the same continuation reuses one stable identity, so a resend is deduplicable'
   )
+  assert.equal(harness.continuations[1]?.dispatchId, harness.continuations[0]?.dispatchId)
 
   await coordinator.poll()
 
@@ -732,4 +752,130 @@ test('refuses to release a dispatch that is not unresolved', async () => {
   assert.equal(validating.ok, false)
   assert.match(validating.message ?? '', /no unresolved validation dispatch/i)
   assert.equal(harness.continuations.length, 1)
+})
+
+test('starts validation exactly once when an acknowledgement is lost and recovery resends the identity', async () => {
+  const { home } = taskHome()
+  // Durable evidence the receiving FirstMate boundary keeps, keyed by the stable dispatch identity.
+  const started = new Set<string>()
+  let validationStarts = 0
+  const harness = journalRuntime(home, {
+    continueValidation: (_taskId, dispatchId): FirstMateValidationDelivery => {
+      if (started.has(dispatchId)) {
+        // A repeated identity is recognised: the boundary does not start a second validation run.
+        return { outcome: 'acknowledged' }
+      }
+      started.add(dispatchId)
+      validationStarts += 1
+      // Validation did start, but ADE never learns it: the acknowledgement is lost in transit.
+      return { outcome: 'indeterminate', message: 'wsl.exe timed out before the send acknowledged' }
+    }
+  })
+  const coordinator = coordinatorFor(harness.runtime)
+
+  await coordinator.poll()
+
+  const unresolved = await onlyTask(home)
+  assert.equal(unresolved.stage, 'blocked')
+  assert.equal(unresolved.dispatch?.status, 'unresolved', 'a lost acknowledgement is never auto-resent')
+  assert.equal(validationStarts, 1)
+
+  // Explicit recovery: releasing the dispatch resends the SAME identity the receiver already saw.
+  assert.deepEqual(await coordinator.releaseDispatch('resize'), { ok: true })
+  await coordinator.poll()
+
+  const identity = harness.continuations[0]!.dispatchId
+  assert.deepEqual(
+    harness.continuations.map((call) => call.dispatchId),
+    [identity, identity],
+    'the resend reuses the identity rather than minting a fresh one'
+  )
+  assert.equal(
+    validationStarts,
+    1,
+    'the receiving boundary deduplicated the resend, so validation started exactly once'
+  )
+  const recovered = await onlyTask(home)
+  assert.equal(recovered.stage, 'validating')
+  assert.equal(recovered.dispatch?.status, 'acknowledged')
+})
+
+test('keeps a pre-send rejection retryable and never starts validation', async () => {
+  const { home } = taskHome()
+  let validationStarts = 0
+  let rejectNext = true
+  const harness = journalRuntime(home, {
+    continueValidation: (): FirstMateValidationDelivery => {
+      if (rejectNext) {
+        rejectNext = false
+        // Proven to have failed before the external send: nothing reached FirstMate.
+        return { outcome: 'rejected-before-send', message: 'the pinned task endpoint metadata is unavailable' }
+      }
+      validationStarts += 1
+      return { outcome: 'acknowledged' }
+    }
+  })
+  const coordinator = coordinatorFor(harness.runtime)
+
+  await coordinator.poll()
+
+  const retryable = await onlyTask(home)
+  assert.equal(retryable.stage, 'implemented', 'a pre-send rejection stays actionable')
+  assert.equal(retryable.nextAction, 'start-validation')
+  assert.equal(retryable.dispatch?.status, 'retryable')
+  assert.equal(validationStarts, 0, 'a pre-send rejection never started validation')
+
+  // The same stable identity retries automatically, within budget, without operator help.
+  await coordinator.poll()
+
+  assert.equal(validationStarts, 1)
+  assert.equal(
+    harness.continuations[1]!.dispatchId,
+    harness.continuations[0]!.dispatchId,
+    'the automatic retry reuses the stable identity'
+  )
+  const validating = await onlyTask(home)
+  assert.equal(validating.stage, 'validating')
+  assert.equal(validating.dispatch?.status, 'acknowledged')
+})
+
+test('recovers an attempts-exhausted dispatch on request without hand-editing files', async () => {
+  const { home } = taskHome()
+  let sendable = false
+  const harness = journalRuntime(home, {
+    continueValidation: (): FirstMateValidationDelivery => (
+      sendable
+        ? { outcome: 'acknowledged' }
+        : { outcome: 'rejected-before-send', message: 'task endpoint is unavailable' }
+    )
+  })
+  const coordinator = coordinatorFor(harness.runtime, 1)
+
+  await coordinator.poll()
+  await coordinator.poll()
+
+  const blocked = await onlyTask(home)
+  assert.equal(blocked.stage, 'blocked')
+  assert.equal(blocked.dispatch?.status, 'retryable', 'an exhausted pre-send budget stays proven-undelivered')
+
+  // Release is the wrong tool here: nothing was ever sent, so there is no identity to resend.
+  const wrongTool = await coordinator.retryDispatch('absent')
+  assert.equal(wrongTool.ok, false)
+  assert.match(wrongTool.message ?? '', /no durable state/i)
+  const notReleasable = await coordinator.releaseDispatch('resize')
+  assert.equal(notReleasable.ok, false)
+
+  sendable = true
+  assert.deepEqual(await coordinator.retryDispatch('resize'), { ok: true })
+  await coordinator.poll()
+
+  const validating = await onlyTask(home)
+  assert.equal(validating.stage, 'validating')
+  assert.equal(validating.dispatch?.status, 'acknowledged')
+  assert.equal(validating.dispatch?.attempt, 1, 'the recovery starts a fresh attempt budget')
+  assert.equal(
+    harness.continuations.at(-1)!.dispatchId,
+    firstMateValidationDispatchId('resize', validating.statusHash),
+    'the fresh attempt reuses the stable identity'
+  )
 })
