@@ -1798,7 +1798,7 @@ button {
   opacity: 0.45;
 }
 
-/* The project the next FirstMate request is assigned to. */
+/* The active sidebar project shown as a non-binding hint to FirstMate. */
 .firstmate-request-target {
   display: flex;
   align-items: baseline;

@@ -36,7 +36,7 @@ export interface AgentConversationOptions {
   restartKey?: number
   /**
    * Builds what the agent receives from the captain's text. Called at submission, never earlier, so it
-   * may resolve request-time facts such as the selected project's durable FirstMate registration.
+   * may resolve request-time facts such as FirstMate's durable project catalog registrations.
    */
   composePrompt?(text: string): string | Promise<string>
   enabled: boolean

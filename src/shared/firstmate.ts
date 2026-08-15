@@ -129,6 +129,49 @@ export interface FirstMateExternalProject {
   registeredAt: string
 }
 
+export type FirstMateProjectOriginClassification = 'remote-backed' | 'local-only'
+
+/** One dispatchable project in the machine-readable catalog ADE gives the FirstMate captain. */
+export interface FirstMateProjectCatalogEntry {
+  adeProjectId: string
+  registryName: string
+  displayName: string
+  canonicalPaths: {
+    windows: string
+    wsl: string
+  }
+  effectiveDeliveryPosture: FirstMateDeliveryMode
+  autonomyPolicy: 'on' | 'off'
+  originClassification: FirstMateProjectOriginClassification
+  origin?: string
+  initialization: FirstMateProjectInitialization
+  /** Exact carrier to append only after the captain selects this entry for one task. */
+  taskContextMetadata: string
+}
+
+export interface FirstMateProjectCatalog {
+  version: 1
+  activeProjectHint: {
+    adeProjectId: string
+    role: 'hint-only'
+  }
+  validator: {
+    agent: AgentProvider
+    model: string
+  }
+  projects: FirstMateProjectCatalogEntry[]
+  unavailableProjects: Array<{
+    adeProjectId: string
+    displayName: string
+    reason: string
+  }>
+  instructions: {
+    selection: string
+    onUnresolvedSelection: string
+    dispatch: string
+  }
+}
+
 export interface FirstMateProjectRegistration {
   ok: boolean
   project?: FirstMateExternalProject

@@ -34,6 +34,7 @@ function resizeAreaWidth(panel: HTMLElement | null): number {
 }
 
 interface FirstMatePanelProps {
+  projects: WorkspaceProject[]
   project: WorkspaceProject
   state: FirstMateWorkspaceState
   onStateChange(state: FirstMateWorkspaceState): void
@@ -116,7 +117,7 @@ function lifecycleTaskLabel(task: FirstMateLifecycleTask): string {
   return `${stage}${dispatch}${pinned}`
 }
 
-export default function FirstMatePanel({ project, state, onStateChange }: FirstMatePanelProps): JSX.Element {
+export default function FirstMatePanel({ projects, project, state, onStateChange }: FirstMatePanelProps): JSX.Element {
   const [sessionGeneration, setSessionGeneration] = useState(0)
   const [runtime, setRuntime] = useState<FirstMateRuntimeStatus | null>(null)
   const [lifecycle, setLifecycle] = useState<FirstMateLifecycleStatus>({
@@ -140,7 +141,7 @@ export default function FirstMatePanel({ project, state, onStateChange }: FirstM
   const [resizing, setResizing] = useState(false)
   const panelRef = useRef<HTMLElement>(null)
   const resizeSession = useRef<(FirstMatePanelResizeSession & { pointerId: number }) | null>(null)
-  // The sidebar selection retargets the next request; it is never part of the conversation's identity.
+  // The sidebar selection is a hint for the next request; it is never a request or task binding.
   const requestTarget = firstMateProjectTarget(project)
 
   useEffect(() => {
@@ -217,14 +218,14 @@ export default function FirstMatePanel({ project, state, onStateChange }: FirstM
     modelId: state.modelId,
     restartKey: sessionGeneration,
     composePrompt: async (text) => {
-      const result = await window.firstMateApi.registerProject(firstMateProjectSelection(project))
-      setRegistration(result.project ?? null)
-      setRegistrationError(result.ok ? undefined : result.message)
-      if (!result.ok || !result.project) {
-        throw new Error(result.message ?? `ADE could not resolve FirstMate project ${project.name} (${project.id}).`)
-      }
-      return firstMateRequest(project, text, {
-        registration: result,
+      const requestProjects = await Promise.all(projects.map(async (catalogProject) => ({
+        selection: catalogProject,
+        registration: await window.firstMateApi.registerProject(firstMateProjectSelection(catalogProject))
+      })))
+      const activeRegistration = requestProjects.find(({ selection }) => selection.id === project.id)?.registration
+      setRegistration(activeRegistration?.project ?? null)
+      setRegistrationError(activeRegistration?.ok ? undefined : activeRegistration?.message)
+      return firstMateRequest(requestProjects, project.id, text, {
         provider,
         model: state.modelId
       })
@@ -443,7 +444,7 @@ export default function FirstMatePanel({ project, state, onStateChange }: FirstM
             className="firstmate-request-target"
             title={`${requestTarget.windowsPath}\n${requestTarget.wslPath}`}
           >
-            <span>Next request</span>
+            <span>Active hint</span>
             <strong>{requestTarget.name}</strong>
             <small>{requestTarget.windowsPath}</small>
             {registration && (

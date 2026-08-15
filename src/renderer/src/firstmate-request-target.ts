@@ -1,24 +1,32 @@
+import type { AgentProvider } from '../../shared/agent'
 import type {
-  FirstMateExternalProject,
+  FirstMateProjectCatalog,
+  FirstMateProjectCatalogEntry,
   FirstMateProjectRegistration,
   FirstMateProjectSelection
 } from '../../shared/firstmate'
-import type { AgentProvider } from '../../shared/agent'
 import {
   firstMateTaskContextMetadata,
   type FirstMateTaskContext
 } from '../../shared/firstmate-task-context'
 import type { WorkspaceProject } from '../../shared/terminal'
 
-/**
- * The project a FirstMate request belongs to. Snapshotted from the sidebar selection when the
- * captain submits, so a later selection can never retarget that request or the crew tasks it created.
- */
+/** The active sidebar project shown as context for the next request, never as a binding. */
 export interface FirstMateProjectTarget {
   projectId: string
   name: string
   windowsPath: string
   wslPath: string
+}
+
+export interface FirstMateRequestProject {
+  selection: WorkspaceProject
+  registration: FirstMateProjectRegistration
+}
+
+export interface FirstMateRequestOptions {
+  provider: AgentProvider
+  model?: string
 }
 
 function firstMatePath(path: string): string {
@@ -37,65 +45,15 @@ export function firstMateProjectTarget(project: WorkspaceProject): FirstMateProj
   })
 }
 
-/** The sidebar selection ADE hands the main process to validate and register at submission. */
+/** The sidebar project ADE hands the main process to validate and register for the catalog. */
 export function firstMateProjectSelection(project: WorkspaceProject): FirstMateProjectSelection {
   return { projectId: project.id, name: project.name, path: project.path }
 }
 
-function initializationNote(project: FirstMateExternalProject): string {
-  if (project.initialization === 'authorized') {
-    return 'authorized by the captain in ADE for this checkout'
-  }
-  if (project.initialization === 'required') {
-    return 'not run; this posture needs it, and ADE holds it until the captain authorizes it in ADE, '
-      + 'so do not initialize, refresh, or reset this checkout on your own'
-  }
-  return 'not required for this posture'
-}
-
-function registrationLines(project: FirstMateExternalProject): string[] {
-  return [
-    `- project name: ${JSON.stringify(project.registryName)}`,
-    `- registered delivery posture: ${JSON.stringify(project.mode)}`,
-    `- autonomy (+yolo): ${project.autonomy ? 'on' : 'off'}`,
-    `- origin: ${project.origin ? JSON.stringify(project.origin) : 'none; this checkout has no remote'}`,
-    `- no-mistakes initialization: ${initializationNote(project)}`,
-    'This is a durable external project recorded in ADE\'s own registration file in this private'
-      + ' FirstMate home. It is not a clone in the managed projects directory and must never be cloned,'
-      + ' copied, or symlinked there.',
-    'ADE does not write your firstmate-private fleet registry: if this project needs an entry in'
-      + ' data/projects.md, that is your own add intake, and the posture above is the standing default'
-      + ' ADE resolved. An entry you record there for this path outranks it from then on.'
-  ]
-}
-
-function projectAssignment(
-  target: FirstMateProjectTarget,
-  project: FirstMateExternalProject
-): string {
-  return [
-    'ADE project assignment (application context):',
-    `- id: ${JSON.stringify(target.projectId)}`,
-    `- name: ${JSON.stringify(target.name)}`,
-    `- path: ${JSON.stringify(target.wslPath)}`,
-    `- Windows path: ${JSON.stringify(target.windowsPath)}`,
-    ...registrationLines(project),
-    'This is the project selected in ADE\'s left sidebar when the captain sent the request below.',
-    'It is the project for this request and for every crew task it creates, even if the sidebar selection changes later.',
-    'The project may be outside FirstMate\'s private projects directory; use the absolute path above when inspecting or dispatching work.',
-    'If the message names a different project, do not retarget this request: ask the captain to select and register that project in ADE, then send a new request.'
-  ].join('\n')
-}
-
-export interface FirstMateRequestOptions {
-  registration: FirstMateProjectRegistration
-  provider: AgentProvider
-  model?: string
-}
-
-function taskContext(options: FirstMateRequestOptions): FirstMateTaskContext | undefined {
-  const project = options.registration.project
-  if (!options.registration.ok || !project) return undefined
+function taskContext(
+  project: NonNullable<FirstMateProjectRegistration['project']>,
+  validator: FirstMateProjectCatalog['validator']
+): FirstMateTaskContext {
   return {
     version: 1,
     project: {
@@ -106,56 +64,101 @@ function taskContext(options: FirstMateRequestOptions): FirstMateTaskContext | u
       mode: project.mode,
       autonomy: project.autonomy
     },
-    validator: { agent: options.provider, model: options.model ?? 'default' }
+    validator
   }
 }
 
-function taskContract(options: FirstMateRequestOptions): string {
-  const context = taskContext(options)
-  if (!context) {
-    return [
-      'ADE immutable task contract: unavailable because project registration failed.',
-      'Do not create a brief, scout, or crew task until ADE can supply the durable task context.'
-    ].join('\n')
+function catalogEntry(
+  registration: FirstMateProjectRegistration,
+  validator: FirstMateProjectCatalog['validator']
+): FirstMateProjectCatalogEntry | undefined {
+  const project = registration.project
+  if (!registration.ok || !project) return undefined
+  return {
+    adeProjectId: project.adeProjectId,
+    registryName: project.registryName,
+    displayName: project.displayName,
+    canonicalPaths: {
+      windows: project.windowsPath,
+      wsl: project.wslPath
+    },
+    effectiveDeliveryPosture: project.mode,
+    autonomyPolicy: project.autonomy ? 'on' : 'off',
+    originClassification: project.origin ? 'remote-backed' : 'local-only',
+    ...(project.origin ? { origin: project.origin } : {}),
+    initialization: project.initialization,
+    taskContextMetadata: firstMateTaskContextMetadata(taskContext(project, validator))
   }
-  const autonomy = context.project.autonomy ? 'on' : 'off'
-  const spawnProfile = context.validator.model === 'default'
-    ? `\`--harness ${context.validator.agent}\` and omit \`--model\` so FirstMate records its explicit default`
-    : `\`--harness ${context.validator.agent} --model ${context.validator.model}\``
+}
+
+export function firstMateProjectCatalog(
+  requestProjects: FirstMateRequestProject[],
+  activeProjectId: string,
+  options: FirstMateRequestOptions
+): FirstMateProjectCatalog {
+  const validator = { agent: options.provider, model: options.model ?? 'default' }
+  const projects: FirstMateProjectCatalogEntry[] = []
+  const unavailableProjects: FirstMateProjectCatalog['unavailableProjects'] = []
+  for (const { selection, registration } of requestProjects) {
+    const entry = catalogEntry(registration, validator)
+    if (entry && entry.adeProjectId === selection.id) {
+      projects.push(entry)
+      continue
+    }
+    unavailableProjects.push({
+      adeProjectId: selection.id,
+      displayName: selection.name,
+      reason: entry
+        ? `Registration identity ${entry.adeProjectId} does not match ADE project ${selection.id}.`
+        : registration.message ?? 'ADE could not validate this project for FirstMate.'
+    })
+  }
+  return {
+    version: 1,
+    activeProjectHint: { adeProjectId: activeProjectId, role: 'hint-only' },
+    validator,
+    projects,
+    unavailableProjects,
+    instructions: {
+      selection: 'Resolve every intended crew task to exactly one projects entry; different tasks may select different entries.',
+      onUnresolvedSelection: 'If any intended task has zero or multiple matches, request clarification and do not launch any crew.',
+      dispatch: 'At dispatch, use only the selected entry paths, posture, autonomy, and taskContextMetadata.'
+    }
+  }
+}
+
+function dispatchContract(): string {
   return [
-    'ADE immutable task contract (application-owned request context):',
-    `- exact task metadata: \`${firstMateTaskContextMetadata(context)}\``,
-    `- pinned validation provider/model: ${context.validator.agent}/${context.validator.model}`,
-    'For every ship or scout created from this request:',
-    `- pass the absolute checkout path to both \`fm-brief.sh\` and \`fm-spawn.sh\`: ${JSON.stringify(context.project.wslPath)}`,
-    '- use only the managed `fm-spawn.sh` path: its mandatory Git guard proves the allocated directory is a real '
-      + 'worktree rooted away from this primary checkout before it launches any worker; never bypass that guard',
-    '- for a ship, resolve the concrete task delivery mode once at intake and pass `--mode` explicitly to both commands; '
-      + `the standing posture is ${JSON.stringify(context.project.mode)} and must not be re-read from another project`,
-    `- for a ship, pass \`--yolo ${autonomy}\`; autonomy cannot drift from this request's durable registration`,
-    '- for a scout, pass `--scout` explicitly to both commands; this is the report-only delivery contract, and '
-      + 'the registered posture/autonomy remain pinned in the ADE carrier (the managed scripts deliberately refuse '
-      + '`--mode` and `--yolo` for scouts)',
-    `- pass ${spawnProfile} to spawn; do not consult a later global provider selection`,
-    '- immediately after every ship or scout spawn, append the exact task metadata carrier to that task\'s durable `state/<id>.meta`, '
-      + 'preserving the spawn metadata and publishing the update atomically before treating dispatch as complete.',
-    'The task metadata, not the current sidebar or global provider, is authoritative for supervision, recovery, validation, and completion reporting.'
+    'The activeProjectHint is a hint only. It never prevents selecting another projects entry.',
+    'You remain the author of semantic ship and scout briefs and the scheduler of crew work. Use the existing managed brief, scheduler, worktree, and spawn machinery; ADE is not a competing scheduler.',
+    'Before creating any brief or launching any crew, resolve every intended task to exactly one catalog project. If any match is missing or ambiguous, ask the captain for clarification and launch no crew.',
+    'For every resolved ship or scout task:',
+    '- use that entry\'s canonicalPaths.wsl as the absolute checkout path for both `fm-brief.sh` and `fm-spawn.sh`;',
+    '- use only managed `fm-spawn.sh`, whose Git guard proves the allocated directory is a disposable worktree rather than the primary checkout;',
+    '- for a ship, pass that entry\'s effectiveDeliveryPosture as `--mode` and autonomyPolicy as `--yolo` to both commands;',
+    '- for a scout, pass `--scout` to both commands and do not pass ship-only mode or autonomy flags;',
+    '- pass the catalog validator agent as `--harness`; omit `--model` when its value is `default`, otherwise pass it explicitly;',
+    '- after spawn, append only that selected entry\'s exact taskContextMetadata to durable `state/<id>.meta`, preserving existing metadata and publishing atomically before dispatch completes.',
+    'That carrier, not this request\'s active hint or any later sidebar/provider selection, is authoritative for supervision, recovery, validation, and completion reporting.'
   ].join('\n')
 }
 
-/**
- * What FirstMate receives for one request: the project assignment taken at submission, followed by
- * the captain's message unchanged.
- */
+/** Gives the persistent FirstMate captain a catalog snapshot followed by the user's message unchanged. */
 export function firstMateRequest(
-  project: WorkspaceProject,
+  requestProjects: FirstMateRequestProject[],
+  activeProjectId: string,
   text: string,
   options: FirstMateRequestOptions
 ): string {
-  if (!options.registration.ok || !options.registration.project) {
-    throw new Error(
-      options.registration.message ?? `ADE could not resolve FirstMate project ${project.name} (${project.id}).`
-    )
-  }
-  return `${projectAssignment(firstMateProjectTarget(project), options.registration.project)}\n\n${taskContract(options)}\n\n${text}`
+  const catalog = firstMateProjectCatalog(requestProjects, activeProjectId, options)
+  return [
+    'ADE project catalog (machine-readable request context):',
+    '<ade-project-catalog>',
+    JSON.stringify(catalog),
+    '</ade-project-catalog>',
+    '',
+    dispatchContract(),
+    '',
+    text
+  ].join('\n')
 }

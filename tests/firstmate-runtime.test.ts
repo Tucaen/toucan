@@ -13,7 +13,7 @@ import {
 import { createFirstMateLifecycleCoordinator } from '../src/main/firstmate-lifecycle-coordinator'
 import { firstMateRequest } from '../src/renderer/src/firstmate-request-target'
 import type { FirstMateLifecycleJournal, FirstMateLifecycleRecord } from '../src/main/firstmate-lifecycle'
-import type { FirstMateProjectRegistration } from '../src/shared/firstmate'
+import type { FirstMateProjectCatalog, FirstMateProjectRegistration } from '../src/shared/firstmate'
 import type { WorkspaceProject } from '../src/shared/terminal'
 
 function writeDistro(path: string): void {
@@ -364,18 +364,24 @@ test('keeps two switched external projects on their original providers through s
       registeredAt: '2026-08-15'
     }
   })
-  const alphaPrompt = firstMateRequest(alpha, 'Ship alpha', {
-    registration: registration(alpha, 'api-alpha', alphaCrew.primaryWsl),
+  const alphaPrompt = firstMateRequest([{
+    selection: alpha,
+    registration: registration(alpha, 'api-alpha', alphaCrew.primaryWsl)
+  }], alpha.id, 'Ship alpha', {
     provider: 'codex',
     model: 'gpt-5.6-sol'
   })
-  const betaPrompt = firstMateRequest(beta, 'Ship beta', {
-    registration: registration(beta, 'api-beta', betaCrew.primaryWsl),
+  const betaPrompt = firstMateRequest([{
+    selection: beta,
+    registration: registration(beta, 'api-beta', betaCrew.primaryWsl)
+  }], beta.id, 'Ship beta', {
     provider: 'claude',
     model: 'claude-sonnet-4-5'
   })
   const carrier = (prompt: string): string => {
-    const value = /^- exact task metadata: `(ade_task_context=.*)`$/m.exec(prompt)?.[1]
+    const json = /<ade-project-catalog>\n([^\n]+)\n<\/ade-project-catalog>/.exec(prompt)?.[1]
+    assert.ok(json)
+    const value = (JSON.parse(json) as FirstMateProjectCatalog).projects[0]?.taskContextMetadata
     assert.ok(value)
     return value
   }
@@ -407,10 +413,10 @@ test('keeps two switched external projects on their original providers through s
     }
   }
 
-  assert.ok(alphaPrompt.includes(`fm-brief.sh\` and \`fm-spawn.sh\`: ${JSON.stringify(alphaCrew.primaryWsl)}`))
-  assert.ok(betaPrompt.includes(`fm-brief.sh\` and \`fm-spawn.sh\`: ${JSON.stringify(betaCrew.primaryWsl)}`))
-  assert.match(alphaPrompt, /--mode` explicitly to both commands/)
-  assert.match(betaPrompt, /--mode` explicitly to both commands/)
+  assert.ok(alphaPrompt.includes(alphaCrew.primaryWsl))
+  assert.ok(betaPrompt.includes(betaCrew.primaryWsl))
+  assert.match(alphaPrompt, /effectiveDeliveryPosture as `--mode`/)
+  assert.match(betaPrompt, /effectiveDeliveryPosture as `--mode`/)
 
   const alphaDispatch = fakeFirstMateShip(alphaPrompt, 'alpha-ship', alphaCrew.worktreeWsl)
   const betaDispatch = fakeFirstMateShip(betaPrompt, 'beta-ship', betaCrew.worktreeWsl)

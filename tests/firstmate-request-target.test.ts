@@ -1,117 +1,255 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
-import type { FirstMateProjectRegistration } from '../src/shared/firstmate'
+import type {
+  FirstMateProjectCatalog,
+  FirstMateProjectRegistration
+} from '../src/shared/firstmate'
 import { firstMateTaskContextFromMetadata } from '../src/shared/firstmate-task-context'
 import type { WorkspaceProject } from '../src/shared/terminal'
-import { firstMateProjectTarget, firstMateRequest } from '../src/renderer/src/firstmate-request-target'
+import {
+  firstMateProjectTarget,
+  firstMateRequest,
+  type FirstMateRequestProject
+} from '../src/renderer/src/firstmate-request-target'
 
-const alpha: WorkspaceProject = { id: 'alpha', name: 'Api', path: 'D:\\Development\\alpha\\api', color: '#71a9ff' }
-const beta: WorkspaceProject = { id: 'beta', name: 'Api', path: 'D:\\Development\\beta\\api', color: '#f0a' }
-const gamma: WorkspaceProject = { id: 'gamma', name: 'Api', path: 'E:\\Archive\\gamma\\api', color: '#0fa' }
-function registrationFor(project: WorkspaceProject): FirstMateProjectRegistration {
+const alpha: WorkspaceProject = {
+  id: 'alpha', name: 'Api', path: 'D:\\Development\\alpha\\api', color: '#71a9ff'
+}
+const beta: WorkspaceProject = {
+  id: 'beta', name: 'Web', path: 'D:\\Development\\beta\\web', color: '#f0a'
+}
+const local: WorkspaceProject = {
+  id: 'local', name: 'Scratch', path: 'E:\\Scratch\\local', color: '#0fa'
+}
+
+function registrationFor(
+  project: WorkspaceProject,
+  options: { origin?: string; mode?: 'no-mistakes-prod-only' | 'local-only'; autonomy?: boolean } = {}
+): FirstMateProjectRegistration {
   const target = firstMateProjectTarget(project)
   return {
     ok: true,
     project: {
       adeProjectId: project.id,
-      registryName: `api-${project.id}`,
+      registryName: `${project.name.toLocaleLowerCase()}-${project.id}`,
       displayName: project.name,
       windowsPath: project.path,
       wslPath: target.wslPath,
-      origin: `git@github.com:acme/${project.id}-api.git`,
-      mode: 'no-mistakes-prod-only',
-      autonomy: false,
-      initialization: 'required',
-      registeredAt: '2026-08-14'
+      ...(options.origin === undefined && options.mode === 'local-only'
+        ? {}
+        : { origin: options.origin ?? `git@github.com:acme/${project.id}.git` }),
+      mode: options.mode ?? 'no-mistakes-prod-only',
+      autonomy: options.autonomy ?? false,
+      initialization: options.mode === 'local-only' ? 'not-required' : 'required',
+      registeredAt: '2026-08-15'
     }
   }
 }
 
-/**
- * Stands in for the dock: one conversation whose sidebar selection changes between requests, exactly
- * as FirstMatePanel composes each prompt from the project selected at that moment.
- */
-function dock(selected: WorkspaceProject): {
-  select(project: WorkspaceProject): void
-  target(): ReturnType<typeof firstMateProjectTarget>
-  send(text: string): string
-  delivered: string[]
-} {
-  let selection = selected
-  const delivered: string[] = []
+function requestProject(
+  project: WorkspaceProject,
+  registration: FirstMateProjectRegistration = registrationFor(project)
+): FirstMateRequestProject {
+  return { selection: project, registration }
+}
+
+function catalogFrom(prompt: string): FirstMateProjectCatalog {
+  const json = /<ade-project-catalog>\n([^\n]+)\n<\/ade-project-catalog>/.exec(prompt)?.[1]
+  assert.ok(json, 'the request should contain one machine-readable project catalog')
+  return JSON.parse(json) as FirstMateProjectCatalog
+}
+
+interface FakeCaptainDispatch {
+  clarification?: string
+  tasks: Array<{ projectId: string; metadata: string }>
+}
+
+/** Selects exactly as the captain is instructed to, without invoking a model or spawn machinery. */
+function fakeCaptainSelect(catalog: FirstMateProjectCatalog, projectIds: string[]): FakeCaptainDispatch {
+  const selected = projectIds.map((projectId) => ({
+    projectId,
+    matches: catalog.projects.filter((project) => project.adeProjectId === projectId)
+  }))
+  const unresolved = selected.find(({ matches }) => matches.length !== 1)
+  if (unresolved) {
+    return {
+      clarification: `Clarify ${unresolved.projectId}: found ${unresolved.matches.length} catalog matches.`,
+      tasks: []
+    }
+  }
   return {
-    delivered,
-    select: (project) => { selection = project },
-    target: () => firstMateProjectTarget(selection),
-    send: (text) => {
-      const prompt = firstMateRequest(selection, text, {
-        registration: registrationFor(selection),
-        provider: 'codex',
-        model: 'default'
-      })
-      delivered.push(prompt)
-      return prompt
-    }
+    tasks: selected.map(({ projectId, matches }) => ({
+      projectId,
+      metadata: matches[0]!.taskContextMetadata
+    }))
   }
 }
 
-test('assigns each request to the project selected when the captain submitted it', () => {
-  const panel = dock(alpha)
+test('delivers a machine-readable catalog with the active sidebar project marked as a hint', () => {
+  const prompt = firstMateRequest(
+    [requestProject(alpha), requestProject(beta)],
+    beta.id,
+    'Ship the API',
+    { provider: 'claude', model: 'claude-sonnet-4-5' }
+  )
+  const catalog = catalogFrom(prompt)
 
-  panel.send('Ship the release')
-  panel.select(beta)
-  panel.send('Fix the build')
-
-  assert.match(panel.delivered[0], /"alpha"[\s\S]*"\/mnt\/d\/Development\/alpha\/api"/)
-  assert.doesNotMatch(panel.delivered[0], /beta/)
-  assert.match(panel.delivered[1], /"beta"[\s\S]*"\/mnt\/d\/Development\/beta\/api"/)
-  assert.doesNotMatch(panel.delivered[1], /alpha/)
+  assert.deepEqual(catalog.activeProjectHint, { adeProjectId: 'beta', role: 'hint-only' })
+  assert.deepEqual(catalog.validator, { agent: 'claude', model: 'claude-sonnet-4-5' })
+  assert.deepEqual(catalog.projects.map((project) => ({
+    adeProjectId: project.adeProjectId,
+    displayName: project.displayName,
+    canonicalPaths: project.canonicalPaths,
+    effectiveDeliveryPosture: project.effectiveDeliveryPosture,
+    autonomyPolicy: project.autonomyPolicy,
+    originClassification: project.originClassification
+  })), [
+    {
+      adeProjectId: 'alpha',
+      displayName: 'Api',
+      canonicalPaths: { windows: 'D:\\Development\\alpha\\api', wsl: '/mnt/d/Development/alpha/api' },
+      effectiveDeliveryPosture: 'no-mistakes-prod-only',
+      autonomyPolicy: 'off',
+      originClassification: 'remote-backed'
+    },
+    {
+      adeProjectId: 'beta',
+      displayName: 'Web',
+      canonicalPaths: { windows: 'D:\\Development\\beta\\web', wsl: '/mnt/d/Development/beta/web' },
+      effectiveDeliveryPosture: 'no-mistakes-prod-only',
+      autonomyPolicy: 'off',
+      originClassification: 'remote-backed'
+    }
+  ])
+  assert.ok(prompt.endsWith('\n\nShip the API'), 'the captain message should remain verbatim')
+  assert.match(prompt, /The activeProjectHint is a hint only/)
 })
 
-test('delivers the assignment with the request while the captain message stays unchanged', () => {
-  const panel = dock(alpha)
+test('a fake captain can pin a non-active project at dispatch', () => {
+  const prompt = firstMateRequest(
+    [requestProject(alpha), requestProject(beta)],
+    alpha.id,
+    'Fix the web project',
+    { provider: 'codex', model: 'gpt-5.6-sol' }
+  )
 
-  const prompt = panel.send('Ship the release')
+  const dispatch = fakeCaptainSelect(catalogFrom(prompt), ['beta'])
+  const context = firstMateTaskContextFromMetadata(dispatch.tasks[0]!.metadata)
 
-  assert.ok(prompt.startsWith('ADE project assignment'), 'the assignment should precede the captain text')
-  assert.ok(prompt.endsWith('\n\nShip the release'), 'the captain text should follow the assignment verbatim')
-  assert.match(prompt, /Windows path: "D:\\\\Development\\\\alpha\\\\api"/)
-  assert.match(prompt, /use the absolute path above/)
+  assert.equal(dispatch.clarification, undefined)
+  assert.equal(context?.project.adeProjectId, 'beta')
+  assert.equal(context?.project.windowsPath, beta.path)
+  assert.deepEqual(context?.validator, { agent: 'codex', model: 'gpt-5.6-sol' })
 })
 
-test('a selection change after submission cannot retarget the request already sent', () => {
-  const panel = dock(alpha)
+test('a fake captain can pin separate projects for separate tasks from one request', () => {
+  const catalog = catalogFrom(firstMateRequest(
+    [requestProject(alpha), requestProject(beta)],
+    alpha.id,
+    'Update the API and web app',
+    { provider: 'codex' }
+  ))
 
-  const inFlight = panel.send('Ship the release')
-  panel.select(gamma)
+  const dispatch = fakeCaptainSelect(catalog, ['alpha', 'beta'])
 
-  assert.equal(inFlight, panel.delivered[0])
-  assert.doesNotMatch(panel.delivered[0], /gamma|Archive/)
-  assert.match(panel.delivered[0], /even if the sidebar selection changes later/)
+  assert.deepEqual(
+    dispatch.tasks.map((task) => firstMateTaskContextFromMetadata(task.metadata)?.project.adeProjectId),
+    ['alpha', 'beta']
+  )
+  assert.notEqual(dispatch.tasks[0]!.metadata, dispatch.tasks[1]!.metadata)
 })
 
-test('switching projects retargets the next request without any conversation reset', () => {
-  const panel = dock(alpha)
+test('a missing or ambiguous captain selection requests clarification and dispatches no task', () => {
+  const catalog = catalogFrom(firstMateRequest(
+    [requestProject(alpha), requestProject(beta)],
+    alpha.id,
+    'Fix the service',
+    { provider: 'codex' }
+  ))
 
-  assert.equal(panel.target().projectId, 'alpha')
-  panel.select(beta)
+  const missing = fakeCaptainSelect(catalog, ['unknown'])
+  const ambiguous = fakeCaptainSelect({
+    ...catalog,
+    projects: [...catalog.projects, { ...catalog.projects[0]! }]
+  }, ['alpha'])
 
-  assert.equal(panel.target().projectId, 'beta')
-  assert.match(panel.send('Fix the build'), /"beta"/)
+  assert.match(missing.clarification ?? '', /found 0 catalog matches/)
+  assert.deepEqual(missing.tasks, [])
+  assert.match(ambiguous.clarification ?? '', /found 2 catalog matches/)
+  assert.deepEqual(ambiguous.tasks, [])
+  assert.match(catalog.instructions.onUnresolvedSelection, /clarification/i)
+  assert.match(catalog.instructions.onUnresolvedSelection, /do not launch any crew/i)
 })
 
-test('shows enough of the path to tell similarly named projects apart before submission', () => {
-  const panel = dock(alpha)
+test('classifies remote-backed and local-only projects without losing their delivery policy', () => {
+  const catalog = catalogFrom(firstMateRequest(
+    [
+      requestProject(alpha),
+      requestProject(local, registrationFor(local, { mode: 'local-only', autonomy: true }))
+    ],
+    local.id,
+    'Compare both projects',
+    { provider: 'codex' }
+  ))
 
-  const shown = panel.target()
-  panel.select(beta)
-  const switched = panel.target()
-
-  assert.equal(shown.name, switched.name)
-  assert.notEqual(shown.windowsPath, switched.windowsPath)
+  assert.deepEqual(catalog.projects.map((project) => ({
+    id: project.adeProjectId,
+    origin: project.originClassification,
+    posture: project.effectiveDeliveryPosture,
+    autonomy: project.autonomyPolicy
+  })), [
+    { id: 'alpha', origin: 'remote-backed', posture: 'no-mistakes-prod-only', autonomy: 'off' },
+    { id: 'local', origin: 'local-only', posture: 'local-only', autonomy: 'on' }
+  ])
 })
 
-test('snapshots the selected project as an immutable target', () => {
+test('unavailable projects remain machine-readable but cannot supply a dispatch context', () => {
+  const catalog = catalogFrom(firstMateRequest(
+    [
+      requestProject(alpha),
+      requestProject(beta, {
+        ok: false,
+        message: 'The WSL checkout is unavailable.',
+        failure: { kind: 'wsl', adeProjectId: 'beta' }
+      })
+    ],
+    beta.id,
+    'Fix beta',
+    { provider: 'codex' }
+  ))
+
+  assert.deepEqual(catalog.projects.map((project) => project.adeProjectId), ['alpha'])
+  assert.deepEqual(catalog.unavailableProjects, [{
+    adeProjectId: 'beta',
+    displayName: 'Web',
+    reason: 'The WSL checkout is unavailable.'
+  }])
+  assert.deepEqual(fakeCaptainSelect(catalog, ['beta']).tasks, [])
+})
+
+test('changing the active sidebar hint after dispatch cannot retarget existing task metadata', () => {
+  const request = firstMateRequest(
+    [requestProject(alpha), requestProject(beta)],
+    alpha.id,
+    'Fix beta',
+    { provider: 'codex' }
+  )
+  const dispatched = fakeCaptainSelect(catalogFrom(request), ['beta']).tasks[0]!
+
+  firstMateRequest(
+    [requestProject(alpha), requestProject(beta)],
+    beta.id,
+    'A later request',
+    { provider: 'claude', model: 'later-model' }
+  )
+
+  assert.equal(firstMateTaskContextFromMetadata(dispatched.metadata)?.project.adeProjectId, 'beta')
+  assert.deepEqual(firstMateTaskContextFromMetadata(dispatched.metadata)?.validator, {
+    agent: 'codex', model: 'default'
+  })
+})
+
+test('snapshots a sidebar project path for display without making it the request target', () => {
   const target = firstMateProjectTarget(alpha)
 
   assert.deepEqual({ ...target }, {
@@ -120,94 +258,5 @@ test('snapshots the selected project as an immutable target', () => {
     windowsPath: 'D:\\Development\\alpha\\api',
     wslPath: '/mnt/d/Development/alpha/api'
   })
-  assert.ok(Object.isFrozen(target), 'a submitted request must not be retargeted through its snapshot')
-})
-
-const registered = registrationFor(alpha)
-
-test('pins the external project, posture, and validator in one durable metadata carrier', () => {
-  const prompt = firstMateRequest(alpha, 'Ship the release', {
-    registration: registered,
-    provider: 'claude',
-    model: 'claude-sonnet-4-5'
-  })
-  const carrier = /^- exact task metadata: `(ade_task_context=.*)`$/m.exec(prompt)?.[1]
-
-  assert.ok(carrier)
-  assert.deepEqual(firstMateTaskContextFromMetadata(carrier), {
-    version: 1,
-    project: {
-      adeProjectId: 'alpha',
-      registryName: 'api-alpha',
-      windowsPath: 'D:\\Development\\alpha\\api',
-      wslPath: '/mnt/d/Development/alpha/api',
-      mode: 'no-mistakes-prod-only',
-      autonomy: false
-    },
-    validator: { agent: 'claude', model: 'claude-sonnet-4-5' }
-  })
-  assert.match(prompt, /pass the absolute checkout path to both `fm-brief\.sh` and `fm-spawn\.sh`/)
-  assert.match(prompt, /pass `--mode` explicitly to both commands/)
-  assert.match(prompt, /pass `--yolo off`/)
-  assert.match(prompt, /for a scout, pass `--scout` explicitly to both commands/)
-  assert.match(prompt, /report-only delivery contract/)
-  assert.match(prompt, /mandatory Git guard proves the allocated directory is a real worktree/)
-  assert.match(prompt, /pass `--harness claude --model claude-sonnet-4-5`/)
-  assert.match(prompt, /append the exact task metadata carrier to that task's durable `state\/<id>\.meta`/)
-})
-
-test('delivers the durable registration facts with the request', () => {
-  const prompt = firstMateRequest(alpha, 'Ship the release', {
-    registration: registered,
-    provider: 'codex',
-    model: 'gpt-5.6-sol'
-  })
-
-  assert.match(prompt, /- project name: "api-alpha"/)
-  assert.match(prompt, /- registered delivery posture: "no-mistakes-prod-only"/)
-  assert.match(prompt, /- autonomy \(\+yolo\): off/)
-  assert.match(prompt, /- origin: "git@github.com:acme\/alpha-api.git"/)
-  assert.match(prompt, /no-mistakes initialization: not run;[\s\S]*?authorizes it in ADE/)
-  assert.match(prompt, /must never be cloned, copied, or symlinked there/)
-  assert.match(prompt, /do not retarget this request: ask the captain to select and register that project in ADE/)
-  assert.match(
-    prompt,
-    /ADE does not write your firstmate-private fleet registry[\s\S]*?outranks it from then on/,
-    'the captain keeps ownership of add intake and of the registered posture'
-  )
-  assert.ok(prompt.endsWith('\n\nShip the release'))
-})
-
-test('states that a project has no remote and needs no initialization', () => {
-  const prompt = firstMateRequest(alpha, 'Ship the release', {
-    registration: {
-      ok: true,
-      project: {
-        ...registered.project!,
-        mode: 'local-only',
-        origin: undefined,
-        initialization: 'not-required'
-      }
-    },
-    provider: 'codex',
-    model: 'default'
-  })
-
-  assert.match(prompt, /- registered delivery posture: "local-only"/)
-  assert.match(prompt, /- origin: none; this checkout has no remote/)
-  assert.match(prompt, /- no-mistakes initialization: not required for this posture/)
-})
-
-test('refuses to compose a fallback prompt when project registration failed', () => {
-  assert.throws(
-    () => firstMateRequest(alpha, 'Ship the release', {
-      registration: {
-        ok: false,
-        message: 'Path-access failure for ADE project "Api" (alpha).'
-      },
-      provider: 'codex',
-      model: 'default'
-    }),
-    /Path-access failure for ADE project "Api" \(alpha\)/
-  )
+  assert.ok(Object.isFrozen(target))
 })
