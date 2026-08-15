@@ -1,12 +1,17 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
 import type { FirstMateProjectRegistration } from '../src/shared/firstmate'
+import { firstMateTaskContextFromMetadata } from '../src/shared/firstmate-task-context'
 import type { WorkspaceProject } from '../src/shared/terminal'
 import { firstMateProjectTarget, firstMateRequest } from '../src/renderer/src/firstmate-request-target'
 
 const alpha: WorkspaceProject = { id: 'alpha', name: 'Api', path: 'D:\\Development\\alpha\\api', color: '#71a9ff' }
 const beta: WorkspaceProject = { id: 'beta', name: 'Api', path: 'D:\\Development\\beta\\api', color: '#f0a' }
 const gamma: WorkspaceProject = { id: 'gamma', name: 'Api', path: 'E:\\Archive\\gamma\\api', color: '#0fa' }
+const unavailableRegistration: FirstMateProjectRegistration = {
+  ok: false,
+  message: 'Project registration is unavailable in this request-target test.'
+}
 
 /**
  * Stands in for the dock: one conversation whose sidebar selection changes between requests, exactly
@@ -25,7 +30,11 @@ function dock(selected: WorkspaceProject): {
     select: (project) => { selection = project },
     target: () => firstMateProjectTarget(selection),
     send: (text) => {
-      const prompt = firstMateRequest(selection, text)
+      const prompt = firstMateRequest(selection, text, {
+        registration: unavailableRegistration,
+        provider: 'codex',
+        model: 'default'
+      })
       delivered.push(prompt)
       return prompt
     }
@@ -116,8 +125,40 @@ const registered: FirstMateProjectRegistration = {
   }
 }
 
+test('pins the external project, posture, and validator in one durable metadata carrier', () => {
+  const prompt = firstMateRequest(alpha, 'Ship the release', {
+    registration: registered,
+    provider: 'claude',
+    model: 'claude-sonnet-4-5'
+  })
+  const carrier = /^- exact task metadata: `(ade_task_context=.*)`$/m.exec(prompt)?.[1]
+
+  assert.ok(carrier)
+  assert.deepEqual(firstMateTaskContextFromMetadata(carrier), {
+    version: 1,
+    project: {
+      adeProjectId: 'alpha',
+      registryName: 'api-alpha',
+      windowsPath: 'D:\\Development\\alpha\\api',
+      wslPath: '/mnt/d/Development/alpha/api',
+      mode: 'no-mistakes-prod-only',
+      autonomy: false
+    },
+    validator: { agent: 'claude', model: 'claude-sonnet-4-5' }
+  })
+  assert.match(prompt, /pass the absolute checkout path to both `fm-brief\.sh` and `fm-spawn\.sh`/)
+  assert.match(prompt, /pass `--mode` explicitly to both commands/)
+  assert.match(prompt, /pass `--yolo off`/)
+  assert.match(prompt, /pass `--harness claude --model claude-sonnet-4-5`/)
+  assert.match(prompt, /append the exact task metadata carrier to that task's durable `state\/<id>\.meta`/)
+})
+
 test('delivers the durable registration facts with the request', () => {
-  const prompt = firstMateRequest(alpha, 'Ship the release', registered)
+  const prompt = firstMateRequest(alpha, 'Ship the release', {
+    registration: registered,
+    provider: 'codex',
+    model: 'gpt-5.6-sol'
+  })
 
   assert.match(prompt, /- project name: "api-alpha"/)
   assert.match(prompt, /- registered delivery posture: "no-mistakes-prod-only"/)
@@ -135,13 +176,17 @@ test('delivers the durable registration facts with the request', () => {
 
 test('states that a project has no remote and needs no initialization', () => {
   const prompt = firstMateRequest(alpha, 'Ship the release', {
-    ok: true,
-    project: {
-      ...registered.project!,
-      mode: 'local-only',
-      origin: undefined,
-      initialization: 'not-required'
-    }
+    registration: {
+      ok: true,
+      project: {
+        ...registered.project!,
+        mode: 'local-only',
+        origin: undefined,
+        initialization: 'not-required'
+      }
+    },
+    provider: 'codex',
+    model: 'default'
   })
 
   assert.match(prompt, /- registered delivery posture: "local-only"/)
@@ -151,8 +196,12 @@ test('states that a project has no remote and needs no initialization', () => {
 
 test('says plainly when a request could not be registered', () => {
   const prompt = firstMateRequest(alpha, 'Ship the release', {
-    ok: false,
-    message: 'ADE could not find the project checkout at D:\\Development\\alpha\\api.'
+    registration: {
+      ok: false,
+      message: 'ADE could not find the project checkout at D:\\Development\\alpha\\api.'
+    },
+    provider: 'codex',
+    model: 'default'
   })
 
   assert.match(prompt, /- FirstMate registration: unavailable \(ADE could not find the project checkout/)

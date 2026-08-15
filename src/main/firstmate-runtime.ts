@@ -13,6 +13,7 @@ import type {
   FirstMateRuntimeStatus
 } from '../shared/firstmate'
 import type { AgentProcessLaunch } from './agent-process'
+import { firstMateTaskContextFromMetadata, type FirstMateTaskContext } from '../shared/firstmate-task-context'
 import {
   createFirstMateExternalProjects,
   EXTERNAL_PROJECT_STORE_FILE,
@@ -203,6 +204,17 @@ try {
 journal.tasks[taskId] = record
 const temporary = target + '.' + process.pid + '.' + Math.random().toString(16).slice(2) + '.tmp'
 fs.writeFileSync(temporary, JSON.stringify(journal, null, 2) + '\\n', { mode: 0o600 })
+fs.renameSync(temporary, target)
+`
+
+const WSL_ATOMIC_WRITE_SCRIPT = `
+const fs = require('node:fs')
+const path = require('node:path')
+const target = process.argv[1]
+const text = Buffer.from(process.argv[2], 'base64url').toString('utf8')
+fs.mkdirSync(path.dirname(target), { recursive: true })
+const temporary = target + '.' + process.pid + '.' + Math.random().toString(16).slice(2) + '.tmp'
+fs.writeFileSync(temporary, text, { mode: 0o600 })
 fs.renameSync(temporary, target)
 `
 
@@ -519,13 +531,21 @@ function validatorModel(modelId?: string): string {
   return modelId && /^[a-zA-Z0-9._:+\/-]+$/.test(modelId) ? modelId : 'default'
 }
 
-function taskHarness(files: FirstMateLifecycleFiles, taskId: string): string | undefined {
+interface FirstMateTaskEndpoint {
+  harness: string
+  context: FirstMateTaskContext
+}
+
+function taskEndpoint(files: FirstMateLifecycleFiles, taskId: string): FirstMateTaskEndpoint | undefined {
   const meta = files.tasks.find((task) => task.id === taskId)?.meta
   if (!meta) return undefined
+  const context = firstMateTaskContextFromMetadata(meta)
+  if (!context) return undefined
+  let harness: string | undefined
   for (const line of meta.split(/\r?\n/)) {
-    if (line.startsWith('harness=')) return line.slice('harness='.length)
+    if (line.startsWith('harness=')) harness = line.slice('harness='.length)
   }
-  return undefined
+  return harness ? { harness, context } : undefined
 }
 
 const SAFE_ARGUMENT = /^[a-zA-Z0-9._-]+$/
@@ -575,6 +595,20 @@ function runtimeConfig(provider: AgentProvider, model: string, homePath: string)
       model,
       nmHome: join(homePath, 'no-mistakes'),
       agentHome: join(homePath, provider)
+    }
+  }, null, 2)}\n`
+}
+
+function taskRuntimeConfig(context: FirstMateTaskContext, nmHome: string, agentHome: string): string {
+  return `${JSON.stringify({
+    version: 1,
+    host: { kind: 'ade-app', supervisor: 'app-native', terminalTarget: false },
+    project: context.project,
+    validator: {
+      agent: context.validator.agent,
+      model: context.validator.model,
+      nmHome,
+      agentHome
     }
   }, null, 2)}\n`
 }
@@ -960,13 +994,22 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
       if (rejected) return rejected
       try {
         const files = await lifecycleFiles()
-        const harness = taskHarness(files, taskId)
-        if (!harness || !readyPaths) return { ok: false, message: 'The task endpoint metadata is unavailable.' }
-        const configuredValidator = firstMateValidatorFromRuntimeConfig(files.runtimeConfig) ?? selectedValidator
-        selectedValidator = {
-          agent: configuredValidator.agent,
-          model: configuredValidator.model
-        }
+        const endpoint = taskEndpoint(files, taskId)
+        if (!endpoint || !readyPaths) return { ok: false, message: 'The pinned task endpoint metadata is unavailable.' }
+        const taskConfigPath = `${readyPaths.homePath}/state/${taskId}.ade-runtime.json`
+        await run(
+          [
+            '--distribution', distribution,
+            '--exec', '/usr/bin/node', '-e', WSL_ATOMIC_WRITE_SCRIPT,
+            taskConfigPath,
+            Buffer.from(taskRuntimeConfig(
+              endpoint.context,
+              `${readyPaths.homePath}/no-mistakes`,
+              `${readyPaths.homePath}/${endpoint.context.validator.agent}`
+            )).toString('base64url')
+          ],
+          15_000
+        )
         await run(
           [
             '--distribution', distribution,
@@ -976,12 +1019,12 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
             `NM_HOME=${readyPaths.homePath}/no-mistakes`,
             `CODEX_HOME=${readyPaths.homePath}/codex`,
             `CLAUDE_CONFIG_DIR=${readyPaths.homePath}/claude`,
-            `ADE_FIRSTMATE_RUNTIME_CONFIG=${readyPaths.homePath}/config/ade-runtime.json`,
-            `ADE_FIRSTMATE_VALIDATOR_AGENT=${selectedValidator.agent}`,
-            `ADE_FIRSTMATE_VALIDATOR_MODEL=${selectedValidator.model}`,
+            `ADE_FIRSTMATE_RUNTIME_CONFIG=${taskConfigPath}`,
+            `ADE_FIRSTMATE_VALIDATOR_AGENT=${endpoint.context.validator.agent}`,
+            `ADE_FIRSTMATE_VALIDATOR_MODEL=${endpoint.context.validator.model}`,
             `${readyPaths.distroPath}/bin/fm-send.sh`,
             taskId,
-            noMistakesContinuation(harness, `${readyPaths.homePath}/config/ade-runtime.json`, dispatchId)
+            noMistakesContinuation(endpoint.harness, taskConfigPath, dispatchId)
           ],
           30_000
         )
@@ -1176,19 +1219,28 @@ function createNativeFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMa
       if (rejected) return rejected
       try {
         const files = await readFirstMateLifecycleFiles(homePath)
-        const harness = taskHarness(files, taskId)
-        if (!harness) return { ok: false, message: 'The task endpoint metadata is unavailable.' }
-        const configuredValidator = firstMateValidatorFromRuntimeConfig(files.runtimeConfig) ?? selectedValidator
-        selectedValidator = {
-          agent: configuredValidator.agent,
-          model: configuredValidator.model
-        }
+        const endpoint = taskEndpoint(files, taskId)
+        if (!endpoint) return { ok: false, message: 'The pinned task endpoint metadata is unavailable.' }
+        const taskConfigPath = join(homePath, 'state', `${taskId}.ade-runtime.json`)
+        atomicWrite(taskConfigPath, taskRuntimeConfig(
+          endpoint.context,
+          join(homePath, 'no-mistakes'),
+          join(homePath, endpoint.context.validator.agent)
+        ), 0o600)
         await execFileAsync(join(distroPath, 'bin', 'fm-send.sh'), [
           taskId,
-          noMistakesContinuation(harness, join(homePath, 'config', 'ade-runtime.json'), dispatchId)
+          noMistakesContinuation(endpoint.harness, taskConfigPath, dispatchId)
         ], {
           cwd: distroPath,
-          env: appHostedEnvironment(environment, homePath, selectedValidator.agent, selectedValidator.model),
+          env: {
+            ...appHostedEnvironment(
+              environment,
+              homePath,
+              endpoint.context.validator.agent,
+              endpoint.context.validator.model
+            ),
+            ADE_FIRSTMATE_RUNTIME_CONFIG: taskConfigPath
+          },
           timeout: 30_000,
           maxBuffer: 4 * 1024 * 1024
         })

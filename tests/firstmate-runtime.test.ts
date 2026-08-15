@@ -4,6 +4,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { createFirstMateRuntime } from '../src/main/firstmate-runtime'
+import { firstMateTaskContextMetadata, type FirstMateTaskContext } from '../src/shared/firstmate-task-context'
+import { createFirstMateLifecycleCoordinator } from '../src/main/firstmate-lifecycle-coordinator'
+import { firstMateRequest } from '../src/renderer/src/firstmate-request-target'
+import type { FirstMateLifecycleJournal, FirstMateLifecycleRecord } from '../src/main/firstmate-lifecycle'
+import type { FirstMateProjectRegistration } from '../src/shared/firstmate'
+import type { WorkspaceProject } from '../src/shared/terminal'
 
 function writeDistro(path: string): void {
   mkdirSync(join(path, 'bin'), { recursive: true })
@@ -193,19 +199,31 @@ test('keeps provider-specific Codex App Server configuration out of the Claude l
   assert.match(launchArgs.join(' '), /claude-agent-acp/)
 })
 
-test('continues validation with the persisted runtime validator instead of guessed home configuration', async () => {
+test('continues validation with the task-pinned validator after the global provider changes', async () => {
   const rootPath = mkdtempSync(join(tmpdir(), 'ade-firstmate-wsl-continue-'))
   const calls: string[][] = []
   const runtimeConfig = JSON.stringify({
     version: 1,
     host: { kind: 'ade-app', supervisor: 'app-native', terminalTarget: false },
     validator: {
-      agent: 'codex',
-      model: 'gpt-5.6-sol',
+      agent: 'claude',
+      model: 'claude-opus-4-1',
       nmHome: '/home/tucaen/.local/share/ade/firstmate/home/no-mistakes',
-      agentHome: '/home/tucaen/.local/share/ade/firstmate/home/codex'
+      agentHome: '/home/tucaen/.local/share/ade/firstmate/home/claude'
     }
   })
+  const context: FirstMateTaskContext = {
+    version: 1,
+    project: {
+      adeProjectId: 'alpha',
+      registryName: 'api-alpha',
+      windowsPath: 'D:\\Development\\alpha\\api',
+      wslPath: '/mnt/d/Development/alpha/api',
+      mode: 'no-mistakes',
+      autonomy: false
+    },
+    validator: { agent: 'codex', model: 'gpt-5.6-sol' }
+  }
   const runtime = createFirstMateRuntime({
     rootPath,
     platform: 'win32',
@@ -219,7 +237,16 @@ test('continues validation with the persisted runtime validator instead of guess
               runtimeConfig,
               tasks: [{
                 id: 'resize',
-                meta: 'kind=ship\nmode=no-mistakes\nharness=codex\n',
+                meta: [
+                  'kind=ship',
+                  'mode=no-mistakes',
+                  'yolo=off',
+                  'project=/mnt/d/Development/alpha/api',
+                  'worktree=/home/tucaen/.treehouse/alpha/resize',
+                  'harness=codex',
+                  'model=gpt-5.6-sol',
+                  firstMateTaskContextMetadata(context)
+                ].join('\n'),
                 status: 'done: committed implementation\n'
               }]
             }),
@@ -239,13 +266,192 @@ test('continues validation with the persisted runtime validator instead of guess
   assert.ok(continuation)
   assert.ok(continuation.includes('resize'))
   const continuationPrompt = continuation.find((arg) => arg.startsWith('$no-mistakes')) ?? ''
-  assert.match(continuationPrompt, /ade-runtime\.json/)
+  assert.match(continuationPrompt, /state\/resize\.ade-runtime\.json/)
   assert.match(continuationPrompt, /ADE validation dispatch id: resize\.a1b2c3\.1/)
-  assert.match(continuationPrompt, /do not infer the validator from filtered doctor text or guessed homes/i)
-  assert.ok(continuation.includes('ADE_FIRSTMATE_RUNTIME_CONFIG=/home/tucaen/.local/share/ade/firstmate/home/config/ade-runtime.json'))
+  assert.match(continuationPrompt, /do not use[\s\S]*filtered doctor text, or guessed homes/i)
+  assert.ok(continuation.includes('ADE_FIRSTMATE_RUNTIME_CONFIG=/home/tucaen/.local/share/ade/firstmate/home/state/resize.ade-runtime.json'))
   assert.ok(continuation.includes('ADE_FIRSTMATE_VALIDATOR_AGENT=codex'))
   assert.ok(continuation.includes('ADE_FIRSTMATE_VALIDATOR_MODEL=gpt-5.6-sol'))
   assert.ok(continuation.includes('NM_HOME=/home/tucaen/.local/share/ade/firstmate/home/no-mistakes'))
+  const configWrite = calls.find((args) => args.includes('/home/tucaen/.local/share/ade/firstmate/home/state/resize.ade-runtime.json'))
+  assert.ok(configWrite, 'the pinned runtime record must be durable before the continuation is sent')
+  const taskConfig = JSON.parse(Buffer.from(configWrite.at(-1) ?? '', 'base64url').toString('utf8'))
+  assert.deepEqual(taskConfig.validator, {
+    agent: 'codex',
+    model: 'gpt-5.6-sol',
+    nmHome: '/home/tucaen/.local/share/ade/firstmate/home/no-mistakes',
+    agentHome: '/home/tucaen/.local/share/ade/firstmate/home/codex'
+  })
+  assert.deepEqual(taskConfig.project, context.project)
+})
+
+test('keeps two switched external projects on their original providers through supervision and restart', async () => {
+  const rootPath = mkdtempSync(join(tmpdir(), 'ade-firstmate-two-projects-'))
+  const alpha: WorkspaceProject = {
+    id: 'alpha', name: 'Api', path: 'D:\\Development\\alpha\\api', color: '#71a9ff'
+  }
+  const beta: WorkspaceProject = {
+    id: 'beta', name: 'Api', path: 'D:\\Development\\beta\\api', color: '#f0a'
+  }
+  const registration = (
+    project: WorkspaceProject,
+    registryName: string,
+    wslPath: string
+  ): FirstMateProjectRegistration => ({
+    ok: true,
+    project: {
+      adeProjectId: project.id,
+      registryName,
+      displayName: project.name,
+      windowsPath: project.path,
+      wslPath,
+      origin: `https://github.com/acme/${project.id}.git`,
+      mode: 'no-mistakes',
+      autonomy: false,
+      initialization: 'authorized',
+      registeredAt: '2026-08-15'
+    }
+  })
+  const alphaPrompt = firstMateRequest(alpha, 'Ship alpha', {
+    registration: registration(alpha, 'api-alpha', '/mnt/d/Development/alpha/api'),
+    provider: 'codex',
+    model: 'gpt-5.6-sol'
+  })
+  const betaPrompt = firstMateRequest(beta, 'Ship beta', {
+    registration: registration(beta, 'api-beta', '/mnt/d/Development/beta/api'),
+    provider: 'claude',
+    model: 'claude-sonnet-4-5'
+  })
+  const carrier = (prompt: string): string => {
+    const value = /^- exact task metadata: `(ade_task_context=.*)`$/m.exec(prompt)?.[1]
+    assert.ok(value)
+    return value
+  }
+
+  assert.match(alphaPrompt, /fm-brief\.sh` and `fm-spawn\.sh`: "\/mnt\/d\/Development\/alpha\/api"/)
+  assert.match(betaPrompt, /fm-brief\.sh` and `fm-spawn\.sh`: "\/mnt\/d\/Development\/beta\/api"/)
+  assert.match(alphaPrompt, /--mode` explicitly to both commands/)
+  assert.match(betaPrompt, /--mode` explicitly to both commands/)
+
+  const rawTasks = [
+    {
+      id: 'alpha-ship',
+      meta: [
+        'kind=ship', 'mode=no-mistakes', 'yolo=off',
+        'project=/mnt/d/Development/alpha/api',
+        'worktree=/home/tucaen/.treehouse/alpha/alpha-ship',
+        'harness=codex', 'model=gpt-5.6-sol', carrier(alphaPrompt)
+      ].join('\n'),
+      status: 'done: committed alpha implementation\n'
+    },
+    {
+      id: 'beta-ship',
+      meta: [
+        'kind=ship', 'mode=no-mistakes', 'yolo=off',
+        'project=/mnt/d/Development/beta/api',
+        'worktree=/home/tucaen/.treehouse/beta/beta-ship',
+        'harness=claude', 'model=claude-sonnet-4-5', carrier(betaPrompt)
+      ].join('\n'),
+      status: 'done: committed beta implementation\n'
+    }
+  ]
+  let journal: FirstMateLifecycleJournal = { version: 1, tasks: {} }
+  let mutableGlobalConfig = JSON.stringify({
+    version: 1,
+    validator: { agent: 'claude', model: 'later-global-model' }
+  })
+  const sends: string[][] = []
+  const taskConfigs = new Map<string, unknown>()
+
+  const run = async (args: string[]): Promise<{ stdout: string; stderr: string }> => {
+    if (args.includes('-lc')) return { stdout: readyWslInspection(), stderr: '' }
+    const scriptIndex = args.indexOf('-e')
+    const script = scriptIndex >= 0 ? args[scriptIndex + 1] ?? '' : ''
+    if (script.includes("names.filter((name) => name.endsWith('.meta'))")) {
+      return {
+        stdout: JSON.stringify({
+          runtimeConfig: mutableGlobalConfig,
+          journal: JSON.stringify(journal),
+          tasks: rawTasks
+        }),
+        stderr: ''
+      }
+    }
+    if (script.includes('journal.tasks[taskId] = record')) {
+      const taskId = args.at(-2) ?? ''
+      const record = JSON.parse(Buffer.from(args.at(-1) ?? '', 'base64url').toString('utf8')) as FirstMateLifecycleRecord
+      journal = { version: 1, tasks: { ...journal.tasks, [taskId]: record } }
+      return { stdout: '', stderr: '' }
+    }
+    if (args.some((arg) => arg.endsWith('/bin/fm-send.sh'))) {
+      sends.push(args)
+      mutableGlobalConfig = JSON.stringify({
+        version: 1,
+        validator: sends.length === 1
+          ? { agent: 'codex', model: 'changed-after-alpha' }
+          : { agent: 'claude', model: 'changed-after-beta' }
+      })
+      return { stdout: '', stderr: '' }
+    }
+    const configPath = args.find((arg) => /^\/.*\/state\/[^/]+\.ade-runtime\.json$/.test(arg))
+    if (configPath) {
+      taskConfigs.set(configPath, JSON.parse(Buffer.from(args.at(-1) ?? '', 'base64url').toString('utf8')))
+      return { stdout: '', stderr: '' }
+    }
+    return { stdout: '', stderr: '' }
+  }
+  const runtimeOptions = {
+    rootPath,
+    platform: 'win32' as const,
+    resolveGit: () => 'git.exe',
+    wsl: { run }
+  }
+  const wakes: string[] = []
+  const runtime = createFirstMateRuntime(runtimeOptions)
+  await runtime.status()
+  const coordinator = createFirstMateLifecycleCoordinator({
+    runtime,
+    wakeCaptain: async (message) => { wakes.push(message); return { ok: true } }
+  })
+
+  await coordinator.poll()
+
+  assert.equal(sends.length, 2)
+  const alphaSend = sends.find((args) => args.includes('alpha-ship')) ?? []
+  const betaSend = sends.find((args) => args.includes('beta-ship')) ?? []
+  assert.ok(alphaSend.includes('ADE_FIRSTMATE_VALIDATOR_AGENT=codex'))
+  assert.ok(alphaSend.includes('ADE_FIRSTMATE_VALIDATOR_MODEL=gpt-5.6-sol'))
+  assert.ok(betaSend.includes('ADE_FIRSTMATE_VALIDATOR_AGENT=claude'))
+  assert.ok(betaSend.includes('ADE_FIRSTMATE_VALIDATOR_MODEL=claude-sonnet-4-5'))
+  assert.match(alphaSend.at(-1) ?? '', /^\$no-mistakes/)
+  assert.match(betaSend.at(-1) ?? '', /^\/no-mistakes/)
+  assert.equal(taskConfigs.size, 2)
+
+  const restartedRuntime = createFirstMateRuntime(runtimeOptions)
+  await restartedRuntime.status()
+  const restartedCoordinator = createFirstMateLifecycleCoordinator({
+    runtime: restartedRuntime,
+    wakeCaptain: async (message) => { wakes.push(message); return { ok: true } }
+  })
+  await restartedCoordinator.poll()
+  assert.equal(sends.length, 2, 'restart must supervise acknowledged task dispatches without repeating them')
+
+  rawTasks[0]!.status += 'done: PR https://github.com/acme/alpha/pull/10 checks green\n'
+  rawTasks[1]!.status += 'done: PR https://github.com/acme/beta/pull/20 checks green\n'
+  await restartedCoordinator.poll()
+  const completed = await restartedRuntime.lifecycle()
+
+  assert.deepEqual(completed.tasks.map((task) => [
+    task.context?.project.adeProjectId,
+    task.context?.validator.agent,
+    task.prUrl
+  ]), [
+    ['alpha', 'codex', 'https://github.com/acme/alpha/pull/10'],
+    ['beta', 'claude', 'https://github.com/acme/beta/pull/20']
+  ])
+  const completionWake = wakes.find((message) => /alpha-ship=pr-ready/.test(message)) ?? ''
+  assert.match(completionWake, /project=alpha[\s\S]*validator=codex\/gpt-5\.6-sol/)
+  assert.match(completionWake, /project=beta[\s\S]*validator=claude\/claude-sonnet-4-5/)
 })
 
 test('trusts only the managed FirstMate distro after explicit approval', async () => {

@@ -4,8 +4,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import type { FirstMateLifecycleStatus, FirstMateLifecycleTask } from '../src/shared/firstmate'
+import { firstMateTaskContextMetadata, type FirstMateTaskContext } from '../src/shared/firstmate-task-context'
 import { createFirstMateLifecycleCoordinator } from '../src/main/firstmate-lifecycle-coordinator'
 import {
+  firstMateLifecycleFromFiles,
   firstMateValidationDispatchId,
   noMistakesContinuation,
   readFirstMateLifecycle,
@@ -13,7 +15,20 @@ import {
   type FirstMateLifecycleRecord
 } from '../src/main/firstmate-lifecycle'
 
-function taskHome(): { home: string; statusPath: string } {
+const alphaCodexContext: FirstMateTaskContext = {
+  version: 1,
+  project: {
+    adeProjectId: 'alpha',
+    registryName: 'api-alpha',
+    windowsPath: 'D:\\Development\\alpha\\api',
+    wslPath: '/mnt/d/Development/alpha/api',
+    mode: 'no-mistakes',
+    autonomy: false
+  },
+  validator: { agent: 'codex', model: 'gpt-5.6-sol' }
+}
+
+function taskHome(context: FirstMateTaskContext = alphaCodexContext): { home: string; statusPath: string } {
   const home = mkdtempSync(join(tmpdir(), 'ade-firstmate-lifecycle-'))
   const state = join(home, 'state')
   const config = join(home, 'config')
@@ -31,9 +46,13 @@ function taskHome(): { home: string; statusPath: string } {
   }))
   writeFileSync(join(state, 'resize.meta'), [
     'worktree=/tmp/resize',
+    `project=${context.project.wslPath}`,
     'harness=codex',
     'kind=ship',
-    'mode=no-mistakes'
+    'mode=no-mistakes',
+    'yolo=off',
+    'model=gpt-5.6-sol',
+    firstMateTaskContextMetadata(context)
   ].join('\n'))
   const statusPath = join(state, 'resize.status')
   writeFileSync(statusPath, 'done: committed resizable panel\n')
@@ -109,6 +128,8 @@ test('durably reconciles a no-mistakes task from implementation through validati
   })
   assert.equal(lifecycle.tasks[0]?.stage, 'implemented')
   assert.equal(lifecycle.tasks[0]?.nextAction, 'start-validation')
+  assert.equal(lifecycle.tasks[0]?.worktree, '/tmp/resize')
+  assert.deepEqual(lifecycle.tasks[0]?.context, alphaCodexContext)
 
   const implemented = lifecycle.tasks[0]!
   await recordFirstMateLifecycle(home, implemented.id, {
@@ -141,6 +162,50 @@ test('durably reconciles a no-mistakes task from implementation through validati
   assert.equal(lifecycle.tasks[0]?.stage, 'pr-ready')
   assert.equal(lifecycle.tasks[0]?.prUrl, 'https://github.com/Tucaen/ade/pull/99')
   assert.equal(lifecycle.tasks[0]?.nextAction, 'review-pr')
+})
+
+test('blocks a task whose spawn metadata drifted from its pinned external project', () => {
+  const lifecycle = firstMateLifecycleFromFiles({
+    tasks: [{
+      id: 'resize',
+      meta: [
+        'kind=ship',
+        'mode=no-mistakes',
+        'yolo=off',
+        'project=/mnt/d/Development/beta/api',
+        'worktree=/home/tucaen/.treehouse/beta/resize',
+        'harness=codex',
+        'model=gpt-5.6-sol',
+        firstMateTaskContextMetadata(alphaCodexContext)
+      ].join('\n'),
+      status: 'done: committed implementation\n'
+    }]
+  })
+
+  assert.equal(lifecycle.tasks[0]?.stage, 'blocked')
+  assert.equal(lifecycle.tasks[0]?.nextAction, 'await-help')
+  assert.match(lifecycle.tasks[0]?.detail ?? '', /project.*beta.*alpha/i)
+  assert.equal(lifecycle.tasks[0]?.context?.project.adeProjectId, 'alpha')
+})
+
+test('blocks a task whose declared ADE context is malformed instead of treating it as legacy metadata', () => {
+  const lifecycle = firstMateLifecycleFromFiles({
+    tasks: [{
+      id: 'resize',
+      meta: [
+        'kind=ship',
+        'mode=no-mistakes',
+        'project=/mnt/d/Development/alpha/api',
+        'worktree=/home/tucaen/.treehouse/alpha/resize',
+        'harness=codex',
+        'ade_task_context=%7Bnot-json'
+      ].join('\n'),
+      status: 'done: committed implementation\n'
+    }]
+  })
+
+  assert.equal(lifecycle.tasks[0]?.stage, 'blocked')
+  assert.match(lifecycle.tasks[0]?.detail ?? '', /task context.*malformed/i)
 })
 
 test('derives a validation dispatch identity that survives ADE and FirstMate restarts', () => {
