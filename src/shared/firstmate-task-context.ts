@@ -19,7 +19,7 @@ export interface FirstMateTaskContext {
   }
 }
 
-function record(value: unknown): Record<string, unknown> | undefined {
+function asRecord(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === 'object' ? value as Record<string, unknown> : undefined
 }
 
@@ -35,9 +35,9 @@ const DELIVERY_MODES: ReadonlySet<FirstMateDeliveryMode> = new Set([
 ])
 
 function parsedContext(value: unknown): FirstMateTaskContext | undefined {
-  const candidate = record(value)
-  const project = record(candidate?.project)
-  const validator = record(candidate?.validator)
+  const candidate = asRecord(value)
+  const project = asRecord(candidate?.project)
+  const validator = asRecord(candidate?.validator)
   if (
     candidate?.version !== 1
     || !nonEmptyText(project?.adeProjectId)

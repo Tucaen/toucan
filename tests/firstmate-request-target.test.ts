@@ -149,6 +149,9 @@ test('pins the external project, posture, and validator in one durable metadata 
   assert.match(prompt, /pass the absolute checkout path to both `fm-brief\.sh` and `fm-spawn\.sh`/)
   assert.match(prompt, /pass `--mode` explicitly to both commands/)
   assert.match(prompt, /pass `--yolo off`/)
+  assert.match(prompt, /for a scout, pass `--scout` explicitly to both commands/)
+  assert.match(prompt, /report-only delivery contract/)
+  assert.match(prompt, /mandatory Git guard proves the allocated directory is a real worktree/)
   assert.match(prompt, /pass `--harness claude --model claude-sonnet-4-5`/)
   assert.match(prompt, /append the exact task metadata carrier to that task's durable `state\/<id>\.meta`/)
 })
@@ -166,6 +169,7 @@ test('delivers the durable registration facts with the request', () => {
   assert.match(prompt, /- origin: "git@github.com:acme\/alpha-api.git"/)
   assert.match(prompt, /no-mistakes initialization: not run;[\s\S]*?authorizes it in ADE/)
   assert.match(prompt, /must never be cloned, copied, or symlinked there/)
+  assert.match(prompt, /do not retarget this request: ask the captain to select and register that project in ADE/)
   assert.match(
     prompt,
     /ADE does not write your firstmate-private fleet registry[\s\S]*?outranks it from then on/,

@@ -90,7 +90,7 @@ function projectAssignment(
     'This is the project selected in ADE\'s left sidebar when the captain sent the request below.',
     'It is the project for this request and for every crew task it creates, even if the sidebar selection changes later.',
     'The project may be outside FirstMate\'s private projects directory; use the absolute path above when inspecting or dispatching work.',
-    'If the captain explicitly names a different project, follow that explicit choice.'
+    'If the message names a different project, do not retarget this request: ask the captain to select and register that project in ADE, then send a new request.'
   ].join('\n')
 }
 
@@ -135,11 +135,16 @@ function taskContract(options: FirstMateRequestOptions): string {
     `- pinned validation provider/model: ${context.validator.agent}/${context.validator.model}`,
     'For every ship or scout created from this request:',
     `- pass the absolute checkout path to both \`fm-brief.sh\` and \`fm-spawn.sh\`: ${JSON.stringify(context.project.wslPath)}`,
+    '- use only the managed `fm-spawn.sh` path: its mandatory Git guard proves the allocated directory is a real '
+      + 'worktree rooted away from this primary checkout before it launches any worker; never bypass that guard',
     '- for a ship, resolve the concrete task delivery mode once at intake and pass `--mode` explicitly to both commands; '
       + `the standing posture is ${JSON.stringify(context.project.mode)} and must not be re-read from another project`,
     `- for a ship, pass \`--yolo ${autonomy}\`; autonomy cannot drift from this request's durable registration`,
+    '- for a scout, pass `--scout` explicitly to both commands; this is the report-only delivery contract, and '
+      + 'the registered posture/autonomy remain pinned in the ADE carrier (the managed scripts deliberately refuse '
+      + '`--mode` and `--yolo` for scouts)',
     `- pass ${spawnProfile} to spawn; do not consult a later global provider selection`,
-    '- immediately after spawn, append the exact task metadata carrier to that task\'s durable `state/<id>.meta`, '
+    '- immediately after every ship or scout spawn, append the exact task metadata carrier to that task\'s durable `state/<id>.meta`, '
       + 'preserving the spawn metadata and publishing the update atomically before treating dispatch as complete.',
     'The task metadata, not the current sidebar or global provider, is authoritative for supervision, recovery, validation, and completion reporting.'
   ].join('\n')

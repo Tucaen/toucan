@@ -251,7 +251,8 @@ function prFromDone(verb: string, detail: string): string | undefined {
 function taskContextProblem(
   taskId: string,
   meta: Map<string, string>,
-  context: NonNullable<FirstMateLifecycleTask['context']>
+  context: NonNullable<FirstMateLifecycleTask['context']>,
+  kind: 'ship' | 'scout'
 ): string | undefined {
   const recordedProject = meta.get('project')
   if (recordedProject !== context.project.wslPath) {
@@ -263,18 +264,20 @@ function taskContextProblem(
     return `Task ${taskId} does not record an isolated crew worktree distinct from its pinned external checkout.`
   }
 
-  const mode = meta.get('mode')
-  const modeMatches = context.project.mode === 'no-mistakes-prod-only'
-    ? mode === 'no-mistakes' || mode === 'direct-PR'
-    : mode === context.project.mode
-  if (!modeMatches) {
-    return `Task ${taskId} recorded delivery mode ${JSON.stringify(mode ?? 'missing')}, which drifts from `
-      + `the pinned ${JSON.stringify(context.project.mode)} project posture.`
-  }
-  const autonomy = meta.get('yolo')
-  const expectedAutonomy = context.project.autonomy ? 'on' : 'off'
-  if (autonomy !== expectedAutonomy) {
-    return `Task ${taskId} recorded yolo=${autonomy ?? 'missing'}, but its pinned autonomy is ${expectedAutonomy}.`
+  if (kind === 'ship') {
+    const mode = meta.get('mode')
+    const modeMatches = context.project.mode === 'no-mistakes-prod-only'
+      ? mode === 'no-mistakes' || mode === 'direct-PR'
+      : mode === context.project.mode
+    if (!modeMatches) {
+      return `Task ${taskId} recorded delivery mode ${JSON.stringify(mode ?? 'missing')}, which drifts from `
+        + `the pinned ${JSON.stringify(context.project.mode)} project posture.`
+    }
+    const autonomy = meta.get('yolo')
+    const expectedAutonomy = context.project.autonomy ? 'on' : 'off'
+    if (autonomy !== expectedAutonomy) {
+      return `Task ${taskId} recorded yolo=${autonomy ?? 'missing'}, but its pinned autonomy is ${expectedAutonomy}.`
+    }
   }
 
   const harness = meta.get('harness') ?? ''
@@ -298,8 +301,9 @@ function recordedTask(
   journal: FirstMateLifecycleJournal
 ): FirstMateLifecycleTask | undefined {
   const meta = parseKeyValues(raw.meta)
-  if ((meta.get('kind') ?? 'ship') !== 'ship') return undefined
-  const mode = meta.get('mode') ?? 'unknown'
+  const kind = meta.get('kind') ?? 'ship'
+  if (kind !== 'ship' && kind !== 'scout') return undefined
+  const mode = kind === 'scout' ? 'scout' : meta.get('mode') ?? 'unknown'
   const context = firstMateTaskContextFromMetadata(raw.meta)
   const declaresContext = raw.meta.split(/\r?\n/).some(
     (line) => line.startsWith(`${FIRSTMATE_TASK_CONTEXT_META_KEY}=`)
@@ -312,6 +316,16 @@ function recordedTask(
   })
   const line = latestStatusLine(raw.status)
   const hash = statusHash(raw.status)
+  if (!declaresContext) {
+    return attachContext({
+      id: raw.id,
+      mode,
+      stage: 'blocked',
+      detail: `Task ${raw.id} has no durable ADE task context; supervision cannot safely infer its project, posture, or validator.`,
+      statusHash: hash,
+      nextAction: 'await-help'
+    })
+  }
   if (declaresContext && !context) {
     return attachContext({
       id: raw.id,
@@ -323,7 +337,7 @@ function recordedTask(
     })
   }
   if (context) {
-    const problem = taskContextProblem(raw.id, meta, context)
+    const problem = taskContextProblem(raw.id, meta, context, kind)
     if (problem) {
       return attachContext({
         id: raw.id,
@@ -338,21 +352,42 @@ function recordedTask(
   if (!line) return undefined
   const { verb, detail } = statusParts(line)
   const prUrl = prFromDone(verb, detail)
+  const durable = journal.tasks[raw.id]
+  const durableDispatch = recordedDispatch(durable?.dispatch)
+  const holdsValidationGate = durableDispatch
+    && ['claimed', 'acknowledged', 'unresolved'].includes(durableDispatch.status)
+    ? durableDispatch
+    : undefined
 
   if (prUrl) {
     return attachContext({ id: raw.id, mode, stage: 'pr-ready', detail, statusHash: hash, nextAction: 'review-pr', prUrl })
   }
   if (verb === 'needs-decision') {
-    return attachContext({ id: raw.id, mode, stage: 'decision', detail, statusHash: hash, nextAction: 'await-decision' })
+    return attachContext({
+      id: raw.id,
+      mode,
+      stage: 'decision',
+      detail,
+      statusHash: hash,
+      nextAction: 'await-decision',
+      ...(holdsValidationGate ? { dispatch: holdsValidationGate } : {})
+    })
   }
   if (verb === 'blocked' || verb === 'failed') {
-    return attachContext({ id: raw.id, mode, stage: 'blocked', detail, statusHash: hash, nextAction: 'await-help' })
+    return attachContext({
+      id: raw.id,
+      mode,
+      stage: 'blocked',
+      detail,
+      statusHash: hash,
+      nextAction: 'await-help',
+      ...(holdsValidationGate ? { dispatch: holdsValidationGate } : {})
+    })
   }
   if (verb === 'working' && /validat|no-mistakes|checks|\bCI\b/i.test(detail)) {
     return attachContext({ id: raw.id, mode, stage: 'validating', detail, statusHash: hash, nextAction: 'await-validation' })
   }
 
-  const durable = journal.tasks[raw.id]
   if (verb === 'resolved' && mode === 'no-mistakes' && durable) {
     return attachContext({
       id: raw.id,

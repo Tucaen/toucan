@@ -137,6 +137,7 @@ test('durably reconciles a no-mistakes task from implementation through validati
     detail: 'ADE continued validation.',
     statusHash: implemented.statusHash,
     nextAction: 'await-validation',
+    dispatch: { id: 'resize.validation.1', status: 'acknowledged', attempt: 1 },
     updatedAt: '2026-08-14T18:00:00.000Z'
   })
 
@@ -147,11 +148,13 @@ test('durably reconciles a no-mistakes task from implementation through validati
   lifecycle = await readFirstMateLifecycle(home)
   assert.equal(lifecycle.tasks[0]?.stage, 'decision')
   assert.equal(lifecycle.tasks[0]?.nextAction, 'await-decision')
+  assert.equal(lifecycle.tasks[0]?.dispatch?.status, 'acknowledged')
 
   appendFileSync(statusPath, 'blocked: [key=review] credentials are required\n')
   lifecycle = await readFirstMateLifecycle(home)
   assert.equal(lifecycle.tasks[0]?.stage, 'blocked')
   assert.equal(lifecycle.tasks[0]?.nextAction, 'await-help')
+  assert.equal(lifecycle.tasks[0]?.dispatch?.status, 'acknowledged')
 
   appendFileSync(statusPath, 'resolved: [key=review] credentials supplied by Firstmate\n')
   lifecycle = await readFirstMateLifecycle(home)
@@ -206,6 +209,79 @@ test('blocks a task whose declared ADE context is malformed instead of treating 
 
   assert.equal(lifecycle.tasks[0]?.stage, 'blocked')
   assert.match(lifecycle.tasks[0]?.detail ?? '', /task context.*malformed/i)
+})
+
+test('blocks a ship with no durable ADE context instead of supervising it against mutable defaults', () => {
+  const lifecycle = firstMateLifecycleFromFiles({
+    tasks: [{
+      id: 'legacy-ship',
+      meta: [
+        'kind=ship',
+        'mode=no-mistakes',
+        'project=/mnt/d/Development/alpha/api',
+        'worktree=/home/tucaen/.treehouse/alpha/legacy-ship',
+        'harness=codex',
+        'model=gpt-5.6-sol'
+      ].join('\n'),
+      status: 'done: committed implementation\n'
+    }]
+  })
+
+  assert.equal(lifecycle.tasks[0]?.stage, 'blocked')
+  assert.match(lifecycle.tasks[0]?.detail ?? '', /no durable ADE task context/i)
+})
+
+test('supervises a scout with its pinned report-only contract without inventing ship flags', () => {
+  const lifecycle = firstMateLifecycleFromFiles({
+    tasks: [{
+      id: 'alpha-scout',
+      meta: [
+        'kind=scout',
+        `project=${alphaCodexContext.project.wslPath}`,
+        'worktree=/home/tucaen/.treehouse/alpha/alpha-scout',
+        'harness=codex',
+        'model=gpt-5.6-sol',
+        firstMateTaskContextMetadata(alphaCodexContext)
+      ].join('\n'),
+      status: 'done: report data/alpha-scout/report.md\n'
+    }]
+  })
+
+  assert.equal(lifecycle.tasks[0]?.mode, 'scout')
+  assert.equal(lifecycle.tasks[0]?.stage, 'implemented')
+  assert.equal(lifecycle.tasks[0]?.nextAction, undefined)
+  assert.deepEqual(lifecycle.tasks[0]?.context, alphaCodexContext)
+})
+
+test('keeps the shared validation gate pinned while an acknowledged task awaits a decision', async () => {
+  const continuations: string[] = []
+  const coordinator = createFirstMateLifecycleCoordinator({
+    runtime: {
+      async lifecycle() {
+        return {
+          supervision: 'app-native' as const,
+          tasks: [{
+            id: 'alpha', mode: 'no-mistakes', stage: 'decision' as const,
+            detail: 'approval required', statusHash: 'alpha-hash', nextAction: 'await-decision' as const,
+            dispatch: { id: 'alpha.dispatch.1', status: 'acknowledged' as const, attempt: 1 }
+          }, {
+            id: 'beta', mode: 'no-mistakes', stage: 'implemented' as const,
+            detail: 'committed', statusHash: 'beta-hash', nextAction: 'start-validation' as const
+          }]
+        }
+      },
+      async continueValidation(taskId: string) {
+        continuations.push(taskId)
+        return { ok: true }
+      },
+      async recordLifecycle() {}
+    },
+    wakeCaptain: async () => ({ ok: true })
+  })
+
+  await coordinator.poll()
+
+  assert.deepEqual(continuations, [], 'another task cannot replace the paused pipeline selector')
 })
 
 test('derives a validation dispatch identity that survives ADE and FirstMate restarts', () => {
