@@ -10,8 +10,11 @@ import {
   firstMateLifecycleFromFiles,
   firstMateValidationDispatchId,
   noMistakesContinuation,
-  type FirstMateLifecycleRecord
+  type FirstMateLifecycleRecord,
+  type FirstMateRawTask
 } from '../src/main/firstmate-lifecycle'
+import type { FirstMateWorktreeProvenance } from '../src/main/firstmate-worktree-provenance'
+import { createGitCrew, gitProvenance } from './firstmate-git-crew'
 import { readFirstMateLifecycle, recordFirstMateLifecycle } from './firstmate-journal-home'
 
 const alphaCodexContext: FirstMateTaskContext = {
@@ -228,6 +231,78 @@ test('blocks a ship with no durable ADE context instead of supervising it agains
 
   assert.equal(lifecycle.tasks[0]?.stage, 'blocked')
   assert.match(lifecycle.tasks[0]?.detail ?? '', /no durable ADE task context/i)
+})
+
+/**
+ * A done ship pinned to alpha's external checkout, carrying the given gathered provenance. The reported
+ * worktree path stays a plausible WSL path so the pinned-context carrier round-trips; the provenance
+ * object is the independent Git evidence the runtime gathers from FirstMate's own worktree.
+ */
+function shipTask(provenance: FirstMateWorktreeProvenance): FirstMateRawTask {
+  return {
+    id: 'resize',
+    meta: [
+      'kind=ship',
+      'mode=no-mistakes',
+      'yolo=off',
+      `project=${alphaCodexContext.project.wslPath}`,
+      'worktree=/home/tucaen/.treehouse/alpha/resize',
+      'harness=codex',
+      'model=gpt-5.6-sol',
+      firstMateTaskContextMetadata(alphaCodexContext)
+    ].join('\n'),
+    status: 'done: committed implementation\n',
+    provenance
+  }
+}
+
+test('supervises a crew worktree that shares its pinned checkout Git common directory', () => {
+  const { primary, worktree } = createGitCrew('shared')
+
+  const lifecycle = firstMateLifecycleFromFiles({ tasks: [shipTask(gitProvenance(worktree, primary))] })
+
+  assert.equal(lifecycle.tasks[0]?.stage, 'implemented')
+  assert.equal(lifecycle.tasks[0]?.nextAction, 'start-validation')
+  assert.deepEqual(lifecycle.tasks[0]?.context, alphaCodexContext)
+})
+
+test('refuses a crew worktree cut from a foreign repository as a distinct integration failure', () => {
+  const pinned = createGitCrew('pinned')
+  const foreign = createGitCrew('foreign')
+
+  const lifecycle = firstMateLifecycleFromFiles({
+    tasks: [shipTask(gitProvenance(foreign.worktree, pinned.primary))]
+  })
+
+  assert.equal(lifecycle.tasks[0]?.stage, 'blocked')
+  assert.equal(lifecycle.tasks[0]?.nextAction, 'await-help')
+  assert.match(lifecycle.tasks[0]?.detail ?? '', /foreign repository/i)
+  assert.match(lifecycle.tasks[0]?.detail ?? '', /not supervised, validated, or counted as progress/i)
+})
+
+test('refuses the user primary checkout reported as a crew worktree', () => {
+  const { primary } = createGitCrew('primary')
+
+  // Probing the primary working tree itself: its git-dir equals its git-common-dir, which the earlier
+  // path-inequality check can never catch but the provenance proof does.
+  const lifecycle = firstMateLifecycleFromFiles({ tasks: [shipTask(gitProvenance(primary, primary))] })
+
+  assert.equal(lifecycle.tasks[0]?.stage, 'blocked')
+  assert.equal(lifecycle.tasks[0]?.nextAction, 'await-help')
+  assert.match(lifecycle.tasks[0]?.detail ?? '', /primary/i)
+})
+
+test('blocks a task whose crew worktree provenance cannot be read', () => {
+  const lifecycle = firstMateLifecycleFromFiles({
+    tasks: [shipTask({
+      worktree: { error: 'fatal: not a git repository' },
+      checkout: { commonDir: '/mnt/d/Development/alpha/api/.git' }
+    })]
+  })
+
+  assert.equal(lifecycle.tasks[0]?.stage, 'blocked')
+  assert.equal(lifecycle.tasks[0]?.nextAction, 'await-help')
+  assert.match(lifecycle.tasks[0]?.detail ?? '', /provenance ADE could not read/i)
 })
 
 test('supervises a scout with its pinned report-only contract without inventing ship flags', () => {

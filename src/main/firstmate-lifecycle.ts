@@ -12,11 +12,22 @@ import {
   firstMateTaskContextFromMetadata
 } from '../shared/firstmate-task-context'
 import { parseFirstMateRuntimeRecord } from '../shared/firstmate-runtime-record'
+import {
+  firstMateWorktreeProvenanceProblem,
+  type FirstMateWorktreeProvenance
+} from './firstmate-worktree-provenance'
 
 export interface FirstMateRawTask {
   id: string
   meta: string
   status: string
+  /**
+   * Read-only Git evidence that the reported crew worktree belongs to the pinned checkout, gathered by
+   * the caller from FirstMate's own worktree. Absent only when the caller gathered no evidence (a unit
+   * test isolating another concern); the runtime that supervises real tasks always supplies it, and a
+   * present-but-unreadable probe blocks the task rather than degrading to the weak path check.
+   */
+  provenance?: FirstMateWorktreeProvenance
 }
 
 export interface FirstMateLifecycleFiles {
@@ -239,7 +250,8 @@ function taskContextProblem(
   taskId: string,
   meta: Map<string, string>,
   context: NonNullable<FirstMateLifecycleTask['context']>,
-  kind: 'ship' | 'scout'
+  kind: 'ship' | 'scout',
+  provenance?: FirstMateWorktreeProvenance
 ): string | undefined {
   const recordedProject = meta.get('project')
   if (recordedProject !== context.project.wslPath) {
@@ -249,6 +261,10 @@ function taskContextProblem(
   const worktree = meta.get('worktree')
   if (!worktree || worktree === recordedProject) {
     return `Task ${taskId} does not record an isolated crew worktree distinct from its pinned external checkout.`
+  }
+  if (provenance) {
+    const provenanceProblem = firstMateWorktreeProvenanceProblem(taskId, worktree, provenance)
+    if (provenanceProblem) return provenanceProblem
   }
 
   if (kind === 'ship') {
@@ -324,7 +340,7 @@ function recordedTask(
     })
   }
   if (context) {
-    const problem = taskContextProblem(raw.id, meta, context, kind)
+    const problem = taskContextProblem(raw.id, meta, context, kind, raw.provenance)
     if (problem) {
       return attachContext({
         id: raw.id,

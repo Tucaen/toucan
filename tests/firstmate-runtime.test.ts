@@ -1,8 +1,4 @@
 import { strict as assert } from 'node:assert'
-import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { test } from 'node:test'
 import { createFirstMateRuntime } from '../src/main/firstmate-runtime'
 import {
@@ -16,6 +12,7 @@ import type { FirstMateLifecycleJournal, FirstMateLifecycleRecord } from '../src
 import type { FirstMateProjectRegistration } from '../src/shared/firstmate'
 import type { WorkspaceProject } from '../src/shared/terminal'
 import { firstMateCatalogFromRequest } from './firstmate-catalog-test-helpers'
+import { createGitCrew, gitIdentity } from './firstmate-git-crew'
 import { parseFirstMateRuntimeRecord } from '../src/shared/firstmate-runtime-record'
 
 function readyWslInspection(): string {
@@ -83,21 +80,12 @@ function testWslPath(path: string): string {
 }
 
 function externalGitCrew(label: string): { primary: string; worktree: string; primaryWsl: string; worktreeWsl: string } {
-  const root = mkdtempSync(join(tmpdir(), `ade-firstmate-${label}-`))
-  const primary = join(root, 'primary')
-  const worktree = join(root, 'crew')
-  mkdirSync(primary)
-  execFileSync('git', ['init', '--initial-branch=main'], { cwd: primary })
-  execFileSync('git', ['config', 'user.name', 'ADE Test'], { cwd: primary })
-  execFileSync('git', ['config', 'user.email', 'ade@example.invalid'], { cwd: primary })
-  writeFileSync(join(primary, 'README.md'), `${label}\n`, 'utf8')
-  execFileSync('git', ['add', 'README.md'], { cwd: primary })
-  execFileSync('git', ['commit', '-m', 'initial'], { cwd: primary })
-  execFileSync('git', ['worktree', 'add', '-b', `${label}-crew`, worktree], { cwd: primary })
-  const gitCommonDir = (cwd: string): string => execFileSync(
-    'git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd, encoding: 'utf8' }
-  ).trim().toLocaleLowerCase()
-  assert.equal(gitCommonDir(worktree), gitCommonDir(primary), 'crew worktree must derive from its pinned checkout')
+  const { primary, worktree } = createGitCrew(label)
+  assert.equal(
+    gitIdentity(worktree).commonDir.toLocaleLowerCase(),
+    gitIdentity(primary).commonDir.toLocaleLowerCase(),
+    'crew worktree must derive from its pinned checkout'
+  )
   assert.notEqual(worktree.toLocaleLowerCase(), primary.toLocaleLowerCase(), 'crew must never edit the primary checkout')
   return { primary, worktree, primaryWsl: testWslPath(primary), worktreeWsl: testWslPath(worktree) }
 }

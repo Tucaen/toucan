@@ -147,18 +147,46 @@ exec /usr/bin/env "$@"
 const WSL_LIFECYCLE_READ_SCRIPT = `
 const fs = require('node:fs')
 const path = require('node:path')
+const { execFileSync } = require('node:child_process')
 const home = process.argv[1]
 const optional = (file) => { try { return fs.readFileSync(file, 'utf8') } catch { return undefined } }
 const state = path.join(home, 'state')
+const metaValue = (meta, key) => {
+  for (const line of meta.split(/\\r?\\n/)) {
+    if (line.startsWith(key + '=')) return line.slice(key.length + 1)
+  }
+  return undefined
+}
+// Read-only: 'git rev-parse' never writes to the checkout or the worktree. Absolute paths let ADE
+// compare a worktree's repository identity against its pinned checkout wherever Git reports them.
+// Canonicalize so a worktree and its checkout that reach one repository through different symlink
+// chains (a symlinked home, /mnt duplication) still compare as the same identity rather than foreign.
+const canonical = (p) => { try { return fs.realpathSync(p) } catch { return p } }
+const revParse = (dir, arg) => canonical(execFileSync(
+  'git', ['-C', dir, 'rev-parse', '--path-format=absolute', arg],
+  { encoding: 'utf8', timeout: 15000, stdio: ['ignore', 'pipe', 'ignore'] }
+).trim())
+const probe = (dir, wants) => {
+  try {
+    const identity = { commonDir: revParse(dir, '--git-common-dir') }
+    if (wants.gitDir) identity.gitDir = revParse(dir, '--git-dir')
+    return identity
+  } catch (error) {
+    return { error: String((error && error.message) || error).split('\\n')[0] }
+  }
+}
 let names = []
 try { names = fs.readdirSync(state) } catch {}
 const tasks = names.filter((name) => name.endsWith('.meta')).map((name) => {
   const id = name.slice(0, -5)
-  return {
-    id,
-    meta: optional(path.join(state, id + '.meta')) || '',
-    status: optional(path.join(state, id + '.status')) || ''
+  const meta = optional(path.join(state, id + '.meta')) || ''
+  const task = { id, meta, status: optional(path.join(state, id + '.status')) || '' }
+  const worktree = metaValue(meta, 'worktree')
+  const checkout = metaValue(meta, 'project')
+  if (worktree && checkout) {
+    task.provenance = { worktree: probe(worktree, { gitDir: true }), checkout: probe(checkout, {}) }
   }
+  return task
 })
 process.stdout.write(JSON.stringify({
   runtimeConfig: optional(path.join(home, 'config', 'ade-runtime.json')),
