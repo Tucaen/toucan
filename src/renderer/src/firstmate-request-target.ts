@@ -48,14 +48,7 @@ function initializationNote(project: FirstMateExternalProject): string {
   return 'not required for this posture'
 }
 
-function registrationLines(registration?: FirstMateProjectRegistration): string[] {
-  const project = registration?.project
-  if (!project) {
-    return [
-      `- FirstMate registration: unavailable${registration?.message ? ` (${registration.message})` : ''}`,
-      'Confirm this project\'s path and delivery posture with the captain before changing any state in it.'
-    ]
-  }
+function registrationLines(project: FirstMateExternalProject): string[] {
   return [
     `- project name: ${JSON.stringify(project.registryName)}`,
     `- registered delivery posture: ${JSON.stringify(project.mode)}`,
@@ -73,7 +66,7 @@ function registrationLines(registration?: FirstMateProjectRegistration): string[
 
 function projectAssignment(
   target: FirstMateProjectTarget,
-  registration?: FirstMateProjectRegistration
+  project: FirstMateExternalProject
 ): string {
   return [
     'ADE project assignment (application context):',
@@ -81,7 +74,7 @@ function projectAssignment(
     `- name: ${JSON.stringify(target.name)}`,
     `- path: ${JSON.stringify(target.wslPath)}`,
     `- Windows path: ${JSON.stringify(target.windowsPath)}`,
-    ...registrationLines(registration),
+    ...registrationLines(project),
     'This is the project selected in ADE\'s left sidebar when the captain sent the request below.',
     'It is the project for this request and for every crew task it creates, even if the sidebar selection changes later.',
     'The project may be outside FirstMate\'s private projects directory; use the absolute path above when inspecting or dispatching work.',
@@ -96,12 +89,12 @@ function projectAssignment(
 export function firstMateRequest(
   project: WorkspaceProject,
   text: string,
-  registration?: FirstMateProjectRegistration
+  registration: FirstMateProjectRegistration
 ): string {
-  if (registration && (!registration.ok || !registration.project)) {
+  if (!registration.ok || !registration.project) {
     throw new Error(
       registration.message ?? `ADE could not resolve FirstMate project ${project.name} (${project.id}).`
     )
   }
-  return `${projectAssignment(firstMateProjectTarget(project), registration)}\n\n${text}`
+  return `${projectAssignment(firstMateProjectTarget(project), registration.project)}\n\n${text}`
 }

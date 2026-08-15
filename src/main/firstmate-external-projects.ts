@@ -33,12 +33,11 @@ interface FirstMateExternalProjectStore {
   projects: Record<string, FirstMateExternalProject>
 }
 
-export interface FirstMateCheckoutFacts {
-  exists: boolean
-  git?: 'checkout' | 'not-checkout' | 'unavailable'
-  origin?: string
-  message?: string
-}
+export type FirstMateCheckoutFacts =
+  | { status: 'missing' }
+  | { status: 'git-checkout'; origin?: string }
+  | { status: 'not-git' }
+  | { status: 'git-unavailable'; message: string }
 
 export interface FirstMateWslPathFacts {
   accessible: boolean
@@ -404,13 +403,13 @@ export function createFirstMateExternalProjects(
     } catch (error) {
       return refused(selection, 'path-access', errorMessage(error))
     }
-    if (!facts.exists) {
+    if (facts.status === 'missing') {
       return refused(selection, 'path-access', `ADE could not find or access the project checkout at ${windowsPath}.`)
     }
-    if (facts.git === 'unavailable') {
-      return refused(selection, 'git', facts.message ?? `ADE could not inspect Git at ${windowsPath}.`)
+    if (facts.status === 'git-unavailable') {
+      return refused(selection, 'git', facts.message)
     }
-    if (facts.git === 'not-checkout') {
+    if (facts.status === 'not-git') {
       return refused(selection, 'git', `${windowsPath} is not a usable Git checkout.`)
     }
     if (facts.origin && !firstMateOriginSafe(facts.origin)) {

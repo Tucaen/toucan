@@ -8,6 +8,25 @@ const alpha: WorkspaceProject = { id: 'alpha', name: 'Api', path: 'D:\\Developme
 const beta: WorkspaceProject = { id: 'beta', name: 'Api', path: 'D:\\Development\\beta\\api', color: '#f0a' }
 const gamma: WorkspaceProject = { id: 'gamma', name: 'Api', path: 'E:\\Archive\\gamma\\api', color: '#0fa' }
 
+function registrationFor(project: WorkspaceProject): FirstMateProjectRegistration {
+  const target = firstMateProjectTarget(project)
+  return {
+    ok: true,
+    project: {
+      adeProjectId: project.id,
+      registryName: `api-${project.id}`,
+      displayName: project.name,
+      windowsPath: project.path,
+      wslPath: target.wslPath,
+      origin: `git@github.com:acme/${project.id}-api.git`,
+      mode: 'no-mistakes-prod-only',
+      autonomy: false,
+      initialization: 'required',
+      registeredAt: '2026-08-14'
+    }
+  }
+}
+
 /**
  * Stands in for the dock: one conversation whose sidebar selection changes between requests, exactly
  * as FirstMatePanel composes each prompt from the project selected at that moment.
@@ -25,7 +44,7 @@ function dock(selected: WorkspaceProject): {
     select: (project) => { selection = project },
     target: () => firstMateProjectTarget(selection),
     send: (text) => {
-      const prompt = firstMateRequest(selection, text)
+      const prompt = firstMateRequest(selection, text, registrationFor(selection))
       delivered.push(prompt)
       return prompt
     }
@@ -100,21 +119,7 @@ test('snapshots the selected project as an immutable target', () => {
   assert.ok(Object.isFrozen(target), 'a submitted request must not be retargeted through its snapshot')
 })
 
-const registered: FirstMateProjectRegistration = {
-  ok: true,
-  project: {
-    adeProjectId: 'alpha',
-    registryName: 'api-alpha',
-    displayName: 'Api',
-    windowsPath: 'D:\\Development\\alpha\\api',
-    wslPath: '/mnt/d/Development/alpha/api',
-    origin: 'git@github.com:acme/alpha-api.git',
-    mode: 'no-mistakes-prod-only',
-    autonomy: false,
-    initialization: 'required',
-    registeredAt: '2026-08-14'
-  }
-}
+const registered = registrationFor(alpha)
 
 test('delivers the durable registration facts with the request', () => {
   const prompt = firstMateRequest(alpha, 'Ship the release', registered)

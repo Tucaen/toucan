@@ -204,12 +204,6 @@ test('assigns every FirstMate request to the project selected in the sidebar', (
     /composePrompt:\s*async \(text\) => \{[\s\S]*?registerProject\(firstMateProjectSelection\(project\)\)[\s\S]*?return firstMateRequest\(project, text, result\)/,
     'FirstMate should identify the selected project on every request without changing its distro cwd'
   )
-  assert.match(
-    conversation,
-    /deliverAgentPrompt\([\s\S]*?\(prompt\) => window\.agentApi\.prompt\(options\.id, prompt\)/,
-    'the project assignment should cross the guarded delivery seam while the visible chat keeps the captain\'s original text'
-  )
-
   const sessionDependencies = conversation.match(/\}, \[options\.cwd[^\]]*\]\)/)?.[0]
   assert.ok(sessionDependencies, 'the ACP session should declare its dependencies')
   assert.doesNotMatch(

@@ -469,8 +469,8 @@ test('registers an ADE checkout as a durable external project inside the private
     rootPath,
     platform: 'linux' as const,
     resolveGit: (): string => '/usr/bin/git',
-    inspectCheckout: async (): Promise<{ exists: boolean; origin?: string }> => ({
-      exists: true,
+    inspectCheckout: async () => ({
+      status: 'git-checkout' as const,
       origin: 'git@github.com:acme/alpha-api.git'
     })
   }
@@ -513,7 +513,7 @@ test('keeps the external-project mapping inside the WSL FirstMate home', async (
     rootPath,
     platform: 'win32',
     resolveGit: () => 'git.exe',
-    inspectCheckout: async () => ({ exists: true }),
+    inspectCheckout: async () => ({ status: 'git-checkout' }),
     wsl: {
       run: async (args) => {
         calls.push(args)
@@ -572,8 +572,7 @@ test('blocks a WSL-inaccessible checkout and recovers after the same mount retur
     platform: 'win32',
     resolveGit: () => 'git.exe',
     inspectCheckout: async () => ({
-      exists: true,
-      git: 'checkout',
+      status: 'git-checkout',
       origin: 'https://github.com/acme/alpha-api.git'
     }),
     wsl: {

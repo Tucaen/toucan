@@ -5,6 +5,11 @@ import { deliverAgentPrompt } from '../src/renderer/src/agent-prompt-delivery'
 test('does not send a fallback prompt when request composition fails and recovers on the same delivery seam', async () => {
   let projectAvailable = false
   const delivered: string[] = []
+  const conversation = {
+    id: 'firstmate-captain',
+    messages: ['Earlier captain work'],
+    lifecycleTasks: ['unrelated-project-task']
+  }
   const compose = async (text: string): Promise<string> => {
     if (!projectAvailable) throw new Error('WSL failure for ADE project "Api" (alpha).')
     return `assignment\n\n${text}`
@@ -19,10 +24,17 @@ test('does not send a fallback prompt when request composition fails and recover
   assert.equal(blocked.ok, false)
   assert.match(blocked.message ?? '', /WSL failure/)
   assert.deepEqual(delivered, [], 'composition failure must not send the captain text or any fallback')
+  assert.deepEqual(conversation, {
+    id: 'firstmate-captain',
+    messages: ['Earlier captain work'],
+    lifecycleTasks: ['unrelated-project-task']
+  }, 'a blocked composition cannot replace or discard conversation-owned state')
 
   projectAvailable = true
   const recovered = await deliverAgentPrompt('Ship it', compose, send)
 
   assert.equal(recovered.ok, true)
   assert.deepEqual(delivered, ['assignment\n\nShip it'])
+  assert.equal(conversation.id, 'firstmate-captain')
+  assert.deepEqual(conversation.lifecycleTasks, ['unrelated-project-task'])
 })

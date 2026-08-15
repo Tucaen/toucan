@@ -435,11 +435,10 @@ function errorMessage(error: unknown): string {
  * what Git already records as its origin. Nothing here writes to, refreshes, or resets the checkout.
  */
 async function inspectWindowsCheckout(git: string | null, windowsPath: string): Promise<FirstMateCheckoutFacts> {
-  if (!existsSync(windowsPath)) return { exists: false }
+  if (!existsSync(windowsPath)) return { status: 'missing' }
   if (!git) {
     return {
-      exists: true,
-      git: 'unavailable',
+      status: 'git-unavailable',
       message: 'ADE cannot validate this checkout because Git is unavailable on Windows.'
     }
   }
@@ -449,9 +448,9 @@ async function inspectWindowsCheckout(git: string | null, windowsPath: string): 
       timeout: 15_000,
       windowsHide: true
     })
-    if (String(checkout.stdout).trim() !== 'true') return { exists: true, git: 'not-checkout' }
+    if (String(checkout.stdout).trim() !== 'true') return { status: 'not-git' }
   } catch {
-    return { exists: true, git: 'not-checkout' }
+    return { status: 'not-git' }
   }
   try {
     const result = await execFileAsync(git, ['-C', windowsPath, 'remote', 'get-url', 'origin'], {
@@ -460,10 +459,10 @@ async function inspectWindowsCheckout(git: string | null, windowsPath: string): 
       windowsHide: true
     })
     const origin = String(result.stdout).trim()
-    return origin ? { exists: true, git: 'checkout', origin } : { exists: true, git: 'checkout' }
+    return origin ? { status: 'git-checkout', origin } : { status: 'git-checkout' }
   } catch {
     // A usable checkout without an origin is explicitly local-only.
-    return { exists: true, git: 'checkout' }
+    return { status: 'git-checkout' }
   }
 }
 

@@ -49,15 +49,15 @@ function checkouts(facts: Record<string, FirstMateCheckoutFacts>): CheckoutDoubl
     inspected,
     inspect: async (windowsPath) => {
       inspected.push(windowsPath)
-      return facts[windowsPath] ?? { exists: false }
+      return facts[windowsPath] ?? { status: 'missing' }
     }
   }
 }
 
 const remoteBacked: Record<string, FirstMateCheckoutFacts> = {
-  'D:\\Development\\alpha\\api': { exists: true, origin: 'git@github.com:acme/alpha-api.git' },
-  'D:\\Development\\beta\\api': { exists: true, origin: 'https://github.com/acme/beta-api.git' },
-  'E:\\Archive\\gamma\\api': { exists: true, origin: 'https://github.com/acme/gamma-api.git' }
+  'D:\\Development\\alpha\\api': { status: 'git-checkout', origin: 'git@github.com:acme/alpha-api.git' },
+  'D:\\Development\\beta\\api': { status: 'git-checkout', origin: 'https://github.com/acme/beta-api.git' },
+  'E:\\Archive\\gamma\\api': { status: 'git-checkout', origin: 'https://github.com/acme/gamma-api.git' }
 }
 
 function projects(
@@ -123,7 +123,7 @@ test('restores the recorded mapping before the first request after a restart', a
 
 test('defaults a project with no remote to local-only and requires no initialization', async () => {
   const { home: files, service } = projects({}, {
-    'D:\\Development\\alpha\\api': { exists: true }
+    'D:\\Development\\alpha\\api': { status: 'git-checkout' }
   })
 
   const result = await service.register(alpha)
@@ -267,7 +267,7 @@ test('adopts the posture an existing fleet registry entry already recorded for t
 
 test('refuses a checkout that is missing or carries an unsafe origin, recording nothing', async () => {
   const { home: files, service } = projects({}, {
-    'D:\\Development\\beta\\api': { exists: true, origin: 'ext::sh -c payload' }
+    'D:\\Development\\beta\\api': { status: 'git-checkout', origin: 'ext::sh -c payload' }
   })
 
   const missing = await service.register(alpha)
@@ -300,7 +300,7 @@ test('revalidates a registered checkout on every request and recovers after the 
   const { service } = projects({}, facts)
 
   assert.equal((await service.register(alpha)).ok, true)
-  facts['D:\\Development\\alpha\\api'] = { exists: false }
+  facts['D:\\Development\\alpha\\api'] = { status: 'missing' }
 
   const missing = await service.register(alpha)
 
@@ -317,7 +317,7 @@ test('revalidates a registered checkout on every request and recovers after the 
 
 test('blocks a directory that is not a usable Git checkout before registration', async () => {
   const { home: files, service } = projects({}, {
-    'D:\\Development\\alpha\\api': { exists: true, git: 'not-checkout' }
+    'D:\\Development\\alpha\\api': { status: 'not-git' }
   })
 
   const result = await service.register(alpha)
@@ -447,7 +447,7 @@ test('a rename updates only the renamed project registration', async () => {
 
 test('a path change re-canonicalizes the moved project and keeps its recorded posture', async () => {
   const moved = 'D:\\Work\\alpha-api'
-  const { service } = projects({}, { ...remoteBacked, [moved]: { exists: true } })
+  const { service } = projects({}, { ...remoteBacked, [moved]: { status: 'git-checkout' } })
   await service.register(alpha)
   await service.register(beta)
 
