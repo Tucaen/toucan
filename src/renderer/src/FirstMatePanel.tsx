@@ -450,7 +450,7 @@ export default function FirstMatePanel({ projects, project, state, onStateChange
         <>
           <div
             className="firstmate-project-hint"
-            title={`${activeProjectHint.windowsPath}\n${activeProjectHint.wslPath}`}
+            title={`${activeProjectHint.windowsPath}${registration ? `\n${registration.wslPath}` : ''}`}
           >
             <span>Active hint</span>
             <strong>{activeProjectHint.name}</strong>

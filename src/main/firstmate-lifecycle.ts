@@ -11,6 +11,7 @@ import {
   FIRSTMATE_TASK_CONTEXT_META_KEY,
   firstMateTaskContextFromMetadata
 } from '../shared/firstmate-task-context'
+import { parseFirstMateRuntimeRecord } from '../shared/firstmate-runtime-record'
 
 export interface FirstMateRawTask {
   id: string
@@ -77,21 +78,8 @@ function parseJournal(text?: string): FirstMateLifecycleJournal {
 }
 
 export function firstMateValidatorFromRuntimeConfig(text?: string): FirstMateValidatorRuntime | undefined {
-  if (!text) return undefined
-  try {
-    const parsed = JSON.parse(text) as {
-      version?: unknown
-      validator?: { agent?: unknown; model?: unknown }
-    }
-    const agent = parsed.validator?.agent
-    const model = parsed.validator?.model
-    if (parsed.version !== 1 || (agent !== 'codex' && agent !== 'claude') || typeof model !== 'string') {
-      return undefined
-    }
-    return { agent, model, configSource: 'ade-runtime' }
-  } catch {
-    return undefined
-  }
+  const record = parseFirstMateRuntimeRecord(text)
+  return record ? { ...record.validator, configSource: 'ade-runtime' } : undefined
 }
 
 const DISPATCH_STATUSES: ReadonlySet<FirstMateDispatchStatus> = new Set([

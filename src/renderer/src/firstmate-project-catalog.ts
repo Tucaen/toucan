@@ -11,12 +11,14 @@ import {
 } from '../../shared/firstmate-task-context'
 import type { WorkspaceProject } from '../../shared/terminal'
 
-/** The active sidebar project shown as context for the next request, never as a binding. */
+/**
+ * The active sidebar project shown as context for the next request, never as a binding. The renderer
+ * never derives a WSL path; a registered project's `wslPath` comes from the main process instead.
+ */
 export interface FirstMateProjectHint {
   projectId: string
   name: string
   windowsPath: string
-  wslPath: string
 }
 
 export interface FirstMateRequestProject {
@@ -29,19 +31,11 @@ export interface FirstMateRequestOptions {
   model?: string
 }
 
-function firstMatePath(path: string): string {
-  const normalized = path.replace(/\\/g, '/')
-  const drivePath = /^([a-zA-Z]):\/(.*)$/.exec(normalized)
-  if (!drivePath) return normalized
-  return `/mnt/${drivePath[1].toLocaleLowerCase()}/${drivePath[2]}`
-}
-
 export function firstMateProjectHint(project: WorkspaceProject): FirstMateProjectHint {
   return Object.freeze({
     projectId: project.id,
     name: project.name,
-    windowsPath: project.path,
-    wslPath: firstMatePath(project.path)
+    windowsPath: project.path
   })
 }
 

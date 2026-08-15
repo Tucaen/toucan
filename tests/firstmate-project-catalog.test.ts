@@ -11,7 +11,13 @@ import {
   firstMateRequest,
   type FirstMateRequestProject
 } from '../src/renderer/src/firstmate-project-catalog'
+import { firstMateCanonicalWindowsPath, firstMateWslPath } from '../src/main/firstmate-paths'
 import { firstMateCatalogFromRequest } from './firstmate-catalog-test-helpers'
+
+/** The registered WSL path a project carries, as the main process derives it for the catalog. */
+function registeredWslPath(windowsPath: string): string {
+  return firstMateWslPath(firstMateCanonicalWindowsPath(windowsPath)!)
+}
 
 const alpha: WorkspaceProject = {
   id: 'alpha', name: 'Api', path: 'D:\\Development\\alpha\\api', color: '#71a9ff'
@@ -27,7 +33,6 @@ function registrationFor(
   project: WorkspaceProject,
   options: { origin?: string; mode?: 'no-mistakes-prod-only' | 'local-only'; autonomy?: boolean } = {}
 ): FirstMateProjectRegistration {
-  const hint = firstMateProjectHint(project)
   return {
     ok: true,
     project: {
@@ -35,7 +40,7 @@ function registrationFor(
       registryName: `${project.name.toLocaleLowerCase()}-${project.id}`,
       displayName: project.name,
       windowsPath: project.path,
-      wslPath: hint.wslPath,
+      wslPath: registeredWslPath(project.path),
       ...(options.origin === undefined && options.mode === 'local-only'
         ? {}
         : { origin: options.origin ?? `git@github.com:acme/${project.id}.git` }),
@@ -250,14 +255,18 @@ test('changing the active sidebar hint after dispatch cannot retarget existing t
   })
 })
 
-test('snapshots a sidebar project path for display without making it a request binding', () => {
+test('snapshots a sidebar project path for display without deriving a WSL path', () => {
   const hint = firstMateProjectHint(alpha)
 
   assert.deepEqual({ ...hint }, {
     projectId: 'alpha',
     name: 'Api',
-    windowsPath: 'D:\\Development\\alpha\\api',
-    wslPath: '/mnt/d/Development/alpha/api'
+    windowsPath: 'D:\\Development\\alpha\\api'
   })
+  assert.equal(
+    'wslPath' in hint,
+    false,
+    'the renderer consumes a registered WSL path; it never derives one for the sidebar hint'
+  )
   assert.ok(Object.isFrozen(hint))
 })

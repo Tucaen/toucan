@@ -3,13 +3,12 @@ import { test } from 'node:test'
 import type { FirstMateProjectSelection } from '../src/shared/firstmate'
 import {
   createFirstMateExternalProjects,
-  firstMateCanonicalWindowsPath,
-  firstMateWslPath,
   type FirstMateCheckoutFacts,
   type FirstMateExternalProjectFiles,
   type FirstMateExternalProjectHome,
   type FirstMateWslPathFacts
 } from '../src/main/firstmate-external-projects'
+import { firstMateCanonicalWindowsPath, firstMateWslPath } from '../src/main/firstmate-paths'
 import { firstMateOriginSafe } from '../src/main/firstmate-project-origin'
 
 const alpha: FirstMateProjectSelection = { projectId: 'alpha', name: 'Api', path: 'D:\\Development\\alpha\\api' }

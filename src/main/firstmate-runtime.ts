@@ -30,6 +30,27 @@ import {
   type FirstMateLifecycleFiles,
   type FirstMateLifecycleRecord
 } from './firstmate-lifecycle'
+import {
+  FIRSTMATE_RUNTIME_HOST,
+  FIRSTMATE_RUNTIME_RECORD_VERSION,
+  serializeFirstMateRuntimeRecord,
+  type FirstMateRuntimeRecord
+} from '../shared/firstmate-runtime-record'
+import {
+  ADE_FIRSTMATE_RUNTIME_CONFIG,
+  ADE_FIRSTMATE_VALIDATOR_AGENT,
+  ADE_FIRSTMATE_VALIDATOR_MODEL,
+  CLAUDE_CONFIG_DIR,
+  CODEX_HOME,
+  FM_BACKEND,
+  FM_HOME,
+  FM_SUPERVISOR_BACKEND,
+  FM_SUPERVISOR_TARGET,
+  NM_HOME,
+  firstMateProcessEnvironment
+} from './firstmate-environment'
+import { firstMateWslPathFromWindows } from './firstmate-paths'
+import { errorMessage } from '../shared/text'
 
 const execFileAsync = promisify(execFile)
 const FIRSTMATE_REPOSITORY = 'https://github.com/kunchenguid/firstmate.git'
@@ -87,6 +108,9 @@ else
   printf 'codexTrust=required\n'
 fi
 `
+const WSL_DECODE_WRITE_NODE = 'const fs=require("node:fs");'
+  + 'fs.writeFileSync(process.argv[1],Buffer.from(process.argv[2],"base64url").toString("utf8"),{mode:0o600})'
+
 const WSL_AGENT_SCRIPT = `
 set -eu
 umask 077
@@ -96,34 +120,26 @@ pipeline_agent="$3"
 pipeline_model="$4"
 runtime_config="$5"
 runtime_home="$6"
-shift 6
+runtime_record="$7"
+shift 7
 mkdir -p "$(dirname "$managed_auth")"
 if [ -f "$host_auth" ] && { [ ! -f "$managed_auth" ] || [ "$host_auth" -nt "$managed_auth" ]; }; then
   cp "$host_auth" "$managed_auth"
   chmod 600 "$managed_auth"
 fi
 runtime_config_tmp="$runtime_config.ade.$$"
-/usr/bin/node - "$runtime_config_tmp" "$pipeline_agent" "$pipeline_model" "$runtime_home" <<'NODE'
-const fs = require('node:fs')
-const [path, agent, model, home] = process.argv.slice(2)
-const config = {
-  version: 1,
-  host: { kind: 'ade-app', supervisor: 'app-native', terminalTarget: false },
-  validator: { agent, model, nmHome: home + '/no-mistakes', agentHome: home + '/' + agent }
-}
-fs.writeFileSync(path, JSON.stringify(config, null, 2) + '\\n', { mode: 0o600 })
-NODE
+/usr/bin/node -e '${WSL_DECODE_WRITE_NODE}' "$runtime_config_tmp" "$runtime_record"
 mv "$runtime_config_tmp" "$runtime_config"
 if command -v tmux >/dev/null 2>&1 && tmux list-sessions >/dev/null 2>&1; then
-  tmux set-environment -g FM_HOME "$runtime_home"
-  tmux set-environment -g NM_HOME "$runtime_home/no-mistakes"
-  tmux set-environment -g CODEX_HOME "$runtime_home/codex"
-  tmux set-environment -g CLAUDE_CONFIG_DIR "$runtime_home/claude"
-  tmux set-environment -g FM_SUPERVISOR_BACKEND ade
-  tmux set-environment -g FM_SUPERVISOR_TARGET ade-firstmate-acp
-  tmux set-environment -g ADE_FIRSTMATE_RUNTIME_CONFIG "$runtime_config"
-  tmux set-environment -g ADE_FIRSTMATE_VALIDATOR_AGENT "$pipeline_agent"
-  tmux set-environment -g ADE_FIRSTMATE_VALIDATOR_MODEL "$pipeline_model"
+  tmux set-environment -g ${FM_HOME} "$runtime_home"
+  tmux set-environment -g ${NM_HOME} "$runtime_home/no-mistakes"
+  tmux set-environment -g ${CODEX_HOME} "$runtime_home/codex"
+  tmux set-environment -g ${CLAUDE_CONFIG_DIR} "$runtime_home/claude"
+  tmux set-environment -g ${FM_SUPERVISOR_BACKEND} ade
+  tmux set-environment -g ${FM_SUPERVISOR_TARGET} ade-firstmate-acp
+  tmux set-environment -g ${ADE_FIRSTMATE_RUNTIME_CONFIG} "$runtime_config"
+  tmux set-environment -g ${ADE_FIRSTMATE_VALIDATOR_AGENT} "$pipeline_agent"
+  tmux set-environment -g ${ADE_FIRSTMATE_VALIDATOR_MODEL} "$pipeline_model"
 fi
 exec /usr/bin/env "$@"
 `
@@ -226,29 +242,22 @@ set -eu
 home="$1"
 agent="$2"
 model="$3"
+runtime_record="$4"
 mkdir -p "$home/config"
 trap 'rm -f "$home/config/ade-runtime.json.ade.$$"' EXIT HUP INT TERM
 runtime_tmp="$home/config/ade-runtime.json.ade.$$"
-/usr/bin/node - "$runtime_tmp" "$agent" "$model" "$home" <<'NODE'
-const fs = require('node:fs')
-const [path, agent, model, home] = process.argv.slice(2)
-fs.writeFileSync(path, JSON.stringify({
-  version: 1,
-  host: { kind: 'ade-app', supervisor: 'app-native', terminalTarget: false },
-  validator: { agent, model, nmHome: home + '/no-mistakes', agentHome: home + '/' + agent }
-}, null, 2) + '\\n', { mode: 0o600 })
-NODE
+/usr/bin/node -e '${WSL_DECODE_WRITE_NODE}' "$runtime_tmp" "$runtime_record"
 mv "$runtime_tmp" "$home/config/ade-runtime.json"
 if command -v tmux >/dev/null 2>&1 && tmux list-sessions >/dev/null 2>&1; then
-  tmux set-environment -g FM_HOME "$home"
-  tmux set-environment -g NM_HOME "$home/no-mistakes"
-  tmux set-environment -g CODEX_HOME "$home/codex"
-  tmux set-environment -g CLAUDE_CONFIG_DIR "$home/claude"
-  tmux set-environment -g FM_SUPERVISOR_BACKEND ade
-  tmux set-environment -g FM_SUPERVISOR_TARGET ade-firstmate-acp
-  tmux set-environment -g ADE_FIRSTMATE_RUNTIME_CONFIG "$home/config/ade-runtime.json"
-  tmux set-environment -g ADE_FIRSTMATE_VALIDATOR_AGENT "$agent"
-  tmux set-environment -g ADE_FIRSTMATE_VALIDATOR_MODEL "$model"
+  tmux set-environment -g ${FM_HOME} "$home"
+  tmux set-environment -g ${NM_HOME} "$home/no-mistakes"
+  tmux set-environment -g ${CODEX_HOME} "$home/codex"
+  tmux set-environment -g ${CLAUDE_CONFIG_DIR} "$home/claude"
+  tmux set-environment -g ${FM_SUPERVISOR_BACKEND} ade
+  tmux set-environment -g ${FM_SUPERVISOR_TARGET} ade-firstmate-acp
+  tmux set-environment -g ${ADE_FIRSTMATE_RUNTIME_CONFIG} "$home/config/ade-runtime.json"
+  tmux set-environment -g ${ADE_FIRSTMATE_VALIDATOR_AGENT} "$agent"
+  tmux set-environment -g ${ADE_FIRSTMATE_VALIDATOR_MODEL} "$model"
 fi
 trap - EXIT HUP INT TERM
 `
@@ -371,10 +380,6 @@ export interface FirstMateRuntimeOptions {
   wsl?: FirstMateWslOptions
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
-
 /**
  * Everything ADE learns about a selected project comes from reads: whether the directory is there and
  * what Git already records as its origin. Nothing here writes to, refreshes, or resets the checkout.
@@ -485,12 +490,6 @@ function facts(output: string): Map<string, string> {
   return result
 }
 
-function windowsPathToWsl(path: string): string | undefined {
-  const normalized = path.replace(/\\/g, '/')
-  const match = /^([a-zA-Z]):\/(.+)$/.exec(normalized)
-  return match ? `/mnt/${match[1].toLocaleLowerCase()}/${match[2]}` : undefined
-}
-
 function validatorModel(modelId?: string): string {
   return modelId && /^[a-zA-Z0-9._:+\/-]+$/.test(modelId) ? modelId : 'default'
 }
@@ -526,6 +525,25 @@ function dispatchTargetError(taskId: string, dispatchId: string): FirstMateActio
   return undefined
 }
 
+/** The global runtime record ADE serializes for a launch or a validator change to write in WSL. */
+function globalRuntimeRecord(homePath: string, agent: AgentProvider, model: string): FirstMateRuntimeRecord {
+  return {
+    version: FIRSTMATE_RUNTIME_RECORD_VERSION,
+    host: FIRSTMATE_RUNTIME_HOST,
+    validator: {
+      agent,
+      model,
+      nmHome: `${homePath}/no-mistakes`,
+      agentHome: `${homePath}/${agent}`
+    }
+  }
+}
+
+/** The global record as one base64url argument, so an inline WSL program only decodes and writes it. */
+function globalRuntimeRecordArg(homePath: string, agent: AgentProvider, model: string): string {
+  return Buffer.from(serializeFirstMateRuntimeRecord(globalRuntimeRecord(homePath, agent, model))).toString('base64url')
+}
+
 function taskRuntimeConfig(
   context: FirstMateTaskContext,
   worktree: string,
@@ -533,9 +551,9 @@ function taskRuntimeConfig(
   agentHome: string,
   agentPath: string
 ): string {
-  return `${JSON.stringify({
-    version: 1,
-    host: { kind: 'ade-app', supervisor: 'app-native', terminalTarget: false },
+  return serializeFirstMateRuntimeRecord({
+    version: FIRSTMATE_RUNTIME_RECORD_VERSION,
+    host: FIRSTMATE_RUNTIME_HOST,
     project: { ...context.project, worktree },
     validator: {
       agent: context.validator.agent,
@@ -544,7 +562,7 @@ function taskRuntimeConfig(
       agentHome,
       agentPath
     }
-  }, null, 2)}\n`
+  })
 }
 
 interface TaskValidationDispatch {
@@ -665,8 +683,8 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
       const home = detected.get('home')
       if (!home?.startsWith('/')) throw new Error(`Could not resolve the ${distribution} user home.`)
       const paths = linuxPaths(home)
-      const sharedCodexHome = options.codexHome ? windowsPathToWsl(options.codexHome) : undefined
-      const sharedClaudeHome = options.claudeHome ? windowsPathToWsl(options.claudeHome) : undefined
+      const sharedCodexHome = options.codexHome ? firstMateWslPathFromWindows(options.codexHome) : undefined
+      const sharedClaudeHome = options.claudeHome ? firstMateWslPathFromWindows(options.claudeHome) : undefined
       const managedCodexHome = `${paths.homePath}/codex`
       const managedClaudeHome = `${paths.homePath}/claude`
       const missing = WSL_REQUIRED_FACTS.filter((name) => detected.get(name) !== '1')
@@ -702,19 +720,18 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
         environment: string[],
         adapterArgs: string[] = []
       ): AgentProcessLaunch => {
+        const runtimeConfigPath = `${paths.homePath}/config/ade-runtime.json`
         const commonEnvironment = [
-          `FM_HOME=${paths.homePath}`,
-          'FM_BACKEND=tmux',
-          `NM_HOME=${paths.homePath}/no-mistakes`,
-          `CODEX_HOME=${paths.homePath}/codex`,
-          `CLAUDE_CONFIG_DIR=${paths.homePath}/claude`,
-          'FM_SUPERVISOR_BACKEND=ade',
-          'FM_SUPERVISOR_TARGET=ade-firstmate-acp',
-          `ADE_FIRSTMATE_RUNTIME_CONFIG=${paths.homePath}/config/ade-runtime.json`,
-          `ADE_FIRSTMATE_VALIDATOR_AGENT=${pipelineAgent}`,
-          `ADE_FIRSTMATE_VALIDATOR_MODEL=${pipelineModel}`,
+          `${FM_BACKEND}=tmux`,
+          ...firstMateProcessEnvironment({
+            homePath: paths.homePath,
+            runtimeConfigPath,
+            validatorAgent: pipelineAgent,
+            validatorModel: pipelineModel
+          }),
           `PATH=${home}/.local/bin:/usr/local/bin:/usr/bin:/bin`
         ]
+        const runtimeRecord = globalRuntimeRecordArg(paths.homePath, pipelineAgent, pipelineModel)
         return {
           executable,
           args: [
@@ -725,8 +742,9 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
             managedAuth,
             pipelineAgent,
             pipelineModel,
-            `${paths.homePath}/config/ade-runtime.json`,
+            runtimeConfigPath,
             paths.homePath,
+            runtimeRecord,
             ...commonEnvironment,
             ...environment,
             '/usr/bin/node', runnerPath,
@@ -808,7 +826,7 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
       readyLaunchFactory = null
       readyPaths = null
       readyProviders.clear()
-      const message = error instanceof Error ? error.message : String(error)
+      const message = errorMessage(error)
       return {
         status: {
           state: 'error',
@@ -929,7 +947,7 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
           15 * 60_000
         )
       } catch (error) {
-        lastError = error instanceof Error ? error.message : String(error)
+        lastError = errorMessage(error)
       } finally {
         installing = false
       }
@@ -950,7 +968,7 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
         ])
         return { ok: true }
       } catch (error) {
-        return { ok: false, message: error instanceof Error ? error.message : String(error) }
+        return { ok: false, message: errorMessage(error) }
       }
     },
     async trustCodexProject(): Promise<FirstMateActionResult> {
@@ -975,7 +993,7 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
           ? { ok: true }
           : { ok: false, message: 'Codex project trust was not enabled.' }
       } catch (error) {
-        return { ok: false, message: error instanceof Error ? error.message : String(error) }
+        return { ok: false, message: errorMessage(error) }
       }
     },
     async lifecycle(): Promise<FirstMateLifecycleStatus> {
@@ -991,7 +1009,7 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
       } catch (error) {
         return {
           supervision: 'app-native',
-          message: `ADE could not read durable FirstMate events: ${error instanceof Error ? error.message : String(error)}`,
+          message: `ADE could not read durable FirstMate events: ${errorMessage(error)}`,
           tasks: []
         }
       }
@@ -1011,7 +1029,8 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
             'ade-firstmate-validator',
             readyPaths.homePath,
             selectedValidator.agent,
-            selectedValidator.model
+            selectedValidator.model,
+            globalRuntimeRecordArg(readyPaths.homePath, selectedValidator.agent, selectedValidator.model)
           ],
           15_000
         )
@@ -1020,7 +1039,7 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
         }
         return { ok: true }
       } catch (error) {
-        return { ok: false, message: error instanceof Error ? error.message : String(error) }
+        return { ok: false, message: errorMessage(error) }
       }
     },
     async continueValidation(taskId: string, dispatchId: string): Promise<FirstMateActionResult> {
@@ -1062,13 +1081,13 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
             '--distribution', distribution,
             '--cd', readyPaths.distroPath,
             '--exec', '/usr/bin/env',
-            `FM_HOME=${readyPaths.homePath}`,
-            `NM_HOME=${readyPaths.homePath}/no-mistakes`,
-            `CODEX_HOME=${readyPaths.homePath}/codex`,
-            `CLAUDE_CONFIG_DIR=${readyPaths.homePath}/claude`,
-            `ADE_FIRSTMATE_RUNTIME_CONFIG=${dispatch.taskConfigPath}`,
-            `ADE_FIRSTMATE_VALIDATOR_AGENT=${dispatch.endpoint.context.validator.agent}`,
-            `ADE_FIRSTMATE_VALIDATOR_MODEL=${dispatch.endpoint.context.validator.model}`,
+            ...firstMateProcessEnvironment({
+              homePath: readyPaths.homePath,
+              runtimeConfigPath: dispatch.taskConfigPath,
+              validatorAgent: dispatch.endpoint.context.validator.agent,
+              validatorModel: dispatch.endpoint.context.validator.model,
+              announceSupervisor: false
+            }),
             `${readyPaths.distroPath}/bin/fm-send.sh`,
             taskId,
             dispatch.continuation
@@ -1077,7 +1096,7 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
         )
         return { ok: true }
       } catch (error) {
-        return { ok: false, message: error instanceof Error ? error.message : String(error) }
+        return { ok: false, message: errorMessage(error) }
       }
     },
     async recordLifecycle(taskId: string, record: FirstMateLifecycleRecord): Promise<void> {

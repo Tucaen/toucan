@@ -16,6 +16,7 @@ import type { FirstMateLifecycleJournal, FirstMateLifecycleRecord } from '../src
 import type { FirstMateProjectRegistration } from '../src/shared/firstmate'
 import type { WorkspaceProject } from '../src/shared/terminal'
 import { firstMateCatalogFromRequest } from './firstmate-catalog-test-helpers'
+import { parseFirstMateRuntimeRecord } from '../src/shared/firstmate-runtime-record'
 
 function readyWslInspection(): string {
   return [
@@ -174,6 +175,48 @@ test('builds the Linux ACP launch only after the complete WSL runtime is ready',
     false,
     'switching the conversational captain must not rewrite an underway task\'s validation agent'
   )
+})
+
+test('writes the global runtime record through the authoritative serializer on launch and reconfigure', async () => {
+  const home = '/home/tucaen/.local/share/ade/firstmate/home'
+  const calls: string[][] = []
+  const runtime = createFirstMateRuntime({
+    platform: 'win32',
+    resolveGit: () => 'git.exe',
+    wsl: {
+      run: async (args) => {
+        calls.push(args)
+        return { stdout: readyWslInspection(), stderr: '' }
+      }
+    }
+  })
+
+  await runtime.status()
+  const launch = runtime.launch('codex', 'gpt-5.6-sol')
+
+  // Writer A: the WSL launch script now receives an already-serialized record, not schema to rebuild.
+  const launchArgs = launch?.agentProcess?.args ?? []
+  const launchRecordArg = launchArgs[launchArgs.indexOf(home) + 1] ?? ''
+  const launchRecordText = Buffer.from(launchRecordArg, 'base64url').toString('utf8')
+  assert.deepEqual(parseFirstMateRuntimeRecord(launchRecordText), {
+    version: 1,
+    validator: { agent: 'codex', model: 'gpt-5.6-sol' }
+  })
+  const launchRecord = JSON.parse(launchRecordText)
+  assert.deepEqual(launchRecord.host, { kind: 'ade-app', supervisor: 'app-native', terminalTarget: false })
+  assert.equal(launchRecord.validator.nmHome, `${home}/no-mistakes`)
+  assert.equal(launchRecord.validator.agentHome, `${home}/codex`)
+  assert.ok(launchRecordText.endsWith('\n'), 'the serialized record keeps its trailing newline')
+
+  // Writer B: the validator-configuration path serializes the same record shape.
+  await runtime.configureValidator('claude', 'claude-opus-4-1')
+  const configure = calls.find((args) => args.includes('ade-firstmate-validator'))
+  assert.ok(configure, 'reconfiguring the validator must rewrite the global runtime record')
+  const configureRecord = Buffer.from(configure.at(-1) ?? '', 'base64url').toString('utf8')
+  assert.deepEqual(parseFirstMateRuntimeRecord(configureRecord), {
+    version: 1,
+    validator: { agent: 'claude', model: 'claude-opus-4-1' }
+  })
 })
 
 test('reuses host Codex credentials without sharing Windows state databases', async () => {

@@ -222,7 +222,11 @@ test('shows the active project as a hint for the next FirstMate request', () => 
   assert.match(hint, /Active hint/, 'the row should identify its non-binding role')
   assert.match(hint, /activeProjectHint\.name/, 'the hint row should name the project')
   assert.match(hint, /activeProjectHint\.windowsPath/, 'the hint row should distinguish similarly named projects by path')
-  assert.match(hint, /title=\{`\$\{activeProjectHint\.windowsPath\}[\s\S]*?activeProjectHint\.wslPath\}`\}/)
+  assert.match(
+    hint,
+    /title=\{`\$\{activeProjectHint\.windowsPath\}[\s\S]*?registration\.wslPath[\s\S]*?`\}/,
+    'the hint shows the registered WSL path, which the renderer never derives itself'
+  )
   assert.match(styles, /\.firstmate-project-hint\s*\{/, 'the hint row needs its own style')
 })
 

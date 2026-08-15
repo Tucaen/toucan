@@ -8,6 +8,8 @@ import type {
   FirstMateProjectSelection
 } from '../shared/firstmate'
 import { firstMateOriginSafe } from './firstmate-project-origin'
+import { firstMateCanonicalWindowsPath, firstMateWslPath } from './firstmate-paths'
+import { errorMessage } from '../shared/text'
 
 /**
  * ADE's own registration file inside the private FirstMate home. It maps ADE's stable project
@@ -94,24 +96,6 @@ interface RecordedPosture {
   registryName: string
   mode: FirstMateDeliveryMode
   autonomy: boolean
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
-
-export function firstMateCanonicalWindowsPath(path: string): string | null {
-  const trimmed = path.trim()
-  if (!/^[a-zA-Z]:[\\/]/.test(trimmed)) return null
-  const drive = trimmed[0].toUpperCase()
-  const rest = trimmed.slice(3).replace(/[\\/]+/g, '\\').replace(/\\+$/, '')
-  return rest ? `${drive}:\\${rest}` : `${drive}:\\`
-}
-
-export function firstMateWslPath(canonicalWindowsPath: string): string {
-  const drive = canonicalWindowsPath[0].toLocaleLowerCase()
-  const rest = canonicalWindowsPath.slice(3).replace(/\\/g, '/')
-  return rest ? `/mnt/${drive}/${rest}` : `/mnt/${drive}`
 }
 
 function deliveryMode(value: unknown): FirstMateDeliveryMode | undefined {

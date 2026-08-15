@@ -1,3 +1,8 @@
+/** The one conversion of an unknown thrown value to a human-readable message, shared everywhere. */
+export function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
 const windows1252Bytes = new Map<string, number>([
   ['\u20ac', 0x80], ['\u201a', 0x82], ['\u0192', 0x83], ['\u201e', 0x84],
   ['\u2026', 0x85], ['\u2020', 0x86], ['\u2021', 0x87], ['\u02c6', 0x88],

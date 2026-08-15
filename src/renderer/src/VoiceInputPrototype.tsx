@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import { MicTranscriber, ModelArch } from '@moonshine-ai/moonshine-wasm'
 import { withStallGuard } from './with-stall-guard'
+import { errorMessage } from '../../shared/text'
 
 type VoiceState = 'idle' | 'loading' | 'listening' | 'stopping' | 'error'
 
@@ -49,7 +50,7 @@ export default function VoiceInputPrototype(props: VoiceInputPrototypeProps): JS
   const insertionRef = useRef({ start: 0, end: 0 })
 
   const fail = (cause: unknown): void => {
-    setError(cause instanceof Error ? cause.message : String(cause))
+    setError(errorMessage(cause))
     setState('error')
   }
 

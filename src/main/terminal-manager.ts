@@ -3,6 +3,7 @@ import { normalize } from 'node:path'
 import type { TerminalCreateRequest, TerminalCreateResult } from '../shared/terminal'
 import type { SessionLaunch, SessionProviders } from './session-providers'
 import { sendTerminalEvent, type TerminalEventOwner } from './terminal-events'
+import { errorMessage } from '../shared/text'
 
 export interface TerminalProcess {
   onData(listener: (data: string) => void): unknown
@@ -103,8 +104,7 @@ export function createTerminalManager(options: TerminalManagerOptions): Terminal
         })
         return { ok: true }
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        return { ok: false, message: `Could not start the session: ${message}` }
+        return { ok: false, message: `Could not start the session: ${errorMessage(error)}` }
       }
     },
     write(id, data): void {

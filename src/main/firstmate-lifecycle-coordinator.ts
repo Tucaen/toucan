@@ -13,10 +13,7 @@ import {
   type FirstMateDispatchMemory,
   type FirstMateLifecycleRecord
 } from './firstmate-lifecycle'
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
+import { errorMessage } from '../shared/text'
 
 export interface FirstMateLifecycleCoordinator {
   poll(): Promise<void>

@@ -1,11 +1,9 @@
+import { errorMessage } from '../../shared/text'
+
 export interface AgentPromptDeliveryResult {
   ok: boolean
   message?: string
   prompt?: string
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }
 
 /**

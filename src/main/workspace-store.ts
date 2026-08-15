@@ -1,7 +1,7 @@
 import { readFileSync, writeFileSync } from 'node:fs'
 import { FIRSTMATE_PANEL_MAX_WIDTH, FIRSTMATE_PANEL_MIN_WIDTH } from '../shared/firstmate'
 import type { WorkspaceSaveResult, WorkspaceState } from '../shared/terminal'
-import { repairUtf8Mojibake } from '../shared/text'
+import { errorMessage, repairUtf8Mojibake } from '../shared/text'
 
 interface WorkspaceStateV1 {
   version: 1
@@ -130,8 +130,7 @@ export function createWorkspaceStore(path: string): WorkspaceStore {
         writeFileSync(path, `${JSON.stringify(state, null, 2)}\n`, 'utf8')
         return { ok: true }
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        return { ok: false, message }
+        return { ok: false, message: errorMessage(error) }
       }
     }
   }
