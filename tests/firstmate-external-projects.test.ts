@@ -7,7 +7,8 @@ import {
   firstMateWslPath,
   type FirstMateCheckoutFacts,
   type FirstMateExternalProjectFiles,
-  type FirstMateExternalProjectHome
+  type FirstMateExternalProjectHome,
+  type FirstMateWslPathFacts
 } from '../src/main/firstmate-external-projects'
 import { firstMateOriginSafe } from '../src/main/firstmate-project-origin'
 
@@ -63,7 +64,7 @@ const remoteBacked: Record<string, FirstMateCheckoutFacts> = {
 function projects(
   files: FirstMateExternalProjectFiles = {},
   facts: Record<string, FirstMateCheckoutFacts> = remoteBacked,
-  wslAccess: Record<string, { accessible: boolean; message?: string }> = {}
+  wslAccess: Record<string, FirstMateWslPathFacts> = {}
 ): { home: HomeDouble; checkout: CheckoutDouble; service: ReturnType<typeof createFirstMateExternalProjects> } {
   const homeDouble = home(files)
   const checkout = checkouts(facts)
@@ -73,7 +74,7 @@ function projects(
     service: createFirstMateExternalProjects({
       home: homeDouble.port,
       inspectCheckout: checkout.inspect,
-      inspectWslPath: async (wslPath) => wslAccess[wslPath] ?? { accessible: true },
+      inspectWslPath: async (wslPath) => wslAccess[wslPath] ?? { status: 'accessible' },
       today: () => '2026-08-14'
     })
   }
@@ -329,9 +330,9 @@ test('blocks a directory that is not a usable Git checkout before registration',
 })
 
 test('classifies an unavailable WSL mount and succeeds when the mount is restored', async () => {
-  const access: Record<string, { accessible: boolean; message?: string }> = {
+  const access: Record<string, FirstMateWslPathFacts> = {
     '/mnt/d/Development/alpha/api': {
-      accessible: false,
+      status: 'unavailable',
       message: 'Restore the D: drive mount in Ubuntu WSL.'
     }
   }
@@ -344,7 +345,7 @@ test('classifies an unavailable WSL mount and succeeds when the mount is restore
   assert.match(unavailable.message ?? '', /Restore the D: drive mount/)
   assert.equal(files.files.store, undefined)
 
-  access['/mnt/d/Development/alpha/api'] = { accessible: true }
+  access['/mnt/d/Development/alpha/api'] = { status: 'accessible' }
   const restored = await service.register(alpha)
 
   assert.equal(restored.ok, true)
@@ -401,8 +402,8 @@ test('revalidates WSL access after restart and recovers the existing registratio
   const registered = await first.service.register(alpha)
   assert.equal(registered.ok, true)
 
-  const access: Record<string, { accessible: boolean; message?: string }> = {
-    '/mnt/d/Development/alpha/api': { accessible: false, message: 'Restore the D: drive mount.' }
+  const access: Record<string, FirstMateWslPathFacts> = {
+    '/mnt/d/Development/alpha/api': { status: 'unavailable', message: 'Restore the D: drive mount.' }
   }
   const restarted = projects(first.home.files, remoteBacked, access)
 
@@ -410,7 +411,7 @@ test('revalidates WSL access after restart and recovers the existing registratio
   assert.equal(unavailable.failure?.kind, 'wsl')
   assert.deepEqual(await restarted.service.recorded('alpha'), registered.project)
 
-  access['/mnt/d/Development/alpha/api'] = { accessible: true }
+  access['/mnt/d/Development/alpha/api'] = { status: 'accessible' }
   const recovered = await restarted.service.register(alpha)
 
   assert.equal(recovered.ok, true)

@@ -39,10 +39,9 @@ export type FirstMateCheckoutFacts =
   | { status: 'not-git' }
   | { status: 'git-unavailable'; message: string }
 
-export interface FirstMateWslPathFacts {
-  accessible: boolean
-  message?: string
-}
+export type FirstMateWslPathFacts =
+  | { status: 'accessible' }
+  | { status: 'unavailable'; message: string }
 
 /** The two files this mapping reads: ADE's own registration store and FirstMate's fleet registry. */
 export interface FirstMateExternalProjectFiles {
@@ -423,11 +422,11 @@ export function createFirstMateExternalProjects(
       } catch (error) {
         return refused(selection, 'wsl', errorMessage(error))
       }
-      if (!access.accessible) {
+      if (access.status === 'unavailable') {
         return refused(
           selection,
           'wsl',
-          access.message ?? `${wslPath} is unavailable inside FirstMate's WSL distribution.`
+          access.message
         )
       }
     }

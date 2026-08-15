@@ -19,7 +19,8 @@ import {
   FLEET_REGISTRY_FILE,
   type FirstMateCheckoutFacts,
   type FirstMateExternalProjectFiles,
-  type FirstMateExternalProjectHome
+  type FirstMateExternalProjectHome,
+  type FirstMateWslPathFacts
 } from './firstmate-external-projects'
 import {
   firstMateLifecycleFromFiles,
@@ -473,7 +474,7 @@ async function inspectWindowsCheckout(git: string | null, windowsPath: string): 
 function createExternalProjectRuntime(
   options: FirstMateRuntimeOptions,
   home: FirstMateExternalProjectHome,
-  inspectWslPath?: (wslPath: string) => Promise<{ accessible: boolean; message?: string }>
+  inspectWslPath?: (wslPath: string) => Promise<FirstMateWslPathFacts>
 ): Pick<FirstMateRuntime, 'registerProject' | 'recordedProject' | 'authorizeProjectInitialization' | 'retireProject'> {
   const projects = createFirstMateExternalProjects({
     home,
@@ -863,12 +864,12 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
           15_000
         )
         const access = JSON.parse(result.stdout) as { accessible?: unknown; message?: unknown }
-        if (access.accessible === true) return { accessible: true }
+        if (access.accessible === true) return { status: 'accessible' }
         const cause = typeof access.message === 'string' && access.message ? ` ${access.message}` : ''
-        return { accessible: false, message: `${wslPath} is unavailable inside FirstMate. ${repair}${cause}` }
+        return { status: 'unavailable', message: `${wslPath} is unavailable inside FirstMate. ${repair}${cause}` }
       } catch (error) {
         return {
-          accessible: false,
+          status: 'unavailable',
           message: `ADE could not validate ${wslPath} inside FirstMate. ${repair} ${errorMessage(error)}`
         }
       }
