@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert'
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -17,12 +17,6 @@ import type { FirstMateProjectRegistration } from '../src/shared/firstmate'
 import type { WorkspaceProject } from '../src/shared/terminal'
 import { firstMateCatalogFromRequest } from './firstmate-catalog-test-helpers'
 
-function writeDistro(path: string): void {
-  mkdirSync(join(path, 'bin'), { recursive: true })
-  writeFileSync(join(path, 'AGENTS.md'), '# FirstMate\n', 'utf8')
-  writeFileSync(join(path, 'bin', 'fm-spawn.sh'), '#!/bin/sh\n', 'utf8')
-}
-
 function readyWslInspection(): string {
   return [
     'home=/home/tucaen',
@@ -37,6 +31,47 @@ function readyWslInspection(): string {
     'githubAuth=required',
     'codexTrust=required'
   ].join('\n')
+}
+
+interface WslProjectAccess {
+  accessible: boolean
+  message?: string
+}
+
+interface WslExternalProjectHost {
+  /** The data files of ADE's private FirstMate home, as the WSL node scripts see them. */
+  files: { store?: string; registry?: string }
+  calls: string[][]
+  run(args: string[]): Promise<{ stdout: string; stderr: string }>
+}
+
+/**
+ * A ready WSL host whose private FirstMate home is backed by these two files. Only ADE's own
+ * registration store is writable, so a test that registers a project also proves that nothing
+ * firstmate-private was rewritten on the way through.
+ */
+function wslExternalProjectHost(options: {
+  registry?: string
+  access?(): WslProjectAccess
+} = {}): WslExternalProjectHost {
+  const host: WslExternalProjectHost = {
+    files: { ...(options.registry === undefined ? {} : { registry: options.registry }) },
+    calls: [],
+    async run(args: string[]) {
+      host.calls.push(args)
+      if (args[3] === '/bin/sh') return { stdout: readyWslInspection(), stderr: '' }
+      const script = args[5] ?? ''
+      if (script.includes('statSync(project)')) {
+        return { stdout: JSON.stringify(options.access?.() ?? { accessible: true }), stderr: '' }
+      }
+      if (script.includes('renameSync')) {
+        host.files.store = Buffer.from(args.at(-1) ?? '', 'base64url').toString('utf8')
+        return { stdout: '', stderr: '' }
+      }
+      return { stdout: JSON.stringify(host.files), stderr: '' }
+    }
+  }
+  return host
 }
 
 function testWslPath(path: string): string {
@@ -67,9 +102,7 @@ function externalGitCrew(label: string): { primary: string; worktree: string; pr
 }
 
 test('reports the managed Ubuntu runtime before WSL provisioning', async () => {
-  const rootPath = mkdtempSync(join(tmpdir(), 'ade-firstmate-status-'))
   const runtime = createFirstMateRuntime({
-    rootPath,
     platform: 'win32',
     resolveGit: () => 'git.exe',
     wsl: {
@@ -81,7 +114,6 @@ test('reports the managed Ubuntu runtime before WSL provisioning', async () => {
     state: 'missing',
     distroPath: '/home/tucaen/.local/share/ade/firstmate/distro',
     homePath: '/home/tucaen/.local/share/ade/firstmate/home',
-    host: 'wsl',
     backend: 'tmux',
     supervision: 'app-native',
     distribution: 'Ubuntu',
@@ -91,10 +123,8 @@ test('reports the managed Ubuntu runtime before WSL provisioning', async () => {
 })
 
 test('builds the Linux ACP launch only after the complete WSL runtime is ready', async () => {
-  const rootPath = mkdtempSync(join(tmpdir(), 'ade-firstmate-wsl-ready-'))
   const calls: string[][] = []
   const runtime = createFirstMateRuntime({
-    rootPath,
     platform: 'win32',
     resolveGit: () => 'git.exe',
     wsl: {
@@ -111,7 +141,7 @@ test('builds the Linux ACP launch only after the complete WSL runtime is ready',
   const inspection = calls[0]?.at(-1) ?? ''
 
   assert.equal(status.state, 'ready')
-  assert.equal(status.host, 'wsl')
+  assert.equal(status.homePath, '/home/tucaen/.local/share/ade/firstmate/home')
   assert.equal(status.backend, 'tmux')
   assert.equal(status.githubAuth, 'required')
   assert.equal(status.codexProjectTrust, 'required')
@@ -147,9 +177,7 @@ test('builds the Linux ACP launch only after the complete WSL runtime is ready',
 })
 
 test('reuses host Codex credentials without sharing Windows state databases', async () => {
-  const rootPath = mkdtempSync(join(tmpdir(), 'ade-firstmate-wsl-codex-auth-'))
   const runtime = createFirstMateRuntime({
-    rootPath,
     platform: 'win32',
     codexHome: 'C:\\Users\\tester\\.codex',
     resolveGit: () => 'git.exe',
@@ -182,9 +210,7 @@ test('reuses host Codex credentials without sharing Windows state databases', as
 })
 
 test('reuses host Claude credentials inside an isolated Linux config home', async () => {
-  const rootPath = mkdtempSync(join(tmpdir(), 'ade-firstmate-wsl-claude-auth-'))
   const runtime = createFirstMateRuntime({
-    rootPath,
     platform: 'win32',
     claudeHome: 'C:\\Users\\tester\\.claude',
     resolveGit: () => 'git.exe',
@@ -210,9 +236,7 @@ test('reuses host Claude credentials inside an isolated Linux config home', asyn
 })
 
 test('keeps provider-specific Codex App Server configuration out of the Claude launch', async () => {
-  const rootPath = mkdtempSync(join(tmpdir(), 'ade-firstmate-wsl-claude-launch-'))
   const runtime = createFirstMateRuntime({
-    rootPath,
     platform: 'win32',
     codexHome: 'C:\\Users\\tester\\.codex',
     resolveGit: () => 'git.exe',
@@ -233,7 +257,6 @@ test('keeps provider-specific Codex App Server configuration out of the Claude l
 })
 
 test('continues validation with the task-pinned validator after the global provider changes', async () => {
-  const rootPath = mkdtempSync(join(tmpdir(), 'ade-firstmate-wsl-continue-'))
   const calls: string[][] = []
   const runtimeConfig = JSON.stringify({
     version: 1,
@@ -258,7 +281,6 @@ test('continues validation with the task-pinned validator after the global provi
     validator: { agent: 'codex', model: 'gpt-5.6-sol' }
   }
   const runtime = createFirstMateRuntime({
-    rootPath,
     platform: 'win32',
     resolveGit: () => 'git.exe',
     wsl: {
@@ -337,7 +359,6 @@ test('continues validation with the task-pinned validator after the global provi
 })
 
 test('keeps two switched external projects on their original providers through supervision and restart', async () => {
-  const rootPath = mkdtempSync(join(tmpdir(), 'ade-firstmate-two-projects-'))
   const alphaCrew = externalGitCrew('alpha')
   const betaCrew = externalGitCrew('beta')
   const alpha: WorkspaceProject = {
@@ -470,7 +491,6 @@ test('keeps two switched external projects on their original providers through s
     return { stdout: '', stderr: '' }
   }
   const runtimeOptions = {
-    rootPath,
     platform: 'win32' as const,
     resolveGit: () => 'git.exe',
     wsl: { run }
@@ -530,11 +550,9 @@ test('keeps two switched external projects on their original providers through s
 })
 
 test('trusts only the managed FirstMate distro after explicit approval', async () => {
-  const rootPath = mkdtempSync(join(tmpdir(), 'ade-firstmate-wsl-trust-'))
   const calls: string[][] = []
   let trusted = false
   const runtime = createFirstMateRuntime({
-    rootPath,
     platform: 'win32',
     resolveGit: () => 'git.exe',
     wsl: {
@@ -566,10 +584,8 @@ test('trusts only the managed FirstMate distro after explicit approval', async (
 })
 
 test('opens GitHub authentication in the managed Ubuntu environment', async () => {
-  const rootPath = mkdtempSync(join(tmpdir(), 'ade-firstmate-wsl-auth-'))
   let terminal: { title: string; executable: string; args: string[] } | undefined
   const runtime = createFirstMateRuntime({
-    rootPath,
     platform: 'win32',
     resolveGit: () => 'git.exe',
     wsl: {
@@ -590,11 +606,37 @@ test('opens GitHub authentication in the managed Ubuntu environment', async () =
   assert.ok(terminal?.args.includes('login'))
 })
 
+test('resolves the sign-in host from its own inspection rather than a failed poll', async () => {
+  let inspections = 0
+  let terminal: { title: string; executable: string; args: string[] } | undefined
+  const runtime = createFirstMateRuntime({
+    platform: 'win32',
+    resolveGit: () => 'git.exe',
+    wsl: {
+      run: async (args) => {
+        if (args[3] !== '/bin/sh') return { stdout: '', stderr: '' }
+        inspections += 1
+        // The dock polls status continuously; one transient failure must not disable the sign-in.
+        if (inspections === 1) throw new Error('Ubuntu WSL is unavailable')
+        return { stdout: readyWslInspection(), stderr: '' }
+      },
+      openTerminal: async (title, executable, args) => { terminal = { title, executable, args } }
+    }
+  })
+
+  assert.equal((await runtime.status()).state, 'error', 'a failed poll must invalidate the cached host')
+  const result = await runtime.authenticateGitHub()
+
+  assert.equal(result.ok, true, 'the sign-in must use the host its own inspection resolved')
+  assert.ok(
+    terminal?.args.includes('PATH=/home/tucaen/.local/bin:/usr/local/bin:/usr/bin:/bin'),
+    'the sign-in PATH must come from the WSL user home that same inspection reported'
+  )
+})
+
 test('provisions Ubuntu packages and the managed FirstMate toolchain', async () => {
-  const rootPath = mkdtempSync(join(tmpdir(), 'ade-firstmate-wsl-install-'))
   const calls: string[][] = []
   const runtime = createFirstMateRuntime({
-    rootPath,
     platform: 'win32',
     resolveGit: () => 'git.exe',
     wsl: {
@@ -640,7 +682,6 @@ test('runs a Claude-only workflow when the WSL runtime has no native Codex CLI',
     .filter((line) => line !== 'tool.codex=1')
     .join('\n')
   const runtime = createFirstMateRuntime({
-    rootPath: mkdtempSync(join(tmpdir(), 'ade-firstmate-wsl-no-codex-')),
     platform: 'win32',
     resolveGit: () => 'git.exe',
     wsl: { run: async () => ({ stdout: inspectionWithoutCodex, stderr: '' }) }
@@ -657,7 +698,6 @@ test('runs a Codex-only workflow when the WSL runtime has no native Claude CLI',
     .filter((line) => line !== 'tool.claude=1')
     .join('\n')
   const runtime = createFirstMateRuntime({
-    rootPath: mkdtempSync(join(tmpdir(), 'ade-firstmate-wsl-no-claude-')),
     platform: 'win32',
     resolveGit: () => 'git.exe',
     wsl: { run: async () => ({ stdout: inspectionWithoutClaude, stderr: '' }) }
@@ -668,98 +708,64 @@ test('runs a Codex-only workflow when the WSL runtime has no native Claude CLI',
   assert.ok(runtime.launch('codex'), 'a Codex workflow must not require Claude to be installed')
 })
 
-test('installs one distro and prepares one isolated operational home', async () => {
-  const rootPath = mkdtempSync(join(tmpdir(), 'ade-firstmate-install-'))
+test('reports FirstMate as unsupported off Windows and offers no install or launch path', async () => {
   const runtime = createFirstMateRuntime({
-    rootPath,
-    platform: 'linux',
-    environment: { ...process.env, TMUX: '/tmp/unrelated-tmux', TMUX_PANE: '%0' },
-    resolveGit: () => '/usr/bin/git',
-    clone: async (_git, repository, target) => {
-      assert.equal(repository, 'https://github.com/kunchenguid/firstmate.git')
-      writeDistro(target)
-    }
-  })
-
-  const result = await runtime.install()
-
-  assert.equal(result.ok, true)
-  assert.equal(result.status.state, 'ready')
-  for (const directory of ['data', 'state', 'config', 'projects']) {
-    assert.equal(existsSync(join(rootPath, 'home', directory)), true)
-  }
-  const launch = runtime.launch('codex', 'gpt-5.6-sol')
-  assert.equal(launch?.cwd, join(rootPath, 'distro'))
-  assert.equal(launch?.environment.FM_HOME, join(rootPath, 'home'))
-  assert.equal(launch?.environment.FM_BACKEND, 'tmux')
-  assert.equal(launch?.environment.FM_SUPERVISOR_BACKEND, 'ade')
-  assert.equal(launch?.environment.FM_SUPERVISOR_TARGET, 'ade-firstmate-acp')
-  assert.equal(
-    launch?.environment.ADE_FIRSTMATE_RUNTIME_CONFIG,
-    join(rootPath, 'home', 'config', 'ade-runtime.json')
-  )
-  assert.equal(launch?.environment.ADE_FIRSTMATE_VALIDATOR_AGENT, 'codex')
-  assert.equal(launch?.environment.ADE_FIRSTMATE_VALIDATOR_MODEL, 'gpt-5.6-sol')
-  assert.equal(launch?.environment.TMUX, undefined, 'an inherited terminal pane must not become captain')
-  assert.equal(launch?.environment.TMUX_PANE, undefined, 'an inherited terminal pane must not become captain')
-  assert.equal(typeof launch?.prepare, 'function')
-  const structuredRuntime = JSON.parse(
-    readFileSync(join(rootPath, 'home', 'config', 'ade-runtime.json'), 'utf8')
-  )
-  assert.deepEqual(structuredRuntime.host, {
-    kind: 'ade-app',
-    supervisor: 'app-native',
-    terminalTarget: false
-  })
-  assert.deepEqual(structuredRuntime.validator, {
-      agent: 'codex',
-      model: 'gpt-5.6-sol',
-      nmHome: join(rootPath, 'home', 'no-mistakes'),
-      agentHome: join(rootPath, 'home', 'codex')
-  })
-  assert.equal(
-    existsSync(join(rootPath, 'home', 'no-mistakes', 'config.yaml')),
-    false,
-    'captain launch selection is separate from the task-scoped validation pipeline'
-  )
-})
-
-test('preserves an incomplete distro directory instead of overwriting it', async () => {
-  const rootPath = mkdtempSync(join(tmpdir(), 'ade-firstmate-incomplete-'))
-  const distroPath = join(rootPath, 'distro')
-  mkdirSync(distroPath)
-  writeFileSync(join(distroPath, 'keep-me.txt'), 'user data', 'utf8')
-  const runtime = createFirstMateRuntime({
-    rootPath,
     platform: 'linux',
     resolveGit: () => '/usr/bin/git'
   })
 
-  const result = await runtime.install()
+  const status = await runtime.status()
+  const installed = await runtime.install()
 
-  assert.equal(result.ok, false)
-  assert.equal(result.status.state, 'error')
-  assert.match(result.status.message ?? '', /exists but is incomplete/)
-  assert.equal(existsSync(join(distroPath, 'keep-me.txt')), true)
+  assert.equal(status.state, 'unsupported')
+  assert.match(status.message ?? '', /FirstMate is unavailable on this platform/)
+  assert.equal(status.distroPath, undefined, 'an unsupported platform has no managed distro to name')
+  assert.equal(status.homePath, undefined, 'an unsupported platform has no private operational home')
+  assert.equal(installed.ok, false, 'an unsupported platform must offer no install path')
+  assert.equal(installed.status.state, 'unsupported')
+  assert.equal(runtime.launch(), null, 'an unsupported platform must offer no launch path')
+  assert.equal(runtime.launch('claude'), null)
+  assert.deepEqual(await runtime.lifecycle(), {
+    supervision: 'app-native',
+    message: status.message,
+    tasks: []
+  })
+  assert.equal(await runtime.recordedProject('alpha'), null)
+  for (const refusal of await Promise.all([
+    runtime.authenticateGitHub(),
+    runtime.trustCodexProject(),
+    runtime.configureValidator('codex', 'gpt-5.6-sol'),
+    runtime.continueValidation('alpha-ship', 'alpha-ship.hash.1'),
+    runtime.registerProject({ projectId: 'alpha', name: 'Api', path: '/home/tucaen/alpha/api' }),
+    runtime.authorizeProjectInitialization('alpha'),
+    runtime.retireProject('alpha')
+  ])) {
+    assert.equal(refusal.ok, false)
+    assert.equal(refusal.message, status.message)
+  }
+  await assert.rejects(
+    runtime.recordLifecycle('alpha-ship', {
+      stage: 'implemented',
+      detail: 'unreachable',
+      statusHash: 'hash',
+      updatedAt: '2026-08-15T00:00:00.000Z'
+    }),
+    /FirstMate is unavailable on this platform/,
+    'an unsupported platform must never accumulate durable lifecycle state'
+  )
 })
 
 test('registers an ADE checkout as a durable external project inside the private home', async () => {
-  const rootPath = mkdtempSync(join(tmpdir(), 'ade-firstmate-external-'))
-  writeDistro(join(rootPath, 'distro'))
-  mkdirSync(join(rootPath, 'home', 'data'), { recursive: true })
-  writeFileSync(
-    join(rootPath, 'home', 'data', 'projects.md'),
-    '# Projects\n\n- firstmate [no-mistakes] - the managed distro (added 2026-01-01)\n',
-    'utf8'
-  )
+  const fleetRegistry = '# Projects\n\n- firstmate [no-mistakes] - the managed distro (added 2026-01-01)\n'
+  const host = wslExternalProjectHost({ registry: fleetRegistry })
   const options = {
-    rootPath,
-    platform: 'linux' as const,
-    resolveGit: (): string => '/usr/bin/git',
+    platform: 'win32' as const,
+    resolveGit: (): string => 'git.exe',
     inspectCheckout: async () => ({
       status: 'git-checkout' as const,
       origin: 'git@github.com:acme/alpha-api.git'
-    })
+    }),
+    wsl: { run: host.run }
   }
   const runtime = createFirstMateRuntime(options)
 
@@ -775,47 +781,30 @@ test('registers an ADE checkout as a durable external project inside the private
   assert.equal(registered.project?.wslPath, '/mnt/d/Development/alpha/api')
   assert.equal(registered.project?.mode, 'no-mistakes-prod-only')
   assert.equal(registered.project?.initialization, 'required')
-  assert.deepEqual(afterRestart, registered.project)
+  assert.deepEqual(afterRestart, registered.project, 'a restart must read back the same registration')
 
-  const store = JSON.parse(readFileSync(join(rootPath, 'home', 'data', 'ade-external-projects.json'), 'utf8'))
+  const store = JSON.parse(host.files.store ?? '{}')
   assert.equal(store.version, 1)
   assert.equal(store.projects.alpha.windowsPath, 'D:\\Development\\alpha\\api')
   assert.equal(
-    readFileSync(join(rootPath, 'home', 'data', 'projects.md'), 'utf8'),
-    '# Projects\n\n- firstmate [no-mistakes] - the managed distro (added 2026-01-01)\n',
+    host.files.registry,
+    fleetRegistry,
     'the firstmate-private fleet registry belongs to the captain and is only read'
   )
   assert.equal(
-    existsSync(join(rootPath, 'home', 'projects', 'api')),
+    host.calls.some((args) => args.some((argument) => /\bgit clone\b|ln -s|\/home\/projects\//.test(argument))),
     false,
     'an external project must never be cloned or linked into the managed projects directory'
   )
 })
 
 test('keeps the external-project mapping inside the WSL FirstMate home', async () => {
-  const rootPath = mkdtempSync(join(tmpdir(), 'ade-firstmate-external-wsl-'))
-  const files: { store?: string; registry?: string } = {}
-  const calls: string[][] = []
+  const { files, calls, run } = wslExternalProjectHost()
   const runtime = createFirstMateRuntime({
-    rootPath,
     platform: 'win32',
     resolveGit: () => 'git.exe',
     inspectCheckout: async () => ({ status: 'git-checkout' }),
-    wsl: {
-      run: async (args) => {
-        calls.push(args)
-        if (args[3] === '/bin/sh') return { stdout: readyWslInspection(), stderr: '' }
-        const script = args[5] ?? ''
-        if (script.includes('statSync(project)')) {
-          return { stdout: JSON.stringify({ accessible: true }), stderr: '' }
-        }
-        if (script.includes('renameSync')) {
-          files.store = Buffer.from(args.at(-1) ?? '', 'base64url').toString('utf8')
-          return { stdout: '', stderr: '' }
-        }
-        return { stdout: JSON.stringify(files), stderr: '' }
-      }
-    }
+    wsl: { run }
   })
 
   const registered = await runtime.registerProject({
@@ -851,36 +840,20 @@ test('keeps the external-project mapping inside the WSL FirstMate home', async (
 })
 
 test('blocks a WSL-inaccessible checkout and recovers after the same mount returns', async () => {
-  const rootPath = mkdtempSync(join(tmpdir(), 'ade-firstmate-wsl-project-access-'))
-  const files: { store?: string; registry?: string } = {}
   let mounted = false
+  const { files, run } = wslExternalProjectHost({
+    access: () => mounted
+      ? { accessible: true }
+      : { accessible: false, message: 'ENOENT: /mnt/d is not mounted' }
+  })
   const runtime = createFirstMateRuntime({
-    rootPath,
     platform: 'win32',
     resolveGit: () => 'git.exe',
     inspectCheckout: async () => ({
       status: 'git-checkout',
       origin: 'https://github.com/acme/alpha-api.git'
     }),
-    wsl: {
-      run: async (args) => {
-        if (args[3] === '/bin/sh') return { stdout: readyWslInspection(), stderr: '' }
-        const script = args[5] ?? ''
-        if (script.includes('statSync(project)')) {
-          return {
-            stdout: JSON.stringify(mounted
-              ? { accessible: true }
-              : { accessible: false, message: 'ENOENT: /mnt/d is not mounted' }),
-            stderr: ''
-          }
-        }
-        if (script.includes('renameSync')) {
-          files.store = Buffer.from(args.at(-1) ?? '', 'base64url').toString('utf8')
-          return { stdout: '', stderr: '' }
-        }
-        return { stdout: JSON.stringify(files), stderr: '' }
-      }
-    }
+    wsl: { run }
   })
   const selection = { projectId: 'alpha', name: 'Api', path: 'D:\\Development\\alpha\\api' }
 

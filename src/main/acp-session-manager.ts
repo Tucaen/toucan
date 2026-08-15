@@ -324,11 +324,6 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       if (request.scope === 'firstmate' && !firstMateLaunch) {
         return { ok: false, status: 'error', message: 'FirstMate is not installed.' }
       }
-      try {
-        await firstMateLaunch?.prepare?.()
-      } catch (error) {
-        return { ok: false, status: 'error', message: errorMessage(error) }
-      }
       const effectiveRequest: AgentCreateRequest = firstMateLaunch
         ? { ...request, cwd: firstMateLaunch.cwd }
         : request

@@ -4,7 +4,12 @@ import type { FirstMateTaskContext } from './firstmate-task-context'
 export const FIRSTMATE_PANEL_MIN_WIDTH = 300
 export const FIRSTMATE_PANEL_MAX_WIDTH = 720
 
-export type FirstMateRuntimeState = 'missing' | 'installing' | 'ready' | 'error'
+/**
+ * `unsupported` is terminal by design: ADE integrates FirstMate through Windows' WSL host only, so
+ * every other platform has no install, launch, or registration path at all. A future cross-platform
+ * host is a new supported feature with its own state, never a fallback reached from here.
+ */
+export type FirstMateRuntimeState = 'missing' | 'installing' | 'ready' | 'error' | 'unsupported'
 
 export type FirstMateTaskStage =
   | 'implemented'
@@ -73,9 +78,9 @@ export interface FirstMateLifecycleStatus {
 
 export interface FirstMateRuntimeStatus {
   state: FirstMateRuntimeState
-  distroPath: string
-  homePath: string
-  host: 'native' | 'wsl'
+  /** Where the managed distro and its private home live in the WSL host; absent when there is no host. */
+  distroPath?: string
+  homePath?: string
   backend: 'tmux'
   supervision: 'app-native'
   distribution?: string

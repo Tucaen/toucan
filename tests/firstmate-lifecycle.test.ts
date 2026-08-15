@@ -10,10 +10,9 @@ import {
   firstMateLifecycleFromFiles,
   firstMateValidationDispatchId,
   noMistakesContinuation,
-  readFirstMateLifecycle,
-  recordFirstMateLifecycle,
   type FirstMateLifecycleRecord
 } from '../src/main/firstmate-lifecycle'
+import { readFirstMateLifecycle, recordFirstMateLifecycle } from './firstmate-journal-home'
 
 const alphaCodexContext: FirstMateTaskContext = {
   version: 1,
@@ -74,8 +73,8 @@ interface JournalRuntime {
 }
 
 /**
- * A runtime backed by the real on-disk journal, so a fresh coordinator over the same
- * home reproduces an ADE restart: durable state survives, in-memory state does not.
+ * A runtime backed by an on-disk journal, so a fresh coordinator over the same home
+ * reproduces an ADE restart: durable state survives, in-memory state does not.
  * No coding-agent binary is involved; the continuation is a counted stub.
  */
 function journalRuntime(home: string, options: JournalRuntimeOptions = {}): JournalRuntime {
