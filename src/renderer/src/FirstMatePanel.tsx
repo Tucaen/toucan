@@ -53,6 +53,16 @@ function RuntimeSetup({
   installing: boolean
   install(): void
 }): JSX.Element {
+  // ADE hosts FirstMate through Windows' WSL host only, so elsewhere there is nothing to offer at all.
+  if (runtime?.state === 'unsupported') {
+    return (
+      <div className="firstmate-runtime-setup">
+        <FirstMateMark />
+        <strong>FirstMate is unavailable on this platform</strong>
+        <p>{runtime.message}</p>
+      </div>
+    )
+  }
   const checking = runtime === null
   const failed = runtime?.state === 'error'
   return (
@@ -64,16 +74,14 @@ function RuntimeSetup({
           ? 'Looking for ADE’s managed FirstMate distro and operational home.'
           : failed
           ? runtime.message
-          : runtime?.host === 'wsl'
-          ? `ADE will provision FirstMate, Codex and Claude ACP, and tmux inside ${runtime.distribution ?? 'Ubuntu'}.`
-          : 'ADE will download the FirstMate agent distro and create one private operational home on this machine.'}
+          : `ADE will provision FirstMate, Codex and Claude ACP, and tmux inside ${runtime.distribution ?? 'Ubuntu'}.`}
       </p>
-      {runtime?.host === 'wsl' && !failed && (
+      {!checking && !failed && (
         <small>Linux packages stay isolated inside WSL; ADE and its projects remain native Windows applications.</small>
       )}
       {!checking && (
         <button type="button" onClick={install} disabled={installing}>
-          {installing ? 'Installing…' : failed ? 'Retry setup' : runtime?.host === 'wsl' ? 'Set up in Ubuntu' : 'Install from GitHub'}
+          {installing ? 'Installing…' : failed ? 'Retry setup' : 'Set up in Ubuntu'}
         </button>
       )}
       {failed && <small>Existing files were preserved. Review the error above, then retry.</small>}
@@ -513,7 +521,7 @@ export default function FirstMatePanel({ projects, project, state, onStateChange
             className="firstmate-worker-info"
             title="ADE delivers durable task wakes to this ACP conversation; no terminal pane is claimed as the captain."
           >
-            Crew backend: tmux{runtime.host === 'wsl' ? ` in ${runtime.distribution ?? 'WSL'}` : ''} · app-native wake
+            Crew backend: tmux in {runtime.distribution ?? 'WSL'} · app-native wake
           </div>
           {(lifecycle.tasks.length > 0 || lifecycle.message) && (
             <section className="firstmate-lifecycle" aria-label="FirstMate task lifecycle">

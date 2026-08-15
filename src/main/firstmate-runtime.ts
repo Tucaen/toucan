@@ -1,7 +1,6 @@
 import { execFile, spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync } from 'node:fs'
 import { promisify } from 'node:util'
 import type { AgentProvider } from '../shared/agent'
 import type {
@@ -25,12 +24,9 @@ import {
   type FirstMateWslPathFacts
 } from './firstmate-external-projects'
 import {
+  FIRSTMATE_LIFECYCLE_JOURNAL_FILE,
   firstMateLifecycleFromFiles,
-  firstMateValidatorFromRuntimeConfig,
   noMistakesContinuation,
-  readFirstMateLifecycle,
-  readFirstMateLifecycleFiles,
-  recordFirstMateLifecycle,
   type FirstMateLifecycleFiles,
   type FirstMateLifecycleRecord
 } from './firstmate-lifecycle'
@@ -150,7 +146,7 @@ const tasks = names.filter((name) => name.endsWith('.meta')).map((name) => {
 })
 process.stdout.write(JSON.stringify({
   runtimeConfig: optional(path.join(home, 'config', 'ade-runtime.json')),
-  journal: optional(path.join(state, '.ade-lifecycle.json')),
+  journal: optional(path.join(state, ${JSON.stringify(FIRSTMATE_LIFECYCLE_JOURNAL_FILE)})),
   tasks
 }))
 `
@@ -162,7 +158,7 @@ const home = process.argv[1]
 const taskId = process.argv[2]
 const record = JSON.parse(Buffer.from(process.argv[3], 'base64url').toString('utf8'))
 const state = path.join(home, 'state')
-const target = path.join(state, '.ade-lifecycle.json')
+const target = path.join(state, ${JSON.stringify(FIRSTMATE_LIFECYCLE_JOURNAL_FILE)})
 fs.mkdirSync(state, { recursive: true })
 let journal = { version: 1, tasks: {} }
 try {
@@ -332,7 +328,6 @@ export interface FirstMateLaunch {
   environment: NodeJS.ProcessEnv
   agentProcess?: AgentProcessLaunch
   authProcess?(args: string[]): AgentProcessLaunch
-  prepare?(): Promise<void>
 }
 
 export interface FirstMateRuntime {
@@ -365,15 +360,12 @@ export interface FirstMateWslOptions {
 }
 
 export interface FirstMateRuntimeOptions {
-  rootPath: string
   platform: NodeJS.Platform
-  environment?: NodeJS.ProcessEnv
-  /** Native Codex home shared by ADE's regular Codex nodes. */
+  /** Windows Codex home shared by ADE's regular Codex nodes. */
   codexHome?: string
-  /** Native Claude home shared by ADE's regular Claude nodes. */
+  /** Windows Claude home shared by ADE's regular Claude nodes. */
   claudeHome?: string
   resolveGit(): string | null
-  clone?(git: string, repository: string, target: string): Promise<void>
   /** Reads a selected checkout without changing it; defaults to Git's own read-only origin lookup. */
   inspectCheckout?(windowsPath: string): Promise<FirstMateCheckoutFacts>
   wsl?: FirstMateWslOptions
@@ -420,19 +412,19 @@ async function inspectWindowsCheckout(git: string | null, windowsPath: string): 
 }
 
 /**
- * The external-project half of the runtime: identical for both hosts once the home is reachable, and
- * reporting an unreachable home as a failed action rather than a thrown request.
+ * The external-project half of the WSL runtime, kept separate from provisioning and dispatch: it
+ * reports an unreachable home as a failed action rather than a thrown request.
  */
 function createExternalProjectRuntime(
   options: FirstMateRuntimeOptions,
   home: FirstMateExternalProjectHome,
-  inspectWslPath?: (wslPath: string) => Promise<FirstMateWslPathFacts>
+  inspectWslPath: (wslPath: string) => Promise<FirstMateWslPathFacts>
 ): Pick<FirstMateRuntime, 'registerProject' | 'recordedProject' | 'authorizeProjectInitialization' | 'retireProject'> {
   const projects = createFirstMateExternalProjects({
     home,
     inspectCheckout: options.inspectCheckout
       ?? ((windowsPath) => inspectWindowsCheckout(options.resolveGit(), windowsPath)),
-    ...(inspectWslPath ? { inspectWslPath } : {})
+    inspectWslPath
   })
   return {
     async registerProject(selection: FirstMateProjectSelection): Promise<FirstMateProjectRegistration> {
@@ -466,17 +458,15 @@ function createExternalProjectRuntime(
   }
 }
 
-function isDistro(path: string): boolean {
-  return existsSync(join(path, 'AGENTS.md')) && existsSync(join(path, 'bin', 'fm-spawn.sh'))
-}
-
 function linuxPaths(home: string): {
+  userHome: string
   distroPath: string
   homePath: string
   runnerPaths: Record<AgentProvider, string>
 } {
   const base = `${home}/${WSL_BASE}`
   return {
+    userHome: home,
     distroPath: `${base}/distro`,
     homePath: `${base}/home`,
     runnerPaths: {
@@ -536,46 +526,6 @@ function dispatchTargetError(taskId: string, dispatchId: string): FirstMateActio
   return undefined
 }
 
-function appHostedEnvironment(
-  environment: NodeJS.ProcessEnv,
-  homePath: string,
-  provider: AgentProvider,
-  model: string
-): NodeJS.ProcessEnv {
-  const result: NodeJS.ProcessEnv = {
-    ...environment,
-    FM_HOME: homePath,
-    FM_BACKEND: 'tmux',
-    NM_HOME: join(homePath, 'no-mistakes'),
-    CODEX_HOME: join(homePath, 'codex'),
-    CLAUDE_CONFIG_DIR: join(homePath, 'claude'),
-    FM_SUPERVISOR_BACKEND: 'ade',
-    FM_SUPERVISOR_TARGET: 'ade-firstmate-acp',
-    ADE_FIRSTMATE_RUNTIME_CONFIG: join(homePath, 'config', 'ade-runtime.json'),
-    ADE_FIRSTMATE_VALIDATOR_AGENT: provider,
-    ADE_FIRSTMATE_VALIDATOR_MODEL: model
-  }
-  delete result.TMUX
-  delete result.TMUX_PANE
-  delete result.HERDR_ENV
-  delete result.HERDR_PANE_ID
-  delete result.HERDR_SESSION
-  return result
-}
-
-function runtimeConfig(provider: AgentProvider, model: string, homePath: string): string {
-  return `${JSON.stringify({
-    version: 1,
-    host: { kind: 'ade-app', supervisor: 'app-native', terminalTarget: false },
-    validator: {
-      agent: provider,
-      model,
-      nmHome: join(homePath, 'no-mistakes'),
-      agentHome: join(homePath, provider)
-    }
-  }, null, 2)}\n`
-}
-
 function taskRuntimeConfig(
   context: FirstMateTaskContext,
   worktree: string,
@@ -612,9 +562,7 @@ function taskValidationDispatch(
   taskId: string,
   dispatchId: string,
   taskConfigPath: string,
-  homePath: string,
-  pathJoin: (...parts: string[]) => string,
-  executable: (provider: AgentProvider) => string
+  homePath: string
 ): TaskValidationDispatch | undefined {
   const endpoint = taskEndpoint(files, taskId)
   if (!endpoint) return undefined
@@ -623,8 +571,8 @@ function taskValidationDispatch(
     .update(`${taskId}\0${agent}\0${model}`)
     .digest('hex')
     .slice(0, 20)
-  const agentPath = pathJoin(homePath, 'state', 'validators', validatorScopeHash, agent)
-  const agentHome = pathJoin(homePath, agent)
+  const agentPath = `${homePath}/state/validators/${validatorScopeHash}/${agent}`
+  const agentHome = `${homePath}/${agent}`
   const modelArgument = model === 'default' ? '' : ` --model ${model}`
   const providerHome = agent === 'codex'
     ? `export CODEX_HOME=${JSON.stringify(agentHome)}`
@@ -635,13 +583,13 @@ function taskValidationDispatch(
     taskConfig: taskRuntimeConfig(
       endpoint.context,
       endpoint.worktree,
-      pathJoin(homePath, 'no-mistakes'),
+      `${homePath}/no-mistakes`,
       agentHome,
       agentPath
     ),
     agentPath,
     pipelineConfig: `agent: ${agent}\nagent_path_override:\n  ${agent}: ${JSON.stringify(agentPath)}\n`,
-    wrapper: `#!/bin/sh\n${providerHome}\nexec ${JSON.stringify(executable(agent))}${modelArgument} "$@"\n`,
+    wrapper: `#!/bin/sh\n${providerHome}\nexec ${JSON.stringify(`$HOME/.local/bin/${agent}`)}${modelArgument} "$@"\n`,
     continuation: noMistakesContinuation(endpoint.harness, taskConfigPath, dispatchId)
   }
 }
@@ -685,17 +633,27 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
   let readyProviders = new Set<AgentProvider>()
   let selectedValidator: { agent: AgentProvider; model: string } = { agent: 'codex', model: 'default' }
 
-  const inspect = async (): Promise<FirstMateRuntimeStatus> => {
+  /**
+   * One inspection, reported as the status plus the host paths it resolved. Actions take both from
+   * the same result rather than from the shared ready state, so a concurrent poll that fails between
+   * an action's inspection and its use of the host can never turn that action into a false refusal.
+   */
+  const inspectHost = async (): Promise<{
+    status: FirstMateRuntimeStatus
+    paths: ReturnType<typeof linuxPaths> | null
+  }> => {
     if (installing) {
       return {
-        state: 'installing',
-        distroPath: placeholder.distroPath,
-        homePath: placeholder.homePath,
-        host: 'wsl',
-        backend: 'tmux',
-        supervision: 'app-native',
-        distribution,
-        message: `Provisioning FirstMate in ${distribution}. This can take several minutes.`
+        status: {
+          state: 'installing',
+          distroPath: placeholder.distroPath,
+          homePath: placeholder.homePath,
+          backend: 'tmux',
+          supervision: 'app-native',
+          distribution,
+          message: `Provisioning FirstMate in ${distribution}. This can take several minutes.`
+        },
+        paths: null
       }
     }
     try {
@@ -723,14 +681,16 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
         readyPaths = null
         readyProviders.clear()
         return {
-          state: lastError ? 'error' : 'missing',
-          distroPath: paths.distroPath,
-          homePath: paths.homePath,
-          host: 'wsl',
-          backend: 'tmux',
-          supervision: 'app-native',
-          distribution,
-          message: lastError ?? `ADE will provision FirstMate, native Claude and Codex agents, tmux, and the managed review toolchain in ${distribution}.`
+          status: {
+            state: lastError ? 'error' : 'missing',
+            distroPath: paths.distroPath,
+            homePath: paths.homePath,
+            backend: 'tmux',
+            supervision: 'app-native',
+            distribution,
+            message: lastError ?? `ADE will provision FirstMate, native Claude and Codex agents, tmux, and the managed review toolchain in ${distribution}.`
+          },
+          paths: null
         }
       }
       const managedLaunch = (
@@ -831,15 +791,17 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
       readyPaths = paths
       lastError = undefined
       return {
-        state: 'ready',
-        distroPath: paths.distroPath,
-        homePath: paths.homePath,
-        host: 'wsl',
-        backend: 'tmux',
-        supervision: 'app-native',
-        distribution,
-        githubAuth: detected.get('githubAuth') === 'authenticated' ? 'authenticated' : 'required',
-        codexProjectTrust: detected.get('codexTrust') === 'trusted' ? 'trusted' : 'required'
+        status: {
+          state: 'ready',
+          distroPath: paths.distroPath,
+          homePath: paths.homePath,
+          backend: 'tmux',
+          supervision: 'app-native',
+          distribution,
+          githubAuth: detected.get('githubAuth') === 'authenticated' ? 'authenticated' : 'required',
+          codexProjectTrust: detected.get('codexTrust') === 'trusted' ? 'trusted' : 'required'
+        },
+        paths
       }
     } catch (error) {
       readyLaunches = null
@@ -848,17 +810,21 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
       readyProviders.clear()
       const message = error instanceof Error ? error.message : String(error)
       return {
-        state: 'error',
-        distroPath: placeholder.distroPath,
-        homePath: placeholder.homePath,
-        host: 'wsl',
-        backend: 'tmux',
-        supervision: 'app-native',
-        distribution,
-        message: lastError ?? `Ubuntu WSL is unavailable: ${message}`
+        status: {
+          state: 'error',
+          distroPath: placeholder.distroPath,
+          homePath: placeholder.homePath,
+          backend: 'tmux',
+          supervision: 'app-native',
+          distribution,
+          message: lastError ?? `Ubuntu WSL is unavailable: ${message}`
+        },
+        paths: null
       }
     }
   }
+
+  const inspect = async (): Promise<FirstMateRuntimeStatus> => (await inspectHost()).status
 
   const homePath = async (): Promise<string> => {
     if (!readyPaths) await inspect()
@@ -971,16 +937,15 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
       return { ok: status.state === 'ready', status }
     },
     async authenticateGitHub(): Promise<FirstMateActionResult> {
-      const current = await inspect()
-      if (current.state !== 'ready') {
+      const { status: current, paths } = await inspectHost()
+      if (current.state !== 'ready' || !paths) {
         return { ok: false, message: current.message ?? 'FirstMate is not ready.' }
       }
-      const home = current.homePath.slice(0, -`/${WSL_BASE}/home`.length)
       try {
         await openTerminal('ADE FirstMate - GitHub sign in', executable, [
           '--distribution', distribution,
           '--exec', '/usr/bin/env',
-          `PATH=${home}/.local/bin:/usr/local/bin:/usr/bin:/bin`,
+          `PATH=${paths.userHome}/.local/bin:/usr/local/bin:/usr/bin:/bin`,
           'gh', 'auth', 'login', '--web', '--git-protocol', 'https'
         ])
         return { ok: true }
@@ -989,8 +954,8 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
       }
     },
     async trustCodexProject(): Promise<FirstMateActionResult> {
-      const current = await inspect()
-      if (current.state !== 'ready') {
+      const { status: current, paths } = await inspectHost()
+      if (current.state !== 'ready' || !paths) {
         return { ok: false, message: current.message ?? 'FirstMate is not ready.' }
       }
       if (current.codexProjectTrust === 'trusted') return { ok: true }
@@ -1000,8 +965,8 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
             '--distribution', distribution,
             '--exec', '/bin/sh', '-c', WSL_TRUST_CODEX_PROJECT_SCRIPT,
             'ade-firstmate-trust',
-            `${current.homePath}/codex/config.toml`,
-            current.distroPath
+            `${paths.homePath}/codex/config.toml`,
+            paths.distroPath
           ],
           15_000
         )
@@ -1070,9 +1035,7 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
           taskId,
           dispatchId,
           taskConfigPath,
-          readyPaths.homePath,
-          (...parts) => parts.join('/'),
-          (provider) => `$HOME/.local/bin/${provider}`
+          readyPaths.homePath
         )
         if (!dispatch) return { ok: false, message: 'The pinned task endpoint metadata is unavailable.' }
         for (const [path, contents] of [
@@ -1141,214 +1104,44 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
   }
 }
 
-function createNativeFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateRuntime {
-  const distroPath = join(options.rootPath, 'distro')
-  const homePath = join(options.rootPath, 'home')
-  let installing = false
-  let lastError: string | undefined
-  let selectedValidator: { agent: AgentProvider; model: string } = { agent: 'codex', model: 'default' }
-  const environment = options.environment ?? process.env
-
-  const status = (): FirstMateRuntimeStatus => {
-    const common = {
-      distroPath,
-      homePath,
-      host: 'native' as const,
-      backend: 'tmux' as const,
-      supervision: 'app-native' as const
-    }
-    if (installing) return { state: 'installing', ...common }
-    if (isDistro(distroPath)) return { state: 'ready', ...common }
-    if (lastError) return { state: 'error', ...common, message: lastError }
-    return { state: 'missing', ...common }
-  }
-
-  const prepareHome = (): void => {
-    for (const directory of ['bin', 'data', 'state', 'config', 'projects', 'no-mistakes', 'codex', 'claude']) {
-      mkdirSync(join(homePath, directory), { recursive: true })
-    }
-  }
-
-  const atomicWrite = (path: string, contents: string, mode: number): void => {
-    const temporary = `${path}.${process.pid}.${crypto.randomUUID()}.tmp`
-    writeFileSync(temporary, contents, { mode })
-    renameSync(temporary, path)
-  }
-
-  const persistValidatorConfiguration = (provider: AgentProvider, model: string): void => {
-    atomicWrite(
-      join(homePath, 'config', 'ade-runtime.json'),
-      runtimeConfig(provider, model, homePath),
-      0o600
-    )
-  }
-
-  const dataPath = join(homePath, 'data')
-  const optionalFile = (path: string): string | undefined => {
-    try {
-      return readFileSync(path, 'utf8')
-    } catch {
-      return undefined
-    }
-  }
-  const externalProjects = createExternalProjectRuntime(options, {
-    async read(): Promise<FirstMateExternalProjectFiles> {
-      return {
-        store: optionalFile(join(dataPath, EXTERNAL_PROJECT_STORE_FILE)),
-        registry: optionalFile(join(dataPath, FLEET_REGISTRY_FILE))
-      }
-    },
-    async writeStore(text: string): Promise<void> {
-      mkdirSync(dataPath, { recursive: true })
-      atomicWrite(join(dataPath, EXTERNAL_PROJECT_STORE_FILE), text, 0o600)
-    }
+/**
+ * The whole FirstMate integration on a platform ADE does not host it on. Every entry point refuses
+ * with the same reason instead of provisioning, launching, or recording anything, so a platform with
+ * no supported host can never accumulate half-built state. Hosting FirstMate somewhere else is a new
+ * feature that adds its own runtime and its own runtime state, never a fallback reached from here.
+ */
+function createUnsupportedFirstMateRuntime(platform: NodeJS.Platform): FirstMateRuntime {
+  const message = `ADE integrates FirstMate through Windows' WSL host, which ${platform} does not provide. `
+    + 'FirstMate is unavailable on this platform.'
+  const status = (): FirstMateRuntimeStatus => ({
+    state: 'unsupported',
+    backend: 'tmux',
+    supervision: 'app-native',
+    message
   })
-
-  const configureTmuxEnvironment = async (provider: AgentProvider, model: string): Promise<void> => {
-    const variables = [
-      ['FM_HOME', homePath],
-      ['NM_HOME', join(homePath, 'no-mistakes')],
-      ['CODEX_HOME', join(homePath, 'codex')],
-      ['CLAUDE_CONFIG_DIR', join(homePath, 'claude')],
-      ['FM_SUPERVISOR_BACKEND', 'ade'],
-      ['FM_SUPERVISOR_TARGET', 'ade-firstmate-acp'],
-      ['ADE_FIRSTMATE_RUNTIME_CONFIG', join(homePath, 'config', 'ade-runtime.json')],
-      ['ADE_FIRSTMATE_VALIDATOR_AGENT', provider],
-      ['ADE_FIRSTMATE_VALIDATOR_MODEL', model]
-    ]
-    await Promise.all(variables.map(async ([name, value]) => {
-      try {
-        await execFileAsync('tmux', ['set-environment', '-g', name, value], { timeout: 2_000 })
-      } catch {
-        // No existing server is fine; a server created by this ACP process inherits environment.
-      }
-    }))
-  }
-
+  const refuse = async (): Promise<FirstMateActionResult> => ({ ok: false, message })
+  const refuseRegistration = async (): Promise<FirstMateProjectRegistration> => ({ ok: false, message })
   return {
     async status(): Promise<FirstMateRuntimeStatus> { return status() },
-    ...externalProjects,
-    async install(): Promise<FirstMateInstallResult> {
-      if (installing) return { ok: false, status: status() }
-      if (isDistro(distroPath)) {
-        prepareHome()
-        return { ok: true, status: status() }
-      }
-      if (existsSync(distroPath)) {
-        lastError = `The FirstMate distro path exists but is incomplete: ${distroPath}`
-        return { ok: false, status: status() }
-      }
-      const git = options.resolveGit()
-      if (!git) {
-        lastError = 'Git is required to install FirstMate.'
-        return { ok: false, status: status() }
-      }
-
-      installing = true
-      lastError = undefined
-      mkdirSync(options.rootPath, { recursive: true })
-      const temporaryPath = join(options.rootPath, `distro-installing-${crypto.randomUUID()}`)
-      try {
-        if (options.clone) {
-          await options.clone(git, FIRSTMATE_REPOSITORY, temporaryPath)
-        } else {
-          await execFileAsync(git, ['clone', '--depth', '1', FIRSTMATE_REPOSITORY, temporaryPath], {
-            windowsHide: true
-          })
-        }
-        if (!isDistro(temporaryPath)) throw new Error('The downloaded repository is not a valid FirstMate distro.')
-        renameSync(temporaryPath, distroPath)
-        prepareHome()
-        installing = false
-        return { ok: true, status: status() }
-      } catch (error) {
-        installing = false
-        rmSync(temporaryPath, { recursive: true, force: true })
-        lastError = error instanceof Error ? error.message : String(error)
-        return { ok: false, status: status() }
-      }
-    },
-    async authenticateGitHub(): Promise<FirstMateActionResult> {
-      return { ok: false, message: 'GitHub sign-in is managed only by the Windows WSL runtime.' }
-    },
-    async trustCodexProject(): Promise<FirstMateActionResult> {
-      return { ok: false, message: 'Codex project trust is managed only by the Windows WSL runtime.' }
-    },
+    async install(): Promise<FirstMateInstallResult> { return { ok: false, status: status() } },
+    authenticateGitHub: refuse,
+    trustCodexProject: refuse,
     async lifecycle(): Promise<FirstMateLifecycleStatus> {
-      return readFirstMateLifecycle(homePath)
+      return { supervision: 'app-native', message, tasks: [] }
     },
-    async configureValidator(provider: AgentProvider, modelId?: string): Promise<FirstMateActionResult> {
-      prepareHome()
-      selectedValidator = { agent: provider, model: validatorModel(modelId) }
-      persistValidatorConfiguration(provider, selectedValidator.model)
-      await configureTmuxEnvironment(provider, selectedValidator.model)
-      return { ok: true }
-    },
-    async continueValidation(taskId: string, dispatchId: string): Promise<FirstMateActionResult> {
-      const rejected = dispatchTargetError(taskId, dispatchId)
-      if (rejected) return rejected
-      try {
-        const files = await readFirstMateLifecycleFiles(homePath)
-        const taskConfigPath = join(homePath, 'state', `${taskId}.ade-runtime.json`)
-        const dispatch = taskValidationDispatch(
-          files,
-          taskId,
-          dispatchId,
-          taskConfigPath,
-          homePath,
-          join,
-          (provider) => provider
-        )
-        if (!dispatch) return { ok: false, message: 'The pinned task endpoint metadata is unavailable.' }
-        atomicWrite(dispatch.taskConfigPath, dispatch.taskConfig, 0o600)
-        atomicWrite(dispatch.agentPath, dispatch.wrapper, 0o700)
-        atomicWrite(join(homePath, 'no-mistakes', 'config.yaml'), dispatch.pipelineConfig, 0o600)
-        await execFileAsync(join(distroPath, 'bin', 'fm-send.sh'), [
-          taskId,
-          dispatch.continuation
-        ], {
-          cwd: distroPath,
-          env: {
-            ...appHostedEnvironment(
-              environment,
-              homePath,
-              dispatch.endpoint.context.validator.agent,
-              dispatch.endpoint.context.validator.model
-            ),
-            ADE_FIRSTMATE_RUNTIME_CONFIG: dispatch.taskConfigPath
-          },
-          timeout: 30_000,
-          maxBuffer: 4 * 1024 * 1024
-        })
-        return { ok: true }
-      } catch (error) {
-        return { ok: false, message: error instanceof Error ? error.message : String(error) }
-      }
-    },
-    async recordLifecycle(taskId: string, record: FirstMateLifecycleRecord): Promise<void> {
-      if (!/^[a-zA-Z0-9._-]+$/.test(taskId)) throw new Error('Invalid FirstMate task id.')
-      await recordFirstMateLifecycle(homePath, taskId, record)
-    },
-    launch(provider: AgentProvider = 'codex', modelId?: string): FirstMateLaunch | null {
-      if (!isDistro(distroPath)) return null
-      prepareHome()
-      selectedValidator = { agent: provider, model: validatorModel(modelId) }
-      const model = selectedValidator.model
-      persistValidatorConfiguration(provider, model)
-      const launchEnvironment = appHostedEnvironment(environment, homePath, provider, selectedValidator.model)
-      return {
-        cwd: distroPath,
-        environment: launchEnvironment,
-        async prepare(): Promise<void> {
-          await configureTmuxEnvironment(provider, model)
-        }
-      }
-    }
+    configureValidator: refuse,
+    continueValidation: refuse,
+    async recordLifecycle(): Promise<void> { throw new Error(message) },
+    registerProject: refuseRegistration,
+    async recordedProject(): Promise<FirstMateExternalProject | null> { return null },
+    authorizeProjectInitialization: refuseRegistration,
+    retireProject: refuse,
+    launch(): FirstMateLaunch | null { return null }
   }
 }
 
 export function createFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateRuntime {
   return options.platform === 'win32'
     ? createWslFirstMateRuntime(options)
-    : createNativeFirstMateRuntime(options)
+    : createUnsupportedFirstMateRuntime(options.platform)
 }

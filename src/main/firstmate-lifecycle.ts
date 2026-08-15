@@ -1,6 +1,4 @@
 import { createHash } from 'node:crypto'
-import { mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
 import type {
   FirstMateDispatchStatus,
   FirstMateLifecycleStatus,
@@ -41,7 +39,8 @@ export interface FirstMateLifecycleJournal {
   tasks: Record<string, FirstMateLifecycleRecord>
 }
 
-const JOURNAL_FILE = '.ade-lifecycle.json'
+/** ADE's own durable lifecycle journal inside FirstMate's private state directory. */
+export const FIRSTMATE_LIFECYCLE_JOURNAL_FILE = '.ade-lifecycle.json'
 
 function parseKeyValues(text: string): Map<string, string> {
   const values = new Map<string, string>()
@@ -451,53 +450,6 @@ export function firstMateLifecycleFromFiles(files: FirstMateLifecycleFiles): Fir
     ...(validator ? { validator } : {}),
     tasks
   }
-}
-
-async function optionalFile(path: string): Promise<string | undefined> {
-  try {
-    return await readFile(path, 'utf8')
-  } catch {
-    return undefined
-  }
-}
-
-export async function readFirstMateLifecycleFiles(homePath: string): Promise<FirstMateLifecycleFiles> {
-  const statePath = join(homePath, 'state')
-  let names: string[] = []
-  try {
-    names = await readdir(statePath)
-  } catch {
-    // A newly provisioned home has no task state yet.
-  }
-  const ids = names.filter((name) => name.endsWith('.meta')).map((name) => name.slice(0, -5))
-  const tasks = await Promise.all(ids.map(async (id) => ({
-    id,
-    meta: await optionalFile(join(statePath, `${id}.meta`)) ?? '',
-    status: await optionalFile(join(statePath, `${id}.status`)) ?? ''
-  })))
-  return {
-    runtimeConfig: await optionalFile(join(homePath, 'config', 'ade-runtime.json')),
-    journal: await optionalFile(join(statePath, JOURNAL_FILE)),
-    tasks
-  }
-}
-
-export async function readFirstMateLifecycle(homePath: string): Promise<FirstMateLifecycleStatus> {
-  return firstMateLifecycleFromFiles(await readFirstMateLifecycleFiles(homePath))
-}
-
-export async function recordFirstMateLifecycle(
-  homePath: string,
-  taskId: string,
-  record: FirstMateLifecycleRecord
-): Promise<void> {
-  const statePath = join(homePath, 'state')
-  await mkdir(statePath, { recursive: true })
-  const current = parseJournal(await optionalFile(join(statePath, JOURNAL_FILE)))
-  current.tasks[taskId] = record
-  const temporary = join(statePath, `${JOURNAL_FILE}.${process.pid}.${crypto.randomUUID()}.tmp`)
-  await writeFile(temporary, `${JSON.stringify(current, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 })
-  await rename(temporary, join(statePath, JOURNAL_FILE))
 }
 
 export function noMistakesInvocation(harness: string): string {

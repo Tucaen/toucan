@@ -61,7 +61,7 @@ export interface FirstMateExternalProjectOptions {
   /** Reads the checkout without changing it: existence and the Git origin when the project has one. */
   inspectCheckout(windowsPath: string): Promise<FirstMateCheckoutFacts>
   /** Proves that FirstMate's WSL host can access the converted path before the request is sent. */
-  inspectWslPath?(wslPath: string): Promise<FirstMateWslPathFacts>
+  inspectWslPath(wslPath: string): Promise<FirstMateWslPathFacts>
   today?(): string
 }
 
@@ -415,21 +415,13 @@ export function createFirstMateExternalProjects(
       return refused(selection, 'git', `The Git origin recorded in ${windowsPath} is not a safe clone URL: ${facts.origin}`)
     }
     const wslPath = firstMateWslPath(windowsPath)
-    if (options.inspectWslPath) {
-      let access: FirstMateWslPathFacts
-      try {
-        access = await options.inspectWslPath(wslPath)
-      } catch (error) {
-        return refused(selection, 'wsl', errorMessage(error))
-      }
-      if (access.status === 'unavailable') {
-        return refused(
-          selection,
-          'wsl',
-          access.message
-        )
-      }
+    let access: FirstMateWslPathFacts
+    try {
+      access = await options.inspectWslPath(wslPath)
+    } catch (error) {
+      return refused(selection, 'wsl', errorMessage(error))
     }
+    if (access.status === 'unavailable') return refused(selection, 'wsl', access.message)
     await refresh()
     if (ambiguousIdentities.has(selection.projectId)) {
       return refused(

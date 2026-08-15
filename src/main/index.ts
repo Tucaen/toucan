@@ -237,7 +237,6 @@ app.whenReady().then(() => {
     })
   })
   const firstMateRuntime = createFirstMateRuntime({
-    rootPath: join(app.getPath('userData'), 'firstmate'),
     platform: process.platform,
     codexHome,
     claudeHome: process.env.CLAUDE_CONFIG_DIR ?? join(app.getPath('home'), '.claude'),
