@@ -1,4 +1,5 @@
 import { execFile, spawn } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -13,6 +14,7 @@ import type {
   FirstMateRuntimeStatus
 } from '../shared/firstmate'
 import type { AgentProcessLaunch } from './agent-process'
+import { firstMateTaskContextFromMetadata, type FirstMateTaskContext } from '../shared/firstmate-task-context'
 import {
   createFirstMateExternalProjects,
   EXTERNAL_PROJECT_STORE_FILE,
@@ -42,15 +44,11 @@ const CLAUDE_CLI_VERSION = '2.1.232'
 const WSL_BASE = '.local/share/ade/firstmate'
 const WSL_REQUIRED_FACTS = [
   'distro',
-  'runner.codex',
-  'runner.claude',
   'tool.node',
   'tool.git',
   'tool.gh',
   'tool.tmux',
   'tool.jq',
-  'tool.claude',
-  'tool.codex',
   'tool.treehouse',
   'tool.no-mistakes',
   'tool.gh-axi',
@@ -58,10 +56,12 @@ const WSL_REQUIRED_FACTS = [
   'tool.lavish-axi',
   'tool.tasks-axi',
   'tool.quota-axi',
-  'wrapper.claude',
-  'wrapper.codex',
   'daemon.no-mistakes'
 ]
+const WSL_PROVIDER_FACTS: Record<AgentProvider, string[]> = {
+  codex: ['runner.codex', 'tool.codex', 'wrapper.codex'],
+  claude: ['runner.claude', 'tool.claude', 'wrapper.claude']
+}
 const WSL_INSPECT_SCRIPT = `
 set -u
 base="$HOME/${WSL_BASE}"
@@ -97,47 +97,15 @@ umask 077
 host_auth="$1"
 managed_auth="$2"
 pipeline_agent="$3"
-pipeline_config="$4"
-pipeline_bin="$5"
-pipeline_model="$6"
-runtime_config="$7"
-runtime_home="$8"
-shift 8
+pipeline_model="$4"
+runtime_config="$5"
+runtime_home="$6"
+shift 6
 mkdir -p "$(dirname "$managed_auth")"
 if [ -f "$host_auth" ] && { [ ! -f "$managed_auth" ] || [ "$host_auth" -nt "$managed_auth" ]; }; then
   cp "$host_auth" "$managed_auth"
   chmod 600 "$managed_auth"
 fi
-mkdir -p "$(dirname "$pipeline_config")"
-pipeline_config_tmp="$pipeline_config.ade.$$"
-trap 'rm -f "$pipeline_config_tmp"' EXIT HUP INT TERM
-printf 'agent: %s\nagent_path_override:\n  claude: "%s/claude"\n  codex: "%s/codex"\n' \
-  "$pipeline_agent" "$pipeline_bin" "$pipeline_bin" > "$pipeline_config_tmp"
-chmod 600 "$pipeline_config_tmp"
-mv "$pipeline_config_tmp" "$pipeline_config"
-trap - EXIT HUP INT TERM
-case "$pipeline_agent" in
-  codex)
-    model_arg=
-    [ "$pipeline_model" = default ] || model_arg="--model $pipeline_model"
-    cat > "$pipeline_bin/codex" <<EOF
-#!/bin/sh
-export CODEX_HOME="$runtime_home/codex"
-exec "$HOME/.local/bin/codex" $model_arg "\$@"
-EOF
-    ;;
-  claude)
-    model_arg=
-    [ "$pipeline_model" = default ] || model_arg="--model $pipeline_model"
-    cat > "$pipeline_bin/claude" <<EOF
-#!/bin/sh
-export CLAUDE_CONFIG_DIR="$runtime_home/claude"
-export DISABLE_AUTOUPDATER=1
-exec "$HOME/.local/bin/claude" $model_arg "\$@"
-EOF
-    ;;
-esac
-chmod 700 "$pipeline_bin/$pipeline_agent"
 runtime_config_tmp="$runtime_config.ade.$$"
 /usr/bin/node - "$runtime_config_tmp" "$pipeline_agent" "$pipeline_model" "$runtime_home" <<'NODE'
 const fs = require('node:fs')
@@ -207,6 +175,17 @@ fs.writeFileSync(temporary, JSON.stringify(journal, null, 2) + '\\n', { mode: 0o
 fs.renameSync(temporary, target)
 `
 
+const WSL_ATOMIC_WRITE_SCRIPT = `
+const fs = require('node:fs')
+const path = require('node:path')
+const target = process.argv[1]
+const text = Buffer.from(process.argv[2], 'base64url').toString('utf8')
+fs.mkdirSync(path.dirname(target), { recursive: true })
+const temporary = target + '.' + process.pid + '.' + Math.random().toString(16).slice(2) + '.tmp'
+fs.writeFileSync(temporary, text, { mode: 0o600 })
+fs.renameSync(temporary, target)
+`
+
 const WSL_EXTERNAL_PROJECT_READ_SCRIPT = `
 const fs = require('node:fs')
 const path = require('node:path')
@@ -251,35 +230,8 @@ set -eu
 home="$1"
 agent="$2"
 model="$3"
-bin="$home/bin"
-pipeline_config="$home/no-mistakes/config.yaml"
-mkdir -p "$bin" "$(dirname "$pipeline_config")" "$home/config"
-tmp="$pipeline_config.ade.$$"
-trap 'rm -f "$tmp" "$home/config/ade-runtime.json.ade.$$"' EXIT HUP INT TERM
-printf 'agent: %s\nagent_path_override:\n  claude: "%s/claude"\n  codex: "%s/codex"\n' \
-  "$agent" "$bin" "$bin" > "$tmp"
-chmod 600 "$tmp"
-mv "$tmp" "$pipeline_config"
-model_arg=
-[ "$model" = default ] || model_arg="--model $model"
-case "$agent" in
-  codex)
-    cat > "$bin/codex" <<EOF
-#!/bin/sh
-export CODEX_HOME="$home/codex"
-exec "$HOME/.local/bin/codex" $model_arg "\$@"
-EOF
-    ;;
-  claude)
-    cat > "$bin/claude" <<EOF
-#!/bin/sh
-export CLAUDE_CONFIG_DIR="$home/claude"
-export DISABLE_AUTOUPDATER=1
-exec "$HOME/.local/bin/claude" $model_arg "\$@"
-EOF
-    ;;
-esac
-chmod 700 "$bin/$agent"
+mkdir -p "$home/config"
+trap 'rm -f "$home/config/ade-runtime.json.ade.$$"' EXIT HUP INT TERM
 runtime_tmp="$home/config/ade-runtime.json.ade.$$"
 /usr/bin/node - "$runtime_tmp" "$agent" "$model" "$home" <<'NODE'
 const fs = require('node:fs')
@@ -553,13 +505,24 @@ function validatorModel(modelId?: string): string {
   return modelId && /^[a-zA-Z0-9._:+\/-]+$/.test(modelId) ? modelId : 'default'
 }
 
-function taskHarness(files: FirstMateLifecycleFiles, taskId: string): string | undefined {
+interface FirstMateTaskEndpoint {
+  harness: string
+  worktree: string
+  context: FirstMateTaskContext
+}
+
+function taskEndpoint(files: FirstMateLifecycleFiles, taskId: string): FirstMateTaskEndpoint | undefined {
   const meta = files.tasks.find((task) => task.id === taskId)?.meta
   if (!meta) return undefined
+  const context = firstMateTaskContextFromMetadata(meta)
+  if (!context) return undefined
+  let harness: string | undefined
+  let worktree: string | undefined
   for (const line of meta.split(/\r?\n/)) {
-    if (line.startsWith('harness=')) return line.slice('harness='.length)
+    if (line.startsWith('harness=')) harness = line.slice('harness='.length)
+    if (line.startsWith('worktree=')) worktree = line.slice('worktree='.length)
   }
-  return undefined
+  return harness && worktree ? { harness, worktree, context } : undefined
 }
 
 const SAFE_ARGUMENT = /^[a-zA-Z0-9._-]+$/
@@ -613,6 +576,76 @@ function runtimeConfig(provider: AgentProvider, model: string, homePath: string)
   }, null, 2)}\n`
 }
 
+function taskRuntimeConfig(
+  context: FirstMateTaskContext,
+  worktree: string,
+  nmHome: string,
+  agentHome: string,
+  agentPath: string
+): string {
+  return `${JSON.stringify({
+    version: 1,
+    host: { kind: 'ade-app', supervisor: 'app-native', terminalTarget: false },
+    project: { ...context.project, worktree },
+    validator: {
+      agent: context.validator.agent,
+      model: context.validator.model,
+      nmHome,
+      agentHome,
+      agentPath
+    }
+  }, null, 2)}\n`
+}
+
+interface TaskValidationDispatch {
+  endpoint: FirstMateTaskEndpoint
+  taskConfigPath: string
+  taskConfig: string
+  agentPath: string
+  pipelineConfig: string
+  wrapper: string
+  continuation: string
+}
+
+function taskValidationDispatch(
+  files: FirstMateLifecycleFiles,
+  taskId: string,
+  dispatchId: string,
+  taskConfigPath: string,
+  homePath: string,
+  pathJoin: (...parts: string[]) => string,
+  executable: (provider: AgentProvider) => string
+): TaskValidationDispatch | undefined {
+  const endpoint = taskEndpoint(files, taskId)
+  if (!endpoint) return undefined
+  const { agent, model } = endpoint.context.validator
+  const validatorScopeHash = createHash('sha256')
+    .update(`${taskId}\0${agent}\0${model}`)
+    .digest('hex')
+    .slice(0, 20)
+  const agentPath = pathJoin(homePath, 'state', 'validators', validatorScopeHash, agent)
+  const agentHome = pathJoin(homePath, agent)
+  const modelArgument = model === 'default' ? '' : ` --model ${model}`
+  const providerHome = agent === 'codex'
+    ? `export CODEX_HOME=${JSON.stringify(agentHome)}`
+    : `export CLAUDE_CONFIG_DIR=${JSON.stringify(agentHome)}\nexport DISABLE_AUTOUPDATER=1`
+  return {
+    endpoint,
+    taskConfigPath,
+    taskConfig: taskRuntimeConfig(
+      endpoint.context,
+      endpoint.worktree,
+      pathJoin(homePath, 'no-mistakes'),
+      agentHome,
+      agentPath
+    ),
+    agentPath,
+    pipelineConfig: `agent: ${agent}\nagent_path_override:\n  ${agent}: ${JSON.stringify(agentPath)}\n`,
+    wrapper: `#!/bin/sh\n${providerHome}\nexec ${JSON.stringify(executable(agent))}${modelArgument} "$@"\n`,
+    continuation: noMistakesContinuation(endpoint.harness, taskConfigPath, dispatchId)
+  }
+}
+
 function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateRuntime {
   const distribution = options.wsl?.distribution ?? 'Ubuntu'
   const executable = options.wsl?.executable ?? 'wsl.exe'
@@ -649,6 +682,7 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
   let readyLaunches: Record<AgentProvider, FirstMateLaunch> | null = null
   let readyLaunchFactory: ((agent: AgentProvider, model: string) => Record<AgentProvider, FirstMateLaunch>) | null = null
   let readyPaths: ReturnType<typeof linuxPaths> | null = null
+  let readyProviders = new Set<AgentProvider>()
   let selectedValidator: { agent: AgentProvider; model: string } = { agent: 'codex', model: 'default' }
 
   const inspect = async (): Promise<FirstMateRuntimeStatus> => {
@@ -678,10 +712,16 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
       const managedCodexHome = `${paths.homePath}/codex`
       const managedClaudeHome = `${paths.homePath}/claude`
       const missing = WSL_REQUIRED_FACTS.filter((name) => detected.get(name) !== '1')
-      if (missing.length > 0) {
+      readyProviders = new Set(
+        (['codex', 'claude'] as const).filter((provider) => (
+          WSL_PROVIDER_FACTS[provider].every((name) => detected.get(name) === '1')
+        ))
+      )
+      if (missing.length > 0 || readyProviders.size === 0) {
         readyLaunches = null
         readyLaunchFactory = null
         readyPaths = null
+        readyProviders.clear()
         return {
           state: lastError ? 'error' : 'missing',
           distroPath: paths.distroPath,
@@ -724,8 +764,6 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
             hostAuth,
             managedAuth,
             pipelineAgent,
-            `${paths.homePath}/no-mistakes/config.yaml`,
-            `${paths.homePath}/bin`,
             pipelineModel,
             `${paths.homePath}/config/ade-runtime.json`,
             paths.homePath,
@@ -807,6 +845,7 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
       readyLaunches = null
       readyLaunchFactory = null
       readyPaths = null
+      readyProviders.clear()
       const message = error instanceof Error ? error.message : String(error)
       return {
         state: 'error',
@@ -995,6 +1034,9 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
     async configureValidator(provider: AgentProvider, modelId?: string): Promise<FirstMateActionResult> {
       if (!readyPaths) await inspect()
       if (!readyPaths) return { ok: false, message: 'FirstMate is not ready.' }
+      if (!readyProviders.has(provider)) {
+        return { ok: false, message: `The ${provider} provider is not installed in the FirstMate runtime.` }
+      }
       selectedValidator = { agent: provider, model: validatorModel(modelId) }
       try {
         await run(
@@ -1021,13 +1063,37 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
       if (rejected) return rejected
       try {
         const files = await lifecycleFiles()
-        const harness = taskHarness(files, taskId)
-        if (!harness || !readyPaths) return { ok: false, message: 'The task endpoint metadata is unavailable.' }
-        const configuredValidator = firstMateValidatorFromRuntimeConfig(files.runtimeConfig) ?? selectedValidator
-        selectedValidator = {
-          agent: configuredValidator.agent,
-          model: configuredValidator.model
+        if (!readyPaths) return { ok: false, message: 'The pinned task endpoint metadata is unavailable.' }
+        const taskConfigPath = `${readyPaths.homePath}/state/${taskId}.ade-runtime.json`
+        const dispatch = taskValidationDispatch(
+          files,
+          taskId,
+          dispatchId,
+          taskConfigPath,
+          readyPaths.homePath,
+          (...parts) => parts.join('/'),
+          (provider) => `$HOME/.local/bin/${provider}`
+        )
+        if (!dispatch) return { ok: false, message: 'The pinned task endpoint metadata is unavailable.' }
+        for (const [path, contents] of [
+          [dispatch.taskConfigPath, dispatch.taskConfig],
+          [dispatch.agentPath, dispatch.wrapper],
+          [`${readyPaths.homePath}/no-mistakes/config.yaml`, dispatch.pipelineConfig]
+        ]) {
+          await run(
+            [
+              '--distribution', distribution,
+              '--exec', '/usr/bin/node', '-e', WSL_ATOMIC_WRITE_SCRIPT,
+              path,
+              Buffer.from(contents).toString('base64url')
+            ],
+            15_000
+          )
         }
+        await run([
+          '--distribution', distribution,
+          '--exec', '/bin/chmod', '700', dispatch.agentPath
+        ], 15_000)
         await run(
           [
             '--distribution', distribution,
@@ -1037,12 +1103,12 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
             `NM_HOME=${readyPaths.homePath}/no-mistakes`,
             `CODEX_HOME=${readyPaths.homePath}/codex`,
             `CLAUDE_CONFIG_DIR=${readyPaths.homePath}/claude`,
-            `ADE_FIRSTMATE_RUNTIME_CONFIG=${readyPaths.homePath}/config/ade-runtime.json`,
-            `ADE_FIRSTMATE_VALIDATOR_AGENT=${selectedValidator.agent}`,
-            `ADE_FIRSTMATE_VALIDATOR_MODEL=${selectedValidator.model}`,
+            `ADE_FIRSTMATE_RUNTIME_CONFIG=${dispatch.taskConfigPath}`,
+            `ADE_FIRSTMATE_VALIDATOR_AGENT=${dispatch.endpoint.context.validator.agent}`,
+            `ADE_FIRSTMATE_VALIDATOR_MODEL=${dispatch.endpoint.context.validator.model}`,
             `${readyPaths.distroPath}/bin/fm-send.sh`,
             taskId,
-            noMistakesContinuation(harness, `${readyPaths.homePath}/config/ade-runtime.json`, dispatchId)
+            dispatch.continuation
           ],
           30_000
         )
@@ -1068,6 +1134,7 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
     },
     launch(provider = 'codex', modelId?: string): FirstMateLaunch | null {
       selectedValidator = { agent: provider, model: validatorModel(modelId) }
+      if (!readyProviders.has(provider)) return null
       if (readyLaunchFactory) readyLaunches = readyLaunchFactory(provider, selectedValidator.model)
       return readyLaunches?.[provider] ?? null
     }
@@ -1113,21 +1180,6 @@ function createNativeFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMa
       join(homePath, 'config', 'ade-runtime.json'),
       runtimeConfig(provider, model, homePath),
       0o600
-    )
-    const binPath = join(homePath, 'bin')
-    atomicWrite(
-      join(homePath, 'no-mistakes', 'config.yaml'),
-      `agent: ${provider}\nagent_path_override:\n  claude: ${JSON.stringify(join(binPath, 'claude'))}\n  codex: ${JSON.stringify(join(binPath, 'codex'))}\n`,
-      0o600
-    )
-    const modelArgument = model === 'default' ? '' : ` --model ${model}`
-    const providerHome = provider === 'codex'
-      ? `export CODEX_HOME=${JSON.stringify(join(homePath, 'codex'))}`
-      : `export CLAUDE_CONFIG_DIR=${JSON.stringify(join(homePath, 'claude'))}\nexport DISABLE_AUTOUPDATER=1`
-    atomicWrite(
-      join(binPath, provider),
-      `#!/bin/sh\n${providerHome}\nexec ${provider}${modelArgument} "$@"\n`,
-      0o700
     )
   }
 
@@ -1237,19 +1289,34 @@ function createNativeFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMa
       if (rejected) return rejected
       try {
         const files = await readFirstMateLifecycleFiles(homePath)
-        const harness = taskHarness(files, taskId)
-        if (!harness) return { ok: false, message: 'The task endpoint metadata is unavailable.' }
-        const configuredValidator = firstMateValidatorFromRuntimeConfig(files.runtimeConfig) ?? selectedValidator
-        selectedValidator = {
-          agent: configuredValidator.agent,
-          model: configuredValidator.model
-        }
+        const taskConfigPath = join(homePath, 'state', `${taskId}.ade-runtime.json`)
+        const dispatch = taskValidationDispatch(
+          files,
+          taskId,
+          dispatchId,
+          taskConfigPath,
+          homePath,
+          join,
+          (provider) => provider
+        )
+        if (!dispatch) return { ok: false, message: 'The pinned task endpoint metadata is unavailable.' }
+        atomicWrite(dispatch.taskConfigPath, dispatch.taskConfig, 0o600)
+        atomicWrite(dispatch.agentPath, dispatch.wrapper, 0o700)
+        atomicWrite(join(homePath, 'no-mistakes', 'config.yaml'), dispatch.pipelineConfig, 0o600)
         await execFileAsync(join(distroPath, 'bin', 'fm-send.sh'), [
           taskId,
-          noMistakesContinuation(harness, join(homePath, 'config', 'ade-runtime.json'), dispatchId)
+          dispatch.continuation
         ], {
           cwd: distroPath,
-          env: appHostedEnvironment(environment, homePath, selectedValidator.agent, selectedValidator.model),
+          env: {
+            ...appHostedEnvironment(
+              environment,
+              homePath,
+              dispatch.endpoint.context.validator.agent,
+              dispatch.endpoint.context.validator.model
+            ),
+            ADE_FIRSTMATE_RUNTIME_CONFIG: dispatch.taskConfigPath
+          },
           timeout: 30_000,
           maxBuffer: 4 * 1024 * 1024
         })

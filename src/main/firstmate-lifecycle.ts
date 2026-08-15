@@ -9,6 +9,10 @@ import type {
   FirstMateTaskStage,
   FirstMateValidatorRuntime
 } from '../shared/firstmate'
+import {
+  FIRSTMATE_TASK_CONTEXT_META_KEY,
+  firstMateTaskContextFromMetadata
+} from '../shared/firstmate-task-context'
 
 export interface FirstMateRawTask {
   id: string
@@ -244,46 +248,159 @@ function prFromDone(verb: string, detail: string): string | undefined {
   return match?.[1]?.replace(/[),.;]+$/, '')
 }
 
+function taskContextProblem(
+  taskId: string,
+  meta: Map<string, string>,
+  context: NonNullable<FirstMateLifecycleTask['context']>,
+  kind: 'ship' | 'scout'
+): string | undefined {
+  const recordedProject = meta.get('project')
+  if (recordedProject !== context.project.wslPath) {
+    return `Task ${taskId} recorded project ${JSON.stringify(recordedProject ?? 'missing')}, but its pinned ADE project `
+      + `${context.project.adeProjectId} is ${JSON.stringify(context.project.wslPath)}.`
+  }
+  const worktree = meta.get('worktree')
+  if (!worktree || worktree === recordedProject) {
+    return `Task ${taskId} does not record an isolated crew worktree distinct from its pinned external checkout.`
+  }
+
+  if (kind === 'ship') {
+    const mode = meta.get('mode')
+    const modeMatches = context.project.mode === 'no-mistakes-prod-only'
+      ? mode === 'no-mistakes' || mode === 'direct-PR'
+      : mode === context.project.mode
+    if (!modeMatches) {
+      return `Task ${taskId} recorded delivery mode ${JSON.stringify(mode ?? 'missing')}, which drifts from `
+        + `the pinned ${JSON.stringify(context.project.mode)} project posture.`
+    }
+    const autonomy = meta.get('yolo')
+    const expectedAutonomy = context.project.autonomy ? 'on' : 'off'
+    if (autonomy !== expectedAutonomy) {
+      return `Task ${taskId} recorded yolo=${autonomy ?? 'missing'}, but its pinned autonomy is ${expectedAutonomy}.`
+    }
+  }
+
+  const harness = meta.get('harness') ?? ''
+  const harnessAgent = /^codex(?:$|[-_])/.test(harness)
+    ? 'codex'
+    : /^claude(?:$|[-_])/.test(harness) ? 'claude' : undefined
+  if (harnessAgent !== context.validator.agent) {
+    return `Task ${taskId} recorded harness ${JSON.stringify(harness || 'missing')}, but its pinned provider is `
+      + `${context.validator.agent}.`
+  }
+  const model = meta.get('model')
+  if (model !== context.validator.model) {
+    return `Task ${taskId} recorded model ${JSON.stringify(model ?? 'missing')}, but its pinned model is `
+      + `${JSON.stringify(context.validator.model)}.`
+  }
+  return undefined
+}
+
 function recordedTask(
   raw: FirstMateRawTask,
   journal: FirstMateLifecycleJournal
 ): FirstMateLifecycleTask | undefined {
   const meta = parseKeyValues(raw.meta)
-  if ((meta.get('kind') ?? 'ship') !== 'ship') return undefined
-  const mode = meta.get('mode') ?? 'unknown'
+  const kind = meta.get('kind') ?? 'ship'
+  if (kind !== 'ship' && kind !== 'scout') return undefined
+  const mode = kind === 'scout' ? 'scout' : meta.get('mode') ?? 'unknown'
+  const context = firstMateTaskContextFromMetadata(raw.meta)
+  const declaresContext = raw.meta.split(/\r?\n/).some(
+    (line) => line.startsWith(`${FIRSTMATE_TASK_CONTEXT_META_KEY}=`)
+  )
+  const worktree = meta.get('worktree')
+  const attachContext = (task: FirstMateLifecycleTask): FirstMateLifecycleTask => ({
+    ...task,
+    ...(context ? { context } : {}),
+    ...(worktree ? { worktree } : {})
+  })
   const line = latestStatusLine(raw.status)
+  const hash = statusHash(raw.status)
+  if (!declaresContext) {
+    return attachContext({
+      id: raw.id,
+      mode,
+      stage: 'blocked',
+      detail: `Task ${raw.id} has no durable ADE task context; supervision cannot safely infer its project, posture, or validator.`,
+      statusHash: hash,
+      nextAction: 'await-help'
+    })
+  }
+  if (declaresContext && !context) {
+    return attachContext({
+      id: raw.id,
+      mode,
+      stage: 'blocked',
+      detail: `Task ${raw.id} declares an ADE task context, but the durable carrier is malformed or ambiguous.`,
+      statusHash: hash,
+      nextAction: 'await-help'
+    })
+  }
+  if (context) {
+    const problem = taskContextProblem(raw.id, meta, context, kind)
+    if (problem) {
+      return attachContext({
+        id: raw.id,
+        mode,
+        stage: 'blocked',
+        detail: problem,
+        statusHash: hash,
+        nextAction: 'await-help'
+      })
+    }
+  }
   if (!line) return undefined
   const { verb, detail } = statusParts(line)
-  const hash = statusHash(raw.status)
   const prUrl = prFromDone(verb, detail)
+  const durable = journal.tasks[raw.id]
+  const durableDispatch = recordedDispatch(durable?.dispatch)
+  const holdsValidationGate = durableDispatch
+    && ['claimed', 'acknowledged', 'unresolved'].includes(durableDispatch.status)
+    ? durableDispatch
+    : undefined
 
   if (prUrl) {
-    return { id: raw.id, mode, stage: 'pr-ready', detail, statusHash: hash, nextAction: 'review-pr', prUrl }
+    return attachContext({ id: raw.id, mode, stage: 'pr-ready', detail, statusHash: hash, nextAction: 'review-pr', prUrl })
   }
   if (verb === 'needs-decision') {
-    return { id: raw.id, mode, stage: 'decision', detail, statusHash: hash, nextAction: 'await-decision' }
+    return attachContext({
+      id: raw.id,
+      mode,
+      stage: 'decision',
+      detail,
+      statusHash: hash,
+      nextAction: 'await-decision',
+      ...(holdsValidationGate ? { dispatch: holdsValidationGate } : {})
+    })
   }
   if (verb === 'blocked' || verb === 'failed') {
-    return { id: raw.id, mode, stage: 'blocked', detail, statusHash: hash, nextAction: 'await-help' }
+    return attachContext({
+      id: raw.id,
+      mode,
+      stage: 'blocked',
+      detail,
+      statusHash: hash,
+      nextAction: 'await-help',
+      ...(holdsValidationGate ? { dispatch: holdsValidationGate } : {})
+    })
   }
   if (verb === 'working' && /validat|no-mistakes|checks|\bCI\b/i.test(detail)) {
-    return { id: raw.id, mode, stage: 'validating', detail, statusHash: hash, nextAction: 'await-validation' }
+    return attachContext({ id: raw.id, mode, stage: 'validating', detail, statusHash: hash, nextAction: 'await-validation' })
   }
 
-  const durable = journal.tasks[raw.id]
   if (verb === 'resolved' && mode === 'no-mistakes' && durable) {
-    return {
+    return attachContext({
       id: raw.id,
       mode,
       stage: 'validating',
       detail,
       statusHash: hash,
       nextAction: 'await-validation'
-    }
+    })
   }
   if (durable && durable.statusHash === hash) {
     const dispatch = recordedDispatch(durable.dispatch)
-    return {
+    return attachContext({
       id: raw.id,
       mode,
       stage: durable.stage,
@@ -292,14 +409,14 @@ function recordedTask(
       ...(durable.nextAction ? { nextAction: durable.nextAction } : {}),
       ...(dispatch ? { dispatch } : {}),
       ...(durable.prUrl ? { prUrl: durable.prUrl } : {})
-    }
+    })
   }
   // A dispatch this journal never finished outlives the status line that provoked it. Without
   // this, a second `done` line would rehash the task into fresh, actionable work and dispatch a
   // continuation that may already be running.
   const unfinished = unfinishedDispatch(durable)
   if (unfinished) {
-    return {
+    return attachContext({
       id: raw.id,
       mode,
       stage: unfinished.stage,
@@ -307,17 +424,17 @@ function recordedTask(
       statusHash: hash,
       nextAction: unfinished.nextAction,
       dispatch: unfinished.dispatch
-    }
+    })
   }
   if (verb === 'done') {
-    return {
+    return attachContext({
       id: raw.id,
       mode,
       stage: 'implemented',
       detail,
       statusHash: hash,
       ...(mode === 'no-mistakes' ? { nextAction: 'start-validation' as const } : {})
-    }
+    })
   }
   return undefined
 }
@@ -398,15 +515,22 @@ export function noMistakesContinuation(
     + `ADE validation dispatch id: ${dispatchId}. Treat this id as the idempotency key for this `
     + 'continuation: if you have already started or finished no-mistakes validation for it, report that '
     + 'and do not start a second validation run.\n\n'
-    + `ADE has already selected the validator in ${runtimeConfigPath}. `
-    + 'Use that structured runtime record and the propagated ADE_FIRSTMATE_VALIDATOR_AGENT and '
-    + 'ADE_FIRSTMATE_VALIDATOR_MODEL values; do not infer the validator from filtered doctor text or guessed homes. '
+    + `ADE has pinned this task's validator in ${runtimeConfigPath}. `
+    + 'Treat that task-scoped structured record as authoritative. Before starting validation, use its validator to '
+    + 'set ADE_FIRSTMATE_VALIDATOR_AGENT and ADE_FIRSTMATE_VALIDATOR_MODEL for this task; do not use a later global '
+    + 'configuration, a conflicting inherited value, filtered doctor text, or guessed homes. '
     + 'Continue this committed task directly through validation and report decisions, blockers, failures, and PR readiness '
     + 'through the existing FirstMate authority boundary.'
 }
 
 export function firstMateAppWakeMessage(tasks: FirstMateLifecycleTask[]): string {
-  const summary = tasks.map((task) => `${task.id}=${task.stage}`).join(', ')
+  const summary = tasks.map((task) => {
+    const context = task.context
+    return `${task.id}=${task.stage}` + (context
+      ? `[project=${context.project.adeProjectId};path=${context.project.wslPath};mode=${task.mode};`
+        + `validator=${context.validator.agent}/${context.validator.model}]`
+      : '')
+  }).join(', ')
   return `\u2063FIRSTMATE_OP: v1 ade-app-wake: Durable task lifecycle changed: ${summary}. `
     + 'ADE is the captain conversation host; reconcile the listed task status and preserve the existing authority boundary.'
 }

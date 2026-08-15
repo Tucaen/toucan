@@ -1,13 +1,13 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
 import type { FirstMateProjectRegistration } from '../src/shared/firstmate'
+import { firstMateTaskContextFromMetadata } from '../src/shared/firstmate-task-context'
 import type { WorkspaceProject } from '../src/shared/terminal'
 import { firstMateProjectTarget, firstMateRequest } from '../src/renderer/src/firstmate-request-target'
 
 const alpha: WorkspaceProject = { id: 'alpha', name: 'Api', path: 'D:\\Development\\alpha\\api', color: '#71a9ff' }
 const beta: WorkspaceProject = { id: 'beta', name: 'Api', path: 'D:\\Development\\beta\\api', color: '#f0a' }
 const gamma: WorkspaceProject = { id: 'gamma', name: 'Api', path: 'E:\\Archive\\gamma\\api', color: '#0fa' }
-
 function registrationFor(project: WorkspaceProject): FirstMateProjectRegistration {
   const target = firstMateProjectTarget(project)
   return {
@@ -44,7 +44,11 @@ function dock(selected: WorkspaceProject): {
     select: (project) => { selection = project },
     target: () => firstMateProjectTarget(selection),
     send: (text) => {
-      const prompt = firstMateRequest(selection, text, registrationFor(selection))
+      const prompt = firstMateRequest(selection, text, {
+        registration: registrationFor(selection),
+        provider: 'codex',
+        model: 'default'
+      })
       delivered.push(prompt)
       return prompt
     }
@@ -121,8 +125,43 @@ test('snapshots the selected project as an immutable target', () => {
 
 const registered = registrationFor(alpha)
 
+test('pins the external project, posture, and validator in one durable metadata carrier', () => {
+  const prompt = firstMateRequest(alpha, 'Ship the release', {
+    registration: registered,
+    provider: 'claude',
+    model: 'claude-sonnet-4-5'
+  })
+  const carrier = /^- exact task metadata: `(ade_task_context=.*)`$/m.exec(prompt)?.[1]
+
+  assert.ok(carrier)
+  assert.deepEqual(firstMateTaskContextFromMetadata(carrier), {
+    version: 1,
+    project: {
+      adeProjectId: 'alpha',
+      registryName: 'api-alpha',
+      windowsPath: 'D:\\Development\\alpha\\api',
+      wslPath: '/mnt/d/Development/alpha/api',
+      mode: 'no-mistakes-prod-only',
+      autonomy: false
+    },
+    validator: { agent: 'claude', model: 'claude-sonnet-4-5' }
+  })
+  assert.match(prompt, /pass the absolute checkout path to both `fm-brief\.sh` and `fm-spawn\.sh`/)
+  assert.match(prompt, /pass `--mode` explicitly to both commands/)
+  assert.match(prompt, /pass `--yolo off`/)
+  assert.match(prompt, /for a scout, pass `--scout` explicitly to both commands/)
+  assert.match(prompt, /report-only delivery contract/)
+  assert.match(prompt, /mandatory Git guard proves the allocated directory is a real worktree/)
+  assert.match(prompt, /pass `--harness claude --model claude-sonnet-4-5`/)
+  assert.match(prompt, /append the exact task metadata carrier to that task's durable `state\/<id>\.meta`/)
+})
+
 test('delivers the durable registration facts with the request', () => {
-  const prompt = firstMateRequest(alpha, 'Ship the release', registered)
+  const prompt = firstMateRequest(alpha, 'Ship the release', {
+    registration: registered,
+    provider: 'codex',
+    model: 'gpt-5.6-sol'
+  })
 
   assert.match(prompt, /- project name: "api-alpha"/)
   assert.match(prompt, /- registered delivery posture: "no-mistakes-prod-only"/)
@@ -130,6 +169,7 @@ test('delivers the durable registration facts with the request', () => {
   assert.match(prompt, /- origin: "git@github.com:acme\/alpha-api.git"/)
   assert.match(prompt, /no-mistakes initialization: not run;[\s\S]*?authorizes it in ADE/)
   assert.match(prompt, /must never be cloned, copied, or symlinked there/)
+  assert.match(prompt, /do not retarget this request: ask the captain to select and register that project in ADE/)
   assert.match(
     prompt,
     /ADE does not write your firstmate-private fleet registry[\s\S]*?outranks it from then on/,
@@ -140,13 +180,17 @@ test('delivers the durable registration facts with the request', () => {
 
 test('states that a project has no remote and needs no initialization', () => {
   const prompt = firstMateRequest(alpha, 'Ship the release', {
-    ok: true,
-    project: {
-      ...registered.project!,
-      mode: 'local-only',
-      origin: undefined,
-      initialization: 'not-required'
-    }
+    registration: {
+      ok: true,
+      project: {
+        ...registered.project!,
+        mode: 'local-only',
+        origin: undefined,
+        initialization: 'not-required'
+      }
+    },
+    provider: 'codex',
+    model: 'default'
   })
 
   assert.match(prompt, /- registered delivery posture: "local-only"/)
@@ -157,8 +201,12 @@ test('states that a project has no remote and needs no initialization', () => {
 test('refuses to compose a fallback prompt when project registration failed', () => {
   assert.throws(
     () => firstMateRequest(alpha, 'Ship the release', {
-      ok: false,
-      message: 'Path-access failure for ADE project "Api" (alpha).'
+      registration: {
+        ok: false,
+        message: 'Path-access failure for ADE project "Api" (alpha).'
+      },
+      provider: 'codex',
+      model: 'default'
     }),
     /Path-access failure for ADE project "Api" \(alpha\)/
   )

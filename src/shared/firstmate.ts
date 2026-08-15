@@ -1,4 +1,5 @@
 import type { AgentProvider } from './agent'
+import type { FirstMateTaskContext } from './firstmate-task-context'
 
 export const FIRSTMATE_PANEL_MIN_WIDTH = 300
 export const FIRSTMATE_PANEL_MAX_WIDTH = 720
@@ -45,6 +46,10 @@ export interface FirstMateValidatorRuntime {
 export interface FirstMateLifecycleTask {
   id: string
   mode: string
+  /** Immutable request configuration copied into FirstMate's durable task metadata. */
+  context?: FirstMateTaskContext
+  /** The isolated worker checkout recorded by FirstMate at spawn time. */
+  worktree?: string
   stage: FirstMateTaskStage
   detail: string
   statusHash: string

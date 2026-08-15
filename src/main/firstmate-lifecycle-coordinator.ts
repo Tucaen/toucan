@@ -43,6 +43,14 @@ function fingerprint(tasks: FirstMateLifecycleTask[]): string {
   return tasks.map((task) => `${task.id}:${task.stage}:${task.statusHash}:${task.detail}`).join('|')
 }
 
+function holdsSharedValidationGate(task: FirstMateLifecycleTask): boolean {
+  return task.stage === 'validating'
+    || task.stage === 'dispatching'
+    || task.dispatch?.status === 'claimed'
+    || task.dispatch?.status === 'acknowledged'
+    || task.dispatch?.status === 'unresolved'
+}
+
 function recordFor(task: FirstMateLifecycleTask, now: Date): FirstMateLifecycleRecord {
   return {
     stage: task.stage,
@@ -214,8 +222,11 @@ export function createFirstMateLifecycleCoordinator(
     try {
       const lifecycle = await options.runtime.lifecycle()
       const changed = [...lifecycle.tasks]
+      let validationActive = changed.some(holdsSharedValidationGate)
       for (let index = 0; index < changed.length; index += 1) {
+        if (validationActive && changed[index]?.nextAction === 'start-validation') continue
         changed[index] = await reconcileTask(changed[index])
+        validationActive ||= changed[index] ? holdsSharedValidationGate(changed[index]) : false
       }
 
       const nextFingerprint = fingerprint(changed)

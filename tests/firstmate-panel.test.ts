@@ -146,7 +146,7 @@ test('reports a recoverable validation dispatch state in the delivery lifecycle'
   assert.match(panel, /dispatching: 'Dispatching'/, 'a claimed dispatch needs its own visible stage')
   assert.match(
     panel,
-    /task\.dispatch\?\.status === 'unresolved'\) return `\$\{stage\} . dispatch unresolved`/,
+    /task\.dispatch\?\.status === 'unresolved'[\s\S]*?' . dispatch unresolved'/,
     'an unresolved dispatch must read as unsettled rather than as progress'
   )
   assert.match(
@@ -201,7 +201,7 @@ test('assigns every FirstMate request to the project selected in the sidebar', (
   )
   assert.match(
     panel,
-    /composePrompt:\s*async \(text\) => \{[\s\S]*?registerProject\(firstMateProjectSelection\(project\)\)[\s\S]*?return firstMateRequest\(project, text, result\)/,
+    /composePrompt:\s*async \(text\) => \{[\s\S]*?registerProject\(firstMateProjectSelection\(project\)\)[\s\S]*?return firstMateRequest\(project, text, \{[\s\S]*?registration: result,[\s\S]*?provider,[\s\S]*?model: state\.modelId/,
     'FirstMate should identify the selected project on every request without changing its distro cwd'
   )
   const sessionDependencies = conversation.match(/\}, \[options\.cwd[^\]]*\]\)/)?.[0]

@@ -1,9 +1,20 @@
 import { strict as assert } from 'node:assert'
+import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { createFirstMateRuntime } from '../src/main/firstmate-runtime'
+import {
+  firstMateTaskContextFromMetadata,
+  firstMateTaskContextMetadata,
+  type FirstMateTaskContext
+} from '../src/shared/firstmate-task-context'
+import { createFirstMateLifecycleCoordinator } from '../src/main/firstmate-lifecycle-coordinator'
+import { firstMateRequest } from '../src/renderer/src/firstmate-request-target'
+import type { FirstMateLifecycleJournal, FirstMateLifecycleRecord } from '../src/main/firstmate-lifecycle'
+import type { FirstMateProjectRegistration } from '../src/shared/firstmate'
+import type { WorkspaceProject } from '../src/shared/terminal'
 
 function writeDistro(path: string): void {
   mkdirSync(join(path, 'bin'), { recursive: true })
@@ -25,6 +36,33 @@ function readyWslInspection(): string {
     'githubAuth=required',
     'codexTrust=required'
   ].join('\n')
+}
+
+function testWslPath(path: string): string {
+  const normalized = path.replace(/\\/g, '/')
+  const match = /^([a-zA-Z]):\/(.*)$/.exec(normalized)
+  assert.ok(match)
+  return `/mnt/${match[1]!.toLocaleLowerCase()}/${match[2]}`
+}
+
+function externalGitCrew(label: string): { primary: string; worktree: string; primaryWsl: string; worktreeWsl: string } {
+  const root = mkdtempSync(join(tmpdir(), `ade-firstmate-${label}-`))
+  const primary = join(root, 'primary')
+  const worktree = join(root, 'crew')
+  mkdirSync(primary)
+  execFileSync('git', ['init', '--initial-branch=main'], { cwd: primary })
+  execFileSync('git', ['config', 'user.name', 'ADE Test'], { cwd: primary })
+  execFileSync('git', ['config', 'user.email', 'ade@example.invalid'], { cwd: primary })
+  writeFileSync(join(primary, 'README.md'), `${label}\n`, 'utf8')
+  execFileSync('git', ['add', 'README.md'], { cwd: primary })
+  execFileSync('git', ['commit', '-m', 'initial'], { cwd: primary })
+  execFileSync('git', ['worktree', 'add', '-b', `${label}-crew`, worktree], { cwd: primary })
+  const gitCommonDir = (cwd: string): string => execFileSync(
+    'git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd, encoding: 'utf8' }
+  ).trim().toLocaleLowerCase()
+  assert.equal(gitCommonDir(worktree), gitCommonDir(primary), 'crew worktree must derive from its pinned checkout')
+  assert.notEqual(worktree.toLocaleLowerCase(), primary.toLocaleLowerCase(), 'crew must never edit the primary checkout')
+  return { primary, worktree, primaryWsl: testWslPath(primary), worktreeWsl: testWslPath(worktree) }
 }
 
 test('reports the managed Ubuntu runtime before WSL provisioning', async () => {
@@ -100,10 +138,10 @@ test('builds the Linux ACP launch only after the complete WSL runtime is ready',
   assert.match(calls[0].at(-1) ?? '', /in_section && \/\^\\\[\//)
   const claudeLaunch = (runtime.launch as (provider?: 'codex' | 'claude') => typeof launch)('claude')
   assert.ok(claudeLaunch?.agentProcess?.args.includes('/home/tucaen/.local/share/ade/firstmate/runner/node_modules/@agentclientprotocol/claude-agent-acp/dist/index.js'))
-  assert.ok(
-    claudeLaunch?.agentProcess?.args.some((arg) => arg.includes('agent_path_override:')) &&
-      claudeLaunch.agentProcess.args.includes('claude'),
-    'the selected FirstMate provider should become the no-mistakes pipeline agent'
+  assert.equal(
+    claudeLaunch?.agentProcess?.args.some((arg) => arg.includes('agent_path_override:')),
+    false,
+    'switching the conversational captain must not rewrite an underway task\'s validation agent'
   )
 })
 
@@ -138,7 +176,7 @@ test('reuses host Codex credentials without sharing Windows state databases', as
   )
   const managedCredential = launchArgs.indexOf('/home/tucaen/.local/share/ade/firstmate/home/codex/auth.json')
   assert.equal(launchArgs[managedCredential + 1], 'codex')
-  assert.equal(launchArgs[managedCredential + 2], '/home/tucaen/.local/share/ade/firstmate/home/no-mistakes/config.yaml')
+  assert.equal(launchArgs[managedCredential + 2], 'default')
   assert.ok(launchArgs.some((arg) => arg.includes('cp "$host_auth" "$managed_auth"')))
 })
 
@@ -161,7 +199,7 @@ test('reuses host Claude credentials inside an isolated Linux config home', asyn
   assert.ok(launchArgs.includes('CLAUDE_CONFIG_DIR=/home/tucaen/.local/share/ade/firstmate/home/claude'))
   const managedCredential = launchArgs.indexOf('/home/tucaen/.local/share/ade/firstmate/home/claude/.credentials.json')
   assert.equal(launchArgs[managedCredential + 1], 'claude')
-  assert.equal(launchArgs[managedCredential + 2], '/home/tucaen/.local/share/ade/firstmate/home/no-mistakes/config.yaml')
+  assert.equal(launchArgs[managedCredential + 2], 'default')
   assert.match(
     launchArgs.join(' '),
     /\/mnt\/c\/Users\/tester\/\.claude\/\.credentials\.json[\s\S]*?\/home\/tucaen\/\.local\/share\/ade\/firstmate\/home\/claude\/\.credentials\.json/,
@@ -193,19 +231,31 @@ test('keeps provider-specific Codex App Server configuration out of the Claude l
   assert.match(launchArgs.join(' '), /claude-agent-acp/)
 })
 
-test('continues validation with the persisted runtime validator instead of guessed home configuration', async () => {
+test('continues validation with the task-pinned validator after the global provider changes', async () => {
   const rootPath = mkdtempSync(join(tmpdir(), 'ade-firstmate-wsl-continue-'))
   const calls: string[][] = []
   const runtimeConfig = JSON.stringify({
     version: 1,
     host: { kind: 'ade-app', supervisor: 'app-native', terminalTarget: false },
     validator: {
-      agent: 'codex',
-      model: 'gpt-5.6-sol',
+      agent: 'claude',
+      model: 'claude-opus-4-1',
       nmHome: '/home/tucaen/.local/share/ade/firstmate/home/no-mistakes',
-      agentHome: '/home/tucaen/.local/share/ade/firstmate/home/codex'
+      agentHome: '/home/tucaen/.local/share/ade/firstmate/home/claude'
     }
   })
+  const context: FirstMateTaskContext = {
+    version: 1,
+    project: {
+      adeProjectId: 'alpha',
+      registryName: 'api-alpha',
+      windowsPath: 'D:\\Development\\alpha\\api',
+      wslPath: '/mnt/d/Development/alpha/api',
+      mode: 'no-mistakes',
+      autonomy: false
+    },
+    validator: { agent: 'codex', model: 'gpt-5.6-sol' }
+  }
   const runtime = createFirstMateRuntime({
     rootPath,
     platform: 'win32',
@@ -219,7 +269,16 @@ test('continues validation with the persisted runtime validator instead of guess
               runtimeConfig,
               tasks: [{
                 id: 'resize',
-                meta: 'kind=ship\nmode=no-mistakes\nharness=codex\n',
+                meta: [
+                  'kind=ship',
+                  'mode=no-mistakes',
+                  'yolo=off',
+                  'project=/mnt/d/Development/alpha/api',
+                  'worktree=/home/tucaen/.treehouse/alpha/resize',
+                  'harness=codex',
+                  'model=gpt-5.6-sol',
+                  firstMateTaskContextMetadata(context)
+                ].join('\n'),
                 status: 'done: committed implementation\n'
               }]
             }),
@@ -239,13 +298,230 @@ test('continues validation with the persisted runtime validator instead of guess
   assert.ok(continuation)
   assert.ok(continuation.includes('resize'))
   const continuationPrompt = continuation.find((arg) => arg.startsWith('$no-mistakes')) ?? ''
-  assert.match(continuationPrompt, /ade-runtime\.json/)
+  assert.match(continuationPrompt, /state\/resize\.ade-runtime\.json/)
   assert.match(continuationPrompt, /ADE validation dispatch id: resize\.a1b2c3\.1/)
-  assert.match(continuationPrompt, /do not infer the validator from filtered doctor text or guessed homes/i)
-  assert.ok(continuation.includes('ADE_FIRSTMATE_RUNTIME_CONFIG=/home/tucaen/.local/share/ade/firstmate/home/config/ade-runtime.json'))
+  assert.match(continuationPrompt, /do not use[\s\S]*filtered doctor text, or guessed homes/i)
+  assert.ok(continuation.includes('ADE_FIRSTMATE_RUNTIME_CONFIG=/home/tucaen/.local/share/ade/firstmate/home/state/resize.ade-runtime.json'))
   assert.ok(continuation.includes('ADE_FIRSTMATE_VALIDATOR_AGENT=codex'))
   assert.ok(continuation.includes('ADE_FIRSTMATE_VALIDATOR_MODEL=gpt-5.6-sol'))
   assert.ok(continuation.includes('NM_HOME=/home/tucaen/.local/share/ade/firstmate/home/no-mistakes'))
+  const configWrite = calls.find((args) => args.includes('/home/tucaen/.local/share/ade/firstmate/home/state/resize.ade-runtime.json'))
+  assert.ok(configWrite, 'the pinned runtime record must be durable before the continuation is sent')
+  const taskConfig = JSON.parse(Buffer.from(configWrite.at(-1) ?? '', 'base64url').toString('utf8'))
+  assert.deepEqual(taskConfig.validator, {
+    agent: 'codex',
+    model: 'gpt-5.6-sol',
+    nmHome: '/home/tucaen/.local/share/ade/firstmate/home/no-mistakes',
+    agentHome: '/home/tucaen/.local/share/ade/firstmate/home/codex',
+    agentPath: taskConfig.validator.agentPath
+  })
+  assert.match(
+    taskConfig.validator.agentPath,
+    /^\/home\/tucaen\/\.local\/share\/ade\/firstmate\/home\/state\/validators\/[a-f0-9]{20}\/codex$/
+  )
+  assert.deepEqual(taskConfig.project, {
+    ...context.project,
+    worktree: '/home/tucaen/.treehouse/alpha/resize'
+  })
+  const wrapperWrite = calls.find((args) => args.includes(taskConfig.validator.agentPath))
+  assert.ok(wrapperWrite)
+  const wrapper = Buffer.from(wrapperWrite.at(-1) ?? '', 'base64url').toString('utf8')
+  assert.match(wrapper, /exec "\$HOME\/\.local\/bin\/codex" --model gpt-5\.6-sol/)
+  const pipelineWrite = calls.find((args) => args.includes('/home/tucaen/.local/share/ade/firstmate/home/no-mistakes/config.yaml'))
+  assert.ok(pipelineWrite)
+  assert.match(
+    Buffer.from(pipelineWrite.at(-1) ?? '', 'base64url').toString('utf8'),
+    new RegExp(`agent: codex[\\s\\S]*${taskConfig.validator.agentPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`)
+  )
+})
+
+test('keeps two switched external projects on their original providers through supervision and restart', async () => {
+  const rootPath = mkdtempSync(join(tmpdir(), 'ade-firstmate-two-projects-'))
+  const alphaCrew = externalGitCrew('alpha')
+  const betaCrew = externalGitCrew('beta')
+  const alpha: WorkspaceProject = {
+    id: 'alpha', name: 'Api', path: alphaCrew.primary, color: '#71a9ff'
+  }
+  const beta: WorkspaceProject = {
+    id: 'beta', name: 'Api', path: betaCrew.primary, color: '#f0a'
+  }
+  const registration = (
+    project: WorkspaceProject,
+    registryName: string,
+    wslPath: string
+  ): FirstMateProjectRegistration => ({
+    ok: true,
+    project: {
+      adeProjectId: project.id,
+      registryName,
+      displayName: project.name,
+      windowsPath: project.path,
+      wslPath,
+      origin: `https://github.com/acme/${project.id}.git`,
+      mode: 'no-mistakes',
+      autonomy: false,
+      initialization: 'authorized',
+      registeredAt: '2026-08-15'
+    }
+  })
+  const alphaPrompt = firstMateRequest(alpha, 'Ship alpha', {
+    registration: registration(alpha, 'api-alpha', alphaCrew.primaryWsl),
+    provider: 'codex',
+    model: 'gpt-5.6-sol'
+  })
+  const betaPrompt = firstMateRequest(beta, 'Ship beta', {
+    registration: registration(beta, 'api-beta', betaCrew.primaryWsl),
+    provider: 'claude',
+    model: 'claude-sonnet-4-5'
+  })
+  const carrier = (prompt: string): string => {
+    const value = /^- exact task metadata: `(ade_task_context=.*)`$/m.exec(prompt)?.[1]
+    assert.ok(value)
+    return value
+  }
+
+  const fakeFirstMateShip = (
+    prompt: string,
+    id: string,
+    worktree: string
+  ): { brief: string; task: { id: string; meta: string; status: string } } => {
+    const pinnedCarrier = carrier(prompt)
+    const context = firstMateTaskContextFromMetadata(pinnedCarrier)
+    assert.ok(context)
+    const brief = [
+      `Project checkout: ${context.project.wslPath}`,
+      `Delivery contract: mode=${context.project.mode}`,
+      'Work only in the disposable crew worktree.'
+    ].join('\n')
+    return {
+      brief,
+      task: {
+        id,
+        meta: [
+          'kind=ship', `mode=${context.project.mode}`, `yolo=${context.project.autonomy ? 'on' : 'off'}`,
+          `project=${context.project.wslPath}`, `worktree=${worktree}`,
+          `harness=${context.validator.agent}`, `model=${context.validator.model}`, pinnedCarrier
+        ].join('\n'),
+        status: `done: committed ${context.project.adeProjectId} implementation\n`
+      }
+    }
+  }
+
+  assert.ok(alphaPrompt.includes(`fm-brief.sh\` and \`fm-spawn.sh\`: ${JSON.stringify(alphaCrew.primaryWsl)}`))
+  assert.ok(betaPrompt.includes(`fm-brief.sh\` and \`fm-spawn.sh\`: ${JSON.stringify(betaCrew.primaryWsl)}`))
+  assert.match(alphaPrompt, /--mode` explicitly to both commands/)
+  assert.match(betaPrompt, /--mode` explicitly to both commands/)
+
+  const alphaDispatch = fakeFirstMateShip(alphaPrompt, 'alpha-ship', alphaCrew.worktreeWsl)
+  const betaDispatch = fakeFirstMateShip(betaPrompt, 'beta-ship', betaCrew.worktreeWsl)
+  assert.match(alphaDispatch.brief, new RegExp(`Project checkout: ${alphaCrew.primaryWsl.replace(/\//g, '\\/')}`))
+  assert.match(betaDispatch.brief, /Delivery contract: mode=no-mistakes/)
+  const rawTasks = [alphaDispatch.task, betaDispatch.task]
+  let journal: FirstMateLifecycleJournal = { version: 1, tasks: {} }
+  let mutableGlobalConfig = JSON.stringify({
+    version: 1,
+    validator: { agent: 'claude', model: 'later-global-model' }
+  })
+  const sends: string[][] = []
+  const taskConfigs = new Map<string, unknown>()
+
+  const run = async (args: string[]): Promise<{ stdout: string; stderr: string }> => {
+    if (args.includes('-lc')) return { stdout: readyWslInspection(), stderr: '' }
+    if (args.includes('ade-firstmate-validator')) {
+      const marker = args.indexOf('ade-firstmate-validator')
+      mutableGlobalConfig = JSON.stringify({
+        version: 1,
+        validator: { agent: args[marker + 2], model: args[marker + 3] }
+      })
+      return { stdout: '', stderr: '' }
+    }
+    const scriptIndex = args.indexOf('-e')
+    const script = scriptIndex >= 0 ? args[scriptIndex + 1] ?? '' : ''
+    if (script.includes("names.filter((name) => name.endsWith('.meta'))")) {
+      return {
+        stdout: JSON.stringify({
+          runtimeConfig: mutableGlobalConfig,
+          journal: JSON.stringify(journal),
+          tasks: rawTasks
+        }),
+        stderr: ''
+      }
+    }
+    if (script.includes('journal.tasks[taskId] = record')) {
+      const taskId = args.at(-2) ?? ''
+      const record = JSON.parse(Buffer.from(args.at(-1) ?? '', 'base64url').toString('utf8')) as FirstMateLifecycleRecord
+      journal = { version: 1, tasks: { ...journal.tasks, [taskId]: record } }
+      return { stdout: '', stderr: '' }
+    }
+    if (args.some((arg) => arg.endsWith('/bin/fm-send.sh'))) {
+      sends.push(args)
+      return { stdout: '', stderr: '' }
+    }
+    const configPath = args.find((arg) => /^\/.*\/state\/[^/]+\.ade-runtime\.json$/.test(arg))
+    if (configPath) {
+      taskConfigs.set(configPath, JSON.parse(Buffer.from(args.at(-1) ?? '', 'base64url').toString('utf8')))
+      return { stdout: '', stderr: '' }
+    }
+    return { stdout: '', stderr: '' }
+  }
+  const runtimeOptions = {
+    rootPath,
+    platform: 'win32' as const,
+    resolveGit: () => 'git.exe',
+    wsl: { run }
+  }
+  const wakes: string[] = []
+  const runtime = createFirstMateRuntime(runtimeOptions)
+  await runtime.status()
+  await runtime.configureValidator('claude', 'global-before-alpha')
+  const coordinator = createFirstMateLifecycleCoordinator({
+    runtime,
+    wakeCaptain: async (message) => { wakes.push(message); return { ok: true } }
+  })
+
+  await coordinator.poll()
+
+  assert.equal(sends.length, 1, 'the shared no-mistakes gate must validate one pinned provider at a time')
+  const alphaSend = sends.find((args) => args.includes('alpha-ship')) ?? []
+  assert.ok(alphaSend.includes('ADE_FIRSTMATE_VALIDATOR_AGENT=codex'))
+  assert.ok(alphaSend.includes('ADE_FIRSTMATE_VALIDATOR_MODEL=gpt-5.6-sol'))
+  assert.match(alphaSend.at(-1) ?? '', /^\$no-mistakes/)
+  assert.equal(taskConfigs.size, 1)
+
+  const restartedRuntime = createFirstMateRuntime(runtimeOptions)
+  await restartedRuntime.status()
+  await restartedRuntime.configureValidator('codex', 'global-before-beta')
+  const restartedCoordinator = createFirstMateLifecycleCoordinator({
+    runtime: restartedRuntime,
+    wakeCaptain: async (message) => { wakes.push(message); return { ok: true } }
+  })
+  await restartedCoordinator.poll()
+  assert.equal(sends.length, 1, 'restart must supervise the acknowledged dispatch without repeating it')
+
+  rawTasks[0]!.status += 'done: PR https://github.com/acme/alpha/pull/10 checks green\n'
+  await restartedCoordinator.poll()
+  assert.equal(sends.length, 2, 'the second pinned provider starts only after the shared gate is free')
+  const betaSend = sends.find((args) => args.includes('beta-ship')) ?? []
+  assert.ok(betaSend.includes('ADE_FIRSTMATE_VALIDATOR_AGENT=claude'))
+  assert.ok(betaSend.includes('ADE_FIRSTMATE_VALIDATOR_MODEL=claude-sonnet-4-5'))
+  assert.match(betaSend.at(-1) ?? '', /^\/no-mistakes/)
+  assert.equal(taskConfigs.size, 2)
+
+  rawTasks[1]!.status += 'done: PR https://github.com/acme/beta/pull/20 checks green\n'
+  await restartedCoordinator.poll()
+  const completed = await restartedRuntime.lifecycle()
+
+  assert.deepEqual(completed.tasks.map((task) => [
+    task.context?.project.adeProjectId,
+    task.context?.validator.agent,
+    task.prUrl
+  ]), [
+    ['alpha', 'codex', 'https://github.com/acme/alpha/pull/10'],
+    ['beta', 'claude', 'https://github.com/acme/beta/pull/20']
+  ])
+  const completionWake = wakes.find((message) => /alpha-ship=pr-ready/.test(message)) ?? ''
+  assert.match(completionWake, /project=alpha[\s\S]*validator=codex\/gpt-5\.6-sol/)
+  assert.match(completionWake, /project=beta[\s\S]*validator=claude\/claude-sonnet-4-5/)
 })
 
 test('trusts only the managed FirstMate distro after explicit approval', async () => {
@@ -353,7 +629,7 @@ test('provisions Ubuntu packages and the managed FirstMate toolchain', async () 
   assert.match(prepare.at(-1) ?? '', /no-mistakes daemon restart/)
 })
 
-test('repairs a WSL runtime whose daemon PATH has no native Codex CLI', async () => {
+test('runs a Claude-only workflow when the WSL runtime has no native Codex CLI', async () => {
   const inspectionWithoutCodex = readyWslInspection()
     .split('\n')
     .filter((line) => line !== 'tool.codex=1')
@@ -365,11 +641,12 @@ test('repairs a WSL runtime whose daemon PATH has no native Codex CLI', async ()
     wsl: { run: async () => ({ stdout: inspectionWithoutCodex, stderr: '' }) }
   })
 
-  assert.equal((await runtime.status()).state, 'missing')
+  assert.equal((await runtime.status()).state, 'ready')
   assert.equal(runtime.launch(), null)
+  assert.ok(runtime.launch('claude'), 'a Claude workflow must not require Codex to be installed')
 })
 
-test('repairs a WSL runtime whose daemon PATH has no native Claude CLI', async () => {
+test('runs a Codex-only workflow when the WSL runtime has no native Claude CLI', async () => {
   const inspectionWithoutClaude = readyWslInspection()
     .split('\n')
     .filter((line) => line !== 'tool.claude=1')
@@ -381,8 +658,9 @@ test('repairs a WSL runtime whose daemon PATH has no native Claude CLI', async (
     wsl: { run: async () => ({ stdout: inspectionWithoutClaude, stderr: '' }) }
   })
 
-  assert.equal((await runtime.status()).state, 'missing')
+  assert.equal((await runtime.status()).state, 'ready')
   assert.equal(runtime.launch('claude'), null)
+  assert.ok(runtime.launch('codex'), 'a Codex workflow must not require Claude to be installed')
 })
 
 test('installs one distro and prepares one isolated operational home', async () => {
@@ -434,7 +712,11 @@ test('installs one distro and prepares one isolated operational home', async () 
       nmHome: join(rootPath, 'home', 'no-mistakes'),
       agentHome: join(rootPath, 'home', 'codex')
   })
-  assert.match(readFileSync(join(rootPath, 'home', 'no-mistakes', 'config.yaml'), 'utf8'), /^agent: codex$/m)
+  assert.equal(
+    existsSync(join(rootPath, 'home', 'no-mistakes', 'config.yaml')),
+    false,
+    'captain launch selection is separate from the task-scoped validation pipeline'
+  )
 })
 
 test('preserves an incomplete distro directory instead of overwriting it', async () => {

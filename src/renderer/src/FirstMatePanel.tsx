@@ -103,10 +103,17 @@ const lifecycleLabels: Record<FirstMateTaskStage, string> = {
  */
 function lifecycleTaskLabel(task: FirstMateLifecycleTask): string {
   const stage = lifecycleLabels[task.stage]
-  if (task.dispatch?.status === 'unresolved') return `${stage} · dispatch unresolved`
-  if (task.dispatch?.status === 'released') return `${stage} · dispatch released`
-  if (task.dispatch?.status === 'retryable' && task.stage === 'implemented') return `${stage} · dispatch retry`
-  return stage
+  const dispatch = task.dispatch?.status === 'unresolved'
+    ? ' · dispatch unresolved'
+    : task.dispatch?.status === 'released'
+      ? ' · dispatch released'
+      : task.dispatch?.status === 'retryable' && task.stage === 'implemented'
+        ? ' · dispatch retry'
+        : ''
+  const pinned = task.context
+    ? ` · ${task.context.project.registryName} · ${task.context.validator.agent}/${task.context.validator.model}`
+    : ''
+  return `${stage}${dispatch}${pinned}`
 }
 
 export default function FirstMatePanel({ project, state, onStateChange }: FirstMatePanelProps): JSX.Element {
@@ -216,7 +223,11 @@ export default function FirstMatePanel({ project, state, onStateChange }: FirstM
       if (!result.ok || !result.project) {
         throw new Error(result.message ?? `ADE could not resolve FirstMate project ${project.name} (${project.id}).`)
       }
-      return firstMateRequest(project, text, result)
+      return firstMateRequest(project, text, {
+        registration: result,
+        provider,
+        model: state.modelId
+      })
     },
     enabled: runtime?.state === 'ready' && (provider !== 'codex' || runtime.codexProjectTrust === 'trusted'),
     onSessionId: (conversationId) => updateState({ conversationId }),
