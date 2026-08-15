@@ -98,5 +98,10 @@ export function firstMateRequest(
   text: string,
   registration?: FirstMateProjectRegistration
 ): string {
+  if (registration && (!registration.ok || !registration.project)) {
+    throw new Error(
+      registration.message ?? `ADE could not resolve FirstMate project ${project.name} (${project.id}).`
+    )
+  }
   return `${projectAssignment(firstMateProjectTarget(project), registration)}\n\n${text}`
 }

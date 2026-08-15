@@ -211,8 +211,11 @@ export default function FirstMatePanel({ project, state, onStateChange }: FirstM
     restartKey: sessionGeneration,
     composePrompt: async (text) => {
       const result = await window.firstMateApi.registerProject(firstMateProjectSelection(project))
-      if (result.project) setRegistration(result.project)
+      setRegistration(result.project ?? null)
       setRegistrationError(result.ok ? undefined : result.message)
+      if (!result.ok || !result.project) {
+        throw new Error(result.message ?? `ADE could not resolve FirstMate project ${project.name} (${project.id}).`)
+      }
       return firstMateRequest(project, text, result)
     },
     enabled: runtime?.state === 'ready' && (provider !== 'codex' || runtime.codexProjectTrust === 'trusted'),

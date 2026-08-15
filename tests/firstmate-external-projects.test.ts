@@ -62,7 +62,8 @@ const remoteBacked: Record<string, FirstMateCheckoutFacts> = {
 
 function projects(
   files: FirstMateExternalProjectFiles = {},
-  facts: Record<string, FirstMateCheckoutFacts> = remoteBacked
+  facts: Record<string, FirstMateCheckoutFacts> = remoteBacked,
+  wslAccess: Record<string, { accessible: boolean; message?: string }> = {}
 ): { home: HomeDouble; checkout: CheckoutDouble; service: ReturnType<typeof createFirstMateExternalProjects> } {
   const homeDouble = home(files)
   const checkout = checkouts(facts)
@@ -72,6 +73,7 @@ function projects(
     service: createFirstMateExternalProjects({
       home: homeDouble.port,
       inspectCheckout: checkout.inspect,
+      inspectWslPath: async (wslPath) => wslAccess[wslPath] ?? { accessible: true },
       today: () => '2026-08-14'
     })
   }
@@ -278,6 +280,141 @@ test('refuses a checkout that is missing or carries an unsafe origin, recording 
   assert.equal(files.files.store, undefined, 'a refused registration must not be recorded')
   assert.equal(files.files.registry, undefined)
   assert.equal(await service.recorded('alpha'), null)
+})
+
+test('classifies a project selection that cannot become a canonical Windows checkout path', async () => {
+  const { checkout, service } = projects()
+
+  const result = await service.register({ ...alpha, path: '\\\\server\\share\\api' })
+
+  assert.equal(result.ok, false)
+  assert.deepEqual(result.failure, { kind: 'selection', adeProjectId: 'alpha' })
+  assert.match(result.message ?? '', /canonical Windows path/i)
+  assert.deepEqual(checkout.inspected, [], 'an invalid selection must not probe a fallback directory')
+})
+
+test('revalidates a registered checkout on every request and recovers after the same project is restored', async () => {
+  const facts: Record<string, FirstMateCheckoutFacts> = {
+    'D:\\Development\\alpha\\api': remoteBacked['D:\\Development\\alpha\\api']!
+  }
+  const { service } = projects({}, facts)
+
+  assert.equal((await service.register(alpha)).ok, true)
+  facts['D:\\Development\\alpha\\api'] = { exists: false }
+
+  const missing = await service.register(alpha)
+
+  assert.equal(missing.ok, false)
+  assert.deepEqual(missing.failure, { kind: 'path-access', adeProjectId: 'alpha' })
+  assert.match(missing.message ?? '', /ADE project "Api" \(alpha\)/)
+
+  facts['D:\\Development\\alpha\\api'] = remoteBacked['D:\\Development\\alpha\\api']!
+  const repaired = await service.register(alpha)
+
+  assert.equal(repaired.ok, true)
+  assert.equal(repaired.project?.adeProjectId, 'alpha')
+})
+
+test('blocks a directory that is not a usable Git checkout before registration', async () => {
+  const { home: files, service } = projects({}, {
+    'D:\\Development\\alpha\\api': { exists: true, git: 'not-checkout' }
+  })
+
+  const result = await service.register(alpha)
+
+  assert.equal(result.ok, false)
+  assert.deepEqual(result.failure, { kind: 'git', adeProjectId: 'alpha' })
+  assert.match(result.message ?? '', /not a usable Git checkout/i)
+  assert.equal(files.files.store, undefined)
+})
+
+test('classifies an unavailable WSL mount and succeeds when the mount is restored', async () => {
+  const access: Record<string, { accessible: boolean; message?: string }> = {
+    '/mnt/d/Development/alpha/api': {
+      accessible: false,
+      message: 'Restore the D: drive mount in Ubuntu WSL.'
+    }
+  }
+  const { home: files, service } = projects({}, remoteBacked, access)
+
+  const unavailable = await service.register(alpha)
+
+  assert.equal(unavailable.ok, false)
+  assert.deepEqual(unavailable.failure, { kind: 'wsl', adeProjectId: 'alpha' })
+  assert.match(unavailable.message ?? '', /Restore the D: drive mount/)
+  assert.equal(files.files.store, undefined)
+
+  access['/mnt/d/Development/alpha/api'] = { accessible: true }
+  const restored = await service.register(alpha)
+
+  assert.equal(restored.ok, true)
+  assert.equal(restored.project?.wslPath, '/mnt/d/Development/alpha/api')
+})
+
+test('requires user action when another stable ADE identity already claims a replacement path', async () => {
+  const { service } = projects()
+  await service.register(alpha)
+  await service.register(beta)
+
+  const ambiguous = await service.register({ ...alpha, path: beta.path })
+
+  assert.equal(ambiguous.ok, false)
+  assert.deepEqual(ambiguous.failure, { kind: 'registration', adeProjectId: 'alpha' })
+  assert.match(ambiguous.message ?? '', /already registered to ADE project "Api" \(beta\)/)
+  assert.match(ambiguous.message ?? '', /reselect/i)
+  assert.equal((await service.recorded('alpha'))?.windowsPath, alpha.path)
+  assert.equal((await service.recorded('beta'))?.windowsPath, beta.path)
+})
+
+test('requires user action when the fleet registry has multiple entries for the exact checkout', async () => {
+  const { service } = projects({
+    registry: [
+      '- alpha-api [direct-PR] - at /mnt/d/Development/alpha/api',
+      '- old-alpha [no-mistakes] - at D:\\Development\\alpha\\api'
+    ].join('\n')
+  })
+
+  const ambiguous = await service.register(alpha)
+
+  assert.equal(ambiguous.ok, false)
+  assert.deepEqual(ambiguous.failure, { kind: 'registration', adeProjectId: 'alpha' })
+  assert.match(ambiguous.message ?? '', /multiple FirstMate fleet entries/i)
+})
+
+test('refuses duplicate stale records for one stable identity instead of choosing one after restart', async () => {
+  const duplicateStore = JSON.stringify([
+    { id: 'alpha', name: 'Api', path: 'D:\\Old\\api', mode: 'direct-PR' },
+    { id: 'alpha', name: 'Api', path: 'D:\\Development\\alpha\\api', mode: 'no-mistakes' }
+  ])
+  const { service } = projects({ store: duplicateStore })
+
+  const ambiguous = await service.register(alpha)
+
+  assert.equal(ambiguous.ok, false)
+  assert.deepEqual(ambiguous.failure, { kind: 'registration', adeProjectId: 'alpha' })
+  assert.match(ambiguous.message ?? '', /multiple records for stable identity alpha/i)
+  assert.match(ambiguous.message ?? '', /remove the stale duplicate/i)
+})
+
+test('revalidates WSL access after restart and recovers the existing registration after remount', async () => {
+  const first = projects()
+  const registered = await first.service.register(alpha)
+  assert.equal(registered.ok, true)
+
+  const access: Record<string, { accessible: boolean; message?: string }> = {
+    '/mnt/d/Development/alpha/api': { accessible: false, message: 'Restore the D: drive mount.' }
+  }
+  const restarted = projects(first.home.files, remoteBacked, access)
+
+  const unavailable = await restarted.service.register(alpha)
+  assert.equal(unavailable.failure?.kind, 'wsl')
+  assert.deepEqual(await restarted.service.recorded('alpha'), registered.project)
+
+  access['/mnt/d/Development/alpha/api'] = { accessible: true }
+  const recovered = await restarted.service.register(alpha)
+
+  assert.equal(recovered.ok, true)
+  assert.deepEqual(recovered.project, registered.project)
 })
 
 test('never initializes a checkout during registration and keeps authorization separate', async () => {

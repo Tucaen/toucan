@@ -519,6 +519,9 @@ test('keeps the external-project mapping inside the WSL FirstMate home', async (
         calls.push(args)
         if (args[3] === '/bin/sh') return { stdout: readyWslInspection(), stderr: '' }
         const script = args[5] ?? ''
+        if (script.includes('statSync(project)')) {
+          return { stdout: JSON.stringify({ accessible: true }), stderr: '' }
+        }
         if (script.includes('renameSync')) {
           files.store = Buffer.from(args.at(-1) ?? '', 'base64url').toString('utf8')
           return { stdout: '', stderr: '' }
@@ -543,7 +546,9 @@ test('keeps the external-project mapping inside the WSL FirstMate home', async (
   )
   assert.equal(files.registry, undefined, 'the firstmate-private fleet registry is only ever read')
 
-  const homeCalls = calls.filter((args) => args[3] === '/usr/bin/node')
+  const homeCalls = calls.filter((args) => (
+    args[3] === '/usr/bin/node' && (args[5] ?? '').includes('ade-external-projects.json')
+  ))
   assert.ok(homeCalls.length >= 2, 'the mapping is read and written through the private WSL home')
   for (const args of homeCalls) {
     assert.ok(
@@ -556,4 +561,53 @@ test('keeps the external-project mapping inside the WSL FirstMate home', async (
     false,
     'registration must never clone or link the checkout into the managed projects directory'
   )
+})
+
+test('blocks a WSL-inaccessible checkout and recovers after the same mount returns', async () => {
+  const rootPath = mkdtempSync(join(tmpdir(), 'ade-firstmate-wsl-project-access-'))
+  const files: { store?: string; registry?: string } = {}
+  let mounted = false
+  const runtime = createFirstMateRuntime({
+    rootPath,
+    platform: 'win32',
+    resolveGit: () => 'git.exe',
+    inspectCheckout: async () => ({
+      exists: true,
+      git: 'checkout',
+      origin: 'https://github.com/acme/alpha-api.git'
+    }),
+    wsl: {
+      run: async (args) => {
+        if (args[3] === '/bin/sh') return { stdout: readyWslInspection(), stderr: '' }
+        const script = args[5] ?? ''
+        if (script.includes('statSync(project)')) {
+          return {
+            stdout: JSON.stringify(mounted
+              ? { accessible: true }
+              : { accessible: false, message: 'ENOENT: /mnt/d is not mounted' }),
+            stderr: ''
+          }
+        }
+        if (script.includes('renameSync')) {
+          files.store = Buffer.from(args.at(-1) ?? '', 'base64url').toString('utf8')
+          return { stdout: '', stderr: '' }
+        }
+        return { stdout: JSON.stringify(files), stderr: '' }
+      }
+    }
+  })
+  const selection = { projectId: 'alpha', name: 'Api', path: 'D:\\Development\\alpha\\api' }
+
+  const unavailable = await runtime.registerProject(selection)
+
+  assert.equal(unavailable.ok, false)
+  assert.equal(unavailable.failure?.kind, 'wsl')
+  assert.match(unavailable.message ?? '', /Restore the D: drive mount in Ubuntu WSL/)
+  assert.equal(files.store, undefined, 'an inaccessible WSL target must not be registered')
+
+  mounted = true
+  const recovered = await runtime.registerProject(selection)
+
+  assert.equal(recovered.ok, true)
+  assert.equal(recovered.project?.adeProjectId, 'alpha')
 })

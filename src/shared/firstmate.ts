@@ -128,6 +128,10 @@ export interface FirstMateProjectRegistration {
   ok: boolean
   project?: FirstMateExternalProject
   message?: string
+  failure?: {
+    kind: 'selection' | 'path-access' | 'git' | 'registration' | 'wsl'
+    adeProjectId: string
+  }
 }
 
 export interface FirstMateWorkspaceState {

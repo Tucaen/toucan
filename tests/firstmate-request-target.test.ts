@@ -149,12 +149,12 @@ test('states that a project has no remote and needs no initialization', () => {
   assert.match(prompt, /- no-mistakes initialization: not required for this posture/)
 })
 
-test('says plainly when a request could not be registered', () => {
-  const prompt = firstMateRequest(alpha, 'Ship the release', {
-    ok: false,
-    message: 'ADE could not find the project checkout at D:\\Development\\alpha\\api.'
-  })
-
-  assert.match(prompt, /- FirstMate registration: unavailable \(ADE could not find the project checkout/)
-  assert.match(prompt, /Confirm this project's path and delivery posture with the captain/)
+test('refuses to compose a fallback prompt when project registration failed', () => {
+  assert.throws(
+    () => firstMateRequest(alpha, 'Ship the release', {
+      ok: false,
+      message: 'Path-access failure for ADE project "Api" (alpha).'
+    }),
+    /Path-access failure for ADE project "Api" \(alpha\)/
+  )
 })

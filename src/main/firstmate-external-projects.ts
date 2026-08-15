@@ -35,7 +35,14 @@ interface FirstMateExternalProjectStore {
 
 export interface FirstMateCheckoutFacts {
   exists: boolean
+  git?: 'checkout' | 'not-checkout' | 'unavailable'
   origin?: string
+  message?: string
+}
+
+export interface FirstMateWslPathFacts {
+  accessible: boolean
+  message?: string
 }
 
 /** The two files this mapping reads: ADE's own registration store and FirstMate's fleet registry. */
@@ -55,6 +62,8 @@ export interface FirstMateExternalProjectOptions {
   home: FirstMateExternalProjectHome
   /** Reads the checkout without changing it: existence and the Git origin when the project has one. */
   inspectCheckout(windowsPath: string): Promise<FirstMateCheckoutFacts>
+  /** Proves that FirstMate's WSL host can access the converted path before the request is sent. */
+  inspectWslPath?(wslPath: string): Promise<FirstMateWslPathFacts>
   today?(): string
 }
 
@@ -160,11 +169,11 @@ function namesPath(line: string, path: string, caseSensitive: boolean): boolean 
 }
 
 /** Linux paths are case-sensitive; the Windows form of the same checkout is not. */
-function registryEntryForCheckout(
+function registryEntriesForCheckout(
   entries: FleetRegistryEntry[],
   request: ExternalProjectRequest
-): FleetRegistryEntry | undefined {
-  return entries.find((entry) => (
+): FleetRegistryEntry[] {
+  return entries.filter((entry) => (
     namesPath(entry.line, request.wslPath, true) || namesPath(entry.line, request.windowsPath, false)
   ))
 }
@@ -219,14 +228,18 @@ function storedProject(value: unknown, key: string, today: string): FirstMateExt
  * Reads ADE's registration file, including an ad-hoc shape written before this store existed: a list
  * or a loosely keyed map whose recorded delivery posture and autonomy are preserved as they stand.
  */
-function parseExternalProjectStore(text: string | undefined, today: string): FirstMateExternalProjectStore {
+function parseExternalProjectStore(
+  text: string | undefined,
+  today: string
+): { store: FirstMateExternalProjectStore; ambiguousIdentities: Set<string> } {
   const store: FirstMateExternalProjectStore = { version: 1, projects: {} }
-  if (!text) return store
+  const ambiguousIdentities = new Set<string>()
+  if (!text) return { store, ambiguousIdentities }
   let parsed: unknown
   try {
     parsed = JSON.parse(text)
   } catch {
-    return store
+    return { store, ambiguousIdentities }
   }
   const projects = (parsed as { projects?: unknown })?.projects
   const candidates: [string, unknown][] = Array.isArray(parsed)
@@ -239,14 +252,18 @@ function parseExternalProjectStore(text: string | undefined, today: string): Fir
   const taken = new Set<string>()
   for (const [key, value] of candidates) {
     const project = storedProject(value, key, today)
-    if (!project || store.projects[project.adeProjectId]) continue
+    if (!project) continue
+    if (store.projects[project.adeProjectId]) {
+      ambiguousIdentities.add(project.adeProjectId)
+      continue
+    }
     const registryName = project.registryName
       || registryNameCandidates(project.windowsPath, project.wslPath).find((name) => !taken.has(name))
       || project.wslPath
     taken.add(registryName)
     store.projects[project.adeProjectId] = { ...project, registryName }
   }
-  return store
+  return { store, ambiguousIdentities }
 }
 
 function serializeExternalProjectStore(store: FirstMateExternalProjectStore): string {
@@ -276,6 +293,7 @@ function resolveRegistration(
   request: ExternalProjectRequest,
   store: FirstMateExternalProjectStore,
   entries: FleetRegistryEntry[],
+  fleetEntry: FleetRegistryEntry | undefined,
   today: string
 ): { project: FirstMateExternalProject; changed: boolean } {
   const existing = store.projects[request.adeProjectId]
@@ -287,7 +305,7 @@ function resolveRegistration(
   const posture = recordedPosture(
     request,
     existing,
-    registryEntryForCheckout(entries, request),
+    fleetEntry,
     () => registryNameCandidates(request.windowsPath, request.wslPath).find(
       (name) => !claimed.has(name) && !entries.some((entry) => entry.name === name)
     ) ?? request.wslPath
@@ -308,19 +326,42 @@ function resolveRegistration(
   return { project, changed: JSON.stringify(existing) !== JSON.stringify(project) }
 }
 
+const FAILURE_LABELS = {
+  selection: 'Selection failure',
+  'path-access': 'Path-access failure',
+  git: 'Git failure',
+  registration: 'Registration failure',
+  wsl: 'WSL failure'
+} as const
+
+function refused(
+  selection: FirstMateProjectSelection,
+  kind: keyof typeof FAILURE_LABELS,
+  detail: string
+): FirstMateProjectRegistration {
+  return {
+    ok: false,
+    failure: { kind, adeProjectId: selection.projectId },
+    message: `${FAILURE_LABELS[kind]} for ADE project ${JSON.stringify(selection.name)} `
+      + `(${selection.projectId || 'missing identity'}): ${detail}`
+  }
+}
+
 export function createFirstMateExternalProjects(
   options: FirstMateExternalProjectOptions
 ): FirstMateExternalProjects {
   const today = options.today ?? ((): string => new Date().toISOString().slice(0, 10))
   let store: FirstMateExternalProjectStore = { version: 1, projects: {} }
+  let ambiguousIdentities = new Set<string>()
   let entries: FleetRegistryEntry[] = []
   let loaded = false
   let queue: Promise<unknown> = Promise.resolve()
-  const validated = new Set<string>()
 
   const refresh = async (): Promise<void> => {
     const files = await options.home.read()
-    store = parseExternalProjectStore(files.store, today())
+    const parsed = parseExternalProjectStore(files.store, today())
+    store = parsed.store
+    ambiguousIdentities = parsed.ambiguousIdentities
     entries = parseFleetRegistry(files.registry)
     loaded = true
   }
@@ -351,49 +392,102 @@ export function createFirstMateExternalProjects(
   const record = async (selection: FirstMateProjectSelection): Promise<FirstMateProjectRegistration> => {
     const windowsPath = firstMateCanonicalWindowsPath(selection.path)
     if (!selection.projectId || !windowsPath) {
-      return { ok: false, message: `ADE cannot register the project path ${JSON.stringify(selection.path)}.` }
+      return refused(
+        selection,
+        'selection',
+        `ADE cannot resolve the selected project path ${JSON.stringify(selection.path)} to a canonical Windows path.`
+      )
     }
-    if (loaded) {
-      const cached = store.projects[selection.projectId]
-      if (
-        cached
-        && validated.has(selection.projectId)
-        && cached.displayName === selection.name
-        && cached.windowsPath === windowsPath
-      ) {
-        return { ok: true, project: { ...cached } }
-      }
+    let facts: FirstMateCheckoutFacts
+    try {
+      facts = await options.inspectCheckout(windowsPath)
+    } catch (error) {
+      return refused(selection, 'path-access', errorMessage(error))
     }
-    const facts = await options.inspectCheckout(windowsPath)
     if (!facts.exists) {
-      return { ok: false, message: `ADE could not find the project checkout at ${windowsPath}.` }
+      return refused(selection, 'path-access', `ADE could not find or access the project checkout at ${windowsPath}.`)
+    }
+    if (facts.git === 'unavailable') {
+      return refused(selection, 'git', facts.message ?? `ADE could not inspect Git at ${windowsPath}.`)
+    }
+    if (facts.git === 'not-checkout') {
+      return refused(selection, 'git', `${windowsPath} is not a usable Git checkout.`)
     }
     if (facts.origin && !firstMateOriginSafe(facts.origin)) {
-      return {
-        ok: false,
-        message: `The Git origin recorded in ${windowsPath} is not a safe clone URL: ${facts.origin}`
+      return refused(selection, 'git', `The Git origin recorded in ${windowsPath} is not a safe clone URL: ${facts.origin}`)
+    }
+    const wslPath = firstMateWslPath(windowsPath)
+    if (options.inspectWslPath) {
+      let access: FirstMateWslPathFacts
+      try {
+        access = await options.inspectWslPath(wslPath)
+      } catch (error) {
+        return refused(selection, 'wsl', errorMessage(error))
+      }
+      if (!access.accessible) {
+        return refused(
+          selection,
+          'wsl',
+          access.message ?? `${wslPath} is unavailable inside FirstMate's WSL distribution.`
+        )
       }
     }
     await refresh()
+    if (ambiguousIdentities.has(selection.projectId)) {
+      return refused(
+        selection,
+        'registration',
+        `ADE's external-project store contains multiple records for stable identity ${selection.projectId}. `
+          + 'Remove the stale duplicate or re-add the intended project before retrying.'
+      )
+    }
+    const request: ExternalProjectRequest = {
+      adeProjectId: selection.projectId,
+      displayName: selection.name,
+      windowsPath,
+      wslPath,
+      ...(facts.origin ? { origin: facts.origin } : {})
+    }
+    const pathOwner = Object.values(store.projects).find((project) => (
+      project.adeProjectId !== selection.projectId
+      && project.windowsPath.toLocaleLowerCase() === windowsPath.toLocaleLowerCase()
+    ))
+    if (pathOwner) {
+      return refused(
+        selection,
+        'registration',
+        `${windowsPath} is already registered to ADE project ${JSON.stringify(pathOwner.displayName)} `
+          + `(${pathOwner.adeProjectId}). Reselect the intended checkout or remove the stale project entry.`
+      )
+    }
+    const fleetMatches = registryEntriesForCheckout(entries, request)
+    if (fleetMatches.length > 1) {
+      return refused(
+        selection,
+        'registration',
+        `Multiple FirstMate fleet entries name ${wslPath}: ${fleetMatches.map((entry) => entry.name).join(', ')}. `
+          + 'Resolve the ambiguous fleet entries before retrying.'
+      )
+    }
     const resolved = resolveRegistration(
-      {
-        adeProjectId: selection.projectId,
-        displayName: selection.name,
-        windowsPath,
-        wslPath: firstMateWslPath(windowsPath),
-        ...(facts.origin ? { origin: facts.origin } : {})
-      },
+      request,
       store,
       entries,
+      fleetMatches[0],
       today()
     )
     if (resolved.changed) await commit({ [selection.projectId]: resolved.project })
-    validated.add(selection.projectId)
     return { ok: true, project: { ...resolved.project } }
   }
 
   return {
-    register: (selection) => serialize(() => record(selection)),
+    register: (selection) => serialize(async () => {
+      try {
+        return await record(selection)
+      } catch (error) {
+        return refused(selection, 'registration', errorMessage(error))
+      }
+    }),
     async recorded(adeProjectId: string): Promise<FirstMateExternalProject | null> {
       return serialize(async () => {
         await load()
@@ -418,7 +512,6 @@ export function createFirstMateExternalProjects(
         if (!store.projects[adeProjectId]) return { ok: true }
         try {
           await commit({ [adeProjectId]: undefined })
-          validated.delete(adeProjectId)
           return { ok: true }
         } catch (error) {
           return { ok: false, message: errorMessage(error) }

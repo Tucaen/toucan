@@ -217,6 +217,22 @@ process.stdout.write(JSON.stringify({
 }))
 `
 
+const WSL_PROJECT_ACCESS_SCRIPT = `
+const fs = require('node:fs')
+const project = process.argv[1]
+try {
+  const stat = fs.statSync(project)
+  if (!stat.isDirectory()) throw new Error('the path is not a directory')
+  fs.accessSync(project, fs.constants.R_OK | fs.constants.X_OK)
+  process.stdout.write(JSON.stringify({ accessible: true }))
+} catch (error) {
+  process.stdout.write(JSON.stringify({
+    accessible: false,
+    message: error instanceof Error ? error.message : String(error)
+  }))
+}
+`
+
 const WSL_EXTERNAL_PROJECT_WRITE_SCRIPT = `
 const fs = require('node:fs')
 const path = require('node:path')
@@ -420,7 +436,23 @@ function errorMessage(error: unknown): string {
  */
 async function inspectWindowsCheckout(git: string | null, windowsPath: string): Promise<FirstMateCheckoutFacts> {
   if (!existsSync(windowsPath)) return { exists: false }
-  if (!git) return { exists: true }
+  if (!git) {
+    return {
+      exists: true,
+      git: 'unavailable',
+      message: 'ADE cannot validate this checkout because Git is unavailable on Windows.'
+    }
+  }
+  try {
+    const checkout = await execFileAsync(git, ['-C', windowsPath, 'rev-parse', '--is-inside-work-tree'], {
+      encoding: 'utf8',
+      timeout: 15_000,
+      windowsHide: true
+    })
+    if (String(checkout.stdout).trim() !== 'true') return { exists: true, git: 'not-checkout' }
+  } catch {
+    return { exists: true, git: 'not-checkout' }
+  }
   try {
     const result = await execFileAsync(git, ['-C', windowsPath, 'remote', 'get-url', 'origin'], {
       encoding: 'utf8',
@@ -428,10 +460,10 @@ async function inspectWindowsCheckout(git: string | null, windowsPath: string): 
       windowsHide: true
     })
     const origin = String(result.stdout).trim()
-    return origin ? { exists: true, origin } : { exists: true }
+    return origin ? { exists: true, git: 'checkout', origin } : { exists: true, git: 'checkout' }
   } catch {
-    // A directory that is not a repository, or a repository with no origin remote, is a local-only project.
-    return { exists: true }
+    // A usable checkout without an origin is explicitly local-only.
+    return { exists: true, git: 'checkout' }
   }
 }
 
@@ -441,12 +473,14 @@ async function inspectWindowsCheckout(git: string | null, windowsPath: string): 
  */
 function createExternalProjectRuntime(
   options: FirstMateRuntimeOptions,
-  home: FirstMateExternalProjectHome
+  home: FirstMateExternalProjectHome,
+  inspectWslPath?: (wslPath: string) => Promise<{ accessible: boolean; message?: string }>
 ): Pick<FirstMateRuntime, 'registerProject' | 'recordedProject' | 'authorizeProjectInitialization' | 'retireProject'> {
   const projects = createFirstMateExternalProjects({
     home,
     inspectCheckout: options.inspectCheckout
-      ?? ((windowsPath) => inspectWindowsCheckout(options.resolveGit(), windowsPath))
+      ?? ((windowsPath) => inspectWindowsCheckout(options.resolveGit(), windowsPath)),
+    ...(inspectWslPath ? { inspectWslPath } : {})
   })
   return {
     async registerProject(selection: FirstMateProjectSelection): Promise<FirstMateProjectRegistration> {
@@ -792,28 +826,55 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
     if (!readyPaths) throw new Error('FirstMate is not ready.')
     return readyPaths.homePath
   }
-  const externalProjects = createExternalProjectRuntime(options, {
-    async read(): Promise<FirstMateExternalProjectFiles> {
-      const result = await run(
-        [
-          '--distribution', distribution,
-          '--exec', '/usr/bin/node', '-e', WSL_EXTERNAL_PROJECT_READ_SCRIPT, await homePath()
-        ],
-        15_000
-      )
-      return JSON.parse(result.stdout) as FirstMateExternalProjectFiles
+  const externalProjects = createExternalProjectRuntime(
+    options,
+    {
+      async read(): Promise<FirstMateExternalProjectFiles> {
+        const result = await run(
+          [
+            '--distribution', distribution,
+            '--exec', '/usr/bin/node', '-e', WSL_EXTERNAL_PROJECT_READ_SCRIPT, await homePath()
+          ],
+          15_000
+        )
+        return JSON.parse(result.stdout) as FirstMateExternalProjectFiles
+      },
+      async writeStore(text: string): Promise<void> {
+        await run(
+          [
+            '--distribution', distribution,
+            '--exec', '/usr/bin/node', '-e', WSL_EXTERNAL_PROJECT_WRITE_SCRIPT, await homePath(),
+            Buffer.from(text).toString('base64url')
+          ],
+          15_000
+        )
+      }
     },
-    async writeStore(text: string): Promise<void> {
-      await run(
-        [
-          '--distribution', distribution,
-          '--exec', '/usr/bin/node', '-e', WSL_EXTERNAL_PROJECT_WRITE_SCRIPT, await homePath(),
-          Buffer.from(text).toString('base64url')
-        ],
-        15_000
-      )
+    async (wslPath) => {
+      const mount = /^\/mnt\/([^/]+)/.exec(wslPath)?.[1]?.toLocaleUpperCase()
+      const repair = mount
+        ? `Restore the ${mount}: drive mount in ${distribution} WSL and reselect the project.`
+        : `Restore access to the converted path in ${distribution} WSL and reselect the project.`
+      try {
+        const result = await run(
+          [
+            '--distribution', distribution,
+            '--exec', '/usr/bin/node', '-e', WSL_PROJECT_ACCESS_SCRIPT, wslPath
+          ],
+          15_000
+        )
+        const access = JSON.parse(result.stdout) as { accessible?: unknown; message?: unknown }
+        if (access.accessible === true) return { accessible: true }
+        const cause = typeof access.message === 'string' && access.message ? ` ${access.message}` : ''
+        return { accessible: false, message: `${wslPath} is unavailable inside FirstMate. ${repair}${cause}` }
+      } catch (error) {
+        return {
+          accessible: false,
+          message: `ADE could not validate ${wslPath} inside FirstMate. ${repair} ${errorMessage(error)}`
+        }
+      }
     }
-  })
+  )
 
   const lifecycleFiles = async (): Promise<FirstMateLifecycleFiles> => {
     if (!readyPaths) await inspect()

@@ -206,8 +206,8 @@ test('assigns every FirstMate request to the project selected in the sidebar', (
   )
   assert.match(
     conversation,
-    /const prompt = compose \? await compose\(text\) : text[\s\S]*?window\.agentApi\.prompt\(options\.id, prompt\)/,
-    'the project assignment should be sent to the agent while the visible chat keeps the captain\'s original text'
+    /deliverAgentPrompt\([\s\S]*?\(prompt\) => window\.agentApi\.prompt\(options\.id, prompt\)/,
+    'the project assignment should cross the guarded delivery seam while the visible chat keeps the captain\'s original text'
   )
 
   const sessionDependencies = conversation.match(/\}, \[options\.cwd[^\]]*\]\)/)?.[0]

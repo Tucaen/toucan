@@ -9,6 +9,7 @@ import type {
   AgentPlanEntry,
   AgentProvider
 } from '../../shared/agent'
+import { deliverAgentPrompt } from './agent-prompt-delivery'
 
 export interface AgentChatMessage {
   id: string
@@ -171,15 +172,21 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     const text = draft.trim()
     if (!text || status !== 'ready') return
     const compose = options.composePrompt
-    setMessages((current) => [...current, { id: crypto.randomUUID(), role: 'user', text }])
-    setDraft('')
     setStatus('working')
-    void (async () => {
-      const prompt = compose ? await compose(text) : text
-      sentTextRef.current = prompt
-      const result = await window.agentApi.prompt(options.id, prompt)
-      if (!result.ok) setDetail(result.message)
-    })()
+    void deliverAgentPrompt(
+      text,
+      compose,
+      (prompt) => window.agentApi.prompt(options.id, prompt),
+      (prompt) => {
+        setMessages((current) => [...current, { id: crypto.randomUUID(), role: 'user', text }])
+        setDraft('')
+        sentTextRef.current = prompt
+      }
+    ).then((result) => {
+      if (result.ok) return
+      setDetail(result.message)
+      setStatus('ready')
+    })
   }
 
   const authenticate = (methodId: string): void => {
