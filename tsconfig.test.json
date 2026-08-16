@@ -23,6 +23,7 @@
     "src/main/terminal-manager.ts",
     "src/main/workspace-store.ts",
     "src/renderer/src/canvas-workspace.ts",
+    "src/renderer/src/node-picker-menu-position.ts",
     "src/renderer/src/with-stall-guard.ts",
     "src/shared/**/*.ts"
   ]

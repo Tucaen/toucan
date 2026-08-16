@@ -1011,12 +1011,12 @@ button {
   cursor: default;
 }
 
+/* Portal-rendered into <body>; top/left are computed in JS against the
+   trigger button's viewport rect so the menu can't be clipped by an
+   `overflow: hidden` ancestor such as .firstmate-panel or .terminal-node. */
 .node-picker-menu {
-  position: absolute;
-  z-index: 20;
-  top: calc(100% + 7px);
-  right: 0;
-  width: 230px;
+  z-index: 1000;
+  width: 240px;
   padding: 6px;
   border: 1px solid #3a4350;
   border-radius: 9px;
@@ -1907,10 +1907,6 @@ button {
 
 .firstmate-settings-bar .node-picker[data-picker="model"] .node-picker-button {
   max-width: none;
-}
-
-.firstmate-settings-bar .node-picker-menu {
-  width: min(250px, calc(370px - 20px));
 }
 
 /* ADE-wide FirstMate conversation dock. */

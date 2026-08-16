@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { type NodeProps } from '@xyflow/react'
 import ReactMarkdown from 'react-markdown'
 import type {
@@ -8,6 +9,7 @@ import type {
 } from '../../shared/agent'
 import { activityTitle } from '../../shared/agent-activity'
 import type { TerminalCanvasNode, TerminalNodeStatus } from './canvas-workspace'
+import { computeNodePickerMenuPosition } from './node-picker-menu-position'
 import NodeBorderResizer from './NodeBorderResizer'
 import VoiceInputPrototype from './VoiceInputPrototype'
 import {
@@ -63,20 +65,92 @@ export function SelectorPicker(props: {
   select(optionId: string): void
 }): JSX.Element {
   const [open, setOpen] = useState(false)
+  const [menuPosition, setMenuPosition] = useState<{ top: number; left: number } | null>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const buttonRef = useRef<HTMLButtonElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
   const copy = pickerCopy[props.kind]
   const selected = props.options.find((option) => option.id === props.selectedId)
   const canOpen = props.options.length > 0 && !props.disabled
 
+  // The menu portals to <body> so it can escape ancestors (e.g. the FirstMate
+  // panel, canvas nodes) that clip overflow; position it against the trigger
+  // button's viewport rect instead of relying on CSS anchoring.
+  useLayoutEffect(() => {
+    if (!open) {
+      setMenuPosition(null)
+      return
+    }
+    const reposition = (): void => {
+      const trigger = buttonRef.current?.getBoundingClientRect()
+      const menu = menuRef.current?.getBoundingClientRect()
+      if (!trigger) return
+      setMenuPosition(computeNodePickerMenuPosition(
+        trigger,
+        { width: menu?.width ?? 230, height: menu?.height ?? 0 },
+        { width: window.innerWidth, height: window.innerHeight }
+      ))
+    }
+    reposition()
+    window.addEventListener('resize', reposition)
+    window.addEventListener('scroll', reposition, true)
+    return () => {
+      window.removeEventListener('resize', reposition)
+      window.removeEventListener('scroll', reposition, true)
+    }
+  }, [open, props.options])
+
+  const closeUnlessFocusStaysInside = (relatedTarget: EventTarget | null): void => {
+    const next = relatedTarget as Node | null
+    if (containerRef.current?.contains(next) || menuRef.current?.contains(next)) return
+    setOpen(false)
+  }
+
+  const menu = open && (
+    <div
+      ref={menuRef}
+      className="node-picker-menu"
+      role="listbox"
+      aria-label={copy.heading}
+      style={{
+        position: 'fixed',
+        top: menuPosition?.top ?? 0,
+        left: menuPosition?.left ?? 0,
+        visibility: menuPosition ? 'visible' : 'hidden'
+      }}
+      onBlur={(event) => closeUnlessFocusStaysInside(event.relatedTarget)}
+      onClick={(event) => event.stopPropagation()}
+    >
+      <small>{copy.heading}</small>
+      {props.options.map((option) => (
+        <button
+          type="button"
+          role="option"
+          aria-selected={option.id === props.selectedId}
+          data-selected={option.id === props.selectedId}
+          key={option.id}
+          onClick={() => {
+            props.select(option.id)
+            setOpen(false)
+          }}
+        >
+          <strong>{option.name}</strong>
+          {option.description && <span>{option.description}</span>}
+        </button>
+      ))}
+    </div>
+  )
+
   return (
     <div
+      ref={containerRef}
       className="node-picker nodrag"
       data-picker={props.kind}
-      onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false)
-      }}
+      onBlur={(event) => closeUnlessFocusStaysInside(event.relatedTarget)}
       onClick={(event) => event.stopPropagation()}
     >
       <button
+        ref={buttonRef}
         type="button"
         className="node-picker-button"
         aria-expanded={open}
@@ -89,27 +163,7 @@ export function SelectorPicker(props: {
         {selected?.name ?? copy.idle}
         <span aria-hidden="true">⌄</span>
       </button>
-      {open && (
-        <div className="node-picker-menu" role="listbox" aria-label={copy.heading}>
-          <small>{copy.heading}</small>
-          {props.options.map((option) => (
-            <button
-              type="button"
-              role="option"
-              aria-selected={option.id === props.selectedId}
-              data-selected={option.id === props.selectedId}
-              key={option.id}
-              onClick={() => {
-                props.select(option.id)
-                setOpen(false)
-              }}
-            >
-              <strong>{option.name}</strong>
-              {option.description && <span>{option.description}</span>}
-            </button>
-          ))}
-        </div>
-      )}
+      {menu && createPortal(menu, document.body)}
     </div>
   )
 }
