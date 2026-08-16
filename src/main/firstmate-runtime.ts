@@ -381,7 +381,69 @@ export CLAUDE_CONFIG_DIR="$base/home/claude"
 export DISABLE_AUTOUPDATER=1
 exec "$HOME/.local/bin/claude" "\$@"
 EOF
-chmod 700 "$base/home/bin/codex" "$base/home/bin/claude"
+cat > "$base/home/bin/ade-spawn-gate" <<'GATE'
+#!/usr/bin/env node
+'use strict'
+const fs = require('node:fs')
+const path = require('node:path')
+const home = process.env.FM_HOME
+if (!home) { process.stderr.write('Spawn refused: FM_HOME is not set.\\n'); process.exit(1) }
+const metadata = process.argv[2]
+if (!metadata) { process.stderr.write('Usage: ade-spawn-gate <task-context-metadata>\\n'); process.exit(1) }
+const prefix = 'ade_task_context='
+if (!metadata.startsWith(prefix)) {
+  process.stderr.write('Spawn refused: metadata is not a valid task context carrier.\\n')
+  process.exit(1)
+}
+let context
+try { context = JSON.parse(decodeURIComponent(metadata.slice(prefix.length))) }
+catch { process.stderr.write('Spawn refused: task context carrier is malformed.\\n'); process.exit(1) }
+if (!context || context.version !== 1 || !context.project || !context.validator) {
+  process.stderr.write('Spawn refused: task context is structurally invalid.\\n')
+  process.exit(1)
+}
+let store
+try { store = JSON.parse(fs.readFileSync(path.join(home, 'data', 'ade-external-projects.json'), 'utf8')) }
+catch { process.stderr.write('Spawn refused: ADE project store is unreadable.\\n'); process.exit(1) }
+const project = store.projects && store.projects[context.project.adeProjectId]
+if (!project) {
+  process.stderr.write('Spawn refused: no registered project ' + JSON.stringify(context.project.adeProjectId) + '.\\n')
+  process.exit(1)
+}
+let runtime
+try { runtime = JSON.parse(fs.readFileSync(path.join(home, 'config', 'ade-runtime.json'), 'utf8')) }
+catch { process.stderr.write('Spawn refused: ADE runtime record is unreadable.\\n'); process.exit(1) }
+if (!runtime.validator) {
+  process.stderr.write('Spawn refused: ADE runtime record has no validator.\\n')
+  process.exit(1)
+}
+const checks = [
+  ['Project id', context.project.adeProjectId, project.adeProjectId],
+  ['Registry name', context.project.registryName, project.registryName],
+  ['Canonical Windows path', context.project.windowsPath, project.windowsPath],
+  ['Canonical WSL path', context.project.wslPath, project.wslPath],
+  ['Delivery posture', context.project.mode, project.mode],
+  ['Autonomy authorization', context.project.autonomy, project.autonomy]
+]
+for (const [label, got, want] of checks) {
+  if (got !== want) {
+    process.stderr.write('Spawn refused: ' + label + ' ' + JSON.stringify(got)
+      + ' disagrees with authoritative record ' + JSON.stringify(want) + '.\\n')
+    process.exit(1)
+  }
+}
+if (context.validator.agent !== runtime.validator.agent) {
+  process.stderr.write('Spawn refused: provider ' + JSON.stringify(context.validator.agent)
+    + ' disagrees with authoritative record ' + JSON.stringify(runtime.validator.agent) + '.\\n')
+  process.exit(1)
+}
+if (context.validator.model !== runtime.validator.model) {
+  process.stderr.write('Spawn refused: model ' + JSON.stringify(context.validator.model)
+    + ' disagrees with authoritative record ' + JSON.stringify(runtime.validator.model) + '.\\n')
+  process.exit(1)
+}
+GATE
+chmod 700 "$base/home/bin/codex" "$base/home/bin/claude" "$base/home/bin/ade-spawn-gate"
 export PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin"
 export NPM_CONFIG_PREFIX="$HOME/.local"
 export NM_HOME="$base/home/no-mistakes"
