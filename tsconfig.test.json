@@ -16,6 +16,7 @@
     "src/main/firstmate-external-projects.ts",
     "src/main/firstmate-paths.ts",
     "src/main/firstmate-project-origin.ts",
+    "src/main/firstmate-captain-wake.ts",
     "src/main/firstmate-runtime.ts",
     "src/main/terminal-events.ts",
     "src/main/session-providers.ts",

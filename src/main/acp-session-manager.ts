@@ -29,6 +29,7 @@ import { activityFromUpdate } from '../shared/agent-activity'
 import { modelSelectorFromConfigOptions } from '../shared/agent-models'
 import { buildAgentProcessLaunch, type AgentProcessLaunch } from './agent-process'
 import { readCachedCodexModels } from './codex-model-cache'
+import { createCaptainWakeGate, type CaptainWakeGate } from './firstmate-captain-wake'
 import type { FirstMateLaunch } from './firstmate-runtime'
 
 interface PendingApproval {
@@ -51,6 +52,7 @@ interface RunningAgent {
   pendingApprovals: Map<string, PendingApproval>
   busy: boolean
   stopping: boolean
+  wakeGate?: CaptainWakeGate
 }
 
 function errorMessage(error: unknown): string {
@@ -280,6 +282,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
   const stop = (id: string): void => {
     const running = agents.get(id)
     if (!running) return
+    running.wakeGate?.dispose()
     running.stopping = true
     for (const pending of running.pendingApprovals.values()) {
       pending.resolve({ outcome: { outcome: 'cancelled' } })
@@ -310,6 +313,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       return failure.result
     } finally {
       running.busy = false
+      running.wakeGate?.flush()
     }
   }
 
@@ -440,6 +444,17 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         busy: false,
         stopping: false
       }
+      if (request.scope === 'firstmate') {
+        running.wakeGate = createCaptainWakeGate({
+          deliver: (text) => runPrompt(request.id, text),
+          onExpired: () => {
+            send(running, {
+              type: 'error',
+              message: 'A lifecycle wake expired because the captain did not become idle in time.'
+            })
+          }
+        })
+      }
       agents.set(request.id, running)
 
       child.stderr.setEncoding('utf8')
@@ -475,7 +490,14 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
     },
 
     prompt: runPrompt,
-    promptWhenIdle: runPrompt,
+
+    async promptWhenIdle(id: string, text: string): Promise<AgentPromptResult> {
+      const running = agents.get(id)
+      if (!running?.sessionId) return { ok: false, message: 'The agent session is not ready.' }
+      if (!running.wakeGate) return runPrompt(id, text)
+      if (!running.busy) return runPrompt(id, text)
+      return running.wakeGate.enqueue(text)
+    },
 
     async setMode(id, modeId): Promise<AgentPromptResult> {
       const running = agents.get(id)
