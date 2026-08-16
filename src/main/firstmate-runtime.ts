@@ -64,6 +64,7 @@ const CLAUDE_CLI_VERSION = '2.1.232'
 const WSL_BASE = '.local/share/ade/firstmate'
 const WSL_REQUIRED_FACTS = [
   'distro',
+  'gate',
   'tool.node',
   'tool.git',
   'tool.gh',
@@ -95,6 +96,7 @@ for tool in node git gh tmux jq claude codex treehouse no-mistakes gh-axi chrome
 done
 [ -x "$base/home/bin/claude" ] && printf 'wrapper.claude=1\n' || true
 [ -x "$base/home/bin/codex" ] && printf 'wrapper.codex=1\n' || true
+[ -x "$base/home/bin/ade-spawn-gate" ] && printf 'gate=1\n' || true
 NM_HOME="$base/home/no-mistakes" no-mistakes daemon status >/dev/null 2>&1 && printf 'daemon.no-mistakes=1\n' || true
 gh auth status >/dev/null 2>&1 && printf 'githubAuth=authenticated\n' || printf 'githubAuth=required\n'
 config="$base/home/codex/config.toml"
@@ -462,6 +464,7 @@ export interface FirstMateLaunch {
 export interface FirstMateRuntime {
   status(): Promise<FirstMateRuntimeStatus>
   install(): Promise<FirstMateInstallResult>
+  repair(): Promise<FirstMateInstallResult>
   authenticateGitHub(): Promise<FirstMateActionResult>
   trustCodexProject(): Promise<FirstMateActionResult>
   lifecycle(): Promise<FirstMateLifecycleStatus>
@@ -835,15 +838,19 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
         readyLaunchFactory = null
         readyPaths = null
         readyProviders.clear()
+        const repairable = detected.get('distro') === '1'
         return {
           status: {
-            state: lastError ? 'error' : 'missing',
+            state: lastError ? 'error' : repairable ? 'repair' : 'missing',
             distroPath: paths.distroPath,
             homePath: paths.homePath,
             backend: 'tmux',
             supervision: 'app-native',
             distribution,
-            message: lastError ?? `ADE will provision FirstMate, native Claude and Codex agents, tmux, and the managed review toolchain in ${distribution}.`
+            message: lastError
+              ?? (repairable
+                ? `ADE's managed FirstMate home needs repair. Existing projects, authentication, and task state are preserved.`
+                : `ADE will provision FirstMate, native Claude and Codex agents, tmux, and the managed review toolchain in ${distribution}.`)
           },
           paths: null
         }
@@ -1050,47 +1057,57 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
     return Array.isArray(parsed.tasks) ? parsed : { tasks: [] }
   }
 
+  const provision = async (steps: () => Promise<void>): Promise<FirstMateInstallResult> => {
+    if (installing) return { ok: false, status: await inspect() }
+    installing = true
+    lastError = undefined
+    try {
+      await steps()
+    } catch (error) {
+      lastError = errorMessage(error)
+    } finally {
+      installing = false
+    }
+    const status = await inspect()
+    return { ok: status.state === 'ready', status }
+  }
+
   return {
     status: inspect,
     ...externalProjects,
-    async install(): Promise<FirstMateInstallResult> {
-      if (installing) return { ok: false, status: await inspect() }
-      installing = true
-      lastError = undefined
-      try {
-        await run(
-          [
-            '--distribution', distribution,
-            '--user', 'root',
-            '--exec', '/usr/bin/env',
-            'DEBIAN_FRONTEND=noninteractive',
-            '/usr/bin/apt-get', 'update'
-          ],
-          10 * 60_000
-        )
-        await run(
-          [
-            '--distribution', distribution,
-            '--user', 'root',
-            '--exec', '/usr/bin/env',
-            'DEBIAN_FRONTEND=noninteractive',
-            '/usr/bin/apt-get', 'install', '-y',
-            'ca-certificates', 'curl', 'git', 'gh', 'jq', 'nodejs', 'npm', 'tmux'
-          ],
-          10 * 60_000
-        )
-        await run(
-          ['--distribution', distribution, '--exec', '/bin/bash', '-lc', WSL_PREPARE_SCRIPT],
-          15 * 60_000
-        )
-      } catch (error) {
-        lastError = errorMessage(error)
-      } finally {
-        installing = false
-      }
-      const status = await inspect()
-      return { ok: status.state === 'ready', status }
-    },
+    install: () => provision(async () => {
+      await run(
+        [
+          '--distribution', distribution,
+          '--user', 'root',
+          '--exec', '/usr/bin/env',
+          'DEBIAN_FRONTEND=noninteractive',
+          '/usr/bin/apt-get', 'update'
+        ],
+        10 * 60_000
+      )
+      await run(
+        [
+          '--distribution', distribution,
+          '--user', 'root',
+          '--exec', '/usr/bin/env',
+          'DEBIAN_FRONTEND=noninteractive',
+          '/usr/bin/apt-get', 'install', '-y',
+          'ca-certificates', 'curl', 'git', 'gh', 'jq', 'nodejs', 'npm', 'tmux'
+        ],
+        10 * 60_000
+      )
+      await run(
+        ['--distribution', distribution, '--exec', '/bin/bash', '-lc', WSL_PREPARE_SCRIPT],
+        15 * 60_000
+      )
+    }),
+    repair: () => provision(async () => {
+      await run(
+        ['--distribution', distribution, '--exec', '/bin/bash', '-lc', WSL_PREPARE_SCRIPT],
+        15 * 60_000
+      )
+    }),
     async authenticateGitHub(): Promise<FirstMateActionResult> {
       const { status: current, paths } = await inspectHost()
       if (current.state !== 'ready' || !paths) {
@@ -1335,6 +1352,7 @@ function createUnsupportedFirstMateRuntime(platform: NodeJS.Platform): FirstMate
   return {
     async status(): Promise<FirstMateRuntimeStatus> { return status() },
     async install(): Promise<FirstMateInstallResult> { return { ok: false, status: status() } },
+    async repair(): Promise<FirstMateInstallResult> { return { ok: false, status: status() } },
     authenticateGitHub: refuse,
     trustCodexProject: refuse,
     async lifecycle(): Promise<FirstMateLifecycleStatus> {

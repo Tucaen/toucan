@@ -95,6 +95,7 @@ function registerFirstMateIpc(
 ): void {
   ipcMain.handle('firstmate:status', () => runtime.status())
   ipcMain.handle('firstmate:install', () => runtime.install())
+  ipcMain.handle('firstmate:repair', () => runtime.repair())
   ipcMain.handle('firstmate:github-auth', () => runtime.authenticateGitHub())
   ipcMain.handle('firstmate:trust-codex', () => runtime.trustCodexProject())
   ipcMain.handle('firstmate:lifecycle', () => runtime.lifecycle())

@@ -46,6 +46,7 @@ function readyWslInspection(): string {
       'chrome-devtools-axi', 'lavish-axi', 'tasks-axi', 'quota-axi'].map((tool) => `tool.${tool}=1`),
     'wrapper.claude=1',
     'wrapper.codex=1',
+    'gate=1',
     'daemon.no-mistakes=1',
     'githubAuth=required',
     'codexTrust=required'

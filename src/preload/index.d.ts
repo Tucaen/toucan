@@ -54,6 +54,7 @@ export interface TerminalApi {
 export interface FirstMateApi {
   status(): Promise<FirstMateRuntimeStatus>
   install(): Promise<FirstMateInstallResult>
+  repair(): Promise<FirstMateInstallResult>
   authenticateGitHub(): Promise<FirstMateActionResult>
   trustCodexProject(): Promise<FirstMateActionResult>
   lifecycle(): Promise<FirstMateLifecycleStatus>

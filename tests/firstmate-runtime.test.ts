@@ -25,6 +25,7 @@ function readyWslInspection(): string {
       'chrome-devtools-axi', 'lavish-axi', 'tasks-axi', 'quota-axi'].map((tool) => `tool.${tool}=1`),
     'wrapper.claude=1',
     'wrapper.codex=1',
+    'gate=1',
     'daemon.no-mistakes=1',
     'githubAuth=required',
     'codexTrust=required'
@@ -499,8 +500,11 @@ test('keeps two switched external projects on their original providers through s
       windowsPath: project.path,
       wslPath,
       origin: `https://github.com/acme/${project.id}.git`,
+      originClassification: 'remote-backed',
       mode: 'no-mistakes',
       autonomy: false,
+      autonomyCeiling: false,
+      postureSource: 'default',
       initialization: 'authorized',
       registeredAt: '2026-08-15'
     }
@@ -1120,4 +1124,191 @@ test('blocks a WSL-inaccessible checkout and recovers after the same mount retur
 
   assert.equal(recovered.ok, true)
   assert.equal(recovered.project?.adeProjectId, 'alpha')
+})
+
+// --- Managed spawn gate repair ---
+
+function preGateInspection(): string {
+  return readyWslInspection().split('\n').filter((line) => !line.startsWith('gate=')).join('\n')
+}
+
+test('detects an existing pre-gate home as needing repair, not ready', async () => {
+  const runtime = createFirstMateRuntime({
+    platform: 'win32',
+    resolveGit: () => 'git.exe',
+    wsl: { run: async () => ({ stdout: preGateInspection(), stderr: '' }) }
+  })
+
+  const status = await runtime.status()
+
+  assert.equal(status.state, 'repair', 'an existing home missing the spawn gate must need repair, not report ready')
+  assert.match(status.message ?? '', /repair/i, 'the message must mention repair')
+  assert.equal(runtime.launch(), null, 'a repairable runtime must not offer a launch')
+})
+
+test('repair creates an executable spawn gate and preserves existing state', async () => {
+  const calls: string[][] = []
+  let repaired = false
+  const runtime = createFirstMateRuntime({
+    platform: 'win32',
+    resolveGit: () => 'git.exe',
+    wsl: {
+      run: async (args) => {
+        calls.push(args)
+        if (args.includes('/bin/bash') && args.includes('-lc')) {
+          repaired = true
+          return { stdout: '', stderr: '' }
+        }
+        const inspection = repaired ? readyWslInspection() : readyWslInspection()
+          .split('\n')
+          .filter((line) => line !== 'gate=1')
+          .join('\n')
+        return { stdout: inspection, stderr: '' }
+      }
+    }
+  })
+
+  assert.equal((await runtime.status()).state, 'repair')
+  const result = await runtime.repair()
+
+  assert.equal(result.ok, true)
+  assert.equal(result.status.state, 'ready')
+  const prepare = calls.find((args) => args.includes('/bin/bash') && args.includes('-lc'))
+  assert.ok(prepare, 'repair must run the managed provisioning script')
+  assert.match(prepare.at(-1) ?? '', /ade-spawn-gate/, 'the provisioning script must create the spawn gate')
+  assert.equal(
+    calls.some((args) => args.includes('apt-get')),
+    false,
+    'repair must not re-run system package installation'
+  )
+})
+
+test('restart after repair remains ready and idempotent', async () => {
+  const run = async (args: string[]): Promise<{ stdout: string; stderr: string }> => {
+    if (args[3] === '/bin/sh') return { stdout: readyWslInspection(), stderr: '' }
+    return { stdout: '', stderr: '' }
+  }
+  const runtime1 = createFirstMateRuntime({
+    platform: 'win32',
+    resolveGit: () => 'git.exe',
+    wsl: { run }
+  })
+  const runtime2 = createFirstMateRuntime({
+    platform: 'win32',
+    resolveGit: () => 'git.exe',
+    wsl: { run }
+  })
+
+  assert.equal((await runtime1.status()).state, 'ready')
+  assert.equal((await runtime2.status()).state, 'ready', 'a second runtime against the same ready host must also be ready')
+})
+
+test('project authorization alone cannot falsely imply dispatch readiness when the gate is missing', async () => {
+  const inspection = preGateInspection()
+  const host = wslExternalProjectHost()
+  const originalRun = host.run
+  host.run = async (args) => {
+    if (args[3] === '/bin/sh') return { stdout: inspection, stderr: '' }
+    return originalRun(args)
+  }
+  const runtime = createFirstMateRuntime({
+    platform: 'win32',
+    resolveGit: () => 'git.exe',
+    inspectCheckout: async () => ({
+      status: 'git-checkout' as const,
+      origin: 'https://github.com/acme/alpha.git'
+    }),
+    wsl: { run: host.run }
+  })
+
+  const status = await runtime.status()
+  assert.equal(status.state, 'repair', 'the runtime must not be ready without a spawn gate')
+  assert.equal(runtime.launch(), null, 'no launch path should be available in repair state')
+})
+
+test('a valid catalog carrier passes after repair; stale project or validator metadata still fails closed', async () => {
+  let repaired = false
+  const calls: string[][] = []
+  const host = wslExternalProjectHost()
+  const originalHostRun = host.run
+  const runtime = createFirstMateRuntime({
+    platform: 'win32',
+    resolveGit: () => 'git.exe',
+    inspectCheckout: async () => ({
+      status: 'git-checkout' as const,
+      origin: 'https://github.com/acme/alpha.git'
+    }),
+    wsl: {
+      run: async (args) => {
+        calls.push(args)
+        if (args.includes('/bin/bash') && args.includes('-lc')) {
+          repaired = true
+          return { stdout: '', stderr: '' }
+        }
+        if (args[3] === '/bin/sh') {
+          const inspection = repaired ? readyWslInspection() : readyWslInspection()
+            .split('\n')
+            .filter((line) => line !== 'gate=1')
+            .join('\n')
+          return { stdout: inspection, stderr: '' }
+        }
+        return originalHostRun(args)
+      }
+    }
+  })
+
+  assert.equal((await runtime.status()).state, 'repair')
+  await runtime.repair()
+  assert.equal((await runtime.status()).state, 'ready')
+
+  const registered = await runtime.registerProject({
+    projectId: 'alpha',
+    name: 'Api',
+    path: 'D:\\Development\\alpha\\api'
+  })
+  assert.equal(registered.ok, true)
+  assert.ok(registered.project)
+
+  const { firstMateSpawnContextProblem } = await import('../src/main/firstmate-spawn-gate')
+  const { firstMateProjectCatalog, firstMateRequest } = await import('../src/renderer/src/firstmate-project-catalog')
+  const { firstMateTaskContextFromMetadata } = await import('../src/shared/firstmate-task-context')
+  const { firstMateCanonicalWindowsPath, firstMateWslPath } = await import('../src/main/firstmate-paths')
+
+  const project = registered.project
+  const gateProject = {
+    adeProjectId: project.adeProjectId,
+    registryName: project.registryName,
+    windowsPath: project.windowsPath,
+    wslPath: project.wslPath,
+    mode: project.mode,
+    autonomy: project.autonomy
+  }
+  const validator = { agent: 'codex' as const, model: 'gpt-5.6-sol' }
+
+  const catalog = firstMateProjectCatalog(
+    [{ selection: { id: 'alpha', name: 'Api', path: 'D:\\Development\\alpha\\api', color: '#71a9ff' }, registration: registered }],
+    'alpha',
+    { provider: 'codex', model: 'gpt-5.6-sol' }
+  )
+  const entry = catalog.projects.find((p) => p.adeProjectId === 'alpha')
+  assert.ok(entry)
+  const context = firstMateTaskContextFromMetadata(entry.taskContextMetadata)
+  assert.ok(context)
+  assert.equal(
+    firstMateSpawnContextProblem(context, gateProject, validator),
+    undefined,
+    'a matching context must pass after repair'
+  )
+
+  const staleProject = { ...gateProject, mode: 'direct-PR' as const }
+  assert.ok(
+    firstMateSpawnContextProblem(context, staleProject, validator),
+    'stale project metadata must still fail closed after repair'
+  )
+
+  const staleValidator = { agent: 'claude' as const, model: 'claude-sonnet-4-5' }
+  assert.ok(
+    firstMateSpawnContextProblem(context, gateProject, staleValidator),
+    'stale validator metadata must still fail closed after repair'
+  )
 })

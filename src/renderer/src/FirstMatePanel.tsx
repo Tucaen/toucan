@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react'
 import type {
   FirstMateExternalProject,
+  FirstMateInstallResult,
   FirstMateLifecycleStatus,
   FirstMateLifecycleTask,
   FirstMateRuntimeStatus,
@@ -47,11 +48,13 @@ function FirstMateMark(): JSX.Element {
 function RuntimeSetup({
   runtime,
   installing,
-  install
+  install,
+  repair
 }: {
   runtime: FirstMateRuntimeStatus | null
   installing: boolean
   install(): void
+  repair(): void
 }): JSX.Element {
   // ADE hosts FirstMate through Windows' WSL host only, so elsewhere there is nothing to offer at all.
   if (runtime?.state === 'unsupported') {
@@ -65,6 +68,20 @@ function RuntimeSetup({
   }
   const checking = runtime === null
   const failed = runtime?.state === 'error'
+  const repairable = runtime?.state === 'repair'
+  if (repairable) {
+    return (
+      <div className="firstmate-runtime-setup">
+        <FirstMateMark />
+        <strong>Repair FirstMate setup</strong>
+        <p>{runtime.message}</p>
+        <small>Existing projects, authentication, and task state are preserved.</small>
+        <button type="button" onClick={repair} disabled={installing}>
+          {installing ? 'Repairing…' : 'Repair setup'}
+        </button>
+      </div>
+    )
+  }
   return (
     <div className="firstmate-runtime-setup">
       <FirstMateMark />
@@ -157,7 +174,16 @@ export default function FirstMatePanel({ projects, project, state, onStateChange
   useEffect(() => {
     let active = true
     void window.firstMateApi.status().then((status) => {
-      if (active) setRuntime(status)
+      if (!active) return
+      if (status.state === 'repair') {
+        setRuntime(status)
+        setInstalling(true)
+        void window.firstMateApi.repair().then((result) => {
+          if (active) { setRuntime(result.status); setInstalling(false) }
+        })
+      } else {
+        setRuntime(status)
+      }
     })
     return () => { active = false }
   }, [])
@@ -246,13 +272,16 @@ export default function FirstMatePanel({ projects, project, state, onStateChange
     onModel: (modelId) => updateState({ modelId })
   })
 
-  const install = (): void => {
+  const runSetup = (action: () => Promise<FirstMateInstallResult>): void => {
     setInstalling(true)
-    void window.firstMateApi.install().then((result) => {
+    void action().then((result) => {
       setRuntime(result.status)
       setInstalling(false)
     })
   }
+
+  const install = (): void => runSetup(() => window.firstMateApi.install())
+  const repair = (): void => runSetup(() => window.firstMateApi.repair())
 
   const authenticateGitHub = (): void => {
     setWaitingForGitHub(true)
@@ -681,7 +710,7 @@ export default function FirstMatePanel({ projects, project, state, onStateChange
           )}
         </>
       ) : (
-        <RuntimeSetup runtime={runtime} installing={installing} install={install} />
+        <RuntimeSetup runtime={runtime} installing={installing} install={install} repair={repair} />
       )}
     </aside>
   )

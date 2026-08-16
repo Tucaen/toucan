@@ -9,7 +9,7 @@ export const FIRSTMATE_PANEL_MAX_WIDTH = 720
  * every other platform has no install, launch, or registration path at all. A future cross-platform
  * host is a new supported feature with its own state, never a fallback reached from here.
  */
-export type FirstMateRuntimeState = 'missing' | 'installing' | 'ready' | 'error' | 'unsupported'
+export type FirstMateRuntimeState = 'missing' | 'repair' | 'installing' | 'ready' | 'error' | 'unsupported'
 
 export type FirstMateTaskStage =
   | 'implemented'
