@@ -117,6 +117,10 @@ function registerFirstMateIpc(
     (id) => runtime.authorizeProjectInitialization(id),
     () => UNREADABLE_PROJECT
   )
+  ipcMain.handle('firstmate:set-autonomy-ceiling', (_event, adeProjectId: unknown, allowed: unknown) => (
+    typeof adeProjectId === 'string' && adeProjectId && typeof allowed === 'boolean'
+      ? runtime.setAutonomyCeiling(adeProjectId, allowed) : UNREADABLE_PROJECT
+  ))
   byProjectId('firstmate:retire-project', (id) => runtime.retireProject(id), () => UNREADABLE_PROJECT)
   ipcMain.handle('firstmate:release-dispatch', (_event, taskId: unknown) => (
     typeof taskId === 'string' && taskId ? lifecycle.releaseDispatch(taskId) : UNREADABLE_TASK

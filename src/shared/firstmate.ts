@@ -133,6 +133,12 @@ export interface FirstMateProjectSelection {
   path: string
 }
 
+/**
+ * Where the project's standing delivery posture and autonomy come from, so the UI can explain
+ * precedence rather than just showing the effective value.
+ */
+export type FirstMatePostureSource = 'fleet-registry' | 'ade-recorded' | 'default'
+
 /** One ADE checkout registered as a durable external FirstMate project. */
 export interface FirstMateExternalProject {
   /** ADE's stable project identity; two projects may share every other display value. */
@@ -143,13 +149,18 @@ export interface FirstMateExternalProject {
   windowsPath: string
   wslPath: string
   origin?: string
+  originClassification: FirstMateProjectOriginClassification
   mode: FirstMateDeliveryMode
+  /** The effective autonomy: standing posture AND ADE's local authorization ceiling. */
   autonomy: boolean
+  /** ADE's local authorization ceiling, user-controlled and persisted across restart. */
+  autonomyCeiling: boolean
+  postureSource: FirstMatePostureSource
   initialization: FirstMateProjectInitialization
   registeredAt: string
 }
 
-export type FirstMateProjectOriginClassification = 'remote-backed' | 'local-only'
+export type FirstMateProjectOriginClassification = 'remote-backed' | 'local-only' | 'unsupported-inert'
 
 /** One dispatchable project in the machine-readable catalog ADE gives the FirstMate captain. */
 export interface FirstMateProjectCatalogEntry {
@@ -192,7 +203,7 @@ export interface FirstMateProjectRegistration {
   project?: FirstMateExternalProject
   message?: string
   failure?: {
-    kind: 'selection' | 'path-access' | 'git' | 'registration' | 'wsl'
+    kind: 'selection' | 'conversion' | 'path-access' | 'git' | 'registration' | 'wsl'
     adeProjectId: string
   }
 }

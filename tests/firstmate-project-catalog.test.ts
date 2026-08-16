@@ -33,6 +33,7 @@ function registrationFor(
   project: WorkspaceProject,
   options: { origin?: string; mode?: 'no-mistakes-prod-only' | 'local-only'; autonomy?: boolean } = {}
 ): FirstMateProjectRegistration {
+  const isLocal = options.origin === undefined && options.mode === 'local-only'
   return {
     ok: true,
     project: {
@@ -41,11 +42,12 @@ function registrationFor(
       displayName: project.name,
       windowsPath: project.path,
       wslPath: registeredWslPath(project.path),
-      ...(options.origin === undefined && options.mode === 'local-only'
-        ? {}
-        : { origin: options.origin ?? `git@github.com:acme/${project.id}.git` }),
+      ...(isLocal ? {} : { origin: options.origin ?? `git@github.com:acme/${project.id}.git` }),
+      originClassification: isLocal ? 'local-only' : 'remote-backed',
       mode: options.mode ?? 'no-mistakes-prod-only',
       autonomy: options.autonomy ?? false,
+      autonomyCeiling: options.autonomy ?? false,
+      postureSource: 'default' as const,
       initialization: options.mode === 'local-only' ? 'not-required' : 'required',
       registeredAt: '2026-08-15'
     }
@@ -253,6 +255,39 @@ test('changing the active sidebar hint after dispatch cannot retarget existing t
   assert.deepEqual(firstMateTaskContextFromMetadata(dispatched.metadata)?.validator, {
     agent: 'codex', model: 'default'
   })
+})
+
+test('an unsupported-inert origin is classified in the catalog but never exposed as a clone source', () => {
+  const unsupported: WorkspaceProject = {
+    id: 'svn-project', name: 'Legacy', path: 'D:\\Development\\legacy\\app', color: '#999'
+  }
+  const unsupportedReg: FirstMateProjectRegistration = {
+    ok: true,
+    project: {
+      adeProjectId: 'svn-project',
+      registryName: 'legacy-svn-project',
+      displayName: 'Legacy',
+      windowsPath: 'D:\\Development\\legacy\\app',
+      wslPath: registeredWslPath('D:\\Development\\legacy\\app'),
+      origin: 'svn://svn.example.com/repo',
+      originClassification: 'unsupported-inert',
+      mode: 'local-only',
+      autonomy: false,
+      autonomyCeiling: false,
+      postureSource: 'default' as const,
+      initialization: 'not-required',
+      registeredAt: '2026-08-15'
+    }
+  }
+  const catalog = firstMateCatalogFromRequest(firstMateRequest(
+    [requestProject(unsupported, unsupportedReg)],
+    unsupported.id,
+    'Check the project',
+    { provider: 'codex' }
+  ))
+
+  assert.equal(catalog.projects[0]?.originClassification, 'unsupported-inert')
+  assert.equal(catalog.projects[0]?.origin, undefined, 'unsupported-inert origin must not be exposed as a clone source')
 })
 
 test('snapshots a sidebar project path for display without deriving a WSL path', () => {

@@ -298,3 +298,33 @@ test('shows the registered delivery posture of the active project hint', () => {
   assert.match(hint, /registration\.registryName/)
   assert.match(styles, /\.firstmate-project-posture\s*\{/)
 })
+
+test('lets the user allow or deny autonomy and explains the posture source', () => {
+  const panel = readFileSync(join(process.cwd(), 'src/renderer/src/FirstMatePanel.tsx'), 'utf8')
+  const preload = readFileSync(join(process.cwd(), 'src/preload/index.ts'), 'utf8')
+  const main = readFileSync(join(process.cwd(), 'src/main/index.ts'), 'utf8')
+  const styles = readFileSync(join(process.cwd(), 'src/renderer/src/styles.css'), 'utf8')
+
+  assert.match(panel, /className="firstmate-autonomy-policy"/)
+  assert.match(panel, /Allow autonomy/)
+  assert.match(panel, /Deny autonomy/)
+  assert.match(
+    panel,
+    /registration\.postureSource === ['"]fleet-registry['"]/,
+    'the UI should explain when the fleet registry supplies the standing posture'
+  )
+  assert.match(
+    panel,
+    /ADE is vetoing autonomy/,
+    'the UI should explain when ADE\'s local policy is vetoing autonomy'
+  )
+  assert.match(panel, /toggleAutonomyCeiling/)
+  assert.match(panel, /window\.firstMateApi\.setAutonomyCeiling\(project\.id/)
+  assert.match(preload, /setAutonomyCeiling:[\s\S]*?firstmate:set-autonomy-ceiling/)
+  assert.match(
+    main,
+    /'firstmate:set-autonomy-ceiling'[\s\S]*?typeof adeProjectId === 'string'/,
+    'the IPC handler should validate the project identity'
+  )
+  assert.match(styles, /\.firstmate-autonomy-policy\s*\{/)
+})

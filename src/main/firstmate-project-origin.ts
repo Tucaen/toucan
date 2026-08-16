@@ -3,11 +3,15 @@
  * distro's bin/fm-project-origin-lib.sh: structure and safety only, never the forge or the domain, and
  * each end re-validates whatever origin reached it.
  *
- * Accepted: https, http, ssh, and git URLs with a plain or bracketed IPv6 host and optional numeric
+ * Supported: https, http, ssh, and git URLs with a plain or bracketed IPv6 host and optional numeric
  * port; file:/// and absolute local paths; scp-like [user@]host:path.
- * Refused: remote-helper transports such as ext::<command>, unknown schemes, option-shaped values,
- * whitespace and control characters, relative paths, and /../ traversal in a local or file: path.
+ * Unsupported: printable values whose scheme or format ADE does not handle (svn://, relative paths,
+ * etc.) — stored as inert classified metadata, never used as a clone command.
+ * Unsafe: remote-helper transports such as ext::<command>, option-shaped values, whitespace and
+ * control characters, and /../ traversal in a local or file: path.
  */
+
+export type FirstMateOriginSafety = 'supported' | 'unsupported' | 'unsafe'
 
 function localPathSafe(path: string): boolean {
   return path.startsWith('/') && !`/${path}/`.includes('/../')
@@ -67,16 +71,26 @@ function printableOrigin(url: string): boolean {
   return true
 }
 
-export function firstMateOriginSafe(url: string): boolean {
-  if (!url || url.startsWith('-') || !printableOrigin(url)) return false
+export function firstMateOriginClassify(url: string): FirstMateOriginSafety {
+  if (!url || url.startsWith('-') || !printableOrigin(url)) return 'unsafe'
   const scheme = /^([a-zA-Z][a-zA-Z0-9+.-]*):\/\//.exec(url)
   if (scheme) {
     const protocol = scheme[1].toLocaleLowerCase()
-    if (protocol === 'file') return url.startsWith('file:///') && localPathSafe(url.slice('file://'.length))
-    if (!['https', 'http', 'ssh', 'git'].includes(protocol)) return false
-    return authoritySafe(url.slice(scheme[0].length).split('/')[0])
+    if (protocol === 'file') {
+      return url.startsWith('file:///') && localPathSafe(url.slice('file://'.length)) ? 'supported' : 'unsafe'
+    }
+    if (['https', 'http', 'ssh', 'git'].includes(protocol)) {
+      return authoritySafe(url.slice(scheme[0].length).split('/')[0]) ? 'supported' : 'unsafe'
+    }
+    return 'unsupported'
   }
-  if (url.includes('://') || url.includes('::')) return false
-  if (url.startsWith('/')) return localPathSafe(url)
-  return scpLikeSafe(url)
+  if (url.includes('::')) return 'unsafe'
+  if (url.includes('://')) return 'unsupported'
+  if (url.startsWith('/')) return localPathSafe(url) ? 'supported' : 'unsafe'
+  if (scpLikeSafe(url)) return 'supported'
+  return 'unsupported'
+}
+
+export function firstMateOriginSafe(url: string): boolean {
+  return firstMateOriginClassify(url) === 'supported'
 }

@@ -1849,6 +1849,33 @@ button {
   white-space: nowrap;
 }
 
+.firstmate-autonomy-policy {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 10px;
+  border-bottom: 1px solid #29313b;
+  color: #8ea2b8;
+  font-size: 12px;
+}
+
+.firstmate-autonomy-policy button {
+  flex: 0 0 auto;
+  padding: 3px 8px;
+  border: 1px solid #2f3945;
+  border-radius: 5px;
+  color: #a8b8c8;
+  background: #1b222b;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.firstmate-autonomy-policy button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
 .firstmate-settings-bar {
   display: grid;
   grid-template-columns: minmax(0, 0.8fr) minmax(0, 1fr) minmax(0, 1.1fr);

@@ -78,8 +78,8 @@ function catalogEntry(
     },
     effectiveDeliveryPosture: project.mode,
     autonomyPolicy: project.autonomy ? 'on' : 'off',
-    originClassification: project.origin ? 'remote-backed' : 'local-only',
-    ...(project.origin ? { origin: project.origin } : {}),
+    originClassification: project.originClassification,
+    ...(project.originClassification !== 'unsupported-inert' && project.origin ? { origin: project.origin } : {}),
     initialization: project.initialization,
     taskContextMetadata: firstMateTaskContextMetadata(taskContext(project, validator))
   }

@@ -143,6 +143,7 @@ export default function FirstMatePanel({ projects, project, state, onStateChange
   const [registration, setRegistration] = useState<FirstMateExternalProject | null>(null)
   const [registrationError, setRegistrationError] = useState<string>()
   const [authorizingInitialization, setAuthorizingInitialization] = useState(false)
+  const [settingAutonomyCeiling, setSettingAutonomyCeiling] = useState(false)
   const [panelWidth, setPanelWidth] = useState(state.panelWidth)
   const [panelWidthBounds, setPanelWidthBounds] = useState<FirstMatePanelWidthBounds>(() => (
     firstMatePanelWidthBounds(window.innerWidth)
@@ -314,6 +315,17 @@ export default function FirstMatePanel({ projects, project, state, onStateChange
     })
   }
 
+  const toggleAutonomyCeiling = (): void => {
+    const allowed = !registration?.autonomyCeiling
+    setSettingAutonomyCeiling(true)
+    setRegistrationError(undefined)
+    void window.firstMateApi.setAutonomyCeiling(project.id, allowed).then((result) => {
+      if (result.project) setRegistration(result.project)
+      if (!result.ok) setRegistrationError(result.message ?? 'ADE could not update the autonomy ceiling.')
+      setSettingAutonomyCeiling(false)
+    })
+  }
+
   const startNewSession = (permissionMode?: string): void => {
     updateState({
       conversationId: undefined,
@@ -477,6 +489,28 @@ export default function FirstMatePanel({ projects, project, state, onStateChange
               >{registration.mode}{registration.autonomy ? ' +yolo' : ''}</em>
             )}
           </div>
+          {registration && (
+            <div className="firstmate-autonomy-policy">
+              <span>
+                {registration.postureSource === 'fleet-registry'
+                  ? registration.autonomyCeiling
+                    ? 'Fleet registry sets the standing posture. ADE authorizes autonomy.'
+                    : 'Fleet registry sets the standing posture. ADE is vetoing autonomy.'
+                  : registration.autonomyCeiling
+                    ? 'ADE local policy allows autonomy for this project.'
+                    : 'ADE local policy denies autonomy for this project.'}
+              </span>
+              <button
+                type="button"
+                onClick={toggleAutonomyCeiling}
+                disabled={settingAutonomyCeiling}
+              >
+                {settingAutonomyCeiling
+                  ? 'Updating…'
+                  : registration.autonomyCeiling ? 'Deny autonomy' : 'Allow autonomy'}
+              </button>
+            </div>
+          )}
           {registrationError && <div className="firstmate-lifecycle-error">{registrationError}</div>}
           {registration?.initialization === 'required' && (
             <div className="firstmate-auth-warning">

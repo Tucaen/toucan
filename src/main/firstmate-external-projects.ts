@@ -3,11 +3,13 @@ import type {
   FirstMateActionResult,
   FirstMateDeliveryMode,
   FirstMateExternalProject,
+  FirstMatePostureSource,
   FirstMateProjectInitialization,
+  FirstMateProjectOriginClassification,
   FirstMateProjectRegistration,
   FirstMateProjectSelection
 } from '../shared/firstmate'
-import { firstMateOriginSafe } from './firstmate-project-origin'
+import { firstMateOriginClassify } from './firstmate-project-origin'
 import { firstMateCanonicalWindowsPath, firstMateWslPath } from './firstmate-paths'
 import { errorMessage } from '../shared/text'
 
@@ -73,6 +75,8 @@ export interface FirstMateExternalProjects {
   /** Reads what was recorded, without validating, mutating, or touching the checkout. */
   recorded(adeProjectId: string): Promise<FirstMateExternalProject | null>
   authorizeInitialization(adeProjectId: string): Promise<FirstMateProjectRegistration>
+  /** Sets or clears ADE's local autonomy authorization ceiling for one project. */
+  setAutonomyCeiling(adeProjectId: string, allowed: boolean): Promise<FirstMateProjectRegistration>
   /** Retires ADE's mapping. FirstMate project removal stays FirstMate's own captain-approved operation. */
   retire(adeProjectId: string): Promise<FirstMateActionResult>
 }
@@ -90,20 +94,28 @@ interface ExternalProjectRequest {
   windowsPath: string
   wslPath: string
   origin?: string
+  originClassification: FirstMateProjectOriginClassification
 }
 
 interface RecordedPosture {
   registryName: string
   mode: FirstMateDeliveryMode
-  autonomy: boolean
+  standingAutonomy: boolean
+  postureSource: FirstMatePostureSource
 }
 
 function deliveryMode(value: unknown): FirstMateDeliveryMode | undefined {
   return DELIVERY_MODES.find((mode) => mode === value)
 }
 
-function defaultDeliveryMode(origin?: string): FirstMateDeliveryMode {
-  return origin ? 'no-mistakes-prod-only' : 'local-only'
+function defaultDeliveryMode(originClassification: FirstMateProjectOriginClassification): FirstMateDeliveryMode {
+  if (originClassification === 'remote-backed') return 'no-mistakes-prod-only'
+  return 'local-only'
+}
+
+function classifyOrigin(origin: string | undefined, safety: 'supported' | 'unsupported'): FirstMateProjectOriginClassification {
+  if (!origin) return 'local-only'
+  return safety === 'supported' ? 'remote-backed' : 'unsupported-inert'
 }
 
 /** no-mistakes initialization writes inside the checkout, so it is a requirement, never a side effect. */
@@ -188,10 +200,20 @@ function storedProject(value: unknown, key: string, today: string): FirstMateExt
   const windowsPath = rawPath ? firstMateCanonicalWindowsPath(rawPath) : null
   if (!identity || !windowsPath) return null
   const origin = text(record.origin)
+  const storedClassification = record.originClassification as FirstMateProjectOriginClassification | undefined
+  const originClassification: FirstMateProjectOriginClassification = (
+    storedClassification === 'remote-backed' || storedClassification === 'local-only' || storedClassification === 'unsupported-inert'
+      ? storedClassification
+      : origin ? 'remote-backed' : 'local-only'
+  )
   const declared = deliveryMode(record.mode)
-  // An ad-hoc record with no posture takes today's default; one with an unreadable posture takes
-  // FirstMate's own conservative fallback rather than silently dropping a gate.
-  const mode = declared ?? (record.mode === undefined ? defaultDeliveryMode(origin) : LEGACY_MODE)
+  const mode = declared ?? (record.mode === undefined ? defaultDeliveryMode(originClassification) : LEGACY_MODE)
+  const autonomyCeiling = record.autonomyCeiling === true
+  const standingAutonomy = record.autonomy === true || record.yolo === true || record.yolo === 'on'
+  const postureSource: FirstMatePostureSource = (
+    record.postureSource === 'fleet-registry' || record.postureSource === 'ade-recorded'
+      ? record.postureSource : 'default'
+  )
   return {
     adeProjectId: identity,
     registryName: text(record.registryName) ?? '',
@@ -199,8 +221,11 @@ function storedProject(value: unknown, key: string, today: string): FirstMateExt
     windowsPath,
     wslPath: firstMateWslPath(windowsPath),
     ...(origin ? { origin } : {}),
+    originClassification,
     mode,
-    autonomy: record.autonomy === true || record.yolo === true || record.yolo === 'on',
+    autonomy: standingAutonomy && autonomyCeiling,
+    autonomyCeiling,
+    postureSource,
     initialization: record.initialization === 'authorized' ? 'authorized' : requiredInitialization(mode),
     registeredAt: text(record.registeredAt) ?? today
   }
@@ -257,6 +282,9 @@ function serializeExternalProjectStore(store: FirstMateExternalProjectStore): st
  * 1. FirstMate's own fleet registry entry for this checkout, which the captain owns and may edit.
  * 2. Otherwise whatever ADE already recorded, which is never reinterpreted or migrated.
  * 3. Otherwise the standing default: remote-backed projects run the pipeline, the rest stay local.
+ *
+ * The standing autonomy is what the posture source requests; the effective autonomy is capped by
+ * ADE's local authorization ceiling, which the user controls separately.
  */
 function recordedPosture(
   request: ExternalProjectRequest,
@@ -264,11 +292,23 @@ function recordedPosture(
   entry: FleetRegistryEntry | undefined,
   unusedName: () => string
 ): RecordedPosture {
-  if (entry) return { registryName: entry.name, mode: entry.mode, autonomy: entry.autonomy }
-  if (existing) {
-    return { registryName: existing.registryName, mode: existing.mode, autonomy: existing.autonomy }
+  if (entry) {
+    return { registryName: entry.name, mode: entry.mode, standingAutonomy: entry.autonomy, postureSource: 'fleet-registry' }
   }
-  return { registryName: unusedName(), mode: defaultDeliveryMode(request.origin), autonomy: false }
+  if (existing) {
+    return {
+      registryName: existing.registryName,
+      mode: existing.mode,
+      standingAutonomy: existing.autonomyCeiling,
+      postureSource: 'ade-recorded'
+    }
+  }
+  return {
+    registryName: unusedName(),
+    mode: defaultDeliveryMode(request.originClassification),
+    standingAutonomy: false,
+    postureSource: 'default'
+  }
 }
 
 function resolveRegistration(
@@ -293,6 +333,7 @@ function resolveRegistration(
     ) ?? request.wslPath
   )
   const required = requiredInitialization(posture.mode)
+  const autonomyCeiling = existing?.autonomyCeiling ?? false
   const project: FirstMateExternalProject = {
     adeProjectId: request.adeProjectId,
     registryName: posture.registryName,
@@ -300,8 +341,11 @@ function resolveRegistration(
     windowsPath: request.windowsPath,
     wslPath: request.wslPath,
     ...(request.origin ? { origin: request.origin } : {}),
+    originClassification: request.originClassification,
     mode: posture.mode,
-    autonomy: posture.autonomy,
+    autonomy: posture.standingAutonomy && autonomyCeiling,
+    autonomyCeiling,
+    postureSource: posture.postureSource,
     initialization: existing?.initialization === 'authorized' && required === 'required' ? 'authorized' : required,
     registeredAt: existing?.registeredAt ?? today
   }
@@ -310,6 +354,7 @@ function resolveRegistration(
 
 const FAILURE_LABELS = {
   selection: 'Selection failure',
+  conversion: 'Conversion failure',
   'path-access': 'Path-access failure',
   git: 'Git failure',
   registration: 'Registration failure',
@@ -372,12 +417,16 @@ export function createFirstMateExternalProjects(
   }
 
   const record = async (selection: FirstMateProjectSelection): Promise<FirstMateProjectRegistration> => {
+    if (!selection.projectId) {
+      return refused(selection, 'selection', 'ADE cannot register a project without a stable identity.')
+    }
     const windowsPath = firstMateCanonicalWindowsPath(selection.path)
-    if (!selection.projectId || !windowsPath) {
+    if (!windowsPath) {
       return refused(
         selection,
-        'selection',
-        `ADE cannot resolve the selected project path ${JSON.stringify(selection.path)} to a canonical Windows path.`
+        'conversion',
+        `ADE cannot convert ${JSON.stringify(selection.path)} to a supported WSL location. `
+          + 'Only drive-rooted Windows paths (for example D:\\Projects\\my-app) can be mounted inside WSL.'
       )
     }
     let facts: FirstMateCheckoutFacts
@@ -395,9 +444,11 @@ export function createFirstMateExternalProjects(
     if (facts.status === 'not-git') {
       return refused(selection, 'git', `${windowsPath} is not a usable Git checkout.`)
     }
-    if (facts.origin && !firstMateOriginSafe(facts.origin)) {
+    const originSafety = facts.origin ? firstMateOriginClassify(facts.origin) : undefined
+    if (originSafety === 'unsafe') {
       return refused(selection, 'git', `The Git origin recorded in ${windowsPath} is not a safe clone URL: ${facts.origin}`)
     }
+    const originClassification = classifyOrigin(facts.origin, originSafety ?? 'supported')
     const wslPath = firstMateWslPath(windowsPath)
     let access: FirstMateWslPathFacts
     try {
@@ -420,7 +471,8 @@ export function createFirstMateExternalProjects(
       displayName: selection.name,
       windowsPath,
       wslPath,
-      ...(facts.origin ? { origin: facts.origin } : {})
+      ...(facts.origin ? { origin: facts.origin } : {}),
+      originClassification
     }
     const pathOwner = Object.values(store.projects).find((project) => (
       project.adeProjectId !== selection.projectId
@@ -478,6 +530,32 @@ export function createFirstMateExternalProjects(
         const authorized: FirstMateExternalProject = { ...project, initialization: 'authorized' }
         await commit({ [adeProjectId]: authorized })
         return { ok: true, project: { ...authorized } }
+      })
+    },
+    async setAutonomyCeiling(adeProjectId: string, allowed: boolean): Promise<FirstMateProjectRegistration> {
+      return serialize(async () => {
+        await refresh()
+        const project = store.projects[adeProjectId]
+        if (!project) return { ok: false, message: 'That project is not registered with FirstMate yet.' }
+        if (project.autonomyCeiling === allowed) return { ok: true, project: { ...project } }
+        const request: ExternalProjectRequest = {
+          adeProjectId: project.adeProjectId,
+          displayName: project.displayName,
+          windowsPath: project.windowsPath,
+          wslPath: project.wslPath,
+          ...(project.origin ? { origin: project.origin } : {}),
+          originClassification: project.originClassification
+        }
+        const fleetMatches = registryEntriesForCheckout(entries, request)
+        const fleetEntry = fleetMatches.length === 1 ? fleetMatches[0] : undefined
+        const standingAutonomy = fleetEntry ? fleetEntry.autonomy : allowed
+        const updated: FirstMateExternalProject = {
+          ...project,
+          autonomyCeiling: allowed,
+          autonomy: standingAutonomy && allowed
+        }
+        await commit({ [adeProjectId]: updated })
+        return { ok: true, project: { ...updated } }
       })
     },
     async retire(adeProjectId: string): Promise<FirstMateActionResult> {

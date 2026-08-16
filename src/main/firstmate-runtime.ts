@@ -410,6 +410,7 @@ export interface FirstMateRuntime {
   registerProject(selection: FirstMateProjectSelection): Promise<FirstMateProjectRegistration>
   recordedProject(adeProjectId: string): Promise<FirstMateExternalProject | null>
   authorizeProjectInitialization(adeProjectId: string): Promise<FirstMateProjectRegistration>
+  setAutonomyCeiling(adeProjectId: string, allowed: boolean): Promise<FirstMateProjectRegistration>
   retireProject(adeProjectId: string): Promise<FirstMateActionResult>
   launch(provider?: AgentProvider, modelId?: string): FirstMateLaunch | null
 }
@@ -482,7 +483,7 @@ function createExternalProjectRuntime(
   options: FirstMateRuntimeOptions,
   home: FirstMateExternalProjectHome,
   inspectWslPath: (wslPath: string) => Promise<FirstMateWslPathFacts>
-): Pick<FirstMateRuntime, 'registerProject' | 'recordedProject' | 'authorizeProjectInitialization' | 'retireProject'> {
+): Pick<FirstMateRuntime, 'registerProject' | 'recordedProject' | 'authorizeProjectInitialization' | 'setAutonomyCeiling' | 'retireProject'> {
   const projects = createFirstMateExternalProjects({
     home,
     inspectCheckout: options.inspectCheckout
@@ -507,6 +508,13 @@ function createExternalProjectRuntime(
     async authorizeProjectInitialization(adeProjectId: string): Promise<FirstMateProjectRegistration> {
       try {
         return await projects.authorizeInitialization(adeProjectId)
+      } catch (error) {
+        return { ok: false, message: errorMessage(error) }
+      }
+    },
+    async setAutonomyCeiling(adeProjectId: string, allowed: boolean): Promise<FirstMateProjectRegistration> {
+      try {
+        return await projects.setAutonomyCeiling(adeProjectId, allowed)
       } catch (error) {
         return { ok: false, message: errorMessage(error) }
       }
@@ -1272,6 +1280,7 @@ function createUnsupportedFirstMateRuntime(platform: NodeJS.Platform): FirstMate
     registerProject: refuseRegistration,
     async recordedProject(): Promise<FirstMateExternalProject | null> { return null },
     authorizeProjectInitialization: refuseRegistration,
+    setAutonomyCeiling: refuseRegistration,
     retireProject: refuse,
     launch(): FirstMateLaunch | null { return null }
   }

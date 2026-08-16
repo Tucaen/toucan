@@ -9,7 +9,7 @@ import {
   type FirstMateWslPathFacts
 } from '../src/main/firstmate-external-projects'
 import { firstMateCanonicalWindowsPath, firstMateWslPath } from '../src/main/firstmate-paths'
-import { firstMateOriginSafe } from '../src/main/firstmate-project-origin'
+import { firstMateOriginClassify, firstMateOriginSafe } from '../src/main/firstmate-project-origin'
 
 const alpha: FirstMateProjectSelection = { projectId: 'alpha', name: 'Api', path: 'D:\\Development\\alpha\\api' }
 const beta: FirstMateProjectSelection = { projectId: 'beta', name: 'Api', path: 'D:\\Development\\beta\\api' }
@@ -93,8 +93,11 @@ test('records the validated identity, canonical paths, origin, and posture on th
       windowsPath: 'D:\\Development\\alpha\\api',
       wslPath: '/mnt/d/Development/alpha/api',
       origin: 'git@github.com:acme/alpha-api.git',
+      originClassification: 'remote-backed',
       mode: 'no-mistakes-prod-only',
       autonomy: false,
+      autonomyCeiling: false,
+      postureSource: 'default',
       initialization: 'required',
       registeredAt: '2026-08-14'
     }
@@ -146,8 +149,11 @@ test('keeps autonomy off for a new registration and preserves an explicitly reco
         windowsPath: 'D:\\Development\\alpha\\api',
         wslPath: '/mnt/d/Development/alpha/api',
         origin: 'git@github.com:acme/alpha-api.git',
+        originClassification: 'remote-backed',
         mode: 'direct-PR',
         autonomy: true,
+        autonomyCeiling: true,
+        postureSource: 'ade-recorded',
         initialization: 'not-required',
         registeredAt: '2026-07-01'
       }
@@ -159,8 +165,10 @@ test('keeps autonomy off for a new registration and preserves an explicitly reco
   const fresh = await service.register(beta)
 
   assert.equal(kept.project?.autonomy, true)
+  assert.equal(kept.project?.autonomyCeiling, true)
   assert.equal(kept.project?.mode, 'direct-PR')
   assert.equal(fresh.project?.autonomy, false)
+  assert.equal(fresh.project?.autonomyCeiling, false)
 })
 
 test('a posture the captain recorded in the fleet registry outranks the one ADE cached', async () => {
@@ -188,10 +196,16 @@ test('a posture the captain recorded in the fleet registry outranks the one ADE 
   const result = await service.register(alpha)
 
   assert.equal(result.project?.mode, 'no-mistakes')
-  assert.equal(result.project?.autonomy, true)
+  assert.equal(result.project?.autonomy, false, 'fleet standing is +yolo but ADE ceiling is off, so effective autonomy stays off')
+  assert.equal(result.project?.postureSource, 'fleet-registry')
   assert.equal(result.project?.registryName, 'alpha-api')
   assert.equal(result.project?.initialization, 'required', 'the captain\'s posture decides whether the gate applies')
   assert.match(files.files.store ?? '', /"mode": "no-mistakes"/, 'ADE re-records what the registry says')
+
+  const ceiling = await service.setAutonomyCeiling('alpha', true)
+
+  assert.equal(ceiling.project?.autonomy, true, 'after raising the ceiling, fleet standing +yolo becomes effective')
+  assert.equal(ceiling.project?.autonomyCeiling, true)
 })
 
 test('ignores a registry entry that merely mentions a different checkout under the same parent', async () => {
@@ -232,7 +246,7 @@ test('keeps projects with identical display names and basenames distinct', async
 
 test('migrates ad-hoc registry data without losing its recorded standing posture', async () => {
   const adHoc = JSON.stringify([
-    { id: 'alpha', name: 'Api', path: 'D:\\Development\\alpha\\api', mode: 'direct-PR', yolo: 'on' },
+    { id: 'alpha', name: 'Api', path: 'D:\\Development\\alpha\\api', mode: 'direct-PR', yolo: 'on', autonomyCeiling: true },
     { id: 'beta', name: 'Api', path: 'D:/Development/beta/api/' }
   ])
   const { home: files, service } = projects({ store: adHoc })
@@ -241,7 +255,8 @@ test('migrates ad-hoc registry data without losing its recorded standing posture
   const reconciled = await service.register(beta)
 
   assert.equal(migrated.project?.mode, 'direct-PR')
-  assert.equal(migrated.project?.autonomy, true)
+  assert.equal(migrated.project?.autonomy, true, 'ad-hoc yolo=on with ceiling=true gives effective autonomy')
+  assert.equal(migrated.project?.autonomyCeiling, true)
   assert.equal(migrated.project?.wslPath, '/mnt/d/Development/alpha/api')
   assert.equal(reconciled.project?.windowsPath, 'D:\\Development\\beta\\api')
   assert.equal(reconciled.project?.registryName, 'api-beta')
@@ -282,15 +297,16 @@ test('refuses a checkout that is missing or carries an unsafe origin, recording 
   assert.equal(await service.recorded('alpha'), null)
 })
 
-test('classifies a project selection that cannot become a canonical Windows checkout path', async () => {
+test('classifies a path that cannot become a supported WSL location as a conversion failure', async () => {
   const { checkout, service } = projects()
 
   const result = await service.register({ ...alpha, path: '\\\\server\\share\\api' })
 
   assert.equal(result.ok, false)
-  assert.deepEqual(result.failure, { kind: 'selection', adeProjectId: 'alpha' })
-  assert.match(result.message ?? '', /canonical Windows path/i)
-  assert.deepEqual(checkout.inspected, [], 'an invalid selection must not probe a fallback directory')
+  assert.deepEqual(result.failure, { kind: 'conversion', adeProjectId: 'alpha' })
+  assert.match(result.message ?? '', /supported WSL location/i)
+  assert.match(result.message ?? '', /drive-rooted/i)
+  assert.deepEqual(checkout.inspected, [], 'an invalid path must not probe a fallback directory')
 })
 
 test('revalidates a registered checkout on every request and recovers after the same project is restored', async () => {
@@ -408,13 +424,17 @@ test('revalidates WSL access after restart and recovers the existing registratio
 
   const unavailable = await restarted.service.register(alpha)
   assert.equal(unavailable.failure?.kind, 'wsl')
-  assert.deepEqual(await restarted.service.recorded('alpha'), registered.project)
+  const recordedProject = await restarted.service.recorded('alpha')
+  assert.equal(recordedProject?.adeProjectId, registered.project?.adeProjectId)
+  assert.equal(recordedProject?.mode, registered.project?.mode)
 
   access['/mnt/d/Development/alpha/api'] = { status: 'accessible' }
   const recovered = await restarted.service.register(alpha)
 
   assert.equal(recovered.ok, true)
-  assert.deepEqual(recovered.project, registered.project)
+  assert.equal(recovered.project?.adeProjectId, 'alpha')
+  assert.equal(recovered.project?.mode, 'no-mistakes-prod-only')
+  assert.equal(recovered.project?.postureSource, 'ade-recorded', 'after restart, the posture source reflects the stored record')
 })
 
 test('never initializes a checkout during registration and keeps authorization separate', async () => {
@@ -507,11 +527,80 @@ test('accepts the clone URL forms FirstMate accepts and refuses the unsafe ones'
     'ext::sh -c payload',
     '--upload-pack=payload',
     'https://github.com/acme/api.git\nhttps://evil.example/x',
-    'unknown://host/repo',
     'file:///srv/../etc/passwd',
-    '/srv/git/../../etc/passwd',
-    'relative/path.git'
+    '/srv/git/../../etc/passwd'
   ]) {
     assert.equal(firstMateOriginSafe(origin), false, JSON.stringify(origin))
+    assert.equal(firstMateOriginClassify(origin), 'unsafe', `unsafe: ${JSON.stringify(origin)}`)
   }
+})
+
+test('classifies printable but unsupported origins as unsupported rather than unsafe', () => {
+  for (const origin of [
+    'svn://svn.example.com/repo',
+    'bzr://bzr.example.com/repo',
+    'unknown://host/repo',
+    'relative/path.git',
+    'just-a-name'
+  ]) {
+    assert.equal(firstMateOriginClassify(origin), 'unsupported', `unsupported: ${JSON.stringify(origin)}`)
+    assert.equal(firstMateOriginSafe(origin), false, `safe=false for unsupported: ${JSON.stringify(origin)}`)
+  }
+})
+
+test('stores a printable unsupported origin as inert metadata with a conservative delivery default', async () => {
+  const { home: files, service } = projects({}, {
+    'D:\\Development\\alpha\\api': { status: 'git-checkout', origin: 'svn://svn.example.com/repo' }
+  })
+
+  const result = await service.register(alpha)
+
+  assert.equal(result.ok, true)
+  assert.equal(result.project?.origin, 'svn://svn.example.com/repo')
+  assert.equal(result.project?.originClassification, 'unsupported-inert')
+  assert.equal(result.project?.mode, 'local-only', 'unsupported origins get the conservative local-only default')
+  assert.equal(result.project?.initialization, 'not-required')
+  assert.match(files.files.store ?? '', /"originClassification": "unsupported-inert"/)
+})
+
+test('autonomy ceiling persists across restart and caps fleet standing posture', async () => {
+  const first = projects({
+    registry: '- alpha-api [no-mistakes +yolo] - the api service at /mnt/d/Development/alpha/api (added 2026-08-01)\n'
+  })
+  await first.service.register(alpha)
+
+  const ceilingResult = await first.service.setAutonomyCeiling('alpha', true)
+  assert.equal(ceilingResult.project?.autonomy, true)
+  assert.equal(ceilingResult.project?.autonomyCeiling, true)
+
+  const restarted = projects(first.home.files, remoteBacked)
+  const restored = await restarted.service.recorded('alpha')
+  assert.equal(restored?.autonomyCeiling, true, 'ceiling survives restart')
+  assert.equal(restored?.autonomy, true, 'effective autonomy survives restart when ceiling and standing both true')
+
+  await restarted.service.setAutonomyCeiling('alpha', false)
+  const denied = await restarted.service.recorded('alpha')
+  assert.equal(denied?.autonomyCeiling, false)
+  assert.equal(denied?.autonomy, false, 'lowering the ceiling denies effective autonomy')
+})
+
+test('autonomy defaults denied for a new registration even when the fleet says +yolo', async () => {
+  const { service } = projects({
+    registry: '- alpha-api [no-mistakes +yolo] - at /mnt/d/Development/alpha/api\n'
+  })
+
+  const result = await service.register(alpha)
+
+  assert.equal(result.project?.autonomy, false)
+  assert.equal(result.project?.autonomyCeiling, false)
+  assert.equal(result.project?.postureSource, 'fleet-registry')
+})
+
+test('setAutonomyCeiling on an unregistered project returns an error', async () => {
+  const { service } = projects()
+
+  const result = await service.setAutonomyCeiling('nonexistent', true)
+
+  assert.equal(result.ok, false)
+  assert.match(result.message ?? '', /not registered/)
 })

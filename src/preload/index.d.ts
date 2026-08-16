@@ -62,6 +62,7 @@ export interface FirstMateApi {
   registerProject(selection: FirstMateProjectSelection): Promise<FirstMateProjectRegistration>
   recordedProject(adeProjectId: string): Promise<FirstMateExternalProject | null>
   authorizeProjectInitialization(adeProjectId: string): Promise<FirstMateProjectRegistration>
+  setAutonomyCeiling(adeProjectId: string, allowed: boolean): Promise<FirstMateProjectRegistration>
   retireProject(adeProjectId: string): Promise<FirstMateActionResult>
 }
 

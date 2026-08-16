@@ -116,6 +116,9 @@ const firstMateApi = {
   authorizeProjectInitialization: (adeProjectId: string): Promise<FirstMateProjectRegistration> => (
     ipcRenderer.invoke('firstmate:authorize-project-init', adeProjectId)
   ),
+  setAutonomyCeiling: (adeProjectId: string, allowed: boolean): Promise<FirstMateProjectRegistration> => (
+    ipcRenderer.invoke('firstmate:set-autonomy-ceiling', adeProjectId, allowed)
+  ),
   retireProject: (adeProjectId: string): Promise<FirstMateActionResult> => (
     ipcRenderer.invoke('firstmate:retire-project', adeProjectId)
   )
