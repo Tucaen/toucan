@@ -27,6 +27,8 @@ export interface FirstMateSupervisionEnvironmentSpec {
   runtimeConfigPath: string
   validatorAgent: string
   validatorModel: string
+  /** Task-scoped no-mistakes home; defaults to `${homePath}/no-mistakes` when omitted. */
+  nmHome?: string
   /**
    * `FM_SUPERVISOR_*` announces the app-native supervisor to a fresh captain launch and its tmux
    * session. A task validation dispatch inherits an already-supervised session and omits them.
@@ -44,7 +46,7 @@ export function firstMateSupervisionEnvironment(
 ): Array<[string, string]> {
   const pairs: Array<[string, string]> = [
     [FM_HOME, spec.homePath],
-    [NM_HOME, `${spec.homePath}/no-mistakes`],
+    [NM_HOME, spec.nmHome ?? `${spec.homePath}/no-mistakes`],
     [CODEX_HOME, `${spec.homePath}/codex`],
     [CLAUDE_CONFIG_DIR, `${spec.homePath}/claude`]
   ]

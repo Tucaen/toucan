@@ -372,14 +372,25 @@ test('continues validation with the task-pinned validator after the global provi
   assert.ok(continuation.includes('ADE_FIRSTMATE_RUNTIME_CONFIG=/home/tucaen/.local/share/ade/firstmate/home/state/resize.ade-runtime.json'))
   assert.ok(continuation.includes('ADE_FIRSTMATE_VALIDATOR_AGENT=codex'))
   assert.ok(continuation.includes('ADE_FIRSTMATE_VALIDATOR_MODEL=gpt-5.6-sol'))
-  assert.ok(continuation.includes('NM_HOME=/home/tucaen/.local/share/ade/firstmate/home/no-mistakes'))
+  const nmHomeArg = continuation.find((arg) => arg.startsWith('NM_HOME='))
+  assert.ok(nmHomeArg)
+  assert.match(
+    nmHomeArg,
+    /^NM_HOME=\/home\/tucaen\/\.local\/share\/ade\/firstmate\/home\/state\/validators\/[a-f0-9]{20}\/no-mistakes$/,
+    'each task must get its own no-mistakes home so concurrent validations cannot clobber each other'
+  )
   const configWrite = calls.find((args) => args.includes('/home/tucaen/.local/share/ade/firstmate/home/state/resize.ade-runtime.json'))
   assert.ok(configWrite, 'the pinned runtime record must be durable before the continuation is sent')
   const taskConfig = JSON.parse(Buffer.from(configWrite.at(-1) ?? '', 'base64url').toString('utf8'))
+  assert.match(
+    taskConfig.validator.nmHome,
+    /^\/home\/tucaen\/\.local\/share\/ade\/firstmate\/home\/state\/validators\/[a-f0-9]{20}\/no-mistakes$/,
+    'the runtime record must carry the task-scoped no-mistakes home'
+  )
   assert.deepEqual(taskConfig.validator, {
     agent: 'codex',
     model: 'gpt-5.6-sol',
-    nmHome: '/home/tucaen/.local/share/ade/firstmate/home/no-mistakes',
+    nmHome: taskConfig.validator.nmHome,
     agentHome: '/home/tucaen/.local/share/ade/firstmate/home/codex',
     agentPath: taskConfig.validator.agentPath
   })
@@ -395,8 +406,8 @@ test('continues validation with the task-pinned validator after the global provi
   assert.ok(wrapperWrite)
   const wrapper = Buffer.from(wrapperWrite.at(-1) ?? '', 'base64url').toString('utf8')
   assert.match(wrapper, /exec "\$HOME\/\.local\/bin\/codex" --model gpt-5\.6-sol/)
-  const pipelineWrite = calls.find((args) => args.includes('/home/tucaen/.local/share/ade/firstmate/home/no-mistakes/config.yaml'))
-  assert.ok(pipelineWrite)
+  const pipelineWrite = calls.find((args) => args.some((arg) => /\/state\/validators\/[a-f0-9]{20}\/no-mistakes\/config\.yaml$/.test(arg)))
+  assert.ok(pipelineWrite, 'the pipeline config must be written to the task-scoped no-mistakes home')
   assert.match(
     Buffer.from(pipelineWrite.at(-1) ?? '', 'base64url').toString('utf8'),
     new RegExp(`agent: codex[\\s\\S]*${taskConfig.validator.agentPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`)
@@ -614,32 +625,28 @@ test('keeps two switched external projects on their original providers through s
 
   await coordinator.poll()
 
-  assert.equal(sends.length, 1, 'the shared no-mistakes gate must validate one pinned provider at a time')
+  assert.equal(sends.length, 2, 'both pinned providers must dispatch concurrently in a single poll')
   const alphaSend = sends.find((args) => args.includes('alpha-ship')) ?? []
   assert.ok(alphaSend.includes('ADE_FIRSTMATE_VALIDATOR_AGENT=codex'))
   assert.ok(alphaSend.includes('ADE_FIRSTMATE_VALIDATOR_MODEL=gpt-5.6-sol'))
   assert.match(alphaSend.at(-1) ?? '', /^\$no-mistakes/)
-  assert.equal(taskConfigs.size, 1)
+  const betaSend = sends.find((args) => args.includes('beta-ship')) ?? []
+  assert.ok(betaSend.includes('ADE_FIRSTMATE_VALIDATOR_AGENT=claude'))
+  assert.ok(betaSend.includes('ADE_FIRSTMATE_VALIDATOR_MODEL=claude-sonnet-4-5'))
+  assert.match(betaSend.at(-1) ?? '', /^\/no-mistakes/)
+  assert.equal(taskConfigs.size, 2, 'each task writes its own runtime config')
 
   const restartedRuntime = createFirstMateRuntime(runtimeOptions)
   await restartedRuntime.status()
-  await restartedRuntime.configureValidator('codex', 'global-before-beta')
+  await restartedRuntime.configureValidator('codex', 'global-after-dispatch')
   const restartedCoordinator = createFirstMateLifecycleCoordinator({
     runtime: restartedRuntime,
     wakeCaptain: async (message) => { wakes.push(message); return { ok: true } }
   })
   await restartedCoordinator.poll()
-  assert.equal(sends.length, 1, 'restart must supervise the acknowledged dispatch without repeating it')
+  assert.equal(sends.length, 2, 'restart must supervise both acknowledged dispatches without repeating them')
 
   rawTasks[0]!.status += 'done: PR https://github.com/acme/alpha/pull/10 checks green\n'
-  await restartedCoordinator.poll()
-  assert.equal(sends.length, 2, 'the second pinned provider starts only after the shared gate is free')
-  const betaSend = sends.find((args) => args.includes('beta-ship')) ?? []
-  assert.ok(betaSend.includes('ADE_FIRSTMATE_VALIDATOR_AGENT=claude'))
-  assert.ok(betaSend.includes('ADE_FIRSTMATE_VALIDATOR_MODEL=claude-sonnet-4-5'))
-  assert.match(betaSend.at(-1) ?? '', /^\/no-mistakes/)
-  assert.equal(taskConfigs.size, 2)
-
   rawTasks[1]!.status += 'done: PR https://github.com/acme/beta/pull/20 checks green\n'
   await restartedCoordinator.poll()
   const completed = await restartedRuntime.lifecycle()
@@ -655,6 +662,137 @@ test('keeps two switched external projects on their original providers through s
   const completionWake = wakes.find((message) => /alpha-ship=pr-ready/.test(message)) ?? ''
   assert.match(completionWake, /project=alpha[\s\S]*validator=codex\/gpt-5\.6-sol/)
   assert.match(completionWake, /project=beta[\s\S]*validator=claude\/claude-sonnet-4-5/)
+})
+
+test('validates two differently-pinned tasks concurrently with isolated no-mistakes scopes', async () => {
+  const alphaCrew = externalGitCrew('alpha')
+  const betaCrew = externalGitCrew('beta')
+  const alphaContext: FirstMateTaskContext = {
+    version: 1,
+    project: {
+      adeProjectId: 'alpha',
+      registryName: 'api-alpha',
+      windowsPath: alphaCrew.primary,
+      wslPath: alphaCrew.primaryWsl,
+      mode: 'no-mistakes',
+      autonomy: false
+    },
+    validator: { agent: 'codex', model: 'gpt-5.6-sol' }
+  }
+  const betaContext: FirstMateTaskContext = {
+    version: 1,
+    project: {
+      adeProjectId: 'beta',
+      registryName: 'api-beta',
+      windowsPath: betaCrew.primary,
+      wslPath: betaCrew.primaryWsl,
+      mode: 'no-mistakes',
+      autonomy: false
+    },
+    validator: { agent: 'claude', model: 'claude-sonnet-4-5' }
+  }
+  const rawTasks = [{
+    id: 'alpha-ship',
+    meta: [
+      'kind=ship', 'mode=no-mistakes', 'yolo=off',
+      `project=${alphaContext.project.wslPath}`, `worktree=${alphaCrew.worktreeWsl}`,
+      'harness=codex', 'model=gpt-5.6-sol',
+      firstMateTaskContextMetadata(alphaContext)
+    ].join('\n'),
+    status: 'done: committed alpha implementation\n'
+  }, {
+    id: 'beta-ship',
+    meta: [
+      'kind=ship', 'mode=no-mistakes', 'yolo=off',
+      `project=${betaContext.project.wslPath}`, `worktree=${betaCrew.worktreeWsl}`,
+      'harness=claude', 'model=claude-sonnet-4-5',
+      firstMateTaskContextMetadata(betaContext)
+    ].join('\n'),
+    status: 'done: committed beta implementation\n'
+  }]
+  let journal: FirstMateLifecycleJournal = { version: 1, tasks: {} }
+  const sends: string[][] = []
+  const pipelineWrites = new Map<string, string>()
+
+  const run = async (args: string[]): Promise<{ stdout: string; stderr: string }> => {
+    if (args.includes('-lc')) return { stdout: readyWslInspection(), stderr: '' }
+    const scriptIndex = args.indexOf('-e')
+    const script = scriptIndex >= 0 ? args[scriptIndex + 1] ?? '' : ''
+    if (script.includes("names.filter((name) => name.endsWith('.meta'))")) {
+      return {
+        stdout: JSON.stringify({
+          runtimeConfig: JSON.stringify({ version: 1, validator: { agent: 'codex', model: 'global' } }),
+          journal: JSON.stringify(journal),
+          tasks: rawTasks
+        }),
+        stderr: ''
+      }
+    }
+    if (script.includes('journal.tasks[taskId] = record')) {
+      const taskId = args.at(-2) ?? ''
+      const record = JSON.parse(Buffer.from(args.at(-1) ?? '', 'base64url').toString('utf8')) as FirstMateLifecycleRecord
+      journal = { version: 1, tasks: { ...journal.tasks, [taskId]: record } }
+      return { stdout: '', stderr: '' }
+    }
+    if (args.some((arg) => arg.endsWith('/bin/fm-send.sh'))) {
+      sends.push(args)
+      return { stdout: '', stderr: '' }
+    }
+    const nmConfigPath = args.find((arg) => /\/no-mistakes\/config\.yaml$/.test(arg))
+    if (nmConfigPath) {
+      pipelineWrites.set(nmConfigPath, Buffer.from(args.at(-1) ?? '', 'base64url').toString('utf8'))
+      return { stdout: '', stderr: '' }
+    }
+    return { stdout: '', stderr: '' }
+  }
+  const runtime = createFirstMateRuntime({ platform: 'win32', resolveGit: () => 'git.exe', wsl: { run } })
+  await runtime.status()
+  const coordinator = createFirstMateLifecycleCoordinator({
+    runtime,
+    wakeCaptain: async () => ({ ok: true })
+  })
+
+  await coordinator.poll()
+
+  assert.equal(sends.length, 2, 'both tasks must dispatch in a single poll, not serialized behind a gate')
+  const alphaSend = sends.find((args) => args.includes('alpha-ship'))
+  const betaSend = sends.find((args) => args.includes('beta-ship'))
+  assert.ok(alphaSend, 'alpha must dispatch')
+  assert.ok(betaSend, 'beta must dispatch')
+  assert.ok(alphaSend.includes('ADE_FIRSTMATE_VALIDATOR_AGENT=codex'))
+  assert.ok(alphaSend.includes('ADE_FIRSTMATE_VALIDATOR_MODEL=gpt-5.6-sol'))
+  assert.ok(betaSend.includes('ADE_FIRSTMATE_VALIDATOR_AGENT=claude'))
+  assert.ok(betaSend.includes('ADE_FIRSTMATE_VALIDATOR_MODEL=claude-sonnet-4-5'))
+  assert.match(alphaSend.at(-1) ?? '', /^\$no-mistakes/, 'codex tasks invoke $no-mistakes')
+  assert.match(betaSend.at(-1) ?? '', /^\/no-mistakes/, 'claude tasks invoke /no-mistakes')
+
+  const alphaNmHome = alphaSend.find((arg) => arg.startsWith('NM_HOME='))
+  const betaNmHome = betaSend.find((arg) => arg.startsWith('NM_HOME='))
+  assert.ok(alphaNmHome)
+  assert.ok(betaNmHome)
+  assert.notEqual(
+    alphaNmHome,
+    betaNmHome,
+    'each task must get its own NM_HOME so concurrent validations cannot clobber each other'
+  )
+  assert.match(alphaNmHome, /\/state\/validators\/[a-f0-9]{20}\/no-mistakes$/)
+  assert.match(betaNmHome, /\/state\/validators\/[a-f0-9]{20}\/no-mistakes$/)
+
+  assert.equal(pipelineWrites.size, 2, 'each task must write its own pipeline config')
+  const pipelinePaths = [...pipelineWrites.keys()]
+  assert.notEqual(
+    pipelinePaths[0],
+    pipelinePaths[1],
+    'pipeline configs must be written to distinct paths'
+  )
+  for (const [path, content] of pipelineWrites) {
+    assert.match(path, /\/state\/validators\/[a-f0-9]{20}\/no-mistakes\/config\.yaml$/)
+    assert.match(content, /agent_path_override:/)
+  }
+  const alphaConfig = [...pipelineWrites.values()].find((config) => config.includes('agent: codex'))
+  const betaConfig = [...pipelineWrites.values()].find((config) => config.includes('agent: claude'))
+  assert.ok(alphaConfig, 'alpha pipeline config must select codex')
+  assert.ok(betaConfig, 'beta pipeline config must select claude')
 })
 
 test('trusts only the managed FirstMate distro after explicit approval', async () => {

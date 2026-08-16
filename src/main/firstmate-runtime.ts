@@ -641,6 +641,7 @@ interface TaskValidationDispatch {
   taskConfigPath: string
   taskConfig: string
   agentPath: string
+  nmHome: string
   pipelineConfig: string
   wrapper: string
   continuation: string
@@ -662,6 +663,7 @@ function taskValidationDispatch(
     .digest('hex')
     .slice(0, 20)
   const agentPath = `${homePath}/state/validators/${validatorScopeHash}/${agent}`
+  const nmHome = `${homePath}/state/validators/${validatorScopeHash}/no-mistakes`
   const agentHome = `${homePath}/${agent}`
   const modelArgument = model === 'default' ? '' : ` --model ${model}`
   const providerHome = agent === 'codex'
@@ -673,11 +675,12 @@ function taskValidationDispatch(
     taskConfig: taskRuntimeConfig(
       endpoint.context,
       endpoint.worktree,
-      `${homePath}/no-mistakes`,
+      nmHome,
       agentHome,
       agentPath
     ),
     agentPath,
+    nmHome,
     pipelineConfig: `agent: ${agent}\nagent_path_override:\n  ${agent}: ${JSON.stringify(agentPath)}\n`,
     wrapper: `#!/bin/sh\n${providerHome}\nexec ${JSON.stringify(`$HOME/.local/bin/${agent}`)}${modelArgument} "$@"\n`,
     continuation: noMistakesContinuation(endpoint.harness, taskConfigPath, dispatchId, ledgerPath)
@@ -1167,6 +1170,7 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
           runtimeConfigPath: dispatch.taskConfigPath,
           validatorAgent: dispatch.endpoint.context.validator.agent,
           validatorModel: dispatch.endpoint.context.validator.model,
+          nmHome: dispatch.nmHome,
           announceSupervisor: false
         })
         // Durable evidence of this dispatch identity must exist before the send, so a repeated
@@ -1175,7 +1179,7 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
         for (const [path, contents] of [
           [dispatch.taskConfigPath, dispatch.taskConfig],
           [dispatch.agentPath, dispatch.wrapper],
-          [`${readyPaths.homePath}/no-mistakes/config.yaml`, dispatch.pipelineConfig]
+          [`${dispatch.nmHome}/config.yaml`, dispatch.pipelineConfig]
         ]) {
           await run(
             [

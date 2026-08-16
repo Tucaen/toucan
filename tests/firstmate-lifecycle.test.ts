@@ -331,7 +331,7 @@ test('supervises a scout with its pinned report-only contract without inventing 
   assert.deepEqual(lifecycle.tasks[0]?.context, alphaCodexContext)
 })
 
-test('keeps the shared validation gate pinned while an acknowledged task awaits a decision', async () => {
+test('dispatches a second task while another awaits a decision under its own validation scope', async () => {
   const continuations: string[] = []
   const coordinator = createFirstMateLifecycleCoordinator({
     runtime: {
@@ -359,7 +359,7 @@ test('keeps the shared validation gate pinned while an acknowledged task awaits 
 
   await coordinator.poll()
 
-  assert.deepEqual(continuations, [], 'another task cannot replace the paused pipeline selector')
+  assert.deepEqual(continuations, ['beta'], 'each task validates under its own scope, so another task does not block it')
 })
 
 test('derives a stable dispatch identity for one continuation, independent of the delivery attempt', () => {
