@@ -15,6 +15,8 @@ export interface AgentChatMessage {
   id: string
   role: 'user' | 'assistant' | 'thought'
   text: string
+  /** True until the agent actually starts processing this message (only possible for messages sent while busy). */
+  queued?: boolean
 }
 
 export interface AgentApprovalState {
@@ -109,6 +111,11 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
       } else if (event.type === 'message') {
         if (event.role === 'user' && sentTextRef.current === event.text) {
           sentTextRef.current = undefined
+          setMessages((current) => current.map((message) => (
+            message.role === 'user' && message.text === event.text && message.queued
+              ? { ...message, queued: false }
+              : message
+          )))
           return
         }
         setMessages((current) => {
@@ -170,22 +177,25 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
   const submit = (event: FormEvent): void => {
     event.preventDefault()
     const text = draft.trim()
-    if (!text || status !== 'ready') return
+    if (!text || (status !== 'ready' && status !== 'working')) return
+    const queued = status === 'working'
     const compose = options.composePrompt
-    setStatus('working')
+    if (!queued) setStatus('working')
     void deliverAgentPrompt(
       text,
       compose,
-      (prompt) => window.agentApi.prompt(options.id, prompt),
+      (prompt) => queued
+        ? window.agentApi.promptWhenIdle(options.id, prompt)
+        : window.agentApi.prompt(options.id, prompt),
       (prompt) => {
-        setMessages((current) => [...current, { id: crypto.randomUUID(), role: 'user', text }])
+        setMessages((current) => [...current, { id: crypto.randomUUID(), role: 'user', text, queued }])
         setDraft('')
         sentTextRef.current = prompt
       }
     ).then((result) => {
       if (result.ok) return
       setDetail(result.message)
-      setStatus('ready')
+      if (!queued) setStatus('ready')
     })
   }
 

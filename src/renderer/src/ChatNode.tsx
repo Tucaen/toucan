@@ -185,7 +185,7 @@ function EmptyConversation({ provider }: Pick<ChatViewProps, 'provider'>): JSX.E
 function Composer(props: Pick<ChatViewProps, 'draft' | 'setDraft' | 'submit' | 'cancel' | 'status'>): JSX.Element {
   const busy = props.status === 'working'
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const composerDisabled = busy || props.status === 'starting' || props.status === 'auth_required'
+  const composerDisabled = props.status === 'starting' || props.status === 'auth_required' || props.status === 'exited'
   return (
     <form className="chat-composer nodrag" onSubmit={props.submit}>
       <textarea
@@ -198,18 +198,19 @@ function Composer(props: Pick<ChatViewProps, 'draft' | 'setDraft' | 'submit' | '
             event.currentTarget.form?.requestSubmit()
           }
         }}
-        placeholder={busy ? 'Agent is working...' : 'Message the agent...'}
+        placeholder={busy ? 'Agent is working... your message will be queued' : 'Message the agent...'}
         disabled={composerDisabled}
       />
       <VoiceInputPrototype
         draft={props.draft}
-        disabled={composerDisabled || props.status === 'exited'}
+        disabled={composerDisabled}
         textareaRef={textareaRef}
         setDraft={props.setDraft}
       />
-      {busy
-        ? <button type="button" className="stop-agent" onClick={props.cancel}>Stop</button>
-        : <button type="submit" disabled={!props.draft.trim() || props.status !== 'ready'}>Send</button>}
+      {busy && <button type="button" className="stop-agent" onClick={props.cancel}>Stop</button>}
+      <button type="submit" disabled={!props.draft.trim() || composerDisabled}>
+        {busy ? 'Queue' : 'Send'}
+      </button>
     </form>
   )
 }
@@ -297,9 +298,12 @@ export function ChatView(props: ChatViewProps & {
         {props.messages.map((message) => message.role === 'thought'
           ? <details className="thought-card" key={message.id}><summary>Reasoning</summary><Markdown text={message.text} /></details>
           : (
-            <article className={`chat-message ${message.role}`} key={message.id}>
+            <article className={`chat-message ${message.role}${message.queued ? ' queued' : ''}`} key={message.id}>
               <span>{message.role === 'user' ? 'You' : providerNames[props.provider]}</span>
-              <div><Markdown text={message.text} /></div>
+              <div>
+                <Markdown text={message.text} />
+                {message.queued && <small className="queued-badge">Queued — will send once the agent is free</small>}
+              </div>
             </article>
           ))}
         <ApprovalPanel {...props} />
