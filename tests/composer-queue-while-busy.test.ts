@@ -76,8 +76,8 @@ test('a queued message is marked distinct from a delivered one and clears once t
   )
   assert.match(
     hook,
-    /message\.role === 'user' && message\.text === event\.text && message\.queued\s*\n\s*\? \{ \.\.\.message, queued: false \}/,
-    'the queued flag should clear once the agent echoes the message back, i.e. actually starts processing it'
+    /pendingSentRef\.current\[0\]\?\.text === event\.text/,
+    'each sent message should be matched against the oldest still-unconfirmed one (FIFO), not a single overwritable ref, so multiple in-flight queued sends each clear independently'
   )
 })
 

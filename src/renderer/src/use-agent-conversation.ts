@@ -79,7 +79,8 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
   const [status, setStatus] = useState<AgentChatStatus>('starting')
   const [detail, setDetail] = useState<string>()
   const [draft, setDraft] = useState('')
-  const sentTextRef = useRef<string>()
+  /** FIFO of messages sent but not yet echoed back, so each queued send (not just the latest) clears its own queued flag. */
+  const pendingSentRef = useRef<Array<{ id: string; text: string }>>([])
   const activities = useMemo(() => Object.values(activitiesById), [activitiesById])
   const onSessionId = useRef(options.onSessionId)
   const onPermissionMode = useRef(options.onPermissionMode)
@@ -109,12 +110,10 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
       } else if (event.type === 'session') {
         onSessionId.current(event.sessionId)
       } else if (event.type === 'message') {
-        if (event.role === 'user' && sentTextRef.current === event.text) {
-          sentTextRef.current = undefined
+        if (event.role === 'user' && pendingSentRef.current[0]?.text === event.text) {
+          const sent = pendingSentRef.current.shift()!
           setMessages((current) => current.map((message) => (
-            message.role === 'user' && message.text === event.text && message.queued
-              ? { ...message, queued: false }
-              : message
+            message.id === sent.id ? { ...message, queued: false } : message
           )))
           return
         }
@@ -182,19 +181,21 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     const compose = options.composePrompt
     if (!queued) setStatus('working')
     const deliverPrompt = chooseAgentPromptApi(status, window.agentApi)
+    const id = crypto.randomUUID()
     void deliverAgentPrompt(
       text,
       compose,
       (prompt) => deliverPrompt(options.id, prompt),
       (prompt) => {
-        setMessages((current) => [...current, { id: crypto.randomUUID(), role: 'user', text, queued }])
+        setMessages((current) => [...current, { id, role: 'user', text, queued }])
         setDraft('')
-        sentTextRef.current = prompt
+        pendingSentRef.current.push({ id, text: prompt })
       }
     ).then((result) => {
       if (result.ok) return
       setDetail(result.message)
       if (!queued) setStatus('ready')
+      pendingSentRef.current = pendingSentRef.current.filter((entry) => entry.id !== id)
     })
   }
 
