@@ -9,7 +9,7 @@ import type {
   AgentPlanEntry,
   AgentProvider
 } from '../../shared/agent'
-import { chooseAgentPromptApi, deliverAgentPrompt } from './agent-prompt-delivery'
+import { chooseAgentPromptApi, createDispatchOrderGate, deliverAgentPrompt } from './agent-prompt-delivery'
 
 export interface AgentChatMessage {
   id: string
@@ -81,6 +81,11 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
   const [draft, setDraft] = useState('')
   /** FIFO of messages sent but not yet echoed back, so each queued send (not just the latest) clears its own queued flag. */
   const pendingSentRef = useRef<Array<{ id: string; text: string }>>([])
+  /**
+   * Serializes the actual cross-process deliver call in submission order, even when an earlier
+   * submit's (async) composePrompt resolves after a later one's.
+   */
+  const dispatchGateRef = useRef(createDispatchOrderGate())
   const activities = useMemo(() => Object.values(activitiesById), [activitiesById])
   const onSessionId = useRef(options.onSessionId)
   const onPermissionMode = useRef(options.onPermissionMode)
@@ -182,16 +187,25 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     if (!queued) setStatus('working')
     const deliverPrompt = chooseAgentPromptApi(status, window.agentApi)
     const id = crypto.randomUUID()
+
+    const slot = dispatchGateRef.current.reserve()
+
     void deliverAgentPrompt(
       text,
       compose,
-      (prompt) => deliverPrompt(options.id, prompt),
-      (prompt) => {
+      async (prompt) => {
+        await slot.previous
+        pendingSentRef.current.push({ id, text: prompt })
+        const result = deliverPrompt(options.id, prompt)
+        slot.release()
+        return result
+      },
+      () => {
         setMessages((current) => [...current, { id, role: 'user', text, queued }])
         setDraft('')
-        pendingSentRef.current.push({ id, text: prompt })
       }
     ).then((result) => {
+      slot.release()
       if (result.ok) return
       setDetail(result.message)
       if (!queued) setStatus('ready')

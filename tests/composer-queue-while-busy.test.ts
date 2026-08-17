@@ -2,7 +2,7 @@ import { strict as assert } from 'node:assert'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { chooseAgentPromptApi } from '../src/renderer/src/agent-prompt-delivery'
+import { chooseAgentPromptApi, createDispatchOrderGate, deliverAgentPrompt } from '../src/renderer/src/agent-prompt-delivery'
 
 // This project's renderer has no jsdom/react-testing-library harness (see other
 // tests under tests/*panel*.test.ts), so the parts of this feature that live inside
@@ -34,6 +34,39 @@ test('chooseAgentPromptApi routes to promptWhenIdle while working and to prompt 
   await readyDeliverer('session-1', 'immediate thought')
 
   assert.deepEqual(calls, ['promptWhenIdle:session-1:queued thought', 'prompt:session-1:immediate thought'])
+})
+
+test('createDispatchOrderGate keeps dispatch in submission order even when an earlier composePrompt resolves later', async () => {
+  const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+  const gate = createDispatchOrderGate()
+  const dispatchOrder: string[] = []
+
+  const submitMessage = (label: string, composeDelayMs: number): Promise<unknown> => {
+    const slot = gate.reserve()
+    return deliverAgentPrompt(
+      label,
+      async (text) => {
+        await delay(composeDelayMs)
+        return text
+      },
+      async (prompt) => {
+        await slot.previous
+        dispatchOrder.push(prompt)
+        slot.release()
+        return { ok: true }
+      }
+    )
+  }
+
+  const first = submitMessage('first message', 30)
+  const second = submitMessage('second message', 0)
+  await Promise.all([first, second])
+
+  assert.deepEqual(
+    dispatchOrder,
+    ['first message', 'second message'],
+    'the first-submitted message must still dispatch before the second even though its composePrompt resolves later'
+  )
 })
 
 test('submit() queues while busy instead of no-oping, and is unaffected when ready', () => {
