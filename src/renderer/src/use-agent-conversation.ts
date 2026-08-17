@@ -9,7 +9,7 @@ import type {
   AgentPlanEntry,
   AgentProvider
 } from '../../shared/agent'
-import { deliverAgentPrompt } from './agent-prompt-delivery'
+import { chooseAgentPromptApi, deliverAgentPrompt } from './agent-prompt-delivery'
 
 export interface AgentChatMessage {
   id: string
@@ -181,12 +181,11 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     const queued = status === 'working'
     const compose = options.composePrompt
     if (!queued) setStatus('working')
+    const deliverPrompt = chooseAgentPromptApi(status, window.agentApi)
     void deliverAgentPrompt(
       text,
       compose,
-      (prompt) => queued
-        ? window.agentApi.promptWhenIdle(options.id, prompt)
-        : window.agentApi.prompt(options.id, prompt),
+      (prompt) => deliverPrompt(options.id, prompt),
       (prompt) => {
         setMessages((current) => [...current, { id: crypto.randomUUID(), role: 'user', text, queued }])
         setDraft('')

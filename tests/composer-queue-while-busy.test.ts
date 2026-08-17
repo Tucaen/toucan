@@ -2,14 +2,41 @@ import { strict as assert } from 'node:assert'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { chooseAgentPromptApi } from '../src/renderer/src/agent-prompt-delivery'
 
 // This project's renderer has no jsdom/react-testing-library harness (see other
-// tests under tests/*panel*.test.ts), so renderer-side contracts here are verified
-// by asserting on source text, the same pattern used throughout this test suite.
-// The underlying queuing engine (CaptainWakeGate) already has full behavioral
-// coverage in firstmate-captain-wake.test.ts.
+// tests under tests/*panel*.test.ts), so the parts of this feature that live inside
+// a React component (Composer's disabled state, the queued-badge JSX) or cross a
+// process boundary (preload/main IPC wiring) are verified by asserting on source
+// text below, the same pattern used throughout this test suite. The decision logic
+// itself (which agent API a submit routes through) is extracted into a pure,
+// dependency-free function and exercised directly, and the underlying queuing
+// engine (CaptainWakeGate) already has full behavioral coverage in
+// firstmate-captain-wake.test.ts.
 
-test('submit() queues via promptWhenIdle while busy instead of no-oping, and is unaffected when ready', () => {
+test('chooseAgentPromptApi routes to promptWhenIdle while working and to prompt while ready', async () => {
+  const calls: string[] = []
+  const prompt = async (id: string, text: string): Promise<{ ok: boolean }> => {
+    calls.push(`prompt:${id}:${text}`)
+    return { ok: true }
+  }
+  const promptWhenIdle = async (id: string, text: string): Promise<{ ok: boolean }> => {
+    calls.push(`promptWhenIdle:${id}:${text}`)
+    return { ok: true }
+  }
+
+  const workingDeliverer = chooseAgentPromptApi('working', { prompt, promptWhenIdle })
+  assert.equal(workingDeliverer, promptWhenIdle, 'busy submits must route through the queue-capable API')
+  await workingDeliverer('session-1', 'queued thought')
+
+  const readyDeliverer = chooseAgentPromptApi('ready', { prompt, promptWhenIdle })
+  assert.equal(readyDeliverer, prompt, 'ready submits must keep using the direct API, unchanged from today')
+  await readyDeliverer('session-1', 'immediate thought')
+
+  assert.deepEqual(calls, ['promptWhenIdle:session-1:queued thought', 'prompt:session-1:immediate thought'])
+})
+
+test('submit() queues while busy instead of no-oping, and is unaffected when ready', () => {
   const hook = readFileSync(join(process.cwd(), 'src/renderer/src/use-agent-conversation.ts'), 'utf8')
 
   assert.doesNotMatch(
@@ -24,13 +51,8 @@ test('submit() queues via promptWhenIdle while busy instead of no-oping, and is 
   )
   assert.match(
     hook,
-    /window\.agentApi\.promptWhenIdle\(options\.id, prompt\)/,
-    'a busy submit should be delivered through the wake-gate queuing API'
-  )
-  assert.match(
-    hook,
-    /window\.agentApi\.prompt\(options\.id, prompt\)/,
-    'a ready submit should still use the direct prompt API, unchanged from today'
+    /chooseAgentPromptApi\(status, window\.agentApi\)/,
+    'submit should delegate to the extracted, directly-tested API selection function'
   )
   assert.match(
     hook,

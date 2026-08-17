@@ -26,7 +26,7 @@ test('flush without a pending wake does not call deliver', () => {
   gate.dispose()
 })
 
-test('multiple enqueues coalesce: only the latest text is delivered and earlier callers resolve ok', async () => {
+test('multiple enqueues form a FIFO queue: every message is delivered, in order, none dropped', async () => {
   const deliveries: string[] = []
   const gate = createCaptainWakeGate({
     deliver: async (text) => { deliveries.push(text); return { ok: true } }
@@ -35,12 +35,12 @@ test('multiple enqueues coalesce: only the latest text is delivered and earlier 
   const second = gate.enqueue('wake-2')
   const third = gate.enqueue('wake-3')
 
-  assert.deepEqual(await first, { ok: true }, 'superseded wake resolves ok')
-  assert.deepEqual(await second, { ok: true }, 'superseded wake resolves ok')
-
   gate.flush()
+
+  assert.deepEqual(await first, { ok: true })
+  assert.deepEqual(await second, { ok: true })
   assert.deepEqual(await third, { ok: true })
-  assert.deepEqual(deliveries, ['wake-3'], 'only the latest text should be delivered')
+  assert.deepEqual(deliveries, ['wake-1', 'wake-2', 'wake-3'], 'every enqueued message should be delivered, in submission order')
   gate.dispose()
 })
 
@@ -74,24 +74,20 @@ test('flush clears the timeout so it does not fire after delivery', async () => 
   gate.dispose()
 })
 
-test('coalescing resets the timeout so the latest wake gets a full window', async () => {
+test('each queued wake keeps its own independent timeout, unaffected by later enqueues', async () => {
   let expiredText: string | undefined
   const gate = createCaptainWakeGate({
     deliver: async () => ({ ok: true }),
     onExpired: (text) => { expiredText = text },
     timeoutMs: 30
   })
-  gate.enqueue('wake-old')
+  const first = gate.enqueue('wake-old')
   await new Promise<void>((resolve) => setTimeout(resolve, 20))
-  const second = gate.enqueue('wake-new')
-  // The old timer (20ms elapsed of 30ms) should have been replaced by a fresh 30ms timer.
-  // If the old timer survived, it would fire in ~10ms.
-  await new Promise<void>((resolve) => setTimeout(resolve, 15))
-  assert.equal(expiredText, undefined, 'old timer should not have fired')
-  // Now wait for the new timer to fire.
-  const result = await second
+  gate.enqueue('wake-new')
+  // wake-old's timer keeps running from its own enqueue call, so it should still fire ~10ms later.
+  const result = await first
   assert.equal(result.ok, false)
-  assert.equal(expiredText, 'wake-new')
+  assert.equal(expiredText, 'wake-old')
   gate.dispose()
 })
 

@@ -7,6 +7,14 @@ export interface AgentPromptDeliveryResult {
 }
 
 /**
+ * Picks which agent API a submit should route through: the queue-capable one while the
+ * agent is still working on its current turn, the direct one once it's ready for a new turn.
+ */
+export function chooseAgentPromptApi<T>(status: string, api: { prompt: T; promptWhenIdle: T }): T {
+  return status === 'working' ? api.promptWhenIdle : api.prompt
+}
+
+/**
  * Resolves request-time context before crossing the agent boundary. A failed composition returns
  * without invoking `deliver`, so callers can safely retry on the same conversation later.
  */
