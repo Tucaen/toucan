@@ -1,6 +1,10 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
-import { createFirstMateRuntime } from '../src/main/firstmate-runtime'
+import { execFileSync } from 'node:child_process'
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { createFirstMateRuntime, WSL_INSPECT_SCRIPT, WSL_WRAPPER_SCRIPT } from '../src/main/firstmate-runtime'
 import {
   firstMateTaskContextFromMetadata,
   firstMateTaskContextMetadata,
@@ -1311,4 +1315,73 @@ test('a valid catalog carrier passes after repair; stale project or validator me
     firstMateSpawnContextProblem(context, gateProject, staleValidator),
     'stale validator metadata must still fail closed after repair'
   )
+})
+
+// --- Stale wrapper detection (home/bin/claude, home/bin/codex) ---
+
+function runManagedShell(script: string, home: string): string {
+  return execFileSync('/bin/sh', ['-c', script], { env: { ...process.env, HOME: home }, encoding: 'utf8' })
+}
+
+function managedWrapperFixture(): { home: string; base: string } {
+  const home = mkdtempSync(join(tmpdir(), 'firstmate-wrapper-'))
+  const base = join(home, '.local/share/ade/firstmate')
+  mkdirSync(join(home, '.local/bin'), { recursive: true })
+  mkdirSync(join(base, 'home/bin'), { recursive: true })
+  for (const tool of ['claude', 'codex']) {
+    writeFileSync(join(home, '.local/bin', tool), '#!/bin/sh\nexit 0\n')
+    chmodSync(join(home, '.local/bin', tool), 0o755)
+  }
+  return { home, base }
+}
+
+test('the managed wrapper script forwards real arguments to the underlying agent binary', () => {
+  const { home, base } = managedWrapperFixture()
+  try {
+    writeFileSync(
+      join(home, '.local/bin/claude'),
+      '#!/bin/sh\nprintf \'argc=%d\\n\' "$#"\nfor a in "$@"; do printf \'arg=[%s]\\n\' "$a"; done\n'
+    )
+    chmodSync(join(home, '.local/bin/claude'), 0o755)
+    runManagedShell(`base="${base}"\n${WSL_WRAPPER_SCRIPT}chmod +x "$base/home/bin/claude" "$base/home/bin/codex"`, home)
+
+    const output = execFileSync(join(base, 'home/bin/claude'), ['review', '--agent', 'foo'], { encoding: 'utf8' })
+
+    assert.equal(
+      output,
+      'argc=3\narg=[review]\narg=[--agent]\narg=[foo]\n',
+      'a freshly generated wrapper must forward its real arguments to the underlying binary'
+    )
+  } finally {
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('the inspect script reports a wrapper fact only when the wrapper actually forwards arguments', () => {
+  const { home, base } = managedWrapperFixture()
+  try {
+    runManagedShell(`base="${base}"\n${WSL_WRAPPER_SCRIPT}chmod +x "$base/home/bin/claude" "$base/home/bin/codex"`, home)
+    // Overwrite codex with the historically-broken wrapper: present, executable, but hardcoding an
+    // empty argument instead of forwarding "$@".
+    writeFileSync(
+      join(base, 'home/bin/codex'),
+      `#!/bin/sh\nexport CODEX_HOME="${base}/home/codex"\nexec "${home}/.local/bin/codex" ""\n`
+    )
+    chmodSync(join(base, 'home/bin/codex'), 0o755)
+
+    const output = runManagedShell(WSL_INSPECT_SCRIPT, home)
+
+    assert.match(
+      output,
+      /^wrapper\.claude=1$/m,
+      'a correctly generated wrapper must still be reported healthy'
+    )
+    assert.doesNotMatch(
+      output,
+      /^wrapper\.codex=1$/m,
+      'a present, executable, but stale/broken wrapper must not be misreported as healthy'
+    )
+  } finally {
+    rmSync(home, { recursive: true, force: true })
+  }
 })
