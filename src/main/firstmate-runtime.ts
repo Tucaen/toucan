@@ -83,7 +83,7 @@ const WSL_PROVIDER_FACTS: Record<AgentProvider, string[]> = {
   codex: ['runner.codex', 'tool.codex', 'wrapper.codex'],
   claude: ['runner.claude', 'tool.claude', 'wrapper.claude']
 }
-const WSL_INSPECT_SCRIPT = `
+export const WSL_INSPECT_SCRIPT = `
 set -u
 base="$HOME/${WSL_BASE}"
 export PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin"
@@ -94,8 +94,8 @@ printf 'home=%s\n' "$HOME"
 for tool in node git gh tmux jq claude codex treehouse no-mistakes gh-axi chrome-devtools-axi lavish-axi tasks-axi quota-axi; do
   command -v "$tool" >/dev/null 2>&1 && printf 'tool.%s=1\n' "$tool" || true
 done
-[ -x "$base/home/bin/claude" ] && printf 'wrapper.claude=1\n' || true
-[ -x "$base/home/bin/codex" ] && printf 'wrapper.codex=1\n' || true
+[ -x "$base/home/bin/claude" ] && grep -qF 'exec "'"$HOME"'/.local/bin/claude" "$@"' "$base/home/bin/claude" && printf 'wrapper.claude=1\n' || true
+[ -x "$base/home/bin/codex" ] && grep -qF 'exec "'"$HOME"'/.local/bin/codex" "$@"' "$base/home/bin/codex" && printf 'wrapper.codex=1\n' || true
 [ -x "$base/home/bin/ade-spawn-gate" ] && printf 'gate=1\n' || true
 NM_HOME="$base/home/no-mistakes" no-mistakes daemon status >/dev/null 2>&1 && printf 'daemon.no-mistakes=1\n' || true
 gh auth status >/dev/null 2>&1 && printf 'githubAuth=authenticated\n' || printf 'githubAuth=required\n'
@@ -346,6 +346,19 @@ fi
 printf '[projects.'"'"'%s'"'"']\ntrust_level = "trusted"\n' "$project" >> "$config"
 chmod 600 "$config"
 `
+export const WSL_WRAPPER_SCRIPT = `
+cat > "$base/home/bin/codex" <<EOF
+#!/bin/sh
+export CODEX_HOME="$base/home/codex"
+exec "$HOME/.local/bin/codex" "\\$@"
+EOF
+cat > "$base/home/bin/claude" <<EOF
+#!/bin/sh
+export CLAUDE_CONFIG_DIR="$base/home/claude"
+export DISABLE_AUTOUPDATER=1
+exec "$HOME/.local/bin/claude" "\\$@"
+EOF
+`
 const WSL_PREPARE_SCRIPT = `
 set -eu
 base="$HOME/${WSL_BASE}"
@@ -372,17 +385,7 @@ npm install --prefix "$base/runner" --omit=dev \
   @agentclientprotocol/claude-agent-acp@${CLAUDE_ACP_VERSION}
 ln -sfn "$base/runner/node_modules/.bin/codex" "$HOME/.local/bin/codex"
 ln -sfn "$base/runner/node_modules/.bin/claude" "$HOME/.local/bin/claude"
-cat > "$base/home/bin/codex" <<EOF
-#!/bin/sh
-export CODEX_HOME="$base/home/codex"
-exec "$HOME/.local/bin/codex" "\$@"
-EOF
-cat > "$base/home/bin/claude" <<EOF
-#!/bin/sh
-export CLAUDE_CONFIG_DIR="$base/home/claude"
-export DISABLE_AUTOUPDATER=1
-exec "$HOME/.local/bin/claude" "\$@"
-EOF
+${WSL_WRAPPER_SCRIPT}
 cat > "$base/home/bin/ade-spawn-gate" <<'GATE'
 #!/usr/bin/env node
 'use strict'
