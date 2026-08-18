@@ -16,8 +16,10 @@
     "build": "electron-vite build",
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
-    "test": "tsc -p tsconfig.test.json && node --test .test-out/tests/*.test.js",
+    "test": "tsc -p tsconfig.test.json && node --test .test-out/tests/*.test.js && npm run test:dom",
     "test:terminal-events": "tsc -p tsconfig.test.json && node --test .test-out/tests/terminal-events.test.js",
+    "test:dom": "vitest run",
+    "test:dom:watch": "vitest",
     "package:win": "npm run build && electron-builder --win portable --x64",
     "package:dir": "npm run build && electron-builder --dir --win --x64"
   },
@@ -62,6 +64,8 @@
     "react-markdown": "10.1.0"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.2",
     "@types/node": "^24.0.0",
     "@types/react": "^18.3.31",
     "@types/react-dom": "^18.3.7",
@@ -69,7 +73,9 @@
     "electron": "^42.7.1",
     "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
+    "jsdom": "^26.1.0",
     "typescript": "^5.5.4",
-    "vite": "^7.3.6"
+    "vite": "^7.3.6",
+    "vitest": "^4.1.10"
   }
 }

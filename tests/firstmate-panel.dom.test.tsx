@@ -1,0 +1,93 @@
+import { fireEvent, render, renderHook, screen, waitFor, within } from '@testing-library/react'
+import { describe, expect, test, vi } from 'vitest'
+import { SelectorPicker } from '../src/renderer/src/ChatNode'
+import { useAgentConversation } from '../src/renderer/src/use-agent-conversation'
+import { createMockAgentApi } from './dom/agent-api-mock'
+
+// Real-DOM companion to firstmate-panel.test.ts, covering the parts of that file's "selector/
+// dropdown behavior" no source-text match can verify: that SelectorPicker's menu actually opens,
+// is selectable, and (the earlier overflow-clipping fix from PR #41) is portaled out to
+// document.body with fixed, computed positioning rather than CSS-anchored inside an
+// overflow:hidden ancestor - a regression there would clip the menu at the FirstMate panel/canvas
+// node edge again, and a source-text match on the fix's implementation can't catch that. The rest
+// of firstmate-panel.test.ts (auth flows, dispatch lifecycle, project catalog/autonomy wiring)
+// stays as documented source-text assertions: FirstMatePanel itself pulls in the same
+// @xyflow/react/@moonshine-ai/moonshine-wasm dependencies called out in
+// firstmate-quota.dom.test.tsx, well beyond what a jsdom harness can mount.
+
+const options = [
+  { id: 'opus', name: 'Opus', description: 'Most capable' },
+  { id: 'sonnet', name: 'Sonnet', description: 'Balanced' }
+]
+
+test('a disabled picker cannot be opened', () => {
+  render(<SelectorPicker kind="model" options={options} selectedId="opus" disabled select={vi.fn()} />)
+
+  const button = screen.getByRole('button', { name: /Opus/ })
+  expect(button).toBeDisabled()
+  fireEvent.click(button)
+  expect(screen.queryByRole('listbox')).toBeNull()
+})
+
+test('a picker with no options cannot be opened even when not explicitly disabled', () => {
+  render(<SelectorPicker kind="model" options={[]} disabled={false} select={vi.fn()} />)
+
+  expect(screen.getByRole('button', { name: /Model/ })).toBeDisabled()
+})
+
+test('opening the picker portals its menu to document.body, positioned fixed rather than CSS-anchored', () => {
+  render(
+    <div style={{ overflow: 'hidden' }} data-testid="clipping-ancestor">
+      <SelectorPicker kind="model" options={options} selectedId="opus" disabled={false} select={vi.fn()} />
+    </div>
+  )
+
+  fireEvent.click(screen.getByRole('button', { name: /Opus/ }))
+
+  const menu = screen.getByRole('listbox', { name: 'Model' })
+  expect(within(screen.getByTestId('clipping-ancestor')).queryByRole('listbox')).toBeNull()
+  expect(document.body).toContainElement(menu)
+  expect(menu.style.position).toBe('fixed')
+  expect(menu.style.top).not.toBe('')
+  expect(menu.style.left).not.toBe('')
+})
+
+test('selecting an option delivers the choice and closes the menu', () => {
+  const select = vi.fn()
+  render(<SelectorPicker kind="model" options={options} selectedId="opus" disabled={false} select={select} />)
+
+  fireEvent.click(screen.getByRole('button', { name: /Opus/ }))
+  fireEvent.click(screen.getByRole('option', { name: /Sonnet/ }))
+
+  expect(select).toHaveBeenCalledWith('sonnet')
+  expect(screen.queryByRole('listbox')).toBeNull()
+})
+
+test('the currently selected option is marked distinctly from the rest', () => {
+  render(<SelectorPicker kind="model" options={options} selectedId="sonnet" disabled={false} select={vi.fn()} />)
+
+  fireEvent.click(screen.getByRole('button', { name: /Sonnet/ }))
+
+  expect(screen.getByRole('option', { name: /Opus/ })).toHaveAttribute('aria-selected', 'false')
+  expect(screen.getByRole('option', { name: /Sonnet/ })).toHaveAttribute('aria-selected', 'true')
+})
+
+test('selectorsDisabled only blocks the starting/exited window, not authentication', async () => {
+  const { api } = createMockAgentApi({
+    create: vi.fn(async () => ({ ok: true, status: 'auth_required' as const, authMethods: [] }))
+  })
+  window.agentApi = api
+
+  const { result } = renderHook(() => useAgentConversation({
+    id: 'session-auth',
+    provider: 'codex',
+    cwd: '/project',
+    enabled: true,
+    onSessionId: vi.fn(),
+    onPermissionMode: vi.fn(),
+    onModel: vi.fn()
+  }))
+
+  await waitFor(() => expect(result.current.status).toBe('auth_required'))
+  expect(result.current.selectorsDisabled).toBe(false)
+})
