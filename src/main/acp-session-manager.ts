@@ -65,8 +65,25 @@ function errorMessage(error: unknown): string {
   return String(error)
 }
 
+/**
+ * The ACP protocol's own `-32000` code is the primary signal, but the Claude adapter does not
+ * always use it: an OAuth session that expires mid-turn (refresh failed) surfaces as a generic
+ * `-32603` internal error whose `data.errorKind` is the SDK's own `"authentication_failed"`
+ * marker (see `@anthropic-ai/claude-agent-sdk`'s `SDKAssistantMessageError` type and
+ * `claude-agent-acp`'s `errorKindData` helper, which documents this as "a convention for ACP
+ * clients to dispatch on without having to pattern-match the human-readable message text").
+ * Without this check that failure fell through to the generic-error branch with no way to
+ * re-authenticate, unlike every other auth-required case.
+ */
 function isAuthRequired(error: unknown): boolean {
-  return typeof error === 'object' && error !== null && (error as { code?: unknown }).code === -32000
+  if (typeof error !== 'object' || error === null) return false
+  if ((error as { code?: unknown }).code === -32000) return true
+  const data = (error as { data?: unknown }).data
+  return (
+    typeof data === 'object'
+    && data !== null
+    && (data as { errorKind?: unknown }).errorKind === 'authentication_failed'
+  )
 }
 
 function simplifyAuthMethod(method: AuthMethod): AgentAuthMethod {
