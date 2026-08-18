@@ -53,10 +53,21 @@ export function QuotaStat({ quota, compact = false }: { quota: FirstMateQuotaSta
     : []
 
   if (windows.length === 0) {
+    // `quota === null` is the ordinary "hasn't polled yet" gap and gets a neutral dash; a
+    // resolved `state: 'unavailable'` report is an actual failure (e.g. an auth problem) and
+    // needs a signal visible without hovering, not just the tooltip below.
+    const isError = quota?.state === 'unavailable'
     return (
-      <span className="quota-stat" data-state="unavailable" title={quota?.message ?? 'Usage-limit status is unavailable.'}>
+      <span
+        className="quota-stat"
+        data-state={isError ? 'unavailable' : 'loading'}
+        title={quota?.message ?? 'Usage-limit status has not loaded yet.'}
+      >
         <span className="usage-stat-label">Limits</span>
         <span className="usage-stat-value">—</span>
+        {isError && (
+          <span className="quota-stat-warning" aria-hidden="true">!</span>
+        )}
       </span>
     )
   }

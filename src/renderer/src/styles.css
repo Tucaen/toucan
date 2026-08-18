@@ -990,9 +990,19 @@ button {
   color: #4a5462;
 }
 
-.quota-stat[data-state="unavailable"] {
+.quota-stat[data-state="loading"] {
   color: #697483;
   border-color: #2f3945;
+}
+
+.quota-stat[data-state="unavailable"] {
+  color: #d7c99a;
+  border-color: rgba(234, 179, 8, 0.32);
+}
+
+.quota-stat-warning {
+  color: #eab308;
+  font-weight: 800;
 }
 
 .node-picker {

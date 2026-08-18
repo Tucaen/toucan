@@ -36,10 +36,19 @@ describe('UsageStat', () => {
 })
 
 describe('QuotaStat', () => {
-  test('shows a dash and unavailable state when quota-axi reports no usable windows', () => {
+  test('shows a neutral dash with no warning marker while quota has not polled yet', () => {
+    render(<QuotaStat quota={null} />)
+    const stat = screen.getByText('—').closest('.quota-stat')
+    expect(stat).toHaveAttribute('data-state', 'loading')
+    expect(stat?.querySelector('.quota-stat-warning')).toBeNull()
+  })
+
+  test('shows a dash plus a visible warning marker (not just a tooltip) when quota-axi reports no usable windows', () => {
     render(<QuotaStat quota={{ state: 'unavailable', provider: 'claude', message: 'Codex sign-in required' } as FirstMateQuotaStatus} />)
     const stat = screen.getByText('—').closest('.quota-stat')
     expect(stat).toHaveAttribute('data-state', 'unavailable')
+    expect(stat).toHaveAttribute('title', 'Codex sign-in required')
+    expect(stat?.querySelector('.quota-stat-warning')).not.toBeNull()
   })
 
   test('shows the session and week percent-remaining windows when ok', () => {

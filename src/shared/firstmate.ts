@@ -219,8 +219,9 @@ export interface FirstMateQuotaWindow {
 /**
  * The account-wide hourly (`five_hour`) and weekly (`seven_day`) usage-limit windows quota-axi
  * reports for a provider. `unavailable` covers quota-axi missing, unauthenticated, erroring, or
- * simply not reporting either window for this provider - the UI shows a neutral state rather than
- * treating any of those as a crash.
+ * simply not reporting either window for this provider - the UI (`QuotaStat`) treats it as a real
+ * failure worth a visible marker, distinct from `null` ("hasn't polled yet"), rather than folding
+ * both into one silent dash.
  */
 export interface FirstMateQuotaStatus {
   state: 'ok' | 'unavailable'
