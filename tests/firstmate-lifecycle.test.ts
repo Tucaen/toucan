@@ -409,7 +409,7 @@ function implementedTask(): FirstMateLifecycleTask {
   }
 }
 
-test('continues a committed worker directly into validation exactly once and wakes the app-hosted captain', async () => {
+test('continues a committed worker directly into validation exactly once without waking the captain', async () => {
   let task = implementedTask()
   const records: FirstMateLifecycleRecord[] = []
   const continuations: string[] = []
@@ -451,9 +451,111 @@ test('continues a committed worker directly into validation exactly once and wak
     'the intent to dispatch is durably recorded before the continuation runs'
   )
   assert.equal(task.stage, 'validating')
-  assert.equal(wakes.length, 1)
-  assert.match(wakes[0], /resize=validating/)
-  assert.match(wakes[0], /ADE is the captain conversation host/)
+  assert.equal(
+    wakes.length,
+    0,
+    'dispatching/validating is a transient step this same reconcile pass already resolved, and ' +
+      "FirstMate's own watcher already wakes live on the crew's status line - a duplicate chat push here " +
+      'would only interrupt the conversation a second time for the same event'
+  )
+})
+
+test('wakes the captain once a task settles into a terminal stage, and again if it later re-blocks', async () => {
+  let task = implementedTask()
+  const wakes: string[] = []
+  let deliveryOutcome: FirstMateValidationDelivery = { outcome: 'indeterminate', message: 'wsl.exe timed out' }
+  const runtime = {
+    async lifecycle(): Promise<FirstMateLifecycleStatus> {
+      return { supervision: 'app-native', tasks: [task] }
+    },
+    async continueValidation(): Promise<FirstMateValidationDelivery> {
+      return deliveryOutcome
+    },
+    async recordLifecycle(_taskId: string, record: FirstMateLifecycleRecord): Promise<void> {
+      task = { ...task, ...record }
+    }
+  }
+  const coordinator = createFirstMateLifecycleCoordinator({
+    runtime,
+    now: () => new Date('2026-08-14T18:00:00.000Z'),
+    wakeCaptain: async (message) => {
+      wakes.push(message)
+      return { ok: true }
+    }
+  })
+
+  // An indeterminate delivery blocks the task on ADE's own dispatch bookkeeping alone - there is no
+  // crew status line behind it, so FirstMate has no other way to learn about it.
+  await coordinator.poll()
+  assert.equal(task.stage, 'blocked')
+  assert.equal(wakes.length, 1, 'a fresh terminal reach must still wake the captain')
+  assert.match(wakes[0]!, /resize=blocked/)
+
+  // Re-polling an unchanged blocked task must not nag again.
+  await coordinator.poll()
+  assert.equal(wakes.length, 1, 'an unchanged terminal state must not re-wake on every poll')
+
+  // An operator releases the dispatch, the resend succeeds, and the task leaves the terminal stage.
+  assert.deepEqual(await coordinator.releaseDispatch('resize'), { ok: true })
+  deliveryOutcome = { outcome: 'acknowledged' }
+  await coordinator.poll()
+  assert.equal(task.stage, 'validating')
+  assert.equal(wakes.length, 1, 'leaving the terminal stage for a transient one must not itself wake')
+
+  // A later, unrelated failure blocks the task again from a fresh cause. Even though the delivered
+  // fingerprint had been reset in between, this is a genuinely new terminal reach and must wake again.
+  deliveryOutcome = { outcome: 'indeterminate', message: 'wsl.exe timed out' }
+  task = { ...task, stage: 'implemented', nextAction: 'start-validation', dispatch: undefined, statusHash: 'implementation-2' }
+  await coordinator.poll()
+  assert.equal(task.stage, 'blocked')
+  assert.equal(wakes.length, 2, 'a new terminal reach after leaving the terminal stage must wake again')
+})
+
+test('wakes again for a terminal reach that looks identical to one delivered before an intervening non-terminal stage', async () => {
+  const blockedShape: FirstMateLifecycleTask = {
+    id: 'resize',
+    mode: 'no-mistakes',
+    stage: 'blocked',
+    detail: 'credentials are required',
+    statusHash: 'implementation-1',
+    nextAction: 'await-help'
+  }
+  let task: FirstMateLifecycleTask = blockedShape
+  const wakes: string[] = []
+  const coordinator = createFirstMateLifecycleCoordinator({
+    runtime: {
+      async lifecycle(): Promise<FirstMateLifecycleStatus> {
+        return { supervision: 'app-native', tasks: [task] }
+      },
+      async continueValidation(): Promise<FirstMateValidationDelivery> {
+        return { outcome: 'acknowledged' }
+      },
+      async recordLifecycle(): Promise<void> {}
+    },
+    now: () => new Date('2026-08-14T18:00:00.000Z'),
+    wakeCaptain: async (message) => {
+      wakes.push(message)
+      return { ok: true }
+    }
+  })
+
+  await coordinator.poll()
+  assert.equal(wakes.length, 1, 'the first sighting of this blocked task must wake the captain')
+
+  // The crew resolves it and moves on to a transient stage - not a stage this coordinator wakes on.
+  task = { ...blockedShape, stage: 'validating', nextAction: 'await-validation' }
+  await coordinator.poll()
+  assert.equal(wakes.length, 1, 'moving to a non-terminal stage must not itself wake')
+
+  // The exact same blocked detail and status hash reappear. Comparing only against the last
+  // delivered fingerprint would wrongly treat this as already-announced; it must wake again.
+  task = blockedShape
+  await coordinator.poll()
+  assert.equal(
+    wakes.length,
+    2,
+    'a terminal state that recurs after being cleared is a new episode, not a repeat of the old one'
+  )
 })
 
 test('makes a failed validation continuation durable and visible instead of claiming progress', async () => {
