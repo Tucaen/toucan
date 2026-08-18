@@ -44,8 +44,26 @@ export interface FirstMateLifecycleCoordinatorOptions {
   now?(): Date
 }
 
-function fingerprint(tasks: FirstMateLifecycleTask[]): string {
-  return tasks.map((task) => `${task.id}:${task.stage}:${task.statusHash}:${task.detail}`).join('|')
+/**
+ * `pr-ready` and `blocked` are the only stages a task rests in until an explicit outside action
+ * moves it on (a captain reviewing/merging a PR, or an operator releasing/retrying a dispatch) -
+ * they never advance on their own the way `dispatching`/`validating` do, and they are the ADE
+ * shape of firstmate's own "done or failed" terminal-outcome backstop (see
+ * `bin/fm-inactive-reconcile.sh`). Every other stage, including `decision`, is either something
+ * firstmate's own watcher already wakes on live from the crew's own status line (and, for
+ * `blocked`/`decision`, keeps durably open until an explicit `resolved` line - see
+ * `status_open_decisions` in `bin/fm-classify-lib.sh`) or a transient step this same reconcile
+ * pass already resolves, so re-announcing it here would only duplicate or pre-empt that signal.
+ */
+function isTerminalStage(stage: FirstMateLifecycleTask['stage']): boolean {
+  return stage === 'pr-ready' || stage === 'blocked'
+}
+
+function terminalFingerprint(tasks: FirstMateLifecycleTask[]): string {
+  return tasks
+    .filter((task) => isTerminalStage(task.stage))
+    .map((task) => `${task.id}:${task.stage}:${task.statusHash}:${task.detail}`)
+    .join('|')
 }
 
 function recordFor(task: FirstMateLifecycleTask, now: Date): FirstMateLifecycleRecord {
@@ -225,8 +243,13 @@ export function createFirstMateLifecycleCoordinator(
         changed[index] = await reconcileTask(changed[index])
       }
 
-      const nextFingerprint = fingerprint(changed)
-      if (changed.length > 0 && nextFingerprint !== deliveredFingerprint) {
+      const nextFingerprint = terminalFingerprint(changed)
+      if (nextFingerprint === '') {
+        // No task is currently resting in a terminal stage: clear what was delivered so a later
+        // terminal reach - even one that happens to look identical to an earlier one - wakes again
+        // instead of being masked by a stale comparison against a state that no longer holds.
+        deliveredFingerprint = ''
+      } else if (nextFingerprint !== deliveredFingerprint) {
         const result = await options.wakeCaptain(firstMateAppWakeMessage(changed))
         if (result.ok) deliveredFingerprint = nextFingerprint
       }
