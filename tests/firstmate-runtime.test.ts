@@ -888,6 +888,155 @@ test('resolves the sign-in host from its own inspection rather than a failed pol
   )
 })
 
+/** A minimal .meta blob for one task, optionally carrying a recorded live worker window. */
+function windowedTaskMeta(window?: string): string {
+  const context: FirstMateTaskContext = {
+    version: 1,
+    project: {
+      adeProjectId: 'alpha',
+      registryName: 'api-alpha',
+      windowsPath: 'D:\\Development\\alpha\\api',
+      wslPath: '/mnt/d/Development/alpha/api',
+      mode: 'no-mistakes',
+      autonomy: false
+    },
+    validator: { agent: 'codex', model: 'gpt-5.6-sol' }
+  }
+  return [
+    'kind=ship', 'mode=no-mistakes', 'yolo=off',
+    'project=/mnt/d/Development/alpha/api',
+    'worktree=/home/tucaen/.treehouse/alpha/resize',
+    ...(window ? [`window=${window}`] : []),
+    'harness=codex', 'model=gpt-5.6-sol',
+    firstMateTaskContextMetadata(context)
+  ].join('\n')
+}
+
+/**
+ * A WSL host whose only jobs are answering ADE's inspection, its durable lifecycle read (with one
+ * task carrying the given meta), and a probe of `run` calls beyond those two - a stand-in for
+ * whatever `openWorkerTerminal` does after resolving the task's window, such as a tmux liveness
+ * check.
+ */
+function windowedTaskHost(meta: string, probe: (args: string[]) => { stdout: string; stderr: string } | undefined) {
+  return async (args: string[]): Promise<{ stdout: string; stderr: string }> => {
+    const scriptIndex = args.indexOf('-e')
+    const script = scriptIndex >= 0 ? args[scriptIndex + 1] ?? '' : ''
+    if (script.includes("endsWith('.meta')")) {
+      return {
+        stdout: JSON.stringify({
+          tasks: [{ id: 'resize', meta, status: 'done: committed implementation\n' }]
+        }),
+        stderr: ''
+      }
+    }
+    const probed = probe(args)
+    if (probed) return probed
+    return { stdout: readyWslInspection(), stderr: '' }
+  }
+}
+
+test('opens a terminal attached to a task\'s live worker tmux window', async () => {
+  let terminal: { title: string; executable: string; args: string[] } | undefined
+  const runtime = createFirstMateRuntime({
+    platform: 'win32',
+    resolveGit: () => 'git.exe',
+    wsl: {
+      executable: 'wsl.exe',
+      run: windowedTaskHost(windowedTaskMeta('firstmate:fm-resize'), (args) => (
+        args.includes('has-session') ? { stdout: '', stderr: '' } : undefined
+      )),
+      openTerminal: async (title, executable, args) => { terminal = { title, executable, args } }
+    }
+  })
+  await runtime.status()
+
+  const result = await runtime.openWorkerTerminal('resize')
+
+  assert.equal(result.ok, true)
+  assert.equal(terminal?.executable, 'wsl.exe')
+  assert.ok(terminal?.args.includes('attach-session'))
+  assert.ok(terminal?.args.includes('firstmate:fm-resize'))
+})
+
+test('refuses to open a terminal for a task with no recorded live worker window', async () => {
+  let terminalOpened = false
+  const runtime = createFirstMateRuntime({
+    platform: 'win32',
+    resolveGit: () => 'git.exe',
+    wsl: {
+      run: windowedTaskHost(windowedTaskMeta(undefined), () => undefined),
+      openTerminal: async () => { terminalOpened = true }
+    }
+  })
+  await runtime.status()
+
+  const result = await runtime.openWorkerTerminal('resize')
+
+  assert.equal(result.ok, false)
+  assert.match(result.message ?? '', /no recorded live worker window/)
+  assert.equal(terminalOpened, false, 'a missing window binding must never open a broken terminal')
+})
+
+test('refuses to open a terminal when the task id is unknown to the durable lifecycle', async () => {
+  let terminalOpened = false
+  const runtime = createFirstMateRuntime({
+    platform: 'win32',
+    resolveGit: () => 'git.exe',
+    wsl: {
+      run: windowedTaskHost(windowedTaskMeta('firstmate:fm-resize'), () => undefined),
+      openTerminal: async () => { terminalOpened = true }
+    }
+  })
+  await runtime.status()
+
+  const result = await runtime.openWorkerTerminal('no-such-task')
+
+  assert.equal(result.ok, false)
+  assert.match(result.message ?? '', /no recorded live worker window/)
+  assert.equal(terminalOpened, false)
+})
+
+test('refuses to open a terminal when the worker tmux session is no longer running', async () => {
+  let terminalOpened = false
+  const runtime = createFirstMateRuntime({
+    platform: 'win32',
+    resolveGit: () => 'git.exe',
+    wsl: {
+      run: windowedTaskHost(windowedTaskMeta('firstmate:fm-resize'), (args) => {
+        if (args.includes('has-session')) throw new Error("can't find session: firstmate")
+        return undefined
+      }),
+      openTerminal: async () => { terminalOpened = true }
+    }
+  })
+  await runtime.status()
+
+  const result = await runtime.openWorkerTerminal('resize')
+
+  assert.equal(result.ok, false)
+  assert.match(result.message ?? '', /not running/)
+  assert.match(result.message ?? '', /can't find session/)
+  assert.equal(terminalOpened, false, 'a dead session must never open a broken terminal')
+})
+
+test('refuses to open a worker terminal while FirstMate itself is not ready', async () => {
+  let terminalOpened = false
+  const runtime = createFirstMateRuntime({
+    platform: 'win32',
+    resolveGit: () => 'git.exe',
+    wsl: {
+      run: async () => { throw new Error('Ubuntu WSL is unavailable') },
+      openTerminal: async () => { terminalOpened = true }
+    }
+  })
+
+  const result = await runtime.openWorkerTerminal('resize')
+
+  assert.equal(result.ok, false)
+  assert.equal(terminalOpened, false)
+})
+
 test('provisions Ubuntu packages and the managed FirstMate toolchain', async () => {
   const calls: string[][] = []
   const runtime = createFirstMateRuntime({

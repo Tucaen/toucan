@@ -473,6 +473,8 @@ export interface FirstMateRuntime {
   authenticateGitHub(): Promise<FirstMateActionResult>
   trustCodexProject(): Promise<FirstMateActionResult>
   lifecycle(): Promise<FirstMateLifecycleStatus>
+  /** Opens a real terminal attached to a task's live tmux worker window, reusing the same binding lifecycle() reports. */
+  openWorkerTerminal(taskId: string): Promise<FirstMateActionResult>
   configureValidator(provider: AgentProvider, modelId?: string): Promise<FirstMateActionResult>
   continueValidation(taskId: string, dispatchId: string): Promise<FirstMateValidationDelivery>
   recordLifecycle(taskId: string, record: FirstMateLifecycleRecord): Promise<void>
@@ -1227,6 +1229,47 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
         }
       }
     },
+    async openWorkerTerminal(taskId: string): Promise<FirstMateActionResult> {
+      const { status: current } = await inspectHost()
+      if (current.state !== 'ready') {
+        return { ok: false, message: current.message ?? 'FirstMate is not ready.' }
+      }
+      let files: FirstMateLifecycleFiles
+      try {
+        files = await lifecycleFiles()
+      } catch (error) {
+        return { ok: false, message: `ADE could not read durable FirstMate events: ${errorMessage(error)}` }
+      }
+      const task = firstMateLifecycleFromFiles(files).tasks.find((candidate) => candidate.id === taskId)
+      const target = task?.window
+      if (!target) {
+        return {
+          ok: false,
+          message: `Task ${taskId} has no recorded live worker window. It may have finished and been torn down, `
+            + 'or never recorded one.'
+        }
+      }
+      try {
+        await run(
+          ['--distribution', distribution, '--exec', '/usr/bin/tmux', 'has-session', '-t', target],
+          10_000
+        )
+      } catch (error) {
+        return {
+          ok: false,
+          message: `Task ${taskId}'s worker session (${target}) is not running: ${errorMessage(error)}`
+        }
+      }
+      try {
+        await openTerminal(`ADE FirstMate - ${taskId}`, executable, [
+          '--distribution', distribution,
+          '--exec', '/usr/bin/tmux', 'attach-session', '-t', target
+        ])
+        return { ok: true }
+      } catch (error) {
+        return { ok: false, message: errorMessage(error) }
+      }
+    },
     async configureValidator(provider: AgentProvider, modelId?: string): Promise<FirstMateActionResult> {
       if (!readyPaths) await inspect()
       if (!readyPaths) return { ok: false, message: 'FirstMate is not ready.' }
@@ -1449,6 +1492,7 @@ function createUnsupportedFirstMateRuntime(platform: NodeJS.Platform): FirstMate
     async lifecycle(): Promise<FirstMateLifecycleStatus> {
       return { supervision: 'app-native', message, tasks: [] }
     },
+    openWorkerTerminal: refuse,
     configureValidator: refuse,
     continueValidation: refuseDelivery,
     async recordLifecycle(): Promise<void> { throw new Error(message) },

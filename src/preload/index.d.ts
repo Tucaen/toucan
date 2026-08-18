@@ -61,6 +61,7 @@ export interface FirstMateApi {
   authenticateGitHub(): Promise<FirstMateActionResult>
   trustCodexProject(): Promise<FirstMateActionResult>
   lifecycle(): Promise<FirstMateLifecycleStatus>
+  viewWorkerTerminal(taskId: string): Promise<FirstMateActionResult>
   quotaStatus(provider: AgentProvider): Promise<FirstMateQuotaStatus>
   releaseDispatch(taskId: string): Promise<FirstMateActionResult>
   retryDispatch(taskId: string): Promise<FirstMateActionResult>
