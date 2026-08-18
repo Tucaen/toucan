@@ -392,10 +392,12 @@ function recordedTask(
     (line) => line.startsWith(`${FIRSTMATE_TASK_CONTEXT_META_KEY}=`)
   )
   const worktree = meta.get('worktree')
+  const window = meta.get('window')
   const attachContext = (task: FirstMateLifecycleTask): FirstMateLifecycleTask => ({
     ...task,
     ...(context ? { context } : {}),
-    ...(worktree ? { worktree } : {})
+    ...(worktree ? { worktree } : {}),
+    ...(window ? { window } : {})
   })
   const line = latestStatusLine(raw.status)
   const hash = statusHash(raw.status)

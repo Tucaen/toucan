@@ -155,6 +155,7 @@ export default function FirstMatePanel({ projects, project, state, onStateChange
   const [waitingForGitHub, setWaitingForGitHub] = useState(false)
   const [releasingDispatch, setReleasingDispatch] = useState<string>()
   const [retryingDispatch, setRetryingDispatch] = useState<string>()
+  const [openingTerminal, setOpeningTerminal] = useState<string>()
   const [enablingCodexHooks, setEnablingCodexHooks] = useState(false)
   const [codexHookError, setCodexHookError] = useState<string>()
   const [enablingFleetAccess, setEnablingFleetAccess] = useState(false)
@@ -315,6 +316,18 @@ export default function FirstMatePanel({ projects, project, state, onStateChange
       setLifecycle((current) => ({
         ...current,
         message: result.message ?? `ADE could not retry the validation dispatch for ${taskId}.`
+      }))
+    })
+  }
+
+  const viewWorkerTerminal = (taskId: string): void => {
+    setOpeningTerminal(taskId)
+    void window.firstMateApi.viewWorkerTerminal(taskId).then((result) => {
+      setOpeningTerminal(undefined)
+      if (result.ok) return
+      setLifecycle((current) => ({
+        ...current,
+        message: result.message ?? `ADE could not open a terminal for ${taskId}.`
       }))
     })
   }
@@ -629,6 +642,15 @@ export default function FirstMatePanel({ projects, project, state, onStateChange
                 >
                   <span>{task.id}</span>
                   <strong>{lifecycleTaskLabel(task)}</strong>
+                  <button
+                    type="button"
+                    className="firstmate-view-terminal"
+                    onClick={() => viewWorkerTerminal(task.id)}
+                    disabled={openingTerminal === task.id}
+                    title="Open a real terminal attached to this task's live worker tmux session."
+                  >
+                    {openingTerminal === task.id ? 'Opening…' : 'View terminal'}
+                  </button>
                   {task.dispatch?.status === 'unresolved' && (
                     <button
                       type="button"

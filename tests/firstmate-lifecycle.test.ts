@@ -309,6 +309,38 @@ test('blocks a task whose crew worktree provenance cannot be read', () => {
   assert.match(lifecycle.tasks[0]?.detail ?? '', /provenance ADE could not read/i)
 })
 
+test('surfaces the recorded live worker tmux window binding for a task', () => {
+  const { primary, worktree } = createGitCrew('windowed')
+  const task: FirstMateRawTask = {
+    id: 'resize',
+    meta: [
+      'kind=ship',
+      'mode=no-mistakes',
+      'yolo=off',
+      `project=${alphaCodexContext.project.wslPath}`,
+      'worktree=/home/tucaen/.treehouse/alpha/resize',
+      'window=firstmate:fm-resize',
+      'harness=codex',
+      'model=gpt-5.6-sol',
+      firstMateTaskContextMetadata(alphaCodexContext)
+    ].join('\n'),
+    status: 'done: committed implementation\n',
+    provenance: gitProvenance(worktree, primary)
+  }
+
+  const lifecycle = firstMateLifecycleFromFiles({ tasks: [task] })
+
+  assert.equal(lifecycle.tasks[0]?.window, 'firstmate:fm-resize')
+})
+
+test('leaves the window binding absent for a task that never recorded a live worker window', () => {
+  const { primary, worktree } = createGitCrew('windowless')
+
+  const lifecycle = firstMateLifecycleFromFiles({ tasks: [shipTask(gitProvenance(worktree, primary))] })
+
+  assert.equal(lifecycle.tasks[0]?.window, undefined)
+})
+
 test('supervises a scout with its pinned report-only contract without inventing ship flags', () => {
   const lifecycle = firstMateLifecycleFromFiles({
     tasks: [{

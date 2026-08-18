@@ -2075,6 +2075,12 @@ button {
   opacity: 0.6;
 }
 
+.firstmate-lifecycle-task > button.firstmate-view-terminal {
+  border-color: #34404d;
+  background: #11161c;
+  color: #aeb9c6;
+}
+
 .firstmate-lifecycle-task[data-stage="pr-ready"] > strong {
   color: #79d89a;
 }

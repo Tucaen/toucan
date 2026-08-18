@@ -100,6 +100,9 @@ function registerFirstMateIpc(
   ipcMain.handle('firstmate:github-auth', () => runtime.authenticateGitHub())
   ipcMain.handle('firstmate:trust-codex', () => runtime.trustCodexProject())
   ipcMain.handle('firstmate:lifecycle', () => runtime.lifecycle())
+  ipcMain.handle('firstmate:view-worker-terminal', (_event, taskId: unknown) => (
+    typeof taskId === 'string' && taskId ? runtime.openWorkerTerminal(taskId) : UNREADABLE_TASK
+  ))
   ipcMain.handle('firstmate:quota-status', (_event, provider: unknown): Promise<FirstMateQuotaStatus> => (
     provider === 'claude' || provider === 'codex'
       ? runtime.quotaStatus(provider as AgentProvider)

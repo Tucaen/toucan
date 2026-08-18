@@ -209,6 +209,50 @@ test('offers an explicit retry for a dispatch whose pre-send attempts were exhau
   )
 })
 
+// FirstMatePanel cannot be mounted in the jsdom/RTL harness for real (it pulls in the same
+// @xyflow/react/@moonshine-ai/moonshine-wasm dependencies documented in firstmate-panel.dom.test.tsx),
+// so this stays a source-text assertion like the release/retry tests above. The main-process command
+// that actually spawns wt.exe/tmux is exercised for real in firstmate-runtime.test.ts; nothing here
+// simulates that spawn.
+test('lets the captain open a real terminal attached to any task\'s live worker session', () => {
+  const panel = readFileSync(join(process.cwd(), 'src/renderer/src/FirstMatePanel.tsx'), 'utf8')
+  const preload = readFileSync(join(process.cwd(), 'src/preload/index.ts'), 'utf8')
+  const main = readFileSync(join(process.cwd(), 'src/main/index.ts'), 'utf8')
+  const runtime = readFileSync(join(process.cwd(), 'src/main/firstmate-runtime.ts'), 'utf8')
+
+  assert.match(
+    panel,
+    /className="firstmate-view-terminal"[\s\S]*?onClick=\{\(\) => viewWorkerTerminal\(task\.id\)\}/,
+    'every task row must offer a way to view its live worker terminal, not only tasks in trouble'
+  )
+  assert.match(
+    panel,
+    /window\.firstMateApi\.viewWorkerTerminal\(taskId\)/,
+    'opening the terminal should go through the FirstMate bridge rather than a local state change'
+  )
+  assert.match(preload, /viewWorkerTerminal: \(taskId: string\)[\s\S]*?'firstmate:view-worker-terminal'/)
+  assert.match(
+    main,
+    /'firstmate:view-worker-terminal'[\s\S]*?typeof taskId === 'string' && taskId \? runtime\.openWorkerTerminal\(taskId\)/,
+    'the IPC handler should validate the task id before asking the runtime to open a terminal'
+  )
+  assert.match(
+    runtime,
+    /openWorkerTerminal\(taskId: string\): Promise<FirstMateActionResult>/,
+    'the FirstMate runtime contract must expose opening a worker terminal'
+  )
+  assert.match(
+    runtime,
+    /has-session['"],\s*'-t',\s*target/,
+    'the runtime must confirm the recorded tmux window is still alive before attaching a terminal to it'
+  )
+  assert.match(
+    runtime,
+    /No recorded live worker window|no recorded live worker window/,
+    'a task with no recorded window binding must report a clear reason rather than opening a broken terminal'
+  )
+})
+
 test('gives every FirstMate request the full project catalog and the active sidebar hint', () => {
   const app = readFileSync(join(process.cwd(), 'src/renderer/src/App.tsx'), 'utf8')
   const panel = readFileSync(join(process.cwd(), 'src/renderer/src/FirstMatePanel.tsx'), 'utf8')

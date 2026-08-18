@@ -55,6 +55,8 @@ export interface FirstMateLifecycleTask {
   context?: FirstMateTaskContext
   /** The isolated worker checkout recorded by FirstMate at spawn time. */
   worktree?: string
+  /** The tmux session:window FirstMate recorded for this task's live worker, if any. */
+  window?: string
   stage: FirstMateTaskStage
   detail: string
   statusHash: string
