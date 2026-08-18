@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { type NodeProps } from '@xyflow/react'
 import ReactMarkdown from 'react-markdown'
@@ -9,6 +9,7 @@ import type {
 } from '../../shared/agent'
 import { activityTitle } from '../../shared/agent-activity'
 import { QuotaStat, UsageStat } from './AgentUsageStatus'
+import { isNearScrollBottom } from './chat-scroll-follow'
 import type { TerminalCanvasNode, TerminalNodeStatus } from './canvas-workspace'
 import { computeNodePickerMenuPosition } from './node-picker-menu-position'
 import NodeBorderResizer from './NodeBorderResizer'
@@ -276,6 +277,33 @@ function ActivityCard({ activity }: { activity: AgentActivity }): JSX.Element {
   )
 }
 
+/**
+ * Keeps the chat scroll container pinned to the bottom on initial load and as new content
+ * streams in, but only while the user hasn't deliberately scrolled up to read history - a
+ * message arriving shouldn't yank them back down mid-read.
+ */
+function useStickToBottom(followDeps: readonly unknown[]): {
+  ref: RefObject<HTMLDivElement>
+  onScroll(): void
+} {
+  const ref = useRef<HTMLDivElement>(null)
+  const stickToBottomRef = useRef(true)
+
+  useLayoutEffect(() => {
+    const element = ref.current
+    if (element && stickToBottomRef.current) element.scrollTop = element.scrollHeight
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, followDeps)
+
+  return {
+    ref,
+    onScroll: () => {
+      const element = ref.current
+      if (element) stickToBottomRef.current = isNearScrollBottom(element)
+    }
+  }
+}
+
 export function ChatView(props: ChatViewProps & {
   worklogCollapsed: boolean
   setWorklogCollapsed(collapsed: boolean): void
@@ -283,9 +311,10 @@ export function ChatView(props: ChatViewProps & {
   statusBar?: ReactNode
 }): JSX.Element {
   const workItemCount = props.activities.length + props.plan.length
+  const { ref: scrollRef, onScroll } = useStickToBottom([props.messages, props.approval, props.status])
   return (
     <div className={`agent-chat ${props.worklogCollapsed ? 'worklog-collapsed' : ''} ${props.statusBar ? 'has-status-bar' : ''}`}>
-      <div className="chat-scroll nodrag nopan nowheel">
+      <div className="chat-scroll nodrag nopan nowheel" ref={scrollRef} onScroll={onScroll}>
         {props.status === 'auth_required'
           ? <AuthPanel {...props} />
           : props.messages.length === 0 && (props.empty
