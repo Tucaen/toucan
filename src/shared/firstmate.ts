@@ -208,6 +208,26 @@ export interface FirstMateProjectRegistration {
   }
 }
 
+/** One quota-axi usage window, trimmed to what the UI needs to show permanently. */
+export interface FirstMateQuotaWindow {
+  percentRemaining: number
+  resetsAt: string
+}
+
+/**
+ * The account-wide hourly (`five_hour`) and weekly (`seven_day`) usage-limit windows quota-axi
+ * reports for a provider. `unavailable` covers quota-axi missing, unauthenticated, erroring, or
+ * simply not reporting either window for this provider - the UI shows a neutral state rather than
+ * treating any of those as a crash.
+ */
+export interface FirstMateQuotaStatus {
+  state: 'ok' | 'unavailable'
+  provider: AgentProvider
+  session?: FirstMateQuotaWindow
+  week?: FirstMateQuotaWindow
+  message?: string
+}
+
 export interface FirstMateWorkspaceState {
   provider?: AgentProvider
   conversationId?: string

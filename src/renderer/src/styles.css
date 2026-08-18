@@ -961,6 +961,40 @@ button {
   letter-spacing: 0.08em;
 }
 
+.usage-stat,
+.quota-stat {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  max-width: 150px;
+  padding: 3px 6px;
+  overflow: hidden;
+  border: 1px solid #3a4350;
+  border-radius: 6px;
+  color: #b7c0cc;
+  background: #202630;
+  font-size: 10px;
+  font-weight: 750;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.usage-stat-label {
+  color: #8fb8ff;
+}
+
+.quota-stat-window + .quota-stat-window::before {
+  content: '·';
+  margin-right: 4px;
+  color: #4a5462;
+}
+
+.quota-stat[data-state="unavailable"] {
+  color: #697483;
+  border-color: #2f3945;
+}
+
 .node-picker {
   position: relative;
   flex: none;
@@ -1918,6 +1952,17 @@ button {
   width: 100%;
   max-width: none;
   justify-content: space-between;
+}
+
+/* Context usage and hourly/weekly limits sit on their own row below the three existing
+   selectors, spanning the same three-column grid so the selectors' layout is untouched. */
+.firstmate-settings-bar > label:nth-child(4) {
+  grid-column: span 2;
+}
+
+.firstmate-settings-bar .usage-stat,
+.firstmate-settings-bar .quota-stat {
+  width: 100%;
 }
 
 .firstmate-settings-bar .node-picker[data-picker="model"] .node-picker-button {

@@ -3,8 +3,8 @@ import { execFileSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { basename, extname, join, normalize } from 'node:path'
 import { spawn } from 'node-pty'
-import type { AgentCreateRequest } from '../shared/agent'
-import type { FirstMateActionResult, FirstMateProjectSelection } from '../shared/firstmate'
+import type { AgentCreateRequest, AgentProvider } from '../shared/agent'
+import type { FirstMateActionResult, FirstMateProjectSelection, FirstMateQuotaStatus } from '../shared/firstmate'
 import type { TerminalCreateRequest } from '../shared/terminal'
 import { createAcpSessionManager, type AcpSessionManager } from './acp-session-manager'
 import {
@@ -100,6 +100,11 @@ function registerFirstMateIpc(
   ipcMain.handle('firstmate:github-auth', () => runtime.authenticateGitHub())
   ipcMain.handle('firstmate:trust-codex', () => runtime.trustCodexProject())
   ipcMain.handle('firstmate:lifecycle', () => runtime.lifecycle())
+  ipcMain.handle('firstmate:quota-status', (_event, provider: unknown): Promise<FirstMateQuotaStatus> => (
+    provider === 'claude' || provider === 'codex'
+      ? runtime.quotaStatus(provider as AgentProvider)
+      : Promise.resolve({ state: 'unavailable', provider: 'codex', message: 'Unknown provider.' })
+  ))
   const byProjectId = <T>(
     channel: string,
     action: (adeProjectId: string) => Promise<T>,
