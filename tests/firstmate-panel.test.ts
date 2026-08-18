@@ -47,15 +47,12 @@ test('offers one actionable Codex sign-in state when FirstMate authentication is
   )
 })
 
-test('keeps model selection available while ChatGPT authentication is required', () => {
-  const conversation = readFileSync(join(process.cwd(), 'src/renderer/src/use-agent-conversation.ts'), 'utf8')
+// The renderer half of this behavior (selectorsDisabled staying false through auth_required) is
+// exercised for real via renderHook in firstmate-panel.dom.test.tsx. The main-process half below
+// (acp-session-manager.ts caching a pre-auth model choice) is cross-process and stays source-text.
+test('keeps a pre-auth model choice cached and applied by the session manager once the session opens', () => {
   const manager = readFileSync(join(process.cwd(), 'src/main/acp-session-manager.ts'), 'utf8')
 
-  assert.doesNotMatch(
-    conversation,
-    /selectorsDisabled:\s*[^\n]*status === ['"]auth_required['"]/,
-    'authentication should block prompts, not model selection'
-  )
   assert.match(
     manager,
     /status:\s*['"]auth_required['"][\s\S]*?\.\.\.\(models \? \{ models \} : \{\}\)/,

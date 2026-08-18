@@ -4,15 +4,14 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { chooseAgentPromptApi, createDispatchOrderGate, deliverAgentPrompt } from '../src/renderer/src/agent-prompt-delivery'
 
-// This project's renderer has no jsdom/react-testing-library harness (see other
-// tests under tests/*panel*.test.ts), so the parts of this feature that live inside
-// a React component (Composer's disabled state, the queued-badge JSX) or cross a
-// process boundary (preload/main IPC wiring) are verified by asserting on source
-// text below, the same pattern used throughout this test suite. The decision logic
-// itself (which agent API a submit routes through) is extracted into a pure,
-// dependency-free function and exercised directly, and the underlying queuing
-// engine (CaptainWakeGate) already has full behavioral coverage in
-// firstmate-captain-wake.test.ts.
+// The Composer's rendered disabled/queued-badge state and the useAgentConversation hook's
+// queuing behavior (chooseAgentPromptApi routing, per-message queued flag, FIFO clearing) are
+// exercised by actually rendering/running them in composer-queue-while-busy.dom.test.tsx (Vitest
+// + jsdom + React Testing Library). What's left here is: the decision logic extracted into a
+// pure, dependency-free function (exercised directly below); the underlying queuing engine
+// (CaptainWakeGate), which already has full behavioral coverage in
+// firstmate-captain-wake.test.ts; and the cross-process preload/main/acp-session-manager IPC
+// wiring, which jsdom cannot exercise and so remains a documented source-text assertion.
 
 test('chooseAgentPromptApi routes to promptWhenIdle while working and to prompt while ready', async () => {
   const calls: string[] = []
@@ -66,76 +65,6 @@ test('createDispatchOrderGate keeps dispatch in submission order even when an ea
     dispatchOrder,
     ['first message', 'second message'],
     'the first-submitted message must still dispatch before the second even though its composePrompt resolves later'
-  )
-})
-
-test('submit() queues while busy instead of no-oping, and is unaffected when ready', () => {
-  const hook = readFileSync(join(process.cwd(), 'src/renderer/src/use-agent-conversation.ts'), 'utf8')
-
-  assert.doesNotMatch(
-    hook,
-    /if \(!text \|\| status !== 'ready'\) return/,
-    'submit must no longer bail out entirely while the agent is busy'
-  )
-  assert.match(
-    hook,
-    /if \(!text \|\| \(status !== 'ready' && status !== 'working'\)\) return/,
-    'submit should still require non-empty text and only bail for statuses that are neither ready nor working'
-  )
-  assert.match(
-    hook,
-    /chooseAgentPromptApi\(status, window\.agentApi\)/,
-    'submit should delegate to the extracted, directly-tested API selection function'
-  )
-  assert.match(
-    hook,
-    /if \(!queued\) setStatus\('ready'\)/,
-    'a failed queued submit must not force the still-busy session back to ready'
-  )
-})
-
-test('a queued message is marked distinct from a delivered one and clears once the agent actually starts it', () => {
-  const hook = readFileSync(join(process.cwd(), 'src/renderer/src/use-agent-conversation.ts'), 'utf8')
-
-  assert.match(
-    hook,
-    /queued\?\: boolean/,
-    'AgentChatMessage should carry a queued flag so the UI can distinguish it from a delivered message'
-  )
-  assert.match(
-    hook,
-    /role: 'user', text, queued \}/,
-    'a message sent while busy should be recorded as queued'
-  )
-  assert.match(
-    hook,
-    /pendingSentRef\.current\[0\]\?\.text === event\.text/,
-    'each sent message should be matched against the oldest still-unconfirmed one (FIFO), not a single overwritable ref, so multiple in-flight queued sends each clear independently'
-  )
-})
-
-test('the composer stays interactive while the agent is working, and only disables for starting/auth_required/exited', () => {
-  const chatNode = readFileSync(join(process.cwd(), 'src/renderer/src/ChatNode.tsx'), 'utf8')
-
-  assert.doesNotMatch(
-    chatNode,
-    /composerDisabled = busy \|\|/,
-    'composerDisabled must no longer key off busy/working'
-  )
-  assert.match(
-    chatNode,
-    /composerDisabled = props\.status === 'starting' \|\| props\.status === 'auth_required' \|\| props\.status === 'exited'/,
-    'composerDisabled should match the same starting/auth_required/exited scope selectorsDisabled already uses'
-  )
-  assert.match(
-    chatNode,
-    /disabled=\{!props\.draft\.trim\(\) \|\| composerDisabled\}/,
-    'the submit button should stay enabled while working, so a queued send is possible'
-  )
-  assert.match(
-    chatNode,
-    /queued-badge/,
-    'a queued message should render a visible indicator distinguishing it from an already-delivered message'
   )
 })
 

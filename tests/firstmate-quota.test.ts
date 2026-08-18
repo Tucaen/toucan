@@ -164,22 +164,13 @@ test('a platform ADE does not host FirstMate on reports quota as unavailable rat
   assert.match(quota.message ?? '', /WSL/)
 })
 
-// This project's renderer has no jsdom/react-testing-library harness (see other tests under
-// tests/*panel*.test.ts), so the parts of this feature that live inside a React component (the
-// permanent context-usage/limits displays, the polling hook) or cross a process boundary
-// (preload/main IPC wiring) are verified by asserting on source text below, the same pattern used
-// throughout this test suite.
-
-test('the usage_update session event is threaded into hook state and exposed to consumers', () => {
-  const hook = readFileSync(join(process.cwd(), 'src/renderer/src/use-agent-conversation.ts'), 'utf8')
-
-  assert.match(
-    hook,
-    /else if \(event\.type === 'usage'\) \{\s*setUsage\(\{ used: event\.used, size: event\.size, cost: event\.cost \}\)/,
-    'the usage_update event must update hook state, not be silently dropped'
-  )
-  assert.match(hook, /usage: AgentUsage \| null/, 'the controller should expose usage state to consumers')
-})
+// The usage_update-to-hook-state wiring and the quota poll's cadence are exercised for real (via
+// renderHook) in firstmate-quota.dom.test.tsx, alongside real render tests of the UsageStat/
+// QuotaStat displays themselves. Whether FirstMatePanel/ChatNode actually mount those components
+// with the right props remains a source-text assertion below: both pull in @xyflow/react's
+// NodeResizer and the @moonshine-ai/moonshine-wasm voice prototype, which need a
+// ReactFlowProvider/real audio stack well beyond a jsdom harness. The IPC wiring test below is
+// likewise cross-process and can't be exercised from jsdom.
 
 test('the FirstMate panel permanently shows context usage and hourly/weekly limits alongside the existing selectors', () => {
   const panel = readFileSync(join(process.cwd(), 'src/renderer/src/FirstMatePanel.tsx'), 'utf8')
@@ -206,15 +197,4 @@ test('quotaStatus is wired end to end through IPC and preload, the same way othe
   assert.match(main, /ipcMain\.handle\('firstmate:quota-status',/)
   assert.match(preload, /quotaStatus: \(provider: AgentProvider\).*=>\s*\(?\s*ipcRenderer\.invoke\('firstmate:quota-status', provider\)/s)
   assert.match(preloadTypes, /quotaStatus\(provider: AgentProvider\): Promise<FirstMateQuotaStatus>/)
-})
-
-test('the quota poll interval stays on an account-wide, minutes-scale cadence rather than spamming quota-axi', () => {
-  const hook = readFileSync(join(process.cwd(), 'src/renderer/src/use-firstmate-quota.ts'), 'utf8')
-
-  assert.match(
-    hook,
-    /QUOTA_POLL_INTERVAL_MS = 2 \* 60_000/,
-    'the poll interval should be minutes-scale (here, two minutes), not fast enough to spam quota-axi'
-  )
-  assert.match(hook, /window\.setInterval\(refresh, QUOTA_POLL_INTERVAL_MS\)/)
 })
