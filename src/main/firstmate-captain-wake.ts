@@ -15,63 +15,70 @@ export interface CaptainWakeGateOptions {
 
 const DEFAULT_TIMEOUT_MS = 120_000
 
+interface QueuedWake {
+  text: string
+  resolve(result: AgentPromptResult): void
+  timer: ReturnType<typeof setTimeout>
+}
+
 export function createCaptainWakeGate(options: CaptainWakeGateOptions): CaptainWakeGate {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
-  let pending: { text: string; resolve(result: AgentPromptResult): void } | undefined
-  let timer: ReturnType<typeof setTimeout> | undefined
+  const queue: QueuedWake[] = []
   let disposed = false
+  let delivering = false
 
-  const clearTimer = (): void => {
-    if (timer !== undefined) {
-      clearTimeout(timer)
-      timer = undefined
-    }
+  const removeFromQueue = (item: QueuedWake): void => {
+    const index = queue.indexOf(item)
+    if (index >= 0) queue.splice(index, 1)
   }
 
-  const startTimer = (): void => {
-    clearTimer()
-    timer = setTimeout(() => {
-      timer = undefined
-      if (!pending) return
-      const { text, resolve } = pending
-      pending = undefined
-      resolve({ ok: false, message: `The lifecycle wake expired after ${timeoutMs}ms because the captain did not become idle in time.` })
-      options.onExpired?.(text)
-    }, timeoutMs)
+  const deliverNext = (): void => {
+    if (delivering || disposed) return
+    const item = queue[0]
+    if (!item) return
+    delivering = true
+    clearTimeout(item.timer)
+    removeFromQueue(item)
+    const settle = (result: AgentPromptResult): void => {
+      item.resolve(result)
+      delivering = false
+      deliverNext()
+    }
+    try {
+      void options.deliver(item.text).then(settle, (error) => settle({ ok: false, message: errorMessage(error) }))
+    } catch (error) {
+      settle({ ok: false, message: errorMessage(error) })
+    }
   }
 
   return {
     enqueue(text: string): Promise<AgentPromptResult> {
       if (disposed) return Promise.resolve({ ok: false, message: 'The wake gate is disposed.' })
-      if (pending) pending.resolve({ ok: true })
       return new Promise<AgentPromptResult>((resolve) => {
-        pending = { text, resolve }
-        startTimer()
+        const item: QueuedWake = {
+          text,
+          resolve,
+          timer: setTimeout(() => {
+            removeFromQueue(item)
+            resolve({ ok: false, message: `The lifecycle wake expired after ${timeoutMs}ms because the captain did not become idle in time.` })
+            options.onExpired?.(text)
+          }, timeoutMs)
+        }
+        queue.push(item)
       })
     },
 
     flush(): void {
-      if (!pending) return
-      const { text, resolve } = pending
-      pending = undefined
-      clearTimer()
-      try {
-        void options.deliver(text).then(
-          (result) => resolve(result),
-          (error) => resolve({ ok: false, message: errorMessage(error) })
-        )
-      } catch (error) {
-        resolve({ ok: false, message: errorMessage(error) })
-      }
+      deliverNext()
     },
 
     dispose(): void {
-      clearTimer()
-      if (pending) {
-        pending.resolve({ ok: false, message: 'The wake gate was disposed.' })
-        pending = undefined
-      }
       disposed = true
+      for (const item of queue) {
+        clearTimeout(item.timer)
+        item.resolve({ ok: false, message: 'The wake gate was disposed.' })
+      }
+      queue.length = 0
     }
   }
 }

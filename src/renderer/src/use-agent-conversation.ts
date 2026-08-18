@@ -9,12 +9,14 @@ import type {
   AgentPlanEntry,
   AgentProvider
 } from '../../shared/agent'
-import { deliverAgentPrompt } from './agent-prompt-delivery'
+import { chooseAgentPromptApi, createDispatchOrderGate, deliverAgentPrompt } from './agent-prompt-delivery'
 
 export interface AgentChatMessage {
   id: string
   role: 'user' | 'assistant' | 'thought'
   text: string
+  /** True until the agent actually starts processing this message (only possible for messages sent while busy). */
+  queued?: boolean
 }
 
 export interface AgentApprovalState {
@@ -77,7 +79,13 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
   const [status, setStatus] = useState<AgentChatStatus>('starting')
   const [detail, setDetail] = useState<string>()
   const [draft, setDraft] = useState('')
-  const sentTextRef = useRef<string>()
+  /** FIFO of messages sent but not yet echoed back, so each queued send (not just the latest) clears its own queued flag. */
+  const pendingSentRef = useRef<Array<{ id: string; text: string }>>([])
+  /**
+   * Serializes the actual cross-process deliver call in submission order, even when an earlier
+   * submit's (async) composePrompt resolves after a later one's.
+   */
+  const dispatchGateRef = useRef(createDispatchOrderGate())
   const activities = useMemo(() => Object.values(activitiesById), [activitiesById])
   const onSessionId = useRef(options.onSessionId)
   const onPermissionMode = useRef(options.onPermissionMode)
@@ -107,8 +115,11 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
       } else if (event.type === 'session') {
         onSessionId.current(event.sessionId)
       } else if (event.type === 'message') {
-        if (event.role === 'user' && sentTextRef.current === event.text) {
-          sentTextRef.current = undefined
+        if (event.role === 'user' && pendingSentRef.current[0]?.text === event.text) {
+          const sent = pendingSentRef.current.shift()!
+          setMessages((current) => current.map((message) => (
+            message.id === sent.id ? { ...message, queued: false } : message
+          )))
           return
         }
         setMessages((current) => {
@@ -170,22 +181,35 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
   const submit = (event: FormEvent): void => {
     event.preventDefault()
     const text = draft.trim()
-    if (!text || status !== 'ready') return
+    if (!text || (status !== 'ready' && status !== 'working')) return
+    const queued = status === 'working'
     const compose = options.composePrompt
-    setStatus('working')
+    if (!queued) setStatus('working')
+    const deliverPrompt = chooseAgentPromptApi(status, window.agentApi)
+    const id = crypto.randomUUID()
+
+    const slot = dispatchGateRef.current.reserve()
+
     void deliverAgentPrompt(
       text,
       compose,
-      (prompt) => window.agentApi.prompt(options.id, prompt),
-      (prompt) => {
-        setMessages((current) => [...current, { id: crypto.randomUUID(), role: 'user', text }])
+      async (prompt) => {
+        await slot.previous
+        pendingSentRef.current.push({ id, text: prompt })
+        const result = deliverPrompt(options.id, prompt)
+        slot.release()
+        return result
+      },
+      () => {
+        setMessages((current) => [...current, { id, role: 'user', text, queued }])
         setDraft('')
-        sentTextRef.current = prompt
       }
     ).then((result) => {
+      slot.release()
       if (result.ok) return
       setDetail(result.message)
-      setStatus('ready')
+      if (!queued) setStatus('ready')
+      pendingSentRef.current = pendingSentRef.current.filter((entry) => entry.id !== id)
     })
   }
 

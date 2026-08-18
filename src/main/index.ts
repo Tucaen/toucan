@@ -59,6 +59,7 @@ function registerTerminalIpc(manager: TerminalManager, providers: SessionProvide
 function registerAgentIpc(manager: AcpSessionManager): void {
   ipcMain.handle('agent:create', (event, request: AgentCreateRequest) => manager.create(request, event.sender))
   ipcMain.handle('agent:prompt', (_event, id: string, text: string) => manager.prompt(id, text))
+  ipcMain.handle('agent:prompt-when-idle', (_event, id: string, text: string) => manager.promptWhenIdle(id, text))
   ipcMain.handle('agent:set-mode', (_event, id: string, modeId: string) => manager.setMode(id, modeId))
   ipcMain.handle('agent:set-model', (_event, id: string, modelId: string) => manager.setModel(id, modelId))
   ipcMain.handle('agent:authenticate', (_event, id: string, methodId: string) => (

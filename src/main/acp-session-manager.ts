@@ -444,17 +444,15 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         busy: false,
         stopping: false
       }
-      if (request.scope === 'firstmate') {
-        running.wakeGate = createCaptainWakeGate({
-          deliver: (text) => runPrompt(request.id, text),
-          onExpired: () => {
-            send(running, {
-              type: 'error',
-              message: 'A lifecycle wake expired because the captain did not become idle in time.'
-            })
-          }
-        })
-      }
+      running.wakeGate = createCaptainWakeGate({
+        deliver: (text) => runPrompt(request.id, text),
+        onExpired: () => {
+          send(running, {
+            type: 'error',
+            message: 'A queued message expired because the agent did not become idle in time.'
+          })
+        }
+      })
       agents.set(request.id, running)
 
       child.stderr.setEncoding('utf8')
