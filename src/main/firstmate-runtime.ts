@@ -10,6 +10,8 @@ import type {
   FirstMateLifecycleStatus,
   FirstMateProjectRegistration,
   FirstMateProjectSelection,
+  FirstMateQuotaStatus,
+  FirstMateQuotaWindow,
   FirstMateRuntimeStatus,
   FirstMateValidationDelivery
 } from '../shared/firstmate'
@@ -481,6 +483,8 @@ export interface FirstMateRuntime {
   setAutonomyCeiling(adeProjectId: string, allowed: boolean): Promise<FirstMateProjectRegistration>
   retireProject(adeProjectId: string): Promise<FirstMateActionResult>
   launch(provider?: AgentProvider, modelId?: string): FirstMateLaunch | null
+  /** Account-wide hourly/weekly usage-limit status for one provider, reported by the `quota-axi` tool. */
+  quotaStatus(provider: AgentProvider): Promise<FirstMateQuotaStatus>
 }
 
 export interface FirstMateCommandResult {
@@ -622,6 +626,53 @@ function facts(output: string): Map<string, string> {
     if (separator > 0) result.set(line.slice(0, separator), line.slice(separator + 1))
   }
   return result
+}
+
+interface QuotaAxiWindow {
+  id?: string
+  percentRemaining?: number
+  resetsAt?: string
+}
+
+interface QuotaAxiReport {
+  providers?: Array<{
+    provider?: string
+    windows?: QuotaAxiWindow[]
+    state?: { status?: string; error?: string }
+  }>
+}
+
+/**
+ * `quota-axi --json` always exits 0 and reports one entry per requested provider, even when that
+ * provider is unauthenticated or unreachable - those cases just carry an empty `windows` array, so
+ * "no five_hour/seven_day window" (not a thrown error) is the normal shape of an unavailable report.
+ */
+function parseQuotaStatus(provider: AgentProvider, stdout: string): FirstMateQuotaStatus {
+  let report: QuotaAxiReport
+  try {
+    report = JSON.parse(stdout) as QuotaAxiReport
+  } catch (error) {
+    return { state: 'unavailable', provider, message: `quota-axi returned unreadable output: ${errorMessage(error)}` }
+  }
+  const providerReport = report.providers?.find((entry) => entry.provider === provider)
+  const windows = providerReport?.windows ?? []
+  const quotaWindow = (id: string): FirstMateQuotaWindow | undefined => {
+    const found = windows.find((entry) => entry.id === id)
+    return found && typeof found.percentRemaining === 'number' && typeof found.resetsAt === 'string'
+      ? { percentRemaining: found.percentRemaining, resetsAt: found.resetsAt }
+      : undefined
+  }
+  const session = quotaWindow('five_hour')
+  const week = quotaWindow('seven_day')
+  if (!session && !week) {
+    return {
+      state: 'unavailable',
+      provider,
+      message: providerReport?.state?.error
+        ?? `quota-axi reported no usage windows for ${provider}.`
+    }
+  }
+  return { state: 'ok', provider, session, week }
 }
 
 function validatorModel(modelId?: string): string {
@@ -793,6 +844,11 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
   let readyPaths: ReturnType<typeof linuxPaths> | null = null
   let readyProviders = new Set<AgentProvider>()
   let selectedValidator: { agent: AgentProvider; model: string } = { agent: 'codex', model: 'default' }
+  // This is an account-wide, minutes-scale limit rather than a fast-changing per-token signal, so a
+  // short cache lets every open panel/node poll on its own timer without each tick invoking quota-axi.
+  const QUOTA_CACHE_TTL_MS = 60_000
+  const quotaCache = new Map<AgentProvider, { expiresAt: number; status: FirstMateQuotaStatus }>()
+  const quotaInFlight = new Map<AgentProvider, Promise<FirstMateQuotaStatus>>()
 
   /**
    * One inspection, reported as the status plus the host paths it resolved. Actions take both from
@@ -1328,6 +1384,38 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
       if (!readyProviders.has(provider)) return null
       if (readyLaunchFactory) readyLaunches = readyLaunchFactory(provider, selectedValidator.model)
       return readyLaunches?.[provider] ?? null
+    },
+    async quotaStatus(provider: AgentProvider): Promise<FirstMateQuotaStatus> {
+      const cached = quotaCache.get(provider)
+      if (cached && cached.expiresAt > Date.now()) return cached.status
+      const inFlight = quotaInFlight.get(provider)
+      if (inFlight) return inFlight
+      const request = (async (): Promise<FirstMateQuotaStatus> => {
+        if (!readyPaths) await inspect()
+        if (!readyPaths) return { state: 'unavailable', provider, message: 'FirstMate is not ready.' }
+        try {
+          const result = await run(
+            [
+              '--distribution', distribution,
+              '--exec', '/usr/bin/env',
+              `PATH=${readyPaths.userHome}/.local/bin:/usr/local/bin:/usr/bin:/bin`,
+              'quota-axi', '--provider', provider, '--json'
+            ],
+            15_000
+          )
+          return parseQuotaStatus(provider, result.stdout)
+        } catch (error) {
+          return { state: 'unavailable', provider, message: errorMessage(error) }
+        }
+      })()
+      quotaInFlight.set(provider, request)
+      try {
+        const status = await request
+        quotaCache.set(provider, { expiresAt: Date.now() + QUOTA_CACHE_TTL_MS, status })
+        return status
+      } finally {
+        quotaInFlight.delete(provider)
+      }
     }
   }
 }
@@ -1369,7 +1457,10 @@ function createUnsupportedFirstMateRuntime(platform: NodeJS.Platform): FirstMate
     authorizeProjectInitialization: refuseRegistration,
     setAutonomyCeiling: refuseRegistration,
     retireProject: refuse,
-    launch(): FirstMateLaunch | null { return null }
+    launch(): FirstMateLaunch | null { return null },
+    async quotaStatus(provider: AgentProvider): Promise<FirstMateQuotaStatus> {
+      return { state: 'unavailable', provider, message }
+    }
   }
 }
 

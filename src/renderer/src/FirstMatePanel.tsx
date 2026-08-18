@@ -9,6 +9,7 @@ import type {
   FirstMateWorkspaceState
 } from '../../shared/firstmate'
 import type { WorkspaceProject } from '../../shared/terminal'
+import { QuotaStat, UsageStat } from './AgentUsageStatus'
 import { ChatView, SelectorPicker, type ChatViewProps } from './ChatNode'
 import { firstMateProjectHint, firstMateProjectSelection, firstMateRequest } from './firstmate-project-catalog'
 import {
@@ -20,6 +21,7 @@ import {
   type FirstMatePanelWidthBounds
 } from './firstmate-panel-resize'
 import { useAgentConversation } from './use-agent-conversation'
+import { useFirstMateQuota } from './use-firstmate-quota'
 
 const FIRSTMATE_AGENT_ID = 'ade-firstmate'
 const FIRSTMATE_PROVIDERS = [
@@ -385,6 +387,7 @@ export default function FirstMatePanel({ projects, project, state, onStateChange
     ...conversation
   }
   const ready = runtime?.state === 'ready'
+  const quota = useFirstMateQuota(provider, ready)
   const displayStatus = statusLabel(conversation.status)
 
   const currentPanelWidth = (): number => {
@@ -591,6 +594,14 @@ export default function FirstMatePanel({ projects, project, state, onStateChange
                 disabled={conversation.selectorsDisabled}
                 select={conversation.selectMode}
               />
+            </label>
+            <label>
+              <span>Context</span>
+              <UsageStat usage={conversation.usage} />
+            </label>
+            <label>
+              <span>Limits</span>
+              <QuotaStat quota={quota} />
             </label>
           </div>
           <div

@@ -2,7 +2,8 @@ import type {
   AgentCreateRequest,
   AgentCreateResult,
   AgentEvent,
-  AgentPromptResult
+  AgentPromptResult,
+  AgentProvider
 } from '../shared/agent'
 import type {
   FirstMateActionResult,
@@ -11,6 +12,7 @@ import type {
   FirstMateLifecycleStatus,
   FirstMateProjectRegistration,
   FirstMateProjectSelection,
+  FirstMateQuotaStatus,
   FirstMateRuntimeStatus
 } from '../shared/firstmate'
 import type {
@@ -59,6 +61,7 @@ export interface FirstMateApi {
   authenticateGitHub(): Promise<FirstMateActionResult>
   trustCodexProject(): Promise<FirstMateActionResult>
   lifecycle(): Promise<FirstMateLifecycleStatus>
+  quotaStatus(provider: AgentProvider): Promise<FirstMateQuotaStatus>
   releaseDispatch(taskId: string): Promise<FirstMateActionResult>
   retryDispatch(taskId: string): Promise<FirstMateActionResult>
   registerProject(selection: FirstMateProjectSelection): Promise<FirstMateProjectRegistration>

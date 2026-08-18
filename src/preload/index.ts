@@ -3,7 +3,8 @@ import type {
   AgentCreateRequest,
   AgentCreateResult,
   AgentEventEnvelope,
-  AgentPromptResult
+  AgentPromptResult,
+  AgentProvider
 } from '../shared/agent'
 import type {
   FirstMateActionResult,
@@ -12,6 +13,7 @@ import type {
   FirstMateLifecycleStatus,
   FirstMateProjectRegistration,
   FirstMateProjectSelection,
+  FirstMateQuotaStatus,
   FirstMateRuntimeStatus
 } from '../shared/firstmate'
 import type {
@@ -105,6 +107,9 @@ const firstMateApi = {
   authenticateGitHub: (): Promise<FirstMateActionResult> => ipcRenderer.invoke('firstmate:github-auth'),
   trustCodexProject: (): Promise<FirstMateActionResult> => ipcRenderer.invoke('firstmate:trust-codex'),
   lifecycle: (): Promise<FirstMateLifecycleStatus> => ipcRenderer.invoke('firstmate:lifecycle'),
+  quotaStatus: (provider: AgentProvider): Promise<FirstMateQuotaStatus> => (
+    ipcRenderer.invoke('firstmate:quota-status', provider)
+  ),
   releaseDispatch: (taskId: string): Promise<FirstMateActionResult> => (
     ipcRenderer.invoke('firstmate:release-dispatch', taskId)
   ),

@@ -8,9 +8,11 @@ import type {
   AgentPlanEntry
 } from '../../shared/agent'
 import { activityTitle } from '../../shared/agent-activity'
+import { QuotaStat, UsageStat } from './AgentUsageStatus'
 import type { TerminalCanvasNode, TerminalNodeStatus } from './canvas-workspace'
 import { computeNodePickerMenuPosition } from './node-picker-menu-position'
 import NodeBorderResizer from './NodeBorderResizer'
+import { useFirstMateQuota } from './use-firstmate-quota'
 import VoiceInputPrototype from './VoiceInputPrototype'
 import {
   useAgentConversation,
@@ -382,7 +384,8 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
     onPermissionMode: (modeId) => data.onPermissionModeChange(provider, modeId),
     onModel: (modelId) => data.onModelChange(id, modelId)
   })
-  const { status, approval, models, modes, detail, messages, activities, plan } = conversation
+  const { status, approval, models, modes, detail, messages, activities, plan, usage } = conversation
+  const quota = useFirstMateQuota(provider, !data.dormant)
   const [stalled, setStalled] = useState(false)
   const lastProgressAtRef = useRef(Date.now())
 
@@ -455,6 +458,12 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
           </>
         )}
         <span className="chat-provider-badge">ACP</span>
+        {!data.dormant && (
+          <>
+            <UsageStat usage={usage} compact />
+            <QuotaStat quota={quota} compact />
+          </>
+        )}
         <span className="node-status">{status.replace('_', ' ')}</span>
       </header>
       {data.dormant ? (

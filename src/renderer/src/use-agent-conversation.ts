@@ -25,6 +25,13 @@ export interface AgentApprovalState {
   options: AgentPermissionOption[]
 }
 
+/** The conversation's live context-window usage, as last reported by a `usage_update` session event. */
+export interface AgentUsage {
+  used?: number
+  size?: number
+  cost?: string
+}
+
 export type AgentChatStatus = 'starting' | 'ready' | 'working' | 'auth_required' | 'exited'
 
 export interface AgentConversationOptions {
@@ -56,6 +63,7 @@ export interface AgentConversationController {
   modes: AgentModeState | null
   models: AgentModelState | null
   status: AgentChatStatus
+  usage: AgentUsage | null
   detail?: string
   draft: string
   selectorsDisabled: boolean
@@ -77,6 +85,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
   const [modes, setModes] = useState<AgentModeState | null>(null)
   const [models, setModels] = useState<AgentModelState | null>(null)
   const [status, setStatus] = useState<AgentChatStatus>('starting')
+  const [usage, setUsage] = useState<AgentUsage | null>(null)
   const [detail, setDetail] = useState<string>()
   const [draft, setDraft] = useState('')
   /** FIFO of messages sent but not yet echoed back, so each queued send (not just the latest) clears its own queued flag. */
@@ -106,6 +115,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     setModes(null)
     setModels(null)
     setStatus('starting')
+    setUsage(null)
     setDetail(undefined)
     const removeListener = window.agentApi.onEvent(options.id, (event: AgentEvent) => {
       if (!active) return
@@ -144,6 +154,8 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
         setApproval({ id: event.approvalId, title: event.title, options: event.options })
       } else if (event.type === 'auth') {
         setAuthMethods(event.methods)
+      } else if (event.type === 'usage') {
+        setUsage({ used: event.used, size: event.size, cost: event.cost })
       } else if (event.type === 'error') {
         setDetail(event.message)
       }
@@ -264,6 +276,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     modes,
     models,
     status,
+    usage,
     detail,
     draft,
     selectorsDisabled: status === 'starting' || status === 'exited',
