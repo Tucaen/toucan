@@ -32,12 +32,15 @@ const baseChatViewProps: ChatViewProps = {
   plan: [],
   approval: null,
   authMethods: [],
+  authLink: null,
+  reauthenticating: false,
   status: 'ready',
   draft: '',
   setDraft: vi.fn(),
   submit: vi.fn(),
   cancel: vi.fn(),
   authenticate: vi.fn(),
+  openAuthLink: vi.fn(),
   resolveApproval: vi.fn()
 }
 

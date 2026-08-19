@@ -52,7 +52,37 @@ interface RunningAgent {
   pendingApprovals: Map<string, PendingApproval>
   busy: boolean
   stopping: boolean
+  /**
+   * Set once an `auth_required` event has been sent for this agent and cleared only when a
+   * fresh `openSession` succeeds (reauth completes). While true, `runPrompt` short-circuits
+   * instead of re-attempting the prompt: without this, a wake-gate queue built up while the
+   * agent was `working` drains straight through the same broken credential, re-sending an
+   * identical `auth`/`auth_required` event pair (and flashing `status: 'working'` in between)
+   * once per queued message — the sign-in affordance the user needs never settles long enough
+   * to read or click.
+   */
+  authRequired: boolean
   wakeGate?: CaptainWakeGate
+}
+
+/**
+ * Blocks `runPrompt` from re-attempting delivery while the agent is already parked in
+ * `auth_required`. Pulled out as a pure function (mirroring `promptFailure`) so the
+ * no-retry-storm behavior is directly testable without spinning up the full ACP connection.
+ */
+export function promptGuard(running: { authRequired: boolean }): AgentPromptResult | null {
+  if (!running.authRequired) return null
+  return { ok: false, message: 'Sign in to Claude to continue this conversation.' }
+}
+
+const LOGIN_URL_PATTERN = /https?:\/\/[^\s<>"')]+/
+
+/** Pulls the OAuth sign-in URL out of a terminal-auth subprocess's stdout/stderr line (or an
+ *  elicitation message), if it printed one, so ADE can both auto-open it and offer a persistent,
+ *  actionable link instead of relying solely on the CLI's own (not always reachable) browser
+ *  launch. */
+export function extractLoginUrl(text: string): string | undefined {
+  return text.match(LOGIN_URL_PATTERN)?.[0]
 }
 
 function errorMessage(error: unknown): string {
@@ -166,6 +196,7 @@ export interface AcpSessionManager {
   setMode(id: string, modeId: string): Promise<AgentPromptResult>
   setModel(id: string, modelId: string): Promise<AgentPromptResult>
   authenticate(id: string, methodId: string): Promise<AgentCreateResult>
+  openAuthLink(url: string): Promise<void>
   resolveApproval(id: string, approvalId: string, optionId?: string): void
   cancel(id: string): void
   kill(id: string): void
@@ -284,6 +315,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
           })
         }
       }
+      running.authRequired = false
       send(running, { type: 'session', sessionId })
       if (modes) send(running, { type: 'modes', modes })
       if (models) send(running, { type: 'models', models })
@@ -297,6 +329,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       }
     } catch (error) {
       if (isAuthRequired(error)) {
+        running.authRequired = true
         const models = running.cachedModels
         send(running, { type: 'auth', methods: running.authMethods })
         if (models) send(running, { type: 'models', models })
@@ -331,6 +364,8 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
   const runPrompt = async (id: string, text: string): Promise<AgentPromptResult> => {
     const running = agents.get(id)
     if (!running?.sessionId) return { ok: false, message: 'The agent session is not ready.' }
+    const guard = promptGuard(running)
+    if (guard) return guard
     if (running.busy) return { ok: false, message: 'The agent session is busy.' }
     running.busy = true
     send(running, { type: 'status', status: 'working' })
@@ -344,6 +379,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       return { ok: true }
     } catch (error) {
       const failure = promptFailure(error, running.authMethods)
+      if (isAuthRequired(error)) running.authRequired = true
       for (const event of failure.events) send(running, event)
       return failure.result
     } finally {
@@ -456,6 +492,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
           if (elicitation.mode === 'url' && 'url' in elicitation && typeof elicitation.url === 'string') {
             await shell.openExternal(elicitation.url)
             send(running, { type: 'status', status: 'starting', message: elicitation.message })
+            send(running, { type: 'auth_link', url: elicitation.url })
             return { action: 'accept' as const }
           }
           return { action: 'decline' as const }
@@ -481,7 +518,8 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
           : undefined,
         pendingApprovals,
         busy: false,
-        stopping: false
+        stopping: false,
+        authRequired: false
       }
       running.wakeGate = createCaptainWakeGate({
         deliver: (text) => runPrompt(request.id, text),
@@ -615,7 +653,18 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
             auth.stderr.setEncoding('utf8')
             const report = (data: string): void => {
               const message = data.trim()
-              if (message) send(running, { type: 'status', status: 'starting', message })
+              if (!message) return
+              send(running, { type: 'status', status: 'starting', message })
+              // The CLI's own browser launch isn't reliable in every environment (e.g. a
+              // headless/WSL desktop with no configured URL handler); open the link ourselves
+              // via Electron's cross-platform `shell.openExternal` too, and surface it as a
+              // persistent, actionable `auth_link` so the sign-in affordance survives even if
+              // this status line gets overwritten by the next chunk of CLI output.
+              const url = extractLoginUrl(message)
+              if (url) {
+                void shell.openExternal(url)
+                send(running, { type: 'auth_link', url })
+              }
             }
             auth.stdout.on('data', report)
             auth.stderr.on('data', report)
@@ -631,6 +680,10 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         send(running, { type: 'error', message })
         return { ok: false, status: 'error', message }
       }
+    },
+
+    async openAuthLink(url): Promise<void> {
+      await shell.openExternal(url)
     },
 
     resolveApproval(id, approvalId, optionId): void {

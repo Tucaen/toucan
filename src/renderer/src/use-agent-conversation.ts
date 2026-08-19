@@ -60,6 +60,14 @@ export interface AgentConversationController {
   plan: AgentPlanEntry[]
   approval: AgentApprovalState | null
   authMethods: AgentAuthMethod[]
+  /**
+   * A sign-in URL surfaced during an in-progress reauth attempt (terminal-login stdout or an
+   * elicitation request), kept separate from `detail` so it stays visible/actionable and isn't
+   * overwritten by the next unrelated status message.
+   */
+  authLink: string | null
+  /** True for the whole span of an in-progress `authenticate()` call, even while `status` is transiently `'starting'`. */
+  reauthenticating: boolean
   modes: AgentModeState | null
   models: AgentModelState | null
   status: AgentChatStatus
@@ -71,6 +79,7 @@ export interface AgentConversationController {
   submit(event: FormEvent): void
   cancel(): void
   authenticate(methodId: string): void
+  openAuthLink(url: string): void
   resolveApproval(approvalId: string, optionId?: string): void
   selectMode(modeId: string): Promise<boolean>
   selectModel(modelId: string): void
@@ -82,6 +91,8 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
   const [plan, setPlan] = useState<AgentPlanEntry[]>([])
   const [approval, setApproval] = useState<AgentApprovalState | null>(null)
   const [authMethods, setAuthMethods] = useState<AgentAuthMethod[]>([])
+  const [authLink, setAuthLink] = useState<string | null>(null)
+  const [reauthenticating, setReauthenticating] = useState(false)
   const [modes, setModes] = useState<AgentModeState | null>(null)
   const [models, setModels] = useState<AgentModelState | null>(null)
   const [status, setStatus] = useState<AgentChatStatus>('starting')
@@ -112,6 +123,8 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     setPlan([])
     setApproval(null)
     setAuthMethods([])
+    setAuthLink(null)
+    setReauthenticating(false)
     setModes(null)
     setModels(null)
     setStatus('starting')
@@ -154,6 +167,10 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
         setApproval({ id: event.approvalId, title: event.title, options: event.options })
       } else if (event.type === 'auth') {
         setAuthMethods(event.methods)
+        // A fresh auth-required cycle invalidates any sign-in link surfaced by a previous one.
+        setAuthLink(null)
+      } else if (event.type === 'auth_link') {
+        setAuthLink(event.url)
       } else if (event.type === 'usage') {
         setUsage({ used: event.used, size: event.size, cost: event.cost })
       } else if (event.type === 'error') {
@@ -227,15 +244,22 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
 
   const authenticate = (methodId: string): void => {
     setStatus('starting')
+    setReauthenticating(true)
     void window.agentApi.authenticate(options.id, methodId).then((result) => {
       if (result.status === 'ready') {
         setStatus('ready')
         setAuthMethods([])
+        setAuthLink(null)
       } else {
         setStatus(result.status === 'auth_required' ? 'auth_required' : 'exited')
         setDetail(result.message)
       }
+      setReauthenticating(false)
     })
+  }
+
+  const openAuthLink = (url: string): void => {
+    void window.agentApi.openAuthLink(url)
   }
 
   const resolveApproval = (approvalId: string, optionId?: string): void => {
@@ -272,7 +296,9 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     activities,
     plan,
     approval,
-    authMethods: status === 'auth_required' ? authMethods : [],
+    authMethods: status === 'auth_required' || reauthenticating ? authMethods : [],
+    authLink: status === 'auth_required' || reauthenticating ? authLink : null,
+    reauthenticating,
     modes,
     models,
     status,
@@ -284,6 +310,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     submit,
     cancel: () => window.agentApi.cancel(options.id),
     authenticate,
+    openAuthLink,
     resolveApproval,
     selectMode,
     selectModel

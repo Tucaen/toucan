@@ -29,6 +29,8 @@ export interface ChatViewProps {
   plan: AgentPlanEntry[]
   approval: AgentApprovalState | null
   authMethods: AgentAuthMethod[]
+  authLink: string | null
+  reauthenticating: boolean
   status: string
   detail?: string
   draft: string
@@ -36,6 +38,7 @@ export interface ChatViewProps {
   submit(event: FormEvent): void
   cancel(): void
   authenticate(methodId: string): void
+  openAuthLink(url: string): void
   resolveApproval(approvalId: string, optionId?: string): void
 }
 
@@ -218,8 +221,23 @@ function Composer(props: Pick<ChatViewProps, 'draft' | 'setDraft' | 'submit' | '
   )
 }
 
-function AuthPanel(props: Pick<ChatViewProps, 'provider' | 'authMethods' | 'authenticate'>): JSX.Element | null {
-  if (props.authMethods.length === 0) return null
+function AuthPanel(
+  props: Pick<ChatViewProps, 'provider' | 'authMethods' | 'authLink' | 'authenticate' | 'openAuthLink'>
+): JSX.Element {
+  // Even with no auth methods to offer (shouldn't happen, but silently rendering nothing would
+  // strand the user with only the transient error text below the composer and no visible
+  // affordance at all), keep the panel itself always present while auth is required.
+  if (props.authMethods.length === 0) {
+    return (
+      <section className="chat-auth-panel">
+        <span className="auth-lock">*</span>
+        <div>
+          <strong>Sign in to {providerNames[props.provider]}</strong>
+          <p>No sign-in method is available for this session. Restart the conversation to try again.</p>
+        </div>
+      </section>
+    )
+  }
   const subscriptionMethods = props.authMethods.filter((method) => (
     method.name.toLocaleLowerCase().includes('chatgpt')
     || method.name.toLocaleLowerCase().includes('subscription')
@@ -235,6 +253,14 @@ function AuthPanel(props: Pick<ChatViewProps, 'provider' | 'authMethods' | 'auth
         <button type="button" onClick={() => props.authenticate(method.id)}>
           {method.name}
         </button>
+        {props.authLink && (
+          <p className="auth-link">
+            Waiting for you to finish signing in.{' '}
+            <button type="button" className="auth-link-button" onClick={() => props.openAuthLink(props.authLink!)}>
+              Open the sign-in link again
+            </button>
+          </p>
+        )}
       </div>
     </section>
   )
@@ -315,7 +341,7 @@ export function ChatView(props: ChatViewProps & {
   return (
     <div className={`agent-chat ${props.worklogCollapsed ? 'worklog-collapsed' : ''} ${props.statusBar ? 'has-status-bar' : ''}`}>
       <div className="chat-scroll nodrag nopan nowheel" ref={scrollRef} onScroll={onScroll}>
-        {props.status === 'auth_required'
+        {props.status === 'auth_required' || props.reauthenticating
           ? <AuthPanel {...props} />
           : props.messages.length === 0 && (props.empty
             ? (
