@@ -61,6 +61,41 @@ test('reports session (five_hour) and week (seven_day) percent-remaining and res
   assert.ok(quotaCall.includes('--provider'))
   assert.ok(quotaCall.includes('claude'))
   assert.ok(quotaCall.includes('--json'))
+  assert.ok(
+    quotaCall.includes('CLAUDE_CONFIG_DIR=/home/tucaen/.local/share/ade/firstmate/home/claude'),
+    'quota-axi must be checked against the SAME managed claude identity real claude conversations use, not its own default credential discovery'
+  )
+})
+
+test('checks codex quota against the managed CODEX_HOME, the same identity real codex conversations use', async () => {
+  const calls: string[][] = []
+  const runtime = createFirstMateRuntime({
+    platform: 'win32',
+    resolveGit: () => 'git.exe',
+    wsl: {
+      run: async (args) => {
+        calls.push(args)
+        if (args[3] === '/bin/sh') return { stdout: readyWslInspection(), stderr: '' }
+        return {
+          stdout: quotaAxiReport('codex', [
+            { id: 'five_hour', percentRemaining: 70, resetsAt: '2026-08-18T11:10:00.000Z' }
+          ]),
+          stderr: ''
+        }
+      }
+    }
+  })
+
+  const quota = await runtime.quotaStatus('codex')
+
+  assert.equal(quota.state, 'ok')
+  const quotaCall = calls.find((args) => args.includes('quota-axi'))
+  assert.ok(quotaCall, 'quota-axi must actually be invoked through the shared WSL run() helper')
+  assert.ok(
+    quotaCall.includes('CODEX_HOME=/home/tucaen/.local/share/ade/firstmate/home/codex'),
+    'quota-axi must be checked against the SAME managed codex identity real codex conversations use, not its own default credential discovery'
+  )
+  assert.ok(!quotaCall.some((arg) => arg.startsWith('CLAUDE_CONFIG_DIR=')), 'codex checks must not set CLAUDE_CONFIG_DIR')
 })
 
 test('reports a neutral unavailable state, not a throw, when quota-axi reports no usable windows (e.g. unauthenticated)', async () => {

@@ -1437,11 +1437,15 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
         if (!readyPaths) await inspect()
         if (!readyPaths) return { state: 'unavailable', provider, message: 'FirstMate is not ready.' }
         try {
+          const managedHomeEnvironment = provider === 'codex'
+            ? `${CODEX_HOME}=${readyPaths.homePath}/codex`
+            : `${CLAUDE_CONFIG_DIR}=${readyPaths.homePath}/claude`
           const result = await run(
             [
               '--distribution', distribution,
               '--exec', '/usr/bin/env',
               `PATH=${readyPaths.userHome}/.local/bin:/usr/local/bin:/usr/bin:/bin`,
+              managedHomeEnvironment,
               'quota-axi', '--provider', provider, '--json'
             ],
             15_000
