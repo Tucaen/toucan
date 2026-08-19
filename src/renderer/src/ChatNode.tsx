@@ -30,6 +30,7 @@ export interface ChatViewProps {
   approval: AgentApprovalState | null
   authMethods: AgentAuthMethod[]
   authLink: string | null
+  reauthenticating: boolean
   status: string
   detail?: string
   draft: string
@@ -340,7 +341,7 @@ export function ChatView(props: ChatViewProps & {
   return (
     <div className={`agent-chat ${props.worklogCollapsed ? 'worklog-collapsed' : ''} ${props.statusBar ? 'has-status-bar' : ''}`}>
       <div className="chat-scroll nodrag nopan nowheel" ref={scrollRef} onScroll={onScroll}>
-        {props.status === 'auth_required'
+        {props.status === 'auth_required' || props.reauthenticating
           ? <AuthPanel {...props} />
           : props.messages.length === 0 && (props.empty
             ? (

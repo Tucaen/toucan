@@ -17,6 +17,7 @@ const baseChatViewProps: ChatViewProps = {
   approval: null,
   authMethods: [],
   authLink: null,
+  reauthenticating: false,
   status: 'ready',
   draft: '',
   setDraft: vi.fn(),
@@ -81,6 +82,21 @@ describe('AuthPanel rendering', () => {
     act(() => linkButton.click())
     expect(openAuthLink).toHaveBeenCalledWith('https://claude.ai/oauth/authorize?client_id=abc')
   })
+
+  test(
+    'shows the sign-in link while status is "starting" as long as reauthenticating is set — '
+    + 'this is the real status during the terminal-auth subprocess, not "auth_required"',
+    () => {
+      renderChatView({
+        status: 'starting',
+        reauthenticating: true,
+        authMethods: [{ id: 'claude-ai-login', name: 'Claude Subscription', type: 'terminal' }],
+        authLink: 'https://claude.ai/oauth/authorize?client_id=abc'
+      })
+
+      expect(screen.getByRole('button', { name: /open the sign-in link again/i })).toBeInTheDocument()
+    }
+  )
 })
 
 describe('useAgentConversation auth_link state', () => {
@@ -155,4 +171,57 @@ describe('useAgentConversation auth_link state', () => {
     })
     expect(result.current.authLink).toBeNull()
   })
+
+  test(
+    'the sign-in link is exposed during the real authenticate() call, while status is transiently '
+    + '"starting" rather than "auth_required" — regression for the link never rendering because the '
+    + 'real emission path never coincides with status === "auth_required"',
+    async () => {
+      let resolveAuthenticate: (result: { ok: boolean; status: 'auth_required'; message?: string }) => void = () => {}
+      const authenticatePromise = new Promise<{ ok: boolean; status: 'auth_required'; message?: string }>((resolve) => {
+        resolveAuthenticate = resolve
+      })
+      const { api, emit } = createMockAgentApi({
+        authenticate: vi.fn(() => authenticatePromise)
+      })
+      window.agentApi = api
+
+      const { result } = renderHook(() => useAgentConversation({
+        id: 'session-auth-3',
+        provider: 'claude',
+        cwd: '/project',
+        enabled: true,
+        onSessionId: vi.fn(),
+        onPermissionMode: vi.fn(),
+        onModel: vi.fn()
+      }))
+
+      await waitFor(() => expect(result.current.status).toBe('ready'))
+
+      const methods = [{ id: 'claude-ai-login', name: 'Claude Subscription', type: 'terminal' as const }]
+      act(() => {
+        emit('session-auth-3', { type: 'auth', methods })
+        emit('session-auth-3', { type: 'status', status: 'auth_required', message: 'OAuth session expired' })
+      })
+      await waitFor(() => expect(result.current.status).toBe('auth_required'))
+
+      act(() => {
+        result.current.authenticate('claude-ai-login')
+      })
+      expect(result.current.status).toBe('starting')
+
+      act(() => {
+        emit('session-auth-3', { type: 'auth_link', url: 'https://claude.ai/oauth/authorize?client_id=abc' })
+      })
+
+      expect(result.current.authLink).toBe('https://claude.ai/oauth/authorize?client_id=abc')
+      expect(result.current.reauthenticating).toBe(true)
+
+      await act(async () => {
+        resolveAuthenticate({ ok: false, status: 'auth_required', message: 'Still waiting' })
+        await authenticatePromise
+      })
+      await waitFor(() => expect(result.current.reauthenticating).toBe(false))
+    }
+  )
 })

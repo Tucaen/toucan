@@ -33,6 +33,7 @@ const baseChatViewProps: ChatViewProps = {
   approval: null,
   authMethods: [],
   authLink: null,
+  reauthenticating: false,
   status: 'ready',
   draft: '',
   setDraft: vi.fn(),

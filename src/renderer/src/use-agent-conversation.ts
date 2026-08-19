@@ -66,6 +66,8 @@ export interface AgentConversationController {
    * overwritten by the next unrelated status message.
    */
   authLink: string | null
+  /** True for the whole span of an in-progress `authenticate()` call, even while `status` is transiently `'starting'`. */
+  reauthenticating: boolean
   modes: AgentModeState | null
   models: AgentModelState | null
   status: AgentChatStatus
@@ -90,6 +92,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
   const [approval, setApproval] = useState<AgentApprovalState | null>(null)
   const [authMethods, setAuthMethods] = useState<AgentAuthMethod[]>([])
   const [authLink, setAuthLink] = useState<string | null>(null)
+  const [reauthenticating, setReauthenticating] = useState(false)
   const [modes, setModes] = useState<AgentModeState | null>(null)
   const [models, setModels] = useState<AgentModelState | null>(null)
   const [status, setStatus] = useState<AgentChatStatus>('starting')
@@ -121,6 +124,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     setApproval(null)
     setAuthMethods([])
     setAuthLink(null)
+    setReauthenticating(false)
     setModes(null)
     setModels(null)
     setStatus('starting')
@@ -240,6 +244,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
 
   const authenticate = (methodId: string): void => {
     setStatus('starting')
+    setReauthenticating(true)
     void window.agentApi.authenticate(options.id, methodId).then((result) => {
       if (result.status === 'ready') {
         setStatus('ready')
@@ -249,6 +254,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
         setStatus(result.status === 'auth_required' ? 'auth_required' : 'exited')
         setDetail(result.message)
       }
+      setReauthenticating(false)
     })
   }
 
@@ -290,8 +296,9 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     activities,
     plan,
     approval,
-    authMethods: status === 'auth_required' ? authMethods : [],
-    authLink: status === 'auth_required' ? authLink : null,
+    authMethods: status === 'auth_required' || reauthenticating ? authMethods : [],
+    authLink: status === 'auth_required' || reauthenticating ? authLink : null,
+    reauthenticating,
     modes,
     models,
     status,
