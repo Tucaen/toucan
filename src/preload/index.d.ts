@@ -2,6 +2,7 @@ import type {
   AgentCreateRequest,
   AgentCreateResult,
   AgentEvent,
+  AgentPromptContent,
   AgentPromptResult,
   AgentProvider
 } from '../shared/agent'
@@ -26,8 +27,8 @@ import type {
 
 export interface AgentApi {
   create(request: AgentCreateRequest): Promise<AgentCreateResult>
-  prompt(id: string, text: string): Promise<AgentPromptResult>
-  promptWhenIdle(id: string, text: string): Promise<AgentPromptResult>
+  prompt(id: string, content: AgentPromptContent): Promise<AgentPromptResult>
+  promptWhenIdle(id: string, content: AgentPromptContent): Promise<AgentPromptResult>
   setMode(id: string, modeId: string): Promise<AgentPromptResult>
   setModel(id: string, modelId: string): Promise<AgentPromptResult>
   authenticate(id: string, methodId: string): Promise<AgentCreateResult>

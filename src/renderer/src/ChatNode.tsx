@@ -12,6 +12,7 @@ import { QuotaStat, UsageStat } from './AgentUsageStatus'
 import { isNearScrollBottom } from './chat-scroll-follow'
 import type { TerminalCanvasNode, TerminalNodeStatus } from './canvas-workspace'
 import { computeNodePickerMenuPosition } from './node-picker-menu-position'
+import { imageFilesFromClipboard, type AgentImageAttachment } from './image-attachment'
 import NodeBorderResizer from './NodeBorderResizer'
 import { useFirstMateQuota } from './use-firstmate-quota'
 import VoiceInputPrototype from './VoiceInputPrototype'
@@ -34,7 +35,11 @@ export interface ChatViewProps {
   status: string
   detail?: string
   draft: string
+  imageSupport: boolean
+  attachments: AgentImageAttachment[]
   setDraft(value: string): void
+  addImages(files: File[] | FileList): Promise<void>
+  removeAttachment(id: string): void
   submit(event: FormEvent): void
   cancel(): void
   authenticate(methodId: string): void
@@ -188,35 +193,84 @@ function EmptyConversation({ provider }: Pick<ChatViewProps, 'provider'>): JSX.E
   )
 }
 
-function Composer(props: Pick<ChatViewProps, 'draft' | 'setDraft' | 'submit' | 'cancel' | 'status'>): JSX.Element {
+function AttachmentPreview(
+  props: { attachments: AgentImageAttachment[]; removeAttachment(id: string): void }
+): JSX.Element | null {
+  if (props.attachments.length === 0) return null
+  return (
+    <div className="composer-attachments">
+      {props.attachments.map((attachment) => (
+        <div className="composer-attachment" key={attachment.id}>
+          <img src={`data:${attachment.mimeType};base64,${attachment.data}`} alt="Pasted attachment" />
+          <button
+            type="button"
+            className="composer-attachment-remove"
+            aria-label="Remove attached image"
+            onClick={() => props.removeAttachment(attachment.id)}
+          >
+            {'×'}
+          </button>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function Composer(props: Pick<ChatViewProps,
+  'draft' | 'setDraft' | 'submit' | 'cancel' | 'status' | 'imageSupport' | 'attachments' | 'addImages' | 'removeAttachment'
+>): JSX.Element {
   const busy = props.status === 'working'
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const composerDisabled = props.status === 'starting' || props.status === 'auth_required' || props.status === 'exited'
+  const [pasteBlocked, setPasteBlocked] = useState(false)
+
+  const handlePaste = (event: React.ClipboardEvent<HTMLTextAreaElement>): void => {
+    const files = imageFilesFromClipboard(event.clipboardData?.items)
+    if (files.length === 0) return
+    event.preventDefault()
+    if (!props.imageSupport) {
+      setPasteBlocked(true)
+      return
+    }
+    setPasteBlocked(false)
+    void props.addImages(files)
+  }
+
   return (
     <form className="chat-composer nodrag" onSubmit={props.submit}>
-      <textarea
-        ref={textareaRef}
-        value={props.draft}
-        onChange={(event) => props.setDraft(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' && !event.shiftKey) {
-            event.preventDefault()
-            event.currentTarget.form?.requestSubmit()
-          }
-        }}
-        placeholder={busy ? 'Agent is working... your message will be queued' : 'Message the agent...'}
-        disabled={composerDisabled}
-      />
-      <VoiceInputPrototype
-        draft={props.draft}
-        disabled={composerDisabled}
-        textareaRef={textareaRef}
-        setDraft={props.setDraft}
-      />
-      {busy && <button type="button" className="stop-agent" onClick={props.cancel}>Stop</button>}
-      <button type="submit" disabled={!props.draft.trim() || composerDisabled}>
-        {busy ? 'Queue' : 'Send'}
-      </button>
+      <AttachmentPreview attachments={props.attachments} removeAttachment={props.removeAttachment} />
+      {pasteBlocked && (
+        <small className="composer-paste-blocked">This agent doesn't support image attachments.</small>
+      )}
+      <div className="chat-composer-row">
+        <textarea
+          ref={textareaRef}
+          value={props.draft}
+          onChange={(event) => {
+            props.setDraft(event.target.value)
+            setPasteBlocked(false)
+          }}
+          onPaste={handlePaste}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && !event.shiftKey) {
+              event.preventDefault()
+              event.currentTarget.form?.requestSubmit()
+            }
+          }}
+          placeholder={busy ? 'Agent is working... your message will be queued' : 'Message the agent...'}
+          disabled={composerDisabled}
+        />
+        <VoiceInputPrototype
+          draft={props.draft}
+          disabled={composerDisabled}
+          textareaRef={textareaRef}
+          setDraft={props.setDraft}
+        />
+        {busy && <button type="button" className="stop-agent" onClick={props.cancel}>Stop</button>}
+        <button type="submit" disabled={(!props.draft.trim() && props.attachments.length === 0) || composerDisabled}>
+          {busy ? 'Queue' : 'Send'}
+        </button>
+      </div>
     </form>
   )
 }

@@ -7,9 +7,13 @@ import type {
   AgentModelState,
   AgentPermissionOption,
   AgentPlanEntry,
-  AgentProvider
+  AgentProvider,
+  AgentPromptContent
 } from '../../shared/agent'
 import { chooseAgentPromptApi, createDispatchOrderGate, deliverAgentPrompt } from './agent-prompt-delivery'
+import { readImageAsBase64, type AgentImageAttachment } from './image-attachment'
+
+export type { AgentImageAttachment } from './image-attachment'
 
 export interface AgentChatMessage {
   id: string
@@ -74,8 +78,14 @@ export interface AgentConversationController {
   usage: AgentUsage | null
   detail?: string
   draft: string
+  /** Whether the running agent's ACP handshake advertised support for image content blocks. */
+  imageSupport: boolean
+  /** Pasted images attached to the draft, shown as removable previews until the message is sent. */
+  attachments: AgentImageAttachment[]
   selectorsDisabled: boolean
   setDraft(value: string): void
+  addImages(files: File[] | FileList): Promise<void>
+  removeAttachment(id: string): void
   submit(event: FormEvent): void
   cancel(): void
   authenticate(methodId: string): void
@@ -99,6 +109,8 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
   const [usage, setUsage] = useState<AgentUsage | null>(null)
   const [detail, setDetail] = useState<string>()
   const [draft, setDraft] = useState('')
+  const [imageSupport, setImageSupport] = useState(false)
+  const [attachments, setAttachments] = useState<AgentImageAttachment[]>([])
   /** FIFO of messages sent but not yet echoed back, so each queued send (not just the latest) clears its own queued flag. */
   const pendingSentRef = useRef<Array<{ id: string; text: string }>>([])
   /**
@@ -130,6 +142,8 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     setStatus('starting')
     setUsage(null)
     setDetail(undefined)
+    setImageSupport(false)
+    setAttachments([])
     const removeListener = window.agentApi.onEvent(options.id, (event: AgentEvent) => {
       if (!active) return
       if (event.type === 'status') {
@@ -191,6 +205,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
       if (result.authMethods) setAuthMethods(result.authMethods)
       if (result.modes) setModes(result.modes)
       if (result.models) setModels(result.models)
+      setImageSupport(result.imageSupport ?? false)
       if (result.status === 'ready') {
         setStatus('ready')
       } else if (result.status === 'auth_required') {
@@ -210,12 +225,14 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
   const submit = (event: FormEvent): void => {
     event.preventDefault()
     const text = draft.trim()
-    if (!text || (status !== 'ready' && status !== 'working')) return
+    const images = attachments
+    if ((!text && images.length === 0) || (status !== 'ready' && status !== 'working')) return
     const queued = status === 'working'
     const compose = options.composePrompt
     if (!queued) setStatus('working')
     const deliverPrompt = chooseAgentPromptApi(status, window.agentApi)
     const id = crypto.randomUUID()
+    const displayText = text || `${images.length} image${images.length === 1 ? '' : 's'} attached`
 
     const slot = dispatchGateRef.current.reserve()
 
@@ -224,22 +241,57 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
       compose,
       async (prompt) => {
         await slot.previous
-        pendingSentRef.current.push({ id, text: prompt })
-        const result = deliverPrompt(options.id, prompt)
+        const hasText = prompt.length > 0
+        if (hasText) pendingSentRef.current.push({ id, text: prompt })
+        const content: AgentPromptContent = images.length > 0
+          ? [
+              ...(hasText ? [{ type: 'text', text: prompt } as const] : []),
+              ...images.map((image) => ({ type: 'image', data: image.data, mimeType: image.mimeType }) as const)
+            ]
+          : prompt
+        const result = deliverPrompt(options.id, content)
         slot.release()
         return result
       },
       () => {
-        setMessages((current) => [...current, { id, role: 'user', text, queued }])
+        setMessages((current) => [...current, { id, role: 'user', text: displayText, queued }])
         setDraft('')
+        setAttachments([])
       }
     ).then((result) => {
       slot.release()
-      if (result.ok) return
+      if (result.ok) {
+        // A pure-image send has no echoed text chunk to clear the queued flag with (see the
+        // `message` event branch above), so resolve it here once delivery itself has settled.
+        if (images.length > 0 && !text) {
+          setMessages((current) => current.map((message) => (message.id === id ? { ...message, queued: false } : message)))
+        }
+        return
+      }
       setDetail(result.message)
       if (!queued) setStatus('ready')
       pendingSentRef.current = pendingSentRef.current.filter((entry) => entry.id !== id)
     })
+  }
+
+  const addImages = async (files: File[] | FileList): Promise<void> => {
+    const list = Array.from(files)
+    if (list.length === 0) return
+    const read = await Promise.all(list.map(async (file): Promise<AgentImageAttachment | null> => {
+      try {
+        const { data, mimeType } = await readImageAsBase64(file)
+        return { id: crypto.randomUUID(), data, mimeType }
+      } catch (error) {
+        setDetail(error instanceof Error ? error.message : 'Could not read the pasted image.')
+        return null
+      }
+    }))
+    const valid = read.filter((attachment): attachment is AgentImageAttachment => attachment !== null)
+    if (valid.length > 0) setAttachments((current) => [...current, ...valid])
+  }
+
+  const removeAttachment = (id: string): void => {
+    setAttachments((current) => current.filter((attachment) => attachment.id !== id))
   }
 
   const authenticate = (methodId: string): void => {
@@ -305,8 +357,12 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     usage,
     detail,
     draft,
+    imageSupport,
+    attachments,
     selectorsDisabled: status === 'starting' || status === 'exited',
     setDraft,
+    addImages,
+    removeAttachment,
     submit,
     cancel: () => window.agentApi.cancel(options.id),
     authenticate,

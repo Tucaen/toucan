@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { basename, extname, join, normalize } from 'node:path'
 import { spawn } from 'node-pty'
-import type { AgentCreateRequest, AgentProvider } from '../shared/agent'
+import type { AgentCreateRequest, AgentProvider, AgentPromptContent } from '../shared/agent'
 import type { FirstMateActionResult, FirstMateProjectSelection, FirstMateQuotaStatus } from '../shared/firstmate'
 import type { TerminalCreateRequest } from '../shared/terminal'
 import { createAcpSessionManager, type AcpSessionManager } from './acp-session-manager'
@@ -58,8 +58,10 @@ function registerTerminalIpc(manager: TerminalManager, providers: SessionProvide
 
 function registerAgentIpc(manager: AcpSessionManager): void {
   ipcMain.handle('agent:create', (event, request: AgentCreateRequest) => manager.create(request, event.sender))
-  ipcMain.handle('agent:prompt', (_event, id: string, text: string) => manager.prompt(id, text))
-  ipcMain.handle('agent:prompt-when-idle', (_event, id: string, text: string) => manager.promptWhenIdle(id, text))
+  ipcMain.handle('agent:prompt', (_event, id: string, content: AgentPromptContent) => manager.prompt(id, content))
+  ipcMain.handle('agent:prompt-when-idle', (_event, id: string, content: AgentPromptContent) => (
+    manager.promptWhenIdle(id, content)
+  ))
   ipcMain.handle('agent:set-mode', (_event, id: string, modeId: string) => manager.setMode(id, modeId))
   ipcMain.handle('agent:set-model', (_event, id: string, modelId: string) => manager.setModel(id, modelId))
   ipcMain.handle('agent:authenticate', (_event, id: string, methodId: string) => (

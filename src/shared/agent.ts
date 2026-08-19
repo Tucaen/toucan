@@ -25,6 +25,8 @@ export interface AgentCreateResult {
   modes?: AgentModeState
   models?: AgentModelState
   authMethods?: AgentAuthMethod[]
+  /** Whether the agent's `initialize` handshake advertised `promptCapabilities.image`. */
+  imageSupport?: boolean
   message?: string
 }
 
@@ -32,6 +34,23 @@ export interface AgentPromptResult {
   ok: boolean
   message?: string
 }
+
+export interface AgentPromptTextBlock {
+  type: 'text'
+  text: string
+}
+
+export interface AgentPromptImageBlock {
+  type: 'image'
+  /** Base64-encoded image bytes, without the `data:` URL prefix. */
+  data: string
+  mimeType: string
+}
+
+export type AgentPromptBlock = AgentPromptTextBlock | AgentPromptImageBlock
+
+/** What a prompt submission can carry: plain text (the common case) or content blocks mixing text and images. */
+export type AgentPromptContent = string | AgentPromptBlock[]
 
 export interface AgentMode {
   id: string
