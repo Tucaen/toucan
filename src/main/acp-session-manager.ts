@@ -86,6 +86,24 @@ function isAuthRequired(error: unknown): boolean {
   )
 }
 
+/**
+ * FirstMate's own supervision loop (Stop-hook wake checks, background command/monitor
+ * notifications) injects synthetic `user`-role turns into the session log, wrapped in a
+ * `<task-notification>` marker (optionally followed by a `<system-reminder>` block, e.g. a
+ * Stop hook's blocking-error feedback). The live prompt loop never surfaces these as chat
+ * messages, but `claude-agent-acp`'s `replaySessionHistory()` replays the raw session log
+ * near-verbatim on resume and has no filter for this family, so on resume they leak into the
+ * chat view as if they were real conversation turns. Both live and replayed updates funnel
+ * through this same `session/update` handler, so filtering here covers resume without touching
+ * live display. Real content (typed by a user or produced by the model) never begins with this
+ * literal harness wrapper tag, so matching on the prefix is narrow and won't catch genuine text
+ * that merely mentions these tags elsewhere in a longer message.
+ */
+export function isInternalNotificationText(text: string): boolean {
+  const trimmed = text.trimStart()
+  return trimmed.startsWith('<task-notification>') || trimmed.startsWith('<system-reminder>')
+}
+
 function simplifyAuthMethod(method: AuthMethod): AgentAuthMethod {
   return {
     id: method.id,
@@ -366,7 +384,11 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       const app = client({ name: 'ADE ACP prototype' })
         .onNotification(methods.client.session.update, ({ params }) => {
           const update = params.update
-          if (update.sessionUpdate === 'user_message_chunk' && update.content.type === 'text') {
+          if (
+            update.sessionUpdate === 'user_message_chunk'
+            && update.content.type === 'text'
+            && !isInternalNotificationText(update.content.text)
+          ) {
             send(running, {
               type: 'message',
               role: 'user',
