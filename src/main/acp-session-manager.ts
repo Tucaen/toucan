@@ -10,6 +10,7 @@ import {
   type AuthMethod,
   type ClientConnection,
   type ClientContext,
+  type ContentBlock,
   type CreateElicitationRequest,
   type RequestPermissionResponse,
   type SessionConfigOption
@@ -22,6 +23,8 @@ import type {
   AgentModeState,
   AgentModelState,
   AgentPermissionOption,
+  AgentPromptBlock,
+  AgentPromptContent,
   AgentProvider,
   AgentPromptResult
 } from '../shared/agent'
@@ -47,6 +50,8 @@ interface RunningAgent {
   authMethods: AgentAuthMethod[]
   environment: NodeJS.ProcessEnv
   cachedModels?: AgentModelState
+  /** Whether the agent's `initialize` handshake advertised `promptCapabilities.image`. */
+  imageSupport: boolean
   sessionId?: string
   modelConfigId?: string
   pendingApprovals: Map<string, PendingApproval>
@@ -62,7 +67,26 @@ interface RunningAgent {
    * to read or click.
    */
   authRequired: boolean
-  wakeGate?: CaptainWakeGate
+  wakeGate?: CaptainWakeGate<AgentPromptContent>
+}
+
+/** Normalizes a prompt submission (plain text, or a mix of text/image content blocks) into the ACP content-block array. */
+export function toPromptBlocks(content: AgentPromptContent): AgentPromptBlock[] {
+  return typeof content === 'string' ? [{ type: 'text', text: content }] : content
+}
+
+/**
+ * Blocks `runPrompt` from sending an `image` content block to an agent whose `initialize`
+ * handshake never advertised `promptCapabilities.image`. Pulled out as a pure function (mirroring
+ * `promptGuard`) so the gating is directly testable without spinning up the full ACP connection.
+ */
+export function imageCapabilityGuard(
+  running: { imageSupport: boolean },
+  blocks: AgentPromptBlock[]
+): AgentPromptResult | null {
+  if (running.imageSupport) return null
+  if (!blocks.some((block) => block.type === 'image')) return null
+  return { ok: false, message: 'This agent does not support image attachments.' }
 }
 
 /**
@@ -191,8 +215,8 @@ export function promptFailure(
 
 export interface AcpSessionManager {
   create(request: AgentCreateRequest, owner: WebContents): Promise<AgentCreateResult>
-  prompt(id: string, text: string): Promise<AgentPromptResult>
-  promptWhenIdle(id: string, text: string): Promise<AgentPromptResult>
+  prompt(id: string, content: AgentPromptContent): Promise<AgentPromptResult>
+  promptWhenIdle(id: string, content: AgentPromptContent): Promise<AgentPromptResult>
   setMode(id: string, modeId: string): Promise<AgentPromptResult>
   setModel(id: string, modelId: string): Promise<AgentPromptResult>
   authenticate(id: string, methodId: string): Promise<AgentCreateResult>
@@ -324,6 +348,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         ok: true,
         status: 'ready',
         sessionId,
+        imageSupport: running.imageSupport,
         ...(modes ? { modes } : {}),
         ...(models ? { models } : {})
       }
@@ -338,6 +363,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
           ok: false,
           status: 'auth_required',
           authMethods: running.authMethods,
+          imageSupport: running.imageSupport,
           ...(models ? { models } : {})
         }
       }
@@ -361,18 +387,21 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
     agents.delete(id)
   }
 
-  const runPrompt = async (id: string, text: string): Promise<AgentPromptResult> => {
+  const runPrompt = async (id: string, content: AgentPromptContent): Promise<AgentPromptResult> => {
     const running = agents.get(id)
     if (!running?.sessionId) return { ok: false, message: 'The agent session is not ready.' }
     const guard = promptGuard(running)
     if (guard) return guard
     if (running.busy) return { ok: false, message: 'The agent session is busy.' }
+    const blocks = toPromptBlocks(content)
+    const imageGuard = imageCapabilityGuard(running, blocks)
+    if (imageGuard) return imageGuard
     running.busy = true
     send(running, { type: 'status', status: 'working' })
     try {
       const response = await running.context.request(methods.agent.session.prompt, {
         sessionId: running.sessionId,
-        prompt: [{ type: 'text', text }]
+        prompt: blocks as ContentBlock[]
       })
       send(running, { type: 'turn_complete', stopReason: response.stopReason })
       send(running, { type: 'status', status: 'idle' })
@@ -519,10 +548,11 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         pendingApprovals,
         busy: false,
         stopping: false,
-        authRequired: false
+        authRequired: false,
+        imageSupport: false
       }
-      running.wakeGate = createCaptainWakeGate({
-        deliver: (text) => runPrompt(request.id, text),
+      running.wakeGate = createCaptainWakeGate<AgentPromptContent>({
+        deliver: (content) => runPrompt(request.id, content),
         onExpired: () => {
           send(running, {
             type: 'error',
@@ -555,6 +585,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
           clientInfo: { name: 'ade', title: 'ADE', version: '0.1.0' }
         })
         running.authMethods = (initialized.authMethods ?? []).map(simplifyAuthMethod)
+        running.imageSupport = initialized.agentCapabilities?.promptCapabilities?.image ?? false
         return await openSession(running)
       } catch (error) {
         const message = errorMessage(error)
@@ -566,12 +597,12 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
 
     prompt: runPrompt,
 
-    async promptWhenIdle(id: string, text: string): Promise<AgentPromptResult> {
+    async promptWhenIdle(id: string, content: AgentPromptContent): Promise<AgentPromptResult> {
       const running = agents.get(id)
       if (!running?.sessionId) return { ok: false, message: 'The agent session is not ready.' }
-      if (!running.wakeGate) return runPrompt(id, text)
-      if (!running.busy) return runPrompt(id, text)
-      return running.wakeGate.enqueue(text)
+      if (!running.wakeGate) return runPrompt(id, content)
+      if (!running.busy) return runPrompt(id, content)
+      return running.wakeGate.enqueue(content)
     },
 
     async setMode(id, modeId): Promise<AgentPromptResult> {

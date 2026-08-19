@@ -3,6 +3,7 @@ import type {
   AgentCreateRequest,
   AgentCreateResult,
   AgentEventEnvelope,
+  AgentPromptContent,
   AgentPromptResult,
   AgentProvider
 } from '../shared/agent'
@@ -73,9 +74,11 @@ contextBridge.exposeInMainWorld('terminalApi', terminalApi)
 
 const agentApi = {
   create: (request: AgentCreateRequest): Promise<AgentCreateResult> => ipcRenderer.invoke('agent:create', request),
-  prompt: (id: string, text: string): Promise<AgentPromptResult> => ipcRenderer.invoke('agent:prompt', id, text),
-  promptWhenIdle: (id: string, text: string): Promise<AgentPromptResult> => (
-    ipcRenderer.invoke('agent:prompt-when-idle', id, text)
+  prompt: (id: string, content: AgentPromptContent): Promise<AgentPromptResult> => (
+    ipcRenderer.invoke('agent:prompt', id, content)
+  ),
+  promptWhenIdle: (id: string, content: AgentPromptContent): Promise<AgentPromptResult> => (
+    ipcRenderer.invoke('agent:prompt-when-idle', id, content)
   ),
   setMode: (id: string, modeId: string): Promise<AgentPromptResult> => ipcRenderer.invoke('agent:set-mode', id, modeId),
   setModel: (id: string, modelId: string): Promise<AgentPromptResult> => (

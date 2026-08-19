@@ -76,13 +76,13 @@ test('promptWhenIdle is exposed to the renderer the same way prompt is, backed b
 
   assert.match(
     preload,
-    /promptWhenIdle: \(id: string, text: string\).*=>\s*\(?\s*ipcRenderer\.invoke\('agent:prompt-when-idle', id, text\)/s,
+    /promptWhenIdle: \(id: string, content: AgentPromptContent\).*=>\s*\(?\s*ipcRenderer\.invoke\('agent:prompt-when-idle', id, content\)/s,
     'preload should expose promptWhenIdle alongside prompt'
   )
-  assert.match(preloadTypes, /promptWhenIdle\(id: string, text: string\): Promise<AgentPromptResult>/)
+  assert.match(preloadTypes, /promptWhenIdle\(id: string, content: AgentPromptContent\): Promise<AgentPromptResult>/)
   assert.match(
     main,
-    /ipcMain\.handle\('agent:prompt-when-idle', \(_event, id: string, text: string\) => manager\.promptWhenIdle\(id, text\)\)/,
+    /ipcMain\.handle\('agent:prompt-when-idle', \(_event, id: string, content: AgentPromptContent\) => \(\s*manager\.promptWhenIdle\(id, content\)\s*\)\)/,
     'main should register an IPC handler backed by the already-generic promptWhenIdle'
   )
   assert.doesNotMatch(
@@ -92,7 +92,7 @@ test('promptWhenIdle is exposed to the renderer the same way prompt is, backed b
   )
   assert.match(
     manager,
-    /running\.wakeGate = createCaptainWakeGate\(\{/,
+    /running\.wakeGate = createCaptainWakeGate<AgentPromptContent>\(\{/,
     'every session should get a wake gate so promptWhenIdle can queue regardless of scope'
   )
 })
