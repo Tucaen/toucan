@@ -1,6 +1,8 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
-import { promptFailure } from '../src/main/acp-session-manager'
+import type { AgentPromptResult } from '../src/shared/agent'
+import { createCaptainWakeGate } from '../src/main/firstmate-captain-wake'
+import { extractLoginUrl, promptFailure, promptGuard } from '../src/main/acp-session-manager'
 
 test('turns prompt-level ACP authentication failures into an actionable sign-in state', () => {
   const methods = [{ id: 'claude-ai-login', name: 'Claude Subscription', type: 'terminal' as const }]
@@ -60,4 +62,58 @@ test('keeps ordinary prompt failures visible and returns the conversation to idl
     { type: 'status', status: 'idle' }
   ])
   assert.deepEqual(failure.result, { ok: false, message: 'Provider unavailable' })
+})
+
+test('promptGuard passes prompts through while the session is not parked in auth_required', () => {
+  assert.equal(promptGuard({ authRequired: false }), null)
+})
+
+test('promptGuard blocks a prompt once the session is parked in auth_required', () => {
+  const guard = promptGuard({ authRequired: true })
+  assert.notEqual(guard, null)
+  assert.equal(guard?.ok, false)
+})
+
+test(
+  'a wake-gate queue built up while the agent was working does not retry once auth_required is hit — '
+  + 'only the first queued message re-triggers the (broken) prompt, the rest short-circuit immediately',
+  async () => {
+    // Reproduces the "repeatedly shows the error text" symptom: without the authRequired guard,
+    // every queued message drained a wake-gate flush would re-attempt delivery against the same
+    // expired credential, re-sending a fresh auth/auth_required event pair each time (and
+    // flashing `status: working` in between) instead of the sign-in affordance settling once.
+    const running = { authRequired: false }
+    let deliveryAttempts = 0
+    const deliver = async (_text: string): Promise<AgentPromptResult> => {
+      const guard = promptGuard(running)
+      if (guard) return guard
+      deliveryAttempts += 1
+      running.authRequired = true
+      return { ok: false, message: 'OAuth session expired and could not be refreshed' }
+    }
+    const gate = createCaptainWakeGate({ deliver })
+    const first = gate.enqueue('queued while working 1')
+    const second = gate.enqueue('queued while working 2')
+    const third = gate.enqueue('queued while working 3')
+
+    gate.flush()
+
+    const results = await Promise.all([first, second, third])
+    assert.equal(deliveryAttempts, 1, 'only the first queued message should reach the broken prompt call')
+    for (const result of results) assert.equal(result.ok, false)
+    gate.dispose()
+  }
+)
+
+test('extractLoginUrl finds the OAuth URL in a terminal-auth CLI\'s "click here" line', () => {
+  const line = 'To authorize, open your browser. If the link does not open automatically, '
+    + 'click here: https://claude.ai/oauth/authorize?client_id=abc&state=xyz'
+  assert.equal(
+    extractLoginUrl(line),
+    'https://claude.ai/oauth/authorize?client_id=abc&state=xyz'
+  )
+})
+
+test('extractLoginUrl returns undefined for plain status text with no URL', () => {
+  assert.equal(extractLoginUrl('Waiting for you to complete authentication in the browser...'), undefined)
 })

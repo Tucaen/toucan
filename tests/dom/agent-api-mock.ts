@@ -22,6 +22,7 @@ export function createMockAgentApi(overrides: Partial<AgentApi> = {}): MockAgent
     setMode: vi.fn(async () => ({ ok: true })),
     setModel: vi.fn(async () => ({ ok: true })),
     authenticate: vi.fn(async () => ({ ok: true, status: 'ready' as const })),
+    openAuthLink: vi.fn(async () => undefined),
     resolveApproval: vi.fn(),
     cancel: vi.fn(),
     kill: vi.fn(),

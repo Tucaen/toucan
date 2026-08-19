@@ -87,6 +87,7 @@ export type AgentEvent =
   | { type: 'models'; models: AgentModelState }
   | { type: 'approval'; approvalId: string; title: string; options: AgentPermissionOption[] }
   | { type: 'auth'; methods: AgentAuthMethod[] }
+  | { type: 'auth_link'; url: string }
   | { type: 'usage'; used?: number; size?: number; cost?: string }
   | { type: 'turn_complete'; stopReason: string }
   | { type: 'error'; message: string }
