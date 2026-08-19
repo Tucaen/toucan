@@ -2,6 +2,12 @@ import type { AgentProvider } from './agent'
 import type { FirstMateTaskContext } from './firstmate-task-context'
 
 export const FIRSTMATE_PANEL_MIN_WIDTH = 300
+
+/**
+ * Not an upper bound on the resizable panel width - the panel may grow to fill the workspace,
+ * limited only by `FIRSTMATE_CANVAS_MIN_WIDTH`. This is purely the fallback estimate
+ * `firstMatePanelWidthBounds` uses when the workspace width isn't known yet.
+ */
 export const FIRSTMATE_PANEL_MAX_WIDTH = 720
 
 /**

@@ -22,10 +22,7 @@ export function firstMatePanelWidthBounds(workspaceWidth: number): FirstMatePane
   const usableWidth = Number.isFinite(workspaceWidth) ? workspaceWidth : FIRSTMATE_PANEL_MAX_WIDTH + FIRSTMATE_CANVAS_MIN_WIDTH
   return {
     min: FIRSTMATE_PANEL_MIN_WIDTH,
-    max: Math.max(
-      FIRSTMATE_PANEL_MIN_WIDTH,
-      Math.min(FIRSTMATE_PANEL_MAX_WIDTH, usableWidth - FIRSTMATE_CANVAS_MIN_WIDTH)
-    )
+    max: Math.max(FIRSTMATE_PANEL_MIN_WIDTH, usableWidth - FIRSTMATE_CANVAS_MIN_WIDTH)
   }
 }
 
