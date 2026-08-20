@@ -2,7 +2,6 @@ import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
 import {
   FIRSTMATE_CANVAS_MIN_WIDTH,
-  FIRSTMATE_PANEL_MAX_WIDTH,
   FIRSTMATE_PANEL_MIN_WIDTH,
   firstMatePanelWidthBounds,
   resizeFirstMatePanel,
@@ -25,7 +24,23 @@ test('panel resizing clamps both sides to usable bounds', () => {
   assert.equal(bounds.max, 900 - FIRSTMATE_CANVAS_MIN_WIDTH)
   assert.equal(resizeFirstMatePanel(session, -1000), bounds.max)
   assert.equal(resizeFirstMatePanel(session, 1000), bounds.min)
-  assert.equal(firstMatePanelWidthBounds(2000).max, FIRSTMATE_PANEL_MAX_WIDTH)
+})
+
+test('a wide workspace lets the panel grow past the old fixed ceiling, bounded only by the canvas minimum', () => {
+  const bounds = firstMatePanelWidthBounds(3000)
+
+  assert.equal(bounds.max, 3000 - FIRSTMATE_CANVAS_MIN_WIDTH)
+  assert.ok(bounds.max > 720, 'panel should be able to exceed the old fixed 720px ceiling')
+
+  const session = { startX: 830, startWidth: 370, bounds }
+  assert.equal(resizeFirstMatePanel(session, -10_000), bounds.max)
+})
+
+test('the canvas minimum width is always preserved, however wide the workspace is', () => {
+  for (const workspaceWidth of [900, 1600, 3000, 8000]) {
+    const bounds = firstMatePanelWidthBounds(workspaceWidth)
+    assert.equal(bounds.max, workspaceWidth - FIRSTMATE_CANVAS_MIN_WIDTH)
+  }
 })
 
 test('the divider supports bounded keyboard resizing', () => {

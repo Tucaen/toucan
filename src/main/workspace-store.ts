@@ -1,5 +1,5 @@
 import { readFileSync, writeFileSync } from 'node:fs'
-import { FIRSTMATE_PANEL_MAX_WIDTH, FIRSTMATE_PANEL_MIN_WIDTH } from '../shared/firstmate'
+import { FIRSTMATE_PANEL_MIN_WIDTH } from '../shared/firstmate'
 import type { WorkspaceSaveResult, WorkspaceState } from '../shared/terminal'
 import { errorMessage, repairUtf8Mojibake } from '../shared/text'
 
@@ -53,7 +53,6 @@ export function isWorkspaceState(value: unknown): value is WorkspaceState {
         typeof state.firstMate.panelWidth !== 'number'
         || !Number.isFinite(state.firstMate.panelWidth)
         || state.firstMate.panelWidth < FIRSTMATE_PANEL_MIN_WIDTH
-        || state.firstMate.panelWidth > FIRSTMATE_PANEL_MAX_WIDTH
       ))
     )
   ) return false

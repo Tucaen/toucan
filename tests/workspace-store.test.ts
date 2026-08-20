@@ -46,7 +46,7 @@ test('saves and loads a valid workspace through the store', () => {
   assert.deepEqual(store.load(), state)
 })
 
-test('rejects persisted FirstMate panel widths outside the supported bounds', () => {
+test('rejects persisted FirstMate panel widths below the supported minimum', () => {
   const workspace = {
     version: 2,
     projects: [{ id: 'project-1', name: 'ADE', path: 'D:\\Development\\ADE', color: '#71a9ff' }],
@@ -56,9 +56,20 @@ test('rejects persisted FirstMate panel widths outside the supported bounds', ()
   }
 
   assert.equal(parseWorkspaceState({ ...workspace, firstMate: { panelWidth: 299 } }), null)
-  assert.equal(parseWorkspaceState({ ...workspace, firstMate: { panelWidth: 721 } }), null)
   assert.notEqual(parseWorkspaceState({ ...workspace, firstMate: { panelWidth: 300 } }), null)
-  assert.notEqual(parseWorkspaceState({ ...workspace, firstMate: { panelWidth: 720 } }), null)
+})
+
+test('accepts a persisted FirstMate panel width beyond the old fixed 720px ceiling', () => {
+  const workspace = {
+    version: 2,
+    projects: [{ id: 'project-1', name: 'ADE', path: 'D:\\Development\\ADE', color: '#71a9ff' }],
+    activeProjectId: 'project-1',
+    sidebarCollapsed: false,
+    nodes: []
+  }
+
+  assert.notEqual(parseWorkspaceState({ ...workspace, firstMate: { panelWidth: 721 } }), null)
+  assert.notEqual(parseWorkspaceState({ ...workspace, firstMate: { panelWidth: 2400 } }), null)
 })
 
 test('repairs UTF-8 text that an older workspace cached as Windows-1252', () => {
