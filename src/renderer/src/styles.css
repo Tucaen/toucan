@@ -2031,7 +2031,6 @@ button {
 .firstmate-dock {
   width: 370px;
   min-width: 300px;
-  max-width: 720px;
   display: flex;
   flex-direction: column;
 }
