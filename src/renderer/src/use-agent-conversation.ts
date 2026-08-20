@@ -87,6 +87,8 @@ export interface AgentConversationController {
   addImages(files: File[] | FileList): Promise<void>
   removeAttachment(id: string): void
   submit(event: FormEvent): void
+  /** Sends `text` as if the captain had typed and submitted it, bypassing the draft/attachments state entirely. */
+  sendMessage(text: string): void
   cancel(): void
   authenticate(methodId: string): void
   openAuthLink(url: string): void
@@ -222,10 +224,8 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     }
   }, [options.cwd, options.enabled, options.id, options.provider, options.restartKey, options.scope])
 
-  const submit = (event: FormEvent): void => {
-    event.preventDefault()
-    const text = draft.trim()
-    const images = attachments
+  /** Shared by `submit` (draft + attachments) and `sendMessage` (a plain string, e.g. a clicked decision option). */
+  const dispatchText = (text: string, images: AgentImageAttachment[], onSent: () => void): void => {
     if ((!text && images.length === 0) || (status !== 'ready' && status !== 'working')) return
     const queued = status === 'working'
     const compose = options.composePrompt
@@ -255,8 +255,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
       },
       () => {
         setMessages((current) => [...current, { id, role: 'user', text: displayText, queued }])
-        setDraft('')
-        setAttachments([])
+        onSent()
       }
     ).then((result) => {
       slot.release()
@@ -272,6 +271,18 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
       if (!queued) setStatus('ready')
       pendingSentRef.current = pendingSentRef.current.filter((entry) => entry.id !== id)
     })
+  }
+
+  const submit = (event: FormEvent): void => {
+    event.preventDefault()
+    dispatchText(draft.trim(), attachments, () => {
+      setDraft('')
+      setAttachments([])
+    })
+  }
+
+  const sendMessage = (text: string): void => {
+    dispatchText(text.trim(), [], () => {})
   }
 
   const addImages = async (files: File[] | FileList): Promise<void> => {
@@ -364,6 +375,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     addImages,
     removeAttachment,
     submit,
+    sendMessage,
     cancel: () => window.agentApi.cancel(options.id),
     authenticate,
     openAuthLink,

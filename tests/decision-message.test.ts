@@ -1,0 +1,80 @@
+import { strict as assert } from 'node:assert'
+import { test } from 'node:test'
+import { classifyAssistantMessage, extractDecisionOptions } from '../src/renderer/src/decision-message'
+
+test('a decision-shaped message (labeled options + trailing question) classifies as decision', () => {
+  const text = [
+    'The lint gate failed on the unused import in auth.ts. I can:',
+    '',
+    '- **Fix it now**: remove the unused import and rerun the gate',
+    '- **Skip it**: leave the file as-is and move on to the next finding',
+    '',
+    'Which would you like?'
+  ].join('\n')
+
+  assert.equal(classifyAssistantMessage(text), 'decision')
+})
+
+test('decision options are extracted with clean labels, in order', () => {
+  const text = [
+    'Two ways to proceed:',
+    '- **Fix it now**: remove the unused import and rerun the gate',
+    '- **Skip it**: leave the file as-is',
+    'Which would you like?'
+  ].join('\n')
+
+  const options = extractDecisionOptions(text)
+  assert.deepEqual(options.map((option) => option.label), [
+    'Fix it now: remove the unused import and rerun the gate',
+    'Skip it: leave the file as-is'
+  ])
+})
+
+test('a routine/noise message (short status ping, no options, no question) classifies as noise', () => {
+  assert.equal(classifyAssistantMessage('Spawning worker for task fm-142 in the alpha project.'), 'noise')
+  assert.equal(classifyAssistantMessage('No action needed here — the gate already passed.'), 'noise')
+})
+
+test('a normal conversational reply gets neither treatment', () => {
+  const text = 'Here is a summary of what changed in this commit: the auth middleware now validates '
+    + 'the session token expiry before allowing a refresh.'
+  assert.equal(classifyAssistantMessage(text), 'normal')
+})
+
+test('a single option line with a trailing question is not enough to classify as decision', () => {
+  const text = [
+    '- **Fix it now**: remove the unused import',
+    'Should I go ahead?'
+  ].join('\n')
+  assert.equal(classifyAssistantMessage(text), 'normal')
+})
+
+test('two option lines without a trailing question is not enough to classify as decision', () => {
+  const text = [
+    '- **Fix it now**: remove the unused import',
+    '- **Skip it**: leave the file as-is',
+    'I will proceed with the fix.'
+  ].join('\n')
+  assert.equal(classifyAssistantMessage(text), 'normal')
+})
+
+test('ordinary numbered step-by-step prose does not false-positive as decision options', () => {
+  const text = [
+    '1. Run the build',
+    '2. Check the logs',
+    '3. Report back',
+    'Does that match what you expected?'
+  ].join('\n')
+  assert.equal(classifyAssistantMessage(text), 'normal')
+})
+
+test('a long or multi-paragraph message never classifies as noise even with a routine lead-in', () => {
+  const text = 'Spawning worker for task fm-142.\n\nIt will validate the migration against the staging '
+    + 'database before touching production, and report back once the dry run finishes.'
+  assert.equal(classifyAssistantMessage(text), 'normal')
+})
+
+test('empty text classifies as normal', () => {
+  assert.equal(classifyAssistantMessage(''), 'normal')
+  assert.equal(classifyAssistantMessage('   '), 'normal')
+})

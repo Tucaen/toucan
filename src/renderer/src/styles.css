@@ -1256,6 +1256,96 @@ button {
   font-size: 0.9em;
 }
 
+/*
+ * Decision-shaped assistant messages (see decision-message.ts) get a warm card background so
+ * they stand out from routine replies - a color relative to, but visually distinct from, the
+ * gold ApprovalPanel treatment below, since this is a text heuristic rather than a real ACP
+ * approval request.
+ */
+.chat-message[data-tone="decision"] > div {
+  padding: 9px 11px;
+  border: 1px solid #6b5629;
+  border-radius: 10px;
+  background: color-mix(in srgb, #d3aa52 10%, #1c2029);
+}
+
+/* Routine/noise assistant messages (progress pings, "no action needed", ...) are muted so they don't compete for attention. */
+.chat-message[data-tone="noise"] {
+  opacity: 0.6;
+}
+
+.chat-message[data-tone="noise"] p {
+  color: #7d8593;
+  font-size: 12px;
+}
+
+.decision-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.decision-options-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.decision-options-buttons button {
+  padding: 6px 10px;
+  border: 1px solid #6b5629;
+  border-radius: 6px;
+  color: #f0d9a4;
+  background: color-mix(in srgb, #d3aa52 16%, #242017);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.decision-options-buttons button:hover {
+  background: color-mix(in srgb, #d3aa52 26%, #242017);
+}
+
+.decision-options-buttons button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.decision-options-other {
+  display: flex;
+  gap: 6px;
+}
+
+.decision-options-other input {
+  flex: 1;
+  padding: 5px 8px;
+  border: 1px solid #3a4554;
+  border-radius: 6px;
+  color: #dbe1e9;
+  background: #171b22;
+  font-size: 12px;
+}
+
+.decision-options-other input:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.decision-options-other button {
+  padding: 5px 10px;
+  border: 1px solid #3a4554;
+  border-radius: 6px;
+  color: #dbe1e9;
+  background: #242b36;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.decision-options-other button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .thought-card {
   margin: 0 0 12px;
   padding: 6px 9px;

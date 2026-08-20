@@ -13,6 +13,7 @@ import { isNearScrollBottom } from './chat-scroll-follow'
 import type { TerminalCanvasNode, TerminalNodeStatus } from './canvas-workspace'
 import { computeNodePickerMenuPosition } from './node-picker-menu-position'
 import { imageFilesFromClipboard, type AgentImageAttachment } from './image-attachment'
+import { classifyAssistantMessage, extractDecisionOptions, type DecisionOption } from './decision-message'
 import NodeBorderResizer from './NodeBorderResizer'
 import { useFirstMateQuota } from './use-firstmate-quota'
 import VoiceInputPrototype from './VoiceInputPrototype'
@@ -41,6 +42,7 @@ export interface ChatViewProps {
   addImages(files: File[] | FileList): Promise<void>
   removeAttachment(id: string): void
   submit(event: FormEvent): void
+  sendMessage(text: string): void
   cancel(): void
   authenticate(methodId: string): void
   openAuthLink(url: string): void
@@ -48,6 +50,11 @@ export interface ChatViewProps {
 }
 
 const providerNames = { claude: 'Claude', codex: 'Codex' } as const
+
+/** Mirrors `dispatchText`'s guard in use-agent-conversation.ts so a click can't silently no-op. */
+function isSendDisabled(status: ChatViewProps['status']): boolean {
+  return status === 'starting' || status === 'auth_required' || status === 'exited'
+}
 
 // A 'working' session with no new message/activity/plan event for this long is flagged
 // as stalled. Long enough that a slow tool call (build, long shell command) doesn't
@@ -221,7 +228,7 @@ function Composer(props: Pick<ChatViewProps,
 >): JSX.Element {
   const busy = props.status === 'working'
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const composerDisabled = props.status === 'starting' || props.status === 'auth_required' || props.status === 'exited'
+  const composerDisabled = isSendDisabled(props.status)
   const [pasteBlocked, setPasteBlocked] = useState(false)
 
   const handlePaste = (event: React.ClipboardEvent<HTMLTextAreaElement>): void => {
@@ -343,6 +350,81 @@ function ApprovalPanel(props: Pick<ChatViewProps, 'approval' | 'resolveApproval'
   )
 }
 
+/**
+ * Renders a decision message's extracted options as clickable buttons plus a free-text "Other"
+ * field. Both paths reuse `sendMessage` (the same submit path as typing into the composer) rather
+ * than a new protocol-level channel - see decision-message.ts for how options are extracted.
+ */
+function DecisionOptions(
+  props: { options: DecisionOption[]; sendMessage: ChatViewProps['sendMessage']; status: ChatViewProps['status'] }
+): JSX.Element {
+  const [otherText, setOtherText] = useState('')
+  const disabled = isSendDisabled(props.status)
+  return (
+    <div className="decision-options">
+      <div className="decision-options-buttons">
+        {props.options.map((option) => (
+          <button
+            type="button"
+            key={option.id}
+            disabled={disabled}
+            onClick={() => props.sendMessage(option.label)}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+      <form
+        className="decision-options-other"
+        onSubmit={(event) => {
+          event.preventDefault()
+          const text = otherText.trim()
+          if (!text) return
+          props.sendMessage(text)
+          setOtherText('')
+        }}
+      >
+        <input
+          type="text"
+          placeholder="Other…"
+          value={otherText}
+          disabled={disabled}
+          onChange={(event) => setOtherText(event.target.value)}
+        />
+        <button type="submit" disabled={disabled || !otherText.trim()}>Send</button>
+      </form>
+    </div>
+  )
+}
+
+/**
+ * Classifies FirstMate's own assistant replies from plain text alone (see decision-message.ts)
+ * so decision-requiring messages stand out and routine narration is de-emphasized; user/thought
+ * messages never get a tone since the heuristic only applies to FirstMate's own phrasing.
+ */
+function ChatMessageCard(
+  props: {
+    message: AgentChatMessage
+    sendMessage: ChatViewProps['sendMessage']
+    status: ChatViewProps['status']
+  }
+): JSX.Element {
+  const { message } = props
+  const tone = message.role === 'assistant' ? classifyAssistantMessage(message.text) : 'normal'
+  const options = tone === 'decision' ? extractDecisionOptions(message.text) : []
+  return (
+    <article className={`chat-message ${message.role}${message.queued ? ' queued' : ''}`} data-tone={tone}>
+      <div>
+        <Markdown text={message.text} />
+        {message.queued && <small className="queued-badge">Queued — will send once the agent is free</small>}
+        {tone === 'decision' && options.length >= 2 && (
+          <DecisionOptions options={options} sendMessage={props.sendMessage} status={props.status} />
+        )}
+      </div>
+    </article>
+  )
+}
+
 function ActivityCard({ activity }: { activity: AgentActivity }): JSX.Element {
   return (
     <article className="activity-card" data-status={activity.status}>
@@ -409,12 +491,12 @@ export function ChatView(props: ChatViewProps & {
         {props.messages.map((message) => message.role === 'thought'
           ? <details className="thought-card" key={message.id}><summary>Reasoning</summary><Markdown text={message.text} /></details>
           : (
-            <article className={`chat-message ${message.role}${message.queued ? ' queued' : ''}`} key={message.id}>
-              <div>
-                <Markdown text={message.text} />
-                {message.queued && <small className="queued-badge">Queued — will send once the agent is free</small>}
-              </div>
-            </article>
+            <ChatMessageCard
+              key={message.id}
+              message={message}
+              sendMessage={props.sendMessage}
+              status={props.status}
+            />
           ))}
         <ApprovalPanel {...props} />
       </div>
