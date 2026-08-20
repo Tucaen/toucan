@@ -122,6 +122,22 @@ export type FirstMateValidationDelivery =
   | { outcome: 'rejected-before-send'; message: string }
   | { outcome: 'indeterminate'; message: string }
 
+/** The forges ADE knows how to ask about a PR's real merge state, named by their URL host. */
+export type FirstMateForge = 'github'
+
+/** What a live PR actually is, as far as its forge reports it. */
+export type FirstMatePullRequestState = 'open' | 'merged' | 'closed'
+
+/**
+ * The outcome of one attempt to ask a forge whether a `pr-ready` task's PR merged or closed. `ok:
+ * false` covers every soft failure this reconciliation must fail open on - the forge tool missing,
+ * unauthenticated, rate-limited, or erroring - so the caller always has a single check for "leave
+ * the task exactly as it is today" instead of distinguishing failure causes it cannot act on anyway.
+ */
+export type FirstMatePullRequestCheck =
+  | { ok: true; state: FirstMatePullRequestState }
+  | { ok: false }
+
 /**
  * FirstMate's registered delivery postures, in the vocabulary owned by the managed distro's
  * `bin/fm-project-mode.sh`. `no-mistakes-prod-only` is a conditional policy rather than a flat mode.

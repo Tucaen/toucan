@@ -888,6 +888,86 @@ test('resolves the sign-in host from its own inspection rather than a failed pol
   )
 })
 
+test('asks gh, through the same authenticated WSL session, whether a PR merged', async () => {
+  const calls: string[][] = []
+  const runtime = createFirstMateRuntime({
+    platform: 'win32',
+    resolveGit: () => 'git.exe',
+    wsl: {
+      run: async (args) => {
+        calls.push(args)
+        if (args[3] === '/bin/sh') return { stdout: readyWslInspection().replace('githubAuth=required', 'githubAuth=authenticated'), stderr: '' }
+        return { stdout: JSON.stringify({ state: 'MERGED' }), stderr: '' }
+      }
+    }
+  })
+
+  const result = await runtime.checkPullRequestStatus('https://github.com/Tucaen/ade/pull/101')
+
+  assert.deepEqual(result, { ok: true, state: 'merged' })
+  const ghCall = calls.find((args) => args.includes('gh'))
+  assert.ok(ghCall, 'gh must actually be invoked through the shared WSL run() helper')
+  assert.ok(ghCall.includes('pr'))
+  assert.ok(ghCall.includes('view'))
+  assert.ok(ghCall.includes('https://github.com/Tucaen/ade/pull/101'))
+  assert.ok(ghCall.includes('--json'))
+  assert.ok(ghCall.includes('state'))
+})
+
+test('fails open, without ever invoking gh, when GitHub is not authenticated yet', async () => {
+  const calls: string[][] = []
+  const runtime = createFirstMateRuntime({
+    platform: 'win32',
+    resolveGit: () => 'git.exe',
+    wsl: {
+      run: async (args) => {
+        calls.push(args)
+        if (args[3] === '/bin/sh') return { stdout: readyWslInspection(), stderr: '' }
+        return { stdout: JSON.stringify({ state: 'MERGED' }), stderr: '' }
+      }
+    }
+  })
+
+  const result = await runtime.checkPullRequestStatus('https://github.com/Tucaen/ade/pull/101')
+
+  assert.deepEqual(result, { ok: false })
+  assert.ok(!calls.some((args) => args.includes('gh')), 'an unauthenticated host must never even attempt the gh call')
+})
+
+test('fails open rather than throwing when the gh call itself errors', async () => {
+  const runtime = createFirstMateRuntime({
+    platform: 'win32',
+    resolveGit: () => 'git.exe',
+    wsl: {
+      run: async (args) => {
+        if (args[3] === '/bin/sh') return { stdout: readyWslInspection().replace('githubAuth=required', 'githubAuth=authenticated'), stderr: '' }
+        throw new Error('gh: not authenticated')
+      }
+    }
+  })
+
+  const result = await runtime.checkPullRequestStatus('https://github.com/Tucaen/ade/pull/101')
+
+  assert.deepEqual(result, { ok: false })
+})
+
+test('fails open rather than claiming a state when gh reports something unrecognised', async () => {
+  const runtime = createFirstMateRuntime({
+    platform: 'win32',
+    resolveGit: () => 'git.exe',
+    wsl: {
+      run: async (args) => {
+        if (args[3] === '/bin/sh') return { stdout: readyWslInspection().replace('githubAuth=required', 'githubAuth=authenticated'), stderr: '' }
+        return { stdout: 'not json', stderr: '' }
+      }
+    }
+  })
+
+  const result = await runtime.checkPullRequestStatus('https://github.com/Tucaen/ade/pull/101')
+
+  assert.deepEqual(result, { ok: false })
+})
+
 /** A minimal .meta blob for one task, optionally carrying a recorded live worker window. */
 function windowedTaskMeta(window?: string): string {
   const context: FirstMateTaskContext = {

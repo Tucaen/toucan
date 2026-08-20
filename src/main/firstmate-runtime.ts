@@ -10,6 +10,8 @@ import type {
   FirstMateLifecycleStatus,
   FirstMateProjectRegistration,
   FirstMateProjectSelection,
+  FirstMatePullRequestCheck,
+  FirstMatePullRequestState,
   FirstMateQuotaStatus,
   FirstMateQuotaWindow,
   FirstMateRuntimeStatus,
@@ -478,6 +480,14 @@ export interface FirstMateRuntime {
   configureValidator(provider: AgentProvider, modelId?: string): Promise<FirstMateActionResult>
   continueValidation(taskId: string, dispatchId: string): Promise<FirstMateValidationDelivery>
   recordLifecycle(taskId: string, record: FirstMateLifecycleRecord): Promise<void>
+  /**
+   * Asks a recognised PR's own forge whether it has merged or closed, reusing the same `gh` session
+   * FirstMate's own GitHub auth already established - never a raw unauthenticated HTTP call, since a
+   * private repo's unauthenticated 404 is indistinguishable from "does not exist". Fails open to
+   * `{ ok: false }` on anything short of a confidently recognised state: `gh` missing, unauthenticated,
+   * rate-limited, or any other error. Callers must never surface that as a blocking error.
+   */
+  checkPullRequestStatus(url: string): Promise<FirstMatePullRequestCheck>
   /** Registers one ADE checkout as a durable external project; never modifies that checkout. */
   registerProject(selection: FirstMateProjectSelection): Promise<FirstMateProjectRegistration>
   recordedProject(adeProjectId: string): Promise<FirstMateExternalProject | null>
@@ -675,6 +685,27 @@ function parseQuotaStatus(provider: AgentProvider, stdout: string): FirstMateQuo
     }
   }
   return { state: 'ok', provider, session, week }
+}
+
+const GH_PULL_REQUEST_STATES: Record<string, FirstMatePullRequestState> = {
+  OPEN: 'open',
+  MERGED: 'merged',
+  CLOSED: 'closed'
+}
+
+/**
+ * `gh pr view --json state` on success always prints one object with a recognised `state`; anything
+ * else (unreadable JSON, an unrecognised value) is treated the same as a failed check, since this
+ * reconciliation only ever acts on a state it can name with confidence.
+ */
+function parseGhPullRequestState(stdout: string): FirstMatePullRequestCheck {
+  try {
+    const parsed = JSON.parse(stdout) as { state?: unknown }
+    const state = typeof parsed.state === 'string' ? GH_PULL_REQUEST_STATES[parsed.state] : undefined
+    return state ? { ok: true, state } : { ok: false }
+  } catch {
+    return { ok: false }
+  }
 }
 
 function validatorModel(modelId?: string): string {
@@ -1186,6 +1217,24 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
         return { ok: false, message: errorMessage(error) }
       }
     },
+    async checkPullRequestStatus(url: string): Promise<FirstMatePullRequestCheck> {
+      const { status: current, paths } = await inspectHost()
+      if (current.state !== 'ready' || !paths || current.githubAuth !== 'authenticated') return { ok: false }
+      try {
+        const result = await run(
+          [
+            '--distribution', distribution,
+            '--exec', '/usr/bin/env',
+            `PATH=${paths.userHome}/.local/bin:/usr/local/bin:/usr/bin:/bin`,
+            'gh', 'pr', 'view', url, '--json', 'state'
+          ],
+          15_000
+        )
+        return parseGhPullRequestState(result.stdout)
+      } catch {
+        return { ok: false }
+      }
+    },
     async trustCodexProject(): Promise<FirstMateActionResult> {
       const { status: current, paths } = await inspectHost()
       if (current.state !== 'ready' || !paths) {
@@ -1500,6 +1549,7 @@ function createUnsupportedFirstMateRuntime(platform: NodeJS.Platform): FirstMate
     configureValidator: refuse,
     continueValidation: refuseDelivery,
     async recordLifecycle(): Promise<void> { throw new Error(message) },
+    async checkPullRequestStatus(): Promise<FirstMatePullRequestCheck> { return { ok: false } },
     registerProject: refuseRegistration,
     async recordedProject(): Promise<FirstMateExternalProject | null> { return null },
     authorizeProjectInitialization: refuseRegistration,

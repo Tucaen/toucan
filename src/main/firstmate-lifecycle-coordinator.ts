@@ -8,6 +8,8 @@ import type {
 import type { FirstMateRuntime } from './firstmate-runtime'
 import {
   firstMateAppWakeMessage,
+  firstMateForgeFromPrUrl,
+  firstMatePrResolvedRecord,
   firstMateReconciliationFailureMessage,
   firstMateReleasedDispatchRecord,
   firstMateRetriedDispatchRecord,
@@ -37,10 +39,17 @@ export interface FirstMateLifecycleCoordinator {
 
 export interface FirstMateLifecycleCoordinatorOptions {
   runtime: Pick<FirstMateRuntime, 'lifecycle' | 'continueValidation' | 'recordLifecycle'>
+    & Partial<Pick<FirstMateRuntime, 'checkPullRequestStatus'>>
   wakeCaptain(message: string): Promise<AgentPromptResult>
   intervalMs?: number
   /** Validation dispatch attempts allowed per implementation before the task is blocked. */
   maxDispatchAttempts?: number
+  /**
+   * Minimum time between live merge/close checks for the same `pr-ready` task's PR, kept well above
+   * the base poll interval so this reconciliation nicety stays far inside `gh`'s own authenticated
+   * rate limits even with many tasks resting at `pr-ready` at once.
+   */
+  prCheckIntervalMs?: number
   now?(): Date
 }
 
@@ -147,6 +156,7 @@ export function createFirstMateLifecycleCoordinator(
 ): FirstMateLifecycleCoordinator {
   const intervalMs = options.intervalMs ?? 2_500
   const maxDispatchAttempts = Math.max(1, options.maxDispatchAttempts ?? 3)
+  const prCheckIntervalMs = options.prCheckIntervalMs ?? 5 * 60_000
   const now = options.now ?? (() => new Date())
   let timer: ReturnType<typeof setInterval> | undefined
   let polling = false
@@ -156,6 +166,13 @@ export function createFirstMateLifecycleCoordinator(
    * restart: a claim ADE cannot account for must be recovered explicitly, never re-dispatched.
    */
   const liveDispatches = new Map<string, FirstMateDispatchMemory>()
+  /**
+   * When this process last asked a `pr-ready` task's forge whether its PR merged or closed, keyed
+   * by `taskId:statusHash` so a new `done: PR ...` line (a new statusHash) always gets its own fresh
+   * check instead of inheriting a stale throttle from a PR it no longer describes. Deliberately does
+   * not survive a restart: a missed check is just checked again on the next poll.
+   */
+  const prCheckedAt = new Map<string, number>()
 
   const persist = async (task: FirstMateLifecycleTask): Promise<FirstMateLifecycleTask> => {
     await options.runtime.recordLifecycle(task.id, recordFor(task, now()))
@@ -233,6 +250,37 @@ export function createFirstMateLifecycleCoordinator(
     ))
   }
 
+  /**
+   * Asks a `pr-ready` task's own forge whether its PR has actually merged or closed, so this
+   * reconciliation stops relying solely on FirstMate's own task-record teardown to notice. Fails
+   * open on every soft failure - no recognised forge, no live check wired up, still open, or the
+   * check erroring - by leaving the task exactly as `pr-ready`; this is a reconciliation nicety,
+   * never a blocking condition. Throttled per task/PR identity well below `gh`'s own authenticated
+   * rate limits, since most `pr-ready` tasks rest unchanged across many poll cycles.
+   */
+  const reconcilePullRequest = async (task: FirstMateLifecycleTask): Promise<boolean> => {
+    const checkPullRequestStatus = options.runtime.checkPullRequestStatus
+    if (task.stage !== 'pr-ready' || !task.prUrl || !checkPullRequestStatus) return false
+    if (!firstMateForgeFromPrUrl(task.prUrl)) return false
+
+    const key = `${task.id}:${task.statusHash}`
+    const nowMs = now().getTime()
+    const lastChecked = prCheckedAt.get(key)
+    if (lastChecked !== undefined && nowMs - lastChecked < prCheckIntervalMs) return false
+    prCheckedAt.set(key, nowMs)
+
+    try {
+      const result = await checkPullRequestStatus(task.prUrl)
+      if (!result.ok || result.state === 'open') return false
+      const record = firstMatePrResolvedRecord(task, result.state, now())
+      if (!record) return false
+      await options.runtime.recordLifecycle(task.id, record)
+      return true
+    } catch {
+      return false
+    }
+  }
+
   const poll = async (): Promise<void> => {
     if (polling) return
     polling = true
@@ -243,14 +291,23 @@ export function createFirstMateLifecycleCoordinator(
         changed[index] = await reconcileTask(changed[index])
       }
 
-      const nextFingerprint = terminalFingerprint(changed)
+      for (const key of [...prCheckedAt.keys()]) {
+        if (!changed.some((task) => `${task.id}:${task.statusHash}` === key)) prCheckedAt.delete(key)
+      }
+      const resolvedIds = new Set<string>()
+      for (const task of changed) {
+        if (await reconcilePullRequest(task)) resolvedIds.add(task.id)
+      }
+      const remaining = resolvedIds.size ? changed.filter((task) => !resolvedIds.has(task.id)) : changed
+
+      const nextFingerprint = terminalFingerprint(remaining)
       if (nextFingerprint === '') {
         // No task is currently resting in a terminal stage: clear what was delivered so a later
         // terminal reach - even one that happens to look identical to an earlier one - wakes again
         // instead of being masked by a stale comparison against a state that no longer holds.
         deliveredFingerprint = ''
       } else if (nextFingerprint !== deliveredFingerprint) {
-        const result = await options.wakeCaptain(firstMateAppWakeMessage(changed))
+        const result = await options.wakeCaptain(firstMateAppWakeMessage(remaining))
         if (result.ok) deliveredFingerprint = nextFingerprint
       }
     } catch (error) {

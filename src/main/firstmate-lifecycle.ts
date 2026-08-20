@@ -1,10 +1,12 @@
 import { createHash } from 'node:crypto'
 import type {
   FirstMateDispatchStatus,
+  FirstMateForge,
   FirstMateLifecycleStatus,
   FirstMateLifecycleTask,
   FirstMateTaskDispatch,
   FirstMateTaskStage,
+  FirstMatePullRequestState,
   FirstMateValidatorRuntime
 } from '../shared/firstmate'
 import {
@@ -45,6 +47,12 @@ export interface FirstMateLifecycleRecord {
   nextAction?: FirstMateLifecycleTask['nextAction']
   dispatch?: FirstMateTaskDispatch
   prUrl?: string
+  /**
+   * Recorded once ADE has asked the PR's own forge and learned it merged or closed, scoped to the
+   * `statusHash` of the `done: PR ...` line it was checked against. A later status line hashes
+   * differently, so a new PR is never mistaken for one already resolved.
+   */
+  prResolution?: 'merged' | 'closed'
   updatedAt: string
 }
 
@@ -326,6 +334,44 @@ function prFromDone(verb: string, detail: string): string | undefined {
   return match?.[1]?.replace(/[),.;]+$/, '')
 }
 
+/**
+ * Names the forge a PR URL belongs to, from its host alone - not every PR URL is GitHub, and not
+ * every project even uses a forge with a PR concept. `undefined` covers every host ADE has no live
+ * merge check implemented for, so the caller leaves those tasks exactly as `pr-ready` today rather
+ * than guessing at a forge it cannot actually ask.
+ */
+export function firstMateForgeFromPrUrl(url: string): FirstMateForge | undefined {
+  try {
+    const host = new URL(url).hostname.toLowerCase()
+    return host === 'github.com' || host === 'www.github.com' ? 'github' : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * The record that tells a `pr-ready` task's PR merged or closed, so the next reload of durable
+ * task state stops presenting it as awaiting review. Scoped to the task's current `statusHash`:
+ * a worker that later opens a new PR on the same task rehashes and this resolution no longer
+ * applies to it, so the new PR gets its own live check rather than inheriting the old verdict.
+ */
+export function firstMatePrResolvedRecord(
+  task: FirstMateLifecycleTask,
+  state: Exclude<FirstMatePullRequestState, 'open'>,
+  now: Date
+): FirstMateLifecycleRecord | undefined {
+  if (task.stage !== 'pr-ready' || !task.prUrl) return undefined
+  return {
+    stage: task.stage,
+    detail: task.detail,
+    statusHash: task.statusHash,
+    nextAction: task.nextAction,
+    prUrl: task.prUrl,
+    prResolution: state,
+    updatedAt: now.toISOString()
+  }
+}
+
 function taskContextProblem(
   taskId: string,
   meta: Map<string, string>,
@@ -445,6 +491,9 @@ function recordedTask(
     : undefined
 
   if (prUrl) {
+    // ADE already asked the PR's own forge and learned it merged or closed: stop presenting it as
+    // awaiting review instead of waiting on FirstMate's own task-record teardown to catch up.
+    if (durable?.statusHash === hash && durable.prResolution) return undefined
     return attachContext({ id: raw.id, mode, stage: 'pr-ready', detail, statusHash: hash, nextAction: 'review-pr', prUrl })
   }
   if (verb === 'needs-decision') {

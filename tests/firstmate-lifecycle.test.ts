@@ -6,6 +6,7 @@ import { test } from 'node:test'
 import type {
   FirstMateLifecycleStatus,
   FirstMateLifecycleTask,
+  FirstMatePullRequestCheck,
   FirstMateValidationDelivery
 } from '../src/shared/firstmate'
 import { firstMateTaskContextMetadata, type FirstMateTaskContext } from '../src/shared/firstmate-task-context'
@@ -1012,4 +1013,109 @@ test('recovers an attempts-exhausted dispatch on request without hand-editing fi
     firstMateValidationDispatchId('resize', validating.statusHash),
     'the fresh attempt reuses the stable identity'
   )
+})
+
+function prReadyTaskHome(prUrl: string): { home: string; statusPath: string } {
+  const { home, statusPath } = taskHome()
+  appendFileSync(statusPath, `done: PR ${prUrl}\n`)
+  return { home, statusPath }
+}
+
+function journalRuntimeWithPrCheck(
+  home: string,
+  checkPullRequestStatus: (url: string) => Promise<FirstMatePullRequestCheck>
+): {
+  runtime: JournalRuntime['runtime'] & {
+    checkPullRequestStatus(url: string): Promise<FirstMatePullRequestCheck>
+  }
+  checks: string[]
+} {
+  const { runtime } = journalRuntime(home)
+  const checks: string[] = []
+  return {
+    checks,
+    runtime: {
+      ...runtime,
+      async checkPullRequestStatus(url: string): Promise<FirstMatePullRequestCheck> {
+        checks.push(url)
+        return checkPullRequestStatus(url)
+      }
+    }
+  }
+}
+
+test('drops a pr-ready task off the active list once its GitHub PR is confirmed merged', async () => {
+  const prUrl = 'https://github.com/Tucaen/ade/pull/101'
+  const { home } = prReadyTaskHome(prUrl)
+  const { runtime, checks } = journalRuntimeWithPrCheck(home, async () => ({ ok: true, state: 'merged' }))
+  const coordinator = createFirstMateLifecycleCoordinator({
+    runtime,
+    now: () => new Date('2026-08-14T18:00:00.000Z'),
+    wakeCaptain: async () => ({ ok: true })
+  })
+
+  let lifecycle = await readFirstMateLifecycle(home)
+  assert.equal(lifecycle.tasks[0]?.stage, 'pr-ready')
+
+  await coordinator.poll()
+
+  assert.deepEqual(checks, [prUrl])
+  lifecycle = await readFirstMateLifecycle(home)
+  assert.equal(lifecycle.tasks.length, 0, 'a confirmed merge must stop presenting the task as awaiting review')
+})
+
+test('leaves a pr-ready task alone while its GitHub PR is still open', async () => {
+  const prUrl = 'https://github.com/Tucaen/ade/pull/102'
+  const { home } = prReadyTaskHome(prUrl)
+  const { runtime, checks } = journalRuntimeWithPrCheck(home, async () => ({ ok: true, state: 'open' }))
+  const coordinator = createFirstMateLifecycleCoordinator({
+    runtime,
+    now: () => new Date('2026-08-14T18:00:00.000Z'),
+    wakeCaptain: async () => ({ ok: true })
+  })
+
+  await coordinator.poll()
+
+  assert.deepEqual(checks, [prUrl])
+  const lifecycle = await readFirstMateLifecycle(home)
+  assert.equal(lifecycle.tasks[0]?.stage, 'pr-ready')
+  assert.equal(lifecycle.tasks[0]?.prUrl, prUrl)
+})
+
+test('never asks about a PR whose forge ADE has no live check for', async () => {
+  const prUrl = 'https://gitlab.com/Tucaen/ade/-/merge_requests/5'
+  const { home } = prReadyTaskHome(prUrl)
+  const { runtime, checks } = journalRuntimeWithPrCheck(home, async () => ({ ok: true, state: 'merged' }))
+  const coordinator = createFirstMateLifecycleCoordinator({
+    runtime,
+    now: () => new Date('2026-08-14T18:00:00.000Z'),
+    wakeCaptain: async () => ({ ok: true })
+  })
+
+  await coordinator.poll()
+
+  assert.deepEqual(checks, [], 'an unrecognised forge must never be guessed at')
+  const lifecycle = await readFirstMateLifecycle(home)
+  assert.equal(lifecycle.tasks[0]?.stage, 'pr-ready')
+  assert.equal(lifecycle.tasks[0]?.prUrl, prUrl)
+})
+
+test('leaves a pr-ready task exactly as it is when the live merge check fails', async () => {
+  const prUrl = 'https://github.com/Tucaen/ade/pull/103'
+  const { home } = prReadyTaskHome(prUrl)
+  const { runtime, checks } = journalRuntimeWithPrCheck(home, async () => {
+    throw new Error('gh: not authenticated')
+  })
+  const coordinator = createFirstMateLifecycleCoordinator({
+    runtime,
+    now: () => new Date('2026-08-14T18:00:00.000Z'),
+    wakeCaptain: async () => ({ ok: true })
+  })
+
+  await coordinator.poll()
+
+  assert.deepEqual(checks, [prUrl])
+  const lifecycle = await readFirstMateLifecycle(home)
+  assert.equal(lifecycle.tasks[0]?.stage, 'pr-ready', 'a failed check must fail open, never block or error the UI')
+  assert.equal(lifecycle.tasks[0]?.prUrl, prUrl)
 })
