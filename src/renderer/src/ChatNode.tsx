@@ -410,7 +410,6 @@ export function ChatView(props: ChatViewProps & {
           ? <details className="thought-card" key={message.id}><summary>Reasoning</summary><Markdown text={message.text} /></details>
           : (
             <article className={`chat-message ${message.role}${message.queued ? ' queued' : ''}`} key={message.id}>
-              <span>{message.role === 'user' ? 'You' : providerNames[props.provider]}</span>
               <div>
                 <Markdown text={message.text} />
                 {message.queued && <small className="queued-badge">Queued — will send once the agent is free</small>}
