@@ -30,6 +30,7 @@ import type {
 } from '../shared/agent'
 import { activityFromUpdate } from '../shared/agent-activity'
 import { modelSelectorFromConfigOptions } from '../shared/agent-models'
+import { StallTimeoutError, withStallGuard } from '../shared/stall-guard'
 import { buildAgentProcessLaunch, type AgentProcessLaunch } from './agent-process'
 import { readCachedCodexModels } from './codex-model-cache'
 import { createCaptainWakeGate, type CaptainWakeGate } from './firstmate-captain-wake'
@@ -183,9 +184,33 @@ function simplifyModes(modes: {
   }
 }
 
+/**
+ * A single ACP `session/prompt` call spans the agent's entire turn (every tool call it makes
+ * until it reports a `stopReason`), so this has to be generous enough not to cut off a
+ * legitimately long multi-step turn. It exists only to bound the pathological case: the
+ * subprocess or its ACP connection stalls outright (a dropped stream, a deadlock, a
+ * tool-permission approval request that never surfaces) and the call neither resolves nor
+ * rejects. Without this, `runPrompt` awaits forever, `busy` never clears, and the renderer's
+ * status indicator is stuck on "Working" with no way to recover short of killing the session.
+ */
+export const DEFAULT_TURN_TIMEOUT_MS = 10 * 60_000
+
+/**
+ * A stall timeout only means the *await* gave up; the agent side may still be processing the
+ * original turn. Sending `session/cancel` is fire-and-forget (ACP notifications have no reply),
+ * so this grace window is a heuristic buffer between that send and clearing `busy`/flushing the
+ * wake gate, giving the agent a moment to actually abort before a fresh `session/prompt` for the
+ * same session id can be dispatched behind it.
+ */
+export const DEFAULT_STALL_CANCEL_GRACE_MS = 250
+
 export interface AcpSessionManagerOptions {
   appPath: string
   codexHome?: string
+  /** Overrides `DEFAULT_TURN_TIMEOUT_MS`; primarily for tests. */
+  turnTimeoutMs?: number
+  /** Overrides `DEFAULT_STALL_CANCEL_GRACE_MS`; primarily for tests. */
+  stallCancelGraceMs?: number
   resolveFirstMateLaunch?(provider: AgentProvider, modelId?: string): FirstMateLaunch | null
   configureFirstMateValidator?(provider: AgentProvider, modelId?: string): Promise<AgentPromptResult>
 }
@@ -398,15 +423,28 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
     if (imageGuard) return imageGuard
     running.busy = true
     send(running, { type: 'status', status: 'working' })
+    const turnTimeoutMs = options.turnTimeoutMs ?? DEFAULT_TURN_TIMEOUT_MS
     try {
-      const response = await running.context.request(methods.agent.session.prompt, {
-        sessionId: running.sessionId,
-        prompt: blocks as ContentBlock[]
-      })
+      const response = await withStallGuard(
+        running.context.request(methods.agent.session.prompt, {
+          sessionId: running.sessionId,
+          prompt: blocks as ContentBlock[]
+        }),
+        turnTimeoutMs,
+        `The agent did not respond within ${turnTimeoutMs}ms; the turn may be wedged (a stalled `
+        + 'subprocess, a dropped ACP connection, or a tool-permission approval that never surfaced).'
+      )
       send(running, { type: 'turn_complete', stopReason: response.stopReason })
       send(running, { type: 'status', status: 'idle' })
       return { ok: true }
     } catch (error) {
+      if (error instanceof StallTimeoutError && running.sessionId) {
+        await running.context
+          .notify(methods.agent.session.cancel, { sessionId: running.sessionId })
+          .catch(() => {})
+        const graceMs = options.stallCancelGraceMs ?? DEFAULT_STALL_CANCEL_GRACE_MS
+        if (graceMs > 0) await new Promise((resolve) => setTimeout(resolve, graceMs))
+      }
       const failure = promptFailure(error, running.authMethods)
       if (isAuthRequired(error)) running.authRequired = true
       for (const event of failure.events) send(running, event)

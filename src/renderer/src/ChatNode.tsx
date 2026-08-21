@@ -413,10 +413,15 @@ function ChatMessageCard(
   const tone = message.role === 'assistant' ? classifyAssistantMessage(message.text) : 'normal'
   const options = tone === 'decision' ? extractDecisionOptions(message.text) : []
   return (
-    <article className={`chat-message ${message.role}${message.queued ? ' queued' : ''}`} data-tone={tone}>
+    <article
+      className={`chat-message ${message.role}${message.queued ? ' queued' : ''}${message.failed ? ' failed' : ''}`}
+      data-tone={tone}
+    >
       <div>
         <Markdown text={message.text} />
-        {message.queued && <small className="queued-badge">Queued — will send once the agent is free</small>}
+        {message.failed
+          ? <small className="failed-badge">Not sent — delivery failed or timed out</small>
+          : message.queued && <small className="queued-badge">Queued — will send once the agent is free</small>}
         {tone === 'decision' && options.length >= 2 && (
           <DecisionOptions options={options} sendMessage={props.sendMessage} status={props.status} />
         )}

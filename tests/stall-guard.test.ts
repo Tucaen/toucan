@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
-import { StallTimeoutError, withStallGuard } from '../src/renderer/src/with-stall-guard'
+import { StallTimeoutError, withStallGuard } from '../src/shared/stall-guard'
 
 test('resolves with the value once the wrapped promise resolves before the deadline', async () => {
   const result = await withStallGuard(Promise.resolve('done'), 50, 'should not fire')

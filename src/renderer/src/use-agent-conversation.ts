@@ -21,6 +21,8 @@ export interface AgentChatMessage {
   text: string
   /** True until the agent actually starts processing this message (only possible for messages sent while busy). */
   queued?: boolean
+  /** True if delivery genuinely failed or expired (e.g. a queued send timed out in the wake gate) - never set alongside `queued`. */
+  failed?: boolean
 }
 
 export interface AgentApprovalState {
@@ -37,6 +39,16 @@ export interface AgentUsage {
 }
 
 export type AgentChatStatus = 'starting' | 'ready' | 'working' | 'auth_required' | 'exited'
+
+/**
+ * The ACP echo that clears a queued badge is normally near-instant (a local notification, not a
+ * network round trip). If it never arrives at all - or arrives with text that doesn't exactly
+ * match what was sent - a purely echo-driven clear leaves that entry (and, with a naive
+ * head-of-FIFO match, every entry behind it) queued forever even though the agent has long since
+ * moved on. This bounds that wait so a missed echo degrades to "cleared a bit late" instead of
+ * "stuck forever".
+ */
+const DEFAULT_ECHO_TIMEOUT_MS = 10_000
 
 export interface AgentConversationOptions {
   id: string
@@ -56,6 +68,12 @@ export interface AgentConversationOptions {
   onSessionId(sessionId: string): void
   onPermissionMode(modeId: string): void
   onModel(modelId: string): void
+  /**
+   * How long a sent message waits in `pendingSentRef` for its own echoed `message`/`role: 'user'`
+   * event before its queued badge is force-cleared anyway. Defaults to `DEFAULT_ECHO_TIMEOUT_MS`;
+   * overridable so tests can reproduce a missed echo without a real multi-second wait.
+   */
+  pendingEchoTimeoutMs?: number
 }
 
 export interface AgentConversationController {
@@ -113,8 +131,41 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
   const [draft, setDraft] = useState('')
   const [imageSupport, setImageSupport] = useState(false)
   const [attachments, setAttachments] = useState<AgentImageAttachment[]>([])
-  /** FIFO of messages sent but not yet echoed back, so each queued send (not just the latest) clears its own queued flag. */
-  const pendingSentRef = useRef<Array<{ id: string; text: string }>>([])
+  /**
+   * Messages sent but not yet echoed back, so each queued send (not just the latest) clears its
+   * own queued flag. Matched by text against an incoming echo (order doesn't matter: an
+   * out-of-order or skipped echo must not block a later entry's own echo from matching), with
+   * `timer` as the fallback that force-clears this entry if no echo ever arrives. `timer` is only
+   * armed once the underlying deliver call (`prompt`/`promptWhenIdle`) has actually settled -
+   * a queued send's deliver call doesn't resolve until the wake gate genuinely dispatches it, so
+   * arming the timer any earlier would fire it while the message is still legitimately waiting
+   * behind another turn, clearing its badge before its real echo arrives and duplicating it.
+   */
+  const pendingSentRef = useRef<Array<{ id: string; text: string; timer?: ReturnType<typeof setTimeout> }>>([])
+  const clearPendingSent = (id: string): void => {
+    const index = pendingSentRef.current.findIndex((entry) => entry.id === id)
+    if (index < 0) return
+    clearTimeout(pendingSentRef.current[index].timer)
+    pendingSentRef.current.splice(index, 1)
+    setMessages((current) => current.map((message) => (
+      message.id === id ? { ...message, queued: false } : message
+    )))
+  }
+  /**
+   * Marks a message's delivery as genuinely failed (send rejected, or a queued send expired in
+   * the wake gate before ever reaching the agent) - distinct from `clearPendingSent`'s
+   * success-shaped clear, so a dropped message can never render identically to a delivered one.
+   */
+  const markSendFailed = (id: string): void => {
+    const index = pendingSentRef.current.findIndex((entry) => entry.id === id)
+    if (index >= 0) {
+      clearTimeout(pendingSentRef.current[index].timer)
+      pendingSentRef.current.splice(index, 1)
+    }
+    setMessages((current) => current.map((message) => (
+      message.id === id ? { ...message, queued: false, failed: true } : message
+    )))
+  }
   /**
    * Serializes the actual cross-process deliver call in submission order, even when an earlier
    * submit's (async) composePrompt resolves after a later one's.
@@ -154,12 +205,12 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
       } else if (event.type === 'session') {
         onSessionId.current(event.sessionId)
       } else if (event.type === 'message') {
-        if (event.role === 'user' && pendingSentRef.current[0]?.text === event.text) {
-          const sent = pendingSentRef.current.shift()!
-          setMessages((current) => current.map((message) => (
-            message.id === sent.id ? { ...message, queued: false } : message
-          )))
-          return
+        if (event.role === 'user') {
+          const sent = pendingSentRef.current.find((entry) => entry.text === event.text)
+          if (sent) {
+            clearPendingSent(sent.id)
+            return
+          }
         }
         setMessages((current) => {
           const existing = current.findIndex((message) => message.id === event.messageId && message.role === event.role)
@@ -221,6 +272,8 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
       active = false
       removeListener()
       window.agentApi.kill(options.id)
+      for (const entry of pendingSentRef.current) clearTimeout(entry.timer)
+      pendingSentRef.current = []
     }
   }, [options.cwd, options.enabled, options.id, options.provider, options.restartKey, options.scope])
 
@@ -264,12 +317,24 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
         // `message` event branch above), so resolve it here once delivery itself has settled.
         if (images.length > 0 && !text) {
           setMessages((current) => current.map((message) => (message.id === id ? { ...message, queued: false } : message)))
+          return
+        }
+        // Only now that delivery has actually been attempted (a queued send's promise doesn't
+        // resolve until the wake gate genuinely dispatches it) is it safe to start the bounded
+        // wait for this message's own echo - arming it any earlier would fire while the message
+        // is still legitimately queued behind another turn.
+        const entry = pendingSentRef.current.find((candidate) => candidate.id === id)
+        if (entry && !entry.timer) {
+          entry.timer = setTimeout(
+            () => clearPendingSent(id),
+            options.pendingEchoTimeoutMs ?? DEFAULT_ECHO_TIMEOUT_MS
+          )
         }
         return
       }
       setDetail(result.message)
       if (!queued) setStatus('ready')
-      pendingSentRef.current = pendingSentRef.current.filter((entry) => entry.id !== id)
+      markSendFailed(id)
     })
   }
 

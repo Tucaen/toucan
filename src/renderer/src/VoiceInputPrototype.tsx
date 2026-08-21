@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import { MicTranscriber, ModelArch } from '@moonshine-ai/moonshine-wasm'
-import { withStallGuard } from './with-stall-guard'
+import { withStallGuard } from '../../shared/stall-guard'
 import { errorMessage } from '../../shared/text'
 
 type VoiceState = 'idle' | 'loading' | 'listening' | 'stopping' | 'error'
@@ -19,7 +19,7 @@ const LOCAL_MODEL_URL = new URL(
 
 // The model loads from ADE's own local server/disk, not the network, so this
 // only needs to absorb slow hardware — not a slow internet connection. It
-// exists so a dependency that never settles (see with-stall-guard.ts) can't
+// exists so a dependency that never settles (see shared/stall-guard.ts) can't
 // leave the "Preparing local speech model..." banner stuck forever.
 const VOICE_STALL_TIMEOUT_MS = 60_000
 
