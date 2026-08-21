@@ -67,6 +67,9 @@ function registerAgentIpc(manager: AcpSessionManager): void {
   ipcMain.handle('agent:authenticate', (_event, id: string, methodId: string) => (
     manager.authenticate(id, methodId)
   ))
+  ipcMain.handle('agent:submit-auth-code', (_event, id: string, code: string) => (
+    manager.submitAuthCode(id, code)
+  ))
   ipcMain.handle('agent:open-auth-link', (_event, url: string) => manager.openAuthLink(url))
   ipcMain.on('agent:approval', (_event, id: string, approvalId: string, optionId?: string) => (
     manager.resolveApproval(id, approvalId, optionId)

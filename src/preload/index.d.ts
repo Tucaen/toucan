@@ -32,6 +32,7 @@ export interface AgentApi {
   setMode(id: string, modeId: string): Promise<AgentPromptResult>
   setModel(id: string, modelId: string): Promise<AgentPromptResult>
   authenticate(id: string, methodId: string): Promise<AgentCreateResult>
+  submitAuthCode(id: string, code: string): Promise<AgentPromptResult>
   openAuthLink(url: string): Promise<void>
   resolveApproval(id: string, approvalId: string, optionId?: string): void
   cancel(id: string): void

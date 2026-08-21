@@ -48,6 +48,10 @@ interface RunningAgent {
   context: ClientContext
   adapterPath: string
   authProcess?: (args: string[]) => AgentProcessLaunch
+  /** Live terminal-auth child, kept separate from the long-running ACP adapter process. */
+  authChild?: ChildProcessWithoutNullStreams
+  /** Writable prompt input for a terminal-auth flow that may require a browser paste-back code. */
+  authInput?: Writable
   authMethods: AgentAuthMethod[]
   environment: NodeJS.ProcessEnv
   cachedModels?: AgentModelState
@@ -108,6 +112,31 @@ const LOGIN_URL_PATTERN = /https?:\/\/[^\s<>"')]+/
  *  launch. */
 export function extractLoginUrl(text: string): string | undefined {
   return text.match(LOGIN_URL_PATTERN)?.[0]
+}
+
+/**
+ * Sends one browser paste-back code to the terminal authentication helper without ever putting
+ * the credential into an event, log, or command line. The trailing newline is the Enter key the
+ * underlying Claude CLI is waiting for.
+ */
+export function writeAuthCode(input: Writable | undefined, code: string): Promise<AgentPromptResult> {
+  const trimmed = code.trim()
+  if (!trimmed) return Promise.resolve({ ok: false, message: 'Paste the sign-in code first.' })
+  if (trimmed.length > 8_192 || /[\r\n]/.test(trimmed)) {
+    return Promise.resolve({ ok: false, message: 'Paste one sign-in code without line breaks.' })
+  }
+  if (!input || !input.writable || input.destroyed || input.writableEnded) {
+    return Promise.resolve({ ok: false, message: 'No sign-in process is waiting for a code.' })
+  }
+  return new Promise((resolve) => {
+    try {
+      input.write(`${trimmed}\n`, (error) => resolve(error
+        ? { ok: false, message: 'ADE could not send the sign-in code.' }
+        : { ok: true }))
+    } catch {
+      resolve({ ok: false, message: 'ADE could not send the sign-in code.' })
+    }
+  })
 }
 
 function errorMessage(error: unknown): string {
@@ -245,6 +274,7 @@ export interface AcpSessionManager {
   setMode(id: string, modeId: string): Promise<AgentPromptResult>
   setModel(id: string, modelId: string): Promise<AgentPromptResult>
   authenticate(id: string, methodId: string): Promise<AgentCreateResult>
+  submitAuthCode(id: string, code: string): Promise<AgentPromptResult>
   openAuthLink(url: string): Promise<void>
   resolveApproval(id: string, approvalId: string, optionId?: string): void
   cancel(id: string): void
@@ -407,6 +437,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       pending.resolve({ outcome: { outcome: 'cancelled' } })
     }
     running.pendingApprovals.clear()
+    running.authChild?.kill()
     running.connection.close()
     running.process.kill()
     agents.delete(id)
@@ -703,6 +734,9 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       if (!running) return { ok: false, status: 'error', message: 'The agent session is not running.' }
       const method = running.authMethods.find((candidate) => candidate.id === methodId)
       if (!method) return { ok: false, status: 'error', message: 'That authentication method is unavailable.' }
+      if (running.authChild) {
+        return { ok: false, status: 'error', message: 'A sign-in attempt is already in progress.' }
+      }
       send(running, { type: 'status', status: 'starting', message: `Signing in with ${method.name}...` })
       try {
         if (method.type === 'terminal') {
@@ -716,8 +750,10 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
             )
             const auth = spawn(launch.executable, launch.args, {
               ...launch.options,
-              stdio: ['ignore', 'pipe', 'pipe']
+              stdio: ['pipe', 'pipe', 'pipe']
             })
+            running.authChild = auth
+            running.authInput = auth.stdin
             auth.stdout.setEncoding('utf8')
             auth.stderr.setEncoding('utf8')
             const report = (data: string): void => {
@@ -748,7 +784,14 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         const message = errorMessage(error)
         send(running, { type: 'error', message })
         return { ok: false, status: 'error', message }
+      } finally {
+        running.authChild = undefined
+        running.authInput = undefined
       }
+    },
+
+    submitAuthCode(id, code): Promise<AgentPromptResult> {
+      return writeAuthCode(agents.get(id)?.authInput, code)
     },
 
     async openAuthLink(url): Promise<void> {

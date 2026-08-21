@@ -109,6 +109,7 @@ export interface AgentConversationController {
   sendMessage(text: string): void
   cancel(): void
   authenticate(methodId: string): void
+  submitAuthCode(code: string): Promise<boolean>
   openAuthLink(url: string): void
   resolveApproval(approvalId: string, optionId?: string): void
   selectMode(modeId: string): Promise<boolean>
@@ -390,6 +391,12 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     void window.agentApi.openAuthLink(url)
   }
 
+  const submitAuthCode = async (code: string): Promise<boolean> => {
+    const result = await window.agentApi.submitAuthCode(options.id, code)
+    if (!result.ok) setDetail(result.message)
+    return result.ok
+  }
+
   const resolveApproval = (approvalId: string, optionId?: string): void => {
     window.agentApi.resolveApproval(options.id, approvalId, optionId)
     setApproval(null)
@@ -443,6 +450,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     sendMessage,
     cancel: () => window.agentApi.cancel(options.id),
     authenticate,
+    submitAuthCode,
     openAuthLink,
     resolveApproval,
     selectMode,

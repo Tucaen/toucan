@@ -1,4 +1,4 @@
-import { act, render, renderHook, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react'
 import { describe, expect, test, vi } from 'vitest'
 import { ChatView, type ChatViewProps } from '../src/renderer/src/ChatNode'
 import { useAgentConversation } from '../src/renderer/src/use-agent-conversation'
@@ -28,6 +28,7 @@ const baseChatViewProps: ChatViewProps = {
   submit: vi.fn(),
   cancel: vi.fn(),
   authenticate: vi.fn(),
+  submitAuthCode: vi.fn(async () => true),
   openAuthLink: vi.fn(),
   resolveApproval: vi.fn(),
   sendMessage: vi.fn()
@@ -52,6 +53,16 @@ describe('AuthPanel rendering', () => {
     })
 
     expect(screen.getByRole('button', { name: 'Claude Subscription' })).toBeInTheDocument()
+  })
+
+  test('blocks the FirstMate chat with an unmistakable modal while authentication is required', () => {
+    renderChatView({
+      status: 'auth_required',
+      authMethods: [{ id: 'claude-ai-login', name: 'Claude Subscription', type: 'terminal' }]
+    })
+
+    const dialog = screen.getByRole('dialog', { name: /sign in to claude/i })
+    expect(dialog).toHaveAttribute('aria-modal', 'true')
   })
 
   test(
@@ -86,6 +97,23 @@ describe('AuthPanel rendering', () => {
     const linkButton = screen.getByRole('button', { name: /open the sign-in link again/i })
     act(() => linkButton.click())
     expect(openAuthLink).toHaveBeenCalledWith('https://claude.ai/oauth/authorize?client_id=abc')
+  })
+
+  test('offers a working paste-back code field while terminal authentication is waiting', async () => {
+    const submitAuthCode = vi.fn(async () => true)
+    renderChatView({
+      status: 'starting',
+      reauthenticating: true,
+      authMethods: [{ id: 'claude-ai-login', name: 'Claude Subscription', type: 'terminal' }],
+      authLink: 'https://claude.ai/oauth/authorize?client_id=abc',
+      submitAuthCode
+    })
+
+    const input = screen.getByRole('textbox', { name: /paste.*code/i })
+    fireEvent.change(input, { target: { value: 'oauth-code-from-browser' } })
+    fireEvent.click(screen.getByRole('button', { name: /submit code/i }))
+
+    await waitFor(() => expect(submitAuthCode).toHaveBeenCalledWith('oauth-code-from-browser'))
   })
 
   test(

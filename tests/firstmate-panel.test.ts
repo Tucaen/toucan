@@ -29,8 +29,13 @@ test('offers one actionable Codex sign-in state when FirstMate authentication is
 
   assert.match(
     chat,
-    /props\.status === ['"]auth_required['"]\s*\?\s*<AuthPanel[\s\S]*?\:\s*props\.messages\.length === 0/,
-    'auth-required should replace the full-height empty state so its sign-in button is immediately visible'
+    /const authVisible = props\.status === ['"]auth_required['"] \|\| props\.reauthenticating/,
+    'auth-required and an in-progress reauthentication should share one modal visibility gate'
+  )
+  assert.match(
+    chat,
+    /\{authVisible && <AuthPanel \{\.\.\.props\} \/>\}/,
+    'authentication should render as a dedicated overlay instead of ordinary chat-scroll content'
   )
 
   const statusLabelUses = panel.match(/statusLabel\(conversation\.status\)/g) ?? []
