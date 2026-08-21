@@ -1,5 +1,9 @@
 import { readFileSync, writeFileSync } from 'node:fs'
-import { FIRSTMATE_PANEL_MIN_WIDTH } from '../shared/firstmate'
+import {
+  FIRSTMATE_PANEL_MIN_WIDTH,
+  type FirstMateCaptainWorkspaceState,
+  type FirstMateWorkspaceState
+} from '../shared/firstmate'
 import type { WorkspaceSaveResult, WorkspaceState } from '../shared/terminal'
 import { errorMessage, repairUtf8Mojibake } from '../shared/text'
 
@@ -26,6 +30,73 @@ function hasValidProjects(value: unknown): value is Pick<WorkspaceState, 'projec
   ))
 }
 
+function isOptionalString(value: unknown): value is string | undefined {
+  return value === undefined || typeof value === 'string'
+}
+
+function isCaptainState(value: unknown): value is FirstMateCaptainWorkspaceState {
+  if (!value || typeof value !== 'object') return false
+  const captain = value as Partial<FirstMateCaptainWorkspaceState>
+  return isOptionalString(captain.conversationId)
+    && isOptionalString(captain.permissionMode)
+    && isOptionalString(captain.modelId)
+}
+
+function isFirstMateWorkspaceState(value: unknown): value is FirstMateWorkspaceState {
+  if (!value || typeof value !== 'object') return false
+  const state = value as Partial<FirstMateWorkspaceState>
+  if (state.activeProvider !== undefined && state.activeProvider !== 'codex' && state.activeProvider !== 'claude') {
+    return false
+  }
+  if (state.captains !== undefined) {
+    if (!state.captains || typeof state.captains !== 'object') return false
+    if (!Object.keys(state.captains).every((provider) => provider === 'codex' || provider === 'claude')) return false
+    if (state.captains.codex !== undefined && !isCaptainState(state.captains.codex)) return false
+    if (state.captains.claude !== undefined && !isCaptainState(state.captains.claude)) return false
+  }
+  return (state.worklogCollapsed === undefined || typeof state.worklogCollapsed === 'boolean')
+    && (
+      state.panelWidth === undefined
+      || (
+        typeof state.panelWidth === 'number'
+        && Number.isFinite(state.panelWidth)
+        && state.panelWidth >= FIRSTMATE_PANEL_MIN_WIDTH
+      )
+    )
+}
+
+/** Migrates the old single-provider captain fields into the selected provider's independent tab state. */
+function normalizedFirstMateWorkspaceState(value: unknown): FirstMateWorkspaceState | null {
+  if (!value || typeof value !== 'object') return null
+  const legacy = value as Record<string, unknown>
+  const hasLegacyCaptain = ['provider', 'conversationId', 'permissionMode', 'modelId']
+    .some((key) => Object.prototype.hasOwnProperty.call(legacy, key))
+  const hasTabbedCaptain = Object.prototype.hasOwnProperty.call(legacy, 'activeProvider')
+    || Object.prototype.hasOwnProperty.call(legacy, 'captains')
+
+  if (hasLegacyCaptain && hasTabbedCaptain) return null
+  if (!hasLegacyCaptain) return isFirstMateWorkspaceState(value) ? value : null
+
+  const provider = legacy.provider ?? 'codex'
+  if (provider !== 'codex' && provider !== 'claude') return null
+  if (!isOptionalString(legacy.conversationId)
+    || !isOptionalString(legacy.permissionMode)
+    || !isOptionalString(legacy.modelId)) return null
+
+  const captain: FirstMateCaptainWorkspaceState = {
+    ...(legacy.conversationId ? { conversationId: legacy.conversationId } : {}),
+    ...(legacy.permissionMode ? { permissionMode: legacy.permissionMode } : {}),
+    ...(legacy.modelId ? { modelId: legacy.modelId } : {})
+  }
+  const migrated: FirstMateWorkspaceState = {
+    activeProvider: provider,
+    ...(Object.keys(captain).length > 0 ? { captains: { [provider]: captain } } : {}),
+    ...(legacy.worklogCollapsed !== undefined ? { worklogCollapsed: legacy.worklogCollapsed as boolean } : {}),
+    ...(legacy.panelWidth !== undefined ? { panelWidth: legacy.panelWidth as number } : {})
+  }
+  return isFirstMateWorkspaceState(migrated) ? migrated : null
+}
+
 export function isWorkspaceState(value: unknown): value is WorkspaceState {
   if (!hasValidProjects(value)) return false
   const state = value as Partial<WorkspaceState>
@@ -41,20 +112,7 @@ export function isWorkspaceState(value: unknown): value is WorkspaceState {
   ) return false
   if (
     state.firstMate !== undefined
-    && (
-      !state.firstMate
-      || typeof state.firstMate !== 'object'
-      || (state.firstMate.provider !== undefined && state.firstMate.provider !== 'codex' && state.firstMate.provider !== 'claude')
-      || (state.firstMate.conversationId !== undefined && typeof state.firstMate.conversationId !== 'string')
-      || (state.firstMate.permissionMode !== undefined && typeof state.firstMate.permissionMode !== 'string')
-      || (state.firstMate.modelId !== undefined && typeof state.firstMate.modelId !== 'string')
-      || (state.firstMate.worklogCollapsed !== undefined && typeof state.firstMate.worklogCollapsed !== 'boolean')
-      || (state.firstMate.panelWidth !== undefined && (
-        typeof state.firstMate.panelWidth !== 'number'
-        || !Number.isFinite(state.firstMate.panelWidth)
-        || state.firstMate.panelWidth < FIRSTMATE_PANEL_MIN_WIDTH
-      ))
-    )
+    && !isFirstMateWorkspaceState(state.firstMate)
   ) return false
 
   return state.nodes.every((node) => (
@@ -82,10 +140,18 @@ export function isWorkspaceState(value: unknown): value is WorkspaceState {
 }
 
 export function parseWorkspaceState(value: unknown): WorkspaceState | null {
-  if (isWorkspaceState(value)) {
+  if (hasValidProjects(value) && (value as Partial<WorkspaceState>).version === 2) {
+    const raw = value as Partial<WorkspaceState> & { firstMate?: unknown }
+    const firstMate = raw.firstMate === undefined ? undefined : normalizedFirstMateWorkspaceState(raw.firstMate)
+    if (raw.firstMate !== undefined && !firstMate) return null
+    const normalized = {
+      ...raw,
+      ...(firstMate ? { firstMate } : {})
+    }
+    if (!isWorkspaceState(normalized)) return null
     return {
-      ...value,
-      nodes: value.nodes.map((node) => node.preview
+      ...normalized,
+      nodes: normalized.nodes.map((node) => node.preview
         ? {
             ...node,
             preview: {

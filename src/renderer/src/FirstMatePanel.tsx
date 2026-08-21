@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from 'react'
+import type { AgentProvider } from '../../shared/agent'
 import type {
   FirstMateExternalProject,
   FirstMateInstallResult,
@@ -7,6 +8,11 @@ import type {
   FirstMateRuntimeStatus,
   FirstMateTaskStage,
   FirstMateWorkspaceState
+} from '../../shared/firstmate'
+import {
+  firstMateActiveProvider,
+  firstMateCaptainState,
+  firstMateWithCaptainState
 } from '../../shared/firstmate'
 import type { WorkspaceProject } from '../../shared/terminal'
 import { QuotaStat, UsageStat } from './AgentUsageStatus'
@@ -27,7 +33,65 @@ const FIRSTMATE_AGENT_ID = 'ade-firstmate'
 const FIRSTMATE_PROVIDERS = [
   { id: 'codex', name: 'Codex' },
   { id: 'claude', name: 'Claude' }
-]
+] as const
+
+interface FirstMateProviderTabsProps {
+  activeProvider: AgentProvider
+  switchingDisabled: boolean
+  select(provider: AgentProvider): void
+}
+
+/** Two resumable captain conversations presented as tabs; only the selected captain is running. */
+export function FirstMateProviderTabs({
+  activeProvider,
+  switchingDisabled,
+  select
+}: FirstMateProviderTabsProps): JSX.Element {
+  const selectAt = (index: number): void => {
+    if (switchingDisabled) return
+    const provider = FIRSTMATE_PROVIDERS[index]?.id
+    if (provider) select(provider)
+  }
+  const navigate = (event: KeyboardEvent<HTMLButtonElement>, index: number): void => {
+    let target: number | undefined
+    if (event.key === 'ArrowRight') target = (index + 1) % FIRSTMATE_PROVIDERS.length
+    if (event.key === 'ArrowLeft') target = (index - 1 + FIRSTMATE_PROVIDERS.length) % FIRSTMATE_PROVIDERS.length
+    if (event.key === 'Home') target = 0
+    if (event.key === 'End') target = FIRSTMATE_PROVIDERS.length - 1
+    if (target === undefined) return
+    event.preventDefault()
+    selectAt(target)
+  }
+
+  return (
+    <div className="firstmate-provider-tabs" role="tablist" aria-label="FirstMate captain conversations">
+      {FIRSTMATE_PROVIDERS.map((provider, index) => {
+        const selected = provider.id === activeProvider
+        const disabled = !selected && switchingDisabled
+        return (
+          <button
+            type="button"
+            role="tab"
+            id={`firstmate-${provider.id}-tab`}
+            aria-selected={selected}
+            aria-controls="firstmate-active-conversation"
+            tabIndex={selected ? 0 : -1}
+            disabled={disabled}
+            title={disabled
+              ? `Wait for ${activeProvider === 'codex' ? 'Codex' : 'Claude'} to finish before switching captains.`
+              : `${provider.name} has its own captain conversation and settings.`}
+            key={provider.id}
+            onClick={() => select(provider.id)}
+            onKeyDown={(event) => navigate(event, index)}
+          >
+            <strong>{provider.name}</strong>
+            <small>{selected ? 'Active captain' : 'Separate conversation'}</small>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
 
 function resizeAreaWidth(panel: HTMLElement | null): number {
   const panelRect = panel?.getBoundingClientRect()
@@ -145,7 +209,7 @@ function lifecycleTaskLabel(task: FirstMateLifecycleTask): string {
 }
 
 export default function FirstMatePanel({ projects, project, state, onStateChange }: FirstMatePanelProps): JSX.Element {
-  const [sessionGeneration, setSessionGeneration] = useState(0)
+  const [sessionGenerations, setSessionGenerations] = useState<Partial<Record<AgentProvider, number>>>({})
   const [runtime, setRuntime] = useState<FirstMateRuntimeStatus | null>(null)
   const [lifecycle, setLifecycle] = useState<FirstMateLifecycleStatus>({
     supervision: 'app-native',
@@ -244,7 +308,11 @@ export default function FirstMatePanel({ projects, project, state, onStateChange
   const updateState = (patch: Partial<FirstMateWorkspaceState>): void => {
     onStateChange({ ...state, ...patch })
   }
-  const provider = state.provider ?? 'codex'
+  const provider = firstMateActiveProvider(state)
+  const captain = firstMateCaptainState(state, provider)
+  const updateCaptain = (patch: Parameters<typeof firstMateWithCaptainState>[2]): void => {
+    onStateChange(firstMateWithCaptainState(state, provider, patch))
+  }
   const requiredFleetMode = provider === 'codex' ? 'agent-full-access' : 'bypassPermissions'
 
   const conversation = useAgentConversation({
@@ -252,10 +320,10 @@ export default function FirstMatePanel({ projects, project, state, onStateChange
     provider,
     cwd: runtime?.distroPath ?? '',
     scope: 'firstmate',
-    sessionId: sessionGeneration === 0 ? state.conversationId : undefined,
-    permissionMode: state.permissionMode,
-    modelId: state.modelId,
-    restartKey: sessionGeneration,
+    sessionId: captain.conversationId,
+    permissionMode: captain.permissionMode,
+    modelId: captain.modelId,
+    restartKey: sessionGenerations[provider] ?? 0,
     composePrompt: async (text) => {
       const requestProjects = await Promise.all(projects.map(async (catalogProject) => ({
         selection: catalogProject,
@@ -266,13 +334,13 @@ export default function FirstMatePanel({ projects, project, state, onStateChange
       setRegistrationError(activeRegistration?.ok ? undefined : activeRegistration?.message)
       return firstMateRequest(requestProjects, project.id, text, {
         provider,
-        model: state.modelId
+        model: captain.modelId
       })
     },
     enabled: runtime?.state === 'ready' && (provider !== 'codex' || runtime.codexProjectTrust === 'trusted'),
-    onSessionId: (conversationId) => updateState({ conversationId }),
-    onPermissionMode: (permissionMode) => updateState({ permissionMode }),
-    onModel: (modelId) => updateState({ modelId })
+    onSessionId: (conversationId) => updateCaptain({ conversationId }),
+    onPermissionMode: (permissionMode) => updateCaptain({ permissionMode }),
+    onModel: (modelId) => updateCaptain({ modelId })
   })
 
   const runSetup = (action: () => Promise<FirstMateInstallResult>): void => {
@@ -371,11 +439,14 @@ export default function FirstMatePanel({ projects, project, state, onStateChange
   }
 
   const startNewSession = (permissionMode?: string): void => {
-    updateState({
+    updateCaptain({
       conversationId: undefined,
       ...(permissionMode ? { permissionMode } : {})
     })
-    setSessionGeneration((current) => current + 1)
+    setSessionGenerations((current) => ({
+      ...current,
+      [provider]: (current[provider] ?? 0) + 1
+    }))
   }
 
   const enableFleetAccess = (): void => {
@@ -511,13 +582,18 @@ export default function FirstMatePanel({ projects, project, state, onStateChange
             className="firstmate-new-session"
             onClick={() => startNewSession()}
             disabled={conversation.status === 'starting'}
-            title="Discard this captain conversation and run FirstMate startup again"
+            title={`Discard this ${provider === 'codex' ? 'Codex' : 'Claude'} captain conversation and run FirstMate startup again`}
           >New session</button>
         )}
         <span className="chat-provider-badge">ACP</span>
       </header>
       {ready ? (
         <>
+          <FirstMateProviderTabs
+            activeProvider={provider}
+            switchingDisabled={conversation.status === 'working' || conversation.status === 'starting'}
+            select={(activeProvider) => updateState({ activeProvider })}
+          />
           <div
             className="firstmate-project-hint"
             title={`${activeProjectHint.windowsPath}${registration ? `\n${registration.wslPath}` : ''}`}
@@ -570,24 +646,6 @@ export default function FirstMatePanel({ projects, project, state, onStateChange
             </div>
           )}
           <div className="firstmate-settings-bar">
-            <label>
-              <span>Provider</span>
-              <SelectorPicker
-                kind="provider"
-                options={FIRSTMATE_PROVIDERS}
-                selectedId={provider}
-                disabled={false}
-                select={(selectedId) => {
-                  if (selectedId !== 'codex' && selectedId !== 'claude') return
-                  updateState({
-                    provider: selectedId,
-                    conversationId: undefined,
-                    modelId: undefined,
-                    permissionMode: undefined
-                  })
-                }}
-              />
-            </label>
             <label>
               <span>Model</span>
               <SelectorPicker
@@ -719,25 +777,32 @@ export default function FirstMatePanel({ projects, project, state, onStateChange
               </button>
             </div>
           )}
-          <ChatView
-            {...props}
-            empty={{
-              icon: 'FM',
-              title: 'FirstMate is ready',
-              description: 'Tell FirstMate what outcome you want across your projects.'
-            }}
-            worklogCollapsed={state.worklogCollapsed ?? true}
-            setWorklogCollapsed={(worklogCollapsed) => updateState({ worklogCollapsed })}
-            statusBar={(
-              <>
-                {conversation.status !== 'auth_required' && (
-                  <span><i data-tone={conversation.status === 'working' ? 'blue' : 'green'} />{displayStatus}</span>
-                )}
-                {conversation.approval && <span><i data-tone="gold" />1 decision</span>}
-                <small>{conversation.activities.filter((activity) => activity.status === 'in_progress').length} active actions</small>
-              </>
-            )}
-          />
+          <div
+            className="firstmate-conversation-panel"
+            role="tabpanel"
+            id="firstmate-active-conversation"
+            aria-labelledby={`firstmate-${provider}-tab`}
+          >
+            <ChatView
+              {...props}
+              empty={{
+                icon: 'FM',
+                title: 'FirstMate is ready',
+                description: 'Tell FirstMate what outcome you want across your projects.'
+              }}
+              worklogCollapsed={state.worklogCollapsed ?? true}
+              setWorklogCollapsed={(worklogCollapsed) => updateState({ worklogCollapsed })}
+              statusBar={(
+                <>
+                  {conversation.status !== 'auth_required' && (
+                    <span><i data-tone={conversation.status === 'working' ? 'blue' : 'green'} />{displayStatus}</span>
+                  )}
+                  {conversation.approval && <span><i data-tone="gold" />1 decision</span>}
+                  <small>{conversation.activities.filter((activity) => activity.status === 'in_progress').length} active actions</small>
+                </>
+              )}
+            />
+          </div>
           {conversation.detail && conversation.status !== 'auth_required' && (
             <div className="firstmate-detail" title={conversation.detail}>{conversation.detail}</div>
           )}

@@ -253,11 +253,43 @@ export interface FirstMateQuotaStatus {
   message?: string
 }
 
-export interface FirstMateWorkspaceState {
-  provider?: AgentProvider
+/** Provider-owned state for one persistent FirstMate captain conversation. */
+export interface FirstMateCaptainWorkspaceState {
   conversationId?: string
   permissionMode?: string
   modelId?: string
+}
+
+export interface FirstMateWorkspaceState {
+  /** Exactly one captain is active, but each provider keeps its own resumable conversation state. */
+  activeProvider?: AgentProvider
+  captains?: Partial<Record<AgentProvider, FirstMateCaptainWorkspaceState>>
   worklogCollapsed?: boolean
   panelWidth?: number
+}
+
+export function firstMateActiveProvider(state: FirstMateWorkspaceState): AgentProvider {
+  return state.activeProvider ?? 'codex'
+}
+
+export function firstMateCaptainState(
+  state: FirstMateWorkspaceState,
+  provider: AgentProvider
+): FirstMateCaptainWorkspaceState {
+  return state.captains?.[provider] ?? {}
+}
+
+/** Updates one provider's captain without disturbing the other provider or dock-wide presentation state. */
+export function firstMateWithCaptainState(
+  state: FirstMateWorkspaceState,
+  provider: AgentProvider,
+  patch: Partial<FirstMateCaptainWorkspaceState>
+): FirstMateWorkspaceState {
+  return {
+    ...state,
+    captains: {
+      ...state.captains,
+      [provider]: { ...firstMateCaptainState(state, provider), ...patch }
+    }
+  }
 }

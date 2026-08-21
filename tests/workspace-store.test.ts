@@ -33,9 +33,19 @@ test('saves and loads a valid workspace through the store', () => {
     sidebarCollapsed: false,
     agentPermissionModes: { claude: 'acceptEdits', codex: 'read-only' },
     firstMate: {
-      conversationId: 'firstmate-session',
-      permissionMode: 'read-only',
-      modelId: 'gpt-5',
+      activeProvider: 'claude',
+      captains: {
+        codex: {
+          conversationId: 'codex-firstmate-session',
+          permissionMode: 'read-only',
+          modelId: 'gpt-5'
+        },
+        claude: {
+          conversationId: 'claude-firstmate-session',
+          permissionMode: 'bypassPermissions',
+          modelId: 'claude-opus'
+        }
+      },
       worklogCollapsed: true,
       panelWidth: 448
     },
@@ -44,6 +54,52 @@ test('saves and loads a valid workspace through the store', () => {
 
   assert.deepEqual(store.save(state), { ok: true })
   assert.deepEqual(store.load(), state)
+})
+
+test('migrates the old singleton FirstMate captain into its selected provider tab', () => {
+  const migrated = parseWorkspaceState({
+    version: 2,
+    projects: [{ id: 'project-1', name: 'ADE', path: 'D:\\Development\\ADE', color: '#71a9ff' }],
+    activeProjectId: 'project-1',
+    sidebarCollapsed: false,
+    firstMate: {
+      provider: 'claude',
+      conversationId: 'legacy-claude-session',
+      permissionMode: 'bypassPermissions',
+      modelId: 'claude-opus',
+      worklogCollapsed: true,
+      panelWidth: 448
+    },
+    nodes: []
+  })
+
+  assert.deepEqual(migrated?.firstMate, {
+    activeProvider: 'claude',
+    captains: {
+      claude: {
+        conversationId: 'legacy-claude-session',
+        permissionMode: 'bypassPermissions',
+        modelId: 'claude-opus'
+      }
+    },
+    worklogCollapsed: true,
+    panelWidth: 448
+  })
+})
+
+test('rejects ambiguous FirstMate state that mixes singleton and tabbed captain fields', () => {
+  const workspace = {
+    version: 2,
+    projects: [{ id: 'project-1', name: 'ADE', path: 'D:\\Development\\ADE', color: '#71a9ff' }],
+    activeProjectId: 'project-1',
+    sidebarCollapsed: false,
+    nodes: []
+  }
+
+  assert.equal(parseWorkspaceState({
+    ...workspace,
+    firstMate: { provider: 'claude', activeProvider: 'codex' }
+  }), null)
 })
 
 test('rejects persisted FirstMate panel widths below the supported minimum', () => {

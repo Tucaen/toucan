@@ -2067,6 +2067,59 @@ button {
   opacity: 0.45;
 }
 
+.firstmate-provider-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+  padding: 7px 9px 0;
+  border-bottom: 1px solid #29313b;
+  background: #11161c;
+}
+
+.firstmate-provider-tabs > button {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  padding: 7px 9px 8px;
+  border: 1px solid transparent;
+  border-bottom: 2px solid transparent;
+  border-radius: 6px 6px 0 0;
+  color: #7f8b99;
+  background: transparent;
+  text-align: left;
+}
+
+.firstmate-provider-tabs > button strong {
+  color: inherit;
+  font-size: 11px;
+}
+
+.firstmate-provider-tabs > button small {
+  overflow: hidden;
+  color: #64707e;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.firstmate-provider-tabs > button[aria-selected="true"] {
+  border-color: #34404d;
+  border-bottom-color: #71a9ff;
+  color: #d8e3ee;
+  background: #171d25;
+}
+
+.firstmate-provider-tabs > button:hover:not(:disabled),
+.firstmate-provider-tabs > button:focus-visible {
+  color: #c6d3df;
+  background: #1b222b;
+}
+
+.firstmate-provider-tabs > button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
 /* The active sidebar project shown as a non-binding hint to FirstMate. */
 .firstmate-project-hint {
   display: flex;
@@ -2147,7 +2200,7 @@ button {
 
 .firstmate-settings-bar {
   display: grid;
-  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1fr) minmax(0, 1.1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
   padding: 8px 10px;
   border-bottom: 1px solid #29313b;
@@ -2174,12 +2227,6 @@ button {
   justify-content: space-between;
 }
 
-/* Context usage and hourly/weekly limits sit on their own row below the three existing
-   selectors, spanning the same three-column grid so the selectors' layout is untouched. */
-.firstmate-settings-bar > label:nth-child(4) {
-  grid-column: span 2;
-}
-
 .firstmate-settings-bar .usage-stat,
 .firstmate-settings-bar .quota-stat {
   width: 100%;
@@ -2197,9 +2244,16 @@ button {
   flex-direction: column;
 }
 
-.firstmate-dock > .agent-chat {
+.firstmate-conversation-panel {
   min-height: 0;
   height: auto;
+  flex: 1;
+  display: flex;
+}
+
+.firstmate-conversation-panel > .agent-chat {
+  min-width: 0;
+  min-height: 0;
   flex: 1;
 }
 

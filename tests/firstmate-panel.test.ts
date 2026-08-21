@@ -71,13 +71,10 @@ test('recovers FirstMate by starting fresh when its saved conversation cannot be
   )
 })
 
-test('lets the user switch FirstMate between Codex and Claude even when one provider failed', () => {
+test('resolves each captain launch through the provider-aware FirstMate launcher', () => {
   const panel = readFileSync(join(process.cwd(), 'src/renderer/src/FirstMatePanel.tsx'), 'utf8')
-  const firstMate = readFileSync(join(process.cwd(), 'src/shared/firstmate.ts'), 'utf8')
   const manager = readFileSync(join(process.cwd(), 'src/main/acp-session-manager.ts'), 'utf8')
 
-  assert.match(firstMate, /provider\?:\s*AgentProvider/)
-  assert.match(panel, /kind="provider"[\s\S]*?disabled=\{false\}/)
   assert.match(panel, /\{ id: ['"]codex['"], name: ['"]Codex['"] \}/)
   assert.match(panel, /\{ id: ['"]claude['"], name: ['"]Claude['"] \}/)
   assert.match(manager, /resolveFirstMateLaunch\?\.\(request\.provider, request\.modelId\)/)
@@ -107,9 +104,9 @@ test('lets the user replace a read-only captain with a genuinely fresh FirstMate
 
   assert.match(panel, />New session</)
   assert.match(panel, /conversationId: undefined/)
-  assert.match(panel, /setSessionGeneration\(\(current\) => current \+ 1\)/)
-  assert.match(panel, /sessionId:\s*sessionGeneration === 0 \? state\.conversationId : undefined/)
-  assert.match(panel, /restartKey:\s*sessionGeneration/)
+  assert.match(panel, /setSessionGenerations\(\(current\) => \(\{/)
+  assert.match(panel, /sessionId:\s*captain\.conversationId/)
+  assert.match(panel, /restartKey:\s*sessionGenerations\[provider\] \?\? 0/)
   assert.match(conversation, /restartKey\?:\s*number/)
   assert.match(
     conversation,
@@ -261,7 +258,7 @@ test('gives every FirstMate request the full project catalog and the active side
   )
   assert.match(
     panel,
-    /composePrompt:\s*async \(text\) => \{[\s\S]*?Promise\.all\(projects\.map[\s\S]*?registerProject\(firstMateProjectSelection\(catalogProject\)\)[\s\S]*?firstMateRequest\(requestProjects, project\.id, text, \{[\s\S]*?provider,[\s\S]*?model: state\.modelId/,
+    /composePrompt:\s*async \(text\) => \{[\s\S]*?Promise\.all\(projects\.map[\s\S]*?registerProject\(firstMateProjectSelection\(catalogProject\)\)[\s\S]*?firstMateRequest\(requestProjects, project\.id, text, \{[\s\S]*?provider,[\s\S]*?model: captain\.modelId/,
     'FirstMate should receive every registered project plus the active hint without changing its distro cwd'
   )
   const sessionDependencies = conversation.match(/\}, \[options\.cwd[^\]]*\]\)/)?.[0]

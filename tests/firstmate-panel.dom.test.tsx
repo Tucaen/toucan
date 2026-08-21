@@ -1,6 +1,7 @@
 import { fireEvent, render, renderHook, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, test, vi } from 'vitest'
 import { SelectorPicker } from '../src/renderer/src/ChatNode'
+import { FirstMateProviderTabs } from '../src/renderer/src/FirstMatePanel'
 import { useAgentConversation } from '../src/renderer/src/use-agent-conversation'
 import { createMockAgentApi } from './dom/agent-api-mock'
 
@@ -19,6 +20,32 @@ const options = [
   { id: 'opus', name: 'Opus', description: 'Most capable' },
   { id: 'sonnet', name: 'Sonnet', description: 'Balanced' }
 ]
+
+test('provider tabs present separate captain conversations and select the inactive provider', () => {
+  const select = vi.fn()
+  render(<FirstMateProviderTabs activeProvider="codex" switchingDisabled={false} select={select} />)
+
+  expect(screen.getByRole('tablist', { name: 'FirstMate captain conversations' })).toBeInTheDocument()
+  expect(screen.getByRole('tab', { name: /Codex Active captain/ })).toHaveAttribute(
+    'aria-controls',
+    'firstmate-active-conversation'
+  )
+  expect(screen.getByRole('tab', { name: /Codex Active captain/ })).toHaveAttribute('aria-selected', 'true')
+  expect(screen.getByRole('tab', { name: /Claude Separate conversation/ })).toHaveAttribute('aria-selected', 'false')
+
+  fireEvent.click(screen.getByRole('tab', { name: /Claude/ }))
+  expect(select).toHaveBeenCalledWith('claude')
+})
+
+test('provider tabs cannot interrupt an active captain turn', () => {
+  const select = vi.fn()
+  render(<FirstMateProviderTabs activeProvider="claude" switchingDisabled select={select} />)
+
+  const codex = screen.getByRole('tab', { name: /Codex/ })
+  expect(codex).toBeDisabled()
+  fireEvent.click(codex)
+  expect(select).not.toHaveBeenCalled()
+})
 
 test('a disabled picker cannot be opened', () => {
   render(<SelectorPicker kind="model" options={options} selectedId="opus" disabled select={vi.fn()} />)
