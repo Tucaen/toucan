@@ -120,9 +120,29 @@ fi
 const WSL_DECODE_WRITE_NODE = 'const fs=require("node:fs");'
   + 'fs.writeFileSync(process.argv[1],Buffer.from(process.argv[2],"base64url").toString("utf8"),{mode:0o600})'
 
+const WSL_SYNC_MANAGED_AUTH_FUNCTION = `
+sync_managed_auth() {
+  host_auth="$1"
+  managed_auth="$2"
+  mkdir -p "$(dirname "$managed_auth")"
+  if [ -f "$host_auth" ] && { [ ! -f "$managed_auth" ] || [ "$host_auth" -nt "$managed_auth" ]; }; then
+    cp "$host_auth" "$managed_auth"
+    chmod 600 "$managed_auth"
+  fi
+}
+`
+
+const WSL_SYNC_MANAGED_AUTH_SCRIPT = `
+set -eu
+umask 077
+${WSL_SYNC_MANAGED_AUTH_FUNCTION}
+sync_managed_auth "$1" "$2"
+`
+
 const WSL_AGENT_SCRIPT = `
 set -eu
 umask 077
+${WSL_SYNC_MANAGED_AUTH_FUNCTION}
 host_auth="$1"
 managed_auth="$2"
 pipeline_agent="$3"
@@ -131,11 +151,7 @@ runtime_config="$5"
 runtime_home="$6"
 runtime_record="$7"
 shift 7
-mkdir -p "$(dirname "$managed_auth")"
-if [ -f "$host_auth" ] && { [ ! -f "$managed_auth" ] || [ "$host_auth" -nt "$managed_auth" ]; }; then
-  cp "$host_auth" "$managed_auth"
-  chmod 600 "$managed_auth"
-fi
+sync_managed_auth "$host_auth" "$managed_auth"
 runtime_config_tmp="$runtime_config.ade.$$"
 /usr/bin/node -e '${WSL_DECODE_WRITE_NODE}' "$runtime_config_tmp" "$runtime_record"
 mv "$runtime_config_tmp" "$runtime_config"
@@ -642,6 +658,7 @@ function facts(output: string): Map<string, string> {
 
 interface QuotaAxiWindow {
   id?: string
+  kind?: string
   percentRemaining?: number
   resetsAt?: string
 }
@@ -668,14 +685,17 @@ function parseQuotaStatus(provider: AgentProvider, stdout: string): FirstMateQuo
   }
   const providerReport = report.providers?.find((entry) => entry.provider === provider)
   const windows = providerReport?.windows ?? []
-  const quotaWindow = (id: string): FirstMateQuotaWindow | undefined => {
-    const found = windows.find((entry) => entry.id === id)
+  const quotaWindow = (ids: string[], kind?: string): FirstMateQuotaWindow | undefined => {
+    const found = windows.find((entry) => (
+      (typeof entry.id === 'string' && ids.includes(entry.id))
+        || (kind !== undefined && entry.kind === kind)
+    ))
     return found && typeof found.percentRemaining === 'number' && typeof found.resetsAt === 'string'
       ? { percentRemaining: found.percentRemaining, resetsAt: found.resetsAt }
       : undefined
   }
-  const session = quotaWindow('five_hour')
-  const week = quotaWindow('seven_day')
+  const session = quotaWindow(['five_hour'])
+  const week = quotaWindow(['seven_day', 'weekly'], 'weekly')
   if (!session && !week) {
     return {
       state: 'unavailable',
@@ -875,6 +895,7 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
   let readyLaunches: Record<AgentProvider, FirstMateLaunch> | null = null
   let readyLaunchFactory: ((agent: AgentProvider, model: string) => Record<AgentProvider, FirstMateLaunch>) | null = null
   let readyPaths: ReturnType<typeof linuxPaths> | null = null
+  let readyAuthPaths: Record<AgentProvider, { host?: string; managed: string }> | null = null
   let readyProviders = new Set<AgentProvider>()
   let selectedValidator: { agent: AgentProvider; model: string } = { agent: 'codex', model: 'default' }
   // This is an account-wide, minutes-scale limit rather than a fast-changing per-token signal, so a
@@ -929,6 +950,7 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
         readyLaunches = null
         readyLaunchFactory = null
         readyPaths = null
+        readyAuthPaths = null
         readyProviders.clear()
         const repairable = detected.get('distro') === '1'
         return {
@@ -1043,6 +1065,16 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
       readyLaunches = launchFor(selectedValidator.agent, selectedValidator.model)
       readyLaunchFactory = launchFor
       readyPaths = paths
+      readyAuthPaths = {
+        codex: {
+          host: sharedCodexHome ? `${sharedCodexHome}/auth.json` : undefined,
+          managed: `${managedCodexHome}/auth.json`
+        },
+        claude: {
+          host: sharedClaudeHome ? `${sharedClaudeHome}/.credentials.json` : undefined,
+          managed: `${managedClaudeHome}/.credentials.json`
+        }
+      }
       lastError = undefined
       return {
         status: {
@@ -1061,6 +1093,7 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
       readyLaunches = null
       readyLaunchFactory = null
       readyPaths = null
+      readyAuthPaths = null
       readyProviders.clear()
       const message = errorMessage(error)
       return {
@@ -1486,6 +1519,17 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
         if (!readyPaths) await inspect()
         if (!readyPaths) return { state: 'unavailable', provider, message: 'FirstMate is not ready.' }
         try {
+          const authPaths = readyAuthPaths?.[provider]
+          if (authPaths?.host) {
+            await run(
+              [
+                '--distribution', distribution,
+                '--exec', '/bin/sh', '-lc', WSL_SYNC_MANAGED_AUTH_SCRIPT,
+                'ade-firstmate-quota-auth', authPaths.host, authPaths.managed
+              ],
+              15_000
+            )
+          }
           const managedHomeEnvironment = provider === 'codex'
             ? `${CODEX_HOME}=${readyPaths.homePath}/codex`
             : `${CLAUDE_CONFIG_DIR}=${readyPaths.homePath}/claude`

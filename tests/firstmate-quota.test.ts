@@ -21,7 +21,12 @@ function readyWslInspection(): string {
   ].join('\n')
 }
 
-function quotaAxiReport(provider: string, windows: Array<{ id: string; percentRemaining: number; resetsAt: string }>): string {
+function quotaAxiReport(provider: string, windows: Array<{
+  id: string
+  kind?: string
+  percentRemaining: number
+  resetsAt: string
+}>): string {
   return JSON.stringify({
     generatedAt: '2026-08-18T09:00:00.000Z',
     schemaVersion: 3,
@@ -96,6 +101,69 @@ test('checks codex quota against the managed CODEX_HOME, the same identity real 
     'quota-axi must be checked against the SAME managed codex identity real codex conversations use, not its own default credential discovery'
   )
   assert.ok(!quotaCall.some((arg) => arg.startsWith('CLAUDE_CONFIG_DIR=')), 'codex checks must not set CLAUDE_CONFIG_DIR')
+})
+
+test('refreshes managed Claude credentials before the startup quota lookup, without waiting for an agent launch', async () => {
+  const calls: string[][] = []
+  const runtime = createFirstMateRuntime({
+    platform: 'win32',
+    resolveGit: () => 'git.exe',
+    claudeHome: 'C:\\Users\\captain\\.claude',
+    wsl: {
+      run: async (args) => {
+        calls.push(args)
+        if (args[3] === '/bin/sh') return { stdout: readyWslInspection(), stderr: '' }
+        return {
+          stdout: quotaAxiReport('claude', [
+            { id: 'five_hour', percentRemaining: 80, resetsAt: '2026-08-18T11:10:00.000Z' }
+          ]),
+          stderr: ''
+        }
+      }
+    }
+  })
+
+  await runtime.quotaStatus('claude')
+
+  const authSyncCall = calls.find((args) => (
+    args.includes('/mnt/c/Users/captain/.claude/.credentials.json')
+      && args.includes('/home/tucaen/.local/share/ade/firstmate/home/claude/.credentials.json')
+  ))
+  assert.ok(
+    authSyncCall,
+    'the initial quota lookup must refresh the managed credential itself instead of racing the first agent launch'
+  )
+  const quotaCall = calls.find((args) => args.includes('quota-axi'))
+  assert.ok(quotaCall)
+  assert.ok(calls.indexOf(authSyncCall) < calls.indexOf(quotaCall), 'credential refresh must finish before quota-axi runs')
+})
+
+test('recognises the semantic weekly Codex window emitted by current quota-axi', async () => {
+  const runtime = createFirstMateRuntime({
+    platform: 'win32',
+    resolveGit: () => 'git.exe',
+    wsl: {
+      run: async (args) => {
+        if (args[3] === '/bin/sh') return { stdout: readyWslInspection(), stderr: '' }
+        return {
+          stdout: quotaAxiReport('codex', [
+            {
+              id: 'weekly',
+              kind: 'weekly',
+              percentRemaining: 91,
+              resetsAt: '2026-08-28T06:31:19.000Z'
+            }
+          ]),
+          stderr: ''
+        }
+      }
+    }
+  })
+
+  const quota = await runtime.quotaStatus('codex')
+
+  assert.equal(quota.state, 'ok')
+  assert.deepEqual(quota.week, { percentRemaining: 91, resetsAt: '2026-08-28T06:31:19.000Z' })
 })
 
 test('reports a neutral unavailable state, not a throw, when quota-axi reports no usable windows (e.g. unauthenticated)', async () => {
