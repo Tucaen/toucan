@@ -1437,15 +1437,40 @@ button {
   text-transform: uppercase;
 }
 
-.chat-auth-panel,
+.chat-auth-panel {
+  position: absolute;
+  z-index: 30;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 22px;
+  background: rgba(8, 11, 15, 0.82);
+  backdrop-filter: blur(5px);
+}
+
+.chat-auth-card,
 .chat-approval-panel {
   display: flex;
   gap: 10px;
-  margin: 12px 0;
   padding: 12px;
   border: 1px solid color-mix(in srgb, var(--node-accent) 42%, #323a45);
   border-radius: 10px;
   background: color-mix(in srgb, var(--node-accent) 7%, #171b22);
+}
+
+.chat-auth-card {
+  width: min(100%, 390px);
+  padding: 18px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.52);
+}
+
+.chat-auth-card > div {
+  min-width: 0;
+  flex: 1;
+}
+
+.chat-approval-panel {
+  margin: 12px 0;
 }
 
 .auth-lock {
@@ -1475,6 +1500,51 @@ button {
   background: #242b36;
   font-size: 11px;
   cursor: pointer;
+}
+
+.chat-auth-panel button:disabled {
+  opacity: 0.56;
+  cursor: default;
+}
+
+.auth-code-form {
+  display: grid;
+  gap: 5px;
+  margin-top: 13px;
+  padding-top: 12px;
+  border-top: 1px solid #303846;
+}
+
+.auth-code-form label {
+  color: #d8dee7;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.auth-code-form small {
+  color: #7f8a98;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.auth-code-form .auth-code-error {
+  color: #ef9a9e;
+}
+
+.auth-code-form > div {
+  display: flex;
+  gap: 6px;
+}
+
+.auth-code-form input {
+  min-width: 0;
+  flex: 1;
+  padding: 6px 8px;
+  border: 1px solid #3a4554;
+  border-radius: 6px;
+  color: #e5e9ef;
+  background: #10151b;
+  font: 11px/1.4 Consolas, monospace;
 }
 
 .chat-approval-panel {

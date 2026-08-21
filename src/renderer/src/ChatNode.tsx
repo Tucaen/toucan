@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { type NodeProps } from '@xyflow/react'
 import ReactMarkdown from 'react-markdown'
@@ -45,6 +45,7 @@ export interface ChatViewProps {
   sendMessage(text: string): void
   cancel(): void
   authenticate(methodId: string): void
+  submitAuthCode(code: string): Promise<boolean>
   openAuthLink(url: string): void
   resolveApproval(approvalId: string, optionId?: string): void
 }
@@ -283,18 +284,43 @@ function Composer(props: Pick<ChatViewProps,
 }
 
 function AuthPanel(
-  props: Pick<ChatViewProps, 'provider' | 'authMethods' | 'authLink' | 'authenticate' | 'openAuthLink'>
+  props: Pick<
+    ChatViewProps,
+    | 'provider'
+    | 'authMethods'
+    | 'authLink'
+    | 'reauthenticating'
+    | 'authenticate'
+    | 'submitAuthCode'
+    | 'openAuthLink'
+  >
 ): JSX.Element {
+  const titleId = useId()
+  const descriptionId = useId()
+  const codeInputId = useId()
+  const [authCode, setAuthCode] = useState('')
+  const [submittingCode, setSubmittingCode] = useState(false)
+  const [codeError, setCodeError] = useState<string>()
+  const dialogProps = {
+    className: 'chat-auth-panel nodrag nopan nowheel',
+    role: 'dialog',
+    'aria-modal': true,
+    'aria-labelledby': titleId,
+    'aria-describedby': descriptionId
+  } as const
+
   // Even with no auth methods to offer (shouldn't happen, but silently rendering nothing would
   // strand the user with only the transient error text below the composer and no visible
   // affordance at all), keep the panel itself always present while auth is required.
   if (props.authMethods.length === 0) {
     return (
-      <section className="chat-auth-panel">
-        <span className="auth-lock">*</span>
+      <section {...dialogProps}>
+        <div className="chat-auth-card">
+          <span className="auth-lock" aria-hidden="true">*</span>
         <div>
-          <strong>Sign in to {providerNames[props.provider]}</strong>
-          <p>No sign-in method is available for this session. Restart the conversation to try again.</p>
+            <strong id={titleId}>Sign in to {providerNames[props.provider]}</strong>
+            <p id={descriptionId}>No sign-in method is available for this session. Restart the conversation to try again.</p>
+          </div>
         </div>
       </section>
     )
@@ -306,22 +332,65 @@ function AuthPanel(
   ))
   const method = subscriptionMethods[0] ?? props.authMethods[0]
   return (
-    <section className="chat-auth-panel">
-      <span className="auth-lock">*</span>
+    <section {...dialogProps}>
+      <div className="chat-auth-card">
+        <span className="auth-lock" aria-hidden="true">*</span>
       <div>
-        <strong>Sign in to {providerNames[props.provider]}</strong>
-        <p>Connect your existing subscription to enable messages and voice input.</p>
-        <button type="button" onClick={() => props.authenticate(method.id)}>
-          {method.name}
+          <strong id={titleId}>Sign in to {providerNames[props.provider]}</strong>
+          <p id={descriptionId}>Connect your existing subscription to enable messages and voice input.</p>
+          <button
+            type="button"
+            disabled={props.reauthenticating}
+            onClick={() => props.authenticate(method.id)}
+          >
+            {props.reauthenticating ? 'Signing in…' : method.name}
         </button>
         {props.authLink && (
+            <>
           <p className="auth-link">
-            Waiting for you to finish signing in.{' '}
+                Finish signing in in your browser.{' '}
             <button type="button" className="auth-link-button" onClick={() => props.openAuthLink(props.authLink!)}>
               Open the sign-in link again
             </button>
           </p>
+              {method.type === 'terminal' && props.reauthenticating && (
+                <form
+                  className="auth-code-form"
+                  onSubmit={(event) => {
+                    event.preventDefault()
+                    const code = authCode.trim()
+                    if (!code || submittingCode) return
+                    setCodeError(undefined)
+                    setSubmittingCode(true)
+                    void props.submitAuthCode(code).then((sent) => {
+                      if (sent) setAuthCode('')
+                      else setCodeError('ADE could not send the code. Start sign-in again and retry.')
+                      setSubmittingCode(false)
+                    })
+                  }}
+                >
+                  <label htmlFor={codeInputId}>Paste the code shown in your browser</label>
+                  <small>Only needed if the browser asks you to paste a code back into ADE.</small>
+                  <div>
+                    <input
+                      id={codeInputId}
+                      type="text"
+                      autoComplete="one-time-code"
+                      spellCheck="false"
+                      autoFocus
+                      value={authCode}
+                      onChange={(event) => setAuthCode(event.target.value)}
+                    />
+                    <button type="submit" disabled={submittingCode || !authCode.trim()}>
+                      {submittingCode ? 'Submitting…' : 'Submit code'}
+                    </button>
+                  </div>
+                  {codeError && <small className="auth-code-error" role="alert">{codeError}</small>}
+                </form>
         )}
+            </>
+          )}
+        </div>
       </div>
     </section>
   )
@@ -478,13 +547,12 @@ export function ChatView(props: ChatViewProps & {
   statusBar?: ReactNode
 }): JSX.Element {
   const workItemCount = props.activities.length + props.plan.length
+  const authVisible = props.status === 'auth_required' || props.reauthenticating
   const { ref: scrollRef, onScroll } = useStickToBottom([props.messages, props.approval, props.status])
   return (
     <div className={`agent-chat ${props.worklogCollapsed ? 'worklog-collapsed' : ''} ${props.statusBar ? 'has-status-bar' : ''}`}>
       <div className="chat-scroll nodrag nopan nowheel" ref={scrollRef} onScroll={onScroll}>
-        {props.status === 'auth_required' || props.reauthenticating
-          ? <AuthPanel {...props} />
-          : props.messages.length === 0 && (props.empty
+        {!authVisible && props.messages.length === 0 && (props.empty
             ? (
               <div className="chat-empty">
                 <span>{props.empty.icon}</span>
@@ -545,6 +613,7 @@ export function ChatView(props: ChatViewProps & {
       </aside>
       {props.statusBar && <div className="agent-chat-status-bar">{props.statusBar}</div>}
       <Composer {...props} />
+      {authVisible && <AuthPanel {...props} />}
     </div>
   )
 }

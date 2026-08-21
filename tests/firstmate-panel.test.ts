@@ -23,15 +23,11 @@ test('renders the WSL crew backend as informational rather than a warning', () =
   assert.doesNotMatch(infoRule, /#c9ad68|#211d14|#4f4529/i, 'the informational style must not use the warning palette')
 })
 
+// The renderer half of this behavior (the auth overlay rendering as a dedicated aria-modal
+// dialog while status is auth_required or reauthenticating) is exercised for real via
+// role=dialog/aria-modal assertions in chat-auth-panel.dom.test.tsx.
 test('offers one actionable Codex sign-in state when FirstMate authentication is required', () => {
   const panel = readFileSync(join(process.cwd(), 'src/renderer/src/FirstMatePanel.tsx'), 'utf8')
-  const chat = readFileSync(join(process.cwd(), 'src/renderer/src/ChatNode.tsx'), 'utf8')
-
-  assert.match(
-    chat,
-    /props\.status === ['"]auth_required['"]\s*\?\s*<AuthPanel[\s\S]*?\:\s*props\.messages\.length === 0/,
-    'auth-required should replace the full-height empty state so its sign-in button is immediately visible'
-  )
 
   const statusLabelUses = panel.match(/statusLabel\(conversation\.status\)/g) ?? []
   assert.equal(statusLabelUses.length, 1, 'FirstMate should show the auth status in only one place')

@@ -1,8 +1,9 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
+import { Writable } from 'node:stream'
 import type { AgentPromptResult } from '../src/shared/agent'
 import { createCaptainWakeGate } from '../src/main/firstmate-captain-wake'
-import { extractLoginUrl, promptFailure, promptGuard } from '../src/main/acp-session-manager'
+import { extractLoginUrl, promptFailure, promptGuard, writeAuthCode } from '../src/main/acp-session-manager'
 
 test('turns prompt-level ACP authentication failures into an actionable sign-in state', () => {
   const methods = [{ id: 'claude-ai-login', name: 'Claude Subscription', type: 'terminal' as const }]
@@ -116,4 +117,26 @@ test('extractLoginUrl finds the OAuth URL in a terminal-auth CLI\'s "click here"
 
 test('extractLoginUrl returns undefined for plain status text with no URL', () => {
   assert.equal(extractLoginUrl('Waiting for you to complete authentication in the browser...'), undefined)
+})
+
+test('writes the browser paste-back code to the live terminal-auth stdin', async () => {
+  let written = ''
+  const input = new Writable({
+    write(chunk, _encoding, callback) {
+      written += chunk.toString()
+      callback()
+    }
+  })
+
+  const result = await writeAuthCode(input, '  oauth-code-from-browser  ')
+
+  assert.deepEqual(result, { ok: true })
+  assert.equal(written, 'oauth-code-from-browser\n')
+})
+
+test('refuses a paste-back code when no terminal-auth process is waiting', async () => {
+  assert.deepEqual(await writeAuthCode(undefined, 'oauth-code-from-browser'), {
+    ok: false,
+    message: 'No sign-in process is waiting for a code.'
+  })
 })

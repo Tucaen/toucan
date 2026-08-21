@@ -87,6 +87,9 @@ const agentApi = {
   authenticate: (id: string, methodId: string): Promise<AgentCreateResult> => (
     ipcRenderer.invoke('agent:authenticate', id, methodId)
   ),
+  submitAuthCode: (id: string, code: string): Promise<AgentPromptResult> => (
+    ipcRenderer.invoke('agent:submit-auth-code', id, code)
+  ),
   openAuthLink: (url: string): Promise<void> => ipcRenderer.invoke('agent:open-auth-link', url),
   resolveApproval: (id: string, approvalId: string, optionId?: string): void => (
     ipcRenderer.send('agent:approval', id, approvalId, optionId)
