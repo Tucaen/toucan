@@ -29,6 +29,7 @@ import type {
   AgentPromptResult
 } from '../shared/agent'
 import { activityFromUpdate } from '../shared/agent-activity'
+import { agentPermissionTitle } from '../shared/agent-permission'
 import { modelSelectorFromConfigOptions } from '../shared/agent-models'
 import { StallTimeoutError, withStallGuard } from '../shared/stall-guard'
 import { buildAgentProcessLaunch, type AgentProcessLaunch } from './agent-process'
@@ -549,7 +550,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
           send(running, {
             type: 'approval',
             approvalId,
-            title: params.toolCall.title ?? 'Permission requested',
+            title: agentPermissionTitle(params.toolCall),
             options
           })
           return new Promise((resolve) => pendingApprovals.set(approvalId, { resolve }))
