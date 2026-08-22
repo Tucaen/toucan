@@ -2069,7 +2069,7 @@ button {
 
 .firstmate-provider-tabs {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 5px;
   padding: 7px 9px 0;
   border-bottom: 1px solid #29313b;
@@ -2200,7 +2200,7 @@ button {
 
 .firstmate-settings-bar {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   padding: 8px 10px;
   border-bottom: 1px solid #29313b;
