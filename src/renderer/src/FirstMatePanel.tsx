@@ -35,6 +35,57 @@ const FIRSTMATE_PROVIDERS = [
   { id: 'claude', name: 'Claude' }
 ] as const
 
+interface FirstMateCaptainSelectorsProps {
+  models: Parameters<typeof SelectorPicker>[0]['options']
+  selectedModelId?: string
+  efforts: Parameters<typeof SelectorPicker>[0]['options']
+  selectedEffortId?: string
+  modes: Parameters<typeof SelectorPicker>[0]['options']
+  selectedModeId?: string
+  disabled: boolean
+  selectModel(modelId: string): void
+  selectEffort(effortId: string): void
+  selectMode(modeId: string): void
+}
+
+/** Captain controls in their fixed visual/tab order. */
+export function FirstMateCaptainSelectors(props: FirstMateCaptainSelectorsProps): JSX.Element {
+  return (
+    <>
+      <label>
+        <span>Model</span>
+        <SelectorPicker
+          kind="model"
+          options={props.models}
+          selectedId={props.selectedModelId}
+          disabled={props.disabled}
+          select={props.selectModel}
+        />
+      </label>
+      <label>
+        <span>Thinking</span>
+        <SelectorPicker
+          kind="effort"
+          options={props.efforts}
+          selectedId={props.selectedEffortId}
+          disabled={props.disabled}
+          select={props.selectEffort}
+        />
+      </label>
+      <label>
+        <span>Permissions</span>
+        <SelectorPicker
+          kind="permission"
+          options={props.modes}
+          selectedId={props.selectedModeId}
+          disabled={props.disabled}
+          select={props.selectMode}
+        />
+      </label>
+    </>
+  )
+}
+
 interface FirstMateProviderTabsProps {
   activeProvider: AgentProvider
   switchingDisabled: boolean
@@ -323,6 +374,7 @@ export default function FirstMatePanel({ projects, project, state, onStateChange
     sessionId: captain.conversationId,
     permissionMode: captain.permissionMode,
     modelId: captain.modelId,
+    effortId: captain.effortId,
     restartKey: sessionGenerations[provider] ?? 0,
     composePrompt: async (text) => {
       const requestProjects = await Promise.all(projects.map(async (catalogProject) => ({
@@ -334,13 +386,15 @@ export default function FirstMatePanel({ projects, project, state, onStateChange
       setRegistrationError(activeRegistration?.ok ? undefined : activeRegistration?.message)
       return firstMateRequest(requestProjects, project.id, text, {
         provider,
-        model: captain.modelId
+        model: captain.modelId,
+        effort: captain.effortId
       })
     },
     enabled: runtime?.state === 'ready' && (provider !== 'codex' || runtime.codexProjectTrust === 'trusted'),
     onSessionId: (conversationId) => updateCaptain({ conversationId }),
     onPermissionMode: (permissionMode) => updateCaptain({ permissionMode }),
-    onModel: (modelId) => updateCaptain({ modelId })
+    onModel: (modelId) => updateCaptain({ modelId }),
+    onEffort: (effortId) => updateCaptain({ effortId })
   })
 
   const runSetup = (action: () => Promise<FirstMateInstallResult>): void => {
@@ -646,26 +700,18 @@ export default function FirstMatePanel({ projects, project, state, onStateChange
             </div>
           )}
           <div className="firstmate-settings-bar">
-            <label>
-              <span>Model</span>
-              <SelectorPicker
-                kind="model"
-                options={conversation.models?.availableModels ?? []}
-                selectedId={conversation.models?.currentModelId}
-                disabled={conversation.selectorsDisabled}
-                select={conversation.selectModel}
-              />
-            </label>
-            <label>
-              <span>Permissions</span>
-              <SelectorPicker
-                kind="permission"
-                options={conversation.modes?.availableModes ?? []}
-                selectedId={conversation.modes?.currentModeId}
-                disabled={conversation.selectorsDisabled}
-                select={conversation.selectMode}
-              />
-            </label>
+            <FirstMateCaptainSelectors
+              models={conversation.models?.availableModels ?? []}
+              selectedModelId={conversation.models?.currentModelId}
+              efforts={conversation.efforts?.availableEfforts ?? []}
+              selectedEffortId={conversation.efforts?.currentEffortId}
+              modes={conversation.modes?.availableModes ?? []}
+              selectedModeId={conversation.modes?.currentModeId}
+              disabled={conversation.selectorsDisabled}
+              selectModel={conversation.selectModel}
+              selectEffort={conversation.selectEffort}
+              selectMode={conversation.selectMode}
+            />
             <label>
               <span>Context</span>
               <UsageStat usage={conversation.usage} />

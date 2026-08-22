@@ -131,6 +131,19 @@ test('delivers a machine-readable catalog with the active sidebar project marked
   assert.match(prompt, /The activeProjectHint is a hint only/)
 })
 
+test('carries selected captain effort into both task launch/profile commands', () => {
+  const selected = firstMateRequest(
+    [requestProject(alpha)], alpha.id, 'Ship the API',
+    { provider: 'codex', model: 'gpt-5.6-sol', effort: 'high' }
+  )
+  const existingDefault = firstMateRequest(
+    [requestProject(alpha)], alpha.id, 'Ship the API', { provider: 'codex', model: 'gpt-5.6-sol' }
+  )
+
+  assert.match(selected, /pass "high" as `--effort` to both `fm-brief\.sh` and `fm-spawn\.sh`/)
+  assert.match(existingDefault, /omit `--effort` from both commands so the harness keeps its existing default effort/)
+})
+
 test('a fake captain can pin a non-active project at dispatch', () => {
   const prompt = firstMateRequest(
     [requestProject(alpha), requestProject(beta)],

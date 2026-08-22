@@ -38,7 +38,8 @@ test('saves and loads a valid workspace through the store', () => {
         codex: {
           conversationId: 'codex-firstmate-session',
           permissionMode: 'read-only',
-          modelId: 'gpt-5'
+          modelId: 'gpt-5',
+          effortId: 'high'
         },
         claude: {
           conversationId: 'claude-firstmate-session',
@@ -84,6 +85,24 @@ test('migrates the old singleton FirstMate captain into its selected provider ta
     },
     worklogCollapsed: true,
     panelWidth: 448
+  })
+})
+
+test('loads a saved tabbed captain without effort using the existing provider default', () => {
+  const migrated = parseWorkspaceState({
+    version: 2,
+    projects: [{ id: 'project-1', name: 'ADE', path: 'D:\\Development\\ADE', color: '#71a9ff' }],
+    activeProjectId: 'project-1',
+    sidebarCollapsed: false,
+    firstMate: {
+      activeProvider: 'codex',
+      captains: { codex: { conversationId: 'existing-session', modelId: 'gpt-5' } }
+    },
+    nodes: []
+  })
+
+  assert.deepEqual(migrated?.firstMate?.captains?.codex, {
+    conversationId: 'existing-session', modelId: 'gpt-5'
   })
 })
 
