@@ -154,7 +154,12 @@ export function SelectorPicker(props: {
             setOpen(false)
           }}
         >
-          <strong>{option.name}</strong>
+          <strong>
+            {option.name}
+            {option.id === props.selectedId && (
+              <i className="node-picker-selected-marker" aria-hidden="true" />
+            )}
+          </strong>
           {option.description && <span>{option.description}</span>}
         </button>
       ))}

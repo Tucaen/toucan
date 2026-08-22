@@ -1095,10 +1095,14 @@ button {
   background: #252c37;
 }
 
-.node-picker-menu > button[data-selected="true"] strong::after {
+.node-picker-selected-marker {
+  width: 5px;
+  height: 9px;
+  display: inline-block;
   margin-left: 6px;
-  color: #74d8a2;
-  content: "âœ“";
+  border-right: 2px solid #74d8a2;
+  border-bottom: 2px solid #74d8a2;
+  transform: rotate(45deg);
 }
 
 .node-picker-menu strong,
