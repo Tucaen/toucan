@@ -45,7 +45,8 @@ test('restores saved canvas nodes and ignores nodes whose project is gone', () =
   })
 
   assert.equal(restored.nodes.length, 1)
-  assert.equal(restored.nodes[0].data.dormant, true)
+  assert.equal(restored.nodes[0].data.dormant, false)
+  assert.equal(restored.statuses['node-1'], 'starting')
   assert.equal(restored.nodes[0].data.projectPath, 'D:\\Development\\ADE')
   assert.equal(restored.nodes[0].data.worklogCollapsed, true)
   assert.equal(restored.nodes[0].data.preferredPermissionMode, 'read-only')
@@ -53,6 +54,36 @@ test('restores saved canvas nodes and ignores nodes whose project is gone', () =
   assert.equal(restored.nextSessionNumber, 8)
   assert.equal(restored.activeProjectId, 'project-1')
   assert.deepEqual(serializeCanvasNode(restored.nodes[0]), state.nodes[0])
+})
+
+test('keeps restored terminal processes dormant until explicitly opened', () => {
+  const state: WorkspaceState = {
+    version: 2,
+    projects: [{ id: 'project-1', name: 'ADE', path: 'D:\\Development\\ADE', color: '#71a9ff' }],
+    activeProjectId: 'project-1',
+    sidebarCollapsed: false,
+    nodes: [{
+      id: 'terminal-1',
+      kind: 'terminal',
+      label: 'Terminal 1',
+      projectId: 'project-1',
+      position: { x: 0, y: 0 },
+      width: 520,
+      height: 340
+    }]
+  }
+  const restored = restoreCanvasWorkspace(state, {
+    onStatusChange: () => undefined,
+    onConversationId: () => undefined,
+    onPreview: () => undefined,
+    onWorklogCollapsed: () => undefined,
+    onPermissionModeChange: () => undefined,
+    onModelChange: () => undefined,
+    onResume: () => undefined
+  })
+
+  assert.equal(restored.nodes[0].data.dormant, true)
+  assert.equal(restored.statuses['terminal-1'], 'dormant')
 })
 
 test('starts legacy agent worklogs collapsed while preserving an explicit expanded choice', () => {

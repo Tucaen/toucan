@@ -69,6 +69,10 @@ export function restoreCanvasWorkspace(
   const nodes = state.nodes.flatMap<TerminalCanvasNode>((savedNode) => {
     const project = state.projects.find((candidate) => candidate.id === savedNode.projectId)
     if (!project) return []
+    // Loading an ACP conversation only replays its stored history; it does not send
+    // a model prompt or consume tokens. Restore chat nodes live so their history is
+    // visible immediately, while real terminal processes remain explicitly resumed.
+    const dormant = savedNode.kind === 'terminal'
     return [{
       id: savedNode.id,
       type: 'terminalNode',
@@ -87,7 +91,7 @@ export function restoreCanvasWorkspace(
           ? undefined
           : state.agentPermissionModes?.[savedNode.kind],
         modelId: savedNode.kind === 'terminal' ? undefined : savedNode.modelId,
-        dormant: true,
+        dormant,
         launchMode: 'resume',
         ...callbacks
       },
@@ -101,7 +105,10 @@ export function restoreCanvasWorkspace(
 
   return {
     nodes,
-    statuses: Object.fromEntries(nodes.map((node) => [node.id, 'dormant' as TerminalNodeStatus])),
+    statuses: Object.fromEntries(nodes.map((node) => [
+      node.id,
+      node.data.dormant ? 'dormant' as const : 'starting' as const
+    ])),
     nextSessionNumber: highestSessionNumber + 1,
     activeProjectId: state.projects.some((project) => project.id === state.activeProjectId)
       ? state.activeProjectId!
