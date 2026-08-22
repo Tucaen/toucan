@@ -25,7 +25,8 @@ test('updates one captain without changing the other provider or dock presentati
 
   const updated = firstMateWithCaptainState(state, 'claude', {
     conversationId: 'new-claude-session',
-    permissionMode: 'bypassPermissions'
+    permissionMode: 'bypassPermissions',
+    effortId: 'max'
   })
 
   assert.deepEqual(updated, {
@@ -35,7 +36,8 @@ test('updates one captain without changing the other provider or dock presentati
       claude: {
         conversationId: 'new-claude-session',
         modelId: 'opus',
-        permissionMode: 'bypassPermissions'
+        permissionMode: 'bypassPermissions',
+        effortId: 'max'
       }
     }
   })

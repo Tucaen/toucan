@@ -40,6 +40,7 @@ function isCaptainState(value: unknown): value is FirstMateCaptainWorkspaceState
   return isOptionalString(captain.conversationId)
     && isOptionalString(captain.permissionMode)
     && isOptionalString(captain.modelId)
+    && isOptionalString(captain.effortId)
 }
 
 function isFirstMateWorkspaceState(value: unknown): value is FirstMateWorkspaceState {
@@ -69,7 +70,7 @@ function isFirstMateWorkspaceState(value: unknown): value is FirstMateWorkspaceS
 function normalizedFirstMateWorkspaceState(value: unknown): FirstMateWorkspaceState | null {
   if (!value || typeof value !== 'object') return null
   const legacy = value as Record<string, unknown>
-  const hasLegacyCaptain = ['provider', 'conversationId', 'permissionMode', 'modelId']
+  const hasLegacyCaptain = ['provider', 'conversationId', 'permissionMode', 'modelId', 'effortId']
     .some((key) => Object.prototype.hasOwnProperty.call(legacy, key))
   const hasTabbedCaptain = Object.prototype.hasOwnProperty.call(legacy, 'activeProvider')
     || Object.prototype.hasOwnProperty.call(legacy, 'captains')
@@ -81,12 +82,14 @@ function normalizedFirstMateWorkspaceState(value: unknown): FirstMateWorkspaceSt
   if (provider !== 'codex' && provider !== 'claude') return null
   if (!isOptionalString(legacy.conversationId)
     || !isOptionalString(legacy.permissionMode)
-    || !isOptionalString(legacy.modelId)) return null
+    || !isOptionalString(legacy.modelId)
+    || !isOptionalString(legacy.effortId)) return null
 
   const captain: FirstMateCaptainWorkspaceState = {
     ...(legacy.conversationId ? { conversationId: legacy.conversationId } : {}),
     ...(legacy.permissionMode ? { permissionMode: legacy.permissionMode } : {}),
-    ...(legacy.modelId ? { modelId: legacy.modelId } : {})
+    ...(legacy.modelId ? { modelId: legacy.modelId } : {}),
+    ...(legacy.effortId ? { effortId: legacy.effortId } : {})
   }
   const migrated: FirstMateWorkspaceState = {
     activeProvider: provider,

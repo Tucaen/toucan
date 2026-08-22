@@ -31,6 +31,7 @@ export interface AgentApi {
   promptWhenIdle(id: string, content: AgentPromptContent): Promise<AgentPromptResult>
   setMode(id: string, modeId: string): Promise<AgentPromptResult>
   setModel(id: string, modelId: string): Promise<AgentPromptResult>
+  setEffort(id: string, effortId: string): Promise<AgentPromptResult>
   authenticate(id: string, methodId: string): Promise<AgentCreateResult>
   submitAuthCode(id: string, code: string): Promise<AgentPromptResult>
   openAuthLink(url: string): Promise<void>

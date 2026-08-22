@@ -1,7 +1,7 @@
-import { fireEvent, render, renderHook, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, renderHook, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, test, vi } from 'vitest'
 import { SelectorPicker } from '../src/renderer/src/ChatNode'
-import { FirstMateProviderTabs } from '../src/renderer/src/FirstMatePanel'
+import { FirstMateCaptainSelectors, FirstMateProviderTabs } from '../src/renderer/src/FirstMatePanel'
 import { useAgentConversation } from '../src/renderer/src/use-agent-conversation'
 import { createMockAgentApi } from './dom/agent-api-mock'
 
@@ -97,6 +97,55 @@ test('the currently selected option is marked distinctly from the rest', () => {
 
   expect(screen.getByRole('option', { name: /Opus/ })).toHaveAttribute('aria-selected', 'false')
   expect(screen.getByRole('option', { name: /Sonnet/ })).toHaveAttribute('aria-selected', 'true')
+})
+
+test('captain selectors place thinking directly between model and permissions', () => {
+  const { container } = render(<div className="firstmate-settings-bar">
+    <FirstMateCaptainSelectors
+      models={[{ id: 'gpt-5', name: 'GPT-5' }]}
+      selectedModelId="gpt-5"
+      efforts={[{ id: 'high', name: 'High' }]}
+      selectedEffortId="high"
+      modes={[{ id: 'agent', name: 'Agent' }]}
+      selectedModeId="agent"
+      disabled={false}
+      selectModel={vi.fn()}
+      selectEffort={vi.fn()}
+      selectMode={vi.fn()}
+    />
+  </div>)
+
+  expect(Array.from(container.querySelectorAll('label > span')).map((label) => label.textContent))
+    .toEqual(['Model', 'Thinking', 'Permissions'])
+})
+
+test('selecting captain effort applies and persists the advertised option', async () => {
+  const onEffort = vi.fn()
+  const setEffort = vi.fn(async () => ({ ok: true }))
+  const { api } = createMockAgentApi({
+    create: vi.fn(async () => ({
+      ok: true,
+      status: 'ready' as const,
+      efforts: {
+        currentEffortId: 'medium',
+        availableEfforts: [{ id: 'medium', name: 'Medium' }, { id: 'high', name: 'High' }]
+      }
+    })),
+    setEffort
+  })
+  window.agentApi = api
+  const { result } = renderHook(() => useAgentConversation({
+    id: 'captain-effort', provider: 'codex', cwd: '/project', enabled: true,
+    effortId: 'medium', onSessionId: vi.fn(), onPermissionMode: vi.fn(), onModel: vi.fn(), onEffort
+  }))
+
+  await waitFor(() => expect(result.current.efforts?.currentEffortId).toBe('medium'))
+  expect(api.create).toHaveBeenCalledWith(expect.objectContaining({ effortId: 'medium' }))
+  await act(async () => result.current.selectEffort('high'))
+  await waitFor(() => expect(result.current.efforts?.currentEffortId).toBe('high'))
+
+  expect(setEffort).toHaveBeenCalledWith('captain-effort', 'high')
+  expect(onEffort).toHaveBeenCalledWith('high')
 })
 
 test('selectorsDisabled only blocks the starting/exited window, not authentication', async () => {

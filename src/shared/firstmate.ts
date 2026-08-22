@@ -258,6 +258,8 @@ export interface FirstMateCaptainWorkspaceState {
   conversationId?: string
   permissionMode?: string
   modelId?: string
+  /** Provider/model-specific thought level selected from the captain agent's ACP capabilities. */
+  effortId?: string
 }
 
 export interface FirstMateWorkspaceState {

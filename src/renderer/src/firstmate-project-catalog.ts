@@ -29,6 +29,8 @@ export interface FirstMateRequestProject {
 export interface FirstMateRequestOptions {
   provider: AgentProvider
   model?: string
+  /** Current provider/model effort; absent preserves the harness/profile default. */
+  effort?: string
 }
 
 export function firstMateProjectHint(project: WorkspaceProject): FirstMateProjectHint {
@@ -116,7 +118,7 @@ export function firstMateProjectCatalog(
   }
 }
 
-function dispatchContract(): string {
+function dispatchContract(effort?: string): string {
   return [
     'The activeProjectHint is a hint only. It never prevents selecting another projects entry.',
     'You remain the author of semantic ship and scout briefs and the scheduler of crew work. Use the existing managed brief, scheduler, worktree, and spawn machinery; ADE is not a competing scheduler.',
@@ -129,6 +131,9 @@ function dispatchContract(): string {
     '- for a ship, pass that entry\'s autonomyPolicy as `--yolo` to both commands;',
     '- for a scout, pass `--scout` to both commands and do not pass ship-only mode or autonomy flags;',
     '- pass the catalog validator agent as `--harness`; omit `--model` when its value is `default`, otherwise pass it explicitly;',
+    effort
+      ? `- pass ${JSON.stringify(effort)} as \`--effort\` to both \`fm-brief.sh\` and \`fm-spawn.sh\`; this is the selected captain launch/profile effort;`
+      : '- omit `--effort` from both commands so the harness keeps its existing default effort;',
     '- after spawn, append only that selected entry\'s exact taskContextMetadata to durable `state/<id>.meta`, preserving existing metadata and publishing atomically before dispatch completes.',
     'That carrier, not this request\'s active hint or any later sidebar/provider selection, is authoritative for supervision, recovery, validation, and completion reporting.'
   ].join('\n')
@@ -148,7 +153,7 @@ export function firstMateRequest(
     JSON.stringify(catalog),
     '</ade-project-catalog>',
     '',
-    dispatchContract(),
+    dispatchContract(options.effort),
     '',
     text
   ].join('\n')
