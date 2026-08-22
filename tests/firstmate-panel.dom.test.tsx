@@ -99,6 +99,31 @@ test('the currently selected option is marked distinctly from the rest', () => {
   expect(screen.getByRole('option', { name: /Sonnet/ })).toHaveAttribute('aria-selected', 'true')
 })
 
+test('thinking effort renders one non-text selected marker only in the open menu', () => {
+  render(<SelectorPicker
+    kind="effort"
+    options={[
+      { id: 'low', name: 'Low', description: 'Faster responses' },
+      { id: 'high', name: 'High', description: 'Deeper reasoning' }
+    ]}
+    selectedId="low"
+    disabled={false}
+    select={vi.fn()}
+  />)
+
+  const trigger = screen.getByRole('button', { name: 'Low' })
+  expect(trigger).not.toHaveTextContent(/â|œ|✓/)
+  expect(document.querySelector('.node-picker-selected-marker')).toBeNull()
+
+  fireEvent.click(trigger)
+
+  const selected = screen.getByRole('option', { name: /Low/ })
+  const unselected = screen.getByRole('option', { name: /High/ })
+  expect(selected.querySelector('.node-picker-selected-marker')).toHaveAttribute('aria-hidden', 'true')
+  expect(unselected.querySelector('.node-picker-selected-marker')).toBeNull()
+  expect(screen.getByRole('listbox')).not.toHaveTextContent(/â|œ|✓/)
+})
+
 test('captain selectors place thinking directly between model and permissions', () => {
   const { container } = render(<div className="firstmate-settings-bar">
     <FirstMateCaptainSelectors
