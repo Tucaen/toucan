@@ -61,6 +61,23 @@ describe('Composer disabled state', () => {
   })
 })
 
+test('working and expired-queue notices render together above the bordered input row', () => {
+  const expired = 'A queued message expired because the agent did not become idle in time.'
+  renderChatView({ status: 'working', detail: expired, draft: 'user-entered text' })
+
+  const textarea = screen.getByRole('textbox')
+  const notices = screen.getByRole('status')
+  const inputRow = textarea.closest('.chat-composer-row')
+
+  expect(textarea).toHaveValue('user-entered text')
+  expect(textarea).toHaveAttribute('placeholder', 'Message the agent...')
+  expect(notices).toHaveTextContent(expired)
+  expect(notices).toHaveTextContent('Agent is working... your message will be queued')
+  expect(notices).toHaveClass('composer-notices')
+  expect(notices.compareDocumentPosition(inputRow as Node) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(inputRow).not.toContainElement(notices)
+})
+
 test('a queued message renders a queued-badge distinguishing it from a delivered one', () => {
   renderChatView({
     messages: [
