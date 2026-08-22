@@ -230,8 +230,8 @@ function AttachmentPreview(
   )
 }
 
-function Composer(props: Pick<ChatViewProps,
-  'draft' | 'setDraft' | 'submit' | 'cancel' | 'status' | 'imageSupport' | 'attachments' | 'addImages' | 'removeAttachment'
+export function Composer(props: Pick<ChatViewProps,
+  'draft' | 'setDraft' | 'submit' | 'cancel' | 'status' | 'detail' | 'imageSupport' | 'attachments' | 'addImages' | 'removeAttachment'
 >): JSX.Element {
   const busy = props.status === 'working'
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -256,6 +256,12 @@ function Composer(props: Pick<ChatViewProps,
       {pasteBlocked && (
         <small className="composer-paste-blocked">This agent doesn't support image attachments.</small>
       )}
+      {(props.detail || busy) && (
+        <div className="composer-notices" role="status" aria-live="polite">
+          {props.detail && <small className="composer-status">{props.detail}</small>}
+          {busy && <small className="composer-queue-hint">Agent is working... your message will be queued</small>}
+        </div>
+      )}
       <div className="chat-composer-row">
         <textarea
           ref={textareaRef}
@@ -271,7 +277,7 @@ function Composer(props: Pick<ChatViewProps,
               event.currentTarget.form?.requestSubmit()
             }
           }}
-          placeholder={busy ? 'Agent is working... your message will be queued' : 'Message the agent...'}
+          placeholder="Message the agent..."
           disabled={composerDisabled}
         />
         <VoiceInputPrototype
@@ -618,7 +624,7 @@ export function ChatView(props: ChatViewProps & {
         )}
       </aside>
       {props.statusBar && <div className="agent-chat-status-bar">{props.statusBar}</div>}
-      <Composer {...props} />
+      <Composer {...props} detail={authVisible ? undefined : props.detail} />
       {authVisible && <AuthPanel {...props} />}
     </div>
   )
@@ -753,7 +759,6 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
             worklogCollapsed={data.worklogCollapsed}
             setWorklogCollapsed={(collapsed) => data.onWorklogCollapsed(id, collapsed)}
           />
-          {detail && <div className="chat-detail" title={detail}>{detail}</div>}
         </>
       )}
     </article>

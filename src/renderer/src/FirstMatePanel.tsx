@@ -849,9 +849,6 @@ export default function FirstMatePanel({ projects, project, state, onStateChange
               )}
             />
           </div>
-          {conversation.detail && conversation.status !== 'auth_required' && (
-            <div className="firstmate-detail" title={conversation.detail}>{conversation.detail}</div>
-          )}
         </>
       ) : (
         <RuntimeSetup runtime={runtime} installing={installing} install={install} repair={repair} />
