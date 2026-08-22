@@ -501,7 +501,7 @@ function ChatMessageCard(
       <div>
         <Markdown text={message.text} />
         {message.failed
-          ? <small className="failed-badge">Not sent — delivery failed or timed out</small>
+          ? <small className="failed-badge">Not sent — delivery was rejected</small>
           : message.queued && <small className="queued-badge">Queued — will send once the agent is free</small>}
         {tone === 'decision' && options.length >= 2 && (
           <DecisionOptions options={options} sendMessage={props.sendMessage} status={props.status} />

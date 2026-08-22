@@ -60,6 +60,8 @@ interface RunningAgent {
   cachedModels?: AgentModelState
   /** Whether the agent's `initialize` handshake advertised `promptCapabilities.image`. */
   imageSupport: boolean
+  /** Whether the adapter can inject a prompt into the active turn at its own safe boundary. */
+  steeringSupport: boolean
   sessionId?: string
   modelConfigId?: string
   effortConfigId?: string
@@ -107,6 +109,30 @@ export function imageCapabilityGuard(
 export function promptGuard(running: { authRequired: boolean }): AgentPromptResult | null {
   if (!running.authRequired) return null
   return { ok: false, message: 'Sign in to Claude to continue this conversation.' }
+}
+
+type SteeringResponse = { outcome?: 'injected' | 'startedNewTurn' | 'failed' }
+
+/**
+ * Injects one accepted captain message into an in-flight ACP turn. The adapter owns the exact
+ * safe boundary: it can steer between tool calls immediately, while a single non-yielding tool
+ * may delay observation beyond 60 seconds without turning that wait into a delivery failure.
+ */
+export async function deliverSteeredPrompt(
+  request: (method: string, params: { sessionId: string; prompt: ContentBlock[] }) => Promise<SteeringResponse>,
+  sessionId: string,
+  content: AgentPromptContent
+): Promise<AgentPromptResult> {
+  try {
+    const response = await request('_session/steering', {
+      sessionId,
+      prompt: toPromptBlocks(content) as ContentBlock[]
+    })
+    if (response.outcome === 'injected' || response.outcome === 'startedNewTurn') return { ok: true }
+    return { ok: false, message: 'The agent could not accept the queued message.' }
+  } catch (error) {
+    return { ok: false, message: errorMessage(error) }
+  }
 }
 
 const LOGIN_URL_PATTERN = /https?:\/\/[^\s<>"')]+/
@@ -678,16 +704,11 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         busy: false,
         stopping: false,
         authRequired: false,
-        imageSupport: false
+        imageSupport: false,
+        steeringSupport: false
       }
       running.wakeGate = createCaptainWakeGate<AgentPromptContent>({
-        deliver: (content) => runPrompt(request.id, content),
-        onExpired: () => {
-          send(running, {
-            type: 'error',
-            message: 'A queued message expired because the agent did not become idle in time.'
-          })
-        }
+        deliver: (content) => runPrompt(request.id, content)
       })
       agents.set(request.id, running)
 
@@ -715,6 +736,8 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         })
         running.authMethods = (initialized.authMethods ?? []).map(simplifyAuthMethod)
         running.imageSupport = initialized.agentCapabilities?.promptCapabilities?.image ?? false
+        const initializeMeta = initialized._meta as { steering?: { supported?: boolean } } | undefined
+        running.steeringSupport = initializeMeta?.steering?.supported === true
         return await openSession(running)
       } catch (error) {
         const message = errorMessage(error)
@@ -731,6 +754,13 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       if (!running?.sessionId) return { ok: false, message: 'The agent session is not ready.' }
       if (!running.wakeGate) return runPrompt(id, content)
       if (!running.busy) return runPrompt(id, content)
+      if (running.steeringSupport) {
+        return deliverSteeredPrompt(
+          (method, params) => running.context.request<SteeringResponse, typeof params>(method, params),
+          running.sessionId,
+          content
+        )
+      }
       return running.wakeGate.enqueue(content)
     },
 
@@ -916,6 +946,9 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
     cancel(id): void {
       const running = agents.get(id)
       if (!running?.sessionId) return
+      // Stop is also an explicit queue reconciliation boundary for adapters without steering.
+      // The active prompt's finally drains pre-existing messages after cancellation settles.
+      running.wakeGate?.checkpoint(true)
       void running.context.notify(methods.agent.session.cancel, { sessionId: running.sessionId })
     },
 

@@ -44,57 +44,62 @@ test('multiple enqueues form a FIFO queue: every message is delivered, in order,
   gate.dispose()
 })
 
-test('timeout expires a pending wake with a visible failure outcome', async () => {
-  let expiredText: string | undefined
+test('a queued wake crossing the checkpoint target remains pending until a safe boundary', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  let checkpoints = 0
+  let settled = false
   const gate = createCaptainWakeGate({
     deliver: async () => ({ ok: true }),
-    onExpired: (text) => { expiredText = text },
-    timeoutMs: 10
+    requestCheckpoint: () => { checkpoints += 1 },
+    checkpointMs: 60_000
   })
-  const promise = gate.enqueue('wake-timeout')
-  const result = await promise
-  assert.equal(result.ok, false)
-  assert.ok(result.message?.includes('expired'), `expected "expired" in message, got: ${result.message}`)
-  assert.equal(expiredText, 'wake-timeout')
-  gate.dispose()
-})
-
-test('flush clears the timeout so it does not fire after delivery', async () => {
-  let expired = false
-  const gate = createCaptainWakeGate({
-    deliver: async () => ({ ok: true }),
-    onExpired: () => { expired = true },
-    timeoutMs: 20
-  })
-  const promise = gate.enqueue('wake-no-expire')
+  const promise = gate.enqueue('wake-long-tool').then((result) => { settled = true; return result })
+  t.mock.timers.tick(120_000)
+  assert.equal(settled, false, 'waiting beyond 60 seconds is not a transport failure')
+  assert.equal(checkpoints, 0, 'a timer cannot interrupt a non-yielding operation')
+  gate.checkpoint()
+  assert.equal(checkpoints, 1, 'the next host-visible safe boundary requests a cooperative yield')
   gate.flush()
-  await promise
-  await new Promise<void>((resolve) => setTimeout(resolve, 50))
-  assert.equal(expired, false, 'timeout should have been cleared by flush')
+  assert.deepEqual(await promise, { ok: true })
   gate.dispose()
 })
 
-test('each queued wake keeps its own independent timeout, unaffected by later enqueues', async () => {
-  let expiredText: string | undefined
+test('a safe boundary before 60 seconds does not interrupt a useful turn', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  let checkpoints = 0
   const gate = createCaptainWakeGate({
     deliver: async () => ({ ok: true }),
-    onExpired: (text) => { expiredText = text },
-    timeoutMs: 30
+    requestCheckpoint: () => { checkpoints += 1 },
+    checkpointMs: 60_000
   })
-  const first = gate.enqueue('wake-old')
-  await new Promise<void>((resolve) => setTimeout(resolve, 20))
-  gate.enqueue('wake-new')
-  // wake-old's timer keeps running from its own enqueue call, so it should still fire ~10ms later.
-  const result = await first
-  assert.equal(result.ok, false)
-  assert.equal(expiredText, 'wake-old')
+  gate.enqueue('wake-waiting')
+  t.mock.timers.tick(59_999)
+  gate.checkpoint()
+  assert.equal(checkpoints, 0)
+  gate.dispose()
+})
+
+test('forced Stop checkpoint requests one idempotent yield and preserves FIFO delivery', async () => {
+  let checkpoints = 0
+  const deliveries: string[] = []
+  const gate = createCaptainWakeGate({
+    deliver: async (text) => { deliveries.push(text); return { ok: true } },
+    requestCheckpoint: () => { checkpoints += 1 }
+  })
+  const first = gate.enqueue('before-stop-1')
+  const second = gate.enqueue('before-stop-2')
+  gate.checkpoint(true)
+  gate.checkpoint(true)
+  assert.equal(checkpoints, 1)
+  gate.flush()
+  assert.deepEqual(await Promise.all([first, second]), [{ ok: true }, { ok: true }])
+  assert.deepEqual(deliveries, ['before-stop-1', 'before-stop-2'])
   gate.dispose()
 })
 
 test('dispose resolves a pending wake with failure', async () => {
   const gate = createCaptainWakeGate({
-    deliver: async () => ({ ok: true }),
-    timeoutMs: 60_000
+    deliver: async () => ({ ok: true })
   })
   const promise = gate.enqueue('wake-dispose')
   gate.dispose()
