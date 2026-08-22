@@ -8,6 +8,7 @@ export interface AgentCreateRequest {
   sessionId?: string
   permissionMode?: string
   modelId?: string
+  effortId?: string
 }
 
 export interface AgentAuthMethod {
@@ -24,6 +25,7 @@ export interface AgentCreateResult {
   sessionId?: string
   modes?: AgentModeState
   models?: AgentModelState
+  efforts?: AgentEffortState
   authMethods?: AgentAuthMethod[]
   /** Whether the agent's `initialize` handshake advertised `promptCapabilities.image`. */
   imageSupport?: boolean
@@ -74,6 +76,11 @@ export interface AgentModelState {
   availableModels: AgentModel[]
 }
 
+export interface AgentEffortState {
+  currentEffortId: string
+  availableEfforts: AgentModel[]
+}
+
 export interface AgentPermissionOption {
   id: string
   label: string
@@ -104,6 +111,7 @@ export type AgentEvent =
   | { type: 'plan'; entries: AgentPlanEntry[] }
   | { type: 'modes'; modes: AgentModeState }
   | { type: 'models'; models: AgentModelState }
+  | { type: 'efforts'; efforts: AgentEffortState | null }
   | { type: 'approval'; approvalId: string; title: string; options: AgentPermissionOption[] }
   | { type: 'auth'; methods: AgentAuthMethod[] }
   | { type: 'auth_link'; url: string }

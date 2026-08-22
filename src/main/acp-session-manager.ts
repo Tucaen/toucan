@@ -19,6 +19,7 @@ import type {
   AgentAuthMethod,
   AgentCreateRequest,
   AgentCreateResult,
+  AgentEffortState,
   AgentEvent,
   AgentModeState,
   AgentModelState,
@@ -30,6 +31,7 @@ import type {
 } from '../shared/agent'
 import { activityFromUpdate } from '../shared/agent-activity'
 import { agentPermissionTitle } from '../shared/agent-permission'
+import { effortSelectorFromConfigOptions } from '../shared/agent-effort'
 import { modelSelectorFromConfigOptions } from '../shared/agent-models'
 import { StallTimeoutError, withStallGuard } from '../shared/stall-guard'
 import { buildAgentProcessLaunch, type AgentProcessLaunch } from './agent-process'
@@ -60,6 +62,8 @@ interface RunningAgent {
   imageSupport: boolean
   sessionId?: string
   modelConfigId?: string
+  effortConfigId?: string
+  cachedEfforts?: AgentEffortState
   pendingApprovals: Map<string, PendingApproval>
   busy: boolean
   stopping: boolean
@@ -274,6 +278,7 @@ export interface AcpSessionManager {
   promptWhenIdle(id: string, content: AgentPromptContent): Promise<AgentPromptResult>
   setMode(id: string, modeId: string): Promise<AgentPromptResult>
   setModel(id: string, modelId: string): Promise<AgentPromptResult>
+  setEffort(id: string, effortId: string): Promise<AgentPromptResult>
   authenticate(id: string, methodId: string): Promise<AgentCreateResult>
   submitAuthCode(id: string, code: string): Promise<AgentPromptResult>
   openAuthLink(url: string): Promise<void>
@@ -304,24 +309,49 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
   const applySavedModel = async (
     running: RunningAgent,
     models: AgentModelState
-  ): Promise<AgentModelState> => {
+  ): Promise<{ models: AgentModelState; configOptions?: SessionConfigOption[] | null }> => {
     const modelId = running.request.modelId
     if (
       !running.modelConfigId
       || !modelId
       || modelId === models.currentModelId
       || !models.availableModels.some((model) => model.id === modelId)
-    ) return models
+    ) return { models }
     try {
-      await running.context.request(methods.agent.session.setConfigOption, {
+      const response = await running.context.request(methods.agent.session.setConfigOption, {
         sessionId: running.sessionId!,
         configId: running.modelConfigId,
         value: modelId
       })
-      return { ...models, currentModelId: modelId }
+      return { models: { ...models, currentModelId: modelId }, configOptions: response.configOptions }
     } catch (error) {
       send(running, { type: 'error', message: `Could not select the saved model: ${errorMessage(error)}` })
-      return models
+      return { models }
+    }
+  }
+
+  /** Applies a saved effort only when the active provider/model advertises that exact value. */
+  const applySavedEffort = async (
+    running: RunningAgent,
+    efforts: AgentEffortState
+  ): Promise<AgentEffortState> => {
+    const effortId = running.request.effortId
+    if (
+      !running.effortConfigId
+      || !effortId
+      || effortId === efforts.currentEffortId
+      || !efforts.availableEfforts.some((effort) => effort.id === effortId)
+    ) return efforts
+    try {
+      await running.context.request(methods.agent.session.setConfigOption, {
+        sessionId: running.sessionId!,
+        configId: running.effortConfigId,
+        value: effortId
+      })
+      return { ...efforts, currentEffortId: effortId }
+    } catch (error) {
+      send(running, { type: 'error', message: `Could not select the saved effort: ${errorMessage(error)}` })
+      return efforts
     }
   }
 
@@ -330,14 +360,21 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
     try {
       let modes: AgentModeState | undefined
       let models: AgentModelState | undefined
+      let efforts: AgentEffortState | undefined
+      const configureOptions = (configOptions?: SessionConfigOption[] | null): void => {
+        const modelSelector = modelSelectorFromConfigOptions(configOptions)
+        running.modelConfigId = modelSelector?.configId
+        models = modelSelector?.models
+        const effortSelector = effortSelectorFromConfigOptions(configOptions)
+        running.effortConfigId = effortSelector?.configId
+        efforts = effortSelector?.efforts
+      }
       const configure = (response: {
         modes?: Parameters<typeof simplifyModes>[0]
         configOptions?: SessionConfigOption[] | null
       }): void => {
         modes = simplifyModes(response.modes)
-        const selector = modelSelectorFromConfigOptions(response.configOptions)
-        running.modelConfigId = selector?.configId
-        models = selector?.models
+        configureOptions(response.configOptions)
       }
       let resumed = false
       if (running.request.sessionId) {
@@ -381,8 +418,14 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         })
         modes = { ...modes, currentModeId: running.request.permissionMode }
       }
-      if (models) models = await applySavedModel(running, models)
+      if (models) {
+        const applied = await applySavedModel(running, models)
+        models = applied.models
+        if (applied.configOptions) configureOptions(applied.configOptions)
+      }
+      if (efforts) efforts = await applySavedEffort(running, efforts)
       if (models) running.cachedModels = models
+      if (efforts) running.cachedEfforts = efforts
       if (running.request.scope === 'firstmate' && models) {
         const configured = await options.configureFirstMateValidator?.(
           running.request.provider,
@@ -399,6 +442,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       send(running, { type: 'session', sessionId })
       if (modes) send(running, { type: 'modes', modes })
       if (models) send(running, { type: 'models', models })
+      if (efforts) send(running, { type: 'efforts', efforts })
       send(running, { type: 'status', status: 'ready' })
       return {
         ok: true,
@@ -406,21 +450,25 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         sessionId,
         imageSupport: running.imageSupport,
         ...(modes ? { modes } : {}),
-        ...(models ? { models } : {})
+        ...(models ? { models } : {}),
+        ...(efforts ? { efforts } : {})
       }
     } catch (error) {
       if (isAuthRequired(error)) {
         running.authRequired = true
         const models = running.cachedModels
+        const efforts = running.cachedEfforts
         send(running, { type: 'auth', methods: running.authMethods })
         if (models) send(running, { type: 'models', models })
+        if (efforts) send(running, { type: 'efforts', efforts })
         send(running, { type: 'status', status: 'auth_required' })
         return {
           ok: false,
           status: 'auth_required',
           authMethods: running.authMethods,
           imageSupport: running.imageSupport,
-          ...(models ? { models } : {})
+          ...(models ? { models } : {}),
+          ...(efforts ? { efforts } : {})
         }
       }
       const message = errorMessage(error)
@@ -557,10 +605,21 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
               }
             })
           } else if (update.sessionUpdate === 'config_option_update') {
-            const selector = modelSelectorFromConfigOptions(update.configOptions)
-            if (selector) {
-              running.modelConfigId = selector.configId
-              send(running, { type: 'models', models: selector.models })
+            const modelSelector = modelSelectorFromConfigOptions(update.configOptions)
+            if (modelSelector) {
+              running.modelConfigId = modelSelector.configId
+              running.cachedModels = modelSelector.models
+              send(running, { type: 'models', models: modelSelector.models })
+            }
+            const effortSelector = effortSelectorFromConfigOptions(update.configOptions)
+            if (effortSelector) {
+              running.effortConfigId = effortSelector.configId
+              running.cachedEfforts = effortSelector.efforts
+              send(running, { type: 'efforts', efforts: effortSelector.efforts })
+            } else if (running.effortConfigId || running.cachedEfforts) {
+              running.effortConfigId = undefined
+              running.cachedEfforts = undefined
+              send(running, { type: 'efforts', efforts: null })
             }
           } else if (update.sessionUpdate === 'usage_update') {
             send(running, {
@@ -711,8 +770,22 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
           value: modelId
         })
         // Setting a model can reshape the agent's other selectors (effort levels, fast mode).
-        const selector = modelSelectorFromConfigOptions(response.configOptions)
-        if (selector) send(running, { type: 'models', models: selector.models })
+        const modelSelector = modelSelectorFromConfigOptions(response.configOptions)
+        if (modelSelector) {
+          running.modelConfigId = modelSelector.configId
+          running.cachedModels = modelSelector.models
+          send(running, { type: 'models', models: modelSelector.models })
+        }
+        const effortSelector = effortSelectorFromConfigOptions(response.configOptions)
+        if (effortSelector) {
+          running.effortConfigId = effortSelector.configId
+          running.cachedEfforts = effortSelector.efforts
+          send(running, { type: 'efforts', efforts: effortSelector.efforts })
+        } else {
+          running.effortConfigId = undefined
+          running.cachedEfforts = undefined
+          send(running, { type: 'efforts', efforts: null })
+        }
         running.request.modelId = modelId
         if (running.request.scope === 'firstmate') {
           const configured = await options.configureFirstMateValidator?.(running.request.provider, modelId)
@@ -722,6 +795,35 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
             return { ok: false, message }
           }
         }
+        return { ok: true }
+      } catch (error) {
+        const message = errorMessage(error)
+        send(running, { type: 'error', message })
+        return { ok: false, message }
+      }
+    },
+
+    async setEffort(id, effortId): Promise<AgentPromptResult> {
+      const running = agents.get(id)
+      if (!running?.sessionId) return { ok: false, message: 'The agent session is not ready.' }
+      if (!running.effortConfigId || !running.cachedEfforts) {
+        return { ok: false, message: 'This agent does not expose effort selection.' }
+      }
+      if (!running.cachedEfforts.availableEfforts.some((effort) => effort.id === effortId)) {
+        return { ok: false, message: 'That effort is unavailable for the selected model.' }
+      }
+      try {
+        const response = await running.context.request(methods.agent.session.setConfigOption, {
+          sessionId: running.sessionId,
+          configId: running.effortConfigId,
+          value: effortId
+        })
+        const selector = effortSelectorFromConfigOptions(response.configOptions)
+        const efforts = selector?.efforts ?? { ...running.cachedEfforts, currentEffortId: effortId }
+        if (selector) running.effortConfigId = selector.configId
+        running.request.effortId = effortId
+        running.cachedEfforts = efforts
+        send(running, { type: 'efforts', efforts })
         return { ok: true }
       } catch (error) {
         const message = errorMessage(error)

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import type {
   AgentActivity,
   AgentAuthMethod,
+  AgentEffortState,
   AgentEvent,
   AgentModeState,
   AgentModelState,
@@ -58,6 +59,7 @@ export interface AgentConversationOptions {
   sessionId?: string
   permissionMode?: string
   modelId?: string
+  effortId?: string
   restartKey?: number
   /**
    * Builds what the agent receives from the captain's text. Called at submission, never earlier, so it
@@ -68,6 +70,7 @@ export interface AgentConversationOptions {
   onSessionId(sessionId: string): void
   onPermissionMode(modeId: string): void
   onModel(modelId: string): void
+  onEffort?(effortId?: string): void
   /**
    * How long a sent message waits in `pendingSentRef` for its own echoed `message`/`role: 'user'`
    * event before its queued badge is force-cleared anyway. Defaults to `DEFAULT_ECHO_TIMEOUT_MS`;
@@ -92,6 +95,7 @@ export interface AgentConversationController {
   reauthenticating: boolean
   modes: AgentModeState | null
   models: AgentModelState | null
+  efforts: AgentEffortState | null
   status: AgentChatStatus
   usage: AgentUsage | null
   detail?: string
@@ -114,6 +118,7 @@ export interface AgentConversationController {
   resolveApproval(approvalId: string, optionId?: string): void
   selectMode(modeId: string): Promise<boolean>
   selectModel(modelId: string): void
+  selectEffort(effortId: string): void
 }
 
 export function useAgentConversation(options: AgentConversationOptions): AgentConversationController {
@@ -126,6 +131,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
   const [reauthenticating, setReauthenticating] = useState(false)
   const [modes, setModes] = useState<AgentModeState | null>(null)
   const [models, setModels] = useState<AgentModelState | null>(null)
+  const [efforts, setEfforts] = useState<AgentEffortState | null>(null)
   const [status, setStatus] = useState<AgentChatStatus>('starting')
   const [usage, setUsage] = useState<AgentUsage | null>(null)
   const [detail, setDetail] = useState<string>()
@@ -176,10 +182,12 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
   const onSessionId = useRef(options.onSessionId)
   const onPermissionMode = useRef(options.onPermissionMode)
   const onModel = useRef(options.onModel)
+  const onEffort = useRef(options.onEffort)
 
   useEffect(() => { onSessionId.current = options.onSessionId }, [options.onSessionId])
   useEffect(() => { onPermissionMode.current = options.onPermissionMode }, [options.onPermissionMode])
   useEffect(() => { onModel.current = options.onModel }, [options.onModel])
+  useEffect(() => { onEffort.current = options.onEffort }, [options.onEffort])
 
   useEffect(() => {
     if (!options.enabled) return
@@ -193,6 +201,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     setReauthenticating(false)
     setModes(null)
     setModels(null)
+    setEfforts(null)
     setStatus('starting')
     setUsage(null)
     setDetail(undefined)
@@ -231,6 +240,9 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
           : { ...event.modes, availableModes: current?.availableModes ?? [] })
       } else if (event.type === 'models') {
         setModels(event.models)
+      } else if (event.type === 'efforts') {
+        setEfforts(event.efforts)
+        onEffort.current?.(event.efforts?.currentEffortId)
       } else if (event.type === 'approval') {
         setApproval({ id: event.approvalId, title: event.title, options: event.options })
       } else if (event.type === 'auth') {
@@ -252,13 +264,18 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
       scope: options.scope,
       sessionId: options.sessionId,
       permissionMode: options.permissionMode,
-      modelId: options.modelId
+      modelId: options.modelId,
+      effortId: options.effortId
     }).then((result) => {
       if (!active) return
       if (result.sessionId) onSessionId.current(result.sessionId)
       if (result.authMethods) setAuthMethods(result.authMethods)
       if (result.modes) setModes(result.modes)
       if (result.models) setModels(result.models)
+      if (result.efforts) {
+        setEfforts(result.efforts)
+        onEffort.current?.(result.efforts.currentEffortId)
+      }
       setImageSupport(result.imageSupport ?? false)
       if (result.status === 'ready') {
         setStatus('ready')
@@ -426,6 +443,18 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     })
   }
 
+  const selectEffort = (effortId: string): void => {
+    if (effortId === efforts?.currentEffortId) return
+    void window.agentApi.setEffort(options.id, effortId).then((result) => {
+      if (result.ok) {
+        setEfforts((current) => current ? { ...current, currentEffortId: effortId } : current)
+        onEffort.current?.(effortId)
+      } else {
+        setDetail(result.message)
+      }
+    })
+  }
+
   return {
     messages,
     activities,
@@ -436,6 +465,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     reauthenticating,
     modes,
     models,
+    efforts,
     status,
     usage,
     detail,
@@ -454,6 +484,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     openAuthLink,
     resolveApproval,
     selectMode,
-    selectModel
+    selectModel,
+    selectEffort
   }
 }

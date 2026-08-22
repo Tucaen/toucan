@@ -84,6 +84,9 @@ const agentApi = {
   setModel: (id: string, modelId: string): Promise<AgentPromptResult> => (
     ipcRenderer.invoke('agent:set-model', id, modelId)
   ),
+  setEffort: (id: string, effortId: string): Promise<AgentPromptResult> => (
+    ipcRenderer.invoke('agent:set-effort', id, effortId)
+  ),
   authenticate: (id: string, methodId: string): Promise<AgentCreateResult> => (
     ipcRenderer.invoke('agent:authenticate', id, methodId)
   ),
