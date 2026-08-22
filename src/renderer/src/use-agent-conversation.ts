@@ -149,14 +149,19 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
    * behind another turn, clearing its badge before its real echo arrives and duplicating it.
    */
   const pendingSentRef = useRef<Array<{ id: string; text: string; timer?: ReturnType<typeof setTimeout> }>>([])
+  const acknowledgePendingSent = (id: string): void => {
+    setMessages((current) => current.map((message) => {
+      if (message.id !== id) return message
+      const { failed: _failed, ...rest } = message
+      return { ...rest, queued: false }
+    }))
+  }
   const clearPendingSent = (id: string): void => {
     const index = pendingSentRef.current.findIndex((entry) => entry.id === id)
     if (index < 0) return
     clearTimeout(pendingSentRef.current[index].timer)
     pendingSentRef.current.splice(index, 1)
-    setMessages((current) => current.map((message) => (
-      message.id === id ? { ...message, queued: false } : message
-    )))
+    acknowledgePendingSent(id)
   }
   /**
    * Marks a message's delivery as genuinely failed (send rejected, or a queued send expired in
@@ -167,7 +172,6 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     const index = pendingSentRef.current.findIndex((entry) => entry.id === id)
     if (index >= 0) {
       clearTimeout(pendingSentRef.current[index].timer)
-      pendingSentRef.current.splice(index, 1)
     }
     setMessages((current) => current.map((message) => (
       message.id === id ? { ...message, queued: false, failed: true } : message
@@ -331,6 +335,9 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     ).then((result) => {
       slot.release()
       if (result.ok) {
+        // The transport result is the durable acknowledgement. Keep the text matcher briefly so
+        // a later ACP echo is deduplicated, but the UI no longer calls an accepted message queued.
+        acknowledgePendingSent(id)
         // A pure-image send has no echoed text chunk to clear the queued flag with (see the
         // `message` event branch above), so resolve it here once delivery itself has settled.
         if (images.length > 0 && !text) {

@@ -106,7 +106,7 @@ test('a failed message renders a distinct failed-badge, never the queued-badge',
   const failedArticle = screen.getByText('never arrived').closest('article')
   expect(failedArticle?.querySelector('.queued-badge')).toBeNull()
   expect(failedArticle?.querySelector('.failed-badge')).not.toBeNull()
-  expect(screen.getByText('Not sent — delivery failed or timed out')).toBeInTheDocument()
+  expect(screen.getByText('Not sent — delivery was rejected')).toBeInTheDocument()
 })
 
 function fakeSubmitEvent(): FormEvent {
@@ -145,7 +145,7 @@ test('submit() delivers directly while ready, then queues through promptWhenIdle
   expect(result.current.status).toBe('working')
   await waitFor(() => expect(result.current.messages).toEqual([
     { id: expect.any(String), role: 'user', text: 'first message', queued: false },
-    { id: expect.any(String), role: 'user', text: 'second message', queued: true }
+    { id: expect.any(String), role: 'user', text: 'second message', queued: false }
   ]))
 
   // The agent echoes sends in FIFO order: the still-open "first message" slot must clear
@@ -156,7 +156,7 @@ test('submit() delivers directly while ready, then queues through promptWhenIdle
   expect(result.current.messages[0].queued).toBe(false)
 })
 
-test('each queued send clears its own queued flag independently, in the order the agent echoes them', async () => {
+test('each accepted queued send is acknowledged independently and later echoes are deduplicated', async () => {
   const { api, emit } = createMockAgentApi()
   window.agentApi = api
 
@@ -182,8 +182,8 @@ test('each queued send clears its own queued flag independently, in the order th
   act(() => { result.current.submit(fakeSubmitEvent()) })
 
   await waitFor(() => expect(result.current.messages).toHaveLength(3))
-  await waitFor(() => expect(result.current.messages[1].queued).toBe(true))
-  await waitFor(() => expect(result.current.messages[2].queued).toBe(true))
+  await waitFor(() => expect(result.current.messages[1].queued).toBe(false))
+  await waitFor(() => expect(result.current.messages[2].queued).toBe(false))
 
   // Echoes happen to arrive in submission order here, but the matcher no longer requires it
   // (see the "out of order" test below) - it just needs each echo's text to match some pending
@@ -191,7 +191,7 @@ test('each queued send clears its own queued flag independently, in the order th
   emit('session-2', { type: 'message', role: 'user', messageId: 'echo-0', text: 'go ready-to-working' })
   emit('session-2', { type: 'message', role: 'user', messageId: 'echo-A', text: 'queued A' })
   await waitFor(() => expect(result.current.messages[1].queued).toBe(false))
-  expect(result.current.messages[2].queued).toBe(true)
+  expect(result.current.messages).toHaveLength(3)
 
   emit('session-2', { type: 'message', role: 'user', messageId: 'echo-B', text: 'queued B' })
   await waitFor(() => expect(result.current.messages[2].queued).toBe(false))
@@ -238,7 +238,7 @@ test(
     // only "queued B"'s echo shows up. It must still clear "queued B"'s badge.
     emit('session-3', { type: 'message', role: 'user', messageId: 'echo-B', text: 'queued B' })
     await waitFor(() => expect(result.current.messages[2].queued).toBe(false))
-    expect(result.current.messages[1].queued).toBe(true)
+    expect(result.current.messages[1].queued).toBe(false)
   }
 )
 
@@ -271,7 +271,7 @@ test(
     act(() => result.current.setDraft('queued, echo will never arrive'))
     act(() => { result.current.submit(fakeSubmitEvent()) })
     await waitFor(() => expect(result.current.messages).toHaveLength(2))
-    expect(result.current.messages[1].queued).toBe(true)
+    expect(result.current.messages[1].queued).toBe(false)
 
     // No echo is ever emitted for this send - simulates the ACP layer failing to echo it back.
     await waitFor(() => expect(result.current.messages[1].queued).toBe(false))
@@ -318,6 +318,13 @@ test(
     emit('session-5', { type: 'message', role: 'user', messageId: 'echo-0', text: 'go ready-to-working' })
     expect(result.current.messages[1].failed).toBe(true)
     expect(result.current.messages[1].queued).toBe(false)
+
+    // If ACP later proves that this exact message was accepted after all, reconciliation is
+    // monotonic toward acknowledgement: the stale failure presentation must disappear and the
+    // echoed message must not be duplicated in the transcript.
+    emit('session-5', { type: 'message', role: 'user', messageId: 'late-own-echo', text: 'queued, will expire' })
+    await waitFor(() => expect(result.current.messages[1].failed).toBeUndefined())
+    expect(result.current.messages.filter((message) => message.text === 'queued, will expire')).toHaveLength(1)
   }
 )
 

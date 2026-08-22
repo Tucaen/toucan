@@ -4,28 +4,48 @@ import { errorMessage } from '../shared/text'
 export interface CaptainWakeGate<T = string> {
   enqueue(payload: T): Promise<AgentPromptResult>
   flush(): void
+  /** A host-observed boundary at which the active turn can cooperatively yield to queued work. */
+  checkpoint(force?: boolean): void
+  hasPending(): boolean
   dispose(): void
 }
 
 export interface CaptainWakeGateOptions<T = string> {
   deliver(payload: T): Promise<AgentPromptResult>
-  onExpired?(pendingPayload: T): void
-  timeoutMs?: number
+  requestCheckpoint?(): void
+  checkpointMs?: number
 }
 
-const DEFAULT_TIMEOUT_MS = 120_000
+export const DEFAULT_CHECKPOINT_MS = 60_000
 
 interface QueuedWake<T> {
   payload: T
   resolve(result: AgentPromptResult): void
-  timer: ReturnType<typeof setTimeout>
 }
 
 export function createCaptainWakeGate<T = string>(options: CaptainWakeGateOptions<T>): CaptainWakeGate<T> {
-  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
+  const checkpointMs = options.checkpointMs ?? DEFAULT_CHECKPOINT_MS
   const queue: QueuedWake<T>[] = []
   let disposed = false
   let delivering = false
+  let checkpointDue = false
+  let checkpointRequested = false
+  let checkpointTimer: ReturnType<typeof setTimeout> | undefined
+
+  const armCheckpoint = (): void => {
+    if (checkpointTimer || checkpointDue || queue.length === 0 || delivering || disposed) return
+    checkpointTimer = setTimeout(() => {
+      checkpointTimer = undefined
+      checkpointDue = true
+    }, checkpointMs)
+  }
+
+  const clearCheckpoint = (): void => {
+    if (checkpointTimer) clearTimeout(checkpointTimer)
+    checkpointTimer = undefined
+    checkpointDue = false
+    checkpointRequested = false
+  }
 
   const removeFromQueue = (item: QueuedWake<T>): void => {
     const index = queue.indexOf(item)
@@ -36,8 +56,8 @@ export function createCaptainWakeGate<T = string>(options: CaptainWakeGateOption
     if (delivering || disposed) return
     const item = queue[0]
     if (!item) return
+    clearCheckpoint()
     delivering = true
-    clearTimeout(item.timer)
     removeFromQueue(item)
     const settle = (result: AgentPromptResult): void => {
       item.resolve(result)
@@ -55,16 +75,9 @@ export function createCaptainWakeGate<T = string>(options: CaptainWakeGateOption
     enqueue(payload: T): Promise<AgentPromptResult> {
       if (disposed) return Promise.resolve({ ok: false, message: 'The wake gate is disposed.' })
       return new Promise<AgentPromptResult>((resolve) => {
-        const item: QueuedWake<T> = {
-          payload,
-          resolve,
-          timer: setTimeout(() => {
-            removeFromQueue(item)
-            resolve({ ok: false, message: `The lifecycle wake expired after ${timeoutMs}ms because the captain did not become idle in time.` })
-            options.onExpired?.(payload)
-          }, timeoutMs)
-        }
+        const item: QueuedWake<T> = { payload, resolve }
         queue.push(item)
+        armCheckpoint()
       })
     },
 
@@ -72,10 +85,22 @@ export function createCaptainWakeGate<T = string>(options: CaptainWakeGateOption
       deliverNext()
     },
 
+    checkpoint(force = false): void {
+      if (disposed || delivering || queue.length === 0) return
+      if (!force && !checkpointDue) return
+      if (checkpointRequested) return
+      checkpointRequested = true
+      options.requestCheckpoint?.()
+    },
+
+    hasPending(): boolean {
+      return queue.length > 0 || delivering
+    },
+
     dispose(): void {
       disposed = true
+      clearCheckpoint()
       for (const item of queue) {
-        clearTimeout(item.timer)
         item.resolve({ ok: false, message: 'The wake gate was disposed.' })
       }
       queue.length = 0
