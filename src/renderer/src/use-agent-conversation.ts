@@ -24,6 +24,12 @@ export interface AgentChatMessage {
   queued?: boolean
   /** True if delivery genuinely failed or expired (e.g. a queued send timed out in the wake gate) - never set alongside `queued`. */
   failed?: boolean
+  /** Exact pending decision answered through its pinned controls; local UI metadata only. */
+  decisionReplyTo?: string
+  /** A decision answer has been displayed optimistically but transport has not accepted it yet. */
+  deliveryPending?: boolean
+  /** False while ACP is still streaming this assistant message; true after turn completion/replay. */
+  complete?: boolean
 }
 
 export interface AgentApprovalState {
@@ -111,6 +117,7 @@ export interface AgentConversationController {
   submit(event: FormEvent): void
   /** Sends `text` as if the captain had typed and submitted it, bypassing the draft/attachments state entirely. */
   sendMessage(text: string): void
+  answerDecision(decisionId: string, text: string): void
   cancel(): void
   authenticate(methodId: string): void
   submitAuthCode(code: string): Promise<boolean>
@@ -152,7 +159,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
   const acknowledgePendingSent = (id: string): void => {
     setMessages((current) => current.map((message) => {
       if (message.id !== id) return message
-      const { failed: _failed, ...rest } = message
+      const { failed: _failed, deliveryPending: _deliveryPending, ...rest } = message
       return { ...rest, queued: false }
     }))
   }
@@ -174,7 +181,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
       clearTimeout(pendingSentRef.current[index].timer)
     }
     setMessages((current) => current.map((message) => (
-      message.id === id ? { ...message, queued: false, failed: true } : message
+      message.id === id ? { ...message, queued: false, failed: true, deliveryPending: false } : message
     )))
   }
   /**
@@ -228,9 +235,18 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
         }
         setMessages((current) => {
           const existing = current.findIndex((message) => message.id === event.messageId && message.role === event.role)
-          if (existing < 0) return [...current, { id: event.messageId, role: event.role, text: event.text }]
+          if (existing < 0) return [...current, {
+            id: event.messageId,
+            role: event.role,
+            text: event.text,
+            complete: event.role === 'assistant' ? false : undefined
+          }]
           return current.map((message, index) => index === existing ? { ...message, text: message.text + event.text } : message)
         })
+      } else if (event.type === 'turn_complete') {
+        setMessages((current) => current.map((message) => (
+          message.role === 'assistant' && message.complete === false ? { ...message, complete: true } : message
+        )))
       } else if (event.type === 'activity') {
         setActivitiesById((current) => ({
           ...current,
@@ -282,6 +298,11 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
       }
       setImageSupport(result.imageSupport ?? false)
       if (result.status === 'ready') {
+        // Resume replay is delivered during create(), before this result settles. Those messages
+        // are already final even though no new turn_complete notification accompanies replay.
+        setMessages((current) => current.map((message) => (
+          message.role === 'assistant' && message.complete === false ? { ...message, complete: true } : message
+        )))
         setStatus('ready')
       } else if (result.status === 'auth_required') {
         setStatus('auth_required')
@@ -300,7 +321,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
   }, [options.cwd, options.enabled, options.id, options.provider, options.restartKey, options.scope])
 
   /** Shared by `submit` (draft + attachments) and `sendMessage` (a plain string, e.g. a clicked decision option). */
-  const dispatchText = (text: string, images: AgentImageAttachment[], onSent: () => void): void => {
+  const dispatchText = (text: string, images: AgentImageAttachment[], onSent: () => void, decisionReplyTo?: string): void => {
     if ((!text && images.length === 0) || (status !== 'ready' && status !== 'working')) return
     const queued = status === 'working'
     const compose = options.composePrompt
@@ -329,7 +350,14 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
         return result
       },
       () => {
-        setMessages((current) => [...current, { id, role: 'user', text: displayText, queued }])
+        setMessages((current) => [...current, {
+          id,
+          role: 'user',
+          text: displayText,
+          queued,
+          decisionReplyTo,
+          deliveryPending: decisionReplyTo !== undefined
+        }])
         onSent()
       }
     ).then((result) => {
@@ -373,6 +401,10 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
 
   const sendMessage = (text: string): void => {
     dispatchText(text.trim(), [], () => {})
+  }
+
+  const answerDecision = (decisionId: string, text: string): void => {
+    dispatchText(text.trim(), [], () => {}, decisionId)
   }
 
   const addImages = async (files: File[] | FileList): Promise<void> => {
@@ -485,6 +517,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     removeAttachment,
     submit,
     sendMessage,
+    answerDecision,
     cancel: () => window.agentApi.cancel(options.id),
     authenticate,
     submitAuthCode,

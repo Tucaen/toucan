@@ -831,6 +831,9 @@ export default function FirstMatePanel({ projects, project, state, onStateChange
           >
             <ChatView
               {...props}
+              completedTaskIds={new Set(lifecycle.tasks
+                .filter((task) => task.stage !== 'decision' && task.stage !== 'blocked')
+                .map((task) => task.id))}
               empty={{
                 icon: 'FM',
                 title: 'FirstMate is ready',

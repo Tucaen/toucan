@@ -13,7 +13,8 @@ import { isNearScrollBottom } from './chat-scroll-follow'
 import type { TerminalCanvasNode, TerminalNodeStatus } from './canvas-workspace'
 import { computeNodePickerMenuPosition } from './node-picker-menu-position'
 import { imageFilesFromClipboard, type AgentImageAttachment } from './image-attachment'
-import { classifyAssistantMessage, extractDecisionOptions, type DecisionOption } from './decision-message'
+import { classifyAssistantMessage, type DecisionOption } from './decision-message'
+import { pendingDecisionsFromMessages, type PendingDecision } from './pending-decisions'
 import NodeBorderResizer from './NodeBorderResizer'
 import { useFirstMateQuota } from './use-firstmate-quota'
 import VoiceInputPrototype from './VoiceInputPrototype'
@@ -43,6 +44,7 @@ export interface ChatViewProps {
   removeAttachment(id: string): void
   submit(event: FormEvent): void
   sendMessage(text: string): void
+  answerDecision(decisionId: string, text: string): void
   cancel(): void
   authenticate(methodId: string): void
   submitAuthCode(code: string): Promise<boolean>
@@ -437,10 +439,11 @@ function ApprovalPanel(props: Pick<ChatViewProps, 'approval' | 'resolveApproval'
  * than a new protocol-level channel - see decision-message.ts for how options are extracted.
  */
 function DecisionOptions(
-  props: { options: DecisionOption[]; sendMessage: ChatViewProps['sendMessage']; status: ChatViewProps['status'] }
+  props: { decisionId?: string; options: DecisionOption[]; answerDecision: ChatViewProps['answerDecision']; status: ChatViewProps['status']; submitting?: boolean }
 ): JSX.Element {
   const [otherText, setOtherText] = useState('')
-  const disabled = isSendDisabled(props.status)
+  const disabled = isSendDisabled(props.status) || props.submitting
+  const send = (text: string): void => props.answerDecision(props.decisionId ?? '', text)
   return (
     <div className="decision-options">
       <div className="decision-options-buttons">
@@ -449,7 +452,7 @@ function DecisionOptions(
             type="button"
             key={option.id}
             disabled={disabled}
-            onClick={() => props.sendMessage(option.label)}
+            onClick={() => send(option.label)}
           >
             {option.label}
           </button>
@@ -461,7 +464,7 @@ function DecisionOptions(
           event.preventDefault()
           const text = otherText.trim()
           if (!text) return
-          props.sendMessage(text)
+          send(text)
           setOtherText('')
         }}
       >
@@ -478,6 +481,10 @@ function DecisionOptions(
   )
 }
 
+function decisionQuestion(text: string): string {
+  return text.split('\n').map((line) => line.trim()).filter(Boolean).at(-1) ?? 'Choose an option.'
+}
+
 /**
  * Classifies FirstMate's own assistant replies from plain text alone (see decision-message.ts)
  * so decision-requiring messages stand out and routine narration is de-emphasized; user/thought
@@ -486,13 +493,10 @@ function DecisionOptions(
 function ChatMessageCard(
   props: {
     message: AgentChatMessage
-    sendMessage: ChatViewProps['sendMessage']
-    status: ChatViewProps['status']
   }
 ): JSX.Element {
   const { message } = props
   const tone = message.role === 'assistant' ? classifyAssistantMessage(message.text) : 'normal'
-  const options = tone === 'decision' ? extractDecisionOptions(message.text) : []
   return (
     <article
       className={`chat-message ${message.role}${message.queued ? ' queued' : ''}${message.failed ? ' failed' : ''}`}
@@ -503,9 +507,6 @@ function ChatMessageCard(
         {message.failed
           ? <small className="failed-badge">Not sent — delivery was rejected</small>
           : message.queued && <small className="queued-badge">Queued — will send once the agent is free</small>}
-        {tone === 'decision' && options.length >= 2 && (
-          <DecisionOptions options={options} sendMessage={props.sendMessage} status={props.status} />
-        )}
       </div>
     </article>
   )
@@ -557,12 +558,14 @@ export function ChatView(props: ChatViewProps & {
   setWorklogCollapsed(collapsed: boolean): void
   empty?: { icon: string; title: string; description: string }
   statusBar?: ReactNode
+  completedTaskIds?: ReadonlySet<string>
 }): JSX.Element {
   const workItemCount = props.activities.length + props.plan.length
   const authVisible = props.status === 'auth_required' || props.reauthenticating
+  const pendingDecisions = pendingDecisionsFromMessages(props.messages, props.completedTaskIds)
   const { ref: scrollRef, onScroll } = useStickToBottom([props.messages, props.approval, props.status])
   return (
-    <div className={`agent-chat ${props.worklogCollapsed ? 'worklog-collapsed' : ''} ${props.statusBar ? 'has-status-bar' : ''}`}>
+    <div className={`agent-chat ${props.worklogCollapsed ? 'worklog-collapsed' : ''} ${props.statusBar ? 'has-status-bar' : ''} ${pendingDecisions.length > 0 ? 'has-pending-decisions' : ''}`}>
       <div className="chat-scroll nodrag nopan nowheel" ref={scrollRef} onScroll={onScroll}>
         {!authVisible && props.messages.length === 0 && (props.empty
             ? (
@@ -579,8 +582,6 @@ export function ChatView(props: ChatViewProps & {
             <ChatMessageCard
               key={message.id}
               message={message}
-              sendMessage={props.sendMessage}
-              status={props.status}
             />
           ))}
         <ApprovalPanel {...props} />
@@ -623,6 +624,24 @@ export function ChatView(props: ChatViewProps & {
           </>
         )}
       </aside>
+      {pendingDecisions.length > 0 && (
+        <section className="pending-decisions" aria-label="Pending decisions">
+          {pendingDecisions.map((decision: PendingDecision) => (
+            <article key={decision.id} data-state={decision.state}>
+              <header><strong>Decision needed</strong>{decision.taskId && <small>{decision.taskId}</small>}</header>
+              <p>{decisionQuestion(decision.text)}</p>
+              <DecisionOptions
+                decisionId={decision.id}
+                options={decision.options}
+                answerDecision={props.answerDecision}
+                status={props.status}
+                submitting={decision.state === 'submitting'}
+              />
+              {decision.state === 'submitting' && <small>Sending your answer…</small>}
+            </article>
+          ))}
+        </section>
+      )}
       {props.statusBar && <div className="agent-chat-status-bar">{props.statusBar}</div>}
       <Composer {...props} detail={authVisible ? undefined : props.detail} />
       {authVisible && <AuthPanel {...props} />}

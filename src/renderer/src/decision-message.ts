@@ -33,6 +33,9 @@ const OPTION_LINE_PATTERNS: RegExp[] = [
   /^[-*]\s*\*\*(.+?)\*\*\s*[:\-–—]?\s*(.*)$/,
   // "**Fix it now**: apply the patch" (no leading bullet)
   /^\*\*(.+?)\*\*\s*[:\-–—]?\s*(.*)$/,
+  // Codex commonly renders choices as numbered Markdown with a bold label. Requiring the bold
+  // label (plus the classifier's trailing question) keeps ordinary numbered procedures out.
+  /^\d+[.)]\s*\*\*(.+?)\*\*\s*[:\-–—]?\s*(.*)$/,
   // "Option A: restart the worker" / "- Option 1 - requeue the task"
   /^(?:[-*]\s*)?Option\s+([A-Za-z0-9]+)\s*[:\-–—]\s*(.+)$/i,
   // "A) restart the worker" / "A. requeue the task" — a single letter only, so ordinary numbered
@@ -64,7 +67,7 @@ const NOISE_LEAD_PATTERNS: RegExp[] = [
 const NOISE_MAX_LENGTH = 220
 
 function cleanOptionLine(line: string): string {
-  return line.replace(/^[-*]\s*/, '').replace(/\*\*/g, '').trim()
+  return line.replace(/^(?:[-*]|\d+[.)])\s*/, '').replace(/\*\*/g, '').trim()
 }
 
 function isOptionLine(line: string): boolean {
