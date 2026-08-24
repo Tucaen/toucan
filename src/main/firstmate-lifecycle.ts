@@ -842,14 +842,13 @@ export function firstMateLifecycleFromFiles(files: FirstMateLifecycleFiles): Fir
       })
       .map(([id]) => id)
   )
-  for (const task of files.tasks) {
-    const verb = statusParts(projectedStatusLine(task.status)).verb.toLowerCase()
-    if (verb === 'cancelled' || verb === 'canceled' || verb === 'completed') closedTaskIds.add(task.id)
-  }
   const tasks = files.tasks
     .map((task) => recordedTask(task, journal))
     .filter((task): task is FirstMateLifecycleTask => task !== undefined)
     .sort((left, right) => left.id.localeCompare(right.id))
+  for (const task of tasks) {
+    if (task.terminalOutcome && task.terminalOutcome !== 'indeterminate') closedTaskIds.add(task.id)
+  }
   const liveIds = new Set(tasks.map((task) => task.id))
   for (const [id, record] of Object.entries(journal.tasks)) {
     if (liveIds.has(id) || !record.terminalOutcome || !record.projection) continue
@@ -865,7 +864,7 @@ export function firstMateLifecycleFromFiles(files: FirstMateLifecycleFiles): Fir
       ...(record.pendingDecisions ? { pendingDecisions: record.pendingDecisions } : {}),
       terminalOutcome: record.terminalOutcome
     })
-    closedTaskIds.add(id)
+    if (record.terminalOutcome !== 'indeterminate') closedTaskIds.add(id)
   }
   tasks.sort((left, right) => left.id.localeCompare(right.id))
   return {

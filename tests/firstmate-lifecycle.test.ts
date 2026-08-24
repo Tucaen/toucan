@@ -479,6 +479,36 @@ test('terminal outcomes tombstone every pending decision', () => {
   assert.deepEqual(forge?.pendingDecisions, [])
 })
 
+test('failed tasks close while indeterminate tasks remain open', () => {
+  const meta = [
+    'kind=ship', 'mode=no-mistakes', 'project=/mnt/d/Development/alpha/api',
+    'worktree=/tmp/resize', 'harness=codex', firstMateTaskContextMetadata(alphaCodexContext)
+  ].join('\n')
+  const live = firstMateLifecycleFromFiles({
+    tasks: [
+      { id: 'failed-task', meta, status: 'failed: validation failed' },
+      { id: 'unknown-task', meta, status: 'paused: awaiting operator' }
+    ]
+  })
+  assert.deepEqual(live.closedTaskIds, ['failed-task'])
+
+  const journalOnly = firstMateLifecycleFromFiles({
+    tasks: [],
+    journal: JSON.stringify({
+      version: 1,
+      tasks: {
+        unknown: {
+          stage: 'blocked', detail: 'Unknown state', statusHash: 'unknown',
+          updatedAt: '2026-08-24T12:00:00.000Z', terminalOutcome: 'indeterminate',
+          projection: { id: 'unknown', mode: 'no-mistakes' }
+        }
+      }
+    })
+  })
+  assert.equal(journalOnly.tasks[0]?.terminalOutcome, 'indeterminate')
+  assert.equal(journalOnly.closedTaskIds, undefined)
+})
+
 test('projects terminal journal tasks after FirstMate removes their live carriers', () => {
   const task: FirstMateLifecycleTask = {
     id: 'resize', mode: 'no-mistakes', context: alphaCodexContext, worktree: '/tmp/resize',
