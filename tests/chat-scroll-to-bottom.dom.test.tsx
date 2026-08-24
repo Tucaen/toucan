@@ -46,7 +46,8 @@ const baseChatViewProps: ChatViewProps = {
   authenticate: vi.fn(),
   openAuthLink: vi.fn(),
   resolveApproval: vi.fn(),
-  sendMessage: vi.fn()
+  sendMessage: vi.fn(),
+  answerDecision: vi.fn()
 }
 
 function renderChatView(overrides: Partial<ChatViewProps>): { scrollContainer: HTMLDivElement; rerender(next: Partial<ChatViewProps>): void } {

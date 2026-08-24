@@ -30,6 +30,19 @@ test('decision options are extracted with clean labels, in order', () => {
   ])
 })
 
+test('Codex numbered Markdown options classify without admitting ordinary numbered steps', () => {
+  const text = [
+    'I need your choice:',
+    '1. **Use the cache** — fastest',
+    '2. **Read the source** — freshest',
+    'Which should I do?'
+  ].join('\n')
+  assert.equal(classifyAssistantMessage(text), 'decision')
+  assert.deepEqual(extractDecisionOptions(text).map((option) => option.label), [
+    'Use the cache — fastest', 'Read the source — freshest'
+  ])
+})
+
 test('a routine/noise message (short status ping, no options, no question) classifies as noise', () => {
   assert.equal(classifyAssistantMessage('Spawning worker for task fm-142 in the alpha project.'), 'noise')
   assert.equal(classifyAssistantMessage('No action needed here — the gate already passed.'), 'noise')

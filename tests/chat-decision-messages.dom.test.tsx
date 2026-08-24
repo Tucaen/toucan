@@ -31,7 +31,8 @@ const baseChatViewProps: ChatViewProps = {
   authenticate: vi.fn(),
   openAuthLink: vi.fn(),
   resolveApproval: vi.fn(),
-  sendMessage: vi.fn()
+  sendMessage: vi.fn(),
+  answerDecision: vi.fn()
 }
 
 function renderChatView(overrides: Partial<ChatViewProps>): void {
@@ -62,7 +63,7 @@ describe('assistant message tone rendering', () => {
   test('a decision-shaped message gets decision styling and clickable options', () => {
     renderChatView({ messages: [{ id: 'm1', role: 'assistant', text: decisionText }] })
 
-    const article = screen.getByText(/Which would you like/).closest('article')
+    const article = screen.getAllByText(/Which would you like/)[0]?.closest('article')
     expect(article).toHaveAttribute('data-tone', 'decision')
     expect(screen.getByRole('button', { name: /Fix it now/ })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Skip it/ })).toBeInTheDocument()
@@ -96,22 +97,25 @@ describe('assistant message tone rendering', () => {
 
 describe('decision option interaction', () => {
   test('clicking an option calls sendMessage with that option\'s text', () => {
-    const sendMessage = vi.fn()
+    const answerDecision = vi.fn()
     renderChatView({
       messages: [{ id: 'm5', role: 'assistant', text: decisionText }],
-      sendMessage
+      answerDecision
     })
 
     fireEvent.click(screen.getByRole('button', { name: /Fix it now/ }))
 
-    expect(sendMessage).toHaveBeenCalledWith('Fix it now: remove the unused import and rerun the gate')
+    expect(answerDecision).toHaveBeenCalledWith(
+      expect.stringMatching(/^text:/),
+      'Fix it now: remove the unused import and rerun the gate'
+    )
   })
 
   test('submitting the "Other" field sends the typed free text', () => {
-    const sendMessage = vi.fn()
+    const answerDecision = vi.fn()
     renderChatView({
       messages: [{ id: 'm6', role: 'assistant', text: decisionText }],
-      sendMessage
+      answerDecision
     })
 
     const input = screen.getByPlaceholderText('Other…')
@@ -121,21 +125,21 @@ describe('decision option interaction', () => {
     expect(sendButton).toBeEnabled()
     fireEvent.click(sendButton)
 
-    expect(sendMessage).toHaveBeenCalledWith('Do something else entirely')
+    expect(answerDecision).toHaveBeenCalledWith(expect.stringMatching(/^text:/), 'Do something else entirely')
   })
 
   test('option buttons and the "Other" field are disabled when the session cannot accept messages', () => {
-    const sendMessage = vi.fn()
+    const answerDecision = vi.fn()
     renderChatView({
       messages: [{ id: 'm7', role: 'assistant', text: decisionText }],
-      sendMessage,
+      answerDecision,
       status: 'exited'
     })
 
     const optionButton = screen.getByRole('button', { name: /Fix it now/ })
     expect(optionButton).toBeDisabled()
     fireEvent.click(optionButton)
-    expect(sendMessage).not.toHaveBeenCalled()
+    expect(answerDecision).not.toHaveBeenCalled()
 
     const input = screen.getByPlaceholderText('Other…')
     expect(input).toBeDisabled()
@@ -177,5 +181,70 @@ describe('decision option interaction', () => {
       messageId: 'echo-decision',
       text: 'Fix it now: remove the unused import and rerun the gate'
     })
+  })
+
+  test.each(['claude', 'codex'] as const)('keeps %s decision controls pinned outside the transcript', (provider) => {
+    renderChatView({ provider, messages: [{ id: `${provider}-decision`, role: 'assistant', text: decisionText }] })
+    const pin = screen.getByRole('region', { name: 'Pending decisions' })
+    expect(pin).toBeInTheDocument()
+    expect(pin.closest('.chat-scroll')).toBeNull()
+    expect(within(pin).getByPlaceholderText('Other…')).toBeEnabled()
+  })
+
+  test('a decision answer is submitting until accepted and a rejected answer becomes actionable again', async () => {
+    let settle: ((result: { ok: boolean; message?: string }) => void) | undefined
+    const prompt = vi.fn(() => new Promise<{ ok: boolean; message?: string }>((resolve) => { settle = resolve }))
+    const { api, emit } = createMockAgentApi({ prompt })
+    window.agentApi = api
+    const { result } = renderHook(() => useAgentConversation({
+      id: 'session-pending-decision', provider: 'codex', cwd: '/project', enabled: true,
+      onSessionId: vi.fn(), onPermissionMode: vi.fn(), onModel: vi.fn()
+    }))
+    await waitFor(() => expect(result.current.status).toBe('ready'))
+
+    act(() => result.current.answerDecision('beta:rollout', 'Gradual'))
+    await waitFor(() => expect(result.current.messages[0]).toMatchObject({
+      decisionReplyTo: 'beta:rollout', deliveryPending: true, queued: false
+    }))
+    act(() => settle?.({ ok: false, message: 'Captain transport rejected the answer' }))
+    await waitFor(() => expect(result.current.messages[0]).toMatchObject({
+      decisionReplyTo: 'beta:rollout', deliveryPending: false, failed: true, queued: false
+    }))
+
+    emit('session-pending-decision', { type: 'status', status: 'working' })
+    expect(result.current.detail).toBe('Captain transport rejected the answer')
+  })
+
+  test('answering while Working uses the normal steering queue exactly once', async () => {
+    const { api, emit } = createMockAgentApi()
+    window.agentApi = api
+    const { result } = renderHook(() => useAgentConversation({
+      id: 'session-working-decision', provider: 'claude', cwd: '/project', enabled: true,
+      onSessionId: vi.fn(), onPermissionMode: vi.fn(), onModel: vi.fn()
+    }))
+    await waitFor(() => expect(result.current.status).toBe('ready'))
+    act(() => emit('session-working-decision', { type: 'status', status: 'working' }))
+    act(() => result.current.answerDecision('alpha:storage', 'SQLite'))
+    await waitFor(() => expect(api.promptWhenIdle).toHaveBeenCalledWith('session-working-decision', 'SQLite'))
+    expect(api.prompt).not.toHaveBeenCalled()
+    expect(api.promptWhenIdle).toHaveBeenCalledTimes(1)
+  })
+
+  test.each(['claude', 'codex'] as const)('%s streamed assistant chunks finalize only at turn completion', async (provider) => {
+    const { api, emit } = createMockAgentApi()
+    window.agentApi = api
+    const id = `session-stream-${provider}`
+    const { result } = renderHook(() => useAgentConversation({
+      id, provider, cwd: '/project', enabled: true,
+      onSessionId: vi.fn(), onPermissionMode: vi.fn(), onModel: vi.fn()
+    }))
+    await waitFor(() => expect(result.current.status).toBe('ready'))
+    act(() => {
+      emit(id, { type: 'message', role: 'assistant', messageId: `${provider}-real-message-id`, text: decisionText.slice(0, 35) })
+      emit(id, { type: 'message', role: 'assistant', messageId: `${provider}-real-message-id`, text: decisionText.slice(35) })
+    })
+    expect(result.current.messages).toEqual([expect.objectContaining({ text: decisionText, complete: false })])
+    act(() => emit(id, { type: 'turn_complete', stopReason: 'end_turn' }))
+    expect(result.current.messages).toEqual([expect.objectContaining({ text: decisionText, complete: true })])
   })
 })
