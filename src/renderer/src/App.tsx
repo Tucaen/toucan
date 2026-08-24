@@ -28,6 +28,7 @@ import {
 import SessionNode from './SessionNode'
 import FirstMatePanel from './FirstMatePanel'
 import { terminalLivenessLabels } from './terminal-liveness'
+import { SidebarTerminalLiveness } from './TerminalLivenessPresentation'
 
 type Project = WorkspaceProject
 
@@ -478,9 +479,7 @@ function Canvas(): JSX.Element {
                             <span className="project-node-kind">{node.data.kind === 'terminal' ? '>_' : node.data.kind === 'claude' ? 'C' : '<>'}</span>
                             <span className="project-node-name">{node.data.label}</span>
                             {node.data.kind === 'terminal' && (
-                              <span className="project-node-liveness" data-liveness={node.data.terminalLiveness}>
-                                {terminalLivenessLabels[node.data.terminalLiveness]}
-                              </span>
+                              <SidebarTerminalLiveness liveness={node.data.terminalLiveness} />
                             )}
                             <span className="project-node-state" data-status={status}>
                               <span className="node-status-indicator" />

@@ -4,7 +4,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import { Terminal } from '@xterm/xterm'
 import type { TerminalCanvasNode } from './canvas-workspace'
 import NodeBorderResizer from './NodeBorderResizer'
-import { terminalLivenessDescription, terminalLivenessLabels } from './terminal-liveness'
+import { CanvasTerminalLiveness } from './TerminalLivenessPresentation'
 
 const accents = {
   terminal: '#74d8a2',
@@ -178,7 +178,9 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
             const incarnationId = result.incarnationId
             incarnationRef.current = incarnationId
             started = true
-            const liveness = result.liveness ?? 'live'
+            const liveness = exitedRef.current && incarnationRef.current === incarnationId
+              ? 'exited'
+              : result.liveness ?? 'live'
             data.onTerminalLiveness?.(id, liveness)
             data.onStatusChange(id, liveness === 'exited' ? 'exited' : 'idle')
             fit()
@@ -234,13 +236,9 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
         >
           Copy
         </button>
-        <span
-          className="node-status"
-          data-liveness={data.terminalLiveness}
-          title={data.kind === 'terminal' ? terminalLivenessDescription(data.terminalLiveness) : undefined}
-        >
-          {data.kind === 'terminal' ? terminalLivenessLabels[data.terminalLiveness].toUpperCase() : data.dormant ? 'SAVED' : 'LOCAL'}
-        </span>
+        {data.kind === 'terminal'
+          ? <CanvasTerminalLiveness liveness={data.terminalLiveness} />
+          : <span className="node-status">{data.dormant ? 'SAVED' : 'LOCAL'}</span>}
       </header>
       <div
         ref={hostRef}

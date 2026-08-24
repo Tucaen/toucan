@@ -96,7 +96,9 @@ test('announces the conversation ID discovered for a new Codex session', async (
 
   assert.deepEqual(events, [{
     channel: 'terminal:session',
-    payload: { sessionId: 'node-2', incarnationId: result.incarnationId, conversationId: 'conversation-6' }
+    payload: {
+      sessionId: 'node-2', incarnationId: result.incarnationId, attachmentId: 'node-2', conversationId: 'conversation-6'
+    }
   }])
 })
 
