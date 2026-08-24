@@ -8,6 +8,7 @@ import type {
   FirstMateTaskStage,
   FirstMatePullRequestState,
   FirstMateTaskHistoryEvent,
+  FirstMatePendingDecision,
   FirstMateValidatorRuntime
 } from '../shared/firstmate'
 import {
@@ -57,6 +58,8 @@ export interface FirstMateLifecycleRecord {
   updatedAt: string
   history?: FirstMateTaskHistoryEvent[]
   terminalOutcome?: FirstMateLifecycleTask['terminalOutcome']
+  projection?: Pick<FirstMateLifecycleTask, 'id' | 'mode' | 'context' | 'worktree' | 'window'>
+  pendingDecisions?: FirstMatePendingDecision[]
 }
 
 export interface FirstMateLifecycleJournal {
@@ -141,6 +144,26 @@ function statusParts(line: string): { verb: string; detail: string } {
 
 function statusHash(status: string): string {
   return createHash('sha256').update(status).digest('hex').slice(0, 20)
+}
+
+function statusEvidenceId(line: string): string {
+  const { verb, detail } = statusParts(line)
+  return createHash('sha256')
+    .update(`${verb.toLowerCase()}:${detail.replace(/\s+/g, ' ').trim()}`)
+    .digest('hex').slice(0, 20)
+}
+
+function pendingDecisions(status: string): FirstMatePendingDecision[] {
+  const open = new Map<string, FirstMatePendingDecision>()
+  for (const line of status.split(/\r?\n/).map((item) => item.trim()).filter(Boolean)) {
+    const { verb, detail } = statusParts(line)
+    const match = /^\[key=([^\]]+)\]\s*(.*)$/.exec(detail)
+    if (!match) continue
+    const key = match[1]!.trim()
+    if (verb.toLowerCase() === 'resolved') open.delete(key)
+    if (verb.toLowerCase() === 'needs-decision') open.set(key, { key, detail: match[2]!.trim() })
+  }
+  return [...open.values()].sort((left, right) => left.key.localeCompare(right.key))
 }
 
 function parseJournal(text?: string): FirstMateLifecycleJournal {
@@ -388,6 +411,11 @@ export function firstMatePrResolvedRecord(
     prResolution: state,
     updatedAt: occurredAt,
     terminalOutcome: outcome,
+    projection: {
+      id: task.id, mode: task.mode, ...(task.context ? { context: task.context } : {}),
+      ...(task.worktree ? { worktree: task.worktree } : {}), ...(task.window ? { window: task.window } : {})
+    },
+    ...(task.pendingDecisions ? { pendingDecisions: task.pendingDecisions } : {}),
     history: [{
       id: `forge:${task.statusHash}:${state}`,
       occurredAt,
@@ -466,13 +494,17 @@ function recordedTask(
   )
   const worktree = meta.get('worktree')
   const window = meta.get('window')
+  const line = latestStatusLine(raw.status)
+  const evidenceId = statusEvidenceId(line)
+  const decisions = pendingDecisions(raw.status)
   const attachContext = (task: FirstMateLifecycleTask): FirstMateLifecycleTask => ({
     ...task,
+    statusEvidenceId: evidenceId,
+    pendingDecisions: decisions,
     ...(context ? { context } : {}),
     ...(worktree ? { worktree } : {}),
     ...(window ? { window } : {})
   })
-  const line = latestStatusLine(raw.status)
   const hash = statusHash(raw.status)
   if (!declaresContext) {
     return attachContext({
@@ -630,6 +662,24 @@ export function firstMateLifecycleFromFiles(files: FirstMateLifecycleFiles): Fir
     .map((task) => recordedTask(task, journal))
     .filter((task): task is FirstMateLifecycleTask => task !== undefined)
     .sort((left, right) => left.id.localeCompare(right.id))
+  const liveIds = new Set(tasks.map((task) => task.id))
+  for (const [id, record] of Object.entries(journal.tasks)) {
+    if (liveIds.has(id) || !record.terminalOutcome || !record.projection) continue
+    tasks.push({
+      ...record.projection,
+      stage: record.stage,
+      detail: record.detail,
+      statusHash: record.statusHash,
+      ...(record.nextAction ? { nextAction: record.nextAction } : {}),
+      ...(record.dispatch ? { dispatch: record.dispatch } : {}),
+      ...(record.prUrl ? { prUrl: record.prUrl } : {}),
+      history: recordedHistory(record.history),
+      ...(record.pendingDecisions ? { pendingDecisions: record.pendingDecisions } : {}),
+      terminalOutcome: record.terminalOutcome
+    })
+    closedTaskIds.add(id)
+  }
+  tasks.sort((left, right) => left.id.localeCompare(right.id))
   return {
     supervision: 'app-native',
     ...(validator ? { validator } : {}),

@@ -13,6 +13,7 @@ import { firstMateTaskContextMetadata, type FirstMateTaskContext } from '../src/
 import { createFirstMateLifecycleCoordinator } from '../src/main/firstmate-lifecycle-coordinator'
 import {
   firstMateLifecycleFromFiles,
+  firstMatePrResolvedRecord,
   firstMateValidationDispatchId,
   noMistakesContinuation,
   type FirstMateLifecycleRecord,
@@ -196,6 +197,57 @@ test('durable history converges across restart, replay, and out-of-order evidenc
   const restarted = await readFirstMateLifecycle(home)
   assert.equal(restarted.tasks[0]?.stage, 'validating')
   assert.deepEqual(restarted.tasks[0]?.history?.map((event) => event.id), ['old', 'new'])
+})
+
+test('duplicate normalized FirstMate evidence has one correctly attributed history event', async () => {
+  const { home, statusPath } = taskHome()
+  appendFileSync(statusPath, 'needs-decision: [key=review] choose product behavior\n')
+  const harness = journalRuntime(home)
+  const coordinator = coordinatorFor(harness.runtime)
+  await coordinator.poll()
+  appendFileSync(statusPath, 'needs-decision:   [key=review]   choose product behavior\n')
+  await coordinator.poll()
+  const task = await onlyTask(home)
+  const decisions = task.history?.filter((event) => event.stage === 'decision') ?? []
+  assert.equal(decisions.length, 1)
+  assert.equal(decisions[0]?.source, 'firstmate-status')
+})
+
+test('folds every keyed FirstMate decision and its resolution durably', async () => {
+  const lifecycle = firstMateLifecycleFromFiles({
+    tasks: [{
+      id: 'resize',
+      meta: [
+        'kind=ship', 'mode=no-mistakes', 'project=/mnt/d/Development/alpha/api',
+        'worktree=/tmp/resize', 'harness=codex', firstMateTaskContextMetadata(alphaCodexContext)
+      ].join('\n'),
+      status: [
+        'needs-decision: [key=api] choose API shape',
+        'needs-decision: [key=copy] choose button copy',
+        'resolved: [key=api] use stable API',
+        'needs-decision: [key=theme] choose theme'
+      ].join('\n')
+    }]
+  })
+  assert.deepEqual(lifecycle.tasks[0]?.pendingDecisions, [
+    { key: 'copy', detail: 'choose button copy' },
+    { key: 'theme', detail: 'choose theme' }
+  ])
+})
+
+test('projects terminal journal tasks after FirstMate removes their live carriers', () => {
+  const task: FirstMateLifecycleTask = {
+    id: 'resize', mode: 'no-mistakes', context: alphaCodexContext, worktree: '/tmp/resize',
+    stage: 'pr-ready', detail: 'PR ready', statusHash: 'pr-evidence', prUrl: 'https://github.com/Tucaen/ade/pull/99'
+  }
+  const terminal = firstMatePrResolvedRecord(task, 'merged', new Date('2026-08-24T12:00:00.000Z'))!
+  const lifecycle = firstMateLifecycleFromFiles({
+    tasks: [],
+    journal: JSON.stringify({ version: 1, tasks: { resize: terminal } })
+  })
+  assert.equal(lifecycle.tasks[0]?.id, 'resize')
+  assert.equal(lifecycle.tasks[0]?.terminalOutcome, 'completed')
+  assert.deepEqual(lifecycle.closedTaskIds, ['resize'])
 })
 
 test('indeterminate dispatch delivery is explicit in durable history', async () => {

@@ -76,13 +76,16 @@ function terminalFingerprint(tasks: FirstMateLifecycleTask[]): string {
     .join('|')
 }
 
-function recordFor(task: FirstMateLifecycleTask, now: Date): FirstMateLifecycleRecord {
+function recordFor(
+  task: FirstMateLifecycleTask,
+  now: Date,
+  source: 'firstmate-status' | 'ade-reconciliation' = 'ade-reconciliation'
+): FirstMateLifecycleRecord {
   const occurredAt = now.toISOString()
-  const source = task.stage === 'dispatching' || task.dispatch
-    ? 'ade-reconciliation' as const
-    : 'firstmate-status' as const
-  const eventId = createHash('sha256').update([
-    task.id, task.statusHash, task.stage, task.dispatch?.id ?? '', task.dispatch?.status ?? '',
+  const eventId = source === 'firstmate-status' && task.statusEvidenceId
+    ? `firstmate:${task.statusEvidenceId}`
+    : createHash('sha256').update([
+    task.id, task.stage, task.dispatch?.id ?? '', task.dispatch?.status ?? '',
     String(task.dispatch?.attempt ?? ''), task.detail
   ].join('\0')).digest('hex').slice(0, 24)
   return {
@@ -102,7 +105,12 @@ function recordFor(task: FirstMateLifecycleTask, now: Date): FirstMateLifecycleR
       ...(task.dispatch ? { dispatch: task.dispatch } : {}),
       ...(task.terminalOutcome ? { outcome: task.terminalOutcome } : {})
     }],
-    ...(task.terminalOutcome ? { terminalOutcome: task.terminalOutcome } : {})
+    ...(task.terminalOutcome ? { terminalOutcome: task.terminalOutcome } : {}),
+    projection: {
+      id: task.id, mode: task.mode, ...(task.context ? { context: task.context } : {}),
+      ...(task.worktree ? { worktree: task.worktree } : {}), ...(task.window ? { window: task.window } : {})
+    },
+    ...(task.pendingDecisions ? { pendingDecisions: task.pendingDecisions } : {})
   }
 }
 
@@ -193,8 +201,11 @@ export function createFirstMateLifecycleCoordinator(
    */
   const prCheckedAt = new Map<string, number>()
 
-  const persist = async (task: FirstMateLifecycleTask): Promise<FirstMateLifecycleTask> => {
-    const record = recordFor(task, now())
+  const persist = async (
+    task: FirstMateLifecycleTask,
+    source: 'firstmate-status' | 'ade-reconciliation' = 'ade-reconciliation'
+  ): Promise<FirstMateLifecycleTask> => {
+    const record = recordFor(task, now(), source)
     if (task.history?.some((event) => event.id === record.history?.[0]?.id)) return task
     await options.runtime.recordLifecycle(task.id, record)
     return task
@@ -312,7 +323,7 @@ export function createFirstMateLifecycleCoordinator(
         const observationPlan = planValidationDispatch({
           task: changed[index], liveDispatches, maxAttempts: maxDispatchAttempts
         })
-        if (observationPlan.action === 'none') await persist(changed[index])
+        if (observationPlan.action === 'none') await persist(changed[index], 'firstmate-status')
         changed[index] = await reconcileTask(changed[index])
       }
 

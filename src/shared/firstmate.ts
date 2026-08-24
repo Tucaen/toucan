@@ -66,6 +66,7 @@ export interface FirstMateLifecycleTask {
   stage: FirstMateTaskStage
   detail: string
   statusHash: string
+  statusEvidenceId?: string
   nextAction?:
     | 'start-validation'
     | 'await-dispatch'
@@ -76,7 +77,13 @@ export interface FirstMateLifecycleTask {
   dispatch?: FirstMateTaskDispatch
   prUrl?: string
   history?: FirstMateTaskHistoryEvent[]
+  pendingDecisions?: FirstMatePendingDecision[]
   terminalOutcome?: 'completed' | 'cancelled' | 'failed' | 'indeterminate'
+}
+
+export interface FirstMatePendingDecision {
+  key: string
+  detail: string
 }
 
 export interface FirstMateTaskHistoryEvent {
