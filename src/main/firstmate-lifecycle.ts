@@ -138,18 +138,38 @@ function projectedStatusLine(text: string): string {
   const terminal = lines.filter((line) => {
     const verb = statusParts(line).verb.toLowerCase()
     return verb === 'completed' || verb === 'cancelled' || verb === 'canceled' || verb === 'failed'
-  }).at(-1)
-  if (terminal) return terminal
-  const latest = lines.at(-1) ?? ''
-  const { verb, detail } = statusParts(latest)
-  if (verb.toLowerCase() !== 'needs-decision') return latest
-  const key = /^\[key=([^\]]+)\]/.exec(detail)?.[1]?.trim()
-  if (!key) return latest
-  return [...lines].reverse().find((line) => {
-    const parts = statusParts(line)
-    return parts.verb.toLowerCase() === 'resolved'
-      && /^\[key=([^\]]+)\]/.exec(parts.detail)?.[1]?.trim() === key
-  }) ?? latest
+  })
+  const terminalOutcomes = new Set(terminal.map((line) => {
+    const verb = statusParts(line).verb.toLowerCase()
+    return verb === 'completed' ? 'completed' : verb === 'failed' ? 'failed' : 'cancelled'
+  }))
+  if (terminalOutcomes.size > 1) return 'indeterminate: conflicting terminal lifecycle evidence'
+  if (terminal.length) return [...terminal].sort((left, right) => statusEvidenceId(left).localeCompare(statusEvidenceId(right)))[0]!
+
+  const resolvedKeys = new Set(lines.flatMap((line) => {
+    const { verb, detail } = statusParts(line)
+    const key = /^\[key=([^\]]+)\]/.exec(detail)?.[1]?.trim()
+    return verb.toLowerCase() === 'resolved' && key ? [key] : []
+  }))
+  const ranked = lines.map((line) => {
+    const { verb: rawVerb, detail } = statusParts(line)
+    const verb = rawVerb.toLowerCase()
+    const key = /^\[key=([^\]]+)\]/.exec(detail)?.[1]?.trim()
+    const resolved = key ? resolvedKeys.has(key) : false
+    const rank = verb === 'done' && prFromDone(verb, detail)
+      ? 60
+      : (verb === 'blocked' || verb === 'needs-decision') && !resolved
+        ? 50
+        : verb === 'resolved' || (verb === 'working' && /validat|no-mistakes|checks|\bCI\b/i.test(detail))
+          ? 40
+          : verb === 'done'
+            ? 30
+            : verb === 'working'
+              ? 20
+              : 10
+    return { line, rank, id: statusEvidenceId(line) }
+  })
+  return ranked.sort((left, right) => right.rank - left.rank || left.id.localeCompare(right.id))[0]?.line ?? ''
 }
 
 function statusParts(line: string): { verb: string; detail: string } {
@@ -627,7 +647,7 @@ function recordedTask(
       history: durableHistory
     })
   }
-  if (verb === 'blocked' || verb === 'failed') {
+  if (verb === 'blocked' || verb === 'failed' || verb === 'indeterminate') {
     return attachContext({
       id: raw.id,
       mode,
@@ -637,7 +657,9 @@ function recordedTask(
       nextAction: 'await-help',
       ...(holdsValidationGate ? { dispatch: holdsValidationGate } : {}),
       history: durableHistory,
-      ...(verb === 'failed' ? { terminalOutcome: 'failed' as const } : {})
+      ...(verb === 'failed'
+        ? { terminalOutcome: 'failed' as const }
+        : verb === 'indeterminate' ? { terminalOutcome: 'indeterminate' as const } : {})
     })
   }
   if (verb === 'working' && /validat|no-mistakes|checks|\bCI\b/i.test(detail)) {

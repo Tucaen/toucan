@@ -343,6 +343,48 @@ test('delayed decision evidence cannot reopen a resolved key', () => {
   assert.deepEqual(lifecycle.tasks[0]?.pendingDecisions, [])
 })
 
+test('nonterminal evidence permutations converge on actionable implementation', () => {
+  const statuses = [
+    ['done: committed implementation', 'working: coding'],
+    ['working: coding', 'done: committed implementation']
+  ]
+  const projections = statuses.map((status) => firstMateLifecycleFromFiles({
+    tasks: [{
+      id: 'resize',
+      meta: [
+        'kind=ship', 'mode=no-mistakes', 'project=/mnt/d/Development/alpha/api',
+        'worktree=/tmp/resize', 'harness=codex', firstMateTaskContextMetadata(alphaCodexContext)
+      ].join('\n'),
+      status: status.join('\n')
+    }]
+  }).tasks[0])
+  assert.deepEqual(projections.map((task) => [task?.stage, task?.nextAction]), [
+    ['implemented', 'start-validation'],
+    ['implemented', 'start-validation']
+  ])
+})
+
+test('conflicting terminal evidence permutations converge as indeterminate', () => {
+  const statuses = [
+    ['completed: shipped', 'failed: validation failed'],
+    ['failed: validation failed', 'completed: shipped']
+  ]
+  const projections = statuses.map((status) => firstMateLifecycleFromFiles({
+    tasks: [{
+      id: 'resize',
+      meta: [
+        'kind=ship', 'mode=no-mistakes', 'project=/mnt/d/Development/alpha/api',
+        'worktree=/tmp/resize', 'harness=codex', firstMateTaskContextMetadata(alphaCodexContext)
+      ].join('\n'),
+      status: status.join('\n')
+    }]
+  }).tasks[0])
+  assert.deepEqual(projections.map((task) => [task?.stage, task?.terminalOutcome, task?.detail]), [
+    ['blocked', 'indeterminate', 'conflicting terminal lifecycle evidence'],
+    ['blocked', 'indeterminate', 'conflicting terminal lifecycle evidence']
+  ])
+})
+
 test('projects terminal journal tasks after FirstMate removes their live carriers', () => {
   const task: FirstMateLifecycleTask = {
     id: 'resize', mode: 'no-mistakes', context: alphaCodexContext, worktree: '/tmp/resize',
