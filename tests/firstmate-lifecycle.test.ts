@@ -231,6 +231,20 @@ test('duplicate implementation evidence becomes indeterminate after acknowledgem
   assert.equal(task.dispatch?.status, 'acknowledged')
 })
 
+test('duplicate implementation evidence is indeterminate before any dispatch', async () => {
+  const { home, statusPath } = taskHome()
+  writeFileSync(statusPath, [
+    'done: committed resizable panel',
+    'done:   committed resizable panel'
+  ].join('\n'))
+  const harness = journalRuntime(home)
+  await coordinatorFor(harness.runtime).poll()
+  const task = await onlyTask(home)
+  assert.equal(task.terminalOutcome, 'indeterminate')
+  assert.equal(task.nextAction, 'await-help')
+  assert.equal(harness.continuations.length, 0)
+})
+
 test('projects every unseen lifecycle line appended between polls', async () => {
   const { home, statusPath } = taskHome()
   appendFileSync(statusPath, [
@@ -308,6 +322,27 @@ test('replayed decision evidence cannot reopen a resolved decision', () => {
     }]
   })
   assert.deepEqual(lifecycle.tasks[0]?.pendingDecisions, [])
+})
+
+test('competing decision details converge as explicitly indeterminate', () => {
+  const statuses = [
+    ['needs-decision: [key=review] choose A', 'needs-decision: [key=review] choose B'],
+    ['needs-decision: [key=review] choose B', 'needs-decision: [key=review] choose A']
+  ]
+  const decisions = statuses.map((status) => firstMateLifecycleFromFiles({
+    tasks: [{
+      id: 'resize',
+      meta: [
+        'kind=ship', 'mode=no-mistakes', 'project=/mnt/d/Development/alpha/api',
+        'worktree=/tmp/resize', 'harness=codex', firstMateTaskContextMetadata(alphaCodexContext)
+      ].join('\n'),
+      status: status.join('\n')
+    }]
+  }).tasks[0]?.pendingDecisions)
+  assert.deepEqual(decisions, [
+    [{ key: 'review', detail: 'Conflicting unresolved decision evidence.', indeterminate: true }],
+    [{ key: 'review', detail: 'Conflicting unresolved decision evidence.', indeterminate: true }]
+  ])
 })
 
 test('delayed decision evidence cannot regress a completed task', () => {

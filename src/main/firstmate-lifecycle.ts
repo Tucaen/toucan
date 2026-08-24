@@ -203,7 +203,7 @@ function statusEvidenceId(line: string): string {
 }
 
 function pendingDecisions(status: string): FirstMatePendingDecision[] {
-  const open = new Map<string, FirstMatePendingDecision>()
+  const candidates = new Map<string, Map<string, string>>()
   const seen = new Set<string>()
   const lines = status.split(/\r?\n/).map((item) => item.trim()).filter(Boolean)
   const resolvedKeys = new Set(lines.flatMap((line) => {
@@ -220,10 +220,16 @@ function pendingDecisions(status: string): FirstMatePendingDecision[] {
     if (!match) continue
     const key = match[1]!.trim()
     if (verb.toLowerCase() === 'needs-decision' && !resolvedKeys.has(key)) {
-      open.set(key, { key, detail: match[2]!.trim() })
+      const details = candidates.get(key) ?? new Map<string, string>()
+      details.set(evidenceId, match[2]!.trim())
+      candidates.set(key, details)
     }
   }
-  return [...open.values()].sort((left, right) => left.key.localeCompare(right.key))
+  return [...candidates.entries()].map(([key, details]): FirstMatePendingDecision => (
+    details.size === 1
+      ? { key, detail: details.values().next().value! }
+      : { key, detail: 'Conflicting unresolved decision evidence.', indeterminate: true }
+  )).sort((left, right) => left.key.localeCompare(right.key))
 }
 
 function statusEvidence(status: string, mode: string): FirstMateStatusEvidence[] {
@@ -675,6 +681,27 @@ function recordedTask(
     .filter((item) => item && statusEvidenceId(item) === evidenceId)
     .length
 
+  if (verb === 'done' && evidenceOccurrences > 1) {
+    const ambiguityDetail = 'Lifecycle evidence cannot distinguish a replay from a later identical implementation.'
+    return attachContext({
+      id: raw.id,
+      mode,
+      stage: 'blocked',
+      detail: ambiguityDetail,
+      statusHash: hash,
+      nextAction: 'await-help',
+      ...(durableDispatch ? { dispatch: durableDispatch } : {}),
+      history: durableHistory,
+      statusEvidence: [...evidence, {
+        id: statusEvidenceId('indeterminate: replay or later identical implementation'),
+        stage: 'blocked',
+        detail: ambiguityDetail,
+        outcome: 'indeterminate'
+      }],
+      terminalOutcome: 'indeterminate'
+    })
+  }
+
   if (prUrl) {
     // ADE already asked the PR's own forge and learned it merged or closed: stop presenting it as
     // awaiting review instead of waiting on FirstMate's own task-record teardown to catch up.
@@ -724,25 +751,6 @@ function recordedTask(
     })
   }
   if (verb === 'done' && durableDispatch?.id === evidenceDispatchId) {
-    if (evidenceOccurrences > 1) {
-      return attachContext({
-        id: raw.id,
-        mode,
-        stage: 'blocked',
-        detail: 'Lifecycle evidence cannot distinguish a replay from a later identical implementation.',
-        statusHash: hash,
-        nextAction: 'await-help',
-        dispatch: durableDispatch,
-        history: durableHistory,
-        statusEvidence: [...evidence, {
-          id: statusEvidenceId('indeterminate: replay or later identical implementation'),
-          stage: 'blocked',
-          detail: 'Lifecycle evidence cannot distinguish a replay from a later identical implementation.',
-          outcome: 'indeterminate'
-        }],
-        terminalOutcome: 'indeterminate'
-      })
-    }
     return attachContext({
       id: raw.id,
       mode,

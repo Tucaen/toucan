@@ -86,6 +86,7 @@ export interface FirstMateLifecycleTask {
 export interface FirstMatePendingDecision {
   key: string
   detail: string
+  indeterminate?: boolean
 }
 
 export interface FirstMateStatusEvidence {
