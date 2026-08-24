@@ -53,7 +53,9 @@ function registerTerminalIpc(manager: TerminalManager, providers: SessionProvide
   ipcMain.on('terminal:resize', (_event, sessionId: string, incarnationId: string, cols: number, rows: number) => (
     manager.resize(sessionId, incarnationId, cols, rows)
   ))
-  ipcMain.on('terminal:kill', (_event, sessionId: string, incarnationId: string) => manager.kill(sessionId, incarnationId))
+  ipcMain.on('terminal:kill', (_event, sessionId: string, incarnationId: string, attachmentId: string) => (
+    manager.kill(sessionId, incarnationId, attachmentId)
+  ))
 }
 
 function registerAgentIpc(manager: AcpSessionManager): void {

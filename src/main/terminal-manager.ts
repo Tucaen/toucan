@@ -19,6 +19,7 @@ interface RunningTerminal {
   incarnationId: string
   process: TerminalProcess
   owner: TerminalEventOwner | null
+  attachmentId: string
   liveness: TerminalLiveness
   discoveryTimer?: ReturnType<typeof setInterval>
 }
@@ -37,7 +38,7 @@ export interface TerminalManager {
   create(request: TerminalCreateRequest, owner: TerminalEventOwner): TerminalCreateResult
   write(sessionId: string, incarnationId: string, data: string): boolean
   resize(sessionId: string, incarnationId: string, cols: number, rows: number): boolean
-  kill(sessionId: string, incarnationId: string): boolean
+  kill(sessionId: string, incarnationId: string, attachmentId: string): boolean
   disconnectOwner(owner: TerminalEventOwner): void
   killAll(): void
   state(sessionId: string): { incarnationId: string; liveness: TerminalLiveness } | undefined
@@ -55,9 +56,9 @@ export function createTerminalManager(options: TerminalManagerOptions): Terminal
     return terminal?.incarnationId === incarnationId ? terminal : undefined
   }
 
-  const stop = (sessionId: string, incarnationId: string): boolean => {
+  const stop = (sessionId: string, incarnationId: string, attachmentId?: string): boolean => {
     const terminal = matches(sessionId, incarnationId)
-    if (!terminal) return false
+    if (!terminal || (attachmentId !== undefined && terminal.attachmentId !== attachmentId)) return false
     if (terminal.discoveryTimer) clearInterval(terminal.discoveryTimer)
     terminals.delete(sessionId)
     terminal.owner = null
@@ -70,9 +71,11 @@ export function createTerminalManager(options: TerminalManagerOptions): Terminal
   return {
     create(request, owner): TerminalCreateResult {
       const sessionId = request.sessionId ?? request.id
+      const attachmentId = request.attachmentId ?? request.id
       const existing = terminals.get(sessionId)
       if (existing) {
         existing.owner = owner
+        existing.attachmentId = attachmentId
         existing.liveness = 'live'
         lastStates.set(sessionId, { incarnationId: existing.incarnationId, liveness: 'live' })
         return {
@@ -99,7 +102,9 @@ export function createTerminalManager(options: TerminalManagerOptions): Terminal
         const startedAt = (options.now ?? Date.now)()
         const terminal = options.spawn(launch, request, cwd)
         const incarnationId = (options.createIncarnationId ?? randomUUID)()
-        const running: RunningTerminal = { sessionId, incarnationId, process: terminal, owner, liveness: 'live' }
+        const running: RunningTerminal = {
+          sessionId, incarnationId, process: terminal, owner, attachmentId, liveness: 'live'
+        }
         terminals.set(sessionId, running)
         lastStates.set(sessionId, { incarnationId, liveness: 'live' })
         if (request.kind === 'codex' && !request.resume) {
@@ -123,13 +128,15 @@ export function createTerminalManager(options: TerminalManagerOptions): Terminal
             if (running.discoveryTimer) clearInterval(running.discoveryTimer)
             running.discoveryTimer = undefined
             if (current === running && running.owner) sendTerminalEvent(running.owner, 'terminal:session', {
-              sessionId, incarnationId, conversationId
+              sessionId, incarnationId, attachmentId: running.attachmentId, conversationId
             })
           }, options.discoveryIntervalMs ?? 250)
         }
         terminal.onData((data) => {
           if (terminals.get(sessionId) === running && running.owner) {
-            sendTerminalEvent(running.owner, 'terminal:data', { sessionId, incarnationId, data })
+            sendTerminalEvent(running.owner, 'terminal:data', {
+              sessionId, incarnationId, attachmentId: running.attachmentId, data
+            })
           }
         })
         terminal.onExit(({ exitCode }) => {
@@ -140,10 +147,10 @@ export function createTerminalManager(options: TerminalManagerOptions): Terminal
           if (lastStates.get(sessionId)?.incarnationId !== incarnationId) return
           lastStates.set(sessionId, { incarnationId, liveness: 'exited' })
           if (running.owner) sendTerminalEvent(running.owner, 'terminal:exit', {
-            sessionId, incarnationId, exitCode
+            sessionId, incarnationId, attachmentId: running.attachmentId, exitCode
           })
         })
-        return { ok: true, sessionId, incarnationId, liveness: 'live' }
+        return { ok: true, sessionId, incarnationId, liveness: lastStates.get(sessionId)?.liveness ?? 'live' }
       } catch (error) {
         return { ok: false, message: `Could not start the session: ${errorMessage(error)}` }
       }
@@ -161,8 +168,8 @@ export function createTerminalManager(options: TerminalManagerOptions): Terminal
       terminal.process.resize(cols, rows)
       return true
     },
-    kill(sessionId, incarnationId): boolean {
-      return stop(sessionId, incarnationId)
+    kill(sessionId, incarnationId, attachmentId): boolean {
+      return stop(sessionId, incarnationId, attachmentId)
     },
     disconnectOwner(owner): void {
       for (const terminal of terminals.values()) {

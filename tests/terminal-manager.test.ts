@@ -195,3 +195,29 @@ test('owner loss is unverifiable while only the process exit callback proves exi
   exit?.({ exitCode: 12 })
   assert.deepEqual(manager.state('session'), { incarnationId: 'incarnation', liveness: 'exited' })
 })
+
+test('a retired attachment cannot kill a session reclaimed by a replacement', () => {
+  let killed = 0
+  const manager = createTerminalManager({
+    providers: createSessionProviders({ homeDirectory: 'C:\\Users\\tester', environment: {}, resolveCommand: () => 'pwsh.exe' }),
+    pathExists: () => true,
+    pathIsDirectory: () => true,
+    createIncarnationId: () => 'incarnation',
+    spawn: () => ({
+      onData: () => undefined,
+      onExit: () => undefined,
+      write: () => undefined,
+      resize: () => undefined,
+      kill: () => { killed += 1 }
+    })
+  })
+  const owner = { isDestroyed: () => false, send: () => undefined }
+  const request = { id: 'node', sessionId: 'session', kind: 'terminal' as const, cols: 80, rows: 24, cwd: 'D:\\ADE' }
+  const first = manager.create({ ...request, attachmentId: 'old-mount' }, owner)
+  manager.create({ ...request, attachmentId: 'new-mount' }, owner)
+
+  assert.equal(manager.kill('session', first.incarnationId!, 'old-mount'), false)
+  assert.equal(killed, 0)
+  assert.equal(manager.kill('session', first.incarnationId!, 'new-mount'), true)
+  assert.equal(killed, 1)
+})

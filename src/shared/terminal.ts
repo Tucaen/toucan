@@ -10,6 +10,7 @@ export interface TerminalCreateRequest {
   id: string
   /** Durable identity of the terminal, independent of any renderer or process. */
   sessionId?: string
+  attachmentId?: string
   kind: TerminalKind
   cols: number
   rows: number
@@ -77,18 +78,21 @@ export interface TerminalCreateResult {
 export interface TerminalOutput {
   sessionId: string
   incarnationId: string
+  attachmentId: string
   data: string
 }
 
 export interface TerminalExit {
   sessionId: string
   incarnationId: string
+  attachmentId: string
   exitCode: number
 }
 
 export interface TerminalSession {
   sessionId: string
   incarnationId: string
+  attachmentId: string
   conversationId: string
 }
 
