@@ -26,21 +26,18 @@ export interface PendingDecisionState {
 }
 
 export interface DurableTaskClosureState {
-  knownTaskIds: Set<string>
   closedTaskIds: Set<string>
 }
 
 export function durableTaskClosureState(
-  tasks: readonly { id: string; stage?: string }[],
-  persistedKnownTaskIds: ReadonlySet<string> = new Set(),
+  explicitlyClosedTaskIds: ReadonlySet<string> = new Set(),
+  activeTaskIds: ReadonlySet<string> = new Set(),
   persistedClosedTaskIds: ReadonlySet<string> = new Set()
 ): DurableTaskClosureState {
-  const currentTaskIds = new Set(tasks.map((task) => task.id))
-  const knownTaskIds = new Set(persistedKnownTaskIds)
   const closedTaskIds = new Set(persistedClosedTaskIds)
-  for (const id of knownTaskIds) if (!currentTaskIds.has(id)) closedTaskIds.add(id)
-  for (const id of currentTaskIds) knownTaskIds.add(id)
-  return { knownTaskIds, closedTaskIds }
+  for (const id of activeTaskIds) if (!explicitlyClosedTaskIds.has(id)) closedTaskIds.delete(id)
+  for (const id of explicitlyClosedTaskIds) closedTaskIds.add(id)
+  return { closedTaskIds }
 }
 
 function tag(text: string, name: string): string | undefined {

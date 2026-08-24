@@ -62,7 +62,6 @@ function isFirstMateWorkspaceState(value: unknown): value is FirstMateWorkspaceS
     if (state.captains.claude !== undefined && !isCaptainState(state.captains.claude)) return false
   }
   return (state.worklogCollapsed === undefined || typeof state.worklogCollapsed === 'boolean')
-    && isOptionalStringArray(state.knownTaskIds)
     && isOptionalStringArray(state.closedTaskIds)
     && (
       state.panelWidth === undefined

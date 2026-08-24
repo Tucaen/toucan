@@ -123,10 +123,10 @@ test('ordinary replies preserve every unresolved pin and completed tasks remove 
   )
 })
 
-test('transient lifecycle stages stay open until authoritative disappearance', () => {
+test('snapshot absence stays open until an explicit terminal signal', () => {
   const validating = durableTaskClosureState(
-    [{ id: 'alpha', stage: 'validating' }],
     new Set(),
+    new Set(['alpha']),
     new Set()
   )
   assert.deepEqual([...validating.closedTaskIds], [])
@@ -135,8 +135,17 @@ test('transient lifecycle stages stay open until authoritative disappearance', (
       .map((pin) => pin.id),
     ['alpha:storage']
   )
-  const removed = durableTaskClosureState([], validating.knownTaskIds, validating.closedTaskIds)
-  assert.deepEqual([...removed.closedTaskIds], ['alpha'])
+  const absent = durableTaskClosureState(new Set(), new Set(), validating.closedTaskIds)
+  assert.deepEqual([...absent.closedTaskIds], [])
+  assert.deepEqual(
+    pendingDecisionsFromMessages([assistant('later-decision', claudeDecision)], absent.closedTaskIds)
+      .map((pin) => pin.id),
+    ['alpha:storage']
+  )
+  const completed = durableTaskClosureState(new Set(['alpha']), new Set(), absent.closedTaskIds)
+  assert.deepEqual([...completed.closedTaskIds], ['alpha'])
+  const restarted = durableTaskClosureState(new Set(), new Set(['alpha']), completed.closedTaskIds)
+  assert.deepEqual([...restarted.closedTaskIds], [])
 })
 
 test('normal, noise, thought, and decision-shaped user messages never pin', () => {

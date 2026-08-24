@@ -82,6 +82,7 @@ export interface FirstMateLifecycleStatus {
   validator?: FirstMateValidatorRuntime
   message?: string
   tasks: FirstMateLifecycleTask[]
+  closedTaskIds?: string[]
 }
 
 export interface FirstMateRuntimeStatus {
@@ -270,7 +271,6 @@ export interface FirstMateWorkspaceState {
   captains?: Partial<Record<AgentProvider, FirstMateCaptainWorkspaceState>>
   worklogCollapsed?: boolean
   panelWidth?: number
-  knownTaskIds?: string[]
   closedTaskIds?: string[]
 }
 

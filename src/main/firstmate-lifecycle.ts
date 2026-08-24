@@ -576,6 +576,20 @@ function recordedTask(
 export function firstMateLifecycleFromFiles(files: FirstMateLifecycleFiles): FirstMateLifecycleStatus {
   const journal = parseJournal(files.journal)
   const validator = firstMateValidatorFromRuntimeConfig(files.runtimeConfig)
+  const rawTasks = new Map(files.tasks.map((task) => [task.id, task]))
+  const closedTaskIds = new Set(
+    Object.entries(journal.tasks)
+      .filter(([id, record]) => {
+        const raw = rawTasks.get(id)
+        return record.prResolution !== undefined
+          && (!raw || record.statusHash === statusHash(raw.status))
+      })
+      .map(([id]) => id)
+  )
+  for (const task of files.tasks) {
+    const verb = statusParts(latestStatusLine(task.status)).verb.toLowerCase()
+    if (verb === 'cancelled' || verb === 'canceled' || verb === 'completed') closedTaskIds.add(task.id)
+  }
   const tasks = files.tasks
     .map((task) => recordedTask(task, journal))
     .filter((task): task is FirstMateLifecycleTask => task !== undefined)
@@ -583,6 +597,7 @@ export function firstMateLifecycleFromFiles(files: FirstMateLifecycleFiles): Fir
   return {
     supervision: 'app-native',
     ...(validator ? { validator } : {}),
+    ...(closedTaskIds.size ? { closedTaskIds: [...closedTaskIds].sort() } : {}),
     tasks
   }
 }

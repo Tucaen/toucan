@@ -408,9 +408,13 @@ export default function FirstMatePanel({ projects, project, state, onStateChange
     onEffort: (effortId) => updateCaptain({ effortId })
   })
   const taskClosureState = lifecycleLoaded
-    ? durableTaskClosureState(lifecycle.tasks, new Set(state.knownTaskIds), new Set(state.closedTaskIds))
-    : { knownTaskIds: new Set(state.knownTaskIds), closedTaskIds: new Set(state.closedTaskIds) }
-  const { knownTaskIds, closedTaskIds } = taskClosureState
+    ? durableTaskClosureState(
+        new Set(lifecycle.closedTaskIds),
+        new Set(lifecycle.tasks.map((task) => task.id)),
+        new Set(state.closedTaskIds)
+      )
+    : { closedTaskIds: new Set(state.closedTaskIds) }
+  const { closedTaskIds } = taskClosureState
   const persistedClosedDecisionIds = firstMateClosedDecisionIds(state, provider, captain.conversationId)
   const decisionState = pendingDecisionStateFromMessages(
     conversation.messages,
@@ -420,14 +424,11 @@ export default function FirstMatePanel({ projects, project, state, onStateChange
 
   useEffect(() => {
     const nextDecisionIds = [...decisionState.closedIds]
-    const nextKnownTaskIds = [...knownTaskIds]
     const nextClosedTaskIds = [...closedTaskIds]
     if ((captain.conversationId && nextDecisionIds.join('\0') !== persistedClosedDecisionIds.join('\0'))
-      || nextKnownTaskIds.join('\0') !== (state.knownTaskIds ?? []).join('\0')
       || nextClosedTaskIds.join('\0') !== (state.closedTaskIds ?? []).join('\0')) {
       onStateChange(firstMateWithCaptainState({
         ...state,
-        knownTaskIds: nextKnownTaskIds,
         closedTaskIds: nextClosedTaskIds
       }, provider, captain.conversationId
         ? {
@@ -440,7 +441,6 @@ export default function FirstMatePanel({ projects, project, state, onStateChange
     captain.conversationId,
     closedTaskIds,
     decisionState.closedIds,
-    knownTaskIds,
     onStateChange,
     provider,
     persistedClosedDecisionIds,

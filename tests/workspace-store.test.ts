@@ -51,7 +51,6 @@ test('saves and loads a valid workspace through the store', () => {
       },
       worklogCollapsed: true,
       panelWidth: 448,
-      knownTaskIds: ['alpha'],
       closedTaskIds: ['alpha']
     },
     nodes: []
