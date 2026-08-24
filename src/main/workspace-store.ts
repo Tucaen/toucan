@@ -128,6 +128,7 @@ export function isWorkspaceState(value: unknown): value is WorkspaceState {
   return state.nodes.every((node) => (
     node
     && typeof node.id === 'string'
+    && (node.sessionId === undefined || typeof node.sessionId === 'string')
     && ['terminal', 'claude', 'codex'].includes(node.kind)
     && typeof node.label === 'string'
     && typeof node.projectId === 'string'
@@ -138,6 +139,7 @@ export function isWorkspaceState(value: unknown): value is WorkspaceState {
     && (node.conversationId === undefined || typeof node.conversationId === 'string')
     && (node.worklogCollapsed === undefined || typeof node.worklogCollapsed === 'boolean')
     && (node.modelId === undefined || typeof node.modelId === 'string')
+    && (node.terminalLiveness === undefined || ['live', 'unverifiable', 'exited'].includes(node.terminalLiveness))
     && (
       node.preview === undefined
       || (

@@ -12,6 +12,7 @@ import {
 import type {
   AgentPermissionModes,
   ConversationPreview,
+  TerminalLiveness,
   ProjectDirectory,
   TerminalKind,
   WorkspaceProject,
@@ -26,6 +27,7 @@ import {
 } from './canvas-workspace'
 import SessionNode from './SessionNode'
 import FirstMatePanel from './FirstMatePanel'
+import { terminalLivenessLabels } from './terminal-liveness'
 
 type Project = WorkspaceProject
 
@@ -54,7 +56,7 @@ const statusLabels: Record<TerminalNodeStatus, string> = {
   result: 'Result',
   attention: 'Attention',
   stalled: 'Stalled',
-  exited: 'Exited'
+  exited: terminalLivenessLabels.exited
 }
 
 function createProject(directory: ProjectDirectory, index: number): Project {
@@ -108,6 +110,12 @@ function Canvas(): JSX.Element {
   const handleConversationId = useCallback((nodeId: string, conversationId: string): void => {
     setNodes((current) => current.map((node) => node.id === nodeId
       ? { ...node, data: { ...node.data, conversationId } }
+      : node))
+  }, [setNodes])
+
+  const handleTerminalLiveness = useCallback((nodeId: string, liveness: TerminalLiveness): void => {
+    setNodes((current) => current.map((node) => node.id === nodeId
+      ? { ...node, data: { ...node.data, terminalLiveness: liveness } }
       : node))
   }, [setNodes])
 
@@ -179,7 +187,8 @@ function Canvas(): JSX.Element {
           onWorklogCollapsed: handleWorklogCollapsed,
           onPermissionModeChange: handlePermissionModeChange,
           onModelChange: handleModelChange,
-          onResume: resumeNode
+          onResume: resumeNode,
+          onTerminalLiveness: handleTerminalLiveness
         })
 
         setProjects(saved.projects)
@@ -200,7 +209,7 @@ function Canvas(): JSX.Element {
       setWorkspaceReady(true)
     })()
     return () => { active = false }
-  }, [handleConversationId, handleModelChange, handlePermissionModeChange, handlePreview, handleStatusChange, handleWorklogCollapsed, resumeNode, setNodes])
+  }, [handleConversationId, handleModelChange, handlePermissionModeChange, handlePreview, handleStatusChange, handleTerminalLiveness, handleWorklogCollapsed, resumeNode, setNodes])
 
   useEffect(() => {
     if (!workspaceReady) return
@@ -299,6 +308,8 @@ function Canvas(): JSX.Element {
           position: { x: menu.flowX, y: menu.flowY },
           data: {
             kind,
+            sessionId: crypto.randomUUID(),
+            terminalLiveness: 'unverifiable',
             label,
             projectId: activeProject.id,
             projectName: activeProject.name,
@@ -315,7 +326,8 @@ function Canvas(): JSX.Element {
             onWorklogCollapsed: handleWorklogCollapsed,
             onPermissionModeChange: handlePermissionModeChange,
             onModelChange: handleModelChange,
-            onResume: resumeNode
+            onResume: resumeNode,
+            onTerminalLiveness: handleTerminalLiveness
           },
           style: { width: 520, height: 340 }
         }
@@ -323,7 +335,7 @@ function Canvas(): JSX.Element {
       setNodeStatuses((current) => ({ ...current, [id]: 'starting' }))
       setMenu(null)
     },
-    [activeProject, agentPermissionModes, handleConversationId, handleModelChange, handlePermissionModeChange, handlePreview, handleStatusChange, handleWorklogCollapsed, menu, resumeNode, setNodes]
+    [activeProject, agentPermissionModes, handleConversationId, handleModelChange, handlePermissionModeChange, handlePreview, handleStatusChange, handleTerminalLiveness, handleWorklogCollapsed, menu, resumeNode, setNodes]
   )
 
   return (
@@ -465,6 +477,11 @@ function Canvas(): JSX.Element {
                           >
                             <span className="project-node-kind">{node.data.kind === 'terminal' ? '>_' : node.data.kind === 'claude' ? 'C' : '<>'}</span>
                             <span className="project-node-name">{node.data.label}</span>
+                            {node.data.kind === 'terminal' && (
+                              <span className="project-node-liveness" data-liveness={node.data.terminalLiveness}>
+                                {terminalLivenessLabels[node.data.terminalLiveness]}
+                              </span>
+                            )}
                             <span className="project-node-state" data-status={status}>
                               <span className="node-status-indicator" />
                               {statusLabels[status]}

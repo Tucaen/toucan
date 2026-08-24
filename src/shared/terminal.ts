@@ -2,11 +2,14 @@ import type { AgentProvider } from './agent'
 import type { FirstMateWorkspaceState } from './firstmate'
 
 export type TerminalKind = 'terminal' | 'claude' | 'codex'
+export type TerminalLiveness = 'live' | 'unverifiable' | 'exited'
 
 export type AgentPermissionModes = Partial<Record<AgentProvider, string>>
 
 export interface TerminalCreateRequest {
   id: string
+  /** Durable identity of the terminal, independent of any renderer or process. */
+  sessionId?: string
   kind: TerminalKind
   cols: number
   rows: number
@@ -33,6 +36,7 @@ export interface ConversationPreview {
 
 export interface WorkspaceTerminalNode {
   id: string
+  sessionId?: string
   kind: TerminalKind
   label: string
   projectId: string
@@ -44,6 +48,7 @@ export interface WorkspaceTerminalNode {
   worklogCollapsed?: boolean
   /** The agent model this conversation last ran on, as reported by its ACP adapter. */
   modelId?: string
+  terminalLiveness?: TerminalLiveness
 }
 
 export interface WorkspaceState {
@@ -64,19 +69,31 @@ export interface WorkspaceSaveResult {
 export interface TerminalCreateResult {
   ok: boolean
   message?: string
+  sessionId?: string
+  incarnationId?: string
+  liveness?: TerminalLiveness
 }
 
 export interface TerminalOutput {
-  id: string
+  sessionId: string
+  incarnationId: string
   data: string
 }
 
 export interface TerminalExit {
-  id: string
+  sessionId: string
+  incarnationId: string
   exitCode: number
 }
 
 export interface TerminalSession {
-  id: string
+  sessionId: string
+  incarnationId: string
   conversationId: string
+}
+
+export interface TerminalLivenessEvent {
+  sessionId: string
+  incarnationId: string
+  liveness: TerminalLiveness
 }
