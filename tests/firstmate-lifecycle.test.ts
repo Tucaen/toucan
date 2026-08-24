@@ -1056,12 +1056,14 @@ test('drops a pr-ready task off the active list once its GitHub PR is confirmed 
 
   let lifecycle = await readFirstMateLifecycle(home)
   assert.equal(lifecycle.tasks[0]?.stage, 'pr-ready')
+  const taskId = lifecycle.tasks[0]!.id
 
   await coordinator.poll()
 
   assert.deepEqual(checks, [prUrl])
   lifecycle = await readFirstMateLifecycle(home)
   assert.equal(lifecycle.tasks.length, 0, 'a confirmed merge must stop presenting the task as awaiting review')
+  assert.deepEqual(lifecycle.closedTaskIds, [taskId])
 })
 
 test('leaves a pr-ready task alone while its GitHub PR is still open', async () => {

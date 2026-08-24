@@ -34,6 +34,10 @@ function isOptionalString(value: unknown): value is string | undefined {
   return value === undefined || typeof value === 'string'
 }
 
+function isOptionalStringArray(value: unknown): value is string[] | undefined {
+  return value === undefined || (Array.isArray(value) && value.every((item) => typeof item === 'string'))
+}
+
 function isCaptainState(value: unknown): value is FirstMateCaptainWorkspaceState {
   if (!value || typeof value !== 'object') return false
   const captain = value as Partial<FirstMateCaptainWorkspaceState>
@@ -41,6 +45,8 @@ function isCaptainState(value: unknown): value is FirstMateCaptainWorkspaceState
     && isOptionalString(captain.permissionMode)
     && isOptionalString(captain.modelId)
     && isOptionalString(captain.effortId)
+    && isOptionalString(captain.closedDecisionConversationId)
+    && isOptionalStringArray(captain.closedDecisionIds)
 }
 
 function isFirstMateWorkspaceState(value: unknown): value is FirstMateWorkspaceState {
@@ -56,6 +62,7 @@ function isFirstMateWorkspaceState(value: unknown): value is FirstMateWorkspaceS
     if (state.captains.claude !== undefined && !isCaptainState(state.captains.claude)) return false
   }
   return (state.worklogCollapsed === undefined || typeof state.worklogCollapsed === 'boolean')
+    && isOptionalStringArray(state.closedTaskIds)
     && (
       state.panelWidth === undefined
       || (

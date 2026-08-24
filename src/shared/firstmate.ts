@@ -82,6 +82,7 @@ export interface FirstMateLifecycleStatus {
   validator?: FirstMateValidatorRuntime
   message?: string
   tasks: FirstMateLifecycleTask[]
+  closedTaskIds?: string[]
 }
 
 export interface FirstMateRuntimeStatus {
@@ -260,6 +261,8 @@ export interface FirstMateCaptainWorkspaceState {
   modelId?: string
   /** Provider/model-specific thought level selected from the captain agent's ACP capabilities. */
   effortId?: string
+  closedDecisionConversationId?: string
+  closedDecisionIds?: string[]
 }
 
 export interface FirstMateWorkspaceState {
@@ -268,6 +271,7 @@ export interface FirstMateWorkspaceState {
   captains?: Partial<Record<AgentProvider, FirstMateCaptainWorkspaceState>>
   worklogCollapsed?: boolean
   panelWidth?: number
+  closedTaskIds?: string[]
 }
 
 export function firstMateActiveProvider(state: FirstMateWorkspaceState): AgentProvider {
@@ -279,6 +283,17 @@ export function firstMateCaptainState(
   provider: AgentProvider
 ): FirstMateCaptainWorkspaceState {
   return state.captains?.[provider] ?? {}
+}
+
+export function firstMateClosedDecisionIds(
+  state: FirstMateWorkspaceState,
+  provider: AgentProvider,
+  conversationId: string | undefined
+): readonly string[] {
+  const captain = firstMateCaptainState(state, provider)
+  return conversationId && captain.closedDecisionConversationId === conversationId
+    ? captain.closedDecisionIds ?? []
+    : []
 }
 
 /** Updates one provider's captain without disturbing the other provider or dock-wide presentation state. */
