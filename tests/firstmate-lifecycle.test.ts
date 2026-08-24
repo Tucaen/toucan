@@ -416,6 +416,28 @@ test('projects ordinary resolved evidence outside no-mistakes as non-actionable'
   assert.deepEqual(lifecycle.tasks[0]?.pendingDecisions, [])
 })
 
+test('implementation evidence outranks resolved state in every arrival order', () => {
+  const statuses = [
+    ['resolved: [key=review] question settled', 'done: committed follow-up fix'],
+    ['done: committed follow-up fix', 'resolved: [key=review] question settled']
+  ]
+  const projections = statuses.map((status) => firstMateLifecycleFromFiles({
+    tasks: [{
+      id: 'resize',
+      meta: [
+        'kind=ship', 'mode=no-mistakes', 'project=/mnt/d/Development/alpha/api',
+        'worktree=/tmp/resize', 'harness=codex', firstMateTaskContextMetadata(alphaCodexContext)
+      ].join('\n'),
+      status: status.join('\n')
+    }]
+  }).tasks[0])
+  assert.deepEqual(projections.map((task) => [task?.stage, task?.nextAction]), [
+    ['implemented', 'start-validation'],
+    ['implemented', 'start-validation']
+  ])
+  assert.deepEqual(projections.map((task) => task?.pendingDecisions), [[], []])
+})
+
 test('projects terminal journal tasks after FirstMate removes their live carriers', () => {
   const task: FirstMateLifecycleTask = {
     id: 'resize', mode: 'no-mistakes', context: alphaCodexContext, worktree: '/tmp/resize',

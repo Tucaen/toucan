@@ -160,11 +160,13 @@ function projectedStatusLine(text: string): string {
       ? 60
       : (verb === 'blocked' || verb === 'needs-decision') && !resolved
         ? 50
-        : verb === 'resolved' || (verb === 'working' && /validat|no-mistakes|checks|\bCI\b/i.test(detail))
+        : verb === 'working' && /validat|no-mistakes|checks|\bCI\b/i.test(detail)
           ? 40
           : verb === 'done'
-            ? 30
-            : verb === 'working'
+            ? 35
+            : verb === 'resolved'
+              ? 30
+              : verb === 'working'
               ? 20
               : 10
     return { line, rank, id: statusEvidenceId(line) }
