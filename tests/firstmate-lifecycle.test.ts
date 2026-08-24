@@ -245,6 +245,17 @@ test('projects every unseen lifecycle line appended between polls', async () => 
   assert.ok(history.every((event, index) => index === 0 || history[index - 1]!.occurredAt <= event.occurredAt))
 })
 
+test('persists lifecycle evidence appended after an earlier poll', async () => {
+  const { home, statusPath } = taskHome()
+  const harness = journalRuntime(home)
+  const coordinator = coordinatorFor(harness.runtime)
+  await coordinator.poll()
+  appendFileSync(statusPath, 'needs-decision: [key=review] choose behavior\n')
+  await coordinator.poll()
+  const history = (await onlyTask(home)).history ?? []
+  assert.ok(history.some((event) => event.stage === 'decision' && event.detail.includes('choose behavior')))
+})
+
 test('records actionable FirstMate implementation evidence before ADE reconciliation', async () => {
   const { home } = taskHome()
   const harness = journalRuntime(home)
@@ -276,6 +287,24 @@ test('folds every keyed FirstMate decision and its resolution durably', async ()
     { key: 'copy', detail: 'choose button copy' },
     { key: 'theme', detail: 'choose theme' }
   ])
+})
+
+test('replayed decision evidence cannot reopen a resolved decision', () => {
+  const lifecycle = firstMateLifecycleFromFiles({
+    tasks: [{
+      id: 'resize',
+      meta: [
+        'kind=ship', 'mode=no-mistakes', 'project=/mnt/d/Development/alpha/api',
+        'worktree=/tmp/resize', 'harness=codex', firstMateTaskContextMetadata(alphaCodexContext)
+      ].join('\n'),
+      status: [
+        'needs-decision: [key=review] choose behavior',
+        'resolved: [key=review] keep behavior',
+        'needs-decision:   [key=review]   choose behavior'
+      ].join('\n')
+    }]
+  })
+  assert.deepEqual(lifecycle.tasks[0]?.pendingDecisions, [])
 })
 
 test('projects terminal journal tasks after FirstMate removes their live carriers', () => {

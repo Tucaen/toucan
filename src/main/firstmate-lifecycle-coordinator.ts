@@ -215,8 +215,10 @@ export function createFirstMateLifecycleCoordinator(
     source: 'firstmate-status' | 'ade-reconciliation' = 'ade-reconciliation'
   ): Promise<FirstMateLifecycleTask> => {
     const record = recordFor(task, now(), source)
-    if (task.history?.some((event) => event.id === record.history?.[0]?.id)) return task
-    await options.runtime.recordLifecycle(task.id, record)
+    const existingIds = new Set(task.history?.map((event) => event.id) ?? [])
+    const unseenHistory = record.history?.filter((event) => !existingIds.has(event.id)) ?? []
+    if (unseenHistory.length === 0) return task
+    await options.runtime.recordLifecycle(task.id, { ...record, history: unseenHistory })
     return task
   }
 

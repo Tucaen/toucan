@@ -156,7 +156,11 @@ function statusEvidenceId(line: string): string {
 
 function pendingDecisions(status: string): FirstMatePendingDecision[] {
   const open = new Map<string, FirstMatePendingDecision>()
+  const seen = new Set<string>()
   for (const line of status.split(/\r?\n/).map((item) => item.trim()).filter(Boolean)) {
+    const evidenceId = statusEvidenceId(line)
+    if (seen.has(evidenceId)) continue
+    seen.add(evidenceId)
     const { verb, detail } = statusParts(line)
     const match = /^\[key=([^\]]+)\]\s*(.*)$/.exec(detail)
     if (!match) continue
