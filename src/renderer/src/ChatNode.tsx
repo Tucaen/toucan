@@ -559,10 +559,15 @@ export function ChatView(props: ChatViewProps & {
   empty?: { icon: string; title: string; description: string }
   statusBar?: ReactNode
   completedTaskIds?: ReadonlySet<string>
+  closedDecisionIds?: ReadonlySet<string>
 }): JSX.Element {
   const workItemCount = props.activities.length + props.plan.length
   const authVisible = props.status === 'auth_required' || props.reauthenticating
-  const pendingDecisions = pendingDecisionsFromMessages(props.messages, props.completedTaskIds)
+  const pendingDecisions = pendingDecisionsFromMessages(
+    props.messages,
+    props.completedTaskIds,
+    props.closedDecisionIds
+  )
   const { ref: scrollRef, onScroll } = useStickToBottom([props.messages, props.approval, props.status])
   return (
     <div className={`agent-chat ${props.worklogCollapsed ? 'worklog-collapsed' : ''} ${props.statusBar ? 'has-status-bar' : ''} ${pendingDecisions.length > 0 ? 'has-pending-decisions' : ''}`}>

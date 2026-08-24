@@ -1,6 +1,10 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
-import { decisionIdentity, pendingDecisionsFromMessages } from '../src/renderer/src/pending-decisions'
+import {
+  decisionIdentity,
+  pendingDecisionsFromMessages,
+  pendingDecisionStateFromMessages
+} from '../src/renderer/src/pending-decisions'
 
 const claudeDecision = [
   'Task alpha [task=alpha] needs a choice [key=storage]:',
@@ -57,6 +61,38 @@ test('a repeated stale wake after an accepted answer does not reopen the same de
     { id: 'answer', role: 'user', text: 'Gradual', decisionReplyTo: id },
     assistant('stale-wake', codexDecision)
   ]), [])
+})
+
+test('persisted resolution prevents transcript replay from reopening a decided pin', () => {
+  const id = decisionIdentity(assistant('first', codexDecision))
+  const live = pendingDecisionStateFromMessages([
+    assistant('first', codexDecision),
+    { id: 'answer', role: 'user', text: 'Gradual', decisionReplyTo: id }
+  ])
+  assert.deepEqual(pendingDecisionsFromMessages(
+    [assistant('replayed', codexDecision)], new Set(), live.closedIds
+  ), [])
+})
+
+test('same-task keyed pins coexist until one is explicitly superseded', () => {
+  const credentials = claudeDecision.replace('[key=storage]', '[key=credentials]')
+  assert.deepEqual(
+    pendingDecisionsFromMessages([assistant('storage', claudeDecision), assistant('credentials', credentials)])
+      .map((pin) => pin.id),
+    ['alpha:storage', 'alpha:credentials']
+  )
+  const replacement = credentials.replace('[key=credentials]', '[key=credentials] [supersedes=storage]')
+  const state = pendingDecisionStateFromMessages([
+    assistant('storage', claudeDecision), assistant('replacement', replacement)
+  ])
+  assert.deepEqual(state.decisions.map((pin) => pin.id), ['alpha:credentials'])
+  assert.equal(state.closedIds.has('alpha:storage'), true)
+})
+
+test('persisted terminal task closure survives an empty lifecycle snapshot', () => {
+  assert.deepEqual(pendingDecisionsFromMessages(
+    [assistant('replayed', claudeDecision)], new Set(['alpha'])
+  ), [])
 })
 
 test('exact replies resolve only their decision while queued and failed sends remain visible', () => {

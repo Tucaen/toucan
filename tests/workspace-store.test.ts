@@ -39,7 +39,8 @@ test('saves and loads a valid workspace through the store', () => {
           conversationId: 'codex-firstmate-session',
           permissionMode: 'read-only',
           modelId: 'gpt-5',
-          effortId: 'high'
+          effortId: 'high',
+          closedDecisionIds: ['alpha:storage']
         },
         claude: {
           conversationId: 'claude-firstmate-session',
@@ -48,7 +49,9 @@ test('saves and loads a valid workspace through the store', () => {
         }
       },
       worklogCollapsed: true,
-      panelWidth: 448
+      panelWidth: 448,
+      knownTaskIds: ['alpha'],
+      closedTaskIds: ['alpha']
     },
     nodes: []
   }

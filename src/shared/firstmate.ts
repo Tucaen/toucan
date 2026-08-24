@@ -260,6 +260,7 @@ export interface FirstMateCaptainWorkspaceState {
   modelId?: string
   /** Provider/model-specific thought level selected from the captain agent's ACP capabilities. */
   effortId?: string
+  closedDecisionIds?: string[]
 }
 
 export interface FirstMateWorkspaceState {
@@ -268,6 +269,8 @@ export interface FirstMateWorkspaceState {
   captains?: Partial<Record<AgentProvider, FirstMateCaptainWorkspaceState>>
   worklogCollapsed?: boolean
   panelWidth?: number
+  knownTaskIds?: string[]
+  closedTaskIds?: string[]
 }
 
 export function firstMateActiveProvider(state: FirstMateWorkspaceState): AgentProvider {

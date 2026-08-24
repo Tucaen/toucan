@@ -20,6 +20,11 @@ export interface PendingDecision {
   state: 'actionable' | 'submitting'
 }
 
+export interface PendingDecisionState {
+  decisions: PendingDecision[]
+  closedIds: Set<string>
+}
+
 function tag(text: string, name: string): string | undefined {
   return new RegExp(`\\[${name}=([^\\]\\s]+)\\]`, 'i').exec(text)?.[1]
 }
@@ -51,16 +56,23 @@ export function decisionIdentity(message: Pick<DecisionTranscriptMessage, 'id' |
  * resolves only the newest open decision; decision controls carry an exact id so simultaneous
  * decisions cannot clear one another. Failed sends restore actionability and accepted sends close.
  */
-export function pendingDecisionsFromMessages(
+export function pendingDecisionStateFromMessages(
   messages: readonly DecisionTranscriptMessage[],
-  completedTaskIds: ReadonlySet<string> = new Set()
-): PendingDecision[] {
+  completedTaskIds: ReadonlySet<string> = new Set(),
+  persistedClosedIds: ReadonlySet<string> = new Set()
+): PendingDecisionState {
   const decisions = new Map<string, PendingDecision>()
-  const closed = new Set<string>()
+  const closed = new Set(persistedClosedIds)
   for (const message of messages) {
     if (message.role === 'assistant' && message.complete !== false && classifyAssistantMessage(message.text) === 'decision') {
       const id = decisionIdentity(message)
       const task = taskId(message.text)
+      const supersededKey = tag(message.text, 'supersedes')
+      if (supersededKey) {
+        const supersededId = `${task ?? 'conversation'}:${supersededKey}`
+        decisions.delete(supersededId)
+        closed.add(supersededId)
+      }
       if ((!task || !completedTaskIds.has(task)) && !closed.has(id)) {
         decisions.set(id, {
           id,
@@ -98,5 +110,16 @@ export function pendingDecisionsFromMessages(
       }
     }
   }
-  return [...decisions.values()].filter((decision) => !decision.taskId || !completedTaskIds.has(decision.taskId))
+  return {
+    decisions: [...decisions.values()].filter((decision) => !decision.taskId || !completedTaskIds.has(decision.taskId)),
+    closedIds: closed
+  }
+}
+
+export function pendingDecisionsFromMessages(
+  messages: readonly DecisionTranscriptMessage[],
+  completedTaskIds: ReadonlySet<string> = new Set(),
+  persistedClosedIds: ReadonlySet<string> = new Set()
+): PendingDecision[] {
+  return pendingDecisionStateFromMessages(messages, completedTaskIds, persistedClosedIds).decisions
 }
