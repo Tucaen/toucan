@@ -434,9 +434,9 @@ function ApprovalPanel(props: Pick<ChatViewProps, 'approval' | 'resolveApproval'
 }
 
 /**
- * Renders a decision message's extracted options as clickable buttons plus a free-text "Other"
- * field. Both paths reuse `sendMessage` (the same submit path as typing into the composer) rather
- * than a new protocol-level channel - see decision-message.ts for how options are extracted.
+ * Renders a pending decision's extracted options as clickable buttons plus a free-text "Other"
+ * field. Both paths reuse the ordinary prompt/steering delivery path with decision identity rather
+ * than introducing a protocol-level channel; see pending-decisions.ts for state folding.
  */
 function DecisionOptions(
   props: { decisionId?: string; options: DecisionOption[]; answerDecision: ChatViewProps['answerDecision']; status: ChatViewProps['status']; submitting?: boolean }

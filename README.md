@@ -22,6 +22,8 @@ FirstMate's own fleet registry stays FirstMate's. ADE only reads it: an entry th
 
 The active tab uses the same ACP transport as its provider's canvas nodes. Each provider's conversation ID, selected model, thinking effort, and permission mode are saved independently in the ADE workspace and restored on restart; worklog layout applies dock-wide. Authentication and tool approvals stay visible in the dock.
 
+When a captain asks a labeled multiple-choice question, ADE keeps that finalized decision pinned above the composer with clickable choices and an **Other** field. Pins remain scoped to their captain tab and task, support several open decisions at once, and disappear when answered or when the task closes without removing the conversation transcript. Answers use the normal prompt queue, including while the captain is working.
+
 FirstMate officially supports macOS and Linux. ADE remains a native Windows application and bridges its FirstMate ACP process over stdio through `wsl.exe`; FirstMate and its workers stay inside Ubuntu. The verified tmux reference backend is selected explicitly. ADE installs native Linux Claude and Codex CLIs, gives each provider its own credentials, and explicitly configures no-mistakes to use the provider selected for FirstMate. ADE checks the complete managed runtime before enabling the dock and can repair missing packages idempotently without asking for the Linux sudo password.
 
 The two account grants remain interactive by design. The dock opens GitHub's `gh auth login` flow in Windows Terminal and detects its completion automatically. The existing ACP authentication panel handles Codex ChatGPT, device-code, or API-key sign-in. ADE never reads or copies either credential.

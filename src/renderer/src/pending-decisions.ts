@@ -67,9 +67,9 @@ export function decisionIdentity(message: Pick<DecisionTranscriptMessage, 'id' |
 }
 
 /**
- * Folds normalized transcript messages into the currently open decision set. A normal user reply
- * Exact decision controls carry stable identity so simultaneous decisions cannot clear one
- * another. Failed sends restore actionability and accepted sends close.
+ * Folds normalized transcript messages into the currently open decision set. Exact decision
+ * controls carry stable identity so simultaneous decisions cannot clear one another. Failed sends
+ * restore actionability, while transport acceptance closes the matching decision.
  */
 export function pendingDecisionStateFromMessages(
   messages: readonly DecisionTranscriptMessage[],
