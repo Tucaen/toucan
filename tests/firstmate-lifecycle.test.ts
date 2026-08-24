@@ -442,6 +442,43 @@ test('implementation evidence outranks resolved state in every arrival order', (
   assert.deepEqual(projections.map((task) => task?.pendingDecisions), [[], []])
 })
 
+test('projects unsupported and empty statuses as durable indeterminate evidence', async () => {
+  for (const status of ['paused: awaiting operator', '']) {
+    const { home, statusPath } = taskHome()
+    writeFileSync(statusPath, status)
+    const harness = journalRuntime(home)
+    await coordinatorFor(harness.runtime).poll()
+    const task = await onlyTask(home)
+    assert.equal(task.stage, 'blocked')
+    assert.equal(task.terminalOutcome, 'indeterminate')
+    assert.equal(task.nextAction, 'await-help')
+    assert.equal(harness.continuations.length, 0)
+    assert.ok(task.history?.some((event) => event.outcome === 'indeterminate'))
+  }
+})
+
+test('terminal outcomes tombstone every pending decision', () => {
+  const lifecycle = firstMateLifecycleFromFiles({
+    tasks: [{
+      id: 'resize',
+      meta: [
+        'kind=ship', 'mode=no-mistakes', 'project=/mnt/d/Development/alpha/api',
+        'worktree=/tmp/resize', 'harness=codex', firstMateTaskContextMetadata(alphaCodexContext)
+      ].join('\n'),
+      status: ['completed: shipped', 'needs-decision: [key=review] delayed question'].join('\n')
+    }]
+  })
+  assert.equal(lifecycle.tasks[0]?.terminalOutcome, 'completed')
+  assert.deepEqual(lifecycle.tasks[0]?.pendingDecisions, [])
+
+  const forge = firstMatePrResolvedRecord({
+    id: 'resize', mode: 'no-mistakes', stage: 'pr-ready', detail: 'Ready', statusHash: 'pr',
+    prUrl: 'https://github.com/Tucaen/ade/pull/99',
+    pendingDecisions: [{ key: 'review', detail: 'choose reviewer' }]
+  }, 'merged', new Date('2026-08-24T12:00:00.000Z'))
+  assert.deepEqual(forge?.pendingDecisions, [])
+})
+
 test('projects terminal journal tasks after FirstMate removes their live carriers', () => {
   const task: FirstMateLifecycleTask = {
     id: 'resize', mode: 'no-mistakes', context: alphaCodexContext, worktree: '/tmp/resize',

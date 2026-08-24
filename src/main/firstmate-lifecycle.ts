@@ -230,6 +230,10 @@ function statusEvidence(status: string, mode: string): FirstMateStatusEvidence[]
   const evidence = status.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).map((line) => {
     const { verb: rawVerb, detail } = statusParts(line)
     const verb = rawVerb.toLowerCase()
+    const recognized = new Set([
+      'needs-decision', 'blocked', 'failed', 'done', 'working', 'resolved',
+      'completed', 'cancelled', 'canceled', 'indeterminate'
+    ]).has(verb)
     const stage: FirstMateTaskStage = verb === 'needs-decision'
       ? 'decision'
       : verb === 'blocked' || verb === 'failed'
@@ -242,14 +246,16 @@ function statusEvidence(status: string, mode: string): FirstMateStatusEvidence[]
               ? 'validating'
               : verb === 'working' || verb === 'resolved'
                 ? 'working'
-                : 'implemented'
+                : recognized ? 'implemented' : 'blocked'
     const outcome = verb === 'failed'
       ? 'failed' as const
       : verb === 'completed'
         ? 'completed' as const
         : verb === 'cancelled' || verb === 'canceled'
           ? 'cancelled' as const
-          : undefined
+          : !recognized || verb === 'indeterminate'
+            ? 'indeterminate' as const
+            : undefined
     return { id: statusEvidenceId(line), stage, detail, ...(outcome ? { outcome } : {}) }
   })
   return [...new Map(evidence.map((item) => [item.id, item])).values()]
@@ -506,7 +512,7 @@ export function firstMatePrResolvedRecord(
       id: task.id, mode: task.mode, ...(task.context ? { context: task.context } : {}),
       ...(task.worktree ? { worktree: task.worktree } : {}), ...(task.window ? { window: task.window } : {})
     },
-    ...(task.pendingDecisions ? { pendingDecisions: task.pendingDecisions } : {}),
+    pendingDecisions: [],
     history: [{
       id: `forge:${task.statusHash}:${state}`,
       occurredAt,
@@ -596,7 +602,7 @@ function recordedTask(
     ...task,
     statusEvidenceId: evidenceId,
     statusEvidence: task.statusEvidence ?? evidence,
-    pendingDecisions: decisions,
+    pendingDecisions: task.terminalOutcome ? [] : decisions,
     ...(context ? { context } : {}),
     ...(worktree ? { worktree } : {}),
     ...(window ? { window } : {})
@@ -635,7 +641,25 @@ function recordedTask(
       })
     }
   }
-  if (!line) return undefined
+  if (!line) {
+    const detail = 'FirstMate has no authoritative lifecycle status for this supervised task.'
+    return attachContext({
+      id: raw.id,
+      mode,
+      stage: 'blocked',
+      detail,
+      statusHash: hash,
+      nextAction: 'await-help',
+      history: recordedHistory(journal.tasks[raw.id]?.history),
+      statusEvidence: [{
+        id: statusEvidenceId(`indeterminate:${detail}`),
+        stage: 'blocked',
+        detail,
+        outcome: 'indeterminate'
+      }],
+      terminalOutcome: 'indeterminate'
+    })
+  }
   const { verb, detail } = statusParts(line)
   const prUrl = prFromDone(verb, detail)
   const durable = journal.tasks[raw.id]
@@ -793,7 +817,16 @@ function recordedTask(
       history: durableHistory
     })
   }
-  return undefined
+  return attachContext({
+    id: raw.id,
+    mode,
+    stage: 'blocked',
+    detail: `Unsupported FirstMate lifecycle evidence: ${line}`,
+    statusHash: hash,
+    nextAction: 'await-help',
+    history: durableHistory,
+    terminalOutcome: 'indeterminate'
+  })
 }
 
 export function firstMateLifecycleFromFiles(files: FirstMateLifecycleFiles): FirstMateLifecycleStatus {
