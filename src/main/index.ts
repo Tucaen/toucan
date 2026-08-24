@@ -49,11 +49,13 @@ function registerTerminalIpc(manager: TerminalManager, providers: SessionProvide
   ipcMain.handle('terminal:create', (event, request: TerminalCreateRequest) => (
     manager.create(request, event.sender)
   ))
-  ipcMain.on('terminal:write', (_event, id: string, data: string) => manager.write(id, data))
-  ipcMain.on('terminal:resize', (_event, id: string, cols: number, rows: number) => (
-    manager.resize(id, cols, rows)
+  ipcMain.on('terminal:write', (_event, sessionId: string, incarnationId: string, data: string) => manager.write(sessionId, incarnationId, data))
+  ipcMain.on('terminal:resize', (_event, sessionId: string, incarnationId: string, cols: number, rows: number) => (
+    manager.resize(sessionId, incarnationId, cols, rows)
   ))
-  ipcMain.on('terminal:kill', (_event, id: string) => manager.kill(id))
+  ipcMain.on('terminal:kill', (_event, sessionId: string, incarnationId: string, attachmentId: string) => (
+    manager.kill(sessionId, incarnationId, attachmentId)
+  ))
 }
 
 function registerAgentIpc(manager: AcpSessionManager): void {
@@ -192,7 +194,7 @@ function createWindow(terminalManager: TerminalManager, agentManager: AcpSession
   window.once('ready-to-show', () => window.show())
   const contents = window.webContents
   contents.on('destroyed', () => {
-    terminalManager.killOwned(contents)
+    terminalManager.disconnectOwner(contents)
     agentManager.killOwned(contents)
   })
 

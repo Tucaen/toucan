@@ -21,6 +21,9 @@ import type {
   ProjectDirectory,
   TerminalCreateRequest,
   TerminalCreateResult,
+  TerminalExit,
+  TerminalOutput,
+  TerminalSession,
   WorkspaceSaveResult,
   WorkspaceState
 } from '../shared/terminal'
@@ -48,14 +51,14 @@ export interface TerminalApi {
   saveWorkspace(state: WorkspaceState): Promise<WorkspaceSaveResult>
   getConversationPreview(kind: 'claude' | 'codex', conversationId: string): Promise<ConversationPreview | null>
   create(request: TerminalCreateRequest): Promise<TerminalCreateResult>
-  write(id: string, data: string): void
-  resize(id: string, cols: number, rows: number): void
-  kill(id: string): void
+  write(sessionId: string, incarnationId: string, data: string): void
+  resize(sessionId: string, incarnationId: string, cols: number, rows: number): void
+  kill(sessionId: string, incarnationId: string, attachmentId: string): void
   copyText(text: string): void
   readClipboardText(): string
-  onData(id: string, callback: (data: string) => void): () => void
-  onExit(id: string, callback: (exitCode: number) => void): () => void
-  onSession(id: string, callback: (conversationId: string) => void): () => void
+  onData(sessionId: string, attachmentId: string, callback: (output: TerminalOutput) => void): () => void
+  onExit(sessionId: string, attachmentId: string, callback: (result: TerminalExit) => void): () => void
+  onSession(sessionId: string, attachmentId: string, callback: (result: TerminalSession) => void): () => void
 }
 
 export interface FirstMateApi {

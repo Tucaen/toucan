@@ -1,6 +1,7 @@
+import { randomUUID } from 'node:crypto'
 import { existsSync, statSync } from 'node:fs'
 import { normalize } from 'node:path'
-import type { TerminalCreateRequest, TerminalCreateResult } from '../shared/terminal'
+import type { TerminalCreateRequest, TerminalCreateResult, TerminalLiveness } from '../shared/terminal'
 import type { SessionLaunch, SessionProviders } from './session-providers'
 import { sendTerminalEvent, type TerminalEventOwner } from './terminal-events'
 import { errorMessage } from '../shared/text'
@@ -14,8 +15,12 @@ export interface TerminalProcess {
 }
 
 interface RunningTerminal {
+  sessionId: string
+  incarnationId: string
   process: TerminalProcess
-  owner: TerminalEventOwner
+  owner: TerminalEventOwner | null
+  attachmentId: string
+  liveness: TerminalLiveness
   discoveryTimer?: ReturnType<typeof setInterval>
 }
 
@@ -26,34 +31,60 @@ export interface TerminalManagerOptions {
   pathIsDirectory?(path: string): boolean
   now?(): number
   discoveryIntervalMs?: number
+  createIncarnationId?(): string
 }
 
 export interface TerminalManager {
   create(request: TerminalCreateRequest, owner: TerminalEventOwner): TerminalCreateResult
-  write(id: string, data: string): void
-  resize(id: string, cols: number, rows: number): void
-  kill(id: string): void
-  killOwned(owner: TerminalEventOwner): void
+  write(sessionId: string, incarnationId: string, data: string): boolean
+  resize(sessionId: string, incarnationId: string, cols: number, rows: number): boolean
+  kill(sessionId: string, incarnationId: string, attachmentId: string): boolean
+  disconnectOwner(owner: TerminalEventOwner): void
   killAll(): void
+  state(sessionId: string): { incarnationId: string; liveness: TerminalLiveness } | undefined
 }
 
 export function createTerminalManager(options: TerminalManagerOptions): TerminalManager {
   const terminals = new Map<string, RunningTerminal>()
   const claimedConversations = new Set<string>()
+  const lastStates = new Map<string, { incarnationId: string; liveness: TerminalLiveness }>()
   const pathExists = options.pathExists ?? existsSync
   const pathIsDirectory = options.pathIsDirectory ?? ((path: string) => statSync(path).isDirectory())
 
-  const stop = (id: string): void => {
-    const terminal = terminals.get(id)
-    if (!terminal) return
+  const matches = (sessionId: string, incarnationId: string): RunningTerminal | undefined => {
+    const terminal = terminals.get(sessionId)
+    return terminal?.incarnationId === incarnationId ? terminal : undefined
+  }
+
+  const stop = (sessionId: string, incarnationId: string, attachmentId?: string): boolean => {
+    const terminal = matches(sessionId, incarnationId)
+    if (!terminal || (attachmentId !== undefined && terminal.attachmentId !== attachmentId)) return false
     if (terminal.discoveryTimer) clearInterval(terminal.discoveryTimer)
+    terminals.delete(sessionId)
+    terminal.owner = null
+    terminal.liveness = 'unverifiable'
+    lastStates.set(sessionId, { incarnationId, liveness: 'unverifiable' })
     terminal.process.kill()
-    terminals.delete(id)
+    return true
   }
 
   return {
     create(request, owner): TerminalCreateResult {
-      if (terminals.has(request.id)) return { ok: true }
+      const sessionId = request.sessionId ?? request.id
+      const attachmentId = request.attachmentId ?? request.id
+      const existing = terminals.get(sessionId)
+      if (existing) {
+        existing.owner = owner
+        existing.attachmentId = attachmentId
+        existing.liveness = 'live'
+        lastStates.set(sessionId, { incarnationId: existing.incarnationId, liveness: 'live' })
+        return {
+          ok: true,
+          sessionId: existing.sessionId,
+          incarnationId: existing.incarnationId,
+          liveness: 'live'
+        }
+      }
       const launch = options.providers.resolveLaunch(request)
       if ('error' in launch) return { ok: false, message: launch.error }
 
@@ -70,13 +101,17 @@ export function createTerminalManager(options: TerminalManagerOptions): Terminal
       try {
         const startedAt = (options.now ?? Date.now)()
         const terminal = options.spawn(launch, request, cwd)
-        const running: RunningTerminal = { process: terminal, owner }
-        terminals.set(request.id, running)
+        const incarnationId = (options.createIncarnationId ?? randomUUID)()
+        const running: RunningTerminal = {
+          sessionId, incarnationId, process: terminal, owner, attachmentId, liveness: 'live'
+        }
+        terminals.set(sessionId, running)
+        lastStates.set(sessionId, { incarnationId, liveness: 'live' })
         if (request.kind === 'codex' && !request.resume) {
           let attempts = 0
           running.discoveryTimer = setInterval(() => {
             attempts += 1
-            const current = terminals.get(request.id)
+            const current = terminals.get(sessionId)
             if (!current || attempts > 120) {
               if (running.discoveryTimer) clearInterval(running.discoveryTimer)
               running.discoveryTimer = undefined
@@ -92,38 +127,64 @@ export function createTerminalManager(options: TerminalManagerOptions): Terminal
             claimedConversations.add(conversationId)
             if (running.discoveryTimer) clearInterval(running.discoveryTimer)
             running.discoveryTimer = undefined
-            sendTerminalEvent(owner, 'terminal:session', { id: request.id, conversationId })
+            if (current === running && running.owner) sendTerminalEvent(running.owner, 'terminal:session', {
+              sessionId, incarnationId, attachmentId: running.attachmentId, conversationId
+            })
           }, options.discoveryIntervalMs ?? 250)
         }
-        terminal.onData((data) => sendTerminalEvent(owner, 'terminal:data', { id: request.id, data }))
-        terminal.onExit(({ exitCode }) => {
-          const running = terminals.get(request.id)
-          if (running?.discoveryTimer) clearInterval(running.discoveryTimer)
-          terminals.delete(request.id)
-          sendTerminalEvent(owner, 'terminal:exit', { id: request.id, exitCode })
+        terminal.onData((data) => {
+          if (terminals.get(sessionId) === running && running.owner) {
+            sendTerminalEvent(running.owner, 'terminal:data', {
+              sessionId, incarnationId, attachmentId: running.attachmentId, data
+            })
+          }
         })
-        return { ok: true }
+        terminal.onExit(({ exitCode }) => {
+          const current = terminals.get(sessionId)
+          if (current && current !== running) return
+          if (running.discoveryTimer) clearInterval(running.discoveryTimer)
+          if (current === running) terminals.delete(sessionId)
+          if (lastStates.get(sessionId)?.incarnationId !== incarnationId) return
+          lastStates.set(sessionId, { incarnationId, liveness: 'exited' })
+          if (running.owner) sendTerminalEvent(running.owner, 'terminal:exit', {
+            sessionId, incarnationId, attachmentId: running.attachmentId, exitCode
+          })
+        })
+        return { ok: true, sessionId, incarnationId, liveness: lastStates.get(sessionId)?.liveness ?? 'live' }
       } catch (error) {
         return { ok: false, message: `Could not start the session: ${errorMessage(error)}` }
       }
     },
-    write(id, data): void {
-      terminals.get(id)?.process.write(data)
+    write(sessionId, incarnationId, data): boolean {
+      const terminal = matches(sessionId, incarnationId)
+      if (!terminal) return false
+      terminal.process.write(data)
+      return true
     },
-    resize(id, cols, rows): void {
-      if (cols < 2 || rows < 1) return
-      terminals.get(id)?.process.resize(cols, rows)
+    resize(sessionId, incarnationId, cols, rows): boolean {
+      if (cols < 2 || rows < 1) return false
+      const terminal = matches(sessionId, incarnationId)
+      if (!terminal) return false
+      terminal.process.resize(cols, rows)
+      return true
     },
-    kill(id): void {
-      stop(id)
+    kill(sessionId, incarnationId, attachmentId): boolean {
+      return stop(sessionId, incarnationId, attachmentId)
     },
-    killOwned(owner): void {
-      for (const [id, terminal] of terminals) {
-        if (terminal.owner === owner) stop(id)
+    disconnectOwner(owner): void {
+      for (const terminal of terminals.values()) {
+        if (terminal.owner === owner) {
+          terminal.owner = null
+          terminal.liveness = 'unverifiable'
+          lastStates.set(terminal.sessionId, { incarnationId: terminal.incarnationId, liveness: 'unverifiable' })
+        }
       }
     },
     killAll(): void {
-      for (const id of [...terminals.keys()]) stop(id)
+      for (const terminal of [...terminals.values()]) stop(terminal.sessionId, terminal.incarnationId)
+    },
+    state(sessionId) {
+      return lastStates.get(sessionId)
     }
   }
 }

@@ -67,11 +67,11 @@ The current folder starts as the first project. Use **Add project** in the left 
 
 Projects, their colors, the active creation target, sidebar state, and terminal-node geometry are automatically saved to `prototype-workspace.json` in Electron's user-data folder. Empty projects can be removed from the sidebar; delete their nodes first when necessary.
 
-After restarting ADE, saved nodes appear dormant. **Resume conversation** continues the matching Claude or Codex chat using the provider's locally saved session. Plain terminal nodes reopen a fresh shell in the same project folder.
+After restarting ADE, saved nodes appear dormant. **Resume conversation** continues the matching Claude or Codex chat using the provider's locally saved session. Plain terminal nodes reopen a fresh shell in the same project folder. Until a process owner reconnects, a terminal whose exit was not previously confirmed is marked **Unverifiable**, not **Exited**.
 
 Dormant agent nodes show locally cached excerpts of the latest user and assistant messages. ADE reads these from the providers' existing transcript files after terminal output settles; generating the preview does not call a model or consume tokens.
 
-The number beside a project is its live node count. Click it to bring that project's nodes into view. Each project also lists its assigned sessions. Clicking a session focuses its node on the canvas. An unfocused session that finishes a burst of output is marked **Attention** until you focus or interact with it; ended processes are marked **Exited**.
+The number beside a project is its live node count. Click it to bring that project's nodes into view. Each project also lists its assigned sessions. Clicking a session focuses its node on the canvas. An unfocused session that finishes a burst of output is marked **Attention** until you focus or interact with it. Terminal liveness is shown separately as **Live**, **Unverifiable**, or **Exited**; only a process-owner exit report establishes **Exited**.
 
 Select terminal text with the mouse and use **Ctrl+Shift+C** (or the node's **Copy** button) to copy it. Use **Ctrl+Shift+V** to paste. The traditional **Ctrl+Insert** and **Shift+Insert** shortcuts work too.
 
