@@ -1499,11 +1499,12 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
       if (!/^[a-zA-Z0-9._-]+$/.test(taskId)) throw new Error('Invalid FirstMate task id.')
       if (!readyPaths) await inspect()
       if (!readyPaths) throw new Error('FirstMate is not ready.')
+      const homePath = readyPaths.homePath
       const write = lifecycleRecordTail.then(() => run(
         [
           '--distribution', distribution,
           '--exec', '/usr/bin/node', '-e', WSL_LIFECYCLE_RECORD_SCRIPT,
-          readyPaths.homePath,
+          homePath,
           taskId,
           Buffer.from(JSON.stringify(record)).toString('base64url')
         ],

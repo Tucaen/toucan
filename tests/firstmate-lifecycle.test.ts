@@ -290,7 +290,7 @@ test('folds every keyed FirstMate decision and its resolution durably', async ()
       id: 'resize',
       meta: [
         'kind=ship', 'mode=no-mistakes', 'project=/mnt/d/Development/alpha/api',
-        'worktree=/tmp/resize', 'harness=codex', firstMateTaskContextMetadata(alphaCodexContext)
+        'worktree=/tmp/resize', 'harness=codex', 'yolo=off', 'model=gpt-5.6-sol', firstMateTaskContextMetadata(alphaCodexContext)
       ].join('\n'),
       status: [
         'needs-decision: [key=api] choose API shape',
@@ -312,7 +312,7 @@ test('replayed decision evidence cannot reopen a resolved decision', () => {
       id: 'resize',
       meta: [
         'kind=ship', 'mode=no-mistakes', 'project=/mnt/d/Development/alpha/api',
-        'worktree=/tmp/resize', 'harness=codex', firstMateTaskContextMetadata(alphaCodexContext)
+        'worktree=/tmp/resize', 'harness=codex', 'yolo=off', 'model=gpt-5.6-sol', firstMateTaskContextMetadata(alphaCodexContext)
       ].join('\n'),
       status: [
         'needs-decision: [key=review] choose behavior',
@@ -334,7 +334,7 @@ test('competing decision details converge as explicitly indeterminate', () => {
       id: 'resize',
       meta: [
         'kind=ship', 'mode=no-mistakes', 'project=/mnt/d/Development/alpha/api',
-        'worktree=/tmp/resize', 'harness=codex', firstMateTaskContextMetadata(alphaCodexContext)
+        'worktree=/tmp/resize', 'harness=codex', 'yolo=off', 'model=gpt-5.6-sol', firstMateTaskContextMetadata(alphaCodexContext)
       ].join('\n'),
       status: status.join('\n')
     }]
@@ -351,7 +351,7 @@ test('delayed decision evidence cannot regress a completed task', () => {
       id: 'resize',
       meta: [
         'kind=ship', 'mode=no-mistakes', 'project=/mnt/d/Development/alpha/api',
-        'worktree=/tmp/resize', 'harness=codex', firstMateTaskContextMetadata(alphaCodexContext)
+        'worktree=/tmp/resize', 'harness=codex', 'yolo=off', 'model=gpt-5.6-sol', firstMateTaskContextMetadata(alphaCodexContext)
       ].join('\n'),
       status: [
         'completed: shipped',
@@ -369,7 +369,7 @@ test('delayed decision evidence cannot reopen a resolved key', () => {
       id: 'resize',
       meta: [
         'kind=ship', 'mode=no-mistakes', 'project=/mnt/d/Development/alpha/api',
-        'worktree=/tmp/resize', 'harness=codex', firstMateTaskContextMetadata(alphaCodexContext)
+        'worktree=/tmp/resize', 'harness=codex', 'yolo=off', 'model=gpt-5.6-sol', firstMateTaskContextMetadata(alphaCodexContext)
       ].join('\n'),
       status: [
         'resolved: [key=review] keep behavior',
@@ -391,7 +391,7 @@ test('ambiguous nonterminal evidence permutations converge as indeterminate', ()
       id: 'resize',
       meta: [
         'kind=ship', 'mode=no-mistakes', 'project=/mnt/d/Development/alpha/api',
-        'worktree=/tmp/resize', 'harness=codex', firstMateTaskContextMetadata(alphaCodexContext)
+        'worktree=/tmp/resize', 'harness=codex', 'yolo=off', 'model=gpt-5.6-sol', firstMateTaskContextMetadata(alphaCodexContext)
       ].join('\n'),
       status: status.join('\n')
     }]
@@ -413,7 +413,7 @@ test('conflicting terminal evidence permutations converge as indeterminate', () 
       id: 'resize',
       meta: [
         'kind=ship', 'mode=no-mistakes', 'project=/mnt/d/Development/alpha/api',
-        'worktree=/tmp/resize', 'harness=codex', firstMateTaskContextMetadata(alphaCodexContext)
+        'worktree=/tmp/resize', 'harness=codex', 'yolo=off', 'model=gpt-5.6-sol', firstMateTaskContextMetadata(alphaCodexContext)
       ].join('\n'),
       status: status.join('\n')
     }]
@@ -445,7 +445,7 @@ test('projects ordinary resolved evidence outside no-mistakes as non-actionable'
       id: 'resize',
       meta: [
         'kind=scout', 'project=/mnt/d/Development/alpha/api', 'worktree=/tmp/resize',
-        'harness=codex', firstMateTaskContextMetadata(alphaCodexContext)
+        'harness=codex', 'model=gpt-5.6-sol', firstMateTaskContextMetadata(alphaCodexContext)
       ].join('\n'),
       status: 'resolved: [key=review] question settled'
     }]
@@ -465,7 +465,7 @@ test('implementation evidence outranks resolved state in every arrival order', (
       id: 'resize',
       meta: [
         'kind=ship', 'mode=no-mistakes', 'project=/mnt/d/Development/alpha/api',
-        'worktree=/tmp/resize', 'harness=codex', firstMateTaskContextMetadata(alphaCodexContext)
+        'worktree=/tmp/resize', 'harness=codex', 'yolo=off', 'model=gpt-5.6-sol', firstMateTaskContextMetadata(alphaCodexContext)
       ].join('\n'),
       status: status.join('\n')
     }]
@@ -498,7 +498,7 @@ test('terminal outcomes tombstone every pending decision', () => {
       id: 'resize',
       meta: [
         'kind=ship', 'mode=no-mistakes', 'project=/mnt/d/Development/alpha/api',
-        'worktree=/tmp/resize', 'harness=codex', firstMateTaskContextMetadata(alphaCodexContext)
+        'worktree=/tmp/resize', 'harness=codex', 'yolo=off', 'model=gpt-5.6-sol', firstMateTaskContextMetadata(alphaCodexContext)
       ].join('\n'),
       status: ['completed: shipped', 'needs-decision: [key=review] delayed question'].join('\n')
     }]
@@ -517,7 +517,7 @@ test('terminal outcomes tombstone every pending decision', () => {
 test('failed tasks close while indeterminate tasks remain open', () => {
   const meta = [
     'kind=ship', 'mode=no-mistakes', 'project=/mnt/d/Development/alpha/api',
-    'worktree=/tmp/resize', 'harness=codex', firstMateTaskContextMetadata(alphaCodexContext)
+    'worktree=/tmp/resize', 'harness=codex', 'yolo=off', 'model=gpt-5.6-sol', firstMateTaskContextMetadata(alphaCodexContext)
   ].join('\n')
   const live = firstMateLifecycleFromFiles({
     tasks: [
@@ -915,11 +915,12 @@ test('continues a committed worker directly into validation exactly once without
   const dispatchId = firstMateValidationDispatchId('resize', 'implementation-1')
   assert.deepEqual(continuations, [`resize@${dispatchId}`])
   assert.deepEqual(records.map((record) => [record.stage, record.nextAction, record.dispatch?.status]), [
+    ['implemented', 'start-validation', undefined],
     ['dispatching', 'await-dispatch', 'claimed'],
     ['validating', 'await-validation', 'acknowledged']
   ])
   assert.equal(
-    records[0]?.dispatch?.id,
+    records[1]?.dispatch?.id,
     dispatchId,
     'the intent to dispatch is durably recorded before the continuation runs'
   )
@@ -1484,7 +1485,7 @@ function journalRuntimeWithPrCheck(
   }
 }
 
-test('drops a pr-ready task off the active list once its GitHub PR is confirmed merged', async () => {
+test('retains merged PR history without presenting the task as awaiting review', async () => {
   const prUrl = 'https://github.com/Tucaen/ade/pull/101'
   const { home } = prReadyTaskHome(prUrl)
   const { runtime, checks } = journalRuntimeWithPrCheck(home, async () => ({ ok: true, state: 'merged' }))
@@ -1502,7 +1503,9 @@ test('drops a pr-ready task off the active list once its GitHub PR is confirmed 
 
   assert.deepEqual(checks, [prUrl])
   lifecycle = await readFirstMateLifecycle(home)
-  assert.equal(lifecycle.tasks.length, 0, 'a confirmed merge must stop presenting the task as awaiting review')
+  assert.equal(lifecycle.tasks.length, 1, 'a confirmed merge remains available as durable task history')
+  assert.equal(lifecycle.tasks[0]?.terminalOutcome, 'completed')
+  assert.ok(lifecycle.tasks[0]?.history?.some((event) => event.source === 'forge' && event.outcome === 'completed'))
   assert.deepEqual(lifecycle.closedTaskIds, [taskId])
 })
 

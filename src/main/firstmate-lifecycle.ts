@@ -398,7 +398,7 @@ export function planValidationDispatch(input: FirstMateValidationPlanInput): Fir
   // even a delivery the pre-send rejection could not rule out is deduplicable by the worker.
   return {
     action: 'dispatch',
-    dispatchId: rejected?.id ?? firstMateValidationDispatchId(task.id, task.statusEvidenceId ?? task.statusHash),
+    dispatchId: rejected?.id ?? firstMateValidationDispatchId(task.id, task.statusHash),
     attempt
   }
 }
@@ -680,6 +680,21 @@ function recordedTask(
     .map((item) => item.trim())
     .filter((item) => item && statusEvidenceId(item) === evidenceId)
     .length
+
+  const resolvedLine = raw.status.split(/\r?\n/).map((item) => item.trim()).filter(Boolean).reverse()
+    .find((item) => statusParts(item).verb.toLowerCase() === 'resolved')
+  if (!prUrl && resolvedLine && mode === 'no-mistakes' && holdsValidationGate) {
+    return attachContext({
+      id: raw.id,
+      mode,
+      stage: 'validating',
+      detail: statusParts(resolvedLine).detail,
+      statusHash: hash,
+      nextAction: 'await-validation',
+      dispatch: holdsValidationGate,
+      history: durableHistory
+    })
+  }
 
   if (verb === 'done' && evidenceOccurrences > 1) {
     const ambiguityDetail = 'Lifecycle evidence cannot distinguish a replay from a later identical implementation.'
