@@ -8,3 +8,5 @@ dist-out/
 src/renderer/public/models/moonshine-small-streaming-en/
 *.tsbuildinfo
 .stow-notes.md
+docs/research/orca-comparison.md
+docs/ade-overview.html
