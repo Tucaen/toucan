@@ -623,8 +623,11 @@ export function noMistakesContinuation(
     + 'delivery of this identity is durably recognised rather than validated twice.\n\n'
     + `ADE has pinned this task's validator in ${runtimeConfigPath}. `
     + 'Treat that task-scoped structured record as authoritative. Before starting validation, use its validator to '
-    + 'set ADE_FIRSTMATE_VALIDATOR_AGENT and ADE_FIRSTMATE_VALIDATOR_MODEL for this task; do not use a later global '
-    + 'configuration, a conflicting inherited value, filtered doctor text, or guessed homes. '
+    + 'set NM_HOME to validator.nmHome plus ADE_FIRSTMATE_VALIDATOR_AGENT and ADE_FIRSTMATE_VALIDATOR_MODEL for this '
+    + 'task; do not use a later global configuration, a conflicting inherited value, filtered doctor text, or guessed '
+    + 'homes. Fail closed before starting a pipeline unless no-mistakes reports that exact task-scoped data directory '
+    + 'and this disposable worktree\'s no-mistakes remote routes to the repository cache inside validator.nmHome; an '
+    + 'inherited NM_HOME or stale worktree-local remote must never start validation in another task\'s cache. '
     + 'Continue this committed task directly through validation and report decisions, blockers, failures, and PR readiness '
     + 'through the existing FirstMate authority boundary.'
 }
