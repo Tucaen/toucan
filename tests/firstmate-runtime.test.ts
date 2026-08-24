@@ -374,6 +374,11 @@ test('continues validation with the task-pinned validator after the global provi
     'the continuation points the receiver at the durable ledger, not the prompt alone'
   )
   assert.match(continuationPrompt, /do not use[\s\S]*filtered doctor text, or guessed homes/i)
+  assert.match(
+    continuationPrompt,
+    /set NM_HOME to validator\.nmHome[\s\S]*exact task-scoped data directory[\s\S]*worktree's no-mistakes remote/,
+    'an ACP continuation must restate the scoped cache preflight because fm-send cannot replace the live captain environment'
+  )
   assert.ok(continuation.includes('ADE_FIRSTMATE_RUNTIME_CONFIG=/home/tucaen/.local/share/ade/firstmate/home/state/resize.ade-runtime.json'))
   assert.ok(continuation.includes('ADE_FIRSTMATE_VALIDATOR_AGENT=codex'))
   assert.ok(continuation.includes('ADE_FIRSTMATE_VALIDATOR_MODEL=gpt-5.6-sol'))

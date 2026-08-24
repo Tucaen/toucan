@@ -431,6 +431,20 @@ test('carries the dispatch identity and its durable ledger into the continuation
   )
 })
 
+test('fails validation closed until the captain uses the pinned task cache and worktree-local gate remote', () => {
+  const continuation = noMistakesContinuation(
+    'codex',
+    '/home/state/task.ade-runtime.json',
+    'task.dispatch',
+    '/home/state/.ade-validation-dispatches.json'
+  )
+
+  assert.match(continuation, /set NM_HOME to validator\.nmHome/)
+  assert.match(continuation, /exact task-scoped data directory/)
+  assert.match(continuation, /worktree's no-mistakes remote/)
+  assert.match(continuation, /inherited NM_HOME or stale worktree-local remote must never start validation/)
+})
+
 function implementedTask(): FirstMateLifecycleTask {
   return {
     id: 'resize',

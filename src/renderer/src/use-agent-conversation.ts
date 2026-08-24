@@ -114,7 +114,7 @@ export interface AgentConversationController {
   setDraft(value: string): void
   addImages(files: File[] | FileList): Promise<void>
   removeAttachment(id: string): void
-  submit(event: FormEvent): void
+  submit(event: FormEvent, draftOverride?: string, onPrepared?: () => void): void
   /** Sends `text` as if the captain had typed and submitted it, bypassing the draft/attachments state entirely. */
   sendMessage(text: string): void
   answerDecision(decisionId: string, text: string): void
@@ -391,11 +391,12 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     })
   }
 
-  const submit = (event: FormEvent): void => {
+  const submit = (event: FormEvent, draftOverride?: string, onPrepared?: () => void): void => {
     event.preventDefault()
-    dispatchText(draft.trim(), attachments, () => {
+    dispatchText((draftOverride ?? draft).trim(), attachments, () => {
       setDraft('')
       setAttachments([])
+      onPrepared?.()
     })
   }
 
