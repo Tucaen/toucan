@@ -151,6 +151,17 @@ function projectedStatusLine(text: string): string {
     const key = /^\[key=([^\]]+)\]/.exec(detail)?.[1]?.trim()
     return verb.toLowerCase() === 'resolved' && key ? [key] : []
   }))
+  const hasImplementation = lines.some((line) => {
+    const { verb, detail } = statusParts(line)
+    return verb.toLowerCase() === 'done' && !prFromDone(verb.toLowerCase(), detail)
+  })
+  const hasOrdinaryWorking = lines.some((line) => {
+    const { verb, detail } = statusParts(line)
+    return verb.toLowerCase() === 'working' && !/validat|no-mistakes|checks|\bCI\b/i.test(detail)
+  })
+  if (hasImplementation && hasOrdinaryWorking) {
+    return 'indeterminate: competing implementation and working lifecycle evidence'
+  }
   const ranked = lines.map((line) => {
     const { verb: rawVerb, detail } = statusParts(line)
     const verb = rawVerb.toLowerCase()
@@ -578,10 +589,13 @@ function recordedTask(
   const evidenceId = statusEvidenceId(line)
   const decisions = pendingDecisions(raw.status)
   const evidence = statusEvidence(raw.status, mode)
+  if (statusParts(line).verb.toLowerCase() === 'indeterminate') {
+    evidence.push({ id: evidenceId, stage: 'blocked', detail: statusParts(line).detail, outcome: 'indeterminate' })
+  }
   const attachContext = (task: FirstMateLifecycleTask): FirstMateLifecycleTask => ({
     ...task,
     statusEvidenceId: evidenceId,
-    statusEvidence: evidence,
+    statusEvidence: task.statusEvidence ?? evidence,
     pendingDecisions: decisions,
     ...(context ? { context } : {}),
     ...(worktree ? { worktree } : {}),
@@ -632,6 +646,10 @@ function recordedTask(
     ? durableDispatch
     : undefined
   const evidenceDispatchId = firstMateValidationDispatchId(raw.id, evidenceId)
+  const evidenceOccurrences = raw.status.split(/\r?\n/)
+    .map((item) => item.trim())
+    .filter((item) => item && statusEvidenceId(item) === evidenceId)
+    .length
 
   if (prUrl) {
     // ADE already asked the PR's own forge and learned it merged or closed: stop presenting it as
@@ -682,6 +700,25 @@ function recordedTask(
     })
   }
   if (verb === 'done' && durableDispatch?.id === evidenceDispatchId) {
+    if (evidenceOccurrences > 1) {
+      return attachContext({
+        id: raw.id,
+        mode,
+        stage: 'blocked',
+        detail: 'Lifecycle evidence cannot distinguish a replay from a later identical implementation.',
+        statusHash: hash,
+        nextAction: 'await-help',
+        dispatch: durableDispatch,
+        history: durableHistory,
+        statusEvidence: [...evidence, {
+          id: statusEvidenceId('indeterminate: replay or later identical implementation'),
+          stage: 'blocked',
+          detail: 'Lifecycle evidence cannot distinguish a replay from a later identical implementation.',
+          outcome: 'indeterminate'
+        }],
+        terminalOutcome: 'indeterminate'
+      })
+    }
     return attachContext({
       id: raw.id,
       mode,

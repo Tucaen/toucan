@@ -217,7 +217,7 @@ test('duplicate normalized FirstMate evidence has one correctly attributed histo
   assert.equal(decisions[0]?.source, 'firstmate-status')
 })
 
-test('duplicate implementation evidence reuses one validation dispatch', async () => {
+test('duplicate implementation evidence becomes indeterminate after acknowledgement', async () => {
   const { home, statusPath } = taskHome()
   const harness = journalRuntime(home)
   const coordinator = coordinatorFor(harness.runtime)
@@ -225,7 +225,10 @@ test('duplicate implementation evidence reuses one validation dispatch', async (
   appendFileSync(statusPath, 'done:   committed resizable panel\n')
   await coordinator.poll()
   assert.equal(harness.continuations.length, 1)
-  assert.equal((await onlyTask(home)).dispatch?.status, 'acknowledged')
+  const task = await onlyTask(home)
+  assert.equal(task.stage, 'blocked')
+  assert.equal(task.terminalOutcome, 'indeterminate')
+  assert.equal(task.dispatch?.status, 'acknowledged')
 })
 
 test('projects every unseen lifecycle line appended between polls', async () => {
@@ -343,7 +346,7 @@ test('delayed decision evidence cannot reopen a resolved key', () => {
   assert.deepEqual(lifecycle.tasks[0]?.pendingDecisions, [])
 })
 
-test('nonterminal evidence permutations converge on actionable implementation', () => {
+test('ambiguous nonterminal evidence permutations converge as indeterminate', () => {
   const statuses = [
     ['done: committed implementation', 'working: coding'],
     ['working: coding', 'done: committed implementation']
@@ -359,9 +362,10 @@ test('nonterminal evidence permutations converge on actionable implementation', 
     }]
   }).tasks[0])
   assert.deepEqual(projections.map((task) => [task?.stage, task?.nextAction]), [
-    ['implemented', 'start-validation'],
-    ['implemented', 'start-validation']
+    ['blocked', 'await-help'],
+    ['blocked', 'await-help']
   ])
+  assert.deepEqual(projections.map((task) => task?.terminalOutcome), ['indeterminate', 'indeterminate'])
 })
 
 test('conflicting terminal evidence permutations converge as indeterminate', () => {
