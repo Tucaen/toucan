@@ -307,6 +307,42 @@ test('replayed decision evidence cannot reopen a resolved decision', () => {
   assert.deepEqual(lifecycle.tasks[0]?.pendingDecisions, [])
 })
 
+test('delayed decision evidence cannot regress a completed task', () => {
+  const lifecycle = firstMateLifecycleFromFiles({
+    tasks: [{
+      id: 'resize',
+      meta: [
+        'kind=ship', 'mode=no-mistakes', 'project=/mnt/d/Development/alpha/api',
+        'worktree=/tmp/resize', 'harness=codex', firstMateTaskContextMetadata(alphaCodexContext)
+      ].join('\n'),
+      status: [
+        'completed: shipped',
+        'needs-decision: [key=review] delayed older question'
+      ].join('\n')
+    }]
+  })
+  assert.equal(lifecycle.tasks[0]?.terminalOutcome, 'completed')
+  assert.equal(lifecycle.tasks[0]?.stage, 'implemented')
+})
+
+test('delayed decision evidence cannot reopen a resolved key', () => {
+  const lifecycle = firstMateLifecycleFromFiles({
+    tasks: [{
+      id: 'resize',
+      meta: [
+        'kind=ship', 'mode=no-mistakes', 'project=/mnt/d/Development/alpha/api',
+        'worktree=/tmp/resize', 'harness=codex', firstMateTaskContextMetadata(alphaCodexContext)
+      ].join('\n'),
+      status: [
+        'resolved: [key=review] keep behavior',
+        'needs-decision: [key=review] delayed different wording'
+      ].join('\n')
+    }]
+  })
+  assert.equal(lifecycle.tasks[0]?.stage, 'validating')
+  assert.deepEqual(lifecycle.tasks[0]?.pendingDecisions, [])
+})
+
 test('projects terminal journal tasks after FirstMate removes their live carriers', () => {
   const task: FirstMateLifecycleTask = {
     id: 'resize', mode: 'no-mistakes', context: alphaCodexContext, worktree: '/tmp/resize',

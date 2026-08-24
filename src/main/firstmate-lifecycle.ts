@@ -133,8 +133,23 @@ function parseKeyValues(text: string): Map<string, string> {
   return values
 }
 
-function latestStatusLine(text: string): string {
-  return text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).at(-1) ?? ''
+function projectedStatusLine(text: string): string {
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
+  const terminal = lines.filter((line) => {
+    const verb = statusParts(line).verb.toLowerCase()
+    return verb === 'completed' || verb === 'cancelled' || verb === 'canceled' || verb === 'failed'
+  }).at(-1)
+  if (terminal) return terminal
+  const latest = lines.at(-1) ?? ''
+  const { verb, detail } = statusParts(latest)
+  if (verb.toLowerCase() !== 'needs-decision') return latest
+  const key = /^\[key=([^\]]+)\]/.exec(detail)?.[1]?.trim()
+  if (!key) return latest
+  return [...lines].reverse().find((line) => {
+    const parts = statusParts(line)
+    return parts.verb.toLowerCase() === 'resolved'
+      && /^\[key=([^\]]+)\]/.exec(parts.detail)?.[1]?.trim() === key
+  }) ?? latest
 }
 
 function statusParts(line: string): { verb: string; detail: string } {
@@ -157,7 +172,13 @@ function statusEvidenceId(line: string): string {
 function pendingDecisions(status: string): FirstMatePendingDecision[] {
   const open = new Map<string, FirstMatePendingDecision>()
   const seen = new Set<string>()
-  for (const line of status.split(/\r?\n/).map((item) => item.trim()).filter(Boolean)) {
+  const lines = status.split(/\r?\n/).map((item) => item.trim()).filter(Boolean)
+  const resolvedKeys = new Set(lines.flatMap((line) => {
+    const { verb, detail } = statusParts(line)
+    const key = /^\[key=([^\]]+)\]/.exec(detail)?.[1]?.trim()
+    return verb.toLowerCase() === 'resolved' && key ? [key] : []
+  }))
+  for (const line of lines) {
     const evidenceId = statusEvidenceId(line)
     if (seen.has(evidenceId)) continue
     seen.add(evidenceId)
@@ -165,8 +186,9 @@ function pendingDecisions(status: string): FirstMatePendingDecision[] {
     const match = /^\[key=([^\]]+)\]\s*(.*)$/.exec(detail)
     if (!match) continue
     const key = match[1]!.trim()
-    if (verb.toLowerCase() === 'resolved') open.delete(key)
-    if (verb.toLowerCase() === 'needs-decision') open.set(key, { key, detail: match[2]!.trim() })
+    if (verb.toLowerCase() === 'needs-decision' && !resolvedKeys.has(key)) {
+      open.set(key, { key, detail: match[2]!.trim() })
+    }
   }
   return [...open.values()].sort((left, right) => left.key.localeCompare(right.key))
 }
@@ -528,7 +550,7 @@ function recordedTask(
   )
   const worktree = meta.get('worktree')
   const window = meta.get('window')
-  const line = latestStatusLine(raw.status)
+  const line = projectedStatusLine(raw.status)
   const evidenceId = statusEvidenceId(line)
   const decisions = pendingDecisions(raw.status)
   const evidence = statusEvidence(raw.status, mode)
@@ -622,7 +644,7 @@ function recordedTask(
     return attachContext({ id: raw.id, mode, stage: 'validating', detail, statusHash: hash, nextAction: 'await-validation', history: durableHistory })
   }
 
-  if (verb === 'resolved' && mode === 'no-mistakes' && durable) {
+  if (verb === 'resolved' && mode === 'no-mistakes') {
     return attachContext({
       id: raw.id,
       mode,
@@ -715,7 +737,7 @@ export function firstMateLifecycleFromFiles(files: FirstMateLifecycleFiles): Fir
       .map(([id]) => id)
   )
   for (const task of files.tasks) {
-    const verb = statusParts(latestStatusLine(task.status)).verb.toLowerCase()
+    const verb = statusParts(projectedStatusLine(task.status)).verb.toLowerCase()
     if (verb === 'cancelled' || verb === 'canceled' || verb === 'completed') closedTaskIds.add(task.id)
   }
   const tasks = files.tasks
