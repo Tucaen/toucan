@@ -75,6 +75,19 @@ export interface FirstMateLifecycleTask {
     | 'review-pr'
   dispatch?: FirstMateTaskDispatch
   prUrl?: string
+  history?: FirstMateTaskHistoryEvent[]
+  terminalOutcome?: 'completed' | 'cancelled' | 'failed' | 'indeterminate'
+}
+
+export interface FirstMateTaskHistoryEvent {
+  /** Stable evidence identity used to coalesce replayed lifecycle input. */
+  id: string
+  occurredAt: string
+  source: 'firstmate-status' | 'ade-reconciliation' | 'forge'
+  stage: FirstMateTaskStage
+  detail: string
+  dispatch?: FirstMateTaskDispatch
+  outcome?: 'completed' | 'cancelled' | 'failed' | 'indeterminate'
 }
 
 export interface FirstMateLifecycleStatus {

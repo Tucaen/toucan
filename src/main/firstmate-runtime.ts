@@ -235,7 +235,12 @@ try {
   const parsed = JSON.parse(fs.readFileSync(target, 'utf8'))
   if (parsed.version === 1 && parsed.tasks && typeof parsed.tasks === 'object') journal = parsed
 } catch {}
-journal.tasks[taskId] = record
+const previous = journal.tasks[taskId]
+const events = [...(previous && Array.isArray(previous.history) ? previous.history : []), ...(Array.isArray(record.history) ? record.history : [])]
+const history = [...new Map(events.map((event) => [event.id, event])).values()]
+  .sort((left, right) => String(left.occurredAt).localeCompare(String(right.occurredAt)) || String(left.id).localeCompare(String(right.id)))
+const current = !previous || String(record.updatedAt) >= String(previous.updatedAt) ? record : previous
+journal.tasks[taskId] = { ...current, history }
 const temporary = target + '.' + process.pid + '.' + Math.random().toString(16).slice(2) + '.tmp'
 fs.writeFileSync(temporary, JSON.stringify(journal, null, 2) + '\\n', { mode: 0o600 })
 fs.renameSync(temporary, target)

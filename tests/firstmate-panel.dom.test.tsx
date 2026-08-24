@@ -1,7 +1,7 @@
 import { act, fireEvent, render, renderHook, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, test, vi } from 'vitest'
 import { SelectorPicker } from '../src/renderer/src/ChatNode'
-import { FirstMateCaptainSelectors, FirstMateProviderTabs } from '../src/renderer/src/FirstMatePanel'
+import { FirstMateCaptainSelectors, FirstMateProviderTabs, FirstMateTaskHistory } from '../src/renderer/src/FirstMatePanel'
 import { useAgentConversation } from '../src/renderer/src/use-agent-conversation'
 import { createMockAgentApi } from './dom/agent-api-mock'
 
@@ -35,6 +35,21 @@ test('provider tabs present separate captain conversations and select the inacti
 
   fireEvent.click(screen.getByRole('tab', { name: /Claude/ }))
   expect(select).toHaveBeenCalledWith('claude')
+})
+
+test('task history presents timestamped sources, dispatch identity, and current evidence detail', () => {
+  render(<FirstMateTaskHistory task={{
+    id: 'ship-69', mode: 'no-mistakes', stage: 'validating', detail: 'Checks running', statusHash: 'hash',
+    history: [{
+      id: 'event-1', occurredAt: '2026-08-24T10:00:00.000Z', source: 'ade-reconciliation',
+      stage: 'dispatching', detail: 'Validation sent',
+      dispatch: { id: 'ship-69.dispatch', status: 'acknowledged', attempt: 2 }
+    }]
+  }} />)
+  fireEvent.click(screen.getByText('History (1)'))
+  expect(screen.getByText('Validation sent')).toBeInTheDocument()
+  expect(screen.getByText(/ade-reconciliation.*ship-69\.dispatch.*attempt 2/)).toBeInTheDocument()
+  expect(document.querySelector('time')).toHaveAttribute('datetime', '2026-08-24T10:00:00.000Z')
 })
 
 test('provider tabs cannot interrupt an active captain turn', () => {

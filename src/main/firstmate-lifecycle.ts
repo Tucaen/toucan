@@ -7,6 +7,7 @@ import type {
   FirstMateTaskDispatch,
   FirstMateTaskStage,
   FirstMatePullRequestState,
+  FirstMateTaskHistoryEvent,
   FirstMateValidatorRuntime
 } from '../shared/firstmate'
 import {
@@ -54,6 +55,8 @@ export interface FirstMateLifecycleRecord {
    */
   prResolution?: 'merged' | 'closed'
   updatedAt: string
+  history?: FirstMateTaskHistoryEvent[]
+  terminalOutcome?: FirstMateLifecycleTask['terminalOutcome']
 }
 
 export interface FirstMateLifecycleJournal {
@@ -149,6 +152,19 @@ function parseJournal(text?: string): FirstMateLifecycleJournal {
   } catch {
     return { version: 1, tasks: {} }
   }
+}
+
+function recordedHistory(value: unknown): FirstMateTaskHistoryEvent[] {
+  if (!Array.isArray(value)) return []
+  const events = value.filter((event): event is FirstMateTaskHistoryEvent => {
+    if (!event || typeof event !== 'object') return false
+    const item = event as Partial<FirstMateTaskHistoryEvent>
+    return typeof item.id === 'string' && typeof item.occurredAt === 'string'
+      && typeof item.detail === 'string'
+      && ['firstmate-status', 'ade-reconciliation', 'forge'].includes(item.source ?? '')
+  })
+  return [...new Map(events.map((event) => [event.id, event])).values()]
+    .sort((left, right) => left.occurredAt.localeCompare(right.occurredAt) || left.id.localeCompare(right.id))
 }
 
 export function firstMateValidatorFromRuntimeConfig(text?: string): FirstMateValidatorRuntime | undefined {
@@ -361,6 +377,8 @@ export function firstMatePrResolvedRecord(
   now: Date
 ): FirstMateLifecycleRecord | undefined {
   if (task.stage !== 'pr-ready' || !task.prUrl) return undefined
+  const occurredAt = now.toISOString()
+  const outcome = state === 'merged' ? 'completed' as const : 'cancelled' as const
   return {
     stage: task.stage,
     detail: task.detail,
@@ -368,7 +386,16 @@ export function firstMatePrResolvedRecord(
     nextAction: task.nextAction,
     prUrl: task.prUrl,
     prResolution: state,
-    updatedAt: now.toISOString()
+    updatedAt: occurredAt,
+    terminalOutcome: outcome,
+    history: [{
+      id: `forge:${task.statusHash}:${state}`,
+      occurredAt,
+      source: 'forge',
+      stage: task.stage,
+      detail: `Pull request ${state}.`,
+      outcome
+    }]
   }
 }
 
@@ -484,6 +511,7 @@ function recordedTask(
   const { verb, detail } = statusParts(line)
   const prUrl = prFromDone(verb, detail)
   const durable = journal.tasks[raw.id]
+  const durableHistory = recordedHistory(durable?.history)
   const durableDispatch = recordedDispatch(durable?.dispatch)
   const holdsValidationGate = durableDispatch
     && ['claimed', 'acknowledged', 'unresolved'].includes(durableDispatch.status)
@@ -494,7 +522,7 @@ function recordedTask(
     // ADE already asked the PR's own forge and learned it merged or closed: stop presenting it as
     // awaiting review instead of waiting on FirstMate's own task-record teardown to catch up.
     if (durable?.statusHash === hash && durable.prResolution) return undefined
-    return attachContext({ id: raw.id, mode, stage: 'pr-ready', detail, statusHash: hash, nextAction: 'review-pr', prUrl })
+    return attachContext({ id: raw.id, mode, stage: 'pr-ready', detail, statusHash: hash, nextAction: 'review-pr', prUrl, history: durableHistory })
   }
   if (verb === 'needs-decision') {
     return attachContext({
@@ -504,7 +532,8 @@ function recordedTask(
       detail,
       statusHash: hash,
       nextAction: 'await-decision',
-      ...(holdsValidationGate ? { dispatch: holdsValidationGate } : {})
+      ...(holdsValidationGate ? { dispatch: holdsValidationGate } : {}),
+      history: durableHistory
     })
   }
   if (verb === 'blocked' || verb === 'failed') {
@@ -515,11 +544,13 @@ function recordedTask(
       detail,
       statusHash: hash,
       nextAction: 'await-help',
-      ...(holdsValidationGate ? { dispatch: holdsValidationGate } : {})
+      ...(holdsValidationGate ? { dispatch: holdsValidationGate } : {}),
+      history: durableHistory,
+      ...(verb === 'failed' ? { terminalOutcome: 'failed' as const } : {})
     })
   }
   if (verb === 'working' && /validat|no-mistakes|checks|\bCI\b/i.test(detail)) {
-    return attachContext({ id: raw.id, mode, stage: 'validating', detail, statusHash: hash, nextAction: 'await-validation' })
+    return attachContext({ id: raw.id, mode, stage: 'validating', detail, statusHash: hash, nextAction: 'await-validation', history: durableHistory })
   }
 
   if (verb === 'resolved' && mode === 'no-mistakes' && durable) {
@@ -529,7 +560,8 @@ function recordedTask(
       stage: 'validating',
       detail,
       statusHash: hash,
-      nextAction: 'await-validation'
+      nextAction: 'await-validation',
+      history: durableHistory
     })
   }
   if (durable && durable.statusHash === hash) {
@@ -542,7 +574,9 @@ function recordedTask(
       statusHash: hash,
       ...(durable.nextAction ? { nextAction: durable.nextAction } : {}),
       ...(dispatch ? { dispatch } : {}),
-      ...(durable.prUrl ? { prUrl: durable.prUrl } : {})
+      ...(durable.prUrl ? { prUrl: durable.prUrl } : {}),
+      history: durableHistory,
+      ...(durable.terminalOutcome ? { terminalOutcome: durable.terminalOutcome } : {})
     })
   }
   // A dispatch this journal never finished outlives the status line that provoked it. Without
@@ -557,7 +591,8 @@ function recordedTask(
       detail: durable?.detail ?? detail,
       statusHash: hash,
       nextAction: unfinished.nextAction,
-      dispatch: unfinished.dispatch
+      dispatch: unfinished.dispatch,
+      history: durableHistory
     })
   }
   if (verb === 'done') {
@@ -567,7 +602,8 @@ function recordedTask(
       stage: 'implemented',
       detail,
       statusHash: hash,
-      ...(mode === 'no-mistakes' ? { nextAction: 'start-validation' as const } : {})
+      ...(mode === 'no-mistakes' ? { nextAction: 'start-validation' as const } : {}),
+      history: durableHistory
     })
   }
   return undefined

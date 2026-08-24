@@ -174,6 +174,42 @@ test('durably reconciles a no-mistakes task from implementation through validati
   assert.equal(lifecycle.tasks[0]?.nextAction, 'review-pr')
 })
 
+test('durable history converges across restart, replay, and out-of-order evidence', async () => {
+  const { home } = taskHome()
+  const observed = await onlyTask(home)
+  const base = {
+    stage: 'validating' as const, detail: 'Validation started', statusHash: observed.statusHash,
+    nextAction: 'await-validation' as const
+  }
+  await recordFirstMateLifecycle(home, 'resize', {
+    ...base, updatedAt: '2026-08-24T10:02:00.000Z',
+    history: [{ id: 'new', occurredAt: '2026-08-24T10:02:00.000Z', source: 'ade-reconciliation', stage: 'validating', detail: 'Validation started' }]
+  })
+  await recordFirstMateLifecycle(home, 'resize', {
+    stage: 'implemented', detail: 'Older replay', statusHash: observed.statusHash, updatedAt: '2026-08-24T10:01:00.000Z',
+    history: [{ id: 'old', occurredAt: '2026-08-24T10:01:00.000Z', source: 'firstmate-status', stage: 'implemented', detail: 'Implementation committed' }]
+  })
+  await recordFirstMateLifecycle(home, 'resize', {
+    ...base, updatedAt: '2026-08-24T10:02:00.000Z',
+    history: [{ id: 'new', occurredAt: '2026-08-24T10:02:00.000Z', source: 'ade-reconciliation', stage: 'validating', detail: 'Validation started' }]
+  })
+  const restarted = await readFirstMateLifecycle(home)
+  assert.equal(restarted.tasks[0]?.stage, 'validating')
+  assert.deepEqual(restarted.tasks[0]?.history?.map((event) => event.id), ['old', 'new'])
+})
+
+test('indeterminate dispatch delivery is explicit in durable history', async () => {
+  const { home } = taskHome()
+  const runtime = journalRuntime(home, {
+    continueValidation: () => ({ outcome: 'indeterminate', message: 'acknowledgement lost' })
+  })
+  await coordinatorFor(runtime.runtime).poll()
+  const task = await onlyTask(home)
+  assert.equal(task.dispatch?.status, 'unresolved')
+  assert.match(task.detail, /cannot establish whether it reached FirstMate/)
+  assert.ok(task.history?.some((event) => event.dispatch?.status === 'unresolved'))
+})
+
 test('blocks a task whose spawn metadata drifted from its pinned external project', () => {
   const lifecycle = firstMateLifecycleFromFiles({
     tasks: [{

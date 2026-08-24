@@ -2357,12 +2357,26 @@ button {
 
 .firstmate-lifecycle > header,
 .firstmate-lifecycle-task {
+  flex-wrap: wrap;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
   min-width: 0;
 }
+
+.firstmate-task-history {
+  flex: 1 0 100%;
+  padding-left: 8px;
+  color: #8f9eaf;
+}
+
+.firstmate-task-history summary { cursor: pointer; }
+.firstmate-task-history ol { margin: 5px 0 3px; padding-left: 18px; }
+.firstmate-task-history li { margin: 4px 0; }
+.firstmate-task-history time,
+.firstmate-task-history small { display: block; color: #71859c; font-size: 9px; }
+.firstmate-task-history li > strong { margin-right: 6px; color: #a9c8ee; }
 
 .firstmate-lifecycle > header {
   margin-bottom: 5px;

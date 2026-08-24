@@ -261,6 +261,25 @@ function lifecycleTaskLabel(task: FirstMateLifecycleTask): string {
   return `${stage}${dispatch}${pinned}`
 }
 
+export function FirstMateTaskHistory({ task }: { task: FirstMateLifecycleTask }): JSX.Element | null {
+  if (!task.history?.length) return null
+  return (
+    <details className="firstmate-task-history">
+      <summary>History ({task.history.length})</summary>
+      <ol>
+        {task.history.map((event) => (
+          <li key={event.id}>
+            <time dateTime={event.occurredAt}>{new Date(event.occurredAt).toLocaleString()}</time>
+            <strong>{lifecycleLabels[event.stage]}</strong>
+            <span>{event.detail}</span>
+            <small>{event.source}{event.dispatch ? ` · ${event.dispatch.id} · attempt ${event.dispatch.attempt}` : ''}</small>
+          </li>
+        ))}
+      </ol>
+    </details>
+  )
+}
+
 export default function FirstMatePanel({ projects, project, state, onStateChange }: FirstMatePanelProps): JSX.Element {
   const [sessionGenerations, setSessionGenerations] = useState<Partial<Record<AgentProvider, number>>>({})
   const [runtime, setRuntime] = useState<FirstMateRuntimeStatus | null>(null)
@@ -833,6 +852,7 @@ export default function FirstMatePanel({ projects, project, state, onStateChange
                       {retryingDispatch === task.id ? 'Retrying…' : 'Retry'}
                     </button>
                   )}
+                  <FirstMateTaskHistory task={task} />
                 </div>
               ))}
             </section>

@@ -5,6 +5,7 @@ import type {
   FirstMateTaskDispatch,
   FirstMateValidationDelivery
 } from '../shared/firstmate'
+import { createHash } from 'node:crypto'
 import type { FirstMateRuntime } from './firstmate-runtime'
 import {
   firstMateAppWakeMessage,
@@ -76,6 +77,14 @@ function terminalFingerprint(tasks: FirstMateLifecycleTask[]): string {
 }
 
 function recordFor(task: FirstMateLifecycleTask, now: Date): FirstMateLifecycleRecord {
+  const occurredAt = now.toISOString()
+  const source = task.stage === 'dispatching' || task.dispatch
+    ? 'ade-reconciliation' as const
+    : 'firstmate-status' as const
+  const eventId = createHash('sha256').update([
+    task.id, task.statusHash, task.stage, task.dispatch?.id ?? '', task.dispatch?.status ?? '',
+    String(task.dispatch?.attempt ?? ''), task.detail
+  ].join('\0')).digest('hex').slice(0, 24)
   return {
     stage: task.stage,
     detail: task.detail,
@@ -83,7 +92,17 @@ function recordFor(task: FirstMateLifecycleTask, now: Date): FirstMateLifecycleR
     ...(task.nextAction ? { nextAction: task.nextAction } : {}),
     ...(task.dispatch ? { dispatch: task.dispatch } : {}),
     ...(task.prUrl ? { prUrl: task.prUrl } : {}),
-    updatedAt: now.toISOString()
+    updatedAt: occurredAt,
+    history: [{
+      id: eventId,
+      occurredAt,
+      source,
+      stage: task.stage,
+      detail: task.detail,
+      ...(task.dispatch ? { dispatch: task.dispatch } : {}),
+      ...(task.terminalOutcome ? { outcome: task.terminalOutcome } : {})
+    }],
+    ...(task.terminalOutcome ? { terminalOutcome: task.terminalOutcome } : {})
   }
 }
 
@@ -175,7 +194,9 @@ export function createFirstMateLifecycleCoordinator(
   const prCheckedAt = new Map<string, number>()
 
   const persist = async (task: FirstMateLifecycleTask): Promise<FirstMateLifecycleTask> => {
-    await options.runtime.recordLifecycle(task.id, recordFor(task, now()))
+    const record = recordFor(task, now())
+    if (task.history?.some((event) => event.id === record.history?.[0]?.id)) return task
+    await options.runtime.recordLifecycle(task.id, record)
     return task
   }
 
@@ -288,6 +309,10 @@ export function createFirstMateLifecycleCoordinator(
       const lifecycle = await options.runtime.lifecycle()
       const changed = [...lifecycle.tasks]
       for (let index = 0; index < changed.length; index += 1) {
+        const observationPlan = planValidationDispatch({
+          task: changed[index], liveDispatches, maxAttempts: maxDispatchAttempts
+        })
+        if (observationPlan.action === 'none') await persist(changed[index])
         changed[index] = await reconcileTask(changed[index])
       }
 

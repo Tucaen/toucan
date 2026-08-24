@@ -61,7 +61,12 @@ export async function recordFirstMateLifecycle(
   const current: FirstMateLifecycleJournal = existing
     ? JSON.parse(existing) as FirstMateLifecycleJournal
     : { version: 1, tasks: {} }
-  current.tasks[taskId] = record
+  const previous = current.tasks[taskId]
+  const events = [...(previous?.history ?? []), ...(record.history ?? [])]
+  const history = [...new Map(events.map((event) => [event.id, event])).values()]
+    .sort((left, right) => left.occurredAt.localeCompare(right.occurredAt) || left.id.localeCompare(right.id))
+  const latest = !previous || record.updatedAt >= previous.updatedAt ? record : previous
+  current.tasks[taskId] = { ...latest, history }
   const temporary = join(statePath, `${FIRSTMATE_LIFECYCLE_JOURNAL_FILE}.${process.pid}.${crypto.randomUUID()}.tmp`)
   await writeFile(temporary, `${JSON.stringify(current, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 })
   await rename(temporary, join(statePath, FIRSTMATE_LIFECYCLE_JOURNAL_FILE))
