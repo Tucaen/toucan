@@ -264,6 +264,8 @@ export function planValidationDispatch(input: FirstMateValidationPlanInput): Fir
   const { task, liveDispatches, maxAttempts } = input
   const dispatch = task.dispatch
 
+  if (task.terminalOutcome) return { action: 'none' }
+
   if (task.stage === 'dispatching' && dispatch?.status === 'claimed') {
     const { id: dispatchId, attempt } = dispatch
     const remembered = liveDispatches.get(dispatchId)
@@ -636,6 +638,17 @@ function recordedTask(
       statusHash: hash,
       ...(mode === 'no-mistakes' ? { nextAction: 'start-validation' as const } : {}),
       history: durableHistory
+    })
+  }
+  if (verb === 'completed' || verb === 'cancelled' || verb === 'canceled') {
+    return attachContext({
+      id: raw.id,
+      mode,
+      stage: 'implemented',
+      detail,
+      statusHash: hash,
+      history: durableHistory,
+      terminalOutcome: verb === 'completed' ? 'completed' : 'cancelled'
     })
   }
   return undefined

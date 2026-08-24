@@ -9,6 +9,8 @@ import {
 } from '../src/main/firstmate-lifecycle'
 import type { FirstMateLifecycleStatus } from '../src/shared/firstmate'
 
+let journalWriteTail = Promise.resolve()
+
 /**
  * A local stand-in for the WSL node scripts in `src/main/firstmate-runtime.ts` that read and write
  * ADE's journal inside FirstMate's private home. No test may invoke WSL, so these give the
@@ -55,6 +57,7 @@ export async function recordFirstMateLifecycle(
   taskId: string,
   record: FirstMateLifecycleRecord
 ): Promise<void> {
+  const write = journalWriteTail.then(async () => {
   const statePath = join(homePath, 'state')
   await mkdir(statePath, { recursive: true })
   const existing = await optionalFile(join(statePath, FIRSTMATE_LIFECYCLE_JOURNAL_FILE))
@@ -70,4 +73,7 @@ export async function recordFirstMateLifecycle(
   const temporary = join(statePath, `${FIRSTMATE_LIFECYCLE_JOURNAL_FILE}.${process.pid}.${crypto.randomUUID()}.tmp`)
   await writeFile(temporary, `${JSON.stringify(current, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 })
   await rename(temporary, join(statePath, FIRSTMATE_LIFECYCLE_JOURNAL_FILE))
+  })
+  journalWriteTail = write.then(() => undefined, () => undefined)
+  await write
 }

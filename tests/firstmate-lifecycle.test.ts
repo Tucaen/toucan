@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { appendFileSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { appendFileSync, mkdirSync, mkdtempSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -21,7 +21,11 @@ import {
 } from '../src/main/firstmate-lifecycle'
 import type { FirstMateWorktreeProvenance } from '../src/main/firstmate-worktree-provenance'
 import { createGitCrew, gitProvenance } from './firstmate-git-crew'
-import { readFirstMateLifecycle, recordFirstMateLifecycle } from './firstmate-journal-home'
+import {
+  readFirstMateLifecycle,
+  readFirstMateLifecycleFiles,
+  recordFirstMateLifecycle
+} from './firstmate-journal-home'
 
 const alphaCodexContext: FirstMateTaskContext = {
   version: 1,
@@ -213,6 +217,17 @@ test('duplicate normalized FirstMate evidence has one correctly attributed histo
   assert.equal(decisions[0]?.source, 'firstmate-status')
 })
 
+test('records actionable FirstMate implementation evidence before ADE reconciliation', async () => {
+  const { home } = taskHome()
+  const harness = journalRuntime(home)
+  await coordinatorFor(harness.runtime).poll()
+  const task = await onlyTask(home)
+  assert.ok(task.history?.some((event) => (
+    event.stage === 'implemented' && event.source === 'firstmate-status'
+  )))
+  assert.ok(task.history?.some((event) => event.dispatch?.status === 'claimed'))
+})
+
 test('folds every keyed FirstMate decision and its resolution durably', async () => {
   const lifecycle = firstMateLifecycleFromFiles({
     tasks: [{
@@ -248,6 +263,35 @@ test('projects terminal journal tasks after FirstMate removes their live carrier
   assert.equal(lifecycle.tasks[0]?.id, 'resize')
   assert.equal(lifecycle.tasks[0]?.terminalOutcome, 'completed')
   assert.deepEqual(lifecycle.closedTaskIds, ['resize'])
+})
+
+test('retains completed and cancelled FirstMate carriers after live cleanup', async () => {
+  for (const [verb, outcome] of [['completed', 'completed'], ['cancelled', 'cancelled']] as const) {
+    const { home, statusPath } = taskHome()
+    writeFileSync(statusPath, `${verb}: authoritative terminal outcome\n`)
+    const harness = journalRuntime(home)
+    await coordinatorFor(harness.runtime).poll()
+    unlinkSync(join(home, 'state', 'resize.meta'))
+    unlinkSync(statusPath)
+    const restarted = await readFirstMateLifecycle(home)
+    assert.equal(restarted.tasks[0]?.terminalOutcome, outcome)
+    assert.equal(restarted.tasks[0]?.history?.at(-1)?.source, 'firstmate-status')
+    assert.deepEqual(restarted.closedTaskIds, ['resize'])
+  }
+})
+
+test('serializes concurrent journal updates without losing either task', async () => {
+  const { home } = taskHome()
+  const record = (detail: string): FirstMateLifecycleRecord => ({
+    stage: 'implemented', detail, statusHash: detail, updatedAt: '2026-08-24T12:00:00.000Z'
+  })
+  await Promise.all([
+    recordFirstMateLifecycle(home, 'alpha', record('alpha')),
+    recordFirstMateLifecycle(home, 'beta', record('beta'))
+  ])
+  const files = await readFirstMateLifecycleFiles(home)
+  const journal = JSON.parse(files.journal!) as { tasks: Record<string, unknown> }
+  assert.deepEqual(Object.keys(journal.tasks).sort(), ['alpha', 'beta'])
 })
 
 test('indeterminate dispatch delivery is explicit in durable history', async () => {

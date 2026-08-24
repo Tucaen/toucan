@@ -320,10 +320,7 @@ export function createFirstMateLifecycleCoordinator(
       const lifecycle = await options.runtime.lifecycle()
       const changed = [...lifecycle.tasks]
       for (let index = 0; index < changed.length; index += 1) {
-        const observationPlan = planValidationDispatch({
-          task: changed[index], liveDispatches, maxAttempts: maxDispatchAttempts
-        })
-        if (observationPlan.action === 'none') await persist(changed[index], 'firstmate-status')
+        await persist(changed[index], 'firstmate-status')
         changed[index] = await reconcileTask(changed[index])
       }
 

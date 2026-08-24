@@ -908,6 +908,7 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
   const QUOTA_CACHE_TTL_MS = 60_000
   const quotaCache = new Map<AgentProvider, { expiresAt: number; status: FirstMateQuotaStatus }>()
   const quotaInFlight = new Map<AgentProvider, Promise<FirstMateQuotaStatus>>()
+  let lifecycleRecordTail = Promise.resolve()
 
   /**
    * One inspection, reported as the status plus the host paths it resolved. Actions take both from
@@ -1498,7 +1499,7 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
       if (!/^[a-zA-Z0-9._-]+$/.test(taskId)) throw new Error('Invalid FirstMate task id.')
       if (!readyPaths) await inspect()
       if (!readyPaths) throw new Error('FirstMate is not ready.')
-      await run(
+      const write = lifecycleRecordTail.then(() => run(
         [
           '--distribution', distribution,
           '--exec', '/usr/bin/node', '-e', WSL_LIFECYCLE_RECORD_SCRIPT,
@@ -1507,7 +1508,9 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
           Buffer.from(JSON.stringify(record)).toString('base64url')
         ],
         15_000
-      )
+      ))
+      lifecycleRecordTail = write.then(() => undefined, () => undefined)
+      await write
     },
     launch(provider = 'codex', modelId?: string): FirstMateLaunch | null {
       selectedValidator = { agent: provider, model: validatorModel(modelId) }
