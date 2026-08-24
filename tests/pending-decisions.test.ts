@@ -2,6 +2,7 @@ import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
 import {
   decisionIdentity,
+  durableTaskClosureState,
   pendingDecisionsFromMessages,
   pendingDecisionStateFromMessages
 } from '../src/renderer/src/pending-decisions'
@@ -110,16 +111,32 @@ test('exact replies resolve only their decision while queued and failed sends re
   }]).map((pin) => pin.id), [storageId])
 })
 
-test('replay replies resolve newest only and completed tasks remove only their own pins', () => {
+test('ordinary replies preserve every unresolved pin and completed tasks remove only their own pins', () => {
   const base = [assistant('c', claudeDecision), assistant('x', codexDecision)]
   assert.deepEqual(pendingDecisionsFromMessages([
     ...base,
     { id: 'replayed-user', role: 'user', text: 'Gradual' }
-  ]).map((pin) => pin.id), ['alpha:storage'])
+  ]).map((pin) => pin.id), ['alpha:storage', 'beta:rollout'])
   assert.deepEqual(
     pendingDecisionsFromMessages(base, new Set(['alpha'])).map((pin) => pin.id),
     ['beta:rollout']
   )
+})
+
+test('transient lifecycle stages stay open until authoritative disappearance', () => {
+  const validating = durableTaskClosureState(
+    [{ id: 'alpha', stage: 'validating' }],
+    new Set(),
+    new Set()
+  )
+  assert.deepEqual([...validating.closedTaskIds], [])
+  assert.deepEqual(
+    pendingDecisionsFromMessages([assistant('decision', claudeDecision)], validating.closedTaskIds)
+      .map((pin) => pin.id),
+    ['alpha:storage']
+  )
+  const removed = durableTaskClosureState([], validating.knownTaskIds, validating.closedTaskIds)
+  assert.deepEqual([...removed.closedTaskIds], ['alpha'])
 })
 
 test('normal, noise, thought, and decision-shaped user messages never pin', () => {

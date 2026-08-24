@@ -25,6 +25,24 @@ export interface PendingDecisionState {
   closedIds: Set<string>
 }
 
+export interface DurableTaskClosureState {
+  knownTaskIds: Set<string>
+  closedTaskIds: Set<string>
+}
+
+export function durableTaskClosureState(
+  tasks: readonly { id: string; stage?: string }[],
+  persistedKnownTaskIds: ReadonlySet<string> = new Set(),
+  persistedClosedTaskIds: ReadonlySet<string> = new Set()
+): DurableTaskClosureState {
+  const currentTaskIds = new Set(tasks.map((task) => task.id))
+  const knownTaskIds = new Set(persistedKnownTaskIds)
+  const closedTaskIds = new Set(persistedClosedTaskIds)
+  for (const id of knownTaskIds) if (!currentTaskIds.has(id)) closedTaskIds.add(id)
+  for (const id of currentTaskIds) knownTaskIds.add(id)
+  return { knownTaskIds, closedTaskIds }
+}
+
 function tag(text: string, name: string): string | undefined {
   return new RegExp(`\\[${name}=([^\\]\\s]+)\\]`, 'i').exec(text)?.[1]
 }
@@ -53,8 +71,8 @@ export function decisionIdentity(message: Pick<DecisionTranscriptMessage, 'id' |
 
 /**
  * Folds normalized transcript messages into the currently open decision set. A normal user reply
- * resolves only the newest open decision; decision controls carry an exact id so simultaneous
- * decisions cannot clear one another. Failed sends restore actionability and accepted sends close.
+ * Exact decision controls carry stable identity so simultaneous decisions cannot clear one
+ * another. Failed sends restore actionability and accepted sends close.
  */
 export function pendingDecisionStateFromMessages(
   messages: readonly DecisionTranscriptMessage[],
@@ -99,15 +117,6 @@ export function pendingDecisionStateFromMessages(
         closed.add(message.decisionReplyTo)
       }
       continue
-    }
-    // Replayed transcripts cannot retain ADE-only reply metadata. ACP preserves ordering, so a
-    // subsequent ordinary captain message deterministically answers the newest open question.
-    if (!message.failed) {
-      const newest = [...decisions.keys()].at(-1)
-      if (newest) {
-        decisions.delete(newest)
-        closed.add(newest)
-      }
     }
   }
   return {

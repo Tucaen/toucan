@@ -12,6 +12,7 @@ import type {
 import {
   firstMateActiveProvider,
   firstMateCaptainState,
+  firstMateClosedDecisionIds,
   firstMateWithCaptainState
 } from '../../shared/firstmate'
 import type { WorkspaceProject } from '../../shared/terminal'
@@ -28,7 +29,7 @@ import {
 } from './firstmate-panel-resize'
 import { useAgentConversation } from './use-agent-conversation'
 import { useFirstMateQuota } from './use-firstmate-quota'
-import { pendingDecisionStateFromMessages } from './pending-decisions'
+import { durableTaskClosureState, pendingDecisionStateFromMessages } from './pending-decisions'
 
 const FIRSTMATE_AGENT_ID = 'ade-firstmate'
 const FIRSTMATE_PROVIDERS = [
@@ -396,47 +397,53 @@ export default function FirstMatePanel({ projects, project, state, onStateChange
       })
     },
     enabled: runtime?.state === 'ready' && (provider !== 'codex' || runtime.codexProjectTrust === 'trusted'),
-    onSessionId: (conversationId) => updateCaptain({ conversationId }),
+    onSessionId: (conversationId) => updateCaptain({
+      conversationId,
+      ...(captain.closedDecisionConversationId === conversationId
+        ? {}
+        : { closedDecisionConversationId: conversationId, closedDecisionIds: [] })
+    }),
     onPermissionMode: (permissionMode) => updateCaptain({ permissionMode }),
     onModel: (modelId) => updateCaptain({ modelId }),
     onEffort: (effortId) => updateCaptain({ effortId })
   })
-  const currentTaskIds = new Set(lifecycle.tasks.map((task) => task.id))
-  const knownTaskIds = new Set(state.knownTaskIds)
-  const closedTaskIds = new Set(state.closedTaskIds)
-  if (lifecycleLoaded) {
-    for (const id of knownTaskIds) if (!currentTaskIds.has(id)) closedTaskIds.add(id)
-    for (const task of lifecycle.tasks) {
-      knownTaskIds.add(task.id)
-      if (task.stage !== 'decision' && task.stage !== 'blocked') closedTaskIds.add(task.id)
-    }
-  }
+  const taskClosureState = lifecycleLoaded
+    ? durableTaskClosureState(lifecycle.tasks, new Set(state.knownTaskIds), new Set(state.closedTaskIds))
+    : { knownTaskIds: new Set(state.knownTaskIds), closedTaskIds: new Set(state.closedTaskIds) }
+  const { knownTaskIds, closedTaskIds } = taskClosureState
+  const persistedClosedDecisionIds = firstMateClosedDecisionIds(state, provider, captain.conversationId)
   const decisionState = pendingDecisionStateFromMessages(
     conversation.messages,
     closedTaskIds,
-    new Set(captain.closedDecisionIds)
+    new Set(persistedClosedDecisionIds)
   )
 
   useEffect(() => {
     const nextDecisionIds = [...decisionState.closedIds]
     const nextKnownTaskIds = [...knownTaskIds]
     const nextClosedTaskIds = [...closedTaskIds]
-    if (nextDecisionIds.join('\0') !== (captain.closedDecisionIds ?? []).join('\0')
+    if ((captain.conversationId && nextDecisionIds.join('\0') !== persistedClosedDecisionIds.join('\0'))
       || nextKnownTaskIds.join('\0') !== (state.knownTaskIds ?? []).join('\0')
       || nextClosedTaskIds.join('\0') !== (state.closedTaskIds ?? []).join('\0')) {
       onStateChange(firstMateWithCaptainState({
         ...state,
         knownTaskIds: nextKnownTaskIds,
         closedTaskIds: nextClosedTaskIds
-      }, provider, { closedDecisionIds: nextDecisionIds }))
+      }, provider, captain.conversationId
+        ? {
+            closedDecisionConversationId: captain.conversationId,
+            closedDecisionIds: nextDecisionIds
+          }
+        : {}))
     }
   }, [
-    captain.closedDecisionIds,
+    captain.conversationId,
     closedTaskIds,
     decisionState.closedIds,
     knownTaskIds,
     onStateChange,
     provider,
+    persistedClosedDecisionIds,
     state
   ])
 
@@ -538,6 +545,8 @@ export default function FirstMatePanel({ projects, project, state, onStateChange
   const startNewSession = (permissionMode?: string): void => {
     updateCaptain({
       conversationId: undefined,
+      closedDecisionConversationId: undefined,
+      closedDecisionIds: [],
       ...(permissionMode ? { permissionMode } : {})
     })
     setSessionGenerations((current) => ({
@@ -875,7 +884,7 @@ export default function FirstMatePanel({ projects, project, state, onStateChange
             <ChatView
               {...props}
               completedTaskIds={closedTaskIds}
-              closedDecisionIds={new Set(captain.closedDecisionIds)}
+              closedDecisionIds={new Set(persistedClosedDecisionIds)}
               empty={{
                 icon: 'FM',
                 title: 'FirstMate is ready',

@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import {
   firstMateActiveProvider,
   firstMateCaptainState,
+  firstMateClosedDecisionIds,
   firstMateWithCaptainState,
   type FirstMateWorkspaceState
 } from '../src/shared/firstmate'
@@ -10,6 +11,21 @@ import {
 test('defaults a new FirstMate dock to the Codex captain', () => {
   assert.equal(firstMateActiveProvider({}), 'codex')
   assert.deepEqual(firstMateCaptainState({}, 'codex'), {})
+})
+
+test('closed decisions are selected only for their captain conversation', () => {
+  const state: FirstMateWorkspaceState = {
+    captains: {
+      codex: {
+        conversationId: 'new-session',
+        closedDecisionConversationId: 'old-session',
+        closedDecisionIds: ['alpha:storage']
+      }
+    }
+  }
+  assert.deepEqual(firstMateClosedDecisionIds(state, 'codex', 'old-session'), ['alpha:storage'])
+  assert.deepEqual(firstMateClosedDecisionIds(state, 'codex', 'new-session'), [])
+  assert.deepEqual(firstMateClosedDecisionIds(state, 'claude', 'old-session'), [])
 })
 
 test('updates one captain without changing the other provider or dock presentation', () => {

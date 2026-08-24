@@ -40,6 +40,7 @@ test('saves and loads a valid workspace through the store', () => {
           permissionMode: 'read-only',
           modelId: 'gpt-5',
           effortId: 'high',
+          closedDecisionConversationId: 'codex-firstmate-session',
           closedDecisionIds: ['alpha:storage']
         },
         claude: {

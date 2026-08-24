@@ -45,6 +45,7 @@ function isCaptainState(value: unknown): value is FirstMateCaptainWorkspaceState
     && isOptionalString(captain.permissionMode)
     && isOptionalString(captain.modelId)
     && isOptionalString(captain.effortId)
+    && isOptionalString(captain.closedDecisionConversationId)
     && isOptionalStringArray(captain.closedDecisionIds)
 }
 
