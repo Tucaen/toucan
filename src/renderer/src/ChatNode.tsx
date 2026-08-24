@@ -42,7 +42,7 @@ export interface ChatViewProps {
   setDraft(value: string): void
   addImages(files: File[] | FileList): Promise<void>
   removeAttachment(id: string): void
-  submit(event: FormEvent): void
+  submit(event: FormEvent, draftOverride?: string, onPrepared?: () => void): void
   sendMessage(text: string): void
   answerDecision(decisionId: string, text: string): void
   cancel(): void
@@ -238,7 +238,13 @@ export function Composer(props: Pick<ChatViewProps,
   const busy = props.status === 'working'
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const composerDisabled = isSendDisabled(props.status)
+  // Draft input is intentionally local to this leaf. Publishing every keystroke through the
+  // conversation hook rerenders the captain panel, including transcript Markdown, lifecycle
+  // reconciliation, persistence, and decision parsing. None of that work owns the input value.
+  const [draft, setDraft] = useState(props.draft)
   const [pasteBlocked, setPasteBlocked] = useState(false)
+
+  useEffect(() => setDraft(props.draft), [props.draft])
 
   const handlePaste = (event: React.ClipboardEvent<HTMLTextAreaElement>): void => {
     const files = imageFilesFromClipboard(event.clipboardData?.items)
@@ -253,7 +259,10 @@ export function Composer(props: Pick<ChatViewProps,
   }
 
   return (
-    <form className="chat-composer nodrag" onSubmit={props.submit}>
+    <form
+      className="chat-composer nodrag"
+      onSubmit={(event) => props.submit(event, draft, () => setDraft(''))}
+    >
       <AttachmentPreview attachments={props.attachments} removeAttachment={props.removeAttachment} />
       {pasteBlocked && (
         <small className="composer-paste-blocked">This agent doesn't support image attachments.</small>
@@ -267,9 +276,9 @@ export function Composer(props: Pick<ChatViewProps,
       <div className="chat-composer-row">
         <textarea
           ref={textareaRef}
-          value={props.draft}
+          value={draft}
           onChange={(event) => {
-            props.setDraft(event.target.value)
+            setDraft(event.target.value)
             setPasteBlocked(false)
           }}
           onPaste={handlePaste}
@@ -283,13 +292,13 @@ export function Composer(props: Pick<ChatViewProps,
           disabled={composerDisabled}
         />
         <VoiceInputPrototype
-          draft={props.draft}
+          draft={draft}
           disabled={composerDisabled}
           textareaRef={textareaRef}
-          setDraft={props.setDraft}
+          setDraft={setDraft}
         />
         {busy && <button type="button" className="stop-agent" onClick={props.cancel}>Stop</button>}
-        <button type="submit" disabled={(!props.draft.trim() && props.attachments.length === 0) || composerDisabled}>
+        <button type="submit" disabled={(!draft.trim() && props.attachments.length === 0) || composerDisabled}>
           {busy ? 'Queue' : 'Send'}
         </button>
       </div>
@@ -648,7 +657,7 @@ export function ChatView(props: ChatViewProps & {
         </section>
       )}
       {props.statusBar && <div className="agent-chat-status-bar">{props.statusBar}</div>}
-      <Composer {...props} detail={authVisible ? undefined : props.detail} />
+      <Composer key={props.provider} {...props} detail={authVisible ? undefined : props.detail} />
       {authVisible && <AuthPanel {...props} />}
     </div>
   )
