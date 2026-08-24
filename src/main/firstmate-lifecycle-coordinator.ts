@@ -96,7 +96,16 @@ function recordFor(
     ...(task.dispatch ? { dispatch: task.dispatch } : {}),
     ...(task.prUrl ? { prUrl: task.prUrl } : {}),
     updatedAt: occurredAt,
-    history: [{
+    history: source === 'firstmate-status' && task.statusEvidence?.length
+      ? task.statusEvidence.map((evidence, index) => ({
+        id: `firstmate:${evidence.id}`,
+        occurredAt: new Date(now.getTime() + index).toISOString(),
+        source,
+        stage: evidence.stage,
+        detail: evidence.detail,
+        ...(evidence.outcome ? { outcome: evidence.outcome } : {})
+      }))
+      : [{
       id: eventId,
       occurredAt,
       source,

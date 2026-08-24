@@ -217,6 +217,34 @@ test('duplicate normalized FirstMate evidence has one correctly attributed histo
   assert.equal(decisions[0]?.source, 'firstmate-status')
 })
 
+test('duplicate implementation evidence reuses one validation dispatch', async () => {
+  const { home, statusPath } = taskHome()
+  const harness = journalRuntime(home)
+  const coordinator = coordinatorFor(harness.runtime)
+  await coordinator.poll()
+  appendFileSync(statusPath, 'done:   committed resizable panel\n')
+  await coordinator.poll()
+  assert.equal(harness.continuations.length, 1)
+  assert.equal((await onlyTask(home)).dispatch?.status, 'acknowledged')
+})
+
+test('projects every unseen lifecycle line appended between polls', async () => {
+  const { home, statusPath } = taskHome()
+  appendFileSync(statusPath, [
+    'needs-decision: [key=review] choose behavior',
+    'resolved: [key=review] keep behavior',
+    'working: validation checks running'
+  ].join('\n') + '\n')
+  const harness = journalRuntime(home)
+  await coordinatorFor(harness.runtime).poll()
+  const history = (await onlyTask(home)).history ?? []
+  assert.deepEqual(
+    history.filter((event) => event.source === 'firstmate-status').map((event) => event.stage),
+    ['implemented', 'decision', 'validating', 'validating']
+  )
+  assert.ok(history.every((event, index) => index === 0 || history[index - 1]!.occurredAt <= event.occurredAt))
+})
+
 test('records actionable FirstMate implementation evidence before ADE reconciliation', async () => {
   const { home } = taskHome()
   const harness = journalRuntime(home)

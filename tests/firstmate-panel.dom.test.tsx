@@ -52,6 +52,23 @@ test('task history presents timestamped sources, dispatch identity, and current 
   expect(document.querySelector('time')).toHaveAttribute('datetime', '2026-08-24T10:00:00.000Z')
 })
 
+test('task history presents pending decisions and terminal outcomes', () => {
+  render(<FirstMateTaskHistory task={{
+    id: 'ship-69', mode: 'no-mistakes', stage: 'implemented', detail: 'Finished', statusHash: 'hash',
+    terminalOutcome: 'completed',
+    pendingDecisions: [{ key: 'release', detail: 'choose release window' }],
+    history: [{
+      id: 'event-1', occurredAt: '2026-08-24T10:00:00.000Z', source: 'firstmate-status',
+      stage: 'implemented', detail: 'Finished', outcome: 'completed'
+    }]
+  }} />)
+  fireEvent.click(screen.getByText('History (1)'))
+  expect(screen.getByText('Current state: Completed')).toBeInTheDocument()
+  expect(screen.getByText('Terminal outcome: completed')).toBeInTheDocument()
+  expect(screen.getByRole('list', { name: 'Pending decisions' })).toHaveTextContent('release: choose release window')
+  expect(screen.getByText(/outcome completed/)).toBeInTheDocument()
+})
+
 test('provider tabs cannot interrupt an active captain turn', () => {
   const select = vi.fn()
   render(<FirstMateProviderTabs activeProvider="claude" switchingDisabled select={select} />)

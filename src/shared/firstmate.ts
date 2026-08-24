@@ -67,6 +67,7 @@ export interface FirstMateLifecycleTask {
   detail: string
   statusHash: string
   statusEvidenceId?: string
+  statusEvidence?: FirstMateStatusEvidence[]
   nextAction?:
     | 'start-validation'
     | 'await-dispatch'
@@ -84,6 +85,13 @@ export interface FirstMateLifecycleTask {
 export interface FirstMatePendingDecision {
   key: string
   detail: string
+}
+
+export interface FirstMateStatusEvidence {
+  id: string
+  stage: FirstMateTaskStage
+  detail: string
+  outcome?: FirstMateLifecycleTask['terminalOutcome']
 }
 
 export interface FirstMateTaskHistoryEvent {

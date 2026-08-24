@@ -9,6 +9,7 @@ import type {
   FirstMatePullRequestState,
   FirstMateTaskHistoryEvent,
   FirstMatePendingDecision,
+  FirstMateStatusEvidence,
   FirstMateValidatorRuntime
 } from '../shared/firstmate'
 import {
@@ -166,6 +167,33 @@ function pendingDecisions(status: string): FirstMatePendingDecision[] {
   return [...open.values()].sort((left, right) => left.key.localeCompare(right.key))
 }
 
+function statusEvidence(status: string, mode: string): FirstMateStatusEvidence[] {
+  const evidence = status.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).map((line) => {
+    const { verb: rawVerb, detail } = statusParts(line)
+    const verb = rawVerb.toLowerCase()
+    const stage: FirstMateTaskStage = verb === 'needs-decision'
+      ? 'decision'
+      : verb === 'blocked' || verb === 'failed'
+        ? 'blocked'
+        : verb === 'done' && prFromDone(verb, detail)
+          ? 'pr-ready'
+          : verb === 'working' && /validat|no-mistakes|checks|\bCI\b/i.test(detail)
+            ? 'validating'
+            : verb === 'resolved' && mode === 'no-mistakes'
+              ? 'validating'
+              : 'implemented'
+    const outcome = verb === 'failed'
+      ? 'failed' as const
+      : verb === 'completed'
+        ? 'completed' as const
+        : verb === 'cancelled' || verb === 'canceled'
+          ? 'cancelled' as const
+          : undefined
+    return { id: statusEvidenceId(line), stage, detail, ...(outcome ? { outcome } : {}) }
+  })
+  return [...new Map(evidence.map((item) => [item.id, item])).values()]
+}
+
 function parseJournal(text?: string): FirstMateLifecycleJournal {
   if (!text) return { version: 1, tasks: {} }
   try {
@@ -297,7 +325,7 @@ export function planValidationDispatch(input: FirstMateValidationPlanInput): Fir
   // even a delivery the pre-send rejection could not rule out is deduplicable by the worker.
   return {
     action: 'dispatch',
-    dispatchId: rejected?.id ?? firstMateValidationDispatchId(task.id, task.statusHash),
+    dispatchId: rejected?.id ?? firstMateValidationDispatchId(task.id, task.statusEvidenceId ?? task.statusHash),
     attempt
   }
 }
@@ -499,9 +527,11 @@ function recordedTask(
   const line = latestStatusLine(raw.status)
   const evidenceId = statusEvidenceId(line)
   const decisions = pendingDecisions(raw.status)
+  const evidence = statusEvidence(raw.status, mode)
   const attachContext = (task: FirstMateLifecycleTask): FirstMateLifecycleTask => ({
     ...task,
     statusEvidenceId: evidenceId,
+    statusEvidence: evidence,
     pendingDecisions: decisions,
     ...(context ? { context } : {}),
     ...(worktree ? { worktree } : {}),
@@ -551,6 +581,7 @@ function recordedTask(
     && ['claimed', 'acknowledged', 'unresolved'].includes(durableDispatch.status)
     ? durableDispatch
     : undefined
+  const evidenceDispatchId = firstMateValidationDispatchId(raw.id, evidenceId)
 
   if (prUrl) {
     // ADE already asked the PR's own forge and learned it merged or closed: stop presenting it as
@@ -595,6 +626,18 @@ function recordedTask(
       detail,
       statusHash: hash,
       nextAction: 'await-validation',
+      history: durableHistory
+    })
+  }
+  if (verb === 'done' && durableDispatch?.id === evidenceDispatchId) {
+    return attachContext({
+      id: raw.id,
+      mode,
+      stage: durable.stage,
+      detail: durable.detail,
+      statusHash: hash,
+      ...(durable.nextAction ? { nextAction: durable.nextAction } : {}),
+      dispatch: durableDispatch,
       history: durableHistory
     })
   }
