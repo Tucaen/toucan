@@ -227,7 +227,9 @@ function statusEvidence(status: string, mode: string): FirstMateStatusEvidence[]
             ? 'validating'
             : verb === 'resolved' && mode === 'no-mistakes'
               ? 'validating'
-              : 'implemented'
+              : verb === 'working' || verb === 'resolved'
+                ? 'working'
+                : 'implemented'
     const outcome = verb === 'failed'
       ? 'failed' as const
       : verb === 'completed'
@@ -740,6 +742,16 @@ function recordedTask(
       statusHash: hash,
       history: durableHistory,
       terminalOutcome: verb === 'completed' ? 'completed' : 'cancelled'
+    })
+  }
+  if (verb === 'working' || verb === 'resolved') {
+    return attachContext({
+      id: raw.id,
+      mode,
+      stage: 'working',
+      detail,
+      statusHash: hash,
+      history: durableHistory
     })
   }
   return undefined

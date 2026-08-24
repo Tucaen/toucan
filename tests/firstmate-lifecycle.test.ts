@@ -385,6 +385,37 @@ test('conflicting terminal evidence permutations converge as indeterminate', () 
   ])
 })
 
+test('projects and persists ordinary working evidence without scheduling actions', async () => {
+  const { home, statusPath } = taskHome()
+  writeFileSync(statusPath, 'working: coding implementation\n')
+  const harness = journalRuntime(home)
+  const coordinator = coordinatorFor(harness.runtime)
+  await coordinator.poll()
+  const task = await onlyTask(home)
+  assert.equal(task.stage, 'working')
+  assert.equal(task.nextAction, undefined)
+  assert.equal(harness.continuations.length, 0)
+  assert.ok(task.history?.some((event) => (
+    event.stage === 'working' && event.detail === 'coding implementation'
+  )))
+})
+
+test('projects ordinary resolved evidence outside no-mistakes as non-actionable', () => {
+  const lifecycle = firstMateLifecycleFromFiles({
+    tasks: [{
+      id: 'resize',
+      meta: [
+        'kind=scout', 'project=/mnt/d/Development/alpha/api', 'worktree=/tmp/resize',
+        'harness=codex', firstMateTaskContextMetadata(alphaCodexContext)
+      ].join('\n'),
+      status: 'resolved: [key=review] question settled'
+    }]
+  })
+  assert.equal(lifecycle.tasks[0]?.stage, 'working')
+  assert.equal(lifecycle.tasks[0]?.nextAction, undefined)
+  assert.deepEqual(lifecycle.tasks[0]?.pendingDecisions, [])
+})
+
 test('projects terminal journal tasks after FirstMate removes their live carriers', () => {
   const task: FirstMateLifecycleTask = {
     id: 'resize', mode: 'no-mistakes', context: alphaCodexContext, worktree: '/tmp/resize',

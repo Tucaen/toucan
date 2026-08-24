@@ -234,6 +234,7 @@ function statusLabel(status: ReturnType<typeof useAgentConversation>['status']):
 }
 
 const lifecycleLabels: Record<FirstMateTaskStage, string> = {
+  working: 'Working',
   implemented: 'Implemented',
   dispatching: 'Dispatching',
   validating: 'Validating',

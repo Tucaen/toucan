@@ -18,6 +18,7 @@ export const FIRSTMATE_PANEL_MAX_WIDTH = 720
 export type FirstMateRuntimeState = 'missing' | 'repair' | 'installing' | 'ready' | 'error' | 'unsupported'
 
 export type FirstMateTaskStage =
+  | 'working'
   | 'implemented'
   | 'dispatching'
   | 'validating'
