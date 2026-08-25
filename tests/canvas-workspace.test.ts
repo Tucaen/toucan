@@ -64,12 +64,14 @@ test('keeps restored terminal processes dormant until explicitly opened', () => 
     sidebarCollapsed: false,
     nodes: [{
       id: 'terminal-1',
+      sessionId: 'durable-terminal-session',
       kind: 'terminal',
       label: 'Terminal 1',
       projectId: 'project-1',
       position: { x: 0, y: 0 },
       width: 520,
-      height: 340
+      height: 340,
+      terminalLiveness: 'live'
     }]
   }
   const restored = restoreCanvasWorkspace(state, {
@@ -84,6 +86,8 @@ test('keeps restored terminal processes dormant until explicitly opened', () => 
 
   assert.equal(restored.nodes[0].data.dormant, true)
   assert.equal(restored.statuses['terminal-1'], 'dormant')
+  assert.equal(restored.nodes[0].data.sessionId, 'durable-terminal-session')
+  assert.equal(restored.nodes[0].data.terminalLiveness, 'unverifiable')
 })
 
 test('starts legacy agent worklogs collapsed while preserving an explicit expanded choice', () => {

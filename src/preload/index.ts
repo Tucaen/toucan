@@ -41,29 +41,31 @@ const terminalApi = {
   ): Promise<ConversationPreview | null> => ipcRenderer.invoke('terminal:preview', kind, conversationId),
   create: (request: TerminalCreateRequest): Promise<TerminalCreateResult> =>
     ipcRenderer.invoke('terminal:create', request),
-  write: (id: string, data: string): void => ipcRenderer.send('terminal:write', id, data),
-  resize: (id: string, cols: number, rows: number): void =>
-    ipcRenderer.send('terminal:resize', id, cols, rows),
-  kill: (id: string): void => ipcRenderer.send('terminal:kill', id),
+  write: (sessionId: string, incarnationId: string, data: string): void =>
+    ipcRenderer.send('terminal:write', sessionId, incarnationId, data),
+  resize: (sessionId: string, incarnationId: string, cols: number, rows: number): void =>
+    ipcRenderer.send('terminal:resize', sessionId, incarnationId, cols, rows),
+  kill: (sessionId: string, incarnationId: string, attachmentId: string): void =>
+    ipcRenderer.send('terminal:kill', sessionId, incarnationId, attachmentId),
   copyText: (text: string): void => clipboard.writeText(text),
   readClipboardText: (): string => clipboard.readText(),
-  onData: (id: string, callback: (data: string) => void): (() => void) => {
+  onData: (sessionId: string, attachmentId: string, callback: (output: TerminalOutput) => void): (() => void) => {
     const listener = (_event: Electron.IpcRendererEvent, output: TerminalOutput): void => {
-      if (output.id === id) callback(output.data)
+      if (output.sessionId === sessionId && output.attachmentId === attachmentId) callback(output)
     }
     ipcRenderer.on('terminal:data', listener)
     return () => ipcRenderer.removeListener('terminal:data', listener)
   },
-  onExit: (id: string, callback: (exitCode: number) => void): (() => void) => {
+  onExit: (sessionId: string, attachmentId: string, callback: (result: TerminalExit) => void): (() => void) => {
     const listener = (_event: Electron.IpcRendererEvent, result: TerminalExit): void => {
-      if (result.id === id) callback(result.exitCode)
+      if (result.sessionId === sessionId && result.attachmentId === attachmentId) callback(result)
     }
     ipcRenderer.on('terminal:exit', listener)
     return () => ipcRenderer.removeListener('terminal:exit', listener)
   },
-  onSession: (id: string, callback: (conversationId: string) => void): (() => void) => {
+  onSession: (sessionId: string, attachmentId: string, callback: (result: TerminalSession) => void): (() => void) => {
     const listener = (_event: Electron.IpcRendererEvent, result: TerminalSession): void => {
-      if (result.id === id) callback(result.conversationId)
+      if (result.sessionId === sessionId && result.attachmentId === attachmentId) callback(result)
     }
     ipcRenderer.on('terminal:session', listener)
     return () => ipcRenderer.removeListener('terminal:session', listener)

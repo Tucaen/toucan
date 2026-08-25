@@ -2,6 +2,7 @@ import type { Node } from '@xyflow/react'
 import type {
   AgentPermissionModes,
   ConversationPreview,
+  TerminalLiveness,
   TerminalKind,
   WorkspaceState,
   WorkspaceTerminalNode
@@ -17,10 +18,13 @@ export interface TerminalNodeCallbacks {
   onPermissionModeChange(provider: keyof AgentPermissionModes, modeId: string): void
   onModelChange(nodeId: string, modelId: string): void
   onResume(nodeId: string): void
+  onTerminalLiveness?(nodeId: string, liveness: TerminalLiveness): void
 }
 
 export interface TerminalNodeData extends Record<string, unknown>, TerminalNodeCallbacks {
   kind: TerminalKind
+  sessionId: string
+  terminalLiveness: TerminalLiveness
   label: string
   projectId: string
   projectName: string
@@ -49,6 +53,7 @@ export function serializeCanvasNode(node: TerminalCanvasNode): WorkspaceTerminal
   const styleHeight = typeof node.style?.height === 'number' ? node.style.height : 340
   return {
     id: node.id,
+    ...(node.data.kind === 'terminal' ? { sessionId: node.data.sessionId } : {}),
     kind: node.data.kind,
     label: node.data.label,
     projectId: node.data.projectId,
@@ -58,7 +63,8 @@ export function serializeCanvasNode(node: TerminalCanvasNode): WorkspaceTerminal
     ...(node.data.conversationId ? { conversationId: node.data.conversationId } : {}),
     ...(node.data.preview ? { preview: node.data.preview } : {}),
     ...(node.data.modelId ? { modelId: node.data.modelId } : {}),
-    ...(node.data.kind === 'terminal' ? {} : { worklogCollapsed: node.data.worklogCollapsed })
+    ...(node.data.kind === 'terminal' ? {} : { worklogCollapsed: node.data.worklogCollapsed }),
+    ...(node.data.kind === 'terminal' ? { terminalLiveness: node.data.terminalLiveness } : {})
   }
 }
 
@@ -73,12 +79,17 @@ export function restoreCanvasWorkspace(
     // a model prompt or consume tokens. Restore chat nodes live so their history is
     // visible immediately, while real terminal processes remain explicitly resumed.
     const dormant = savedNode.kind === 'terminal'
+    const terminalLiveness: TerminalLiveness = savedNode.kind === 'terminal'
+      ? savedNode.terminalLiveness === 'exited' ? 'exited' : 'unverifiable'
+      : 'live'
     return [{
       id: savedNode.id,
       type: 'terminalNode',
       position: savedNode.position,
       data: {
         kind: savedNode.kind,
+        sessionId: savedNode.sessionId ?? savedNode.id,
+        terminalLiveness,
         label: savedNode.label,
         projectId: project.id,
         projectName: project.name,
