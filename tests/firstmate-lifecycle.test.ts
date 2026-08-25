@@ -540,11 +540,11 @@ test('failed tasks close while indeterminate tasks remain open', () => {
       }
     })
   })
-  assert.equal(journalOnly.tasks[0]?.terminalOutcome, 'indeterminate')
+  assert.deepEqual(journalOnly.tasks, [])
   assert.equal(journalOnly.closedTaskIds, undefined)
 })
 
-test('projects terminal journal tasks after FirstMate removes their live carriers', () => {
+test('drops terminal journal tasks from the active list after FirstMate removes their live carriers', () => {
   const task: FirstMateLifecycleTask = {
     id: 'resize', mode: 'no-mistakes', context: alphaCodexContext, worktree: '/tmp/resize',
     stage: 'pr-ready', detail: 'PR ready', statusHash: 'pr-evidence', prUrl: 'https://github.com/Tucaen/ade/pull/99'
@@ -554,12 +554,11 @@ test('projects terminal journal tasks after FirstMate removes their live carrier
     tasks: [],
     journal: JSON.stringify({ version: 1, tasks: { resize: terminal } })
   })
-  assert.equal(lifecycle.tasks[0]?.id, 'resize')
-  assert.equal(lifecycle.tasks[0]?.terminalOutcome, 'completed')
+  assert.deepEqual(lifecycle.tasks, [])
   assert.deepEqual(lifecycle.closedTaskIds, ['resize'])
 })
 
-test('retains completed and cancelled FirstMate carriers after live cleanup', async () => {
+test('drops completed and cancelled FirstMate carriers from the active list after live cleanup, but keeps them closed', async () => {
   for (const [verb, outcome] of [['completed', 'completed'], ['cancelled', 'cancelled']] as const) {
     const { home, statusPath } = taskHome()
     writeFileSync(statusPath, `${verb}: authoritative terminal outcome\n`)
@@ -568,10 +567,50 @@ test('retains completed and cancelled FirstMate carriers after live cleanup', as
     unlinkSync(join(home, 'state', 'resize.meta'))
     unlinkSync(statusPath)
     const restarted = await readFirstMateLifecycle(home)
-    assert.equal(restarted.tasks[0]?.terminalOutcome, outcome)
-    assert.equal(restarted.tasks[0]?.history?.at(-1)?.source, 'firstmate-status')
+    assert.deepEqual(restarted.tasks, [])
     assert.deepEqual(restarted.closedTaskIds, ['resize'])
+
+    const files = await readFirstMateLifecycleFiles(home)
+    const journal = JSON.parse(files.journal!) as { tasks: Record<string, { terminalOutcome?: string }> }
+    assert.equal(journal.tasks.resize?.terminalOutcome, outcome)
   }
+})
+
+test('post-teardown durable-home regression: determinate and indeterminate journal rows both leave the active list, only determinate stays closed', async () => {
+  const { home } = taskHome()
+  const resizeStatus = join(home, 'state', 'resize.status')
+  writeFileSync(resizeStatus, 'completed: authoritative terminal outcome\n')
+
+  const ambiguousMetaPath = join(home, 'state', 'ambiguous.meta')
+  const ambiguousStatusPath = join(home, 'state', 'ambiguous.status')
+  writeFileSync(ambiguousMetaPath, [
+    'worktree=/tmp/ambiguous',
+    `project=${alphaCodexContext.project.wslPath}`,
+    'harness=codex',
+    'kind=ship',
+    'mode=no-mistakes',
+    'yolo=off',
+    'model=gpt-5.6-sol',
+    firstMateTaskContextMetadata(alphaCodexContext)
+  ].join('\n'))
+  writeFileSync(ambiguousStatusPath, 'gibberish: unsupported evidence\n')
+
+  const harness = journalRuntime(home)
+  await coordinatorFor(harness.runtime).poll()
+
+  unlinkSync(join(home, 'state', 'resize.meta'))
+  unlinkSync(resizeStatus)
+  unlinkSync(ambiguousMetaPath)
+  unlinkSync(ambiguousStatusPath)
+
+  const restarted = await readFirstMateLifecycle(home)
+  assert.deepEqual(restarted.tasks, [])
+  assert.deepEqual(restarted.closedTaskIds, ['resize'])
+
+  const files = await readFirstMateLifecycleFiles(home)
+  const journal = JSON.parse(files.journal!) as { tasks: Record<string, { terminalOutcome?: string }> }
+  assert.equal(journal.tasks.resize?.terminalOutcome, 'completed')
+  assert.equal(journal.tasks.ambiguous?.terminalOutcome, 'indeterminate')
 })
 
 test('serializes concurrent journal updates without losing either task', async () => {

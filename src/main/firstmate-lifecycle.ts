@@ -874,7 +874,13 @@ export function firstMateLifecycleFromFiles(files: FirstMateLifecycleFiles): Fir
   }
   const liveIds = new Set(tasks.map((task) => task.id))
   for (const [id, record] of Object.entries(journal.tasks)) {
-    if (liveIds.has(id) || !record.terminalOutcome || !record.projection) continue
+    if (liveIds.has(id) || !record.terminalOutcome) continue
+    if (record.terminalOutcome !== 'indeterminate') closedTaskIds.add(id)
+    // A journal row only re-enters the presentation `tasks` collection while its FirstMate carrier
+    // (`.meta`/`.status`) is still live, e.g. `recordedTask` deliberately hid a pr-ready task once the
+    // forge confirmed its merge. Once the carrier itself is gone (guarded teardown), the row is
+    // durable history only: it stays out of the active list even though it remains closed above.
+    if (!rawTasks.has(id) || !record.projection) continue
     tasks.push({
       ...record.projection,
       stage: record.stage,
@@ -887,7 +893,6 @@ export function firstMateLifecycleFromFiles(files: FirstMateLifecycleFiles): Fir
       ...(record.pendingDecisions ? { pendingDecisions: record.pendingDecisions } : {}),
       terminalOutcome: record.terminalOutcome
     })
-    if (record.terminalOutcome !== 'indeterminate') closedTaskIds.add(id)
   }
   tasks.sort((left, right) => left.id.localeCompare(right.id))
   return {
