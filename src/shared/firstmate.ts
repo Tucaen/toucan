@@ -18,6 +18,7 @@ export const FIRSTMATE_PANEL_MAX_WIDTH = 720
 export type FirstMateRuntimeState = 'missing' | 'repair' | 'installing' | 'ready' | 'error' | 'unsupported'
 
 export type FirstMateTaskStage =
+  | 'working'
   | 'implemented'
   | 'dispatching'
   | 'validating'
@@ -66,6 +67,8 @@ export interface FirstMateLifecycleTask {
   stage: FirstMateTaskStage
   detail: string
   statusHash: string
+  statusEvidenceId?: string
+  statusEvidence?: FirstMateStatusEvidence[]
   nextAction?:
     | 'start-validation'
     | 'await-dispatch'
@@ -75,6 +78,33 @@ export interface FirstMateLifecycleTask {
     | 'review-pr'
   dispatch?: FirstMateTaskDispatch
   prUrl?: string
+  history?: FirstMateTaskHistoryEvent[]
+  pendingDecisions?: FirstMatePendingDecision[]
+  terminalOutcome?: 'completed' | 'cancelled' | 'failed' | 'indeterminate'
+}
+
+export interface FirstMatePendingDecision {
+  key: string
+  detail: string
+  indeterminate?: boolean
+}
+
+export interface FirstMateStatusEvidence {
+  id: string
+  stage: FirstMateTaskStage
+  detail: string
+  outcome?: FirstMateLifecycleTask['terminalOutcome']
+}
+
+export interface FirstMateTaskHistoryEvent {
+  /** Stable evidence identity used to coalesce replayed lifecycle input. */
+  id: string
+  occurredAt: string
+  source: 'firstmate-status' | 'ade-reconciliation' | 'forge'
+  stage: FirstMateTaskStage
+  detail: string
+  dispatch?: FirstMateTaskDispatch
+  outcome?: 'completed' | 'cancelled' | 'failed' | 'indeterminate'
 }
 
 export interface FirstMateLifecycleStatus {

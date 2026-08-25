@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { appendFileSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { appendFileSync, mkdirSync, mkdtempSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -13,6 +13,7 @@ import { firstMateTaskContextMetadata, type FirstMateTaskContext } from '../src/
 import { createFirstMateLifecycleCoordinator } from '../src/main/firstmate-lifecycle-coordinator'
 import {
   firstMateLifecycleFromFiles,
+  firstMatePrResolvedRecord,
   firstMateValidationDispatchId,
   noMistakesContinuation,
   type FirstMateLifecycleRecord,
@@ -20,7 +21,11 @@ import {
 } from '../src/main/firstmate-lifecycle'
 import type { FirstMateWorktreeProvenance } from '../src/main/firstmate-worktree-provenance'
 import { createGitCrew, gitProvenance } from './firstmate-git-crew'
-import { readFirstMateLifecycle, recordFirstMateLifecycle } from './firstmate-journal-home'
+import {
+  readFirstMateLifecycle,
+  readFirstMateLifecycleFiles,
+  recordFirstMateLifecycle
+} from './firstmate-journal-home'
 
 const alphaCodexContext: FirstMateTaskContext = {
   version: 1,
@@ -172,6 +177,427 @@ test('durably reconciles a no-mistakes task from implementation through validati
   assert.equal(lifecycle.tasks[0]?.stage, 'pr-ready')
   assert.equal(lifecycle.tasks[0]?.prUrl, 'https://github.com/Tucaen/ade/pull/99')
   assert.equal(lifecycle.tasks[0]?.nextAction, 'review-pr')
+})
+
+test('durable history converges across restart, replay, and out-of-order evidence', async () => {
+  const { home } = taskHome()
+  const observed = await onlyTask(home)
+  const base = {
+    stage: 'validating' as const, detail: 'Validation started', statusHash: observed.statusHash,
+    nextAction: 'await-validation' as const
+  }
+  await recordFirstMateLifecycle(home, 'resize', {
+    ...base, updatedAt: '2026-08-24T10:02:00.000Z',
+    history: [{ id: 'new', occurredAt: '2026-08-24T10:02:00.000Z', source: 'ade-reconciliation', stage: 'validating', detail: 'Validation started' }]
+  })
+  await recordFirstMateLifecycle(home, 'resize', {
+    stage: 'implemented', detail: 'Older replay', statusHash: observed.statusHash, updatedAt: '2026-08-24T10:01:00.000Z',
+    history: [{ id: 'old', occurredAt: '2026-08-24T10:01:00.000Z', source: 'firstmate-status', stage: 'implemented', detail: 'Implementation committed' }]
+  })
+  await recordFirstMateLifecycle(home, 'resize', {
+    ...base, updatedAt: '2026-08-24T10:02:00.000Z',
+    history: [{ id: 'new', occurredAt: '2026-08-24T10:02:00.000Z', source: 'ade-reconciliation', stage: 'validating', detail: 'Validation started' }]
+  })
+  const restarted = await readFirstMateLifecycle(home)
+  assert.equal(restarted.tasks[0]?.stage, 'validating')
+  assert.deepEqual(restarted.tasks[0]?.history?.map((event) => event.id), ['old', 'new'])
+})
+
+test('duplicate normalized FirstMate evidence has one correctly attributed history event', async () => {
+  const { home, statusPath } = taskHome()
+  appendFileSync(statusPath, 'needs-decision: [key=review] choose product behavior\n')
+  const harness = journalRuntime(home)
+  const coordinator = coordinatorFor(harness.runtime)
+  await coordinator.poll()
+  appendFileSync(statusPath, 'needs-decision:   [key=review]   choose product behavior\n')
+  await coordinator.poll()
+  const task = await onlyTask(home)
+  const decisions = task.history?.filter((event) => event.stage === 'decision') ?? []
+  assert.equal(decisions.length, 1)
+  assert.equal(decisions[0]?.source, 'firstmate-status')
+})
+
+test('duplicate implementation evidence becomes indeterminate after acknowledgement', async () => {
+  const { home, statusPath } = taskHome()
+  const harness = journalRuntime(home)
+  const coordinator = coordinatorFor(harness.runtime)
+  await coordinator.poll()
+  appendFileSync(statusPath, 'done:   committed resizable panel\n')
+  await coordinator.poll()
+  assert.equal(harness.continuations.length, 1)
+  const task = await onlyTask(home)
+  assert.equal(task.stage, 'blocked')
+  assert.equal(task.terminalOutcome, 'indeterminate')
+  assert.equal(task.dispatch?.status, 'acknowledged')
+})
+
+test('duplicate implementation evidence is indeterminate before any dispatch', async () => {
+  const { home, statusPath } = taskHome()
+  writeFileSync(statusPath, [
+    'done: committed resizable panel',
+    'done:   committed resizable panel'
+  ].join('\n'))
+  const harness = journalRuntime(home)
+  await coordinatorFor(harness.runtime).poll()
+  const task = await onlyTask(home)
+  assert.equal(task.terminalOutcome, 'indeterminate')
+  assert.equal(task.nextAction, 'await-help')
+  assert.equal(harness.continuations.length, 0)
+})
+
+test('projects every unseen lifecycle line appended between polls', async () => {
+  const { home, statusPath } = taskHome()
+  appendFileSync(statusPath, [
+    'needs-decision: [key=review] choose behavior',
+    'resolved: [key=review] keep behavior',
+    'working: validation checks running'
+  ].join('\n') + '\n')
+  const harness = journalRuntime(home)
+  await coordinatorFor(harness.runtime).poll()
+  const history = (await onlyTask(home)).history ?? []
+  assert.deepEqual(
+    history.filter((event) => event.source === 'firstmate-status').map((event) => event.stage),
+    ['implemented', 'decision', 'validating', 'validating']
+  )
+  assert.ok(history.every((event, index) => index === 0 || history[index - 1]!.occurredAt <= event.occurredAt))
+})
+
+test('persists lifecycle evidence appended after an earlier poll', async () => {
+  const { home, statusPath } = taskHome()
+  const harness = journalRuntime(home)
+  const coordinator = coordinatorFor(harness.runtime)
+  await coordinator.poll()
+  appendFileSync(statusPath, 'needs-decision: [key=review] choose behavior\n')
+  await coordinator.poll()
+  const history = (await onlyTask(home)).history ?? []
+  assert.ok(history.some((event) => event.stage === 'decision' && event.detail.includes('choose behavior')))
+})
+
+test('records actionable FirstMate implementation evidence before ADE reconciliation', async () => {
+  const { home } = taskHome()
+  const harness = journalRuntime(home)
+  await coordinatorFor(harness.runtime).poll()
+  const task = await onlyTask(home)
+  assert.ok(task.history?.some((event) => (
+    event.stage === 'implemented' && event.source === 'firstmate-status'
+  )))
+  assert.ok(task.history?.some((event) => event.dispatch?.status === 'claimed'))
+})
+
+test('folds every keyed FirstMate decision and its resolution durably', async () => {
+  const lifecycle = firstMateLifecycleFromFiles({
+    tasks: [{
+      id: 'resize',
+      meta: [
+        'kind=ship', 'mode=no-mistakes', 'project=/mnt/d/Development/alpha/api',
+        'worktree=/tmp/resize', 'harness=codex', 'yolo=off', 'model=gpt-5.6-sol', firstMateTaskContextMetadata(alphaCodexContext)
+      ].join('\n'),
+      status: [
+        'needs-decision: [key=api] choose API shape',
+        'needs-decision: [key=copy] choose button copy',
+        'resolved: [key=api] use stable API',
+        'needs-decision: [key=theme] choose theme'
+      ].join('\n')
+    }]
+  })
+  assert.deepEqual(lifecycle.tasks[0]?.pendingDecisions, [
+    { key: 'copy', detail: 'choose button copy' },
+    { key: 'theme', detail: 'choose theme' }
+  ])
+})
+
+test('replayed decision evidence cannot reopen a resolved decision', () => {
+  const lifecycle = firstMateLifecycleFromFiles({
+    tasks: [{
+      id: 'resize',
+      meta: [
+        'kind=ship', 'mode=no-mistakes', 'project=/mnt/d/Development/alpha/api',
+        'worktree=/tmp/resize', 'harness=codex', 'yolo=off', 'model=gpt-5.6-sol', firstMateTaskContextMetadata(alphaCodexContext)
+      ].join('\n'),
+      status: [
+        'needs-decision: [key=review] choose behavior',
+        'resolved: [key=review] keep behavior',
+        'needs-decision:   [key=review]   choose behavior'
+      ].join('\n')
+    }]
+  })
+  assert.deepEqual(lifecycle.tasks[0]?.pendingDecisions, [])
+})
+
+test('competing decision details converge as explicitly indeterminate', () => {
+  const statuses = [
+    ['needs-decision: [key=review] choose A', 'needs-decision: [key=review] choose B'],
+    ['needs-decision: [key=review] choose B', 'needs-decision: [key=review] choose A']
+  ]
+  const decisions = statuses.map((status) => firstMateLifecycleFromFiles({
+    tasks: [{
+      id: 'resize',
+      meta: [
+        'kind=ship', 'mode=no-mistakes', 'project=/mnt/d/Development/alpha/api',
+        'worktree=/tmp/resize', 'harness=codex', 'yolo=off', 'model=gpt-5.6-sol', firstMateTaskContextMetadata(alphaCodexContext)
+      ].join('\n'),
+      status: status.join('\n')
+    }]
+  }).tasks[0]?.pendingDecisions)
+  assert.deepEqual(decisions, [
+    [{ key: 'review', detail: 'Conflicting unresolved decision evidence.', indeterminate: true }],
+    [{ key: 'review', detail: 'Conflicting unresolved decision evidence.', indeterminate: true }]
+  ])
+})
+
+test('delayed decision evidence cannot regress a completed task', () => {
+  const lifecycle = firstMateLifecycleFromFiles({
+    tasks: [{
+      id: 'resize',
+      meta: [
+        'kind=ship', 'mode=no-mistakes', 'project=/mnt/d/Development/alpha/api',
+        'worktree=/tmp/resize', 'harness=codex', 'yolo=off', 'model=gpt-5.6-sol', firstMateTaskContextMetadata(alphaCodexContext)
+      ].join('\n'),
+      status: [
+        'completed: shipped',
+        'needs-decision: [key=review] delayed older question'
+      ].join('\n')
+    }]
+  })
+  assert.equal(lifecycle.tasks[0]?.terminalOutcome, 'completed')
+  assert.equal(lifecycle.tasks[0]?.stage, 'implemented')
+})
+
+test('delayed decision evidence cannot reopen a resolved key', () => {
+  const lifecycle = firstMateLifecycleFromFiles({
+    tasks: [{
+      id: 'resize',
+      meta: [
+        'kind=ship', 'mode=no-mistakes', 'project=/mnt/d/Development/alpha/api',
+        'worktree=/tmp/resize', 'harness=codex', 'yolo=off', 'model=gpt-5.6-sol', firstMateTaskContextMetadata(alphaCodexContext)
+      ].join('\n'),
+      status: [
+        'resolved: [key=review] keep behavior',
+        'needs-decision: [key=review] delayed different wording'
+      ].join('\n')
+    }]
+  })
+  assert.equal(lifecycle.tasks[0]?.stage, 'validating')
+  assert.deepEqual(lifecycle.tasks[0]?.pendingDecisions, [])
+})
+
+test('ambiguous nonterminal evidence permutations converge as indeterminate', () => {
+  const statuses = [
+    ['done: committed implementation', 'working: coding'],
+    ['working: coding', 'done: committed implementation']
+  ]
+  const projections = statuses.map((status) => firstMateLifecycleFromFiles({
+    tasks: [{
+      id: 'resize',
+      meta: [
+        'kind=ship', 'mode=no-mistakes', 'project=/mnt/d/Development/alpha/api',
+        'worktree=/tmp/resize', 'harness=codex', 'yolo=off', 'model=gpt-5.6-sol', firstMateTaskContextMetadata(alphaCodexContext)
+      ].join('\n'),
+      status: status.join('\n')
+    }]
+  }).tasks[0])
+  assert.deepEqual(projections.map((task) => [task?.stage, task?.nextAction]), [
+    ['blocked', 'await-help'],
+    ['blocked', 'await-help']
+  ])
+  assert.deepEqual(projections.map((task) => task?.terminalOutcome), ['indeterminate', 'indeterminate'])
+})
+
+test('conflicting terminal evidence permutations converge as indeterminate', () => {
+  const statuses = [
+    ['completed: shipped', 'failed: validation failed'],
+    ['failed: validation failed', 'completed: shipped']
+  ]
+  const projections = statuses.map((status) => firstMateLifecycleFromFiles({
+    tasks: [{
+      id: 'resize',
+      meta: [
+        'kind=ship', 'mode=no-mistakes', 'project=/mnt/d/Development/alpha/api',
+        'worktree=/tmp/resize', 'harness=codex', 'yolo=off', 'model=gpt-5.6-sol', firstMateTaskContextMetadata(alphaCodexContext)
+      ].join('\n'),
+      status: status.join('\n')
+    }]
+  }).tasks[0])
+  assert.deepEqual(projections.map((task) => [task?.stage, task?.terminalOutcome, task?.detail]), [
+    ['blocked', 'indeterminate', 'conflicting terminal lifecycle evidence'],
+    ['blocked', 'indeterminate', 'conflicting terminal lifecycle evidence']
+  ])
+})
+
+test('projects and persists ordinary working evidence without scheduling actions', async () => {
+  const { home, statusPath } = taskHome()
+  writeFileSync(statusPath, 'working: coding implementation\n')
+  const harness = journalRuntime(home)
+  const coordinator = coordinatorFor(harness.runtime)
+  await coordinator.poll()
+  const task = await onlyTask(home)
+  assert.equal(task.stage, 'working')
+  assert.equal(task.nextAction, undefined)
+  assert.equal(harness.continuations.length, 0)
+  assert.ok(task.history?.some((event) => (
+    event.stage === 'working' && event.detail === 'coding implementation'
+  )))
+})
+
+test('projects ordinary resolved evidence outside no-mistakes as non-actionable', () => {
+  const lifecycle = firstMateLifecycleFromFiles({
+    tasks: [{
+      id: 'resize',
+      meta: [
+        'kind=scout', 'project=/mnt/d/Development/alpha/api', 'worktree=/tmp/resize',
+        'harness=codex', 'model=gpt-5.6-sol', firstMateTaskContextMetadata(alphaCodexContext)
+      ].join('\n'),
+      status: 'resolved: [key=review] question settled'
+    }]
+  })
+  assert.equal(lifecycle.tasks[0]?.stage, 'working')
+  assert.equal(lifecycle.tasks[0]?.nextAction, undefined)
+  assert.deepEqual(lifecycle.tasks[0]?.pendingDecisions, [])
+})
+
+test('implementation evidence outranks resolved state in every arrival order', () => {
+  const statuses = [
+    ['resolved: [key=review] question settled', 'done: committed follow-up fix'],
+    ['done: committed follow-up fix', 'resolved: [key=review] question settled']
+  ]
+  const projections = statuses.map((status) => firstMateLifecycleFromFiles({
+    tasks: [{
+      id: 'resize',
+      meta: [
+        'kind=ship', 'mode=no-mistakes', 'project=/mnt/d/Development/alpha/api',
+        'worktree=/tmp/resize', 'harness=codex', 'yolo=off', 'model=gpt-5.6-sol', firstMateTaskContextMetadata(alphaCodexContext)
+      ].join('\n'),
+      status: status.join('\n')
+    }]
+  }).tasks[0])
+  assert.deepEqual(projections.map((task) => [task?.stage, task?.nextAction]), [
+    ['implemented', 'start-validation'],
+    ['implemented', 'start-validation']
+  ])
+  assert.deepEqual(projections.map((task) => task?.pendingDecisions), [[], []])
+})
+
+test('projects unsupported and empty statuses as durable indeterminate evidence', async () => {
+  for (const status of ['paused: awaiting operator', '']) {
+    const { home, statusPath } = taskHome()
+    writeFileSync(statusPath, status)
+    const harness = journalRuntime(home)
+    await coordinatorFor(harness.runtime).poll()
+    const task = await onlyTask(home)
+    assert.equal(task.stage, 'blocked')
+    assert.equal(task.terminalOutcome, 'indeterminate')
+    assert.equal(task.nextAction, 'await-help')
+    assert.equal(harness.continuations.length, 0)
+    assert.ok(task.history?.some((event) => event.outcome === 'indeterminate'))
+  }
+})
+
+test('terminal outcomes tombstone every pending decision', () => {
+  const lifecycle = firstMateLifecycleFromFiles({
+    tasks: [{
+      id: 'resize',
+      meta: [
+        'kind=ship', 'mode=no-mistakes', 'project=/mnt/d/Development/alpha/api',
+        'worktree=/tmp/resize', 'harness=codex', 'yolo=off', 'model=gpt-5.6-sol', firstMateTaskContextMetadata(alphaCodexContext)
+      ].join('\n'),
+      status: ['completed: shipped', 'needs-decision: [key=review] delayed question'].join('\n')
+    }]
+  })
+  assert.equal(lifecycle.tasks[0]?.terminalOutcome, 'completed')
+  assert.deepEqual(lifecycle.tasks[0]?.pendingDecisions, [])
+
+  const forge = firstMatePrResolvedRecord({
+    id: 'resize', mode: 'no-mistakes', stage: 'pr-ready', detail: 'Ready', statusHash: 'pr',
+    prUrl: 'https://github.com/Tucaen/ade/pull/99',
+    pendingDecisions: [{ key: 'review', detail: 'choose reviewer' }]
+  }, 'merged', new Date('2026-08-24T12:00:00.000Z'))
+  assert.deepEqual(forge?.pendingDecisions, [])
+})
+
+test('failed tasks close while indeterminate tasks remain open', () => {
+  const meta = [
+    'kind=ship', 'mode=no-mistakes', 'project=/mnt/d/Development/alpha/api',
+    'worktree=/tmp/resize', 'harness=codex', 'yolo=off', 'model=gpt-5.6-sol', firstMateTaskContextMetadata(alphaCodexContext)
+  ].join('\n')
+  const live = firstMateLifecycleFromFiles({
+    tasks: [
+      { id: 'failed-task', meta, status: 'failed: validation failed' },
+      { id: 'unknown-task', meta, status: 'paused: awaiting operator' }
+    ]
+  })
+  assert.deepEqual(live.closedTaskIds, ['failed-task'])
+
+  const journalOnly = firstMateLifecycleFromFiles({
+    tasks: [],
+    journal: JSON.stringify({
+      version: 1,
+      tasks: {
+        unknown: {
+          stage: 'blocked', detail: 'Unknown state', statusHash: 'unknown',
+          updatedAt: '2026-08-24T12:00:00.000Z', terminalOutcome: 'indeterminate',
+          projection: { id: 'unknown', mode: 'no-mistakes' }
+        }
+      }
+    })
+  })
+  assert.equal(journalOnly.tasks[0]?.terminalOutcome, 'indeterminate')
+  assert.equal(journalOnly.closedTaskIds, undefined)
+})
+
+test('projects terminal journal tasks after FirstMate removes their live carriers', () => {
+  const task: FirstMateLifecycleTask = {
+    id: 'resize', mode: 'no-mistakes', context: alphaCodexContext, worktree: '/tmp/resize',
+    stage: 'pr-ready', detail: 'PR ready', statusHash: 'pr-evidence', prUrl: 'https://github.com/Tucaen/ade/pull/99'
+  }
+  const terminal = firstMatePrResolvedRecord(task, 'merged', new Date('2026-08-24T12:00:00.000Z'))!
+  const lifecycle = firstMateLifecycleFromFiles({
+    tasks: [],
+    journal: JSON.stringify({ version: 1, tasks: { resize: terminal } })
+  })
+  assert.equal(lifecycle.tasks[0]?.id, 'resize')
+  assert.equal(lifecycle.tasks[0]?.terminalOutcome, 'completed')
+  assert.deepEqual(lifecycle.closedTaskIds, ['resize'])
+})
+
+test('retains completed and cancelled FirstMate carriers after live cleanup', async () => {
+  for (const [verb, outcome] of [['completed', 'completed'], ['cancelled', 'cancelled']] as const) {
+    const { home, statusPath } = taskHome()
+    writeFileSync(statusPath, `${verb}: authoritative terminal outcome\n`)
+    const harness = journalRuntime(home)
+    await coordinatorFor(harness.runtime).poll()
+    unlinkSync(join(home, 'state', 'resize.meta'))
+    unlinkSync(statusPath)
+    const restarted = await readFirstMateLifecycle(home)
+    assert.equal(restarted.tasks[0]?.terminalOutcome, outcome)
+    assert.equal(restarted.tasks[0]?.history?.at(-1)?.source, 'firstmate-status')
+    assert.deepEqual(restarted.closedTaskIds, ['resize'])
+  }
+})
+
+test('serializes concurrent journal updates without losing either task', async () => {
+  const { home } = taskHome()
+  const record = (detail: string): FirstMateLifecycleRecord => ({
+    stage: 'implemented', detail, statusHash: detail, updatedAt: '2026-08-24T12:00:00.000Z'
+  })
+  await Promise.all([
+    recordFirstMateLifecycle(home, 'alpha', record('alpha')),
+    recordFirstMateLifecycle(home, 'beta', record('beta'))
+  ])
+  const files = await readFirstMateLifecycleFiles(home)
+  const journal = JSON.parse(files.journal!) as { tasks: Record<string, unknown> }
+  assert.deepEqual(Object.keys(journal.tasks).sort(), ['alpha', 'beta'])
+})
+
+test('indeterminate dispatch delivery is explicit in durable history', async () => {
+  const { home } = taskHome()
+  const runtime = journalRuntime(home, {
+    continueValidation: () => ({ outcome: 'indeterminate', message: 'acknowledgement lost' })
+  })
+  await coordinatorFor(runtime.runtime).poll()
+  const task = await onlyTask(home)
+  assert.equal(task.dispatch?.status, 'unresolved')
+  assert.match(task.detail, /cannot establish whether it reached FirstMate/)
+  assert.ok(task.history?.some((event) => event.dispatch?.status === 'unresolved'))
 })
 
 test('blocks a task whose spawn metadata drifted from its pinned external project', () => {
@@ -489,11 +915,12 @@ test('continues a committed worker directly into validation exactly once without
   const dispatchId = firstMateValidationDispatchId('resize', 'implementation-1')
   assert.deepEqual(continuations, [`resize@${dispatchId}`])
   assert.deepEqual(records.map((record) => [record.stage, record.nextAction, record.dispatch?.status]), [
+    ['implemented', 'start-validation', undefined],
     ['dispatching', 'await-dispatch', 'claimed'],
     ['validating', 'await-validation', 'acknowledged']
   ])
   assert.equal(
-    records[0]?.dispatch?.id,
+    records[1]?.dispatch?.id,
     dispatchId,
     'the intent to dispatch is durably recorded before the continuation runs'
   )
@@ -1058,7 +1485,7 @@ function journalRuntimeWithPrCheck(
   }
 }
 
-test('drops a pr-ready task off the active list once its GitHub PR is confirmed merged', async () => {
+test('retains merged PR history without presenting the task as awaiting review', async () => {
   const prUrl = 'https://github.com/Tucaen/ade/pull/101'
   const { home } = prReadyTaskHome(prUrl)
   const { runtime, checks } = journalRuntimeWithPrCheck(home, async () => ({ ok: true, state: 'merged' }))
@@ -1076,7 +1503,9 @@ test('drops a pr-ready task off the active list once its GitHub PR is confirmed 
 
   assert.deepEqual(checks, [prUrl])
   lifecycle = await readFirstMateLifecycle(home)
-  assert.equal(lifecycle.tasks.length, 0, 'a confirmed merge must stop presenting the task as awaiting review')
+  assert.equal(lifecycle.tasks.length, 1, 'a confirmed merge remains available as durable task history')
+  assert.equal(lifecycle.tasks[0]?.terminalOutcome, 'completed')
+  assert.ok(lifecycle.tasks[0]?.history?.some((event) => event.source === 'forge' && event.outcome === 'completed'))
   assert.deepEqual(lifecycle.closedTaskIds, [taskId])
 })
 

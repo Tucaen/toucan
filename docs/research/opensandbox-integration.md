@@ -123,7 +123,7 @@ ADE is a Windows-first Electron/TypeScript application with three relevant bound
 
 - `src/main/terminal-manager.ts` abstracts a bidirectional terminal process (`onData`, `write`, `resize`, `kill`) and sends events through Electron IPC.
 - `src/main/acp-session-manager.ts` owns provider-neutral ACP conversations over child-process stdio.
-- `src/main/firstmate-runtime.ts` owns the Windows-to-WSL bridge, private FirstMate home, durable task lifecycle, and managed ACP launch environment.
+- `src/main/firstmate-runtime.ts` owns the Windows-to-WSL bridge, private FirstMate home, and managed ACP launch environment; see `AGENTS.md` for lifecycle-projection ownership.
 
 These boundaries make OpenSandbox feasible, but they also show where it does **not** fit.
 

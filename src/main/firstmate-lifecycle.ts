@@ -7,6 +7,9 @@ import type {
   FirstMateTaskDispatch,
   FirstMateTaskStage,
   FirstMatePullRequestState,
+  FirstMateTaskHistoryEvent,
+  FirstMatePendingDecision,
+  FirstMateStatusEvidence,
   FirstMateValidatorRuntime
 } from '../shared/firstmate'
 import {
@@ -54,6 +57,10 @@ export interface FirstMateLifecycleRecord {
    */
   prResolution?: 'merged' | 'closed'
   updatedAt: string
+  history?: FirstMateTaskHistoryEvent[]
+  terminalOutcome?: FirstMateLifecycleTask['terminalOutcome']
+  projection?: Pick<FirstMateLifecycleTask, 'id' | 'mode' | 'context' | 'worktree' | 'window'>
+  pendingDecisions?: FirstMatePendingDecision[]
 }
 
 export interface FirstMateLifecycleJournal {
@@ -126,8 +133,56 @@ function parseKeyValues(text: string): Map<string, string> {
   return values
 }
 
-function latestStatusLine(text: string): string {
-  return text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).at(-1) ?? ''
+function projectedStatusLine(text: string): string {
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
+  const terminal = lines.filter((line) => {
+    const verb = statusParts(line).verb.toLowerCase()
+    return verb === 'completed' || verb === 'cancelled' || verb === 'canceled' || verb === 'failed'
+  })
+  const terminalOutcomes = new Set(terminal.map((line) => {
+    const verb = statusParts(line).verb.toLowerCase()
+    return verb === 'completed' ? 'completed' : verb === 'failed' ? 'failed' : 'cancelled'
+  }))
+  if (terminalOutcomes.size > 1) return 'indeterminate: conflicting terminal lifecycle evidence'
+  if (terminal.length) return [...terminal].sort((left, right) => statusEvidenceId(left).localeCompare(statusEvidenceId(right)))[0]!
+
+  const resolvedKeys = new Set(lines.flatMap((line) => {
+    const { verb, detail } = statusParts(line)
+    const key = /^\[key=([^\]]+)\]/.exec(detail)?.[1]?.trim()
+    return verb.toLowerCase() === 'resolved' && key ? [key] : []
+  }))
+  const hasImplementation = lines.some((line) => {
+    const { verb, detail } = statusParts(line)
+    return verb.toLowerCase() === 'done' && !prFromDone(verb.toLowerCase(), detail)
+  })
+  const hasOrdinaryWorking = lines.some((line) => {
+    const { verb, detail } = statusParts(line)
+    return verb.toLowerCase() === 'working' && !/validat|no-mistakes|checks|\bCI\b/i.test(detail)
+  })
+  if (hasImplementation && hasOrdinaryWorking) {
+    return 'indeterminate: competing implementation and working lifecycle evidence'
+  }
+  const ranked = lines.map((line) => {
+    const { verb: rawVerb, detail } = statusParts(line)
+    const verb = rawVerb.toLowerCase()
+    const key = /^\[key=([^\]]+)\]/.exec(detail)?.[1]?.trim()
+    const resolved = key ? resolvedKeys.has(key) : false
+    const rank = verb === 'done' && prFromDone(verb, detail)
+      ? 60
+      : (verb === 'blocked' || verb === 'needs-decision') && !resolved
+        ? 50
+        : verb === 'working' && /validat|no-mistakes|checks|\bCI\b/i.test(detail)
+          ? 40
+          : verb === 'done'
+            ? 35
+            : verb === 'resolved'
+              ? 30
+              : verb === 'working'
+              ? 20
+              : 10
+    return { line, rank, id: statusEvidenceId(line) }
+  })
+  return ranked.sort((left, right) => right.rank - left.rank || left.id.localeCompare(right.id))[0]?.line ?? ''
 }
 
 function statusParts(line: string): { verb: string; detail: string } {
@@ -140,6 +195,78 @@ function statusHash(status: string): string {
   return createHash('sha256').update(status).digest('hex').slice(0, 20)
 }
 
+function statusEvidenceId(line: string): string {
+  const { verb, detail } = statusParts(line)
+  return createHash('sha256')
+    .update(`${verb.toLowerCase()}:${detail.replace(/\s+/g, ' ').trim()}`)
+    .digest('hex').slice(0, 20)
+}
+
+function pendingDecisions(status: string): FirstMatePendingDecision[] {
+  const candidates = new Map<string, Map<string, string>>()
+  const seen = new Set<string>()
+  const lines = status.split(/\r?\n/).map((item) => item.trim()).filter(Boolean)
+  const resolvedKeys = new Set(lines.flatMap((line) => {
+    const { verb, detail } = statusParts(line)
+    const key = /^\[key=([^\]]+)\]/.exec(detail)?.[1]?.trim()
+    return verb.toLowerCase() === 'resolved' && key ? [key] : []
+  }))
+  for (const line of lines) {
+    const evidenceId = statusEvidenceId(line)
+    if (seen.has(evidenceId)) continue
+    seen.add(evidenceId)
+    const { verb, detail } = statusParts(line)
+    const match = /^\[key=([^\]]+)\]\s*(.*)$/.exec(detail)
+    if (!match) continue
+    const key = match[1]!.trim()
+    if (verb.toLowerCase() === 'needs-decision' && !resolvedKeys.has(key)) {
+      const details = candidates.get(key) ?? new Map<string, string>()
+      details.set(evidenceId, match[2]!.trim())
+      candidates.set(key, details)
+    }
+  }
+  return [...candidates.entries()].map(([key, details]): FirstMatePendingDecision => (
+    details.size === 1
+      ? { key, detail: details.values().next().value! }
+      : { key, detail: 'Conflicting unresolved decision evidence.', indeterminate: true }
+  )).sort((left, right) => left.key.localeCompare(right.key))
+}
+
+function statusEvidence(status: string, mode: string): FirstMateStatusEvidence[] {
+  const evidence = status.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).map((line) => {
+    const { verb: rawVerb, detail } = statusParts(line)
+    const verb = rawVerb.toLowerCase()
+    const recognized = new Set([
+      'needs-decision', 'blocked', 'failed', 'done', 'working', 'resolved',
+      'completed', 'cancelled', 'canceled', 'indeterminate'
+    ]).has(verb)
+    const stage: FirstMateTaskStage = verb === 'needs-decision'
+      ? 'decision'
+      : verb === 'blocked' || verb === 'failed'
+        ? 'blocked'
+        : verb === 'done' && prFromDone(verb, detail)
+          ? 'pr-ready'
+          : verb === 'working' && /validat|no-mistakes|checks|\bCI\b/i.test(detail)
+            ? 'validating'
+            : verb === 'resolved' && mode === 'no-mistakes'
+              ? 'validating'
+              : verb === 'working' || verb === 'resolved'
+                ? 'working'
+                : recognized ? 'implemented' : 'blocked'
+    const outcome = verb === 'failed'
+      ? 'failed' as const
+      : verb === 'completed'
+        ? 'completed' as const
+        : verb === 'cancelled' || verb === 'canceled'
+          ? 'cancelled' as const
+          : !recognized || verb === 'indeterminate'
+            ? 'indeterminate' as const
+            : undefined
+    return { id: statusEvidenceId(line), stage, detail, ...(outcome ? { outcome } : {}) }
+  })
+  return [...new Map(evidence.map((item) => [item.id, item])).values()]
+}
+
 function parseJournal(text?: string): FirstMateLifecycleJournal {
   if (!text) return { version: 1, tasks: {} }
   try {
@@ -149,6 +276,19 @@ function parseJournal(text?: string): FirstMateLifecycleJournal {
   } catch {
     return { version: 1, tasks: {} }
   }
+}
+
+function recordedHistory(value: unknown): FirstMateTaskHistoryEvent[] {
+  if (!Array.isArray(value)) return []
+  const events = value.filter((event): event is FirstMateTaskHistoryEvent => {
+    if (!event || typeof event !== 'object') return false
+    const item = event as Partial<FirstMateTaskHistoryEvent>
+    return typeof item.id === 'string' && typeof item.occurredAt === 'string'
+      && typeof item.detail === 'string'
+      && ['firstmate-status', 'ade-reconciliation', 'forge'].includes(item.source ?? '')
+  })
+  return [...new Map(events.map((event) => [event.id, event])).values()]
+    .sort((left, right) => left.occurredAt.localeCompare(right.occurredAt) || left.id.localeCompare(right.id))
 }
 
 export function firstMateValidatorFromRuntimeConfig(text?: string): FirstMateValidatorRuntime | undefined {
@@ -224,6 +364,8 @@ export interface FirstMateValidationPlanInput {
 export function planValidationDispatch(input: FirstMateValidationPlanInput): FirstMateValidationPlan {
   const { task, liveDispatches, maxAttempts } = input
   const dispatch = task.dispatch
+
+  if (task.terminalOutcome) return { action: 'none' }
 
   if (task.stage === 'dispatching' && dispatch?.status === 'claimed') {
     const { id: dispatchId, attempt } = dispatch
@@ -361,6 +503,8 @@ export function firstMatePrResolvedRecord(
   now: Date
 ): FirstMateLifecycleRecord | undefined {
   if (task.stage !== 'pr-ready' || !task.prUrl) return undefined
+  const occurredAt = now.toISOString()
+  const outcome = state === 'merged' ? 'completed' as const : 'cancelled' as const
   return {
     stage: task.stage,
     detail: task.detail,
@@ -368,7 +512,21 @@ export function firstMatePrResolvedRecord(
     nextAction: task.nextAction,
     prUrl: task.prUrl,
     prResolution: state,
-    updatedAt: now.toISOString()
+    updatedAt: occurredAt,
+    terminalOutcome: outcome,
+    projection: {
+      id: task.id, mode: task.mode, ...(task.context ? { context: task.context } : {}),
+      ...(task.worktree ? { worktree: task.worktree } : {}), ...(task.window ? { window: task.window } : {})
+    },
+    pendingDecisions: [],
+    history: [{
+      id: `forge:${task.statusHash}:${state}`,
+      occurredAt,
+      source: 'forge',
+      stage: task.stage,
+      detail: `Pull request ${state}.`,
+      outcome
+    }]
   }
 }
 
@@ -439,13 +597,22 @@ function recordedTask(
   )
   const worktree = meta.get('worktree')
   const window = meta.get('window')
+  const line = projectedStatusLine(raw.status)
+  const evidenceId = statusEvidenceId(line)
+  const decisions = pendingDecisions(raw.status)
+  const evidence = statusEvidence(raw.status, mode)
+  if (statusParts(line).verb.toLowerCase() === 'indeterminate') {
+    evidence.push({ id: evidenceId, stage: 'blocked', detail: statusParts(line).detail, outcome: 'indeterminate' })
+  }
   const attachContext = (task: FirstMateLifecycleTask): FirstMateLifecycleTask => ({
     ...task,
+    statusEvidenceId: evidenceId,
+    statusEvidence: task.statusEvidence ?? evidence,
+    pendingDecisions: task.terminalOutcome ? [] : decisions,
     ...(context ? { context } : {}),
     ...(worktree ? { worktree } : {}),
     ...(window ? { window } : {})
   })
-  const line = latestStatusLine(raw.status)
   const hash = statusHash(raw.status)
   if (!declaresContext) {
     return attachContext({
@@ -480,21 +647,81 @@ function recordedTask(
       })
     }
   }
-  if (!line) return undefined
+  if (!line) {
+    const detail = 'FirstMate has no authoritative lifecycle status for this supervised task.'
+    return attachContext({
+      id: raw.id,
+      mode,
+      stage: 'blocked',
+      detail,
+      statusHash: hash,
+      nextAction: 'await-help',
+      history: recordedHistory(journal.tasks[raw.id]?.history),
+      statusEvidence: [{
+        id: statusEvidenceId(`indeterminate:${detail}`),
+        stage: 'blocked',
+        detail,
+        outcome: 'indeterminate'
+      }],
+      terminalOutcome: 'indeterminate'
+    })
+  }
   const { verb, detail } = statusParts(line)
   const prUrl = prFromDone(verb, detail)
   const durable = journal.tasks[raw.id]
+  const durableHistory = recordedHistory(durable?.history)
   const durableDispatch = recordedDispatch(durable?.dispatch)
   const holdsValidationGate = durableDispatch
     && ['claimed', 'acknowledged', 'unresolved'].includes(durableDispatch.status)
     ? durableDispatch
     : undefined
+  const evidenceDispatchId = firstMateValidationDispatchId(raw.id, evidenceId)
+  const evidenceOccurrences = raw.status.split(/\r?\n/)
+    .map((item) => item.trim())
+    .filter((item) => item && statusEvidenceId(item) === evidenceId)
+    .length
+
+  const resolvedLine = raw.status.split(/\r?\n/).map((item) => item.trim()).filter(Boolean).reverse()
+    .find((item) => statusParts(item).verb.toLowerCase() === 'resolved')
+  if (!prUrl && resolvedLine && mode === 'no-mistakes' && holdsValidationGate) {
+    return attachContext({
+      id: raw.id,
+      mode,
+      stage: 'validating',
+      detail: statusParts(resolvedLine).detail,
+      statusHash: hash,
+      nextAction: 'await-validation',
+      dispatch: holdsValidationGate,
+      history: durableHistory
+    })
+  }
+
+  if (verb === 'done' && evidenceOccurrences > 1) {
+    const ambiguityDetail = 'Lifecycle evidence cannot distinguish a replay from a later identical implementation.'
+    return attachContext({
+      id: raw.id,
+      mode,
+      stage: 'blocked',
+      detail: ambiguityDetail,
+      statusHash: hash,
+      nextAction: 'await-help',
+      ...(durableDispatch ? { dispatch: durableDispatch } : {}),
+      history: durableHistory,
+      statusEvidence: [...evidence, {
+        id: statusEvidenceId('indeterminate: replay or later identical implementation'),
+        stage: 'blocked',
+        detail: ambiguityDetail,
+        outcome: 'indeterminate'
+      }],
+      terminalOutcome: 'indeterminate'
+    })
+  }
 
   if (prUrl) {
     // ADE already asked the PR's own forge and learned it merged or closed: stop presenting it as
     // awaiting review instead of waiting on FirstMate's own task-record teardown to catch up.
     if (durable?.statusHash === hash && durable.prResolution) return undefined
-    return attachContext({ id: raw.id, mode, stage: 'pr-ready', detail, statusHash: hash, nextAction: 'review-pr', prUrl })
+    return attachContext({ id: raw.id, mode, stage: 'pr-ready', detail, statusHash: hash, nextAction: 'review-pr', prUrl, history: durableHistory })
   }
   if (verb === 'needs-decision') {
     return attachContext({
@@ -504,10 +731,11 @@ function recordedTask(
       detail,
       statusHash: hash,
       nextAction: 'await-decision',
-      ...(holdsValidationGate ? { dispatch: holdsValidationGate } : {})
+      ...(holdsValidationGate ? { dispatch: holdsValidationGate } : {}),
+      history: durableHistory
     })
   }
-  if (verb === 'blocked' || verb === 'failed') {
+  if (verb === 'blocked' || verb === 'failed' || verb === 'indeterminate') {
     return attachContext({
       id: raw.id,
       mode,
@@ -515,21 +743,38 @@ function recordedTask(
       detail,
       statusHash: hash,
       nextAction: 'await-help',
-      ...(holdsValidationGate ? { dispatch: holdsValidationGate } : {})
+      ...(holdsValidationGate ? { dispatch: holdsValidationGate } : {}),
+      history: durableHistory,
+      ...(verb === 'failed'
+        ? { terminalOutcome: 'failed' as const }
+        : verb === 'indeterminate' ? { terminalOutcome: 'indeterminate' as const } : {})
     })
   }
   if (verb === 'working' && /validat|no-mistakes|checks|\bCI\b/i.test(detail)) {
-    return attachContext({ id: raw.id, mode, stage: 'validating', detail, statusHash: hash, nextAction: 'await-validation' })
+    return attachContext({ id: raw.id, mode, stage: 'validating', detail, statusHash: hash, nextAction: 'await-validation', history: durableHistory })
   }
 
-  if (verb === 'resolved' && mode === 'no-mistakes' && durable) {
+  if (verb === 'resolved' && mode === 'no-mistakes') {
     return attachContext({
       id: raw.id,
       mode,
       stage: 'validating',
       detail,
       statusHash: hash,
-      nextAction: 'await-validation'
+      nextAction: 'await-validation',
+      history: durableHistory
+    })
+  }
+  if (verb === 'done' && durableDispatch?.id === evidenceDispatchId) {
+    return attachContext({
+      id: raw.id,
+      mode,
+      stage: durable.stage,
+      detail: durable.detail,
+      statusHash: hash,
+      ...(durable.nextAction ? { nextAction: durable.nextAction } : {}),
+      dispatch: durableDispatch,
+      history: durableHistory
     })
   }
   if (durable && durable.statusHash === hash) {
@@ -542,7 +787,9 @@ function recordedTask(
       statusHash: hash,
       ...(durable.nextAction ? { nextAction: durable.nextAction } : {}),
       ...(dispatch ? { dispatch } : {}),
-      ...(durable.prUrl ? { prUrl: durable.prUrl } : {})
+      ...(durable.prUrl ? { prUrl: durable.prUrl } : {}),
+      history: durableHistory,
+      ...(durable.terminalOutcome ? { terminalOutcome: durable.terminalOutcome } : {})
     })
   }
   // A dispatch this journal never finished outlives the status line that provoked it. Without
@@ -557,7 +804,8 @@ function recordedTask(
       detail: durable?.detail ?? detail,
       statusHash: hash,
       nextAction: unfinished.nextAction,
-      dispatch: unfinished.dispatch
+      dispatch: unfinished.dispatch,
+      history: durableHistory
     })
   }
   if (verb === 'done') {
@@ -567,10 +815,41 @@ function recordedTask(
       stage: 'implemented',
       detail,
       statusHash: hash,
-      ...(mode === 'no-mistakes' ? { nextAction: 'start-validation' as const } : {})
+      ...(mode === 'no-mistakes' ? { nextAction: 'start-validation' as const } : {}),
+      history: durableHistory
     })
   }
-  return undefined
+  if (verb === 'completed' || verb === 'cancelled' || verb === 'canceled') {
+    return attachContext({
+      id: raw.id,
+      mode,
+      stage: 'implemented',
+      detail,
+      statusHash: hash,
+      history: durableHistory,
+      terminalOutcome: verb === 'completed' ? 'completed' : 'cancelled'
+    })
+  }
+  if (verb === 'working' || verb === 'resolved') {
+    return attachContext({
+      id: raw.id,
+      mode,
+      stage: 'working',
+      detail,
+      statusHash: hash,
+      history: durableHistory
+    })
+  }
+  return attachContext({
+    id: raw.id,
+    mode,
+    stage: 'blocked',
+    detail: `Unsupported FirstMate lifecycle evidence: ${line}`,
+    statusHash: hash,
+    nextAction: 'await-help',
+    history: durableHistory,
+    terminalOutcome: 'indeterminate'
+  })
 }
 
 export function firstMateLifecycleFromFiles(files: FirstMateLifecycleFiles): FirstMateLifecycleStatus {
@@ -586,14 +865,31 @@ export function firstMateLifecycleFromFiles(files: FirstMateLifecycleFiles): Fir
       })
       .map(([id]) => id)
   )
-  for (const task of files.tasks) {
-    const verb = statusParts(latestStatusLine(task.status)).verb.toLowerCase()
-    if (verb === 'cancelled' || verb === 'canceled' || verb === 'completed') closedTaskIds.add(task.id)
-  }
   const tasks = files.tasks
     .map((task) => recordedTask(task, journal))
     .filter((task): task is FirstMateLifecycleTask => task !== undefined)
     .sort((left, right) => left.id.localeCompare(right.id))
+  for (const task of tasks) {
+    if (task.terminalOutcome && task.terminalOutcome !== 'indeterminate') closedTaskIds.add(task.id)
+  }
+  const liveIds = new Set(tasks.map((task) => task.id))
+  for (const [id, record] of Object.entries(journal.tasks)) {
+    if (liveIds.has(id) || !record.terminalOutcome || !record.projection) continue
+    tasks.push({
+      ...record.projection,
+      stage: record.stage,
+      detail: record.detail,
+      statusHash: record.statusHash,
+      ...(record.nextAction ? { nextAction: record.nextAction } : {}),
+      ...(record.dispatch ? { dispatch: record.dispatch } : {}),
+      ...(record.prUrl ? { prUrl: record.prUrl } : {}),
+      history: recordedHistory(record.history),
+      ...(record.pendingDecisions ? { pendingDecisions: record.pendingDecisions } : {}),
+      terminalOutcome: record.terminalOutcome
+    })
+    if (record.terminalOutcome !== 'indeterminate') closedTaskIds.add(id)
+  }
+  tasks.sort((left, right) => left.id.localeCompare(right.id))
   return {
     supervision: 'app-native',
     ...(validator ? { validator } : {}),

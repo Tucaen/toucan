@@ -5,6 +5,7 @@ import type {
   FirstMateTaskDispatch,
   FirstMateValidationDelivery
 } from '../shared/firstmate'
+import { createHash } from 'node:crypto'
 import type { FirstMateRuntime } from './firstmate-runtime'
 import {
   firstMateAppWakeMessage,
@@ -75,7 +76,18 @@ function terminalFingerprint(tasks: FirstMateLifecycleTask[]): string {
     .join('|')
 }
 
-function recordFor(task: FirstMateLifecycleTask, now: Date): FirstMateLifecycleRecord {
+function recordFor(
+  task: FirstMateLifecycleTask,
+  now: Date,
+  source: 'firstmate-status' | 'ade-reconciliation' = 'ade-reconciliation'
+): FirstMateLifecycleRecord {
+  const occurredAt = now.toISOString()
+  const eventId = source === 'firstmate-status' && task.statusEvidenceId
+    ? `firstmate:${task.statusEvidenceId}`
+    : createHash('sha256').update([
+    task.id, task.stage, task.dispatch?.id ?? '', task.dispatch?.status ?? '',
+    String(task.dispatch?.attempt ?? ''), task.detail
+  ].join('\0')).digest('hex').slice(0, 24)
   return {
     stage: task.stage,
     detail: task.detail,
@@ -83,7 +95,31 @@ function recordFor(task: FirstMateLifecycleTask, now: Date): FirstMateLifecycleR
     ...(task.nextAction ? { nextAction: task.nextAction } : {}),
     ...(task.dispatch ? { dispatch: task.dispatch } : {}),
     ...(task.prUrl ? { prUrl: task.prUrl } : {}),
-    updatedAt: now.toISOString()
+    updatedAt: occurredAt,
+    history: source === 'firstmate-status' && task.statusEvidence?.length
+      ? task.statusEvidence.map((evidence, index) => ({
+        id: `firstmate:${evidence.id}`,
+        occurredAt: new Date(now.getTime() + index).toISOString(),
+        source,
+        stage: evidence.stage,
+        detail: evidence.detail,
+        ...(evidence.outcome ? { outcome: evidence.outcome } : {})
+      }))
+      : [{
+      id: eventId,
+      occurredAt,
+      source,
+      stage: task.stage,
+      detail: task.detail,
+      ...(task.dispatch ? { dispatch: task.dispatch } : {}),
+      ...(task.terminalOutcome ? { outcome: task.terminalOutcome } : {})
+    }],
+    ...(task.terminalOutcome ? { terminalOutcome: task.terminalOutcome } : {}),
+    projection: {
+      id: task.id, mode: task.mode, ...(task.context ? { context: task.context } : {}),
+      ...(task.worktree ? { worktree: task.worktree } : {}), ...(task.window ? { window: task.window } : {})
+    },
+    ...(task.pendingDecisions ? { pendingDecisions: task.pendingDecisions } : {})
   }
 }
 
@@ -174,8 +210,15 @@ export function createFirstMateLifecycleCoordinator(
    */
   const prCheckedAt = new Map<string, number>()
 
-  const persist = async (task: FirstMateLifecycleTask): Promise<FirstMateLifecycleTask> => {
-    await options.runtime.recordLifecycle(task.id, recordFor(task, now()))
+  const persist = async (
+    task: FirstMateLifecycleTask,
+    source: 'firstmate-status' | 'ade-reconciliation' = 'ade-reconciliation'
+  ): Promise<FirstMateLifecycleTask> => {
+    const record = recordFor(task, now(), source)
+    const existingIds = new Set(task.history?.map((event) => event.id) ?? [])
+    const unseenHistory = record.history?.filter((event) => !existingIds.has(event.id)) ?? []
+    if (unseenHistory.length === 0) return task
+    await options.runtime.recordLifecycle(task.id, { ...record, history: unseenHistory })
     return task
   }
 
@@ -288,6 +331,7 @@ export function createFirstMateLifecycleCoordinator(
       const lifecycle = await options.runtime.lifecycle()
       const changed = [...lifecycle.tasks]
       for (let index = 0; index < changed.length; index += 1) {
+        await persist(changed[index], 'firstmate-status')
         changed[index] = await reconcileTask(changed[index])
       }
 

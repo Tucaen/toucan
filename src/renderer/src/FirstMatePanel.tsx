@@ -234,6 +234,7 @@ function statusLabel(status: ReturnType<typeof useAgentConversation>['status']):
 }
 
 const lifecycleLabels: Record<FirstMateTaskStage, string> = {
+  working: 'Working',
   implemented: 'Implemented',
   dispatching: 'Dispatching',
   validating: 'Validating',
@@ -247,7 +248,9 @@ const lifecycleLabels: Record<FirstMateTaskStage, string> = {
  * ADE alone, so a stalled task is never mistaken for one that is quietly making progress.
  */
 function lifecycleTaskLabel(task: FirstMateLifecycleTask): string {
-  const stage = lifecycleLabels[task.stage]
+  const stage = task.terminalOutcome
+    ? task.terminalOutcome[0]!.toUpperCase() + task.terminalOutcome.slice(1)
+    : lifecycleLabels[task.stage]
   const dispatch = task.dispatch?.status === 'unresolved'
     ? ' · dispatch unresolved'
     : task.dispatch?.status === 'released'
@@ -259,6 +262,35 @@ function lifecycleTaskLabel(task: FirstMateLifecycleTask): string {
     ? ` · ${task.context.project.registryName} · ${task.context.validator.agent}/${task.context.validator.model}`
     : ''
   return `${stage}${dispatch}${pinned}`
+}
+
+export function FirstMateTaskHistory({ task }: { task: FirstMateLifecycleTask }): JSX.Element | null {
+  if (!task.history?.length && !task.pendingDecisions?.length && !task.terminalOutcome) return null
+  return (
+    <details className="firstmate-task-history">
+      <summary>History ({task.history?.length ?? 0})</summary>
+      <p>Current state: {lifecycleTaskLabel(task)}</p>
+      {task.terminalOutcome && <p>Terminal outcome: {task.terminalOutcome}</p>}
+      {!!task.pendingDecisions?.length && (
+        <ul aria-label="Pending decisions">
+          {task.pendingDecisions.map((decision) => <li key={decision.key}>{decision.key}: {decision.detail}</li>)}
+        </ul>
+      )}
+      <ol>
+        {task.history?.map((event) => (
+          <li key={event.id}>
+            <time dateTime={event.occurredAt}>{new Date(event.occurredAt).toLocaleString()}</time>
+            <strong>{lifecycleLabels[event.stage]}</strong>
+            <span>{event.detail}</span>
+            <small>
+              {event.source}{event.dispatch ? ` · ${event.dispatch.id} · attempt ${event.dispatch.attempt}` : ''}
+              {event.outcome ? ` · outcome ${event.outcome}` : ''}
+            </small>
+          </li>
+        ))}
+      </ol>
+    </details>
+  )
 }
 
 export default function FirstMatePanel({ projects, project, state, onStateChange }: FirstMatePanelProps): JSX.Element {
@@ -833,6 +865,7 @@ export default function FirstMatePanel({ projects, project, state, onStateChange
                       {retryingDispatch === task.id ? 'Retrying…' : 'Retry'}
                     </button>
                   )}
+                  <FirstMateTaskHistory task={task} />
                 </div>
               ))}
             </section>

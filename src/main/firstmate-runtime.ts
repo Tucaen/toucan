@@ -235,7 +235,12 @@ try {
   const parsed = JSON.parse(fs.readFileSync(target, 'utf8'))
   if (parsed.version === 1 && parsed.tasks && typeof parsed.tasks === 'object') journal = parsed
 } catch {}
-journal.tasks[taskId] = record
+const previous = journal.tasks[taskId]
+const events = [...(previous && Array.isArray(previous.history) ? previous.history : []), ...(Array.isArray(record.history) ? record.history : [])]
+const history = [...new Map(events.map((event) => [event.id, event])).values()]
+  .sort((left, right) => String(left.occurredAt).localeCompare(String(right.occurredAt)) || String(left.id).localeCompare(String(right.id)))
+const current = !previous || String(record.updatedAt) >= String(previous.updatedAt) ? record : previous
+journal.tasks[taskId] = { ...current, history }
 const temporary = target + '.' + process.pid + '.' + Math.random().toString(16).slice(2) + '.tmp'
 fs.writeFileSync(temporary, JSON.stringify(journal, null, 2) + '\\n', { mode: 0o600 })
 fs.renameSync(temporary, target)
@@ -903,6 +908,7 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
   const QUOTA_CACHE_TTL_MS = 60_000
   const quotaCache = new Map<AgentProvider, { expiresAt: number; status: FirstMateQuotaStatus }>()
   const quotaInFlight = new Map<AgentProvider, Promise<FirstMateQuotaStatus>>()
+  let lifecycleRecordTail = Promise.resolve()
 
   /**
    * One inspection, reported as the status plus the host paths it resolved. Actions take both from
@@ -1493,16 +1499,19 @@ function createWslFirstMateRuntime(options: FirstMateRuntimeOptions): FirstMateR
       if (!/^[a-zA-Z0-9._-]+$/.test(taskId)) throw new Error('Invalid FirstMate task id.')
       if (!readyPaths) await inspect()
       if (!readyPaths) throw new Error('FirstMate is not ready.')
-      await run(
+      const homePath = readyPaths.homePath
+      const write = lifecycleRecordTail.then(() => run(
         [
           '--distribution', distribution,
           '--exec', '/usr/bin/node', '-e', WSL_LIFECYCLE_RECORD_SCRIPT,
-          readyPaths.homePath,
+          homePath,
           taskId,
           Buffer.from(JSON.stringify(record)).toString('base64url')
         ],
         15_000
-      )
+      ))
+      lifecycleRecordTail = write.then(() => undefined, () => undefined)
+      await write
     },
     launch(provider = 'codex', modelId?: string): FirstMateLaunch | null {
       selectedValidator = { agent: provider, model: validatorModel(modelId) }
