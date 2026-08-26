@@ -67,6 +67,12 @@ export interface WorkspaceSaveResult {
   message?: string
 }
 
+export interface WorkspaceLoadResult {
+  state: WorkspaceState | null
+  /** True when the primary snapshot was missing/corrupt and this state came from the recovery copy. */
+  recovered: boolean
+}
+
 export interface TerminalCreateResult {
   ok: boolean
   message?: string

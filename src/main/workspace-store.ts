@@ -1,10 +1,12 @@
-import { readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, renameSync, unlinkSync } from 'node:fs'
+import { open } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
 import {
   FIRSTMATE_PANEL_MIN_WIDTH,
   type FirstMateCaptainWorkspaceState,
   type FirstMateWorkspaceState
 } from '../shared/firstmate'
-import type { WorkspaceSaveResult, WorkspaceState } from '../shared/terminal'
+import type { WorkspaceLoadResult, WorkspaceSaveResult, WorkspaceState } from '../shared/terminal'
 import { errorMessage, repairUtf8Mojibake } from '../shared/text'
 
 interface WorkspaceStateV1 {
@@ -187,28 +189,107 @@ export function parseWorkspaceState(value: unknown): WorkspaceState | null {
 }
 
 export interface WorkspaceStore {
-  load(): WorkspaceState | null
-  save(state: WorkspaceState): WorkspaceSaveResult
+  load(): Promise<WorkspaceLoadResult>
+  save(state: WorkspaceState): Promise<WorkspaceSaveResult>
 }
 
-export function createWorkspaceStore(path: string): WorkspaceStore {
-  return {
-    load(): WorkspaceState | null {
+function readValidatedSnapshot(path: string): WorkspaceState | null {
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'))
+    return parseWorkspaceState(parsed)
+  } catch {
+    return null
+  }
+}
+
+/** Writes `contents` fully and durably to a temp file, then atomically renames it onto `targetPath`. */
+async function writeSnapshotAtomically(targetPath: string, contents: string): Promise<void> {
+  const tempPath = `${targetPath}.tmp-${randomUUID()}`
+  try {
+    const handle = await open(tempPath, 'w')
+    try {
+      await handle.writeFile(contents, 'utf8')
+      await handle.sync()
+    } finally {
+      await handle.close()
+    }
+    renameSync(tempPath, targetPath)
+  } catch (error) {
+    if (existsSync(tempPath)) {
       try {
-        const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'))
-        return parseWorkspaceState(parsed)
+        unlinkSync(tempPath)
       } catch {
-        return null
+        // Best-effort cleanup; the original error below is what matters.
       }
+    }
+    throw error
+  }
+}
+
+/**
+ * A file-backed workspace store that never lets a crash or interrupted write destroy the last
+ * usable canvas: saves are serialized, validated fully before they replace the primary snapshot,
+ * and the previous valid snapshot is retained as a bounded recovery copy for startup fallback.
+ */
+export function createWorkspaceStore(path: string): WorkspaceStore {
+  const backupPath = `${path}.backup`
+  // A single promise chain serializes load/save so concurrent IPC calls cannot interleave file writes.
+  let queue: Promise<unknown> = Promise.resolve()
+
+  function enqueue<T>(task: () => Promise<T>): Promise<T> {
+    const run = queue.then(task, task)
+    queue = run.then(
+      () => undefined,
+      () => undefined
+    )
+    return run
+  }
+
+  return {
+    load(): Promise<WorkspaceLoadResult> {
+      return enqueue(async () => {
+        const primary = readValidatedSnapshot(path)
+        if (primary) return { state: primary, recovered: false }
+
+        const backup = readValidatedSnapshot(backupPath)
+        if (!backup) return { state: null, recovered: false }
+
+        // Recover the last known-good snapshot and self-heal the primary so future loads succeed too.
+        try {
+          await writeSnapshotAtomically(path, `${JSON.stringify(backup, null, 2)}\n`)
+        } catch {
+          // The recovery is still reported below even if self-healing the primary fails;
+          // the backup copy itself remains untouched on disk either way.
+        }
+        return { state: backup, recovered: true }
+      })
     },
-    save(state: WorkspaceState): WorkspaceSaveResult {
-      if (!isWorkspaceState(state)) return { ok: false, message: 'The workspace state is invalid.' }
-      try {
-        writeFileSync(path, `${JSON.stringify(state, null, 2)}\n`, 'utf8')
-        return { ok: true }
-      } catch (error) {
-        return { ok: false, message: errorMessage(error) }
-      }
+    save(state: WorkspaceState): Promise<WorkspaceSaveResult> {
+      return enqueue(async () => {
+        if (!isWorkspaceState(state)) return { ok: false, message: 'The workspace state is invalid.' }
+        try {
+          const contents = `${JSON.stringify(state, null, 2)}\n`
+          const tempPath = `${path}.tmp-${randomUUID()}`
+          const handle = await open(tempPath, 'w')
+          try {
+            await handle.writeFile(contents, 'utf8')
+            await handle.sync()
+          } finally {
+            await handle.close()
+          }
+
+          // Promote the current primary (if it is still valid) to the recovery copy before
+          // replacing it, so a crash between these two renames leaves a recoverable backup
+          // rather than losing both the old and new snapshots.
+          if (readValidatedSnapshot(path)) {
+            renameSync(path, backupPath)
+          }
+          renameSync(tempPath, path)
+          return { ok: true }
+        } catch (error) {
+          return { ok: false, message: errorMessage(error) }
+        }
+      })
     }
   }
 }

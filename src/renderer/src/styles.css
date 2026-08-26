@@ -609,6 +609,14 @@ button {
   background: #df737a;
 }
 
+.save-state[data-status="recovered"] {
+  color: #d9a441;
+}
+
+.save-state[data-status="recovered"] > span {
+  background: #e0b34f;
+}
+
 .canvas-region {
   min-width: 0;
   height: 100%;

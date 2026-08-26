@@ -78,6 +78,7 @@ function Canvas(): JSX.Element {
   const [firstMate, setFirstMate] = useState<FirstMateWorkspaceState>({ worklogCollapsed: true })
   const [workspaceReady, setWorkspaceReady] = useState(false)
   const [saveStatus, setSaveStatus] = useState<'saving' | 'saved' | 'error'>('saving')
+  const [workspaceRecovered, setWorkspaceRecovered] = useState(false)
   const [menu, setMenu] = useState<ContextMenuState | null>(null)
   const { fitView, screenToFlowPosition } = useReactFlow()
   const nextSessionNumber = useRef(1)
@@ -177,8 +178,9 @@ function Canvas(): JSX.Element {
   useEffect(() => {
     let active = true
     void (async () => {
-      const saved = await window.terminalApi.loadWorkspace()
+      const { state: saved, recovered } = await window.terminalApi.loadWorkspace()
       if (!active) return
+      setWorkspaceRecovered(recovered)
 
       if (saved && saved.projects.length > 0) {
         const restored = restoreCanvasWorkspace(saved, {
@@ -515,6 +517,12 @@ function Canvas(): JSX.Element {
                 <span />
                 {saveStatus === 'saving' ? 'Saving…' : saveStatus === 'saved' ? 'Saved locally' : 'Save failed'}
               </span>
+              {workspaceRecovered && (
+                <span className="save-state" data-status="recovered" title="The saved workspace was damaged or incomplete, so this canvas was restored from the last known-good backup.">
+                  <span />
+                  Recovered from backup
+                </span>
+              )}
             </div>
           )}
         </aside>

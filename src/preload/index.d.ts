@@ -24,6 +24,7 @@ import type {
   TerminalExit,
   TerminalOutput,
   TerminalSession,
+  WorkspaceLoadResult,
   WorkspaceSaveResult,
   WorkspaceState
 } from '../shared/terminal'
@@ -47,7 +48,7 @@ export interface AgentApi {
 export interface TerminalApi {
   getInitialProject(): Promise<ProjectDirectory>
   pickProject(): Promise<ProjectDirectory | null>
-  loadWorkspace(): Promise<WorkspaceState | null>
+  loadWorkspace(): Promise<WorkspaceLoadResult>
   saveWorkspace(state: WorkspaceState): Promise<WorkspaceSaveResult>
   getConversationPreview(kind: 'claude' | 'codex', conversationId: string): Promise<ConversationPreview | null>
   create(request: TerminalCreateRequest): Promise<TerminalCreateResult>
