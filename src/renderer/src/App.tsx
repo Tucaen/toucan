@@ -79,6 +79,7 @@ function Canvas(): JSX.Element {
   const [workspaceReady, setWorkspaceReady] = useState(false)
   const [saveStatus, setSaveStatus] = useState<'saving' | 'saved' | 'error'>('saving')
   const [workspaceRecovered, setWorkspaceRecovered] = useState(false)
+  const [workspaceUnrecoverable, setWorkspaceUnrecoverable] = useState(false)
   const [menu, setMenu] = useState<ContextMenuState | null>(null)
   const { fitView, screenToFlowPosition } = useReactFlow()
   const nextSessionNumber = useRef(1)
@@ -175,10 +176,24 @@ function Canvas(): JSX.Element {
     setNodeStatuses((current) => ({ ...current, [nodeId]: 'starting' }))
   }, [setNodes])
 
+  const seedFreshWorkspace = useCallback(async (): Promise<void> => {
+    const directory = await window.terminalApi.getInitialProject()
+    const project = createProject(directory, 0)
+    setProjects([project])
+    setActiveProjectId(project.id)
+  }, [])
+
+  const acknowledgeUnrecoverableWorkspace = useCallback((): void => {
+    void seedFreshWorkspace().then(() => {
+      setWorkspaceUnrecoverable(false)
+      setWorkspaceReady(true)
+    })
+  }, [seedFreshWorkspace])
+
   useEffect(() => {
     let active = true
     void (async () => {
-      const { state: saved, recovered } = await window.terminalApi.loadWorkspace()
+      const { state: saved, recovered, unrecoverable } = await window.terminalApi.loadWorkspace()
       if (!active) return
       setWorkspaceRecovered(recovered)
 
@@ -202,17 +217,19 @@ function Canvas(): JSX.Element {
         setSidebarCollapsed(saved.sidebarCollapsed)
         setAgentPermissionModes(saved.agentPermissionModes ?? {})
         setFirstMate(saved.firstMate ?? { worklogCollapsed: true })
+      } else if (unrecoverable) {
+        // Never silently seed and autosave a fresh default over damaged state the user might
+        // still be able to recover by hand; wait for an explicit acknowledgement instead.
+        setWorkspaceUnrecoverable(true)
+        return
       } else {
-        const directory = await window.terminalApi.getInitialProject()
+        await seedFreshWorkspace()
         if (!active) return
-        const project = createProject(directory, 0)
-        setProjects([project])
-        setActiveProjectId(project.id)
       }
       setWorkspaceReady(true)
     })()
     return () => { active = false }
-  }, [handleConversationId, handleModelChange, handlePermissionModeChange, handlePreview, handleStatusChange, handleTerminalLiveness, handleWorklogCollapsed, resumeNode, setNodes])
+  }, [handleConversationId, handleModelChange, handlePermissionModeChange, handlePreview, handleStatusChange, handleTerminalLiveness, handleWorklogCollapsed, resumeNode, seedFreshWorkspace, setNodes])
 
   useEffect(() => {
     if (!workspaceReady) return
@@ -343,6 +360,20 @@ function Canvas(): JSX.Element {
 
   return (
     <main className="app-shell" onClick={() => setMenu(null)}>
+      {workspaceUnrecoverable && (
+        <div className="unrecoverable-workspace-overlay" role="alertdialog" aria-modal="true" aria-labelledby="unrecoverable-workspace-title">
+          <div className="unrecoverable-workspace-dialog">
+            <strong id="unrecoverable-workspace-title">Your saved workspace could not be recovered</strong>
+            <p>
+              The saved canvas and its backup were both damaged, likely by a crash or an interrupted
+              write. Nothing has been overwritten yet.
+            </p>
+            <button type="button" onClick={() => acknowledgeUnrecoverableWorkspace()}>
+              Start a new workspace
+            </button>
+          </div>
+        </div>
+      )}
       <header className="app-header">
         <div>
           <span className="brand-mark" aria-hidden="true" />

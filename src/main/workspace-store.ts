@@ -202,9 +202,8 @@ function readValidatedSnapshot(path: string): WorkspaceState | null {
   }
 }
 
-/** Writes `contents` fully and durably to a temp file, then atomically renames it onto `targetPath`. */
-async function writeSnapshotAtomically(targetPath: string, contents: string): Promise<void> {
-  const tempPath = `${targetPath}.tmp-${randomUUID()}`
+/** Writes `contents` fully and durably to `tempPath`, unlinking it again on any failure. */
+async function writeFileDurably(tempPath: string, contents: string): Promise<void> {
   try {
     const handle = await open(tempPath, 'w')
     try {
@@ -213,6 +212,23 @@ async function writeSnapshotAtomically(targetPath: string, contents: string): Pr
     } finally {
       await handle.close()
     }
+  } catch (error) {
+    if (existsSync(tempPath)) {
+      try {
+        unlinkSync(tempPath)
+      } catch {
+        // Best-effort cleanup; the original error below is what matters.
+      }
+    }
+    throw error
+  }
+}
+
+/** Writes `contents` fully and durably to a temp file, then atomically renames it onto `targetPath`. */
+async function writeSnapshotAtomically(targetPath: string, contents: string): Promise<void> {
+  const tempPath = `${targetPath}.tmp-${randomUUID()}`
+  await writeFileDurably(tempPath, contents)
+  try {
     renameSync(tempPath, targetPath)
   } catch (error) {
     if (existsSync(tempPath)) {
@@ -249,10 +265,16 @@ export function createWorkspaceStore(path: string): WorkspaceStore {
     load(): Promise<WorkspaceLoadResult> {
       return enqueue(async () => {
         const primary = readValidatedSnapshot(path)
-        if (primary) return { state: primary, recovered: false }
+        if (primary) return { state: primary, recovered: false, unrecoverable: false }
 
         const backup = readValidatedSnapshot(backupPath)
-        if (!backup) return { state: null, recovered: false }
+        if (!backup) {
+          // A missing primary and backup means no workspace has ever been saved here; anything
+          // else on disk (an unparseable primary and/or backup) means there was a workspace that
+          // could not be recovered, which callers must not treat the same as a fresh install.
+          const unrecoverable = existsSync(path) || existsSync(backupPath)
+          return { state: null, recovered: false, unrecoverable }
+        }
 
         // Recover the last known-good snapshot and self-heal the primary so future loads succeed too.
         try {
@@ -261,30 +283,34 @@ export function createWorkspaceStore(path: string): WorkspaceStore {
           // The recovery is still reported below even if self-healing the primary fails;
           // the backup copy itself remains untouched on disk either way.
         }
-        return { state: backup, recovered: true }
+        return { state: backup, recovered: true, unrecoverable: false }
       })
     },
     save(state: WorkspaceState): Promise<WorkspaceSaveResult> {
       return enqueue(async () => {
         if (!isWorkspaceState(state)) return { ok: false, message: 'The workspace state is invalid.' }
+        const contents = `${JSON.stringify(state, null, 2)}\n`
+        const tempPath = `${path}.tmp-${randomUUID()}`
         try {
-          const contents = `${JSON.stringify(state, null, 2)}\n`
-          const tempPath = `${path}.tmp-${randomUUID()}`
-          const handle = await open(tempPath, 'w')
+          await writeFileDurably(tempPath, contents)
           try {
-            await handle.writeFile(contents, 'utf8')
-            await handle.sync()
-          } finally {
-            await handle.close()
+            // Promote the current primary (if it is still valid) to the recovery copy before
+            // replacing it, so a crash between these two renames leaves a recoverable backup
+            // rather than losing both the old and new snapshots.
+            if (readValidatedSnapshot(path)) {
+              renameSync(path, backupPath)
+            }
+            renameSync(tempPath, path)
+          } catch (error) {
+            if (existsSync(tempPath)) {
+              try {
+                unlinkSync(tempPath)
+              } catch {
+                // Best-effort cleanup; the original error below is what matters.
+              }
+            }
+            throw error
           }
-
-          // Promote the current primary (if it is still valid) to the recovery copy before
-          // replacing it, so a crash between these two renames leaves a recoverable backup
-          // rather than losing both the old and new snapshots.
-          if (readValidatedSnapshot(path)) {
-            renameSync(path, backupPath)
-          }
-          renameSync(tempPath, path)
           return { ok: true }
         } catch (error) {
           return { ok: false, message: errorMessage(error) }

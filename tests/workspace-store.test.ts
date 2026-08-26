@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -67,7 +67,7 @@ test('saves and loads a valid workspace through the store', async () => {
   }
 
   assert.deepEqual(await store.save(state), { ok: true })
-  assert.deepEqual(await store.load(), { state, recovered: false })
+  assert.deepEqual(await store.load(), { state, recovered: false, unrecoverable: false })
 })
 
 test('migrates the old singleton FirstMate captain into its selected provider tab', () => {
@@ -202,9 +202,30 @@ test('a corrupt primary snapshot with no backup surfaces an unrecoverable load, 
   const store = createWorkspaceStore(primaryPath)
   const result = await store.load()
 
-  assert.deepEqual(result, { state: null, recovered: false })
+  assert.deepEqual(result, { state: null, recovered: false, unrecoverable: true })
   // The corrupt file is left in place for forensics; nothing silently overwrote it.
   assert.equal(readFileSync(primaryPath, 'utf8'), '{ this is not valid json')
+})
+
+test('a fresh install with no primary or backup on disk is not reported as unrecoverable', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'ade-workspace-test-'))
+  const primaryPath = join(directory, 'workspace.json')
+  const store = createWorkspaceStore(primaryPath)
+
+  const result = await store.load()
+
+  assert.deepEqual(result, { state: null, recovered: false, unrecoverable: false })
+})
+
+test('a corrupt backup with no primary also surfaces an unrecoverable load', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'ade-workspace-test-'))
+  const primaryPath = join(directory, 'workspace.json')
+  writeFileSync(`${primaryPath}.backup`, 'not json at all', 'utf8')
+
+  const store = createWorkspaceStore(primaryPath)
+  const result = await store.load()
+
+  assert.deepEqual(result, { state: null, recovered: false, unrecoverable: true })
 })
 
 test('a save that completed before a crash leaves the previous snapshot recoverable as backup', async () => {
@@ -226,7 +247,7 @@ test('a save that completed before a crash leaves the previous snapshot recovera
 
   // Loading also self-heals the primary so the app does not stay in recovered mode forever.
   const reload = await store.load()
-  assert.deepEqual(reload, { state: result.state, recovered: false })
+  assert.deepEqual(reload, { state: result.state, recovered: false, unrecoverable: false })
 })
 
 test('recovers from the backup when the primary snapshot is corrupt', async () => {
@@ -253,7 +274,7 @@ test('reports no recovery possible when both primary and backup are corrupt', as
   const store = createWorkspaceStore(primaryPath)
   const result = await store.load()
 
-  assert.deepEqual(result, { state: null, recovered: false })
+  assert.deepEqual(result, { state: null, recovered: false, unrecoverable: true })
 })
 
 test('a leftover temp file from an interrupted write does not affect load', async () => {
@@ -266,7 +287,7 @@ test('a leftover temp file from an interrupted write does not affect load', asyn
   writeFileSync(`${primaryPath}.tmp-abandoned`, '{ incomplete', 'utf8')
 
   const result = await store.load()
-  assert.deepEqual(result, { state: makeState('stable'), recovered: false })
+  assert.deepEqual(result, { state: makeState('stable'), recovered: false, unrecoverable: false })
 })
 
 test('concurrent saves are serialized and never interleave file contents', async () => {
@@ -310,4 +331,18 @@ test('an invalid save in the middle of a concurrent batch does not corrupt later
   const loaded = await store.load()
   assert.equal(loaded.state?.projects[0].name, 'two')
   assert.equal(loaded.recovered, false)
+})
+
+test('a save that fails while replacing the primary does not leak its temp file', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'ade-workspace-test-'))
+  const primaryPath = join(directory, 'workspace.json')
+  // A directory at the primary path makes the final rename fail after the temp file is written.
+  mkdirSync(primaryPath)
+  const store = createWorkspaceStore(primaryPath)
+
+  const result = await store.save(makeState('one'))
+  assert.equal(result.ok, false)
+
+  const leftoverTempFiles = readdirSync(directory).filter((name) => name.includes('.tmp-'))
+  assert.deepEqual(leftoverTempFiles, [])
 })
