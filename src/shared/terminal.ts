@@ -67,6 +67,19 @@ export interface WorkspaceSaveResult {
   message?: string
 }
 
+export interface WorkspaceLoadResult {
+  state: WorkspaceState | null
+  /** True when the primary snapshot was missing/corrupt and this state came from the recovery copy. */
+  recovered: boolean
+  /**
+   * True when a primary and/or backup file exists on disk but neither could be validated, so
+   * `state` is null for reasons other than "no workspace has ever been saved." Callers must not
+   * treat this the same as a fresh install: silently seeding and saving a default workspace here
+   * would permanently destroy the last damaged-but-potentially-recoverable copy.
+   */
+  unrecoverable: boolean
+}
+
 export interface TerminalCreateResult {
   ok: boolean
   message?: string

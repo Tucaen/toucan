@@ -25,6 +25,7 @@ import type {
   TerminalExit,
   TerminalOutput,
   TerminalSession,
+  WorkspaceLoadResult,
   WorkspaceSaveResult,
   WorkspaceState
 } from '../shared/terminal'
@@ -32,7 +33,7 @@ import type {
 const terminalApi = {
   getInitialProject: (): Promise<ProjectDirectory> => ipcRenderer.invoke('project:initial'),
   pickProject: (): Promise<ProjectDirectory | null> => ipcRenderer.invoke('project:pick'),
-  loadWorkspace: (): Promise<WorkspaceState | null> => ipcRenderer.invoke('workspace:load'),
+  loadWorkspace: (): Promise<WorkspaceLoadResult> => ipcRenderer.invoke('workspace:load'),
   saveWorkspace: (state: WorkspaceState): Promise<WorkspaceSaveResult> =>
     ipcRenderer.invoke('workspace:save', state),
   getConversationPreview: (
