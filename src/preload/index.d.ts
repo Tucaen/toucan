@@ -18,6 +18,13 @@ import type {
   WorkspaceSaveResult,
   WorkspaceState
 } from '../shared/terminal'
+import type {
+  WorktreeCreateRequest,
+  WorktreeCreateResult,
+  WorktreeRemoveRequest,
+  WorktreeRemoveResult,
+  WorktreeStatus
+} from '../shared/worktree'
 
 export interface AgentApi {
   create(request: AgentCreateRequest): Promise<AgentCreateResult>
@@ -57,10 +64,18 @@ export interface UsageApi {
   rateLimits(): Promise<ProviderRateLimits>
 }
 
+export interface WorktreeApi {
+  create(request: WorktreeCreateRequest): Promise<WorktreeCreateResult>
+  status(request: { path: string; branch: string; baseRef: string }): Promise<WorktreeStatus>
+  /** Refuses with blockers unless the worktree is provably free of unique work, or force is set. */
+  remove(request: WorktreeRemoveRequest): Promise<WorktreeRemoveResult>
+}
+
 declare global {
   interface Window {
     terminalApi: TerminalApi
     agentApi: AgentApi
     usageApi: UsageApi
+    worktreeApi: WorktreeApi
   }
 }

@@ -2,6 +2,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, ty
 import { createPortal } from 'react-dom'
 import { type NodeProps } from '@xyflow/react'
 import ReactMarkdown from 'react-markdown'
+import WorktreeBadge from './WorktreeBadge'
 import type {
   AgentActivity,
   AgentAuthMethod,
@@ -678,7 +679,7 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
   const conversation = useAgentConversation({
     id,
     provider,
-    cwd: data.projectPath,
+    cwd: data.workingDirectory,
     sessionId: data.launchMode === 'resume' ? data.conversationId : undefined,
     permissionMode: data.preferredPermissionMode,
     modelId: data.modelId,
@@ -741,6 +742,7 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
         <span className="status-dot" data-status={status} data-stalled={stalled} title={stalled ? 'No progress for a while — this session may be stuck' : undefined} />
         <strong>{data.label}</strong>
         <span className="node-project" title={data.projectPath}><span className="project-color-dot" />{data.projectName}</span>
+        <WorktreeBadge data={data} />
         {!data.dormant && (
           <>
             <SelectorPicker

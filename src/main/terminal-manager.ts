@@ -150,6 +150,10 @@ export function createTerminalManager(options: TerminalManagerOptions): Terminal
             sessionId, incarnationId, attachmentId: running.attachmentId, exitCode
           })
         })
+        // Only a freshly spawned incarnation gets seeded input; reattaching to a terminal that
+        // already exists returns above, so a setup command can never be replayed into a shell
+        // that has already run it.
+        if (request.initialInput) terminal.write(request.initialInput)
         return { ok: true, sessionId, incarnationId, liveness: lastStates.get(sessionId)?.liveness ?? 'live' }
       } catch (error) {
         return { ok: false, message: `Could not start the session: ${errorMessage(error)}` }

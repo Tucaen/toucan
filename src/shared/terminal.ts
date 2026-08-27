@@ -1,4 +1,5 @@
 import type { AgentProvider } from './agent'
+import type { WorkspaceWorktree } from './worktree'
 
 export type TerminalKind = 'terminal' | 'claude' | 'codex'
 export type TerminalLiveness = 'live' | 'unverifiable' | 'exited'
@@ -16,6 +17,11 @@ export interface TerminalCreateRequest {
   cwd: string
   conversationId?: string
   resume?: boolean
+  /**
+   * Written to the shell once, right after the session starts. Used to run a project's setup
+   * command in a fresh worktree where the user can watch it and interrupt it.
+   */
+  initialInput?: string
 }
 
 export interface ProjectDirectory {
@@ -26,6 +32,11 @@ export interface ProjectDirectory {
 export interface WorkspaceProject extends ProjectDirectory {
   id: string
   color: string
+  /**
+   * Shell command that makes a freshly created worktree usable (dependency install, env copy,
+   * first build). Optional: a worktree is created whether or not one is configured.
+   */
+  setupCommand?: string
 }
 
 export interface ConversationPreview {
@@ -40,6 +51,11 @@ export interface WorkspaceTerminalNode {
   kind: TerminalKind
   label: string
   projectId: string
+  /**
+   * The worktree this node runs in. Absent means the node runs in the project checkout itself,
+   * which stays the default; a node references a worktree, it does not own one.
+   */
+  worktreeId?: string
   position: { x: number; y: number }
   width: number
   height: number
@@ -52,12 +68,13 @@ export interface WorkspaceTerminalNode {
 }
 
 export interface WorkspaceState {
-  version: 2
+  version: 3
   projects: WorkspaceProject[]
   activeProjectId: string | null
   sidebarCollapsed: boolean
   agentPermissionModes?: AgentPermissionModes
   nodes: WorkspaceTerminalNode[]
+  worktrees: WorkspaceWorktree[]
 }
 
 export interface WorkspaceSaveResult {

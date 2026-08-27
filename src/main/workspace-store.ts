@@ -11,6 +11,30 @@ interface WorkspaceStateV1 {
   sidebarCollapsed: boolean
 }
 
+interface WorkspaceStateV2 {
+  version: 2
+  projects: WorkspaceState['projects']
+  activeProjectId: string | null
+  sidebarCollapsed: boolean
+  agentPermissionModes?: WorkspaceState['agentPermissionModes']
+  nodes: WorkspaceState['nodes']
+}
+
+function isWorkspaceWorktree(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false
+  const worktree = value as Partial<WorkspaceState['worktrees'][number]>
+  return typeof worktree.id === 'string'
+    && typeof worktree.projectId === 'string'
+    && typeof worktree.branch === 'string'
+    && typeof worktree.path === 'string'
+    && typeof worktree.baseRef === 'string'
+    && typeof worktree.createdAt === 'string'
+    && typeof worktree.position?.x === 'number'
+    && typeof worktree.position?.y === 'number'
+    && typeof worktree.width === 'number'
+    && typeof worktree.height === 'number'
+}
+
 function hasValidProjects(value: unknown): value is Pick<WorkspaceState, 'projects' | 'activeProjectId' | 'sidebarCollapsed'> {
   if (!value || typeof value !== 'object') return false
   const state = value as Partial<WorkspaceState>
@@ -24,13 +48,15 @@ function hasValidProjects(value: unknown): value is Pick<WorkspaceState, 'projec
     && typeof project.name === 'string'
     && typeof project.path === 'string'
     && typeof project.color === 'string'
+    && (project.setupCommand === undefined || typeof project.setupCommand === 'string')
   ))
 }
 
 export function isWorkspaceState(value: unknown): value is WorkspaceState {
   if (!hasValidProjects(value)) return false
   const state = value as Partial<WorkspaceState>
-  if (state.version !== 2 || !Array.isArray(state.nodes)) return false
+  if (state.version !== 3 || !Array.isArray(state.nodes)) return false
+  if (!Array.isArray(state.worktrees) || !state.worktrees.every(isWorkspaceWorktree)) return false
   if (
     state.agentPermissionModes !== undefined
     && (
@@ -47,6 +73,7 @@ export function isWorkspaceState(value: unknown): value is WorkspaceState {
     && ['terminal', 'claude', 'codex'].includes(node.kind)
     && typeof node.label === 'string'
     && typeof node.projectId === 'string'
+    && (node.worktreeId === undefined || typeof node.worktreeId === 'string')
     && typeof node.position?.x === 'number'
     && typeof node.position?.y === 'number'
     && typeof node.width === 'number'
@@ -67,7 +94,10 @@ export function isWorkspaceState(value: unknown): value is WorkspaceState {
 }
 
 export function parseWorkspaceState(value: unknown): WorkspaceState | null {
-  if (hasValidProjects(value) && (value as Partial<WorkspaceState>).version === 2) {
+  if (!hasValidProjects(value)) return null
+  const version = (value as Partial<WorkspaceState>).version
+
+  if (version === 3) {
     if (!isWorkspaceState(value as WorkspaceState)) return null
     const state = value as WorkspaceState
     return {
@@ -84,14 +114,23 @@ export function parseWorkspaceState(value: unknown): WorkspaceState | null {
         : node)
     }
   }
-  if (!hasValidProjects(value) || (value as WorkspaceStateV1).version !== 1) return null
+
+  // Every pre-worktree workspace ran entirely in its projects' checkouts, so it migrates
+  // to an empty worktree set with all of its nodes still attached to nothing.
+  if (version === 2) {
+    const previous = value as WorkspaceStateV2
+    if (!Array.isArray(previous.nodes)) return null
+    return parseWorkspaceState({ ...previous, version: 3, worktrees: [] })
+  }
+  if (version !== 1) return null
   const previous = value as WorkspaceStateV1
   return {
-    version: 2,
+    version: 3,
     projects: previous.projects,
     activeProjectId: previous.activeProjectId,
     sidebarCollapsed: previous.sidebarCollapsed,
-    nodes: []
+    nodes: [],
+    worktrees: []
   }
 }
 

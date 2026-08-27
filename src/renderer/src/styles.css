@@ -2140,3 +2140,357 @@ button {
   text-align: center;
 }
 
+
+/* ---- Worktrees ------------------------------------------------------- */
+
+.worktree-icon {
+  color: #c992ff;
+  background: rgba(201, 146, 255, 0.12);
+}
+
+.worktree-glyph {
+  color: #c992ff;
+  font-weight: 800;
+}
+
+.node-worktree {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+  max-width: 160px;
+  padding: 3px 8px;
+  overflow: hidden;
+  border: 1px solid rgba(201, 146, 255, 0.45);
+  border-radius: 999px;
+  color: #cbb0f0;
+  background: rgba(201, 146, 255, 0.08);
+  font-size: 11px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.node-worktree[data-detached="true"] {
+  border-color: rgba(241, 199, 91, 0.5);
+  color: #f1c75b;
+  background: rgba(241, 199, 91, 0.08);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.worktree-node {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid #c992ff;
+  border-radius: 11px;
+  background: #131019;
+  box-shadow: 0 18px 55px rgba(0, 0, 0, 0.4), 0 0 16px rgba(201, 146, 255, 0.14);
+}
+
+.worktree-node.selected {
+  box-shadow: 0 0 0 2px rgba(201, 146, 255, 0.34), 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.worktree-node-header {
+  background: #1c1826;
+  border-bottom-color: #2f2740;
+}
+
+.worktree-node-header strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.worktree-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 13px;
+  overflow: auto;
+}
+
+.worktree-facts {
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.worktree-facts div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.worktree-facts dt {
+  color: #687280;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.worktree-facts dd {
+  margin: 0;
+  overflow: hidden;
+  color: #b9c0cb;
+  font-family: Consolas, monospace;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.worktree-status {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  color: #9aa3b0;
+  font-size: 12px;
+}
+
+.worktree-status-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: #687280;
+}
+
+.worktree-status[data-kind="clean"] { color: #74d8a2; }
+.worktree-status[data-kind="clean"] .worktree-status-dot { background: #74d8a2; }
+.worktree-status[data-kind="ahead"] { color: #71a9ff; }
+.worktree-status[data-kind="ahead"] .worktree-status-dot { background: #71a9ff; }
+.worktree-status[data-kind="dirty"] { color: #f1c75b; }
+.worktree-status[data-kind="dirty"] .worktree-status-dot { background: #f1c75b; }
+.worktree-status[data-kind="missing"] { color: #df737a; }
+.worktree-status[data-kind="missing"] .worktree-status-dot { background: #df737a; }
+
+.worktree-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 13px;
+  border-top: 1px solid #2f2740;
+  background: #17131f;
+}
+
+.worktree-open-group {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-right: auto;
+}
+
+.worktree-open-group span {
+  margin-right: 3px;
+  color: #687280;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.worktree-actions button {
+  padding: 5px 9px;
+  border: 1px solid #3a3350;
+  border-radius: 6px;
+  background: transparent;
+  color: #b9c0cb;
+  font-family: Consolas, monospace;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.worktree-actions button:hover:not(:disabled) {
+  border-color: #c992ff;
+  color: #e6dcf7;
+}
+
+.worktree-actions button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.worktree-remove:hover:not(:disabled) {
+  border-color: #df737a;
+  color: #f0c2c5;
+}
+
+.project-setup {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: #5d6675;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.project-setup:hover {
+  border-color: #3a4250;
+  color: #b9c0cb;
+}
+
+.project-setup[data-configured="true"] {
+  color: #c992ff;
+}
+
+.project-worktree-list .project-node-kind {
+  color: #c992ff;
+}
+
+.project-node-state[data-status="worktree"] {
+  color: #c992ff;
+}
+
+.worktree-dialog-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(12, 14, 18, 0.72);
+}
+
+.worktree-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(520px, calc(100vw - 48px));
+  padding: 20px 22px;
+  border: 1px solid #3a3350;
+  border-radius: 10px;
+  background: #1b1e24;
+  color: #cbd2dc;
+}
+
+.worktree-dialog strong {
+  color: #f0f2f5;
+  font-size: 14px;
+}
+
+.worktree-dialog p {
+  margin: 0;
+  color: #9aa3b0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.worktree-dialog label {
+  display: grid;
+  gap: 5px;
+}
+
+.worktree-dialog label span {
+  color: #687280;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.worktree-dialog input {
+  padding: 8px 10px;
+  border: 1px solid #323a46;
+  border-radius: 6px;
+  background: #131720;
+  color: #e3e8ef;
+  font-family: Consolas, monospace;
+  font-size: 13px;
+}
+
+.worktree-dialog input:focus {
+  outline: none;
+  border-color: #c992ff;
+}
+
+.worktree-dialog-path {
+  overflow: hidden;
+  color: #687280 !important;
+  font-family: Consolas, monospace;
+  font-size: 12px !important;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.worktree-dialog-error {
+  color: #df737a !important;
+  font-size: 12px !important;
+}
+
+.worktree-dialog-cost {
+  padding: 9px 11px;
+  border-left: 2px solid #d9a441;
+  border-radius: 0 6px 6px 0;
+  background: rgba(217, 164, 65, 0.08);
+  color: #d9c08a !important;
+  font-size: 12px !important;
+}
+
+.worktree-blockers {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+  color: #cbd2dc;
+  font-size: 13px;
+}
+
+.worktree-blockers[data-kind="hard"] { color: #df737a; }
+.worktree-blockers[data-kind="forcible"] { color: #d9a441; }
+
+.worktree-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.worktree-dialog-actions button {
+  padding: 7px 14px;
+  border: 1px solid #3a4250;
+  border-radius: 6px;
+  background: transparent;
+  color: #cbd2dc;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.worktree-dialog-actions button:hover:not(:disabled) {
+  border-color: #5d6675;
+  color: #f0f2f5;
+}
+
+.worktree-dialog-actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.worktree-dialog-actions .primary {
+  border-color: #c992ff;
+  color: #e6dcf7;
+}
+
+.worktree-dialog-actions .primary:hover:not(:disabled) {
+  background: rgba(201, 146, 255, 0.14);
+}
+
+.worktree-dialog-actions .danger {
+  border-color: #df737a;
+  color: #f0c2c5;
+}
+
+.worktree-dialog-actions .danger:hover:not(:disabled) {
+  background: rgba(223, 115, 122, 0.16);
+}

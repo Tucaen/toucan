@@ -8,15 +8,16 @@ import type { WorkspaceState } from '../src/shared/terminal'
 
 function makeState(marker: string): WorkspaceState {
   return {
-    version: 2,
+    version: 3,
     projects: [{ id: 'project-1', name: marker, path: 'D:\\Development\\ADE', color: '#71a9ff' }],
     activeProjectId: 'project-1',
     sidebarCollapsed: false,
-    nodes: []
+    nodes: [],
+    worktrees: []
   }
 }
 
-test('loads a version 1 workspace as an empty version 2 canvas', () => {
+test('loads a version 1 workspace as an empty version 3 canvas', () => {
   const migrated = parseWorkspaceState({
     version: 1,
     projects: [{ id: 'project-1', name: 'ADE', path: 'D:\\Development\\ADE', color: '#71a9ff' }],
@@ -25,24 +26,93 @@ test('loads a version 1 workspace as an empty version 2 canvas', () => {
   })
 
   assert.deepEqual(migrated, {
-    version: 2,
+    version: 3,
     projects: [{ id: 'project-1', name: 'ADE', path: 'D:\\Development\\ADE', color: '#71a9ff' }],
     activeProjectId: 'project-1',
     sidebarCollapsed: true,
-    nodes: []
+    nodes: [],
+    worktrees: []
   })
+})
+
+test('migrates a version 2 workspace to an empty worktree set without losing its nodes', () => {
+  const migrated = parseWorkspaceState({
+    version: 2,
+    projects: [{ id: 'project-1', name: 'ADE', path: 'D:\\Development\\ADE', color: '#71a9ff' }],
+    activeProjectId: 'project-1',
+    sidebarCollapsed: false,
+    nodes: [{
+      id: 'node-1',
+      kind: 'codex',
+      label: 'Codex 1',
+      projectId: 'project-1',
+      position: { x: 12, y: 34 },
+      width: 520,
+      height: 340
+    }]
+  })
+
+  assert.equal(migrated?.version, 3)
+  assert.deepEqual(migrated?.worktrees, [])
+  assert.equal(migrated?.nodes.length, 1)
+  assert.equal(migrated?.nodes[0].id, 'node-1')
+  assert.equal(migrated?.nodes[0].worktreeId, undefined)
+})
+
+test('rejects a workspace whose worktree records are malformed', () => {
+  const base = {
+    version: 3,
+    projects: [{ id: 'project-1', name: 'ADE', path: 'D:\\Development\\ADE', color: '#71a9ff' }],
+    activeProjectId: 'project-1',
+    sidebarCollapsed: false,
+    nodes: []
+  }
+
+  assert.equal(parseWorkspaceState({ ...base, worktrees: [{ id: 'w1' }] }), null)
+  assert.equal(parseWorkspaceState({ ...base }), null)
+  assert.ok(parseWorkspaceState({
+    ...base,
+    worktrees: [{
+      id: 'w1',
+      projectId: 'project-1',
+      branch: 'feature/login',
+      path: 'D:\\Development\\ADE-worktrees\\feature-login',
+      baseRef: 'main',
+      createdAt: '2026-08-27T09:00:00.000Z',
+      position: { x: 0, y: 0 },
+      width: 360,
+      height: 232
+    }]
+  }))
 })
 
 test('saves and loads a valid workspace through the store', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'ade-workspace-test-'))
   const store = createWorkspaceStore(join(directory, 'workspace.json'))
   const state: WorkspaceState = {
-    version: 2,
-    projects: [{ id: 'project-1', name: 'ADE', path: 'D:\\Development\\ADE', color: '#71a9ff' }],
+    version: 3,
+    projects: [{
+      id: 'project-1',
+      name: 'ADE',
+      path: 'D:\\Development\\ADE',
+      color: '#71a9ff',
+      setupCommand: 'npm install'
+    }],
     activeProjectId: 'project-1',
     sidebarCollapsed: false,
     agentPermissionModes: { claude: 'acceptEdits', codex: 'read-only' },
-    nodes: []
+    nodes: [],
+    worktrees: [{
+      id: 'worktree-1',
+      projectId: 'project-1',
+      branch: 'feature/login',
+      path: 'D:\\Development\\ADE-worktrees\\feature-login',
+      baseRef: 'main',
+      createdAt: '2026-08-27T09:00:00.000Z',
+      position: { x: 40, y: 80 },
+      width: 360,
+      height: 232
+    }]
   }
 
   assert.deepEqual(await store.save(state), { ok: true })

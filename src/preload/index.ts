@@ -19,6 +19,13 @@ import type {
   WorkspaceSaveResult,
   WorkspaceState
 } from '../shared/terminal'
+import type {
+  WorktreeCreateRequest,
+  WorktreeCreateResult,
+  WorktreeRemoveRequest,
+  WorktreeRemoveResult,
+  WorktreeStatus
+} from '../shared/worktree'
 
 const terminalApi = {
   getInitialProject: (): Promise<ProjectDirectory> => ipcRenderer.invoke('project:initial'),
@@ -108,4 +115,15 @@ const usageApi = {
 }
 
 contextBridge.exposeInMainWorld('usageApi', usageApi)
+
+const worktreeApi = {
+  create: (request: WorktreeCreateRequest): Promise<WorktreeCreateResult> =>
+    ipcRenderer.invoke('worktree:create', request),
+  status: (request: { path: string; branch: string; baseRef: string }): Promise<WorktreeStatus> =>
+    ipcRenderer.invoke('worktree:status', request),
+  remove: (request: WorktreeRemoveRequest): Promise<WorktreeRemoveResult> =>
+    ipcRenderer.invoke('worktree:remove', request)
+}
+
+contextBridge.exposeInMainWorld('worktreeApi', worktreeApi)
 

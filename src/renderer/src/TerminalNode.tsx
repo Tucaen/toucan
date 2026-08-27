@@ -5,6 +5,7 @@ import { Terminal } from '@xterm/xterm'
 import type { TerminalCanvasNode } from './canvas-workspace'
 import NodeBorderResizer from './NodeBorderResizer'
 import { CanvasTerminalLiveness } from './TerminalLivenessPresentation'
+import WorktreeBadge from './WorktreeBadge'
 
 const accents = {
   terminal: '#74d8a2',
@@ -165,7 +166,8 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
           kind: data.kind,
           cols: terminal.cols,
           rows: terminal.rows,
-          cwd: data.projectPath,
+          cwd: data.workingDirectory,
+          initialInput: data.initialInput,
           conversationId: data.conversationId,
           resume: data.launchMode === 'resume'
         })
@@ -208,7 +210,7 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
       terminalRef.current = null
       terminal.dispose()
     }
-  }, [data.dormant, data.kind, data.label, data.launchMode, data.onStatusChange, data.onTerminalLiveness, data.projectPath, data.sessionId, id])
+  }, [data.dormant, data.kind, data.label, data.launchMode, data.onStatusChange, data.onTerminalLiveness, data.sessionId, data.workingDirectory, id])
 
   return (
     <article
@@ -226,6 +228,7 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
           <span className="project-color-dot" />
           {data.projectName}
         </span>
+        <WorktreeBadge data={data} />
         <button
           type="button"
           className="node-action nodrag"
