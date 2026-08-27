@@ -4,7 +4,7 @@ import type {
   AgentEvent,
   AgentPromptContent,
   AgentPromptResult,
-  AgentRateLimitStatus
+  ProviderRateLimits
 } from '../shared/agent'
 import type {
   ConversationPreview,
@@ -53,8 +53,8 @@ export interface TerminalApi {
 }
 
 export interface UsageApi {
-  /** Account-wide Codex usage windows, read from the newest local Codex transcript. */
-  codexRateLimits(): Promise<AgentRateLimitStatus | null>
+  /** Account-wide plan usage windows per provider; omits a provider with nothing to report. */
+  rateLimits(): Promise<ProviderRateLimits>
 }
 
 declare global {

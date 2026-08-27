@@ -59,8 +59,8 @@ const statusLabels: Record<TerminalNodeStatus, string> = {
   exited: terminalLivenessLabels.exited
 }
 
-/** Codex only rewrites its transcript as turns complete, so polling faster would not see newer data. */
-const CODEX_USAGE_POLL_MS = 60_000
+/** The main process caches these reads, so this cadence only decides display freshness. */
+const PROVIDER_USAGE_POLL_MS = 60_000
 
 function formatResetsAt(epochMs: number): string {
   const delta = epochMs - Date.now()
@@ -87,9 +87,8 @@ function UsageWindow({ label, window }: { label: string; window: AgentRateLimitW
 }
 
 /**
- * Neither provider reports both windows in every case - Codex plans expose only the window they
- * meter on, and a Claude report carries whichever window its event was tagged with - so a chip
- * renders only the windows it actually has data for.
+ * Not every plan meters both windows - a Codex plan may report only the one it bills against - so
+ * a chip renders just the windows its provider actually reported.
  */
 function ProviderUsageChip({ provider, status }: { provider: string; status: AgentRateLimitStatus }): JSX.Element {
   const title = [
@@ -152,17 +151,16 @@ function Canvas(): JSX.Element {
 
   const [providerRateLimits, setProviderRateLimits] = useState<ProviderRateLimits>({})
 
-  // Codex publishes account usage only in its own transcripts, so it is polled rather than pushed.
-  // That also means it is available before any node exists, unlike Claude's session-scoped reports.
+  // Both providers report account usage outside any conversation, so this reads on mount rather
+  // than waiting for a node to exist - the header is populated before the canvas is touched.
   useEffect(() => {
     let active = true
     const refresh = async (): Promise<void> => {
-      const codex = await window.usageApi.codexRateLimits().catch(() => null)
-      if (!active || !codex) return
-      setProviderRateLimits((current) => ({ ...current, codex }))
+      const limits = await window.usageApi.rateLimits().catch(() => null)
+      if (active && limits) setProviderRateLimits(limits)
     }
     void refresh()
-    const interval = setInterval(() => void refresh(), CODEX_USAGE_POLL_MS)
+    const interval = setInterval(() => void refresh(), PROVIDER_USAGE_POLL_MS)
     return () => {
       active = false
       clearInterval(interval)
@@ -174,18 +172,6 @@ function Canvas(): JSX.Element {
       if (current[nodeId] === status) return current
       return { ...current, [nodeId]: status }
     })
-  }, [])
-
-  /**
-   * Claude reports one window per event, so each report is merged into what is already known
-   * rather than replacing it - otherwise a five-hour update would erase the weekly figure.
-   */
-  const handleUsageChange = useCallback((_nodeId: string, provider: TerminalKind, incoming: AgentRateLimitStatus | null): void => {
-    if (!incoming || (provider !== 'claude' && provider !== 'codex')) return
-    setProviderRateLimits((current) => ({
-      ...current,
-      [provider]: { ...current[provider], ...incoming }
-    }))
   }, [])
 
   const handleConversationId = useCallback((nodeId: string, conversationId: string): void => {
@@ -278,7 +264,6 @@ function Canvas(): JSX.Element {
       if (saved && saved.projects.length > 0) {
         const restored = restoreCanvasWorkspace(saved, {
           onStatusChange: handleStatusChange,
-          onUsageChange: handleUsageChange,
           onConversationId: handleConversationId,
           onPreview: handlePreview,
           onWorklogCollapsed: handleWorklogCollapsed,
@@ -307,7 +292,7 @@ function Canvas(): JSX.Element {
       setWorkspaceReady(true)
     })()
     return () => { active = false }
-  }, [handleConversationId, handleModelChange, handlePermissionModeChange, handlePreview, handleStatusChange, handleUsageChange, handleTerminalLiveness, handleWorklogCollapsed, resumeNode, seedFreshWorkspace, setNodes])
+  }, [handleConversationId, handleModelChange, handlePermissionModeChange, handlePreview, handleStatusChange, handleTerminalLiveness, handleWorklogCollapsed, resumeNode, seedFreshWorkspace, setNodes])
 
   useEffect(() => {
     if (!workspaceReady) return
@@ -416,7 +401,6 @@ function Canvas(): JSX.Element {
             dormant: false,
             launchMode: 'new',
             onStatusChange: handleStatusChange,
-            onUsageChange: handleUsageChange,
             onConversationId: handleConversationId,
             onPreview: handlePreview,
             onWorklogCollapsed: handleWorklogCollapsed,
@@ -431,7 +415,7 @@ function Canvas(): JSX.Element {
       setNodeStatuses((current) => ({ ...current, [id]: 'starting' }))
       setMenu(null)
     },
-    [activeProject, agentPermissionModes, handleConversationId, handleModelChange, handlePermissionModeChange, handlePreview, handleStatusChange, handleUsageChange, handleTerminalLiveness, handleWorklogCollapsed, menu, resumeNode, setNodes]
+    [activeProject, agentPermissionModes, handleConversationId, handleModelChange, handlePermissionModeChange, handlePreview, handleStatusChange, handleTerminalLiveness, handleWorklogCollapsed, menu, resumeNode, setNodes]
   )
 
   return (

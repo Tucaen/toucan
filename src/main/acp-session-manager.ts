@@ -26,9 +26,7 @@ import type {
   AgentPermissionOption,
   AgentPromptBlock,
   AgentPromptContent,
-  AgentPromptResult,
-  AgentRateLimitStatus,
-  AgentRateLimitWindow
+  AgentPromptResult
 } from '../shared/agent'
 import { activityFromUpdate } from '../shared/agent-activity'
 import { agentPermissionTitle } from '../shared/agent-permission'
@@ -210,31 +208,6 @@ function simplifyAuthMethod(method: AuthMethod): AgentAuthMethod {
     ...(method.description ? { description: method.description } : {}),
     type: 'type' in method ? method.type : 'agent',
     ...('args' in method && method.args ? { args: method.args } : {})
-  }
-}
-
-/**
- * ACP itself has no rate-limit field, so `claude-agent-acp` forwards the Claude SDK's
- * `rate_limit_event` payload on a `usage_update`'s extensibility bag instead. Each event carries a
- * single window tagged by `rateLimitType`, so a report only ever fills one of the two named slots.
- */
-function claudeRateLimitFromMeta(meta: Record<string, unknown> | undefined): AgentRateLimitStatus | null {
-  const payload = meta?.['_claude/rateLimit'] as {
-    status?: unknown
-    utilization?: unknown
-    resetsAt?: unknown
-    rateLimitType?: unknown
-  } | undefined
-  if (!payload || typeof payload.utilization !== 'number') return null
-  const window: AgentRateLimitWindow = {
-    usedPercent: payload.utilization,
-    // Unlike Codex, the Claude SDK already reports this as epoch milliseconds.
-    ...(typeof payload.resetsAt === 'number' ? { resetsAt: payload.resetsAt } : {})
-  }
-  const slot = payload.rateLimitType === 'five_hour' ? 'fiveHour' : 'weekly'
-  return {
-    [slot]: window,
-    ...(payload.status === 'rejected' ? { rejected: true } : {})
   }
 }
 
@@ -621,13 +594,11 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
               send(running, { type: 'efforts', efforts: null })
             }
           } else if (update.sessionUpdate === 'usage_update') {
-            const rateLimit = claudeRateLimitFromMeta((update as { _meta?: Record<string, unknown> })._meta)
             send(running, {
               type: 'usage',
               used: update.used,
               size: update.size,
-              ...(update.cost ? { cost: `${update.cost.amount} ${update.cost.currency}` } : {}),
-              ...(rateLimit ? { rateLimit } : {})
+              ...(update.cost ? { cost: `${update.cost.amount} ${update.cost.currency}` } : {})
             })
           }
         })

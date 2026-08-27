@@ -13,6 +13,8 @@
     "src/main/agent-process.ts",
     "src/main/codex-model-cache.ts",
     "src/main/codex-rate-limits.ts",
+    "src/main/claude-usage.ts",
+    "src/main/provider-usage.ts",
     "src/main/prompt-wake-gate.ts",
     "src/main/terminal-events.ts",
     "src/main/session-providers.ts",

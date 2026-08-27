@@ -726,11 +726,6 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
     data.onStatusChange(id, sidebarStatus(status, approval !== null, unreadResult, stalled))
   }, [approval, data.dormant, data.onStatusChange, id, status, unreadResult, stalled])
 
-  useEffect(() => {
-    if (data.dormant) return
-    data.onUsageChange?.(id, data.kind, usage?.rateLimit ?? null)
-  }, [data.dormant, data.kind, data.onUsageChange, id, usage?.rateLimit])
-
   const props: ChatViewProps = {
     provider,
     ...conversation

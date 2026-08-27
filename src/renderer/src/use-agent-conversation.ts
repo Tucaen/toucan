@@ -42,7 +42,6 @@ export interface AgentUsage {
   used?: number
   size?: number
   cost?: string
-  rateLimit?: import('../../shared/agent').AgentRateLimitStatus
 }
 
 export type AgentChatStatus = 'starting' | 'ready' | 'working' | 'auth_required' | 'exited'
@@ -268,7 +267,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
       } else if (event.type === 'auth_link') {
         setAuthLink(event.url)
       } else if (event.type === 'usage') {
-        setUsage((prev) => ({ used: event.used, size: event.size, cost: event.cost, rateLimit: event.rateLimit ?? prev?.rateLimit }))
+        setUsage({ used: event.used, size: event.size, cost: event.cost })
       } else if (event.type === 'error') {
         setDetail(event.message)
       }

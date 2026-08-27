@@ -6,10 +6,18 @@ import { spawn } from 'node-pty'
 import type { AgentCreateRequest, AgentPromptContent } from '../shared/agent'
 import type { TerminalCreateRequest } from '../shared/terminal'
 import { createAcpSessionManager, type AcpSessionManager } from './acp-session-manager'
-import { createCodexRateLimitReader, type CodexRateLimitReader } from './codex-rate-limits'
+import { createClaudeUsageReader } from './claude-usage'
+import { createCodexRateLimitReader } from './codex-rate-limits'
+import { createProviderUsage, type ProviderUsage } from './provider-usage'
 import { createSessionProviders, type SessionProviders } from './session-providers'
 import { createTerminalManager, type TerminalManager } from './terminal-manager'
 import { createWorkspaceStore } from './workspace-store'
+
+/**
+ * Plan usage moves slowly and a Claude read boots a CLI, so this caps how often that happens
+ * regardless of how frequently the renderer asks.
+ */
+const PROVIDER_USAGE_TTL_MS = 5 * 60_000
 
 function findCommand(command: string): string | null {
   const fallbacks = [
@@ -53,8 +61,8 @@ function registerTerminalIpc(manager: TerminalManager, providers: SessionProvide
   ))
 }
 
-function registerUsageIpc(codexRateLimits: CodexRateLimitReader): void {
-  ipcMain.handle('usage:codex-rate-limits', () => codexRateLimits.read())
+function registerUsageIpc(usage: ProviderUsage): void {
+  ipcMain.handle('usage:rate-limits', () => usage.read())
 }
 
 function registerAgentIpc(manager: AcpSessionManager): void {
@@ -200,9 +208,15 @@ app.whenReady().then(() => {
 
   registerTerminalIpc(manager, providers)
   registerAgentIpc(agentManager)
-  registerUsageIpc(createCodexRateLimitReader({
-    homeDirectory: app.getPath('home'),
-    environment: process.env
+  registerUsageIpc(createProviderUsage({
+    readers: {
+      claude: createClaudeUsageReader({ cwd: app.getPath('home') }),
+      codex: createCodexRateLimitReader({
+        homeDirectory: app.getPath('home'),
+        environment: process.env
+      })
+    },
+    ttlMs: PROVIDER_USAGE_TTL_MS
   }))
   registerProjectIpc()
   createWindow(manager, agentManager)

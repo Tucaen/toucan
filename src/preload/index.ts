@@ -5,7 +5,7 @@ import type {
   AgentEventEnvelope,
   AgentPromptContent,
   AgentPromptResult,
-  AgentRateLimitStatus
+  ProviderRateLimits
 } from '../shared/agent'
 import type {
   ConversationPreview,
@@ -104,7 +104,7 @@ const agentApi = {
 contextBridge.exposeInMainWorld('agentApi', agentApi)
 
 const usageApi = {
-  codexRateLimits: (): Promise<AgentRateLimitStatus | null> => ipcRenderer.invoke('usage:codex-rate-limits')
+  rateLimits: (): Promise<ProviderRateLimits> => ipcRenderer.invoke('usage:rate-limits')
 }
 
 contextBridge.exposeInMainWorld('usageApi', usageApi)
