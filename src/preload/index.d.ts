@@ -4,18 +4,8 @@ import type {
   AgentEvent,
   AgentPromptContent,
   AgentPromptResult,
-  AgentProvider
+  AgentRateLimitStatus
 } from '../shared/agent'
-import type {
-  FirstMateActionResult,
-  FirstMateExternalProject,
-  FirstMateInstallResult,
-  FirstMateLifecycleStatus,
-  FirstMateProjectRegistration,
-  FirstMateProjectSelection,
-  FirstMateQuotaStatus,
-  FirstMateRuntimeStatus
-} from '../shared/firstmate'
 import type {
   ConversationPreview,
   ProjectDirectory,
@@ -62,28 +52,15 @@ export interface TerminalApi {
   onSession(sessionId: string, attachmentId: string, callback: (result: TerminalSession) => void): () => void
 }
 
-export interface FirstMateApi {
-  status(): Promise<FirstMateRuntimeStatus>
-  install(): Promise<FirstMateInstallResult>
-  repair(): Promise<FirstMateInstallResult>
-  authenticateGitHub(): Promise<FirstMateActionResult>
-  trustCodexProject(): Promise<FirstMateActionResult>
-  lifecycle(): Promise<FirstMateLifecycleStatus>
-  viewWorkerTerminal(taskId: string): Promise<FirstMateActionResult>
-  quotaStatus(provider: AgentProvider): Promise<FirstMateQuotaStatus>
-  releaseDispatch(taskId: string): Promise<FirstMateActionResult>
-  retryDispatch(taskId: string): Promise<FirstMateActionResult>
-  registerProject(selection: FirstMateProjectSelection): Promise<FirstMateProjectRegistration>
-  recordedProject(adeProjectId: string): Promise<FirstMateExternalProject | null>
-  authorizeProjectInitialization(adeProjectId: string): Promise<FirstMateProjectRegistration>
-  setAutonomyCeiling(adeProjectId: string, allowed: boolean): Promise<FirstMateProjectRegistration>
-  retireProject(adeProjectId: string): Promise<FirstMateActionResult>
+export interface UsageApi {
+  /** Account-wide Codex usage windows, read from the newest local Codex transcript. */
+  codexRateLimits(): Promise<AgentRateLimitStatus | null>
 }
 
 declare global {
   interface Window {
     terminalApi: TerminalApi
     agentApi: AgentApi
-    firstMateApi: FirstMateApi
+    usageApi: UsageApi
   }
 }

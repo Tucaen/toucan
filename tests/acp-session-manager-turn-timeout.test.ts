@@ -2,7 +2,7 @@ import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
 import type { AgentEvent, AgentPromptResult } from '../src/shared/agent'
 import { StallTimeoutError, withStallGuard } from '../src/shared/stall-guard'
-import { createCaptainWakeGate, type CaptainWakeGate } from '../src/main/firstmate-captain-wake'
+import { createPromptWakeGate, type PromptWakeGate } from '../src/main/prompt-wake-gate'
 import { promptFailure } from '../src/main/acp-session-manager'
 
 // Reproduces the "status indicator shows Working forever" symptom: `runPrompt` used to have no
@@ -16,16 +16,16 @@ import { promptFailure } from '../src/main/acp-session-manager'
 //
 // This harness mirrors `runPrompt`'s actual shape - set `busy`, await the ACP request wrapped in
 // `withStallGuard`, run the real exported `promptFailure` on rejection, clear `busy` and flush the
-// real `CaptainWakeGate` in `finally` - using the same real, exported helpers the production code
+// real `PromptWakeGate` in `finally` - using the same real, exported helpers the production code
 // uses, so a regression that drops the `withStallGuard` wrap in `acp-session-manager.ts` is caught
 // through behavior even though `runPrompt` itself isn't exported for direct testing (it closes
 // over a live ACP child process connection that this suite, like the rest of this file's
 // siblings, does not spin up).
 
-function makeHarness(turnTimeoutMs: number): { running: { busy: boolean }; events: AgentEvent[]; wakeGate: CaptainWakeGate } {
+function makeHarness(turnTimeoutMs: number): { running: { busy: boolean }; events: AgentEvent[]; wakeGate: PromptWakeGate } {
   const running = { busy: false }
   const events: AgentEvent[] = []
-  let wakeGate!: CaptainWakeGate
+  let wakeGate!: PromptWakeGate
 
   const runPrompt = async (text: string): Promise<AgentPromptResult> => {
     running.busy = true
@@ -52,7 +52,7 @@ function makeHarness(turnTimeoutMs: number): { running: { busy: boolean }; event
     }
   }
 
-  wakeGate = createCaptainWakeGate({ deliver: runPrompt })
+  wakeGate = createPromptWakeGate({ deliver: runPrompt })
   return { running, events, wakeGate }
 }
 
@@ -101,9 +101,9 @@ function makeCancelAwareHarness(
   turnTimeoutMs: number,
   graceMs: number,
   order: string[]
-): { running: { busy: boolean }; wakeGate: CaptainWakeGate; resumeHungTurn: (stopReason: string) => void } {
+): { running: { busy: boolean }; wakeGate: PromptWakeGate; resumeHungTurn: (stopReason: string) => void } {
   const running = { busy: false }
-  let wakeGate!: CaptainWakeGate
+  let wakeGate!: PromptWakeGate
   let resolveHungTurn!: (value: { stopReason: string }) => void
   const hungTurn = new Promise<{ stopReason: string }>((resolve) => {
     resolveHungTurn = resolve
@@ -138,7 +138,7 @@ function makeCancelAwareHarness(
     }
   }
 
-  wakeGate = createCaptainWakeGate({ deliver: runPrompt })
+  wakeGate = createPromptWakeGate({ deliver: runPrompt })
   return { running, wakeGate, resumeHungTurn: (stopReason) => resolveHungTurn({ stopReason }) }
 }
 

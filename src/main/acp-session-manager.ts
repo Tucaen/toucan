@@ -26,8 +26,9 @@ import type {
   AgentPermissionOption,
   AgentPromptBlock,
   AgentPromptContent,
-  AgentProvider,
-  AgentPromptResult
+  AgentPromptResult,
+  AgentRateLimitStatus,
+  AgentRateLimitWindow
 } from '../shared/agent'
 import { activityFromUpdate } from '../shared/agent-activity'
 import { agentPermissionTitle } from '../shared/agent-permission'
@@ -36,8 +37,7 @@ import { modelSelectorFromConfigOptions } from '../shared/agent-models'
 import { StallTimeoutError, withStallGuard } from '../shared/stall-guard'
 import { buildAgentProcessLaunch, type AgentProcessLaunch } from './agent-process'
 import { readCachedCodexModels } from './codex-model-cache'
-import { createCaptainWakeGate, type CaptainWakeGate } from './firstmate-captain-wake'
-import type { FirstMateLaunch } from './firstmate-runtime'
+import { createPromptWakeGate, type PromptWakeGate } from './prompt-wake-gate'
 
 interface PendingApproval {
   resolve(response: RequestPermissionResponse): void
@@ -79,7 +79,7 @@ interface RunningAgent {
    * to read or click.
    */
   authRequired: boolean
-  wakeGate?: CaptainWakeGate<AgentPromptContent>
+  wakeGate?: PromptWakeGate<AgentPromptContent>
 }
 
 /** Normalizes a prompt submission (plain text, or a mix of text/image content blocks) into the ACP content-block array. */
@@ -113,11 +113,7 @@ export function promptGuard(running: { authRequired: boolean }): AgentPromptResu
 
 type SteeringResponse = { outcome?: 'injected' | 'startedNewTurn' | 'failed' }
 
-/**
- * Injects one accepted captain message into an in-flight ACP turn. The adapter owns the exact
- * safe boundary: it can steer between tool calls immediately, while a single non-yielding tool
- * may delay observation beyond 60 seconds without turning that wait into a delivery failure.
- */
+/** Injects a queued message into an in-flight ACP turn via the adapter's steering extension. */
 export async function deliverSteeredPrompt(
   request: (method: string, params: { sessionId: string; prompt: ContentBlock[] }) => Promise<SteeringResponse>,
   sessionId: string,
@@ -201,19 +197,7 @@ function isAuthRequired(error: unknown): boolean {
   )
 }
 
-/**
- * FirstMate's own supervision loop (Stop-hook wake checks, background command/monitor
- * notifications) injects synthetic `user`-role turns into the session log, wrapped in a
- * `<task-notification>` marker (optionally followed by a `<system-reminder>` block, e.g. a
- * Stop hook's blocking-error feedback). The live prompt loop never surfaces these as chat
- * messages, but `claude-agent-acp`'s `replaySessionHistory()` replays the raw session log
- * near-verbatim on resume and has no filter for this family, so on resume they leak into the
- * chat view as if they were real conversation turns. Both live and replayed updates funnel
- * through this same `session/update` handler, so filtering here covers resume without touching
- * live display. Real content (typed by a user or produced by the model) never begins with this
- * literal harness wrapper tag, so matching on the prefix is narrow and won't catch genuine text
- * that merely mentions these tags elsewhere in a longer message.
- */
+/** Filters out internal notification wrappers that leak into the chat view on session resume. */
 export function isInternalNotificationText(text: string): boolean {
   const trimmed = text.trimStart()
   return trimmed.startsWith('<task-notification>') || trimmed.startsWith('<system-reminder>')
@@ -226,6 +210,31 @@ function simplifyAuthMethod(method: AuthMethod): AgentAuthMethod {
     ...(method.description ? { description: method.description } : {}),
     type: 'type' in method ? method.type : 'agent',
     ...('args' in method && method.args ? { args: method.args } : {})
+  }
+}
+
+/**
+ * ACP itself has no rate-limit field, so `claude-agent-acp` forwards the Claude SDK's
+ * `rate_limit_event` payload on a `usage_update`'s extensibility bag instead. Each event carries a
+ * single window tagged by `rateLimitType`, so a report only ever fills one of the two named slots.
+ */
+function claudeRateLimitFromMeta(meta: Record<string, unknown> | undefined): AgentRateLimitStatus | null {
+  const payload = meta?.['_claude/rateLimit'] as {
+    status?: unknown
+    utilization?: unknown
+    resetsAt?: unknown
+    rateLimitType?: unknown
+  } | undefined
+  if (!payload || typeof payload.utilization !== 'number') return null
+  const window: AgentRateLimitWindow = {
+    usedPercent: payload.utilization,
+    // Unlike Codex, the Claude SDK already reports this as epoch milliseconds.
+    ...(typeof payload.resetsAt === 'number' ? { resetsAt: payload.resetsAt } : {})
+  }
+  const slot = payload.rateLimitType === 'five_hour' ? 'fiveHour' : 'weekly'
+  return {
+    [slot]: window,
+    ...(payload.status === 'rejected' ? { rejected: true } : {})
   }
 }
 
@@ -271,8 +280,6 @@ export interface AcpSessionManagerOptions {
   turnTimeoutMs?: number
   /** Overrides `DEFAULT_STALL_CANCEL_GRACE_MS`; primarily for tests. */
   stallCancelGraceMs?: number
-  resolveFirstMateLaunch?(provider: AgentProvider, modelId?: string): FirstMateLaunch | null
-  configureFirstMateValidator?(provider: AgentProvider, modelId?: string): Promise<AgentPromptResult>
 }
 
 export function promptFailure(
@@ -404,24 +411,14 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       }
       let resumed = false
       if (running.request.sessionId) {
-        try {
-          const response = await running.context.request(methods.agent.session.load, {
-            sessionId: running.request.sessionId,
-            cwd: running.request.cwd,
-            mcpServers: []
-          })
-          running.sessionId = running.request.sessionId
-          configure(response)
-          resumed = true
-        } catch (error) {
-          if (running.request.scope !== 'firstmate' || isAuthRequired(error)) throw error
-          send(running, {
-            type: 'error',
-            message: 'The saved FirstMate conversation is unavailable; starting a new one.'
-          })
-          running.request.sessionId = undefined
-          running.sessionId = undefined
-        }
+        const response = await running.context.request(methods.agent.session.load, {
+          sessionId: running.request.sessionId,
+          cwd: running.request.cwd,
+          mcpServers: []
+        })
+        running.sessionId = running.request.sessionId
+        configure(response)
+        resumed = true
       }
       if (!resumed) {
         const response = await running.context.request(methods.agent.session.new, {
@@ -452,18 +449,6 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       if (efforts) efforts = await applySavedEffort(running, efforts)
       if (models) running.cachedModels = models
       if (efforts) running.cachedEfforts = efforts
-      if (running.request.scope === 'firstmate' && models) {
-        const configured = await options.configureFirstMateValidator?.(
-          running.request.provider,
-          models.currentModelId
-        )
-        if (configured && !configured.ok) {
-          send(running, {
-            type: 'error',
-            message: configured.message ?? 'Could not configure the FirstMate validation runtime.'
-          })
-        }
-      }
       running.authRequired = false
       send(running, { type: 'session', sessionId })
       if (modes) send(running, { type: 'modes', modes })
@@ -566,24 +551,12 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       const existing = agents.get(request.id)
       if (existing) return openSession(existing)
 
-      const firstMateLaunch = request.scope === 'firstmate'
-        ? options.resolveFirstMateLaunch?.(request.provider, request.modelId) ?? null
-        : null
-      if (request.scope === 'firstmate' && !firstMateLaunch) {
-        return { ok: false, status: 'error', message: 'FirstMate is not installed.' }
-      }
-      const effectiveRequest: AgentCreateRequest = firstMateLaunch
-        ? { ...request, cwd: firstMateLaunch.cwd }
-        : request
-      const environment = firstMateLaunch?.environment ?? process.env
-
-      const path = adapterPath(effectiveRequest.provider)
-      if (!firstMateLaunch?.agentProcess && !existsSync(path)) {
-        return { ok: false, status: 'error', message: `The ${effectiveRequest.provider} ACP adapter is not installed.` }
+      const path = adapterPath(request.provider)
+      if (!existsSync(path)) {
+        return { ok: false, status: 'error', message: `The ${request.provider} ACP adapter is not installed.` }
       }
 
-      const launch = firstMateLaunch?.agentProcess
-        ?? buildAgentProcessLaunch(process.execPath, path, effectiveRequest.cwd, environment)
+      const launch = buildAgentProcessLaunch(process.execPath, path, request.cwd, process.env)
       const child = spawn(launch.executable, launch.args, {
         ...launch.options,
         stdio: ['pipe', 'pipe', 'pipe']
@@ -648,11 +621,13 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
               send(running, { type: 'efforts', efforts: null })
             }
           } else if (update.sessionUpdate === 'usage_update') {
+            const rateLimit = claudeRateLimitFromMeta((update as { _meta?: Record<string, unknown> })._meta)
             send(running, {
               type: 'usage',
               used: update.used,
               size: update.size,
-              ...(update.cost ? { cost: `${update.cost.amount} ${update.cost.currency}` } : {})
+              ...(update.cost ? { cost: `${update.cost.amount} ${update.cost.currency}` } : {}),
+              ...(rateLimit ? { rateLimit } : {})
             })
           }
         })
@@ -688,17 +663,16 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       )
       const connection = app.connect(stream)
       running = {
-        request: effectiveRequest,
+        request,
         owner,
         process: child,
         connection,
         context: connection.agent,
         adapterPath: path,
-        authProcess: firstMateLaunch?.authProcess,
         authMethods: [],
-        environment,
-        cachedModels: effectiveRequest.provider === 'codex' && options.codexHome
-          ? readCachedCodexModels(options.codexHome, effectiveRequest.modelId)
+        environment: process.env,
+        cachedModels: request.provider === 'codex' && options.codexHome
+          ? readCachedCodexModels(options.codexHome, request.modelId)
           : undefined,
         pendingApprovals,
         busy: false,
@@ -707,7 +681,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         imageSupport: false,
         steeringSupport: false
       }
-      running.wakeGate = createCaptainWakeGate<AgentPromptContent>({
+      running.wakeGate = createPromptWakeGate<AgentPromptContent>({
         deliver: (content) => runPrompt(request.id, content)
       })
       agents.set(request.id, running)
@@ -817,14 +791,6 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
           send(running, { type: 'efforts', efforts: null })
         }
         running.request.modelId = modelId
-        if (running.request.scope === 'firstmate') {
-          const configured = await options.configureFirstMateValidator?.(running.request.provider, modelId)
-          if (configured && !configured.ok) {
-            const message = configured.message ?? 'Could not configure the FirstMate validation runtime.'
-            send(running, { type: 'error', message })
-            return { ok: false, message }
-          }
-        }
         return { ok: true }
       } catch (error) {
         const message = errorMessage(error)

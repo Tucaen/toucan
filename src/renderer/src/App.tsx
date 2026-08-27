@@ -18,15 +18,14 @@ import type {
   WorkspaceProject,
   WorkspaceState
 } from '../../shared/terminal'
-import type { FirstMateWorkspaceState } from '../../shared/firstmate'
 import {
   restoreCanvasWorkspace,
   serializeCanvasNode,
   type TerminalCanvasNode,
   type TerminalNodeStatus
 } from './canvas-workspace'
+import type { AgentRateLimitStatus, AgentRateLimitWindow, ProviderRateLimits } from '../../shared/agent'
 import SessionNode from './SessionNode'
-import FirstMatePanel from './FirstMatePanel'
 import { terminalLivenessLabels } from './terminal-liveness'
 import { SidebarTerminalLiveness } from './TerminalLivenessPresentation'
 
@@ -60,6 +59,55 @@ const statusLabels: Record<TerminalNodeStatus, string> = {
   exited: terminalLivenessLabels.exited
 }
 
+/** Codex only rewrites its transcript as turns complete, so polling faster would not see newer data. */
+const CODEX_USAGE_POLL_MS = 60_000
+
+function formatResetsAt(epochMs: number): string {
+  const delta = epochMs - Date.now()
+  if (delta <= 0) return 'now'
+  const minutes = Math.ceil(delta / 60_000)
+  if (minutes < 60) return `${minutes}m`
+  const hours = Math.floor(minutes / 60)
+  const remainingMinutes = minutes % 60
+  return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`
+}
+
+function UsageWindow({ label, window }: { label: string; window: AgentRateLimitWindow }): JSX.Element {
+  const percent = Math.max(0, Math.min(100, window.usedPercent))
+  const kind = percent >= 90 ? 'critical' : percent >= 75 ? 'warning' : 'normal'
+  return (
+    <span className="usage-window" data-kind={kind}>
+      <span className="usage-window-label">{label}</span>
+      <span className="usage-window-bar">
+        <span className="usage-window-fill" style={{ width: `${percent}%` }} />
+      </span>
+      <span className="usage-window-pct">{Math.round(percent)}%</span>
+    </span>
+  )
+}
+
+/**
+ * Neither provider reports both windows in every case - Codex plans expose only the window they
+ * meter on, and a Claude report carries whichever window its event was tagged with - so a chip
+ * renders only the windows it actually has data for.
+ */
+function ProviderUsageChip({ provider, status }: { provider: string; status: AgentRateLimitStatus }): JSX.Element {
+  const title = [
+    `${provider} account usage`,
+    status.fiveHour ? `5h: ${Math.round(status.fiveHour.usedPercent)}%${status.fiveHour.resetsAt ? ` (resets in ${formatResetsAt(status.fiveHour.resetsAt)})` : ''}` : null,
+    status.weekly ? `Weekly: ${Math.round(status.weekly.usedPercent)}%${status.weekly.resetsAt ? ` (resets in ${formatResetsAt(status.weekly.resetsAt)})` : ''}` : null,
+    status.rejected ? 'Limit reached' : null
+  ].filter(Boolean).join('\n')
+
+  return (
+    <span className="provider-usage-chip" data-rejected={status.rejected ? 'true' : undefined} title={title}>
+      <span className="provider-usage-name">{provider}</span>
+      {status.fiveHour && <UsageWindow label="5h" window={status.fiveHour} />}
+      {status.weekly && <UsageWindow label="7d" window={status.weekly} />}
+    </span>
+  )
+}
+
 function createProject(directory: ProjectDirectory, index: number): Project {
   return {
     ...directory,
@@ -75,7 +123,6 @@ function Canvas(): JSX.Element {
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [agentPermissionModes, setAgentPermissionModes] = useState<AgentPermissionModes>({})
-  const [firstMate, setFirstMate] = useState<FirstMateWorkspaceState>({ worklogCollapsed: true })
   const [workspaceReady, setWorkspaceReady] = useState(false)
   const [saveStatus, setSaveStatus] = useState<'saving' | 'saved' | 'error'>('saving')
   const [workspaceRecovered, setWorkspaceRecovered] = useState(false)
@@ -103,11 +150,42 @@ function Canvas(): JSX.Element {
     return { working, stalled, attention, needsAttention: stalled + attention }
   }, [nodeStatuses])
 
+  const [providerRateLimits, setProviderRateLimits] = useState<ProviderRateLimits>({})
+
+  // Codex publishes account usage only in its own transcripts, so it is polled rather than pushed.
+  // That also means it is available before any node exists, unlike Claude's session-scoped reports.
+  useEffect(() => {
+    let active = true
+    const refresh = async (): Promise<void> => {
+      const codex = await window.usageApi.codexRateLimits().catch(() => null)
+      if (!active || !codex) return
+      setProviderRateLimits((current) => ({ ...current, codex }))
+    }
+    void refresh()
+    const interval = setInterval(() => void refresh(), CODEX_USAGE_POLL_MS)
+    return () => {
+      active = false
+      clearInterval(interval)
+    }
+  }, [])
+
   const handleStatusChange = useCallback((nodeId: string, status: TerminalNodeStatus): void => {
     setNodeStatuses((current) => {
       if (current[nodeId] === status) return current
       return { ...current, [nodeId]: status }
     })
+  }, [])
+
+  /**
+   * Claude reports one window per event, so each report is merged into what is already known
+   * rather than replacing it - otherwise a five-hour update would erase the weekly figure.
+   */
+  const handleUsageChange = useCallback((_nodeId: string, provider: TerminalKind, incoming: AgentRateLimitStatus | null): void => {
+    if (!incoming || (provider !== 'claude' && provider !== 'codex')) return
+    setProviderRateLimits((current) => ({
+      ...current,
+      [provider]: { ...current[provider], ...incoming }
+    }))
   }, [])
 
   const handleConversationId = useCallback((nodeId: string, conversationId: string): void => {
@@ -200,6 +278,7 @@ function Canvas(): JSX.Element {
       if (saved && saved.projects.length > 0) {
         const restored = restoreCanvasWorkspace(saved, {
           onStatusChange: handleStatusChange,
+          onUsageChange: handleUsageChange,
           onConversationId: handleConversationId,
           onPreview: handlePreview,
           onWorklogCollapsed: handleWorklogCollapsed,
@@ -216,7 +295,6 @@ function Canvas(): JSX.Element {
         setActiveProjectId(restored.activeProjectId)
         setSidebarCollapsed(saved.sidebarCollapsed)
         setAgentPermissionModes(saved.agentPermissionModes ?? {})
-        setFirstMate(saved.firstMate ?? { worklogCollapsed: true })
       } else if (unrecoverable) {
         // Never silently seed and autosave a fresh default over damaged state the user might
         // still be able to recover by hand; wait for an explicit acknowledgement instead.
@@ -229,7 +307,7 @@ function Canvas(): JSX.Element {
       setWorkspaceReady(true)
     })()
     return () => { active = false }
-  }, [handleConversationId, handleModelChange, handlePermissionModeChange, handlePreview, handleStatusChange, handleTerminalLiveness, handleWorklogCollapsed, resumeNode, seedFreshWorkspace, setNodes])
+  }, [handleConversationId, handleModelChange, handlePermissionModeChange, handlePreview, handleStatusChange, handleUsageChange, handleTerminalLiveness, handleWorklogCollapsed, resumeNode, seedFreshWorkspace, setNodes])
 
   useEffect(() => {
     if (!workspaceReady) return
@@ -241,7 +319,6 @@ function Canvas(): JSX.Element {
         activeProjectId,
         sidebarCollapsed,
         agentPermissionModes,
-        firstMate,
         nodes: nodes.map(serializeCanvasNode)
       }
       void window.terminalApi.saveWorkspace(state).then((result) => {
@@ -249,7 +326,7 @@ function Canvas(): JSX.Element {
       })
     }, 180)
     return () => clearTimeout(timeout)
-  }, [activeProjectId, agentPermissionModes, firstMate, nodes, projects, sidebarCollapsed, workspaceReady])
+  }, [activeProjectId, agentPermissionModes, nodes, projects, sidebarCollapsed, workspaceReady])
 
   const addProject = useCallback(async (): Promise<void> => {
     const directory = await window.terminalApi.pickProject()
@@ -280,8 +357,6 @@ function Canvas(): JSX.Element {
   const removeProject = useCallback((projectId: string): void => {
     if (projects.length <= 1 || nodes.some((node) => node.data.projectId === projectId)) return
     const remaining = projects.filter((project) => project.id !== projectId)
-    // Retires only ADE's own FirstMate registration for this project; the checkout itself is untouched.
-    void window.firstMateApi.retireProject(projectId)
     setProjects(remaining)
     if (activeProjectId === projectId) setActiveProjectId(remaining[0].id)
     setMenu(null)
@@ -341,6 +416,7 @@ function Canvas(): JSX.Element {
             dormant: false,
             launchMode: 'new',
             onStatusChange: handleStatusChange,
+            onUsageChange: handleUsageChange,
             onConversationId: handleConversationId,
             onPreview: handlePreview,
             onWorklogCollapsed: handleWorklogCollapsed,
@@ -355,7 +431,7 @@ function Canvas(): JSX.Element {
       setNodeStatuses((current) => ({ ...current, [id]: 'starting' }))
       setMenu(null)
     },
-    [activeProject, agentPermissionModes, handleConversationId, handleModelChange, handlePermissionModeChange, handlePreview, handleStatusChange, handleTerminalLiveness, handleWorklogCollapsed, menu, resumeNode, setNodes]
+    [activeProject, agentPermissionModes, handleConversationId, handleModelChange, handlePermissionModeChange, handlePreview, handleStatusChange, handleUsageChange, handleTerminalLiveness, handleWorklogCollapsed, menu, resumeNode, setNodes]
   )
 
   return (
@@ -401,6 +477,16 @@ function Canvas(): JSX.Element {
                   <span className="global-status-dot" />
                   {statusSummary.needsAttention} need attention
                 </span>
+              )}
+            </div>
+          )}
+          {(providerRateLimits.claude || providerRateLimits.codex) && (
+            <div className="global-usage-summary">
+              {providerRateLimits.claude && (
+                <ProviderUsageChip provider="Claude" status={providerRateLimits.claude} />
+              )}
+              {providerRateLimits.codex && (
+                <ProviderUsageChip provider="Codex" status={providerRateLimits.codex} />
               )}
             </div>
           )}
@@ -576,14 +662,6 @@ function Canvas(): JSX.Element {
           </ReactFlow>
         </section>
 
-        {workspaceReady && activeProject && (
-          <FirstMatePanel
-            projects={projects}
-            project={activeProject}
-            state={firstMate}
-            onStateChange={setFirstMate}
-          />
-        )}
       </div>
 
       {menu && activeProject && (

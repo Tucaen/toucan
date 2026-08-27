@@ -1,7 +1,7 @@
 import type { AgentPromptResult } from '../shared/agent'
 import { errorMessage } from '../shared/text'
 
-export interface CaptainWakeGate<T = string> {
+export interface PromptWakeGate<T = string> {
   enqueue(payload: T): Promise<AgentPromptResult>
   flush(): void
   /** A host-observed boundary at which the active turn can cooperatively yield to queued work. */
@@ -10,7 +10,7 @@ export interface CaptainWakeGate<T = string> {
   dispose(): void
 }
 
-export interface CaptainWakeGateOptions<T = string> {
+export interface PromptWakeGateOptions<T = string> {
   deliver(payload: T): Promise<AgentPromptResult>
   requestCheckpoint?(): void
   checkpointMs?: number
@@ -23,7 +23,7 @@ interface QueuedWake<T> {
   resolve(result: AgentPromptResult): void
 }
 
-export function createCaptainWakeGate<T = string>(options: CaptainWakeGateOptions<T>): CaptainWakeGate<T> {
+export function createPromptWakeGate<T = string>(options: PromptWakeGateOptions<T>): PromptWakeGate<T> {
   const checkpointMs = options.checkpointMs ?? DEFAULT_CHECKPOINT_MS
   const queue: QueuedWake<T>[] = []
   let disposed = false

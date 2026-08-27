@@ -9,8 +9,8 @@ import { chooseAgentPromptApi, createDispatchOrderGate, deliverAgentPrompt } fro
 // exercised by actually rendering/running them in composer-queue-while-busy.dom.test.tsx (Vitest
 // + jsdom + React Testing Library). What's left here is: the decision logic extracted into a
 // pure, dependency-free function (exercised directly below); the underlying queuing engine
-// (CaptainWakeGate), which already has full behavioral coverage in
-// firstmate-captain-wake.test.ts; and the cross-process preload/main/acp-session-manager IPC
+// (PromptWakeGate), which already has full behavioral coverage in
+// prompt-wake-gate tests; and the cross-process preload/main/acp-session-manager IPC
 // wiring, which jsdom cannot exercise and so remains a documented source-text assertion.
 
 test('chooseAgentPromptApi routes to promptWhenIdle while working and to prompt while ready', async () => {
@@ -87,12 +87,12 @@ test('promptWhenIdle is exposed to the renderer the same way prompt is, backed b
   )
   assert.doesNotMatch(
     manager,
-    /if \(request\.scope === 'firstmate'\) \{\s*running\.wakeGate = createCaptainWakeGate/,
+    /if \(request\.scope === 'firstmate'\) \{\s*running\.wakeGate = createPromptWakeGate/,
     'the wake gate must no longer be limited to firstmate-scoped sessions for the human composer to be able to queue too'
   )
   assert.match(
     manager,
-    /running\.wakeGate = createCaptainWakeGate<AgentPromptContent>\(\{/,
+    /running\.wakeGate = createPromptWakeGate<AgentPromptContent>\(\{/,
     'every session should get a wake gate so promptWhenIdle can queue regardless of scope'
   )
 })

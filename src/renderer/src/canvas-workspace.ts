@@ -1,4 +1,5 @@
 import type { Node } from '@xyflow/react'
+import type { AgentRateLimitStatus } from '../../shared/agent'
 import type {
   AgentPermissionModes,
   ConversationPreview,
@@ -12,6 +13,8 @@ export type TerminalNodeStatus = 'dormant' | 'starting' | 'idle' | 'working' | '
 
 export interface TerminalNodeCallbacks {
   onStatusChange(nodeId: string, status: TerminalNodeStatus): void
+  /** Optional so a persisted node restored before this callback existed still mounts. */
+  onUsageChange?(nodeId: string, provider: TerminalKind, rateLimit: AgentRateLimitStatus | null): void
   onConversationId(nodeId: string, conversationId: string): void
   onPreview(nodeId: string, preview: ConversationPreview): void
   onWorklogCollapsed(nodeId: string, collapsed: boolean): void

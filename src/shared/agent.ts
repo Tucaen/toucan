@@ -4,7 +4,7 @@ export interface AgentCreateRequest {
   id: string
   provider: AgentProvider
   cwd: string
-  scope?: 'project' | 'firstmate'
+  scope?: 'project'
   sessionId?: string
   permissionMode?: string
   modelId?: string
@@ -103,6 +103,28 @@ export interface AgentActivity {
   locations?: string[]
 }
 
+/**
+ * One provider usage window, normalized across providers. Claude reports a single window per
+ * `rate_limit_event` (tagged `five_hour` / `seven_day`); Codex reports up to two windows tagged
+ * only by length in minutes. Both collapse into these two named slots.
+ */
+export interface AgentRateLimitWindow {
+  /** Percentage of the window consumed, 0-100. */
+  usedPercent: number
+  /** Epoch milliseconds when the window resets, when the provider reports one. */
+  resetsAt?: number
+}
+
+export interface AgentRateLimitStatus {
+  fiveHour?: AgentRateLimitWindow
+  weekly?: AgentRateLimitWindow
+  /** Set when the provider has actively refused a request, not merely warned. */
+  rejected?: boolean
+}
+
+/** Latest known usage-limit status per provider, keyed by `AgentProvider`. */
+export type ProviderRateLimits = Partial<Record<AgentProvider, AgentRateLimitStatus>>
+
 export type AgentEvent =
   | { type: 'status'; status: 'starting' | 'ready' | 'working' | 'idle' | 'auth_required' | 'exited'; message?: string }
   | { type: 'session'; sessionId: string }
@@ -115,7 +137,7 @@ export type AgentEvent =
   | { type: 'approval'; approvalId: string; title: string; options: AgentPermissionOption[] }
   | { type: 'auth'; methods: AgentAuthMethod[] }
   | { type: 'auth_link'; url: string }
-  | { type: 'usage'; used?: number; size?: number; cost?: string }
+  | { type: 'usage'; used?: number; size?: number; cost?: string; rateLimit?: AgentRateLimitStatus }
   | { type: 'turn_complete'; stopReason: string }
   | { type: 'error'; message: string }
 

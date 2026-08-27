@@ -2,7 +2,7 @@ import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
 import { Writable } from 'node:stream'
 import type { AgentPromptResult } from '../src/shared/agent'
-import { createCaptainWakeGate } from '../src/main/firstmate-captain-wake'
+import { createPromptWakeGate } from '../src/main/prompt-wake-gate'
 import { extractLoginUrl, promptFailure, promptGuard, writeAuthCode } from '../src/main/acp-session-manager'
 
 test('turns prompt-level ACP authentication failures into an actionable sign-in state', () => {
@@ -92,7 +92,7 @@ test(
       running.authRequired = true
       return { ok: false, message: 'OAuth session expired and could not be refreshed' }
     }
-    const gate = createCaptainWakeGate({ deliver })
+    const gate = createPromptWakeGate({ deliver })
     const first = gate.enqueue('queued while working 1')
     const second = gate.enqueue('queued while working 2')
     const third = gate.enqueue('queued while working 3')

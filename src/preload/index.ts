@@ -5,18 +5,8 @@ import type {
   AgentEventEnvelope,
   AgentPromptContent,
   AgentPromptResult,
-  AgentProvider
+  AgentRateLimitStatus
 } from '../shared/agent'
-import type {
-  FirstMateActionResult,
-  FirstMateExternalProject,
-  FirstMateInstallResult,
-  FirstMateLifecycleStatus,
-  FirstMateProjectRegistration,
-  FirstMateProjectSelection,
-  FirstMateQuotaStatus,
-  FirstMateRuntimeStatus
-} from '../shared/firstmate'
 import type {
   ConversationPreview,
   ProjectDirectory,
@@ -113,40 +103,9 @@ const agentApi = {
 
 contextBridge.exposeInMainWorld('agentApi', agentApi)
 
-const firstMateApi = {
-  status: (): Promise<FirstMateRuntimeStatus> => ipcRenderer.invoke('firstmate:status'),
-  install: (): Promise<FirstMateInstallResult> => ipcRenderer.invoke('firstmate:install'),
-  repair: (): Promise<FirstMateInstallResult> => ipcRenderer.invoke('firstmate:repair'),
-  authenticateGitHub: (): Promise<FirstMateActionResult> => ipcRenderer.invoke('firstmate:github-auth'),
-  trustCodexProject: (): Promise<FirstMateActionResult> => ipcRenderer.invoke('firstmate:trust-codex'),
-  lifecycle: (): Promise<FirstMateLifecycleStatus> => ipcRenderer.invoke('firstmate:lifecycle'),
-  viewWorkerTerminal: (taskId: string): Promise<FirstMateActionResult> => (
-    ipcRenderer.invoke('firstmate:view-worker-terminal', taskId)
-  ),
-  quotaStatus: (provider: AgentProvider): Promise<FirstMateQuotaStatus> => (
-    ipcRenderer.invoke('firstmate:quota-status', provider)
-  ),
-  releaseDispatch: (taskId: string): Promise<FirstMateActionResult> => (
-    ipcRenderer.invoke('firstmate:release-dispatch', taskId)
-  ),
-  retryDispatch: (taskId: string): Promise<FirstMateActionResult> => (
-    ipcRenderer.invoke('firstmate:retry-dispatch', taskId)
-  ),
-  registerProject: (selection: FirstMateProjectSelection): Promise<FirstMateProjectRegistration> => (
-    ipcRenderer.invoke('firstmate:register-project', selection)
-  ),
-  recordedProject: (adeProjectId: string): Promise<FirstMateExternalProject | null> => (
-    ipcRenderer.invoke('firstmate:recorded-project', adeProjectId)
-  ),
-  authorizeProjectInitialization: (adeProjectId: string): Promise<FirstMateProjectRegistration> => (
-    ipcRenderer.invoke('firstmate:authorize-project-init', adeProjectId)
-  ),
-  setAutonomyCeiling: (adeProjectId: string, allowed: boolean): Promise<FirstMateProjectRegistration> => (
-    ipcRenderer.invoke('firstmate:set-autonomy-ceiling', adeProjectId, allowed)
-  ),
-  retireProject: (adeProjectId: string): Promise<FirstMateActionResult> => (
-    ipcRenderer.invoke('firstmate:retire-project', adeProjectId)
-  )
+const usageApi = {
+  codexRateLimits: (): Promise<AgentRateLimitStatus | null> => ipcRenderer.invoke('usage:codex-rate-limits')
 }
 
-contextBridge.exposeInMainWorld('firstMateApi', firstMateApi)
+contextBridge.exposeInMainWorld('usageApi', usageApi)
+

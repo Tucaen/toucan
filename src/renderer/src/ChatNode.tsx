@@ -8,7 +8,6 @@ import type {
   AgentPlanEntry
 } from '../../shared/agent'
 import { activityTitle } from '../../shared/agent-activity'
-import { QuotaStat, UsageStat } from './AgentUsageStatus'
 import { isNearScrollBottom } from './chat-scroll-follow'
 import type { TerminalCanvasNode, TerminalNodeStatus } from './canvas-workspace'
 import { computeNodePickerMenuPosition } from './node-picker-menu-position'
@@ -16,7 +15,6 @@ import { imageFilesFromClipboard, type AgentImageAttachment } from './image-atta
 import { classifyAssistantMessage, type DecisionOption } from './decision-message'
 import { pendingDecisionsFromMessages, type PendingDecision } from './pending-decisions'
 import NodeBorderResizer from './NodeBorderResizer'
-import { useFirstMateQuota } from './use-firstmate-quota'
 import VoiceInputPrototype from './VoiceInputPrototype'
 import {
   useAgentConversation,
@@ -95,8 +93,8 @@ export function SelectorPicker(props: {
   const selected = props.options.find((option) => option.id === props.selectedId)
   const canOpen = props.options.length > 0 && !props.disabled
 
-  // The menu portals to <body> so it can escape ancestors (e.g. the FirstMate
-  // panel, canvas nodes) that clip overflow; position it against the trigger
+  // The menu portals to <body> so it can escape ancestors (e.g. canvas nodes)
+  // that clip overflow; position it against the trigger
   // button's viewport rect instead of relying on CSS anchoring.
   useLayoutEffect(() => {
     if (!open) {
@@ -239,8 +237,8 @@ export function Composer(props: Pick<ChatViewProps,
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const composerDisabled = isSendDisabled(props.status)
   // Draft input is intentionally local to this leaf. Publishing every keystroke through the
-  // conversation hook rerenders the captain panel, including transcript Markdown, lifecycle
-  // reconciliation, persistence, and decision parsing. None of that work owns the input value.
+  // conversation hook rerenders the chat panel, including transcript Markdown,
+  // persistence, and decision parsing. None of that work owns the input value.
   const [draft, setDraft] = useState(props.draft)
   const [pasteBlocked, setPasteBlocked] = useState(false)
 
@@ -494,11 +492,7 @@ function decisionQuestion(text: string): string {
   return text.split('\n').map((line) => line.trim()).filter(Boolean).at(-1) ?? 'Choose an option.'
 }
 
-/**
- * Classifies FirstMate's own assistant replies from plain text alone (see decision-message.ts)
- * so decision-requiring messages stand out and routine narration is de-emphasized; user/thought
- * messages never get a tone since the heuristic only applies to FirstMate's own phrasing.
- */
+/** Classifies assistant replies for visual tone (see decision-message.ts). */
 function ChatMessageCard(
   props: {
     message: AgentChatMessage
@@ -694,7 +688,6 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
     onModel: (modelId) => data.onModelChange(id, modelId)
   })
   const { status, approval, models, modes, detail, messages, activities, plan, usage } = conversation
-  const quota = useFirstMateQuota(provider, !data.dormant)
   const [stalled, setStalled] = useState(false)
   const lastProgressAtRef = useRef(Date.now())
 
@@ -733,6 +726,11 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
     data.onStatusChange(id, sidebarStatus(status, approval !== null, unreadResult, stalled))
   }, [approval, data.dormant, data.onStatusChange, id, status, unreadResult, stalled])
 
+  useEffect(() => {
+    if (data.dormant) return
+    data.onUsageChange?.(id, data.kind, usage?.rateLimit ?? null)
+  }, [data.dormant, data.kind, data.onUsageChange, id, usage?.rateLimit])
+
   const props: ChatViewProps = {
     provider,
     ...conversation
@@ -767,12 +765,6 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
           </>
         )}
         <span className="chat-provider-badge">ACP</span>
-        {!data.dormant && (
-          <>
-            <UsageStat usage={usage} compact />
-            <QuotaStat quota={quota} compact />
-          </>
-        )}
         <span className="node-status">{status.replace('_', ' ')}</span>
       </header>
       {data.dormant ? (

@@ -3,15 +3,10 @@ import { execFileSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { basename, extname, join, normalize } from 'node:path'
 import { spawn } from 'node-pty'
-import type { AgentCreateRequest, AgentProvider, AgentPromptContent } from '../shared/agent'
-import type { FirstMateActionResult, FirstMateProjectSelection, FirstMateQuotaStatus } from '../shared/firstmate'
+import type { AgentCreateRequest, AgentPromptContent } from '../shared/agent'
 import type { TerminalCreateRequest } from '../shared/terminal'
 import { createAcpSessionManager, type AcpSessionManager } from './acp-session-manager'
-import {
-  createFirstMateLifecycleCoordinator,
-  type FirstMateLifecycleCoordinator
-} from './firstmate-lifecycle-coordinator'
-import { createFirstMateRuntime, type FirstMateRuntime } from './firstmate-runtime'
+import { createCodexRateLimitReader, type CodexRateLimitReader } from './codex-rate-limits'
 import { createSessionProviders, type SessionProviders } from './session-providers'
 import { createTerminalManager, type TerminalManager } from './terminal-manager'
 import { createWorkspaceStore } from './workspace-store'
@@ -58,6 +53,10 @@ function registerTerminalIpc(manager: TerminalManager, providers: SessionProvide
   ))
 }
 
+function registerUsageIpc(codexRateLimits: CodexRateLimitReader): void {
+  ipcMain.handle('usage:codex-rate-limits', () => codexRateLimits.read())
+}
+
 function registerAgentIpc(manager: AcpSessionManager): void {
   ipcMain.handle('agent:create', (event, request: AgentCreateRequest) => manager.create(request, event.sender))
   ipcMain.handle('agent:prompt', (_event, id: string, content: AgentPromptContent) => manager.prompt(id, content))
@@ -79,74 +78,6 @@ function registerAgentIpc(manager: AcpSessionManager): void {
   ))
   ipcMain.on('agent:cancel', (_event, id: string) => manager.cancel(id))
   ipcMain.on('agent:kill', (_event, id: string) => manager.kill(id))
-}
-
-const UNREADABLE_PROJECT: FirstMateActionResult = {
-  ok: false,
-  message: 'ADE could not read the selected project.'
-}
-
-const UNREADABLE_TASK: FirstMateActionResult = {
-  ok: false,
-  message: 'ADE could not read the task to act on.'
-}
-
-function isProjectSelection(value: unknown): value is FirstMateProjectSelection {
-  const selection = value as Partial<FirstMateProjectSelection> | null
-  return Boolean(selection)
-    && typeof selection?.projectId === 'string'
-    && typeof selection.name === 'string'
-    && typeof selection.path === 'string'
-}
-
-function registerFirstMateIpc(
-  runtime: FirstMateRuntime,
-  lifecycle: FirstMateLifecycleCoordinator
-): void {
-  ipcMain.handle('firstmate:status', () => runtime.status())
-  ipcMain.handle('firstmate:install', () => runtime.install())
-  ipcMain.handle('firstmate:repair', () => runtime.repair())
-  ipcMain.handle('firstmate:github-auth', () => runtime.authenticateGitHub())
-  ipcMain.handle('firstmate:trust-codex', () => runtime.trustCodexProject())
-  ipcMain.handle('firstmate:lifecycle', () => runtime.lifecycle())
-  ipcMain.handle('firstmate:view-worker-terminal', (_event, taskId: unknown) => (
-    typeof taskId === 'string' && taskId ? runtime.openWorkerTerminal(taskId) : UNREADABLE_TASK
-  ))
-  ipcMain.handle('firstmate:quota-status', (_event, provider: unknown): Promise<FirstMateQuotaStatus> => (
-    provider === 'claude' || provider === 'codex'
-      ? runtime.quotaStatus(provider as AgentProvider)
-      : Promise.resolve({ state: 'unavailable', provider: 'codex', message: 'Unknown provider.' })
-  ))
-  const byProjectId = <T>(
-    channel: string,
-    action: (adeProjectId: string) => Promise<T>,
-    unreadable: () => T
-  ): void => {
-    ipcMain.handle(channel, (_event, adeProjectId: unknown) => (
-      typeof adeProjectId === 'string' && adeProjectId ? action(adeProjectId) : unreadable()
-    ))
-  }
-
-  ipcMain.handle('firstmate:register-project', (_event, selection: unknown) => (
-    isProjectSelection(selection) ? runtime.registerProject(selection) : UNREADABLE_PROJECT
-  ))
-  byProjectId('firstmate:recorded-project', (id) => runtime.recordedProject(id), () => null)
-  byProjectId(
-    'firstmate:authorize-project-init',
-    (id) => runtime.authorizeProjectInitialization(id),
-    () => UNREADABLE_PROJECT
-  )
-  ipcMain.handle('firstmate:set-autonomy-ceiling', (_event, adeProjectId: unknown, allowed: unknown) => (
-    typeof adeProjectId === 'string' && adeProjectId && typeof allowed === 'boolean'
-      ? runtime.setAutonomyCeiling(adeProjectId, allowed) : UNREADABLE_PROJECT
-  ))
-  byProjectId('firstmate:retire-project', (id) => runtime.retireProject(id), () => UNREADABLE_PROJECT)
-  ipcMain.handle('firstmate:release-dispatch', (_event, taskId: unknown) => (
-    typeof taskId === 'string' && taskId ? lifecycle.releaseDispatch(taskId) : UNREADABLE_TASK
-  ))
-  ipcMain.handle('firstmate:retry-dispatch', (_event, taskId: unknown) => (
-    typeof taskId === 'string' && taskId ? lifecycle.retryDispatch(taskId) : UNREADABLE_TASK
-  ))
 }
 
 function registerProjectIpc(): void {
@@ -262,35 +193,24 @@ app.whenReady().then(() => {
       env: { ...process.env, TERM: 'xterm-256color' }
     })
   })
-  const firstMateRuntime = createFirstMateRuntime({
-    platform: process.platform,
-    codexHome,
-    claudeHome: process.env.CLAUDE_CONFIG_DIR ?? join(app.getPath('home'), '.claude'),
-    resolveGit: () => findCommand('git')
-  })
   const agentManager = createAcpSessionManager({
     appPath: app.getAppPath(),
-    codexHome,
-    resolveFirstMateLaunch: (provider, modelId) => firstMateRuntime.launch(provider, modelId),
-    configureFirstMateValidator: (provider, modelId) => firstMateRuntime.configureValidator(provider, modelId)
-  })
-  const firstMateLifecycle = createFirstMateLifecycleCoordinator({
-    runtime: firstMateRuntime,
-    wakeCaptain: (message) => agentManager.promptWhenIdle('ade-firstmate', message)
+    codexHome
   })
 
   registerTerminalIpc(manager, providers)
   registerAgentIpc(agentManager)
-  registerFirstMateIpc(firstMateRuntime, firstMateLifecycle)
+  registerUsageIpc(createCodexRateLimitReader({
+    homeDirectory: app.getPath('home'),
+    environment: process.env
+  }))
   registerProjectIpc()
   createWindow(manager, agentManager)
-  firstMateLifecycle.start()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow(manager, agentManager)
   })
   app.on('before-quit', () => {
-    firstMateLifecycle.stop()
     manager.killAll()
     agentManager.killAll()
   })

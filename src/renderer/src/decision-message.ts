@@ -1,24 +1,15 @@
 /**
- * FirstMate's own chat replies carry no structured signal distinguishing a decision-requiring
- * message ("should I fix this or skip it?") from routine narration ("spawning worker...") — both
- * arrive as the same plain `{ type: 'message', role: 'assistant', text }` event. This module is a
- * conservative, text-shape heuristic that drives styling/interaction from that plain text alone.
+ * Agent chat replies carry no structured signal distinguishing a decision-requiring message
+ * ("should I fix this or skip it?") from routine narration — both arrive as the same plain
+ * `{ type: 'message', role: 'assistant', text }` event. This module is a conservative,
+ * text-shape heuristic that drives styling/interaction from that plain text alone.
  *
- * A missed decision highlight is far less harmful than a routine message wrongly flagged as
- * needing a decision (which would erode the whole point of the signal), so both classifiers only
- * fire on a fairly specific shape and fall back to 'normal' (plain styling) otherwise.
- *
- * Decision shape: two or more "option lines" (see OPTION_LINE_PATTERNS — a bold/bulleted label,
- * an "Option A:"/"Option 1:" line, or a single-letter "A)" line) AND the message's last non-empty
- * line ends in a literal "?". Either signal alone is common in ordinary prose; both together is
- * FirstMate's consistent shape for "here are your choices, which one?" — keep that phrasing
- * (labeled options followed by a trailing question) if you want new decision messages to keep
- * getting flagged.
+ * Decision shape: two or more "option lines" (see OPTION_LINE_PATTERNS) AND the message's last
+ * non-empty line ends in a literal "?". Either signal alone is common in ordinary prose; both
+ * together is the consistent shape for labeled choices followed by a trailing question.
  *
  * Noise shape: the whole message is a single short paragraph, has no option lines, asks no
- * question, and opens with one of a fixed list of routine status lead-ins (spawning, dispatching,
- * validating, "no action needed", ...). Extend NOISE_LEAD_PATTERNS if FirstMate adopts a new
- * routine lead-in phrase that isn't muting today.
+ * question, and opens with one of a fixed list of routine status lead-ins.
  */
 
 export type MessageTone = 'decision' | 'noise' | 'normal'

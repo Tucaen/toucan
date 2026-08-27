@@ -38,11 +38,11 @@ export interface AgentApprovalState {
   options: AgentPermissionOption[]
 }
 
-/** The conversation's live context-window usage, as last reported by a `usage_update` session event. */
 export interface AgentUsage {
   used?: number
   size?: number
   cost?: string
+  rateLimit?: import('../../shared/agent').AgentRateLimitStatus
 }
 
 export type AgentChatStatus = 'starting' | 'ready' | 'working' | 'auth_required' | 'exited'
@@ -61,16 +61,12 @@ export interface AgentConversationOptions {
   id: string
   provider: AgentProvider
   cwd: string
-  scope?: 'project' | 'firstmate'
+  scope?: 'project'
   sessionId?: string
   permissionMode?: string
   modelId?: string
   effortId?: string
   restartKey?: number
-  /**
-   * Builds what the agent receives from the captain's text. Called at submission, never earlier, so it
-   * may resolve request-time facts such as FirstMate's durable project catalog registrations.
-   */
   composePrompt?(text: string): string | Promise<string>
   enabled: boolean
   onSessionId(sessionId: string): void
@@ -272,7 +268,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
       } else if (event.type === 'auth_link') {
         setAuthLink(event.url)
       } else if (event.type === 'usage') {
-        setUsage({ used: event.used, size: event.size, cost: event.cost })
+        setUsage((prev) => ({ used: event.used, size: event.size, cost: event.cost, rateLimit: event.rateLimit ?? prev?.rateLimit }))
       } else if (event.type === 'error') {
         setDetail(event.message)
       }
