@@ -55,6 +55,8 @@ export interface TerminalApi {
   kill(sessionId: string, incarnationId: string, attachmentId: string): void
   copyText(text: string): void
   openExternal(url: string): Promise<void>
+  /** Selects a file in the OS file manager; never opens or executes it. */
+  showItemInFolder(path: string): Promise<void>
   readClipboardText(): string
   onData(sessionId: string, attachmentId: string, callback: (output: TerminalOutput) => void): () => void
   onExit(sessionId: string, attachmentId: string, callback: (result: TerminalExit) => void): () => void

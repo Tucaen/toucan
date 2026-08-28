@@ -22,6 +22,7 @@ import {
   type ToolCardStatus
 } from './tool-card'
 import { TOOL_CARD_LINE_BUDGET, toolCardFamilyFor } from './tool-card-families'
+import { WorkspaceRootsContext } from './workspace-root'
 import type { TerminalCanvasNode, TerminalNodeStatus } from './canvas-workspace'
 import {
   computeNodePickerMenuPosition,
@@ -88,6 +89,12 @@ export interface ChatViewProps {
    * has nothing to offer until then.
    */
   commands?: AgentCommand[]
+  /**
+   * The directories tool cards shorten absolute paths against: the one the agent runs in (the
+   * worktree when the node has one) and the project checkout. A path under none of them keeps
+   * its full form rather than a relative one that would point at the wrong tree.
+   */
+  workspaceRoots?: readonly string[]
   setDraft(value: string): void
   addImages(files: File[] | FileList): Promise<void>
   removeAttachment(id: string): void
@@ -1068,44 +1075,48 @@ export function ChatView(props: ChatViewProps & {
           ))}
         <ApprovalPanel {...props} />
       </div>
-      <aside className="worklog-rail nodrag nopan nowheel">
-        {props.worklogCollapsed ? (
-          <button
-            type="button"
-            className="worklog-expand"
-            aria-label="Show worklog"
-            aria-expanded="false"
-            onClick={() => props.setWorklogCollapsed(false)}
-          >
-            <span>{'<'}</span>
-            <strong>Worklog</strong>
-            <small>{workItemCount}</small>
-          </button>
-        ) : (
-          <>
-            <div className="worklog-heading">
-              <span>Worklog</span>
-              <small>{props.activities.length} actions</small>
-              <button
-                type="button"
-                aria-label="Hide worklog"
-                aria-expanded="true"
-                title="Hide worklog"
-                onClick={() => props.setWorklogCollapsed(true)}
-              >
-                {'>'}
-              </button>
-            </div>
-            {props.plan.length > 0 && (
-              <ol className="plan-list">
-                {props.plan.map((entry, index) => <li data-status={entry.status} key={`${index}-${entry.content}`}>{entry.content}</li>)}
-              </ol>
-            )}
-            {props.activities.map((activity) => <ActivityCard activity={activity} key={activity.id} />)}
-            {workItemCount === 0 && <p className="worklog-empty">Agent plans and activity will appear here.</p>}
-          </>
-        )}
-      </aside>
+      {/* Tool cards live several components deep and every one of them shortens paths against
+          these roots, so they reach the cards as context rather than as a prop chain. */}
+      <WorkspaceRootsContext.Provider value={props.workspaceRoots ?? []}>
+        <aside className="worklog-rail nodrag nopan nowheel">
+          {props.worklogCollapsed ? (
+            <button
+              type="button"
+              className="worklog-expand"
+              aria-label="Show worklog"
+              aria-expanded="false"
+              onClick={() => props.setWorklogCollapsed(false)}
+            >
+              <span>{'<'}</span>
+              <strong>Worklog</strong>
+              <small>{workItemCount}</small>
+            </button>
+          ) : (
+            <>
+              <div className="worklog-heading">
+                <span>Worklog</span>
+                <small>{props.activities.length} actions</small>
+                <button
+                  type="button"
+                  aria-label="Hide worklog"
+                  aria-expanded="true"
+                  title="Hide worklog"
+                  onClick={() => props.setWorklogCollapsed(true)}
+                >
+                  {'>'}
+                </button>
+              </div>
+              {props.plan.length > 0 && (
+                <ol className="plan-list">
+                  {props.plan.map((entry, index) => <li data-status={entry.status} key={`${index}-${entry.content}`}>{entry.content}</li>)}
+                </ol>
+              )}
+              {props.activities.map((activity) => <ActivityCard activity={activity} key={activity.id} />)}
+              {workItemCount === 0 && <p className="worklog-empty">Agent plans and activity will appear here.</p>}
+            </>
+          )}
+        </aside>
+      </WorkspaceRootsContext.Provider>
       {pendingDecisions.length > 0 && (
         <section className="pending-decisions" aria-label="Pending decisions">
           {pendingDecisions.map((decision: PendingDecision) => (
@@ -1206,6 +1217,10 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
     // The draft belongs to the node, not to the conversation: it has to outlive resize, collapse
     // and a workspace reload, none of which the ACP session knows anything about.
     draft: data.draft ?? '',
+    // The directory the agent was launched in (its worktree, or the checkout) plus the project
+    // checkout itself, so a worktree session still shortens a path it read from the main tree.
+    // Display only - `workingDirectory` remains the sole value that may be sent as a cwd.
+    workspaceRoots: [data.workingDirectory, data.projectPath].filter((root): root is string => !!root),
     onDraftChange: (text) => data.onDraftChange(id, text)
   }
 

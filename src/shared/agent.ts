@@ -106,6 +106,14 @@ export interface AgentPlanEntry {
   status: 'pending' | 'in_progress' | 'completed'
 }
 
+/** One before/after pair an agent reported for a file, as ACP `diff` content. */
+export interface AgentFileDiff {
+  path: string
+  /** Absent when the diff describes a newly created file. */
+  oldText?: string
+  newText: string
+}
+
 export interface AgentActivity {
   id: string
   /** Omitted by patch-style ACP updates when the existing title is unchanged. */
@@ -114,6 +122,21 @@ export interface AgentActivity {
   status?: 'pending' | 'in_progress' | 'completed' | 'failed'
   content?: string
   locations?: string[]
+  /**
+   * The programmatic tool name (`Read`, `Edit`, ...) when the adapter reports one. `kind` says
+   * only what family of thing happened; the name is what lets a card know which arguments to
+   * expect in `rawInput`.
+   */
+  toolName?: string
+  /**
+   * The tool's own arguments, verbatim from ACP. Carried because a title and a path throw away
+   * everything a purpose-built card needs - the read range, the write payload, the strings an
+   * edit swapped. The shape is provider- and tool-specific, so every reader parses it
+   * defensively (see `file-operation.ts`).
+   */
+  rawInput?: unknown
+  /** Before/after pairs from ACP `diff` content, when the adapter sends them. */
+  diffs?: AgentFileDiff[]
   /** Stamped locally by `mergeActivity` when the call is first seen; ACP reports no timing. */
   startedAt?: number
   /** Stamped when the call first reaches a terminal status, and cleared again if it resumes. */

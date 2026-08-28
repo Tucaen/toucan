@@ -48,6 +48,7 @@ const terminalApi = {
     ipcRenderer.send('terminal:kill', sessionId, incarnationId, attachmentId),
   copyText: (text: string): void => clipboard.writeText(text),
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke('shell:open-external', url),
+  showItemInFolder: (path: string): Promise<void> => ipcRenderer.invoke('shell:show-item-in-folder', path),
   readClipboardText: (): string => clipboard.readText(),
   onData: (sessionId: string, attachmentId: string, callback: (output: TerminalOutput) => void): (() => void) => {
     const listener = (_event: Electron.IpcRendererEvent, output: TerminalOutput): void => {

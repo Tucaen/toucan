@@ -145,6 +145,12 @@ function registerProjectIpc(): void {
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return
     await shell.openExternal(parsed.toString())
   })
+  // A file-operation tool card offers to reveal the file it touched. This only ever selects a
+  // path in the OS file manager - it never opens or executes it.
+  ipcMain.handle('shell:show-item-in-folder', (_event, path: unknown) => {
+    if (typeof path !== 'string' || !path.trim()) return
+    shell.showItemInFolder(normalize(path))
+  })
   ipcMain.handle('workspace:load', () => workspace.load())
   ipcMain.handle('workspace:save', (_event, state) => workspace.save(state))
 }

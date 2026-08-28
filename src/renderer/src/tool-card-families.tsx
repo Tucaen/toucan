@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react'
 import type { AgentActivity } from '../../shared/agent'
 import { activityTitle } from '../../shared/agent-activity'
+import { FileOperationBody, FileOperationSummary, fileOperationCard } from './FileOperationCard'
+import { fileOperationFor, fileOperationIcon } from './file-operation'
 import { truncateToolOutput } from './tool-card'
 
 /** How many lines of a tool body reach the DOM before the shell offers "show more". */
@@ -66,10 +68,38 @@ export const genericToolCardFamily: ToolCardFamily = {
 }
 
 /**
- * Families registered by the per-tool sub-issues, most specific first. Empty today: every
- * activity falls through to the generic family.
+ * Read/Write/Edit/MultiEdit/NotebookEdit. All five share one card because they share one
+ * identity - a file - and differ only in what the body shows: an excerpt, a preview, or a
+ * before/after (see `file-operation.ts`).
  */
-export const toolCardFamilies: ToolCardFamily[] = []
+export const fileOperationToolCardFamily: ToolCardFamily = {
+  id: 'file-operation',
+  matches: (activity) => fileOperationFor(activity) !== null,
+  icon: (activity) => {
+    const operation = fileOperationFor(activity)
+    return operation ? fileOperationIcon(operation) : genericIcon(activity)
+  },
+  summary: (activity) => {
+    const operation = fileOperationFor(activity)
+    return operation
+      ? <FileOperationSummary operation={operation} />
+      : activityTitle(activity)
+  },
+  body: (activity, lineBudget) => {
+    const card = fileOperationCard(activity, lineBudget)
+    if (!card) return genericToolCardFamily.body(activity, lineBudget)
+    return {
+      hiddenLines: card.hiddenLines,
+      content: <FileOperationBody operation={card.operation} blocks={card.blocks} />
+    }
+  }
+}
+
+/**
+ * Families registered by the per-tool sub-issues, most specific first. Anything no family
+ * claims falls through to the generic family.
+ */
+export const toolCardFamilies: ToolCardFamily[] = [fileOperationToolCardFamily]
 
 export function toolCardFamilyFor(activity: AgentActivity): ToolCardFamily {
   return toolCardFamilies.find((family) => family.matches(activity)) ?? genericToolCardFamily

@@ -1,5 +1,5 @@
 import type { SessionUpdate, ToolCallContent } from '@agentclientprotocol/sdk'
-import type { AgentActivity } from './agent'
+import type { AgentActivity, AgentFileDiff } from './agent'
 
 type ToolCallSessionUpdate = Extract<SessionUpdate, { sessionUpdate: 'tool_call' | 'tool_call_update' }>
 
@@ -14,16 +14,42 @@ function toolContentText(content: ToolCallContent[] | null | undefined): string 
   return lines.length > 0 ? lines.join('\n') : undefined
 }
 
+function toolContentDiffs(content: ToolCallContent[] | null | undefined): AgentFileDiff[] | undefined {
+  const diffs = content?.flatMap((item) => item.type === 'diff'
+    ? [{ path: item.path, ...(item.oldText ? { oldText: item.oldText } : {}), newText: item.newText }]
+    : [])
+  return diffs?.length ? diffs : undefined
+}
+
+/**
+ * The programmatic tool name. ACP's top-level `name` is still marked unstable and no adapter we
+ * ship sends it; claude-agent-acp puts the name in `_meta.claudeCode.toolName` on every tool
+ * notification it builds. Read both, preferring the standard field, so cards keyed on the tool
+ * name work today and keep working when adapters move to `name`.
+ */
+function toolNameFromUpdate(update: ToolCallSessionUpdate): string | undefined {
+  if (update.name) return update.name
+  const claudeCode = (update._meta as { claudeCode?: { toolName?: unknown } } | null | undefined)?.claudeCode
+  return typeof claudeCode?.toolName === 'string' && claudeCode.toolName ? claudeCode.toolName : undefined
+}
+
 /** Convert ACP's patch-style tool updates without inventing values that overwrite earlier details. */
 export function activityFromUpdate(update: ToolCallSessionUpdate): AgentActivity {
   const content = toolContentText(update.content)
+  const diffs = toolContentDiffs(update.content)
+  const toolName = toolNameFromUpdate(update)
   return {
     id: update.toolCallId,
     ...(update.title ? { title: update.title } : {}),
     ...(update.kind ? { kind: update.kind } : {}),
     ...(update.status ? { status: update.status } : {}),
     ...(content ? { content } : {}),
-    ...(update.locations ? { locations: update.locations.map((location) => location.path) } : {})
+    ...(update.locations ? { locations: update.locations.map((location) => location.path) } : {}),
+    // The name and the arguments are what a per-tool card reads; ACP sends them only on the
+    // updates that have them, and an update without them must not blank out what we recorded.
+    ...(toolName ? { toolName } : {}),
+    ...(update.rawInput !== undefined && update.rawInput !== null ? { rawInput: update.rawInput } : {}),
+    ...(diffs ? { diffs } : {})
   }
 }
 

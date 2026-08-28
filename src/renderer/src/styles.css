@@ -1679,6 +1679,99 @@ button {
   color: #d98088;
 }
 
+/* File-operation cards: the path leads, and it is the part that must survive the squeeze, so
+   the detail chip never takes room from it. */
+.file-op-summary {
+  display: flex;
+  gap: 7px;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.file-op-summary-path {
+  overflow: hidden;
+  font-family: Consolas, monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-op-summary-detail {
+  flex: 0 0 auto;
+  color: #6f7a89;
+  font-size: 9px;
+  font-weight: 500;
+}
+
+.file-op-path {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-top: 6px;
+}
+
+.file-op-path code {
+  overflow: hidden;
+  color: #8f9aa8;
+  font: 10px/1.4 Consolas, monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-op-path button {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border: 1px solid #35404e;
+  border-radius: 5px;
+  color: #9ba6b5;
+  background: #1d232c;
+  font-size: 9px;
+  cursor: pointer;
+}
+
+.file-op-path button:hover {
+  color: #cbd2dc;
+  background: #232a34;
+}
+
+.file-op-block-label {
+  display: block;
+  margin-top: 7px;
+  color: #6f7a89;
+  font-size: 9px;
+  font-weight: 750;
+  text-transform: uppercase;
+}
+
+.file-op-lines {
+  margin-top: 4px;
+  font: 10px/1.5 Consolas, monospace;
+}
+
+.file-op-line {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 8px;
+  color: #8f9aa8;
+  white-space: pre-wrap;
+}
+
+.file-op-line-number {
+  color: #5b6473;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  user-select: none;
+}
+
+.file-op-line[data-tone="old"] {
+  color: #d98088;
+  background: rgba(122, 59, 64, 0.16);
+}
+
+.file-op-line[data-tone="new"] {
+  color: #86c99a;
+  background: rgba(59, 122, 84, 0.16);
+}
+
 .chat-auth-panel {
   position: absolute;
   z-index: 30;
