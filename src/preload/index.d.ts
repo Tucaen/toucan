@@ -53,6 +53,7 @@ export interface TerminalApi {
   resize(sessionId: string, incarnationId: string, cols: number, rows: number): void
   kill(sessionId: string, incarnationId: string, attachmentId: string): void
   copyText(text: string): void
+  openExternal(url: string): Promise<void>
   readClipboardText(): string
   onData(sessionId: string, attachmentId: string, callback: (output: TerminalOutput) => void): () => void
   onExit(sessionId: string, attachmentId: string, callback: (result: TerminalExit) => void): () => void

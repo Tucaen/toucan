@@ -1388,22 +1388,6 @@ button {
   margin-bottom: 0;
 }
 
-.chat-message pre {
-  max-width: 100%;
-  padding: 9px;
-  overflow: auto;
-  border: 1px solid #29313d;
-  border-radius: 7px;
-  color: #cbd4df;
-  background: #0c0f14;
-  font-size: 11px;
-}
-
-.chat-message code {
-  font-family: "Cascadia Code", Consolas, monospace;
-  font-size: 0.9em;
-}
-
 /*
  * Decision-shaped assistant messages (see decision-message.ts) get a warm card background so
  * they stand out from routine replies - a color relative to, but visually distinct from, the
@@ -2493,4 +2477,286 @@ button {
 
 .worktree-dialog-actions .danger:hover:not(:disabled) {
   background: rgba(223, 115, 122, 0.16);
+}
+
+/*
+ * Markdown transcript rendering (MarkdownMessage.tsx). Scoped to `.markdown-body` so it applies
+ * identically to assistant replies and reasoning cards without leaking into activity cards or
+ * the composer. Everything here is sized for node scale - the chat panel is a small viewport, so
+ * headings and blockquotes lean on weight and color rather than size to stay distinct.
+ */
+.markdown-body {
+  min-width: 0;
+}
+
+.markdown-body > :first-child {
+  margin-top: 0;
+}
+
+.markdown-body > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4,
+.markdown-body h5,
+.markdown-body h6 {
+  margin: 14px 0 6px;
+  color: #eef2f8;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.markdown-body h1 {
+  font-size: 15px;
+}
+
+.markdown-body h2 {
+  font-size: 14px;
+}
+
+.markdown-body h4,
+.markdown-body h5,
+.markdown-body h6 {
+  color: #b9c2d0;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.markdown-body ul,
+.markdown-body ol {
+  margin: 0 0 8px;
+  padding-left: 19px;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.markdown-body li {
+  margin: 2px 0;
+}
+
+.markdown-body li > ul,
+.markdown-body li > ol {
+  margin: 2px 0;
+}
+
+/* GFM task lists: the checkbox replaces the marker rather than sitting beside it. */
+.markdown-body li.task-list-item {
+  list-style: none;
+  margin-left: -19px;
+  padding-left: 19px;
+}
+
+.markdown-body li.task-list-item input[type="checkbox"] {
+  float: left;
+  width: 11px;
+  height: 11px;
+  margin: 4px 0 0 -18px;
+  accent-color: #71a9ff;
+}
+
+.markdown-body blockquote {
+  margin: 8px 0;
+  padding: 2px 0 2px 10px;
+  border-left: 2px solid #3c4655;
+  color: #9aa4b2;
+  font-style: italic;
+}
+
+.markdown-body hr {
+  margin: 12px 0;
+  border: 0;
+  border-top: 1px solid #29313d;
+}
+
+.markdown-body a {
+  color: #71a9ff;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.markdown-body del {
+  color: #7d8593;
+}
+
+.markdown-body :not(pre) > code {
+  padding: 1px 4px;
+  border: 1px solid #2b333f;
+  border-radius: 4px;
+  color: #d6c48a;
+  background: #12161d;
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 0.88em;
+  overflow-wrap: anywhere;
+}
+
+/* The node is narrow; a wide table scrolls itself instead of forcing the message to grow. */
+.markdown-table-scroll {
+  max-width: 100%;
+  margin: 0 0 9px;
+  overflow-x: auto;
+  border: 1px solid #29313d;
+  border-radius: 7px;
+}
+
+.markdown-table-scroll table {
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.markdown-table-scroll th,
+.markdown-table-scroll td {
+  padding: 4px 8px;
+  border-bottom: 1px solid #232a34;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.markdown-table-scroll th {
+  color: #eef2f8;
+  background: #171b22;
+  font-weight: 700;
+}
+
+.markdown-table-scroll tr:last-child td {
+  border-bottom: 0;
+}
+
+.code-block {
+  max-width: 100%;
+  margin: 0 0 9px;
+  border: 1px solid #29313d;
+  border-radius: 7px;
+  background: #0c0f14;
+  overflow: hidden;
+}
+
+.code-block-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 4px 3px 9px;
+  border-bottom: 1px solid #1d232c;
+  background: #12161d;
+}
+
+.code-block-language {
+  color: #7d8593;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.code-block-copy {
+  padding: 2px 7px;
+  border: 1px solid #2b333f;
+  border-radius: 5px;
+  color: #9aa4b2;
+  background: transparent;
+  font-size: 10px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.code-block-copy:hover {
+  color: #eef2f8;
+  border-color: #3c4655;
+}
+
+/* Long blocks scroll inside the message; the node width never follows the code. */
+.code-block pre {
+  max-width: 100%;
+  max-height: 320px;
+  margin: 0;
+  padding: 8px 9px;
+  overflow: auto;
+  color: #cbd4df;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.code-block pre code {
+  font-family: "Cascadia Code", Consolas, monospace;
+}
+
+/* highlight.js token classes, tuned to the canvas palette. */
+.hljs-comment,
+.hljs-quote {
+  color: #6b7484;
+  font-style: italic;
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-doctag,
+.hljs-meta .hljs-keyword {
+  color: #c193e0;
+}
+
+.hljs-string,
+.hljs-regexp,
+.hljs-addition,
+.hljs-attribute,
+.hljs-meta .hljs-string {
+  color: #9ad39f;
+}
+
+.hljs-number,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-variable,
+.hljs-template-variable,
+.hljs-link {
+  color: #e0a06a;
+}
+
+.hljs-title,
+.hljs-section,
+.hljs-name,
+.hljs-selector-id,
+.hljs-selector-class,
+.hljs-title.function_ {
+  color: #71a9ff;
+}
+
+.hljs-type,
+.hljs-class .hljs-title,
+.hljs-built_in,
+.hljs-params {
+  color: #6fd0c4;
+}
+
+.hljs-attr,
+.hljs-property,
+.hljs-meta,
+.hljs-tag {
+  color: #d6c48a;
+}
+
+.hljs-deletion {
+  color: #d97d83;
+}
+
+.hljs-emphasis {
+  font-style: italic;
+}
+
+.hljs-strong {
+  font-weight: 700;
+}
+
+/* Reasoning cards keep their muted, smaller voice even with the richer markdown treatment. */
+.thought-card .markdown-body,
+.thought-card .markdown-body p,
+.thought-card .markdown-body ul,
+.thought-card .markdown-body ol {
+  font-size: 11px;
 }

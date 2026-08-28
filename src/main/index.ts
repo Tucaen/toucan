@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, session } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, session, shell } from 'electron'
 import { execFileSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { basename, extname, join, normalize } from 'node:path'
@@ -116,6 +116,16 @@ function registerProjectIpc(): void {
     if (result.canceled || result.filePaths.length === 0) return null
     const path = normalize(result.filePaths[0])
     return { name: basename(path), path }
+  })
+  // Markdown links in agent replies must open in the user's browser; loading one in the
+  // renderer would navigate the app window away. Only web URLs are forwarded - never file:,
+  // and never a shell-interpreted scheme.
+  ipcMain.handle('shell:open-external', async (_event, url: unknown) => {
+    if (typeof url !== 'string') return
+    let parsed: URL
+    try { parsed = new URL(url) } catch { return }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return
+    await shell.openExternal(parsed.toString())
   })
   ipcMain.handle('workspace:load', () => workspace.load())
   ipcMain.handle('workspace:save', (_event, state) => workspace.save(state))

@@ -1,7 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { type NodeProps } from '@xyflow/react'
-import ReactMarkdown from 'react-markdown'
+import MarkdownMessage from './MarkdownMessage'
 import WorktreeBadge from './WorktreeBadge'
 import type {
   AgentActivity,
@@ -192,10 +192,6 @@ export function SelectorPicker(props: {
       {menu && createPortal(menu, document.body)}
     </div>
   )
-}
-
-function Markdown({ text }: { text: string }): JSX.Element {
-  return <ReactMarkdown>{text}</ReactMarkdown>
 }
 
 function EmptyConversation({ provider }: Pick<ChatViewProps, 'provider'>): JSX.Element {
@@ -507,7 +503,7 @@ function ChatMessageCard(
       data-tone={tone}
     >
       <div>
-        <Markdown text={message.text} />
+        <MarkdownMessage text={message.text} />
         {message.failed
           ? <small className="failed-badge">Not sent — delivery was rejected</small>
           : message.queued && <small className="queued-badge">Queued — will send once the agent is free</small>}
@@ -586,7 +582,7 @@ export function ChatView(props: ChatViewProps & {
             )
             : <EmptyConversation provider={props.provider} />)}
         {props.messages.map((message) => message.role === 'thought'
-          ? <details className="thought-card" key={message.id}><summary>Reasoning</summary><Markdown text={message.text} /></details>
+          ? <details className="thought-card" key={message.id}><summary>Reasoning</summary><MarkdownMessage text={message.text} /></details>
           : (
             <ChatMessageCard
               key={message.id}
