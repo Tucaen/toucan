@@ -44,3 +44,28 @@ export function activityTitle(activity: AgentActivity): string {
     default: return 'Performed a tool action'
   }
 }
+
+/** A tool call has stopped moving: no further output, and its duration is final. */
+export function isSettledActivity(status: AgentActivity['status']): boolean {
+  return status === 'completed' || status === 'failed'
+}
+
+/**
+ * Folds a patch-style ACP update into the activity already on record, stamping the timing the
+ * card header needs. ACP reports no timing at all, so `startedAt` is the moment this client
+ * first saw the call and `endedAt` the moment it first saw it settle; a call that goes back to
+ * working (a retried or resumed tool) drops its end rather than showing a frozen stale duration.
+ */
+export function mergeActivity(
+  existing: AgentActivity | undefined,
+  incoming: AgentActivity,
+  now: number
+): AgentActivity {
+  const merged = { ...existing, ...incoming }
+  const settled = isSettledActivity(merged.status)
+  return {
+    ...merged,
+    startedAt: existing?.startedAt ?? now,
+    ...(settled ? { endedAt: existing?.endedAt ?? now } : { endedAt: undefined })
+  }
+}

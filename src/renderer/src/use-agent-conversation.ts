@@ -12,6 +12,7 @@ import type {
   AgentProvider,
   AgentPromptContent
 } from '../../shared/agent'
+import { mergeActivity } from '../../shared/agent-activity'
 import { chooseAgentPromptApi, createDispatchOrderGate, deliverAgentPrompt } from './agent-prompt-delivery'
 import {
   editQueuedPrompt,
@@ -280,7 +281,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
       } else if (event.type === 'activity') {
         setActivitiesById((current) => ({
           ...current,
-          [event.activity.id]: { ...current[event.activity.id], ...event.activity }
+          [event.activity.id]: mergeActivity(current[event.activity.id], event.activity, Date.now())
         }))
       } else if (event.type === 'plan') {
         setPlan(event.entries)

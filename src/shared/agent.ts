@@ -114,6 +114,10 @@ export interface AgentActivity {
   status?: 'pending' | 'in_progress' | 'completed' | 'failed'
   content?: string
   locations?: string[]
+  /** Stamped locally by `mergeActivity` when the call is first seen; ACP reports no timing. */
+  startedAt?: number
+  /** Stamped when the call first reaches a terminal status, and cleared again if it resumes. */
+  endedAt?: number
 }
 
 /**

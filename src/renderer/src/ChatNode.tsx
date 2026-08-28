@@ -12,8 +12,16 @@ import type {
   AgentModelState,
   AgentPlanEntry
 } from '../../shared/agent'
-import { activityTitle } from '../../shared/agent-activity'
 import { isNearScrollBottom } from './chat-scroll-follow'
+import {
+  formatToolDuration,
+  resolveToolCardExpanded,
+  toolCardElapsed,
+  toolCardIsTiming,
+  type ToolCardChoice,
+  type ToolCardStatus
+} from './tool-card'
+import { TOOL_CARD_LINE_BUDGET, toolCardFamilyFor } from './tool-card-families'
 import type { TerminalCanvasNode, TerminalNodeStatus } from './canvas-workspace'
 import {
   computeNodePickerMenuPosition,
@@ -918,16 +926,79 @@ function ChatMessageCard(
   )
 }
 
+/**
+ * The header always states a status, so an update that arrives without one reads as the
+ * in-flight call it is rather than as a blank cell.
+ */
+const ACTIVITY_STATUS_LABELS: Record<ToolCardStatus, string> = {
+  pending: 'queued',
+  in_progress: 'running',
+  completed: 'done',
+  failed: 'failed'
+}
+
+/**
+ * Re-renders once a second, but only while something is actually being timed - a rail full of
+ * finished cards must not keep a timer alive.
+ */
+function useElapsedClock(running: boolean): number {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!running) return
+    setNow(Date.now())
+    const timer = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [running])
+  return now
+}
+
+/**
+ * The shell every tool card sits in. It owns all the chrome - icon, one-line summary, status,
+ * elapsed duration, collapse, and the bounded-height body with its "show more" - and delegates
+ * only the summary and the body to the activity's family (see `tool-card-families.tsx`), so a
+ * per-tool card never re-implements any of this.
+ */
 function ActivityCard({ activity }: { activity: AgentActivity }): JSX.Element {
+  const family = toolCardFamilyFor(activity)
+  const [choice, setChoice] = useState<ToolCardChoice | undefined>(undefined)
+  const [showAll, setShowAll] = useState(false)
+  const expanded = resolveToolCardExpanded(activity.status, choice)
+  const now = useElapsedClock(toolCardIsTiming(activity))
+  const duration = formatToolDuration(toolCardElapsed(activity, now))
+  const body = expanded ? family.body(activity, showAll ? null : TOOL_CARD_LINE_BUDGET) : null
   return (
-    <article className="activity-card" data-status={activity.status}>
-      <span className="activity-icon">{activity.kind === 'edit' ? '+' : activity.kind === 'execute' ? '>_' : '*'}</span>
-      <div>
-        <strong>{activityTitle(activity)}</strong>
-        {activity.content && <pre>{activity.content}</pre>}
-        {activity.locations?.map((location) => <small key={location}>{location}</small>)}
-      </div>
-      <span className="activity-state">{activity.status?.replace('_', ' ')}</span>
+    <article
+      className="activity-card"
+      data-status={activity.status}
+      data-family={family.id}
+      data-expanded={expanded}
+    >
+      <button
+        type="button"
+        className="activity-header"
+        aria-expanded={expanded}
+        onClick={() => setChoice({ expanded: !expanded, status: activity.status })}
+      >
+        <span className="activity-icon">{family.icon(activity)}</span>
+        <strong>{family.summary(activity)}</strong>
+        {duration && <small className="activity-duration">{duration}</small>}
+        <span className="activity-state">{ACTIVITY_STATUS_LABELS[activity.status ?? 'in_progress']}</span>
+      </button>
+      {body && (
+        <div className="activity-body">
+          {body.content}
+          {body.hiddenLines > 0 && (
+            <button type="button" className="activity-show-more" onClick={() => setShowAll(true)}>
+              Show {body.hiddenLines} more lines
+            </button>
+          )}
+          {showAll && (
+            <button type="button" className="activity-show-more" onClick={() => setShowAll(false)}>
+              Show less
+            </button>
+          )}
+        </div>
+      )}
     </article>
   )
 }

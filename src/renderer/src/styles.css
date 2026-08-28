@@ -1567,19 +1567,49 @@ button {
 }
 
 .activity-card {
-  display: grid;
-  grid-template-columns: 25px minmax(0, 1fr) auto;
-  gap: 7px;
-  align-items: start;
-  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
   border: 1px solid #2b333f;
   border-radius: 8px;
+  overflow: hidden;
   color: #aeb7c4;
   background: #171b22;
 }
 
 .activity-card[data-status="in_progress"] {
   border-color: color-mix(in srgb, var(--node-accent) 45%, #2b333f);
+}
+
+.activity-card[data-status="failed"] {
+  border-color: #7a3b40;
+  background: #1d1517;
+}
+
+.activity-header {
+  display: grid;
+  grid-template-columns: 25px minmax(0, 1fr) auto auto;
+  gap: 7px;
+  align-items: center;
+  width: 100%;
+  padding: 8px;
+  border: 0;
+  color: inherit;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.activity-header:hover {
+  background: #1c2129;
+}
+
+.activity-body {
+  /* The card's own scroll floor: no single tool result may set the rail's height. */
+  max-height: 220px;
+  overflow: auto;
+  padding: 0 8px 8px 40px;
 }
 
 .activity-icon {
@@ -1594,7 +1624,7 @@ button {
   font-size: 10px;
 }
 
-.activity-card strong {
+.activity-header strong {
   display: block;
   overflow: hidden;
   color: #cbd2dc;
@@ -1603,16 +1633,32 @@ button {
   white-space: nowrap;
 }
 
-.activity-card pre {
-  max-height: 90px;
+.activity-duration {
+  color: #6f7a89;
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+}
+
+.activity-show-more {
+  margin-top: 5px;
+  padding: 2px 7px;
+  border: 1px solid #35404e;
+  border-radius: 6px;
+  color: #9ba6b5;
+  background: #1d232c;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.activity-body pre {
+  /* The body wrapper already caps and scrolls; a second scroller here would nest them. */
   margin: 6px 0 0;
-  overflow: auto;
   color: #8f9aa8;
   font: 10px/1.4 Consolas, monospace;
   white-space: pre-wrap;
 }
 
-.activity-card small {
+.activity-body small {
   display: block;
   margin-top: 3px;
   overflow: hidden;
@@ -1627,6 +1673,10 @@ button {
   font-size: 9px;
   font-weight: 750;
   text-transform: uppercase;
+}
+
+.activity-card[data-status="failed"] .activity-state {
+  color: #d98088;
 }
 
 .chat-auth-panel {
