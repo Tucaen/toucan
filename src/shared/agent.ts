@@ -26,6 +26,8 @@ export interface AgentCreateResult {
   modes?: AgentModeState
   models?: AgentModelState
   efforts?: AgentEffortState
+  /** Commands already advertised by the time the session opened, so a reopen isn't left blank. */
+  commands?: AgentCommand[]
   authMethods?: AgentAuthMethod[]
   /** Whether the agent's `initialize` handshake advertised `promptCapabilities.image`. */
   imageSupport?: boolean
@@ -81,6 +83,17 @@ export interface AgentEffortState {
   availableEfforts: AgentModel[]
 }
 
+/**
+ * One slash command or skill the connected session advertises over ACP. Mirrors the protocol's
+ * `AvailableCommand`; `input` is present only when the command expects arguments, and its `hint`
+ * is what the agent suggests typing there.
+ */
+export interface AgentCommand {
+  name: string
+  description: string
+  input?: { hint: string }
+}
+
 export interface AgentPermissionOption {
   id: string
   label: string
@@ -134,6 +147,7 @@ export type AgentEvent =
   | { type: 'modes'; modes: AgentModeState }
   | { type: 'models'; models: AgentModelState }
   | { type: 'efforts'; efforts: AgentEffortState | null }
+  | { type: 'commands'; commands: AgentCommand[] }
   | { type: 'approval'; approvalId: string; title: string; options: AgentPermissionOption[] }
   | { type: 'auth'; methods: AgentAuthMethod[] }
   | { type: 'auth_link'; url: string }

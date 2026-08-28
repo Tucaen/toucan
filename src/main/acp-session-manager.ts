@@ -8,6 +8,7 @@ import {
   methods,
   ndJsonStream,
   type AuthMethod,
+  type AvailableCommand,
   type ClientConnection,
   type ClientContext,
   type ContentBlock,
@@ -17,6 +18,7 @@ import {
 } from '@agentclientprotocol/sdk'
 import type {
   AgentAuthMethod,
+  AgentCommand,
   AgentCreateRequest,
   AgentCreateResult,
   AgentEffortState,
@@ -64,6 +66,12 @@ interface RunningAgent {
   modelConfigId?: string
   effortConfigId?: string
   cachedEfforts?: AgentEffortState
+  /**
+   * The slash commands and skills this session last advertised. Kept so reopening an existing
+   * agent (which skips the handshake that produced the notification) can hand them back rather
+   * than leaving the composer's completion empty until the agent happens to publish again.
+   */
+  cachedCommands?: AgentCommand[]
   pendingApprovals: Map<string, PendingApproval>
   busy: boolean
   stopping: boolean
@@ -209,6 +217,24 @@ function simplifyAuthMethod(method: AuthMethod): AgentAuthMethod {
     type: 'type' in method ? method.type : 'agent',
     ...('args' in method && method.args ? { args: method.args } : {})
   }
+}
+
+/**
+ * Narrows the protocol's `AvailableCommand` to what the composer's completion actually renders,
+ * and drops anything unnamed so a malformed entry can never occupy a row nothing can insert.
+ * `input` is what distinguishes a command that expects arguments from one that doesn't.
+ */
+export function simplifyAvailableCommands(
+  commands: AvailableCommand[] | null | undefined
+): AgentCommand[] {
+  if (!commands) return []
+  return commands
+    .filter((command) => typeof command.name === 'string' && command.name.length > 0)
+    .map((command) => ({
+      name: command.name,
+      description: command.description ?? '',
+      ...(command.input ? { input: { hint: command.input.hint ?? '' } } : {})
+    }))
 }
 
 function simplifyModes(modes: {
@@ -427,6 +453,8 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       if (modes) send(running, { type: 'modes', modes })
       if (models) send(running, { type: 'models', models })
       if (efforts) send(running, { type: 'efforts', efforts })
+      // Reopening an existing agent never replays the notification that first advertised these.
+      if (running.cachedCommands?.length) send(running, { type: 'commands', commands: running.cachedCommands })
       send(running, { type: 'status', status: 'ready' })
       return {
         ok: true,
@@ -435,7 +463,8 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         imageSupport: running.imageSupport,
         ...(modes ? { modes } : {}),
         ...(models ? { models } : {}),
-        ...(efforts ? { efforts } : {})
+        ...(efforts ? { efforts } : {}),
+        ...(running.cachedCommands?.length ? { commands: running.cachedCommands } : {})
       }
     } catch (error) {
       if (isAuthRequired(error)) {
@@ -593,6 +622,9 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
               running.cachedEfforts = undefined
               send(running, { type: 'efforts', efforts: null })
             }
+          } else if (update.sessionUpdate === 'available_commands_update') {
+            running.cachedCommands = simplifyAvailableCommands(update.availableCommands)
+            send(running, { type: 'commands', commands: running.cachedCommands })
           } else if (update.sessionUpdate === 'usage_update') {
             send(running, {
               type: 'usage',

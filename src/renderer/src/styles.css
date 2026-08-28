@@ -2958,3 +2958,30 @@ button {
   color: #8b94a3;
   font-size: 12px;
 }
+
+/* The slash-command completion reuses the picker menu's shell, but it lists a whole command set
+   rather than a handful of options, so it is wider and scrolls instead of growing unbounded. */
+.slash-command-menu {
+  width: 320px;
+  max-width: calc(100vw - 16px);
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.slash-command-menu > button[data-active="true"] {
+  background: #252c37;
+}
+
+.slash-command-menu strong {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  font-family: Consolas, monospace;
+}
+
+.slash-command-hint {
+  color: #717c8a;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 500;
+}

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import type {
   AgentActivity,
   AgentAuthMethod,
+  AgentCommand,
   AgentEffortState,
   AgentEvent,
   AgentModeState,
@@ -105,6 +106,8 @@ export interface AgentConversationController {
   modes: AgentModeState | null
   models: AgentModelState | null
   efforts: AgentEffortState | null
+  /** Slash commands and skills this session advertises, for the composer's completion. */
+  commands: AgentCommand[]
   status: AgentChatStatus
   usage: AgentUsage | null
   detail?: string
@@ -153,6 +156,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
   const [modes, setModes] = useState<AgentModeState | null>(null)
   const [models, setModels] = useState<AgentModelState | null>(null)
   const [efforts, setEfforts] = useState<AgentEffortState | null>(null)
+  const [commands, setCommands] = useState<AgentCommand[]>([])
   const [status, setStatus] = useState<AgentChatStatus>('starting')
   const [usage, setUsage] = useState<AgentUsage | null>(null)
   const [detail, setDetail] = useState<string>()
@@ -237,6 +241,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     setModes(null)
     setModels(null)
     setEfforts(null)
+    setCommands([])
     setStatus('starting')
     setUsage(null)
     setDetail(undefined)
@@ -288,6 +293,8 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
       } else if (event.type === 'efforts') {
         setEfforts(event.efforts)
         onEffort.current?.(event.efforts?.currentEffortId)
+      } else if (event.type === 'commands') {
+        setCommands(event.commands)
       } else if (event.type === 'approval') {
         setApproval({ id: event.approvalId, title: event.title, options: event.options })
       } else if (event.type === 'auth') {
@@ -321,6 +328,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
         setEfforts(result.efforts)
         onEffort.current?.(result.efforts.currentEffortId)
       }
+      if (result.commands) setCommands(result.commands)
       setImageSupport(result.imageSupport ?? false)
       if (result.status === 'ready') {
         // Resume replay is delivered during create(), before this result settles. Those messages
@@ -574,6 +582,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     modes,
     models,
     efforts,
+    commands,
     status,
     usage,
     detail,

@@ -6,6 +6,7 @@ import WorktreeBadge from './WorktreeBadge'
 import type {
   AgentActivity,
   AgentAuthMethod,
+  AgentCommand,
   AgentEffortState,
   AgentModeState,
   AgentModelState,
@@ -14,13 +15,26 @@ import type {
 import { activityTitle } from '../../shared/agent-activity'
 import { isNearScrollBottom } from './chat-scroll-follow'
 import type { TerminalCanvasNode, TerminalNodeStatus } from './canvas-workspace'
-import { computeNodePickerMenuPosition } from './node-picker-menu-position'
+import {
+  computeNodePickerMenuPosition,
+  type NodePickerMenuOptions,
+  type NodePickerMenuSize
+} from './node-picker-menu-position'
 import { imageFilesFromClipboard, type AgentImageAttachment } from './image-attachment'
 import { classifyAssistantMessage, type DecisionOption } from './decision-message'
 import { pendingDecisionsFromMessages, type PendingDecision } from './pending-decisions'
 import NodeBorderResizer from './NodeBorderResizer'
 import VoiceInputPrototype from './VoiceInputPrototype'
 import { composerTextareaSize } from './composer-autosize'
+import {
+  acceptSlashCommand,
+  acceptedSlashCompletion,
+  dismissSlashCompletion,
+  emptySlashCompletion,
+  highlightSlashCommand,
+  moveSlashSelection,
+  slashCompletionView
+} from './slash-command-completion'
 import {
   composerKeyAction,
   composerSendKeyLabels,
@@ -60,6 +74,12 @@ export interface ChatViewProps {
   attachments: AgentImageAttachment[]
   /** Follow-ups still held in the renderer while a turn runs; see prompt-outbox.ts. */
   queued: QueuedPrompt[]
+  /**
+   * The slash commands and skills the connected session advertises over ACP. Optional because a
+   * chat view renders perfectly well before an agent has published any - the completion simply
+   * has nothing to offer until then.
+   */
+  commands?: AgentCommand[]
   setDraft(value: string): void
   addImages(files: File[] | FileList): Promise<void>
   removeAttachment(id: string): void
@@ -114,6 +134,58 @@ const pickerCopy = {
   sendKey: { icon: '>', heading: 'Send with', idle: 'Send key', hint: 'Choose which key sends a message' }
 } as const
 
+/**
+ * Positions a portal-rendered menu against an anchor inside a canvas node. Every floating menu in
+ * here has to do this the same way - `.terminal-node` is `overflow: hidden`, so a CSS-anchored
+ * menu clips the moment its node nears a canvas edge - so the measure/clamp/track loop lives once,
+ * here. Returns null until the first measurement, which the caller renders as `visibility: hidden`
+ * so the menu never flashes at the wrong place.
+ */
+function usePortalMenuPosition(
+  anchorRef: RefObject<HTMLElement>,
+  menuRef: RefObject<HTMLElement>,
+  enabled: boolean,
+  fallback: NodePickerMenuSize,
+  options?: NodePickerMenuOptions,
+  // Anything that can change the menu's own size (its option list, say) and so its placement.
+  remeasureOn?: unknown
+): { top: number; left: number } | null {
+  const [position, setPosition] = useState<{ top: number; left: number } | null>(null)
+
+  useLayoutEffect(() => {
+    if (!enabled) {
+      setPosition(null)
+      return
+    }
+    const reposition = (): void => {
+      const anchor = anchorRef.current?.getBoundingClientRect()
+      if (!anchor) return
+      const menu = menuRef.current?.getBoundingClientRect()
+      setPosition(computeNodePickerMenuPosition(
+        anchor,
+        { width: menu?.width || fallback.width, height: menu?.height ?? fallback.height },
+        { width: window.innerWidth, height: window.innerHeight },
+        options
+      ))
+    }
+    reposition()
+    window.addEventListener('resize', reposition)
+    window.addEventListener('scroll', reposition, true)
+    // The anchor can change size without the window doing anything - a composer growing with its
+    // draft, a node dragged by its resize border - and the menu has to follow it.
+    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(reposition) : null
+    if (anchorRef.current) observer?.observe(anchorRef.current)
+    return () => {
+      window.removeEventListener('resize', reposition)
+      window.removeEventListener('scroll', reposition, true)
+      observer?.disconnect()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [anchorRef, enabled, menuRef, remeasureOn])
+
+  return position
+}
+
 /** One dropdown shape for every agent-reported selector, so modes and models stay consistent. */
 export function SelectorPicker(props: {
   kind: keyof typeof pickerCopy
@@ -123,7 +195,6 @@ export function SelectorPicker(props: {
   select(optionId: string): void
 }): JSX.Element {
   const [open, setOpen] = useState(false)
-  const [menuPosition, setMenuPosition] = useState<{ top: number; left: number } | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const buttonRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -131,32 +202,15 @@ export function SelectorPicker(props: {
   const selected = props.options.find((option) => option.id === props.selectedId)
   const canOpen = props.options.length > 0 && !props.disabled
 
-  // The menu portals to <body> so it can escape ancestors (e.g. canvas nodes)
-  // that clip overflow; position it against the trigger
-  // button's viewport rect instead of relying on CSS anchoring.
-  useLayoutEffect(() => {
-    if (!open) {
-      setMenuPosition(null)
-      return
-    }
-    const reposition = (): void => {
-      const trigger = buttonRef.current?.getBoundingClientRect()
-      const menu = menuRef.current?.getBoundingClientRect()
-      if (!trigger) return
-      setMenuPosition(computeNodePickerMenuPosition(
-        trigger,
-        { width: menu?.width ?? 230, height: menu?.height ?? 0 },
-        { width: window.innerWidth, height: window.innerHeight }
-      ))
-    }
-    reposition()
-    window.addEventListener('resize', reposition)
-    window.addEventListener('scroll', reposition, true)
-    return () => {
-      window.removeEventListener('resize', reposition)
-      window.removeEventListener('scroll', reposition, true)
-    }
-  }, [open, props.options])
+  // The menu portals to <body> so it can escape ancestors (e.g. canvas nodes) that clip overflow.
+  const menuPosition = usePortalMenuPosition(
+    buttonRef,
+    menuRef,
+    open,
+    { width: 230, height: 0 },
+    undefined,
+    props.options
+  )
 
   const closeUnlessFocusStaysInside = (relatedTarget: EventTarget | null): void => {
     const next = relatedTarget as Node | null
@@ -228,6 +282,78 @@ export function SelectorPicker(props: {
       </button>
       {menu && createPortal(menu, document.body)}
     </div>
+  )
+}
+
+/**
+ * The composer's slash-command list. Like `SelectorPicker` it portals to `<body>` and positions
+ * itself in JS against its anchor's viewport rect - `.terminal-node` clips overflow, so a
+ * CSS-anchored menu would be cut off the moment the node sits near a canvas edge. It opens above
+ * the composer by preference, since the composer already sits at the bottom of its node.
+ */
+function SlashCommandMenu(props: {
+  anchorRef: RefObject<HTMLElement>
+  id: string
+  options: AgentCommand[]
+  activeIndex: number
+  optionId(index: number): string
+  accept(command: AgentCommand): void
+  highlight(index: number): void
+}): JSX.Element | null {
+  const menuRef = useRef<HTMLDivElement>(null)
+  const position = usePortalMenuPosition(
+    props.anchorRef,
+    menuRef,
+    true,
+    { width: 320, height: 0 },
+    { align: 'start', prefer: 'above' },
+    props.options
+  )
+
+  // The active row has to stay visible while the arrows walk past the menu's scroll bounds.
+  useLayoutEffect(() => {
+    const active = menuRef.current?.querySelector('[data-active="true"]')
+    // Guarded: jsdom (and any non-layout host) has no scrollIntoView, and this is pure polish.
+    if (active instanceof HTMLElement && typeof active.scrollIntoView === 'function') {
+      active.scrollIntoView({ block: 'nearest' })
+    }
+  }, [props.activeIndex, props.options])
+
+  return createPortal(
+    <div
+      ref={menuRef}
+      id={props.id}
+      className="node-picker-menu slash-command-menu"
+      role="listbox"
+      aria-label="Slash commands"
+      style={{
+        position: 'fixed',
+        top: position?.top ?? 0,
+        left: position?.left ?? 0,
+        visibility: position ? 'visible' : 'hidden'
+      }}
+      onMouseDown={(event) => event.preventDefault()}
+    >
+      {props.options.map((command, index) => (
+        <button
+          type="button"
+          role="option"
+          id={props.optionId(index)}
+          key={command.name}
+          aria-selected={index === props.activeIndex}
+          data-active={index === props.activeIndex}
+          onMouseEnter={() => props.highlight(index)}
+          onClick={() => props.accept(command)}
+        >
+          <strong>
+            {`/${command.name}`}
+            {command.input?.hint && <em className="slash-command-hint">{command.input.hint}</em>}
+          </strong>
+          {command.description && <span>{command.description}</span>}
+        </button>
+      ))}
+    </div>,
+    document.body
   )
 }
 
@@ -324,13 +450,14 @@ function ComposerToolbar(props: Pick<ChatViewProps,
 export function Composer(props: Pick<ChatViewProps,
   'provider' | 'messages' | 'draft' | 'setDraft' | 'submit' | 'cancel' | 'status' | 'detail' | 'imageSupport'
   | 'attachments' | 'addImages' | 'removeAttachment' | 'onDraftChange'
-  | 'queued' | 'editQueued' | 'withdrawQueued' | 'sendQueuedNow'
+  | 'queued' | 'editQueued' | 'withdrawQueued' | 'sendQueuedNow' | 'commands'
   | 'modes' | 'models' | 'efforts' | 'selectorsDisabled' | 'selectMode' | 'selectModel' | 'selectEffort'
 >): JSX.Element {
   const busy = props.status === 'working'
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const composerDisabled = isSendDisabled(props.status)
   const { sendKey } = useComposerSendKey()
+  const completionId = useId()
   // Draft input is intentionally local to this leaf. Publishing every keystroke through the
   // conversation hook rerenders the chat panel, including transcript Markdown,
   // persistence, and decision parsing. None of that work owns the input value.
@@ -404,6 +531,79 @@ export function Composer(props: Pick<ChatViewProps,
     setDraft(next.draft)
   }
 
+  // Where the caret sits decides whether a slash token is being typed at all, so the completion
+  // tracks it rather than guessing from the draft's end - a caret parked mid-token still completes.
+  const [caret, setCaret] = useState(0)
+  const [completionState, setCompletionState] = useState(emptySlashCompletion)
+  const completion = slashCompletionView(
+    composerDisabled ? '' : draft,
+    caret,
+    props.commands ?? [],
+    completionState
+  )
+  // What Escape dismissed and what was just accepted are remembered per slash token; once the
+  // draft has no token left (it was sent, cleared, or edited away) that memory is spent, and
+  // keeping it would silently refuse to complete the next identical token typed in its place.
+  const hasToken = completion.token !== null
+  useEffect(() => {
+    if (!hasToken) setCompletionState(emptySlashCompletion)
+  }, [hasToken])
+  useEffect(
+    () => setCompletionState((current) => highlightSlashCommand(current, 0)),
+    [completion.token?.query, completion.token?.start]
+  )
+
+  /** Set by an acceptance so the caret can be restored once React has rendered the new draft. */
+  const pendingCaretRef = useRef<number | null>(null)
+  useLayoutEffect(() => {
+    const target = pendingCaretRef.current
+    if (target === null) return
+    pendingCaretRef.current = null
+    const element = textareaRef.current
+    if (!element) return
+    element.focus()
+    element.setSelectionRange(target, target)
+    setCaret(target)
+  }, [draft])
+
+  const acceptCompletion = (command: AgentCommand): void => {
+    if (!completion.token) return
+    const next = acceptSlashCommand(draft, caret, completion.token, command)
+    setDraft(next.draft)
+    setHistory(leaveHistory)
+    setCompletionState((current) => acceptedSlashCompletion(current, command))
+    pendingCaretRef.current = next.caret
+  }
+
+  const dismissCompletion = (): void => {
+    setCompletionState((current) => dismissSlashCompletion(current, completion.token))
+  }
+
+  /** Returns true when the completion has claimed the key press, so the composer's own bindings stay out of it. */
+  const handleCompletionKey = (event: React.KeyboardEvent<HTMLTextAreaElement>): boolean => {
+    if (!completion.open || event.nativeEvent.isComposing) return false
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault()
+      setCompletionState((current) => highlightSlashCommand(
+        current,
+        moveSlashSelection(completion.activeIndex, completion.matches.length, event.key === 'ArrowDown' ? 1 : -1)
+      ))
+      return true
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      dismissCompletion()
+      return true
+    }
+    // Shift/Alt+Enter still means "newline" here; only a plain accept keystroke picks a command.
+    if (event.key === 'Tab' || (event.key === 'Enter' && !event.shiftKey && !event.altKey)) {
+      event.preventDefault()
+      acceptCompletion(completion.matches[completion.activeIndex])
+      return true
+    }
+    return false
+  }
+
   return (
     <form
       className="chat-composer nodrag"
@@ -433,11 +633,14 @@ export function Composer(props: Pick<ChatViewProps,
           value={draft}
           onChange={(event) => {
             setDraft(event.target.value)
+            setCaret(event.target.selectionStart ?? event.target.value.length)
             setHistory(leaveHistory)
             setPasteBlocked(false)
           }}
+          onSelect={(event) => setCaret(event.currentTarget.selectionStart ?? 0)}
           onPaste={handlePaste}
           onKeyDown={(event) => {
+            if (handleCompletionKey(event)) return
             const action = composerKeyAction(
               {
                 key: event.key,
@@ -466,7 +669,24 @@ export function Composer(props: Pick<ChatViewProps,
           }}
           placeholder="Message the agent..."
           disabled={composerDisabled}
+          // The menu is a portal, so focus leaving the composer entirely (not into the menu, whose
+          // mousedown is suppressed) means the captain has moved on and it should stop hovering.
+          onBlur={dismissCompletion}
+          aria-expanded={completion.open}
+          aria-controls={completion.open ? completionId : undefined}
+          aria-activedescendant={completion.open ? `${completionId}-${completion.activeIndex}` : undefined}
         />
+        {completion.open && (
+          <SlashCommandMenu
+            anchorRef={textareaRef}
+            id={completionId}
+            options={completion.matches}
+            activeIndex={completion.activeIndex}
+            optionId={(index) => `${completionId}-${index}`}
+            accept={acceptCompletion}
+            highlight={(index) => setCompletionState((current) => highlightSlashCommand(current, index))}
+          />
+        )}
         <VoiceInputPrototype
           draft={draft}
           disabled={composerDisabled}

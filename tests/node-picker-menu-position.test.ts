@@ -39,3 +39,63 @@ test('clamps vertically when the menu is taller than the viewport in either dire
   assert.ok(position.top >= 8, 'menu must not clip above the viewport')
   assert.ok(position.top + 5000 >= 900 - 8 || position.top <= 8, 'menu should be pinned to a viewport-visible edge')
 })
+
+test('left-aligns the menu to the trigger when asked, e.g. a composer completion under a wide textarea', () => {
+  const trigger = { top: 100, left: 440, right: 900, bottom: 120 }
+  const position = computeNodePickerMenuPosition(
+    trigger,
+    { width: 300, height: 200 },
+    { width: 1200, height: 900 },
+    { align: 'start' }
+  )
+
+  assert.equal(position.left, 440)
+})
+
+test('a left-aligned menu is still clamped onto the screen', () => {
+  const trigger = { top: 100, left: 1100, right: 1180, bottom: 120 }
+  const position = computeNodePickerMenuPosition(
+    trigger,
+    { width: 300, height: 200 },
+    { width: 1200, height: 900 },
+    { align: 'start' }
+  )
+
+  assert.equal(position.left, 1200 - 300 - 8)
+})
+
+test('opens above the trigger when that is preferred and there is room', () => {
+  const trigger = { top: 400, left: 100, right: 400, bottom: 440 }
+  const position = computeNodePickerMenuPosition(
+    trigger,
+    { width: 300, height: 200 },
+    { width: 1200, height: 900 },
+    { prefer: 'above' }
+  )
+
+  assert.equal(position.top, 400 - 7 - 200)
+})
+
+test('a preferred-above menu flips below when it would clip the top of the viewport', () => {
+  const trigger = { top: 60, left: 100, right: 400, bottom: 100 }
+  const position = computeNodePickerMenuPosition(
+    trigger,
+    { width: 300, height: 200 },
+    { width: 1200, height: 900 },
+    { prefer: 'above' }
+  )
+
+  assert.equal(position.top, 107)
+})
+
+test('the gap between trigger and menu stays configurable', () => {
+  const trigger = { top: 100, left: 440, right: 490, bottom: 120 }
+  const position = computeNodePickerMenuPosition(
+    trigger,
+    { width: 230, height: 200 },
+    { width: 1200, height: 900 },
+    { gap: 20 }
+  )
+
+  assert.equal(position.top, 140)
+})
