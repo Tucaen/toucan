@@ -25,6 +25,7 @@ import type {
   WorktreeRemoveResult,
   WorktreeStatus
 } from '../shared/worktree'
+import type { ConversationListPage, ConversationListRequest } from '../shared/conversation'
 
 export interface AgentApi {
   create(request: AgentCreateRequest): Promise<AgentCreateResult>
@@ -72,11 +73,19 @@ export interface WorktreeApi {
   remove(request: WorktreeRemoveRequest): Promise<WorktreeRemoveResult>
 }
 
+export interface ConversationApi {
+  /** Past conversations for the given directories, newest first and read one page at a time. */
+  list(request: ConversationListRequest): Promise<ConversationListPage>
+  /** Whether a listed transcript is still on disk. */
+  exists(path: string): Promise<boolean>
+}
+
 declare global {
   interface Window {
     terminalApi: TerminalApi
     agentApi: AgentApi
     usageApi: UsageApi
     worktreeApi: WorktreeApi
+    conversationApi: ConversationApi
   }
 }

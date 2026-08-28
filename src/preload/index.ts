@@ -26,6 +26,7 @@ import type {
   WorktreeRemoveResult,
   WorktreeStatus
 } from '../shared/worktree'
+import type { ConversationListPage, ConversationListRequest } from '../shared/conversation'
 
 const terminalApi = {
   getInitialProject: (): Promise<ProjectDirectory> => ipcRenderer.invoke('project:initial'),
@@ -127,4 +128,12 @@ const worktreeApi = {
 }
 
 contextBridge.exposeInMainWorld('worktreeApi', worktreeApi)
+
+const conversationApi = {
+  list: (request: ConversationListRequest): Promise<ConversationListPage> =>
+    ipcRenderer.invoke('conversation:list', request),
+  exists: (path: string): Promise<boolean> => ipcRenderer.invoke('conversation:exists', path)
+}
+
+contextBridge.exposeInMainWorld('conversationApi', conversationApi)
 

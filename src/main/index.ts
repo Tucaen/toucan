@@ -4,9 +4,11 @@ import { existsSync } from 'node:fs'
 import { basename, extname, join, normalize } from 'node:path'
 import { spawn } from 'node-pty'
 import type { AgentCreateRequest, AgentPromptContent } from '../shared/agent'
+import type { ConversationListRequest } from '../shared/conversation'
 import type { TerminalCreateRequest } from '../shared/terminal'
 import { createAcpSessionManager, type AcpSessionManager } from './acp-session-manager'
 import { createClaudeUsageReader } from './claude-usage'
+import { createConversationHistory, type ConversationHistory } from './conversation-history'
 import { createCodexRateLimitReader } from './codex-rate-limits'
 import { createProviderUsage, type ProviderUsage } from './provider-usage'
 import { createSessionProviders, type SessionProviders } from './session-providers'
@@ -60,6 +62,22 @@ function registerTerminalIpc(manager: TerminalManager, providers: SessionProvide
   ))
   ipcMain.on('terminal:kill', (_event, sessionId: string, incarnationId: string, attachmentId: string) => (
     manager.kill(sessionId, incarnationId, attachmentId)
+  ))
+}
+
+function registerConversationIpc(history: ConversationHistory): void {
+  ipcMain.handle('conversation:list', (_event, request: unknown) => {
+    const directories = (request as ConversationListRequest | undefined)?.directories
+    if (!Array.isArray(directories) || directories.some((entry) => typeof entry !== 'string')) {
+      return { entries: [], total: 0, hasMore: false }
+    }
+    const { limit, offset } = request as ConversationListRequest
+    return history.list({ directories, limit, offset })
+  })
+  // A transcript the user can see in the list may already be gone; opening one asks first so
+  // the browser can say so instead of launching a resume that cannot find its conversation.
+  ipcMain.handle('conversation:exists', (_event, path: unknown) => (
+    typeof path === 'string' ? history.exists(path) : Promise.resolve(false)
   ))
 }
 
@@ -226,6 +244,10 @@ app.whenReady().then(() => {
 
   registerTerminalIpc(manager, providers)
   registerAgentIpc(agentManager)
+  registerConversationIpc(createConversationHistory({
+    homeDirectory: app.getPath('home'),
+    environment: process.env
+  }))
   registerWorktreeIpc(createWorktreeManager())
   registerUsageIpc(createProviderUsage({
     readers: {

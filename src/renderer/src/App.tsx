@@ -34,6 +34,8 @@ import type { AgentRateLimitStatus, AgentRateLimitWindow, ProviderRateLimits } f
 import type { WorktreeRemovalBlocker } from '../../shared/worktree'
 import { branchNameProblem, describeWorktreeBlocker, deriveWorktreeDirectory } from '../../shared/worktree'
 import { describeForcedRemovalCost, planWorktreeRemoval, type WorktreeRemovalPlan } from './worktree-removal'
+import type { ConversationSummary } from '../../shared/conversation'
+import ConversationHistoryDialog from './ConversationHistoryDialog'
 import SessionNode from './SessionNode'
 import WorktreeNode from './WorktreeNode'
 import { terminalLivenessLabels } from './terminal-liveness'
@@ -304,6 +306,9 @@ function Canvas(): JSX.Element {
   const [worktreeDraft, setWorktreeDraft] = useState<WorktreeDraft | null>(null)
   const [removalPrompt, setRemovalPrompt] = useState<WorktreeRemovalPrompt | null>(null)
   const [setupProjectId, setSetupProjectId] = useState<string | null>(null)
+  // Where a conversation picked from the history browser lands, captured when the browser opens
+  // so the node still appears where the user right-clicked.
+  const [historyDrop, setHistoryDrop] = useState<{ x: number; y: number } | null>(null)
   const { fitView, screenToFlowPosition } = useReactFlow()
   const nextSessionNumber = useRef(1)
 
@@ -446,11 +451,13 @@ function Canvas(): JSX.Element {
     position: { x: number; y: number }
     initialInput?: string
     label?: string
+    /** An existing provider conversation this node adopts instead of starting a fresh one. */
+    resumeConversationId?: string
   }): void => {
-    const { kind, project, worktree, position } = options
+    const { kind, project, worktree, position, resumeConversationId } = options
     const id = crypto.randomUUID()
     const label = options.label ?? `${labels[kind]} ${nextSessionNumber.current}`
-    const conversationId = kind === 'claude' ? crypto.randomUUID() : undefined
+    const conversationId = resumeConversationId ?? (kind === 'claude' ? crypto.randomUUID() : undefined)
     nextSessionNumber.current += 1
     setNodes((current) => [
       ...current.map((node) => ({ ...node, selected: false })),
@@ -475,7 +482,7 @@ function Canvas(): JSX.Element {
           worklogCollapsed: kind !== 'terminal',
           preferredPermissionMode: kind === 'terminal' ? undefined : permissionModesRef.current[kind],
           dormant: false,
-          launchMode: 'new',
+          launchMode: resumeConversationId ? 'resume' : 'new',
           initialInput: options.initialInput,
           onStatusChange: handleStatusChange,
           onConversationId: handleConversationId,
@@ -778,6 +785,53 @@ function Canvas(): JSX.Element {
     },
     [activeProject, addSessionNode, menu]
   )
+
+  /** Transcripts belong to a working directory, so browsing spans the checkout and its worktrees. */
+  const historyDirectories = useMemo(() => {
+    if (!activeProject) return []
+    const worktreePaths = nodes
+      .filter(isWorktreeCanvasNode)
+      .filter((node) => node.data.projectId === activeProject.id)
+      .map((node) => node.data.path)
+    return [...new Set([activeProject.path, ...worktreePaths])]
+  }, [activeProject, nodes])
+
+  const historyDirectoryLabels = useMemo(() => {
+    const labelsByPath: Record<string, string> = {}
+    if (activeProject) labelsByPath[activeProject.path.toLocaleLowerCase()] = activeProject.name
+    for (const node of nodes.filter(isWorktreeCanvasNode)) {
+      labelsByPath[node.data.path.toLocaleLowerCase()] = `⑂ ${node.data.branch}`
+    }
+    return labelsByPath
+  }, [activeProject, nodes])
+
+  const openHistoryBrowser = useCallback((): void => {
+    if (!menu || !activeProject) return
+    setHistoryDrop({ x: menu.flowX, y: menu.flowY })
+    setMenu(null)
+  }, [activeProject, menu])
+
+  /**
+   * A browsed conversation reopens as a node resumed onto it, attached to whichever worktree it
+   * originally ran in so it keeps writing where it always did.
+   */
+  const openHistoryConversation = useCallback((entry: ConversationSummary): void => {
+    const project = projectsRef.current.find((candidate) => candidate.id === activeProjectId)
+      ?? projectsRef.current[0]
+    if (!project || !historyDrop) return
+    const worktreeNode = nodesRef.current
+      .filter(isWorktreeCanvasNode)
+      .find((node) => node.data.path.toLocaleLowerCase() === entry.cwd.toLocaleLowerCase())
+    addSessionNode({
+      kind: entry.provider,
+      project,
+      worktree: worktreeNode?.data,
+      position: historyDrop,
+      label: entry.title.slice(0, 48),
+      resumeConversationId: entry.id
+    })
+    setHistoryDrop(null)
+  }, [activeProjectId, addSessionNode, historyDrop])
 
   const startWorktreeDraft = useCallback((): void => {
     if (!menu || !activeProject) return
@@ -1146,7 +1200,21 @@ function Canvas(): JSX.Element {
             <span className="menu-icon worktree-icon">⑂</span>
             <span><strong>Worktree</strong><small>Isolated branch for parallel work</small></span>
           </button>
+          <button type="button" role="menuitem" onClick={() => openHistoryBrowser()}>
+            <span className="menu-icon history-icon">↺</span>
+            <span><strong>History</strong><small>Resume a past conversation</small></span>
+          </button>
         </div>
+      )}
+
+      {historyDrop && activeProject && (
+        <ConversationHistoryDialog
+          projectName={activeProject.name}
+          directories={historyDirectories}
+          directoryLabels={historyDirectoryLabels}
+          onCancel={() => setHistoryDrop(null)}
+          onOpen={openHistoryConversation}
+        />
       )}
 
       {worktreeDraft && activeWorktreeDraftProject && (

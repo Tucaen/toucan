@@ -2760,3 +2760,79 @@ button {
 .thought-card .markdown-body ol {
   font-size: 11px;
 }
+
+/* ---- Conversation history -------------------------------------------- */
+
+.history-icon {
+  color: #f1c75b;
+  background: rgba(241, 199, 91, 0.12);
+}
+
+.conversation-history-dialog {
+  width: min(680px, calc(100vw - 48px));
+}
+
+.conversation-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: min(52vh, 420px);
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.conversation-history-row {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.conversation-history-row:hover:not(:disabled) {
+  border-color: #3a3350;
+  background: #23272f;
+}
+
+.conversation-history-row:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.conversation-history-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.conversation-history-copy strong {
+  overflow: hidden;
+  color: #f0f2f5;
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversation-history-copy small {
+  color: #8b94a3;
+  font-size: 11px;
+}
+
+.conversation-history-missing {
+  color: #e6796f;
+}
+
+.conversation-history-empty {
+  padding: 10px 2px;
+  color: #8b94a3;
+  font-size: 12px;
+}
