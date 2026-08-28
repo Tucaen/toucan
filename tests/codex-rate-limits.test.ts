@@ -1,6 +1,10 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
-import { parseCodexRateLimits } from '../src/main/codex-rate-limits'
+import {
+  createCodexRateLimitReader,
+  parseCodexRateLimits,
+  resolveCodexAppServerLaunch
+} from '../src/main/codex-rate-limits'
 
 function tokenCount(rateLimits: unknown): string {
   return JSON.stringify({ type: 'event_msg', payload: { type: 'token_count', rate_limits: rateLimits } })
@@ -65,4 +69,34 @@ test('records without usable rate limits are skipped in favour of older ones tha
 
 test('a transcript with no rate limits at all reports nothing rather than a zeroed window', () => {
   assert.equal(parseCodexRateLimits([tokenCount(null), 'partial line {']), null)
+})
+
+test('reads live Codex account limits instead of showing a stale transcript value', async () => {
+  const reader = createCodexRateLimitReader({
+    homeDirectory: 'missing-home',
+    environment: {},
+    requestRateLimits: async () => ({
+      rateLimits: {
+        limitId: 'codex',
+        primary: { usedPercent: 7, windowDurationMins: 300, resetsAt: 1787943590 },
+        secondary: { usedPercent: 1, windowDurationMins: 10080, resetsAt: 1788505836 }
+      }
+    })
+  })
+
+  assert.deepEqual(await reader.read(), {
+    fiveHour: { usedPercent: 7, resetsAt: 1787943590000 },
+    weekly: { usedPercent: 1, resetsAt: 1788505836000 }
+  })
+})
+
+test('a Windows npm command shim resolves to the Codex script without an intermediate shell', () => {
+  const command = 'C:\\app\\node_modules\\.bin\\codex.cmd'
+  const script = 'C:\\app\\node_modules\\@openai\\codex\\bin\\codex.js'
+
+  assert.deepEqual(resolveCodexAppServerLaunch(command, 'node.exe', (path) => path === script), {
+    executable: 'node.exe',
+    args: [script, 'app-server', '--listen', 'stdio://'],
+    runElectronAsNode: true
+  })
 })

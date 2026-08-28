@@ -260,7 +260,8 @@ app.whenReady().then(() => {
       claude: createClaudeUsageReader({ cwd: app.getPath('home') }),
       codex: createCodexRateLimitReader({
         homeDirectory: app.getPath('home'),
-        environment: process.env
+        environment: process.env,
+        command: findCommand('codex')
       })
     },
     ttlMs: PROVIDER_USAGE_TTL_MS

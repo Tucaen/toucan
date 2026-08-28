@@ -149,6 +149,13 @@ test('reset times are relative, coarse, and never negative', () => {
   assert.equal(formatResetsAt(120 * 60_000, 0), '2h')
 })
 
+test('reset times longer than a day use days and include the local reset date', () => {
+  const resetsAt = new Date(2026, 8, 1, 13, 37).getTime()
+  const now = resetsAt - (((3 * 24 + 10) * 60 + 4) * 60_000)
+
+  assert.equal(formatResetsAt(resetsAt, now), '3 d 10h 4m (01.09. - 13:37)')
+})
+
 test('one window describes itself the same way wherever it is rendered', () => {
   assert.deepEqual(describeRateLimitWindow('5h', { usedPercent: 96.4, resetsAt: 60_000 }, 0), {
     label: '5h',
