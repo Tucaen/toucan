@@ -1,4 +1,7 @@
 ﻿:root {
+  /* The two usage bands, shared by every gauge and warning that reports consumption. */
+  --usage-warning: #eab308;
+  --usage-critical: #ff6b6f;
   color: #d9dee8;
   background: #0b0d12;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -220,20 +223,22 @@ button {
   text-align: right;
 }
 
-.usage-window[data-kind="warning"] .usage-window-fill {
-  background: #eab308;
+/* One source for the three usage bands, wherever a window is drawn: the header's account chips
+   and the per-node usage bar both render `.usage-window` with a `data-level`. */
+.usage-window[data-level="warning"] .usage-window-fill {
+  background: var(--usage-warning);
 }
 
-.usage-window[data-kind="warning"] .usage-window-pct {
-  color: #eab308;
+.usage-window[data-level="warning"] .usage-window-pct {
+  color: var(--usage-warning);
 }
 
-.usage-window[data-kind="critical"] .usage-window-fill {
-  background: #ff6b6f;
+.usage-window[data-level="critical"] .usage-window-fill {
+  background: var(--usage-critical);
 }
 
-.usage-window[data-kind="critical"] .usage-window-pct {
-  color: #ff6b6f;
+.usage-window[data-level="critical"] .usage-window-pct {
+  color: var(--usage-critical);
 }
 
 .workspace-shell {
@@ -2269,6 +2274,52 @@ button {
   margin-left: auto;
   color: #687483;
   font-size: 10px;
+}
+
+/* The per-node usage bar (issue #99). Both gauges are `.usage-window`s, so their bands come from
+   the shared rules above and only the layout around them is local. */
+.session-usage-context {
+  gap: 6px;
+  min-width: 0;
+}
+
+.session-usage-context .usage-window-bar {
+  width: 56px;
+}
+
+/* Inside the bar this is one item among several, so it must not claim the row's spare space the
+   way a trailing `small` does. */
+.agent-chat-status-bar .session-usage-tokens {
+  margin-left: 0;
+}
+
+.session-usage-tokens-only,
+.session-usage-cost {
+  color: #9aa6b6;
+  font-variant-numeric: tabular-nums;
+}
+
+.session-usage-limit {
+  padding: 1px 5px;
+  border: 1px solid #333c48;
+  border-radius: 5px;
+}
+
+.session-usage-limit[data-rejected="true"] {
+  border-color: #6b2c31;
+  background: #241619;
+}
+
+.session-usage-warning {
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 700;
+  text-align: right;
+  color: var(--usage-warning);
+}
+
+.session-usage-warning[data-level="critical"] {
+  color: var(--usage-critical);
 }
 
 .worklog-rail {

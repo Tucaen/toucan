@@ -39,6 +39,8 @@ import type { ConversationSummary } from '../../shared/conversation'
 import ConversationHistoryDialog from './ConversationHistoryDialog'
 import { COMPOSER_SEND_KEY_DEFAULT } from './composer-keys'
 import { ComposerSendKeyContext } from './composer-send-key-context'
+import { ProviderRateLimitsContext } from './provider-rate-limits'
+import { describeRateLimitWindow } from './session-usage'
 import SessionNode from './SessionNode'
 import WorktreeNode from './WorktreeNode'
 import { terminalLivenessLabels } from './terminal-liveness'
@@ -95,26 +97,17 @@ const statusLabels: Record<TerminalNodeStatus, string> = {
 /** The main process caches these reads, so this cadence only decides display freshness. */
 const PROVIDER_USAGE_POLL_MS = 60_000
 
-function formatResetsAt(epochMs: number): string {
-  const delta = epochMs - Date.now()
-  if (delta <= 0) return 'now'
-  const minutes = Math.ceil(delta / 60_000)
-  if (minutes < 60) return `${minutes}m`
-  const hours = Math.floor(minutes / 60)
-  const remainingMinutes = minutes % 60
-  return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`
-}
-
 function UsageWindow({ label, window }: { label: string; window: AgentRateLimitWindow }): JSX.Element {
-  const percent = Math.max(0, Math.min(100, window.usedPercent))
-  const kind = percent >= 90 ? 'critical' : percent >= 75 ? 'warning' : 'normal'
+  // Thresholds, clamping and wording are shared with the per-node usage bar so one window never
+  // reads as two different states in the two places it is shown.
+  const { level, displayPercent } = describeRateLimitWindow(label, window)
   return (
-    <span className="usage-window" data-kind={kind}>
+    <span className="usage-window" data-level={level}>
       <span className="usage-window-label">{label}</span>
       <span className="usage-window-bar">
-        <span className="usage-window-fill" style={{ width: `${percent}%` }} />
+        <span className="usage-window-fill" style={{ width: `${displayPercent}%` }} />
       </span>
-      <span className="usage-window-pct">{Math.round(percent)}%</span>
+      <span className="usage-window-pct">{displayPercent}%</span>
     </span>
   )
 }
@@ -126,8 +119,8 @@ function UsageWindow({ label, window }: { label: string; window: AgentRateLimitW
 function ProviderUsageChip({ provider, status }: { provider: string; status: AgentRateLimitStatus }): JSX.Element {
   const title = [
     `${provider} account usage`,
-    status.fiveHour ? `5h: ${Math.round(status.fiveHour.usedPercent)}%${status.fiveHour.resetsAt ? ` (resets in ${formatResetsAt(status.fiveHour.resetsAt)})` : ''}` : null,
-    status.weekly ? `Weekly: ${Math.round(status.weekly.usedPercent)}%${status.weekly.resetsAt ? ` (resets in ${formatResetsAt(status.weekly.resetsAt)})` : ''}` : null,
+    status.fiveHour ? describeRateLimitWindow('5h', status.fiveHour).text : null,
+    status.weekly ? describeRateLimitWindow('7d', status.weekly).text : null,
     status.rejected ? 'Limit reached' : null
   ].filter(Boolean).join('\n')
 
@@ -924,6 +917,9 @@ function Canvas(): JSX.Element {
 
   return (
     <ComposerSendKeyContext.Provider value={sendKeyPreference}>
+    {/* One poll, every node: account usage is per provider, so a chat node reads it from here
+        instead of asking for it itself. */}
+    <ProviderRateLimitsContext.Provider value={providerRateLimits}>
     <main className="app-shell" onClick={() => setMenu(null)}>
       {workspaceUnrecoverable && (
         <div className="unrecoverable-workspace-overlay" role="alertdialog" aria-modal="true" aria-labelledby="unrecoverable-workspace-title">
@@ -1263,6 +1259,7 @@ function Canvas(): JSX.Element {
         />
       )}
     </main>
+    </ProviderRateLimitsContext.Provider>
     </ComposerSendKeyContext.Provider>
   )
 }

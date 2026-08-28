@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react'
+import { useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { type NodeProps } from '@xyflow/react'
 import MarkdownMessage from './MarkdownMessage'
@@ -33,6 +33,9 @@ import { imageFilesFromClipboard, type AgentImageAttachment } from './image-atta
 import { classifyAssistantMessage, type DecisionOption } from './decision-message'
 import { pendingDecisionsFromMessages, type PendingDecision } from './pending-decisions'
 import NodeBorderResizer from './NodeBorderResizer'
+import SessionUsageBar from './SessionUsageBar'
+import { ProviderRateLimitsContext } from './provider-rate-limits'
+import { describeSessionUsage } from './session-usage'
 import VoiceInputPrototype from './VoiceInputPrototype'
 import { composerTextareaSize } from './composer-autosize'
 import {
@@ -1173,6 +1176,14 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
     onModel: (modelId) => data.onModelChange(id, modelId)
   })
   const { status, approval, detail, messages, activities, plan, usage } = conversation
+  // Account usage belongs to the provider, so it arrives from App's single poll rather than from
+  // this node asking for it (see provider-rate-limits.ts).
+  const rateLimits = useContext(ProviderRateLimitsContext)[provider] ?? null
+  // Recomputed only when a turn reports new usage or the account poll returns, never per chunk.
+  const usageReadout = useMemo(
+    () => describeSessionUsage({ usage, rateLimits }),
+    [usage, rateLimits]
+  )
   const [stalled, setStalled] = useState(false)
   const lastProgressAtRef = useRef(Date.now())
 
@@ -1257,6 +1268,7 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
             {...props}
             worklogCollapsed={data.worklogCollapsed}
             setWorklogCollapsed={(collapsed) => data.onWorklogCollapsed(id, collapsed)}
+            statusBar={usageReadout.empty ? undefined : <SessionUsageBar readout={usageReadout} />}
           />
         </>
       )}

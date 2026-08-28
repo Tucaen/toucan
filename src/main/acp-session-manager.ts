@@ -630,7 +630,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
               type: 'usage',
               used: update.used,
               size: update.size,
-              ...(update.cost ? { cost: `${update.cost.amount} ${update.cost.currency}` } : {})
+              ...(update.cost ? { cost: { amount: update.cost.amount, currency: update.cost.currency } } : {})
             })
           }
         })

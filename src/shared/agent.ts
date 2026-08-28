@@ -165,6 +165,13 @@ export interface AgentRateLimitStatus {
 /** Latest known usage-limit status per provider, keyed by `AgentProvider`. */
 export type ProviderRateLimits = Partial<Record<AgentProvider, AgentRateLimitStatus>>
 
+/** Cumulative cost of one session, in whatever currency the provider bills it in. */
+export interface AgentSessionCost {
+  amount: number
+  /** ISO 4217, e.g. `USD`. */
+  currency: string
+}
+
 export type AgentEvent =
   | { type: 'status'; status: 'starting' | 'ready' | 'working' | 'idle' | 'auth_required' | 'exited'; message?: string }
   | { type: 'session'; sessionId: string }
@@ -178,7 +185,13 @@ export type AgentEvent =
   | { type: 'approval'; approvalId: string; title: string; options: AgentPermissionOption[] }
   | { type: 'auth'; methods: AgentAuthMethod[] }
   | { type: 'auth_link'; url: string }
-  | { type: 'usage'; used?: number; size?: number; cost?: string }
+  /**
+   * ACP's `usage_update`, forwarded as reported rather than pre-formatted: tokens currently in
+   * context, the model's context window, and the session's cumulative cost. The renderer decides
+   * how to round and label all three (`session-usage.ts`). Codex reports no cost at all, and an
+   * adapter that cannot determine the window omits `size`.
+   */
+  | { type: 'usage'; used?: number; size?: number; cost?: AgentSessionCost }
   | { type: 'turn_complete'; stopReason: string }
   | { type: 'error'; message: string }
 

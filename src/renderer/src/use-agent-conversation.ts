@@ -23,6 +23,7 @@ import {
   type QueuedPrompt
 } from './prompt-outbox'
 import { readImageAsBase64, type AgentImageAttachment } from './image-attachment'
+import { mergeSessionUsage, type SessionUsageInput } from './session-usage'
 
 export type { AgentImageAttachment } from './image-attachment'
 
@@ -48,11 +49,11 @@ export interface AgentApprovalState {
   options: AgentPermissionOption[]
 }
 
-export interface AgentUsage {
-  used?: number
-  size?: number
-  cost?: string
-}
+/**
+ * The latest `usage_update` this session reported, verbatim. What it means for the UI - the
+ * percentage, the level, the labels - is `session-usage.ts`'s business, not this hook's.
+ */
+export type AgentUsage = SessionUsageInput
 
 export type AgentChatStatus = 'starting' | 'ready' | 'working' | 'auth_required' | 'exited'
 
@@ -305,7 +306,8 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
       } else if (event.type === 'auth_link') {
         setAuthLink(event.url)
       } else if (event.type === 'usage') {
-        setUsage({ used: event.used, size: event.size, cost: event.cost })
+        // A patch, not a replacement - see mergeSessionUsage.
+        setUsage((current) => mergeSessionUsage(current, { used: event.used, size: event.size, cost: event.cost }))
       } else if (event.type === 'error') {
         setDetail(event.message)
       }
