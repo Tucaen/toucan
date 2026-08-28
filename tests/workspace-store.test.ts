@@ -305,3 +305,53 @@ test('a save that fails while replacing the primary does not leak its temp file'
   const leftoverTempFiles = readdirSync(directory).filter((name) => name.includes('.tmp-'))
   assert.deepEqual(leftoverTempFiles, [])
 })
+
+test('an unsent composer draft round-trips through the store, so it survives an ADE restart', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'ade-workspace-test-'))
+  const store = createWorkspaceStore(join(directory, 'workspace.json'))
+  const state = makeState('drafts')
+  state.nodes = [{
+    id: 'node-1',
+    kind: 'claude',
+    label: 'Claude 1',
+    projectId: 'project-1',
+    position: { x: 0, y: 0 },
+    width: 520,
+    height: 340,
+    draft: 'a half-written prompt\nsecond line'
+  }]
+  state.composerSendKey = 'mod-enter'
+
+  assert.equal((await store.save(state)).ok, true)
+  const loaded = await store.load()
+
+  assert.equal(loaded.state?.nodes[0].draft, 'a half-written prompt\nsecond line')
+  assert.equal(loaded.state?.composerSendKey, 'mod-enter')
+})
+
+test('rejects a workspace whose draft or send-key preference is the wrong shape', () => {
+  const base = {
+    version: 3,
+    projects: [{ id: 'project-1', name: 'ADE', path: 'D:\Development\ADE', color: '#71a9ff' }],
+    activeProjectId: 'project-1',
+    sidebarCollapsed: false,
+    nodes: [],
+    worktrees: []
+  }
+
+  assert.equal(parseWorkspaceState({ ...base, composerSendKey: 'shift-enter' }), null)
+  assert.equal(parseWorkspaceState({
+    ...base,
+    nodes: [{
+      id: 'node-1',
+      kind: 'claude',
+      label: 'Claude 1',
+      projectId: 'project-1',
+      position: { x: 0, y: 0 },
+      width: 520,
+      height: 340,
+      draft: 12
+    }]
+  }), null)
+  assert.ok(parseWorkspaceState({ ...base, composerSendKey: 'enter' }))
+})

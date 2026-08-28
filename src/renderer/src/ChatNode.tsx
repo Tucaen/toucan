@@ -6,6 +6,9 @@ import WorktreeBadge from './WorktreeBadge'
 import type {
   AgentActivity,
   AgentAuthMethod,
+  AgentEffortState,
+  AgentModeState,
+  AgentModelState,
   AgentPlanEntry
 } from '../../shared/agent'
 import { activityTitle } from '../../shared/agent-activity'
@@ -17,6 +20,23 @@ import { classifyAssistantMessage, type DecisionOption } from './decision-messag
 import { pendingDecisionsFromMessages, type PendingDecision } from './pending-decisions'
 import NodeBorderResizer from './NodeBorderResizer'
 import VoiceInputPrototype from './VoiceInputPrototype'
+import { composerTextareaSize } from './composer-autosize'
+import {
+  composerKeyAction,
+  composerSendKeyLabels,
+  type ComposerSendKey
+} from './composer-keys'
+import { useComposerSendKey } from './composer-send-key-context'
+import {
+  emptyPromptHistory,
+  leaveHistory,
+  recallNext,
+  recallPrevious,
+  rememberPrompt,
+  seedPromptHistory
+} from './prompt-history'
+import ComposerQueue from './ComposerQueue'
+import type { QueuedPrompt } from './prompt-outbox'
 import {
   useAgentConversation,
   type AgentApprovalState,
@@ -38,17 +58,33 @@ export interface ChatViewProps {
   draft: string
   imageSupport: boolean
   attachments: AgentImageAttachment[]
+  /** Follow-ups still held in the renderer while a turn runs; see prompt-outbox.ts. */
+  queued: QueuedPrompt[]
   setDraft(value: string): void
   addImages(files: File[] | FileList): Promise<void>
   removeAttachment(id: string): void
   submit(event: FormEvent, draftOverride?: string, onPrepared?: () => void): void
   sendMessage(text: string): void
   answerDecision(decisionId: string, text: string): void
+  editQueued(id: string, text: string): void
+  withdrawQueued(id: string): void
+  sendQueuedNow(id: string): void
   cancel(): void
   authenticate(methodId: string): void
   submitAuthCode(code: string): Promise<boolean>
   openAuthLink(url: string): void
   resolveApproval(approvalId: string, optionId?: string): void
+  /** Persists the unsent draft; debounced by the Composer, so it costs one write per pause. */
+  onDraftChange?(draft: string): void
+  // The agent-reported selectors, rendered as the composer's toolbar. Optional because a chat
+  // view is perfectly renderable before (or without) an adapter reporting any of them.
+  modes?: AgentModeState | null
+  models?: AgentModelState | null
+  efforts?: AgentEffortState | null
+  selectorsDisabled?: boolean
+  selectMode?(modeId: string): unknown
+  selectModel?(modelId: string): void
+  selectEffort?(effortId: string): void
 }
 
 const providerNames = { claude: 'Claude', codex: 'Codex' } as const
@@ -74,7 +110,8 @@ const pickerCopy = {
   provider: { icon: '@', heading: 'Provider', idle: 'Provider', hint: 'Choose the agent provider' },
   permission: { icon: '*', heading: 'Permission mode', idle: 'Permissions', hint: 'Set the permission mode for this agent' },
   model: { icon: '#', heading: 'Model', idle: 'Model', hint: 'Choose the model for this conversation' },
-  effort: { icon: '~', heading: 'Thinking effort', idle: 'Effort', hint: 'Set the thinking effort for this conversation' }
+  effort: { icon: '~', heading: 'Thinking effort', idle: 'Effort', hint: 'Set the thinking effort for this conversation' },
+  sendKey: { icon: '>', heading: 'Send with', idle: 'Send key', hint: 'Choose which key sends a message' }
 } as const
 
 /** One dropdown shape for every agent-reported selector, so modes and models stay consistent. */
@@ -227,19 +264,128 @@ function AttachmentPreview(
   )
 }
 
+/**
+ * The composer's own settings row: what the conversation runs as, and how Enter behaves. Grouped
+ * into one toolbar rather than scattered across the node header so the pickers read as a set and
+ * can wrap together when the node is narrow.
+ */
+function ComposerToolbar(props: Pick<ChatViewProps,
+  'provider' | 'modes' | 'models' | 'efforts' | 'selectorsDisabled' | 'selectMode' | 'selectModel' | 'selectEffort'
+>): JSX.Element {
+  const { sendKey, setSendKey } = useComposerSendKey()
+  const disabled = props.selectorsDisabled ?? false
+  return (
+    <div className="composer-toolbar" role="group" aria-label="Conversation settings">
+      <span className="composer-toolbar-provider" title={`This conversation runs on ${providerNames[props.provider]}`}>
+        <span aria-hidden="true">{pickerCopy.provider.icon}</span>
+        {providerNames[props.provider]}
+      </span>
+      {props.models && props.selectModel && (
+        <SelectorPicker
+          kind="model"
+          options={props.models.availableModels}
+          selectedId={props.models.currentModelId}
+          disabled={disabled}
+          select={props.selectModel}
+        />
+      )}
+      {props.efforts && props.selectEffort && (
+        <SelectorPicker
+          kind="effort"
+          options={props.efforts.availableEfforts}
+          selectedId={props.efforts.currentEffortId}
+          disabled={disabled}
+          select={props.selectEffort}
+        />
+      )}
+      {props.modes && props.selectMode && (
+        <SelectorPicker
+          kind="permission"
+          options={props.modes.availableModes}
+          selectedId={props.modes.currentModeId}
+          disabled={disabled}
+          select={props.selectMode}
+        />
+      )}
+      <SelectorPicker
+        kind="sendKey"
+        options={(Object.keys(composerSendKeyLabels) as ComposerSendKey[]).map((id) => ({
+          id,
+          ...composerSendKeyLabels[id]
+        }))}
+        selectedId={sendKey}
+        disabled={false}
+        select={(id) => setSendKey(id as ComposerSendKey)}
+      />
+    </div>
+  )
+}
+
 export function Composer(props: Pick<ChatViewProps,
-  'draft' | 'setDraft' | 'submit' | 'cancel' | 'status' | 'detail' | 'imageSupport' | 'attachments' | 'addImages' | 'removeAttachment'
+  'provider' | 'messages' | 'draft' | 'setDraft' | 'submit' | 'cancel' | 'status' | 'detail' | 'imageSupport'
+  | 'attachments' | 'addImages' | 'removeAttachment' | 'onDraftChange'
+  | 'queued' | 'editQueued' | 'withdrawQueued' | 'sendQueuedNow'
+  | 'modes' | 'models' | 'efforts' | 'selectorsDisabled' | 'selectMode' | 'selectModel' | 'selectEffort'
 >): JSX.Element {
   const busy = props.status === 'working'
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const composerDisabled = isSendDisabled(props.status)
+  const { sendKey } = useComposerSendKey()
   // Draft input is intentionally local to this leaf. Publishing every keystroke through the
   // conversation hook rerenders the chat panel, including transcript Markdown,
   // persistence, and decision parsing. None of that work owns the input value.
   const [draft, setDraft] = useState(props.draft)
   const [pasteBlocked, setPasteBlocked] = useState(false)
+  const [history, setHistory] = useState(emptyPromptHistory)
+  // A conversation loaded from disk already shows what was asked; ArrowUp should be able to walk
+  // back through it too, rather than starting blank above a full transcript.
+  useEffect(() => {
+    setHistory((current) => seedPromptHistory(
+      current,
+      props.messages.filter((message) => message.role === 'user').map((message) => message.text)
+    ))
+  }, [props.messages])
+  /** The last value this composer handed upward, so the round trip back down is not mistaken
+   *  for an outside edit and does not fight what is being typed right now. */
+  const publishedDraftRef = useRef(props.draft)
+  const onDraftChangeRef = useRef(props.onDraftChange)
+  onDraftChangeRef.current = props.onDraftChange
 
-  useEffect(() => setDraft(props.draft), [props.draft])
+  useEffect(() => {
+    if (props.draft === publishedDraftRef.current) return
+    publishedDraftRef.current = props.draft
+    setDraft(props.draft)
+  }, [props.draft])
+
+  // Debounced, so keeping a draft alive across resize/collapse/reload costs one workspace write
+  // per typing pause rather than one per keystroke.
+  useEffect(() => {
+    if (draft === publishedDraftRef.current) return
+    const timeout = setTimeout(() => {
+      publishedDraftRef.current = draft
+      onDraftChangeRef.current?.(draft)
+    }, 300)
+    return () => clearTimeout(timeout)
+  }, [draft])
+
+  // Going away mid-debounce (the node goes dormant, the workspace closes) must not cost the last
+  // few keystrokes, so whatever the debounce still owed is flushed on the way out.
+  const draftRef = useRef(draft)
+  draftRef.current = draft
+  useEffect(() => () => {
+    if (draftRef.current !== publishedDraftRef.current) onDraftChangeRef.current?.(draftRef.current)
+  }, [])
+
+  // The box grows with its content up to a bounded height, then scrolls. Measured against the
+  // real element because only the browser knows how the text actually wrapped.
+  useLayoutEffect(() => {
+    const element = textareaRef.current
+    if (!element) return
+    element.style.height = 'auto'
+    const { height, scrollable } = composerTextareaSize(element.scrollHeight)
+    element.style.height = `${height}px`
+    element.style.overflowY = scrollable ? 'auto' : 'hidden'
+  }, [draft, props.attachments, props.queued])
 
   const handlePaste = (event: React.ClipboardEvent<HTMLTextAreaElement>): void => {
     const files = imageFilesFromClipboard(event.clipboardData?.items)
@@ -253,11 +399,23 @@ export function Composer(props: Pick<ChatViewProps,
     void props.addImages(files)
   }
 
+  const applyHistory = (next: { state: typeof history; draft: string }): void => {
+    setHistory(next.state)
+    setDraft(next.draft)
+  }
+
   return (
     <form
       className="chat-composer nodrag"
-      onSubmit={(event) => props.submit(event, draft, () => setDraft(''))}
+      onSubmit={(event) => {
+        const sent = draft
+        props.submit(event, draft, () => {
+          setDraft('')
+          setHistory((current) => rememberPrompt(current, sent))
+        })
+      }}
     >
+      <ComposerQueue {...props} stranded={composerDisabled} />
       <AttachmentPreview attachments={props.attachments} removeAttachment={props.removeAttachment} />
       {pasteBlocked && (
         <small className="composer-paste-blocked">This agent doesn't support image attachments.</small>
@@ -271,16 +429,39 @@ export function Composer(props: Pick<ChatViewProps,
       <div className="chat-composer-row">
         <textarea
           ref={textareaRef}
+          rows={1}
           value={draft}
           onChange={(event) => {
             setDraft(event.target.value)
+            setHistory(leaveHistory)
             setPasteBlocked(false)
           }}
           onPaste={handlePaste}
           onKeyDown={(event) => {
-            if (event.key === 'Enter' && !event.shiftKey) {
+            const action = composerKeyAction(
+              {
+                key: event.key,
+                shiftKey: event.shiftKey,
+                ctrlKey: event.ctrlKey,
+                metaKey: event.metaKey,
+                altKey: event.altKey,
+                isComposing: event.nativeEvent.isComposing
+              },
+              { sendKey, draft, historyActive: history.index !== null }
+            )
+            if (action === 'send') {
               event.preventDefault()
               event.currentTarget.form?.requestSubmit()
+            } else if (action === 'history-previous') {
+              event.preventDefault()
+              applyHistory(recallPrevious(history, draft))
+            } else if (action === 'history-next') {
+              event.preventDefault()
+              applyHistory(recallNext(history))
+            } else if (action === 'history-cancel') {
+              event.preventDefault()
+              setDraft(history.stashedDraft)
+              setHistory(leaveHistory)
             }
           }}
           placeholder="Message the agent..."
@@ -293,10 +474,15 @@ export function Composer(props: Pick<ChatViewProps,
           setDraft={setDraft}
         />
         {busy && <button type="button" className="stop-agent" onClick={props.cancel}>Stop</button>}
-        <button type="submit" disabled={(!draft.trim() && props.attachments.length === 0) || composerDisabled}>
+        <button
+          type="submit"
+          title={composerSendKeyLabels[sendKey].description}
+          disabled={(!draft.trim() && props.attachments.length === 0) || composerDisabled}
+        >
           {busy ? 'Queue' : 'Send'}
         </button>
       </div>
+      <ComposerToolbar {...props} />
     </form>
   )
 }
@@ -684,7 +870,7 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
     onPermissionMode: (modeId) => data.onPermissionModeChange(provider, modeId),
     onModel: (modelId) => data.onModelChange(id, modelId)
   })
-  const { status, approval, models, modes, detail, messages, activities, plan, usage } = conversation
+  const { status, approval, detail, messages, activities, plan, usage } = conversation
   const [stalled, setStalled] = useState(false)
   const lastProgressAtRef = useRef(Date.now())
 
@@ -725,7 +911,11 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
 
   const props: ChatViewProps = {
     provider,
-    ...conversation
+    ...conversation,
+    // The draft belongs to the node, not to the conversation: it has to outlive resize, collapse
+    // and a workspace reload, none of which the ACP session knows anything about.
+    draft: data.draft ?? '',
+    onDraftChange: (text) => data.onDraftChange(id, text)
   }
 
   return (
@@ -739,24 +929,9 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
         <strong>{data.label}</strong>
         <span className="node-project" title={data.projectPath}><span className="project-color-dot" />{data.projectName}</span>
         <WorktreeBadge data={data} />
-        {!data.dormant && (
-          <>
-            <SelectorPicker
-              kind="model"
-              options={models?.availableModels ?? []}
-              selectedId={models?.currentModelId}
-              disabled={conversation.selectorsDisabled}
-              select={conversation.selectModel}
-            />
-            <SelectorPicker
-              kind="permission"
-              options={modes?.availableModes ?? []}
-              selectedId={modes?.currentModeId}
-              disabled={conversation.selectorsDisabled}
-              select={conversation.selectMode}
-            />
-          </>
-        )}
+        {/* Model, effort and permission pickers live in the composer's toolbar - see
+            ComposerToolbar - so the whole picker row reads as one set and the header keeps its
+            room for the node's identity. */}
         <span className="chat-provider-badge">ACP</span>
         <span className="node-status">{status.replace('_', ' ')}</span>
       </header>

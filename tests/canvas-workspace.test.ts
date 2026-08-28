@@ -17,6 +17,7 @@ const callbacks = {
   onConversationId: () => undefined,
   onPreview: () => undefined,
   onWorklogCollapsed: () => undefined,
+  onDraftChange: () => undefined,
   onPermissionModeChange: () => undefined,
   onModelChange: () => undefined,
   onResume: () => undefined,

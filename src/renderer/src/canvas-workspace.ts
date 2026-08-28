@@ -16,6 +16,8 @@ export interface TerminalNodeCallbacks {
   onConversationId(nodeId: string, conversationId: string): void
   onPreview(nodeId: string, preview: ConversationPreview): void
   onWorklogCollapsed(nodeId: string, collapsed: boolean): void
+  /** Persists unsent composer text so a draft outlives resize, collapse, and a workspace reload. */
+  onDraftChange(nodeId: string, draft: string): void
   onPermissionModeChange(provider: keyof AgentPermissionModes, modeId: string): void
   onModelChange(nodeId: string, modelId: string): void
   onResume(nodeId: string): void
@@ -45,6 +47,8 @@ export interface TerminalNodeData extends Record<string, unknown>, TerminalNodeC
   conversationId?: string
   preview?: ConversationPreview
   worklogCollapsed: boolean
+  /** Unsent composer text, restored into the composer when the node comes back. */
+  draft?: string
   preferredPermissionMode?: string
   modelId?: string
   dormant: boolean
@@ -120,6 +124,7 @@ export function serializeCanvasNode(node: TerminalCanvasNode): WorkspaceTerminal
     ...(node.data.conversationId ? { conversationId: node.data.conversationId } : {}),
     ...(node.data.preview ? { preview: node.data.preview } : {}),
     ...(node.data.modelId ? { modelId: node.data.modelId } : {}),
+    ...(node.data.draft ? { draft: node.data.draft } : {}),
     ...(node.data.kind === 'terminal' ? {} : { worklogCollapsed: node.data.worklogCollapsed }),
     ...(node.data.kind === 'terminal' ? { terminalLiveness: node.data.terminalLiveness } : {})
   }
@@ -217,6 +222,7 @@ export function restoreCanvasWorkspace(
         conversationId: savedNode.conversationId,
         preview: savedNode.preview,
         worklogCollapsed: savedNode.worklogCollapsed ?? savedNode.kind !== 'terminal',
+        draft: savedNode.draft,
         preferredPermissionMode: savedNode.kind === 'terminal'
           ? undefined
           : state.agentPermissionModes?.[savedNode.kind],
@@ -227,6 +233,7 @@ export function restoreCanvasWorkspace(
         onConversationId: callbacks.onConversationId,
         onPreview: callbacks.onPreview,
         onWorklogCollapsed: callbacks.onWorklogCollapsed,
+        onDraftChange: callbacks.onDraftChange,
         onPermissionModeChange: callbacks.onPermissionModeChange,
         onModelChange: callbacks.onModelChange,
         onResume: callbacks.onResume,

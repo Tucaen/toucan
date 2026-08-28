@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, renameSync, unlinkSync } from 'node:fs'
 import { open } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
-import type { WorkspaceLoadResult, WorkspaceSaveResult, WorkspaceState } from '../shared/terminal'
+import { isComposerSendKey, type WorkspaceLoadResult, type WorkspaceSaveResult, type WorkspaceState } from '../shared/terminal'
 import { errorMessage, repairUtf8Mojibake } from '../shared/text'
 
 interface WorkspaceStateV1 {
@@ -66,6 +66,7 @@ export function isWorkspaceState(value: unknown): value is WorkspaceState {
       || (state.agentPermissionModes.codex !== undefined && typeof state.agentPermissionModes.codex !== 'string')
     )
   ) return false
+  if (state.composerSendKey !== undefined && !isComposerSendKey(state.composerSendKey)) return false
   return state.nodes.every((node) => (
     node
     && typeof node.id === 'string'
@@ -81,6 +82,7 @@ export function isWorkspaceState(value: unknown): value is WorkspaceState {
     && (node.conversationId === undefined || typeof node.conversationId === 'string')
     && (node.worklogCollapsed === undefined || typeof node.worklogCollapsed === 'boolean')
     && (node.modelId === undefined || typeof node.modelId === 'string')
+    && (node.draft === undefined || typeof node.draft === 'string')
     && (node.terminalLiveness === undefined || ['live', 'unverifiable', 'exited'].includes(node.terminalLiveness))
     && (
       node.preview === undefined

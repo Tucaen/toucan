@@ -1830,6 +1830,128 @@ button {
   color: #a7b0bc;
 }
 
+/* Queued follow-ups: still local, still withdrawable. See prompt-outbox.ts. */
+.composer-queue {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.composer-queue > small {
+  color: #8995a4;
+  font: 10px/1.4 Inter, system-ui, sans-serif;
+}
+
+/* A session that can no longer take messages must never leave its queue looking pending. */
+.composer-queue[data-stranded] > small {
+  color: #efb0b3;
+}
+
+.composer-queue[data-stranded] .queued-prompt {
+  border-color: #6d4448;
+}
+
+.composer-queue ul {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 132px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.queued-prompt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 7px;
+  border: 1px dashed #3d4759;
+  border-radius: 8px;
+  background: #171d26;
+}
+
+.queued-prompt[data-editing="true"] {
+  flex-direction: column;
+  align-items: stretch;
+  border-style: solid;
+}
+
+.queued-prompt-text {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: #c2cad6;
+  font: 11px/1.4 Inter, system-ui, sans-serif;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-composer .queued-prompt textarea {
+  height: 58px;
+  resize: none;
+  padding: 6px 8px;
+  border: 1px solid #333c49;
+  border-radius: 7px;
+  outline: none;
+  color: #dfe4eb;
+  background: #0f1217;
+  font: 12px/1.4 Inter, system-ui, sans-serif;
+}
+
+.queued-prompt-actions {
+  display: flex;
+  flex: none;
+  gap: 4px;
+}
+
+.chat-composer .queued-prompt-actions button {
+  align-self: auto;
+  padding: 2px 7px;
+  border-color: #3a4350;
+  color: #b7c0cc;
+  background: #202630;
+  font-size: 10px;
+}
+
+.chat-composer .queued-prompt-actions .queued-prompt-withdraw {
+  border-color: #6d4448;
+  color: #e5a9ad;
+  background: #2a1e21;
+}
+
+/* Provider, model, effort, permissions and the send key as one wrapping row, so the pickers
+   stay reachable however narrow the node gets. */
+.composer-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.composer-toolbar-provider {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px;
+  border: 1px solid #333c49;
+  border-radius: 6px;
+  color: #97a2b1;
+  background: #171c23;
+  font-size: 10px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.composer-toolbar-provider > span {
+  color: var(--node-accent);
+}
+
+.node-picker[data-picker="sendKey"] {
+  margin-left: auto;
+}
+
 .chat-composer textarea {
   min-width: 0;
   height: 46px;
@@ -1848,7 +1970,7 @@ button {
   border-color: color-mix(in srgb, var(--node-accent) 70%, #333c49);
 }
 
-.chat-composer button {
+.chat-composer button:not(.node-picker-button) {
   align-self: stretch;
   padding: 0 12px;
   border: 1px solid color-mix(in srgb, var(--node-accent) 55%, #34404e);
@@ -1860,7 +1982,7 @@ button {
   cursor: pointer;
 }
 
-.chat-composer button:disabled {
+.chat-composer button:not(.node-picker-button):disabled {
   opacity: 0.35;
   cursor: default;
 }

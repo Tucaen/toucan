@@ -12,6 +12,14 @@ import type {
   AgentPromptContent
 } from '../../shared/agent'
 import { chooseAgentPromptApi, createDispatchOrderGate, deliverAgentPrompt } from './agent-prompt-delivery'
+import {
+  editQueuedPrompt,
+  enqueuePrompt,
+  promptSummary,
+  takeQueuedPrompt,
+  withdrawQueuedPrompt,
+  type QueuedPrompt
+} from './prompt-outbox'
 import { readImageAsBase64, type AgentImageAttachment } from './image-attachment'
 
 export type { AgentImageAttachment } from './image-attachment'
@@ -105,6 +113,17 @@ export interface AgentConversationController {
   imageSupport: boolean
   /** Pasted images attached to the draft, shown as removable previews until the message is sent. */
   attachments: AgentImageAttachment[]
+  /**
+   * Follow-ups submitted while the agent was mid-turn, still held in the renderer. They are
+   * deliberately not handed to `promptWhenIdle` yet: a prompt that has crossed into the adapter
+   * (steered into the running turn, or parked in the main-process wake gate) can no longer be
+   * withdrawn, so holding them here is what makes withdrawal mean anything.
+   */
+  queued: QueuedPrompt[]
+  editQueued(id: string, text: string): void
+  withdrawQueued(id: string): void
+  /** Hands one queued prompt to the running turn now, instead of waiting for it to finish. */
+  sendQueuedNow(id: string): void
   selectorsDisabled: boolean
   setDraft(value: string): void
   addImages(files: File[] | FileList): Promise<void>
@@ -140,6 +159,16 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
   const [draft, setDraft] = useState('')
   const [imageSupport, setImageSupport] = useState(false)
   const [attachments, setAttachments] = useState<AgentImageAttachment[]>([])
+  const [queued, setQueued] = useState<QueuedPrompt[]>([])
+  /**
+   * The outbox's authoritative copy. Every mutation goes through `updateQueued` so a claim can
+   * be made and observed in the same tick; `queued` is the render mirror of it.
+   */
+  const queuedRef = useRef<QueuedPrompt[]>([])
+  const updateQueued = (next: (current: QueuedPrompt[]) => QueuedPrompt[]): void => {
+    queuedRef.current = next(queuedRef.current)
+    setQueued(queuedRef.current)
+  }
   /**
    * Messages sent but not yet echoed back, so each queued send (not just the latest) clears its
    * own queued flag. Matched by text against an incoming echo (order doesn't matter: an
@@ -213,6 +242,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     setDetail(undefined)
     setImageSupport(false)
     setAttachments([])
+    updateQueued(() => [])
     const removeListener = window.agentApi.onEvent(options.id, (event: AgentEvent) => {
       if (!active) return
       if (event.type === 'status') {
@@ -318,12 +348,12 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
   /** Shared by `submit` (draft + attachments) and `sendMessage` (a plain string, e.g. a clicked decision option). */
   const dispatchText = (text: string, images: AgentImageAttachment[], onSent: () => void, decisionReplyTo?: string): void => {
     if ((!text && images.length === 0) || (status !== 'ready' && status !== 'working')) return
-    const queued = status === 'working'
+    const intoRunningTurn = status === 'working'
     const compose = options.composePrompt
-    if (!queued) setStatus('working')
+    if (!intoRunningTurn) setStatus('working')
     const deliverPrompt = chooseAgentPromptApi(status, window.agentApi)
     const id = crypto.randomUUID()
-    const displayText = text || `${images.length} image${images.length === 1 ? '' : 's'} attached`
+    const displayText = promptSummary(text, images)
 
     const slot = dispatchGateRef.current.reserve()
 
@@ -349,7 +379,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
           id,
           role: 'user',
           text: displayText,
-          queued,
+          queued: intoRunningTurn,
           decisionReplyTo,
           deliveryPending: decisionReplyTo !== undefined
         }])
@@ -381,19 +411,62 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
         return
       }
       setDetail(result.message)
-      if (!queued) setStatus('ready')
+      if (!intoRunningTurn) setStatus('ready')
       markSendFailed(id)
     })
   }
 
+  /**
+   * A composer submit while the agent is mid-turn parks the prompt in the local outbox instead of
+   * delivering it. Everything else - decision answers, `sendMessage` - still goes straight through
+   * `promptWhenIdle` (and so straight into the running turn via steering), because those are
+   * answers the agent is actively waiting on, not follow-ups the captain may still want back.
+   */
   const submit = (event: FormEvent, draftOverride?: string, onPrepared?: () => void): void => {
     event.preventDefault()
-    dispatchText((draftOverride ?? draft).trim(), attachments, () => {
+    const text = (draftOverride ?? draft).trim()
+    const clearComposer = (): void => {
       setDraft('')
       setAttachments([])
       onPrepared?.()
-    })
+    }
+    if (status === 'working' && (text || attachments.length > 0)) {
+      updateQueued((current) => enqueuePrompt(current, { id: crypto.randomUUID(), text, images: attachments }))
+      clearComposer()
+      return
+    }
+    dispatchText(text, attachments, clearComposer)
   }
+
+  const editQueued = (id: string, text: string): void => {
+    updateQueued((current) => editQueuedPrompt(current, id, text))
+  }
+
+  const withdrawQueued = (id: string): void => {
+    updateQueued((current) => withdrawQueuedPrompt(current, id))
+  }
+
+  /**
+   * Claims one prompt out of the outbox and dispatches it. The claim reads and writes the ref,
+   * not the rendered state, so it settles synchronously: a drain racing a "Send now" (or either
+   * racing a withdrawal) can never take the same entry twice or resurrect one already gone.
+   */
+  const dispatchQueued = (id?: string): void => {
+    const { entry, rest } = takeQueuedPrompt(queuedRef.current, id)
+    if (!entry) return
+    updateQueued(() => rest)
+    dispatchText(entry.text, entry.images, () => {})
+  }
+
+  const sendQueuedNow = (id: string): void => dispatchQueued(id)
+
+  // The outbox drains one prompt per idle turn: dispatching sets the status back to 'working',
+  // so the next entry waits for the turn it just started rather than piling in behind it.
+  useEffect(() => {
+    if (status !== 'ready' || queued.length === 0) return
+    dispatchQueued()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, queued])
 
   const sendMessage = (text: string): void => {
     dispatchText(text.trim(), [], () => {})
@@ -507,6 +580,10 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     draft,
     imageSupport,
     attachments,
+    queued,
+    editQueued,
+    withdrawQueued,
+    sendQueuedNow,
     selectorsDisabled: status === 'starting' || status === 'exited',
     setDraft,
     addImages,

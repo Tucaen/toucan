@@ -6,6 +6,17 @@ export type TerminalLiveness = 'live' | 'unverifiable' | 'exited'
 
 export type AgentPermissionModes = Partial<Record<AgentProvider, string>>
 
+/**
+ * How the composer's Enter key behaves. One workspace-wide preference rather than a per-node one:
+ * it is muscle memory, so it has to mean the same thing in every composer.
+ */
+export const composerSendKeys = ['enter', 'mod-enter'] as const
+export type ComposerSendKey = (typeof composerSendKeys)[number]
+
+export function isComposerSendKey(value: unknown): value is ComposerSendKey {
+  return composerSendKeys.includes(value as ComposerSendKey)
+}
+
 export interface TerminalCreateRequest {
   id: string
   /** Durable identity of the terminal, independent of any renderer or process. */
@@ -65,6 +76,8 @@ export interface WorkspaceTerminalNode {
   /** The agent model this conversation last ran on, as reported by its ACP adapter. */
   modelId?: string
   terminalLiveness?: TerminalLiveness
+  /** Unsent composer text, kept so a draft survives resize, collapse, and an ADE restart. */
+  draft?: string
 }
 
 export interface WorkspaceState {
@@ -73,6 +86,7 @@ export interface WorkspaceState {
   activeProjectId: string | null
   sidebarCollapsed: boolean
   agentPermissionModes?: AgentPermissionModes
+  composerSendKey?: ComposerSendKey
   nodes: WorkspaceTerminalNode[]
   worktrees: WorkspaceWorktree[]
 }

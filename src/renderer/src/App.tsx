@@ -11,6 +11,7 @@ import {
 } from '@xyflow/react'
 import type {
   AgentPermissionModes,
+  ComposerSendKey,
   ConversationPreview,
   TerminalLiveness,
   ProjectDirectory,
@@ -36,6 +37,8 @@ import { branchNameProblem, describeWorktreeBlocker, deriveWorktreeDirectory } f
 import { describeForcedRemovalCost, planWorktreeRemoval, type WorktreeRemovalPlan } from './worktree-removal'
 import type { ConversationSummary } from '../../shared/conversation'
 import ConversationHistoryDialog from './ConversationHistoryDialog'
+import { COMPOSER_SEND_KEY_DEFAULT } from './composer-keys'
+import { ComposerSendKeyContext } from './composer-send-key-context'
 import SessionNode from './SessionNode'
 import WorktreeNode from './WorktreeNode'
 import { terminalLivenessLabels } from './terminal-liveness'
@@ -298,6 +301,7 @@ function Canvas(): JSX.Element {
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [agentPermissionModes, setAgentPermissionModes] = useState<AgentPermissionModes>({})
+  const [composerSendKey, setComposerSendKey] = useState<ComposerSendKey>(COMPOSER_SEND_KEY_DEFAULT)
   const [workspaceReady, setWorkspaceReady] = useState(false)
   const [saveStatus, setSaveStatus] = useState<'saving' | 'saved' | 'error'>('saving')
   const [workspaceRecovered, setWorkspaceRecovered] = useState(false)
@@ -399,6 +403,12 @@ function Canvas(): JSX.Element {
     patchTerminalNode(nodeId, () => ({ worklogCollapsed: collapsed }))
   }, [patchTerminalNode])
 
+  // A draft belongs to its node, so it is patched in like any other node state and rides the
+  // ordinary workspace autosave out to disk.
+  const handleDraftChange = useCallback((nodeId: string, draft: string): void => {
+    patchTerminalNode(nodeId, (data) => (data.draft === draft ? {} : { draft }))
+  }, [patchTerminalNode])
+
   const handlePermissionModeChange = useCallback((provider: keyof AgentPermissionModes, modeId: string): void => {
     setAgentPermissionModes((current) => current[provider] === modeId
       ? current
@@ -488,6 +498,7 @@ function Canvas(): JSX.Element {
           onConversationId: handleConversationId,
           onPreview: handlePreview,
           onWorklogCollapsed: handleWorklogCollapsed,
+          onDraftChange: handleDraftChange,
           onPermissionModeChange: handlePermissionModeChange,
           onModelChange: handleModelChange,
           onResume: resumeNode,
@@ -497,7 +508,7 @@ function Canvas(): JSX.Element {
       }
     ])
     setNodeStatuses((current) => ({ ...current, [id]: 'starting' }))
-  }, [handleConversationId, handleModelChange, handlePermissionModeChange, handlePreview, handleStatusChange, handleTerminalLiveness, handleWorklogCollapsed, resumeNode, setNodes])
+  }, [handleConversationId, handleDraftChange, handleModelChange, handlePermissionModeChange, handlePreview, handleStatusChange, handleTerminalLiveness, handleWorklogCollapsed, resumeNode, setNodes])
 
   const findWorktreeNode = useCallback((worktreeId: string): WorktreeCanvasNode | undefined => (
     nodesRef.current.filter(isWorktreeCanvasNode).find((node) => node.data.worktreeId === worktreeId)
@@ -642,6 +653,7 @@ function Canvas(): JSX.Element {
           onConversationId: handleConversationId,
           onPreview: handlePreview,
           onWorklogCollapsed: handleWorklogCollapsed,
+          onDraftChange: handleDraftChange,
           onPermissionModeChange: handlePermissionModeChange,
           onModelChange: handleModelChange,
           onResume: resumeNode,
@@ -658,6 +670,7 @@ function Canvas(): JSX.Element {
         setActiveProjectId(restored.activeProjectId)
         setSidebarCollapsed(saved.sidebarCollapsed)
         setAgentPermissionModes(saved.agentPermissionModes ?? {})
+        setComposerSendKey(saved.composerSendKey ?? COMPOSER_SEND_KEY_DEFAULT)
       } else if (unrecoverable) {
         // Never silently seed and autosave a fresh default over damaged state the user might
         // still be able to recover by hand; wait for an explicit acknowledgement instead.
@@ -670,7 +683,7 @@ function Canvas(): JSX.Element {
       setWorkspaceReady(true)
     })()
     return () => { active = false }
-  }, [handleConversationId, handleCreateNodeInWorktree, handleModelChange, handlePermissionModeChange, handlePreview, handleRemoveWorktree, handleRunSetupCommand, handleStatusChange, handleTerminalLiveness, handleWorklogCollapsed, resumeNode, seedFreshWorkspace, setNodes])
+  }, [handleConversationId, handleCreateNodeInWorktree, handleDraftChange, handleModelChange, handlePermissionModeChange, handlePreview, handleRemoveWorktree, handleRunSetupCommand, handleStatusChange, handleTerminalLiveness, handleWorklogCollapsed, resumeNode, seedFreshWorkspace, setNodes])
 
   // One place decides how many nodes a worktree carries, so the count the teardown gate reads
   // and the count the node shows can never drift apart.
@@ -706,6 +719,7 @@ function Canvas(): JSX.Element {
         activeProjectId,
         sidebarCollapsed,
         agentPermissionModes,
+        composerSendKey,
         nodes: nodes.filter(isTerminalCanvasNode).map(serializeCanvasNode),
         worktrees: nodes.filter(isWorktreeCanvasNode).map(serializeWorktreeNode)
       }
@@ -714,7 +728,7 @@ function Canvas(): JSX.Element {
       })
     }, 180)
     return () => clearTimeout(timeout)
-  }, [activeProjectId, agentPermissionModes, nodes, projects, sidebarCollapsed, workspaceReady])
+  }, [activeProjectId, agentPermissionModes, composerSendKey, nodes, projects, sidebarCollapsed, workspaceReady])
 
   const addProject = useCallback(async (): Promise<void> => {
     const directory = await window.terminalApi.pickProject()
@@ -903,7 +917,13 @@ function Canvas(): JSX.Element {
     setSetupProjectId(null)
   }, [])
 
+  const sendKeyPreference = useMemo(
+    () => ({ sendKey: composerSendKey, setSendKey: setComposerSendKey }),
+    [composerSendKey]
+  )
+
   return (
+    <ComposerSendKeyContext.Provider value={sendKeyPreference}>
     <main className="app-shell" onClick={() => setMenu(null)}>
       {workspaceUnrecoverable && (
         <div className="unrecoverable-workspace-overlay" role="alertdialog" aria-modal="true" aria-labelledby="unrecoverable-workspace-title">
@@ -1243,6 +1263,7 @@ function Canvas(): JSX.Element {
         />
       )}
     </main>
+    </ComposerSendKeyContext.Provider>
   )
 }
 

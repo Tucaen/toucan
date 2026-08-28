@@ -33,7 +33,11 @@ const baseChatViewProps: ChatViewProps = {
   openAuthLink: vi.fn(),
   resolveApproval: vi.fn(),
   sendMessage: vi.fn(),
-  answerDecision: vi.fn()
+  answerDecision: vi.fn(),
+  queued: [],
+  editQueued: vi.fn(),
+  withdrawQueued: vi.fn(),
+  sendQueuedNow: vi.fn()
 }
 
 function renderChatView(overrides: Partial<ChatViewProps>): void {
@@ -114,7 +118,7 @@ function fakeSubmitEvent(): FormEvent {
   return { preventDefault: () => {} } as unknown as FormEvent
 }
 
-test('submit() delivers directly while ready, then queues through promptWhenIdle once working', async () => {
+test('submit() delivers directly while ready, and holds the next one locally once working', async () => {
   const { api, emit } = createMockAgentApi()
   window.agentApi = api
 
@@ -139,22 +143,137 @@ test('submit() delivers directly while ready, then queues through promptWhenIdle
     { id: expect.any(String), role: 'user', text: 'first message', queued: false }
   ]))
 
+  // A follow-up submitted mid-turn is parked in the local outbox: nothing crosses into the
+  // adapter, which is exactly what makes it withdrawable.
   act(() => result.current.setDraft('second message'))
   act(() => { result.current.submit(fakeSubmitEvent()) })
 
-  await waitFor(() => expect(api.promptWhenIdle).toHaveBeenCalledWith('session-1', 'second message'))
+  expect(result.current.queued.map((entry) => entry.text)).toEqual(['second message'])
+  expect(api.promptWhenIdle).not.toHaveBeenCalled()
   expect(result.current.status).toBe('working')
+  expect(result.current.messages).toHaveLength(1)
+
+  // Once the turn finishes, the outbox drains through the ordinary direct API.
+  emit('session-1', { type: 'status', status: 'idle' })
+  await waitFor(() => expect(api.prompt).toHaveBeenCalledWith('session-1', 'second message'))
+  await waitFor(() => expect(result.current.queued).toEqual([]))
   await waitFor(() => expect(result.current.messages).toEqual([
     { id: expect.any(String), role: 'user', text: 'first message', queued: false },
     { id: expect.any(String), role: 'user', text: 'second message', queued: false }
   ]))
+})
 
-  // The agent echoes sends in FIFO order: the still-open "first message" slot must clear
-  // before "second message"'s can, even though "first message" was never itself queued.
-  emit('session-1', { type: 'message', role: 'user', messageId: 'echo-1', text: 'first message' })
-  emit('session-1', { type: 'message', role: 'user', messageId: 'echo-2', text: 'second message' })
-  await waitFor(() => expect(result.current.messages[1].queued).toBe(false))
-  expect(result.current.messages[0].queued).toBe(false)
+test('a queued follow-up can be withdrawn, and the agent never sees it', async () => {
+  const { api, emit } = createMockAgentApi()
+  window.agentApi = api
+
+  const { result } = renderHook(() => useAgentConversation({
+    id: 'session-withdraw',
+    provider: 'claude',
+    cwd: '/project',
+    enabled: true,
+    onSessionId: vi.fn(),
+    onPermissionMode: vi.fn(),
+    onModel: vi.fn()
+  }))
+
+  await waitFor(() => expect(result.current.status).toBe('ready'))
+  act(() => result.current.setDraft('go ready-to-working'))
+  act(() => { result.current.submit(fakeSubmitEvent()) })
+  await waitFor(() => expect(result.current.status).toBe('working'))
+
+  act(() => result.current.setDraft('please also refactor everything'))
+  act(() => { result.current.submit(fakeSubmitEvent()) })
+  const [entry] = result.current.queued
+  act(() => result.current.withdrawQueued(entry.id))
+
+  expect(result.current.queued).toEqual([])
+
+  // The turn ends: there is nothing left to drain, so the withdrawn text is never delivered.
+  emit('session-withdraw', { type: 'status', status: 'idle' })
+  await waitFor(() => expect(result.current.status).toBe('ready'))
+  expect(api.prompt).not.toHaveBeenCalledWith('session-withdraw', 'please also refactor everything')
+  expect(api.promptWhenIdle).not.toHaveBeenCalled()
+})
+
+test('a queued follow-up can be rewritten before it is sent, and only the rewrite is delivered', async () => {
+  const { api, emit } = createMockAgentApi()
+  window.agentApi = api
+
+  const { result } = renderHook(() => useAgentConversation({
+    id: 'session-edit',
+    provider: 'claude',
+    cwd: '/project',
+    enabled: true,
+    onSessionId: vi.fn(),
+    onPermissionMode: vi.fn(),
+    onModel: vi.fn()
+  }))
+
+  await waitFor(() => expect(result.current.status).toBe('ready'))
+  act(() => result.current.setDraft('go ready-to-working'))
+  act(() => { result.current.submit(fakeSubmitEvent()) })
+  await waitFor(() => expect(result.current.status).toBe('working'))
+
+  act(() => result.current.setDraft('first draft of the follow-up'))
+  act(() => { result.current.submit(fakeSubmitEvent()) })
+  act(() => result.current.editQueued(result.current.queued[0].id, 'the follow-up I actually meant'))
+
+  emit('session-edit', { type: 'status', status: 'idle' })
+  await waitFor(() => expect(api.prompt).toHaveBeenCalledWith('session-edit', 'the follow-up I actually meant'))
+  expect(api.prompt).not.toHaveBeenCalledWith('session-edit', 'first draft of the follow-up')
+})
+
+test('sendQueuedNow hands one queued prompt to the running turn through promptWhenIdle', async () => {
+  const { api } = createMockAgentApi()
+  window.agentApi = api
+
+  const { result } = renderHook(() => useAgentConversation({
+    id: 'session-now',
+    provider: 'claude',
+    cwd: '/project',
+    enabled: true,
+    onSessionId: vi.fn(),
+    onPermissionMode: vi.fn(),
+    onModel: vi.fn()
+  }))
+
+  await waitFor(() => expect(result.current.status).toBe('ready'))
+  act(() => result.current.setDraft('go ready-to-working'))
+  act(() => { result.current.submit(fakeSubmitEvent()) })
+  await waitFor(() => expect(result.current.status).toBe('working'))
+
+  act(() => result.current.setDraft('steer the running turn'))
+  act(() => { result.current.submit(fakeSubmitEvent()) })
+  act(() => result.current.sendQueuedNow(result.current.queued[0].id))
+
+  await waitFor(() => expect(api.promptWhenIdle).toHaveBeenCalledWith('session-now', 'steer the running turn'))
+  expect(result.current.queued).toEqual([])
+})
+
+test('a decision answer given mid-turn still goes straight into the running turn, never the outbox', async () => {
+  const { api } = createMockAgentApi()
+  window.agentApi = api
+
+  const { result } = renderHook(() => useAgentConversation({
+    id: 'session-decision',
+    provider: 'claude',
+    cwd: '/project',
+    enabled: true,
+    onSessionId: vi.fn(),
+    onPermissionMode: vi.fn(),
+    onModel: vi.fn()
+  }))
+
+  await waitFor(() => expect(result.current.status).toBe('ready'))
+  act(() => result.current.setDraft('go ready-to-working'))
+  act(() => { result.current.submit(fakeSubmitEvent()) })
+  await waitFor(() => expect(result.current.status).toBe('working'))
+
+  act(() => { result.current.answerDecision('decision-1', 'Option B') })
+
+  await waitFor(() => expect(api.promptWhenIdle).toHaveBeenCalledWith('session-decision', 'Option B'))
+  expect(result.current.queued).toEqual([])
 })
 
 test('each accepted queued send is acknowledged independently and later echoes are deduplicated', async () => {
@@ -177,10 +296,8 @@ test('each accepted queued send is acknowledged independently and later echoes a
   act(() => { result.current.submit(fakeSubmitEvent()) })
   await waitFor(() => expect(result.current.status).toBe('working'))
 
-  act(() => result.current.setDraft('queued A'))
-  act(() => { result.current.submit(fakeSubmitEvent()) })
-  act(() => result.current.setDraft('queued B'))
-  act(() => { result.current.submit(fakeSubmitEvent()) })
+  act(() => { result.current.sendMessage('queued A') })
+  act(() => { result.current.sendMessage('queued B') })
 
   await waitFor(() => expect(result.current.messages).toHaveLength(3))
   await waitFor(() => expect(result.current.messages[1].queued).toBe(false))
@@ -228,10 +345,8 @@ test(
     act(() => { result.current.submit(fakeSubmitEvent()) })
     await waitFor(() => expect(result.current.status).toBe('working'))
 
-    act(() => result.current.setDraft('queued A'))
-    act(() => { result.current.submit(fakeSubmitEvent()) })
-    act(() => result.current.setDraft('queued B'))
-    act(() => { result.current.submit(fakeSubmitEvent()) })
+    act(() => { result.current.sendMessage('queued A') })
+    act(() => { result.current.sendMessage('queued B') })
 
     await waitFor(() => expect(result.current.messages).toHaveLength(3))
 
@@ -269,8 +384,7 @@ test(
     act(() => { result.current.submit(fakeSubmitEvent()) })
     await waitFor(() => expect(result.current.status).toBe('working'))
 
-    act(() => result.current.setDraft('queued, echo will never arrive'))
-    act(() => { result.current.submit(fakeSubmitEvent()) })
+    act(() => { result.current.sendMessage('queued, echo will never arrive') })
     await waitFor(() => expect(result.current.messages).toHaveLength(2))
     expect(result.current.messages[1].queued).toBe(false)
 
@@ -307,8 +421,7 @@ test(
     act(() => { result.current.submit(fakeSubmitEvent()) })
     await waitFor(() => expect(result.current.status).toBe('working'))
 
-    act(() => result.current.setDraft('queued, will expire'))
-    act(() => { result.current.submit(fakeSubmitEvent()) })
+    act(() => { result.current.sendMessage('queued, will expire') })
     await waitFor(() => expect(result.current.messages).toHaveLength(2))
 
     await waitFor(() => expect(result.current.messages[1].failed).toBe(true))
@@ -361,8 +474,7 @@ test(
     act(() => { result.current.submit(fakeSubmitEvent()) })
     await waitFor(() => expect(result.current.status).toBe('working'))
 
-    act(() => result.current.setDraft('queued, still waiting on delivery'))
-    act(() => { result.current.submit(fakeSubmitEvent()) })
+    act(() => { result.current.sendMessage('queued, still waiting on delivery') })
     await waitFor(() => expect(result.current.messages).toHaveLength(2))
     expect(result.current.messages[1].queued).toBe(true)
 

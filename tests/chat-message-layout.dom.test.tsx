@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, within } from '@testing-library/react'
 import { describe, expect, test, vi } from 'vitest'
 import { ChatView, type ChatViewProps } from '../src/renderer/src/ChatNode'
 
@@ -29,7 +29,11 @@ const baseChatViewProps: ChatViewProps = {
   openAuthLink: vi.fn(),
   resolveApproval: vi.fn(),
   sendMessage: vi.fn(),
-  answerDecision: vi.fn()
+  answerDecision: vi.fn(),
+  queued: [],
+  editQueued: vi.fn(),
+  withdrawQueued: vi.fn(),
+  sendQueuedNow: vi.fn()
 }
 
 function renderChatView(overrides: Partial<ChatViewProps>): HTMLElement {
@@ -46,15 +50,18 @@ function renderChatView(overrides: Partial<ChatViewProps>): HTMLElement {
 
 describe('chat message sender label removal', () => {
   test('does not render "You" or the provider name as a sender label', () => {
-    renderChatView({
+    const container = renderChatView({
       messages: [
         { id: '1', role: 'user', text: 'hello there' },
         { id: '2', role: 'assistant', text: 'hi, how can I help' }
       ]
     })
 
-    expect(screen.queryByText('You')).toBeNull()
-    expect(screen.queryByText('Claude')).toBeNull()
+    // Scoped to the transcript: the composer's toolbar names the provider once, deliberately,
+    // which is not the per-message sender label this covers.
+    const transcript = within(container.querySelector('.chat-scroll') as HTMLElement)
+    expect(transcript.queryByText('You')).toBeNull()
+    expect(transcript.queryByText('Claude')).toBeNull()
   })
 
   test('a user message article contains only the message content div, no label element', () => {
