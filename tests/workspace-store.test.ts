@@ -82,6 +82,32 @@ test('migrates the legacy worklog preference to per-node focus mode', () => {
   assert.equal('worklogCollapsed' in migrated!.nodes[0], false)
 })
 
+test('preserves recently closed session nodes in a version 3 workspace', () => {
+  const closedNode = {
+    id: 'closed-node-1',
+    kind: 'codex',
+    label: 'Codex 1',
+    projectId: 'project-1',
+    position: { x: 240, y: 180 },
+    width: 520,
+    height: 340,
+    conversationId: 'conversation-1'
+  }
+  const parsed = parseWorkspaceState({
+    ...makeState('ADE'),
+    recentlyClosedNodes: [closedNode]
+  })
+
+  assert.deepEqual(parsed?.recentlyClosedNodes, [closedNode])
+})
+
+test('rejects malformed recently closed session records', () => {
+  assert.equal(parseWorkspaceState({
+    ...makeState('ADE'),
+    recentlyClosedNodes: [{ id: 'missing-session-fields' }]
+  }), null)
+})
+
 test('rejects a workspace whose worktree records are malformed', () => {
   const base = {
     version: 3,
@@ -125,6 +151,16 @@ test('saves and loads a valid workspace through the store', async () => {
     sidebarCollapsed: false,
     agentPermissionModes: { claude: 'acceptEdits', codex: 'read-only' },
     nodes: [],
+    recentlyClosedNodes: [{
+      id: 'closed-node-1',
+      kind: 'codex',
+      label: 'Codex 1',
+      projectId: 'project-1',
+      position: { x: 240, y: 180 },
+      width: 520,
+      height: 340,
+      conversationId: 'conversation-1'
+    }],
     worktrees: [{
       id: 'worktree-1',
       projectId: 'project-1',

@@ -1,8 +1,12 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
 import {
+  CLOSED_SESSION_STACK_LIMIT,
+  closedSessionKeyAction,
   isTerminalCanvasNode,
   isWorktreeCanvasNode,
+  rememberClosedSessionNodes,
+  reopenClosedSession,
   restoreCanvasWorkspace,
   serializeCanvasNode,
   serializeWorktreeNode,
@@ -237,4 +241,91 @@ test('a node whose worktree record vanished restores detached and dormant', () =
   assert.equal(node.data.worktreeBranch, undefined)
   // The attachment is not silently re-persisted, so the record cannot come back to life.
   assert.equal(serializeCanvasNode(node).worktreeId, undefined)
+})
+
+test('remembering closed session nodes keeps the most recent bounded stack', () => {
+  const state = worktreeState()
+  state.nodes = Array.from({ length: CLOSED_SESSION_STACK_LIMIT + 2 }, (_, index) => ({
+    id: `node-${index + 1}`,
+    kind: 'codex' as const,
+    label: `Codex ${index + 1}`,
+    projectId: 'project-1',
+    position: { x: index * 10, y: index * 20 },
+    width: 520,
+    height: 340,
+    conversationId: `conversation-${index + 1}`,
+    focusMode: true
+  }))
+  const restored = terminalNodes(restoreCanvasWorkspace(state, callbacks).nodes)
+
+  const stack = restored.reduce(
+    (current, node) => rememberClosedSessionNodes(current, [node]),
+    [] as WorkspaceState['nodes']
+  )
+
+  assert.equal(stack.length, CLOSED_SESSION_STACK_LIMIT)
+  assert.deepEqual(stack.map((node) => node.id), Array.from(
+    { length: CLOSED_SESSION_STACK_LIMIT },
+    (_, index) => `node-${index + 3}`
+  ))
+  assert.deepEqual(stack.at(-1), state.nodes.at(-1))
+})
+
+test('the reopen shortcut falls through unless Ctrl+Shift+T can restore a session', () => {
+  const key = (overrides: Partial<Parameters<typeof closedSessionKeyAction>[0]> = {}): Parameters<typeof closedSessionKeyAction>[0] => ({
+    key: 'T',
+    ctrlKey: true,
+    shiftKey: true,
+    altKey: false,
+    metaKey: false,
+    ...overrides
+  })
+
+  assert.equal(closedSessionKeyAction(key(), true), 'reopen')
+  assert.equal(closedSessionKeyAction(key(), false), 'none')
+  assert.equal(closedSessionKeyAction(key({ ctrlKey: false }), true), 'none')
+  assert.equal(closedSessionKeyAction(key({ altKey: true }), true), 'none')
+  assert.equal(closedSessionKeyAction(key({ key: 'R' }), true), 'none')
+})
+
+test('reopening takes the newest closed session and resumes it at its saved position', () => {
+  const state = worktreeState()
+  state.agentPermissionModes = { codex: 'read-only' }
+  const first = {
+    ...state.nodes[0],
+    conversationId: 'conversation-1'
+  }
+  const newest = {
+    ...state.nodes[0],
+    id: 'node-2',
+    kind: 'codex' as const,
+    label: 'Codex 2',
+    conversationId: 'conversation-2',
+    position: { x: 712, y: 438 }
+  }
+
+  const reopened = reopenClosedSession([first, newest], state, callbacks)
+
+  assert.deepEqual(reopened.recentlyClosedNodes, [first])
+  assert.equal(reopened.node?.id, 'node-2')
+  assert.deepEqual(reopened.node?.position, { x: 712, y: 438 })
+  assert.equal(reopened.node?.selected, true)
+  assert.equal(reopened.node?.data.conversationId, 'conversation-2')
+  assert.equal(reopened.node?.data.launchMode, 'resume')
+  assert.equal(reopened.node?.data.dormant, false)
+  assert.equal(reopened.node?.data.workingDirectory, 'D:\\Development\\ADE-worktrees\\feature-login')
+  assert.equal(reopened.node?.data.preferredPermissionMode, 'read-only')
+})
+
+test('a reopened session whose worktree vanished stays detached and dormant', () => {
+  const state = worktreeState()
+  const closedNode = { ...state.nodes[0], conversationId: 'conversation-1' }
+  state.worktrees = []
+
+  const reopened = reopenClosedSession([closedNode], state, callbacks)
+
+  assert.equal(reopened.node?.data.detachedFromWorktree, true)
+  assert.equal(reopened.node?.data.dormant, true)
+  assert.equal(reopened.node?.data.workingDirectory, 'D:\\Development\\ADE')
+  assert.equal(reopened.node?.data.worktreeId, undefined)
 })

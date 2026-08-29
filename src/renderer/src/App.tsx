@@ -7,6 +7,7 @@ import {
   ReactFlowProvider,
   useNodesState,
   useReactFlow,
+  type NodeChange,
   type NodeTypes
 } from '@xyflow/react'
 import type {
@@ -17,12 +18,16 @@ import type {
   ProjectDirectory,
   TerminalKind,
   WorkspaceProject,
-  WorkspaceState
+  WorkspaceState,
+  WorkspaceTerminalNode
 } from '../../shared/terminal'
 import {
+  closedSessionKeyAction,
   DEFAULT_WORKTREE_SIZE,
   isTerminalCanvasNode,
   isWorktreeCanvasNode,
+  rememberClosedSessionNodes,
+  reopenClosedSession,
   restoreCanvasWorkspace,
   serializeCanvasNode,
   serializeWorktreeNode,
@@ -295,6 +300,7 @@ function Canvas(): JSX.Element {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [agentPermissionModes, setAgentPermissionModes] = useState<AgentPermissionModes>({})
   const [composerSendKey, setComposerSendKey] = useState<ComposerSendKey>(COMPOSER_SEND_KEY_DEFAULT)
+  const [recentlyClosedNodes, setRecentlyClosedNodes] = useState<WorkspaceTerminalNode[]>([])
   const [workspaceReady, setWorkspaceReady] = useState(false)
   const [saveStatus, setSaveStatus] = useState<'saving' | 'saved' | 'error'>('saving')
   const [workspaceRecovered, setWorkspaceRecovered] = useState(false)
@@ -443,9 +449,72 @@ function Canvas(): JSX.Element {
   const nodesRef = useRef<CanvasNode[]>([])
   const projectsRef = useRef<Project[]>([])
   const permissionModesRef = useRef<AgentPermissionModes>({})
+  const recentlyClosedNodesRef = useRef<WorkspaceTerminalNode[]>([])
   nodesRef.current = nodes
   projectsRef.current = projects
   permissionModesRef.current = agentPermissionModes
+  recentlyClosedNodesRef.current = recentlyClosedNodes
+
+  const handleNodesChange = useCallback((changes: NodeChange<CanvasNode>[]): void => {
+    const removedIds = new Set(changes.flatMap((change) => change.type === 'remove' ? [change.id] : []))
+    if (removedIds.size > 0) {
+      const removedNodes = nodesRef.current.filter((node) => removedIds.has(node.id))
+      setRecentlyClosedNodes((current) => {
+        const next = rememberClosedSessionNodes(current, removedNodes)
+        recentlyClosedNodesRef.current = next
+        return next
+      })
+      setNodeStatuses((current) => Object.fromEntries(
+        Object.entries(current).filter(([nodeId]) => !removedIds.has(nodeId))
+      ))
+    }
+    onNodesChange(changes)
+  }, [onNodesChange])
+
+  const reopenLastClosedSession = useCallback((): boolean => {
+    const result = reopenClosedSession(
+      recentlyClosedNodesRef.current,
+      {
+        projects: projectsRef.current,
+        worktrees: nodesRef.current.filter(isWorktreeCanvasNode).map(serializeWorktreeNode),
+        agentPermissionModes: permissionModesRef.current
+      },
+      {
+        onStatusChange: handleStatusChange,
+        onConversationId: handleConversationId,
+        onPreview: handlePreview,
+        onFocusModeChange: handleFocusModeChange,
+        onDraftChange: handleDraftChange,
+        onPermissionModeChange: handlePermissionModeChange,
+        onModelChange: handleModelChange,
+        onResume: resumeNode,
+        onTerminalLiveness: handleTerminalLiveness
+      }
+    )
+    recentlyClosedNodesRef.current = result.recentlyClosedNodes
+    setRecentlyClosedNodes(result.recentlyClosedNodes)
+    if (!result.node) return false
+
+    const reopened = result.node
+    setNodes((current) => [
+      ...current.map((node) => ({ ...node, selected: false })),
+      reopened
+    ])
+    setNodeStatuses((current) => ({
+      ...current,
+      [reopened.id]: reopened.data.dormant ? 'dormant' : 'starting'
+    }))
+    return true
+  }, [handleConversationId, handleDraftChange, handleFocusModeChange, handleModelChange, handlePermissionModeChange, handlePreview, handleStatusChange, handleTerminalLiveness, resumeNode, setNodes])
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (closedSessionKeyAction(event, recentlyClosedNodesRef.current.length > 0) !== 'reopen') return
+      if (reopenLastClosedSession()) event.preventDefault()
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [reopenLastClosedSession])
 
   const addSessionNode = useCallback((options: {
     kind: TerminalKind
@@ -664,6 +733,7 @@ function Canvas(): JSX.Element {
         setSidebarCollapsed(saved.sidebarCollapsed)
         setAgentPermissionModes(saved.agentPermissionModes ?? {})
         setComposerSendKey(saved.composerSendKey ?? COMPOSER_SEND_KEY_DEFAULT)
+        setRecentlyClosedNodes(saved.recentlyClosedNodes ?? [])
       } else if (unrecoverable) {
         // Never silently seed and autosave a fresh default over damaged state the user might
         // still be able to recover by hand; wait for an explicit acknowledgement instead.
@@ -714,6 +784,7 @@ function Canvas(): JSX.Element {
         agentPermissionModes,
         composerSendKey,
         nodes: nodes.filter(isTerminalCanvasNode).map(serializeCanvasNode),
+        recentlyClosedNodes,
         worktrees: nodes.filter(isWorktreeCanvasNode).map(serializeWorktreeNode)
       }
       void window.terminalApi.saveWorkspace(state).then((result) => {
@@ -721,7 +792,7 @@ function Canvas(): JSX.Element {
       })
     }, 180)
     return () => clearTimeout(timeout)
-  }, [activeProjectId, agentPermissionModes, composerSendKey, nodes, projects, sidebarCollapsed, workspaceReady])
+  }, [activeProjectId, agentPermissionModes, composerSendKey, nodes, projects, recentlyClosedNodes, sidebarCollapsed, workspaceReady])
 
   const addProject = useCallback(async (): Promise<void> => {
     const directory = await window.terminalApi.pickProject()
@@ -1176,7 +1247,7 @@ function Canvas(): JSX.Element {
           <ReactFlow
             nodes={nodes}
             nodeTypes={nodeTypes}
-            onNodesChange={onNodesChange}
+            onNodesChange={handleNodesChange}
             onPaneContextMenu={openContextMenu}
             onPaneClick={() => setMenu(null)}
             minZoom={0.25}

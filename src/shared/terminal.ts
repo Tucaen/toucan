@@ -89,6 +89,8 @@ export interface WorkspaceState {
   agentPermissionModes?: AgentPermissionModes
   composerSendKey?: ComposerSendKey
   nodes: WorkspaceTerminalNode[]
+  /** Bounded LIFO history used by Ctrl+Shift+T; callbacks are rebuilt when an entry is reopened. */
+  recentlyClosedNodes?: WorkspaceTerminalNode[]
   worktrees: WorkspaceWorktree[]
 }
 
