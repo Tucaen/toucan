@@ -21,7 +21,6 @@ interface RunningTerminal {
   owner: TerminalEventOwner | null
   attachmentId: string
   liveness: TerminalLiveness
-  discoveryTimer?: ReturnType<typeof setInterval>
 }
 
 export interface TerminalManagerOptions {
@@ -29,8 +28,6 @@ export interface TerminalManagerOptions {
   spawn(launch: SessionLaunch, request: TerminalCreateRequest, cwd: string): TerminalProcess
   pathExists?(path: string): boolean
   pathIsDirectory?(path: string): boolean
-  now?(): number
-  discoveryIntervalMs?: number
   createIncarnationId?(): string
 }
 
@@ -46,7 +43,6 @@ export interface TerminalManager {
 
 export function createTerminalManager(options: TerminalManagerOptions): TerminalManager {
   const terminals = new Map<string, RunningTerminal>()
-  const claimedConversations = new Set<string>()
   const lastStates = new Map<string, { incarnationId: string; liveness: TerminalLiveness }>()
   const pathExists = options.pathExists ?? existsSync
   const pathIsDirectory = options.pathIsDirectory ?? ((path: string) => statSync(path).isDirectory())
@@ -59,7 +55,6 @@ export function createTerminalManager(options: TerminalManagerOptions): Terminal
   const stop = (sessionId: string, incarnationId: string, attachmentId?: string): boolean => {
     const terminal = matches(sessionId, incarnationId)
     if (!terminal || (attachmentId !== undefined && terminal.attachmentId !== attachmentId)) return false
-    if (terminal.discoveryTimer) clearInterval(terminal.discoveryTimer)
     terminals.delete(sessionId)
     terminal.owner = null
     terminal.liveness = 'unverifiable'
@@ -85,8 +80,7 @@ export function createTerminalManager(options: TerminalManagerOptions): Terminal
           liveness: 'live'
         }
       }
-      const launch = options.providers.resolveLaunch(request)
-      if ('error' in launch) return { ok: false, message: launch.error }
+      const launch = options.providers.resolveLaunch()
 
       let cwd: string
       try {
@@ -99,7 +93,6 @@ export function createTerminalManager(options: TerminalManagerOptions): Terminal
       }
 
       try {
-        const startedAt = (options.now ?? Date.now)()
         const terminal = options.spawn(launch, request, cwd)
         const incarnationId = (options.createIncarnationId ?? randomUUID)()
         const running: RunningTerminal = {
@@ -107,31 +100,6 @@ export function createTerminalManager(options: TerminalManagerOptions): Terminal
         }
         terminals.set(sessionId, running)
         lastStates.set(sessionId, { incarnationId, liveness: 'live' })
-        if (request.kind === 'codex' && !request.resume) {
-          let attempts = 0
-          running.discoveryTimer = setInterval(() => {
-            attempts += 1
-            const current = terminals.get(sessionId)
-            if (!current || attempts > 120) {
-              if (running.discoveryTimer) clearInterval(running.discoveryTimer)
-              running.discoveryTimer = undefined
-              return
-            }
-            const conversationId = options.providers.discoverConversation(
-              request.kind,
-              cwd,
-              startedAt,
-              claimedConversations
-            )
-            if (!conversationId) return
-            claimedConversations.add(conversationId)
-            if (running.discoveryTimer) clearInterval(running.discoveryTimer)
-            running.discoveryTimer = undefined
-            if (current === running && running.owner) sendTerminalEvent(running.owner, 'terminal:session', {
-              sessionId, incarnationId, attachmentId: running.attachmentId, conversationId
-            })
-          }, options.discoveryIntervalMs ?? 250)
-        }
         terminal.onData((data) => {
           if (terminals.get(sessionId) === running && running.owner) {
             sendTerminalEvent(running.owner, 'terminal:data', {
@@ -142,7 +110,6 @@ export function createTerminalManager(options: TerminalManagerOptions): Terminal
         terminal.onExit(({ exitCode }) => {
           const current = terminals.get(sessionId)
           if (current && current !== running) return
-          if (running.discoveryTimer) clearInterval(running.discoveryTimer)
           if (current === running) terminals.delete(sessionId)
           if (lastStates.get(sessionId)?.incarnationId !== incarnationId) return
           lastStates.set(sessionId, { incarnationId, liveness: 'exited' })

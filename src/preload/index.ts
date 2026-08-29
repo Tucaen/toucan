@@ -14,7 +14,6 @@ import type {
   TerminalCreateResult,
   TerminalExit,
   TerminalOutput,
-  TerminalSession,
   WorkspaceLoadResult,
   WorkspaceSaveResult,
   WorkspaceState
@@ -63,13 +62,6 @@ const terminalApi = {
     }
     ipcRenderer.on('terminal:exit', listener)
     return () => ipcRenderer.removeListener('terminal:exit', listener)
-  },
-  onSession: (sessionId: string, attachmentId: string, callback: (result: TerminalSession) => void): (() => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, result: TerminalSession): void => {
-      if (result.sessionId === sessionId && result.attachmentId === attachmentId) callback(result)
-    }
-    ipcRenderer.on('terminal:session', listener)
-    return () => ipcRenderer.removeListener('terminal:session', listener)
   }
 }
 
@@ -137,4 +129,3 @@ const conversationApi = {
 }
 
 contextBridge.exposeInMainWorld('conversationApi', conversationApi)
-
