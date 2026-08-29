@@ -1,4 +1,5 @@
 import type { AgentActivity } from '../../shared/agent'
+import { asRecord, asText, memoizePerActivity, normalizeToolName } from './tool-input'
 
 /**
  * The file operations that get a purpose-built card. Everything else keeps the generic card, so
@@ -41,25 +42,8 @@ export interface FileOperationBlock {
   lines: FileOperationLine[]
 }
 
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : undefined
-}
-
-function asText(value: unknown): string | undefined {
-  return typeof value === 'string' && value.length > 0 ? value : undefined
-}
-
 function asNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined
-}
-
-/** A tool name as adapters spell it, flattened so `MultiEdit`, `multi_edit` and `multiedit` agree. */
-function normalizeToolName(name: string | undefined): string | undefined {
-  if (!name) return undefined
-  const bare = name.split(/[.:]|__/).filter(Boolean).at(-1) ?? name
-  return bare.toLowerCase().replace(/[^a-z]/g, '')
 }
 
 function editsFromRawInput(input: Record<string, unknown>): FileOperationEdit[] | undefined {
@@ -143,21 +127,8 @@ export function parseFileOperation(activity: AgentActivity): FileOperation | nul
   return null
 }
 
-const parsedOperations = new WeakMap<AgentActivity, FileOperation | null>()
-
-/**
- * `parseFileOperation` for the render path. A card asks what it is up to three times per render
- * (icon, summary, body) and the worklog re-renders on every streaming chunk, so the answer is
- * cached against the activity object `mergeActivity` produced - a new object per update, so a
- * changed call is never served a stale parse.
- */
-export function fileOperationFor(activity: AgentActivity): FileOperation | null {
-  const cached = parsedOperations.get(activity)
-  if (cached !== undefined) return cached
-  const operation = parseFileOperation(activity)
-  parsedOperations.set(activity, operation)
-  return operation
-}
+/** `parseFileOperation` for the render path, cached per activity object (`memoizePerActivity`). */
+export const fileOperationFor = memoizePerActivity(parseFileOperation)
 
 /**
  * Renders a path relative to the deepest root that contains it, so a card reads `src/a.ts`

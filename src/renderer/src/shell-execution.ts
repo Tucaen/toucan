@@ -1,4 +1,10 @@
 import type { AgentActivity } from "../../shared/agent";
+import {
+  asRecord,
+  asText,
+  memoizePerActivity,
+  normalizeToolName,
+} from "./tool-input";
 
 /**
  * The three shapes a shell tool call comes in: the call that runs a command, and the two
@@ -28,27 +34,6 @@ export interface ShellExecution {
 export interface ShellOutputBlock {
   stream: "stdout" | "stderr" | "output";
   lines: string[];
-}
-
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined;
-}
-
-function asText(value: unknown): string | undefined {
-  return typeof value === "string" && value.length > 0 ? value : undefined;
-}
-
-/** A tool name as adapters spell it, flattened so `BashOutput` and `bash_output` agree. */
-function normalizeToolName(name: string | undefined): string | undefined {
-  if (!name) return undefined;
-  const bare =
-    name
-      .split(/[.:]|__/)
-      .filter(Boolean)
-      .at(-1) ?? name;
-  return bare.toLowerCase().replace(/[^a-z]/g, "");
 }
 
 /**
@@ -154,22 +139,8 @@ export function parseShellExecution(
   };
 }
 
-const parsedExecutions = new WeakMap<AgentActivity, ShellExecution | null>();
-
-/**
- * `parseShellExecution` for the render path, cached against the activity object `mergeActivity`
- * produced the same way `fileOperationFor` is - a card asks what it is several times per render
- * and the worklog re-renders on every streaming chunk.
- */
-export function shellExecutionFor(
-  activity: AgentActivity,
-): ShellExecution | null {
-  const cached = parsedExecutions.get(activity);
-  if (cached !== undefined) return cached;
-  const execution = parseShellExecution(activity);
-  parsedExecutions.set(activity, execution);
-  return execution;
-}
+/** `parseShellExecution` for the render path, cached per activity object (`memoizePerActivity`). */
+export const shellExecutionFor = memoizePerActivity(parseShellExecution);
 
 const SHELL_ICONS: Record<ShellExecutionKind, string> = {
   run: ">_",

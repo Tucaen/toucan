@@ -144,6 +144,15 @@ export interface AgentActivity {
   /** Before/after pairs from ACP `diff` content, when the adapter sends them. */
   diffs?: AgentFileDiff[]
   /**
+   * The tool call this one was made *inside* - set only on calls a subagent made, and naming the
+   * `Task`/`Agent` call that spawned it. Both adapters forward a subagent's tool calls into the
+   * same flat feed as the parent session's own, so without this every delegated Read and Grep
+   * reads as the main agent's work and the spawning call looks frozen (see `subagent-task.ts`).
+   */
+  parentToolCallId?: string
+  /** This call *is* a delegation: the adapter marked it as spawning a subagent. */
+  subagent?: boolean
+  /**
    * One chunk of terminal output as the adapter just sent it - never the accumulated text. Both
    * adapters stream a command's output through the `terminal_output`/`terminal_output_delta`
    * `_meta` channel rather than ACP content, and `mergeActivity` is what appends chunks into
