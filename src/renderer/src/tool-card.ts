@@ -85,3 +85,16 @@ export function truncateToolOutput(text: string | undefined, maxLines: number): 
   if (lines.length <= maxLines) return { text, hiddenLines: 0 }
   return { text: lines.slice(0, maxLines).join('\n'), hiddenLines: lines.length - maxLines }
 }
+
+/**
+ * `truncateToolOutput` as the lines a body actually renders, with the shell's "everything" budget
+ * (`null`, set once the reader asked for it) folded in. Every family whose body ends in a block
+ * of the tool's own output goes through this rather than repeating the same null check.
+ */
+export function toolOutputLines(
+  text: string | undefined,
+  budget: number | null
+): { lines: string[]; hiddenLines: number } {
+  const output = budget === null ? { text: text ?? '', hiddenLines: 0 } : truncateToolOutput(text, budget)
+  return { lines: output.text ? output.text.split('\n') : [], hiddenLines: output.hiddenLines }
+}

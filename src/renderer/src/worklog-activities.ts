@@ -1,6 +1,5 @@
 import type { AgentActivity } from '../../shared/agent'
 import { isPlanUpdateFoldedIntoRail } from './plan-update'
-import { indexSubagentActivities } from './subagent-task'
 
 /**
  * Which activities get a card of their own in the worklog. Two things are deliberately *not*
@@ -12,13 +11,14 @@ import { indexSubagentActivities } from './subagent-task'
  * - a plan write the plan rail has already absorbed (`isPlanUpdateFoldedIntoRail`).
  *
  * Nothing is dropped outright: both rules require the thing that replaces the card to actually be
- * present, so an activity always renders *somewhere*.
+ * present, so an activity always renders *somewhere*. `nested` is passed in rather than built
+ * here because the cards need the same index to render from.
  */
 export function worklogActivities(
   activities: readonly AgentActivity[],
+  nested: ReadonlyMap<string, readonly AgentActivity[]>,
   railHasPlan: boolean
 ): AgentActivity[] {
-  const nested = indexSubagentActivities(activities)
   const delegated = new Set(Array.from(nested.values()).flat().map((activity) => activity.id))
   return activities.filter((activity) => (
     !delegated.has(activity.id) && !isPlanUpdateFoldedIntoRail(activity, railHasPlan)

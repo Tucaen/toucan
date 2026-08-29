@@ -2,7 +2,7 @@ import { createContext } from 'react'
 import type { AgentActivity } from '../../shared/agent'
 import { activityTitle, isSettledActivity } from '../../shared/agent-activity'
 import { mcpToolCallFor } from './mcp-tool-call'
-import { asRecord, asText, normalizeToolName } from './tool-input'
+import { asRecord, asText, memoizePerActivity, normalizeToolName } from './tool-input'
 
 /**
  * A turn handed to a subagent. Two things make it worth its own card: it is the one tool call
@@ -19,6 +19,23 @@ export interface SubagentTask {
   prompt?: string
   /** A model the caller pinned for the subagent, when it named one. */
   model?: string
+  /**
+   * The codex conversation this delegation belongs to. codex-acp reports each interaction with a
+   * subagent as its own top-level tool call and never nests, so this shared id is the only thing
+   * tying the three of them (`started`, `interacted`, `interrupted`) to one delegation.
+   */
+  threadId?: string
+}
+
+/**
+ * What codex-acp reported this particular interaction as. Claude sends nothing like it: a `Task`
+ * call *is* the whole delegation. Without it every codex interaction with one subagent renders as
+ * the bare agent name, and an interrupt is indistinguishable from a start.
+ */
+const CODEX_ACTIVITY_VERBS: Record<string, string> = {
+  started: 'Started',
+  interacted: 'Working',
+  interrupted: 'Interrupted'
 }
 
 const DELEGATION_TOOLS = new Set(['task', 'agent'])
@@ -40,25 +57,21 @@ export function parseSubagentTask(activity: AgentActivity): SubagentTask | null 
     ?? asText(input.subagentType)
     ?? asText(input.agent_type)
     ?? (agentPath ? agentPath.split('/').filter(Boolean).at(-1) : undefined)
-  const description = asText(input.description) ?? asText(input.task)
+  const activityKind = asText(input.activityKind) ?? asText(input.activity_kind)
+  const description = asText(input.description)
+    ?? asText(input.task)
+    ?? (activityKind ? CODEX_ACTIVITY_VERBS[activityKind] : undefined)
   return {
     ...(agentType ? { agentType } : {}),
     ...(description ? { description } : {}),
     ...(asText(input.prompt) ? { prompt: asText(input.prompt) } : {}),
-    ...(asText(input.model) ? { model: asText(input.model) } : {})
+    ...(asText(input.model) ? { model: asText(input.model) } : {}),
+    ...(asText(input.agentThreadId) ? { threadId: asText(input.agentThreadId) } : {})
   }
 }
 
-const parsedTasks = new WeakMap<AgentActivity, SubagentTask | null>()
-
-/** `parseSubagentTask` for the render path, cached the way `fileOperationFor` is. */
-export function subagentTaskFor(activity: AgentActivity): SubagentTask | null {
-  const cached = parsedTasks.get(activity)
-  if (cached !== undefined) return cached
-  const task = parseSubagentTask(activity)
-  parsedTasks.set(activity, task)
-  return task
-}
+/** `parseSubagentTask` for the render path, cached per activity object. */
+export const subagentTaskFor = memoizePerActivity(parseSubagentTask)
 
 /**
  * The delegation's one-line identity: who it went to and what it was asked for. Falls back to
@@ -104,22 +117,42 @@ export function subagentProgressLabel(progress: SubagentProgress): string {
 }
 
 /**
- * Groups every tool call a subagent made under the delegation that spawned it. Only calls whose
- * parent is actually in this worklog are grouped: an orphan (a replay that dropped the spawning
- * call, or a parent scrolled out of a trimmed feed) keeps its own top-level card rather than
- * vanishing into a parent that isn't there.
+ * Groups a subagent's work under the delegation it belongs to. The two adapters need two
+ * different links, because they report delegation in two different shapes:
+ *
+ * - claude-agent-acp nests: the subagent's own tool calls arrive in the top-level feed carrying
+ *   `parentToolCallId`, so the link is that id.
+ * - codex-acp never nests. It reports each interaction with a subagent (`started`, `interacted`,
+ *   `interrupted`) as its own top-level call sharing one `agentThreadId`, and forwards none of
+ *   the subagent's tool calls at all. The first call for a thread is therefore the delegation and
+ *   the rest are its progress - which is the only progress codex reports.
+ *
+ * Only links whose owner is actually in this worklog are made: an orphan (a replay that dropped
+ * the spawning call, or a parent scrolled out of a trimmed feed) keeps its own top-level card
+ * rather than vanishing into a parent that isn't there.
  */
 export function indexSubagentActivities(
   activities: readonly AgentActivity[]
 ): Map<string, AgentActivity[]> {
   const known = new Set(activities.map((activity) => activity.id))
   const children = new Map<string, AgentActivity[]>()
+  const threadOwners = new Map<string, string>()
+  const nest = (owner: string, child: AgentActivity): void => {
+    const group = children.get(owner) ?? []
+    group.push(child)
+    children.set(owner, group)
+  }
   for (const activity of activities) {
     const parent = activity.parentToolCallId
-    if (!parent || !known.has(parent)) continue
-    const group = children.get(parent) ?? []
-    group.push(activity)
-    children.set(parent, group)
+    if (parent) {
+      if (known.has(parent)) nest(parent, activity)
+      continue
+    }
+    const threadId = subagentTaskFor(activity)?.threadId
+    if (!threadId) continue
+    const owner = threadOwners.get(threadId)
+    if (owner === undefined) threadOwners.set(threadId, activity.id)
+    else nest(owner, activity)
   }
   return children
 }

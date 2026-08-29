@@ -1,5 +1,5 @@
 import type { AgentActivity } from '../../shared/agent'
-import { asRecord, asText, normalizeToolName } from './tool-input'
+import { asRecord, asText, memoizePerActivity, normalizeToolName } from './tool-input'
 
 export interface SearchMatch {
   line?: number
@@ -132,15 +132,7 @@ export function parseSearchNavigation(activity: AgentActivity): SearchNavigation
   }
 }
 
-const parsedSearches = new WeakMap<AgentActivity, SearchNavigation | null>()
-
-export function searchNavigationFor(activity: AgentActivity): SearchNavigation | null {
-  const cached = parsedSearches.get(activity)
-  if (cached !== undefined) return cached
-  const search = parseSearchNavigation(activity)
-  parsedSearches.set(activity, search)
-  return search
-}
+export const searchNavigationFor = memoizePerActivity(parseSearchNavigation)
 
 export function clampSearchNavigation(
   search: SearchNavigation,

@@ -143,25 +143,65 @@ describe('task, plan, skill and MCP tool cards', () => {
     expect(card?.textContent).toContain('Updated the plan — 1 step, 0 done')
   })
 
-  test('a skill invocation names the skill and why it was loaded', () => {
-    const card = renderCard({
-      id: 'skill-1',
-      kind: 'other',
-      toolName: 'Skill',
-      status: 'completed',
-      rawInput: { skill: 'code-review', args: 'since main', reason: 'The user asked to review the branch.' },
-      content: 'Reviewing 7 changed files.',
-      startedAt: 0,
-      endedAt: 10
-    })
+  test('a skill invocation names the skill and what the session said it is for', () => {
+    const { container } = render(
+      <ChatView
+        {...baseChatViewProps}
+        activities={[{
+          id: 'skill-1',
+          kind: 'other',
+          toolName: 'Skill',
+          status: 'completed',
+          rawInput: { skill: 'code-review', args: 'since main' },
+          content: 'Reviewing 7 changed files.',
+          startedAt: 0,
+          endedAt: 10
+        }]}
+        commands={[{ name: 'code-review', description: 'Review the changes since a fixed point.' }]}
+        workspaceRoots={['D:\\Development\\ADE']}
+        worklogCollapsed={false}
+        setWorklogCollapsed={vi.fn()}
+      />
+    )
+    const card = container.querySelector<HTMLElement>('.activity-card') as HTMLElement
 
     expect(card.dataset.family).toBe('skill-invocation')
     const header = within(card).getByRole('button', { expanded: false })
     expect(header.textContent).toContain('/code-review since main')
 
     fireEvent.click(header)
-    expect(card.textContent).toContain('The user asked to review the branch.')
+    expect(card.textContent).toContain('Review the changes since a fixed point.')
     expect(card.textContent).toContain('Reviewing 7 changed files.')
+  })
+
+  test('a codex delegation shows the interactions on its thread as its progress', () => {
+    const interaction = (id: string, activityKind: string, status: AgentActivity['status']): AgentActivity => ({
+      id,
+      kind: 'other',
+      status,
+      subagent: true,
+      rawInput: { agentThreadId: 'thread-7', agentPath: '.codex/agents/reviewer.md', activityKind },
+      startedAt: 0
+    })
+    const rail = renderWorklog([
+      interaction('sub-1', 'started', 'completed'),
+      interaction('sub-2', 'interacted', 'completed'),
+      interaction('sub-3', 'interacted', 'in_progress')
+    ])
+
+    const cards = rail.querySelectorAll('.activity-card')
+    expect(cards).toHaveLength(1)
+    expect((cards[0] as HTMLElement).dataset.family).toBe('subagent-task')
+    const header = within(cards[0] as HTMLElement).getByRole('button')
+    // The `started` call is the one that settles first, so its card is collapsed by default -
+    // the progress chip has to carry the whole story from the header.
+    expect(header.textContent).toContain('reviewer.md — Started')
+    expect(header.textContent).toContain('1 of 2 steps')
+
+    fireEvent.click(header)
+    const steps = cards[0].querySelectorAll('.subagent-step')
+    expect(steps).toHaveLength(2)
+    expect(steps[1].textContent).toContain('running')
   })
 
   test('an MCP call shows its server apart from its tool, so it cannot pass for a built-in', () => {

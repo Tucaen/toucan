@@ -1,6 +1,7 @@
-import type { AgentActivity } from '../../shared/agent'
+import { createContext } from 'react'
+import type { AgentActivity, AgentCommand } from '../../shared/agent'
 import { mcpToolCallFor } from './mcp-tool-call'
-import { asRecord, asText, normalizeToolName } from './tool-input'
+import { asRecord, asText, memoizePerActivity, normalizeToolName } from './tool-input'
 
 /**
  * The agent loading a skill (or running a slash command, which is the same act through a
@@ -13,8 +14,6 @@ export interface SkillInvocation {
   name: string
   /** What was passed to it, when the call carried arguments. */
   args?: string
-  /** Why it was loaded, when the agent said - `Skill` has no such field, `SlashCommand` may. */
-  reason?: string
 }
 
 const SKILL_TOOLS = new Set(['skill', 'slashcommand'])
@@ -42,24 +41,35 @@ export function parseSkillInvocation(activity: AgentActivity): SkillInvocation |
   if (!named) return null
   const command = splitCommand(named)
   const args = asText(input.args) ?? asText(input.arguments) ?? command.args
-  return {
-    name: command.name,
-    ...(args ? { args } : {}),
-    ...(asText(input.reason) ? { reason: asText(input.reason) } : {})
-  }
+  return { name: command.name, ...(args ? { args } : {}) }
 }
 
-const parsedInvocations = new WeakMap<AgentActivity, SkillInvocation | null>()
-
-/** `parseSkillInvocation` for the render path, cached the way `fileOperationFor` is. */
-export function skillInvocationFor(activity: AgentActivity): SkillInvocation | null {
-  const cached = parsedInvocations.get(activity)
-  if (cached !== undefined) return cached
-  const invocation = parseSkillInvocation(activity)
-  parsedInvocations.set(activity, invocation)
-  return invocation
-}
+/** `parseSkillInvocation` for the render path, cached per activity object. */
+export const skillInvocationFor = memoizePerActivity(parseSkillInvocation)
 
 export function skillInvocationSummary(invocation: SkillInvocation): string {
   return invocation.args ? `/${invocation.name} ${invocation.args}` : `/${invocation.name}`
 }
+
+/**
+ * Why a skill was loaded, as far as anything actually knows. Neither tool carries a reason field,
+ * so the honest answer is the skill's *own* advertised description - the same text the composer's
+ * slash list shows, which is what says why an agent would reach for it. Matched on the name the
+ * session advertised (and its aliases, which resolve to one command), so a skill ADE never saw
+ * advertised simply has no description rather than a guessed one.
+ */
+export function skillDescription(
+  invocation: SkillInvocation,
+  commands: readonly AgentCommand[]
+): string | undefined {
+  const name = invocation.name.toLowerCase()
+  const command = commands.find((candidate) => candidate.name.replace(/^\//, '').toLowerCase() === name)
+  return command?.description || undefined
+}
+
+/**
+ * The slash commands and skills the session advertised, for the cards that name one. Reaches the
+ * card as context for the same reason `WorkspaceRootsContext` does: it sits several components
+ * below the only place that has it.
+ */
+export const SessionCommandsContext = createContext<readonly AgentCommand[]>([])

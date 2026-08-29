@@ -1,5 +1,10 @@
 import type { AgentActivity } from "../../shared/agent";
-import { asRecord, asText, normalizeToolName } from "./tool-input";
+import {
+  asRecord,
+  asText,
+  memoizePerActivity,
+  normalizeToolName,
+} from "./tool-input";
 
 /**
  * The three shapes a shell tool call comes in: the call that runs a command, and the two
@@ -134,22 +139,8 @@ export function parseShellExecution(
   };
 }
 
-const parsedExecutions = new WeakMap<AgentActivity, ShellExecution | null>();
-
-/**
- * `parseShellExecution` for the render path, cached against the activity object `mergeActivity`
- * produced the same way `fileOperationFor` is - a card asks what it is several times per render
- * and the worklog re-renders on every streaming chunk.
- */
-export function shellExecutionFor(
-  activity: AgentActivity,
-): ShellExecution | null {
-  const cached = parsedExecutions.get(activity);
-  if (cached !== undefined) return cached;
-  const execution = parseShellExecution(activity);
-  parsedExecutions.set(activity, execution);
-  return execution;
-}
+/** `parseShellExecution` for the render path, cached per activity object (`memoizePerActivity`). */
+export const shellExecutionFor = memoizePerActivity(parseShellExecution);
 
 const SHELL_ICONS: Record<ShellExecutionKind, string> = {
   run: ">_",

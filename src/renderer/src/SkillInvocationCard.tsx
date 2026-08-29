@@ -1,6 +1,11 @@
+import { useContext } from 'react'
 import type { JSX } from 'react'
-import type { SkillInvocation } from './skill-invocation'
-import { skillInvocationSummary } from './skill-invocation'
+import {
+  SessionCommandsContext,
+  skillDescription,
+  skillInvocationSummary,
+  type SkillInvocation
+} from './skill-invocation'
 
 export function SkillInvocationSummary({ invocation }: { invocation: SkillInvocation }): JSX.Element {
   return (
@@ -15,10 +20,11 @@ export function SkillInvocationBody({ invocation, output }: {
   invocation: SkillInvocation
   output: string[]
 }): JSX.Element {
+  // What the skill says it is for - the nearest thing to "why it was loaded" anything reports.
+  const description = skillDescription(invocation, useContext(SessionCommandsContext))
   return (
     <div className="skill-body">
-      {/* Why it was loaded, when the agent said so - the part that explains an unexpected skill. */}
-      {invocation.reason && <small className="skill-reason">{invocation.reason}</small>}
+      {description && <small className="skill-reason">{description}</small>}
       {output.length > 0 && <pre className="skill-output">{output.join('\n')}</pre>}
     </div>
   )

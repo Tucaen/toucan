@@ -1,5 +1,6 @@
 import type { AgentActivity } from '../../shared/agent'
-import { asRecord, asText } from './tool-input'
+import { toolOutputLines } from './tool-card'
+import { asRecord, asText, memoizePerActivity } from './tool-input'
 
 /**
  * A call into a tool the *user* connected, not one the agent ships with. The two halves are kept
@@ -44,16 +45,8 @@ export function parseMcpToolCall(activity: AgentActivity): McpToolCall | null {
   return null
 }
 
-const parsedCalls = new WeakMap<AgentActivity, McpToolCall | null>()
-
-/** `parseMcpToolCall` for the render path, cached the way `fileOperationFor` is. */
-export function mcpToolCallFor(activity: AgentActivity): McpToolCall | null {
-  const cached = parsedCalls.get(activity)
-  if (cached !== undefined) return cached
-  const call = parseMcpToolCall(activity)
-  parsedCalls.set(activity, call)
-  return call
-}
+/** `parseMcpToolCall` for the render path, cached per activity object. */
+export const mcpToolCallFor = memoizePerActivity(parseMcpToolCall)
 
 /**
  * The arguments as lines, pretty-printed so a nested object is readable rather than one long
@@ -88,4 +81,26 @@ export function mcpResultText(activity: AgentActivity): string | undefined {
     }
   }
   return activity.content
+}
+
+/**
+ * The card's body as data, bounded the way the shell expects. Arguments get the budget first:
+ * they are what says *what the server was asked to do*, and a reader who cannot see that has no
+ * way to judge a third-party call. The result is what goes behind "show more".
+ */
+export function mcpToolCallCard(
+  activity: AgentActivity,
+  budget: number | null
+): { call: McpToolCall; args: string[]; result: string[]; hiddenLines: number } | null {
+  const call = mcpToolCallFor(activity)
+  if (!call) return null
+  const allArgs = mcpArgumentLines(call)
+  const args = budget === null ? allArgs : allArgs.slice(0, Math.max(0, budget))
+  const result = toolOutputLines(mcpResultText(activity), budget === null ? null : Math.max(0, budget - args.length))
+  return {
+    call,
+    args,
+    result: result.lines,
+    hiddenLines: (allArgs.length - args.length) + result.hiddenLines
+  }
 }

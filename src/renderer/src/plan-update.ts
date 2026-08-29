@@ -1,6 +1,6 @@
 import type { AgentActivity, AgentPlanEntry } from '../../shared/agent'
 import { mcpToolCallFor } from './mcp-tool-call'
-import { asRecord, asText, normalizeToolName } from './tool-input'
+import { asRecord, asText, memoizePerActivity, normalizeToolName } from './tool-input'
 
 /**
  * A tool call that rewrote the plan. Normally the reader never sees one: both adapters translate
@@ -64,15 +64,19 @@ export function parsePlanUpdate(activity: AgentActivity): PlanUpdate | null {
   return { entries: planEntries(asRecord(activity.rawInput) ?? {}) }
 }
 
-const parsedUpdates = new WeakMap<AgentActivity, PlanUpdate | null>()
+/** `parsePlanUpdate` for the render path, cached per activity object. */
+export const planUpdateFor = memoizePerActivity(parsePlanUpdate)
 
-/** `parsePlanUpdate` for the render path, cached the way `fileOperationFor` is. */
-export function planUpdateFor(activity: AgentActivity): PlanUpdate | null {
-  const cached = parsedUpdates.get(activity)
-  if (cached !== undefined) return cached
-  const update = parsePlanUpdate(activity)
-  parsedUpdates.set(activity, update)
-  return update
+/** The card's body as data: one budget line per plan entry, the rest behind "show more". */
+export function planUpdateCard(
+  activity: AgentActivity,
+  budget: number | null
+): { update: PlanUpdate; hiddenLines: number } | null {
+  const update = planUpdateFor(activity)
+  if (!update) return null
+  if (budget === null) return { update, hiddenLines: 0 }
+  const entries = update.entries.slice(0, Math.max(0, budget))
+  return { update: { entries }, hiddenLines: update.entries.length - entries.length }
 }
 
 export function planUpdateSummary(update: PlanUpdate): string {

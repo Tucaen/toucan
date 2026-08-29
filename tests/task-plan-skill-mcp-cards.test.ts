@@ -3,7 +3,11 @@ import { test } from 'node:test'
 import type { AgentActivity } from '../src/shared/agent'
 import { mcpArgumentLines, mcpResultText, parseMcpToolCall } from '../src/renderer/src/mcp-tool-call'
 import { isPlanUpdateFoldedIntoRail, parsePlanUpdate, planUpdateSummary } from '../src/renderer/src/plan-update'
-import { parseSkillInvocation, skillInvocationSummary } from '../src/renderer/src/skill-invocation'
+import {
+  parseSkillInvocation,
+  skillDescription,
+  skillInvocationSummary
+} from '../src/renderer/src/skill-invocation'
 import {
   indexSubagentActivities,
   parseSubagentTask,
@@ -90,9 +94,53 @@ test("a subagent's tool calls group under the delegation, and orphans keep their
   assert.deepEqual(nested.get('task-1')?.map((child) => child.id), ['grep-1', 'read-1'])
   assert.equal(nested.has('task-gone'), false)
   assert.deepEqual(
-    worklogActivities(activities, false).map((entry) => entry.id),
+    worklogActivities(activities, nested, false).map((entry) => entry.id),
     ['task-1', 'orphan-1', 'bash-1']
   )
+})
+
+test('codex reports one delegation as several calls on a thread, and they group into one card', () => {
+  // codex-acp never nests: it emits `started`/`interacted`/`interrupted` as separate top-level
+  // tool calls sharing an `agentThreadId`, and forwards none of the subagent's own tool calls.
+  const codex = (id: string, activityKind: string, status: AgentActivity['status']): AgentActivity =>
+    activity({
+      id,
+      status,
+      subagent: true,
+      rawInput: { agentThreadId: 'thread-7', agentPath: '.codex/agents/reviewer.md', activityKind }
+    })
+  const activities = [
+    codex('sub-1', 'started', 'completed'),
+    codex('sub-2', 'interacted', 'completed'),
+    codex('sub-3', 'interacted', 'in_progress'),
+    activity({ id: 'other-thread', subagent: true, rawInput: { agentThreadId: 'thread-9' } })
+  ]
+
+  const nested = indexSubagentActivities(activities)
+  assert.deepEqual(nested.get('sub-1')?.map((child) => child.id), ['sub-2', 'sub-3'])
+  assert.deepEqual(
+    worklogActivities(activities, nested, false).map((entry) => entry.id),
+    ['sub-1', 'other-thread']
+  )
+  // The acceptance criterion, on the provider that reports no children at all.
+  assert.equal(subagentProgressLabel(subagentProgress(nested.get('sub-1')!)!), '1 of 2 steps')
+})
+
+test("a codex interaction keeps its verb, so an interrupt cannot read as a start", () => {
+  const started = parseSubagentTask(activity({
+    id: 'sub-1',
+    subagent: true,
+    rawInput: { agentPath: '.codex/agents/reviewer.md', activityKind: 'started', agentThreadId: 't7' }
+  }))!
+  const interrupted = parseSubagentTask(activity({
+    id: 'sub-3',
+    subagent: true,
+    rawInput: { agentPath: '.codex/agents/reviewer.md', activityKind: 'interrupted', agentThreadId: 't7' }
+  }))!
+
+  assert.equal(subagentTaskSummary(started, activity({ id: 'sub-1' })), 'reviewer.md — Started')
+  assert.equal(subagentTaskSummary(interrupted, activity({ id: 'sub-3' })), 'reviewer.md — Interrupted')
+  assert.equal(started.threadId, 't7')
 })
 
 test('a plan write the rail already shows is folded out of the worklog, and a refused one is not', () => {
@@ -106,7 +154,7 @@ test('a plan write the rail already shows is folded out of the worklog, and a re
   // With nothing on the rail, folding would be the reason the write left no trace at all.
   assert.equal(isPlanUpdateFoldedIntoRail(approved, false), false)
   assert.deepEqual(
-    worklogActivities([approved, refused, pending], true).map((entry) => entry.id),
+    worklogActivities([approved, refused, pending], new Map(), true).map((entry) => entry.id),
     ['todo-2', 'todo-3']
   )
 })
@@ -144,7 +192,7 @@ test('a skill invocation is named, and a slash command splits its own arguments 
   const skill = parseSkillInvocation(activity({
     id: 'skill-1',
     toolName: 'Skill',
-    rawInput: { skill: 'code-review', args: 'since main', reason: 'The user asked for a review.' }
+    rawInput: { skill: 'code-review', args: 'since main' }
   }))
   const command = parseSkillInvocation(activity({
     id: 'command-1',
@@ -152,11 +200,27 @@ test('a skill invocation is named, and a slash command splits its own arguments 
     rawInput: { command: '/review 91' }
   }))
 
-  assert.deepEqual(skill, { name: 'code-review', args: 'since main', reason: 'The user asked for a review.' })
+  assert.deepEqual(skill, { name: 'code-review', args: 'since main' })
   assert.equal(skillInvocationSummary(skill!), '/code-review since main')
   assert.deepEqual(command, { name: 'review', args: '91' })
   // Nothing to add over the generic card when the call names no skill at all.
   assert.equal(parseSkillInvocation(activity({ id: 'skill-2', toolName: 'Skill', rawInput: {} })), null)
+})
+
+test('why a skill was loaded comes from what the session advertised about it, or from nothing', () => {
+  const invocation = parseSkillInvocation(activity({
+    id: 'skill-1',
+    toolName: 'Skill',
+    rawInput: { skill: 'code-review' }
+  }))!
+  const commands = [
+    { name: 'tdd', description: 'Test-driven development.' },
+    { name: '/code-review', description: 'Review the changes since a fixed point.' }
+  ]
+
+  assert.equal(skillDescription(invocation, commands), 'Review the changes since a fixed point.')
+  // A skill ADE never saw advertised gets no description rather than a guessed one.
+  assert.equal(skillDescription({ name: 'unknown-skill' }, commands), undefined)
 })
 
 test('an MCP call keeps its server and its tool apart, whichever adapter reported it', () => {

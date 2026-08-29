@@ -25,6 +25,7 @@ import {
 import { TOOL_CARD_LINE_BUDGET, toolCardFamilyFor } from './tool-card-families'
 import { ShellLaunchesContext } from './ShellExecutionCard'
 import { indexShellLaunches } from './shell-execution'
+import { SessionCommandsContext } from './skill-invocation'
 import { SubagentActivitiesContext, indexSubagentActivities } from './subagent-task'
 import { worklogActivities } from './worklog-activities'
 import { WorkspaceRootsContext } from './workspace-root'
@@ -1047,8 +1048,8 @@ export function ChatView(props: ChatViewProps & {
   // ordering, so an activity always renders somewhere (see `worklog-activities.ts`).
   const subagentActivities = useMemo(() => indexSubagentActivities(props.activities), [props.activities])
   const railActivities = useMemo(
-    () => worklogActivities(props.activities, props.plan.length > 0),
-    [props.activities, props.plan.length]
+    () => worklogActivities(props.activities, subagentActivities, props.plan.length > 0),
+    [props.activities, subagentActivities, props.plan.length]
   )
   const workItemCount = railActivities.length + props.plan.length
   const authVisible = props.status === 'auth_required' || props.reauthenticating
@@ -1089,6 +1090,7 @@ export function ChatView(props: ChatViewProps & {
       <WorkspaceRootsContext.Provider value={props.workspaceRoots ?? []}>
        <ShellLaunchesContext.Provider value={shellLaunches}>
         <SubagentActivitiesContext.Provider value={subagentActivities}>
+        <SessionCommandsContext.Provider value={props.commands ?? []}>
         <aside className="worklog-rail nodrag nopan nowheel">
           {props.worklogCollapsed ? (
             <button
@@ -1127,6 +1129,7 @@ export function ChatView(props: ChatViewProps & {
             </>
           )}
         </aside>
+        </SessionCommandsContext.Provider>
         </SubagentActivitiesContext.Provider>
        </ShellLaunchesContext.Provider>
       </WorkspaceRootsContext.Provider>
