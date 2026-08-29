@@ -3,6 +3,12 @@ import type { AgentActivity } from '../../shared/agent'
 import { activityTitle } from '../../shared/agent-activity'
 import { FileOperationBody, FileOperationSummary, fileOperationCard } from './FileOperationCard'
 import { fileOperationFor, fileOperationIcon } from './file-operation'
+import {
+  SearchNavigationBody,
+  SearchNavigationSummary,
+  searchNavigationCard
+} from './SearchNavigationCard'
+import { searchNavigationFor } from './search-navigation'
 import { ShellExecutionBody, ShellExecutionSummary, shellExecutionCard } from './ShellExecutionCard'
 import { shellExecutionFor, shellExecutionIcon } from './shell-execution'
 import { truncateToolOutput } from './tool-card'
@@ -97,6 +103,27 @@ export const fileOperationToolCardFamily: ToolCardFamily = {
   }
 }
 
+export const searchNavigationToolCardFamily: ToolCardFamily = {
+  id: 'search-navigation',
+  matches: (activity) => searchNavigationFor(activity) !== null,
+  icon: (activity) => {
+    const kind = searchNavigationFor(activity)?.kind
+    return kind === 'web-search' || kind === 'web-fetch' ? '@' : '?'
+  },
+  summary: (activity) => {
+    const search = searchNavigationFor(activity)
+    return search ? <SearchNavigationSummary search={search} /> : activityTitle(activity)
+  },
+  body: (activity, lineBudget) => {
+    const card = searchNavigationCard(activity, lineBudget)
+    if (!card) return genericToolCardFamily.body(activity, lineBudget)
+    return {
+      hiddenLines: card.hiddenLines,
+      content: <SearchNavigationBody search={card.search} />
+    }
+  }
+}
+
 /**
  * Bash, Codex's shell, and the background-shell follow-ups (BashOutput/KillShell). All share one
  * card because they share one identity - a command line - and differ only in whether the body is
@@ -131,7 +158,8 @@ export const shellExecutionToolCardFamily: ToolCardFamily = {
  */
 export const toolCardFamilies: ToolCardFamily[] = [
   shellExecutionToolCardFamily,
-  fileOperationToolCardFamily
+  fileOperationToolCardFamily,
+  searchNavigationToolCardFamily
 ]
 
 export function toolCardFamilyFor(activity: AgentActivity): ToolCardFamily {
