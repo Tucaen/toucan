@@ -258,13 +258,15 @@ describe('file-operation tool cards', () => {
   })
 
   test('a tool that touches no file keeps the generic card', () => {
+    // Whatever stands in for "no family claims this" has to be a tool no family claims: every
+    // sub-issue that lands a card shrinks that set, so pick something outside all of them.
     const container = renderCards([{
       id: 'b1',
-      kind: 'think',
-      toolName: 'TodoWrite',
-      title: 'Updated the plan',
+      kind: 'switch_mode',
+      toolName: 'ExitPlanMode',
+      title: 'Left plan mode',
       status: 'completed',
-      rawInput: { todos: [] },
+      rawInput: {},
       startedAt: 0,
       endedAt: 100
     }])

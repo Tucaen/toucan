@@ -33,6 +33,27 @@ function toolNameFromUpdate(update: ToolCallSessionUpdate): string | undefined {
   return typeof claudeCode?.toolName === 'string' && claudeCode.toolName ? claudeCode.toolName : undefined
 }
 
+/**
+ * Which `Task`/`Agent` call a tool call was made inside, and whether this call is itself such a
+ * delegation. claude-agent-acp stamps both on `_meta.claudeCode` (`parentToolUseId` from the
+ * SDK's `parent_tool_use_id`, `subagent: true` for the Agent/Task tools); codex-acp reports a
+ * delegation under `_meta.codex.subagent` and never nests, so it has no parent to report.
+ * Neither is derivable from anything else ACP sends, and without them a subagent's work is
+ * indistinguishable from the main agent's.
+ */
+function delegationOf(update: ToolCallSessionUpdate): { parentToolCallId?: string; subagent?: boolean } {
+  const meta = (update._meta ?? {}) as {
+    claudeCode?: { parentToolUseId?: unknown; subagent?: unknown } | null
+    codex?: { subagent?: unknown } | null
+  }
+  const parent = meta.claudeCode?.parentToolUseId
+  const subagent = meta.claudeCode?.subagent === true || (meta.codex?.subagent != null && meta.codex.subagent !== false)
+  return {
+    ...(typeof parent === 'string' && parent ? { parentToolCallId: parent } : {}),
+    ...(subagent ? { subagent: true } : {})
+  }
+}
+
 interface TerminalMeta {
   terminal_info?: { cwd?: unknown } | null
   terminal_output?: { data?: unknown } | null
@@ -88,6 +109,7 @@ export function activityFromUpdate(update: ToolCallSessionUpdate): AgentActivity
   const terminalCwd = terminalMetaOf(update).terminal_info?.cwd
   return {
     ...exitStatusOf(update),
+    ...delegationOf(update),
     ...(terminalChunk ? { terminalChunk } : {}),
     ...(typeof terminalCwd === 'string' && terminalCwd ? { terminalCwd } : {}),
     id: update.toolCallId,

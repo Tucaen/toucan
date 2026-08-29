@@ -151,3 +151,60 @@ test('untitled activities still get a specific worklog summary', () => {
   assert.equal(activityTitle({ id: 'execute-1', kind: 'execute' }), 'Ran a command')
   assert.equal(activityTitle({ id: 'search-1', kind: 'search' }), 'Searched the project')
 })
+
+test('a subagent tool call carries its parent, and the spawning call is marked a delegation', () => {
+  const spawn = activityFromUpdate({
+    sessionUpdate: 'tool_call',
+    toolCallId: 'task-1',
+    title: 'Task',
+    kind: 'other',
+    status: 'in_progress',
+    rawInput: { subagent_type: 'Explore', description: 'Find the plan rail' },
+    _meta: { claudeCode: { toolName: 'Task', subagent: true } }
+  })
+  const child = activityFromUpdate({
+    sessionUpdate: 'tool_call',
+    toolCallId: 'grep-9',
+    title: 'Grep',
+    kind: 'search',
+    status: 'in_progress',
+    _meta: { claudeCode: { toolName: 'Grep', parentToolUseId: 'task-1' } }
+  })
+
+  assert.equal(spawn.subagent, true)
+  assert.equal(spawn.parentToolCallId, undefined)
+  assert.equal(child.parentToolCallId, 'task-1')
+  assert.equal(child.subagent, undefined)
+})
+
+test('a codex subagent activity is recognized as a delegation from its own meta', () => {
+  const activity = activityFromUpdate({
+    sessionUpdate: 'tool_call',
+    toolCallId: 'sub-1',
+    title: 'Subagent reviewer',
+    kind: 'other',
+    status: 'in_progress',
+    rawInput: { agentPath: '.codex/agents/reviewer.md', activityKind: 'started' },
+    _meta: { codex: { subagent: { threadId: 't1', path: '.codex/agents/reviewer.md' } } }
+  })
+
+  assert.equal(activity.subagent, true)
+})
+
+test('an update with no delegation meta neither sets nor blanks what an earlier one recorded', () => {
+  const started = activityFromUpdate({
+    sessionUpdate: 'tool_call',
+    toolCallId: 'task-1',
+    title: 'Task',
+    status: 'in_progress',
+    _meta: { claudeCode: { toolName: 'Task', subagent: true } }
+  })
+  const completed = activityFromUpdate({
+    sessionUpdate: 'tool_call_update',
+    toolCallId: 'task-1',
+    status: 'completed'
+  })
+
+  assert.equal(Object.hasOwn(completed, 'subagent'), false)
+  assert.equal(mergeActivity(started, completed, 100).subagent, true)
+})
