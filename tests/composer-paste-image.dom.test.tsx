@@ -23,8 +23,8 @@ function Harness(props: { id: string }): JSX.Element {
     <ChatView
       {...conversation}
       provider="claude"
-      worklogCollapsed
-      setWorklogCollapsed={vi.fn()}
+      focusMode={false}
+      setFocusMode={vi.fn()}
     />
   )
 }

@@ -53,8 +53,8 @@ function renderChatView(overrides: Partial<ChatViewProps> = {}): HTMLElement {
         {...baseChatViewProps}
         commands={commands}
         {...overrides}
-        worklogCollapsed
-        setWorklogCollapsed={vi.fn()}
+        focusMode={false}
+        setFocusMode={vi.fn()}
       />
     </ComposerSendKeyContext.Provider>
   )

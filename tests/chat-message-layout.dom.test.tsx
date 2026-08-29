@@ -41,8 +41,8 @@ function renderChatView(overrides: Partial<ChatViewProps>): HTMLElement {
     <ChatView
       {...baseChatViewProps}
       {...overrides}
-      worklogCollapsed
-      setWorklogCollapsed={vi.fn()}
+      focusMode={false}
+      setFocusMode={vi.fn()}
     />
   )
   return container

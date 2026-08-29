@@ -57,13 +57,13 @@ const baseChatViewProps: ChatViewProps = {
 function renderChatView(overrides: Partial<ChatViewProps>): { scrollContainer: HTMLDivElement; rerender(next: Partial<ChatViewProps>): void } {
   const props = { ...baseChatViewProps, ...overrides }
   const { container, rerender } = render(
-    <ChatView {...props} worklogCollapsed setWorklogCollapsed={vi.fn()} />
+    <ChatView {...props} focusMode setFocusMode={vi.fn()} />
   )
   const scrollContainer = container.querySelector('.chat-scroll') as HTMLDivElement
   return {
     scrollContainer,
     rerender: (next) => rerender(
-      <ChatView {...props} {...next} worklogCollapsed setWorklogCollapsed={vi.fn()} />
+      <ChatView {...props} {...next} focusMode setFocusMode={vi.fn()} />
     )
   }
 }

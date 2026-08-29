@@ -59,6 +59,29 @@ test('migrates a version 2 workspace to an empty worktree set without losing its
   assert.equal(migrated?.nodes[0].worktreeId, undefined)
 })
 
+test('migrates the legacy worklog preference to per-node focus mode', () => {
+  const migrated = parseWorkspaceState({
+    version: 3,
+    projects: [{ id: 'project-1', name: 'ADE', path: 'D:\\Development\\ADE', color: '#71a9ff' }],
+    activeProjectId: 'project-1',
+    sidebarCollapsed: false,
+    nodes: [{
+      id: 'node-1',
+      kind: 'codex',
+      label: 'Codex 1',
+      projectId: 'project-1',
+      position: { x: 0, y: 0 },
+      width: 520,
+      height: 340,
+      worklogCollapsed: false
+    }],
+    worktrees: []
+  })
+
+  assert.equal(migrated?.nodes[0].focusMode, false)
+  assert.equal('worklogCollapsed' in migrated!.nodes[0], false)
+})
+
 test('rejects a workspace whose worktree records are malformed', () => {
   const base = {
     version: 3,

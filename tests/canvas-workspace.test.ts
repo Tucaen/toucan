@@ -16,7 +16,7 @@ const callbacks = {
   onStatusChange: () => undefined,
   onConversationId: () => undefined,
   onPreview: () => undefined,
-  onWorklogCollapsed: () => undefined,
+  onFocusModeChange: () => undefined,
   onDraftChange: () => undefined,
   onPermissionModeChange: () => undefined,
   onModelChange: () => undefined,
@@ -52,7 +52,7 @@ test('restores saved canvas nodes and ignores nodes whose project is gone', () =
         height: 360,
         conversationId: 'conversation-7',
         modelId: 'gpt-5-codex',
-        worklogCollapsed: true
+        focusMode: true
       },
       {
         id: 'orphan',
@@ -75,7 +75,7 @@ test('restores saved canvas nodes and ignores nodes whose project is gone', () =
   assert.equal(nodes[0].data.projectPath, 'D:\\Development\\ADE')
   assert.equal(nodes[0].data.workingDirectory, 'D:\\Development\\ADE')
   assert.equal(nodes[0].data.worktreeId, undefined)
-  assert.equal(nodes[0].data.worklogCollapsed, true)
+  assert.equal(nodes[0].data.focusMode, true)
   assert.equal(nodes[0].data.preferredPermissionMode, 'read-only')
   assert.equal(nodes[0].data.modelId, 'gpt-5-codex')
   assert.equal(restored.nextSessionNumber, 8)
@@ -111,7 +111,7 @@ test('keeps restored terminal processes dormant until explicitly opened', () => 
   assert.equal(node.data.terminalLiveness, 'unverifiable')
 })
 
-test('starts legacy agent worklogs collapsed while preserving an explicit expanded choice', () => {
+test('migrates the legacy worklog choice to focus mode and serializes only the new field', () => {
   const baseState: WorkspaceState = {
     version: 3,
     projects: [{ id: 'project-1', name: 'ADE', path: 'D:\\Development\\ADE', color: '#71a9ff' }],
@@ -129,12 +129,14 @@ test('starts legacy agent worklogs collapsed while preserving an explicit expand
     worktrees: []
   }
 
-  assert.equal(terminalNodes(restoreCanvasWorkspace(baseState, callbacks).nodes)[0].data.worklogCollapsed, true)
+  assert.equal(terminalNodes(restoreCanvasWorkspace(baseState, callbacks).nodes)[0].data.focusMode, true)
 
   baseState.nodes[0].worklogCollapsed = false
-  const expanded = terminalNodes(restoreCanvasWorkspace(baseState, callbacks).nodes)[0]
-  assert.equal(expanded.data.worklogCollapsed, false)
-  assert.equal(serializeCanvasNode(expanded).worklogCollapsed, false)
+  const restored = terminalNodes(restoreCanvasWorkspace(baseState, callbacks).nodes)[0]
+  const serialized = serializeCanvasNode(restored)
+  assert.equal(restored.data.focusMode, false)
+  assert.equal(serialized.focusMode, false)
+  assert.equal('worklogCollapsed' in serialized, false)
 })
 
 const worktreeState = (): WorkspaceState => ({

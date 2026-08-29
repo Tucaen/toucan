@@ -43,6 +43,16 @@ export interface AgentChatMessage {
   complete?: boolean
 }
 
+export type AgentTranscriptEntry =
+  | { type: 'message'; id: string; role: AgentChatMessage['role'] }
+  | { type: 'activity'; id: string }
+
+export function agentTranscriptEntryKey(entry: AgentTranscriptEntry): string {
+  return entry.type === 'message'
+    ? `message:${entry.role}:${entry.id}`
+    : `activity:${entry.id}`
+}
+
 export interface AgentApprovalState {
   id: string
   title: string
@@ -94,6 +104,8 @@ export interface AgentConversationOptions {
 export interface AgentConversationController {
   messages: AgentChatMessage[]
   activities: AgentActivity[]
+  /** First-seen event order used to place activity and reasoning inline with dialogue. */
+  transcript: AgentTranscriptEntry[]
   plan: AgentPlanEntry[]
   approval: AgentApprovalState | null
   authMethods: AgentAuthMethod[]
@@ -166,6 +178,14 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
   const [imageSupport, setImageSupport] = useState(false)
   const [attachments, setAttachments] = useState<AgentImageAttachment[]>([])
   const [queued, setQueued] = useState<QueuedPrompt[]>([])
+  const [transcript, setTranscript] = useState<AgentTranscriptEntry[]>([])
+  const transcriptKeysRef = useRef(new Set<string>())
+  const rememberTranscriptEntry = (entry: AgentTranscriptEntry): void => {
+    const key = agentTranscriptEntryKey(entry)
+    if (transcriptKeysRef.current.has(key)) return
+    transcriptKeysRef.current.add(key)
+    setTranscript((current) => [...current, entry])
+  }
   /**
    * The outbox's authoritative copy. Every mutation goes through `updateQueued` so a claim can
    * be made and observed in the same tick; `queued` is the render mirror of it.
@@ -233,6 +253,8 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
   useEffect(() => {
     if (!options.enabled) return
     let active = true
+    transcriptKeysRef.current.clear()
+    setTranscript([])
     setMessages([])
     setActivitiesById({})
     setPlan([])
@@ -265,6 +287,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
             return
           }
         }
+        rememberTranscriptEntry({ type: 'message', id: event.messageId, role: event.role })
         setMessages((current) => {
           const existing = current.findIndex((message) => message.id === event.messageId && message.role === event.role)
           if (existing < 0) return [...current, {
@@ -280,10 +303,14 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
           message.role === 'assistant' && message.complete === false ? { ...message, complete: true } : message
         )))
       } else if (event.type === 'activity') {
-        setActivitiesById((current) => ({
-          ...current,
-          [event.activity.id]: mergeActivity(current[event.activity.id], event.activity, Date.now())
-        }))
+        rememberTranscriptEntry({ type: 'activity', id: event.activity.id })
+        setActivitiesById((current) => {
+          const existing = current[event.activity.id]
+          return {
+            ...current,
+            [event.activity.id]: mergeActivity(existing, event.activity, Date.now())
+          }
+        })
       } else if (event.type === 'plan') {
         setPlan(event.entries)
       } else if (event.type === 'modes') {
@@ -365,6 +392,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     const deliverPrompt = chooseAgentPromptApi(status, window.agentApi)
     const id = crypto.randomUUID()
     const displayText = promptSummary(text, images)
+    const transcriptEntry: AgentTranscriptEntry = { type: 'message', id, role: 'user' }
 
     const slot = dispatchGateRef.current.reserve()
 
@@ -386,6 +414,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
         return result
       },
       () => {
+        rememberTranscriptEntry(transcriptEntry)
         setMessages((current) => [...current, {
           id,
           role: 'user',
@@ -577,6 +606,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
   return {
     messages,
     activities,
+    transcript,
     plan,
     approval,
     authMethods: status === 'auth_required' || reauthenticating ? authMethods : [],

@@ -72,6 +72,9 @@ export interface WorkspaceTerminalNode {
   height: number
   conversationId?: string
   preview?: ConversationPreview
+  /** Whether this node hides inline activity and reasoning, leaving only the dialogue. */
+  focusMode?: boolean
+  /** Legacy name read during migration; new snapshots never write it. */
   worklogCollapsed?: boolean
   /** The agent model this conversation last ran on, as reported by its ACP adapter. */
   modelId?: string

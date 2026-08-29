@@ -392,8 +392,8 @@ function Canvas(): JSX.Element {
     }))
   }, [patchTerminalNode])
 
-  const handleWorklogCollapsed = useCallback((nodeId: string, collapsed: boolean): void => {
-    patchTerminalNode(nodeId, () => ({ worklogCollapsed: collapsed }))
+  const handleFocusModeChange = useCallback((nodeId: string, enabled: boolean): void => {
+    patchTerminalNode(nodeId, () => ({ focusMode: enabled }))
   }, [patchTerminalNode])
 
   // A draft belongs to its node, so it is patched in like any other node state and rides the
@@ -482,7 +482,7 @@ function Canvas(): JSX.Element {
           worktreeBranch: worktree?.branch,
           workingDirectory: worktree?.path ?? project.path,
           conversationId,
-          worklogCollapsed: kind !== 'terminal',
+          focusMode: kind !== 'terminal',
           preferredPermissionMode: kind === 'terminal' ? undefined : permissionModesRef.current[kind],
           dormant: false,
           launchMode: resumeConversationId ? 'resume' : 'new',
@@ -490,7 +490,7 @@ function Canvas(): JSX.Element {
           onStatusChange: handleStatusChange,
           onConversationId: handleConversationId,
           onPreview: handlePreview,
-          onWorklogCollapsed: handleWorklogCollapsed,
+          onFocusModeChange: handleFocusModeChange,
           onDraftChange: handleDraftChange,
           onPermissionModeChange: handlePermissionModeChange,
           onModelChange: handleModelChange,
@@ -501,7 +501,7 @@ function Canvas(): JSX.Element {
       }
     ])
     setNodeStatuses((current) => ({ ...current, [id]: 'starting' }))
-  }, [handleConversationId, handleDraftChange, handleModelChange, handlePermissionModeChange, handlePreview, handleStatusChange, handleTerminalLiveness, handleWorklogCollapsed, resumeNode, setNodes])
+  }, [handleConversationId, handleDraftChange, handleFocusModeChange, handleModelChange, handlePermissionModeChange, handlePreview, handleStatusChange, handleTerminalLiveness, resumeNode, setNodes])
 
   const findWorktreeNode = useCallback((worktreeId: string): WorktreeCanvasNode | undefined => (
     nodesRef.current.filter(isWorktreeCanvasNode).find((node) => node.data.worktreeId === worktreeId)
@@ -645,7 +645,7 @@ function Canvas(): JSX.Element {
           onStatusChange: handleStatusChange,
           onConversationId: handleConversationId,
           onPreview: handlePreview,
-          onWorklogCollapsed: handleWorklogCollapsed,
+          onFocusModeChange: handleFocusModeChange,
           onDraftChange: handleDraftChange,
           onPermissionModeChange: handlePermissionModeChange,
           onModelChange: handleModelChange,
@@ -676,7 +676,7 @@ function Canvas(): JSX.Element {
       setWorkspaceReady(true)
     })()
     return () => { active = false }
-  }, [handleConversationId, handleCreateNodeInWorktree, handleDraftChange, handleModelChange, handlePermissionModeChange, handlePreview, handleRemoveWorktree, handleRunSetupCommand, handleStatusChange, handleTerminalLiveness, handleWorklogCollapsed, resumeNode, seedFreshWorkspace, setNodes])
+  }, [handleConversationId, handleCreateNodeInWorktree, handleDraftChange, handleFocusModeChange, handleModelChange, handlePermissionModeChange, handlePreview, handleRemoveWorktree, handleRunSetupCommand, handleStatusChange, handleTerminalLiveness, resumeNode, seedFreshWorkspace, setNodes])
 
   // One place decides how many nodes a worktree carries, so the count the teardown gate reads
   // and the count the node shows can never drift apart.
