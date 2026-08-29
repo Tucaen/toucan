@@ -44,8 +44,8 @@ function renderBar(usage: SessionUsageInput | null, rateLimits: AgentRateLimitSt
   const { container } = render(
     <ChatView
       {...baseChatViewProps}
-      worklogCollapsed={false}
-      setWorklogCollapsed={vi.fn()}
+      focusMode={false}
+      setFocusMode={vi.fn()}
       statusBar={readout.empty ? undefined : <SessionUsageBar readout={readout} />}
     />
   )

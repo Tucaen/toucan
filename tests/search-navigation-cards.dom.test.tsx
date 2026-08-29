@@ -38,8 +38,8 @@ function renderCard(activity: AgentActivity): HTMLElement {
       {...baseChatViewProps}
       activities={[activity]}
       workspaceRoots={['D:\\Development\\ADE']}
-      worklogCollapsed={false}
-      setWorklogCollapsed={vi.fn()}
+      focusMode={false}
+      setFocusMode={vi.fn()}
     />
   )
   const card = container.querySelector<HTMLElement>('.activity-card')

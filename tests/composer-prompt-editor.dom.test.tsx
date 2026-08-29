@@ -50,8 +50,8 @@ function renderChatView(
       <ChatView
         {...baseChatViewProps}
         {...overrides}
-        worklogCollapsed
-        setWorklogCollapsed={vi.fn()}
+        focusMode={false}
+        setFocusMode={vi.fn()}
       />
     </ComposerSendKeyContext.Provider>
   )

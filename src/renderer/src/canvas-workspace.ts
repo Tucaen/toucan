@@ -15,7 +15,7 @@ export interface TerminalNodeCallbacks {
   onStatusChange(nodeId: string, status: TerminalNodeStatus): void
   onConversationId(nodeId: string, conversationId: string): void
   onPreview(nodeId: string, preview: ConversationPreview): void
-  onWorklogCollapsed(nodeId: string, collapsed: boolean): void
+  onFocusModeChange(nodeId: string, enabled: boolean): void
   /** Persists unsent composer text so a draft outlives resize, collapse, and a workspace reload. */
   onDraftChange(nodeId: string, draft: string): void
   onPermissionModeChange(provider: keyof AgentPermissionModes, modeId: string): void
@@ -46,7 +46,7 @@ export interface TerminalNodeData extends Record<string, unknown>, TerminalNodeC
   detachedFromWorktree?: boolean
   conversationId?: string
   preview?: ConversationPreview
-  worklogCollapsed: boolean
+  focusMode: boolean
   /** Unsent composer text, restored into the composer when the node comes back. */
   draft?: string
   preferredPermissionMode?: string
@@ -125,7 +125,7 @@ export function serializeCanvasNode(node: TerminalCanvasNode): WorkspaceTerminal
     ...(node.data.preview ? { preview: node.data.preview } : {}),
     ...(node.data.modelId ? { modelId: node.data.modelId } : {}),
     ...(node.data.draft ? { draft: node.data.draft } : {}),
-    ...(node.data.kind === 'terminal' ? {} : { worklogCollapsed: node.data.worklogCollapsed }),
+    ...(node.data.kind === 'terminal' ? {} : { focusMode: node.data.focusMode }),
     ...(node.data.kind === 'terminal' ? { terminalLiveness: node.data.terminalLiveness } : {})
   }
 }
@@ -221,7 +221,7 @@ export function restoreCanvasWorkspace(
         detachedFromWorktree,
         conversationId: savedNode.conversationId,
         preview: savedNode.preview,
-        worklogCollapsed: savedNode.worklogCollapsed ?? savedNode.kind !== 'terminal',
+        focusMode: savedNode.focusMode ?? savedNode.worklogCollapsed ?? savedNode.kind !== 'terminal',
         draft: savedNode.draft,
         preferredPermissionMode: savedNode.kind === 'terminal'
           ? undefined
@@ -232,7 +232,7 @@ export function restoreCanvasWorkspace(
         onStatusChange: callbacks.onStatusChange,
         onConversationId: callbacks.onConversationId,
         onPreview: callbacks.onPreview,
-        onWorklogCollapsed: callbacks.onWorklogCollapsed,
+        onFocusModeChange: callbacks.onFocusModeChange,
         onDraftChange: callbacks.onDraftChange,
         onPermissionModeChange: callbacks.onPermissionModeChange,
         onModelChange: callbacks.onModelChange,

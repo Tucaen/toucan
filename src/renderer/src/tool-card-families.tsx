@@ -209,9 +209,9 @@ export const subagentTaskToolCardFamily: ToolCardFamily = {
 
 /**
  * A todo/task write the adapter surfaced as a real tool call. Normally there is nothing to render
- * - both adapters translate these into the `plan` notification the rail draws - so this family
+ * - both adapters translate these into the `plan` notification the current plan card draws - so this family
  * exists for the permission path, and `worklogActivities` is what keeps it from ever duplicating
- * the rail (see `plan-update.ts`).
+ * the plan card (see `plan-update.ts`).
  */
 export const planUpdateToolCardFamily: ToolCardFamily = {
   id: 'plan-update',

@@ -55,8 +55,8 @@ function renderCards(activities: AgentActivity[]): HTMLElement {
       {...baseChatViewProps}
       activities={activities}
       workspaceRoots={[WORKSPACE_ROOT]}
-      worklogCollapsed={false}
-      setWorklogCollapsed={vi.fn()}
+      focusMode={false}
+      setFocusMode={vi.fn()}
     />
   )
   return container
@@ -125,8 +125,8 @@ describe('file-operation tool cards', () => {
           read('r2', `${WORKSPACE_ROOT}\\src\\b.ts`)
         ]}
         workspaceRoots={[worktree, WORKSPACE_ROOT]}
-        worklogCollapsed={false}
-        setWorklogCollapsed={vi.fn()}
+        focusMode={false}
+        setFocusMode={vi.fn()}
       />
     )
     const headers = cards(container).map((card) => within(card).getAllByRole('button')[0].textContent ?? '')

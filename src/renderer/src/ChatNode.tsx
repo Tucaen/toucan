@@ -70,16 +70,19 @@ import {
 import ComposerQueue from './ComposerQueue'
 import type { QueuedPrompt } from './prompt-outbox'
 import {
+  agentTranscriptEntryKey,
   useAgentConversation,
   type AgentApprovalState,
   type AgentChatMessage,
-  type AgentChatStatus
+  type AgentChatStatus,
+  type AgentTranscriptEntry
 } from './use-agent-conversation'
 
 export interface ChatViewProps {
   provider: 'claude' | 'codex'
   messages: AgentChatMessage[]
   activities: AgentActivity[]
+  transcript?: AgentTranscriptEntry[]
   plan: AgentPlanEntry[]
   approval: AgentApprovalState | null
   authMethods: AgentAuthMethod[]
@@ -1008,6 +1011,50 @@ function ActivityCard({ activity }: { activity: AgentActivity }): JSX.Element {
   )
 }
 
+function ReasoningCard({ message }: { message: AgentChatMessage }): JSX.Element {
+  const [expanded, setExpanded] = useState(false)
+  return (
+    <article className="activity-card thought-card" data-family="reasoning" data-expanded={expanded}>
+      <button
+        type="button"
+        className="activity-header"
+        aria-label="Reasoning"
+        aria-expanded={expanded}
+        onClick={() => setExpanded((current) => !current)}
+      >
+        <span className="activity-icon">~</span>
+        <strong>Reasoning</strong>
+      </button>
+      {expanded && <div className="activity-body"><MarkdownMessage text={message.text} /></div>}
+    </article>
+  )
+}
+
+function PlanCard({ plan }: { plan: AgentPlanEntry[] }): JSX.Element {
+  const [expanded, setExpanded] = useState(true)
+  return (
+    <article className="activity-card plan-card" data-family="plan" data-expanded={expanded}>
+      <button
+        type="button"
+        className="activity-header"
+        aria-expanded={expanded}
+        onClick={() => setExpanded((current) => !current)}
+      >
+        <span className="activity-icon">#</span>
+        <strong>Plan</strong>
+        <span className="activity-state">{plan.length} steps</span>
+      </button>
+      {expanded && (
+        <div className="activity-body">
+          <ol className="plan-list">
+            {plan.map((entry, index) => <li data-status={entry.status} key={`${index}-${entry.content}`}>{entry.content}</li>)}
+          </ol>
+        </div>
+      )}
+    </article>
+  )
+}
+
 /**
  * Keeps the chat scroll container pinned to the bottom on initial load and as new content
  * streams in, but only while the user hasn't deliberately scrolled up to read history - a
@@ -1036,8 +1083,10 @@ function useStickToBottom(followDeps: readonly unknown[]): {
 }
 
 export function ChatView(props: ChatViewProps & {
-  worklogCollapsed: boolean
-  setWorklogCollapsed(collapsed: boolean): void
+  focusMode: boolean
+  setFocusMode(enabled: boolean): void
+  /** Only the selected canvas node responds when several chats are open. */
+  focusShortcutEnabled?: boolean
   empty?: { icon: string; title: string; description: string }
   statusBar?: ReactNode
   completedTaskIds?: ReadonlySet<string>
@@ -1047,91 +1096,102 @@ export function ChatView(props: ChatViewProps & {
   // which card each one belongs to. Both are keyed on the ids the adapter reported, never on
   // ordering, so an activity always renders somewhere (see `worklog-activities.ts`).
   const subagentActivities = useMemo(() => indexSubagentActivities(props.activities), [props.activities])
-  const railActivities = useMemo(
+  const inlineActivities = useMemo(
     () => worklogActivities(props.activities, subagentActivities, props.plan.length > 0),
     [props.activities, subagentActivities, props.plan.length]
   )
-  const workItemCount = railActivities.length + props.plan.length
   const authVisible = props.status === 'auth_required' || props.reauthenticating
   const pendingDecisions = pendingDecisionsFromMessages(
     props.messages,
     props.completedTaskIds,
     props.closedDecisionIds
   )
-  const { ref: scrollRef, onScroll } = useStickToBottom([props.messages, props.approval, props.status])
-  // A BashOutput/KillShell card can only name its command by looking across the whole worklog, so
+  const { ref: scrollRef, onScroll } = useStickToBottom([
+    props.messages,
+    props.activities,
+    props.plan,
+    props.focusMode,
+    props.approval,
+    props.status
+  ])
+  // A BashOutput/KillShell card can only name its command by looking across the whole transcript, so
   // the index is built once here rather than per card. Only a launch's own reported shell id can
   // change it, so it is recomputed only when the activity list itself does.
   const shellLaunches = useMemo(() => indexShellLaunches(props.activities), [props.activities])
+  const rootRef = useRef<HTMLDivElement>(null)
+  const transcriptEntries = useMemo(() => {
+    const entries = [
+      ...props.messages.map((message) => ({
+        type: 'message' as const,
+        key: agentTranscriptEntryKey({ type: 'message', id: message.id, role: message.role }),
+        message
+      })),
+      ...inlineActivities.map((activity) => ({
+        type: 'activity' as const,
+        key: agentTranscriptEntryKey({ type: 'activity', id: activity.id }),
+        activity
+      }))
+    ]
+    const byKey = new Map(entries.map((entry) => [entry.key, entry]))
+    const ordered = (props.transcript ?? []).flatMap((entry) => {
+      const key = agentTranscriptEntryKey(entry)
+      const match = byKey.get(key)
+      if (!match) return []
+      byKey.delete(key)
+      return [match]
+    })
+    return [...ordered, ...byKey.values()]
+  }, [inlineActivities, props.messages, props.transcript])
+  useEffect(() => {
+    if (props.focusShortcutEnabled === false) return
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key.toLowerCase() !== 'f' || !event.shiftKey || (!event.ctrlKey && !event.metaKey)) return
+      if (!rootRef.current?.contains(document.activeElement)) return
+      event.preventDefault()
+      props.setFocusMode(!props.focusMode)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [props.focusMode, props.focusShortcutEnabled, props.setFocusMode])
   return (
-    <div className={`agent-chat ${props.worklogCollapsed ? 'worklog-collapsed' : ''} ${props.statusBar ? 'has-status-bar' : ''} ${pendingDecisions.length > 0 ? 'has-pending-decisions' : ''}`}>
-      <div className="chat-scroll nodrag nopan nowheel" ref={scrollRef} onScroll={onScroll}>
-        {!authVisible && props.messages.length === 0 && (props.empty
-            ? (
-              <div className="chat-empty">
-                <span>{props.empty.icon}</span>
-                <strong>{props.empty.title}</strong>
-                <p>{props.empty.description}</p>
-              </div>
-            )
-            : <EmptyConversation provider={props.provider} />)}
-        {props.messages.map((message) => message.role === 'thought'
-          ? <details className="thought-card" key={message.id}><summary>Reasoning</summary><MarkdownMessage text={message.text} /></details>
-          : (
-            <ChatMessageCard
-              key={message.id}
-              message={message}
-            />
-          ))}
-        <ApprovalPanel {...props} />
-      </div>
+    <div ref={rootRef} className={`agent-chat ${props.focusMode ? 'focus-mode' : ''} ${props.statusBar ? 'has-status-bar' : ''} ${pendingDecisions.length > 0 ? 'has-pending-decisions' : ''}`}>
+      <button
+        type="button"
+        className="focus-toggle nodrag nopan"
+        aria-label="Focus"
+        aria-pressed={props.focusMode}
+        title="Toggle Focus (Ctrl+Shift+F)"
+        onClick={() => props.setFocusMode(!props.focusMode)}
+      >
+        Focus
+      </button>
       {/* Tool cards live several components deep and every one of them shortens paths against
           these roots, so they reach the cards as context rather than as a prop chain. */}
       <WorkspaceRootsContext.Provider value={props.workspaceRoots ?? []}>
-       <ShellLaunchesContext.Provider value={shellLaunches}>
-        <SubagentActivitiesContext.Provider value={subagentActivities}>
-        <SessionCommandsContext.Provider value={props.commands ?? []}>
-        <aside className="worklog-rail nodrag nopan nowheel">
-          {props.worklogCollapsed ? (
-            <button
-              type="button"
-              className="worklog-expand"
-              aria-label="Show worklog"
-              aria-expanded="false"
-              onClick={() => props.setWorklogCollapsed(false)}
-            >
-              <span>{'<'}</span>
-              <strong>Worklog</strong>
-              <small>{workItemCount}</small>
-            </button>
-          ) : (
-            <>
-              <div className="worklog-heading">
-                <span>Worklog</span>
-                <small>{props.activities.length} actions</small>
-                <button
-                  type="button"
-                  aria-label="Hide worklog"
-                  aria-expanded="true"
-                  title="Hide worklog"
-                  onClick={() => props.setWorklogCollapsed(true)}
-                >
-                  {'>'}
-                </button>
+        <ShellLaunchesContext.Provider value={shellLaunches}>
+          <SubagentActivitiesContext.Provider value={subagentActivities}>
+            <SessionCommandsContext.Provider value={props.commands ?? []}>
+              <div className="chat-scroll nodrag nopan nowheel" ref={scrollRef} onScroll={onScroll}>
+                {!authVisible && props.messages.length === 0 && (props.empty
+                    ? (
+                      <div className="chat-empty">
+                        <span>{props.empty.icon}</span>
+                        <strong>{props.empty.title}</strong>
+                        <p>{props.empty.description}</p>
+                      </div>
+                    )
+                    : <EmptyConversation provider={props.provider} />)}
+                {transcriptEntries.map((entry) => entry.type === 'activity'
+                  ? (!props.focusMode && <ActivityCard activity={entry.activity} key={entry.key} />)
+                  : entry.message.role === 'thought'
+                    ? (!props.focusMode && <ReasoningCard key={entry.key} message={entry.message} />)
+                    : <ChatMessageCard key={entry.key} message={entry.message} />)}
+                {!props.focusMode && props.plan.length > 0 && <PlanCard plan={props.plan} />}
+                <ApprovalPanel {...props} />
               </div>
-              {props.plan.length > 0 && (
-                <ol className="plan-list">
-                  {props.plan.map((entry, index) => <li data-status={entry.status} key={`${index}-${entry.content}`}>{entry.content}</li>)}
-                </ol>
-              )}
-              {railActivities.map((activity) => <ActivityCard activity={activity} key={activity.id} />)}
-              {workItemCount === 0 && <p className="worklog-empty">Agent plans and activity will appear here.</p>}
-            </>
-          )}
-        </aside>
-        </SessionCommandsContext.Provider>
-        </SubagentActivitiesContext.Provider>
-       </ShellLaunchesContext.Provider>
+            </SessionCommandsContext.Provider>
+          </SubagentActivitiesContext.Provider>
+        </ShellLaunchesContext.Provider>
       </WorkspaceRootsContext.Provider>
       {pendingDecisions.length > 0 && (
         <section className="pending-decisions" aria-label="Pending decisions">
@@ -1152,7 +1212,11 @@ export function ChatView(props: ChatViewProps & {
         </section>
       )}
       {props.statusBar && <div className="agent-chat-status-bar">{props.statusBar}</div>}
-      <Composer key={props.provider} {...props} detail={authVisible ? undefined : props.detail} />
+      <Composer
+        key={props.provider}
+        {...props}
+        detail={authVisible || (props.focusMode && props.status === 'working') ? undefined : props.detail}
+      />
       {authVisible && <AuthPanel {...props} />}
     </div>
   )
@@ -1279,8 +1343,9 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
         <>
           <ChatView
             {...props}
-            worklogCollapsed={data.worklogCollapsed}
-            setWorklogCollapsed={(collapsed) => data.onWorklogCollapsed(id, collapsed)}
+            focusMode={data.focusMode}
+            setFocusMode={(enabled) => data.onFocusModeChange(id, enabled)}
+            focusShortcutEnabled={selected}
             statusBar={usageReadout.empty ? undefined : <SessionUsageBar readout={usageReadout} />}
           />
         </>

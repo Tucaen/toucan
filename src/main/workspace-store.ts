@@ -80,6 +80,7 @@ export function isWorkspaceState(value: unknown): value is WorkspaceState {
     && typeof node.width === 'number'
     && typeof node.height === 'number'
     && (node.conversationId === undefined || typeof node.conversationId === 'string')
+    && (node.focusMode === undefined || typeof node.focusMode === 'boolean')
     && (node.worklogCollapsed === undefined || typeof node.worklogCollapsed === 'boolean')
     && (node.modelId === undefined || typeof node.modelId === 'string')
     && (node.draft === undefined || typeof node.draft === 'string')
@@ -104,16 +105,24 @@ export function parseWorkspaceState(value: unknown): WorkspaceState | null {
     const state = value as WorkspaceState
     return {
       ...state,
-      nodes: state.nodes.map((node) => node.preview
-        ? {
-            ...node,
-            preview: {
-              ...node.preview,
-              ...(node.preview.user ? { user: repairUtf8Mojibake(node.preview.user) } : {}),
-              ...(node.preview.assistant ? { assistant: repairUtf8Mojibake(node.preview.assistant) } : {})
-            }
-          }
-        : node)
+      nodes: state.nodes.map((node) => {
+        const { worklogCollapsed, ...current } = node
+        return {
+          ...current,
+          ...(node.kind === 'terminal'
+            ? {}
+            : { focusMode: node.focusMode ?? worklogCollapsed ?? true }),
+          ...(node.preview
+            ? {
+                preview: {
+                  ...node.preview,
+                  ...(node.preview.user ? { user: repairUtf8Mojibake(node.preview.user) } : {}),
+                  ...(node.preview.assistant ? { assistant: repairUtf8Mojibake(node.preview.assistant) } : {})
+                }
+              }
+            : {})
+        }
+      })
     }
   }
 

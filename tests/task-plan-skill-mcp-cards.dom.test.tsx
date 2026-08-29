@@ -29,32 +29,32 @@ const baseChatViewProps: ChatViewProps = {
   queued: [],
   editQueued: vi.fn(),
   withdrawQueued: vi.fn(),
-  sendQueuedNow: vi.fn()
+  sendQueuedNow: vi.fn(),
+  focusMode: false,
+  setFocusMode: vi.fn()
 }
 
-function renderWorklog(activities: AgentActivity[], plan: AgentPlanEntry[] = []): HTMLElement {
+function renderTranscript(activities: AgentActivity[], plan: AgentPlanEntry[] = []): HTMLElement {
   const { container } = render(
     <ChatView
       {...baseChatViewProps}
       activities={activities}
       plan={plan}
       workspaceRoots={['D:\\Development\\ADE']}
-      worklogCollapsed={false}
-      setWorklogCollapsed={vi.fn()}
     />
   )
-  return container.querySelector<HTMLElement>('.worklog-rail') as HTMLElement
+  return container.querySelector<HTMLElement>('.chat-scroll') as HTMLElement
 }
 
 function renderCard(activity: AgentActivity): HTMLElement {
-  const card = renderWorklog([activity]).querySelector<HTMLElement>('.activity-card')
+  const card = renderTranscript([activity]).querySelector<HTMLElement>('.activity-card')
   expect(card).not.toBeNull()
   return card as HTMLElement
 }
 
 describe('task, plan, skill and MCP tool cards', () => {
   test("a running delegation shows the subagent's own steps progressing, not one opaque entry", () => {
-    const rail = renderWorklog([
+    const transcript = renderTranscript([
       {
         id: 'task-1',
         kind: 'other',
@@ -87,7 +87,7 @@ describe('task, plan, skill and MCP tool cards', () => {
     ])
 
     // The subagent's calls belong to the delegation, so exactly one card is at the top level.
-    const cards = rail.querySelectorAll('.activity-card')
+    const cards = transcript.querySelectorAll('.activity-card')
     expect(cards).toHaveLength(1)
     expect((cards[0] as HTMLElement).dataset.family).toBe('subagent-task')
 
@@ -120,7 +120,7 @@ describe('task, plan, skill and MCP tool cards', () => {
     expect(card.querySelector('.subagent-progress')).toBeNull()
   })
 
-  test('a plan write the rail already shows never appears beside it as a second copy', () => {
+  test('a plan write the current plan already shows never appears beside it as a second copy', () => {
     const write: AgentActivity = {
       id: 'todo-1',
       kind: 'other',
@@ -132,13 +132,14 @@ describe('task, plan, skill and MCP tool cards', () => {
     }
     const plan: AgentPlanEntry[] = [{ content: 'Ship the cards', priority: 'high', status: 'in_progress' }]
 
-    const folded = renderWorklog([write], plan)
-    expect(folded.querySelectorAll('.activity-card')).toHaveLength(0)
+    const folded = renderTranscript([write], plan)
+    expect(folded.querySelectorAll('.activity-card[data-family="plan-update"]')).toHaveLength(0)
+    expect(folded.querySelectorAll('.activity-card[data-family="plan"]')).toHaveLength(1)
     expect(folded.querySelectorAll('.plan-list')).toHaveLength(1)
 
-    // A write that was refused is not what the rail is showing, so it keeps its own card.
-    const refused = renderWorklog([{ ...write, status: 'failed' }], plan)
-    const card = refused.querySelector<HTMLElement>('.activity-card')
+    // A write that was refused is not what the current plan shows, so it keeps its own card.
+    const refused = renderTranscript([{ ...write, status: 'failed' }], plan)
+    const card = refused.querySelector<HTMLElement>('.activity-card[data-family="plan-update"]')
     expect(card?.dataset.family).toBe('plan-update')
     expect(card?.textContent).toContain('Updated the plan — 1 step, 0 done')
   })
@@ -159,8 +160,6 @@ describe('task, plan, skill and MCP tool cards', () => {
         }]}
         commands={[{ name: 'code-review', description: 'Review the changes since a fixed point.' }]}
         workspaceRoots={['D:\\Development\\ADE']}
-        worklogCollapsed={false}
-        setWorklogCollapsed={vi.fn()}
       />
     )
     const card = container.querySelector<HTMLElement>('.activity-card') as HTMLElement
@@ -183,13 +182,13 @@ describe('task, plan, skill and MCP tool cards', () => {
       rawInput: { agentThreadId: 'thread-7', agentPath: '.codex/agents/reviewer.md', activityKind },
       startedAt: 0
     })
-    const rail = renderWorklog([
+    const transcript = renderTranscript([
       interaction('sub-1', 'started', 'completed'),
       interaction('sub-2', 'interacted', 'completed'),
       interaction('sub-3', 'interacted', 'in_progress')
     ])
 
-    const cards = rail.querySelectorAll('.activity-card')
+    const cards = transcript.querySelectorAll('.activity-card')
     expect(cards).toHaveLength(1)
     expect((cards[0] as HTMLElement).dataset.family).toBe('subagent-task')
     const header = within(cards[0] as HTMLElement).getByRole('button')

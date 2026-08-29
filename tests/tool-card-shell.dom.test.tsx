@@ -43,8 +43,8 @@ function renderCards(activities: AgentActivity[]): HTMLElement {
     <ChatView
       {...baseChatViewProps}
       activities={activities}
-      worklogCollapsed={false}
-      setWorklogCollapsed={vi.fn()}
+      focusMode={false}
+      setFocusMode={vi.fn()}
     />
   )
   return container
@@ -136,7 +136,7 @@ describe('shared tool card shell', () => {
   test('a card collapsed while running re-opens itself when the call then fails', () => {
     const working: AgentActivity = { id: 'a', title: 'Ran a command', kind: 'execute', status: 'in_progress', content: 'so far', startedAt: 0 }
     const { container, rerender } = render(
-      <ChatView {...baseChatViewProps} activities={[working]} worklogCollapsed={false} setWorklogCollapsed={vi.fn()} />
+      <ChatView {...baseChatViewProps} activities={[working]} focusMode={false} setFocusMode={vi.fn()} />
     )
     fireEvent.click(within(card(container)).getByRole('button'))
     expect(card(container).dataset.expanded).toBe('false')
@@ -145,8 +145,8 @@ describe('shared tool card shell', () => {
       <ChatView
         {...baseChatViewProps}
         activities={[{ ...working, status: 'failed', content: 'exit code 1', endedAt: 900 }]}
-        worklogCollapsed={false}
-        setWorklogCollapsed={vi.fn()}
+        focusMode={false}
+        setFocusMode={vi.fn()}
       />
     )
     expect(card(container).dataset.expanded).toBe('true')

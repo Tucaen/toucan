@@ -4,10 +4,10 @@ import { asRecord, asText, memoizePerActivity, normalizeToolName } from './tool-
 
 /**
  * A tool call that rewrote the plan. Normally the reader never sees one: both adapters translate
- * their todo/task tools into ACP `plan` notifications and suppress the tool call, so the plan rail
- * is the single place a plan appears. The exception is the permission path - a plan write that
+ * their todo/task tools into ACP `plan` notifications and suppress the tool call, so the current
+ * plan card is the single place a plan appears. The exception is the permission path - a plan write that
  * needed approval *is* surfaced as a real tool call so the request has something to point at - and
- * that is the call this card exists for, so an approved plan write folds back into the rail
+ * that is the call this card exists for, so an approved plan write folds back into the plan card
  * instead of sitting beside it as a second, loose copy of the same list.
  */
 export interface PlanUpdate {
@@ -55,7 +55,7 @@ function planEntries(input: Record<string, unknown>): AgentPlanEntry[] {
  * Recognizes a plan write by tool name, excluding MCP calls for the same reason `subagent-task.ts`
  * does: a third-party `mcp__notion__taskcreate` flattens to the same bare name. A read-only
  * `TaskList`/`TaskGet` is recognized too - it changes nothing, and its card should say so rather
- * than dumping the whole task list into the rail a second time.
+ * than dumping the whole task list into the transcript a second time.
  */
 export function parsePlanUpdate(activity: AgentActivity): PlanUpdate | null {
   const name = normalizeToolName(activity.toolName)
@@ -87,12 +87,12 @@ export function planUpdateSummary(update: PlanUpdate): string {
 }
 
 /**
- * Whether the plan rail has already absorbed this call, so the worklog must not also show it as a
- * loose card. Two conditions, both load-bearing: the call must have *succeeded* (one still
- * pending approval, or one that failed, is not what the rail is showing - the rail shows the plan
- * the agent has, not the one it asked for and did not get), and the rail must actually be
+ * Whether the current plan card has already absorbed this call, so the transcript must not also
+ * show it as a loose card. Two conditions, both load-bearing: the call must have *succeeded* (one
+ * still pending approval, or one that failed, is not what the card is showing - it shows the plan
+ * the agent has, not the one it asked for and did not get), and the card must actually be
  * rendering a plan, so a fold can never be the reason a plan write left no trace anywhere.
  */
-export function isPlanUpdateFoldedIntoRail(activity: AgentActivity, railHasPlan: boolean): boolean {
-  return railHasPlan && activity.status === 'completed' && planUpdateFor(activity) !== null
+export function isPlanUpdateFoldedIntoRail(activity: AgentActivity, transcriptHasPlan: boolean): boolean {
+  return transcriptHasPlan && activity.status === 'completed' && planUpdateFor(activity) !== null
 }

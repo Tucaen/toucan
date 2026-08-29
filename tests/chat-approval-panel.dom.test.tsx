@@ -47,8 +47,8 @@ describe('permission dialog details', () => {
           title,
           options: [{ id: 'allow', label: 'Allow Once', kind: 'allow_once' }]
         }}
-        worklogCollapsed
-        setWorklogCollapsed={vi.fn()}
+        focusMode={false}
+        setFocusMode={vi.fn()}
       />
     )
 
