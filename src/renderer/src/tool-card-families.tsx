@@ -3,6 +3,8 @@ import type { AgentActivity } from '../../shared/agent'
 import { activityTitle } from '../../shared/agent-activity'
 import { FileOperationBody, FileOperationSummary, fileOperationCard } from './FileOperationCard'
 import { fileOperationFor, fileOperationIcon } from './file-operation'
+import { ShellExecutionBody, ShellExecutionSummary, shellExecutionCard } from './ShellExecutionCard'
+import { shellExecutionFor, shellExecutionIcon } from './shell-execution'
 import { truncateToolOutput } from './tool-card'
 
 /** How many lines of a tool body reach the DOM before the shell offers "show more". */
@@ -96,10 +98,41 @@ export const fileOperationToolCardFamily: ToolCardFamily = {
 }
 
 /**
+ * Bash, Codex's shell, and the background-shell follow-ups (BashOutput/KillShell). All share one
+ * card because they share one identity - a command line - and differ only in whether the body is
+ * that command's output or a later read of it (see `shell-execution.ts`).
+ */
+export const shellExecutionToolCardFamily: ToolCardFamily = {
+  id: 'shell-execution',
+  matches: (activity) => shellExecutionFor(activity) !== null,
+  icon: (activity) => {
+    const execution = shellExecutionFor(activity)
+    return execution ? shellExecutionIcon(execution) : genericIcon(activity)
+  },
+  summary: (activity) => {
+    const execution = shellExecutionFor(activity)
+    return execution
+      ? <ShellExecutionSummary execution={execution} status={activity.status} />
+      : activityTitle(activity)
+  },
+  body: (activity, lineBudget) => {
+    const card = shellExecutionCard(activity, lineBudget)
+    if (!card) return genericToolCardFamily.body(activity, lineBudget)
+    return {
+      hiddenLines: card.hiddenLines,
+      content: <ShellExecutionBody execution={card.execution} blocks={card.blocks} />
+    }
+  }
+}
+
+/**
  * Families registered by the per-tool sub-issues, most specific first. Anything no family
  * claims falls through to the generic family.
  */
-export const toolCardFamilies: ToolCardFamily[] = [fileOperationToolCardFamily]
+export const toolCardFamilies: ToolCardFamily[] = [
+  shellExecutionToolCardFamily,
+  fileOperationToolCardFamily
+]
 
 export function toolCardFamilyFor(activity: AgentActivity): ToolCardFamily {
   return toolCardFamilies.find((family) => family.matches(activity)) ?? genericToolCardFamily

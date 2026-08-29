@@ -135,8 +135,29 @@ export interface AgentActivity {
    * defensively (see `file-operation.ts`).
    */
   rawInput?: unknown
+  /**
+   * The tool's own result, verbatim from ACP's `rawOutput`. Carried for the same reason as
+   * `rawInput`: it is where a shell call's exit code and its separated stdout/stderr live when
+   * the adapter reports them structurally (see `shell-execution.ts`).
+   */
+  rawOutput?: unknown
   /** Before/after pairs from ACP `diff` content, when the adapter sends them. */
   diffs?: AgentFileDiff[]
+  /**
+   * One chunk of terminal output as the adapter just sent it - never the accumulated text. Both
+   * adapters stream a command's output through the `terminal_output`/`terminal_output_delta`
+   * `_meta` channel rather than ACP content, and `mergeActivity` is what appends chunks into
+   * `terminalOutput`.
+   */
+  terminalChunk?: string
+  /** Every chunk this call has produced, in order, folded by `mergeActivity`. */
+  terminalOutput?: string
+  /** The directory the command ran in, when the adapter reported one (`terminal_info.cwd`). */
+  terminalCwd?: string
+  /** The command's exit status, once the adapter reports the terminal exiting. */
+  exitCode?: number
+  /** The signal that killed the command instead, when there was one. */
+  exitSignal?: string
   /** Stamped locally by `mergeActivity` when the call is first seen; ACP reports no timing. */
   startedAt?: number
   /** Stamped when the call first reaches a terminal status, and cleared again if it resumes. */

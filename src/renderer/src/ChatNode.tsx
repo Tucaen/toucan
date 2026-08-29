@@ -22,6 +22,8 @@ import {
   type ToolCardStatus
 } from './tool-card'
 import { TOOL_CARD_LINE_BUDGET, toolCardFamilyFor } from './tool-card-families'
+import { ShellLaunchesContext } from './ShellExecutionCard'
+import { indexShellLaunches } from './shell-execution'
 import { WorkspaceRootsContext } from './workspace-root'
 import type { TerminalCanvasNode, TerminalNodeStatus } from './canvas-workspace'
 import {
@@ -1056,6 +1058,10 @@ export function ChatView(props: ChatViewProps & {
     props.closedDecisionIds
   )
   const { ref: scrollRef, onScroll } = useStickToBottom([props.messages, props.approval, props.status])
+  // A BashOutput/KillShell card can only name its command by looking across the whole worklog, so
+  // the index is built once here rather than per card. Only a launch's own reported shell id can
+  // change it, so it is recomputed only when the activity list itself does.
+  const shellLaunches = useMemo(() => indexShellLaunches(props.activities), [props.activities])
   return (
     <div className={`agent-chat ${props.worklogCollapsed ? 'worklog-collapsed' : ''} ${props.statusBar ? 'has-status-bar' : ''} ${pendingDecisions.length > 0 ? 'has-pending-decisions' : ''}`}>
       <div className="chat-scroll nodrag nopan nowheel" ref={scrollRef} onScroll={onScroll}>
@@ -1081,6 +1087,7 @@ export function ChatView(props: ChatViewProps & {
       {/* Tool cards live several components deep and every one of them shortens paths against
           these roots, so they reach the cards as context rather than as a prop chain. */}
       <WorkspaceRootsContext.Provider value={props.workspaceRoots ?? []}>
+       <ShellLaunchesContext.Provider value={shellLaunches}>
         <aside className="worklog-rail nodrag nopan nowheel">
           {props.worklogCollapsed ? (
             <button
@@ -1119,6 +1126,7 @@ export function ChatView(props: ChatViewProps & {
             </>
           )}
         </aside>
+       </ShellLaunchesContext.Provider>
       </WorkspaceRootsContext.Provider>
       {pendingDecisions.length > 0 && (
         <section className="pending-decisions" aria-label="Pending decisions">

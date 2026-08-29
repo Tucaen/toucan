@@ -707,7 +707,13 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
           clientCapabilities: {
             auth: { terminal: true },
             elicitation: { url: {} },
-            plan: {}
+            plan: {},
+            // Not ACP's `terminal` capability (which would make us host live terminals for the
+            // agent): this `_meta` flag is what both adapters gate their `terminal_output` /
+            // `terminal_exit` notifications on. Without it claude-agent-acp folds a Bash result
+            // into a fenced code block and reports no exit code at all, and the shell tool card
+            // has nothing to show but prose. See `terminalChunkOf` in `shared/agent-activity.ts`.
+            _meta: { terminal_output: true }
           },
           clientInfo: { name: 'ade', title: 'ADE', version: '0.1.0' }
         })
