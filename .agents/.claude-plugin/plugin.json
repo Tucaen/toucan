@@ -1,0 +1,5 @@
+{
+  "name": "ade-project-skills",
+  "version": "0.1.0",
+  "description": "Project-local skills ADE exposes to the agent it launches."
+}

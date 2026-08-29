@@ -22,12 +22,10 @@ export interface TerminalCreateRequest {
   /** Durable identity of the terminal, independent of any renderer or process. */
   sessionId?: string
   attachmentId?: string
-  kind: TerminalKind
+  kind: 'terminal'
   cols: number
   rows: number
   cwd: string
-  conversationId?: string
-  resume?: boolean
   /**
    * Written to the shell once, right after the session starts. Used to run a project's setup
    * command in a fresh worktree where the user can watch it and interrupt it.
@@ -132,13 +130,6 @@ export interface TerminalExit {
   incarnationId: string
   attachmentId: string
   exitCode: number
-}
-
-export interface TerminalSession {
-  sessionId: string
-  incarnationId: string
-  attachmentId: string
-  conversationId: string
 }
 
 export interface TerminalLivenessEvent {

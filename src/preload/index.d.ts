@@ -13,7 +13,6 @@ import type {
   TerminalCreateResult,
   TerminalExit,
   TerminalOutput,
-  TerminalSession,
   WorkspaceLoadResult,
   WorkspaceSaveResult,
   WorkspaceState
@@ -60,7 +59,6 @@ export interface TerminalApi {
   readClipboardText(): string
   onData(sessionId: string, attachmentId: string, callback: (output: TerminalOutput) => void): () => void
   onExit(sessionId: string, attachmentId: string, callback: (result: TerminalExit) => void): () => void
-  onSession(sessionId: string, attachmentId: string, callback: (result: TerminalSession) => void): () => void
 }
 
 export interface UsageApi {

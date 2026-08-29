@@ -7,12 +7,6 @@ import NodeBorderResizer from './NodeBorderResizer'
 import { CanvasTerminalLiveness } from './TerminalLivenessPresentation'
 import WorktreeBadge from './WorktreeBadge'
 
-const accents = {
-  terminal: '#74d8a2',
-  claude: '#e69a71',
-  codex: '#71a9ff'
-} as const
-
 export default function TerminalNode({ id, data, selected }: NodeProps<TerminalCanvasNode>): JSX.Element {
   const hostRef = useRef<HTMLDivElement>(null)
   const terminalRef = useRef<Terminal | null>(null)
@@ -20,33 +14,13 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
   const exitedRef = useRef(false)
   const incarnationRef = useRef<string | null>(null)
   const attentionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const previewTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const conversationIdRef = useRef(data.conversationId)
   const [hasSelection, setHasSelection] = useState(false)
-  const canResumeConversation = data.kind !== 'terminal' && Boolean(data.conversationId)
-  const previewTime = data.preview && Number.isFinite(Date.parse(data.preview.updatedAt))
-    ? new Date(data.preview.updatedAt).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })
-    : null
 
   selectedRef.current = selected
-  conversationIdRef.current = data.conversationId
 
   const clearAttentionTimer = (): void => {
     if (attentionTimerRef.current) clearTimeout(attentionTimerRef.current)
     attentionTimerRef.current = null
-  }
-
-  const refreshPreview = (): void => {
-    const conversationId = conversationIdRef.current
-    if (data.kind === 'terminal' || !conversationId) return
-    void window.terminalApi.getConversationPreview(data.kind, conversationId).then((preview) => {
-      if (preview) data.onPreview(id, preview)
-    })
-  }
-
-  const schedulePreviewRefresh = (): void => {
-    if (previewTimerRef.current) clearTimeout(previewTimerRef.current)
-    previewTimerRef.current = setTimeout(refreshPreview, 1100)
   }
 
   const acknowledgeActivity = (): void => {
@@ -79,7 +53,7 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
       theme: {
         background: '#101319',
         foreground: '#d9dee8',
-        cursor: accents[data.kind],
+        cursor: '#74d8a2',
         selectionBackground: '#394456'
       }
     })
@@ -103,7 +77,6 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
     const removeDataListener = window.terminalApi.onData(data.sessionId, attachmentId, (output) => {
       incarnationRef.current ??= output.incarnationId
       terminal.write(output.data)
-      schedulePreviewRefresh()
       clearAttentionTimer()
       if (!selectedRef.current) {
         attentionTimerRef.current = setTimeout(() => {
@@ -114,17 +87,10 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
     const removeExitListener = window.terminalApi.onExit(data.sessionId, attachmentId, (result) => {
       incarnationRef.current ??= result.incarnationId
       clearAttentionTimer()
-      refreshPreview()
       exitedRef.current = true
       data.onTerminalLiveness?.(id, 'exited')
       data.onStatusChange(id, 'exited')
       terminal.write(`\r\n\x1b[90mSession exited with code ${result.exitCode}.\x1b[0m\r\n`)
-    })
-    const removeSessionListener = window.terminalApi.onSession(data.sessionId, attachmentId, (result) => {
-      incarnationRef.current ??= result.incarnationId
-      conversationIdRef.current = result.conversationId
-      data.onConversationId(id, result.conversationId)
-      schedulePreviewRefresh()
     })
     const inputSubscription = terminal.onData((input) => {
       acknowledgeActivity()
@@ -163,13 +129,11 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
           id,
           sessionId: data.sessionId,
           attachmentId,
-          kind: data.kind,
+          kind: 'terminal',
           cols: terminal.cols,
           rows: terminal.rows,
           cwd: data.workingDirectory,
           initialInput: data.initialInput,
-          conversationId: data.conversationId,
-          resume: data.launchMode === 'resume'
         })
         .then((result) => {
           if (!active) {
@@ -198,11 +162,9 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
     return () => {
       active = false
       clearAttentionTimer()
-      if (previewTimerRef.current) clearTimeout(previewTimerRef.current)
       resizeObserver.disconnect()
       removeDataListener()
       removeExitListener()
-      removeSessionListener()
       inputSubscription.dispose()
       selectionSubscription.dispose()
       if (incarnationRef.current) window.terminalApi.kill(data.sessionId, incarnationRef.current, attachmentId)
@@ -210,13 +172,13 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
       terminalRef.current = null
       terminal.dispose()
     }
-  }, [data.dormant, data.kind, data.label, data.launchMode, data.onStatusChange, data.onTerminalLiveness, data.sessionId, data.workingDirectory, id])
+  }, [data.dormant, data.label, data.onStatusChange, data.onTerminalLiveness, data.sessionId, data.workingDirectory, id])
 
   return (
     <article
       className={`terminal-node ${selected ? 'selected' : ''}`}
       style={{
-        '--node-accent': accents[data.kind],
+        '--node-accent': '#74d8a2',
         '--project-color': data.projectColor
       } as React.CSSProperties}
     >
@@ -239,9 +201,7 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
         >
           Copy
         </button>
-        {data.kind === 'terminal'
-          ? <CanvasTerminalLiveness liveness={data.terminalLiveness} />
-          : <span className="node-status">{data.dormant ? 'SAVED' : 'LOCAL'}</span>}
+        <CanvasTerminalLiveness liveness={data.terminalLiveness} />
       </header>
       <div
         ref={hostRef}
@@ -258,36 +218,13 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
       >
         {data.dormant && (
           <div className="dormant-session">
-            <span className="dormant-session-icon">{data.kind === 'terminal' ? '>_' : data.kind === 'claude' ? 'C' : '<>'}</span>
-            <strong>{data.kind === 'terminal'
-              ? data.terminalLiveness === 'exited' ? 'Terminal exited' : 'Terminal liveness unverifiable'
-              : 'Saved conversation'}</strong>
+            <span className="dormant-session-icon">&gt;_</span>
+            <strong>{data.terminalLiveness === 'exited' ? 'Terminal exited' : 'Terminal liveness unverifiable'}</strong>
             <small>
-              {data.kind === 'terminal'
-                ? data.terminalLiveness === 'exited'
-                  ? 'The process owner confirmed that the previous shell exited.'
-                  : 'ADE has no authoritative process-owner evidence that this shell exited.'
-                : canResumeConversation
-                  ? 'The previous CLI process ended, but its conversation can continue.'
-                  : 'ADE could not link this node to a saved conversation.'}
+              {data.terminalLiveness === 'exited'
+                ? 'The process owner confirmed that the previous shell exited.'
+                : 'ADE has no authoritative process-owner evidence that this shell exited.'}
             </small>
-            {data.preview && (data.preview.user || data.preview.assistant) && (
-              <div className="conversation-preview">
-                {data.preview.user && (
-                  <div>
-                    <span>You</span>
-                    <p>{data.preview.user}</p>
-                  </div>
-                )}
-                {data.preview.assistant && (
-                  <div>
-                    <span>{data.kind === 'claude' ? 'Claude' : 'Codex'}</span>
-                    <p>{data.preview.assistant}</p>
-                  </div>
-                )}
-                {previewTime && <time dateTime={data.preview.updatedAt}>Updated {previewTime}</time>}
-              </div>
-            )}
             <button
               type="button"
               className="resume-session nodrag"
@@ -297,11 +234,7 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
                 data.onResume(id)
               }}
             >
-              {data.kind === 'terminal'
-                ? 'Reopen shell'
-                : canResumeConversation
-                  ? 'Resume conversation'
-                  : 'Start new conversation'}
+              Reopen shell
             </button>
           </div>
         )}
