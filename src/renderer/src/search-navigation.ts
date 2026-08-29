@@ -1,4 +1,5 @@
 import type { AgentActivity } from '../../shared/agent'
+import { asRecord, asText, normalizeToolName } from './tool-input'
 
 export interface SearchMatch {
   line?: number
@@ -46,22 +47,6 @@ export interface WebFetch {
 }
 
 export type SearchNavigation = GrepSearch | GlobSearch | WebSearch | WebFetch
-
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : undefined
-}
-
-function asText(value: unknown): string | undefined {
-  return typeof value === 'string' && value.length > 0 ? value : undefined
-}
-
-function normalizeToolName(name: string | undefined): string | undefined {
-  if (!name) return undefined
-  const bare = name.split(/[.:]|__/).filter(Boolean).at(-1) ?? name
-  return bare.toLowerCase().replace(/[^a-z]/g, '')
-}
 
 function grepGroups(content: string | undefined): SearchMatchGroup[] {
   if (!content) return []

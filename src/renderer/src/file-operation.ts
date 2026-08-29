@@ -1,4 +1,5 @@
 import type { AgentActivity } from '../../shared/agent'
+import { asRecord, asText, normalizeToolName } from './tool-input'
 
 /**
  * The file operations that get a purpose-built card. Everything else keeps the generic card, so
@@ -41,25 +42,8 @@ export interface FileOperationBlock {
   lines: FileOperationLine[]
 }
 
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : undefined
-}
-
-function asText(value: unknown): string | undefined {
-  return typeof value === 'string' && value.length > 0 ? value : undefined
-}
-
 function asNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined
-}
-
-/** A tool name as adapters spell it, flattened so `MultiEdit`, `multi_edit` and `multiedit` agree. */
-function normalizeToolName(name: string | undefined): string | undefined {
-  if (!name) return undefined
-  const bare = name.split(/[.:]|__/).filter(Boolean).at(-1) ?? name
-  return bare.toLowerCase().replace(/[^a-z]/g, '')
 }
 
 function editsFromRawInput(input: Record<string, unknown>): FileOperationEdit[] | undefined {

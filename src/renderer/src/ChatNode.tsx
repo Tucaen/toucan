@@ -18,12 +18,15 @@ import {
   resolveToolCardExpanded,
   toolCardElapsed,
   toolCardIsTiming,
+  toolCardStatusLabel,
   type ToolCardChoice,
   type ToolCardStatus
 } from './tool-card'
 import { TOOL_CARD_LINE_BUDGET, toolCardFamilyFor } from './tool-card-families'
 import { ShellLaunchesContext } from './ShellExecutionCard'
 import { indexShellLaunches } from './shell-execution'
+import { SubagentActivitiesContext, indexSubagentActivities } from './subagent-task'
+import { worklogActivities } from './worklog-activities'
 import { WorkspaceRootsContext } from './workspace-root'
 import type { TerminalCanvasNode, TerminalNodeStatus } from './canvas-workspace'
 import {
@@ -939,17 +942,6 @@ function ChatMessageCard(
 }
 
 /**
- * The header always states a status, so an update that arrives without one reads as the
- * in-flight call it is rather than as a blank cell.
- */
-const ACTIVITY_STATUS_LABELS: Record<ToolCardStatus, string> = {
-  pending: 'queued',
-  in_progress: 'running',
-  completed: 'done',
-  failed: 'failed'
-}
-
-/**
  * Re-renders once a second, but only while something is actually being timed - a rail full of
  * finished cards must not keep a timer alive.
  */
@@ -994,7 +986,7 @@ function ActivityCard({ activity }: { activity: AgentActivity }): JSX.Element {
         <span className="activity-icon">{family.icon(activity)}</span>
         <strong>{family.summary(activity)}</strong>
         {duration && <small className="activity-duration">{duration}</small>}
-        <span className="activity-state">{ACTIVITY_STATUS_LABELS[activity.status ?? 'in_progress']}</span>
+        <span className="activity-state">{toolCardStatusLabel(activity.status)}</span>
       </button>
       {body && (
         <div className="activity-body">
@@ -1050,7 +1042,15 @@ export function ChatView(props: ChatViewProps & {
   completedTaskIds?: ReadonlySet<string>
   closedDecisionIds?: ReadonlySet<string>
 }): JSX.Element {
-  const workItemCount = props.activities.length + props.plan.length
+  // A subagent's tool calls arrive in the same flat feed as the parent's own; these two say
+  // which card each one belongs to. Both are keyed on the ids the adapter reported, never on
+  // ordering, so an activity always renders somewhere (see `worklog-activities.ts`).
+  const subagentActivities = useMemo(() => indexSubagentActivities(props.activities), [props.activities])
+  const railActivities = useMemo(
+    () => worklogActivities(props.activities, props.plan.length > 0),
+    [props.activities, props.plan.length]
+  )
+  const workItemCount = railActivities.length + props.plan.length
   const authVisible = props.status === 'auth_required' || props.reauthenticating
   const pendingDecisions = pendingDecisionsFromMessages(
     props.messages,
@@ -1088,6 +1088,7 @@ export function ChatView(props: ChatViewProps & {
           these roots, so they reach the cards as context rather than as a prop chain. */}
       <WorkspaceRootsContext.Provider value={props.workspaceRoots ?? []}>
        <ShellLaunchesContext.Provider value={shellLaunches}>
+        <SubagentActivitiesContext.Provider value={subagentActivities}>
         <aside className="worklog-rail nodrag nopan nowheel">
           {props.worklogCollapsed ? (
             <button
@@ -1121,11 +1122,12 @@ export function ChatView(props: ChatViewProps & {
                   {props.plan.map((entry, index) => <li data-status={entry.status} key={`${index}-${entry.content}`}>{entry.content}</li>)}
                 </ol>
               )}
-              {props.activities.map((activity) => <ActivityCard activity={activity} key={activity.id} />)}
+              {railActivities.map((activity) => <ActivityCard activity={activity} key={activity.id} />)}
               {workItemCount === 0 && <p className="worklog-empty">Agent plans and activity will appear here.</p>}
             </>
           )}
         </aside>
+        </SubagentActivitiesContext.Provider>
        </ShellLaunchesContext.Provider>
       </WorkspaceRootsContext.Provider>
       {pendingDecisions.length > 0 && (

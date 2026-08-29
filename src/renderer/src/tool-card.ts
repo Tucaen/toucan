@@ -3,6 +3,21 @@ import { isSettledActivity } from '../../shared/agent-activity'
 
 export type ToolCardStatus = NonNullable<AgentActivity['status']>
 
+const TOOL_CARD_STATUS_LABELS: Record<ToolCardStatus, string> = {
+  pending: 'queued',
+  in_progress: 'running',
+  completed: 'done',
+  failed: 'failed'
+}
+
+/**
+ * How a call's status reads in a header. Shared by the card shell and the nested step rows a
+ * delegation card renders, so one state can never be spelled two ways in the same rail.
+ */
+export function toolCardStatusLabel(status: ToolCardStatus | undefined): string {
+  return TOOL_CARD_STATUS_LABELS[status ?? 'in_progress']
+}
+
 /**
  * A tool card's open/closed state before any reader input: a call the agent is still working on
  * is worth watching, a failure is worth reading, and a completed call is noise once its one-line
