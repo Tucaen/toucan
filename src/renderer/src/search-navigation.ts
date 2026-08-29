@@ -15,6 +15,8 @@ export interface GrepSearch {
   pattern: string
   matchCount: number
   groups: SearchMatchGroup[]
+  /** Grep ran in files-with-matches mode: the groups name files and carry no line matches. */
+  filesOnly?: boolean
 }
 
 export interface GlobSearch {
@@ -129,6 +131,13 @@ export function parseSearchNavigation(activity: AgentActivity): SearchNavigation
     return { kind: 'glob', pattern, paths }
   }
   if (name !== 'grep') return null
+  if (asText(input.output_mode) === 'files_with_matches') {
+    const files = activity.content?.split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+      .map((path) => ({ path, matches: [] })) ?? []
+    return { kind: 'grep', pattern, matchCount: files.length, filesOnly: true, groups: files }
+  }
   const groups = grepGroups(activity.content)
   return {
     kind: 'grep',
@@ -171,6 +180,10 @@ export function clampSearchNavigation(
     const paths = search.paths.slice(0, remaining)
     return { search: { ...search, paths }, hiddenLines: search.paths.length - paths.length }
   }
+  if (search.filesOnly) {
+    const kept = search.groups.slice(0, remaining)
+    return { search: { ...search, groups: kept }, hiddenLines: search.groups.length - kept.length }
+  }
   const groups: SearchMatchGroup[] = []
   let hiddenLines = 0
   for (const group of search.groups) {
@@ -193,6 +206,10 @@ export function searchNavigationSummary(search: SearchNavigation): string {
     return `${search.pattern} — ${search.paths.length} ${search.paths.length === 1 ? 'file' : 'files'}`
   }
   if (search.matchCount === 0) return `${search.pattern} — No matches`
+  if (search.filesOnly) {
+    const files = search.matchCount === 1 ? 'file' : 'files'
+    return `${search.pattern} — ${search.matchCount} matching ${files}`
+  }
   const matches = `${search.matchCount} ${search.matchCount === 1 ? 'match' : 'matches'}`
   const files = `${search.groups.length} ${search.groups.length === 1 ? 'file' : 'files'}`
   return `${search.pattern} — ${matches} in ${files}`

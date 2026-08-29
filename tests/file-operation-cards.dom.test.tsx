@@ -260,11 +260,11 @@ describe('file-operation tool cards', () => {
   test('a tool that touches no file keeps the generic card', () => {
     const container = renderCards([{
       id: 'b1',
-      kind: 'execute',
-      toolName: 'Bash',
-      title: 'Ran the test suite',
+      kind: 'think',
+      toolName: 'TodoWrite',
+      title: 'Updated the plan',
       status: 'completed',
-      rawInput: { command: 'npm test' },
+      rawInput: { todos: [] },
       startedAt: 0,
       endedAt: 100
     }])
