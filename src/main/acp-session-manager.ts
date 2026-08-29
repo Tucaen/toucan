@@ -43,6 +43,25 @@ interface PendingApproval {
   resolve(response: RequestPermissionResponse): void
 }
 
+/** The repository directory holding project-local skills, shared by both agents. */
+const PROJECT_SKILLS_DIRECTORY = '.agents'
+
+/**
+ * Project-local skills stay in the repository; ADE never installs into the user's global
+ * agent configuration. Codex discovers `<cwd>/.agents/skills` on its own, so only Claude
+ * needs the directory handed to it - as a session-scoped inline plugin, which the ACP
+ * adapter forwards from `_meta` straight into the SDK's `plugins` option.
+ */
+function projectSkillsMeta(
+  provider: AgentCreateRequest['provider'],
+  cwd: string
+): { _meta: { claudeCode: { options: { plugins: Array<{ type: 'local'; path: string }> } } } } | undefined {
+  if (provider !== 'claude') return undefined
+  const path = join(cwd, PROJECT_SKILLS_DIRECTORY)
+  if (!existsSync(join(path, 'skills'))) return undefined
+  return { _meta: { claudeCode: { options: { plugins: [{ type: 'local', path }] } } } }
+}
+
 interface RunningAgent {
   request: AgentCreateRequest
   owner: WebContents
@@ -408,12 +427,14 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         modes = simplifyModes(response.modes)
         configureOptions(response.configOptions)
       }
+      const skillsMeta = projectSkillsMeta(running.request.provider, running.request.cwd)
       let resumed = false
       if (running.request.sessionId) {
         const response = await running.context.request(methods.agent.session.load, {
           sessionId: running.request.sessionId,
           cwd: running.request.cwd,
-          mcpServers: []
+          mcpServers: [],
+          ...skillsMeta
         })
         running.sessionId = running.request.sessionId
         configure(response)
@@ -422,7 +443,8 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       if (!resumed) {
         const response = await running.context.request(methods.agent.session.new, {
           cwd: running.request.cwd,
-          mcpServers: []
+          mcpServers: [],
+          ...skillsMeta
         })
         running.sessionId = response.sessionId
         configure(response)
