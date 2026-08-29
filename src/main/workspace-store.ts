@@ -1,7 +1,13 @@
 import { existsSync, readFileSync, renameSync, unlinkSync } from 'node:fs'
 import { open } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
-import { isComposerSendKey, type WorkspaceLoadResult, type WorkspaceSaveResult, type WorkspaceState } from '../shared/terminal'
+import {
+  isComposerSendKey,
+  RECENTLY_CLOSED_SESSION_LIMIT,
+  type WorkspaceLoadResult,
+  type WorkspaceSaveResult,
+  type WorkspaceState
+} from '../shared/terminal'
 import { errorMessage, repairUtf8Mojibake } from '../shared/text'
 
 interface WorkspaceStateV1 {
@@ -111,6 +117,9 @@ export function parseWorkspaceState(value: unknown): WorkspaceState | null {
     const state = value as WorkspaceState
     return {
       ...state,
+      ...(state.recentlyClosedNodes
+        ? { recentlyClosedNodes: state.recentlyClosedNodes.slice(-RECENTLY_CLOSED_SESSION_LIMIT) }
+        : {}),
       nodes: state.nodes.map((node) => {
         const { worklogCollapsed, ...current } = node
         return {

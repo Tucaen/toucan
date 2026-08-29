@@ -455,15 +455,18 @@ function Canvas(): JSX.Element {
   permissionModesRef.current = agentPermissionModes
   recentlyClosedNodesRef.current = recentlyClosedNodes
 
+  const clearRecentlyClosedNodes = useCallback((): void => {
+    recentlyClosedNodesRef.current = []
+    setRecentlyClosedNodes([])
+  }, [])
+
   const handleNodesChange = useCallback((changes: NodeChange<CanvasNode>[]): void => {
     const removedIds = new Set(changes.flatMap((change) => change.type === 'remove' ? [change.id] : []))
     if (removedIds.size > 0) {
       const removedNodes = nodesRef.current.filter((node) => removedIds.has(node.id))
-      setRecentlyClosedNodes((current) => {
-        const next = rememberClosedSessionNodes(current, removedNodes)
-        recentlyClosedNodesRef.current = next
-        return next
-      })
+      const next = rememberClosedSessionNodes(recentlyClosedNodesRef.current, removedNodes)
+      recentlyClosedNodesRef.current = next
+      setRecentlyClosedNodes(next)
       setNodeStatuses((current) => Object.fromEntries(
         Object.entries(current).filter(([nodeId]) => !removedIds.has(nodeId))
       ))
@@ -636,6 +639,7 @@ function Canvas(): JSX.Element {
       })
       .then((result) => {
         if (result.ok) {
+          clearRecentlyClosedNodes()
           setNodes((current) => current.filter(
             (node) => !(isWorktreeCanvasNode(node) && node.data.worktreeId === worktreeId)
           ))
@@ -654,7 +658,7 @@ function Canvas(): JSX.Element {
           error: result.message ?? 'The worktree could not be removed.'
         })
       })
-  }, [findWorktreeNode, setNodes])
+  }, [clearRecentlyClosedNodes, findWorktreeNode, setNodes])
 
   const confirmWorktreeRemoval = useCallback((force: boolean): void => {
     const prompt = removalPrompt
@@ -673,6 +677,7 @@ function Canvas(): JSX.Element {
       })
       .then((result) => {
         if (result.ok) {
+          clearRecentlyClosedNodes()
           setNodes((current) => current.filter(
             (node) => !(isWorktreeCanvasNode(node) && node.data.worktreeId === prompt.worktreeId)
           ))
@@ -686,7 +691,7 @@ function Canvas(): JSX.Element {
           error: result.message ?? null
         })
       })
-  }, [findWorktreeNode, removalPrompt, setNodes])
+  }, [clearRecentlyClosedNodes, findWorktreeNode, removalPrompt, setNodes])
 
   const seedFreshWorkspace = useCallback(async (): Promise<void> => {
     const directory = await window.terminalApi.getInitialProject()
@@ -823,10 +828,11 @@ function Canvas(): JSX.Element {
   const removeProject = useCallback((projectId: string): void => {
     if (projects.length <= 1 || nodes.some((node) => node.data.projectId === projectId)) return
     const remaining = projects.filter((project) => project.id !== projectId)
+    clearRecentlyClosedNodes()
     setProjects(remaining)
     if (activeProjectId === projectId) setActiveProjectId(remaining[0].id)
     setMenu(null)
-  }, [activeProjectId, nodes, projects])
+  }, [activeProjectId, clearRecentlyClosedNodes, nodes, projects])
 
   const focusNode = useCallback((nodeId: string): void => {
     const target = nodes.find((node) => node.id === nodeId)

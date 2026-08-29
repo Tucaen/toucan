@@ -108,6 +108,27 @@ test('rejects malformed recently closed session records', () => {
   }), null)
 })
 
+test('clamps a persisted closed-session stack to its ten newest entries', () => {
+  const parsed = parseWorkspaceState({
+    ...makeState('ADE'),
+    recentlyClosedNodes: Array.from({ length: 12 }, (_, index) => ({
+      id: `closed-node-${index + 1}`,
+      kind: 'codex',
+      label: `Codex ${index + 1}`,
+      projectId: 'project-1',
+      position: { x: index, y: index },
+      width: 520,
+      height: 340,
+      conversationId: `conversation-${index + 1}`
+    }))
+  })
+
+  assert.deepEqual(parsed?.recentlyClosedNodes?.map((node) => node.id), Array.from(
+    { length: 10 },
+    (_, index) => `closed-node-${index + 3}`
+  ))
+})
+
 test('rejects a workspace whose worktree records are malformed', () => {
   const base = {
     version: 3,

@@ -7,6 +7,7 @@ import type {
   WorkspaceState,
   WorkspaceTerminalNode
 } from '../../shared/terminal'
+import { RECENTLY_CLOSED_SESSION_LIMIT } from '../../shared/terminal'
 import type { WorkspaceWorktree } from '../../shared/worktree'
 
 export type TerminalNodeStatus = 'dormant' | 'starting' | 'idle' | 'working' | 'result' | 'attention' | 'stalled' | 'exited'
@@ -83,7 +84,7 @@ export type WorktreeCanvasNode = Node<WorktreeNodeData, 'worktreeNode'>
 export type CanvasNode = TerminalCanvasNode | WorktreeCanvasNode
 
 /** Enough accidental closes to be useful without letting a workspace snapshot grow forever. */
-export const CLOSED_SESSION_STACK_LIMIT = 10
+export const CLOSED_SESSION_STACK_LIMIT = RECENTLY_CLOSED_SESSION_LIMIT
 
 interface ClosedSessionShortcutKey {
   key: string
@@ -126,6 +127,7 @@ const DEFAULT_TERMINAL_SIZE = { width: 520, height: 340 }
 export const DEFAULT_WORKTREE_SIZE = { width: 360, height: 232 }
 
 type SessionRestoreWorkspace = Pick<WorkspaceState, 'projects' | 'worktrees' | 'agentPermissionModes'>
+type SessionRestoreMode = 'hydrate' | 'reopen'
 
 function measured(node: CanvasNode, fallback: { width: number; height: number }): { width: number; height: number } {
   const styleWidth = typeof node.style?.width === 'number' ? node.style.width : fallback.width
@@ -162,8 +164,13 @@ export function rememberClosedSessionNodes(
   current: WorkspaceTerminalNode[],
   removedNodes: CanvasNode[]
 ): WorkspaceTerminalNode[] {
-  const closed = removedNodes.filter(isTerminalCanvasNode).map(serializeCanvasNode)
-  if (closed.length === 0) return current
+  if (removedNodes.length === 0) return current
+  const sessionNodes = removedNodes.filter(isTerminalCanvasNode)
+  if (
+    sessionNodes.length !== removedNodes.length
+    || sessionNodes.some((node) => node.data.kind !== 'terminal' && !node.data.conversationId)
+  ) return []
+  const closed = sessionNodes.map(serializeCanvasNode)
   return [...current, ...closed].slice(-CLOSED_SESSION_STACK_LIMIT)
 }
 
@@ -171,7 +178,7 @@ function restoreTerminalCanvasNode(
   savedNode: WorkspaceTerminalNode,
   workspace: SessionRestoreWorkspace,
   callbacks: TerminalNodeCallbacks,
-  openImmediately: boolean
+  mode: SessionRestoreMode
 ): TerminalCanvasNode | null {
   const project = workspace.projects.find((candidate) => candidate.id === savedNode.projectId)
   if (!project) return null
@@ -183,14 +190,14 @@ function restoreTerminalCanvasNode(
   const detachedFromWorktree = Boolean(savedNode.worktreeId) && !worktree
   // Workspace hydration leaves real terminal processes dormant; an explicit undo opens the
   // process immediately, just as creating or resuming a node does.
-  const dormant = detachedFromWorktree || (!openImmediately && savedNode.kind === 'terminal')
+  const dormant = detachedFromWorktree || (mode === 'hydrate' && savedNode.kind === 'terminal')
   const terminalLiveness: TerminalLiveness = savedNode.kind === 'terminal'
     ? savedNode.terminalLiveness === 'exited' ? 'exited' : 'unverifiable'
     : 'live'
   return {
     id: savedNode.id,
     type: 'terminalNode',
-    ...(openImmediately ? { selected: true } : {}),
+    ...(mode === 'reopen' ? { selected: true } : {}),
     position: savedNode.position,
     data: {
       kind: savedNode.kind,
@@ -214,7 +221,7 @@ function restoreTerminalCanvasNode(
         : workspace.agentPermissionModes?.[savedNode.kind],
       modelId: savedNode.kind === 'terminal' ? undefined : savedNode.modelId,
       dormant,
-      launchMode: openImmediately && savedNode.kind !== 'terminal' && !savedNode.conversationId ? 'new' : 'resume',
+      launchMode: 'resume',
       onStatusChange: callbacks.onStatusChange,
       onConversationId: callbacks.onConversationId,
       onPreview: callbacks.onPreview,
@@ -237,7 +244,10 @@ export function reopenClosedSession(
   const remaining = [...recentlyClosedNodes]
   while (remaining.length > 0) {
     const savedNode = remaining.pop()!
-    const node = restoreTerminalCanvasNode(savedNode, workspace, callbacks, true)
+    if (savedNode.kind !== 'terminal' && !savedNode.conversationId) {
+      return { node: null, recentlyClosedNodes: [] }
+    }
+    const node = restoreTerminalCanvasNode(savedNode, workspace, callbacks, 'reopen')
     if (node) return { node, recentlyClosedNodes: remaining }
   }
   return { node: null, recentlyClosedNodes: remaining }
@@ -302,7 +312,7 @@ export function restoreCanvasWorkspace(
   })
 
   const terminalNodes = state.nodes.flatMap<TerminalCanvasNode>((savedNode) => {
-    const restored = restoreTerminalCanvasNode(savedNode, { ...state, worktrees }, callbacks, false)
+    const restored = restoreTerminalCanvasNode(savedNode, { ...state, worktrees }, callbacks, 'hydrate')
     return restored ? [restored] : []
   })
 

@@ -271,6 +271,17 @@ test('remembering closed session nodes keeps the most recent bounded stack', () 
   assert.deepEqual(stack.at(-1), state.nodes.at(-1))
 })
 
+test('a non-session close or an unresumable chat clears the shortcut target', () => {
+  const state = worktreeState()
+  const restored = restoreCanvasWorkspace(state, callbacks).nodes
+  const stack = [state.nodes[0]]
+  const worktree = worktreeNodes(restored)[0]
+  const unresumableChat = terminalNodes(restored).find((node) => node.data.kind === 'claude')!
+
+  assert.deepEqual(rememberClosedSessionNodes(stack, [worktree]), [])
+  assert.deepEqual(rememberClosedSessionNodes(stack, [unresumableChat]), [])
+})
+
 test('the reopen shortcut falls through unless Ctrl+Shift+T can restore a session', () => {
   const key = (overrides: Partial<Parameters<typeof closedSessionKeyAction>[0]> = {}): Parameters<typeof closedSessionKeyAction>[0] => ({
     key: 'T',
@@ -328,4 +339,14 @@ test('a reopened session whose worktree vanished stays detached and dormant', ()
   assert.equal(reopened.node?.data.dormant, true)
   assert.equal(reopened.node?.data.workingDirectory, 'D:\\Development\\ADE')
   assert.equal(reopened.node?.data.worktreeId, undefined)
+})
+
+test('an old closed-chat record without a conversation cannot reopen as a new one', () => {
+  const state = worktreeState()
+  const closedWithoutConversation = state.nodes[0]
+
+  const reopened = reopenClosedSession([closedWithoutConversation], state, callbacks)
+
+  assert.equal(reopened.node, null)
+  assert.deepEqual(reopened.recentlyClosedNodes, [])
 })
