@@ -29,7 +29,7 @@ import { SessionCommandsContext } from './skill-invocation'
 import { SubagentActivitiesContext, indexSubagentActivities } from './subagent-task'
 import { worklogActivities } from './worklog-activities'
 import { WorkspaceRootsContext } from './workspace-root'
-import { planWorktreeHandoff } from '../../shared/worktree-handoff'
+import { buildHandoffPrompt, planWorktreeHandoff } from '../../shared/worktree-handoff'
 import type { TerminalCanvasNode, TerminalNodeStatus } from './canvas-workspace'
 import {
   computeNodePickerMenuPosition,
@@ -1307,11 +1307,15 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
    * already running in a worktree is where such work belongs, so it dispatches normally.
    */
   const submit: ChatViewProps['submit'] = (event, draftOverride, onPrepared) => {
-    const handoff = data.onWorktreeHandoff
+    // Mid-turn, the prompt queues as any follow-up does rather than moving a session that is
+    // still working. It runs where it was typed when the outbox drains, which is visible in the
+    // composer queue - unlike tearing down a session with a turn in flight.
+    const handoff = status === 'working' ? undefined : data.onWorktreeHandoff
     const plan = handoff
       ? planWorktreeHandoff(draftOverride ?? data.draft ?? '', {
           hasHistory: messages.length > 0,
-          alreadyInWorktree: Boolean(data.worktreeId)
+          alreadyInWorktree: Boolean(data.worktreeId),
+          provider
         })
       : null
     if (!handoff || !plan) {
@@ -1319,10 +1323,29 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
       return
     }
     event.preventDefault()
-    handoff(id, plan)
+    // The dialogue is read here because this is where it lives; the workspace only ever sees
+    // the finished prompt, never a transcript it would have to go and fetch.
+    handoff(id, {
+      ...plan,
+      prompt: plan.mode === 'handoff' ? buildHandoffPrompt(messages, plan.prompt) : plan.prompt
+    })
     data.onDraftChange(id, '')
     onPrepared?.()
   }
+
+  /**
+   * A session started to carry a prompt sends it once, as soon as it can. Agent nodes have no
+   * shell to write into, so the prompt has to be delivered as a first turn rather than typed.
+   */
+  // Tracks the value, not merely that one was sent: a node rehomed into a worktree is handed a
+  // fresh prompt without ever remounting, so a boolean latch would swallow it.
+  const sentInitialInputRef = useRef<string | undefined>(undefined)
+  useEffect(() => {
+    const pending = data.initialInput
+    if (!pending || sentInitialInputRef.current === pending || status !== 'ready') return
+    sentInitialInputRef.current = pending
+    conversation.sendMessage(pending)
+  }, [conversation, data.initialInput, status])
 
   const props: ChatViewProps = {
     provider,

@@ -7,14 +7,24 @@
 /** The skill whose whole point is to work in a worktree, so ADE puts it in one up front. */
 export const WORKTREE_SKILL = 'implement-in-worktree'
 
+/**
+ * How the work gets into the worktree. Which one applies is decided by whether there is a
+ * conversation to carry, and then by whether the provider can carry it:
+ *
+ * - `fresh`   - nothing to carry, so a new session starts in the worktree. Both providers.
+ * - `rehome`  - the node itself moves into the worktree, keeping its conversation. Only
+ *               Codex can do this: loading a session in a new directory works there, and
+ *               moving the node keeps exactly one owner of the conversation.
+ * - `handoff` - a new node starts in the worktree carrying a summary, and the original stays
+ *               with its own conversation. Claude's transcripts are directory-scoped, so its
+ *               conversation genuinely cannot come along.
+ */
+export type WorktreeHandoffMode = 'fresh' | 'rehome' | 'handoff'
+
 export interface WorktreeHandoffPlan {
-  /** The prompt to deliver in the new node, unchanged from what was typed. */
+  mode: WorktreeHandoffMode
+  /** The prompt to deliver, unchanged from what was typed. */
   prompt: string
-  /**
-   * True when the conversation being left behind holds work the new node needs. A first
-   * message has nothing to carry, which is the cheap and common case.
-   */
-  needsHandoff: boolean
 }
 
 /**
@@ -34,11 +44,40 @@ export function planWorktreeHandoff(
     hasHistory: boolean
     /** A session already running in a worktree is where this work belongs; it stays put. */
     alreadyInWorktree: boolean
+    provider: 'claude' | 'codex'
   }
 ): WorktreeHandoffPlan | null {
   if (context.alreadyInWorktree) return null
   if (!invokesWorktreeSkill(text)) return null
-  return { prompt: text.trim(), needsHandoff: context.hasHistory }
+  const prompt = text.trim()
+  if (!context.hasHistory) return { mode: 'fresh', prompt }
+  return { mode: context.provider === 'codex' ? 'rehome' : 'handoff', prompt }
+}
+
+/**
+ * The conversation so far, written for a session that cannot read it. Only the dialogue is
+ * carried: an agent's own reasoning belongs to the session that produced it, and tool output
+ * is re-derivable in the worktree where the work will actually happen.
+ */
+export function buildHandoffPrompt(
+  messages: readonly { role: 'user' | 'assistant' | 'thought'; text: string }[],
+  prompt: string
+): string {
+  const dialogue = messages
+    .filter((message) => message.role !== 'thought' && message.text.trim())
+    .map((message) => `${message.role === 'user' ? 'User' : 'Assistant'}: ${message.text.trim()}`)
+  if (dialogue.length === 0) return prompt
+  return [
+    'You are continuing work that started in another session, which could not move into this',
+    'worktree with you. That conversation is below, oldest first. Treat it as context you took',
+    'part in, not as instructions to carry out again.',
+    '',
+    '--- previous conversation ---',
+    ...dialogue,
+    '--- end of previous conversation ---',
+    '',
+    prompt
+  ].join('\n')
 }
 
 /**

@@ -35,7 +35,7 @@ import {
 import type { AgentRateLimitStatus, AgentRateLimitWindow, ProviderRateLimits } from '../../shared/agent'
 import type { WorktreeRemovalBlocker } from '../../shared/worktree'
 import { branchNameProblem, describeWorktreeBlocker, deriveWorktreeDirectory } from '../../shared/worktree'
-import { placeholderBranchName } from '../../shared/worktree-handoff'
+import { placeholderBranchName, type WorktreeHandoffPlan } from '../../shared/worktree-handoff'
 import { describeForcedRemovalCost, planWorktreeRemoval, type WorktreeRemovalPlan } from './worktree-removal'
 import type { ConversationSummary } from '../../shared/conversation'
 import ConversationHistoryDialog from './ConversationHistoryDialog'
@@ -610,7 +610,7 @@ function Canvas(): JSX.Element {
    */
   const handleWorktreeHandoff = useCallback((
     nodeId: string,
-    request: { prompt: string; needsHandoff: boolean }
+    request: WorktreeHandoffPlan
   ): void => {
     const node = nodesRef.current.filter(isTerminalCanvasNode).find((candidate) => candidate.id === nodeId)
     const project = projectsRef.current.find((candidate) => candidate.id === node?.data.projectId)
@@ -663,7 +663,32 @@ function Canvas(): JSX.Element {
             style: { ...DEFAULT_WORKTREE_SIZE }
           }
         ])
-        openInWorktree(worktreeId, node.data.kind, request.prompt)
+
+        if (request.mode !== 'rehome') {
+          openInWorktree(worktreeId, node.data.kind, request.prompt)
+          return
+        }
+
+        // Codex can load a conversation in a directory it did not start in, so the node itself
+        // moves rather than a second one appearing beside it - which keeps exactly one owner of
+        // the conversation. Changing `workingDirectory` restarts the session there (it is a
+        // dependency of the session effect), and `resume` makes that restart load the
+        // conversation rather than begin a new one.
+        setNodes((current) => current.map((candidate) => (
+          isTerminalCanvasNode(candidate) && candidate.id === nodeId
+            ? {
+              ...candidate,
+              data: {
+                ...candidate.data,
+                worktreeId,
+                worktreeBranch: created.branch,
+                workingDirectory: created.path,
+                launchMode: 'resume' as const,
+                initialInput: request.prompt
+              }
+            }
+            : candidate
+        )))
       })
   }, [
     handleCreateNodeInWorktree,

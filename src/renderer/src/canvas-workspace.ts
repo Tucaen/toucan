@@ -8,6 +8,7 @@ import type {
   WorkspaceTerminalNode
 } from '../../shared/terminal'
 import type { WorkspaceWorktree } from '../../shared/worktree'
+import type { WorktreeHandoffPlan } from '../../shared/worktree-handoff'
 
 export type TerminalNodeStatus = 'dormant' | 'starting' | 'idle' | 'working' | 'result' | 'attention' | 'stalled' | 'exited'
 
@@ -27,7 +28,7 @@ export interface TerminalNodeCallbacks {
    * it, so the work starts in a session whose working directory is the worktree from its first
    * turn - which is the only way it can be granted as a writable root.
    */
-  onWorktreeHandoff?(nodeId: string, request: { prompt: string; needsHandoff: boolean }): void
+  onWorktreeHandoff?(nodeId: string, request: WorktreeHandoffPlan): void
 }
 
 export interface TerminalNodeData extends Record<string, unknown>, TerminalNodeCallbacks {
