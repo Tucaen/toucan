@@ -1,4 +1,6 @@
 import { strict as assert } from 'node:assert'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { test } from 'node:test'
 import {
   invokesWorktreeSkill,
@@ -19,6 +21,19 @@ test('leading blank lines and spaces do not hide the invocation', () => {
 test('talking about the skill is not calling it', () => {
   assert.equal(invokesWorktreeSkill('what does /implement-in-worktree do?'), false)
   assert.equal(invokesWorktreeSkill('later, run /implement-in-worktree'), false)
+  assert.equal(invokesWorktreeSkill(
+    '"Not sent" is wrongly displayed on my /$ade-project-skills:implement-in-worktree message',
+  ), false)
+})
+
+test('the skill itself gates every side effect on an explicit leading command', () => {
+  const skill = readFileSync(join(process.cwd(), '.agents/skills/implement-in-worktree/SKILL.md'), 'utf8')
+  const gate = skill.indexOf('## Invocation gate')
+  const settle = skill.indexOf('## 1. Settle the worktree')
+
+  assert.ok(gate >= 0 && gate < settle, 'the invocation gate must run before worktree creation')
+  assert.match(skill, /first non-empty line/)
+  assert.match(skill, /skill block attached to a prompt .* is not evidence of invocation/)
 })
 
 test('a different skill with the same prefix does not trigger it', () => {

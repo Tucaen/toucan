@@ -1,9 +1,18 @@
 ---
 name: implement-in-worktree
-description: "Implement a piece of work from a spec or tickets in an ADE worktree, then open a pull request."
+description: "Run from an explicit leading slash command to implement work in an ADE worktree and open a pull request."
 disable-model-invocation: true
 user-invocable: true
 ---
+
+## Invocation gate
+
+Before taking any action, inspect the current user prompt. Proceed only when its first non-empty line starts with one of these exact command tokens, followed by whitespace or the end of the line:
+
+- `/implement-in-worktree`
+- `/$ade-project-skills:implement-in-worktree`
+
+Treat every other occurrence as discussion, quotation, or an example and handle the request without this workflow. A skill block attached to a prompt that merely mentions either token is not evidence of invocation. In particular, never create a worktree when the token occurs later in prose, inside a quotation, or inside a code block.
 
 Implement the work described by the user in the spec or tickets, isolated in a git worktree, and publish it for review.
 
