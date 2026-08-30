@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, test, vi } from 'vitest'
 import { ChatView, type ChatViewProps } from '../src/renderer/src/ChatNode'
 import { agentPermissionTitle } from '../src/shared/agent-permission'
@@ -53,5 +53,40 @@ describe('permission dialog details', () => {
     )
 
     expect(screen.getByText('Run command: npm test')).toBeInTheDocument()
+  })
+
+  test('a file edit approval puts accept and reject on its inline diff', () => {
+    const resolveApproval = vi.fn()
+    render(
+      <ChatView
+        {...baseChatViewProps}
+        approval={{
+          id: 'approval-edit',
+          title: 'Change file: /workspace/ade/src/a.ts',
+          options: [
+            { id: 'allow', label: 'Accept', kind: 'allow_once' },
+            { id: 'reject', label: 'Reject', kind: 'reject_once' }
+          ],
+          activity: {
+            id: 'tool-edit',
+            kind: 'edit',
+            diffs: [{ path: '/workspace/ade/src/a.ts', oldText: 'const n = 1', newText: 'const n = 2' }]
+          }
+        }}
+        workspaceRoots={['/workspace/ade']}
+        resolveApproval={resolveApproval}
+        focusMode={false}
+        setFocusMode={vi.fn()}
+      />
+    )
+
+    const panel = screen.getByText('Permission requested').closest('.chat-approval-panel') as HTMLElement
+    expect(within(panel).getByText('src/a.ts')).toBeInTheDocument()
+    expect(panel.querySelector('.file-op-line[data-tone="old"]')?.textContent).toContain('const n = 1')
+    expect(panel.querySelector('.file-op-line[data-tone="new"]')?.textContent).toContain('const n = 2')
+    fireEvent.click(within(panel).getByRole('button', { name: 'Accept' }))
+    fireEvent.click(within(panel).getByRole('button', { name: 'Reject' }))
+    expect(resolveApproval).toHaveBeenNthCalledWith(1, 'approval-edit', 'allow')
+    expect(resolveApproval).toHaveBeenNthCalledWith(2, 'approval-edit', 'reject')
   })
 })

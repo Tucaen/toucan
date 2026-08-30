@@ -166,6 +166,7 @@ describe('file-operation tool cards', () => {
     expect(card.textContent).toContain('500 lines')
     expect(card.querySelectorAll('.file-op-line').length).toBe(40)
     expect(within(card).getByRole('button', { name: /show 460 more lines/i })).toBeTruthy()
+    expect(card.querySelectorAll('.file-op-line[data-tone="new"]')).toHaveLength(40)
   })
 
   test('an edit shows a compact before and after', () => {
@@ -189,6 +190,55 @@ describe('file-operation tool cards', () => {
     expect(before[0].textContent).toContain('const a = 1')
     expect(after.length).toBe(1)
     expect(after[0].textContent).toContain('const a = 2')
+  })
+
+  test('an ACP multi-file edit renders one card with a highlighted diff for each file', () => {
+    const container = renderCards([{
+      id: 'e-multi',
+      kind: 'edit',
+      status: 'completed',
+      diffs: [
+        {
+          path: `${WORKSPACE_ROOT}\\src\\a.ts`,
+          oldText: ['const untouched = true', 'const answer = 41', 'export { answer }'].join('\n'),
+          newText: ['const untouched = true', 'const answer = 42', 'export { answer }'].join('\n')
+        },
+        {
+          path: `${WORKSPACE_ROOT}\\src\\b.ts`,
+          oldText: 'export const enabled = false',
+          newText: 'export const enabled = true'
+        }
+      ],
+      startedAt: 0,
+      endedAt: 100
+    }])
+
+    expect(cards(container)).toHaveLength(1)
+    const card = expand(cards(container)[0])
+    expect(card.querySelectorAll('.file-op-path')).toHaveLength(2)
+    expect(within(card.querySelectorAll('.file-op-path')[0] as HTMLElement).getByText('src/a.ts')).toBeInTheDocument()
+    expect(within(card.querySelectorAll('.file-op-path')[1] as HTMLElement).getByText('src/b.ts')).toBeInTheDocument()
+    expect(card.querySelectorAll('.file-op-hunk')).toHaveLength(2)
+    expect(card.querySelector('.file-op-line[data-tone="new"] .hljs-number')?.textContent).toBe('42')
+  })
+
+  test('a full-file diff collapses unchanged regions to hunks with context', () => {
+    const oldText = Array.from({ length: 20 }, (_, index) => `line ${index + 1}`)
+    const newText = [...oldText]
+    newText[9] = 'line ten changed'
+    const container = renderCards([{
+      id: 'e-hunk',
+      kind: 'edit',
+      status: 'completed',
+      diffs: [{ path: `${WORKSPACE_ROOT}\\src\\a.ts`, oldText: oldText.join('\n'), newText: newText.join('\n') }]
+    }])
+
+    const card = expand(cards(container)[0])
+    expect(card.textContent).toContain('@@ -7,7 +7,7 @@')
+    expect(within(card).queryByText('line 1', { exact: true })).not.toBeInTheDocument()
+    expect(within(card).queryByText('line 20', { exact: true })).not.toBeInTheDocument()
+    expect(card.textContent).toContain('line 7')
+    expect(card.textContent).toContain('line 13')
   })
 
   test('a MultiEdit labels each of its edits', () => {

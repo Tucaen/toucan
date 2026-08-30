@@ -57,6 +57,7 @@ export interface AgentApprovalState {
   id: string
   title: string
   options: AgentPermissionOption[]
+  activity?: AgentActivity
 }
 
 /**
@@ -332,7 +333,12 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
       } else if (event.type === 'commands') {
         setCommands(event.commands)
       } else if (event.type === 'approval') {
-        setApproval({ id: event.approvalId, title: event.title, options: event.options })
+        setApproval({
+          id: event.approvalId,
+          title: event.title,
+          options: event.options,
+          ...(event.activity ? { activity: event.activity } : {})
+        })
       } else if (event.type === 'auth') {
         setAuthMethods(event.methods)
         // A fresh auth-required cycle invalidates any sign-in link surfaced by a previous one.

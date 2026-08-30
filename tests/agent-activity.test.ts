@@ -49,6 +49,22 @@ test('the tool name, its raw arguments and its diffs survive the ACP mapping', (
   assert.deepEqual(edited.diffs, [{ path: '/repo/a.ts', oldText: 'before', newText: 'after' }])
 })
 
+test('a permission tool-call update can use the same mapping as transcript activity', () => {
+  const activity = activityFromUpdate({
+    sessionUpdate: 'tool_call_update',
+    toolCallId: 'permission-edit',
+    kind: 'edit',
+    content: [
+      { type: 'diff', path: '/repo/a.ts', oldText: 'one', newText: 'two' },
+      { type: 'diff', path: '/repo/b.ts', oldText: 'three', newText: 'four' }
+    ]
+  })
+  assert.deepEqual(activity.diffs, [
+    { path: '/repo/a.ts', oldText: 'one', newText: 'two' },
+    { path: '/repo/b.ts', oldText: 'three', newText: 'four' }
+  ])
+})
+
 test('the tool name is read from the adapter meta that actually carries it', () => {
   // claude-agent-acp never sets ACP's still-unstable top-level `name`; every notification it
   // builds carries the name in `_meta.claudeCode.toolName` (see its `claudeCodeMetaFromToolUse`).

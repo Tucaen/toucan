@@ -23,6 +23,7 @@ import {
   type ToolCardStatus
 } from './tool-card'
 import { TOOL_CARD_LINE_BUDGET, toolCardFamilyFor } from './tool-card-families'
+import { FileOperationBody, fileOperationCard } from './FileOperationCard'
 import { ShellLaunchesContext } from './ShellExecutionCard'
 import { indexShellLaunches } from './shell-execution'
 import { SessionCommandsContext } from './skill-invocation'
@@ -851,11 +852,30 @@ function AuthPanel(
 }
 
 function ApprovalPanel(props: Pick<ChatViewProps, 'approval' | 'resolveApproval'>): JSX.Element | null {
+  const [showAll, setShowAll] = useState(false)
   if (!props.approval) return null
+  const diff = props.approval.activity
+    ? fileOperationCard(props.approval.activity, showAll ? null : TOOL_CARD_LINE_BUDGET)
+    : null
   return (
     <section className="chat-approval-panel">
       <span>Permission requested</span>
       <strong>{props.approval.title}</strong>
+      {diff && (
+        <div className="chat-approval-diff">
+          <FileOperationBody operation={diff.operation} blocks={diff.blocks} />
+          {diff.hiddenLines > 0 && (
+            <button type="button" className="activity-show-more" onClick={() => setShowAll(true)}>
+              Show {diff.hiddenLines} more lines
+            </button>
+          )}
+          {showAll && (
+            <button type="button" className="activity-show-more" onClick={() => setShowAll(false)}>
+              Show less
+            </button>
+          )}
+        </div>
+      )}
       <div>
         {props.approval.options.map((option) => (
           <button

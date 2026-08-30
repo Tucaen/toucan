@@ -47,6 +47,22 @@ function renderHast(nodes: RootContent[], keyPrefix = 'h'): ReactNode[] {
   })
 }
 
+const LANGUAGE_BY_EXTENSION: Record<string, string> = {
+  c: 'c', cpp: 'cpp', cs: 'csharp', css: 'css', go: 'go', html: 'html', java: 'java',
+  js: 'javascript', jsx: 'javascript', json: 'json', md: 'markdown', py: 'python', rb: 'ruby',
+  rs: 'rust', sh: 'bash', sql: 'sql', ts: 'typescript', tsx: 'typescript', xml: 'xml', yaml: 'yaml', yml: 'yaml'
+}
+
+/** Syntax-highlights a code fragment using the same bounded language bundle as transcript fences. */
+export function HighlightedCodeText({ code, path }: { code: string; path: string }): JSX.Element {
+  const extension = path.replace(/\\/g, '/').split('/').at(-1)?.split('.').at(-1)?.toLowerCase() ?? ''
+  const language = LANGUAGE_BY_EXTENSION[extension]
+  const highlighted = language && lowlight.registered(language)
+    ? renderHast(lowlight.highlight(language, code).children as RootContent[])
+    : code
+  return <code className="hljs">{highlighted}</code>
+}
+
 function copyToClipboard(text: string): void {
   const bridge = window.terminalApi
   if (bridge?.copyText) {

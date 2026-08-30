@@ -100,7 +100,8 @@ test('an edit reported only as an ACP diff still yields a before/after', () => {
   assert.deepEqual(operation, {
     kind: 'edit',
     path: '/repo/a.ts',
-    edits: [{ oldText: 'before', newText: 'after' }]
+    edits: [{ oldText: 'before', newText: 'after' }],
+    diffs: [{ path: '/repo/a.ts', oldText: 'before', newText: 'after' }]
   })
 })
 
@@ -142,6 +143,7 @@ test('a read excerpt is numbered from the start of the range', () => {
     'alpha\nbeta\ngamma'
   )
   assert.deepEqual(blocks, [{
+    languagePath: '/repo/a.ts',
     lines: [
       { number: 10, text: 'alpha' },
       { number: 11, text: 'beta' },
@@ -165,9 +167,10 @@ test('an excerpt the agent already numbered is not numbered twice', () => {
 test('write shows a size and a preview instead of the whole payload', () => {
   const blocks = fileOperationBlocks({ kind: 'write', path: '/repo/a.txt', content: 'one\ntwo' }, undefined)
   assert.equal(blocks[0].label, '7 B · 2 lines')
+  assert.equal(blocks[0].languagePath, '/repo/a.txt')
   assert.deepEqual(blocks[0].lines, [
-    { number: 1, text: 'one' },
-    { number: 2, text: 'two' }
+    { number: 1, text: 'one', tone: 'new' },
+    { number: 2, text: 'two', tone: 'new' }
   ])
 })
 
@@ -178,6 +181,7 @@ test('edits render as a compact before/after', () => {
   )
   assert.deepEqual(blocks, [
     {
+      languagePath: '/repo/a.ts',
       label: 'Edit 1 of 2',
       lines: [
         { text: 'a', tone: 'old' },
@@ -186,6 +190,7 @@ test('edits render as a compact before/after', () => {
       ]
     },
     {
+      languagePath: '/repo/a.ts',
       label: 'Edit 2 of 2',
       lines: [
         { text: 'd', tone: 'old' },

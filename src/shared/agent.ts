@@ -218,7 +218,7 @@ export type AgentEvent =
   | { type: 'models'; models: AgentModelState }
   | { type: 'efforts'; efforts: AgentEffortState | null }
   | { type: 'commands'; commands: AgentCommand[] }
-  | { type: 'approval'; approvalId: string; title: string; options: AgentPermissionOption[] }
+  | { type: 'approval'; approvalId: string; title: string; options: AgentPermissionOption[]; activity?: AgentActivity }
   | { type: 'auth'; methods: AgentAuthMethod[] }
   | { type: 'auth_link'; url: string }
   /**

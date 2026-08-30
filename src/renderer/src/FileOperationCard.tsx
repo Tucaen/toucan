@@ -13,9 +13,11 @@ import {
   type FileOperationBlock
 } from './file-operation'
 import { WorkspaceRootsContext } from './workspace-root'
+import { HighlightedCodeText } from './MarkdownMessage'
 
 /** What the summary adds after the path: only what the path itself cannot already say. */
 function summaryDetail(operation: FileOperation): string | undefined {
+  if ((operation.diffs?.length ?? 0) > 1) return `${operation.diffs!.length} files`
   if (operation.kind === 'multi-edit') {
     const count = operation.edits?.length ?? 0
     return count > 0 ? `${count} edits` : undefined
@@ -62,15 +64,28 @@ function FilePathActions({ path }: { path: string }): JSX.Element {
 
 function FileOperationBlockView({ block }: { block: FileOperationBlock }): JSX.Element {
   return (
-    <div className="file-op-block">
+    <div className={`file-op-block${block.path ? ' file-op-hunk' : ''}`}>
+      {block.path && <FilePathActions path={block.path} />}
       {block.label && <small className="file-op-block-label">{block.label}</small>}
       <div className="file-op-lines">
         {block.lines.map((line, index) => (
           <div className="file-op-line" data-tone={line.tone} key={index}>
-            <span className="file-op-line-number" aria-hidden="true">
-              {line.tone === 'old' ? '-' : line.tone === 'new' ? '+' : line.number}
-            </span>
-            <span className="file-op-line-text">{line.text}</span>
+            {block.path
+              ? (
+                <>
+                  <span className="file-op-line-number" aria-hidden="true">{line.oldNumber ?? ''}</span>
+                  <span className="file-op-line-number" aria-hidden="true">{line.newNumber ?? ''}</span>
+                  <span className="file-op-line-mark" aria-hidden="true">
+                    {line.tone === 'old' ? '-' : line.tone === 'new' ? '+' : ' '}
+                  </span>
+                </>
+                )
+              : (
+                <span className="file-op-line-number" aria-hidden="true">
+                  {line.tone === 'old' ? '-' : line.tone === 'new' ? '+' : line.number}
+                </span>
+                )}
+            <span className="file-op-line-text"><HighlightedCodeText code={line.text} path={block.languagePath ?? ''} /></span>
           </div>
         ))}
       </div>
@@ -83,7 +98,7 @@ export function FileOperationBody(
 ): JSX.Element {
   return (
     <div className="file-op">
-      <FilePathActions path={operation.path} />
+      {!operation.diffs?.length && <FilePathActions path={operation.path} />}
       {blocks.map((block, index) => <FileOperationBlockView block={block} key={index} />)}
     </div>
   )

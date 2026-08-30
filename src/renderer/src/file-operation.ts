@@ -1,4 +1,5 @@
 import type { AgentActivity } from '../../shared/agent'
+import { diffLines } from 'diff'
 import { asRecord, asText, memoizePerActivity, normalizeToolName } from './tool-input'
 
 /**
@@ -10,6 +11,10 @@ export type FileOperationKind = 'read' | 'write' | 'edit' | 'multi-edit' | 'note
 export interface FileOperationEdit {
   oldText: string
   newText: string
+}
+
+export interface FileOperationDiff extends FileOperationEdit {
+  path: string
 }
 
 /**
@@ -25,6 +30,8 @@ export interface FileOperation {
   /** The payload a write or a notebook edit put on disk. */
   content?: string
   edits?: FileOperationEdit[]
+  /** Full-file before/after payloads reported by ACP; several entries form one grouped card. */
+  diffs?: FileOperationDiff[]
   cell?: string
   editMode?: string
 }
@@ -32,6 +39,8 @@ export interface FileOperation {
 export interface FileOperationLine {
   /** The file line this text sits on, where the operation knows it. */
   number?: number
+  oldNumber?: number
+  newNumber?: number
   text: string
   tone?: 'old' | 'new'
 }
@@ -39,6 +48,8 @@ export interface FileOperationLine {
 /** One labelled run of lines - a read excerpt, a write preview, or one edit's before/after. */
 export interface FileOperationBlock {
   label?: string
+  path?: string
+  languagePath?: string
   lines: FileOperationLine[]
 }
 
@@ -93,6 +104,7 @@ export function parseFileOperation(activity: AgentActivity): FileOperation | nul
     ?? asText(input.filePath)
     ?? notebookPath
     ?? (name || activity.kind === 'read' || activity.kind === 'edit' ? activity.locations?.[0] : undefined)
+    ?? activity.diffs?.[0]?.path
   if (!path) return null
 
   if (name === 'notebookedit' || (!name && notebookPath)) {
@@ -109,18 +121,24 @@ export function parseFileOperation(activity: AgentActivity): FileOperation | nul
   }
 
   const edits = editsFromRawInput(input) ?? editsFromDiffs(activity, path)
+  const diffs = activity.diffs?.map((diff) => ({
+    path: diff.path,
+    oldText: diff.oldText ?? '',
+    newText: diff.newText
+  }))
   const content = asText(input.content)
   const range = readRange(input)
 
   if (name === 'read') return { kind: 'read', path, ...(range ? { range } : {}) }
   if (name === 'write') return { kind: 'write', path, ...(content !== undefined ? { content } : {}) }
   if (name === 'multiedit') return { kind: 'multi-edit', path, edits: edits ?? [] }
-  if (name === 'edit') return { kind: 'edit', path, ...(edits ? { edits } : {}) }
+  if (name === 'edit') return { kind: 'edit', path, ...(edits ? { edits } : {}), ...(diffs ? { diffs } : {}) }
 
   // No usable name: the arguments say what happened, and failing those, ACP's kind does. A
   // payload is checked before any before/after, because adapters describe a Write as a diff
   // against nothing - reading that as an edit would dump the whole new file as added lines.
   if (content !== undefined) return { kind: 'write', path, content }
+  if (diffs) return { kind: 'edit', path, edits, diffs }
   if (edits) return { kind: edits.length > 1 ? 'multi-edit' : 'edit', path, edits }
   if (activity.kind === 'read') return { kind: 'read', path, ...(range ? { range } : {}) }
   if (activity.kind === 'edit') return { kind: 'edit', path }
@@ -193,6 +211,59 @@ function editBlockLines(edit: FileOperationEdit): FileOperationLine[] {
   return [...before, ...after]
 }
 
+const DIFF_CONTEXT_LINES = 3
+
+function changedFileLines(diff: FileOperationDiff): FileOperationLine[] {
+  let oldNumber = 1
+  let newNumber = 1
+  const rows: FileOperationLine[] = []
+  for (const change of diffLines(diff.oldText, diff.newText)) {
+    const lines = change.value.replace(/\n$/, '').split('\n')
+    if (lines.length === 1 && lines[0] === '' && change.value === '') continue
+    for (const text of lines) {
+      if (change.removed) {
+        rows.push({ oldNumber, text, tone: 'old' })
+        oldNumber += 1
+      } else if (change.added) {
+        rows.push({ newNumber, text, tone: 'new' })
+        newNumber += 1
+      } else {
+        rows.push({ oldNumber, newNumber, text })
+        oldNumber += 1
+        newNumber += 1
+      }
+    }
+  }
+  return rows
+}
+
+function hunkRangeLabel(lines: FileOperationLine[]): string {
+  const old = lines.flatMap((line) => line.oldNumber === undefined ? [] : [line.oldNumber])
+  const next = lines.flatMap((line) => line.newNumber === undefined ? [] : [line.newNumber])
+  const oldStart = old[0] ?? ((next[0] ?? 1) - 1)
+  const newStart = next[0] ?? ((old[0] ?? 1) - 1)
+  return `@@ -${oldStart},${old.length} +${newStart},${next.length} @@`
+}
+
+/** Turns a full-file before/after into merged changed hunks with three context lines. */
+function diffBlocks(diff: FileOperationDiff): FileOperationBlock[] {
+  const rows = changedFileLines(diff)
+  const changed = rows.flatMap((line, index) => line.tone ? [index] : [])
+  if (changed.length === 0) return []
+  const ranges: Array<{ start: number; end: number }> = []
+  for (const index of changed) {
+    const start = Math.max(0, index - DIFF_CONTEXT_LINES)
+    const end = Math.min(rows.length, index + DIFF_CONTEXT_LINES + 1)
+    const previous = ranges.at(-1)
+    if (previous && start <= previous.end) previous.end = Math.max(previous.end, end)
+    else ranges.push({ start, end })
+  }
+  return ranges.map(({ start, end }) => {
+    const lines = rows.slice(start, end)
+    return { path: diff.path, languagePath: diff.path, label: hunkRangeLabel(lines), lines }
+  })
+}
+
 /**
  * The body of a file card, as data: a read is its excerpt with line numbers, a write is a size
  * and a preview rather than the whole payload, and an edit is a compact before/after per edit.
@@ -205,7 +276,7 @@ export function fileOperationBlocks(
   switch (operation.kind) {
     case 'read': {
       if (!content) return []
-      return [{ lines: readExcerptLines(content, operation.range?.start ?? 1) }]
+      return [{ languagePath: operation.path, lines: readExcerptLines(content, operation.range?.start ?? 1) }]
     }
     case 'write':
     case 'notebook-edit': {
@@ -216,13 +287,15 @@ export function fileOperationBlocks(
       const label = operation.kind === 'notebook-edit'
         ? `${notebookCellLabel(operation)} · ${size}`
         : size
-      return [{ label, lines }]
+      return [{ label, languagePath: operation.path, lines: lines.map((line) => ({ ...line, tone: 'new' })) }]
     }
     case 'edit':
     case 'multi-edit': {
+      if (operation.diffs?.length) return operation.diffs.flatMap(diffBlocks)
       const edits = operation.edits ?? []
       if (edits.length === 0) return content ? [{ lines: previewLines(content) }] : []
       return edits.map((edit, index) => ({
+        languagePath: operation.path,
         ...(edits.length > 1 ? { label: `Edit ${index + 1} of ${edits.length}` } : {}),
         lines: editBlockLines(edit)
       }))

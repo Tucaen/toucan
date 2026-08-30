@@ -682,7 +682,8 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
             type: 'approval',
             approvalId,
             title: agentPermissionTitle(params.toolCall),
-            options
+            options,
+            activity: activityFromUpdate(params.toolCall)
           })
           return new Promise((resolve) => pendingApprovals.set(approvalId, { resolve }))
         })

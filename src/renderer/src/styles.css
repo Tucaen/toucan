@@ -1833,6 +1833,23 @@ button {
   white-space: pre-wrap;
 }
 
+.file-op-hunk .file-op-line {
+  grid-template-columns: 28px 28px 10px minmax(0, 1fr);
+  gap: 4px;
+}
+
+.file-op-line-mark {
+  color: #5b6473;
+  text-align: center;
+  user-select: none;
+}
+
+.file-op-line-text code {
+  padding: 0;
+  background: none;
+  font: inherit;
+}
+
 .file-op-line-number {
   color: #5b6473;
   font-variant-numeric: tabular-nums;
@@ -2311,6 +2328,12 @@ button {
   font-size: 10px;
   font-weight: 800;
   text-transform: uppercase;
+}
+
+.chat-approval-diff {
+  min-width: 0;
+  max-height: 220px;
+  overflow: auto;
 }
 
 .chat-approval-panel button[data-kind^="allow"] {

@@ -1,7 +1,7 @@
-import type { SessionUpdate, ToolCallContent } from '@agentclientprotocol/sdk'
+import type { ToolCallContent, ToolCallUpdate } from '@agentclientprotocol/sdk'
 import type { AgentActivity, AgentFileDiff } from './agent'
 
-type ToolCallSessionUpdate = Extract<SessionUpdate, { sessionUpdate: 'tool_call' | 'tool_call_update' }>
+type ToolCallSessionUpdate = ToolCallUpdate & { sessionUpdate?: 'tool_call' | 'tool_call_update' }
 
 function toolContentText(content: ToolCallContent[] | null | undefined): string | undefined {
   if (!content?.length) return undefined
