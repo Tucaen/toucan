@@ -1,3 +1,5 @@
+import { isFinalAssistantMessage, type AgentMessagePresentation } from './agent'
+
 export type ConversationTitleSource = 'generated' | 'manual'
 
 export interface ConversationTitle {
@@ -8,6 +10,7 @@ export interface ConversationTitle {
 export interface ConversationTitleTurn {
   role: 'user' | 'assistant'
   text: string
+  presentation?: AgentMessagePresentation
 }
 
 const GENERIC_PROMPT = /^(?:continue|go on|proceed|yes|no|ok(?:ay)?|do it|try again)[.!?]*$/i
@@ -42,7 +45,9 @@ function titleLine(text: string): string | null {
  * deterministic and local: automatic titles consume no provider tokens or account budget.
  */
 export function deriveConversationTitle(turns: ConversationTitleTurn[]): string | null {
-  const assistantTurns = turns.filter((turn) => turn.role === 'assistant' && turn.text.trim())
+  const assistantTurns = turns.filter((turn) => (
+    isFinalAssistantMessage(turn) && turn.text.trim()
+  ))
   if (assistantTurns.length === 0) return null
   for (let index = turns.length - 1; index >= 0; index -= 1) {
     if (turns[index].role !== 'user') continue

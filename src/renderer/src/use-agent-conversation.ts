@@ -6,6 +6,7 @@ import type {
   AgentEffortState,
   AgentEvent,
   AgentModeState,
+  AgentMessagePresentation,
   AgentModelState,
   AgentPermissionOption,
   AgentPlanEntry,
@@ -24,6 +25,11 @@ import {
 } from './prompt-outbox'
 import { readImageAsBase64, type AgentImageAttachment } from './image-attachment'
 import { mergeSessionUsage, type SessionUsageInput } from './session-usage'
+import {
+  initialAssistantPresentation,
+  settleCurrentAssistantTurn,
+  settleReplayedAssistantTurns
+} from './assistant-presentation'
 
 export type { AgentImageAttachment } from './image-attachment'
 
@@ -41,6 +47,10 @@ export interface AgentChatMessage {
   deliveryPending?: boolean
   /** False while ACP is still streaming this assistant message; true after turn completion/replay. */
   complete?: boolean
+  /** Provider-reported or turn-inferred distinction between interim narration and the result. */
+  presentation?: AgentMessagePresentation
+  /** Whether an unphased assistant message still awaits its turn boundary classification. */
+  presentationProvisional?: boolean
 }
 
 export type AgentTranscriptEntry =
@@ -302,14 +312,21 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
             id: event.messageId,
             role: event.role,
             text: event.text,
-            complete: event.role === 'assistant' ? false : undefined
+            complete: event.role === 'assistant' ? false : undefined,
+            ...(event.role === 'assistant' ? initialAssistantPresentation(event.presentation) : {})
           }]
-          return current.map((message, index) => index === existing ? { ...message, text: message.text + event.text } : message)
+          return current.map((message, index) => index === existing
+            ? {
+                ...message,
+                text: message.text + event.text,
+                ...(event.role === 'assistant' && event.presentation
+                  ? initialAssistantPresentation(event.presentation)
+                  : {})
+              }
+            : message)
         })
       } else if (event.type === 'turn_complete') {
-        setMessages((current) => current.map((message) => (
-          message.role === 'assistant' && message.complete === false ? { ...message, complete: true } : message
-        )))
+        setMessages(settleCurrentAssistantTurn)
       } else if (event.type === 'activity') {
         rememberTranscriptEntry({ type: 'activity', id: event.activity.id })
         setActivitiesById((current) => {
@@ -378,10 +395,8 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
       setImageSupport(result.imageSupport ?? false)
       if (result.status === 'ready') {
         // Resume replay is delivered during create(), before this result settles. Those messages
-        // are already final even though no new turn_complete notification accompanies replay.
-        setMessages((current) => current.map((message) => (
-          message.role === 'assistant' && message.complete === false ? { ...message, complete: true } : message
-        )))
+        // have no turn_complete notifications, so reconstruct each boundary from its user message.
+        setMessages(settleReplayedAssistantTurns)
         setStatus('ready')
       } else if (result.status === 'auth_required') {
         setStatus('auth_required')

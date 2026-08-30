@@ -34,3 +34,12 @@ test('can identify the subject after a bare continue once the conversation has e
     { role: 'assistant', text: 'Workspace recovery must preserve corrupt snapshots' }
   ]), 'Workspace recovery must preserve corrupt snapshots')
 })
+
+test('progress narration cannot become the generated conversation title', () => {
+  assert.equal(deriveConversationTitle([
+    { role: 'user', text: 'continue' },
+    { role: 'assistant', presentation: 'progress', text: 'Inspecting the transcript structure.' },
+    { role: 'user', text: 'go on' },
+    { role: 'assistant', presentation: 'progress', text: 'Reading the provider metadata.' }
+  ]), null)
+})

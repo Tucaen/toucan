@@ -93,6 +93,53 @@ describe('chat focus view', () => {
     expect(screen.getByText('Model selection failed')).toBeTruthy()
   })
 
+  test('keeps completed progress expanded and subdued outside Focus mode', () => {
+    const messages = [
+      {
+        id: 'progress-1',
+        role: 'assistant' as const,
+        presentation: 'progress' as const,
+        text: 'Reading the brain-dump archive.',
+        complete: true
+      },
+      {
+        id: 'answer-1',
+        role: 'assistant' as const,
+        presentation: 'final' as const,
+        text: 'Created 4 topics.',
+        complete: true
+      }
+    ]
+    const { rerender } = render(
+      <ChatView
+        {...baseChatViewProps}
+        messages={messages}
+        activities={[]}
+        plan={[]}
+        focusMode={false}
+        setFocusMode={vi.fn()}
+      />
+    )
+
+    const progress = screen.getByText('Reading the brain-dump archive.').closest('article')
+    expect(progress).toHaveAttribute('data-presentation', 'progress')
+    expect(screen.getByText('Progress')).toBeTruthy()
+    expect(screen.getByText('Created 4 topics.')).toBeTruthy()
+
+    rerender(
+      <ChatView
+        {...baseChatViewProps}
+        messages={messages}
+        activities={[]}
+        plan={[]}
+        focusMode
+        setFocusMode={vi.fn()}
+      />
+    )
+    expect(screen.queryByText('Reading the brain-dump archive.')).toBeNull()
+    expect(screen.getByText('Created 4 topics.')).toBeTruthy()
+  })
+
   test('keeps tool and reasoning cards in conversation order', () => {
     const { container } = render(
       <ChatView

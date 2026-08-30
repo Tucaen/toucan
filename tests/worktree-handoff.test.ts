@@ -91,11 +91,13 @@ test('a handoff carries the dialogue and ends with the prompt that asked for it'
     [
       { role: 'user', text: 'the login page is broken' },
       { role: 'thought', text: 'private reasoning that must not travel' },
+      { role: 'assistant', presentation: 'progress', text: 'reading the session manager' },
       { role: 'assistant', text: 'it throws on a null session' }
     ],
     '/implement-in-worktree fix it'
   )
   assert.match(text, /User: the login page is broken/)
+  assert.match(text, /Assistant: reading the session manager/)
   assert.match(text, /Assistant: it throws on a null session/)
   assert.equal(text.includes('private reasoning'), false)
   assert.match(text, /\/implement-in-worktree fix it$/)

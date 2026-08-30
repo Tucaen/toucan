@@ -3,14 +3,15 @@ import { createPortal } from 'react-dom'
 import { type NodeProps } from '@xyflow/react'
 import MarkdownMessage from './MarkdownMessage'
 import WorktreeBadge from './WorktreeBadge'
-import type {
-  AgentActivity,
-  AgentAuthMethod,
-  AgentCommand,
-  AgentEffortState,
-  AgentModeState,
-  AgentModelState,
-  AgentPlanEntry
+import {
+  isFinalAssistantMessage,
+  type AgentActivity,
+  type AgentAuthMethod,
+  type AgentCommand,
+  type AgentEffortState,
+  type AgentModeState,
+  type AgentModelState,
+  type AgentPlanEntry
 } from '../../shared/agent'
 import { isNearScrollBottom } from './chat-scroll-follow'
 import {
@@ -959,8 +960,10 @@ function ChatMessageCard(
     <article
       className={`chat-message ${message.role}${message.queued ? ' queued' : ''}${message.failed ? ' failed' : ''}`}
       data-tone={tone}
+      data-presentation={message.presentation}
     >
       <div>
+        {message.presentation === 'progress' && <small className="progress-label">Progress</small>}
         <MarkdownMessage text={message.text} />
         {message.failed
           ? <small className="failed-badge">Not sent — delivery was rejected</small>
@@ -1210,7 +1213,9 @@ export function ChatView(props: ChatViewProps & {
                   ? (!props.focusMode && <ActivityCard activity={entry.activity} key={entry.key} />)
                   : entry.message.role === 'thought'
                     ? (!props.focusMode && <ReasoningCard key={entry.key} message={entry.message} />)
-                    : <ChatMessageCard key={entry.key} message={entry.message} />)}
+                    : entry.message.presentation === 'progress'
+                      ? (!props.focusMode && <ChatMessageCard key={entry.key} message={entry.message} />)
+                      : <ChatMessageCard key={entry.key} message={entry.message} />)}
                 {!props.focusMode && props.plan.length > 0 && <PlanCard plan={props.plan} />}
                 <ApprovalPanel {...props} />
               </div>
@@ -1266,6 +1271,8 @@ function sidebarStatus(
 
 export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanvasNode>): JSX.Element {
   const previousStatusRef = useRef<AgentChatStatus>('starting')
+  const previousFinalAnswerCountRef = useRef(0)
+  const turnStartFinalAnswerCountRef = useRef(0)
   const provider = data.kind === 'claude' ? 'claude' : 'codex'
   const conversation = useAgentConversation({
     id,
@@ -1288,9 +1295,9 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
     if (data.titleSource || !data.conversationId || status !== 'ready') return
     const title = deriveConversationTitle(messages
       .filter((message): message is AgentChatMessage & { role: 'user' | 'assistant' } => (
-        message.role === 'user' || message.role === 'assistant'
+        message.role === 'user' || isFinalAssistantMessage(message)
       ))
-      .map(({ role, text }) => ({ role, text })))
+      .map(({ role, text, presentation }) => ({ role, text, presentation })))
     if (title) void data.onTitleChange(id, title, 'generated').then((saved) => setTitleError(!saved))
   }, [data, data.conversationId, data.titleSource, id, messages, status])
 
@@ -1326,16 +1333,23 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
   // A turn that finished while the user was looking elsewhere is a result they have not read.
   // Keyed by the answer itself, so a replayed transcript lands on the record it already made.
   useEffect(() => {
-    const finishedTurn = previousStatusRef.current === 'working' && status === 'ready'
+    const finalAnswers = messages.filter(isFinalAssistantMessage)
+    const previousStatus = previousStatusRef.current
+    if (previousStatus !== 'working' && status === 'working') {
+      turnStartFinalAnswerCountRef.current = previousFinalAnswerCountRef.current
+    }
+    const finishedTurn = previousStatus === 'working' && status === 'ready'
     previousStatusRef.current = status
+    previousFinalAnswerCountRef.current = finalAnswers.length
     if (!finishedTurn || selected) return
-    const answer = messages.filter((message) => message.role === 'assistant').at(-1)
+    const answer = finalAnswers.slice(turnStartFinalAnswerCountRef.current).at(-1)
+    if (!answer) return
     reportAttention?.({
       type: 'raise',
       signal: {
         nodeId: id,
         kind: 'result',
-        key: attentionTextKey(answer ? `${answer.id}:${answer.text}` : `turn:${messages.length}`),
+        key: attentionTextKey(`${answer.id}:${answer.text}`),
         sourceId: attentionSource,
         summary: `${data.label} finished a turn`
       }

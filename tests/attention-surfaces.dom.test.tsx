@@ -12,6 +12,7 @@ import {
 } from '../src/renderer/src/canvas-workspace'
 import {
   applyAttentionAction,
+  attentionTextKey,
   countUnreadAttention,
   READ_ON_VIEW_KINDS,
   unreadAttentionByNode,
@@ -173,6 +174,77 @@ describe('chat node attention wiring', () => {
 
     await waitFor(() => expect(workspace.state().length).toBe(1))
     expect(countUnreadAttention(workspace.state())).toBe(0)
+  })
+
+  test('keys a finished-turn notification from the final answer rather than progress narration', async () => {
+    const workspace = createAttentionWorkspace()
+    const node = chatNode(baseCallbacks(workspace.onAttention))
+    renderChat(node, { selected: false, unread: 0 })
+    await settle()
+
+    await act(async () => {
+      mock.emit(NODE_ID, { type: 'status', status: 'working' })
+    })
+    await act(async () => {
+      mock.emit(NODE_ID, {
+        type: 'message', role: 'assistant', presentation: 'final', messageId: 'answer', text: 'Created 4 topics.'
+      })
+      mock.emit(NODE_ID, {
+        type: 'message', role: 'assistant', presentation: 'progress', messageId: 'progress', text: 'Archiving notes.'
+      })
+      mock.emit(NODE_ID, { type: 'turn_complete', stopReason: 'end_turn' })
+      mock.emit(NODE_ID, { type: 'status', status: 'idle' })
+    })
+
+    await waitFor(() => expect(countUnreadAttention(workspace.state())).toBe(1))
+    expect(workspace.state()[0].key).toBe(attentionTextKey('answer:Created 4 topics.'))
+  })
+
+  test('a progress-only turn does not raise a final-result notification', async () => {
+    const workspace = createAttentionWorkspace()
+    const node = chatNode(baseCallbacks(workspace.onAttention))
+    renderChat(node, { selected: false, unread: 0 })
+    await settle()
+
+    await act(async () => {
+      mock.emit(NODE_ID, { type: 'status', status: 'working' })
+    })
+    await act(async () => {
+      mock.emit(NODE_ID, {
+        type: 'message', role: 'assistant', presentation: 'progress', messageId: 'progress', text: 'Still working.'
+      })
+      mock.emit(NODE_ID, { type: 'turn_complete', stopReason: 'end_turn' })
+      mock.emit(NODE_ID, { type: 'status', status: 'idle' })
+    })
+
+    expect(workspace.state()).toHaveLength(0)
+  })
+
+  test('a later progress-only turn does not reuse an earlier final answer for result attention', async () => {
+    const workspace = createAttentionWorkspace()
+    const reportAttention = vi.fn(workspace.onAttention)
+    const node = chatNode(baseCallbacks(reportAttention))
+    renderChat(node, { selected: false, unread: 0 })
+    await settle()
+
+    await finishTurn('The first turn finished.')
+    await waitFor(() => expect(countUnreadAttention(workspace.state())).toBe(1))
+    reportAttention.mockClear()
+
+    await act(async () => {
+      mock.emit(NODE_ID, { type: 'status', status: 'working' })
+    })
+    await act(async () => {
+      mock.emit(NODE_ID, {
+        type: 'message', role: 'assistant', presentation: 'progress', messageId: 'later-progress', text: 'Still working.'
+      })
+      mock.emit(NODE_ID, { type: 'turn_complete', stopReason: 'end_turn' })
+      mock.emit(NODE_ID, { type: 'status', status: 'idle' })
+    })
+
+    expect(reportAttention).not.toHaveBeenCalledWith(expect.objectContaining({
+      signal: expect.objectContaining({ kind: 'result' })
+    }))
   })
 
   test('an approval is one record keyed by its request, retired when it is answered', async () => {

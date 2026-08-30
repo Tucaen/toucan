@@ -1517,6 +1517,32 @@ button {
   margin-bottom: 0;
 }
 
+/* Provider-labelled progress stays readable in the transcript, but its rail and quieter type keep
+   process narration from competing with the unframed final answer below it. */
+.chat-message[data-presentation="progress"] > div {
+  padding-left: 10px;
+  border-left: 2px solid #3b4654;
+  color: #929dab;
+}
+
+.chat-message[data-presentation="progress"] .markdown-body,
+.chat-message[data-presentation="progress"] .markdown-body p,
+.chat-message[data-presentation="progress"] .markdown-body ul,
+.chat-message[data-presentation="progress"] .markdown-body ol {
+  color: #929dab;
+  font-size: 12px;
+}
+
+.progress-label {
+  display: block;
+  margin-bottom: 4px;
+  color: #687584;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 /*
  * Decision-shaped assistant messages (see decision-message.ts) get a warm card background so
  * they stand out from routine replies - a color relative to, but visually distinct from, the

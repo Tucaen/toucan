@@ -1,4 +1,5 @@
 import { classifyAssistantMessage, extractDecisionOptions, type DecisionOption } from './decision-message'
+import { isFinalAssistantMessage, type AgentMessagePresentation } from '../../shared/agent'
 
 interface DecisionTranscriptMessage {
   id: string
@@ -9,6 +10,7 @@ interface DecisionTranscriptMessage {
   decisionReplyTo?: string
   deliveryPending?: boolean
   complete?: boolean
+  presentation?: AgentMessagePresentation
 }
 
 export interface PendingDecision {
@@ -79,7 +81,11 @@ export function pendingDecisionStateFromMessages(
   const decisions = new Map<string, PendingDecision>()
   const closed = new Set(persistedClosedIds)
   for (const message of messages) {
-    if (message.role === 'assistant' && message.complete !== false && classifyAssistantMessage(message.text) === 'decision') {
+    if (
+      isFinalAssistantMessage(message)
+      && message.complete !== false
+      && classifyAssistantMessage(message.text) === 'decision'
+    ) {
       const id = decisionIdentity(message)
       const task = taskId(message.text)
       const supersededKey = tag(message.text, 'supersedes')

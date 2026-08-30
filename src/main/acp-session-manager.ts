@@ -24,6 +24,7 @@ import type {
   AgentEffortState,
   AgentEvent,
   AgentModeState,
+  AgentMessagePresentation,
   AgentModelState,
   AgentPermissionOption,
   AgentPromptBlock,
@@ -93,6 +94,10 @@ interface RunningAgent {
   cachedCommands?: AgentCommand[]
   /** Events emitted synchronously by `session/load`, held until `agent:create` returns. */
   replayEvents?: AgentEvent[]
+  /** Identity cursor for adapters whose replay chunks omit ACP message IDs. */
+  replayMessageSequence?: number
+  replayMessageKey?: string
+  replayMessageId?: string
   pendingApprovals: Map<string, PendingApproval>
   busy: boolean
   stopping: boolean
@@ -228,6 +233,57 @@ function isAuthRequired(error: unknown): boolean {
 export function isInternalNotificationText(text: string): boolean {
   const trimmed = text.trimStart()
   return trimmed.startsWith('<task-notification>') || trimmed.startsWith('<system-reminder>')
+}
+
+/**
+ * Codex keeps progress commentary and the final answer in the same ACP update type, but preserves
+ * the distinction in replay-stable adapter metadata. Claude does not currently advertise an
+ * equivalent phase, so untagged assistant messages are classified at their turn boundary.
+ */
+function assistantPresentationFromMeta(meta: unknown): AgentMessagePresentation | undefined {
+  if (typeof meta !== 'object' || meta === null) return undefined
+  const codex = (meta as { codex?: unknown }).codex
+  if (typeof codex !== 'object' || codex === null) return undefined
+  const phase = (codex as { phase?: unknown }).phase
+  if (phase === 'commentary') return 'progress'
+  if (phase === 'final_answer') return 'final'
+  return undefined
+}
+
+/**
+ * Some adapter replay formats omit message IDs. During the finite `session/load` stream, adjacent
+ * chunks with the same role/phase belong together; a role, phase, or non-message boundary starts a
+ * new synthetic identity. Live traffic retains the long-standing per-role fallback because its turn
+ * boundary is supplied separately by the prompt lifecycle.
+ */
+function messageIdForUpdate(
+  running: RunningAgent,
+  messageId: string | null | undefined,
+  role: 'user' | 'assistant' | 'thought',
+  presentation?: AgentMessagePresentation
+): string {
+  if (messageId) {
+    running.replayMessageKey = undefined
+    running.replayMessageId = undefined
+    return messageId
+  }
+  if (!running.replayEvents) return `${role}-current`
+
+  const key = `${role}:${presentation ?? 'unphased'}`
+  if (running.replayMessageKey === key && running.replayMessageId) return running.replayMessageId
+
+  const sequence = (running.replayMessageSequence ?? 0) + 1
+  const syntheticId = `replay-${role}-${sequence}`
+  running.replayMessageSequence = sequence
+  running.replayMessageKey = key
+  running.replayMessageId = syntheticId
+  return syntheticId
+}
+
+function markReplayMessageBoundary(running: RunningAgent): void {
+  if (!running.replayEvents) return
+  running.replayMessageKey = undefined
+  running.replayMessageId = undefined
 }
 
 function simplifyAuthMethod(method: AuthMethod): AgentAuthMethod {
@@ -439,6 +495,8 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       if (running.request.sessionId) {
         replay = []
         running.replayEvents = replay
+        running.replayMessageSequence = 0
+        markReplayMessageBoundary(running)
         let response
         try {
           response = await running.context.request(methods.agent.session.load, {
@@ -606,6 +664,11 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         .onNotification(methods.client.session.update, ({ params }) => {
           const update = params.update
           if (
+            update.sessionUpdate !== 'user_message_chunk'
+            && update.sessionUpdate !== 'agent_message_chunk'
+            && update.sessionUpdate !== 'agent_thought_chunk'
+          ) markReplayMessageBoundary(running)
+          if (
             update.sessionUpdate === 'user_message_chunk'
             && update.content.type === 'text'
             && !isInternalNotificationText(update.content.text)
@@ -613,21 +676,23 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
             send(running, {
               type: 'message',
               role: 'user',
-              messageId: update.messageId ?? 'user-current',
+              messageId: messageIdForUpdate(running, update.messageId, 'user'),
               text: update.content.text
             })
           } else if (update.sessionUpdate === 'agent_message_chunk' && update.content.type === 'text') {
+            const presentation = assistantPresentationFromMeta(update._meta)
             send(running, {
               type: 'message',
               role: 'assistant',
-              messageId: update.messageId ?? 'assistant-current',
-              text: update.content.text
+              messageId: messageIdForUpdate(running, update.messageId, 'assistant', presentation),
+              text: update.content.text,
+              ...(presentation ? { presentation } : {})
             })
           } else if (update.sessionUpdate === 'agent_thought_chunk' && update.content.type === 'text') {
             send(running, {
               type: 'message',
               role: 'thought',
-              messageId: update.messageId ?? 'thought-current',
+              messageId: messageIdForUpdate(running, update.messageId, 'thought'),
               text: update.content.text
             })
           } else if (update.sessionUpdate === 'tool_call' || update.sessionUpdate === 'tool_call_update') {

@@ -208,10 +208,27 @@ export interface AgentSessionCost {
   currency: string
 }
 
+/** How assistant text should read in the transcript when the provider can distinguish it. */
+export type AgentMessagePresentation = 'progress' | 'final'
+
+/** The single predicate for behavior that must be driven by completed assistant output only. */
+export function isFinalAssistantMessage<T extends {
+  role: string
+  presentation?: AgentMessagePresentation
+}>(message: T): message is T & { role: 'assistant' } {
+  return message.role === 'assistant' && message.presentation !== 'progress'
+}
+
 export type AgentEvent =
   | { type: 'status'; status: 'starting' | 'ready' | 'working' | 'idle' | 'auth_required' | 'exited'; message?: string }
   | { type: 'session'; sessionId: string }
-  | { type: 'message'; role: 'user' | 'assistant' | 'thought'; messageId: string; text: string }
+  | {
+      type: 'message'
+      role: 'user' | 'assistant' | 'thought'
+      messageId: string
+      text: string
+      presentation?: AgentMessagePresentation
+    }
   | { type: 'activity'; activity: AgentActivity }
   | { type: 'plan'; entries: AgentPlanEntry[] }
   | { type: 'modes'; modes: AgentModeState }
