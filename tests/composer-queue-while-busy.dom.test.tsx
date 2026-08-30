@@ -443,6 +443,44 @@ test(
 )
 
 test(
+  'a turn failure after ACP echoed the user message does not relabel the accepted message as not sent',
+  async () => {
+    let resolveTurn: ((result: { ok: boolean; message?: string }) => void) | undefined
+    const { api, emit } = createMockAgentApi({
+      prompt: vi.fn(() => new Promise((resolve) => { resolveTurn = resolve }))
+    })
+    window.agentApi = api
+
+    const { result } = renderHook(() => useAgentConversation({
+      id: 'session-accepted-before-turn-failure',
+      provider: 'claude',
+      cwd: '/project',
+      enabled: true,
+      onSessionId: vi.fn(),
+      onPermissionMode: vi.fn(),
+      onModel: vi.fn()
+    }))
+
+    await waitFor(() => expect(result.current.status).toBe('ready'))
+
+    act(() => result.current.setDraft('/$ade-project-skills:implement-in-worktree the idea written down in…'))
+    act(() => { result.current.submit(fakeSubmitEvent()) })
+    await waitFor(() => expect(result.current.messages).toHaveLength(1))
+
+    emit('session-accepted-before-turn-failure', {
+      type: 'message',
+      role: 'user',
+      messageId: 'accepted-prompt',
+      text: '/$ade-project-skills:implement-in-worktree the idea written down in…'
+    })
+    resolveTurn?.({ ok: false, message: 'The agent turn failed after accepting the prompt.' })
+
+    await waitFor(() => expect(result.current.detail).toBe('The agent turn failed after accepting the prompt.'))
+    expect(result.current.messages[0].failed).toBeUndefined()
+  }
+)
+
+test(
   'a queued send does not fire its echo fallback while promptWhenIdle is still pending',
   async () => {
     // Reproduces a race left by an earlier version of the fallback: it started counting down as
