@@ -28,12 +28,14 @@ import {
   serializeWorktreeNode,
   type CanvasNode,
   type TerminalCanvasNode,
+  type TerminalNodeCallbacks,
   type TerminalNodeStatus,
   type WorktreeCanvasNode
 } from './canvas-workspace'
 import type { AgentRateLimitStatus, AgentRateLimitWindow, ProviderRateLimits } from '../../shared/agent'
 import type { WorktreeRemovalBlocker } from '../../shared/worktree'
 import { branchNameProblem, describeWorktreeBlocker, deriveWorktreeDirectory } from '../../shared/worktree'
+import { placeholderBranchName } from '../../shared/worktree-handoff'
 import { describeForcedRemovalCost, planWorktreeRemoval, type WorktreeRemovalPlan } from './worktree-removal'
 import type { ConversationSummary } from '../../shared/conversation'
 import ConversationHistoryDialog from './ConversationHistoryDialog'
@@ -446,6 +448,14 @@ function Canvas(): JSX.Element {
   const nodesRef = useRef<CanvasNode[]>([])
   const projectsRef = useRef<Project[]>([])
   const permissionModesRef = useRef<AgentPermissionModes>({})
+  // Held in a ref because the handler is declared after the node factories that hand it out,
+  // and because a node's stored callback must not go stale as the handler is recreated.
+  const handleWorktreeHandoffRef = useRef<TerminalNodeCallbacks['onWorktreeHandoff']>(undefined)
+  /** Stable identity for node data; reads the ref at call time so it can never go stale. */
+  const dispatchWorktreeHandoff = useCallback<NonNullable<TerminalNodeCallbacks['onWorktreeHandoff']>>(
+    (nodeId, request) => handleWorktreeHandoffRef.current?.(nodeId, request),
+    []
+  )
   nodesRef.current = nodes
   projectsRef.current = projects
   permissionModesRef.current = agentPermissionModes
@@ -498,7 +508,8 @@ function Canvas(): JSX.Element {
           onPermissionModeChange: handlePermissionModeChange,
           onModelChange: handleModelChange,
           onResume: resumeNode,
-          onTerminalLiveness: handleTerminalLiveness
+          onTerminalLiveness: handleTerminalLiveness,
+          onWorktreeHandoff: dispatchWorktreeHandoff
         },
         style: { width: 520, height: 340 }
       }
@@ -590,6 +601,80 @@ function Canvas(): JSX.Element {
       })
   }, [findWorktreeNode, setNodes])
 
+  /**
+   * A prompt that asked for its own worktree. The worktree is made first and the session is
+   * started inside it, so the agent's working directory is the worktree from its first turn -
+   * the only arrangement in which the worktree is a writable root rather than a permission
+   * prompt on every edit. The branch is provisional: the skill renames it once it has read
+   * the work, which beats guessing a name from the prompt.
+   */
+  const handleWorktreeHandoff = useCallback((
+    nodeId: string,
+    request: { prompt: string; needsHandoff: boolean }
+  ): void => {
+    const node = nodesRef.current.filter(isTerminalCanvasNode).find((candidate) => candidate.id === nodeId)
+    const project = projectsRef.current.find((candidate) => candidate.id === node?.data.projectId)
+    if (!node || !project || node.data.kind === 'terminal') return
+
+    void window.worktreeApi
+      .create({ projectPath: project.path, branch: placeholderBranchName(new Date()) })
+      .then((result) => {
+        if (!result.ok || !result.worktree) {
+          // Nothing was created, so the prompt goes back to the composer it was typed in rather
+          // than being silently discarded, and the failure surfaces in the dialog that already
+          // exists for making a worktree by hand - which doubles as the retry.
+          handleDraftChange(nodeId, request.prompt)
+          setWorktreeDraft({
+            projectId: project.id,
+            branch: '',
+            baseRef: '',
+            position: { x: node.position.x, y: node.position.y + (node.height ?? 340) + 64 },
+            busy: false,
+            error: result.message ?? 'The worktree could not be created.'
+          })
+          return
+        }
+        const worktreeId = crypto.randomUUID()
+        const created = result.worktree
+        setNodes((current) => [
+          ...current.map((candidate) => ({ ...candidate, selected: false })),
+          {
+            id: `worktree:${worktreeId}`,
+            type: 'worktreeNode',
+            selected: false,
+            deletable: false,
+            position: { x: node.position.x, y: node.position.y + (node.height ?? 340) + 64 },
+            data: {
+              worktreeId,
+              branch: created.branch,
+              path: created.path,
+              baseRef: created.baseRef,
+              createdAt: new Date().toISOString(),
+              projectId: project.id,
+              projectName: project.name,
+              projectPath: project.path,
+              projectColor: project.color,
+              setupCommand: project.setupCommand,
+              attachedNodeCount: 0,
+              onRemoveWorktree: handleRemoveWorktree,
+              onCreateNodeInWorktree: handleCreateNodeInWorktree,
+              onRunSetupCommand: handleRunSetupCommand
+            },
+            style: { ...DEFAULT_WORKTREE_SIZE }
+          }
+        ])
+        openInWorktree(worktreeId, node.data.kind, request.prompt)
+      })
+  }, [
+    handleCreateNodeInWorktree,
+    handleDraftChange,
+    handleRemoveWorktree,
+    handleRunSetupCommand,
+    openInWorktree,
+    setNodes
+  ])
+  handleWorktreeHandoffRef.current = handleWorktreeHandoff
+
   const confirmWorktreeRemoval = useCallback((force: boolean): void => {
     const prompt = removalPrompt
     const worktreeNode = prompt ? findWorktreeNode(prompt.worktreeId) : undefined
@@ -654,6 +739,7 @@ function Canvas(): JSX.Element {
           onModelChange: handleModelChange,
           onResume: resumeNode,
           onTerminalLiveness: handleTerminalLiveness,
+          onWorktreeHandoff: dispatchWorktreeHandoff,
           onRemoveWorktree: handleRemoveWorktree,
           onCreateNodeInWorktree: handleCreateNodeInWorktree,
           onRunSetupCommand: handleRunSetupCommand

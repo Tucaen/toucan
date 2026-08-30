@@ -29,6 +29,7 @@ import { SessionCommandsContext } from './skill-invocation'
 import { SubagentActivitiesContext, indexSubagentActivities } from './subagent-task'
 import { worklogActivities } from './worklog-activities'
 import { WorkspaceRootsContext } from './workspace-root'
+import { planWorktreeHandoff } from '../../shared/worktree-handoff'
 import type { TerminalCanvasNode, TerminalNodeStatus } from './canvas-workspace'
 import {
   computeNodePickerMenuPosition,
@@ -1299,9 +1300,34 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
     data.onStatusChange(id, sidebarStatus(status, approval !== null, unreadResult, stalled))
   }, [approval, data.dormant, data.onStatusChange, id, status, unreadResult, stalled])
 
+  /**
+   * A prompt asking for its own worktree never runs here. It goes up to the workspace, which
+   * starts a session whose working directory is the worktree from its first turn - the only
+   * shape in which the worktree can be a writable root rather than an approval prompt. A node
+   * already running in a worktree is where such work belongs, so it dispatches normally.
+   */
+  const submit: ChatViewProps['submit'] = (event, draftOverride, onPrepared) => {
+    const handoff = data.onWorktreeHandoff
+    const plan = handoff
+      ? planWorktreeHandoff(draftOverride ?? data.draft ?? '', {
+          hasHistory: messages.length > 0,
+          alreadyInWorktree: Boolean(data.worktreeId)
+        })
+      : null
+    if (!handoff || !plan) {
+      conversation.submit(event, draftOverride, onPrepared)
+      return
+    }
+    event.preventDefault()
+    handoff(id, plan)
+    data.onDraftChange(id, '')
+    onPrepared?.()
+  }
+
   const props: ChatViewProps = {
     provider,
     ...conversation,
+    submit,
     // The draft belongs to the node, not to the conversation: it has to outlive resize, collapse
     // and a workspace reload, none of which the ACP session knows anything about.
     draft: data.draft ?? '',

@@ -22,6 +22,12 @@ export interface TerminalNodeCallbacks {
   onModelChange(nodeId: string, modelId: string): void
   onResume(nodeId: string): void
   onTerminalLiveness?(nodeId: string, liveness: TerminalLiveness): void
+  /**
+   * A prompt that asked for its own worktree. The composer hands it up rather than dispatching
+   * it, so the work starts in a session whose working directory is the worktree from its first
+   * turn - which is the only way it can be granted as a writable root.
+   */
+  onWorktreeHandoff?(nodeId: string, request: { prompt: string; needsHandoff: boolean }): void
 }
 
 export interface TerminalNodeData extends Record<string, unknown>, TerminalNodeCallbacks {
@@ -243,7 +249,8 @@ export function restoreCanvasWorkspace(
         onPermissionModeChange: callbacks.onPermissionModeChange,
         onModelChange: callbacks.onModelChange,
         onResume: callbacks.onResume,
-        onTerminalLiveness: callbacks.onTerminalLiveness
+        onTerminalLiveness: callbacks.onTerminalLiveness,
+        onWorktreeHandoff: callbacks.onWorktreeHandoff
       },
       style: { width: savedNode.width, height: savedNode.height }
     }]
