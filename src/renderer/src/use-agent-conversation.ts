@@ -232,8 +232,13 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
    * the wake gate before ever reaching the agent) - distinct from `clearPendingSent`'s
    * success-shaped clear, so a dropped message can never render identically to a delivered one.
    */
-  const markSendFailed = (id: string): void => {
+  const markSendFailed = (id: string, hasEchoableText: boolean): void => {
     const index = pendingSentRef.current.findIndex((entry) => entry.id === id)
+    // `prompt()` settles with the whole turn, not merely prompt acceptance. An earlier ACP user
+    // echo removes this tracked entry and is stronger delivery evidence than a later failed-turn
+    // result, so never regress an acknowledged message back to "not sent". Image-only sends have
+    // no text echo to track and must still surface a rejected transport result.
+    if (hasEchoableText && index < 0) return
     if (index >= 0) {
       clearTimeout(pendingSentRef.current[index].timer)
     }
@@ -468,7 +473,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
       }
       setDetail(result.message)
       if (!intoRunningTurn) setStatus('ready')
-      markSendFailed(id)
+      markSendFailed(id, Boolean(result.prompt))
     })
   }
 
