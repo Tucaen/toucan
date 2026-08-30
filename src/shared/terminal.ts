@@ -1,6 +1,7 @@
 import type { AgentProvider } from './agent'
 import type { AttentionItem } from './attention'
 import type { WorkspaceWorktree } from './worktree'
+import type { ConversationTitleSource } from './conversation-title'
 
 export type TerminalKind = 'terminal' | 'claude' | 'codex'
 export type TerminalLiveness = 'live' | 'unverifiable' | 'exited'
@@ -62,6 +63,8 @@ export interface WorkspaceTerminalNode {
   sessionId?: string
   kind: TerminalKind
   label: string
+  /** Why an agent node's label changed from its generic launch label. */
+  titleSource?: ConversationTitleSource
   projectId: string
   /**
    * The worktree this node runs in. Absent means the node runs in the project checkout itself,

@@ -19,6 +19,7 @@ import type { WorkspaceState } from '../src/shared/terminal'
 const callbacks = {
   onStatusChange: () => undefined,
   onConversationId: () => undefined,
+  onTitleChange: async () => true,
   onPreview: () => undefined,
   onFocusModeChange: () => undefined,
   onDraftChange: () => undefined,
@@ -50,6 +51,7 @@ test('restores saved canvas nodes and ignores nodes whose project is gone', () =
         id: 'node-1',
         kind: 'codex',
         label: 'Codex 7',
+        titleSource: 'manual',
         projectId: 'project-1',
         position: { x: 30, y: 50 },
         width: 540,
@@ -82,6 +84,7 @@ test('restores saved canvas nodes and ignores nodes whose project is gone', () =
   assert.equal(nodes[0].data.focusMode, true)
   assert.equal(nodes[0].data.preferredPermissionMode, 'read-only')
   assert.equal(nodes[0].data.modelId, 'gpt-5-codex')
+  assert.equal(nodes[0].data.titleSource, 'manual')
   assert.equal(restored.nextSessionNumber, 8)
   assert.equal(restored.activeProjectId, 'project-1')
   assert.deepEqual(serializeCanvasNode(nodes[0]), state.nodes[0])

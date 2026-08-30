@@ -1225,6 +1225,37 @@ button {
   white-space: nowrap;
 }
 
+.node-title-input {
+  min-width: 80px;
+  width: min(260px, 45%);
+  border: 1px solid #596579;
+  border-radius: 4px;
+  padding: 3px 6px;
+  color: #eef2f8;
+  background: #11151b;
+  font: inherit;
+  font-weight: 700;
+}
+
+.node-title-rename {
+  flex: none;
+  border: 0;
+  padding: 2px 3px;
+  color: #7d8796;
+  background: transparent;
+  cursor: pointer;
+}
+
+.node-title-rename:hover,
+.node-title-rename:focus-visible {
+  color: #dce1e9;
+}
+
+.node-title-error {
+  color: #ff8b8b;
+  font-weight: 900;
+}
+
 .chat-provider-badge {
   padding: 2px 5px;
   border: 1px solid color-mix(in srgb, var(--node-accent) 38%, #323a46);

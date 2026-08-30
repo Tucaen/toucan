@@ -54,6 +54,7 @@ import { branchNameProblem, describeWorktreeBlocker, deriveWorktreeDirectory } f
 import { placeholderBranchName, type WorktreeHandoffPlan } from '../../shared/worktree-handoff'
 import { describeForcedRemovalCost, planWorktreeRemoval, type WorktreeRemovalPlan } from './worktree-removal'
 import type { ConversationSummary } from '../../shared/conversation'
+import { normalizeConversationTitle, type ConversationTitleSource } from '../../shared/conversation-title'
 import ConversationHistoryDialog from './ConversationHistoryDialog'
 import { COMPOSER_SEND_KEY_DEFAULT } from './composer-keys'
 import { ComposerSendKeyContext } from './composer-send-key-context'
@@ -429,7 +430,40 @@ function Canvas(): JSX.Element {
   )
 
   const handleConversationId = useCallback((nodeId: string, conversationId: string): void => {
-    patchTerminalNode(nodeId, () => ({ conversationId }))
+    patchTerminalNode(nodeId, (data) => {
+      if (data.kind !== 'terminal' && data.launchMode === 'new' && data.titleSource) {
+        void window.conversationApi
+          .setTitle(data.kind, conversationId, data.label, data.titleSource)
+          .catch(() => undefined)
+      }
+      return { conversationId }
+    })
+  }, [patchTerminalNode])
+
+  const handleTitleChange = useCallback(async (nodeId: string, title: string, source: ConversationTitleSource): Promise<boolean> => {
+    const normalized = normalizeConversationTitle(title)
+    if (!normalized) return false
+    const node = nodesRef.current.find((candidate) => isTerminalCanvasNode(candidate) && candidate.id === nodeId)
+    if (!node || (node.data.kind !== 'claude' && node.data.kind !== 'codex')) return false
+    const provider = node.data.kind
+    const conversationId = typeof node.data.conversationId === 'string' ? node.data.conversationId : undefined
+    if (conversationId) {
+      try {
+        const stored = await window.conversationApi.setTitle(
+          provider,
+          conversationId,
+          normalized,
+          source
+        )
+        if (!stored) return false
+        patchTerminalNode(nodeId, () => ({ label: stored.title, titleSource: stored.source }))
+        return true
+      } catch {
+        return false
+      }
+    }
+    patchTerminalNode(nodeId, () => ({ label: normalized, titleSource: source }))
+    return true
   }, [patchTerminalNode])
 
   const handleTerminalLiveness = useCallback((nodeId: string, liveness: TerminalLiveness): void => {
@@ -557,6 +591,7 @@ function Canvas(): JSX.Element {
         onStatusChange: handleStatusChange,
         onAttention: handleAttention,
         onConversationId: handleConversationId,
+        onTitleChange: handleTitleChange,
         onPreview: handlePreview,
         onFocusModeChange: handleFocusModeChange,
         onDraftChange: handleDraftChange,
@@ -581,7 +616,7 @@ function Canvas(): JSX.Element {
       [reopened.id]: reopened.data.dormant ? 'dormant' : 'starting'
     }))
     return true
-  }, [dispatchWorktreeHandoff, handleConversationId, handleDraftChange, handleFocusModeChange, handleModelChange, handlePermissionModeChange, handlePreview, handleStatusChange, handleTerminalLiveness, resumeNode, setNodes])
+  }, [dispatchWorktreeHandoff, handleConversationId, handleDraftChange, handleFocusModeChange, handleModelChange, handlePermissionModeChange, handlePreview, handleStatusChange, handleTerminalLiveness, handleTitleChange, resumeNode, setNodes])
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent): void => {
@@ -599,6 +634,7 @@ function Canvas(): JSX.Element {
     position: { x: number; y: number }
     initialInput?: string
     label?: string
+    titleSource?: ConversationTitleSource
     /** An existing provider conversation this node adopts instead of starting a fresh one. */
     resumeConversationId?: string
   }): void => {
@@ -619,6 +655,7 @@ function Canvas(): JSX.Element {
           sessionId: crypto.randomUUID(),
           terminalLiveness: 'unverifiable',
           label,
+          titleSource: options.titleSource,
           projectId: project.id,
           projectName: project.name,
           projectPath: project.path,
@@ -635,6 +672,7 @@ function Canvas(): JSX.Element {
           onStatusChange: handleStatusChange,
           onAttention: handleAttention,
           onConversationId: handleConversationId,
+          onTitleChange: handleTitleChange,
           onPreview: handlePreview,
           onFocusModeChange: handleFocusModeChange,
           onDraftChange: handleDraftChange,
@@ -648,7 +686,7 @@ function Canvas(): JSX.Element {
       }
     ])
     setNodeStatuses((current) => ({ ...current, [id]: 'starting' }))
-  }, [handleConversationId, handleDraftChange, handleFocusModeChange, handleModelChange, handlePermissionModeChange, handlePreview, handleStatusChange, handleTerminalLiveness, resumeNode, setNodes])
+  }, [handleConversationId, handleDraftChange, handleFocusModeChange, handleModelChange, handlePermissionModeChange, handlePreview, handleStatusChange, handleTerminalLiveness, handleTitleChange, resumeNode, setNodes])
 
   const findWorktreeNode = useCallback((worktreeId: string): WorktreeCanvasNode | undefined => (
     nodesRef.current.filter(isWorktreeCanvasNode).find((node) => node.data.worktreeId === worktreeId)
@@ -893,6 +931,7 @@ function Canvas(): JSX.Element {
           onStatusChange: handleStatusChange,
           onAttention: handleAttention,
           onConversationId: handleConversationId,
+          onTitleChange: handleTitleChange,
           onPreview: handlePreview,
           onFocusModeChange: handleFocusModeChange,
           onDraftChange: handleDraftChange,
@@ -930,7 +969,7 @@ function Canvas(): JSX.Element {
       setWorkspaceReady(true)
     })()
     return () => { active = false }
-  }, [handleConversationId, handleCreateNodeInWorktree, handleDraftChange, handleFocusModeChange, handleModelChange, handlePermissionModeChange, handlePreview, handleRemoveWorktree, handleRunSetupCommand, handleStatusChange, handleTerminalLiveness, resumeNode, seedFreshWorkspace, setNodes])
+  }, [handleConversationId, handleCreateNodeInWorktree, handleDraftChange, handleFocusModeChange, handleModelChange, handlePermissionModeChange, handlePreview, handleRemoveWorktree, handleRunSetupCommand, handleStatusChange, handleTerminalLiveness, handleTitleChange, resumeNode, seedFreshWorkspace, setNodes])
 
   // One place decides how many nodes a worktree carries, so the count the teardown gate reads
   // and the count the node shows can never drift apart.
@@ -1171,7 +1210,8 @@ function Canvas(): JSX.Element {
       project,
       worktree: worktreeNode?.data,
       position: historyDrop,
-      label: entry.title.slice(0, 48),
+      label: entry.title,
+      titleSource: entry.titleSource,
       resumeConversationId: entry.id
     })
     setHistoryDrop(null)

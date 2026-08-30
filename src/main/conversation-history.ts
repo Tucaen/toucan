@@ -6,10 +6,12 @@ import type {
   ConversationProvider,
   ConversationSummary
 } from '../shared/conversation'
+import type { ConversationTitleStore } from './conversation-title-store'
 
 export interface ConversationHistoryOptions {
   homeDirectory: string
   environment: NodeJS.ProcessEnv
+  titles?: ConversationTitleStore
 }
 
 export interface ConversationHistory {
@@ -32,6 +34,7 @@ interface Candidate {
 
 interface Detail {
   title: string
+  titleSource?: 'generated'
   updatedAt: string
   messageCount: number
 }
@@ -141,6 +144,7 @@ function parseClaudeDetail(content: string, fallbackUpdatedAt: string): Detail {
   }
   return {
     title: title || firstUserText || 'Untitled conversation',
+    ...(title ? { titleSource: 'generated' as const } : {}),
     updatedAt: updatedAt || fallbackUpdatedAt,
     messageCount
   }
@@ -360,11 +364,15 @@ export function createConversationHistory(options: ConversationHistoryOptions): 
       details.set(candidate.path, { mtimeMs, size, detail })
       trim(details)
     }
+    const durableTitle = await options.titles?.get(candidate.provider, candidate.id)
     return {
       id: candidate.id,
       provider: candidate.provider,
       path: candidate.path,
-      title: detail.title,
+      title: durableTitle?.title ?? detail.title,
+      ...(durableTitle?.source || detail.titleSource
+        ? { titleSource: durableTitle?.source ?? detail.titleSource }
+        : {}),
       updatedAt: detail.updatedAt,
       messageCount: detail.messageCount,
       cwd: candidate.cwd

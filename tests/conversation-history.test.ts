@@ -7,6 +7,7 @@ import {
   createConversationHistory,
   encodeClaudeProjectDirectory
 } from '../src/main/conversation-history'
+import { createConversationTitleStore } from '../src/main/conversation-title-store'
 
 const PROJECT = 'D:\\Dev\\ADE'
 const WORKTREE = 'D:\\Dev\\ADE-worktrees\\feature'
@@ -124,6 +125,32 @@ test('lists both providers for a directory, newest first', async () => {
     assert.deepEqual(page.entries.map((entry) => entry.title), ['ship the release', 'Rename the parser'])
     assert.deepEqual(page.entries.map((entry) => entry.messageCount), [2, 2])
     assert.deepEqual(page.entries.map((entry) => entry.cwd), [PROJECT, PROJECT])
+  } finally {
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('a durable title overrides provider and first-message titles in history', async () => {
+  const home = makeHome()
+  try {
+    writeClaudeTranscript({
+      home,
+      directoryName: encodeClaudeProjectDirectory(PROJECT),
+      id: 'claude-renamed',
+      title: 'Provider title',
+      turns: [{ role: 'user', text: 'continue' }, { role: 'assistant', text: 'Working on recovery.' }],
+      mtimeSeconds: 1_700_000_000
+    })
+    const titles = createConversationTitleStore(join(home, 'titles.json'))
+    await titles.set('claude', 'claude-renamed', 'Crash-safe workspace recovery', 'manual')
+
+    const page = await createConversationHistory({
+      homeDirectory: home,
+      environment: {},
+      titles
+    }).list({ directories: [PROJECT] })
+
+    assert.equal(page.entries[0].title, 'Crash-safe workspace recovery')
   } finally {
     rmSync(home, { recursive: true, force: true })
   }

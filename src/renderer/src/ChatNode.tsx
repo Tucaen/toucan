@@ -46,6 +46,7 @@ import UnreadToggle from './UnreadToggle'
 import SessionUsageBar from './SessionUsageBar'
 import { ProviderRateLimitsContext } from './provider-rate-limits'
 import { describeSessionUsage } from './session-usage'
+import { deriveConversationTitle } from '../../shared/conversation-title'
 import VoiceInputPrototype from './VoiceInputPrototype'
 import { composerTextareaSize } from './composer-autosize'
 import {
@@ -1279,6 +1280,28 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
     onModel: (modelId) => data.onModelChange(id, modelId)
   })
   const { status, approval, detail, failure, messages, activities, plan, usage } = conversation
+  const [renaming, setRenaming] = useState(false)
+  const [titleDraft, setTitleDraft] = useState(data.label)
+  const [titleError, setTitleError] = useState(false)
+
+  useEffect(() => {
+    if (data.titleSource || !data.conversationId || status !== 'ready') return
+    const title = deriveConversationTitle(messages
+      .filter((message): message is AgentChatMessage & { role: 'user' | 'assistant' } => (
+        message.role === 'user' || message.role === 'assistant'
+      ))
+      .map(({ role, text }) => ({ role, text })))
+    if (title) void data.onTitleChange(id, title, 'generated').then((saved) => setTitleError(!saved))
+  }, [data, data.conversationId, data.titleSource, id, messages, status])
+
+  const commitTitle = (): void => {
+    const title = titleDraft.trim()
+    setRenaming(false)
+    if (title && title !== data.label) {
+      void data.onTitleChange(id, title, 'manual').then((saved) => setTitleError(!saved))
+    }
+    else setTitleDraft(data.label)
+  }
   // Account usage belongs to the provider, so it arrives from App's single poll rather than from
   // this node asking for it (see provider-rate-limits.ts).
   const rateLimits = useContext(ProviderRateLimitsContext)[provider] ?? null
@@ -1487,7 +1510,36 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
       <NodeBorderResizer minWidth={420} minHeight={320} selected={selected} color={data.projectColor} />
       <header className="node-header chat-node-header">
         <span className="status-dot" data-status={status} data-stalled={stalled} title={stalled ? 'No progress for a while — this session may be stuck' : undefined} />
-        <strong>{data.label}</strong>
+        {renaming ? (
+          <input
+            className="node-title-input nodrag"
+            aria-label="Conversation title"
+            autoFocus
+            value={titleDraft}
+            onChange={(event) => setTitleDraft(event.target.value)}
+            onBlur={commitTitle}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') commitTitle()
+              if (event.key === 'Escape') {
+                setTitleDraft(data.label)
+                setRenaming(false)
+              }
+            }}
+          />
+        ) : (
+          <strong title="Automatic titles are generated locally and cost no model tokens or account budget.">{data.label}</strong>
+        )}
+        <button
+          type="button"
+          className="node-title-rename nodrag"
+          aria-label="Rename conversation"
+          title="Rename conversation (manual names override automatic titles)"
+          onClick={() => {
+            setTitleDraft(data.label)
+            setRenaming(true)
+          }}
+        >✎</button>
+        {titleError && <span className="node-title-error" role="alert" title="The conversation title could not be saved.">!</span>}
         <span className="node-project" title={data.projectPath}><span className="project-color-dot" />{data.projectName}</span>
         <WorktreeBadge data={data} />
         {/* Model, effort and permission pickers live in the composer's toolbar - see

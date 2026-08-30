@@ -28,6 +28,7 @@ import type {
   WorktreeStatus
 } from '../shared/worktree'
 import type { ConversationListPage, ConversationListRequest } from '../shared/conversation'
+import type { ConversationTitle, ConversationTitleSource } from '../shared/conversation-title'
 
 export interface AgentApi {
   create(request: AgentCreateRequest): Promise<AgentCreateResult>
@@ -87,6 +88,7 @@ export interface ConversationApi {
   list(request: ConversationListRequest): Promise<ConversationListPage>
   /** Whether a listed transcript is still on disk. */
   exists(path: string): Promise<boolean>
+  setTitle(provider: 'claude' | 'codex', conversationId: string, title: string, source: ConversationTitleSource): Promise<ConversationTitle | null>
 }
 
 declare global {

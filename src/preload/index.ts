@@ -29,6 +29,7 @@ import type {
   WorktreeStatus
 } from '../shared/worktree'
 import type { ConversationListPage, ConversationListRequest } from '../shared/conversation'
+import type { ConversationTitleSource } from '../shared/conversation-title'
 
 const terminalApi = {
   getInitialProject: (): Promise<ProjectDirectory> => ipcRenderer.invoke('project:initial'),
@@ -133,7 +134,9 @@ contextBridge.exposeInMainWorld('worktreeApi', worktreeApi)
 const conversationApi = {
   list: (request: ConversationListRequest): Promise<ConversationListPage> =>
     ipcRenderer.invoke('conversation:list', request),
-  exists: (path: string): Promise<boolean> => ipcRenderer.invoke('conversation:exists', path)
+  exists: (path: string): Promise<boolean> => ipcRenderer.invoke('conversation:exists', path),
+  setTitle: (provider: 'claude' | 'codex', conversationId: string, title: string, source: ConversationTitleSource) =>
+    ipcRenderer.invoke('conversation:set-title', provider, conversationId, title, source)
 }
 
 contextBridge.exposeInMainWorld('conversationApi', conversationApi)

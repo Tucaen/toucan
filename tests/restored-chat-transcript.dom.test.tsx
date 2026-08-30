@@ -1,5 +1,5 @@
 import { ReactFlowProvider } from '@xyflow/react'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, test, vi } from 'vitest'
 import type { AgentProvider } from '../src/shared/agent'
 import type { WorkspaceState } from '../src/shared/terminal'
@@ -16,6 +16,7 @@ import { createMockAgentApi } from './dom/agent-api-mock'
 const callbacks: TerminalNodeCallbacks & WorktreeNodeCallbacks = {
   onStatusChange: vi.fn(),
   onConversationId: vi.fn(),
+  onTitleChange: vi.fn(async () => true),
   onPreview: vi.fn(),
   onFocusModeChange: vi.fn(),
   onDraftChange: vi.fn(),
@@ -130,4 +131,25 @@ describe.each(['claude', 'codex'] as const)('%s restored chat transcript', (prov
     expect(mock.api.prompt).not.toHaveBeenCalled()
     expect(mock.api.promptWhenIdle).not.toHaveBeenCalled()
   })
+})
+
+test('renames a conversation from its node header and marks the title manual', async () => {
+  const mock = createMockAgentApi({
+    create: vi.fn(async (request) => ({ ok: true, status: 'ready', sessionId: request.sessionId }))
+  })
+  window.agentApi = mock.api
+  const node = restoredChat('codex')
+  node.data.titleSource = 'generated'
+  renderNode(node)
+
+  fireEvent.click(await screen.findByRole('button', { name: 'Rename conversation' }))
+  const input = screen.getByRole('textbox', { name: 'Conversation title' })
+  fireEvent.change(input, { target: { value: 'Durable conversation titles' } })
+  fireEvent.keyDown(input, { key: 'Enter' })
+
+  expect(callbacks.onTitleChange).toHaveBeenCalledWith(
+    'codex-node',
+    'Durable conversation titles',
+    'manual'
+  )
 })

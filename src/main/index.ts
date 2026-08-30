@@ -9,6 +9,7 @@ import type { TerminalCreateRequest } from '../shared/terminal'
 import { createAcpSessionManager, type AcpSessionManager } from './acp-session-manager'
 import { createClaudeUsageReader } from './claude-usage'
 import { createConversationHistory, type ConversationHistory } from './conversation-history'
+import { createConversationTitleStore, type ConversationTitleStore } from './conversation-title-store'
 import { createCodexRateLimitReader } from './codex-rate-limits'
 import { createProviderUsage, type ProviderUsage } from './provider-usage'
 import { createSessionProviders, type SessionProviders } from './session-providers'
@@ -76,7 +77,7 @@ function registerTerminalIpc(
   })
 }
 
-function registerConversationIpc(history: ConversationHistory): void {
+function registerConversationIpc(history: ConversationHistory, titles: ConversationTitleStore): void {
   ipcMain.handle('conversation:list', (_event, request: unknown) => {
     const directories = (request as ConversationListRequest | undefined)?.directories
     if (!Array.isArray(directories) || directories.some((entry) => typeof entry !== 'string')) {
@@ -90,6 +91,11 @@ function registerConversationIpc(history: ConversationHistory): void {
   ipcMain.handle('conversation:exists', (_event, path: unknown) => (
     typeof path === 'string' ? history.exists(path) : Promise.resolve(false)
   ))
+  ipcMain.handle('conversation:set-title', (_event, provider: unknown, id: unknown, title: unknown, source: unknown) => {
+    if ((provider !== 'claude' && provider !== 'codex') || typeof id !== 'string' || typeof title !== 'string') return null
+    if (source !== 'generated' && source !== 'manual') return null
+    return titles.set(provider, id, title, source)
+  })
 }
 
 function registerWorktreeIpc(worktrees: WorktreeManager): void {
@@ -266,10 +272,12 @@ app.whenReady().then(() => {
 
   registerTerminalIpc(manager, providers, scrollback)
   registerAgentIpc(agentManager)
+  const conversationTitles = createConversationTitleStore(join(app.getPath('userData'), 'conversation-titles.json'))
   registerConversationIpc(createConversationHistory({
     homeDirectory: app.getPath('home'),
-    environment: process.env
-  }))
+    environment: process.env,
+    titles: conversationTitles
+  }), conversationTitles)
   registerWorktreeIpc(createWorktreeManager())
   registerUsageIpc(createProviderUsage({
     readers: {

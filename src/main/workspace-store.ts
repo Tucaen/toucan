@@ -67,6 +67,7 @@ function isWorkspaceTerminalNode(value: unknown): boolean {
     && node.kind !== undefined
     && ['terminal', 'claude', 'codex'].includes(node.kind)
     && typeof node.label === 'string'
+    && (node.titleSource === undefined || node.titleSource === 'generated' || node.titleSource === 'manual')
     && typeof node.projectId === 'string'
     && (node.worktreeId === undefined || typeof node.worktreeId === 'string')
     && typeof node.position?.x === 'number'

@@ -11,6 +11,7 @@ import type {
 import { RECENTLY_CLOSED_SESSION_LIMIT } from '../../shared/terminal'
 import type { WorkspaceWorktree } from '../../shared/worktree'
 import type { WorktreeHandoffPlan } from '../../shared/worktree-handoff'
+import type { ConversationTitleSource } from '../../shared/conversation-title'
 
 export type TerminalNodeStatus = 'dormant' | 'starting' | 'idle' | 'working' | 'result' | 'attention' | 'stalled' | 'exited'
 
@@ -25,6 +26,7 @@ export interface TerminalNodeCallbacks {
    */
   onAttention?(action: NodeAttentionAction): void
   onConversationId(nodeId: string, conversationId: string): void
+  onTitleChange(nodeId: string, title: string, source: ConversationTitleSource): Promise<boolean>
   onPreview(nodeId: string, preview: ConversationPreview): void
   onFocusModeChange(nodeId: string, enabled: boolean): void
   /** Persists unsent composer text so a draft outlives resize, collapse, and a workspace reload. */
@@ -46,6 +48,7 @@ export interface TerminalNodeData extends Record<string, unknown>, TerminalNodeC
   sessionId: string
   terminalLiveness: TerminalLiveness
   label: string
+  titleSource?: ConversationTitleSource
   projectId: string
   projectName: string
   projectPath: string
@@ -171,6 +174,7 @@ export function serializeCanvasNode(node: TerminalCanvasNode): WorkspaceTerminal
     ...(node.data.kind === 'terminal' ? { sessionId: node.data.sessionId } : {}),
     kind: node.data.kind,
     label: node.data.label,
+    ...(node.data.titleSource ? { titleSource: node.data.titleSource } : {}),
     projectId: node.data.projectId,
     ...(node.data.worktreeId ? { worktreeId: node.data.worktreeId } : {}),
     ...(node.data.activeWorktreeId ? { activeWorktreeId: node.data.activeWorktreeId } : {}),
@@ -231,6 +235,7 @@ function restoreTerminalCanvasNode(
       sessionId: savedNode.sessionId ?? savedNode.id,
       terminalLiveness,
       label: savedNode.label,
+      titleSource: savedNode.titleSource,
       projectId: project.id,
       projectName: project.name,
       projectPath: project.path,
@@ -256,6 +261,7 @@ function restoreTerminalCanvasNode(
       onStatusChange: callbacks.onStatusChange,
       onAttention: callbacks.onAttention,
       onConversationId: callbacks.onConversationId,
+      onTitleChange: callbacks.onTitleChange,
       onPreview: callbacks.onPreview,
       onFocusModeChange: callbacks.onFocusModeChange,
       onDraftChange: callbacks.onDraftChange,

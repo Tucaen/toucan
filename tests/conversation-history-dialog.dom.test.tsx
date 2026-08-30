@@ -67,6 +67,7 @@ test('shows what a conversation was, when it ran, and where', async () => {
 
   const row = await screen.findByRole('button', { name: /Rename the parser/ })
   expect(row.textContent?.replace(/\s+/g, ' ')).toContain('Codex · 1h ago · 1 message · ⑂ feature')
+  expect(screen.getByText(/use no model tokens/i)).toBeInTheDocument()
 })
 
 test('reads one page at a time and only asks for more on request', async () => {

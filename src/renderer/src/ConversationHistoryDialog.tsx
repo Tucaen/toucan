@@ -100,6 +100,7 @@ export default function ConversationHistoryDialog({
         <p>
           Every transcript this project and its worktrees recorded, newest first.
           {total > 0 && ` Showing ${entries.length} of ${total}.`}
+          {' '}Automatic titles are generated locally and use no model tokens or account budget.
         </p>
 
         {error && <p className="worktree-dialog-error">{error}</p>}

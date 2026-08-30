@@ -1,3 +1,5 @@
+import type { ConversationTitleSource } from './conversation-title'
+
 export type ConversationProvider = 'claude' | 'codex'
 
 export interface ConversationSummary {
@@ -8,6 +10,8 @@ export interface ConversationSummary {
   path: string
   /** The agent's own title when it recorded one, else an excerpt of the first user message. */
   title: string
+  /** Durable ADE metadata when present; provider transcript titles count as generated. */
+  titleSource?: ConversationTitleSource
   /** ISO timestamp of the last recorded turn, falling back to the file's mtime. */
   updatedAt: string
   /** User and assistant turns only; tool calls, meta records and sidechains are not counted. */
