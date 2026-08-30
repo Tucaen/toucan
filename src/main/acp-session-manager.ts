@@ -91,6 +91,8 @@ interface RunningAgent {
    * than leaving the composer's completion empty until the agent happens to publish again.
    */
   cachedCommands?: AgentCommand[]
+  /** Events emitted synchronously by `session/load`, held until `agent:create` returns. */
+  replayEvents?: AgentEvent[]
   pendingApprovals: Map<string, PendingApproval>
   busy: boolean
   stopping: boolean
@@ -344,6 +346,10 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
   const agents = new Map<string, RunningAgent>()
 
   const send = (running: RunningAgent, event: AgentEvent): void => {
+    if (running.replayEvents) {
+      running.replayEvents.push(event)
+      return
+    }
     if (!running.owner.isDestroyed()) running.owner.send('agent:event', { id: running.request.id, event })
   }
 
@@ -429,13 +435,21 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       }
       const skillsMeta = projectSkillsMeta(running.request.provider, running.request.cwd)
       let resumed = false
+      let replay: AgentEvent[] | undefined
       if (running.request.sessionId) {
-        const response = await running.context.request(methods.agent.session.load, {
-          sessionId: running.request.sessionId,
-          cwd: running.request.cwd,
-          mcpServers: [],
-          ...skillsMeta
-        })
+        replay = []
+        running.replayEvents = replay
+        let response
+        try {
+          response = await running.context.request(methods.agent.session.load, {
+            sessionId: running.request.sessionId,
+            cwd: running.request.cwd,
+            mcpServers: [],
+            ...skillsMeta
+          })
+        } finally {
+          running.replayEvents = undefined
+        }
         running.sessionId = running.request.sessionId
         configure(response)
         resumed = true
@@ -486,7 +500,8 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         ...(modes ? { modes } : {}),
         ...(models ? { models } : {}),
         ...(efforts ? { efforts } : {}),
-        ...(running.cachedCommands?.length ? { commands: running.cachedCommands } : {})
+        ...(running.cachedCommands?.length ? { commands: running.cachedCommands } : {}),
+        ...(replay?.length ? { replay } : {})
       }
     } catch (error) {
       if (isAuthRequired(error)) {

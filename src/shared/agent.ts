@@ -28,6 +28,12 @@ export interface AgentCreateResult {
   efforts?: AgentEffortState
   /** Commands already advertised by the time the session opened, so a reopen isn't left blank. */
   commands?: AgentCommand[]
+  /**
+   * Transcript events emitted while a persisted session was loading. Returning them with the
+   * create result makes replay atomic with session creation instead of racing a separate IPC
+   * event channel during renderer startup.
+   */
+  replay?: AgentEvent[]
   authMethods?: AgentAuthMethod[]
   /** Whether the agent's `initialize` handshake advertised `promptCapabilities.image`. */
   imageSupport?: boolean

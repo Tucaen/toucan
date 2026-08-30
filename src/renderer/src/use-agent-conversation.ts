@@ -272,7 +272,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     setImageSupport(false)
     setAttachments([])
     updateQueued(() => [])
-    const removeListener = window.agentApi.onEvent(options.id, (event: AgentEvent) => {
+    const handleEvent = (event: AgentEvent): void => {
       if (!active) return
       if (event.type === 'status') {
         setStatus(event.status === 'idle' ? 'ready' : event.status)
@@ -338,7 +338,8 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
       } else if (event.type === 'error') {
         setDetail(event.message)
       }
-    })
+    }
+    const removeListener = window.agentApi.onEvent(options.id, handleEvent)
     void window.agentApi.create({
       id: options.id,
       provider: options.provider,
@@ -350,6 +351,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
       effortId: options.effortId
     }).then((result) => {
       if (!active) return
+      for (const event of result.replay ?? []) handleEvent(event)
       if (result.sessionId) onSessionId.current(result.sessionId)
       if (result.authMethods) setAuthMethods(result.authMethods)
       if (result.modes) setModes(result.modes)
