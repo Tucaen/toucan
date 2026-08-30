@@ -8,7 +8,7 @@
 // src/shared/worktree.ts. That file is the source of truth; keep these in step.
 
 import { execFileSync } from 'node:child_process'
-import { cpSync, existsSync, readFileSync } from 'node:fs'
+import { cpSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 
 const args = process.argv.slice(2)
@@ -118,6 +118,27 @@ if (setupCommand) {
   }
 }
 
+// Leave a claim so ADE can link this worktree back to the node that asked for the work.
+// Purely a hint for a host that may not be there: any failure is silent.
+let claimed = false
+if (process.env.ADE_NODE_ID) {
+  try {
+    const claimsPath = join(commonDir, 'ade-worktree-claims.json')
+    const existing = existsSync(claimsPath)
+      ? JSON.parse(readFileSync(claimsPath, 'utf8'))
+      : []
+    const claims = Array.isArray(existing) ? existing : []
+    claims.push({
+      nodeId: process.env.ADE_NODE_ID,
+      path: target,
+      branch,
+      claimedAt: new Date().toISOString()
+    })
+    writeFileSync(claimsPath, JSON.stringify(claims, null, 2))
+    claimed = true
+  } catch { /* no host, or the claim could not be written */ }
+}
+
 console.log(JSON.stringify({
   ok: true,
   mode: 'create',
@@ -126,5 +147,6 @@ console.log(JSON.stringify({
   base,
   setupCommand,
   setup,
-  localConfig
+  localConfig,
+  claimed
 }))

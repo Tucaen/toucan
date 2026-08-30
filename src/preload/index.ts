@@ -21,6 +21,8 @@ import type {
 import type {
   WorktreeCreateRequest,
   WorktreeCreateResult,
+  WorktreeDiscoverRequest,
+  WorktreeDiscoverResult,
   WorktreeRemoveRequest,
   WorktreeRemoveResult,
   WorktreeStatus
@@ -117,7 +119,9 @@ const worktreeApi = {
   status: (request: { path: string; branch: string; baseRef: string }): Promise<WorktreeStatus> =>
     ipcRenderer.invoke('worktree:status', request),
   remove: (request: WorktreeRemoveRequest): Promise<WorktreeRemoveResult> =>
-    ipcRenderer.invoke('worktree:remove', request)
+    ipcRenderer.invoke('worktree:remove', request),
+  discover: (request: WorktreeDiscoverRequest): Promise<WorktreeDiscoverResult> =>
+    ipcRenderer.invoke('worktree:discover', request)
 }
 
 contextBridge.exposeInMainWorld('worktreeApi', worktreeApi)

@@ -17,7 +17,21 @@ export default function WorktreeBadge({ data }: { data: TerminalNodeData }): JSX
       </span>
     )
   }
-  if (!data.worktreeBranch) return null
+  if (!data.worktreeBranch) {
+    // A session that made a worktree without moving into it. The badge says "working in",
+    // never "runs in", because the node's own directory is still the project checkout.
+    if (!data.activeWorktreeBranch) return null
+    return (
+      <span
+        className="node-worktree"
+        data-active="true"
+        title={`Working in a worktree on ${data.activeWorktreeBranch}; this node still runs in ${data.workingDirectory}`}
+      >
+        <span className="worktree-glyph" aria-hidden="true">⑂</span>
+        {data.activeWorktreeBranch}
+      </span>
+    )
+  }
   return (
     <span className="node-worktree" title={`Runs in ${data.workingDirectory}`}>
       <span className="worktree-glyph" aria-hidden="true">⑂</span>

@@ -67,6 +67,11 @@ export interface WorkspaceTerminalNode {
    * which stays the default; a node references a worktree, it does not own one.
    */
   worktreeId?: string
+  /**
+   * A worktree this node started work in without running there: the session keeps its own
+   * working directory, so this is an association for the canvas, never a cwd.
+   */
+  activeWorktreeId?: string
   position: { x: number; y: number }
   width: number
   height: number

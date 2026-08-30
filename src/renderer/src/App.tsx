@@ -33,12 +33,14 @@ import {
   serializeWorktreeNode,
   type CanvasNode,
   type TerminalCanvasNode,
+  type TerminalNodeCallbacks,
   type TerminalNodeStatus,
   type WorktreeCanvasNode
 } from './canvas-workspace'
 import type { AgentRateLimitStatus, AgentRateLimitWindow, ProviderRateLimits } from '../../shared/agent'
 import type { WorktreeRemovalBlocker } from '../../shared/worktree'
 import { branchNameProblem, describeWorktreeBlocker, deriveWorktreeDirectory } from '../../shared/worktree'
+import { placeholderBranchName, type WorktreeHandoffPlan } from '../../shared/worktree-handoff'
 import { describeForcedRemovalCost, planWorktreeRemoval, type WorktreeRemovalPlan } from './worktree-removal'
 import type { ConversationSummary } from '../../shared/conversation'
 import ConversationHistoryDialog from './ConversationHistoryDialog'
@@ -77,6 +79,9 @@ interface WorktreeRemovalPrompt {
   busy: boolean
   error: string | null
 }
+
+/** How often ADE re-checks git for worktrees it has no record of. */
+const WORKTREE_SWEEP_INTERVAL_MS = 15000
 
 const nodeTypes: NodeTypes = { terminalNode: SessionNode, worktreeNode: WorktreeNode }
 
@@ -450,6 +455,14 @@ function Canvas(): JSX.Element {
   const projectsRef = useRef<Project[]>([])
   const permissionModesRef = useRef<AgentPermissionModes>({})
   const recentlyClosedNodesRef = useRef<WorkspaceTerminalNode[]>([])
+  // Held in a ref because the handler is declared after the node factories that hand it out,
+  // and because a node's stored callback must not go stale as the handler is recreated.
+  const handleWorktreeHandoffRef = useRef<TerminalNodeCallbacks['onWorktreeHandoff']>(undefined)
+  /** Stable identity for node data; reads the ref at call time so it can never go stale. */
+  const dispatchWorktreeHandoff = useCallback<NonNullable<TerminalNodeCallbacks['onWorktreeHandoff']>>(
+    (nodeId, request) => handleWorktreeHandoffRef.current?.(nodeId, request),
+    []
+  )
   nodesRef.current = nodes
   projectsRef.current = projects
   permissionModesRef.current = agentPermissionModes
@@ -491,7 +504,8 @@ function Canvas(): JSX.Element {
         onPermissionModeChange: handlePermissionModeChange,
         onModelChange: handleModelChange,
         onResume: resumeNode,
-        onTerminalLiveness: handleTerminalLiveness
+        onTerminalLiveness: handleTerminalLiveness,
+        onWorktreeHandoff: dispatchWorktreeHandoff
       }
     )
     recentlyClosedNodesRef.current = result.recentlyClosedNodes
@@ -508,7 +522,7 @@ function Canvas(): JSX.Element {
       [reopened.id]: reopened.data.dormant ? 'dormant' : 'starting'
     }))
     return true
-  }, [handleConversationId, handleDraftChange, handleFocusModeChange, handleModelChange, handlePermissionModeChange, handlePreview, handleStatusChange, handleTerminalLiveness, resumeNode, setNodes])
+  }, [dispatchWorktreeHandoff, handleConversationId, handleDraftChange, handleFocusModeChange, handleModelChange, handlePermissionModeChange, handlePreview, handleStatusChange, handleTerminalLiveness, resumeNode, setNodes])
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent): void => {
@@ -567,7 +581,8 @@ function Canvas(): JSX.Element {
           onPermissionModeChange: handlePermissionModeChange,
           onModelChange: handleModelChange,
           onResume: resumeNode,
-          onTerminalLiveness: handleTerminalLiveness
+          onTerminalLiveness: handleTerminalLiveness,
+          onWorktreeHandoff: dispatchWorktreeHandoff
         },
         style: { width: 520, height: 340 }
       }
@@ -660,6 +675,105 @@ function Canvas(): JSX.Element {
       })
   }, [clearRecentlyClosedNodes, findWorktreeNode, setNodes])
 
+  /**
+   * A prompt that asked for its own worktree. The worktree is made first and the session is
+   * started inside it, so the agent's working directory is the worktree from its first turn -
+   * the only arrangement in which the worktree is a writable root rather than a permission
+   * prompt on every edit. The branch is provisional: the skill renames it once it has read
+   * the work, which beats guessing a name from the prompt.
+   */
+  const handleWorktreeHandoff = useCallback((
+    nodeId: string,
+    request: WorktreeHandoffPlan
+  ): void => {
+    const node = nodesRef.current.filter(isTerminalCanvasNode).find((candidate) => candidate.id === nodeId)
+    const project = projectsRef.current.find((candidate) => candidate.id === node?.data.projectId)
+    if (!node || !project || node.data.kind === 'terminal') return
+
+    void window.worktreeApi
+      .create({ projectPath: project.path, branch: placeholderBranchName(new Date()) })
+      .then((result) => {
+        if (!result.ok || !result.worktree) {
+          // Nothing was created, so the prompt goes back to the composer it was typed in rather
+          // than being silently discarded, and the failure surfaces in the dialog that already
+          // exists for making a worktree by hand - which doubles as the retry.
+          handleDraftChange(nodeId, request.prompt)
+          setWorktreeDraft({
+            projectId: project.id,
+            branch: '',
+            baseRef: '',
+            position: { x: node.position.x, y: node.position.y + (node.height ?? 340) + 64 },
+            busy: false,
+            error: result.message ?? 'The worktree could not be created.'
+          })
+          return
+        }
+        const worktreeId = crypto.randomUUID()
+        const created = result.worktree
+        setNodes((current) => [
+          ...current.map((candidate) => ({ ...candidate, selected: false })),
+          {
+            id: `worktree:${worktreeId}`,
+            type: 'worktreeNode',
+            selected: false,
+            deletable: false,
+            position: { x: node.position.x, y: node.position.y + (node.height ?? 340) + 64 },
+            data: {
+              worktreeId,
+              branch: created.branch,
+              path: created.path,
+              baseRef: created.baseRef,
+              createdAt: new Date().toISOString(),
+              projectId: project.id,
+              projectName: project.name,
+              projectPath: project.path,
+              projectColor: project.color,
+              setupCommand: project.setupCommand,
+              attachedNodeCount: 0,
+              onRemoveWorktree: handleRemoveWorktree,
+              onCreateNodeInWorktree: handleCreateNodeInWorktree,
+              onRunSetupCommand: handleRunSetupCommand
+            },
+            style: { ...DEFAULT_WORKTREE_SIZE }
+          }
+        ])
+
+        if (request.mode !== 'rehome') {
+          openInWorktree(worktreeId, node.data.kind, request.prompt)
+          return
+        }
+
+        // Codex can load a conversation in a directory it did not start in, so the node itself
+        // moves rather than a second one appearing beside it - which keeps exactly one owner of
+        // the conversation. Changing `workingDirectory` restarts the session there (it is a
+        // dependency of the session effect), and `resume` makes that restart load the
+        // conversation rather than begin a new one.
+        setNodes((current) => current.map((candidate) => (
+          isTerminalCanvasNode(candidate) && candidate.id === nodeId
+            ? {
+              ...candidate,
+              data: {
+                ...candidate.data,
+                worktreeId,
+                worktreeBranch: created.branch,
+                workingDirectory: created.path,
+                launchMode: 'resume' as const,
+                initialInput: request.prompt
+              }
+            }
+            : candidate
+        )))
+      })
+  }, [
+    handleCreateNodeInWorktree,
+    handleDraftChange,
+    handleRemoveWorktree,
+    handleRunSetupCommand,
+    openInWorktree,
+    setNodes
+  ])
+  handleWorktreeHandoffRef.current = handleWorktreeHandoff
+
   const confirmWorktreeRemoval = useCallback((force: boolean): void => {
     const prompt = removalPrompt
     const worktreeNode = prompt ? findWorktreeNode(prompt.worktreeId) : undefined
@@ -725,6 +839,7 @@ function Canvas(): JSX.Element {
           onModelChange: handleModelChange,
           onResume: resumeNode,
           onTerminalLiveness: handleTerminalLiveness,
+          onWorktreeHandoff: dispatchWorktreeHandoff,
           onRemoveWorktree: handleRemoveWorktree,
           onCreateNodeInWorktree: handleCreateNodeInWorktree,
           onRunSetupCommand: handleRunSetupCommand
@@ -776,6 +891,86 @@ function Canvas(): JSX.Element {
       return changed ? next : current
     })
   }, [nodes, projects, setNodes])
+
+  /**
+   * Worktrees can appear without ADE creating them - an agent running the worktree skill, a
+   * plain `git worktree add` in a terminal. Discovery only ever adds records, so a worktree
+   * ADE already knows about, or one whose directory has gone, is left to the normal flows.
+   */
+  useEffect(() => {
+    if (!workspaceReady) return
+    let cancelled = false
+
+    const sweep = async (): Promise<void> => {
+      for (const project of projectsRef.current) {
+        const known = nodesRef.current
+          .filter(isWorktreeCanvasNode)
+          .filter((node) => node.data.projectId === project.id)
+          .map((node) => node.data.path)
+
+        const result = await window.worktreeApi
+          .discover({ projectPath: project.path, known })
+          .catch(() => null)
+        if (cancelled || !result || result.worktrees.length === 0) continue
+
+        setNodes((current) => {
+          const recorded = new Set(
+            current.filter(isWorktreeCanvasNode).map((node) => node.data.path.toLowerCase())
+          )
+          const fresh = result.worktrees.filter((worktree) => !recorded.has(worktree.path.toLowerCase()))
+          if (fresh.length === 0) return current
+
+          const claimed = new Map<string, string>()
+          const added = fresh.map((worktree, index) => {
+            const worktreeId = crypto.randomUUID()
+            if (worktree.claimedByNodeId) claimed.set(worktree.claimedByNodeId, worktreeId)
+            return {
+              id: `worktree:${worktreeId}`,
+              type: 'worktreeNode' as const,
+              deletable: false,
+              position: { x: 80, y: 80 + (recorded.size + index) * (DEFAULT_WORKTREE_SIZE.height + 48) },
+              data: {
+                worktreeId,
+                branch: worktree.branch,
+                path: worktree.path,
+                baseRef: worktree.baseRef,
+                createdAt: new Date().toISOString(),
+                projectId: project.id,
+                projectName: project.name,
+                projectPath: project.path,
+                projectColor: project.color,
+                setupCommand: project.setupCommand,
+                attachedNodeCount: 0,
+                onRemoveWorktree: handleRemoveWorktree,
+                onCreateNodeInWorktree: handleCreateNodeInWorktree,
+                onRunSetupCommand: handleRunSetupCommand
+              },
+              style: { ...DEFAULT_WORKTREE_SIZE }
+            }
+          })
+
+          const linked = claimed.size === 0
+            ? current
+            : current.map((node) => {
+              if (!isTerminalCanvasNode(node)) return node
+              const worktreeId = claimed.get(node.id)
+              if (!worktreeId) return node
+              const branch = added.find((candidate) => candidate.data.worktreeId === worktreeId)?.data.branch
+              return { ...node, data: { ...node.data, activeWorktreeId: worktreeId, activeWorktreeBranch: branch } }
+            })
+
+          return [...linked, ...added]
+        })
+      }
+    }
+
+    void sweep()
+    const timer = setInterval(() => void sweep(), WORKTREE_SWEEP_INTERVAL_MS)
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+    }
+  }, [handleCreateNodeInWorktree, handleRemoveWorktree, handleRunSetupCommand, setNodes, workspaceReady])
 
   useEffect(() => {
     if (!workspaceReady) return

@@ -9,6 +9,7 @@ import type {
 } from '../../shared/terminal'
 import { RECENTLY_CLOSED_SESSION_LIMIT } from '../../shared/terminal'
 import type { WorkspaceWorktree } from '../../shared/worktree'
+import type { WorktreeHandoffPlan } from '../../shared/worktree-handoff'
 
 export type TerminalNodeStatus = 'dormant' | 'starting' | 'idle' | 'working' | 'result' | 'attention' | 'stalled' | 'exited'
 
@@ -23,6 +24,12 @@ export interface TerminalNodeCallbacks {
   onModelChange(nodeId: string, modelId: string): void
   onResume(nodeId: string): void
   onTerminalLiveness?(nodeId: string, liveness: TerminalLiveness): void
+  /**
+   * A prompt that asked for its own worktree. The composer hands it up rather than dispatching
+   * it, so the work starts in a session whose working directory is the worktree from its first
+   * turn - which is the only way it can be granted as a writable root.
+   */
+  onWorktreeHandoff?(nodeId: string, request: WorktreeHandoffPlan): void
 }
 
 export interface TerminalNodeData extends Record<string, unknown>, TerminalNodeCallbacks {
@@ -38,6 +45,9 @@ export interface TerminalNodeData extends Record<string, unknown>, TerminalNodeC
   worktreeId?: string
   /** Shown on the node so it is always obvious which branch a session is editing. */
   worktreeBranch?: string
+  /** A worktree this node started work in but does not run in; drawn as a link, never a cwd. */
+  activeWorktreeId?: string
+  activeWorktreeBranch?: string
   /**
    * Where this session actually runs: the attached worktree's directory, or the project
    * checkout when unattached. This is the only value that should ever be sent as a cwd.
@@ -147,6 +157,7 @@ export function serializeCanvasNode(node: TerminalCanvasNode): WorkspaceTerminal
     label: node.data.label,
     projectId: node.data.projectId,
     ...(node.data.worktreeId ? { worktreeId: node.data.worktreeId } : {}),
+    ...(node.data.activeWorktreeId ? { activeWorktreeId: node.data.activeWorktreeId } : {}),
     position: node.position,
     width: size.width,
     height: size.height,
@@ -210,6 +221,10 @@ function restoreTerminalCanvasNode(
       projectColor: project.color,
       worktreeId: worktree?.id,
       worktreeBranch: worktree?.branch,
+      activeWorktreeId: savedNode.activeWorktreeId,
+      activeWorktreeBranch: savedNode.activeWorktreeId
+        ? workspace.worktrees.find((candidate) => candidate.id === savedNode.activeWorktreeId)?.branch
+        : undefined,
       workingDirectory: worktree?.path ?? project.path,
       detachedFromWorktree,
       conversationId: savedNode.conversationId,
@@ -230,7 +245,8 @@ function restoreTerminalCanvasNode(
       onPermissionModeChange: callbacks.onPermissionModeChange,
       onModelChange: callbacks.onModelChange,
       onResume: callbacks.onResume,
-      onTerminalLiveness: callbacks.onTerminalLiveness
+      onTerminalLiveness: callbacks.onTerminalLiveness,
+      onWorktreeHandoff: callbacks.onWorktreeHandoff
     },
     style: { width: savedNode.width, height: savedNode.height }
   }
