@@ -15,7 +15,7 @@ import { createSessionProviders, type SessionProviders } from './session-provide
 import { createTerminalManager, type TerminalManager } from './terminal-manager'
 import { createWorktreeManager, type WorktreeManager, type WorktreeStatusRequest } from './git-worktree'
 import { createWorkspaceStore } from './workspace-store'
-import type { WorktreeCreateRequest, WorktreeRemoveRequest } from '../shared/worktree'
+import type { WorktreeCreateRequest, WorktreeDiscoverRequest, WorktreeRemoveRequest } from '../shared/worktree'
 
 /**
  * Plan usage moves slowly and a Claude read boots a CLI, so this caps how often that happens
@@ -85,6 +85,7 @@ function registerWorktreeIpc(worktrees: WorktreeManager): void {
   ipcMain.handle('worktree:create', (_event, request: WorktreeCreateRequest) => worktrees.create(request))
   ipcMain.handle('worktree:status', (_event, request: WorktreeStatusRequest) => worktrees.status(request))
   ipcMain.handle('worktree:remove', (_event, request: WorktreeRemoveRequest) => worktrees.remove(request))
+  ipcMain.handle('worktree:discover', (_event, request: WorktreeDiscoverRequest) => worktrees.discover(request))
 }
 
 function registerUsageIpc(usage: ProviderUsage): void {

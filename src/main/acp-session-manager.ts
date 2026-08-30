@@ -695,7 +695,9 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         context: connection.agent,
         adapterPath: path,
         authMethods: [],
-        environment: process.env,
+        // The node's identity travels with the agent so work it starts outside ADE's sight -
+        // a worktree it creates for itself - can name the node that asked for it.
+        environment: { ...process.env, ADE_NODE_ID: request.id },
         cachedModels: request.provider === 'codex' && options.codexHome
           ? readCachedCodexModels(options.codexHome, request.modelId)
           : undefined,

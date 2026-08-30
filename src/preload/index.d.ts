@@ -20,6 +20,8 @@ import type {
 import type {
   WorktreeCreateRequest,
   WorktreeCreateResult,
+  WorktreeDiscoverRequest,
+  WorktreeDiscoverResult,
   WorktreeRemoveRequest,
   WorktreeRemoveResult,
   WorktreeStatus
@@ -71,6 +73,8 @@ export interface WorktreeApi {
   status(request: { path: string; branch: string; baseRef: string }): Promise<WorktreeStatus>
   /** Refuses with blockers unless the worktree is provably free of unique work, or force is set. */
   remove(request: WorktreeRemoveRequest): Promise<WorktreeRemoveResult>
+  /** Worktrees git knows about that the workspace has no record of yet. */
+  discover(request: WorktreeDiscoverRequest): Promise<WorktreeDiscoverResult>
 }
 
 export interface ConversationApi {

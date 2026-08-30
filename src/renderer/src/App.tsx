@@ -73,6 +73,9 @@ interface WorktreeRemovalPrompt {
   error: string | null
 }
 
+/** How often ADE re-checks git for worktrees it has no record of. */
+const WORKTREE_SWEEP_INTERVAL_MS = 15000
+
 const nodeTypes: NodeTypes = { terminalNode: SessionNode, worktreeNode: WorktreeNode }
 
 const labels: Record<TerminalKind, string> = {
@@ -701,6 +704,86 @@ function Canvas(): JSX.Element {
       return changed ? next : current
     })
   }, [nodes, projects, setNodes])
+
+  /**
+   * Worktrees can appear without ADE creating them - an agent running the worktree skill, a
+   * plain `git worktree add` in a terminal. Discovery only ever adds records, so a worktree
+   * ADE already knows about, or one whose directory has gone, is left to the normal flows.
+   */
+  useEffect(() => {
+    if (!workspaceReady) return
+    let cancelled = false
+
+    const sweep = async (): Promise<void> => {
+      for (const project of projectsRef.current) {
+        const known = nodesRef.current
+          .filter(isWorktreeCanvasNode)
+          .filter((node) => node.data.projectId === project.id)
+          .map((node) => node.data.path)
+
+        const result = await window.worktreeApi
+          .discover({ projectPath: project.path, known })
+          .catch(() => null)
+        if (cancelled || !result || result.worktrees.length === 0) continue
+
+        setNodes((current) => {
+          const recorded = new Set(
+            current.filter(isWorktreeCanvasNode).map((node) => node.data.path.toLowerCase())
+          )
+          const fresh = result.worktrees.filter((worktree) => !recorded.has(worktree.path.toLowerCase()))
+          if (fresh.length === 0) return current
+
+          const claimed = new Map<string, string>()
+          const added = fresh.map((worktree, index) => {
+            const worktreeId = crypto.randomUUID()
+            if (worktree.claimedByNodeId) claimed.set(worktree.claimedByNodeId, worktreeId)
+            return {
+              id: `worktree:${worktreeId}`,
+              type: 'worktreeNode' as const,
+              deletable: false,
+              position: { x: 80, y: 80 + (recorded.size + index) * (DEFAULT_WORKTREE_SIZE.height + 48) },
+              data: {
+                worktreeId,
+                branch: worktree.branch,
+                path: worktree.path,
+                baseRef: worktree.baseRef,
+                createdAt: new Date().toISOString(),
+                projectId: project.id,
+                projectName: project.name,
+                projectPath: project.path,
+                projectColor: project.color,
+                setupCommand: project.setupCommand,
+                attachedNodeCount: 0,
+                onRemoveWorktree: handleRemoveWorktree,
+                onCreateNodeInWorktree: handleCreateNodeInWorktree,
+                onRunSetupCommand: handleRunSetupCommand
+              },
+              style: { ...DEFAULT_WORKTREE_SIZE }
+            }
+          })
+
+          const linked = claimed.size === 0
+            ? current
+            : current.map((node) => {
+              if (!isTerminalCanvasNode(node)) return node
+              const worktreeId = claimed.get(node.id)
+              if (!worktreeId) return node
+              const branch = added.find((candidate) => candidate.data.worktreeId === worktreeId)?.data.branch
+              return { ...node, data: { ...node.data, activeWorktreeId: worktreeId, activeWorktreeBranch: branch } }
+            })
+
+          return [...linked, ...added]
+        })
+      }
+    }
+
+    void sweep()
+    const timer = setInterval(() => void sweep(), WORKTREE_SWEEP_INTERVAL_MS)
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+    }
+  }, [handleCreateNodeInWorktree, handleRemoveWorktree, handleRunSetupCommand, setNodes, workspaceReady])
 
   useEffect(() => {
     if (!workspaceReady) return

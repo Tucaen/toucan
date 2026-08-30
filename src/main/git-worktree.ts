@@ -1,15 +1,46 @@
 import { execFile } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import type {
+  WorktreeClaim,
   WorktreeCreateRequest,
   WorktreeCreateResult,
+  WorktreeDiscoverRequest,
+  WorktreeDiscoverResult,
   WorktreeRemovalBlocker,
   WorktreeRemoveRequest,
   WorktreeRemoveResult,
   WorktreeStatus
 } from '../shared/worktree'
-import { branchNameProblem, deriveWorktreeDirectory, isForcibleBlocker } from '../shared/worktree'
+import {
+  WORKTREE_CLAIMS_FILE,
+  branchNameProblem,
+  deriveWorktreeDirectory,
+  discoverWorktrees,
+  isForcibleBlocker,
+  parseWorktreeList
+} from '../shared/worktree'
 import { errorMessage } from '../shared/text'
+
+/**
+ * Claims are a hint written by an agent, so every failure mode - missing file, malformed
+ * JSON, an entry of the wrong shape - costs the association and nothing else.
+ */
+function readClaims(path: string): WorktreeClaim[] {
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'))
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter((claim): claim is WorktreeClaim => (
+      Boolean(claim)
+      && typeof claim === 'object'
+      && typeof (claim as WorktreeClaim).nodeId === 'string'
+      && typeof (claim as WorktreeClaim).path === 'string'
+      && typeof (claim as WorktreeClaim).branch === 'string'
+    ))
+  } catch {
+    return []
+  }
+}
 
 export interface GitResult {
   code: number
@@ -39,6 +70,12 @@ export interface WorktreeManager {
    * untracked files - which is exactly what the returned blockers name.
    */
   remove(request: WorktreeRemoveRequest): Promise<WorktreeRemoveResult>
+  /**
+   * Every worktree git knows about that the workspace has no record of, plus any authorship
+   * claim an agent left behind. Read-only and best-effort: a repository that cannot be
+   * inspected reports nothing rather than failing the caller.
+   */
+  discover(request: WorktreeDiscoverRequest): Promise<WorktreeDiscoverResult>
 }
 
 const GIT_MAX_BUFFER = 8 * 1024 * 1024
@@ -269,6 +306,30 @@ export function createWorktreeManager(options: WorktreeManagerOptions = {}): Wor
         return { ok: true, blockers: [] }
       } catch (error) {
         return { ok: false, blockers: [{ kind: 'inspection-failed', detail: errorMessage(error) }] }
+      }
+    },
+
+    async discover(request): Promise<WorktreeDiscoverResult> {
+      try {
+        const listed = await runGit(['worktree', 'list', '--porcelain'], request.projectPath)
+        if (listed.code !== 0) {
+          return { worktrees: [], message: listed.stderr.trim() || 'git worktree list failed' }
+        }
+
+        const commonDir = await readCommonDir(request.projectPath)
+        const claims = commonDir ? readClaims(join(commonDir, WORKTREE_CLAIMS_FILE)) : []
+        const defaultBranch = await resolveBaseRef(request.projectPath)
+
+        return {
+          worktrees: discoverWorktrees(
+            parseWorktreeList(listed.stdout),
+            request.known.map((path) => ({ path })),
+            claims,
+            defaultBranch
+          )
+        }
+      } catch (error) {
+        return { worktrees: [], message: errorMessage(error) }
       }
     }
   }

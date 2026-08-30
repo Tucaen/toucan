@@ -37,6 +37,9 @@ export interface TerminalNodeData extends Record<string, unknown>, TerminalNodeC
   worktreeId?: string
   /** Shown on the node so it is always obvious which branch a session is editing. */
   worktreeBranch?: string
+  /** A worktree this node started work in but does not run in; drawn as a link, never a cwd. */
+  activeWorktreeId?: string
+  activeWorktreeBranch?: string
   /**
    * Where this session actually runs: the attached worktree's directory, or the project
    * checkout when unattached. This is the only value that should ever be sent as a cwd.
@@ -118,6 +121,7 @@ export function serializeCanvasNode(node: TerminalCanvasNode): WorkspaceTerminal
     label: node.data.label,
     projectId: node.data.projectId,
     ...(node.data.worktreeId ? { worktreeId: node.data.worktreeId } : {}),
+    ...(node.data.activeWorktreeId ? { activeWorktreeId: node.data.activeWorktreeId } : {}),
     position: node.position,
     width: size.width,
     height: size.height,
@@ -217,6 +221,8 @@ export function restoreCanvasWorkspace(
         projectColor: project.color,
         worktreeId: worktree?.id,
         worktreeBranch: worktree?.branch,
+        activeWorktreeId: savedNode.activeWorktreeId,
+        activeWorktreeBranch: savedNode.activeWorktreeId ? worktreesById.get(savedNode.activeWorktreeId)?.branch : undefined,
         workingDirectory: worktree?.path ?? project.path,
         detachedFromWorktree,
         conversationId: savedNode.conversationId,

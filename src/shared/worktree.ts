@@ -174,3 +174,120 @@ export function branchNameProblem(branch: string): string | null {
   if (!worktreeDirectorySlug(value)) return 'Branch name has no usable characters'
   return null
 }
+
+/**
+ * A worktree as git reports it, before ADE knows whether it has a record for it.
+ * `isMain` marks the project checkout itself, which is never a worktree node.
+ */
+export interface WorktreeListEntry {
+  path: string
+  branch: string
+  head: string
+  isMain: boolean
+}
+
+/**
+ * A note left by an agent that created a worktree for itself, so the node that asked for
+ * the work can be linked to it. Written by the agent, never by ADE, so it is read as a
+ * hint: an unmatched or stale claim only costs the association, never the worktree record.
+ */
+export interface WorktreeClaim {
+  nodeId: string
+  path: string
+  branch: string
+  claimedAt: string
+}
+
+/** A worktree git knows about that ADE has no record of yet. */
+export interface DiscoveredWorktree {
+  path: string
+  branch: string
+  baseRef: string
+  /** The node that claimed authorship, when a claim matches this path. */
+  claimedByNodeId?: string
+}
+
+/** Paths come back from git with forward slashes even on Windows, so compare on one shape. */
+function comparablePath(value: string): string {
+  return value.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+}
+
+/**
+ * The difference between what git has and what the workspace records. Discovery only ever
+ * adds: a worktree ADE does not know about becomes a node, while a record whose directory
+ * has vanished is left alone for the evidence-gated teardown to handle. `baseRef` cannot be
+ * recovered from git's worktree list, so discovered worktrees inherit the repository's
+ * default branch - enough for teardown to ask "is this merged back?".
+ */
+export function discoverWorktrees(
+  listed: readonly WorktreeListEntry[],
+  known: readonly { path: string }[],
+  claims: readonly WorktreeClaim[],
+  defaultBranch: string
+): DiscoveredWorktree[] {
+  const recorded = new Set(known.map((worktree) => comparablePath(worktree.path)))
+  const claimedBy = new Map(claims.map((claim) => [comparablePath(claim.path), claim.nodeId]))
+
+  return listed
+    .filter((entry) => !entry.isMain && entry.branch && !recorded.has(comparablePath(entry.path)))
+    .map((entry) => ({
+      path: entry.path,
+      branch: entry.branch,
+      baseRef: defaultBranch,
+      claimedByNodeId: claimedBy.get(comparablePath(entry.path))
+    }))
+}
+
+/**
+ * `git worktree list --porcelain` emits one blank-line-separated block per worktree, the
+ * first being the main checkout. A detached worktree has no branch and is skipped by
+ * discovery rather than guessed at.
+ */
+export function parseWorktreeList(porcelain: string): WorktreeListEntry[] {
+  const entries: WorktreeListEntry[] = []
+  let current: Partial<WorktreeListEntry> = {}
+
+  const flush = (): void => {
+    if (current.path) {
+      entries.push({
+        path: current.path,
+        branch: current.branch ?? '',
+        head: current.head ?? '',
+        isMain: entries.length === 0
+      })
+    }
+    current = {}
+  }
+
+  for (const line of porcelain.split(/\r?\n/)) {
+    if (!line.trim()) {
+      flush()
+      continue
+    }
+    const [key, ...rest] = line.split(' ')
+    const value = rest.join(' ')
+    if (key === 'worktree') current.path = value
+    if (key === 'HEAD') current.head = value
+    if (key === 'branch') current.branch = value.replace(/^refs\/heads\//, '')
+  }
+  flush()
+
+  return entries
+}
+
+export interface WorktreeDiscoverRequest {
+  projectPath: string
+  /** Worktree paths the workspace already has records for. */
+  known: string[]
+}
+
+export interface WorktreeDiscoverResult {
+  worktrees: DiscoveredWorktree[]
+  message?: string
+}
+
+/**
+ * Claims live in the repository's common git directory, so every worktree of the same
+ * repository reads and writes one file, and nothing lands in the user's global config.
+ */
+export const WORKTREE_CLAIMS_FILE = 'ade-worktree-claims.json'
