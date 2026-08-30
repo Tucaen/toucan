@@ -13,6 +13,7 @@ import { createCodexRateLimitReader } from './codex-rate-limits'
 import { createProviderUsage, type ProviderUsage } from './provider-usage'
 import { createSessionProviders, type SessionProviders } from './session-providers'
 import { createTerminalManager, type TerminalManager } from './terminal-manager'
+import { createTerminalScrollbackStore, type TerminalScrollbackStore } from './terminal-scrollback-store'
 import { createWorktreeManager, type WorktreeManager, type WorktreeStatusRequest } from './git-worktree'
 import { createWorkspaceStore } from './workspace-store'
 import type { WorktreeCreateRequest, WorktreeDiscoverRequest, WorktreeRemoveRequest } from '../shared/worktree'
@@ -48,7 +49,11 @@ function findCommand(command: string): string | null {
   }
 }
 
-function registerTerminalIpc(manager: TerminalManager, providers: SessionProviders): void {
+function registerTerminalIpc(
+  manager: TerminalManager,
+  providers: SessionProviders,
+  scrollback: TerminalScrollbackStore
+): void {
   ipcMain.handle('terminal:preview', (_event, kind: unknown, conversationId: unknown) => {
     if ((kind !== 'claude' && kind !== 'codex') || typeof conversationId !== 'string') return null
     return providers.getConversationPreview(kind, conversationId)
@@ -63,6 +68,12 @@ function registerTerminalIpc(manager: TerminalManager, providers: SessionProvide
   ipcMain.on('terminal:kill', (_event, sessionId: string, incarnationId: string, attachmentId: string) => (
     manager.kill(sessionId, incarnationId, attachmentId)
   ))
+  ipcMain.handle('terminal:scrollback', (_event, sessionId: unknown) => (
+    typeof sessionId === 'string' ? scrollback.load(sessionId) : null
+  ))
+  ipcMain.handle('terminal:scrollback-remove', (_event, sessionId: unknown) => {
+    return typeof sessionId === 'string' && scrollback.remove(sessionId)
+  })
 }
 
 function registerConversationIpc(history: ConversationHistory): void {
@@ -234,8 +245,12 @@ app.whenReady().then(() => {
     environment: process.env,
     resolveCommand: findCommand
   })
+  const scrollback = createTerminalScrollbackStore({
+    directory: join(app.getPath('userData'), 'terminal-scrollback')
+  })
   const manager = createTerminalManager({
     providers,
+    scrollback,
     spawn: (launch, request, cwd) => spawn(launch.executable, launch.args, {
       name: 'xterm-256color',
       cols: Math.max(2, request.cols),
@@ -249,7 +264,7 @@ app.whenReady().then(() => {
     codexHome
   })
 
-  registerTerminalIpc(manager, providers)
+  registerTerminalIpc(manager, providers, scrollback)
   registerAgentIpc(agentManager)
   registerConversationIpc(createConversationHistory({
     homeDirectory: app.getPath('home'),

@@ -15,6 +15,8 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
   const incarnationRef = useRef<string | null>(null)
   const attentionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [hasSelection, setHasSelection] = useState(false)
+  const [scrollbackState, setScrollbackState] = useState<'loading' | 'available' | 'missing'>('loading')
+  const hasRestoredScrollback = scrollbackState === 'available'
 
   selectedRef.current = selected
 
@@ -36,6 +38,58 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
   useEffect(() => {
     if (selected && !data.dormant) acknowledgeActivity()
   }, [data.dormant, selected])
+
+  useEffect(() => {
+    if (!data.dormant || !hostRef.current) return
+
+    let active = true
+    setScrollbackState('loading')
+    const terminal = new Terminal({
+      cursorBlink: false,
+      cursorStyle: 'bar',
+      fontFamily: 'Cascadia Code, CaskaydiaCove Nerd Font, Consolas, monospace',
+      fontSize: 15,
+      lineHeight: 1.18,
+      scrollback: 5000,
+      disableStdin: true,
+      theme: {
+        background: '#101319', foreground: '#d9dee8', cursor: '#101319', selectionBackground: '#394456'
+      }
+    })
+    terminalRef.current = terminal
+    const fitAddon = new FitAddon()
+    terminal.loadAddon(fitAddon)
+    terminal.open(hostRef.current)
+    const resizeObserver = new ResizeObserver(() => {
+      try { fitAddon.fit() } catch { /* The canvas may be between layout frames. */ }
+    })
+    resizeObserver.observe(hostRef.current)
+    try { fitAddon.fit() } catch { /* The node may not have completed layout. */ }
+
+    const historyRequest = window.terminalApi.scrollback?.(data.sessionId)
+    if (historyRequest) void historyRequest.then((snapshot) => {
+      if (!active) return
+      if (!snapshot || snapshot.sessionId !== data.sessionId) {
+        setScrollbackState('missing')
+        return
+      }
+      terminal.write(snapshot.data)
+      if (snapshot.truncated || snapshot.incomplete) {
+        terminal.write('\r\n\x1b[33m[Earlier output was truncated or incomplete.]\x1b[0m\r\n')
+      }
+      setScrollbackState('available')
+    }).catch(() => {
+      if (active) setScrollbackState('missing')
+    })
+    else setScrollbackState('missing')
+
+    return () => {
+      active = false
+      resizeObserver.disconnect()
+      terminalRef.current = null
+      terminal.dispose()
+    }
+  }, [data.dormant, data.sessionId])
 
   useEffect(() => {
     if (data.dormant || !hostRef.current) return
@@ -217,7 +271,7 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
         }}
       >
         {data.dormant && (
-          <div className="dormant-session">
+          <div className={`dormant-session ${hasRestoredScrollback ? 'dormant-session-with-history' : ''}`}>
             <span className="dormant-session-icon">&gt;_</span>
             <strong>{data.terminalLiveness === 'exited' ? 'Terminal exited' : 'Terminal liveness unverifiable'}</strong>
             <small>
@@ -225,6 +279,8 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
                 ? 'The process owner confirmed that the previous shell exited.'
                 : 'ADE has no authoritative process-owner evidence that this shell exited.'}
             </small>
+            {hasRestoredScrollback && <small>Showing retained output from the previous process below. History is display-only.</small>}
+            {scrollbackState === 'missing' && <small>Retained output is missing, expired, corrupt, or could not be read.</small>}
             <button
               type="button"
               className="resume-session nodrag"

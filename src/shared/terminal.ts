@@ -134,6 +134,16 @@ export interface TerminalOutput {
   data: string
 }
 
+/** Display-only retained output. It is never evidence that the process is reachable or writable. */
+export interface TerminalScrollbackSnapshot {
+  sessionId: string
+  incarnationId: string
+  data: string
+  capturedAt: number
+  truncated: boolean
+  incomplete: boolean
+}
+
 export interface TerminalExit {
   sessionId: string
   incarnationId: string

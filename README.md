@@ -43,6 +43,7 @@ This creates the x64 portable executable at `dist/ADE-0.1.0-portable-x64.exe`. I
 - `src/main/workspace-store.ts` owns workspace validation, migration, loading, and saving behind one store interface.
 - `src/main/session-providers.ts` hides Claude/Codex launch arguments, session discovery, transcript lookup, and preview parsing behind one provider interface.
 - `src/main/terminal-manager.ts` owns PTY processes, renderer ownership, Codex discovery polling, and shutdown behavior behind one lifecycle interface.
+- `src/main/terminal-scrollback-store.ts` owns incarnation-scoped terminal history, its 512 KiB/seven-day retention bounds, and deletion.
 - `src/renderer/src/canvas-workspace.ts` converts between persisted workspace nodes and live canvas nodes.
 
 `node-pty` 1.1.0 ships Windows x64 prebuilt native binaries, which are unpacked from the application archive. Packaging intentionally skips a source rebuild so contributors do not need Python and Visual Studio Build Tools merely to produce this Windows prototype.
@@ -51,7 +52,7 @@ The current folder starts as the first project. Use **Add project** in the left 
 
 Projects, their colors, the active creation target, sidebar state, and terminal-node geometry are automatically saved to `prototype-workspace.json` in Electron's user-data folder. Empty projects can be removed from the sidebar; delete their nodes first when necessary.
 
-After restarting ADE, saved nodes appear dormant. **Resume conversation** continues the matching Claude or Codex chat using the provider's locally saved session. Plain terminal nodes reopen a fresh shell in the same project folder. Until a process owner reconnects, a terminal whose exit was not previously confirmed is marked **Unverifiable**, not **Exited**.
+After restarting ADE, saved nodes appear dormant. **Resume conversation** continues the matching Claude or Codex chat using the provider's locally saved session. Plain terminal nodes show up to 512 KiB of the previous shell incarnation's retained output for up to seven days, then **Reopen shell** starts a fresh process in the same project folder. Retained output preserves terminal control data but is display-only: it never makes the old process live or authorizes input. ADE labels bounded/incomplete history, ignores corrupt snapshots, replaces history when a new incarnation starts, and deletes it when the terminal node is removed (including when it moves into Recently Closed). Until a process owner reconnects, a terminal whose exit was not previously confirmed is marked **Unverifiable**, not **Exited**.
 
 Dormant agent nodes show locally cached excerpts of the latest user and assistant messages. ADE reads these from the providers' existing transcript files after terminal output settles; generating the preview does not call a model or consume tokens.
 

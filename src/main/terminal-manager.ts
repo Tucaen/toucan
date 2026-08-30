@@ -5,6 +5,7 @@ import type { TerminalCreateRequest, TerminalCreateResult, TerminalLiveness } fr
 import type { SessionLaunch, SessionProviders } from './session-providers'
 import { sendTerminalEvent, type TerminalEventOwner } from './terminal-events'
 import { errorMessage } from '../shared/text'
+import type { TerminalScrollbackStore } from './terminal-scrollback-store'
 
 export interface TerminalProcess {
   onData(listener: (data: string) => void): unknown
@@ -29,6 +30,7 @@ export interface TerminalManagerOptions {
   pathExists?(path: string): boolean
   pathIsDirectory?(path: string): boolean
   createIncarnationId?(): string
+  scrollback?: TerminalScrollbackStore
 }
 
 export interface TerminalManager {
@@ -100,7 +102,11 @@ export function createTerminalManager(options: TerminalManagerOptions): Terminal
         }
         terminals.set(sessionId, running)
         lastStates.set(sessionId, { incarnationId, liveness: 'live' })
+        options.scrollback?.begin(sessionId, incarnationId)
         terminal.onData((data) => {
+          if (terminals.get(sessionId) === running) {
+            options.scrollback?.append(sessionId, incarnationId, data)
+          }
           if (terminals.get(sessionId) === running && running.owner) {
             sendTerminalEvent(running.owner, 'terminal:data', {
               sessionId, incarnationId, attachmentId: running.attachmentId, data

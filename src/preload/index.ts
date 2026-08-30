@@ -14,6 +14,7 @@ import type {
   TerminalCreateResult,
   TerminalExit,
   TerminalOutput,
+  TerminalScrollbackSnapshot,
   WorkspaceLoadResult,
   WorkspaceSaveResult,
   WorkspaceState
@@ -47,6 +48,9 @@ const terminalApi = {
     ipcRenderer.send('terminal:resize', sessionId, incarnationId, cols, rows),
   kill: (sessionId: string, incarnationId: string, attachmentId: string): void =>
     ipcRenderer.send('terminal:kill', sessionId, incarnationId, attachmentId),
+  scrollback: (sessionId: string): Promise<TerminalScrollbackSnapshot | null> =>
+    ipcRenderer.invoke('terminal:scrollback', sessionId),
+  removeScrollback: (sessionId: string): Promise<boolean> => ipcRenderer.invoke('terminal:scrollback-remove', sessionId),
   copyText: (text: string): void => clipboard.writeText(text),
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke('shell:open-external', url),
   showItemInFolder: (path: string): Promise<void> => ipcRenderer.invoke('shell:show-item-in-folder', path),

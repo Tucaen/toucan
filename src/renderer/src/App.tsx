@@ -477,6 +477,17 @@ function Canvas(): JSX.Element {
     const removedIds = new Set(changes.flatMap((change) => change.type === 'remove' ? [change.id] : []))
     if (removedIds.size > 0) {
       const removedNodes = nodesRef.current.filter((node) => removedIds.has(node.id))
+      for (const node of removedNodes) {
+        if (isTerminalCanvasNode(node) && node.data.kind === 'terminal') {
+          void window.terminalApi.removeScrollback(node.data.sessionId).then((removed) => {
+            if (!removed) {
+              window.alert('ADE could not remove this terminal’s retained output. It may still exist in the app data folder.')
+            }
+          }).catch(() => {
+            window.alert('ADE could not verify removal of this terminal’s retained output. It may still exist in the app data folder.')
+          })
+        }
+      }
       const next = rememberClosedSessionNodes(recentlyClosedNodesRef.current, removedNodes)
       recentlyClosedNodesRef.current = next
       setRecentlyClosedNodes(next)
