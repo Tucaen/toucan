@@ -125,6 +125,11 @@ export interface AgentConversationController {
   status: AgentChatStatus
   usage: AgentUsage | null
   detail?: string
+  /**
+   * The last reported failure, kept apart from `detail` (which any status message overwrites) so
+   * a genuine error stays identifiable long enough to become an attention record.
+   */
+  failure: string | null
   draft: string
   /** Whether the running agent's ACP handshake advertised support for image content blocks. */
   imageSupport: boolean
@@ -172,6 +177,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
   const [efforts, setEfforts] = useState<AgentEffortState | null>(null)
   const [commands, setCommands] = useState<AgentCommand[]>([])
   const [status, setStatus] = useState<AgentChatStatus>('starting')
+  const [failure, setFailure] = useState<string | null>(null)
   const [usage, setUsage] = useState<AgentUsage | null>(null)
   const [detail, setDetail] = useState<string>()
   const [draft, setDraft] = useState('')
@@ -269,6 +275,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     setStatus('starting')
     setUsage(null)
     setDetail(undefined)
+    setFailure(null)
     setImageSupport(false)
     setAttachments([])
     updateQueued(() => [])
@@ -337,6 +344,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
         setUsage((current) => mergeSessionUsage(current, { used: event.used, size: event.size, cost: event.cost }))
       } else if (event.type === 'error') {
         setDetail(event.message)
+        setFailure(event.message)
       }
     }
     const removeListener = window.agentApi.onEvent(options.id, handleEvent)
@@ -621,6 +629,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     status,
     usage,
     detail,
+    failure,
     draft,
     imageSupport,
     attachments,

@@ -1,4 +1,5 @@
 import type { AgentProvider } from './agent'
+import type { AttentionItem } from './attention'
 import type { WorkspaceWorktree } from './worktree'
 
 export type TerminalKind = 'terminal' | 'claude' | 'codex'
@@ -98,6 +99,12 @@ export interface WorkspaceState {
   nodes: WorkspaceTerminalNode[]
   /** Bounded LIFO history used by Ctrl+Shift+T; callbacks are rebuilt when an entry is reopened. */
   recentlyClosedNodes?: WorkspaceTerminalNode[]
+  /**
+   * The durable unread model behind every attention count (see `shared/attention.ts`). Persisted
+   * so an approval, sign-in request, result, or failure is still waiting after a restart; records
+   * whose node no longer exists are pruned on load.
+   */
+  attention?: AttentionItem[]
   worktrees: WorkspaceWorktree[]
 }
 

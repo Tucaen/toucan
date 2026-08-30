@@ -1,4 +1,5 @@
 import type { Node } from '@xyflow/react'
+import type { AttentionAction, AttentionKind } from '../../shared/attention'
 import type {
   AgentPermissionModes,
   ConversationPreview,
@@ -13,8 +14,16 @@ import type { WorktreeHandoffPlan } from '../../shared/worktree-handoff'
 
 export type TerminalNodeStatus = 'dormant' | 'starting' | 'idle' | 'working' | 'result' | 'attention' | 'stalled' | 'exited'
 
+/** What a node reports about its own attention; the reducer that consumes it lives in shared/attention.ts. */
+export type NodeAttentionAction = AttentionAction
+
 export interface TerminalNodeCallbacks {
   onStatusChange(nodeId: string, status: TerminalNodeStatus): void
+  /**
+   * The single channel every surface uses to report or clear attention. Optional so a node can
+   * be rendered in isolation (tests, storybook-style harnesses) without a workspace behind it.
+   */
+  onAttention?(action: NodeAttentionAction): void
   onConversationId(nodeId: string, conversationId: string): void
   onPreview(nodeId: string, preview: ConversationPreview): void
   onFocusModeChange(nodeId: string, enabled: boolean): void
@@ -63,6 +72,13 @@ export interface TerminalNodeData extends Record<string, unknown>, TerminalNodeC
   preferredPermissionMode?: string
   modelId?: string
   dormant: boolean
+  /**
+   * How many attention records on this node are still unread. Pushed down from the workspace so
+   * the node's own indicator, the sidebar, and the header all read the same number.
+   */
+  unread?: number
+  /** The most blocking of those unread records, so a node's own dot can say which kind it is. */
+  unreadKind?: AttentionKind
   launchMode: 'new' | 'resume'
   /** Written into the shell on first start; carries a project's setup command. */
   initialInput?: string
@@ -238,6 +254,7 @@ function restoreTerminalCanvasNode(
       dormant,
       launchMode: 'resume',
       onStatusChange: callbacks.onStatusChange,
+      onAttention: callbacks.onAttention,
       onConversationId: callbacks.onConversationId,
       onPreview: callbacks.onPreview,
       onFocusModeChange: callbacks.onFocusModeChange,

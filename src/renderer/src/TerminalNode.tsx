@@ -3,7 +3,9 @@ import { type NodeProps } from '@xyflow/react'
 import { FitAddon } from '@xterm/addon-fit'
 import { Terminal } from '@xterm/xterm'
 import type { TerminalCanvasNode } from './canvas-workspace'
+import { READ_ON_VIEW_KINDS } from '../../shared/attention'
 import NodeBorderResizer from './NodeBorderResizer'
+import UnreadToggle from './UnreadToggle'
 import { CanvasTerminalLiveness } from './TerminalLivenessPresentation'
 import WorktreeBadge from './WorktreeBadge'
 
@@ -14,6 +16,14 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
   const exitedRef = useRef(false)
   const incarnationRef = useRef<string | null>(null)
   const attentionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  /**
+   * Which burst of output the current attention record belongs to. Output is a condition that
+   * genuinely recurs, and an already-read record is never resurrected (see shared/attention.ts),
+   * so acknowledging the terminal opens the next burst under a new key. Everything written in
+   * between - however much of it - folds into that one record.
+   */
+  const outputBurstRef = useRef(0)
+  const unreadHoldRef = useRef(false)
   const [hasSelection, setHasSelection] = useState(false)
   const [scrollbackState, setScrollbackState] = useState<'loading' | 'available' | 'missing'>('loading')
   const hasRestoredScrollback = scrollbackState === 'available'
@@ -25,8 +35,19 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
     attentionTimerRef.current = null
   }
 
+  /**
+   * Every path that reads this terminal has to go through here. The burst counter is what lets
+   * later output raise attention again (a read record is never resurrected under the same key),
+   * so a read that skipped it would silence the terminal for the rest of the incarnation.
+   */
+  const markRead = (): void => {
+    outputBurstRef.current += 1
+    data.onAttention?.({ type: 'read', nodeId: id, kinds: READ_ON_VIEW_KINDS })
+  }
+
   const acknowledgeActivity = (): void => {
     clearAttentionTimer()
+    if (!unreadHoldRef.current) markRead()
     if (!data.dormant && !exitedRef.current) data.onStatusChange(id, 'idle')
   }
 
@@ -36,6 +57,7 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
   }
 
   useEffect(() => {
+    if (!selected) unreadHoldRef.current = false
     if (selected && !data.dormant) acknowledgeActivity()
   }, [data.dormant, selected])
 
@@ -133,8 +155,21 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
       terminal.write(output.data)
       clearAttentionTimer()
       if (!selectedRef.current) {
+        // The debounce keeps a chatty command from raising anything until it pauses; the burst
+        // key then keeps everything after that pause inside one record.
         attentionTimerRef.current = setTimeout(() => {
-          if (!selectedRef.current && !exitedRef.current) data.onStatusChange(id, 'attention')
+          if (selectedRef.current || exitedRef.current) return
+          data.onStatusChange(id, 'attention')
+          data.onAttention?.({
+            type: 'raise',
+            signal: {
+              nodeId: id,
+              kind: 'output',
+              key: `${output.incarnationId}:${outputBurstRef.current}`,
+              sourceId: data.sessionId,
+              summary: `${data.label} has new output`
+            }
+          })
         }, 1200)
       }
     })
@@ -144,6 +179,19 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
       exitedRef.current = true
       data.onTerminalLiveness?.(id, 'exited')
       data.onStatusChange(id, 'exited')
+      // A shell that died on an error is worth coming back to; a clean exit is not.
+      if (result.exitCode !== 0) {
+        data.onAttention?.({
+          type: 'raise',
+          signal: {
+            nodeId: id,
+            kind: 'failure',
+            key: `exit:${result.incarnationId}:${result.exitCode}`,
+            sourceId: data.sessionId,
+            summary: `${data.label} exited with code ${result.exitCode}`
+          }
+        })
+      }
       terminal.write(`\r\n\x1b[90mSession exited with code ${result.exitCode}.\x1b[0m\r\n`)
     })
     const inputSubscription = terminal.onData((input) => {
@@ -226,7 +274,7 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
       terminalRef.current = null
       terminal.dispose()
     }
-  }, [data.dormant, data.label, data.onStatusChange, data.onTerminalLiveness, data.sessionId, data.workingDirectory, id])
+  }, [data.dormant, data.label, data.onAttention, data.onStatusChange, data.onTerminalLiveness, data.sessionId, data.workingDirectory, id])
 
   return (
     <article
@@ -255,6 +303,14 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
         >
           Copy
         </button>
+        <UnreadToggle
+          unread={data.unread ?? 0}
+          onToggle={(next) => {
+            unreadHoldRef.current = next === 'unread'
+            if (next === 'unread') data.onAttention?.({ type: 'unread', nodeId: id })
+            else markRead()
+          }}
+        />
         <CanvasTerminalLiveness liveness={data.terminalLiveness} />
       </header>
       <div

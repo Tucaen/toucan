@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, renameSync, unlinkSync } from 'node:fs'
 import { open } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
+import { isAttentionItem } from '../shared/attention'
 import {
   isComposerSendKey,
   RECENTLY_CLOSED_SESSION_LIMIT,
@@ -103,6 +104,10 @@ export function isWorkspaceState(value: unknown): value is WorkspaceState {
     )
   ) return false
   if (state.composerSendKey !== undefined && !isComposerSendKey(state.composerSendKey)) return false
+  if (
+    state.attention !== undefined
+    && (!Array.isArray(state.attention) || !state.attention.every(isAttentionItem))
+  ) return false
   if (!state.nodes.every(isWorkspaceTerminalNode)) return false
   return state.recentlyClosedNodes === undefined
     || (Array.isArray(state.recentlyClosedNodes) && state.recentlyClosedNodes.every(isWorkspaceTerminalNode))
@@ -115,8 +120,14 @@ export function parseWorkspaceState(value: unknown): WorkspaceState | null {
   if (version === 3) {
     if (!isWorkspaceState(value as WorkspaceState)) return null
     const state = value as WorkspaceState
+    // Attention records name canvas nodes, so a record whose node is gone can never be reached
+    // or cleared; dropping it here keeps every count derived from records that still exist.
+    const liveNodeIds = new Set(state.nodes.map((node) => node.id))
     return {
       ...state,
+      ...(state.attention
+        ? { attention: state.attention.filter((item) => liveNodeIds.has(item.nodeId)) }
+        : {}),
       ...(state.recentlyClosedNodes
         ? { recentlyClosedNodes: state.recentlyClosedNodes.slice(-RECENTLY_CLOSED_SESSION_LIMIT) }
         : {}),

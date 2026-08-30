@@ -33,11 +33,22 @@ import {
   serializeWorktreeNode,
   type CanvasNode,
   type TerminalCanvasNode,
+  type NodeAttentionAction,
   type TerminalNodeCallbacks,
   type TerminalNodeStatus,
   type WorktreeCanvasNode
 } from './canvas-workspace'
 import type { AgentRateLimitStatus, AgentRateLimitWindow, ProviderRateLimits } from '../../shared/agent'
+import {
+  applyAttentionAction,
+  countUnreadAttention,
+  describeUnreadAttention,
+  dominantUnreadKind,
+  forgetAttention,
+  pruneAttention,
+  unreadAttentionByNode,
+  type AttentionState
+} from '../../shared/attention'
 import type { WorktreeRemovalBlocker } from '../../shared/worktree'
 import { branchNameProblem, describeWorktreeBlocker, deriveWorktreeDirectory } from '../../shared/worktree'
 import { placeholderBranchName, type WorktreeHandoffPlan } from '../../shared/worktree-handoff'
@@ -333,18 +344,51 @@ function Canvas(): JSX.Element {
     [projects, setupProjectId]
   )
 
+  /**
+   * The one durable unread model behind every attention count in the app. Nodes report what
+   * happened; `shared/attention.ts` decides what it means; the header chip, the project rows, the
+   * sidebar rows and the nodes themselves all read the counts back out of this same set, so they
+   * cannot disagree with each other or be lost on restart.
+   */
+  const [attention, setAttention] = useState<AttentionState>([])
+
+  // Stable identity: this callback rides in every node's data, so it must never be recreated.
+  // The workspace supplies only the clock; what the action means is the reducer's decision.
+  const handleAttention = useCallback((action: NodeAttentionAction): void => {
+    const at = Date.now()
+    setAttention((current) => applyAttentionAction(current, action, at))
+  }, [])
+
+  const unreadByNode = useMemo(() => unreadAttentionByNode(attention), [attention])
+  const unreadTotal = useMemo(() => countUnreadAttention(attention), [attention])
+
+  // The nodes carry their own count so a node, its sidebar row, and the header never render
+  // three separately derived numbers. Only nodes whose count actually moved are re-created.
+  useEffect(() => {
+    setNodes((current) => {
+      let changed = false
+      const next = current.map((node) => {
+        if (!isTerminalCanvasNode(node)) return node
+        const unread = unreadByNode[node.id] ?? 0
+        const unreadKind = dominantUnreadKind(attention, node.id)
+        if ((node.data.unread ?? 0) === unread && node.data.unreadKind === unreadKind) return node
+        changed = true
+        return { ...node, data: { ...node.data, unread, unreadKind } }
+      })
+      return changed ? next : current
+    })
+  }, [attention, setNodes, unreadByNode])
+
   // A global, always-visible read on the whole workspace: no need to open a node to see
   // whether anything is still busy or looks stuck.
   const statusSummary = useMemo(() => {
     let working = 0
     let stalled = 0
-    let attention = 0
     for (const status of Object.values(nodeStatuses)) {
       if (status === 'working') working += 1
       else if (status === 'stalled') stalled += 1
-      else if (status === 'attention') attention += 1
     }
-    return { working, stalled, attention, needsAttention: stalled + attention }
+    return { working, stalled }
   }, [nodeStatuses])
 
   const [providerRateLimits, setProviderRateLimits] = useState<ProviderRateLimits>({})
@@ -494,6 +538,9 @@ function Canvas(): JSX.Element {
       setNodeStatuses((current) => Object.fromEntries(
         Object.entries(current).filter(([nodeId]) => !removedIds.has(nodeId))
       ))
+      // A closed node cannot be reached any more, so its attention records go with it rather
+      // than propping up a count nothing can clear.
+      setAttention((current) => forgetAttention(current, removedIds))
     }
     onNodesChange(changes)
   }, [onNodesChange])
@@ -508,6 +555,7 @@ function Canvas(): JSX.Element {
       },
       {
         onStatusChange: handleStatusChange,
+        onAttention: handleAttention,
         onConversationId: handleConversationId,
         onPreview: handlePreview,
         onFocusModeChange: handleFocusModeChange,
@@ -585,6 +633,7 @@ function Canvas(): JSX.Element {
           launchMode: resumeConversationId ? 'resume' : 'new',
           initialInput: options.initialInput,
           onStatusChange: handleStatusChange,
+          onAttention: handleAttention,
           onConversationId: handleConversationId,
           onPreview: handlePreview,
           onFocusModeChange: handleFocusModeChange,
@@ -842,6 +891,7 @@ function Canvas(): JSX.Element {
       if (saved && saved.projects.length > 0) {
         const restored = restoreCanvasWorkspace(saved, {
           onStatusChange: handleStatusChange,
+          onAttention: handleAttention,
           onConversationId: handleConversationId,
           onPreview: handlePreview,
           onFocusModeChange: handleFocusModeChange,
@@ -865,6 +915,9 @@ function Canvas(): JSX.Element {
         setAgentPermissionModes(saved.agentPermissionModes ?? {})
         setComposerSendKey(saved.composerSendKey ?? COMPOSER_SEND_KEY_DEFAULT)
         setRecentlyClosedNodes(saved.recentlyClosedNodes ?? [])
+        // What needed attention before the restart still does. Records are pruned to the nodes
+        // that actually came back, so a count can never point at something the user cannot open.
+        setAttention(pruneAttention(saved.attention ?? [], restored.nodes.map((node) => node.id)))
       } else if (unrecoverable) {
         // Never silently seed and autosave a fresh default over damaged state the user might
         // still be able to recover by hand; wait for an explicit acknowledgement instead.
@@ -996,6 +1049,7 @@ function Canvas(): JSX.Element {
         composerSendKey,
         nodes: nodes.filter(isTerminalCanvasNode).map(serializeCanvasNode),
         recentlyClosedNodes,
+        attention: [...attention],
         worktrees: nodes.filter(isWorktreeCanvasNode).map(serializeWorktreeNode)
       }
       void window.terminalApi.saveWorkspace(state).then((result) => {
@@ -1003,7 +1057,7 @@ function Canvas(): JSX.Element {
       })
     }, 180)
     return () => clearTimeout(timeout)
-  }, [activeProjectId, agentPermissionModes, composerSendKey, nodes, projects, recentlyClosedNodes, sidebarCollapsed, workspaceReady])
+  }, [activeProjectId, agentPermissionModes, attention, composerSendKey, nodes, projects, recentlyClosedNodes, sidebarCollapsed, workspaceReady])
 
   const addProject = useCallback(async (): Promise<void> => {
     const directory = await window.terminalApi.pickProject()
@@ -1225,7 +1279,7 @@ function Canvas(): JSX.Element {
           <span className="prototype-label">canvas agent prototype</span>
         </div>
         <div className="header-target">
-          {(statusSummary.working > 0 || statusSummary.needsAttention > 0) && (
+          {(statusSummary.working > 0 || statusSummary.stalled > 0 || unreadTotal > 0) && (
             <div className="global-status-summary" role="status">
               {statusSummary.working > 0 && (
                 <span className="global-status-chip" data-kind="working">
@@ -1233,17 +1287,26 @@ function Canvas(): JSX.Element {
                   {statusSummary.working} working
                 </span>
               )}
-              {statusSummary.needsAttention > 0 && (
+              {statusSummary.stalled > 0 && (
+                <span
+                  className="global-status-chip"
+                  data-kind="stalled"
+                  title="No progress for a while - these sessions may be stuck"
+                >
+                  <span className="global-status-dot" />
+                  {statusSummary.stalled} may be stuck
+                </span>
+              )}
+              {/* Not recomputed from node status: this is the same durable record set the
+                  project rows and the nodes themselves count, so the numbers agree. */}
+              {unreadTotal > 0 && (
                 <span
                   className="global-status-chip"
                   data-kind="attention"
-                  title={[
-                    statusSummary.stalled > 0 ? `${statusSummary.stalled} may be stuck` : null,
-                    statusSummary.attention > 0 ? `${statusSummary.attention} waiting on you` : null
-                  ].filter(Boolean).join(' · ')}
+                  title={describeUnreadAttention(attention)}
                 >
                   <span className="global-status-dot" />
-                  {statusSummary.needsAttention} need attention
+                  {unreadTotal} unread
                 </span>
               )}
             </div>
@@ -1295,6 +1358,9 @@ function Canvas(): JSX.Element {
                 .filter(isWorktreeCanvasNode)
                 .filter((node) => node.data.projectId === project.id)
               const nodeCount = projectNodes.length + projectWorktrees.length
+              // Summed from the same records as the header chip and the nodes, never re-derived.
+              const projectNodeIds = projectNodes.map((node) => node.id)
+              const projectUnread = countUnreadAttention(attention, projectNodeIds)
               const selected = project.id === activeProject?.id
               return (
                 <div className="project-section" key={project.id}>
@@ -1311,6 +1377,14 @@ function Canvas(): JSX.Element {
                     >
                       <span className="project-avatar" style={{ '--project-color': project.color } as React.CSSProperties}>
                         {project.name.slice(0, 1).toUpperCase()}
+                        {projectUnread > 0 && (
+                          <span
+                            className="unread-badge project-unread"
+                            title={describeUnreadAttention(attention, projectNodeIds)}
+                          >
+                            {projectUnread}
+                          </span>
+                        )}
                       </span>
                       {!sidebarCollapsed && (
                         <span className="project-copy">
@@ -1395,12 +1469,17 @@ function Canvas(): JSX.Element {
                     <div className="project-node-list">
                       {projectNodes.map((node) => {
                         const status = nodeStatuses[node.id] ?? (node.data.dormant ? 'dormant' : 'starting')
+                        const nodeUnread = unreadByNode[node.id] ?? 0
                         return (
                           <button
                             type="button"
                             className={`project-node-row ${node.selected ? 'selected' : ''}`}
                             key={node.id}
-                            title={`Focus ${node.data.label} · ${statusLabels[status]}`}
+                            data-unread={nodeUnread > 0 ? 'true' : undefined}
+                            title={[
+                              `Focus ${node.data.label} · ${statusLabels[status]}`,
+                              nodeUnread > 0 ? describeUnreadAttention(attention, [node.id]) : null
+                            ].filter(Boolean).join('\n')}
                             onClick={(event) => {
                               event.stopPropagation()
                               focusNode(node.id)
@@ -1408,6 +1487,7 @@ function Canvas(): JSX.Element {
                           >
                             <span className="project-node-kind">{node.data.kind === 'terminal' ? '>_' : node.data.kind === 'claude' ? 'C' : '<>'}</span>
                             <span className="project-node-name">{node.data.label}</span>
+                            {nodeUnread > 0 && <span className="unread-badge">{nodeUnread}</span>}
                             {node.data.kind === 'terminal' && (
                               <SidebarTerminalLiveness liveness={node.data.terminalLiveness} />
                             )}

@@ -31,6 +31,7 @@ import { worklogActivities } from './worklog-activities'
 import { WorkspaceRootsContext } from './workspace-root'
 import { buildHandoffPrompt, planWorktreeHandoff } from '../../shared/worktree-handoff'
 import type { TerminalCanvasNode, TerminalNodeStatus } from './canvas-workspace'
+import { attentionTextKey, READ_ON_VIEW_KINDS, type AttentionKind } from '../../shared/attention'
 import {
   computeNodePickerMenuPosition,
   type NodePickerMenuOptions,
@@ -40,6 +41,7 @@ import { imageFilesFromClipboard, type AgentImageAttachment } from './image-atta
 import { classifyAssistantMessage, type DecisionOption } from './decision-message'
 import { pendingDecisionsFromMessages, type PendingDecision } from './pending-decisions'
 import NodeBorderResizer from './NodeBorderResizer'
+import UnreadToggle from './UnreadToggle'
 import SessionUsageBar from './SessionUsageBar'
 import { ProviderRateLimitsContext } from './provider-rate-limits'
 import { describeSessionUsage } from './session-usage'
@@ -1227,18 +1229,20 @@ export function ChatView(props: ChatViewProps & {
 function sidebarStatus(
   status: AgentChatStatus,
   awaitingApproval: boolean,
-  unreadResult: boolean,
+  unreadKind: AttentionKind | undefined,
   stalled: boolean
 ): TerminalNodeStatus {
   if (status === 'exited') return 'exited'
   if (status === 'auth_required' || awaitingApproval) return 'attention'
   if (status === 'starting') return 'starting'
   if (status === 'working') return stalled ? 'stalled' : 'working'
-  return unreadResult ? 'result' : 'idle'
+  // A dormant node has no live approval or auth state left, so the record is the only thing that
+  // still knows the session was blocked - reading it back as a mere 'result' would understate it.
+  if (unreadKind === 'approval' || unreadKind === 'auth' || unreadKind === 'failure') return 'attention'
+  return unreadKind ? 'result' : 'idle'
 }
 
 export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanvasNode>): JSX.Element {
-  const [unreadResult, setUnreadResult] = useState(false)
   const previousStatusRef = useRef<AgentChatStatus>('starting')
   const provider = data.kind === 'claude' ? 'claude' : 'codex'
   const conversation = useAgentConversation({
@@ -1253,7 +1257,7 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
     onPermissionMode: (modeId) => data.onPermissionModeChange(provider, modeId),
     onModel: (modelId) => data.onModelChange(id, modelId)
   })
-  const { status, approval, detail, messages, activities, plan, usage } = conversation
+  const { status, approval, detail, failure, messages, activities, plan, usage } = conversation
   // Account usage belongs to the provider, so it arrives from App's single poll rather than from
   // this node asking for it (see provider-rate-limits.ts).
   const rateLimits = useContext(ProviderRateLimitsContext)[provider] ?? null
@@ -1265,16 +1269,109 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
   const [stalled, setStalled] = useState(false)
   const lastProgressAtRef = useRef(Date.now())
 
-  // A finished turn stays flagged as an unread result until the node is focused.
+  // Attention is a durable record owned by the workspace, not a flag this node recomputes: the
+  // node only reports the condition and the key that identifies it. Every key below is stable
+  // across ACP session replay, which is what keeps a restored conversation from re-raising
+  // something the user already dealt with (see shared/attention.ts).
+  const unread = data.unread ?? 0
+  const reportAttention = data.onAttention
+  // The ACP conversation once there is one; until then the node's durable session id, so an
+  // early approval or failure is never persisted without any source identity at all.
+  const attentionSource = data.conversationId ?? data.sessionId
+
+  // A turn that finished while the user was looking elsewhere is a result they have not read.
+  // Keyed by the answer itself, so a replayed transcript lands on the record it already made.
   useEffect(() => {
     const finishedTurn = previousStatusRef.current === 'working' && status === 'ready'
     previousStatusRef.current = status
-    if (finishedTurn && !selected) setUnreadResult(true)
-  }, [selected, status])
+    if (!finishedTurn || selected) return
+    const answer = messages.filter((message) => message.role === 'assistant').at(-1)
+    reportAttention?.({
+      type: 'raise',
+      signal: {
+        nodeId: id,
+        kind: 'result',
+        key: attentionTextKey(answer ? `${answer.id}:${answer.text}` : `turn:${messages.length}`),
+        sourceId: attentionSource,
+        summary: `${data.label} finished a turn`
+      }
+    })
+  }, [attentionSource, data.label, id, messages, reportAttention, selected, status])
 
+  // An approval is its own condition: the ACP request id is the key, so the same request seen
+  // twice is one record, and answering it retires that record rather than marking it read.
+  const approvalId = approval?.id ?? null
+  const approvalTitle = approval?.title
+  const previousApprovalRef = useRef<string | null>(null)
   useEffect(() => {
-    if (selected || status === 'working') setUnreadResult(false)
-  }, [selected, status])
+    const previous = previousApprovalRef.current
+    previousApprovalRef.current = approvalId
+    if (previous && previous !== approvalId) {
+      reportAttention?.({ type: 'resolve', nodeId: id, kind: 'approval', key: previous })
+    }
+    if (!approvalId) return
+    reportAttention?.({
+      type: 'raise',
+      signal: {
+        nodeId: id,
+        kind: 'approval',
+        key: approvalId,
+        sourceId: attentionSource,
+        summary: approvalTitle ?? `${data.label} needs approval`
+      }
+    })
+  }, [approvalId, approvalTitle, attentionSource, data.label, id, reportAttention])
+
+  // Sign-in is a standing condition rather than an event, so it is raised while it holds and
+  // retired the moment the session gets past it.
+  const authRequired = status === 'auth_required'
+  useEffect(() => {
+    if (!authRequired) {
+      reportAttention?.({ type: 'resolve', nodeId: id, kind: 'auth' })
+      return
+    }
+    reportAttention?.({
+      type: 'raise',
+      signal: {
+        nodeId: id,
+        kind: 'auth',
+        key: 'auth',
+        sourceId: attentionSource,
+        summary: `${data.label} needs you to sign in`
+      }
+    })
+  }, [attentionSource, authRequired, data.label, id, reportAttention])
+
+  // Failures are keyed by their text: the same error reported again - live or replayed - is the
+  // same condition, while a different one is worth its own record.
+  useEffect(() => {
+    if (!failure) return
+    reportAttention?.({
+      type: 'raise',
+      signal: {
+        nodeId: id,
+        kind: 'failure',
+        key: attentionTextKey(failure),
+        sourceId: attentionSource,
+        summary: failure
+      }
+    })
+  }, [attentionSource, failure, id, reportAttention])
+
+  /**
+   * Having the node open is the user reaching its content, so anything raised while it is
+   * selected clears too - but only the kinds reading actually settles. A pending approval or
+   * sign-in request stays unread until it is answered (READ_ON_VIEW_KINDS), because glancing at
+   * a blocked turn is not unblocking it. Marking unread on a node you are looking at would
+   * otherwise be undone by this effect on the very next render, so that hold survives until the
+   * node is left and re-entered.
+   */
+  const unreadHoldRef = useRef(false)
+  useEffect(() => {
+    if (!selected) unreadHoldRef.current = false
+    if (!selected || data.dormant || unread === 0 || unreadHoldRef.current) return
+    reportAttention?.({ type: 'read', nodeId: id, kinds: READ_ON_VIEW_KINDS })
+  }, [data.dormant, id, reportAttention, selected, unread])
 
   // Any new message text, tool activity, or plan update counts as progress and resets the stall clock.
   useEffect(() => {
@@ -1297,8 +1394,8 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
 
   useEffect(() => {
     if (data.dormant) return
-    data.onStatusChange(id, sidebarStatus(status, approval !== null, unreadResult, stalled))
-  }, [approval, data.dormant, data.onStatusChange, id, status, unreadResult, stalled])
+    data.onStatusChange(id, sidebarStatus(status, approval !== null, data.unreadKind, stalled))
+  }, [approval, data.dormant, data.onStatusChange, data.unreadKind, id, status, stalled])
 
   /**
    * A prompt asking for its own worktree never runs here. It goes up to the workspace, which
@@ -1376,6 +1473,15 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
             ComposerToolbar - so the whole picker row reads as one set and the header keeps its
             room for the node's identity. */}
         <span className="chat-provider-badge">ACP</span>
+        <UnreadToggle
+          unread={unread}
+          onToggle={(next) => {
+            unreadHoldRef.current = next === 'unread'
+            reportAttention?.(next === 'unread'
+              ? { type: 'unread', nodeId: id }
+              : { type: 'read', nodeId: id, kinds: READ_ON_VIEW_KINDS })
+          }}
+        />
         <span className="node-status">{status.replace('_', ' ')}</span>
       </header>
       {data.dormant ? (

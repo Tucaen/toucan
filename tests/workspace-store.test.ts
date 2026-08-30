@@ -435,3 +435,71 @@ test('rejects a workspace whose draft or send-key preference is the wrong shape'
   }), null)
   assert.ok(parseWorkspaceState({ ...base, composerSendKey: 'enter' }))
 })
+
+test('unread attention records survive a restart, and stale ones are pruned on the way back in', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'ade-workspace-test-'))
+  const store = createWorkspaceStore(join(directory, 'workspace.json'))
+  const state = makeState('attention')
+  state.nodes = [{
+    id: 'node-1',
+    kind: 'claude',
+    label: 'Claude 1',
+    projectId: 'project-1',
+    position: { x: 0, y: 0 },
+    width: 520,
+    height: 340
+  }]
+  state.attention = [
+    {
+      id: 'node-1 approval perm-7',
+      nodeId: 'node-1',
+      kind: 'approval',
+      key: 'perm-7',
+      sourceId: 'claude-conversation',
+      summary: 'Run command: npm test',
+      createdAt: 1_700_000_000_000,
+      updatedAt: 1_700_000_000_000,
+      events: 1,
+      read: false
+    },
+    {
+      // A node that was closed before the snapshot was written; nothing can ever clear this.
+      id: 'gone result turn-a',
+      nodeId: 'gone',
+      kind: 'result',
+      key: 'turn-a',
+      createdAt: 1_700_000_000_000,
+      updatedAt: 1_700_000_000_000,
+      events: 1,
+      read: false
+    }
+  ]
+
+  assert.equal((await store.save(state)).ok, true)
+  const loaded = await store.load()
+
+  assert.equal(loaded.state?.attention?.length, 1)
+  assert.equal(loaded.state?.attention?.[0].nodeId, 'node-1')
+  assert.equal(loaded.state?.attention?.[0].read, false)
+  assert.equal(loaded.state?.attention?.[0].sourceId, 'claude-conversation')
+})
+
+test('rejects a workspace whose attention records are malformed', () => {
+  const base = makeState('attention')
+
+  assert.equal(parseWorkspaceState({ ...base, attention: [{ id: 'x', nodeId: 'node-1' }] }), null)
+  assert.equal(parseWorkspaceState({
+    ...base,
+    attention: [{
+      id: 'node-1 shouting perm-7',
+      nodeId: 'node-1',
+      kind: 'shouting',
+      key: 'perm-7',
+      createdAt: 1,
+      updatedAt: 1,
+      events: 1,
+      read: false
+    }]
+  }), null)
+  assert.equal(parseWorkspaceState({ ...base, attention: {} }), null)
+})

@@ -156,6 +156,17 @@ button {
   animation: attention-pulse 1.4s ease-in-out infinite;
 }
 
+.global-status-chip[data-kind="stalled"] {
+  color: #f4d38a;
+  border-color: #6a5324;
+  background: #2a2214;
+}
+
+.global-status-chip[data-kind="stalled"] .global-status-dot {
+  background: #f1c75b;
+  box-shadow: 0 0 9px rgba(241, 199, 91, 0.6);
+}
+
 @keyframes global-attention-glow {
   50% {
     box-shadow: 0 0 0 3px rgba(255, 107, 111, 0.16);
@@ -367,6 +378,34 @@ button {
   font-weight: 800;
 }
 
+.project-avatar {
+  position: relative;
+}
+
+/* One pill for every unread count in the app, so a sidebar row and a project avatar can never
+   read as two different kinds of thing. */
+.unread-badge {
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  color: #2c1618;
+  background: #ff6b6f;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+/* Sits on the avatar so the project's unread count is legible with the sidebar collapsed too. */
+.project-unread {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+}
+
 .project-copy {
   min-width: 0;
   display: grid;
@@ -477,6 +516,11 @@ button {
 
 .project-node-row.selected {
   border-color: #303946;
+}
+
+.project-node-row[data-unread="true"] .project-node-name {
+  color: #eef1f5;
+  font-weight: 800;
 }
 
 .project-node-kind {
@@ -984,6 +1028,37 @@ button {
 .node-action:disabled {
   opacity: 0.35;
   cursor: default;
+}
+
+/* One control, both directions: it shows the unread count, and reads as a plain "mark unread"
+   affordance once the count is zero (see UnreadToggle.tsx). */
+.node-unread-toggle {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border: 1px solid #3a4350;
+  border-radius: 999px;
+  color: #8a93a1;
+  background: transparent;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.node-unread-toggle:hover {
+  border-color: #ff6b6f;
+  color: #ffb2b7;
+}
+
+.node-unread-toggle[data-unread="true"] {
+  color: #2c1618;
+  border-color: #ff6b6f;
+  background: #ff6b6f;
+  animation: attention-pulse 1.6s ease-in-out infinite;
 }
 
 .terminal-host {
