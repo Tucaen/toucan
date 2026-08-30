@@ -1,7 +1,13 @@
 import { existsSync, readFileSync, renameSync, unlinkSync } from 'node:fs'
 import { open } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
-import { isComposerSendKey, type WorkspaceLoadResult, type WorkspaceSaveResult, type WorkspaceState } from '../shared/terminal'
+import {
+  isComposerSendKey,
+  RECENTLY_CLOSED_SESSION_LIMIT,
+  type WorkspaceLoadResult,
+  type WorkspaceSaveResult,
+  type WorkspaceState
+} from '../shared/terminal'
 import { errorMessage, repairUtf8Mojibake } from '../shared/text'
 
 interface WorkspaceStateV1 {
@@ -52,25 +58,12 @@ function hasValidProjects(value: unknown): value is Pick<WorkspaceState, 'projec
   ))
 }
 
-export function isWorkspaceState(value: unknown): value is WorkspaceState {
-  if (!hasValidProjects(value)) return false
-  const state = value as Partial<WorkspaceState>
-  if (state.version !== 3 || !Array.isArray(state.nodes)) return false
-  if (!Array.isArray(state.worktrees) || !state.worktrees.every(isWorkspaceWorktree)) return false
-  if (
-    state.agentPermissionModes !== undefined
-    && (
-      !state.agentPermissionModes
-      || typeof state.agentPermissionModes !== 'object'
-      || (state.agentPermissionModes.claude !== undefined && typeof state.agentPermissionModes.claude !== 'string')
-      || (state.agentPermissionModes.codex !== undefined && typeof state.agentPermissionModes.codex !== 'string')
-    )
-  ) return false
-  if (state.composerSendKey !== undefined && !isComposerSendKey(state.composerSendKey)) return false
-  return state.nodes.every((node) => (
-    node
-    && typeof node.id === 'string'
+function isWorkspaceTerminalNode(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false
+  const node = value as Partial<WorkspaceState['nodes'][number]>
+  return typeof node.id === 'string'
     && (node.sessionId === undefined || typeof node.sessionId === 'string')
+    && node.kind !== undefined
     && ['terminal', 'claude', 'codex'].includes(node.kind)
     && typeof node.label === 'string'
     && typeof node.projectId === 'string'
@@ -93,7 +86,26 @@ export function isWorkspaceState(value: unknown): value is WorkspaceState {
         && (node.preview.assistant === undefined || typeof node.preview.assistant === 'string')
       )
     )
-  ))
+}
+
+export function isWorkspaceState(value: unknown): value is WorkspaceState {
+  if (!hasValidProjects(value)) return false
+  const state = value as Partial<WorkspaceState>
+  if (state.version !== 3 || !Array.isArray(state.nodes)) return false
+  if (!Array.isArray(state.worktrees) || !state.worktrees.every(isWorkspaceWorktree)) return false
+  if (
+    state.agentPermissionModes !== undefined
+    && (
+      !state.agentPermissionModes
+      || typeof state.agentPermissionModes !== 'object'
+      || (state.agentPermissionModes.claude !== undefined && typeof state.agentPermissionModes.claude !== 'string')
+      || (state.agentPermissionModes.codex !== undefined && typeof state.agentPermissionModes.codex !== 'string')
+    )
+  ) return false
+  if (state.composerSendKey !== undefined && !isComposerSendKey(state.composerSendKey)) return false
+  if (!state.nodes.every(isWorkspaceTerminalNode)) return false
+  return state.recentlyClosedNodes === undefined
+    || (Array.isArray(state.recentlyClosedNodes) && state.recentlyClosedNodes.every(isWorkspaceTerminalNode))
 }
 
 export function parseWorkspaceState(value: unknown): WorkspaceState | null {
@@ -105,6 +117,9 @@ export function parseWorkspaceState(value: unknown): WorkspaceState | null {
     const state = value as WorkspaceState
     return {
       ...state,
+      ...(state.recentlyClosedNodes
+        ? { recentlyClosedNodes: state.recentlyClosedNodes.slice(-RECENTLY_CLOSED_SESSION_LIMIT) }
+        : {}),
       nodes: state.nodes.map((node) => {
         const { worklogCollapsed, ...current } = node
         return {

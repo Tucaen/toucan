@@ -7,6 +7,7 @@ import type {
   WorkspaceState,
   WorkspaceTerminalNode
 } from '../../shared/terminal'
+import { RECENTLY_CLOSED_SESSION_LIMIT } from '../../shared/terminal'
 import type { WorkspaceWorktree } from '../../shared/worktree'
 import type { WorktreeHandoffPlan } from '../../shared/worktree-handoff'
 
@@ -92,6 +93,31 @@ export type TerminalCanvasNode = Node<TerminalNodeData, 'terminalNode'>
 export type WorktreeCanvasNode = Node<WorktreeNodeData, 'worktreeNode'>
 export type CanvasNode = TerminalCanvasNode | WorktreeCanvasNode
 
+/** Enough accidental closes to be useful without letting a workspace snapshot grow forever. */
+export const CLOSED_SESSION_STACK_LIMIT = RECENTLY_CLOSED_SESSION_LIMIT
+
+interface ClosedSessionShortcutKey {
+  key: string
+  ctrlKey: boolean
+  shiftKey: boolean
+  altKey: boolean
+  metaKey: boolean
+}
+
+export function closedSessionKeyAction(
+  event: ClosedSessionShortcutKey,
+  hasClosedSession: boolean
+): 'reopen' | 'none' {
+  return hasClosedSession
+    && event.key.toLocaleLowerCase() === 't'
+    && event.ctrlKey
+    && event.shiftKey
+    && !event.altKey
+    && !event.metaKey
+    ? 'reopen'
+    : 'none'
+}
+
 export function isTerminalCanvasNode(node: CanvasNode): node is TerminalCanvasNode {
   return node.type === 'terminalNode'
 }
@@ -109,6 +135,9 @@ export interface RestoredCanvasWorkspace {
 
 const DEFAULT_TERMINAL_SIZE = { width: 520, height: 340 }
 export const DEFAULT_WORKTREE_SIZE = { width: 360, height: 232 }
+
+type SessionRestoreWorkspace = Pick<WorkspaceState, 'projects' | 'worktrees' | 'agentPermissionModes'>
+type SessionRestoreMode = 'hydrate' | 'reopen'
 
 function measured(node: CanvasNode, fallback: { width: number; height: number }): { width: number; height: number } {
   const styleWidth = typeof node.style?.width === 'number' ? node.style.width : fallback.width
@@ -139,6 +168,105 @@ export function serializeCanvasNode(node: TerminalCanvasNode): WorkspaceTerminal
     ...(node.data.kind === 'terminal' ? {} : { focusMode: node.data.focusMode }),
     ...(node.data.kind === 'terminal' ? { terminalLiveness: node.data.terminalLiveness } : {})
   }
+}
+
+/** Store only durable session data; React callbacks are rebuilt when the node is reopened. */
+export function rememberClosedSessionNodes(
+  current: WorkspaceTerminalNode[],
+  removedNodes: CanvasNode[]
+): WorkspaceTerminalNode[] {
+  if (removedNodes.length === 0) return current
+  const sessionNodes = removedNodes.filter(isTerminalCanvasNode)
+  if (
+    sessionNodes.length !== removedNodes.length
+    || sessionNodes.some((node) => node.data.kind !== 'terminal' && !node.data.conversationId)
+  ) return []
+  const closed = sessionNodes.map(serializeCanvasNode)
+  return [...current, ...closed].slice(-CLOSED_SESSION_STACK_LIMIT)
+}
+
+function restoreTerminalCanvasNode(
+  savedNode: WorkspaceTerminalNode,
+  workspace: SessionRestoreWorkspace,
+  callbacks: TerminalNodeCallbacks,
+  mode: SessionRestoreMode
+): TerminalCanvasNode | null {
+  const project = workspace.projects.find((candidate) => candidate.id === savedNode.projectId)
+  if (!project) return null
+  const worktree = savedNode.worktreeId
+    ? workspace.worktrees.find((candidate) => candidate.id === savedNode.worktreeId)
+    : undefined
+  // A node whose worktree record vanished must never quietly fall back to the project
+  // checkout and start writing there, so it restores detached and dormant instead.
+  const detachedFromWorktree = Boolean(savedNode.worktreeId) && !worktree
+  // Workspace hydration leaves real terminal processes dormant; an explicit undo opens the
+  // process immediately, just as creating or resuming a node does.
+  const dormant = detachedFromWorktree || (mode === 'hydrate' && savedNode.kind === 'terminal')
+  const terminalLiveness: TerminalLiveness = savedNode.kind === 'terminal'
+    ? savedNode.terminalLiveness === 'exited' ? 'exited' : 'unverifiable'
+    : 'live'
+  return {
+    id: savedNode.id,
+    type: 'terminalNode',
+    ...(mode === 'reopen' ? { selected: true } : {}),
+    position: savedNode.position,
+    data: {
+      kind: savedNode.kind,
+      sessionId: savedNode.sessionId ?? savedNode.id,
+      terminalLiveness,
+      label: savedNode.label,
+      projectId: project.id,
+      projectName: project.name,
+      projectPath: project.path,
+      projectColor: project.color,
+      worktreeId: worktree?.id,
+      worktreeBranch: worktree?.branch,
+      activeWorktreeId: savedNode.activeWorktreeId,
+      activeWorktreeBranch: savedNode.activeWorktreeId
+        ? workspace.worktrees.find((candidate) => candidate.id === savedNode.activeWorktreeId)?.branch
+        : undefined,
+      workingDirectory: worktree?.path ?? project.path,
+      detachedFromWorktree,
+      conversationId: savedNode.conversationId,
+      preview: savedNode.preview,
+      focusMode: savedNode.focusMode ?? savedNode.worklogCollapsed ?? savedNode.kind !== 'terminal',
+      draft: savedNode.draft,
+      preferredPermissionMode: savedNode.kind === 'terminal'
+        ? undefined
+        : workspace.agentPermissionModes?.[savedNode.kind],
+      modelId: savedNode.kind === 'terminal' ? undefined : savedNode.modelId,
+      dormant,
+      launchMode: 'resume',
+      onStatusChange: callbacks.onStatusChange,
+      onConversationId: callbacks.onConversationId,
+      onPreview: callbacks.onPreview,
+      onFocusModeChange: callbacks.onFocusModeChange,
+      onDraftChange: callbacks.onDraftChange,
+      onPermissionModeChange: callbacks.onPermissionModeChange,
+      onModelChange: callbacks.onModelChange,
+      onResume: callbacks.onResume,
+      onTerminalLiveness: callbacks.onTerminalLiveness,
+      onWorktreeHandoff: callbacks.onWorktreeHandoff
+    },
+    style: { width: savedNode.width, height: savedNode.height }
+  }
+}
+
+export function reopenClosedSession(
+  recentlyClosedNodes: WorkspaceTerminalNode[],
+  workspace: SessionRestoreWorkspace,
+  callbacks: TerminalNodeCallbacks
+): { node: TerminalCanvasNode | null; recentlyClosedNodes: WorkspaceTerminalNode[] } {
+  const remaining = [...recentlyClosedNodes]
+  while (remaining.length > 0) {
+    const savedNode = remaining.pop()!
+    if (savedNode.kind !== 'terminal' && !savedNode.conversationId) {
+      return { node: null, recentlyClosedNodes: [] }
+    }
+    const node = restoreTerminalCanvasNode(savedNode, workspace, callbacks, 'reopen')
+    if (node) return { node, recentlyClosedNodes: remaining }
+  }
+  return { node: null, recentlyClosedNodes: remaining }
 }
 
 export function serializeWorktreeNode(node: WorktreeCanvasNode): WorkspaceWorktree {
@@ -200,61 +328,8 @@ export function restoreCanvasWorkspace(
   })
 
   const terminalNodes = state.nodes.flatMap<TerminalCanvasNode>((savedNode) => {
-    const project = projectsById.get(savedNode.projectId)
-    if (!project) return []
-    const worktree = savedNode.worktreeId ? worktreesById.get(savedNode.worktreeId) : undefined
-    // A node whose worktree record vanished must never quietly fall back to the project
-    // checkout and start writing there, so it restores detached and dormant instead.
-    const detachedFromWorktree = Boolean(savedNode.worktreeId) && !worktree
-    // Loading an ACP conversation only replays its stored history; it does not send
-    // a model prompt or consume tokens. Restore chat nodes live so their history is
-    // visible immediately, while real terminal processes remain explicitly resumed.
-    const dormant = savedNode.kind === 'terminal' || detachedFromWorktree
-    const terminalLiveness: TerminalLiveness = savedNode.kind === 'terminal'
-      ? savedNode.terminalLiveness === 'exited' ? 'exited' : 'unverifiable'
-      : 'live'
-    return [{
-      id: savedNode.id,
-      type: 'terminalNode',
-      position: savedNode.position,
-      data: {
-        kind: savedNode.kind,
-        sessionId: savedNode.sessionId ?? savedNode.id,
-        terminalLiveness,
-        label: savedNode.label,
-        projectId: project.id,
-        projectName: project.name,
-        projectPath: project.path,
-        projectColor: project.color,
-        worktreeId: worktree?.id,
-        worktreeBranch: worktree?.branch,
-        activeWorktreeId: savedNode.activeWorktreeId,
-        activeWorktreeBranch: savedNode.activeWorktreeId ? worktreesById.get(savedNode.activeWorktreeId)?.branch : undefined,
-        workingDirectory: worktree?.path ?? project.path,
-        detachedFromWorktree,
-        conversationId: savedNode.conversationId,
-        preview: savedNode.preview,
-        focusMode: savedNode.focusMode ?? savedNode.worklogCollapsed ?? savedNode.kind !== 'terminal',
-        draft: savedNode.draft,
-        preferredPermissionMode: savedNode.kind === 'terminal'
-          ? undefined
-          : state.agentPermissionModes?.[savedNode.kind],
-        modelId: savedNode.kind === 'terminal' ? undefined : savedNode.modelId,
-        dormant,
-        launchMode: 'resume',
-        onStatusChange: callbacks.onStatusChange,
-        onConversationId: callbacks.onConversationId,
-        onPreview: callbacks.onPreview,
-        onFocusModeChange: callbacks.onFocusModeChange,
-        onDraftChange: callbacks.onDraftChange,
-        onPermissionModeChange: callbacks.onPermissionModeChange,
-        onModelChange: callbacks.onModelChange,
-        onResume: callbacks.onResume,
-        onTerminalLiveness: callbacks.onTerminalLiveness,
-        onWorktreeHandoff: callbacks.onWorktreeHandoff
-      },
-      style: { width: savedNode.width, height: savedNode.height }
-    }]
+    const restored = restoreTerminalCanvasNode(savedNode, { ...state, worktrees }, callbacks, 'hydrate')
+    return restored ? [restored] : []
   })
 
   const highestSessionNumber = terminalNodes.reduce((highest, node) => {

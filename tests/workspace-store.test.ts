@@ -82,6 +82,53 @@ test('migrates the legacy worklog preference to per-node focus mode', () => {
   assert.equal('worklogCollapsed' in migrated!.nodes[0], false)
 })
 
+test('preserves recently closed session nodes in a version 3 workspace', () => {
+  const closedNode = {
+    id: 'closed-node-1',
+    kind: 'codex',
+    label: 'Codex 1',
+    projectId: 'project-1',
+    position: { x: 240, y: 180 },
+    width: 520,
+    height: 340,
+    conversationId: 'conversation-1'
+  }
+  const parsed = parseWorkspaceState({
+    ...makeState('ADE'),
+    recentlyClosedNodes: [closedNode]
+  })
+
+  assert.deepEqual(parsed?.recentlyClosedNodes, [closedNode])
+})
+
+test('rejects malformed recently closed session records', () => {
+  assert.equal(parseWorkspaceState({
+    ...makeState('ADE'),
+    recentlyClosedNodes: [{ id: 'missing-session-fields' }]
+  }), null)
+})
+
+test('clamps a persisted closed-session stack to its ten newest entries', () => {
+  const parsed = parseWorkspaceState({
+    ...makeState('ADE'),
+    recentlyClosedNodes: Array.from({ length: 12 }, (_, index) => ({
+      id: `closed-node-${index + 1}`,
+      kind: 'codex',
+      label: `Codex ${index + 1}`,
+      projectId: 'project-1',
+      position: { x: index, y: index },
+      width: 520,
+      height: 340,
+      conversationId: `conversation-${index + 1}`
+    }))
+  })
+
+  assert.deepEqual(parsed?.recentlyClosedNodes?.map((node) => node.id), Array.from(
+    { length: 10 },
+    (_, index) => `closed-node-${index + 3}`
+  ))
+})
+
 test('rejects a workspace whose worktree records are malformed', () => {
   const base = {
     version: 3,
@@ -125,6 +172,16 @@ test('saves and loads a valid workspace through the store', async () => {
     sidebarCollapsed: false,
     agentPermissionModes: { claude: 'acceptEdits', codex: 'read-only' },
     nodes: [],
+    recentlyClosedNodes: [{
+      id: 'closed-node-1',
+      kind: 'codex',
+      label: 'Codex 1',
+      projectId: 'project-1',
+      position: { x: 240, y: 180 },
+      width: 520,
+      height: 340,
+      conversationId: 'conversation-1'
+    }],
     worktrees: [{
       id: 'worktree-1',
       projectId: 'project-1',

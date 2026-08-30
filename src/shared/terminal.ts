@@ -4,6 +4,8 @@ import type { WorkspaceWorktree } from './worktree'
 export type TerminalKind = 'terminal' | 'claude' | 'codex'
 export type TerminalLiveness = 'live' | 'unverifiable' | 'exited'
 
+export const RECENTLY_CLOSED_SESSION_LIMIT = 10
+
 export type AgentPermissionModes = Partial<Record<AgentProvider, string>>
 
 /**
@@ -94,6 +96,8 @@ export interface WorkspaceState {
   agentPermissionModes?: AgentPermissionModes
   composerSendKey?: ComposerSendKey
   nodes: WorkspaceTerminalNode[]
+  /** Bounded LIFO history used by Ctrl+Shift+T; callbacks are rebuilt when an entry is reopened. */
+  recentlyClosedNodes?: WorkspaceTerminalNode[]
   worktrees: WorkspaceWorktree[]
 }
 

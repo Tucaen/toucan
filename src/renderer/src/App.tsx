@@ -7,6 +7,7 @@ import {
   ReactFlowProvider,
   useNodesState,
   useReactFlow,
+  type NodeChange,
   type NodeTypes
 } from '@xyflow/react'
 import type {
@@ -17,12 +18,16 @@ import type {
   ProjectDirectory,
   TerminalKind,
   WorkspaceProject,
-  WorkspaceState
+  WorkspaceState,
+  WorkspaceTerminalNode
 } from '../../shared/terminal'
 import {
+  closedSessionKeyAction,
   DEFAULT_WORKTREE_SIZE,
   isTerminalCanvasNode,
   isWorktreeCanvasNode,
+  rememberClosedSessionNodes,
+  reopenClosedSession,
   restoreCanvasWorkspace,
   serializeCanvasNode,
   serializeWorktreeNode,
@@ -300,6 +305,7 @@ function Canvas(): JSX.Element {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [agentPermissionModes, setAgentPermissionModes] = useState<AgentPermissionModes>({})
   const [composerSendKey, setComposerSendKey] = useState<ComposerSendKey>(COMPOSER_SEND_KEY_DEFAULT)
+  const [recentlyClosedNodes, setRecentlyClosedNodes] = useState<WorkspaceTerminalNode[]>([])
   const [workspaceReady, setWorkspaceReady] = useState(false)
   const [saveStatus, setSaveStatus] = useState<'saving' | 'saved' | 'error'>('saving')
   const [workspaceRecovered, setWorkspaceRecovered] = useState(false)
@@ -448,6 +454,7 @@ function Canvas(): JSX.Element {
   const nodesRef = useRef<CanvasNode[]>([])
   const projectsRef = useRef<Project[]>([])
   const permissionModesRef = useRef<AgentPermissionModes>({})
+  const recentlyClosedNodesRef = useRef<WorkspaceTerminalNode[]>([])
   // Held in a ref because the handler is declared after the node factories that hand it out,
   // and because a node's stored callback must not go stale as the handler is recreated.
   const handleWorktreeHandoffRef = useRef<TerminalNodeCallbacks['onWorktreeHandoff']>(undefined)
@@ -459,6 +466,72 @@ function Canvas(): JSX.Element {
   nodesRef.current = nodes
   projectsRef.current = projects
   permissionModesRef.current = agentPermissionModes
+  recentlyClosedNodesRef.current = recentlyClosedNodes
+
+  const clearRecentlyClosedNodes = useCallback((): void => {
+    recentlyClosedNodesRef.current = []
+    setRecentlyClosedNodes([])
+  }, [])
+
+  const handleNodesChange = useCallback((changes: NodeChange<CanvasNode>[]): void => {
+    const removedIds = new Set(changes.flatMap((change) => change.type === 'remove' ? [change.id] : []))
+    if (removedIds.size > 0) {
+      const removedNodes = nodesRef.current.filter((node) => removedIds.has(node.id))
+      const next = rememberClosedSessionNodes(recentlyClosedNodesRef.current, removedNodes)
+      recentlyClosedNodesRef.current = next
+      setRecentlyClosedNodes(next)
+      setNodeStatuses((current) => Object.fromEntries(
+        Object.entries(current).filter(([nodeId]) => !removedIds.has(nodeId))
+      ))
+    }
+    onNodesChange(changes)
+  }, [onNodesChange])
+
+  const reopenLastClosedSession = useCallback((): boolean => {
+    const result = reopenClosedSession(
+      recentlyClosedNodesRef.current,
+      {
+        projects: projectsRef.current,
+        worktrees: nodesRef.current.filter(isWorktreeCanvasNode).map(serializeWorktreeNode),
+        agentPermissionModes: permissionModesRef.current
+      },
+      {
+        onStatusChange: handleStatusChange,
+        onConversationId: handleConversationId,
+        onPreview: handlePreview,
+        onFocusModeChange: handleFocusModeChange,
+        onDraftChange: handleDraftChange,
+        onPermissionModeChange: handlePermissionModeChange,
+        onModelChange: handleModelChange,
+        onResume: resumeNode,
+        onTerminalLiveness: handleTerminalLiveness,
+        onWorktreeHandoff: dispatchWorktreeHandoff
+      }
+    )
+    recentlyClosedNodesRef.current = result.recentlyClosedNodes
+    setRecentlyClosedNodes(result.recentlyClosedNodes)
+    if (!result.node) return false
+
+    const reopened = result.node
+    setNodes((current) => [
+      ...current.map((node) => ({ ...node, selected: false })),
+      reopened
+    ])
+    setNodeStatuses((current) => ({
+      ...current,
+      [reopened.id]: reopened.data.dormant ? 'dormant' : 'starting'
+    }))
+    return true
+  }, [dispatchWorktreeHandoff, handleConversationId, handleDraftChange, handleFocusModeChange, handleModelChange, handlePermissionModeChange, handlePreview, handleStatusChange, handleTerminalLiveness, resumeNode, setNodes])
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (closedSessionKeyAction(event, recentlyClosedNodesRef.current.length > 0) !== 'reopen') return
+      if (reopenLastClosedSession()) event.preventDefault()
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [reopenLastClosedSession])
 
   const addSessionNode = useCallback((options: {
     kind: TerminalKind
@@ -581,6 +654,7 @@ function Canvas(): JSX.Element {
       })
       .then((result) => {
         if (result.ok) {
+          clearRecentlyClosedNodes()
           setNodes((current) => current.filter(
             (node) => !(isWorktreeCanvasNode(node) && node.data.worktreeId === worktreeId)
           ))
@@ -599,7 +673,7 @@ function Canvas(): JSX.Element {
           error: result.message ?? 'The worktree could not be removed.'
         })
       })
-  }, [findWorktreeNode, setNodes])
+  }, [clearRecentlyClosedNodes, findWorktreeNode, setNodes])
 
   /**
    * A prompt that asked for its own worktree. The worktree is made first and the session is
@@ -717,6 +791,7 @@ function Canvas(): JSX.Element {
       })
       .then((result) => {
         if (result.ok) {
+          clearRecentlyClosedNodes()
           setNodes((current) => current.filter(
             (node) => !(isWorktreeCanvasNode(node) && node.data.worktreeId === prompt.worktreeId)
           ))
@@ -730,7 +805,7 @@ function Canvas(): JSX.Element {
           error: result.message ?? null
         })
       })
-  }, [findWorktreeNode, removalPrompt, setNodes])
+  }, [clearRecentlyClosedNodes, findWorktreeNode, removalPrompt, setNodes])
 
   const seedFreshWorkspace = useCallback(async (): Promise<void> => {
     const directory = await window.terminalApi.getInitialProject()
@@ -778,6 +853,7 @@ function Canvas(): JSX.Element {
         setSidebarCollapsed(saved.sidebarCollapsed)
         setAgentPermissionModes(saved.agentPermissionModes ?? {})
         setComposerSendKey(saved.composerSendKey ?? COMPOSER_SEND_KEY_DEFAULT)
+        setRecentlyClosedNodes(saved.recentlyClosedNodes ?? [])
       } else if (unrecoverable) {
         // Never silently seed and autosave a fresh default over damaged state the user might
         // still be able to recover by hand; wait for an explicit acknowledgement instead.
@@ -908,6 +984,7 @@ function Canvas(): JSX.Element {
         agentPermissionModes,
         composerSendKey,
         nodes: nodes.filter(isTerminalCanvasNode).map(serializeCanvasNode),
+        recentlyClosedNodes,
         worktrees: nodes.filter(isWorktreeCanvasNode).map(serializeWorktreeNode)
       }
       void window.terminalApi.saveWorkspace(state).then((result) => {
@@ -915,7 +992,7 @@ function Canvas(): JSX.Element {
       })
     }, 180)
     return () => clearTimeout(timeout)
-  }, [activeProjectId, agentPermissionModes, composerSendKey, nodes, projects, sidebarCollapsed, workspaceReady])
+  }, [activeProjectId, agentPermissionModes, composerSendKey, nodes, projects, recentlyClosedNodes, sidebarCollapsed, workspaceReady])
 
   const addProject = useCallback(async (): Promise<void> => {
     const directory = await window.terminalApi.pickProject()
@@ -946,10 +1023,11 @@ function Canvas(): JSX.Element {
   const removeProject = useCallback((projectId: string): void => {
     if (projects.length <= 1 || nodes.some((node) => node.data.projectId === projectId)) return
     const remaining = projects.filter((project) => project.id !== projectId)
+    clearRecentlyClosedNodes()
     setProjects(remaining)
     if (activeProjectId === projectId) setActiveProjectId(remaining[0].id)
     setMenu(null)
-  }, [activeProjectId, nodes, projects])
+  }, [activeProjectId, clearRecentlyClosedNodes, nodes, projects])
 
   const focusNode = useCallback((nodeId: string): void => {
     const target = nodes.find((node) => node.id === nodeId)
@@ -1370,7 +1448,7 @@ function Canvas(): JSX.Element {
           <ReactFlow
             nodes={nodes}
             nodeTypes={nodeTypes}
-            onNodesChange={onNodesChange}
+            onNodesChange={handleNodesChange}
             onPaneContextMenu={openContextMenu}
             onPaneClick={() => setMenu(null)}
             minZoom={0.25}
