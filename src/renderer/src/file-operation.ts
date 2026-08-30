@@ -130,14 +130,19 @@ export function parseFileOperation(activity: AgentActivity): FileOperation | nul
   const range = readRange(input)
 
   if (name === 'read') return { kind: 'read', path, ...(range ? { range } : {}) }
-  if (name === 'write') return { kind: 'write', path, ...(content !== undefined ? { content } : {}) }
+  if (name === 'write') return {
+    kind: 'write',
+    path,
+    ...(content !== undefined ? { content } : {}),
+    ...(diffs ? { diffs } : {})
+  }
   if (name === 'multiedit') return { kind: 'multi-edit', path, edits: edits ?? [] }
   if (name === 'edit') return { kind: 'edit', path, ...(edits ? { edits } : {}), ...(diffs ? { diffs } : {}) }
 
   // No usable name: the arguments say what happened, and failing those, ACP's kind does. A
-  // payload is checked before any before/after, because adapters describe a Write as a diff
-  // against nothing - reading that as an edit would dump the whole new file as added lines.
-  if (content !== undefined) return { kind: 'write', path, content }
+  // A payload identifies a Write even when the adapter omits its name; retain any ACP diff so the
+  // card can show proof of the change rather than falling back to the payload-only preview.
+  if (content !== undefined) return { kind: 'write', path, content, ...(diffs ? { diffs } : {}) }
   if (diffs) return { kind: 'edit', path, edits, diffs }
   if (edits) return { kind: edits.length > 1 ? 'multi-edit' : 'edit', path, edits }
   if (activity.kind === 'read') return { kind: 'read', path, ...(range ? { range } : {}) }
@@ -273,6 +278,7 @@ export function fileOperationBlocks(
   operation: FileOperation,
   content: string | undefined
 ): FileOperationBlock[] {
+  if (operation.diffs?.length) return operation.diffs.flatMap(diffBlocks)
   switch (operation.kind) {
     case 'read': {
       if (!content) return []
@@ -291,7 +297,6 @@ export function fileOperationBlocks(
     }
     case 'edit':
     case 'multi-edit': {
-      if (operation.diffs?.length) return operation.diffs.flatMap(diffBlocks)
       const edits = operation.edits ?? []
       if (edits.length === 0) return content ? [{ lines: previewLines(content) }] : []
       return edits.map((edit, index) => ({

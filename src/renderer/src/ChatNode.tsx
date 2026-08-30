@@ -852,8 +852,9 @@ function AuthPanel(
 }
 
 function ApprovalPanel(props: Pick<ChatViewProps, 'approval' | 'resolveApproval'>): JSX.Element | null {
-  const [showAll, setShowAll] = useState(false)
+  const [expandedApprovalId, setExpandedApprovalId] = useState<string | null>(null)
   if (!props.approval) return null
+  const showAll = expandedApprovalId === props.approval.id
   const diff = props.approval.activity
     ? fileOperationCard(props.approval.activity, showAll ? null : TOOL_CARD_LINE_BUDGET)
     : null
@@ -865,12 +866,12 @@ function ApprovalPanel(props: Pick<ChatViewProps, 'approval' | 'resolveApproval'
         <div className="chat-approval-diff">
           <FileOperationBody operation={diff.operation} blocks={diff.blocks} />
           {diff.hiddenLines > 0 && (
-            <button type="button" className="activity-show-more" onClick={() => setShowAll(true)}>
+            <button type="button" className="activity-show-more" onClick={() => setExpandedApprovalId(props.approval!.id)}>
               Show {diff.hiddenLines} more lines
             </button>
           )}
           {showAll && (
-            <button type="button" className="activity-show-more" onClick={() => setShowAll(false)}>
+            <button type="button" className="activity-show-more" onClick={() => setExpandedApprovalId(null)}>
               Show less
             </button>
           )}

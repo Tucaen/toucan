@@ -13,7 +13,7 @@ import {
   type FileOperationBlock
 } from './file-operation'
 import { WorkspaceRootsContext } from './workspace-root'
-import { HighlightedCodeText } from './MarkdownMessage'
+import { highlightedCodeLines } from './syntax-highlight'
 
 /** What the summary adds after the path: only what the path itself cannot already say. */
 function summaryDetail(operation: FileOperation): string | undefined {
@@ -62,10 +62,13 @@ function FilePathActions({ path }: { path: string }): JSX.Element {
   )
 }
 
-function FileOperationBlockView({ block }: { block: FileOperationBlock }): JSX.Element {
+function FileOperationBlockView(
+  { block, showPath }: { block: FileOperationBlock; showPath: boolean }
+): JSX.Element {
+  const highlighted = highlightedCodeLines(block.lines.map((line) => line.text), block.languagePath ?? '')
   return (
     <div className={`file-op-block${block.path ? ' file-op-hunk' : ''}`}>
-      {block.path && <FilePathActions path={block.path} />}
+      {showPath && block.path && <FilePathActions path={block.path} />}
       {block.label && <small className="file-op-block-label">{block.label}</small>}
       <div className="file-op-lines">
         {block.lines.map((line, index) => (
@@ -85,7 +88,7 @@ function FileOperationBlockView({ block }: { block: FileOperationBlock }): JSX.E
                   {line.tone === 'old' ? '-' : line.tone === 'new' ? '+' : line.number}
                 </span>
                 )}
-            <span className="file-op-line-text"><HighlightedCodeText code={line.text} path={block.languagePath ?? ''} /></span>
+            <span className="file-op-line-text"><code className="hljs">{highlighted[index]}</code></span>
           </div>
         ))}
       </div>
@@ -99,7 +102,13 @@ export function FileOperationBody(
   return (
     <div className="file-op">
       {!operation.diffs?.length && <FilePathActions path={operation.path} />}
-      {blocks.map((block, index) => <FileOperationBlockView block={block} key={index} />)}
+      {blocks.map((block, index) => (
+        <FileOperationBlockView
+          block={block}
+          key={index}
+          showPath={Boolean(block.path && block.path !== blocks[index - 1]?.path)}
+        />
+      ))}
     </div>
   )
 }

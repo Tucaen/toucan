@@ -77,17 +77,22 @@ test('MultiEdit keeps every edit in order', () => {
   ])
 })
 
-test('a Write is a write even though the adapter describes it as a diff against nothing', () => {
+test('a Write is a write and keeps the adapter diff that proves what changed', () => {
   // claude-agent-acp emits Write as kind 'edit' with a diff content item whose oldText is null
-  // (see its tools.js). Read as an edit, the whole new file would render as added lines - which
-  // is exactly the raw dump a write card exists to avoid.
+  // (see its tools.js). The content still identifies this as Write, while the diff is the evidence
+  // the inline review card renders.
   const operation = parseFileOperation({
     id: 'w2',
     kind: 'edit',
     rawInput: { file_path: '/repo/a.ts', content: 'hello\nworld' },
     diffs: [{ path: '/repo/a.ts', newText: 'hello\nworld' }]
   })
-  assert.deepEqual(operation, { kind: 'write', path: '/repo/a.ts', content: 'hello\nworld' })
+  assert.deepEqual(operation, {
+    kind: 'write',
+    path: '/repo/a.ts',
+    content: 'hello\nworld',
+    diffs: [{ path: '/repo/a.ts', oldText: '', newText: 'hello\nworld' }]
+  })
 })
 
 test('an edit reported only as an ACP diff still yields a before/after', () => {

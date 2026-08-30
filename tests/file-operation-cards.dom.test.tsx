@@ -241,6 +241,25 @@ describe('file-operation tool cards', () => {
     expect(card.textContent).toContain('line 13')
   })
 
+  test('separate hunks for one file share one file heading and preserve multiline syntax state', () => {
+    const oldLines = ['/* start', 'continued */', 'const first = false', ...Array.from({ length: 12 }, (_, i) => `const gap${i} = ${i}`), 'const last = false']
+    const newLines = [...oldLines]
+    newLines[2] = 'const first = true'
+    newLines[newLines.length - 1] = 'const last = true'
+    const container = renderCards([{
+      id: 'e-two-hunks',
+      kind: 'edit',
+      status: 'completed',
+      diffs: [{ path: `${WORKSPACE_ROOT}\\src\\a.ts`, oldText: oldLines.join('\n'), newText: newLines.join('\n') }]
+    }])
+
+    const card = expand(cards(container)[0])
+    expect(card.querySelectorAll('.file-op-hunk')).toHaveLength(2)
+    expect(card.querySelectorAll('.file-op-path')).toHaveLength(1)
+    const continued = within(card).getByText('continued */')
+    expect(continued.closest('.hljs-comment')).not.toBeNull()
+  })
+
   test('a MultiEdit labels each of its edits', () => {
     const container = renderCards([{
       id: 'e2',

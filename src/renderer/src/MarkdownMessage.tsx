@@ -1,8 +1,8 @@
 import { memo, useEffect, useRef, useState, type ReactNode } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { common, createLowlight } from 'lowlight'
 import type { Element as HastElement, Nodes as HastNodes, RootContent } from 'hast'
+import { highlightedCode } from './syntax-highlight'
 
 /*
  * Transcript rendering re-runs on every streaming chunk, so highlighting cannot live in the
@@ -13,8 +13,6 @@ import type { Element as HastElement, Nodes as HastNodes, RootContent } from 'ha
  * back to plain (still copyable) text rather than pulling the full ~190-language set into the
  * renderer bundle.
  */
-const lowlight = createLowlight(common)
-
 /** Flattens a hast subtree to its source text - what a copy button must put on the clipboard. */
 function nodeText(node: HastNodes | RootContent | undefined): string {
   if (!node) return ''
@@ -33,36 +31,6 @@ function languageFromClassName(value: unknown): string | undefined {
 }
 
 /** Renders lowlight's hast output; it only ever emits text and `<span class=...>` elements. */
-function renderHast(nodes: RootContent[], keyPrefix = 'h'): ReactNode[] {
-  return nodes.map((node, index) => {
-    const key = `${keyPrefix}-${index}`
-    if (node.type === 'text') return node.value
-    if (node.type !== 'element') return null
-    const className = node.properties?.className
-    return (
-      <span key={key} className={Array.isArray(className) ? className.join(' ') : undefined}>
-        {renderHast(node.children as RootContent[], key)}
-      </span>
-    )
-  })
-}
-
-const LANGUAGE_BY_EXTENSION: Record<string, string> = {
-  c: 'c', cpp: 'cpp', cs: 'csharp', css: 'css', go: 'go', html: 'html', java: 'java',
-  js: 'javascript', jsx: 'javascript', json: 'json', md: 'markdown', py: 'python', rb: 'ruby',
-  rs: 'rust', sh: 'bash', sql: 'sql', ts: 'typescript', tsx: 'typescript', xml: 'xml', yaml: 'yaml', yml: 'yaml'
-}
-
-/** Syntax-highlights a code fragment using the same bounded language bundle as transcript fences. */
-export function HighlightedCodeText({ code, path }: { code: string; path: string }): JSX.Element {
-  const extension = path.replace(/\\/g, '/').split('/').at(-1)?.split('.').at(-1)?.toLowerCase() ?? ''
-  const language = LANGUAGE_BY_EXTENSION[extension]
-  const highlighted = language && lowlight.registered(language)
-    ? renderHast(lowlight.highlight(language, code).children as RootContent[])
-    : code
-  return <code className="hljs">{highlighted}</code>
-}
-
 function copyToClipboard(text: string): void {
   const bridge = window.terminalApi
   if (bridge?.copyText) {
@@ -81,9 +49,7 @@ export const CodeBlock = memo(function CodeBlock(
 
   useEffect(() => () => clearTimeout(timer.current), [])
 
-  const highlighted = language && lowlight.registered(language)
-    ? renderHast(lowlight.highlight(language, code).children as RootContent[])
-    : code
+  const highlighted = highlightedCode(code, language)
 
   return (
     <div className="code-block">
