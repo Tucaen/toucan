@@ -12,6 +12,7 @@ import {
 } from '@xyflow/react'
 import type {
   AgentPermissionModes,
+  BrainDumpPanelState,
   ComposerSendKey,
   ConversationPreview,
   TerminalLiveness,
@@ -52,6 +53,13 @@ import SessionNode from './SessionNode'
 import WorktreeNode from './WorktreeNode'
 import { terminalLivenessLabels } from './terminal-liveness'
 import { SidebarTerminalLiveness } from './TerminalLivenessPresentation'
+import BrainDumpLibraryPanel from './BrainDumpLibraryPanel'
+import {
+  BRAIN_DUMP_PANEL_DEFAULT_WIDTH,
+  brainDumpPanelKeyAction,
+  clampBrainDumpPanelWidth
+} from './brain-dump-panel-layout'
+import { brainDumpPathIdentity } from './brain-dump-topics'
 import { useProviderRateLimits } from './use-provider-rate-limits'
 import { useWorkspacePersistence } from './workspace-persistence'
 import { useWorkspaceAttention } from './workspace-attention'
@@ -142,6 +150,16 @@ function createProject(directory: ProjectDirectory, index: number): Project {
   }
 }
 
+/**
+ * Today in the user's own calendar. The brain-dump library records local calendar days, so a UTC
+ * date would read "yesterday" all evening for anyone west of Greenwich.
+ */
+function localCalendarDate(): string {
+  const now = new Date()
+  const month = `${now.getMonth() + 1}`.padStart(2, '0')
+  return `${now.getFullYear()}-${month}-${`${now.getDate()}`.padStart(2, '0')}`
+}
+
 function worktreeRemovalErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'The worktree could not be removed.'
 }
@@ -162,6 +180,14 @@ function Canvas(): JSX.Element {
   // Where a conversation picked from the history browser lands, captured when the browser opens
   // so the node still appears where the user right-clicked.
   const [historyDrop, setHistoryDrop] = useState<{ x: number; y: number } | null>(null)
+  // The brain-dump library is global rather than per-project, so the workspace owns its persisted
+  // panel state and the panel itself only renders it.
+  const [brainDumpPanel, setBrainDumpPanel] = useState<BrainDumpPanelState>({
+    open: false,
+    width: BRAIN_DUMP_PANEL_DEFAULT_WIDTH
+  })
+  const [brainDumpMounted, setBrainDumpMounted] = useState(false)
+  const [workspaceWidth, setWorkspaceWidth] = useState(() => window.innerWidth)
   const { fitView, screenToFlowPosition } = useReactFlow()
   const nextSessionNumber = useRef(1)
 
@@ -354,6 +380,7 @@ function Canvas(): JSX.Element {
   const projectsRef = useRef<Project[]>([])
   const permissionModesRef = useRef<AgentPermissionModes>({})
   const recentlyClosedNodesRef = useRef<WorkspaceTerminalNode[]>([])
+  const brainDumpOpenRef = useRef(false)
   // Held in a ref because the handler is declared after the node factories that hand it out,
   // and because a node's stored callback must not go stale as the handler is recreated.
   const handleWorktreeHandoffRef = useRef<TerminalNodeCallbacks['onWorktreeHandoff']>(undefined)
@@ -366,6 +393,7 @@ function Canvas(): JSX.Element {
   projectsRef.current = projects
   permissionModesRef.current = agentPermissionModes
   recentlyClosedNodesRef.current = recentlyClosedNodes
+  brainDumpOpenRef.current = brainDumpPanel.open
 
   const clearRecentlyClosedNodes = useCallback((): void => {
     recentlyClosedNodesRef.current = []
@@ -459,14 +487,45 @@ function Canvas(): JSX.Element {
     setNodes
   ])
 
+  const toggleBrainDumpPanel = useCallback((): void => {
+    setBrainDumpMounted(true)
+    setBrainDumpPanel((current) => ({
+      ...current,
+      open: !current.open,
+      width: clampBrainDumpPanelWidth(current.width, window.innerWidth)
+    }))
+  }, [])
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent): void => {
+      const target = event.target as HTMLElement | null
+      const editingText =
+        target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || !!target?.isContentEditable
+      if (brainDumpPanelKeyAction(event, { panelOpen: brainDumpOpenRef.current, editingText }) === 'toggle-panel') {
+        event.preventDefault()
+        toggleBrainDumpPanel()
+        return
+      }
       if (closedSessionKeyAction(event, recentlyClosedNodesRef.current.length > 0) !== 'reopen') return
       if (reopenLastClosedSession()) event.preventDefault()
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [reopenLastClosedSession])
+  }, [reopenLastClosedSession, toggleBrainDumpPanel])
+
+  // The panel takes real layout width, so a smaller window must narrow it rather than let it push
+  // the canvas off-screen.
+  useEffect(() => {
+    const onResize = (): void => {
+      setWorkspaceWidth(window.innerWidth)
+      setBrainDumpPanel((current) => {
+        const width = clampBrainDumpPanelWidth(current.width, window.innerWidth)
+        return width === current.width ? current : { ...current, width }
+      })
+    }
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
 
   const addSessionNode = useCallback(
     (options: {
@@ -841,6 +900,13 @@ function Canvas(): JSX.Element {
       nextSessionNumber.current = restored.nextSessionNumber
       setActiveProjectId(restored.activeProjectId)
       setSidebarCollapsed(saved.sidebarCollapsed)
+      // A width saved on a larger monitor is folded into this window before it is ever rendered,
+      // so restoring a workspace can never hand the canvas less room than it can use.
+      if (saved.brainDumpPanel) {
+        const width = clampBrainDumpPanelWidth(saved.brainDumpPanel.width, window.innerWidth)
+        setBrainDumpPanel({ ...saved.brainDumpPanel, width })
+        if (saved.brainDumpPanel.open) setBrainDumpMounted(true)
+      }
       setAgentPermissionModes(saved.agentPermissionModes ?? {})
       setComposerSendKey(saved.composerSendKey ?? COMPOSER_SEND_KEY_DEFAULT)
       setRecentlyClosedNodes(saved.recentlyClosedNodes ?? [])
@@ -879,12 +945,14 @@ function Canvas(): JSX.Element {
       nodes: nodes.filter(isTerminalCanvasNode).map(serializeCanvasNode),
       recentlyClosedNodes,
       attention: [...attention],
-      worktrees: nodes.filter(isWorktreeCanvasNode).map(serializeWorktreeNode)
+      worktrees: nodes.filter(isWorktreeCanvasNode).map(serializeWorktreeNode),
+      brainDumpPanel
     }),
     [
       activeProjectId,
       agentPermissionModes,
       attention,
+      brainDumpPanel,
       composerSendKey,
       nodes,
       projects,
@@ -1129,6 +1197,31 @@ function Canvas(): JSX.Element {
       setHistoryDrop(null)
     },
     [activeProjectId, addSessionNode, historyDrop]
+  )
+
+  /**
+   * A failed capture is still a real provider conversation, so it reopens as an ordinary resumable
+   * node rather than growing a second transcript UI inside the panel. The node is owned by whichever
+   * registered project the job ran in; an unassigned capture ran in the home directory, so it falls
+   * back to the active project.
+   */
+  const openBrainDumpSession = useCallback(
+    (conversation: { provider: TerminalKind; conversationId: string; cwd: string }): void => {
+      const identity = brainDumpPathIdentity(conversation.cwd)
+      const project =
+        projectsRef.current.find((candidate) => brainDumpPathIdentity(candidate.path) === identity) ??
+        projectsRef.current.find((candidate) => candidate.id === activeProjectId) ??
+        projectsRef.current[0]
+      if (!project) return
+      addSessionNode({
+        kind: conversation.provider,
+        project,
+        position: screenToFlowPosition({ x: window.innerWidth / 2, y: window.innerHeight / 2 }),
+        label: 'Brain dump capture',
+        resumeConversationId: conversation.conversationId
+      })
+    },
+    [activeProjectId, addSessionNode, screenToFlowPosition]
   )
 
   const startWorktreeDraft = useCallback((): void => {
@@ -1468,6 +1561,25 @@ function Canvas(): JSX.Element {
                 })}
               </div>
 
+              {/* Separated from the project rows on purpose: the library is global ADE
+                  functionality, not something the active project owns. */}
+              <button
+                type="button"
+                className="sidebar-global-entry"
+                aria-pressed={brainDumpPanel.open}
+                title={sidebarCollapsed ? 'Open brain-dump library' : 'Brain dumps (Ctrl+Shift+B)'}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  toggleBrainDumpPanel()
+                }}
+              >
+                <span className="sidebar-global-icon" aria-hidden="true">
+                  📖
+                </span>
+                {!sidebarCollapsed && <span>Brain dumps</span>}
+                {sidebarCollapsed && <span className="brain-dump-visually-hidden">Open brain-dump library</span>}
+              </button>
+
               <button
                 type="button"
                 className="add-project"
@@ -1520,6 +1632,22 @@ function Canvas(): JSX.Element {
                 <Controls showInteractive={false} position="bottom-left" />
               </ReactFlow>
             </section>
+
+            {/* Docked, never overlaid: the panel is a sibling of the canvas region, so opening it
+                only narrows React Flow's box. Once mounted it stays mounted and merely hides, which
+                is what preserves selection, search, scroll, and an unsent draft across a close. */}
+            {brainDumpMounted && (
+              <BrainDumpLibraryPanel
+                panel={brainDumpPanel}
+                workspaceWidth={workspaceWidth}
+                projects={projects}
+                activeProjectPath={activeProject?.path}
+                api={window.brainDumpApi}
+                today={localCalendarDate()}
+                onPanelChange={(patch) => setBrainDumpPanel((current) => ({ ...current, ...patch }))}
+                onOpenSessionOnCanvas={openBrainDumpSession}
+              />
+            )}
           </div>
 
           {menu && activeProject && (

@@ -74,7 +74,12 @@ export const CodeBlock = memo(function CodeBlock(props: { code: string; language
   )
 })
 
-const components: Components = {
+/**
+ * Every Markdown block override ADE shares, with no opinion about where a link goes. Transcripts
+ * send links straight to the browser; the brain-dump reader has topic and local-file links to tell
+ * apart first, so each caller supplies its own `a` on top of these.
+ */
+export const markdownBlockComponents: Components = {
   /*
    * Overriding `pre` rather than `code` keeps inline code untouched and lets the fenced block be
    * read straight off the hast node, so the copied text is exactly the block's contents - no
@@ -93,6 +98,20 @@ const components: Components = {
       />
     )
   },
+  /* Tables scroll inside the message instead of stretching the node past its width. */
+  table(props) {
+    return (
+      <div className="markdown-table-scroll">
+        <table>{props.children}</table>
+      </div>
+    )
+  }
+}
+
+export const remarkPlugins = [remarkGfm]
+
+const components: Components = {
+  ...markdownBlockComponents,
   /* GFM autolinks turn bare URLs into anchors; a plain <a> would navigate the app window away. */
   a(props) {
     const href = typeof props.href === 'string' ? props.href : undefined
@@ -107,18 +126,8 @@ const components: Components = {
         {props.children}
       </a>
     )
-  },
-  /* Tables scroll inside the message instead of stretching the node past its width. */
-  table(props) {
-    return (
-      <div className="markdown-table-scroll">
-        <table>{props.children}</table>
-      </div>
-    )
   }
 }
-
-const remarkPlugins = [remarkGfm]
 
 function MarkdownMessage({ text }: { text: string }): JSX.Element {
   return (

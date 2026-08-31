@@ -3,13 +3,17 @@ import { MicTranscriber, ModelArch } from '@moonshine-ai/moonshine-wasm'
 import { withStallGuard } from '../../shared/stall-guard'
 import { errorMessage } from '../../shared/text'
 
-type VoiceState = 'idle' | 'loading' | 'listening' | 'stopping' | 'error'
+export type VoiceState = 'idle' | 'loading' | 'listening' | 'stopping' | 'error'
 
 interface VoiceInputPrototypeProps {
   draft: string
   disabled: boolean
   textareaRef: RefObject<HTMLTextAreaElement>
   setDraft(value: string): void
+  /** Starts dictation as soon as the control mounts, for callers opened *by* a microphone action. */
+  autoStart?: boolean
+  /** Lets a surrounding surface show the same loading/listening/failure states this button owns. */
+  onStateChange?(state: VoiceState, error: string): void
 }
 
 const LOCAL_MODEL_URL = new URL('./models/moonshine-small-streaming-en/', window.location.href).toString()
@@ -107,6 +111,21 @@ export default function VoiceInputPrototype(props: VoiceInputPrototypeProps): JS
       fail(cause)
     }
   }
+
+  // A surface opened *by* a microphone action should already be listening when it appears, and it
+  // needs the same states this button shows to explain what the microphone is doing.
+  const beginRef = useRef(begin)
+  beginRef.current = begin
+  const autoStart = props.autoStart
+  useEffect(() => {
+    if (autoStart) void beginRef.current()
+  }, [autoStart])
+
+  const reportStateRef = useRef(props.onStateChange)
+  reportStateRef.current = props.onStateChange
+  useEffect(() => {
+    reportStateRef.current?.(state, error)
+  }, [error, state])
 
   const finish = async (keepTranscript: boolean): Promise<void> => {
     const transcriber = transcriberRef.current

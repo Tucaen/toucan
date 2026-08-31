@@ -50,6 +50,7 @@ channels into the small `window.*Api` interfaces declared by
 | Agent conversation orchestration | [`src/renderer/src/use-agent-conversation.ts`](../src/renderer/src/use-agent-conversation.ts), [`ChatNode.tsx`](../src/renderer/src/ChatNode.tsx)                                                                      | Fold ACP events into a transcript and wire conversation state to the rendered chat. Composer and transcript decisions are delegated to pure feature modules.                                                                                                                                     |
 | Terminal presentation            | [`src/renderer/src/TerminalNode.tsx`](../src/renderer/src/TerminalNode.tsx)                                                                                                                                            | xterm lifecycle and the presentation of main-owned terminal identity/liveness. Retained scrollback never participates in operational decisions.                                                                                                                                                  |
 | Renderer feature logic           | Small non-TSX modules in [`src/renderer/src`](../src/renderer/src)                                                                                                                                                     | Pure decisions for composer behavior, queued prompts, decisions, usage, activity/card recognition, scrolling, liveness presentation, and worktree removal. Tests call these interfaces directly; TSX modules render their results.                                                               |
+| Brain-dump library UI            | [`src/renderer/src/BrainDumpLibraryPanel.tsx`](../src/renderer/src/BrainDumpLibraryPanel.tsx), [`use-brain-dump-library.ts`](../src/renderer/src/use-brain-dump-library.ts)                                                | The docked library panel and the one owner of its async library/capture state. Width and mode decisions live in [`brain-dump-panel-layout.ts`](../src/renderer/src/brain-dump-panel-layout.ts), link handling in [`brain-dump-links.ts`](../src/renderer/src/brain-dump-links.ts), and topic presentation in [`brain-dump-topics.ts`](../src/renderer/src/brain-dump-topics.ts). |
 | Tool-card extension seam         | [`src/renderer/src/tool-card-families.tsx`](../src/renderer/src/tool-card-families.tsx)                                                                                                                                | Ordered registry mapping normalized agent activities to purpose-built card modules. Add a family here instead of branching throughout the transcript renderer.                                                                                                                                   |
 
 ## Dependency direction
@@ -139,6 +140,11 @@ shared code. They are compilation partitions, not permission to bypass the rules
   behind `useWorkspacePersistence`; `useWorkspaceAttention` is the one interface for attention
   transitions and their projection onto canvas nodes. `App.tsx` supplies snapshots and composes
   these modules without reimplementing their state machines.
+- **The brain-dump panel** is docked, not overlaid: it is a sibling of the canvas region, so
+  opening it narrows React Flow's box instead of remounting it, and it stays mounted (hidden)
+  once opened so selection, search, scroll, and an unsent draft survive a close. What the
+  library contains is always re-read from `window.brainDumpApi`; a capture's prose summary is
+  never treated as state.
 - **Pure renderer feature modules** keep high-frequency UI decisions testable without
   rendering. Their adjacent DOM tests verify the wiring rather than duplicating the
   decision matrix.

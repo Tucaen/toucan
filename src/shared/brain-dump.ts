@@ -81,3 +81,11 @@ export const BRAIN_DUMP_OUTCOMES: readonly BrainDumpOutcome[] = ['implemented', 
 export function isBrainDumpSlug(value: string): boolean {
   return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value)
 }
+
+/** The one wording for each outcome, so a row and the archive dialog can never disagree. */
+export const BRAIN_DUMP_OUTCOME_LABELS: Record<BrainDumpOutcome, string> = {
+  implemented: 'Implemented',
+  resolved: 'Resolved',
+  rejected: 'Rejected',
+  obsolete: 'Obsolete'
+}

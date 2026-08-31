@@ -92,6 +92,23 @@ export interface WorkspaceTerminalNode {
   draft?: string
 }
 
+/**
+ * The docked brain-dump library's persisted shape. Everything here outlives a restart for the same
+ * reason a node's composer draft does: the user typed it, or sized it, and losing it would be a
+ * silent discard. Width is stored raw and clamped against the current window on load, so shrinking
+ * the application never permanently narrows the panel.
+ */
+export interface BrainDumpPanelState {
+  open: boolean
+  width: number
+  /** An unsent capture draft, cleared only by a confirmed capture or an explicit Discard. */
+  draft?: string
+  /** The project the draft is filed under; absent means the user chose Unassigned. */
+  draftProjectPath?: string
+  /** The last provider a capture succeeded with; absent falls back to Codex. */
+  provider?: 'claude' | 'codex'
+}
+
 export interface WorkspaceState {
   version: 3
   projects: WorkspaceProject[]
@@ -109,6 +126,8 @@ export interface WorkspaceState {
    */
   attention?: AttentionItem[]
   worktrees: WorkspaceWorktree[]
+  /** Absent in every snapshot written before the library existed; the panel starts closed there. */
+  brainDumpPanel?: BrainDumpPanelState
 }
 
 export interface WorkspaceSaveResult {

@@ -24,6 +24,10 @@ workspace state is stored locally and the Windows x64 portable build is not yet 
   sessions. `Ctrl+Shift+T` reopens the most recently closed session node.
 - Shows retained display-only output for dormant plain terminals and provider account or
   session usage when the provider exposes it.
+- Browses the personal brain-dump library in a resizable panel docked beside the canvas:
+  search active or archived topics, follow `[[slug]]` links, archive or reopen a topic, and
+  capture a new dump by typing or dictating it for the brain-dump skill to organize in the
+  background. `Ctrl+Shift+B` toggles the panel; `Ctrl+K` focuses its search while it is open.
 
 Live shell processes still end when ADE exits. Mobile access, remote access, and live PTY
 process restoration are not implemented.

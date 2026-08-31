@@ -93,6 +93,19 @@ function isWorkspaceTerminalNode(value: unknown): boolean {
   )
 }
 
+function isBrainDumpPanelState(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false
+  const panel = value as Partial<NonNullable<WorkspaceState['brainDumpPanel']>>
+  return (
+    typeof panel.open === 'boolean' &&
+    typeof panel.width === 'number' &&
+    Number.isFinite(panel.width) &&
+    (panel.draft === undefined || typeof panel.draft === 'string') &&
+    (panel.draftProjectPath === undefined || typeof panel.draftProjectPath === 'string') &&
+    (panel.provider === undefined || panel.provider === 'claude' || panel.provider === 'codex')
+  )
+}
+
 export function isWorkspaceState(value: unknown): value is WorkspaceState {
   if (!hasValidProjects(value)) return false
   const state = value as Partial<WorkspaceState>
@@ -107,6 +120,7 @@ export function isWorkspaceState(value: unknown): value is WorkspaceState {
   )
     return false
   if (state.composerSendKey !== undefined && !isComposerSendKey(state.composerSendKey)) return false
+  if (state.brainDumpPanel !== undefined && !isBrainDumpPanelState(state.brainDumpPanel)) return false
   if (state.attention !== undefined && (!Array.isArray(state.attention) || !state.attention.every(isAttentionItem)))
     return false
   if (!state.nodes.every(isWorkspaceTerminalNode)) return false

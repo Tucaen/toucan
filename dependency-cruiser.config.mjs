@@ -7,6 +7,9 @@ const renderer = `${source}renderer/src/`
 // These are the pure decision modules named by docs/architecture.md. The list is explicit because
 // other renderer .ts files intentionally own React contexts, browser APIs, or orchestration.
 const pureRendererFeatureNames = [
+  'brain-dump-links',
+  'brain-dump-panel-layout',
+  'brain-dump-topics',
   'chat-scroll-follow',
   'composer-autosize',
   'composer-keys',
