@@ -40,9 +40,13 @@ export interface BrainDumpCaptureManagerOptions {
   homeDirectory: string
   registeredProjectPaths(): readonly string[] | Promise<readonly string[]>
   createJobId?: () => string
+  /** Debounces streamed final-answer chunks before treating the capture as complete. */
+  finalAnswerGraceMs?: number
   publish?: (state: BrainDumpCaptureState) => void
   initialState?: BrainDumpCaptureState | null
 }
+
+export const DEFAULT_FINAL_ANSWER_GRACE_MS = 500
 
 function pathIdentity(path: string): string {
   const normalized = win32.isAbsolute(path) ? win32.normalize(path) : normalize(path)
@@ -81,6 +85,7 @@ export function createBrainDumpCaptureManager(options: BrainDumpCaptureManagerOp
   let starting = false
   let conversation: BrainDumpCaptureConversation | undefined
   let summary = ''
+  let finalAnswerTimer: ReturnType<typeof setTimeout> | undefined
   const assistantMessages = new Map<string, string>()
   const owners = new Set<BrainDumpCaptureOwner>()
 
@@ -88,6 +93,25 @@ export function createBrainDumpCaptureManager(options: BrainDumpCaptureManagerOp
     state = next
     options.publish?.(next)
     for (const owner of owners) if (!owner.isDestroyed()) owner.send('brain-dump:capture-event', next)
+  }
+
+  const clearFinalAnswerTimer = (): void => {
+    if (finalAnswerTimer !== undefined) clearTimeout(finalAnswerTimer)
+    finalAnswerTimer = undefined
+  }
+
+  const completeAfterFinalAnswer = (jobId: string): void => {
+    clearFinalAnswerTimer()
+    finalAnswerTimer = setTimeout(() => {
+      finalAnswerTimer = undefined
+      if (activeId !== jobId || state?.status !== 'working' || !conversation || !summary) return
+      setState({ status: 'completed', jobId, summary, conversation })
+      activeId = null
+      // The provider has delivered its final answer, but an adapter can still leave the ACP
+      // request pending. Cancel that completed turn so its stall guard cannot report a false
+      // timeout later; the resumable session itself remains available.
+      options.agent.cancel(jobId)
+    }, options.finalAnswerGraceMs ?? DEFAULT_FINAL_ANSWER_GRACE_MS)
   }
 
   const agentOwner: BrainDumpCaptureOwner = {
@@ -101,6 +125,7 @@ export function createBrainDumpCaptureManager(options: BrainDumpCaptureManagerOp
         const text = `${assistantMessages.get(event.messageId) ?? ''}${event.text}`
         assistantMessages.set(event.messageId, text)
         summary = text.trim()
+        if (event.presentation === 'final') completeAfterFinalAnswer(envelope.id!)
       }
     }
   }
@@ -140,6 +165,7 @@ export function createBrainDumpCaptureManager(options: BrainDumpCaptureManagerOp
     if (owner) owners.add(owner)
     const jobId = options.createJobId?.() ?? randomUUID()
     activeId = jobId
+    clearFinalAnswerTimer()
     conversation = undefined
     summary = ''
     assistantMessages.clear()
@@ -177,6 +203,7 @@ export function createBrainDumpCaptureManager(options: BrainDumpCaptureManagerOp
       .then(
         (result) => {
           if (activeId !== jobId || state?.status !== 'working') return
+          clearFinalAnswerTimer()
           if (result.ok) {
             setState({
               status: 'completed',
@@ -192,6 +219,7 @@ export function createBrainDumpCaptureManager(options: BrainDumpCaptureManagerOp
         },
         (error: unknown) => {
           if (activeId !== jobId || state?.status !== 'working') return
+          clearFinalAnswerTimer()
           const message = error instanceof Error ? error.message : String(error)
           setState({ status: 'failed', jobId, code: failureCode(message), message, conversation })
           activeId = null
@@ -205,6 +233,7 @@ export function createBrainDumpCaptureManager(options: BrainDumpCaptureManagerOp
     current: () => state,
     cancel(jobId) {
       if (activeId !== jobId || state?.status !== 'working') return
+      clearFinalAnswerTimer()
       options.agent.cancel(jobId)
       setState({
         status: 'failed',
@@ -217,6 +246,7 @@ export function createBrainDumpCaptureManager(options: BrainDumpCaptureManagerOp
     },
     disconnectOwner: (owner) => void owners.delete(owner),
     shutdown() {
+      clearFinalAnswerTimer()
       if (activeId) options.agent.kill?.(activeId)
     }
   }

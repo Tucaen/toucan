@@ -12,6 +12,7 @@ import {
   buildBrainDumpCapturePrompt,
   createBrainDumpCaptureManager,
   type BrainDumpCaptureAgent,
+  type BrainDumpCaptureManagerOptions,
   type BrainDumpCaptureOwner
 } from '../src/main/brain-dump-capture'
 
@@ -53,13 +54,18 @@ function deferred<T>(): { promise: Promise<T>; resolve(value: T): void; reject(e
   return { promise, resolve, reject }
 }
 
-function manager(agent: FakeAgent, states: BrainDumpCaptureState[] = []) {
+function manager(
+  agent: FakeAgent,
+  states: BrainDumpCaptureState[] = [],
+  overrides: Partial<BrainDumpCaptureManagerOptions> = {}
+) {
   return createBrainDumpCaptureManager({
     agent,
     homeDirectory: 'C:\\Users\\Ada',
     registeredProjectPaths: () => ['D:\\Development\\ADE'],
     createJobId: () => 'job-1',
-    publish: (state) => states.push(state)
+    publish: (state) => states.push(state),
+    ...overrides
   })
 }
 
@@ -152,6 +158,38 @@ test('completion uses final assistant summary and retains resumable conversation
     conversation: { provider: 'codex', conversationId: 'conversation-1', cwd: 'C:\\Users\\Ada' }
   })
   assert.equal(states.at(-1)?.status, 'completed')
+  assert.deepEqual(agent.cancellations, [])
+})
+
+test('a streamed final answer completes capture when the ACP prompt never settles', async () => {
+  const agent = new FakeAgent()
+  agent.promptResult = deferred<AgentPromptResult>().promise
+  const states: BrainDumpCaptureState[] = []
+  const capture = manager(agent, states, { finalAnswerGraceMs: 0 })
+  await capture.start({ content: 'Idea', provider: 'codex' })
+  agent.event({
+    type: 'message',
+    role: 'assistant',
+    messageId: 'm1',
+    text: 'Updated 1 topic ',
+    presentation: 'final'
+  })
+  agent.event({
+    type: 'message',
+    role: 'assistant',
+    messageId: 'm1',
+    text: '(Idea).',
+    presentation: 'final'
+  })
+  await new Promise((resolve) => setTimeout(resolve, 10))
+  assert.deepEqual(capture.current(), {
+    status: 'completed',
+    jobId: 'job-1',
+    summary: 'Updated 1 topic (Idea).',
+    conversation: { provider: 'codex', conversationId: 'conversation-1', cwd: 'C:\\Users\\Ada' }
+  })
+  assert.equal(states.at(-1)?.status, 'completed')
+  assert.deepEqual(agent.cancellations, ['job-1'])
 })
 
 test('startup, authentication, prompt, timeout, and cancellation become structured resumable failures', async (t) => {
