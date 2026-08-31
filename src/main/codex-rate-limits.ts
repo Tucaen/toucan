@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process'
+import { hiddenProcessOptions } from './background-process'
 import { closeSync, existsSync, openSync, readSync, readdirSync, statSync } from 'node:fs'
 import { extname, join, win32 } from 'node:path'
 import { createInterface } from 'node:readline'
@@ -238,11 +239,14 @@ export function resolveCodexAppServerLaunch(
 async function requestRateLimitsViaAppServer(command: string, environment: NodeJS.ProcessEnv): Promise<unknown> {
   const launch = resolveCodexAppServerLaunch(command)
   if (!launch) throw new Error('Codex command shim could not be resolved')
-  const child = spawn(launch.executable, launch.args, {
-    env: { ...environment, ...(launch.runElectronAsNode ? { ELECTRON_RUN_AS_NODE: '1' } : {}) },
-    windowsHide: true,
-    stdio: ['pipe', 'pipe', 'ignore']
-  })
+  const child = spawn(
+    launch.executable,
+    launch.args,
+    hiddenProcessOptions({
+      env: { ...environment, ...(launch.runElectronAsNode ? { ELECTRON_RUN_AS_NODE: '1' } : {}) },
+      stdio: ['pipe', 'pipe', 'ignore']
+    })
+  )
 
   const response = new Promise<unknown>((resolve, reject) => {
     const lines = createInterface({ input: child.stdout })

@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { test } from 'node:test'
-import { buildAgentProcessLaunch, forceHiddenWindows } from '../src/main/agent-process'
+import { buildAgentProcessLaunch } from '../src/main/agent-process'
+import { hiddenProcessOptions } from '../src/main/background-process'
 
 test('agent adapters force their nested Windows processes to stay hidden', () => {
   const launch = buildAgentProcessLaunch(
@@ -18,7 +19,7 @@ test('agent adapters force their nested Windows processes to stay hidden', () =>
   assert.deepEqual(launch.args, ['C:\\Program Files\\ADE\\resources\\claude-agent-acp\\index.js'])
   assert.match(launch.options.env?.NODE_OPTIONS ?? '', /--import=data:text\/javascript/)
   assert.match(launch.options.env?.NODE_OPTIONS ?? '', /windowsHide%3A%20true/)
-  assert.deepEqual(forceHiddenWindows({ windowsHide: false, cwd: 'D:\\Development\\ADE' }), {
+  assert.deepEqual(hiddenProcessOptions({ windowsHide: false, cwd: 'D:\\Development\\ADE' }), {
     windowsHide: true,
     cwd: 'D:\\Development\\ADE'
   })
@@ -46,13 +47,13 @@ test('the hidden-window preload still imports and runs the ACP adapter entrypoin
   assert.equal(result.stdout, 'adapter loaded')
 })
 
-test('the hidden-window preload propagates through an intermediate Node process', () => {
+test('the hidden-window preload covers every Node child-process API', () => {
   const directory = mkdtempSync(join(tmpdir(), 'ade-agent-propagation-'))
   const childPath = join(directory, 'child.mjs')
   const adapterPath = join(directory, 'adapter.mjs')
   writeFileSync(
     childPath,
-    "import { spawn } from 'node:child_process'\nprocess.stdout.write(String(spawn.__adeForceHiddenWindows === true))\n",
+    "import childProcess from 'node:child_process'\nconst methods = ['spawn', 'spawnSync', 'exec', 'execSync', 'execFile', 'execFileSync', 'fork']\nprocess.stdout.write(String(methods.every((method) => childProcess[method].__adeForceHiddenWindows === true && String(childProcess[method]).includes('forceHiddenWindows'))))\n",
     'utf8'
   )
   writeFileSync(

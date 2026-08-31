@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process'
+import { hiddenProcessOptions } from './background-process'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type {
@@ -83,7 +84,7 @@ const GIT_MAX_BUFFER = 8 * 1024 * 1024
 
 const runGitWithExecFile: GitRunner = (args, cwd) =>
   new Promise<GitResult>((resolve) => {
-    execFile('git', args, { cwd, windowsHide: true, maxBuffer: GIT_MAX_BUFFER }, (error, stdout, stderr) => {
+    execFile('git', args, hiddenProcessOptions({ cwd, maxBuffer: GIT_MAX_BUFFER }), (error, stdout, stderr) => {
       const code =
         error && typeof (error as { code?: unknown }).code === 'number'
           ? (error as { code: number }).code

@@ -1,4 +1,4 @@
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import type { ChildProcessWithoutNullStreams } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { Readable, Writable } from 'node:stream'
@@ -36,7 +36,7 @@ import { agentPermissionTitle } from '../shared/agent-permission'
 import { effortSelectorFromConfigOptions } from '../shared/agent-effort'
 import { modelSelectorFromConfigOptions } from '../shared/agent-models'
 import { StallTimeoutError, withStallGuard } from '../shared/stall-guard'
-import { buildAgentProcessLaunch, type AgentProcessLaunch } from './agent-process'
+import { buildAgentProcessLaunch, spawnAgentProcess, type AgentProcessLaunch } from './agent-process'
 import { readCachedCodexModels } from './codex-model-cache'
 import { createPromptWakeGate, type PromptWakeGate } from './prompt-wake-gate'
 
@@ -653,10 +653,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       }
 
       const launch = buildAgentProcessLaunch(process.execPath, path, request.cwd, environment)
-      const child = spawn(launch.executable, launch.args, {
-        ...launch.options,
-        stdio: ['pipe', 'pipe', 'pipe']
-      })
+      const child = spawnAgentProcess(launch)
       const pendingApprovals = new Map<string, PendingApproval>()
       let running: RunningAgent
       const app = client({ name: 'ADE ACP prototype' })
@@ -968,10 +965,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
                 running.environment,
                 method.args
               )
-            const auth = spawn(launch.executable, launch.args, {
-              ...launch.options,
-              stdio: ['pipe', 'pipe', 'pipe']
-            })
+            const auth = spawnAgentProcess(launch)
             running.authChild = auth
             running.authInput = auth.stdin
             auth.stdout.setEncoding('utf8')

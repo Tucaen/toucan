@@ -8,6 +8,7 @@ import type { ConversationListRequest } from '../shared/conversation'
 import type { TerminalCreateRequest, WorkspaceState } from '../shared/terminal'
 import { createAcpSessionManager, type AcpSessionManager } from './acp-session-manager'
 import { createBrainDumpLibrary } from './brain-dump-library'
+import { hiddenProcessOptions } from './background-process'
 import {
   createBrainDumpCaptureManager,
   type BrainDumpCaptureManager,
@@ -49,10 +50,7 @@ function findCommand(command: string): string | null {
     join(app.getPath('home'), '.local', 'bin', `${command}.cmd`)
   ]
   try {
-    const output = execFileSync('where.exe', [command], {
-      encoding: 'utf8',
-      windowsHide: true
-    })
+    const output = execFileSync('where.exe', [command], hiddenProcessOptions({ encoding: 'utf8' }))
     const matches = [
       ...fallbacks.filter((path) => path && existsSync(path)),
       ...output
