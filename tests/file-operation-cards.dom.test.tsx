@@ -1,6 +1,6 @@
 import { fireEvent, render, within } from '@testing-library/react'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
-import { ChatView, type ChatViewProps } from '../src/renderer/src/ChatNode'
+import { TestChatView as ChatView, type TestChatViewProps as ChatViewProps } from './dom/chat-view-fixture'
 import type { AgentActivity } from '../src/shared/agent'
 
 // File-operation tool cards (issue #88): Read/Write/Edit/MultiEdit/NotebookEdit lead with the

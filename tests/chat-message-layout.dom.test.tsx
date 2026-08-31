@@ -1,6 +1,6 @@
 import { render, within } from '@testing-library/react'
 import { describe, expect, test, vi } from 'vitest'
-import { ChatView, type ChatViewProps } from '../src/renderer/src/ChatNode'
+import { TestChatView as ChatView, type TestChatViewProps as ChatViewProps } from './dom/chat-view-fixture'
 
 // Covers the removal of the redundant per-message sender label ("You" / provider name):
 // the label text must not render at all, and user vs. assistant messages must remain

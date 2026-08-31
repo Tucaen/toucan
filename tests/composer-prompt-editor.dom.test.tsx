@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { FormEvent, ReactElement } from 'react'
 import { describe, expect, test, vi } from 'vitest'
-import { ChatView, type ChatViewProps } from '../src/renderer/src/ChatNode'
+import { TestChatView as ChatView, type TestChatViewProps as ChatViewProps } from './dom/chat-view-fixture'
 import { ComposerSendKeyContext } from '../src/renderer/src/composer-send-key-context'
 import type { ComposerSendKey } from '../src/renderer/src/composer-keys'
 

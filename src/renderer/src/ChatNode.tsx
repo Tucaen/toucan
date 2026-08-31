@@ -80,6 +80,7 @@ import {
   seedPromptHistory
 } from './prompt-history'
 import ComposerQueue from './ComposerQueue'
+import ChatSessionControls from './ChatSessionControls'
 import type { QueuedPrompt } from './prompt-outbox'
 import {
   agentTranscriptEntryKey,
@@ -90,7 +91,7 @@ import {
   type AgentTranscriptEntry
 } from './use-agent-conversation'
 
-export interface ChatViewProps {
+interface FlatChatViewProps {
   provider: 'claude' | 'codex'
   messages: AgentChatMessage[]
   activities: AgentActivity[]
@@ -146,10 +147,69 @@ export interface ChatViewProps {
   selectEffort?(effortId: string): void
 }
 
+export type ChatTranscriptProps = Pick<
+  FlatChatViewProps,
+  'provider' | 'messages' | 'activities' | 'transcript' | 'plan' | 'workspaceRoots' | 'commands'
+>
+
+export type ChatComposerProps = Pick<
+  FlatChatViewProps,
+  | 'draft'
+  | 'imageSupport'
+  | 'attachments'
+  | 'queued'
+  | 'addImages'
+  | 'removeAttachment'
+  | 'submit'
+  | 'editQueued'
+  | 'withdrawQueued'
+  | 'sendQueuedNow'
+  | 'cancel'
+  | 'onDraftChange'
+  | 'modes'
+  | 'models'
+  | 'efforts'
+  | 'selectorsDisabled'
+  | 'selectMode'
+  | 'selectModel'
+  | 'selectEffort'
+>
+
+export type ChatPendingProps = Pick<
+  FlatChatViewProps,
+  | 'approval'
+  | 'resolveApproval'
+  | 'authMethods'
+  | 'authLink'
+  | 'reauthenticating'
+  | 'authenticate'
+  | 'submitAuthCode'
+  | 'openAuthLink'
+  | 'answerDecision'
+>
+
+export type ChatSessionControlsProps = Pick<FlatChatViewProps, 'status' | 'detail'> & {
+  focusMode: boolean
+  setFocusMode(enabled: boolean): void
+  focusShortcutEnabled?: boolean
+  empty?: { icon: string; title: string; description: string }
+  statusBar?: ReactNode
+  completedTaskIds?: ReadonlySet<string>
+  closedDecisionIds?: ReadonlySet<string>
+}
+
+/** Cohesive boundaries assembled by ChatNode; feature components receive only their own contract. */
+export interface ChatViewProps {
+  transcript: ChatTranscriptProps
+  composer: ChatComposerProps
+  pending: ChatPendingProps
+  session: ChatSessionControlsProps
+}
+
 const providerNames = { claude: 'Claude', codex: 'Codex' } as const
 
 /** Mirrors `dispatchText`'s guard in use-agent-conversation.ts so a click can't silently no-op. */
-function isSendDisabled(status: ChatViewProps['status']): boolean {
+function isSendDisabled(status: FlatChatViewProps['status']): boolean {
   return status === 'starting' || status === 'auth_required' || status === 'exited'
 }
 
@@ -405,7 +465,7 @@ function SlashCommandMenu(props: {
   )
 }
 
-function EmptyConversation({ provider }: Pick<ChatViewProps, 'provider'>): JSX.Element {
+function EmptyConversation({ provider }: Pick<FlatChatViewProps, 'provider'>): JSX.Element {
   return (
     <div className="chat-empty">
       <span>{provider === 'claude' ? 'C' : '<>'}</span>
@@ -446,7 +506,7 @@ function AttachmentPreview(props: {
  */
 function ComposerToolbar(
   props: Pick<
-    ChatViewProps,
+    FlatChatViewProps,
     'provider' | 'modes' | 'models' | 'efforts' | 'selectorsDisabled' | 'selectMode' | 'selectModel' | 'selectEffort'
   >
 ): JSX.Element {
@@ -499,36 +559,11 @@ function ComposerToolbar(
   )
 }
 
-export function Composer(
-  props: Pick<
-    ChatViewProps,
-    | 'provider'
-    | 'messages'
-    | 'draft'
-    | 'setDraft'
-    | 'submit'
-    | 'cancel'
-    | 'status'
-    | 'detail'
-    | 'imageSupport'
-    | 'attachments'
-    | 'addImages'
-    | 'removeAttachment'
-    | 'onDraftChange'
-    | 'queued'
-    | 'editQueued'
-    | 'withdrawQueued'
-    | 'sendQueuedNow'
-    | 'commands'
-    | 'modes'
-    | 'models'
-    | 'efforts'
-    | 'selectorsDisabled'
-    | 'selectMode'
-    | 'selectModel'
-    | 'selectEffort'
-  >
-): JSX.Element {
+type ComposerProps = ChatComposerProps &
+  Pick<ChatTranscriptProps, 'provider' | 'messages' | 'commands'> &
+  Pick<ChatSessionControlsProps, 'status' | 'detail'>
+
+export function Composer(props: ComposerProps): JSX.Element {
   const busy = props.status === 'working'
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const composerDisabled = isSendDisabled(props.status)
@@ -784,7 +819,7 @@ export function Composer(
 
 function AuthPanel(
   props: Pick<
-    ChatViewProps,
+    FlatChatViewProps,
     'provider' | 'authMethods' | 'authLink' | 'reauthenticating' | 'authenticate' | 'submitAuthCode' | 'openAuthLink'
   >
 ): JSX.Element {
@@ -896,7 +931,7 @@ function AuthPanel(
   )
 }
 
-function ApprovalPanel(props: Pick<ChatViewProps, 'approval' | 'resolveApproval'>): JSX.Element | null {
+function ApprovalPanel(props: Pick<FlatChatViewProps, 'approval' | 'resolveApproval'>): JSX.Element | null {
   const [expandedApprovalId, setExpandedApprovalId] = useState<string | null>(null)
   if (!props.approval) return null
   const showAll = expandedApprovalId === props.approval.id
@@ -953,8 +988,8 @@ function ApprovalPanel(props: Pick<ChatViewProps, 'approval' | 'resolveApproval'
 function DecisionOptions(props: {
   decisionId?: string
   options: DecisionOption[]
-  answerDecision: ChatViewProps['answerDecision']
-  status: ChatViewProps['status']
+  answerDecision: FlatChatViewProps['answerDecision']
+  status: FlatChatViewProps['status']
   submitting?: boolean
 }): JSX.Element {
   const [otherText, setOtherText] = useState('')
@@ -1166,44 +1201,38 @@ function useStickToBottom(followDeps: readonly unknown[]): {
   }
 }
 
-export function ChatView(
-  props: ChatViewProps & {
-    focusMode: boolean
-    setFocusMode(enabled: boolean): void
-    /** Only the selected canvas node responds when several chats are open. */
-    focusShortcutEnabled?: boolean
-    empty?: { icon: string; title: string; description: string }
-    statusBar?: ReactNode
-    completedTaskIds?: ReadonlySet<string>
-    closedDecisionIds?: ReadonlySet<string>
-  }
-): JSX.Element {
+export function ChatView(groups: ChatViewProps): JSX.Element {
+  const { transcript, composer, pending, session } = groups
   // A subagent's tool calls arrive in the same flat feed as the parent's own; these two say
   // which card each one belongs to. Both are keyed on the ids the adapter reported, never on
   // ordering, so an activity always renders somewhere (see `worklog-activities.ts`).
-  const subagentActivities = useMemo(() => indexSubagentActivities(props.activities), [props.activities])
+  const subagentActivities = useMemo(() => indexSubagentActivities(transcript.activities), [transcript.activities])
   const inlineActivities = useMemo(
-    () => worklogActivities(props.activities, subagentActivities, props.plan.length > 0),
-    [props.activities, subagentActivities, props.plan.length]
+    () => worklogActivities(transcript.activities, subagentActivities, transcript.plan.length > 0),
+    [transcript.activities, subagentActivities, transcript.plan.length]
   )
-  const authVisible = props.status === 'auth_required' || props.reauthenticating
-  const pendingDecisions = pendingDecisionsFromMessages(props.messages, props.completedTaskIds, props.closedDecisionIds)
+  const authVisible = session.status === 'auth_required' || pending.reauthenticating
+  const pendingDecisions = pendingDecisionsFromMessages(
+    transcript.messages,
+    session.completedTaskIds,
+    session.closedDecisionIds
+  )
   const { ref: scrollRef, onScroll } = useStickToBottom([
-    props.messages,
-    props.activities,
-    props.plan,
-    props.focusMode,
-    props.approval,
-    props.status
+    transcript.messages,
+    transcript.activities,
+    transcript.plan,
+    session.focusMode,
+    pending.approval,
+    session.status
   ])
   // A BashOutput/KillShell card can only name its command by looking across the whole transcript, so
   // the index is built once here rather than per card. Only a launch's own reported shell id can
   // change it, so it is recomputed only when the activity list itself does.
-  const shellLaunches = useMemo(() => indexShellLaunches(props.activities), [props.activities])
+  const shellLaunches = useMemo(() => indexShellLaunches(transcript.activities), [transcript.activities])
   const rootRef = useRef<HTMLDivElement>(null)
   const transcriptEntries = useMemo(() => {
     const entries = [
-      ...props.messages.map((message) => ({
+      ...transcript.messages.map((message) => ({
         type: 'message' as const,
         key: agentTranscriptEntryKey({ type: 'message', id: message.id, role: message.role }),
         message
@@ -1215,7 +1244,7 @@ export function ChatView(
       }))
     ]
     const byKey = new Map(entries.map((entry) => [entry.key, entry]))
-    const ordered = (props.transcript ?? []).flatMap((entry) => {
+    const ordered = (transcript.transcript ?? []).flatMap((entry) => {
       const key = agentTranscriptEntryKey(entry)
       const match = byKey.get(key)
       if (!match) return []
@@ -1223,64 +1252,49 @@ export function ChatView(
       return [match]
     })
     return [...ordered, ...byKey.values()]
-  }, [inlineActivities, props.messages, props.transcript])
-  useEffect(() => {
-    if (props.focusShortcutEnabled === false) return
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key.toLowerCase() !== 'f' || !event.shiftKey || (!event.ctrlKey && !event.metaKey)) return
-      if (!rootRef.current?.contains(document.activeElement)) return
-      event.preventDefault()
-      props.setFocusMode(!props.focusMode)
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [props.focusMode, props.focusShortcutEnabled, props.setFocusMode])
+  }, [inlineActivities, transcript.messages, transcript.transcript])
   return (
     <div
       ref={rootRef}
-      className={`agent-chat ${props.focusMode ? 'focus-mode' : ''} ${props.statusBar ? 'has-status-bar' : ''} ${pendingDecisions.length > 0 ? 'has-pending-decisions' : ''}`}
+      className={`agent-chat ${session.focusMode ? 'focus-mode' : ''} ${session.statusBar ? 'has-status-bar' : ''} ${pendingDecisions.length > 0 ? 'has-pending-decisions' : ''}`}
     >
-      <button
-        type="button"
-        className="focus-toggle nodrag nopan"
-        aria-label="Focus"
-        aria-pressed={props.focusMode}
-        title="Toggle Focus (Ctrl+Shift+F)"
-        onClick={() => props.setFocusMode(!props.focusMode)}
-      >
-        Focus
-      </button>
+      <ChatSessionControls
+        rootRef={rootRef}
+        focusMode={session.focusMode}
+        setFocusMode={session.setFocusMode}
+        focusShortcutEnabled={session.focusShortcutEnabled}
+      />
       {/* Tool cards live several components deep and every one of them shortens paths against
           these roots, so they reach the cards as context rather than as a prop chain. */}
-      <WorkspaceRootsContext.Provider value={props.workspaceRoots ?? []}>
+      <WorkspaceRootsContext.Provider value={transcript.workspaceRoots ?? []}>
         <ShellLaunchesContext.Provider value={shellLaunches}>
           <SubagentActivitiesContext.Provider value={subagentActivities}>
-            <SessionCommandsContext.Provider value={props.commands ?? []}>
+            <SessionCommandsContext.Provider value={transcript.commands ?? []}>
               <div className="chat-scroll nodrag nopan nowheel" ref={scrollRef} onScroll={onScroll}>
                 {!authVisible &&
-                  props.messages.length === 0 &&
-                  (props.empty ? (
+                  transcript.messages.length === 0 &&
+                  (session.empty ? (
                     <div className="chat-empty">
-                      <span>{props.empty.icon}</span>
-                      <strong>{props.empty.title}</strong>
-                      <p>{props.empty.description}</p>
+                      <span>{session.empty.icon}</span>
+                      <strong>{session.empty.title}</strong>
+                      <p>{session.empty.description}</p>
                     </div>
                   ) : (
-                    <EmptyConversation provider={props.provider} />
+                    <EmptyConversation provider={transcript.provider} />
                   ))}
                 {transcriptEntries.map((entry) =>
                   entry.type === 'activity' ? (
-                    !props.focusMode && <ActivityCard activity={entry.activity} key={entry.key} />
+                    !session.focusMode && <ActivityCard activity={entry.activity} key={entry.key} />
                   ) : entry.message.role === 'thought' ? (
-                    !props.focusMode && <ReasoningCard key={entry.key} message={entry.message} />
+                    !session.focusMode && <ReasoningCard key={entry.key} message={entry.message} />
                   ) : entry.message.presentation === 'progress' ? (
-                    !props.focusMode && <ChatMessageCard key={entry.key} message={entry.message} />
+                    !session.focusMode && <ChatMessageCard key={entry.key} message={entry.message} />
                   ) : (
                     <ChatMessageCard key={entry.key} message={entry.message} />
                   )
                 )}
-                {!props.focusMode && props.plan.length > 0 && <PlanCard plan={props.plan} />}
-                <ApprovalPanel {...props} />
+                {!session.focusMode && transcript.plan.length > 0 && <PlanCard plan={transcript.plan} />}
+                <ApprovalPanel {...pending} />
               </div>
             </SessionCommandsContext.Provider>
           </SubagentActivitiesContext.Provider>
@@ -1298,8 +1312,8 @@ export function ChatView(
               <DecisionOptions
                 decisionId={decision.id}
                 options={decision.options}
-                answerDecision={props.answerDecision}
-                status={props.status}
+                answerDecision={pending.answerDecision}
+                status={session.status}
                 submitting={decision.state === 'submitting'}
               />
               {decision.state === 'submitting' && <small>Sending your answer…</small>}
@@ -1307,13 +1321,17 @@ export function ChatView(
           ))}
         </section>
       )}
-      {props.statusBar && <div className="agent-chat-status-bar">{props.statusBar}</div>}
+      {session.statusBar && <div className="agent-chat-status-bar">{session.statusBar}</div>}
       <Composer
-        key={props.provider}
-        {...props}
-        detail={authVisible || (props.focusMode && props.status === 'working') ? undefined : props.detail}
+        key={transcript.provider}
+        {...composer}
+        provider={transcript.provider}
+        messages={transcript.messages}
+        commands={transcript.commands}
+        status={session.status}
+        detail={authVisible || (session.focusMode && session.status === 'working') ? undefined : session.detail}
       />
-      {authVisible && <AuthPanel {...props} />}
+      {authVisible && <AuthPanel provider={transcript.provider} {...pending} />}
     </div>
   )
 }
@@ -1526,7 +1544,7 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
    * shape in which the worktree can be a writable root rather than an approval prompt. A node
    * already running in a worktree is where such work belongs, so it dispatches normally.
    */
-  const submit: ChatViewProps['submit'] = (event, draftOverride, onPrepared) => {
+  const submit: FlatChatViewProps['submit'] = (event, draftOverride, onPrepared) => {
     // Mid-turn, the prompt queues as any follow-up does rather than moving a session that is
     // still working. It runs where it was typed when the outbox drains, which is visible in the
     // composer queue - unlike tearing down a session with a turn in flight.
@@ -1567,7 +1585,7 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
     conversation.sendMessage(pending)
   }, [conversation, data.initialInput, status])
 
-  const props: ChatViewProps = {
+  const flatProps: FlatChatViewProps = {
     provider,
     ...conversation,
     submit,
@@ -1676,11 +1694,25 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
       ) : (
         <>
           <ChatView
-            {...props}
-            focusMode={data.focusMode}
-            setFocusMode={(enabled) => data.onFocusModeChange(id, enabled)}
-            focusShortcutEnabled={selected}
-            statusBar={usageReadout.empty ? undefined : <SessionUsageBar readout={usageReadout} />}
+            transcript={{
+              provider: flatProps.provider,
+              messages: flatProps.messages,
+              activities: flatProps.activities,
+              transcript: flatProps.transcript,
+              plan: flatProps.plan,
+              workspaceRoots: flatProps.workspaceRoots,
+              commands: flatProps.commands
+            }}
+            composer={flatProps}
+            pending={flatProps}
+            session={{
+              status: flatProps.status,
+              detail: flatProps.detail,
+              focusMode: data.focusMode,
+              setFocusMode: (enabled) => data.onFocusModeChange(id, enabled),
+              focusShortcutEnabled: selected,
+              statusBar: usageReadout.empty ? undefined : <SessionUsageBar readout={usageReadout} />
+            }}
           />
         </>
       )}

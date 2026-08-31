@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, test, vi } from 'vitest'
-import { ChatView, type ChatViewProps } from '../src/renderer/src/ChatNode'
+import { TestChatView as ChatView, type TestChatViewProps as ChatViewProps } from './dom/chat-view-fixture'
 import { agentPermissionTitle } from '../src/shared/agent-permission'
 
 const baseChatViewProps: ChatViewProps = {

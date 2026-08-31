@@ -1,6 +1,6 @@
 import { render, within } from '@testing-library/react'
 import { describe, expect, test, vi } from 'vitest'
-import { ChatView, type ChatViewProps } from '../src/renderer/src/ChatNode'
+import { TestChatView as ChatView, type TestChatViewProps as ChatViewProps } from './dom/chat-view-fixture'
 import SessionUsageBar from '../src/renderer/src/SessionUsageBar'
 import { describeSessionUsage, type SessionUsageInput } from '../src/renderer/src/session-usage'
 import type { AgentRateLimitStatus } from '../src/shared/agent'

@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, test, vi } from 'vitest'
-import { ChatView } from '../src/renderer/src/ChatNode'
+import { TestChatView as ChatView } from './dom/chat-view-fixture'
 import { useAgentConversation } from '../src/renderer/src/use-agent-conversation'
 import { createMockAgentApi } from './dom/agent-api-mock'
 

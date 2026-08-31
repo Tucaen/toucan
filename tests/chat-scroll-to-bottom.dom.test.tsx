@@ -1,6 +1,6 @@
 import { fireEvent, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-import { ChatView, type ChatViewProps } from '../src/renderer/src/ChatNode'
+import { TestChatView as ChatView, type TestChatViewProps as ChatViewProps } from './dom/chat-view-fixture'
 
 // jsdom never computes real layout, so scrollHeight/clientHeight are always 0 unless a test
 // fakes them. These tests patch the two accessors on HTMLElement.prototype for their duration
