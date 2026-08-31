@@ -136,3 +136,9 @@ runs `tests/**/*.dom.test.tsx` under Vitest/jsdom. Representative interfaces:
   must not grow into a second architecture map.
 - `docs/brain-dumps` and `docs/research` preserve ideas and investigations; they are not
   statements of current architecture unless promoted here or into code.
+
+When a change alters user-visible capabilities, setup or verification commands, process
+boundaries, or module ownership, update the corresponding orientation document in the
+same change. Reviewers should treat a stale README or architecture map as an incomplete
+architecture-facing change; reserve `AGENTS.md` updates for new non-obvious invariants or
+sharp edges rather than duplicating the public orientation docs.
