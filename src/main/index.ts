@@ -4,9 +4,11 @@ import { existsSync } from 'node:fs'
 import { basename, extname, join, normalize } from 'node:path'
 import { spawn } from 'node-pty'
 import type { AgentCreateRequest, AgentPromptContent } from '../shared/agent'
+import type { BrainDumpCollection, BrainDumpOutcome } from '../shared/brain-dump'
 import type { ConversationListRequest } from '../shared/conversation'
 import type { TerminalCreateRequest, WorkspaceState } from '../shared/terminal'
 import { createAcpSessionManager, type AcpSessionManager } from './acp-session-manager'
+import { createBrainDumpLibrary } from './brain-dump-library'
 import { createClaudeUsageReader } from './claude-usage'
 import { createConversationHistory, type ConversationHistory } from './conversation-history'
 import { createConversationTitleStore, type ConversationTitleStore } from './conversation-title-store'
@@ -24,6 +26,14 @@ import type { WorktreeCreateRequest, WorktreeDiscoverRequest, WorktreeRemoveRequ
  * regardless of how frequently the renderer asks.
  */
 const PROVIDER_USAGE_TTL_MS = 5 * 60_000
+
+function localCalendarDate(): string {
+  const now = new Date()
+  const year = now.getFullYear()
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const day = String(now.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
 
 function findCommand(command: string): string | null {
   const fallbacks = [
@@ -118,6 +128,27 @@ function registerUsageIpc(usage: ProviderUsage): void {
   ipcMain.handle('usage:rate-limits', () => usage.read())
 }
 
+function registerBrainDumpIpc(library: ReturnType<typeof createBrainDumpLibrary>): void {
+  ipcMain.handle('brain-dump:list', (_event, collection: unknown) =>
+    collection === 'active' || collection === 'archived'
+      ? library.list(collection as BrainDumpCollection)
+      : { topics: [], diagnostics: [{ path: '', code: 'invalid-collection', message: 'Collection is invalid.' }] }
+  )
+  ipcMain.handle('brain-dump:resolve', (_event, slug: unknown) =>
+    typeof slug === 'string' ? library.resolve(slug) : { status: 'invalid', slug: '' }
+  )
+  ipcMain.handle('brain-dump:archive', (_event, slug: unknown, outcome: unknown) =>
+    typeof slug === 'string' && typeof outcome === 'string'
+      ? library.archive(slug, outcome as BrainDumpOutcome)
+      : { ok: false, code: 'invalid-request', message: 'Slug and outcome are required.' }
+  )
+  ipcMain.handle('brain-dump:reopen', (_event, slug: unknown) =>
+    typeof slug === 'string'
+      ? library.reopen(slug)
+      : { ok: false, code: 'invalid-request', message: 'Slug is required.' }
+  )
+}
+
 function registerAgentIpc(manager: AcpSessionManager): void {
   ipcMain.handle('agent:create', (event, request: AgentCreateRequest) => manager.create(request, event.sender))
   ipcMain.handle('agent:prompt', (_event, id: string, content: AgentPromptContent) => manager.prompt(id, content))
@@ -205,7 +236,12 @@ function createWindow(terminalManager: TerminalManager, agentManager: AcpSession
   })
 
   if (process.env.ELECTRON_RENDERER_URL) {
-    void window.loadURL(process.env.ELECTRON_RENDERER_URL)
+    const rendererUrl = new URL(process.env.ELECTRON_RENDERER_URL)
+    if (process.env.ADE_BRAIN_DUMP_PROTOTYPE === '1') {
+      rendererUrl.searchParams.set('prototype', 'brain-dump-library')
+      rendererUrl.searchParams.set('variant', 'A')
+    }
+    void window.loadURL(rendererUrl.toString())
   } else {
     void window.loadFile(join(__dirname, '../renderer/index.html'))
   }
@@ -254,6 +290,8 @@ void app.whenReady().then(() => {
   registerVoicePrototypePermissions()
   registerVoicePrototypeCrossOriginIsolation()
   const codexHome = process.env.CODEX_HOME ?? join(app.getPath('home'), '.codex')
+  const brainDumpDirectory = join(app.getPath('userData'), 'brain-dumps')
+  const agentEnvironment = { ...process.env, ADE_BRAIN_DUMPS_DIR: brainDumpDirectory }
   const providers = createSessionProviders({
     homeDirectory: app.getPath('home'),
     environment: process.env,
@@ -276,11 +314,13 @@ void app.whenReady().then(() => {
   })
   const agentManager = createAcpSessionManager({
     appPath: app.getAppPath(),
-    codexHome
+    codexHome,
+    environment: agentEnvironment
   })
 
   registerTerminalIpc(manager, providers, scrollback)
   registerAgentIpc(agentManager)
+  registerBrainDumpIpc(createBrainDumpLibrary({ rootDirectory: brainDumpDirectory, today: localCalendarDate }))
   const conversationTitles = createConversationTitleStore(join(app.getPath('userData'), 'conversation-titles.json'))
   registerConversationIpc(
     createConversationHistory({

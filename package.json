@@ -9,6 +9,7 @@
     "predev": "npm run prepare:voice-model",
     "dev": "electron-vite dev",
     "prepare:voice-model": "node scripts/prepare-voice-model.mjs",
+    "migrate:brain-dumps": "tsc -p tsconfig.test.json && electron scripts/migrate-brain-dumps.mjs",
     "check:voice-model": "node scripts/prepare-voice-model.mjs --check",
     "preprototype:voice": "npm run prepare:voice-model",
     "prototype:voice": "electron-vite dev",

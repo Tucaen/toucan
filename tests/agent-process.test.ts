@@ -24,6 +24,13 @@ test('agent adapters force their nested Windows processes to stay hidden', () =>
   })
 })
 
+test('agent adapters preserve their environment including the brain-dump library root', () => {
+  const environment = { PATH: 'C:\\Windows', ADE_BRAIN_DUMPS_DIR: 'C:\\Users\\Ada\\ADE\\brain-dumps' }
+  const launch = buildAgentProcessLaunch('electron.exe', 'adapter.js', 'D:\\ADE', environment)
+  assert.equal(launch.options.env?.PATH, environment.PATH)
+  assert.equal(launch.options.env?.ADE_BRAIN_DUMPS_DIR, environment.ADE_BRAIN_DUMPS_DIR)
+})
+
 test('the hidden-window preload still imports and runs the ACP adapter entrypoint', () => {
   const directory = mkdtempSync(join(tmpdir(), 'ade-agent-bootstrap-'))
   const adapterPath = join(directory, 'adapter.mjs')

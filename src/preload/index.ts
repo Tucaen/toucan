@@ -30,6 +30,7 @@ import type {
 } from '../shared/worktree'
 import type { ConversationListPage, ConversationListRequest } from '../shared/conversation'
 import type { ConversationTitleSource } from '../shared/conversation-title'
+import type { BrainDumpApi, BrainDumpCollection, BrainDumpOutcome } from '../shared/brain-dump'
 
 const terminalApi = {
   getInitialProject: (): Promise<ProjectDirectory> => ipcRenderer.invoke('project:initial'),
@@ -131,3 +132,12 @@ const conversationApi = {
 }
 
 contextBridge.exposeInMainWorld('conversationApi', conversationApi)
+
+const brainDumpApi: BrainDumpApi = {
+  list: (collection: BrainDumpCollection) => ipcRenderer.invoke('brain-dump:list', collection),
+  resolve: (slug: string) => ipcRenderer.invoke('brain-dump:resolve', slug),
+  archive: (slug: string, outcome: BrainDumpOutcome) => ipcRenderer.invoke('brain-dump:archive', slug, outcome),
+  reopen: (slug: string) => ipcRenderer.invoke('brain-dump:reopen', slug)
+}
+
+contextBridge.exposeInMainWorld('brainDumpApi', brainDumpApi)

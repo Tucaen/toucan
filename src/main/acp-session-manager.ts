@@ -350,6 +350,8 @@ export const DEFAULT_STALL_CANCEL_GRACE_MS = 250
 export interface AcpSessionManagerOptions {
   appPath: string
   codexHome?: string
+  /** Environment inherited by both adapters and the provider processes they launch. */
+  environment?: NodeJS.ProcessEnv
   /** Overrides `DEFAULT_TURN_TIMEOUT_MS`; primarily for tests. */
   turnTimeoutMs?: number
   /** Overrides `DEFAULT_STALL_CANCEL_GRACE_MS`; primarily for tests. */
@@ -397,6 +399,7 @@ export interface AcpSessionManager {
 }
 
 export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpSessionManager {
+  const environment = options.environment ?? process.env
   const agents = new Map<string, RunningAgent>()
 
   const send = (running: RunningAgent, event: AgentEvent): void => {
@@ -649,7 +652,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         return { ok: false, status: 'error', message: `The ${request.provider} ACP adapter is not installed.` }
       }
 
-      const launch = buildAgentProcessLaunch(process.execPath, path, request.cwd, process.env)
+      const launch = buildAgentProcessLaunch(process.execPath, path, request.cwd, environment)
       const child = spawn(launch.executable, launch.args, {
         ...launch.options,
         stdio: ['pipe', 'pipe', 'pipe']
@@ -775,7 +778,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         authMethods: [],
         // The node's identity travels with the agent so work it starts outside ADE's sight -
         // a worktree it creates for itself - can name the node that asked for it.
-        environment: { ...process.env, ADE_NODE_ID: request.id },
+        environment: { ...environment, ADE_NODE_ID: request.id },
         cachedModels:
           request.provider === 'codex' && options.codexHome
             ? readCachedCodexModels(options.codexHome, request.modelId)

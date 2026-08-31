@@ -5,15 +5,17 @@ description: Organize raw ADE brain dumps into a persistent, one-file-per-topic 
 
 # Brain Dump
 
-Turn the user's raw input into an evolving ADE idea archive at `docs/brain-dumps/`, relative to the repository root. This skill is ADE-only; if the current workspace is not the ADE repository containing this skill, stop and explain that boundary.
+Turn the user's raw input into an evolving ADE idea library rooted at `ADE_BRAIN_DUMPS_DIR`. This skill is ADE-only; if the current workspace is not the ADE repository containing this skill, stop and explain that boundary. If `ADE_BRAIN_DUMPS_DIR` is absent, stop and explain that ADE must launch the agent with the library location; never fall back to `docs/brain-dumps/`.
 
 ## File the dump
 
-1. Read every existing Markdown file in `docs/brain-dumps/` before classifying the new material. Treat a missing directory as an empty archive and create it when the first topic is written.
-2. Break the dump into substantive fragments, then cluster them by durable subject. Match a cluster to an existing topic by meaning and intent, not merely shared wording. Keep independently useful ideas in separate files.
-3. Account for every substantive fragment. Give each fragment one primary topic; connect related topics with Markdown links instead of copying the same material into several files.
-4. Create one lowercase kebab-case `.md` file for each genuinely new topic. Keep an existing filename stable unless renaming or consolidating is necessary to restore one canonical file per topic.
-5. Rewrite each affected file as a coherent current-state summary that incorporates both its previous content and the new material. Integrate and deduplicate; do not append a chronological dump log.
+1. Read every direct Markdown child of `$ADE_BRAIN_DUMPS_DIR/active/` before classifying new material. Treat a missing active directory as empty and create it when the first topic is written.
+2. Consult `$ADE_BRAIN_DUMPS_DIR/archived/` only when no active topic adequately matches or the user explicitly asks about archived material. Never create an active duplicate of an archived slug. If new material extends an archived topic, reopen that topic first by moving it to `active/`, removing `outcome` and `archived`, and updating `updated`.
+3. Break the dump into substantive fragments, then cluster them by durable subject. Match a cluster to an existing topic by meaning and intent, not merely shared wording. Keep independently useful ideas in separate files.
+4. Account for every substantive fragment. Give each fragment one primary topic; connect related topics with `[[slug]]` references instead of copying the same material into several files. Never generate filesystem links between brain-dump topics.
+5. Create one lowercase kebab-case `.md` file for each genuinely new topic. Keep an existing slug stable.
+6. Rewrite each affected file as a coherent current-state summary that incorporates both its previous content and the new material. Integrate and deduplicate; do not append a chronological dump log. Preserve every existing `[[slug]]` reference while rewriting.
+7. Archive an entire topic only on explicit user instruction, never from inferred completion. Move it to `archived/`, update `updated`, and add the requested valid `outcome` and `archived` date.
 
 ## Topic file shape
 
@@ -37,12 +39,12 @@ Preserve concrete details, examples, rationale, names, and constraints while rem
 
 ## Completion
 
-Before responding, verify that every substantive input fragment is represented, no unrelated topics were collapsed together, links resolve to the intended topic files, and each changed file reads as one polished summary.
+Before responding, verify that every substantive input fragment is represented, no unrelated topics were collapsed together, `[[slug]]` links resolve to the intended active or archived topic, and each changed file reads as one polished summary.
 
 Return only a compact change report in chat:
 
 ```text
-Created 4 topics (A, B, C, D). Added information to 2 topics (E, F).
+Created 4 topics (A, B, C, D). Updated 2 topics (E, F). Reopened 1 topic (G). Archived 1 topic (H).
 ```
 
 Omit a clause whose count is zero. If nothing changed, say `No topic files changed.`

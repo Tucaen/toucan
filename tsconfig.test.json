@@ -11,6 +11,9 @@
   "include": [
     "tests/**/*.test.ts",
     "src/main/agent-process.ts",
+    "src/main/brain-dump-library.ts",
+    "src/main/brain-dump-migration.ts",
+    "src/main/durable-file.ts",
     "src/main/codex-model-cache.ts",
     "src/main/codex-rate-limits.ts",
     "src/main/claude-usage.ts",

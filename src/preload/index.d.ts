@@ -29,6 +29,7 @@ import type {
 } from '../shared/worktree'
 import type { ConversationListPage, ConversationListRequest } from '../shared/conversation'
 import type { ConversationTitle, ConversationTitleSource } from '../shared/conversation-title'
+import type { BrainDumpApi } from '../shared/brain-dump'
 
 export interface AgentApi {
   create(request: AgentCreateRequest): Promise<AgentCreateResult>
@@ -103,5 +104,6 @@ declare global {
     usageApi: UsageApi
     worktreeApi: WorktreeApi
     conversationApi: ConversationApi
+    brainDumpApi: BrainDumpApi
   }
 }
