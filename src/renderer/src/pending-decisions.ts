@@ -1,4 +1,5 @@
 import { classifyAssistantMessage, extractDecisionOptions, type DecisionOption } from './decision-message'
+import { isFinalAssistantMessage, type AgentMessagePresentation } from '../../shared/agent'
 
 interface DecisionTranscriptMessage {
   id: string
@@ -9,6 +10,7 @@ interface DecisionTranscriptMessage {
   decisionReplyTo?: string
   deliveryPending?: boolean
   complete?: boolean
+  presentation?: AgentMessagePresentation
 }
 
 export interface PendingDecision {
@@ -82,7 +84,7 @@ export function pendingDecisionStateFromMessages(
   const closed = new Set(persistedClosedIds)
   for (const message of messages) {
     if (
-      message.role === 'assistant' &&
+      isFinalAssistantMessage(message) &&
       message.complete !== false &&
       classifyAssistantMessage(message.text) === 'decision'
     ) {

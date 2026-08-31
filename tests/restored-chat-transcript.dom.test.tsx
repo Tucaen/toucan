@@ -44,6 +44,7 @@ function restoredChat(provider: AgentProvider): TerminalCanvasNode {
         position: { x: 120, y: 80 },
         width: 640,
         height: 480,
+        focusMode: false,
         conversationId: `${provider}-conversation`
       }
     ],
@@ -108,8 +109,16 @@ describe.each(['claude', 'codex'] as const)('%s restored chat transcript', (prov
             {
               type: 'message',
               role: 'assistant',
+              messageId: 'saved-progress-message',
+              text: 'Reading the saved workspace.',
+              ...(provider === 'codex' ? { presentation: 'progress' as const } : {})
+            },
+            {
+              type: 'message',
+              role: 'assistant',
               messageId: 'saved-assistant-message',
-              text: 'Persisted answer'
+              text: 'Persisted answer',
+              ...(provider === 'codex' ? { presentation: 'final' as const } : {})
             }
           ]
         }
@@ -126,7 +135,10 @@ describe.each(['claude', 'codex'] as const)('%s restored chat transcript', (prov
     renderNode(node)
 
     await waitFor(() => expect(screen.getByText('Persisted question')).toBeInTheDocument())
-    expect(screen.getByText('Persisted answer')).toBeInTheDocument()
+    const progress = screen.getByText('Reading the saved workspace.').closest('article')
+    expect(progress).toHaveAttribute('data-presentation', 'progress')
+    expect(screen.getByText('Progress')).toBeInTheDocument()
+    expect(screen.getByText('Persisted answer').closest('article')).toHaveAttribute('data-presentation', 'final')
     expect(mock.api.create).toHaveBeenCalledWith(
       expect.objectContaining({
         provider,

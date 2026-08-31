@@ -1,3 +1,5 @@
+import type { AgentMessagePresentation } from './agent'
+
 /**
  * The rule that decides whether a submitted prompt should start its own worktree instead of
  * running where it was typed. Nothing here touches git, the canvas, or an agent; it is the
@@ -63,7 +65,11 @@ export function planWorktreeHandoff(
  * is re-derivable in the worktree where the work will actually happen.
  */
 export function buildHandoffPrompt(
-  messages: readonly { role: 'user' | 'assistant' | 'thought'; text: string }[],
+  messages: readonly {
+    role: 'user' | 'assistant' | 'thought'
+    text: string
+    presentation?: AgentMessagePresentation
+  }[],
   prompt: string
 ): string {
   const dialogue = messages

@@ -46,6 +46,19 @@ test('streamed fragments do not pin until the normalized message becomes complet
   assert.equal(pendingDecisionsFromMessages([{ ...partial, complete: true }]).length, 1)
 })
 
+test('decision-shaped progress narration never becomes a pinned final decision', () => {
+  assert.deepEqual(
+    pendingDecisionsFromMessages([
+      {
+        ...assistant('progress-question', codexDecision),
+        presentation: 'progress',
+        complete: true
+      }
+    ]),
+    []
+  )
+})
+
 test('replayed and repeated open-decision messages dedupe by task and key and update in place', () => {
   const revised = codexDecision.replace('ten percent', 'five percent')
   const pins = pendingDecisionsFromMessages([
