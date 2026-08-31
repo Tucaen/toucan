@@ -27,7 +27,7 @@ export async function writeNewFileDurably(path: string, contents: string): Promi
 
 /** Flushes the promoted file and, where the platform supports it, its containing directory entry. */
 export async function syncPromotedFile(path: string, directory: string): Promise<void> {
-  const file = await open(path, 'r')
+  const file = await open(path, 'r+')
   try {
     await file.sync()
   } finally {
