@@ -116,7 +116,7 @@ export function WorktreeRemoveDialog({
         <p className="worktree-dialog-path" title={prompt.path}>
           {prompt.path}
         </p>
-        {plan.decision === 'ready' && (
+        {plan.decision === 'ready' && !prompt.busy && (
           <p>Nothing unique lives here: the tree is clean, and its commits are already merged or pushed.</p>
         )}
         {plan.hard.length > 0 && (

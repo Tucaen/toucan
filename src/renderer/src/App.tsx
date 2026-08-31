@@ -142,6 +142,10 @@ function createProject(directory: ProjectDirectory, index: number): Project {
   }
 }
 
+function worktreeRemovalErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'The worktree could not be removed.'
+}
+
 function Canvas(): JSX.Element {
   const [nodes, setNodes, onNodesChange] = useNodesState<CanvasNode>([])
   const [projects, setProjects] = useState<Project[]>([])
@@ -608,6 +612,15 @@ function Canvas(): JSX.Element {
         open([])
         return
       }
+
+      setRemovalPrompt({
+        worktreeId,
+        branch: worktreeNode.data.branch,
+        path: worktreeNode.data.path,
+        plan: planWorktreeRemoval(0, []),
+        busy: true,
+        error: null
+      })
       void window.worktreeApi
         .remove({
           projectPath: project.path,
@@ -621,6 +634,7 @@ function Canvas(): JSX.Element {
             setNodes((current) =>
               current.filter((node) => !(isWorktreeCanvasNode(node) && node.data.worktreeId === worktreeId))
             )
+            setRemovalPrompt(null)
             return
           }
           if (result.blockers.length > 0) {
@@ -634,6 +648,16 @@ function Canvas(): JSX.Element {
             plan: planWorktreeRemoval(0, []),
             busy: false,
             error: result.message ?? 'The worktree could not be removed.'
+          })
+        })
+        .catch((error: unknown) => {
+          setRemovalPrompt({
+            worktreeId,
+            branch: worktreeNode.data.branch,
+            path: worktreeNode.data.path,
+            plan: planWorktreeRemoval(0, []),
+            busy: false,
+            error: worktreeRemovalErrorMessage(error)
           })
         })
     },
@@ -771,6 +795,13 @@ function Canvas(): JSX.Element {
             busy: false,
             plan: planWorktreeRemoval(worktreeNode.data.attachedNodeCount, result.blockers),
             error: result.message ?? null
+          })
+        })
+        .catch((error: unknown) => {
+          setRemovalPrompt({
+            ...prompt,
+            busy: false,
+            error: worktreeRemovalErrorMessage(error)
           })
         })
     },
