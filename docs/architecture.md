@@ -81,6 +81,41 @@ Additional rules:
 - Tests may cross these production layers to exercise an interface. Production code may
   never import `tests/**`.
 
+## Engineering principles
+
+These principles guide changes within the dependency boundaries above. They are review
+criteria rather than reasons to reorganize working code mechanically.
+
+- Organize code around clear ownership and cohesive capabilities. The Electron runtime
+  directories (`main`, `preload`, `renderer`, and `shared`) are real architectural boundaries;
+  within them, introduce capability directories when they improve locality, not merely to
+  satisfy a folder convention.
+- Keep capability internals private once a capability has an explicit boundary. Consumers
+  should use its deliberate public module rather than importing implementation details. A
+  capability does not need an `index.ts` barrel when a named module is already the clearest
+  interface.
+- Composition roots may depend on capabilities; capabilities must not depend on composition
+  roots. `src/main/index.ts` composes main-process modules and `App.tsx` composes renderer
+  capabilities. Reusable decisions must not import either root.
+- React components should primarily render UI and coordinate interactions. Put substantial
+  transitions, policies, parsing, and domain decisions in focused hooks or pure modules where
+  they can be tested without rendering. UI-specific behavior may remain with the UI that owns
+  it.
+- State belongs at its narrowest genuine owner. Lift it or place it in context only when
+  multiple consumers genuinely share its lifetime and authority.
+- Keep one authority for external or process-owned data. A renderer projection needed for UI
+  is valid; a second independently mutable copy of provider, filesystem, or main-process state
+  is not unless its synchronization contract is explicit.
+- Use effects to synchronize React with systems outside React: browser APIs, timers,
+  subscriptions, persistence, IPC, and owned processes. Prefer render-time derivation, event
+  handlers, or explicit state transitions for ordinary computation and interaction handling.
+- Prefer composition of cohesive interfaces over components controlled by broad collections
+  of flags and callbacks. Evaluate an interface by the responsibilities it exposes, not by raw
+  prop or file count.
+- New runtime dependencies require written justification in the change description. Explain
+  why existing code or dependencies are insufficient and note relevant bundle, packaging,
+  native-binary, Windows-support, maintenance, and licensing implications.
+
 The TypeScript projects already reflect the runtime split:
 [`tsconfig.node.json`](../tsconfig.node.json) builds main, preload, and shared code;
 [`tsconfig.web.json`](../tsconfig.web.json) builds renderer, preload declarations, and
