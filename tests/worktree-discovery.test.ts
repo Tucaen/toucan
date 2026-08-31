@@ -27,16 +27,18 @@ test('the first block of the porcelain listing is the project checkout, not a wo
 })
 
 test('a detached worktree reports no branch rather than a guessed one', () => {
-  const entries = parseWorktreeList([
-    `worktree ${PROJECT}`,
-    'HEAD abc123',
-    'branch refs/heads/main',
-    '',
-    `worktree ${FEATURE}`,
-    'HEAD def456',
-    'detached',
-    ''
-  ].join('\n'))
+  const entries = parseWorktreeList(
+    [
+      `worktree ${PROJECT}`,
+      'HEAD abc123',
+      'branch refs/heads/main',
+      '',
+      `worktree ${FEATURE}`,
+      'HEAD def456',
+      'detached',
+      ''
+    ].join('\n')
+  )
   assert.equal(entries[1].branch, '')
 })
 
@@ -50,7 +52,10 @@ test('a worktree git knows about and the workspace does not becomes a discovery'
 
 test('the project checkout is never discovered as a worktree', () => {
   const discovered = discoverWorktrees(parseWorktreeList(porcelain), [], [], 'main')
-  assert.equal(discovered.some((worktree) => worktree.path === PROJECT), false)
+  assert.equal(
+    discovered.some((worktree) => worktree.path === PROJECT),
+    false
+  )
 })
 
 test('a worktree the workspace already records is left alone', () => {
@@ -69,16 +74,18 @@ test('a recorded path matches whatever slash and case shape git reports', () => 
 })
 
 test('a detached worktree is skipped: there is no branch for the record to own', () => {
-  const entries = parseWorktreeList([
-    `worktree ${PROJECT}`,
-    'HEAD abc123',
-    'branch refs/heads/main',
-    '',
-    `worktree ${FEATURE}`,
-    'HEAD def456',
-    'detached',
-    ''
-  ].join('\n'))
+  const entries = parseWorktreeList(
+    [
+      `worktree ${PROJECT}`,
+      'HEAD abc123',
+      'branch refs/heads/main',
+      '',
+      `worktree ${FEATURE}`,
+      'HEAD def456',
+      'detached',
+      ''
+    ].join('\n')
+  )
   assert.deepEqual(discoverWorktrees(entries, [], [], 'main'), [])
 })
 

@@ -37,39 +37,47 @@ export function SearchNavigationBody({ search }: { search: SearchNavigation }): 
     )
   }
   if (search.kind === 'web-search') {
-    return search.results.length === 0
-      ? <p className="search-zero-result">No web results found</p>
-      : (
-        <div className="web-results">
-          {search.results.map((result) => (
-            <div className="web-result" key={result.url}>
-              <strong>{result.title}</strong>
-              <small>{result.host}</small>
-              <code>{result.url}</code>
-            </div>
-          ))}
-        </div>
-      )
+    return search.results.length === 0 ? (
+      <p className="search-zero-result">No web results found</p>
+    ) : (
+      <div className="web-results">
+        {search.results.map((result) => (
+          <div className="web-result" key={result.url}>
+            <strong>{result.title}</strong>
+            <small>{result.host}</small>
+            <code>{result.url}</code>
+          </div>
+        ))}
+      </div>
+    )
   }
   if (search.kind === 'glob') {
-    return search.paths.length === 0
-      ? <p className="search-zero-result">No files found</p>
-      : (
-        <div className="search-path-results">
-          {search.paths.map((path) => <code title={path} key={path}>{shortenFilePath(path, roots)}</code>)}
-        </div>
-      )
+    return search.paths.length === 0 ? (
+      <p className="search-zero-result">No files found</p>
+    ) : (
+      <div className="search-path-results">
+        {search.paths.map((path) => (
+          <code title={path} key={path}>
+            {shortenFilePath(path, roots)}
+          </code>
+        ))}
+      </div>
+    )
   }
   if (search.matchCount === 0) return <p className="search-zero-result">No matches found</p>
   return (
     <div className="search-result-groups">
       {search.groups.map((group) => (
         <section className="search-result-group" key={group.path}>
-          <code className="search-result-path" title={group.path}>{shortenFilePath(group.path, roots)}</code>
+          <code className="search-result-path" title={group.path}>
+            {shortenFilePath(group.path, roots)}
+          </code>
           <div className="search-result-lines">
             {group.matches.map((match, index) => (
               <div className="search-result-line" key={`${match.line ?? 'result'}-${index}`}>
-                <span className="search-result-line-number" aria-hidden="true">{match.line}</span>
+                <span className="search-result-line-number" aria-hidden="true">
+                  {match.line}
+                </span>
                 <span>{match.text}</span>
               </div>
             ))}

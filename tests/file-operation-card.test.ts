@@ -24,7 +24,10 @@ test('a ranged read carries its path and line range out of the raw tool input', 
 
 test('a whole-file read reports no range', () => {
   const operation = parseFileOperation({
-    id: 'r2', kind: 'read', toolName: 'Read', rawInput: { file_path: '/repo/src/app.ts' }
+    id: 'r2',
+    kind: 'read',
+    toolName: 'Read',
+    rawInput: { file_path: '/repo/src/app.ts' }
   })
   assert.deepEqual(operation, { kind: 'read', path: '/repo/src/app.ts' })
 })
@@ -38,7 +41,10 @@ test('a read known only by its ACP location still renders as a file card', () =>
 
 test('write keeps its payload so the card can show a size and a preview', () => {
   const operation = parseFileOperation({
-    id: 'w1', kind: 'edit', toolName: 'Write', rawInput: { file_path: '/repo/a.txt', content: 'one\ntwo' }
+    id: 'w1',
+    kind: 'edit',
+    toolName: 'Write',
+    rawInput: { file_path: '/repo/a.txt', content: 'one\ntwo' }
   })
   assert.deepEqual(operation, { kind: 'write', path: '/repo/a.txt', content: 'one\ntwo' })
 })
@@ -147,21 +153,20 @@ test('a read excerpt is numbered from the start of the range', () => {
     { kind: 'read', path: '/repo/a.ts', range: { start: 10, end: 12 } },
     'alpha\nbeta\ngamma'
   )
-  assert.deepEqual(blocks, [{
-    languagePath: '/repo/a.ts',
-    lines: [
-      { number: 10, text: 'alpha' },
-      { number: 11, text: 'beta' },
-      { number: 12, text: 'gamma' }
-    ]
-  }])
+  assert.deepEqual(blocks, [
+    {
+      languagePath: '/repo/a.ts',
+      lines: [
+        { number: 10, text: 'alpha' },
+        { number: 11, text: 'beta' },
+        { number: 12, text: 'gamma' }
+      ]
+    }
+  ])
 })
 
 test('an excerpt the agent already numbered is not numbered twice', () => {
-  const blocks = fileOperationBlocks(
-    { kind: 'read', path: '/repo/a.ts' },
-    '   10\talpha\n   11\tbeta\n   12\tgamma'
-  )
+  const blocks = fileOperationBlocks({ kind: 'read', path: '/repo/a.ts' }, '   10\talpha\n   11\tbeta\n   12\tgamma')
   assert.deepEqual(blocks[0].lines, [
     { number: 10, text: 'alpha' },
     { number: 11, text: 'beta' },
@@ -181,7 +186,14 @@ test('write shows a size and a preview instead of the whole payload', () => {
 
 test('edits render as a compact before/after', () => {
   const blocks = fileOperationBlocks(
-    { kind: 'multi-edit', path: '/repo/a.ts', edits: [{ oldText: 'a\nb', newText: 'c' }, { oldText: 'd', newText: 'e' }] },
+    {
+      kind: 'multi-edit',
+      path: '/repo/a.ts',
+      edits: [
+        { oldText: 'a\nb', newText: 'c' },
+        { oldText: 'd', newText: 'e' }
+      ]
+    },
     undefined
   )
   assert.deepEqual(blocks, [

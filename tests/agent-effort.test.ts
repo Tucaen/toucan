@@ -5,11 +5,18 @@ import { effortSelectorFromConfigOptions } from '../src/shared/agent-effort'
 test('reads only the effort values advertised for the selected provider/model', () => {
   const selector = effortSelectorFromConfigOptions([
     {
-      id: 'model', name: 'Model', category: 'model', type: 'select', currentValue: 'gpt-5',
+      id: 'model',
+      name: 'Model',
+      category: 'model',
+      type: 'select',
+      currentValue: 'gpt-5',
       options: [{ value: 'gpt-5', name: 'GPT-5' }]
     },
     {
-      id: 'reasoning_effort', name: 'Reasoning effort', category: 'thought_level', type: 'select',
+      id: 'reasoning_effort',
+      name: 'Reasoning effort',
+      category: 'thought_level',
+      type: 'select',
       currentValue: 'high',
       options: [
         { value: 'low', name: 'Low' },
@@ -32,8 +39,17 @@ test('reads only the effort values advertised for the selected provider/model', 
 
 test('does not invent a universal effort selector when the harness advertises none', () => {
   assert.equal(effortSelectorFromConfigOptions(undefined), undefined)
-  assert.equal(effortSelectorFromConfigOptions([{
-    id: 'model', name: 'Model', category: 'model', type: 'select', currentValue: 'opus',
-    options: [{ value: 'opus', name: 'Opus' }]
-  }]), undefined)
+  assert.equal(
+    effortSelectorFromConfigOptions([
+      {
+        id: 'model',
+        name: 'Model',
+        category: 'model',
+        type: 'select',
+        currentValue: 'opus',
+        options: [{ value: 'opus', name: 'Opus' }]
+      }
+    ]),
+    undefined
+  )
 })

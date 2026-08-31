@@ -33,7 +33,11 @@ export function parseMcpToolCall(activity: AgentActivity): McpToolCall | null {
   if (named) {
     // Claude's `rawInput` *is* the tool's arguments; it is not a codex-style envelope, so an
     // `arguments` key in it belongs to the third-party tool and must not be unwrapped.
-    return { server: named[1], tool: named[2], ...(activity.rawInput !== undefined ? { arguments: activity.rawInput } : {}) }
+    return {
+      server: named[1],
+      tool: named[2],
+      ...(activity.rawInput !== undefined ? { arguments: activity.rawInput } : {})
+    }
   }
   const server = asText(input?.server)
   const tool = asText(input?.tool)
@@ -41,7 +45,12 @@ export function parseMcpToolCall(activity: AgentActivity): McpToolCall | null {
     return { server, tool, ...(input?.arguments !== undefined ? { arguments: input.arguments } : {}) }
   }
   const titled = activity.title ? CODEX_MCP_TITLE.exec(activity.title) : null
-  if (titled) return { server: titled[1], tool: titled[2], ...(activity.rawInput !== undefined ? { arguments: activity.rawInput } : {}) }
+  if (titled)
+    return {
+      server: titled[1],
+      tool: titled[2],
+      ...(activity.rawInput !== undefined ? { arguments: activity.rawInput } : {})
+    }
   return null
 }
 
@@ -101,6 +110,6 @@ export function mcpToolCallCard(
     call,
     args,
     result: result.lines,
-    hiddenLines: (allArgs.length - args.length) + result.hiddenLines
+    hiddenLines: allArgs.length - args.length + result.hiddenLines
   }
 }

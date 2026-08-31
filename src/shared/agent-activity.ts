@@ -15,9 +15,11 @@ function toolContentText(content: ToolCallContent[] | null | undefined): string 
 }
 
 function toolContentDiffs(content: ToolCallContent[] | null | undefined): AgentFileDiff[] | undefined {
-  const diffs = content?.flatMap((item) => item.type === 'diff'
-    ? [{ path: item.path, ...(item.oldText ? { oldText: item.oldText } : {}), newText: item.newText }]
-    : [])
+  const diffs = content?.flatMap((item) =>
+    item.type === 'diff'
+      ? [{ path: item.path, ...(item.oldText ? { oldText: item.oldText } : {}), newText: item.newText }]
+      : []
+  )
   return diffs?.length ? diffs : undefined
 }
 
@@ -91,8 +93,8 @@ function terminalChunkOf(update: ToolCallSessionUpdate): string | undefined {
 function exitStatusOf(update: ToolCallSessionUpdate): { exitCode?: number; exitSignal?: string } {
   const exit = terminalMetaOf(update).terminal_exit
   const rawOutput = update.rawOutput as { exit_code?: unknown } | null | undefined
-  const exitCode = asFiniteNumber(exit?.exit_code)
-    ?? asFiniteNumber(typeof rawOutput === 'object' ? rawOutput?.exit_code : undefined)
+  const exitCode =
+    asFiniteNumber(exit?.exit_code) ?? asFiniteNumber(typeof rawOutput === 'object' ? rawOutput?.exit_code : undefined)
   const signal = exit?.signal
   return {
     ...(exitCode !== undefined ? { exitCode } : {}),
@@ -132,16 +134,26 @@ export function activityTitle(activity: AgentActivity): string {
 
   const location = activity.locations?.[0]
   switch (activity.kind) {
-    case 'read': return location ? `Inspected ${location}` : 'Inspected project files'
-    case 'edit': return location ? `Updated ${location}` : 'Updated project files'
-    case 'delete': return location ? `Deleted ${location}` : 'Deleted project files'
-    case 'move': return location ? `Moved ${location}` : 'Moved project files'
-    case 'search': return 'Searched the project'
-    case 'execute': return 'Ran a command'
-    case 'think': return 'Worked through the task'
-    case 'fetch': return 'Fetched external information'
-    case 'switch_mode': return 'Switched working mode'
-    default: return 'Performed a tool action'
+    case 'read':
+      return location ? `Inspected ${location}` : 'Inspected project files'
+    case 'edit':
+      return location ? `Updated ${location}` : 'Updated project files'
+    case 'delete':
+      return location ? `Deleted ${location}` : 'Deleted project files'
+    case 'move':
+      return location ? `Moved ${location}` : 'Moved project files'
+    case 'search':
+      return 'Searched the project'
+    case 'execute':
+      return 'Ran a command'
+    case 'think':
+      return 'Worked through the task'
+    case 'fetch':
+      return 'Fetched external information'
+    case 'switch_mode':
+      return 'Switched working mode'
+    default:
+      return 'Performed a tool action'
   }
 }
 

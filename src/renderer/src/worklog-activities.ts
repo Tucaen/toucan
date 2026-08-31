@@ -18,8 +18,12 @@ export function worklogActivities(
   nested: ReadonlyMap<string, readonly AgentActivity[]>,
   transcriptHasPlan: boolean
 ): AgentActivity[] {
-  const delegated = new Set(Array.from(nested.values()).flat().map((activity) => activity.id))
-  return activities.filter((activity) => (
-    !delegated.has(activity.id) && !isPlanUpdateFoldedIntoRail(activity, transcriptHasPlan)
-  ))
+  const delegated = new Set(
+    Array.from(nested.values())
+      .flat()
+      .map((activity) => activity.id)
+  )
+  return activities.filter(
+    (activity) => !delegated.has(activity.id) && !isPlanUpdateFoldedIntoRail(activity, transcriptHasPlan)
+  )
 }

@@ -1,10 +1,6 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
-import {
-  COMPOSER_MAX_HEIGHT,
-  COMPOSER_MIN_HEIGHT,
-  composerTextareaSize
-} from '../src/renderer/src/composer-autosize'
+import { COMPOSER_MAX_HEIGHT, COMPOSER_MIN_HEIGHT, composerTextareaSize } from '../src/renderer/src/composer-autosize'
 
 test('a short prompt keeps the composer at its resting height', () => {
   assert.deepEqual(composerTextareaSize(20), { height: COMPOSER_MIN_HEIGHT, scrollable: false })
@@ -16,10 +12,7 @@ test('the box grows with the content between the two bounds', () => {
 })
 
 test('past the bound the box stops growing and scrolls instead', () => {
-  assert.deepEqual(
-    composerTextareaSize(COMPOSER_MAX_HEIGHT + 400),
-    { height: COMPOSER_MAX_HEIGHT, scrollable: true }
-  )
+  assert.deepEqual(composerTextareaSize(COMPOSER_MAX_HEIGHT + 400), { height: COMPOSER_MAX_HEIGHT, scrollable: true })
 })
 
 test('the bound is low enough that the composer can never eat the transcript it is written against', () => {

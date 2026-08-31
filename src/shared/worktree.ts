@@ -89,10 +89,12 @@ export interface WorktreeRemoveResult {
  * has not proven it owns.
  */
 export function isForcibleBlocker(blocker: WorktreeRemovalBlocker): boolean {
-  return blocker.kind !== 'attached-nodes'
-    && blocker.kind !== 'not-a-worktree'
-    && blocker.kind !== 'primary-worktree'
-    && blocker.kind !== 'inspection-failed'
+  return (
+    blocker.kind !== 'attached-nodes' &&
+    blocker.kind !== 'not-a-worktree' &&
+    blocker.kind !== 'primary-worktree' &&
+    blocker.kind !== 'inspection-failed'
+  )
 }
 
 export function describeWorktreeBlocker(blocker: WorktreeRemovalBlocker): string {
@@ -106,9 +108,7 @@ export function describeWorktreeBlocker(blocker: WorktreeRemovalBlocker): string
     case 'primary-worktree':
       return 'This is the project primary checkout, not a worktree'
     case 'uncommitted-changes':
-      return blocker.files === 1
-        ? '1 file has uncommitted changes'
-        : `${blocker.files} files have uncommitted changes`
+      return blocker.files === 1 ? '1 file has uncommitted changes' : `${blocker.files} files have uncommitted changes`
     case 'untracked-files':
       return blocker.files === 1
         ? '1 untracked file is not in any commit'
@@ -151,9 +151,7 @@ export function deriveWorktreeDirectory(projectPath: string, branch: string): st
   const { parent, name, separator } = splitPath(projectPath)
   const slug = worktreeDirectorySlug(branch)
   const container = `${name}-worktrees`
-  return parent
-    ? [parent, container, slug].join(separator)
-    : [container, slug].join(separator)
+  return parent ? [parent, container, slug].join(separator) : [container, slug].join(separator)
 }
 
 const INVALID_BRANCH_PATTERN = /[\s~^:?*[\\]|\.\.|@\{/
@@ -167,8 +165,10 @@ export function branchNameProblem(branch: string): string | null {
   if (!value) return 'Enter a branch name'
   if (value !== branch) return 'Branch names cannot start or end with whitespace'
   if (INVALID_BRANCH_PATTERN.test(value)) return 'Branch names cannot contain whitespace or ~ ^ : ? * [ backslash .. @{'
-  if (value.startsWith('/') || value.endsWith('/') || value.includes('//')) return 'Branch names cannot start, end, or double up on /'
-  if (value.startsWith('-') || value.startsWith('.') || value.endsWith('.')) return 'Branch names cannot start with - or . or end with .'
+  if (value.startsWith('/') || value.endsWith('/') || value.includes('//'))
+    return 'Branch names cannot start, end, or double up on /'
+  if (value.startsWith('-') || value.startsWith('.') || value.endsWith('.'))
+    return 'Branch names cannot start with - or . or end with .'
   if (value.endsWith('.lock')) return 'Branch names cannot end with .lock'
   if (value === '@') return '@ is not a valid branch name'
   if (!worktreeDirectorySlug(value)) return 'Branch name has no usable characters'

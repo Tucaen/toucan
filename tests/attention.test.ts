@@ -167,14 +167,20 @@ describe('resolving and forgetting', () => {
 
     const resolved = resolveAttention(state, { nodeId: 'node-1', kind: 'approval', key: 'perm-7' })
 
-    assert.deepEqual(resolved.map((item) => item.key), ['perm-8'])
+    assert.deepEqual(
+      resolved.map((item) => item.key),
+      ['perm-8']
+    )
   })
 
   test('closing a node forgets its records', () => {
     let state: AttentionState = recordAttention([], approval('node-1', 'perm-7', T0))
     state = recordAttention(state, approval('node-2', 'perm-9', T0))
 
-    assert.deepEqual(forgetAttention(state, ['node-1']).map((item) => item.nodeId), ['node-2'])
+    assert.deepEqual(
+      forgetAttention(state, ['node-1']).map((item) => item.nodeId),
+      ['node-2']
+    )
   })
 
   test('restart recovery drops records whose node is gone and keeps the rest unread', () => {
@@ -273,7 +279,11 @@ describe('what a node presents', () => {
 
 describe('the action reducer', () => {
   test('every action routes to the same transition its named function performs', () => {
-    const raised = applyAttentionAction([], { type: 'raise', signal: { nodeId: 'node-1', kind: 'result', key: 'turn-a' } }, T0)
+    const raised = applyAttentionAction(
+      [],
+      { type: 'raise', signal: { nodeId: 'node-1', kind: 'result', key: 'turn-a' } },
+      T0
+    )
     assert.deepEqual(raised, recordAttention([], { nodeId: 'node-1', kind: 'result', key: 'turn-a', at: T0 }))
 
     const read = applyAttentionAction(raised, { type: 'read', nodeId: 'node-1' }, T0 + 1)

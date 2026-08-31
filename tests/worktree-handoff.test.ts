@@ -21,9 +21,10 @@ test('leading blank lines and spaces do not hide the invocation', () => {
 test('talking about the skill is not calling it', () => {
   assert.equal(invokesWorktreeSkill('what does /implement-in-worktree do?'), false)
   assert.equal(invokesWorktreeSkill('later, run /implement-in-worktree'), false)
-  assert.equal(invokesWorktreeSkill(
-    '"Not sent" is wrongly displayed on my /$ade-project-skills:implement-in-worktree message',
-  ), false)
+  assert.equal(
+    invokesWorktreeSkill('"Not sent" is wrongly displayed on my /$ade-project-skills:implement-in-worktree message'),
+    false
+  )
 })
 
 test('the skill itself gates every side effect on an explicit leading command', () => {
@@ -47,18 +48,29 @@ test('an empty prompt invokes nothing', () => {
 })
 
 test('a first message needs no handoff: there is nothing to carry', () => {
-  const plan = planWorktreeHandoff('/implement-in-worktree add a button', { hasHistory: false, alreadyInWorktree: false, provider: 'claude' })
+  const plan = planWorktreeHandoff('/implement-in-worktree add a button', {
+    hasHistory: false,
+    alreadyInWorktree: false,
+    provider: 'claude'
+  })
   assert.equal(plan?.mode, 'fresh')
   assert.equal(plan?.prompt, '/implement-in-worktree add a button')
 })
 
 test('an ongoing conversation must carry its history into the worktree', () => {
-  const plan = planWorktreeHandoff('/implement-in-worktree now build it', { hasHistory: true, alreadyInWorktree: false, provider: 'claude' })
+  const plan = planWorktreeHandoff('/implement-in-worktree now build it', {
+    hasHistory: true,
+    alreadyInWorktree: false,
+    provider: 'claude'
+  })
   assert.equal(plan?.mode, 'handoff')
 })
 
 test('a prompt that does not invoke the skill produces no plan at all', () => {
-  assert.equal(planWorktreeHandoff('just fix the bug', { hasHistory: false, alreadyInWorktree: false, provider: 'claude' }), null)
+  assert.equal(
+    planWorktreeHandoff('just fix the bug', { hasHistory: false, alreadyInWorktree: false, provider: 'claude' }),
+    null
+  )
 })
 
 test('the placeholder branch is valid, provisional, and free of the prompt text', () => {

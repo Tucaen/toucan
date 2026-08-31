@@ -184,9 +184,9 @@ export function writeAuthCode(input: Writable | undefined, code: string): Promis
   }
   return new Promise((resolve) => {
     try {
-      input.write(`${trimmed}\n`, (error) => resolve(error
-        ? { ok: false, message: 'ADE could not send the sign-in code.' }
-        : { ok: true }))
+      input.write(`${trimmed}\n`, (error) =>
+        resolve(error ? { ok: false, message: 'ADE could not send the sign-in code.' } : { ok: true })
+      )
     } catch {
       resolve({ ok: false, message: 'ADE could not send the sign-in code.' })
     }
@@ -195,11 +195,8 @@ export function writeAuthCode(input: Writable | undefined, code: string): Promis
 
 function errorMessage(error: unknown): string {
   if (error instanceof Error) return error.message
-  if (
-    typeof error === 'object'
-    && error !== null
-    && typeof (error as { message?: unknown }).message === 'string'
-  ) return (error as { message: string }).message
+  if (typeof error === 'object' && error !== null && typeof (error as { message?: unknown }).message === 'string')
+    return (error as { message: string }).message
   return String(error)
 }
 
@@ -218,9 +215,7 @@ function isAuthRequired(error: unknown): boolean {
   if ((error as { code?: unknown }).code === -32000) return true
   const data = (error as { data?: unknown }).data
   return (
-    typeof data === 'object'
-    && data !== null
-    && (data as { errorKind?: unknown }).errorKind === 'authentication_failed'
+    typeof data === 'object' && data !== null && (data as { errorKind?: unknown }).errorKind === 'authentication_failed'
   )
 }
 
@@ -245,9 +240,7 @@ function simplifyAuthMethod(method: AuthMethod): AgentAuthMethod {
  * and drops anything unnamed so a malformed entry can never occupy a row nothing can insert.
  * `input` is what distinguishes a command that expects arguments from one that doesn't.
  */
-export function simplifyAvailableCommands(
-  commands: AvailableCommand[] | null | undefined
-): AgentCommand[] {
+export function simplifyAvailableCommands(commands: AvailableCommand[] | null | undefined): AgentCommand[] {
   if (!commands) return []
   return commands
     .filter((command) => typeof command.name === 'string' && command.name.length > 0)
@@ -258,10 +251,15 @@ export function simplifyAvailableCommands(
     }))
 }
 
-function simplifyModes(modes: {
-  currentModeId: string
-  availableModes: Array<{ id: string; name: string; description?: string | null }>
-} | null | undefined): AgentModeState | undefined {
+function simplifyModes(
+  modes:
+    | {
+        currentModeId: string
+        availableModes: Array<{ id: string; name: string; description?: string | null }>
+      }
+    | null
+    | undefined
+): AgentModeState | undefined {
   if (!modes) return undefined
   return {
     currentModeId: modes.currentModeId,
@@ -353,14 +351,15 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
     if (!running.owner.isDestroyed()) running.owner.send('agent:event', { id: running.request.id, event })
   }
 
-  const adapterPath = (provider: AgentCreateRequest['provider']): string => join(
-    options.appPath,
-    'node_modules',
-    '@agentclientprotocol',
-    provider === 'codex' ? 'codex-acp' : 'claude-agent-acp',
-    'dist',
-    'index.js'
-  )
+  const adapterPath = (provider: AgentCreateRequest['provider']): string =>
+    join(
+      options.appPath,
+      'node_modules',
+      '@agentclientprotocol',
+      provider === 'codex' ? 'codex-acp' : 'claude-agent-acp',
+      'dist',
+      'index.js'
+    )
 
   /** A conversation's saved model is a preference, so a rejected switch must not sink the session. */
   const applySavedModel = async (
@@ -369,11 +368,12 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
   ): Promise<{ models: AgentModelState; configOptions?: SessionConfigOption[] | null }> => {
     const modelId = running.request.modelId
     if (
-      !running.modelConfigId
-      || !modelId
-      || modelId === models.currentModelId
-      || !models.availableModels.some((model) => model.id === modelId)
-    ) return { models }
+      !running.modelConfigId ||
+      !modelId ||
+      modelId === models.currentModelId ||
+      !models.availableModels.some((model) => model.id === modelId)
+    )
+      return { models }
     try {
       const response = await running.context.request(methods.agent.session.setConfigOption, {
         sessionId: running.sessionId!,
@@ -388,17 +388,15 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
   }
 
   /** Applies a saved effort only when the active provider/model advertises that exact value. */
-  const applySavedEffort = async (
-    running: RunningAgent,
-    efforts: AgentEffortState
-  ): Promise<AgentEffortState> => {
+  const applySavedEffort = async (running: RunningAgent, efforts: AgentEffortState): Promise<AgentEffortState> => {
     const effortId = running.request.effortId
     if (
-      !running.effortConfigId
-      || !effortId
-      || effortId === efforts.currentEffortId
-      || !efforts.availableEfforts.some((effort) => effort.id === effortId)
-    ) return efforts
+      !running.effortConfigId ||
+      !effortId ||
+      effortId === efforts.currentEffortId ||
+      !efforts.availableEfforts.some((effort) => effort.id === effortId)
+    )
+      return efforts
     try {
       await running.context.request(methods.agent.session.setConfigOption, {
         sessionId: running.sessionId!,
@@ -466,9 +464,9 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       const sessionId = running.sessionId
       if (!sessionId) throw new Error('The agent did not return a session ID.')
       if (
-        running.request.permissionMode
-        && modes?.availableModes.some((mode) => mode.id === running.request.permissionMode)
-        && modes.currentModeId !== running.request.permissionMode
+        running.request.permissionMode &&
+        modes?.availableModes.some((mode) => mode.id === running.request.permissionMode) &&
+        modes.currentModeId !== running.request.permissionMode
       ) {
         await running.context.request(methods.agent.session.setMode, {
           sessionId,
@@ -561,17 +559,15 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
           prompt: blocks as ContentBlock[]
         }),
         turnTimeoutMs,
-        `The agent did not respond within ${turnTimeoutMs}ms; the turn may be wedged (a stalled `
-        + 'subprocess, a dropped ACP connection, or a tool-permission approval that never surfaced).'
+        `The agent did not respond within ${turnTimeoutMs}ms; the turn may be wedged (a stalled ` +
+          'subprocess, a dropped ACP connection, or a tool-permission approval that never surfaced).'
       )
       send(running, { type: 'turn_complete', stopReason: response.stopReason })
       send(running, { type: 'status', status: 'idle' })
       return { ok: true }
     } catch (error) {
       if (error instanceof StallTimeoutError && running.sessionId) {
-        await running.context
-          .notify(methods.agent.session.cancel, { sessionId: running.sessionId })
-          .catch(() => {})
+        await running.context.notify(methods.agent.session.cancel, { sessionId: running.sessionId }).catch(() => {})
         const graceMs = options.stallCancelGraceMs ?? DEFAULT_STALL_CANCEL_GRACE_MS
         if (graceMs > 0) await new Promise((resolve) => setTimeout(resolve, graceMs))
       }
@@ -606,9 +602,9 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         .onNotification(methods.client.session.update, ({ params }) => {
           const update = params.update
           if (
-            update.sessionUpdate === 'user_message_chunk'
-            && update.content.type === 'text'
-            && !isInternalNotificationText(update.content.text)
+            update.sessionUpdate === 'user_message_chunk' &&
+            update.content.type === 'text' &&
+            !isInternalNotificationText(update.content.text)
           ) {
             send(running, {
               type: 'message',
@@ -714,9 +710,10 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         // The node's identity travels with the agent so work it starts outside ADE's sight -
         // a worktree it creates for itself - can name the node that asked for it.
         environment: { ...process.env, ADE_NODE_ID: request.id },
-        cachedModels: request.provider === 'codex' && options.codexHome
-          ? readCachedCodexModels(options.codexHome, request.modelId)
-          : undefined,
+        cachedModels:
+          request.provider === 'codex' && options.codexHome
+            ? readCachedCodexModels(options.codexHome, request.modelId)
+            : undefined,
         pendingApprovals,
         busy: false,
         stopping: false,
@@ -737,7 +734,11 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       child.on('exit', (code) => {
         if (agents.get(request.id) === running) agents.delete(request.id)
         if (!running.stopping) {
-          send(running, { type: 'status', status: 'exited', message: `ACP adapter exited with code ${code ?? 'unknown'}.` })
+          send(running, {
+            type: 'status',
+            status: 'exited',
+            message: `ACP adapter exited with code ${code ?? 'unknown'}.`
+          })
         }
       })
 
@@ -889,13 +890,15 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       try {
         if (method.type === 'terminal') {
           await new Promise<void>((resolve, reject) => {
-            const launch = running.authProcess?.(method.args ?? []) ?? buildAgentProcessLaunch(
-              process.execPath,
-              running.adapterPath,
-              running.request.cwd,
-              running.environment,
-              method.args
-            )
+            const launch =
+              running.authProcess?.(method.args ?? []) ??
+              buildAgentProcessLaunch(
+                process.execPath,
+                running.adapterPath,
+                running.request.cwd,
+                running.environment,
+                method.args
+              )
             const auth = spawn(launch.executable, launch.args, {
               ...launch.options,
               stdio: ['pipe', 'pipe', 'pipe']
@@ -922,7 +925,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
             auth.stdout.on('data', report)
             auth.stderr.on('data', report)
             auth.once('error', reject)
-            auth.once('exit', (code) => code === 0 ? resolve() : reject(new Error(`Login exited with code ${code}.`)))
+            auth.once('exit', (code) => (code === 0 ? resolve() : reject(new Error(`Login exited with code ${code}.`))))
           })
         } else {
           await running.context.request(methods.agent.authenticate, { methodId })
@@ -952,9 +955,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       if (!running || !pending) return
       running.pendingApprovals.delete(approvalId)
       pending.resolve({
-        outcome: optionId
-          ? { outcome: 'selected', optionId }
-          : { outcome: 'cancelled' }
+        outcome: optionId ? { outcome: 'selected', optionId } : { outcome: 'cancelled' }
       })
     },
 

@@ -38,7 +38,9 @@ export function createDispatchOrderGate(): DispatchOrderGate {
     reserve(): DispatchOrderSlot {
       const previous = tail
       let release: () => void = () => {}
-      tail = new Promise<void>((resolve) => { release = resolve })
+      tail = new Promise<void>((resolve) => {
+        release = resolve
+      })
       return { previous, release }
     }
   }

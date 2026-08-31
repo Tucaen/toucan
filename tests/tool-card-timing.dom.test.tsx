@@ -11,15 +11,17 @@ describe('activity timing', () => {
     const { api, emit } = createMockAgentApi()
     window.agentApi = api
 
-    const { result } = renderHook(() => useAgentConversation({
-      id: 'session-timing',
-      provider: 'claude',
-      cwd: '/project',
-      enabled: true,
-      onSessionId: vi.fn(),
-      onPermissionMode: vi.fn(),
-      onModel: vi.fn()
-    }))
+    const { result } = renderHook(() =>
+      useAgentConversation({
+        id: 'session-timing',
+        provider: 'claude',
+        cwd: '/project',
+        enabled: true,
+        onSessionId: vi.fn(),
+        onPermissionMode: vi.fn(),
+        onModel: vi.fn()
+      })
+    )
 
     await waitFor(() => expect(result.current.status).toBe('ready'))
 
@@ -47,15 +49,17 @@ describe('activity timing', () => {
     const { api, emit } = createMockAgentApi()
     window.agentApi = api
 
-    const { result } = renderHook(() => useAgentConversation({
-      id: 'session-order',
-      provider: 'claude',
-      cwd: '/project',
-      enabled: true,
-      onSessionId: vi.fn(),
-      onPermissionMode: vi.fn(),
-      onModel: vi.fn()
-    }))
+    const { result } = renderHook(() =>
+      useAgentConversation({
+        id: 'session-order',
+        provider: 'claude',
+        cwd: '/project',
+        enabled: true,
+        onSessionId: vi.fn(),
+        onPermissionMode: vi.fn(),
+        onModel: vi.fn()
+      })
+    )
     await waitFor(() => expect(result.current.status).toBe('ready'))
 
     act(() => {

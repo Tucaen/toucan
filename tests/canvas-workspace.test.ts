@@ -96,17 +96,19 @@ test('keeps restored terminal processes dormant until explicitly opened', () => 
     projects: [{ id: 'project-1', name: 'ADE', path: 'D:\\Development\\ADE', color: '#71a9ff' }],
     activeProjectId: 'project-1',
     sidebarCollapsed: false,
-    nodes: [{
-      id: 'terminal-1',
-      sessionId: 'durable-terminal-session',
-      kind: 'terminal',
-      label: 'Terminal 1',
-      projectId: 'project-1',
-      position: { x: 0, y: 0 },
-      width: 520,
-      height: 340,
-      terminalLiveness: 'live'
-    }],
+    nodes: [
+      {
+        id: 'terminal-1',
+        sessionId: 'durable-terminal-session',
+        kind: 'terminal',
+        label: 'Terminal 1',
+        projectId: 'project-1',
+        position: { x: 0, y: 0 },
+        width: 520,
+        height: 340,
+        terminalLiveness: 'live'
+      }
+    ],
     worktrees: []
   }
   const restored = restoreCanvasWorkspace(state, callbacks)
@@ -124,15 +126,17 @@ test('migrates the legacy worklog choice to focus mode and serializes only the n
     projects: [{ id: 'project-1', name: 'ADE', path: 'D:\\Development\\ADE', color: '#71a9ff' }],
     activeProjectId: 'project-1',
     sidebarCollapsed: false,
-    nodes: [{
-      id: 'node-1',
-      kind: 'codex',
-      label: 'Codex 1',
-      projectId: 'project-1',
-      position: { x: 0, y: 0 },
-      width: 520,
-      height: 340
-    }],
+    nodes: [
+      {
+        id: 'node-1',
+        kind: 'codex',
+        label: 'Codex 1',
+        projectId: 'project-1',
+        position: { x: 0, y: 0 },
+        width: 520,
+        height: 340
+      }
+    ],
     worktrees: []
   }
 
@@ -148,13 +152,15 @@ test('migrates the legacy worklog choice to focus mode and serializes only the n
 
 const worktreeState = (): WorkspaceState => ({
   version: 3,
-  projects: [{
-    id: 'project-1',
-    name: 'ADE',
-    path: 'D:\\Development\\ADE',
-    color: '#71a9ff',
-    setupCommand: 'npm install'
-  }],
+  projects: [
+    {
+      id: 'project-1',
+      name: 'ADE',
+      path: 'D:\\Development\\ADE',
+      color: '#71a9ff',
+      setupCommand: 'npm install'
+    }
+  ],
   activeProjectId: 'project-1',
   sidebarCollapsed: false,
   nodes: [
@@ -179,17 +185,19 @@ const worktreeState = (): WorkspaceState => ({
       height: 340
     }
   ],
-  worktrees: [{
-    id: 'worktree-1',
-    projectId: 'project-1',
-    branch: 'feature/login',
-    path: 'D:\\Development\\ADE-worktrees\\feature-login',
-    baseRef: 'main',
-    createdAt: '2026-08-27T09:00:00.000Z',
-    position: { x: 0, y: 0 },
-    width: 360,
-    height: 232
-  }]
+  worktrees: [
+    {
+      id: 'worktree-1',
+      projectId: 'project-1',
+      branch: 'feature/login',
+      path: 'D:\\Development\\ADE-worktrees\\feature-login',
+      baseRef: 'main',
+      createdAt: '2026-08-27T09:00:00.000Z',
+      position: { x: 0, y: 0 },
+      width: 360,
+      height: 232
+    }
+  ]
 })
 
 test('an attached node runs in its worktree directory, not the project checkout', () => {
@@ -267,10 +275,10 @@ test('remembering closed session nodes keeps the most recent bounded stack', () 
   )
 
   assert.equal(stack.length, CLOSED_SESSION_STACK_LIMIT)
-  assert.deepEqual(stack.map((node) => node.id), Array.from(
-    { length: CLOSED_SESSION_STACK_LIMIT },
-    (_, index) => `node-${index + 3}`
-  ))
+  assert.deepEqual(
+    stack.map((node) => node.id),
+    Array.from({ length: CLOSED_SESSION_STACK_LIMIT }, (_, index) => `node-${index + 3}`)
+  )
   assert.deepEqual(stack.at(-1), state.nodes.at(-1))
 })
 
@@ -286,7 +294,9 @@ test('a non-session close or an unresumable chat clears the shortcut target', ()
 })
 
 test('the reopen shortcut falls through unless Ctrl+Shift+T can restore a session', () => {
-  const key = (overrides: Partial<Parameters<typeof closedSessionKeyAction>[0]> = {}): Parameters<typeof closedSessionKeyAction>[0] => ({
+  const key = (
+    overrides: Partial<Parameters<typeof closedSessionKeyAction>[0]> = {}
+  ): Parameters<typeof closedSessionKeyAction>[0] => ({
     key: 'T',
     ctrlKey: true,
     shiftKey: true,

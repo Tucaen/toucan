@@ -12,13 +12,15 @@ export function PlanUpdateSummary({ update }: { update: PlanUpdate }): JSX.Eleme
  * never a duplicate pair.
  */
 export function PlanUpdateBody({ update }: { update: PlanUpdate }): JSX.Element {
-  return update.entries.length === 0
-    ? <p className="plan-update-empty">The agent read the plan without changing it.</p>
-    : (
-      <ol className="plan-list plan-update-list">
-        {update.entries.map((entry, index) => (
-          <li data-status={entry.status} key={`${index}-${entry.content}`}>{entry.content}</li>
-        ))}
-      </ol>
-    )
+  return update.entries.length === 0 ? (
+    <p className="plan-update-empty">The agent read the plan without changing it.</p>
+  ) : (
+    <ol className="plan-list plan-update-list">
+      {update.entries.map((entry, index) => (
+        <li data-status={entry.status} key={`${index}-${entry.content}`}>
+          {entry.content}
+        </li>
+      ))}
+    </ol>
+  )
 }

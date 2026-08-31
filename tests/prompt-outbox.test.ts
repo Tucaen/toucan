@@ -14,14 +14,23 @@ function entry(id: string, text: string): QueuedPrompt {
 
 test('queued prompts hold their submission order', () => {
   const queue = enqueuePrompt(enqueuePrompt([], entry('a', 'first')), entry('b', 'second'))
-  assert.deepEqual(queue.map((item) => item.id), ['a', 'b'])
+  assert.deepEqual(
+    queue.map((item) => item.id),
+    ['a', 'b']
+  )
 })
 
 test('a queued prompt can be edited in place without losing its position or its attachments', () => {
   const withImage: QueuedPrompt = { id: 'a', text: 'first', images: [{ id: 'i', data: 'd', mimeType: 'image/png' }] }
   const queue = enqueuePrompt(enqueuePrompt([], withImage), entry('b', 'second'))
   const edited = editQueuedPrompt(queue, 'a', '  rewritten  ')
-  assert.deepEqual(edited.map((item) => [item.id, item.text]), [['a', 'rewritten'], ['b', 'second']])
+  assert.deepEqual(
+    edited.map((item) => [item.id, item.text]),
+    [
+      ['a', 'rewritten'],
+      ['b', 'second']
+    ]
+  )
   assert.deepEqual(edited[0].images, withImage.images)
 })
 
@@ -32,12 +41,18 @@ test('editing a text-only prompt down to nothing withdraws it, since an empty pr
 
 test('an image-carrying prompt survives having all of its text removed', () => {
   const queue = enqueuePrompt([], { id: 'a', text: 'first', images: [{ id: 'i', data: 'd', mimeType: 'image/png' }] })
-  assert.deepEqual(editQueuedPrompt(queue, 'a', '').map((item) => item.text), [''])
+  assert.deepEqual(
+    editQueuedPrompt(queue, 'a', '').map((item) => item.text),
+    ['']
+  )
 })
 
 test('withdrawing removes exactly one prompt and leaves the rest queued in order', () => {
   const queue = [entry('a', 'first'), entry('b', 'second'), entry('c', 'third')]
-  assert.deepEqual(withdrawQueuedPrompt(queue, 'b').map((item) => item.id), ['a', 'c'])
+  assert.deepEqual(
+    withdrawQueuedPrompt(queue, 'b').map((item) => item.id),
+    ['a', 'c']
+  )
 })
 
 test('withdrawing or editing an id that is no longer queued is a no-op, not a crash', () => {
@@ -50,7 +65,10 @@ test('taking a prompt hands back that entry and the queue without it, so dispatc
   const queue = [entry('a', 'first'), entry('b', 'second')]
   const taken = takeQueuedPrompt(queue, 'a')
   assert.deepEqual(taken.entry, entry('a', 'first'))
-  assert.deepEqual(taken.rest.map((item) => item.id), ['b'])
+  assert.deepEqual(
+    taken.rest.map((item) => item.id),
+    ['b']
+  )
 
   const missing = takeQueuedPrompt(taken.rest, 'a')
   assert.equal(missing.entry, null)
@@ -61,6 +79,9 @@ test('taking without an id takes the head of the queue', () => {
   const queue = [entry('a', 'first'), entry('b', 'second')]
   const taken = takeQueuedPrompt(queue)
   assert.deepEqual(taken.entry, entry('a', 'first'))
-  assert.deepEqual(taken.rest.map((item) => item.id), ['b'])
+  assert.deepEqual(
+    taken.rest.map((item) => item.id),
+    ['b']
+  )
   assert.equal(takeQueuedPrompt([]).entry, null)
 })

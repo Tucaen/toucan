@@ -26,9 +26,7 @@ async function fileHasSize(path, expectedSize) {
 
 async function getModelFiles() {
   const module = await loadMoonshineModule()
-  const manifest = JSON.parse(
-    module.sttDependencies('en', String(ModelArch.SmallStreaming), false)
-  )
+  const manifest = JSON.parse(module.sttDependencies('en', String(ModelArch.SmallStreaming), false))
   return manifest.groups.flatMap((group) => group.files)
 }
 
@@ -49,9 +47,7 @@ async function downloadFile(file, index, totalFiles) {
 
   const bytes = new Uint8Array(await response.arrayBuffer())
   if (bytes.byteLength !== file.size) {
-    throw new Error(
-      `Size mismatch for ${file.name}: expected ${file.size}, received ${bytes.byteLength}`
-    )
+    throw new Error(`Size mismatch for ${file.name}: expected ${file.size}, received ${bytes.byteLength}`)
   }
 
   const temporary = `${destination}.download`

@@ -44,13 +44,10 @@ export interface AgentChatMessage {
 }
 
 export type AgentTranscriptEntry =
-  | { type: 'message'; id: string; role: AgentChatMessage['role'] }
-  | { type: 'activity'; id: string }
+  { type: 'message'; id: string; role: AgentChatMessage['role'] } | { type: 'activity'; id: string }
 
 export function agentTranscriptEntryKey(entry: AgentTranscriptEntry): string {
-  return entry.type === 'message'
-    ? `message:${entry.role}:${entry.id}`
-    : `activity:${entry.id}`
+  return entry.type === 'message' ? `message:${entry.role}:${entry.id}` : `activity:${entry.id}`
 }
 
 export interface AgentApprovalState {
@@ -214,11 +211,13 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
    */
   const pendingSentRef = useRef<Array<{ id: string; text: string; timer?: ReturnType<typeof setTimeout> }>>([])
   const acknowledgePendingSent = (id: string): void => {
-    setMessages((current) => current.map((message) => {
-      if (message.id !== id) return message
-      const { failed: _failed, deliveryPending: _deliveryPending, ...rest } = message
-      return { ...rest, queued: false }
-    }))
+    setMessages((current) =>
+      current.map((message) => {
+        if (message.id !== id) return message
+        const { failed: _failed, deliveryPending: _deliveryPending, ...rest } = message
+        return { ...rest, queued: false }
+      })
+    )
   }
   const clearPendingSent = (id: string): void => {
     const index = pendingSentRef.current.findIndex((entry) => entry.id === id)
@@ -242,9 +241,11 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     if (index >= 0) {
       clearTimeout(pendingSentRef.current[index].timer)
     }
-    setMessages((current) => current.map((message) => (
-      message.id === id ? { ...message, queued: false, failed: true, deliveryPending: false } : message
-    )))
+    setMessages((current) =>
+      current.map((message) =>
+        message.id === id ? { ...message, queued: false, failed: true, deliveryPending: false } : message
+      )
+    )
   }
   /**
    * Serializes the actual cross-process deliver call in submission order, even when an earlier
@@ -257,10 +258,18 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
   const onModel = useRef(options.onModel)
   const onEffort = useRef(options.onEffort)
 
-  useEffect(() => { onSessionId.current = options.onSessionId }, [options.onSessionId])
-  useEffect(() => { onPermissionMode.current = options.onPermissionMode }, [options.onPermissionMode])
-  useEffect(() => { onModel.current = options.onModel }, [options.onModel])
-  useEffect(() => { onEffort.current = options.onEffort }, [options.onEffort])
+  useEffect(() => {
+    onSessionId.current = options.onSessionId
+  }, [options.onSessionId])
+  useEffect(() => {
+    onPermissionMode.current = options.onPermissionMode
+  }, [options.onPermissionMode])
+  useEffect(() => {
+    onModel.current = options.onModel
+  }, [options.onModel])
+  useEffect(() => {
+    onEffort.current = options.onEffort
+  }, [options.onEffort])
 
   useEffect(() => {
     if (!options.enabled) return
@@ -303,18 +312,26 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
         rememberTranscriptEntry({ type: 'message', id: event.messageId, role: event.role })
         setMessages((current) => {
           const existing = current.findIndex((message) => message.id === event.messageId && message.role === event.role)
-          if (existing < 0) return [...current, {
-            id: event.messageId,
-            role: event.role,
-            text: event.text,
-            complete: event.role === 'assistant' ? false : undefined
-          }]
-          return current.map((message, index) => index === existing ? { ...message, text: message.text + event.text } : message)
+          if (existing < 0)
+            return [
+              ...current,
+              {
+                id: event.messageId,
+                role: event.role,
+                text: event.text,
+                complete: event.role === 'assistant' ? false : undefined
+              }
+            ]
+          return current.map((message, index) =>
+            index === existing ? { ...message, text: message.text + event.text } : message
+          )
         })
       } else if (event.type === 'turn_complete') {
-        setMessages((current) => current.map((message) => (
-          message.role === 'assistant' && message.complete === false ? { ...message, complete: true } : message
-        )))
+        setMessages((current) =>
+          current.map((message) =>
+            message.role === 'assistant' && message.complete === false ? { ...message, complete: true } : message
+          )
+        )
       } else if (event.type === 'activity') {
         rememberTranscriptEntry({ type: 'activity', id: event.activity.id })
         setActivitiesById((current) => {
@@ -327,9 +344,11 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
       } else if (event.type === 'plan') {
         setPlan(event.entries)
       } else if (event.type === 'modes') {
-        setModes((current) => event.modes.availableModes.length > 0
-          ? event.modes
-          : { ...event.modes, availableModes: current?.availableModes ?? [] })
+        setModes((current) =>
+          event.modes.availableModes.length > 0
+            ? event.modes
+            : { ...event.modes, availableModes: current?.availableModes ?? [] }
+        )
       } else if (event.type === 'models') {
         setModels(event.models)
       } else if (event.type === 'efforts') {
@@ -359,42 +378,46 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
       }
     }
     const removeListener = window.agentApi.onEvent(options.id, handleEvent)
-    void window.agentApi.create({
-      id: options.id,
-      provider: options.provider,
-      cwd: options.cwd,
-      scope: options.scope,
-      sessionId: options.sessionId,
-      permissionMode: options.permissionMode,
-      modelId: options.modelId,
-      effortId: options.effortId
-    }).then((result) => {
-      if (!active) return
-      for (const event of result.replay ?? []) handleEvent(event)
-      if (result.sessionId) onSessionId.current(result.sessionId)
-      if (result.authMethods) setAuthMethods(result.authMethods)
-      if (result.modes) setModes(result.modes)
-      if (result.models) setModels(result.models)
-      if (result.efforts) {
-        setEfforts(result.efforts)
-        onEffort.current?.(result.efforts.currentEffortId)
-      }
-      if (result.commands) setCommands(result.commands)
-      setImageSupport(result.imageSupport ?? false)
-      if (result.status === 'ready') {
-        // Resume replay is delivered during create(), before this result settles. Those messages
-        // are already final even though no new turn_complete notification accompanies replay.
-        setMessages((current) => current.map((message) => (
-          message.role === 'assistant' && message.complete === false ? { ...message, complete: true } : message
-        )))
-        setStatus('ready')
-      } else if (result.status === 'auth_required') {
-        setStatus('auth_required')
-      } else {
-        setStatus('exited')
-        setDetail(result.message)
-      }
-    })
+    void window.agentApi
+      .create({
+        id: options.id,
+        provider: options.provider,
+        cwd: options.cwd,
+        scope: options.scope,
+        sessionId: options.sessionId,
+        permissionMode: options.permissionMode,
+        modelId: options.modelId,
+        effortId: options.effortId
+      })
+      .then((result) => {
+        if (!active) return
+        for (const event of result.replay ?? []) handleEvent(event)
+        if (result.sessionId) onSessionId.current(result.sessionId)
+        if (result.authMethods) setAuthMethods(result.authMethods)
+        if (result.modes) setModes(result.modes)
+        if (result.models) setModels(result.models)
+        if (result.efforts) {
+          setEfforts(result.efforts)
+          onEffort.current?.(result.efforts.currentEffortId)
+        }
+        if (result.commands) setCommands(result.commands)
+        setImageSupport(result.imageSupport ?? false)
+        if (result.status === 'ready') {
+          // Resume replay is delivered during create(), before this result settles. Those messages
+          // are already final even though no new turn_complete notification accompanies replay.
+          setMessages((current) =>
+            current.map((message) =>
+              message.role === 'assistant' && message.complete === false ? { ...message, complete: true } : message
+            )
+          )
+          setStatus('ready')
+        } else if (result.status === 'auth_required') {
+          setStatus('auth_required')
+        } else {
+          setStatus('exited')
+          setDetail(result.message)
+        }
+      })
     return () => {
       active = false
       removeListener()
@@ -405,7 +428,12 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
   }, [options.cwd, options.enabled, options.id, options.provider, options.restartKey, options.scope])
 
   /** Shared by `submit` (draft + attachments) and `sendMessage` (a plain string, e.g. a clicked decision option). */
-  const dispatchText = (text: string, images: AgentImageAttachment[], onSent: () => void, decisionReplyTo?: string): void => {
+  const dispatchText = (
+    text: string,
+    images: AgentImageAttachment[],
+    onSent: () => void,
+    decisionReplyTo?: string
+  ): void => {
     if ((!text && images.length === 0) || (status !== 'ready' && status !== 'working')) return
     const intoRunningTurn = status === 'working'
     const compose = options.composePrompt
@@ -424,26 +452,30 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
         await slot.previous
         const hasText = prompt.length > 0
         if (hasText) pendingSentRef.current.push({ id, text: prompt })
-        const content: AgentPromptContent = images.length > 0
-          ? [
-              ...(hasText ? [{ type: 'text', text: prompt } as const] : []),
-              ...images.map((image) => ({ type: 'image', data: image.data, mimeType: image.mimeType }) as const)
-            ]
-          : prompt
+        const content: AgentPromptContent =
+          images.length > 0
+            ? [
+                ...(hasText ? [{ type: 'text', text: prompt } as const] : []),
+                ...images.map((image) => ({ type: 'image', data: image.data, mimeType: image.mimeType }) as const)
+              ]
+            : prompt
         const result = deliverPrompt(options.id, content)
         slot.release()
         return result
       },
       () => {
         rememberTranscriptEntry(transcriptEntry)
-        setMessages((current) => [...current, {
-          id,
-          role: 'user',
-          text: displayText,
-          queued: intoRunningTurn,
-          decisionReplyTo,
-          deliveryPending: decisionReplyTo !== undefined
-        }])
+        setMessages((current) => [
+          ...current,
+          {
+            id,
+            role: 'user',
+            text: displayText,
+            queued: intoRunningTurn,
+            decisionReplyTo,
+            deliveryPending: decisionReplyTo !== undefined
+          }
+        ])
         onSent()
       }
     ).then((result) => {
@@ -455,7 +487,9 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
         // A pure-image send has no echoed text chunk to clear the queued flag with (see the
         // `message` event branch above), so resolve it here once delivery itself has settled.
         if (images.length > 0 && !text) {
-          setMessages((current) => current.map((message) => (message.id === id ? { ...message, queued: false } : message)))
+          setMessages((current) =>
+            current.map((message) => (message.id === id ? { ...message, queued: false } : message))
+          )
           return
         }
         // Only now that delivery has actually been attempted (a queued send's promise doesn't
@@ -464,10 +498,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
         // is still legitimately queued behind another turn.
         const entry = pendingSentRef.current.find((candidate) => candidate.id === id)
         if (entry && !entry.timer) {
-          entry.timer = setTimeout(
-            () => clearPendingSent(id),
-            options.pendingEchoTimeoutMs ?? DEFAULT_ECHO_TIMEOUT_MS
-          )
+          entry.timer = setTimeout(() => clearPendingSent(id), options.pendingEchoTimeoutMs ?? DEFAULT_ECHO_TIMEOUT_MS)
         }
         return
       }
@@ -526,7 +557,6 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
   useEffect(() => {
     if (status !== 'ready' || queued.length === 0) return
     dispatchQueued()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status, queued])
 
   const sendMessage = (text: string): void => {
@@ -540,15 +570,17 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
   const addImages = async (files: File[] | FileList): Promise<void> => {
     const list = Array.from(files)
     if (list.length === 0) return
-    const read = await Promise.all(list.map(async (file): Promise<AgentImageAttachment | null> => {
-      try {
-        const { data, mimeType } = await readImageAsBase64(file)
-        return { id: crypto.randomUUID(), data, mimeType }
-      } catch (error) {
-        setDetail(error instanceof Error ? error.message : 'Could not read the pasted image.')
-        return null
-      }
-    }))
+    const read = await Promise.all(
+      list.map(async (file): Promise<AgentImageAttachment | null> => {
+        try {
+          const { data, mimeType } = await readImageAsBase64(file)
+          return { id: crypto.randomUUID(), data, mimeType }
+        } catch (error) {
+          setDetail(error instanceof Error ? error.message : 'Could not read the pasted image.')
+          return null
+        }
+      })
+    )
     const valid = read.filter((attachment): attachment is AgentImageAttachment => attachment !== null)
     if (valid.length > 0) setAttachments((current) => [...current, ...valid])
   }
@@ -592,7 +624,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     if (modeId === modes?.currentModeId) return true
     const result = await window.agentApi.setMode(options.id, modeId)
     if (result.ok) {
-      setModes((current) => current ? { ...current, currentModeId: modeId } : current)
+      setModes((current) => (current ? { ...current, currentModeId: modeId } : current))
       onPermissionMode.current(modeId)
       return true
     }
@@ -604,7 +636,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     if (modelId === models?.currentModelId) return
     void window.agentApi.setModel(options.id, modelId).then((result) => {
       if (result.ok) {
-        setModels((current) => current ? { ...current, currentModelId: modelId } : current)
+        setModels((current) => (current ? { ...current, currentModelId: modelId } : current))
         onModel.current(modelId)
       } else {
         setDetail(result.message)
@@ -616,7 +648,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     if (effortId === efforts?.currentEffortId) return
     void window.agentApi.setEffort(options.id, effortId).then((result) => {
       if (result.ok) {
-        setEfforts((current) => current ? { ...current, currentEffortId: effortId } : current)
+        setEfforts((current) => (current ? { ...current, currentEffortId: effortId } : current))
         onEffort.current?.(effortId)
       } else {
         setDetail(result.message)

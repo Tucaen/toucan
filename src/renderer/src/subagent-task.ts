@@ -53,14 +53,14 @@ export function parseSubagentTask(activity: AgentActivity): SubagentTask | null 
 
   const input = asRecord(activity.rawInput) ?? {}
   const agentPath = asText(input.agentPath)
-  const agentType = asText(input.subagent_type)
-    ?? asText(input.subagentType)
-    ?? asText(input.agent_type)
-    ?? (agentPath ? agentPath.split('/').filter(Boolean).at(-1) : undefined)
+  const agentType =
+    asText(input.subagent_type) ??
+    asText(input.subagentType) ??
+    asText(input.agent_type) ??
+    (agentPath ? agentPath.split('/').filter(Boolean).at(-1) : undefined)
   const activityKind = asText(input.activityKind) ?? asText(input.activity_kind)
-  const description = asText(input.description)
-    ?? asText(input.task)
-    ?? (activityKind ? CODEX_ACTIVITY_VERBS[activityKind] : undefined)
+  const description =
+    asText(input.description) ?? asText(input.task) ?? (activityKind ? CODEX_ACTIVITY_VERBS[activityKind] : undefined)
   return {
     ...(agentType ? { agentType } : {}),
     ...(description ? { description } : {}),
@@ -131,9 +131,7 @@ export function subagentProgressLabel(progress: SubagentProgress): string {
  * the spawning call, or a parent scrolled out of a trimmed feed) keeps its own top-level card
  * rather than vanishing into a parent that isn't there.
  */
-export function indexSubagentActivities(
-  activities: readonly AgentActivity[]
-): Map<string, AgentActivity[]> {
+export function indexSubagentActivities(activities: readonly AgentActivity[]): Map<string, AgentActivity[]> {
   const known = new Set(activities.map((activity) => activity.id))
   const children = new Map<string, AgentActivity[]>()
   const threadOwners = new Map<string, string>()

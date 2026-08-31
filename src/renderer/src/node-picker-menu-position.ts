@@ -50,13 +50,9 @@ export function computeNodePickerMenuPosition(
   const fitsBelow = below + menu.height <= viewport.height - VIEWPORT_MARGIN
   const fitsAbove = above >= VIEWPORT_MARGIN
   const opensBelow = prefer === 'below' ? fitsBelow || !fitsAbove : !fitsAbove && fitsBelow
-  const clamp = (top: number): number => Math.max(
-    VIEWPORT_MARGIN,
-    Math.min(top, viewport.height - menu.height - VIEWPORT_MARGIN)
-  )
-  const top = opensBelow
-    ? (fitsBelow ? below : clamp(below))
-    : clamp(above)
+  const clamp = (top: number): number =>
+    Math.max(VIEWPORT_MARGIN, Math.min(top, viewport.height - menu.height - VIEWPORT_MARGIN))
+  const top = opensBelow ? (fitsBelow ? below : clamp(below)) : clamp(above)
 
   return { top, left }
 }

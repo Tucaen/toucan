@@ -2,7 +2,11 @@ import { strict as assert } from 'node:assert'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { chooseAgentPromptApi, createDispatchOrderGate, deliverAgentPrompt } from '../src/renderer/src/agent-prompt-delivery'
+import {
+  chooseAgentPromptApi,
+  createDispatchOrderGate,
+  deliverAgentPrompt
+} from '../src/renderer/src/agent-prompt-delivery'
 
 // The Composer's rendered disabled/queued-badge state and the useAgentConversation hook's
 // queuing behavior (chooseAgentPromptApi routing, per-message queued flag, FIFO clearing) are
@@ -82,7 +86,7 @@ test('promptWhenIdle is exposed to the renderer the same way prompt is, backed b
   assert.match(preloadTypes, /promptWhenIdle\(id: string, content: AgentPromptContent\): Promise<AgentPromptResult>/)
   assert.match(
     main,
-    /ipcMain\.handle\('agent:prompt-when-idle', \(_event, id: string, content: AgentPromptContent\) => \(\s*manager\.promptWhenIdle\(id, content\)\s*\)\)/,
+    /ipcMain\.handle\('agent:prompt-when-idle', \(_event, id: string, content: AgentPromptContent\) =>\s*manager\.promptWhenIdle\(id, content\)\s*\)/,
     'main should register an IPC handler backed by the already-generic promptWhenIdle'
   )
   assert.doesNotMatch(

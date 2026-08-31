@@ -34,28 +34,32 @@ function restoredChat(provider: AgentProvider): TerminalCanvasNode {
     projects: [{ id: 'project-1', name: 'ADE', path: '/project', color: '#71a9ff' }],
     activeProjectId: 'project-1',
     sidebarCollapsed: false,
-    nodes: [{
-      id: `${provider}-node`,
-      kind: provider,
-      label: provider === 'claude' ? 'Claude 1' : 'Codex 1',
-      projectId: 'project-1',
-      worktreeId: 'worktree-1',
-      position: { x: 120, y: 80 },
-      width: 640,
-      height: 480,
-      conversationId: `${provider}-conversation`
-    }],
-    worktrees: [{
-      id: 'worktree-1',
-      projectId: 'project-1',
-      branch: 'fix/transcript-restore',
-      path: '/project-worktree',
-      baseRef: 'main',
-      createdAt: '2026-08-30T00:00:00.000Z',
-      position: { x: 20, y: 20 },
-      width: 360,
-      height: 232
-    }]
+    nodes: [
+      {
+        id: `${provider}-node`,
+        kind: provider,
+        label: provider === 'claude' ? 'Claude 1' : 'Codex 1',
+        projectId: 'project-1',
+        worktreeId: 'worktree-1',
+        position: { x: 120, y: 80 },
+        width: 640,
+        height: 480,
+        conversationId: `${provider}-conversation`
+      }
+    ],
+    worktrees: [
+      {
+        id: 'worktree-1',
+        projectId: 'project-1',
+        branch: 'fix/transcript-restore',
+        path: '/project-worktree',
+        baseRef: 'main',
+        createdAt: '2026-08-30T00:00:00.000Z',
+        position: { x: 20, y: 20 },
+        width: 360,
+        height: 232
+      }
+    ]
   }
   const restored = restoreCanvasWorkspace(state, callbacks)
   const node = restored.nodes.find(isTerminalCanvasNode)
@@ -123,11 +127,13 @@ describe.each(['claude', 'codex'] as const)('%s restored chat transcript', (prov
 
     await waitFor(() => expect(screen.getByText('Persisted question')).toBeInTheDocument())
     expect(screen.getByText('Persisted answer')).toBeInTheDocument()
-    expect(mock.api.create).toHaveBeenCalledWith(expect.objectContaining({
-      provider,
-      cwd: '/project-worktree',
-      sessionId: `${provider}-conversation`
-    }))
+    expect(mock.api.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider,
+        cwd: '/project-worktree',
+        sessionId: `${provider}-conversation`
+      })
+    )
     expect(mock.api.prompt).not.toHaveBeenCalled()
     expect(mock.api.promptWhenIdle).not.toHaveBeenCalled()
   })
@@ -147,9 +153,5 @@ test('renames a conversation from its node header and marks the title manual', a
   fireEvent.change(input, { target: { value: 'Durable conversation titles' } })
   fireEvent.keyDown(input, { key: 'Enter' })
 
-  expect(callbacks.onTitleChange).toHaveBeenCalledWith(
-    'codex-node',
-    'Durable conversation titles',
-    'manual'
-  )
+  expect(callbacks.onTitleChange).toHaveBeenCalledWith('codex-node', 'Durable conversation titles', 'manual')
 })

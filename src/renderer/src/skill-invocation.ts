@@ -58,10 +58,7 @@ export function skillInvocationSummary(invocation: SkillInvocation): string {
  * session advertised (and its aliases, which resolve to one command), so a skill ADE never saw
  * advertised simply has no description rather than a guessed one.
  */
-export function skillDescription(
-  invocation: SkillInvocation,
-  commands: readonly AgentCommand[]
-): string | undefined {
+export function skillDescription(invocation: SkillInvocation, commands: readonly AgentCommand[]): string | undefined {
   const name = invocation.name.toLowerCase()
   const command = commands.find((candidate) => candidate.name.replace(/^\//, '').toLowerCase() === name)
   return command?.description || undefined

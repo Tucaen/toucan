@@ -80,27 +80,34 @@ test('creating a worktree outside a git repository fails before touching the fil
 
   assert.equal(result.ok, false)
   assert.match(result.message!, /not a git repository/)
-  assert.equal(calls.some((args) => args[0] === 'worktree'), false)
+  assert.equal(
+    calls.some((args) => args[0] === 'worktree'),
+    false
+  )
 })
 
 test('status counts changed, untracked and stashed work, and unmerged commits without an upstream', async () => {
   const manager = createWorktreeManager({
-    runGit: gitStub([(args) => {
-      if (args[0] === 'status') {
-        return ok([
-          '# branch.oid abc123',
-          '# branch.head feature/login',
-          '1 .M N... 100644 100644 100644 aaa bbb src/a.ts',
-          '2 R. N... 100644 100644 100644 ccc ddd R100 src/b.ts',
-          'u UU N... 100644 100644 100644 100644 eee fff ggg src/c.ts',
-          '? notes.md',
-          '? scratch.txt'
-        ].join('\n'))
+    runGit: gitStub([
+      (args) => {
+        if (args[0] === 'status') {
+          return ok(
+            [
+              '# branch.oid abc123',
+              '# branch.head feature/login',
+              '1 .M N... 100644 100644 100644 aaa bbb src/a.ts',
+              '2 R. N... 100644 100644 100644 ccc ddd R100 src/b.ts',
+              'u UU N... 100644 100644 100644 100644 eee fff ggg src/c.ts',
+              '? notes.md',
+              '? scratch.txt'
+            ].join('\n')
+          )
+        }
+        if (args[0] === 'stash') return ok('WIP on feature/login: abc Something\nOn main: def Elsewhere\n')
+        if (args[0] === 'rev-list') return ok('4\n')
+        return undefined
       }
-      if (args[0] === 'stash') return ok('WIP on feature/login: abc Something\nOn main: def Elsewhere\n')
-      if (args[0] === 'rev-list') return ok('4\n')
-      return undefined
-    }]),
+    ]),
     pathExists: () => true
   })
 
@@ -118,9 +125,15 @@ test('status counts changed, untracked and stashed work, and unmerged commits wi
 test('status reads ahead/behind from the upstream when the branch tracks one', async () => {
   const calls: string[][] = []
   const manager = createWorktreeManager({
-    runGit: gitStub([(args) => (args[0] === 'status'
-      ? ok('# branch.head feature/login\n# branch.upstream origin/feature/login\n# branch.ab +2 -5\n')
-      : undefined)], calls),
+    runGit: gitStub(
+      [
+        (args) =>
+          args[0] === 'status'
+            ? ok('# branch.head feature/login\n# branch.upstream origin/feature/login\n# branch.ab +2 -5\n')
+            : undefined
+      ],
+      calls
+    ),
     pathExists: () => true
   })
 
@@ -130,32 +143,53 @@ test('status reads ahead/behind from the upstream when the branch tracks one', a
   assert.equal(status.ahead, 2)
   assert.equal(status.behind, 5)
   // With an upstream there is no need to ask the base ref anything.
-  assert.equal(calls.some((args) => args[0] === 'rev-list'), false)
+  assert.equal(
+    calls.some((args) => args[0] === 'rev-list'),
+    false
+  )
 })
 
 test('a clean, merged worktree is removed and pruned', async () => {
   const calls: string[][] = []
   const manager = createWorktreeManager({ runGit: gitStub([], calls), pathExists: () => true })
 
-  const result = await manager.remove({ projectPath: PROJECT, path: WORKTREE, branch: 'feature/login', baseRef: 'main' })
+  const result = await manager.remove({
+    projectPath: PROJECT,
+    path: WORKTREE,
+    branch: 'feature/login',
+    baseRef: 'main'
+  })
 
   assert.deepEqual(result, { ok: true, blockers: [] })
-  assert.deepEqual(calls.find((args) => args[1] === 'remove'), ['worktree', 'remove', WORKTREE])
+  assert.deepEqual(
+    calls.find((args) => args[1] === 'remove'),
+    ['worktree', 'remove', WORKTREE]
+  )
   assert.ok(calls.some((args) => args[1] === 'prune'))
 })
 
 test('removal is refused with named blockers while unique work is present', async () => {
   const calls: string[][] = []
   const manager = createWorktreeManager({
-    runGit: gitStub([(args) => {
-      if (args[0] === 'status') return ok('# branch.head feature/login\n1 .M N... 1 1 1 a b src/a.ts\n? new.txt\n')
-      if (args[0] === 'rev-list') return ok('3\n')
-      return undefined
-    }], calls),
+    runGit: gitStub(
+      [
+        (args) => {
+          if (args[0] === 'status') return ok('# branch.head feature/login\n1 .M N... 1 1 1 a b src/a.ts\n? new.txt\n')
+          if (args[0] === 'rev-list') return ok('3\n')
+          return undefined
+        }
+      ],
+      calls
+    ),
     pathExists: () => true
   })
 
-  const result = await manager.remove({ projectPath: PROJECT, path: WORKTREE, branch: 'feature/login', baseRef: 'main' })
+  const result = await manager.remove({
+    projectPath: PROJECT,
+    path: WORKTREE,
+    branch: 'feature/login',
+    baseRef: 'main'
+  })
 
   assert.equal(result.ok, false)
   assert.deepEqual(result.blockers, [
@@ -163,25 +197,41 @@ test('removal is refused with named blockers while unique work is present', asyn
     { kind: 'untracked-files', files: 1 },
     { kind: 'unpublished-commits', commits: 3 }
   ])
-  assert.equal(calls.some((args) => args[1] === 'remove'), false)
+  assert.equal(
+    calls.some((args) => args[1] === 'remove'),
+    false
+  )
 })
 
 test('forcing past unsaved work removes the directory but never deletes the branch', async () => {
   const calls: string[][] = []
   const manager = createWorktreeManager({
-    runGit: gitStub([(args) => (args[0] === 'status'
-      ? ok('# branch.head feature/login\n1 .M N... 1 1 1 a b src/a.ts\n')
-      : undefined)], calls),
+    runGit: gitStub(
+      [
+        (args) => (args[0] === 'status' ? ok('# branch.head feature/login\n1 .M N... 1 1 1 a b src/a.ts\n') : undefined)
+      ],
+      calls
+    ),
     pathExists: () => true
   })
 
   const result = await manager.remove({
-    projectPath: PROJECT, path: WORKTREE, branch: 'feature/login', baseRef: 'main', force: true
+    projectPath: PROJECT,
+    path: WORKTREE,
+    branch: 'feature/login',
+    baseRef: 'main',
+    force: true
   })
 
   assert.deepEqual(result, { ok: true, blockers: [] })
-  assert.deepEqual(calls.find((args) => args[1] === 'remove'), ['worktree', 'remove', '--force', WORKTREE])
-  assert.equal(calls.some((args) => args[0] === 'branch'), false)
+  assert.deepEqual(
+    calls.find((args) => args[1] === 'remove'),
+    ['worktree', 'remove', '--force', WORKTREE]
+  )
+  assert.equal(
+    calls.some((args) => args[0] === 'branch'),
+    false
+  )
 })
 
 test('force cannot remove the primary checkout', async () => {
@@ -192,24 +242,35 @@ test('force cannot remove the primary checkout', async () => {
   })
 
   const result = await manager.remove({
-    projectPath: PROJECT, path: PROJECT, branch: 'main', baseRef: 'main', force: true
+    projectPath: PROJECT,
+    path: PROJECT,
+    branch: 'main',
+    baseRef: 'main',
+    force: true
   })
 
   assert.equal(result.ok, false)
   assert.deepEqual(result.blockers, [{ kind: 'primary-worktree' }])
-  assert.equal(calls.some((args) => args[1] === 'remove'), false)
+  assert.equal(
+    calls.some((args) => args[1] === 'remove'),
+    false
+  )
 })
 
 test('force cannot remove a directory belonging to a different repository', async () => {
   const manager = createWorktreeManager({
-    runGit: gitStub([(args, cwd) => (
-      args[2] === '--git-common-dir' && cwd !== PROJECT ? ok('D:/Other/.git\n') : undefined
-    )]),
+    runGit: gitStub([
+      (args, cwd) => (args[2] === '--git-common-dir' && cwd !== PROJECT ? ok('D:/Other/.git\n') : undefined)
+    ]),
     pathExists: () => true
   })
 
   const result = await manager.remove({
-    projectPath: PROJECT, path: WORKTREE, branch: 'feature/login', baseRef: 'main', force: true
+    projectPath: PROJECT,
+    path: WORKTREE,
+    branch: 'feature/login',
+    baseRef: 'main',
+    force: true
   })
 
   assert.equal(result.ok, false)
@@ -224,19 +285,31 @@ test('a failed inspection blocks removal rather than assuming the worktree is cl
   })
 
   const result = await manager.remove({
-    projectPath: PROJECT, path: WORKTREE, branch: 'feature/login', baseRef: 'main', force: true
+    projectPath: PROJECT,
+    path: WORKTREE,
+    branch: 'feature/login',
+    baseRef: 'main',
+    force: true
   })
 
   assert.equal(result.ok, false)
   assert.equal(result.blockers[0].kind, 'inspection-failed')
-  assert.equal(calls.some((args) => args[1] === 'remove'), false)
+  assert.equal(
+    calls.some((args) => args[1] === 'remove'),
+    false
+  )
 })
 
 test('a worktree whose directory is already gone is pruned without ceremony', async () => {
   const calls: string[][] = []
   const manager = createWorktreeManager({ runGit: gitStub([], calls), pathExists: () => false })
 
-  const result = await manager.remove({ projectPath: PROJECT, path: WORKTREE, branch: 'feature/login', baseRef: 'main' })
+  const result = await manager.remove({
+    projectPath: PROJECT,
+    path: WORKTREE,
+    branch: 'feature/login',
+    baseRef: 'main'
+  })
 
   assert.deepEqual(result, { ok: true, blockers: [] })
   assert.deepEqual(calls, [['worktree', 'prune']])

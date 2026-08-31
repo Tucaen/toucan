@@ -7,19 +7,25 @@ test('scrolled exactly to the bottom counts as near the bottom', () => {
 })
 
 test('scrolled up past the threshold does not count as near the bottom', () => {
-  assert.equal(isNearScrollBottom({
-    scrollTop: 600 - 200 - (STICK_TO_BOTTOM_THRESHOLD_PX + 1),
-    scrollHeight: 600,
-    clientHeight: 200
-  }), false)
+  assert.equal(
+    isNearScrollBottom({
+      scrollTop: 600 - 200 - (STICK_TO_BOTTOM_THRESHOLD_PX + 1),
+      scrollHeight: 600,
+      clientHeight: 200
+    }),
+    false
+  )
 })
 
 test('within the threshold of the bottom still counts as near the bottom', () => {
-  assert.equal(isNearScrollBottom({
-    scrollTop: 600 - 200 - STICK_TO_BOTTOM_THRESHOLD_PX,
-    scrollHeight: 600,
-    clientHeight: 200
-  }), true)
+  assert.equal(
+    isNearScrollBottom({
+      scrollTop: 600 - 200 - STICK_TO_BOTTOM_THRESHOLD_PX,
+      scrollHeight: 600,
+      clientHeight: 200
+    }),
+    true
+  )
 })
 
 test('content shorter than the viewport is always at the bottom', () => {

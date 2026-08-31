@@ -64,9 +64,14 @@ test('an argv-shaped command is one command line', () => {
 })
 
 test('the directory the terminal reported outranks the arguments', () => {
-  const execution = parseShellExecution(bash({ command: 'ls', cwd: 'C:\\wrong' }, {
-    terminalCwd: 'D:\\Development\\ADE\\src'
-  }))
+  const execution = parseShellExecution(
+    bash(
+      { command: 'ls', cwd: 'C:\\wrong' },
+      {
+        terminalCwd: 'D:\\Development\\ADE\\src'
+      }
+    )
+  )
   assert.equal(execution?.cwd, 'D:\\Development\\ADE\\src')
 })
 
@@ -99,10 +104,12 @@ test('the background follow-ups are their own kinds and carry the shell they tar
 })
 
 test('a backgrounded run is flagged as one and adopts the shell id it announced', () => {
-  const execution = parseShellExecution(bash(
-    { command: 'npm run dev', run_in_background: true },
-    { terminalOutput: 'Command running in background with ID: bash_2' }
-  ))
+  const execution = parseShellExecution(
+    bash(
+      { command: 'npm run dev', run_in_background: true },
+      { terminalOutput: 'Command running in background with ID: bash_2' }
+    )
+  )
   assert.equal(execution?.background, true)
   assert.equal(execution?.shellId, 'bash_2')
 })
@@ -116,10 +123,13 @@ test('the shell id is only read out of prose that is actually about a background
 
 test('the follow-up cards learn their command from the run that launched the shell', () => {
   const launches = indexShellLaunches([
-    bash({ command: 'npm run dev', run_in_background: true }, {
-      id: 'run-1',
-      terminalOutput: 'Command running in background with ID: bash_1'
-    }),
+    bash(
+      { command: 'npm run dev', run_in_background: true },
+      {
+        id: 'run-1',
+        terminalOutput: 'Command running in background with ID: bash_1'
+      }
+    ),
     { id: 'out-1', kind: 'execute', toolName: 'BashOutput', rawInput: { bash_id: 'bash_1' } }
   ])
   assert.deepEqual(launches.get('bash_1'), { activityId: 'run-1', command: 'npm run dev' })
@@ -151,8 +161,10 @@ test('a still-running command shows no exit chip, and a failure with no reported
 })
 
 test('a multi-line command becomes one bounded line', () => {
-  assert.equal(shellCommandLine('git commit -m "$(cat <<EOF\nfix: a thing\nEOF\n)"'),
-    'git commit -m "$(cat <<EOF fix: a thing EOF )"')
+  assert.equal(
+    shellCommandLine('git commit -m "$(cat <<EOF\nfix: a thing\nEOF\n)"'),
+    'git commit -m "$(cat <<EOF fix: a thing EOF )"'
+  )
   const long = shellCommandLine(`echo ${'x'.repeat(500)}`)
   assert.equal(long.length, 220)
   assert.equal(long.endsWith('…'), true)
@@ -178,9 +190,14 @@ test('ANSI colour, cursor moves and progress-bar rewrites never reach the reader
 })
 
 test('stdout and stderr are labelled apart only when the adapter reported them apart', () => {
-  const separated = shellOutputBlocks(bash({ command: 'npm test' }, {
-    rawOutput: { stdout: 'ok\n', stderr: '1 failing\n', return_code: 1 }
-  }))
+  const separated = shellOutputBlocks(
+    bash(
+      { command: 'npm test' },
+      {
+        rawOutput: { stdout: 'ok\n', stderr: '1 failing\n', return_code: 1 }
+      }
+    )
+  )
   assert.deepEqual(separated, [
     { stream: 'stdout', lines: ['ok'] },
     { stream: 'stderr', lines: ['1 failing'] }
@@ -192,11 +209,14 @@ test('stdout and stderr are labelled apart only when the adapter reported them a
 })
 
 test('output is taken from the terminal channel, then Codex aggregate, then ACP content', () => {
-  const activity = bash({ command: 'ls' }, {
-    terminalOutput: 'from terminal',
-    rawOutput: { formatted_output: 'from raw output' },
-    content: 'from content'
-  })
+  const activity = bash(
+    { command: 'ls' },
+    {
+      terminalOutput: 'from terminal',
+      rawOutput: { formatted_output: 'from raw output' },
+      content: 'from content'
+    }
+  )
   assert.equal(shellOutputText(activity), 'from terminal')
   assert.equal(shellOutputText({ ...activity, terminalOutput: undefined }), 'from raw output')
   assert.equal(shellOutputText({ ...activity, terminalOutput: undefined, rawOutput: undefined }), 'from content')
@@ -215,12 +235,17 @@ test("ACP's terminal placeholder is not output", () => {
 })
 
 test('a huge output is clamped to the budget and the remainder is counted honestly', () => {
-  const blocks = shellOutputBlocks(bash({ command: 'npm test' }, {
-    rawOutput: {
-      stdout: Array.from({ length: 30 }, (_, index) => `out ${index}`).join('\n'),
-      stderr: Array.from({ length: 30 }, (_, index) => `err ${index}`).join('\n')
-    }
-  }))
+  const blocks = shellOutputBlocks(
+    bash(
+      { command: 'npm test' },
+      {
+        rawOutput: {
+          stdout: Array.from({ length: 30 }, (_, index) => `out ${index}`).join('\n'),
+          stderr: Array.from({ length: 30 }, (_, index) => `err ${index}`).join('\n')
+        }
+      }
+    )
+  )
   const clamped = clampShellOutputBlocks(blocks, 40)
   assert.equal(clamped.blocks.length, 2)
   assert.equal(clamped.blocks[0].lines.length, 30)

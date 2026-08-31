@@ -98,12 +98,13 @@ function claudeText(content: unknown): string | null {
   if (typeof content === 'string') return content
   if (!Array.isArray(content)) return null
   const text = content
-    .filter((item): item is { type: string; text: string } => (
-      Boolean(item)
-      && typeof item === 'object'
-      && (item as { type?: unknown }).type === 'text'
-      && typeof (item as { text?: unknown }).text === 'string'
-    ))
+    .filter(
+      (item): item is { type: string; text: string } =>
+        Boolean(item) &&
+        typeof item === 'object' &&
+        (item as { type?: unknown }).type === 'text' &&
+        typeof (item as { text?: unknown }).text === 'string'
+    )
     .map((item) => item.text)
     .join('\n')
   return text || null
@@ -125,7 +126,7 @@ function parseClaudeDetail(content: string, fallbackUpdatedAt: string): Detail {
       message?: { role?: string; content?: unknown }
     }
     try {
-      record = JSON.parse(line)
+      record = JSON.parse(line) as typeof record
     } catch {
       continue
     }
@@ -162,7 +163,7 @@ function parseCodexDetail(content: string, fallbackUpdatedAt: string): Detail {
       payload?: { type?: string; role?: string; content?: Array<{ type?: string; text?: string }> }
     }
     try {
-      record = JSON.parse(line)
+      record = JSON.parse(line) as typeof record
     } catch {
       continue
     }
@@ -252,20 +253,14 @@ export function createConversationHistory(options: ConversationHistoryOptions): 
   const codexMeta = new Map<string, CodexMeta | null>()
   const details = new Map<string, { mtimeMs: number; size: number; detail: Detail }>()
 
-  const claudeRoot = (): string => join(
-    options.environment.CLAUDE_CONFIG_DIR ?? join(options.homeDirectory, '.claude'),
-    'projects'
-  )
-  const codexRoot = (): string => join(
-    options.environment.CODEX_HOME ?? join(options.homeDirectory, '.codex'),
-    'sessions'
-  )
+  const claudeRoot = (): string =>
+    join(options.environment.CLAUDE_CONFIG_DIR ?? join(options.homeDirectory, '.claude'), 'projects')
+  const codexRoot = (): string =>
+    join(options.environment.CODEX_HOME ?? join(options.homeDirectory, '.codex'), 'sessions')
 
   async function claudeCandidates(directories: string[]): Promise<Candidate[]> {
     const root = claudeRoot()
-    const byLowerName = new Map(
-      (await listSubdirectories(root)).map((name) => [name.toLocaleLowerCase(), name])
-    )
+    const byLowerName = new Map((await listSubdirectories(root)).map((name) => [name.toLocaleLowerCase(), name]))
     const candidates: Candidate[] = []
     for (const directory of directories) {
       // The same checkout reaches Claude with either drive-letter case, so the encoded
@@ -302,14 +297,14 @@ export function createConversationHistory(options: ConversationHistoryOptions): 
       for (const month of await listSubdirectories(yearPath)) {
         const monthPath = join(yearPath, month)
         for (const day of await listSubdirectories(monthPath)) {
-          files.push(...await listJsonlFiles(join(monthPath, day)))
+          files.push(...(await listJsonlFiles(join(monthPath, day))))
         }
       }
     }
     const metas = await mapLimited(files, async (path) => {
       const cached = codexMeta.get(path)
       if (cached !== undefined) return { path, meta: cached }
-      let meta: CodexMeta | null = null
+      let meta: CodexMeta | null
       try {
         meta = extractCodexMeta(await readHead(path, 16 * 1024))
       } catch {
@@ -358,9 +353,8 @@ export function createConversationHistory(options: ConversationHistoryOptions): 
         return null
       }
       const fallback = new Date(mtimeMs).toISOString()
-      detail = candidate.provider === 'claude'
-        ? parseClaudeDetail(content, fallback)
-        : parseCodexDetail(content, fallback)
+      detail =
+        candidate.provider === 'claude' ? parseClaudeDetail(content, fallback) : parseCodexDetail(content, fallback)
       details.set(candidate.path, { mtimeMs, size, detail })
       trim(details)
     }
@@ -385,10 +379,7 @@ export function createConversationHistory(options: ConversationHistoryOptions): 
       if (directories.length === 0) return { entries: [], total: 0, hasMore: false }
       const limit = Math.max(1, Math.min(request.limit ?? DEFAULT_LIMIT, 100))
       const offset = Math.max(0, request.offset ?? 0)
-      const [claude, codex] = await Promise.all([
-        claudeCandidates(directories),
-        codexCandidates(directories)
-      ])
+      const [claude, codex] = await Promise.all([claudeCandidates(directories), codexCandidates(directories)])
       const candidates = [...claude, ...codex].sort((left, right) => right.sortAt - left.sortAt)
       // Only this window is parsed; the rest of a long history is never opened.
       const page = await mapLimited(candidates.slice(offset, offset + limit), describe)

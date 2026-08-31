@@ -40,14 +40,7 @@ const baseChatViewProps: ChatViewProps = {
 }
 
 function renderChatView(overrides: Partial<ChatViewProps>): void {
-  render(
-    <ChatView
-      {...baseChatViewProps}
-      {...overrides}
-      focusMode={false}
-      setFocusMode={vi.fn()}
-    />
-  )
+  render(<ChatView {...baseChatViewProps} {...overrides} focusMode={false} setFocusMode={vi.fn()} />)
 }
 
 const decisionText = [
@@ -100,7 +93,7 @@ describe('assistant message tone rendering', () => {
 })
 
 describe('decision option interaction', () => {
-  test('clicking an option calls sendMessage with that option\'s text', () => {
+  test("clicking an option calls sendMessage with that option's text", () => {
     const answerDecision = vi.fn()
     renderChatView({
       messages: [{ id: 'm5', role: 'assistant', text: decisionText }],
@@ -155,27 +148,40 @@ describe('decision option interaction', () => {
     const { api, emit } = createMockAgentApi()
     window.agentApi = api
 
-    const { result } = renderHook(() => useAgentConversation({
-      id: 'session-decision',
-      provider: 'claude',
-      cwd: '/project',
-      enabled: true,
-      onSessionId: vi.fn(),
-      onPermissionMode: vi.fn(),
-      onModel: vi.fn()
-    }))
+    const { result } = renderHook(() =>
+      useAgentConversation({
+        id: 'session-decision',
+        provider: 'claude',
+        cwd: '/project',
+        enabled: true,
+        onSessionId: vi.fn(),
+        onPermissionMode: vi.fn(),
+        onModel: vi.fn()
+      })
+    )
 
     await waitFor(() => expect(result.current.status).toBe('ready'))
 
-    act(() => { result.current.sendMessage('Fix it now: remove the unused import and rerun the gate') })
+    act(() => {
+      result.current.sendMessage('Fix it now: remove the unused import and rerun the gate')
+    })
 
-    await waitFor(() => expect(api.prompt).toHaveBeenCalledWith(
-      'session-decision',
-      'Fix it now: remove the unused import and rerun the gate'
-    ))
-    await waitFor(() => expect(result.current.messages).toEqual([
-      { id: expect.any(String), role: 'user', text: 'Fix it now: remove the unused import and rerun the gate', queued: false }
-    ]))
+    await waitFor(() =>
+      expect(api.prompt).toHaveBeenCalledWith(
+        'session-decision',
+        'Fix it now: remove the unused import and rerun the gate'
+      )
+    )
+    await waitFor(() =>
+      expect(result.current.messages).toEqual([
+        {
+          id: expect.any(String),
+          role: 'user',
+          text: 'Fix it now: remove the unused import and rerun the gate',
+          queued: false
+        }
+      ])
+    )
     // sendMessage never touches the draft, unlike submit()'s clear-on-send behavior.
     expect(result.current.draft).toBe('')
 
@@ -197,23 +203,44 @@ describe('decision option interaction', () => {
 
   test('a decision answer is submitting until accepted and a rejected answer becomes actionable again', async () => {
     let settle: ((result: { ok: boolean; message?: string }) => void) | undefined
-    const prompt = vi.fn(() => new Promise<{ ok: boolean; message?: string }>((resolve) => { settle = resolve }))
+    const prompt = vi.fn(
+      () =>
+        new Promise<{ ok: boolean; message?: string }>((resolve) => {
+          settle = resolve
+        })
+    )
     const { api, emit } = createMockAgentApi({ prompt })
     window.agentApi = api
-    const { result } = renderHook(() => useAgentConversation({
-      id: 'session-pending-decision', provider: 'codex', cwd: '/project', enabled: true,
-      onSessionId: vi.fn(), onPermissionMode: vi.fn(), onModel: vi.fn()
-    }))
+    const { result } = renderHook(() =>
+      useAgentConversation({
+        id: 'session-pending-decision',
+        provider: 'codex',
+        cwd: '/project',
+        enabled: true,
+        onSessionId: vi.fn(),
+        onPermissionMode: vi.fn(),
+        onModel: vi.fn()
+      })
+    )
     await waitFor(() => expect(result.current.status).toBe('ready'))
 
     act(() => result.current.answerDecision('beta:rollout', 'Gradual'))
-    await waitFor(() => expect(result.current.messages[0]).toMatchObject({
-      decisionReplyTo: 'beta:rollout', deliveryPending: true, queued: false
-    }))
+    await waitFor(() =>
+      expect(result.current.messages[0]).toMatchObject({
+        decisionReplyTo: 'beta:rollout',
+        deliveryPending: true,
+        queued: false
+      })
+    )
     act(() => settle?.({ ok: false, message: 'Captain transport rejected the answer' }))
-    await waitFor(() => expect(result.current.messages[0]).toMatchObject({
-      decisionReplyTo: 'beta:rollout', deliveryPending: false, failed: true, queued: false
-    }))
+    await waitFor(() =>
+      expect(result.current.messages[0]).toMatchObject({
+        decisionReplyTo: 'beta:rollout',
+        deliveryPending: false,
+        failed: true,
+        queued: false
+      })
+    )
 
     emit('session-pending-decision', { type: 'status', status: 'working' })
     expect(result.current.detail).toBe('Captain transport rejected the answer')
@@ -222,10 +249,17 @@ describe('decision option interaction', () => {
   test('answering while Working uses the normal steering queue exactly once', async () => {
     const { api, emit } = createMockAgentApi()
     window.agentApi = api
-    const { result } = renderHook(() => useAgentConversation({
-      id: 'session-working-decision', provider: 'claude', cwd: '/project', enabled: true,
-      onSessionId: vi.fn(), onPermissionMode: vi.fn(), onModel: vi.fn()
-    }))
+    const { result } = renderHook(() =>
+      useAgentConversation({
+        id: 'session-working-decision',
+        provider: 'claude',
+        cwd: '/project',
+        enabled: true,
+        onSessionId: vi.fn(),
+        onPermissionMode: vi.fn(),
+        onModel: vi.fn()
+      })
+    )
     await waitFor(() => expect(result.current.status).toBe('ready'))
     act(() => emit('session-working-decision', { type: 'status', status: 'working' }))
     act(() => result.current.answerDecision('alpha:storage', 'SQLite'))
@@ -234,21 +268,41 @@ describe('decision option interaction', () => {
     expect(api.promptWhenIdle).toHaveBeenCalledTimes(1)
   })
 
-  test.each(['claude', 'codex'] as const)('%s streamed assistant chunks finalize only at turn completion', async (provider) => {
-    const { api, emit } = createMockAgentApi()
-    window.agentApi = api
-    const id = `session-stream-${provider}`
-    const { result } = renderHook(() => useAgentConversation({
-      id, provider, cwd: '/project', enabled: true,
-      onSessionId: vi.fn(), onPermissionMode: vi.fn(), onModel: vi.fn()
-    }))
-    await waitFor(() => expect(result.current.status).toBe('ready'))
-    act(() => {
-      emit(id, { type: 'message', role: 'assistant', messageId: `${provider}-real-message-id`, text: decisionText.slice(0, 35) })
-      emit(id, { type: 'message', role: 'assistant', messageId: `${provider}-real-message-id`, text: decisionText.slice(35) })
-    })
-    expect(result.current.messages).toEqual([expect.objectContaining({ text: decisionText, complete: false })])
-    act(() => emit(id, { type: 'turn_complete', stopReason: 'end_turn' }))
-    expect(result.current.messages).toEqual([expect.objectContaining({ text: decisionText, complete: true })])
-  })
+  test.each(['claude', 'codex'] as const)(
+    '%s streamed assistant chunks finalize only at turn completion',
+    async (provider) => {
+      const { api, emit } = createMockAgentApi()
+      window.agentApi = api
+      const id = `session-stream-${provider}`
+      const { result } = renderHook(() =>
+        useAgentConversation({
+          id,
+          provider,
+          cwd: '/project',
+          enabled: true,
+          onSessionId: vi.fn(),
+          onPermissionMode: vi.fn(),
+          onModel: vi.fn()
+        })
+      )
+      await waitFor(() => expect(result.current.status).toBe('ready'))
+      act(() => {
+        emit(id, {
+          type: 'message',
+          role: 'assistant',
+          messageId: `${provider}-real-message-id`,
+          text: decisionText.slice(0, 35)
+        })
+        emit(id, {
+          type: 'message',
+          role: 'assistant',
+          messageId: `${provider}-real-message-id`,
+          text: decisionText.slice(35)
+        })
+      })
+      expect(result.current.messages).toEqual([expect.objectContaining({ text: decisionText, complete: false })])
+      act(() => emit(id, { type: 'turn_complete', stopReason: 'end_turn' }))
+      expect(result.current.messages).toEqual([expect.objectContaining({ text: decisionText, complete: true })])
+    }
+  )
 })

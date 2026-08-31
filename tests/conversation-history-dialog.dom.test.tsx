@@ -22,10 +22,7 @@ function summary(overrides: Partial<ConversationSummary> = {}): ConversationSumm
   }
 }
 
-function installConversationApi(
-  list: ReturnType<typeof vi.fn>,
-  exists: ReturnType<typeof vi.fn>
-): void {
+function installConversationApi(list: ReturnType<typeof vi.fn>, exists: ReturnType<typeof vi.fn>): void {
   Object.defineProperty(window, 'conversationApi', {
     configurable: true,
     value: { list, exists }
@@ -71,12 +68,15 @@ test('shows what a conversation was, when it ran, and where', async () => {
 })
 
 test('reads one page at a time and only asks for more on request', async () => {
-  const list = vi.fn(async ({ offset }: { offset?: number }) => (
+  const list = vi.fn(async ({ offset }: { offset?: number }) =>
     offset
       ? { entries: [summary({ id: 'second', path: 'p2', title: 'Second' })], total: 2, hasMore: false }
       : { entries: [summary({ id: 'first', path: 'p1', title: 'First' })], total: 2, hasMore: true }
-  ))
-  installConversationApi(list, vi.fn(async () => true))
+  )
+  installConversationApi(
+    list,
+    vi.fn(async () => true)
+  )
   renderDialog()
 
   await screen.findByText('First')

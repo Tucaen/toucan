@@ -75,7 +75,10 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
       scrollback: 5000,
       disableStdin: true,
       theme: {
-        background: '#101319', foreground: '#d9dee8', cursor: '#101319', selectionBackground: '#394456'
+        background: '#101319',
+        foreground: '#d9dee8',
+        cursor: '#101319',
+        selectionBackground: '#394456'
       }
     })
     terminalRef.current = terminal
@@ -83,26 +86,37 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
     terminal.loadAddon(fitAddon)
     terminal.open(hostRef.current)
     const resizeObserver = new ResizeObserver(() => {
-      try { fitAddon.fit() } catch { /* The canvas may be between layout frames. */ }
+      try {
+        fitAddon.fit()
+      } catch {
+        /* The canvas may be between layout frames. */
+      }
     })
     resizeObserver.observe(hostRef.current)
-    try { fitAddon.fit() } catch { /* The node may not have completed layout. */ }
+    try {
+      fitAddon.fit()
+    } catch {
+      /* The node may not have completed layout. */
+    }
 
     const historyRequest = window.terminalApi.scrollback?.(data.sessionId)
-    if (historyRequest) void historyRequest.then((snapshot) => {
-      if (!active) return
-      if (!snapshot || snapshot.sessionId !== data.sessionId) {
-        setScrollbackState('missing')
-        return
-      }
-      terminal.write(snapshot.data)
-      if (snapshot.truncated || snapshot.incomplete) {
-        terminal.write('\r\n\x1b[33m[Earlier output was truncated or incomplete.]\x1b[0m\r\n')
-      }
-      setScrollbackState('available')
-    }).catch(() => {
-      if (active) setScrollbackState('missing')
-    })
+    if (historyRequest !== undefined)
+      void historyRequest
+        .then((snapshot) => {
+          if (!active) return
+          if (!snapshot || snapshot.sessionId !== data.sessionId) {
+            setScrollbackState('missing')
+            return
+          }
+          terminal.write(snapshot.data)
+          if (snapshot.truncated || snapshot.incomplete) {
+            terminal.write('\r\n\x1b[33m[Earlier output was truncated or incomplete.]\x1b[0m\r\n')
+          }
+          setScrollbackState('available')
+        })
+        .catch(() => {
+          if (active) setScrollbackState('missing')
+        })
     else setScrollbackState('missing')
 
     return () => {
@@ -202,15 +216,15 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
     terminal.attachCustomKeyEventHandler((event) => {
       if (event.type !== 'keydown') return true
 
-      const copyShortcut = (event.ctrlKey && event.shiftKey && event.code === 'KeyC')
-        || (event.ctrlKey && event.code === 'Insert')
+      const copyShortcut =
+        (event.ctrlKey && event.shiftKey && event.code === 'KeyC') || (event.ctrlKey && event.code === 'Insert')
       if (copyShortcut) {
         if (terminal.hasSelection()) window.terminalApi.copyText(terminal.getSelection())
         return false
       }
 
-      const pasteShortcut = (event.ctrlKey && event.shiftKey && event.code === 'KeyV')
-        || (event.shiftKey && event.code === 'Insert')
+      const pasteShortcut =
+        (event.ctrlKey && event.shiftKey && event.code === 'KeyV') || (event.shiftKey && event.code === 'Insert')
       if (pasteShortcut) {
         const clipboardText = window.terminalApi.readClipboardText()
         if (clipboardText && incarnationRef.current) {
@@ -235,20 +249,20 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
           cols: terminal.cols,
           rows: terminal.rows,
           cwd: data.workingDirectory,
-          initialInput: data.initialInput,
+          initialInput: data.initialInput
         })
         .then((result) => {
           if (!active) {
-            if (result.ok && result.incarnationId) window.terminalApi.kill(data.sessionId, result.incarnationId, attachmentId)
+            if (result.ok && result.incarnationId)
+              window.terminalApi.kill(data.sessionId, result.incarnationId, attachmentId)
             return
           }
           if (result.ok && result.incarnationId) {
             const incarnationId = result.incarnationId
             incarnationRef.current = incarnationId
             started = true
-            const liveness = exitedRef.current && incarnationRef.current === incarnationId
-              ? 'exited'
-              : result.liveness ?? 'live'
+            const liveness =
+              exitedRef.current && incarnationRef.current === incarnationId ? 'exited' : (result.liveness ?? 'live')
             data.onTerminalLiveness?.(id, liveness)
             data.onStatusChange(id, liveness === 'exited' ? 'exited' : 'idle')
             fit()
@@ -274,15 +288,26 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
       terminalRef.current = null
       terminal.dispose()
     }
-  }, [data.dormant, data.label, data.onAttention, data.onStatusChange, data.onTerminalLiveness, data.sessionId, data.workingDirectory, id])
+  }, [
+    data.dormant,
+    data.label,
+    data.onAttention,
+    data.onStatusChange,
+    data.onTerminalLiveness,
+    data.sessionId,
+    data.workingDirectory,
+    id
+  ])
 
   return (
     <article
       className={`terminal-node ${selected ? 'selected' : ''}`}
-      style={{
-        '--node-accent': '#74d8a2',
-        '--project-color': data.projectColor
-      } as React.CSSProperties}
+      style={
+        {
+          '--node-accent': '#74d8a2',
+          '--project-color': data.projectColor
+        } as React.CSSProperties
+      }
     >
       <NodeBorderResizer minWidth={360} minHeight={240} selected={selected} color={data.projectColor} />
       <header className="node-header">
@@ -335,8 +360,12 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
                 ? 'The process owner confirmed that the previous shell exited.'
                 : 'ADE has no authoritative process-owner evidence that this shell exited.'}
             </small>
-            {hasRestoredScrollback && <small>Showing retained output from the previous process below. History is display-only.</small>}
-            {scrollbackState === 'missing' && <small>Retained output is missing, expired, corrupt, or could not be read.</small>}
+            {hasRestoredScrollback && (
+              <small>Showing retained output from the previous process below. History is display-only.</small>
+            )}
+            {scrollbackState === 'missing' && (
+              <small>Retained output is missing, expired, corrupt, or could not be read.</small>
+            )}
             <button
               type="button"
               className="resume-session nodrag"

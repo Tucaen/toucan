@@ -5,7 +5,7 @@ import { basename, extname, join, normalize } from 'node:path'
 import { spawn } from 'node-pty'
 import type { AgentCreateRequest, AgentPromptContent } from '../shared/agent'
 import type { ConversationListRequest } from '../shared/conversation'
-import type { TerminalCreateRequest } from '../shared/terminal'
+import type { TerminalCreateRequest, WorkspaceState } from '../shared/terminal'
 import { createAcpSessionManager, type AcpSessionManager } from './acp-session-manager'
 import { createClaudeUsageReader } from './claude-usage'
 import { createConversationHistory, type ConversationHistory } from './conversation-history'
@@ -39,12 +39,17 @@ function findCommand(command: string): string | null {
     })
     const matches = [
       ...fallbacks.filter((path) => path && existsSync(path)),
-      ...output.split(/\r?\n/).filter(Boolean).map((path) => path.trim())
+      ...output
+        .split(/\r?\n/)
+        .filter(Boolean)
+        .map((path) => path.trim())
     ]
-    return matches.find((path) => {
-      if (path.includes('\\WindowsApps\\OpenAI.Codex_')) return false
-      return ['.exe', '.cmd', '.bat'].includes(extname(path).toLowerCase())
-    }) ?? null
+    return (
+      matches.find((path) => {
+        if (path.includes('\\WindowsApps\\OpenAI.Codex_')) return false
+        return ['.exe', '.cmd', '.bat'].includes(extname(path).toLowerCase())
+      }) ?? null
+    )
   } catch {
     return fallbacks.find((path) => path && existsSync(path)) ?? null
   }
@@ -59,19 +64,19 @@ function registerTerminalIpc(
     if ((kind !== 'claude' && kind !== 'codex') || typeof conversationId !== 'string') return null
     return providers.getConversationPreview(kind, conversationId)
   })
-  ipcMain.handle('terminal:create', (event, request: TerminalCreateRequest) => (
-    manager.create(request, event.sender)
-  ))
-  ipcMain.on('terminal:write', (_event, sessionId: string, incarnationId: string, data: string) => manager.write(sessionId, incarnationId, data))
-  ipcMain.on('terminal:resize', (_event, sessionId: string, incarnationId: string, cols: number, rows: number) => (
+  ipcMain.handle('terminal:create', (event, request: TerminalCreateRequest) => manager.create(request, event.sender))
+  ipcMain.on('terminal:write', (_event, sessionId: string, incarnationId: string, data: string) =>
+    manager.write(sessionId, incarnationId, data)
+  )
+  ipcMain.on('terminal:resize', (_event, sessionId: string, incarnationId: string, cols: number, rows: number) =>
     manager.resize(sessionId, incarnationId, cols, rows)
-  ))
-  ipcMain.on('terminal:kill', (_event, sessionId: string, incarnationId: string, attachmentId: string) => (
+  )
+  ipcMain.on('terminal:kill', (_event, sessionId: string, incarnationId: string, attachmentId: string) =>
     manager.kill(sessionId, incarnationId, attachmentId)
-  ))
-  ipcMain.handle('terminal:scrollback', (_event, sessionId: unknown) => (
+  )
+  ipcMain.handle('terminal:scrollback', (_event, sessionId: unknown) =>
     typeof sessionId === 'string' ? scrollback.load(sessionId) : null
-  ))
+  )
   ipcMain.handle('terminal:scrollback-remove', (_event, sessionId: unknown) => {
     return typeof sessionId === 'string' && scrollback.remove(sessionId)
   })
@@ -88,14 +93,18 @@ function registerConversationIpc(history: ConversationHistory, titles: Conversat
   })
   // A transcript the user can see in the list may already be gone; opening one asks first so
   // the browser can say so instead of launching a resume that cannot find its conversation.
-  ipcMain.handle('conversation:exists', (_event, path: unknown) => (
+  ipcMain.handle('conversation:exists', (_event, path: unknown) =>
     typeof path === 'string' ? history.exists(path) : Promise.resolve(false)
-  ))
-  ipcMain.handle('conversation:set-title', (_event, provider: unknown, id: unknown, title: unknown, source: unknown) => {
-    if ((provider !== 'claude' && provider !== 'codex') || typeof id !== 'string' || typeof title !== 'string') return null
-    if (source !== 'generated' && source !== 'manual') return null
-    return titles.set(provider, id, title, source)
-  })
+  )
+  ipcMain.handle(
+    'conversation:set-title',
+    (_event, provider: unknown, id: unknown, title: unknown, source: unknown) => {
+      if ((provider !== 'claude' && provider !== 'codex') || typeof id !== 'string' || typeof title !== 'string')
+        return null
+      if (source !== 'generated' && source !== 'manual') return null
+      return titles.set(provider, id, title, source)
+    }
+  )
 }
 
 function registerWorktreeIpc(worktrees: WorktreeManager): void {
@@ -112,22 +121,18 @@ function registerUsageIpc(usage: ProviderUsage): void {
 function registerAgentIpc(manager: AcpSessionManager): void {
   ipcMain.handle('agent:create', (event, request: AgentCreateRequest) => manager.create(request, event.sender))
   ipcMain.handle('agent:prompt', (_event, id: string, content: AgentPromptContent) => manager.prompt(id, content))
-  ipcMain.handle('agent:prompt-when-idle', (_event, id: string, content: AgentPromptContent) => (
+  ipcMain.handle('agent:prompt-when-idle', (_event, id: string, content: AgentPromptContent) =>
     manager.promptWhenIdle(id, content)
-  ))
+  )
   ipcMain.handle('agent:set-mode', (_event, id: string, modeId: string) => manager.setMode(id, modeId))
   ipcMain.handle('agent:set-model', (_event, id: string, modelId: string) => manager.setModel(id, modelId))
   ipcMain.handle('agent:set-effort', (_event, id: string, effortId: string) => manager.setEffort(id, effortId))
-  ipcMain.handle('agent:authenticate', (_event, id: string, methodId: string) => (
-    manager.authenticate(id, methodId)
-  ))
-  ipcMain.handle('agent:submit-auth-code', (_event, id: string, code: string) => (
-    manager.submitAuthCode(id, code)
-  ))
+  ipcMain.handle('agent:authenticate', (_event, id: string, methodId: string) => manager.authenticate(id, methodId))
+  ipcMain.handle('agent:submit-auth-code', (_event, id: string, code: string) => manager.submitAuthCode(id, code))
   ipcMain.handle('agent:open-auth-link', (_event, url: string) => manager.openAuthLink(url))
-  ipcMain.on('agent:approval', (_event, id: string, approvalId: string, optionId?: string) => (
+  ipcMain.on('agent:approval', (_event, id: string, approvalId: string, optionId?: string) =>
     manager.resolveApproval(id, approvalId, optionId)
-  ))
+  )
   ipcMain.on('agent:cancel', (_event, id: string) => manager.cancel(id))
   ipcMain.on('agent:kill', (_event, id: string) => manager.kill(id))
 }
@@ -145,9 +150,7 @@ function registerProjectIpc(): void {
       title: 'Add project folder',
       properties: ['openDirectory']
     }
-    const result = owner
-      ? await dialog.showOpenDialog(owner, options)
-      : await dialog.showOpenDialog(options)
+    const result = owner ? await dialog.showOpenDialog(owner, options) : await dialog.showOpenDialog(options)
 
     if (result.canceled || result.filePaths.length === 0) return null
     const path = normalize(result.filePaths[0])
@@ -159,7 +162,11 @@ function registerProjectIpc(): void {
   ipcMain.handle('shell:open-external', async (_event, url: unknown) => {
     if (typeof url !== 'string') return
     let parsed: URL
-    try { parsed = new URL(url) } catch { return }
+    try {
+      parsed = new URL(url)
+    } catch {
+      return
+    }
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return
     await shell.openExternal(parsed.toString())
   })
@@ -170,7 +177,7 @@ function registerProjectIpc(): void {
     shell.showItemInFolder(normalize(path))
   })
   ipcMain.handle('workspace:load', () => workspace.load())
-  ipcMain.handle('workspace:save', (_event, state) => workspace.save(state))
+  ipcMain.handle('workspace:save', (_event, state: WorkspaceState) => workspace.save(state))
 }
 
 function createWindow(terminalManager: TerminalManager, agentManager: AcpSessionManager): void {
@@ -206,19 +213,20 @@ function createWindow(terminalManager: TerminalManager, agentManager: AcpSession
 
 function registerVoicePrototypePermissions(): void {
   // PROTOTYPE: allow ADE's own window to request microphone audio, never camera video.
-  session.defaultSession.setPermissionCheckHandler((contents, permission, _origin, details) => (
-    permission === 'media'
-    && details.mediaType === 'audio'
-    && contents !== null
-    && BrowserWindow.fromWebContents(contents) !== null
-  ))
+  session.defaultSession.setPermissionCheckHandler(
+    (contents, permission, _origin, details) =>
+      permission === 'media' &&
+      details.mediaType === 'audio' &&
+      contents !== null &&
+      BrowserWindow.fromWebContents(contents) !== null
+  )
   session.defaultSession.setPermissionRequestHandler((contents, permission, callback, details) => {
     const mediaTypes = 'mediaTypes' in details ? details.mediaTypes : undefined
     callback(
-      permission === 'media'
-      && mediaTypes?.length === 1
-      && mediaTypes[0] === 'audio'
-      && BrowserWindow.fromWebContents(contents) !== null
+      permission === 'media' &&
+        mediaTypes?.length === 1 &&
+        mediaTypes[0] === 'audio' &&
+        BrowserWindow.fromWebContents(contents) !== null
     )
   })
 }
@@ -242,7 +250,7 @@ function registerVoicePrototypeCrossOriginIsolation(): void {
   })
 }
 
-app.whenReady().then(() => {
+void app.whenReady().then(() => {
   registerVoicePrototypePermissions()
   registerVoicePrototypeCrossOriginIsolation()
   const codexHome = process.env.CODEX_HOME ?? join(app.getPath('home'), '.codex')
@@ -257,13 +265,14 @@ app.whenReady().then(() => {
   const manager = createTerminalManager({
     providers,
     scrollback,
-    spawn: (launch, request, cwd) => spawn(launch.executable, launch.args, {
-      name: 'xterm-256color',
-      cols: Math.max(2, request.cols),
-      rows: Math.max(1, request.rows),
-      cwd,
-      env: { ...process.env, TERM: 'xterm-256color' }
-    })
+    spawn: (launch, request, cwd) =>
+      spawn(launch.executable, launch.args, {
+        name: 'xterm-256color',
+        cols: Math.max(2, request.cols),
+        rows: Math.max(1, request.rows),
+        cwd,
+        env: { ...process.env, TERM: 'xterm-256color' }
+      })
   })
   const agentManager = createAcpSessionManager({
     appPath: app.getAppPath(),
@@ -273,23 +282,28 @@ app.whenReady().then(() => {
   registerTerminalIpc(manager, providers, scrollback)
   registerAgentIpc(agentManager)
   const conversationTitles = createConversationTitleStore(join(app.getPath('userData'), 'conversation-titles.json'))
-  registerConversationIpc(createConversationHistory({
-    homeDirectory: app.getPath('home'),
-    environment: process.env,
-    titles: conversationTitles
-  }), conversationTitles)
+  registerConversationIpc(
+    createConversationHistory({
+      homeDirectory: app.getPath('home'),
+      environment: process.env,
+      titles: conversationTitles
+    }),
+    conversationTitles
+  )
   registerWorktreeIpc(createWorktreeManager())
-  registerUsageIpc(createProviderUsage({
-    readers: {
-      claude: createClaudeUsageReader({ cwd: app.getPath('home') }),
-      codex: createCodexRateLimitReader({
-        homeDirectory: app.getPath('home'),
-        environment: process.env,
-        command: findCommand('codex')
-      })
-    },
-    ttlMs: PROVIDER_USAGE_TTL_MS
-  }))
+  registerUsageIpc(
+    createProviderUsage({
+      readers: {
+        claude: createClaudeUsageReader({ cwd: app.getPath('home') }),
+        codex: createCodexRateLimitReader({
+          homeDirectory: app.getPath('home'),
+          environment: process.env,
+          command: findCommand('codex')
+        })
+      },
+      ttlMs: PROVIDER_USAGE_TTL_MS
+    })
+  )
   registerProjectIpc()
   createWindow(manager, agentManager)
 

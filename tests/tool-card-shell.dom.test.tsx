@@ -40,12 +40,7 @@ const baseChatViewProps: ChatViewProps = {
 
 function renderCards(activities: AgentActivity[]): HTMLElement {
   const { container } = render(
-    <ChatView
-      {...baseChatViewProps}
-      activities={activities}
-      focusMode={false}
-      setFocusMode={vi.fn()}
-    />
+    <ChatView {...baseChatViewProps} activities={activities} focusMode={false} setFocusMode={vi.fn()} />
   )
   return container
 }
@@ -58,14 +53,16 @@ function card(container: HTMLElement, index = 0): HTMLElement {
 
 describe('shared tool card shell', () => {
   test('the header is always present with summary, status and elapsed duration', () => {
-    const container = renderCards([{
-      id: 'run-1',
-      title: 'Ran the test suite',
-      kind: 'execute',
-      status: 'completed',
-      startedAt: 1_000,
-      endedAt: 13_500
-    }])
+    const container = renderCards([
+      {
+        id: 'run-1',
+        title: 'Ran the test suite',
+        kind: 'execute',
+        status: 'completed',
+        startedAt: 1_000,
+        endedAt: 13_500
+      }
+    ])
     const header = within(card(container)).getByRole('button', { expanded: false })
     expect(header.textContent).toContain('Ran the test suite')
     expect(header.textContent).toContain('done')
@@ -84,9 +81,17 @@ describe('shared tool card shell', () => {
   })
 
   test('a failed call stays expanded and is visually distinct', () => {
-    const container = renderCards([{
-      id: 'boom', title: 'Ran a command', kind: 'execute', status: 'failed', content: 'exit code 1', startedAt: 0, endedAt: 100
-    }])
+    const container = renderCards([
+      {
+        id: 'boom',
+        title: 'Ran a command',
+        kind: 'execute',
+        status: 'failed',
+        content: 'exit code 1',
+        startedAt: 0,
+        endedAt: 100
+      }
+    ])
     expect(card(container).dataset.status).toBe('failed')
     expect(card(container).dataset.expanded).toBe('true')
     expect(within(card(container)).getByText('exit code 1')).toBeTruthy()
@@ -94,8 +99,24 @@ describe('shared tool card shell', () => {
 
   test('clicking the header toggles the card and the choice sticks for that card alone', () => {
     const container = renderCards([
-      { id: 'a', title: 'First', kind: 'read', status: 'completed', content: 'first output', startedAt: 0, endedAt: 10 },
-      { id: 'b', title: 'Second', kind: 'read', status: 'completed', content: 'second output', startedAt: 0, endedAt: 10 }
+      {
+        id: 'a',
+        title: 'First',
+        kind: 'read',
+        status: 'completed',
+        content: 'first output',
+        startedAt: 0,
+        endedAt: 10
+      },
+      {
+        id: 'b',
+        title: 'Second',
+        kind: 'read',
+        status: 'completed',
+        content: 'second output',
+        startedAt: 0,
+        endedAt: 10
+      }
     ])
     fireEvent.click(within(card(container, 0)).getByRole('button'))
     expect(card(container, 0).dataset.expanded).toBe('true')
@@ -108,9 +129,17 @@ describe('shared tool card shell', () => {
 
   test('an enormous tool result is truncated behind an explicit show more', () => {
     const huge = Array.from({ length: 5000 }, (_, index) => `line ${index}`).join('\n')
-    const container = renderCards([{
-      id: 'huge', title: 'Ran a command', kind: 'execute', status: 'failed', content: huge, startedAt: 0, endedAt: 10
-    }])
+    const container = renderCards([
+      {
+        id: 'huge',
+        title: 'Ran a command',
+        kind: 'execute',
+        status: 'failed',
+        content: huge,
+        startedAt: 0,
+        endedAt: 10
+      }
+    ])
     const output = card(container).querySelector('pre')
     expect(output?.textContent?.split('\n').length).toBe(40)
     expect(card(container).textContent).toContain('line 39')
@@ -134,7 +163,14 @@ describe('shared tool card shell', () => {
   })
 
   test('a card collapsed while running re-opens itself when the call then fails', () => {
-    const working: AgentActivity = { id: 'a', title: 'Ran a command', kind: 'execute', status: 'in_progress', content: 'so far', startedAt: 0 }
+    const working: AgentActivity = {
+      id: 'a',
+      title: 'Ran a command',
+      kind: 'execute',
+      status: 'in_progress',
+      content: 'so far',
+      startedAt: 0
+    }
     const { container, rerender } = render(
       <ChatView {...baseChatViewProps} activities={[working]} focusMode={false} setFocusMode={vi.fn()} />
     )
@@ -163,9 +199,16 @@ describe('shared tool card shell', () => {
     }
     toolCardFamilies.push(family)
     try {
-      const container = renderCards([{
-        id: 'a', title: 'Ran a command', kind: 'execute', status: 'failed', startedAt: 0, endedAt: 2_000
-      }])
+      const container = renderCards([
+        {
+          id: 'a',
+          title: 'Ran a command',
+          kind: 'execute',
+          status: 'failed',
+          startedAt: 0,
+          endedAt: 2_000
+        }
+      ])
       expect(card(container).dataset.family).toBe('test-family')
       expect(card(container).textContent).toContain('npm test')
       expect(within(card(container)).getByText('custom body')).toBeTruthy()

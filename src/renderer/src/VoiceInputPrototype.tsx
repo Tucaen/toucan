@@ -12,10 +12,7 @@ interface VoiceInputPrototypeProps {
   setDraft(value: string): void
 }
 
-const LOCAL_MODEL_URL = new URL(
-  './models/moonshine-small-streaming-en/',
-  window.location.href
-).toString()
+const LOCAL_MODEL_URL = new URL('./models/moonshine-small-streaming-en/', window.location.href).toString()
 
 // The model loads from ADE's own local server/disk, not the network, so this
 // only needs to absorb slow hardware — not a slow internet connection. It
@@ -27,7 +24,10 @@ function joinTranscript(lines: string[], partial: string): string {
   const parts = [...lines]
   const tail = partial.trim()
   if (tail && parts.at(-1)?.trim() !== tail) parts.push(tail)
-  return parts.map((part) => part.trim()).filter(Boolean).join(' ')
+  return parts
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join(' ')
 }
 
 function insertAtSelection(value: string, text: string, start: number, end: number): string {
@@ -54,11 +54,14 @@ export default function VoiceInputPrototype(props: VoiceInputPrototypeProps): JS
     setState('error')
   }
 
-  useEffect(() => () => {
-    const transcriber = transcriberRef.current
-    if (transcriber?.isRunning) void transcriber.stop()
-    transcriber?.close()
-  }, [])
+  useEffect(
+    () => () => {
+      const transcriber = transcriberRef.current
+      if (transcriber?.isRunning) void transcriber.stop()
+      transcriber?.close()
+    },
+    []
+  )
 
   const begin = async (): Promise<void> => {
     if (state !== 'idle' && state !== 'error') return
@@ -96,17 +99,9 @@ export default function VoiceInputPrototype(props: VoiceInputPrototypeProps): JS
             setState('error')
           })
         transcriberRef.current = transcriber
-        await withStallGuard(
-          transcriber.load(),
-          VOICE_STALL_TIMEOUT_MS,
-          'Local speech model timed out while loading.'
-        )
+        await withStallGuard(transcriber.load(), VOICE_STALL_TIMEOUT_MS, 'Local speech model timed out while loading.')
       }
-      await withStallGuard(
-        transcriber.start(),
-        VOICE_STALL_TIMEOUT_MS,
-        'Local speech model timed out while starting.'
-      )
+      await withStallGuard(transcriber.start(), VOICE_STALL_TIMEOUT_MS, 'Local speech model timed out while starting.')
       setState('listening')
     } catch (cause) {
       fail(cause)
@@ -134,16 +129,16 @@ export default function VoiceInputPrototype(props: VoiceInputPrototypeProps): JS
     }
   }
 
-  const loadingLabel = progress > 0
-    ? `Preparing local speech model ${Math.round(progress * 100)}%`
-    : 'Preparing local speech model'
-  const label = state === 'loading'
-    ? loadingLabel
-    : state === 'listening'
-      ? 'Stop dictation'
-      : state === 'stopping'
-        ? 'Finishing...'
-        : 'Dictate locally'
+  const loadingLabel =
+    progress > 0 ? `Preparing local speech model ${Math.round(progress * 100)}%` : 'Preparing local speech model'
+  const label =
+    state === 'loading'
+      ? loadingLabel
+      : state === 'listening'
+        ? 'Stop dictation'
+        : state === 'stopping'
+          ? 'Finishing...'
+          : 'Dictate locally'
 
   return (
     <div className="voice-input-prototype">
@@ -154,7 +149,7 @@ export default function VoiceInputPrototype(props: VoiceInputPrototypeProps): JS
         aria-label={label}
         title={error || label}
         disabled={props.disabled || state === 'loading' || state === 'stopping'}
-        onClick={() => state === 'listening' ? void finish(true) : void begin()}
+        onClick={() => (state === 'listening' ? void finish(true) : void begin())}
       >
         <span aria-hidden="true">{state === 'listening' ? '■' : '●'}</span>
         {state === 'loading' ? 'Wait' : state === 'listening' ? 'Done' : 'Mic'}
@@ -171,10 +166,7 @@ export default function VoiceInputPrototype(props: VoiceInputPrototypeProps): JS
         </button>
       )}
       {(state === 'loading' || state === 'listening' || state === 'stopping') && (
-        <span
-          className="voice-live-preview"
-          title={state === 'loading' ? loadingLabel : partial || 'Listening…'}
-        >
+        <span className="voice-live-preview" title={state === 'loading' ? loadingLabel : partial || 'Listening…'}>
           {state === 'loading' ? `${loadingLabel}…` : partial || 'Listening…'}
         </span>
       )}

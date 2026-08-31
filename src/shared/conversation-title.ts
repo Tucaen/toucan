@@ -26,10 +26,14 @@ function titleLine(text: string): string | null {
     .filter(Boolean)
     .filter((line) => !line.startsWith('<') && !line.endsWith(':'))
   const rawLine = lines.at(-1)
-  const withoutRequest = rawLine?.replace(LEADING_REQUEST, '').replace(/[.!?]+$/, '').trim()
-  const line = rawLine !== withoutRequest && withoutRequest
-    ? `${withoutRequest[0].toLocaleUpperCase()}${withoutRequest.slice(1)}`
-    : withoutRequest
+  const withoutRequest = rawLine
+    ?.replace(LEADING_REQUEST, '')
+    .replace(/[.!?]+$/, '')
+    .trim()
+  const line =
+    rawLine !== withoutRequest && withoutRequest
+      ? `${withoutRequest[0].toLocaleUpperCase()}${withoutRequest.slice(1)}`
+      : withoutRequest
   if (!line || GENERIC_PROMPT.test(line) || line.length < 12) return null
   if (line.length <= TITLE_LIMIT) return line
   const clipped = line.slice(0, TITLE_LIMIT + 1)

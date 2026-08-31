@@ -30,13 +30,14 @@ function readClaims(path: string): WorktreeClaim[] {
   try {
     const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'))
     if (!Array.isArray(parsed)) return []
-    return parsed.filter((claim): claim is WorktreeClaim => (
-      Boolean(claim)
-      && typeof claim === 'object'
-      && typeof (claim as WorktreeClaim).nodeId === 'string'
-      && typeof (claim as WorktreeClaim).path === 'string'
-      && typeof (claim as WorktreeClaim).branch === 'string'
-    ))
+    return parsed.filter(
+      (claim): claim is WorktreeClaim =>
+        Boolean(claim) &&
+        typeof claim === 'object' &&
+        typeof (claim as WorktreeClaim).nodeId === 'string' &&
+        typeof (claim as WorktreeClaim).path === 'string' &&
+        typeof (claim as WorktreeClaim).branch === 'string'
+    )
   } catch {
     return []
   }
@@ -80,14 +81,18 @@ export interface WorktreeManager {
 
 const GIT_MAX_BUFFER = 8 * 1024 * 1024
 
-const runGitWithExecFile: GitRunner = (args, cwd) => new Promise<GitResult>((resolve) => {
-  execFile('git', args, { cwd, windowsHide: true, maxBuffer: GIT_MAX_BUFFER }, (error, stdout, stderr) => {
-    const code = error && typeof (error as { code?: unknown }).code === 'number'
-      ? (error as { code: number }).code
-      : error ? 1 : 0
-    resolve({ code, stdout: stdout ?? '', stderr: stderr ?? '' })
+const runGitWithExecFile: GitRunner = (args, cwd) =>
+  new Promise<GitResult>((resolve) => {
+    execFile('git', args, { cwd, windowsHide: true, maxBuffer: GIT_MAX_BUFFER }, (error, stdout, stderr) => {
+      const code =
+        error && typeof (error as { code?: unknown }).code === 'number'
+          ? (error as { code: number }).code
+          : error
+            ? 1
+            : 0
+      resolve({ code, stdout: stdout ?? '', stderr: stderr ?? '' })
+    })
   })
-})
 
 const emptyStatus = (message?: string): WorktreeStatus => ({
   exists: false,
@@ -105,7 +110,9 @@ function normalizeGitPath(value: string): string {
   return value.trim().replace(/\\/g, '/').replace(/\/+$/, '').toLocaleLowerCase()
 }
 
-function parsePorcelainStatus(stdout: string): Pick<WorktreeStatus, 'branch' | 'head' | 'changedFiles' | 'untrackedFiles' | 'ahead' | 'behind' | 'hasUpstream'> {
+function parsePorcelainStatus(
+  stdout: string
+): Pick<WorktreeStatus, 'branch' | 'head' | 'changedFiles' | 'untrackedFiles' | 'ahead' | 'behind' | 'hasUpstream'> {
   let branch: string | undefined
   let head: string | undefined
   let changedFiles = 0
@@ -144,13 +151,10 @@ function parsePorcelainStatus(stdout: string): Pick<WorktreeStatus, 'branch' | '
  * link back to a worktree is the message git writes when creating them.
  */
 function countStashesOnBranch(stdout: string, branch: string): number {
-  return stdout
-    .split(/\r?\n/)
-    .filter((line) => {
-      const match = line.match(/^(?:WIP on|On) ([^:]+):/)
-      return match?.[1].trim() === branch
-    })
-    .length
+  return stdout.split(/\r?\n/).filter((line) => {
+    const match = line.match(/^(?:WIP on|On) ([^:]+):/)
+    return match?.[1].trim() === branch
+  }).length
 }
 
 export function createWorktreeManager(options: WorktreeManagerOptions = {}): WorktreeManager {
@@ -172,19 +176,14 @@ export function createWorktreeManager(options: WorktreeManagerOptions = {}): Wor
   const readStatus = async (request: WorktreeStatusRequest): Promise<WorktreeStatus> => {
     if (!pathExists(request.path)) return emptyStatus()
 
-    const status = await runGit(
-      ['status', '--porcelain=v2', '--branch', '--untracked-files=all'],
-      request.path
-    )
+    const status = await runGit(['status', '--porcelain=v2', '--branch', '--untracked-files=all'], request.path)
     if (status.code !== 0) {
       return { ...emptyStatus(status.stderr.trim() || 'git status failed'), exists: true }
     }
 
     const parsed = parsePorcelainStatus(status.stdout)
     const stash = await runGit(['stash', 'list', '--format=%gs'], request.path)
-    const stashEntries = stash.code === 0
-      ? countStashesOnBranch(stash.stdout, parsed.branch ?? request.branch)
-      : 0
+    const stashEntries = stash.code === 0 ? countStashesOnBranch(stash.stdout, parsed.branch ?? request.branch) : 0
 
     // Without an upstream there is nothing to be "ahead" of, so fall back to the ref the
     // branch was cut from: those are the commits a teardown would strand.
@@ -220,11 +219,8 @@ export function createWorktreeManager(options: WorktreeManagerOptions = {}): Wor
         const directory = deriveWorktreeDirectory(request.projectPath, request.branch)
         if (pathExists(directory)) return { ok: false, message: `${directory} already exists` }
 
-        const baseRef = request.baseRef?.trim() || await resolveBaseRef(request.projectPath)
-        const added = await runGit(
-          ['worktree', 'add', '-b', request.branch, directory, baseRef],
-          request.projectPath
-        )
+        const baseRef = request.baseRef?.trim() || (await resolveBaseRef(request.projectPath))
+        const added = await runGit(['worktree', 'add', '-b', request.branch, directory, baseRef], request.projectPath)
         if (added.code !== 0) {
           return { ok: false, message: added.stderr.trim() || added.stdout.trim() || 'git worktree add failed' }
         }

@@ -15,8 +15,12 @@
     "prebuild": "npm run prepare:voice-model",
     "build": "electron-vite build",
     "start": "electron-vite preview",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"tests/**/*.{ts,tsx}\" \"*.{ts,json,mjs}\" \"scripts/**/*.mjs\"",
+    "lint": "eslint src tests *.ts --max-warnings 0",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "test": "tsc -p tsconfig.test.json && node --test .test-out/tests/*.test.js && npm run test:dom",
+    "check": "npm run format:check && npm run lint && npm run typecheck && npm test",
+    "check:full": "npm run check && npm run check:voice-model && npm run build",
     "test:terminal-events": "tsc -p tsconfig.test.json && node --test .test-out/tests/terminal-events.test.js",
     "test:dom": "vitest run",
     "test:dom:watch": "vitest",
@@ -68,6 +72,7 @@
     "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.2",
     "@types/node": "^24.0.0",
@@ -77,8 +82,13 @@
     "electron": "^42.7.1",
     "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
+    "eslint": "^10.9.1",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.11.0",
     "jsdom": "^26.1.0",
+    "prettier": "^3.9.6",
     "typescript": "^5.5.4",
+    "typescript-eslint": "^8.68.0",
     "vite": "^7.3.6",
     "vitest": "^4.1.10"
   }

@@ -41,15 +41,17 @@ test('migrates a version 2 workspace to an empty worktree set without losing its
     projects: [{ id: 'project-1', name: 'ADE', path: 'D:\\Development\\ADE', color: '#71a9ff' }],
     activeProjectId: 'project-1',
     sidebarCollapsed: false,
-    nodes: [{
-      id: 'node-1',
-      kind: 'codex',
-      label: 'Codex 1',
-      projectId: 'project-1',
-      position: { x: 12, y: 34 },
-      width: 520,
-      height: 340
-    }]
+    nodes: [
+      {
+        id: 'node-1',
+        kind: 'codex',
+        label: 'Codex 1',
+        projectId: 'project-1',
+        position: { x: 12, y: 34 },
+        width: 520,
+        height: 340
+      }
+    ]
   })
 
   assert.equal(migrated?.version, 3)
@@ -65,16 +67,18 @@ test('migrates the legacy worklog preference to per-node focus mode', () => {
     projects: [{ id: 'project-1', name: 'ADE', path: 'D:\\Development\\ADE', color: '#71a9ff' }],
     activeProjectId: 'project-1',
     sidebarCollapsed: false,
-    nodes: [{
-      id: 'node-1',
-      kind: 'codex',
-      label: 'Codex 1',
-      projectId: 'project-1',
-      position: { x: 0, y: 0 },
-      width: 520,
-      height: 340,
-      worklogCollapsed: false
-    }],
+    nodes: [
+      {
+        id: 'node-1',
+        kind: 'codex',
+        label: 'Codex 1',
+        projectId: 'project-1',
+        position: { x: 0, y: 0 },
+        width: 520,
+        height: 340,
+        worklogCollapsed: false
+      }
+    ],
     worktrees: []
   })
 
@@ -102,10 +106,13 @@ test('preserves recently closed session nodes in a version 3 workspace', () => {
 })
 
 test('rejects malformed recently closed session records', () => {
-  assert.equal(parseWorkspaceState({
-    ...makeState('ADE'),
-    recentlyClosedNodes: [{ id: 'missing-session-fields' }]
-  }), null)
+  assert.equal(
+    parseWorkspaceState({
+      ...makeState('ADE'),
+      recentlyClosedNodes: [{ id: 'missing-session-fields' }]
+    }),
+    null
+  )
 })
 
 test('clamps a persisted closed-session stack to its ten newest entries', () => {
@@ -123,10 +130,10 @@ test('clamps a persisted closed-session stack to its ten newest entries', () => 
     }))
   })
 
-  assert.deepEqual(parsed?.recentlyClosedNodes?.map((node) => node.id), Array.from(
-    { length: 10 },
-    (_, index) => `closed-node-${index + 3}`
-  ))
+  assert.deepEqual(
+    parsed?.recentlyClosedNodes?.map((node) => node.id),
+    Array.from({ length: 10 }, (_, index) => `closed-node-${index + 3}`)
+  )
 })
 
 test('rejects a workspace whose worktree records are malformed', () => {
@@ -140,20 +147,24 @@ test('rejects a workspace whose worktree records are malformed', () => {
 
   assert.equal(parseWorkspaceState({ ...base, worktrees: [{ id: 'w1' }] }), null)
   assert.equal(parseWorkspaceState({ ...base }), null)
-  assert.ok(parseWorkspaceState({
-    ...base,
-    worktrees: [{
-      id: 'w1',
-      projectId: 'project-1',
-      branch: 'feature/login',
-      path: 'D:\\Development\\ADE-worktrees\\feature-login',
-      baseRef: 'main',
-      createdAt: '2026-08-27T09:00:00.000Z',
-      position: { x: 0, y: 0 },
-      width: 360,
-      height: 232
-    }]
-  }))
+  assert.ok(
+    parseWorkspaceState({
+      ...base,
+      worktrees: [
+        {
+          id: 'w1',
+          projectId: 'project-1',
+          branch: 'feature/login',
+          path: 'D:\\Development\\ADE-worktrees\\feature-login',
+          baseRef: 'main',
+          createdAt: '2026-08-27T09:00:00.000Z',
+          position: { x: 0, y: 0 },
+          width: 360,
+          height: 232
+        }
+      ]
+    })
+  )
 })
 
 test('saves and loads a valid workspace through the store', async () => {
@@ -161,38 +172,44 @@ test('saves and loads a valid workspace through the store', async () => {
   const store = createWorkspaceStore(join(directory, 'workspace.json'))
   const state: WorkspaceState = {
     version: 3,
-    projects: [{
-      id: 'project-1',
-      name: 'ADE',
-      path: 'D:\\Development\\ADE',
-      color: '#71a9ff',
-      setupCommand: 'npm install'
-    }],
+    projects: [
+      {
+        id: 'project-1',
+        name: 'ADE',
+        path: 'D:\\Development\\ADE',
+        color: '#71a9ff',
+        setupCommand: 'npm install'
+      }
+    ],
     activeProjectId: 'project-1',
     sidebarCollapsed: false,
     agentPermissionModes: { claude: 'acceptEdits', codex: 'read-only' },
     nodes: [],
-    recentlyClosedNodes: [{
-      id: 'closed-node-1',
-      kind: 'codex',
-      label: 'Codex 1',
-      projectId: 'project-1',
-      position: { x: 240, y: 180 },
-      width: 520,
-      height: 340,
-      conversationId: 'conversation-1'
-    }],
-    worktrees: [{
-      id: 'worktree-1',
-      projectId: 'project-1',
-      branch: 'feature/login',
-      path: 'D:\\Development\\ADE-worktrees\\feature-login',
-      baseRef: 'main',
-      createdAt: '2026-08-27T09:00:00.000Z',
-      position: { x: 40, y: 80 },
-      width: 360,
-      height: 232
-    }]
+    recentlyClosedNodes: [
+      {
+        id: 'closed-node-1',
+        kind: 'codex',
+        label: 'Codex 1',
+        projectId: 'project-1',
+        position: { x: 240, y: 180 },
+        width: 520,
+        height: 340,
+        conversationId: 'conversation-1'
+      }
+    ],
+    worktrees: [
+      {
+        id: 'worktree-1',
+        projectId: 'project-1',
+        branch: 'feature/login',
+        path: 'D:\\Development\\ADE-worktrees\\feature-login',
+        baseRef: 'main',
+        createdAt: '2026-08-27T09:00:00.000Z',
+        position: { x: 40, y: 80 },
+        width: 360,
+        height: 232
+      }
+    ]
   }
 
   assert.deepEqual(await store.save(state), { ok: true })
@@ -205,19 +222,21 @@ test('repairs UTF-8 text that an older workspace cached as Windows-1252', () => 
     projects: [{ id: 'project-1', name: 'ADE', path: 'D:\\Development\\ADE', color: '#71a9ff' }],
     activeProjectId: 'project-1',
     sidebarCollapsed: false,
-    nodes: [{
-      id: 'node-1',
-      kind: 'codex',
-      label: 'Codex 1',
-      projectId: 'project-1',
-      position: { x: 0, y: 0 },
-      width: 520,
-      height: 340,
-      preview: {
-        assistant: 'Session persistence is working\u00e2\u20ac\u201dthe preview is readable.',
-        updatedAt: '2026-08-11T11:38:54.228Z'
+    nodes: [
+      {
+        id: 'node-1',
+        kind: 'codex',
+        label: 'Codex 1',
+        projectId: 'project-1',
+        position: { x: 0, y: 0 },
+        width: 520,
+        height: 340,
+        preview: {
+          assistant: 'Session persistence is working\u00e2\u20ac\u201dthe preview is readable.',
+          updatedAt: '2026-08-11T11:38:54.228Z'
+        }
       }
-    }]
+    ]
   })
 
   assert.equal(parsed?.nodes[0].preview?.assistant, 'Session persistence is working\u2014the preview is readable.')
@@ -390,16 +409,18 @@ test('an unsent composer draft round-trips through the store, so it survives an 
   const directory = mkdtempSync(join(tmpdir(), 'ade-workspace-test-'))
   const store = createWorkspaceStore(join(directory, 'workspace.json'))
   const state = makeState('drafts')
-  state.nodes = [{
-    id: 'node-1',
-    kind: 'claude',
-    label: 'Claude 1',
-    projectId: 'project-1',
-    position: { x: 0, y: 0 },
-    width: 520,
-    height: 340,
-    draft: 'a half-written prompt\nsecond line'
-  }]
+  state.nodes = [
+    {
+      id: 'node-1',
+      kind: 'claude',
+      label: 'Claude 1',
+      projectId: 'project-1',
+      position: { x: 0, y: 0 },
+      width: 520,
+      height: 340,
+      draft: 'a half-written prompt\nsecond line'
+    }
+  ]
   state.composerSendKey = 'mod-enter'
 
   assert.equal((await store.save(state)).ok, true)
@@ -420,19 +441,24 @@ test('rejects a workspace whose draft or send-key preference is the wrong shape'
   }
 
   assert.equal(parseWorkspaceState({ ...base, composerSendKey: 'shift-enter' }), null)
-  assert.equal(parseWorkspaceState({
-    ...base,
-    nodes: [{
-      id: 'node-1',
-      kind: 'claude',
-      label: 'Claude 1',
-      projectId: 'project-1',
-      position: { x: 0, y: 0 },
-      width: 520,
-      height: 340,
-      draft: 12
-    }]
-  }), null)
+  assert.equal(
+    parseWorkspaceState({
+      ...base,
+      nodes: [
+        {
+          id: 'node-1',
+          kind: 'claude',
+          label: 'Claude 1',
+          projectId: 'project-1',
+          position: { x: 0, y: 0 },
+          width: 520,
+          height: 340,
+          draft: 12
+        }
+      ]
+    }),
+    null
+  )
   assert.ok(parseWorkspaceState({ ...base, composerSendKey: 'enter' }))
 })
 
@@ -440,15 +466,17 @@ test('unread attention records survive a restart, and stale ones are pruned on t
   const directory = mkdtempSync(join(tmpdir(), 'ade-workspace-test-'))
   const store = createWorkspaceStore(join(directory, 'workspace.json'))
   const state = makeState('attention')
-  state.nodes = [{
-    id: 'node-1',
-    kind: 'claude',
-    label: 'Claude 1',
-    projectId: 'project-1',
-    position: { x: 0, y: 0 },
-    width: 520,
-    height: 340
-  }]
+  state.nodes = [
+    {
+      id: 'node-1',
+      kind: 'claude',
+      label: 'Claude 1',
+      projectId: 'project-1',
+      position: { x: 0, y: 0 },
+      width: 520,
+      height: 340
+    }
+  ]
   state.attention = [
     {
       id: 'node-1 approval perm-7',
@@ -488,18 +516,23 @@ test('rejects a workspace whose attention records are malformed', () => {
   const base = makeState('attention')
 
   assert.equal(parseWorkspaceState({ ...base, attention: [{ id: 'x', nodeId: 'node-1' }] }), null)
-  assert.equal(parseWorkspaceState({
-    ...base,
-    attention: [{
-      id: 'node-1 shouting perm-7',
-      nodeId: 'node-1',
-      kind: 'shouting',
-      key: 'perm-7',
-      createdAt: 1,
-      updatedAt: 1,
-      events: 1,
-      read: false
-    }]
-  }), null)
+  assert.equal(
+    parseWorkspaceState({
+      ...base,
+      attention: [
+        {
+          id: 'node-1 shouting perm-7',
+          nodeId: 'node-1',
+          kind: 'shouting',
+          key: 'perm-7',
+          createdAt: 1,
+          updatedAt: 1,
+          events: 1,
+          read: false
+        }
+      ]
+    }),
+    null
+  )
   assert.equal(parseWorkspaceState({ ...base, attention: {} }), null)
 })

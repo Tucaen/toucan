@@ -8,7 +8,7 @@ test('rejects a session when its project folder no longer exists', () => {
   const providers = createSessionProviders({
     homeDirectory: 'C:\\Users\\tester',
     environment: {},
-    resolveCommand: (command) => command === 'pwsh.exe' ? 'C:\\Tools\\pwsh.exe' : null
+    resolveCommand: (command) => (command === 'pwsh.exe' ? 'C:\\Tools\\pwsh.exe' : null)
   })
   const manager = createTerminalManager({
     providers,
@@ -20,16 +20,22 @@ test('rejects a session when its project folder no longer exists', () => {
     }
   })
 
-  assert.deepEqual(manager.create({
-    id: 'node-1',
-    kind: 'terminal',
-    cols: 80,
-    rows: 24,
-    cwd: 'D:\\Deleted'
-  }, { isDestroyed: () => false, send: () => undefined }), {
-    ok: false,
-    message: 'The project folder no longer exists: D:\\Deleted'
-  })
+  assert.deepEqual(
+    manager.create(
+      {
+        id: 'node-1',
+        kind: 'terminal',
+        cols: 80,
+        rows: 24,
+        cwd: 'D:\\Deleted'
+      },
+      { isDestroyed: () => false, send: () => undefined }
+    ),
+    {
+      ok: false,
+      message: 'The project folder no longer exists: D:\\Deleted'
+    }
+  )
   assert.equal(spawnCount, 0)
 })
 
@@ -37,20 +43,33 @@ test('keeps session identity stable while replacing each exited process with a n
   const exits: Array<(event: { exitCode: number }) => void> = []
   let incarnation = 0
   const manager = createTerminalManager({
-    providers: createSessionProviders({ homeDirectory: 'C:\\Users\\tester', environment: {}, resolveCommand: () => 'pwsh.exe' }),
+    providers: createSessionProviders({
+      homeDirectory: 'C:\\Users\\tester',
+      environment: {},
+      resolveCommand: () => 'pwsh.exe'
+    }),
     pathExists: () => true,
     pathIsDirectory: () => true,
     createIncarnationId: () => `inc-${++incarnation}`,
     spawn: () => ({
       onData: () => undefined,
-      onExit: (listener) => { exits.push(listener) },
+      onExit: (listener) => {
+        exits.push(listener)
+      },
       write: () => undefined,
       resize: () => undefined,
       kill: () => undefined
     })
   })
   const owner = { isDestroyed: () => false, send: () => undefined }
-  const request = { id: 'node', sessionId: 'stable-session', kind: 'terminal' as const, cols: 80, rows: 24, cwd: 'D:\\ADE' }
+  const request = {
+    id: 'node',
+    sessionId: 'stable-session',
+    kind: 'terminal' as const,
+    cols: 80,
+    rows: 24,
+    cwd: 'D:\\ADE'
+  }
   const first = manager.create(request, owner)
   exits[0]({ exitCode: 0 })
   const second = manager.create(request, owner)
@@ -69,7 +88,11 @@ test('rejects stale input and resize and ignores stale data and exit after repla
   let incarnation = 0
   const events: Array<{ channel: string; payload: unknown }> = []
   const manager = createTerminalManager({
-    providers: createSessionProviders({ homeDirectory: 'C:\\Users\\tester', environment: {}, resolveCommand: () => 'pwsh.exe' }),
+    providers: createSessionProviders({
+      homeDirectory: 'C:\\Users\\tester',
+      environment: {},
+      resolveCommand: () => 'pwsh.exe'
+    }),
     pathExists: () => true,
     pathIsDirectory: () => true,
     createIncarnationId: () => `inc-${++incarnation}`,
@@ -77,15 +100,22 @@ test('rejects stale input and resize and ignores stale data and exit after repla
       const record: (typeof processes)[number] = { writes: [], resizes: [] }
       processes.push(record)
       return {
-        onData: (listener) => { record.data = listener },
-        onExit: (listener) => { record.exit = listener },
+        onData: (listener) => {
+          record.data = listener
+        },
+        onExit: (listener) => {
+          record.exit = listener
+        },
         write: (value) => record.writes.push(value),
         resize: (cols, rows) => record.resizes.push([cols, rows]),
         kill: () => undefined
       }
     }
   })
-  const owner = { isDestroyed: () => false, send: (channel: string, payload: unknown) => events.push({ channel, payload }) }
+  const owner = {
+    isDestroyed: () => false,
+    send: (channel: string, payload: unknown) => events.push({ channel, payload })
+  }
   const request = { id: 'node', sessionId: 'stable', kind: 'terminal' as const, cols: 80, rows: 24, cwd: 'D:\\ADE' }
   manager.create(request, owner)
   processes[0].exit?.({ exitCode: 0 })
@@ -109,13 +139,19 @@ test('rejects stale input and resize and ignores stale data and exit after repla
 test('owner loss is unverifiable while only the process exit callback proves exit', () => {
   let exit: ((event: { exitCode: number }) => void) | undefined
   const manager = createTerminalManager({
-    providers: createSessionProviders({ homeDirectory: 'C:\\Users\\tester', environment: {}, resolveCommand: () => 'pwsh.exe' }),
+    providers: createSessionProviders({
+      homeDirectory: 'C:\\Users\\tester',
+      environment: {},
+      resolveCommand: () => 'pwsh.exe'
+    }),
     pathExists: () => true,
     pathIsDirectory: () => true,
     createIncarnationId: () => 'incarnation',
     spawn: () => ({
       onData: () => undefined,
-      onExit: (listener) => { exit = listener },
+      onExit: (listener) => {
+        exit = listener
+      },
       write: () => undefined,
       resize: () => undefined,
       kill: () => undefined
@@ -132,7 +168,11 @@ test('owner loss is unverifiable while only the process exit callback proves exi
 test('a retired attachment cannot kill a session reclaimed by a replacement', () => {
   let killed = 0
   const manager = createTerminalManager({
-    providers: createSessionProviders({ homeDirectory: 'C:\\Users\\tester', environment: {}, resolveCommand: () => 'pwsh.exe' }),
+    providers: createSessionProviders({
+      homeDirectory: 'C:\\Users\\tester',
+      environment: {},
+      resolveCommand: () => 'pwsh.exe'
+    }),
     pathExists: () => true,
     pathIsDirectory: () => true,
     createIncarnationId: () => 'incarnation',
@@ -141,7 +181,9 @@ test('a retired attachment cannot kill a session reclaimed by a replacement', ()
       onExit: () => undefined,
       write: () => undefined,
       resize: () => undefined,
-      kill: () => { killed += 1 }
+      kill: () => {
+        killed += 1
+      }
     })
   })
   const owner = { isDestroyed: () => false, send: () => undefined }

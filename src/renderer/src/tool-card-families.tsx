@@ -12,11 +12,7 @@ import { skillInvocationFor } from './skill-invocation'
 import { SubagentTaskBody, SubagentTaskSummary } from './SubagentTaskCard'
 import { subagentTaskFor } from './subagent-task'
 import { toolCardStatusLabel, toolOutputLines } from './tool-card'
-import {
-  SearchNavigationBody,
-  SearchNavigationSummary,
-  searchNavigationCard
-} from './SearchNavigationCard'
+import { SearchNavigationBody, SearchNavigationSummary, searchNavigationCard } from './SearchNavigationCard'
 import { searchNavigationFor } from './search-navigation'
 import { ShellExecutionBody, ShellExecutionSummary, shellExecutionCard } from './ShellExecutionCard'
 import { shellExecutionFor, shellExecutionIcon } from './shell-execution'
@@ -49,16 +45,26 @@ export interface ToolCardFamily {
 
 function genericIcon(activity: AgentActivity): string {
   switch (activity.kind) {
-    case 'edit': return '+'
-    case 'delete': return '-'
-    case 'move': return '->'
-    case 'execute': return '>_'
-    case 'read': return '[]'
-    case 'search': return '?'
-    case 'fetch': return '@'
-    case 'think': return '~'
-    case 'switch_mode': return '<>'
-    default: return '*'
+    case 'edit':
+      return '+'
+    case 'delete':
+      return '-'
+    case 'move':
+      return '->'
+    case 'execute':
+      return '>_'
+    case 'read':
+      return '[]'
+    case 'search':
+      return '?'
+    case 'fetch':
+      return '@'
+    case 'think':
+      return '~'
+    case 'switch_mode':
+      return '<>'
+    default:
+      return '*'
   }
 }
 
@@ -69,15 +75,18 @@ export const genericToolCardFamily: ToolCardFamily = {
   icon: genericIcon,
   summary: (activity) => activityTitle(activity),
   body: (activity, lineBudget) => {
-    const output = lineBudget === null
-      ? { text: activity.content ?? '', hiddenLines: 0 }
-      : truncateToolOutput(activity.content, lineBudget)
+    const output =
+      lineBudget === null
+        ? { text: activity.content ?? '', hiddenLines: 0 }
+        : truncateToolOutput(activity.content, lineBudget)
     return {
       hiddenLines: output.hiddenLines,
       content: (
         <>
           {output.text && <pre>{output.text}</pre>}
-          {activity.locations?.map((location) => <small key={location}>{location}</small>)}
+          {activity.locations?.map((location) => (
+            <small key={location}>{location}</small>
+          ))}
         </>
       )
     }
@@ -98,9 +107,7 @@ export const fileOperationToolCardFamily: ToolCardFamily = {
   },
   summary: (activity) => {
     const operation = fileOperationFor(activity)
-    return operation
-      ? <FileOperationSummary operation={operation} />
-      : activityTitle(activity)
+    return operation ? <FileOperationSummary operation={operation} /> : activityTitle(activity)
   },
   body: (activity, lineBudget) => {
     const card = fileOperationCard(activity, lineBudget)
@@ -147,9 +154,11 @@ export const shellExecutionToolCardFamily: ToolCardFamily = {
   },
   summary: (activity) => {
     const execution = shellExecutionFor(activity)
-    return execution
-      ? <ShellExecutionSummary execution={execution} status={activity.status} />
-      : activityTitle(activity)
+    return execution ? (
+      <ShellExecutionSummary execution={execution} status={activity.status} />
+    ) : (
+      activityTitle(activity)
+    )
   },
   body: (activity, lineBudget) => {
     const card = shellExecutionCard(activity, lineBudget)
@@ -200,9 +209,7 @@ export const subagentTaskToolCardFamily: ToolCardFamily = {
     const output = toolOutputLines(activity.content, lineBudget)
     return {
       hiddenLines: output.hiddenLines,
-      content: (
-        <SubagentTaskBody task={task} activity={activity} result={output.lines} renderStep={subagentStepRow} />
-      )
+      content: <SubagentTaskBody task={task} activity={activity} result={output.lines} renderStep={subagentStepRow} />
     }
   }
 }

@@ -51,16 +51,18 @@ function chatNode(callbacks: TerminalNodeCallbacks & WorktreeNodeCallbacks): Ter
     projects: [{ id: 'project-1', name: 'ADE', path: '/project', color: '#71a9ff' }],
     activeProjectId: 'project-1',
     sidebarCollapsed: false,
-    nodes: [{
-      id: NODE_ID,
-      kind: 'claude',
-      label: 'Claude 1',
-      projectId: 'project-1',
-      position: { x: 0, y: 0 },
-      width: 640,
-      height: 480,
-      conversationId: 'claude-conversation'
-    }],
+    nodes: [
+      {
+        id: NODE_ID,
+        kind: 'claude',
+        label: 'Claude 1',
+        projectId: 'project-1',
+        position: { x: 0, y: 0 },
+        width: 640,
+        height: 480,
+        conversationId: 'claude-conversation'
+      }
+    ],
     worktrees: []
   }
   const restored = restoreCanvasWorkspace(state, callbacks)
@@ -94,7 +96,9 @@ function renderChat(node: TerminalCanvasNode, { selected, unread }: { selected: 
 
 let mock: MockAgentApi
 
-function baseCallbacks(onAttention: (action: NodeAttentionAction) => void): TerminalNodeCallbacks & WorktreeNodeCallbacks {
+function baseCallbacks(
+  onAttention: (action: NodeAttentionAction) => void
+): TerminalNodeCallbacks & WorktreeNodeCallbacks {
   return {
     onStatusChange: vi.fn(),
     onAttention,
@@ -118,7 +122,9 @@ beforeEach(() => {
 
 /** Lets the session's own create() promise settle so it cannot overwrite an emitted status. */
 async function settle(): Promise<void> {
-  await act(async () => { await Promise.resolve() })
+  await act(async () => {
+    await Promise.resolve()
+  })
 }
 
 async function finishTurn(answer: string): Promise<void> {

@@ -23,9 +23,8 @@ export const emptyPromptHistory: PromptHistoryState = { entries: [], index: null
 export function rememberPrompt(state: PromptHistoryState, text: string): PromptHistoryState {
   const trimmed = text.trim()
   if (!trimmed) return { ...state, index: null, stashedDraft: '' }
-  const entries = state.entries.at(-1) === trimmed
-    ? state.entries
-    : [...state.entries, trimmed].slice(-PROMPT_HISTORY_LIMIT)
+  const entries =
+    state.entries.at(-1) === trimmed ? state.entries : [...state.entries, trimmed].slice(-PROMPT_HISTORY_LIMIT)
   return { entries, index: null, stashedDraft: '' }
 }
 

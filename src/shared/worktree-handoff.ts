@@ -32,7 +32,10 @@ export interface WorktreeHandoffPlan {
  * Anything further into the message is the user talking *about* the skill, not calling it.
  */
 export function invokesWorktreeSkill(text: string): boolean {
-  const firstLine = text.split('\n').map((line) => line.trim()).find(Boolean)
+  const firstLine = text
+    .split('\n')
+    .map((line) => line.trim())
+    .find(Boolean)
   if (!firstLine) return false
   const [command] = firstLine.split(/\s/)
   return command === `/${WORKTREE_SKILL}`

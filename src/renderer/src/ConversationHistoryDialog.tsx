@@ -55,37 +55,43 @@ export default function ConversationHistoryDialog({
   directoriesRef.current = directories
   const directoryKey = directories.join('|')
 
-  const loadPage = useCallback(async (offset: number): Promise<void> => {
-    setLoading(true)
-    setError(null)
-    try {
-      const page = await window.conversationApi.list({
-        directories: directoriesRef.current,
-        limit: CONVERSATION_PAGE_SIZE,
-        offset
-      })
-      setEntries((current) => (offset === 0 ? page.entries : [...current, ...page.entries]))
-      setTotal(page.total)
-      setHasMore(page.hasMore)
-    } catch {
-      setError('Past conversations could not be read.')
-    } finally {
-      setLoading(false)
-    }
-  }, [directoryKey])
+  const loadPage = useCallback(
+    async (offset: number): Promise<void> => {
+      setLoading(true)
+      setError(null)
+      try {
+        const page = await window.conversationApi.list({
+          directories: directoriesRef.current,
+          limit: CONVERSATION_PAGE_SIZE,
+          offset
+        })
+        setEntries((current) => (offset === 0 ? page.entries : [...current, ...page.entries]))
+        setTotal(page.total)
+        setHasMore(page.hasMore)
+      } catch {
+        setError('Past conversations could not be read.')
+      } finally {
+        setLoading(false)
+      }
+    },
+    [directoryKey]
+  )
 
   useEffect(() => {
     void loadPage(0)
   }, [loadPage])
 
-  const open = useCallback(async (entry: ConversationSummary): Promise<void> => {
-    const stillThere = await window.conversationApi.exists(entry.path).catch(() => false)
-    if (!stillThere) {
-      setMissing((current) => ({ ...current, [entry.path]: true }))
-      return
-    }
-    onOpen(entry)
-  }, [onOpen])
+  const open = useCallback(
+    async (entry: ConversationSummary): Promise<void> => {
+      const stillThere = await window.conversationApi.exists(entry.path).catch(() => false)
+      if (!stillThere) {
+        setMissing((current) => ({ ...current, [entry.path]: true }))
+        return
+      }
+      onOpen(entry)
+    },
+    [onOpen]
+  )
 
   return (
     <div
@@ -99,8 +105,8 @@ export default function ConversationHistoryDialog({
         <strong id="conversation-history-title">Past conversations in {projectName}</strong>
         <p>
           Every transcript this project and its worktrees recorded, newest first.
-          {total > 0 && ` Showing ${entries.length} of ${total}.`}
-          {' '}Automatic titles are generated locally and use no model tokens or account budget.
+          {total > 0 && ` Showing ${entries.length} of ${total}.`} Automatic titles are generated locally and use no
+          model tokens or account budget.
         </p>
 
         {error && <p className="worktree-dialog-error">{error}</p>}
@@ -117,9 +123,7 @@ export default function ConversationHistoryDialog({
                   disabled={unavailable}
                   onClick={() => void open(entry)}
                 >
-                  <span className={`menu-icon ${entry.provider}-icon`}>
-                    {entry.provider === 'claude' ? 'C' : '<>'}
-                  </span>
+                  <span className={`menu-icon ${entry.provider}-icon`}>{entry.provider === 'claude' ? 'C' : '<>'}</span>
                   <span className="conversation-history-copy">
                     <strong>{entry.title}</strong>
                     <small>
@@ -154,7 +158,9 @@ export default function ConversationHistoryDialog({
               Load more
             </button>
           )}
-          <button type="button" onClick={onCancel}>Close</button>
+          <button type="button" onClick={onCancel}>
+            Close
+          </button>
         </div>
       </div>
     </div>

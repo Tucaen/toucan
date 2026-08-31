@@ -66,8 +66,9 @@ describe('search and navigation tool cards', () => {
     })
 
     expect(card.dataset.family).toBe('search-navigation')
-    expect(within(card).getByRole('button', { expanded: false }).textContent)
-      .toContain('useAgentConversation — 4 matches in 3 files')
+    expect(within(card).getByRole('button', { expanded: false }).textContent).toContain(
+      'useAgentConversation — 4 matches in 3 files'
+    )
 
     fireEvent.click(within(card).getByRole('button', { expanded: false }))
     const groups = card.querySelectorAll('.search-result-group')
@@ -86,10 +87,7 @@ describe('search and navigation tool cards', () => {
       toolName: 'WebSearch',
       status: 'completed',
       rawInput: { query: 'React documentation' },
-      content: [
-        'React (https://react.dev/)',
-        'React repository (https://github.com/facebook/react)'
-      ].join('\n'),
+      content: ['React (https://react.dev/)', 'React repository (https://github.com/facebook/react)'].join('\n'),
       startedAt: 0,
       endedAt: 100
     })

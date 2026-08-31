@@ -98,7 +98,8 @@ export function parseSearchNavigation(activity: AgentActivity): SearchNavigation
     const url = asText(input.url) ?? asText(action?.url)
     const host = url ? urlHost(url) : undefined
     if (!url || !host) return null
-    const actionTitle = actionType === 'openPage' ? 'Open page' : actionType === 'findInPage' ? 'Find in page' : undefined
+    const actionTitle =
+      actionType === 'openPage' ? 'Open page' : actionType === 'findInPage' ? 'Find in page' : undefined
     return {
       kind: 'web-fetch',
       url,
@@ -110,17 +111,21 @@ export function parseSearchNavigation(activity: AgentActivity): SearchNavigation
   const pattern = asText(input.pattern)
   if (!pattern) return null
   if (name === 'glob') {
-    const paths = activity.content?.split('\n')
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0 && !/^no files found\.?$/i.test(line)) ?? []
+    const paths =
+      activity.content
+        ?.split('\n')
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0 && !/^no files found\.?$/i.test(line)) ?? []
     return { kind: 'glob', pattern, paths }
   }
   if (name !== 'grep') return null
   if (asText(input.output_mode) === 'files_with_matches') {
-    const files = activity.content?.split('\n')
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0)
-      .map((path) => ({ path, matches: [] })) ?? []
+    const files =
+      activity.content
+        ?.split('\n')
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0)
+        .map((path) => ({ path, matches: [] })) ?? []
     return { kind: 'grep', pattern, matchCount: files.length, filesOnly: true, groups: files }
   }
   const groups = grepGroups(activity.content)

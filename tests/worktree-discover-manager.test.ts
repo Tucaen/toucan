@@ -51,8 +51,7 @@ test('discovery reports the worktree the workspace has no record of', async () =
 })
 
 test('a worktree already known to the workspace is not rediscovered', async () => {
-  const result = await managerFor(commonDirWithClaims([]))
-    .discover({ projectPath: PROJECT, known: [FEATURE] })
+  const result = await managerFor(commonDirWithClaims([])).discover({ projectPath: PROJECT, known: [FEATURE] })
 
   assert.deepEqual(result.worktrees, [])
 })
@@ -84,11 +83,8 @@ test('a claim of the wrong shape is ignored rather than trusted', async () => {
 
 test('a repository git cannot list reports nothing rather than failing the caller', async () => {
   const manager = createWorktreeManager({
-    runGit: async (args): Promise<GitResult> => (
-      args.join(' ').startsWith('worktree list')
-        ? { code: 128, stdout: '', stderr: 'not a git repository' }
-        : ok()
-    ),
+    runGit: async (args): Promise<GitResult> =>
+      args.join(' ').startsWith('worktree list') ? { code: 128, stdout: '', stderr: 'not a git repository' } : ok(),
     pathExists: () => true
   })
 

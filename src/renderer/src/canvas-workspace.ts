@@ -13,7 +13,8 @@ import type { WorkspaceWorktree } from '../../shared/worktree'
 import type { WorktreeHandoffPlan } from '../../shared/worktree-handoff'
 import type { ConversationTitleSource } from '../../shared/conversation-title'
 
-export type TerminalNodeStatus = 'dormant' | 'starting' | 'idle' | 'working' | 'result' | 'attention' | 'stalled' | 'exited'
+export type TerminalNodeStatus =
+  'dormant' | 'starting' | 'idle' | 'working' | 'result' | 'attention' | 'stalled' | 'exited'
 
 /** What a node reports about its own attention; the reducer that consumes it lives in shared/attention.ts. */
 export type NodeAttentionAction = AttentionAction
@@ -123,16 +124,13 @@ interface ClosedSessionShortcutKey {
   metaKey: boolean
 }
 
-export function closedSessionKeyAction(
-  event: ClosedSessionShortcutKey,
-  hasClosedSession: boolean
-): 'reopen' | 'none' {
-  return hasClosedSession
-    && event.key.toLocaleLowerCase() === 't'
-    && event.ctrlKey
-    && event.shiftKey
-    && !event.altKey
-    && !event.metaKey
+export function closedSessionKeyAction(event: ClosedSessionShortcutKey, hasClosedSession: boolean): 'reopen' | 'none' {
+  return hasClosedSession &&
+    event.key.toLocaleLowerCase() === 't' &&
+    event.ctrlKey &&
+    event.shiftKey &&
+    !event.altKey &&
+    !event.metaKey
     ? 'reopen'
     : 'none'
 }
@@ -198,9 +196,10 @@ export function rememberClosedSessionNodes(
   if (removedNodes.length === 0) return current
   const sessionNodes = removedNodes.filter(isTerminalCanvasNode)
   if (
-    sessionNodes.length !== removedNodes.length
-    || sessionNodes.some((node) => node.data.kind !== 'terminal' && !node.data.conversationId)
-  ) return []
+    sessionNodes.length !== removedNodes.length ||
+    sessionNodes.some((node) => node.data.kind !== 'terminal' && !node.data.conversationId)
+  )
+    return []
   const closed = sessionNodes.map(serializeCanvasNode)
   return [...current, ...closed].slice(-CLOSED_SESSION_STACK_LIMIT)
 }
@@ -222,9 +221,8 @@ function restoreTerminalCanvasNode(
   // Workspace hydration leaves real terminal processes dormant; an explicit undo opens the
   // process immediately, just as creating or resuming a node does.
   const dormant = detachedFromWorktree || (mode === 'hydrate' && savedNode.kind === 'terminal')
-  const terminalLiveness: TerminalLiveness = savedNode.kind === 'terminal'
-    ? savedNode.terminalLiveness === 'exited' ? 'exited' : 'unverifiable'
-    : 'live'
+  const terminalLiveness: TerminalLiveness =
+    savedNode.kind === 'terminal' ? (savedNode.terminalLiveness === 'exited' ? 'exited' : 'unverifiable') : 'live'
   return {
     id: savedNode.id,
     type: 'terminalNode',
@@ -252,9 +250,8 @@ function restoreTerminalCanvasNode(
       preview: savedNode.preview,
       focusMode: savedNode.focusMode ?? savedNode.worklogCollapsed ?? savedNode.kind !== 'terminal',
       draft: savedNode.draft,
-      preferredPermissionMode: savedNode.kind === 'terminal'
-        ? undefined
-        : workspace.agentPermissionModes?.[savedNode.kind],
+      preferredPermissionMode:
+        savedNode.kind === 'terminal' ? undefined : workspace.agentPermissionModes?.[savedNode.kind],
       modelId: savedNode.kind === 'terminal' ? undefined : savedNode.modelId,
       dormant,
       launchMode: 'resume',
@@ -362,10 +359,9 @@ export function restoreCanvasWorkspace(
 
   return {
     nodes: [...worktreeNodes, ...terminalNodes],
-    statuses: Object.fromEntries(terminalNodes.map((node) => [
-      node.id,
-      node.data.dormant ? 'dormant' as const : 'starting' as const
-    ])),
+    statuses: Object.fromEntries(
+      terminalNodes.map((node) => [node.id, node.data.dormant ? ('dormant' as const) : ('starting' as const)])
+    ),
     nextSessionNumber: highestSessionNumber + 1,
     activeProjectId: state.projects.some((project) => project.id === state.activeProjectId)
       ? state.activeProjectId!

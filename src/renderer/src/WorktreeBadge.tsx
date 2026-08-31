@@ -27,14 +27,18 @@ export default function WorktreeBadge({ data }: { data: TerminalNodeData }): JSX
         data-active="true"
         title={`Working in a worktree on ${data.activeWorktreeBranch}; this node still runs in ${data.workingDirectory}`}
       >
-        <span className="worktree-glyph" aria-hidden="true">⑂</span>
+        <span className="worktree-glyph" aria-hidden="true">
+          ⑂
+        </span>
         {data.activeWorktreeBranch}
       </span>
     )
   }
   return (
     <span className="node-worktree" title={`Runs in ${data.workingDirectory}`}>
-      <span className="worktree-glyph" aria-hidden="true">⑂</span>
+      <span className="worktree-glyph" aria-hidden="true">
+        ⑂
+      </span>
       {data.worktreeBranch}
     </span>
   )

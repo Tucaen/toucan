@@ -16,7 +16,11 @@ export function McpToolCallSummary({ call }: { call: McpToolCall }): JSX.Element
   )
 }
 
-export function McpToolCallBody({ call, args, result }: {
+export function McpToolCallBody({
+  call,
+  args,
+  result
+}: {
   call: McpToolCall
   args: string[]
   result: string[]

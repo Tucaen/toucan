@@ -30,64 +30,67 @@ interface WorkspaceStateV2 {
 function isWorkspaceWorktree(value: unknown): boolean {
   if (!value || typeof value !== 'object') return false
   const worktree = value as Partial<WorkspaceState['worktrees'][number]>
-  return typeof worktree.id === 'string'
-    && typeof worktree.projectId === 'string'
-    && typeof worktree.branch === 'string'
-    && typeof worktree.path === 'string'
-    && typeof worktree.baseRef === 'string'
-    && typeof worktree.createdAt === 'string'
-    && typeof worktree.position?.x === 'number'
-    && typeof worktree.position?.y === 'number'
-    && typeof worktree.width === 'number'
-    && typeof worktree.height === 'number'
+  return (
+    typeof worktree.id === 'string' &&
+    typeof worktree.projectId === 'string' &&
+    typeof worktree.branch === 'string' &&
+    typeof worktree.path === 'string' &&
+    typeof worktree.baseRef === 'string' &&
+    typeof worktree.createdAt === 'string' &&
+    typeof worktree.position?.x === 'number' &&
+    typeof worktree.position?.y === 'number' &&
+    typeof worktree.width === 'number' &&
+    typeof worktree.height === 'number'
+  )
 }
 
-function hasValidProjects(value: unknown): value is Pick<WorkspaceState, 'projects' | 'activeProjectId' | 'sidebarCollapsed'> {
+function hasValidProjects(
+  value: unknown
+): value is Pick<WorkspaceState, 'projects' | 'activeProjectId' | 'sidebarCollapsed'> {
   if (!value || typeof value !== 'object') return false
   const state = value as Partial<WorkspaceState>
   if (!Array.isArray(state.projects)) return false
   if (state.activeProjectId !== null && typeof state.activeProjectId !== 'string') return false
   if (typeof state.sidebarCollapsed !== 'boolean') return false
 
-  return state.projects.every((project) => (
-    project
-    && typeof project.id === 'string'
-    && typeof project.name === 'string'
-    && typeof project.path === 'string'
-    && typeof project.color === 'string'
-    && (project.setupCommand === undefined || typeof project.setupCommand === 'string')
-  ))
+  return state.projects.every(
+    (project) =>
+      project &&
+      typeof project.id === 'string' &&
+      typeof project.name === 'string' &&
+      typeof project.path === 'string' &&
+      typeof project.color === 'string' &&
+      (project.setupCommand === undefined || typeof project.setupCommand === 'string')
+  )
 }
 
 function isWorkspaceTerminalNode(value: unknown): boolean {
   if (!value || typeof value !== 'object') return false
   const node = value as Partial<WorkspaceState['nodes'][number]>
-  return typeof node.id === 'string'
-    && (node.sessionId === undefined || typeof node.sessionId === 'string')
-    && node.kind !== undefined
-    && ['terminal', 'claude', 'codex'].includes(node.kind)
-    && typeof node.label === 'string'
-    && (node.titleSource === undefined || node.titleSource === 'generated' || node.titleSource === 'manual')
-    && typeof node.projectId === 'string'
-    && (node.worktreeId === undefined || typeof node.worktreeId === 'string')
-    && typeof node.position?.x === 'number'
-    && typeof node.position?.y === 'number'
-    && typeof node.width === 'number'
-    && typeof node.height === 'number'
-    && (node.conversationId === undefined || typeof node.conversationId === 'string')
-    && (node.focusMode === undefined || typeof node.focusMode === 'boolean')
-    && (node.worklogCollapsed === undefined || typeof node.worklogCollapsed === 'boolean')
-    && (node.modelId === undefined || typeof node.modelId === 'string')
-    && (node.draft === undefined || typeof node.draft === 'string')
-    && (node.terminalLiveness === undefined || ['live', 'unverifiable', 'exited'].includes(node.terminalLiveness))
-    && (
-      node.preview === undefined
-      || (
-        typeof node.preview.updatedAt === 'string'
-        && (node.preview.user === undefined || typeof node.preview.user === 'string')
-        && (node.preview.assistant === undefined || typeof node.preview.assistant === 'string')
-      )
-    )
+  return (
+    typeof node.id === 'string' &&
+    (node.sessionId === undefined || typeof node.sessionId === 'string') &&
+    node.kind !== undefined &&
+    ['terminal', 'claude', 'codex'].includes(node.kind) &&
+    typeof node.label === 'string' &&
+    (node.titleSource === undefined || node.titleSource === 'generated' || node.titleSource === 'manual') &&
+    typeof node.projectId === 'string' &&
+    (node.worktreeId === undefined || typeof node.worktreeId === 'string') &&
+    typeof node.position?.x === 'number' &&
+    typeof node.position?.y === 'number' &&
+    typeof node.width === 'number' &&
+    typeof node.height === 'number' &&
+    (node.conversationId === undefined || typeof node.conversationId === 'string') &&
+    (node.focusMode === undefined || typeof node.focusMode === 'boolean') &&
+    (node.worklogCollapsed === undefined || typeof node.worklogCollapsed === 'boolean') &&
+    (node.modelId === undefined || typeof node.modelId === 'string') &&
+    (node.draft === undefined || typeof node.draft === 'string') &&
+    (node.terminalLiveness === undefined || ['live', 'unverifiable', 'exited'].includes(node.terminalLiveness)) &&
+    (node.preview === undefined ||
+      (typeof node.preview.updatedAt === 'string' &&
+        (node.preview.user === undefined || typeof node.preview.user === 'string') &&
+        (node.preview.assistant === undefined || typeof node.preview.assistant === 'string')))
+  )
 }
 
 export function isWorkspaceState(value: unknown): value is WorkspaceState {
@@ -96,22 +99,21 @@ export function isWorkspaceState(value: unknown): value is WorkspaceState {
   if (state.version !== 3 || !Array.isArray(state.nodes)) return false
   if (!Array.isArray(state.worktrees) || !state.worktrees.every(isWorkspaceWorktree)) return false
   if (
-    state.agentPermissionModes !== undefined
-    && (
-      !state.agentPermissionModes
-      || typeof state.agentPermissionModes !== 'object'
-      || (state.agentPermissionModes.claude !== undefined && typeof state.agentPermissionModes.claude !== 'string')
-      || (state.agentPermissionModes.codex !== undefined && typeof state.agentPermissionModes.codex !== 'string')
-    )
-  ) return false
+    state.agentPermissionModes !== undefined &&
+    (!state.agentPermissionModes ||
+      typeof state.agentPermissionModes !== 'object' ||
+      (state.agentPermissionModes.claude !== undefined && typeof state.agentPermissionModes.claude !== 'string') ||
+      (state.agentPermissionModes.codex !== undefined && typeof state.agentPermissionModes.codex !== 'string'))
+  )
+    return false
   if (state.composerSendKey !== undefined && !isComposerSendKey(state.composerSendKey)) return false
-  if (
-    state.attention !== undefined
-    && (!Array.isArray(state.attention) || !state.attention.every(isAttentionItem))
-  ) return false
+  if (state.attention !== undefined && (!Array.isArray(state.attention) || !state.attention.every(isAttentionItem)))
+    return false
   if (!state.nodes.every(isWorkspaceTerminalNode)) return false
-  return state.recentlyClosedNodes === undefined
-    || (Array.isArray(state.recentlyClosedNodes) && state.recentlyClosedNodes.every(isWorkspaceTerminalNode))
+  return (
+    state.recentlyClosedNodes === undefined ||
+    (Array.isArray(state.recentlyClosedNodes) && state.recentlyClosedNodes.every(isWorkspaceTerminalNode))
+  )
 }
 
 export function parseWorkspaceState(value: unknown): WorkspaceState | null {
@@ -126,9 +128,7 @@ export function parseWorkspaceState(value: unknown): WorkspaceState | null {
     const liveNodeIds = new Set(state.nodes.map((node) => node.id))
     return {
       ...state,
-      ...(state.attention
-        ? { attention: state.attention.filter((item) => liveNodeIds.has(item.nodeId)) }
-        : {}),
+      ...(state.attention ? { attention: state.attention.filter((item) => liveNodeIds.has(item.nodeId)) } : {}),
       ...(state.recentlyClosedNodes
         ? { recentlyClosedNodes: state.recentlyClosedNodes.slice(-RECENTLY_CLOSED_SESSION_LIMIT) }
         : {}),
@@ -136,9 +136,7 @@ export function parseWorkspaceState(value: unknown): WorkspaceState | null {
         const { worklogCollapsed, ...current } = node
         return {
           ...current,
-          ...(node.kind === 'terminal'
-            ? {}
-            : { focusMode: node.focusMode ?? worklogCollapsed ?? true }),
+          ...(node.kind === 'terminal' ? {} : { focusMode: node.focusMode ?? worklogCollapsed ?? true }),
           ...(node.preview
             ? {
                 preview: {

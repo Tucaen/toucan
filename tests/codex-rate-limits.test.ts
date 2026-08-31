@@ -94,9 +94,12 @@ test('a Windows npm command shim resolves to the Codex script without an interme
   const command = 'C:\\app\\node_modules\\.bin\\codex.cmd'
   const script = 'C:\\app\\node_modules\\@openai\\codex\\bin\\codex.js'
 
-  assert.deepEqual(resolveCodexAppServerLaunch(command, 'node.exe', (path) => path === script), {
-    executable: 'node.exe',
-    args: [script, 'app-server', '--listen', 'stdio://'],
-    runElectronAsNode: true
-  })
+  assert.deepEqual(
+    resolveCodexAppServerLaunch(command, 'node.exe', (path) => path === script),
+    {
+      executable: 'node.exe',
+      args: [script, 'app-server', '--listen', 'stdio://'],
+      runElectronAsNode: true
+    }
+  )
 })

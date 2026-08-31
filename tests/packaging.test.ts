@@ -10,9 +10,7 @@ interface PackageManifest {
 }
 
 test('keeps native agent runtimes outside app.asar so chat providers can spawn them', () => {
-  const manifest = JSON.parse(
-    readFileSync(join(process.cwd(), 'package.json'), 'utf8')
-  ) as PackageManifest
+  const manifest = JSON.parse(readFileSync(join(process.cwd(), 'package.json'), 'utf8')) as PackageManifest
   const unpackedPaths = manifest.build?.asarUnpack ?? []
 
   assert.ok(

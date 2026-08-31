@@ -4,7 +4,14 @@
   --usage-critical: #ff6b6f;
   color: #d9dee8;
   background: #0b0d12;
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family:
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    sans-serif;
   font-synthesis: none;
   text-rendering: geometricPrecision;
 }
@@ -131,38 +138,38 @@ button {
   background: #718096;
 }
 
-.global-status-chip[data-kind="working"] {
+.global-status-chip[data-kind='working'] {
   color: #8fbcff;
   border-color: #2c4570;
   background: #172136;
 }
 
-.global-status-chip[data-kind="working"] .global-status-dot {
+.global-status-chip[data-kind='working'] .global-status-dot {
   background: #71a9ff;
   box-shadow: 0 0 9px rgba(113, 169, 255, 0.6);
   animation: attention-pulse 1.4s ease-in-out infinite;
 }
 
-.global-status-chip[data-kind="attention"] {
+.global-status-chip[data-kind='attention'] {
   color: #ffb2b7;
   border-color: #6b2c31;
   background: #2c1618;
   animation: global-attention-glow 1.6s ease-in-out infinite;
 }
 
-.global-status-chip[data-kind="attention"] .global-status-dot {
+.global-status-chip[data-kind='attention'] .global-status-dot {
   background: #ff6b6f;
   box-shadow: 0 0 9px rgba(255, 107, 111, 0.7);
   animation: attention-pulse 1.4s ease-in-out infinite;
 }
 
-.global-status-chip[data-kind="stalled"] {
+.global-status-chip[data-kind='stalled'] {
   color: #f4d38a;
   border-color: #6a5324;
   background: #2a2214;
 }
 
-.global-status-chip[data-kind="stalled"] .global-status-dot {
+.global-status-chip[data-kind='stalled'] .global-status-dot {
   background: #f1c75b;
   box-shadow: 0 0 9px rgba(241, 199, 91, 0.6);
 }
@@ -192,7 +199,7 @@ button {
   white-space: nowrap;
 }
 
-.provider-usage-chip[data-rejected="true"] {
+.provider-usage-chip[data-rejected='true'] {
   border-color: #6b2c31;
   background: #241619;
 }
@@ -236,19 +243,19 @@ button {
 
 /* One source for the three usage bands, wherever a window is drawn: the header's account chips
    and the per-node usage bar both render `.usage-window` with a `data-level`. */
-.usage-window[data-level="warning"] .usage-window-fill {
+.usage-window[data-level='warning'] .usage-window-fill {
   background: var(--usage-warning);
 }
 
-.usage-window[data-level="warning"] .usage-window-pct {
+.usage-window[data-level='warning'] .usage-window-pct {
   color: var(--usage-warning);
 }
 
-.usage-window[data-level="critical"] .usage-window-fill {
+.usage-window[data-level='critical'] .usage-window-fill {
   background: var(--usage-critical);
 }
 
-.usage-window[data-level="critical"] .usage-window-pct {
+.usage-window[data-level='critical'] .usage-window-pct {
   color: var(--usage-critical);
 }
 
@@ -267,7 +274,9 @@ button {
   padding: 10px 8px;
   border-right: 1px solid #222832;
   background: #0f1217;
-  transition: width 160ms ease, min-width 160ms ease;
+  transition:
+    width 160ms ease,
+    min-width 160ms ease;
   user-select: none;
 }
 
@@ -518,7 +527,7 @@ button {
   border-color: #303946;
 }
 
-.project-node-row[data-unread="true"] .project-node-name {
+.project-node-row[data-unread='true'] .project-node-name {
   color: #eef1f5;
   font-weight: 800;
 }
@@ -561,18 +570,22 @@ button {
   background: #718096;
 }
 
-.project-node-state[data-status="idle"] .node-status-indicator {
+.project-node-state[data-status='idle'] .node-status-indicator {
   background: #74d8a2;
   box-shadow: 0 0 7px rgba(116, 216, 162, 0.5);
 }
 
-.project-node-state[data-status="live"] { color: #74d8a2; }
-.project-node-state[data-status="live"] .node-status-indicator {
+.project-node-state[data-status='live'] {
+  color: #74d8a2;
+}
+.project-node-state[data-status='live'] .node-status-indicator {
   background: #74d8a2;
   box-shadow: 0 0 7px rgba(116, 216, 162, 0.5);
 }
-.project-node-state[data-status="unverifiable"] { color: #f1c75b; }
-.project-node-state[data-status="unverifiable"] .node-status-indicator {
+.project-node-state[data-status='unverifiable'] {
+  color: #f1c75b;
+}
+.project-node-state[data-status='unverifiable'] .node-status-indicator {
   background: #f1c75b;
   box-shadow: 0 0 7px rgba(241, 199, 91, 0.5);
 }
@@ -586,62 +599,66 @@ button {
   text-transform: uppercase;
 }
 
-.project-node-liveness[data-liveness="unverifiable"] { color: #f1c75b; }
-.project-node-liveness[data-liveness="exited"] { color: #8e98a6; }
+.project-node-liveness[data-liveness='unverifiable'] {
+  color: #f1c75b;
+}
+.project-node-liveness[data-liveness='exited'] {
+  color: #8e98a6;
+}
 
-.project-node-state[data-status="working"] {
+.project-node-state[data-status='working'] {
   color: #8fbcff;
 }
 
-.project-node-state[data-status="working"] .node-status-indicator {
+.project-node-state[data-status='working'] .node-status-indicator {
   background: #71a9ff;
   box-shadow: 0 0 9px rgba(113, 169, 255, 0.6);
   animation: attention-pulse 1.4s ease-in-out infinite;
 }
 
-.project-node-state[data-status="result"] {
+.project-node-state[data-status='result'] {
   color: #c4a6ff;
 }
 
-.project-node-state[data-status="result"] .node-status-indicator {
+.project-node-state[data-status='result'] .node-status-indicator {
   background: #c992ff;
   box-shadow: 0 0 9px rgba(201, 146, 255, 0.6);
 }
 
-.project-node-state[data-status="dormant"] {
+.project-node-state[data-status='dormant'] {
   color: #8e98a6;
 }
 
-.project-node-state[data-status="dormant"] .node-status-indicator {
+.project-node-state[data-status='dormant'] .node-status-indicator {
   background: #8e98a6;
   box-shadow: 0 0 7px rgba(142, 152, 166, 0.35);
 }
 
-.project-node-state[data-status="attention"] {
+.project-node-state[data-status='attention'] {
   color: #efb36e;
 }
 
-.project-node-state[data-status="attention"] .node-status-indicator {
+.project-node-state[data-status='attention'] .node-status-indicator {
   background: #efad61;
   box-shadow: 0 0 9px rgba(239, 173, 97, 0.65);
   animation: attention-pulse 1.4s ease-in-out infinite;
 }
 
-.project-node-state[data-status="stalled"] {
+.project-node-state[data-status='stalled'] {
   color: #ff9a9e;
 }
 
-.project-node-state[data-status="stalled"] .node-status-indicator {
+.project-node-state[data-status='stalled'] .node-status-indicator {
   background: #ff6b6f;
   box-shadow: 0 0 9px rgba(255, 107, 111, 0.7);
   animation: attention-pulse 1.4s ease-in-out infinite;
 }
 
-.project-node-state[data-status="exited"] {
+.project-node-state[data-status='exited'] {
   color: #d97d83;
 }
 
-.project-node-state[data-status="exited"] .node-status-indicator {
+.project-node-state[data-status='exited'] .node-status-indicator {
   background: #df737a;
 }
 
@@ -724,23 +741,23 @@ button {
   background: #7e8998;
 }
 
-.save-state[data-status="saved"] > span {
+.save-state[data-status='saved'] > span {
   background: #74d8a2;
 }
 
-.save-state[data-status="error"] {
+.save-state[data-status='error'] {
   color: #d97d83;
 }
 
-.save-state[data-status="error"] > span {
+.save-state[data-status='error'] > span {
   background: #df737a;
 }
 
-.save-state[data-status="recovered"] {
+.save-state[data-status='recovered'] {
   color: #d9a441;
 }
 
-.save-state[data-status="recovered"] > span {
+.save-state[data-status='recovered'] > span {
   background: #e0b34f;
 }
 
@@ -907,19 +924,23 @@ button {
   border: 1px solid var(--project-color);
   border-radius: 11px;
   background: #101319;
-  box-shadow: 0 18px 55px rgba(0, 0, 0, 0.4), 0 0 16px color-mix(in srgb, var(--project-color) 12%, transparent);
+  box-shadow:
+    0 18px 55px rgba(0, 0, 0, 0.4),
+    0 0 16px color-mix(in srgb, var(--project-color) 12%, transparent);
 }
 
 .terminal-node.selected {
   border-color: var(--project-color);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--project-color) 32%, transparent), 0 20px 60px rgba(0, 0, 0, 0.5);
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--project-color) 32%, transparent),
+    0 20px 60px rgba(0, 0, 0, 0.5);
 }
 
 /* Keep the resize border visually thin while making every edge easy to grab. */
 .node-resize-line::after,
 .node-resize-handle::after {
   position: absolute;
-  content: "";
+  content: '';
   pointer-events: auto;
 }
 
@@ -962,12 +983,12 @@ button {
   box-shadow: 0 0 10px color-mix(in srgb, var(--node-accent) 70%, transparent);
 }
 
-.status-dot[data-liveness="unverifiable"] {
+.status-dot[data-liveness='unverifiable'] {
   background: #f1c75b;
   box-shadow: 0 0 10px rgba(241, 199, 91, 0.55);
 }
 
-.status-dot[data-liveness="exited"] {
+.status-dot[data-liveness='exited'] {
   background: #718096;
   box-shadow: none;
 }
@@ -979,9 +1000,15 @@ button {
   letter-spacing: 0.08em;
 }
 
-.node-status[data-liveness="live"] { color: #74d8a2; }
-.node-status[data-liveness="unverifiable"] { color: #f1c75b; }
-.node-status[data-liveness="exited"] { color: #8e98a6; }
+.node-status[data-liveness='live'] {
+  color: #74d8a2;
+}
+.node-status[data-liveness='unverifiable'] {
+  color: #f1c75b;
+}
+.node-status[data-liveness='exited'] {
+  color: #8e98a6;
+}
 
 .node-project {
   min-width: 0;
@@ -1054,7 +1081,7 @@ button {
   color: #ffb2b7;
 }
 
-.node-unread-toggle[data-unread="true"] {
+.node-unread-toggle[data-unread='true'] {
   color: #2c1618;
   border-color: #ff6b6f;
   background: #ff6b6f;
@@ -1289,7 +1316,7 @@ button {
 }
 
 /* Model names run longer than mode names, so give that picker more room. */
-.node-picker[data-picker="model"] .node-picker-button {
+.node-picker[data-picker='model'] .node-picker-button {
   max-width: 128px;
 }
 
@@ -1297,7 +1324,7 @@ button {
   color: #f1c75b;
 }
 
-.node-picker[data-picker="model"] .node-picker-button > span:first-child {
+.node-picker[data-picker='model'] .node-picker-button > span:first-child {
   color: #8fb8ff;
 }
 
@@ -1306,7 +1333,7 @@ button {
 }
 
 .node-picker-button:hover,
-.node-picker-button[aria-expanded="true"] {
+.node-picker-button[aria-expanded='true'] {
   border-color: color-mix(in srgb, var(--node-accent) 55%, #3a4350);
   color: #e1e6ed;
 }
@@ -1352,7 +1379,7 @@ button {
 }
 
 .node-picker-menu > button:hover,
-.node-picker-menu > button[data-selected="true"] {
+.node-picker-menu > button[data-selected='true'] {
   background: #252c37;
 }
 
@@ -1384,23 +1411,26 @@ button {
   white-space: normal;
 }
 
-.chat-node .status-dot[data-status="working"] {
+.chat-node .status-dot[data-status='working'] {
   animation: chat-pulse 1.2s ease-in-out infinite;
 }
 
-.chat-node .status-dot[data-status="auth_required"],
-.chat-node .status-dot[data-status="exited"] {
+.chat-node .status-dot[data-status='auth_required'],
+.chat-node .status-dot[data-status='exited'] {
   background: #f1c75b;
 }
 
-.chat-node .status-dot[data-stalled="true"] {
+.chat-node .status-dot[data-stalled='true'] {
   background: #ff6b6f;
   box-shadow: 0 0 9px rgba(255, 107, 111, 0.7);
   animation: chat-pulse 1.2s ease-in-out infinite;
 }
 
 @keyframes chat-pulse {
-  50% { opacity: 0.35; transform: scale(0.72); }
+  50% {
+    opacity: 0.35;
+    transform: scale(0.72);
+  }
 }
 
 .agent-chat {
@@ -1523,7 +1553,7 @@ button {
  * gold ApprovalPanel treatment below, since this is a text heuristic rather than a real ACP
  * approval request.
  */
-.chat-message[data-tone="decision"] > div {
+.chat-message[data-tone='decision'] > div {
   padding: 9px 11px;
   border: 1px solid #6b5629;
   border-radius: 10px;
@@ -1531,11 +1561,11 @@ button {
 }
 
 /* Routine/noise assistant messages (progress pings, "no action needed", ...) are muted so they don't compete for attention. */
-.chat-message[data-tone="noise"] {
+.chat-message[data-tone='noise'] {
   opacity: 0.6;
 }
 
-.chat-message[data-tone="noise"] p {
+.chat-message[data-tone='noise'] p {
   color: #7d8593;
   font-size: 12px;
 }
@@ -1659,7 +1689,7 @@ button {
   color: #f0d9a4;
 }
 
-.pending-decisions > article[data-state="submitting"] {
+.pending-decisions > article[data-state='submitting'] {
   opacity: 0.72;
 }
 
@@ -1686,11 +1716,11 @@ button {
   background: #171b22;
 }
 
-.activity-card[data-status="in_progress"] {
+.activity-card[data-status='in_progress'] {
   border-color: color-mix(in srgb, var(--node-accent) 45%, #2b333f);
 }
 
-.activity-card[data-status="failed"] {
+.activity-card[data-status='failed'] {
   border-color: #7a3b40;
   background: #1d1517;
 }
@@ -1763,7 +1793,9 @@ button {
   /* The body wrapper already caps and scrolls; a second scroller here would nest them. */
   margin: 6px 0 0;
   color: #8f9aa8;
-  font: 10px/1.4 Consolas, monospace;
+  font:
+    10px/1.4 Consolas,
+    monospace;
   white-space: pre-wrap;
 }
 
@@ -1784,7 +1816,7 @@ button {
   text-transform: uppercase;
 }
 
-.activity-card[data-status="failed"] .activity-state {
+.activity-card[data-status='failed'] .activity-state {
   color: #d98088;
 }
 
@@ -1821,7 +1853,9 @@ button {
 .file-op-path code {
   overflow: hidden;
   color: #8f9aa8;
-  font: 10px/1.4 Consolas, monospace;
+  font:
+    10px/1.4 Consolas,
+    monospace;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1853,7 +1887,9 @@ button {
 
 .file-op-lines {
   margin-top: 4px;
-  font: 10px/1.5 Consolas, monospace;
+  font:
+    10px/1.5 Consolas,
+    monospace;
 }
 
 .file-op-line {
@@ -1888,12 +1924,12 @@ button {
   user-select: none;
 }
 
-.file-op-line[data-tone="old"] {
+.file-op-line[data-tone='old'] {
   color: #d98088;
   background: rgba(122, 59, 64, 0.16);
 }
 
-.file-op-line[data-tone="new"] {
+.file-op-line[data-tone='new'] {
   color: #86c99a;
   background: rgba(59, 122, 84, 0.16);
 }
@@ -1953,11 +1989,11 @@ button {
   font-variant-numeric: tabular-nums;
 }
 
-.shell-summary-exit[data-tone="ok"] {
+.shell-summary-exit[data-tone='ok'] {
   color: #86c99a;
 }
 
-.shell-summary-exit[data-tone="error"] {
+.shell-summary-exit[data-tone='error'] {
   color: #e08a92;
 }
 
@@ -1972,7 +2008,9 @@ button {
   flex: 1 1 auto;
   min-width: 0;
   color: #cbd2dc;
-  font: 10px/1.4 Consolas, monospace;
+  font:
+    10px/1.4 Consolas,
+    monospace;
   white-space: pre-wrap;
 }
 
@@ -2001,8 +2039,8 @@ button {
   text-transform: uppercase;
 }
 
-.shell-block[data-stream="stderr"] .shell-block-label,
-.shell-block[data-stream="stderr"] .shell-lines {
+.shell-block[data-stream='stderr'] .shell-block-label,
+.shell-block[data-stream='stderr'] .shell-lines {
   color: #d98088;
 }
 
@@ -2010,7 +2048,9 @@ button {
   /* The body wrapper already caps and scrolls; a second scroller here would nest them. */
   margin: 4px 0 0;
   color: #8f9aa8;
-  font: 10px/1.5 Consolas, monospace;
+  font:
+    10px/1.5 Consolas,
+    monospace;
   white-space: pre-wrap;
 }
 
@@ -2055,7 +2095,9 @@ button {
   display: block;
   overflow: hidden;
   color: #aeb7c4;
-  font: 10px/1.5 Consolas, monospace;
+  font:
+    10px/1.5 Consolas,
+    monospace;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2069,7 +2111,9 @@ button {
   grid-template-columns: 34px minmax(0, 1fr);
   gap: 8px;
   color: #8f9aa8;
-  font: 10px/1.5 Consolas, monospace;
+  font:
+    10px/1.5 Consolas,
+    monospace;
   white-space: pre-wrap;
 }
 
@@ -2101,7 +2145,9 @@ button {
 .web-result code {
   overflow: hidden;
   color: #718399;
-  font: 9px/1.4 Consolas, monospace;
+  font:
+    9px/1.4 Consolas,
+    monospace;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2114,7 +2160,9 @@ button {
   display: block;
   overflow: hidden;
   color: #718399;
-  font: 9px/1.4 Consolas, monospace;
+  font:
+    9px/1.4 Consolas,
+    monospace;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2172,7 +2220,9 @@ button {
 .mcp-result {
   margin: 6px 0 0;
   color: #8f9aa8;
-  font: 10px/1.4 Consolas, monospace;
+  font:
+    10px/1.4 Consolas,
+    monospace;
   white-space: pre-wrap;
 }
 
@@ -2212,8 +2262,8 @@ button {
   white-space: nowrap;
 }
 
-.subagent-step[data-status="failed"] strong,
-.subagent-step[data-status="failed"] .activity-state {
+.subagent-step[data-status='failed'] strong,
+.subagent-step[data-status='failed'] .activity-state {
   color: #d98088;
 }
 
@@ -2345,7 +2395,9 @@ button {
   border-radius: 6px;
   color: #e5e9ef;
   background: #10151b;
-  font: 11px/1.4 Consolas, monospace;
+  font:
+    11px/1.4 Consolas,
+    monospace;
 }
 
 .chat-approval-panel {
@@ -2367,7 +2419,7 @@ button {
   overflow: auto;
 }
 
-.chat-approval-panel button[data-kind^="allow"] {
+.chat-approval-panel button[data-kind^='allow'] {
   border-color: #3e6d58;
   color: #9fe0bf;
 }
@@ -2425,7 +2477,10 @@ button {
 
 .composer-paste-blocked {
   color: #efb0b3;
-  font: 11px/1.3 Inter, system-ui, sans-serif;
+  font:
+    11px/1.3 Inter,
+    system-ui,
+    sans-serif;
 }
 
 .composer-notices {
@@ -2434,7 +2489,10 @@ button {
   flex-direction: column;
   gap: 2px;
   color: #8995a4;
-  font: 10px/1.4 Inter, system-ui, sans-serif;
+  font:
+    10px/1.4 Inter,
+    system-ui,
+    sans-serif;
 }
 
 .composer-notices small {
@@ -2454,7 +2512,10 @@ button {
 
 .composer-queue > small {
   color: #8995a4;
-  font: 10px/1.4 Inter, system-ui, sans-serif;
+  font:
+    10px/1.4 Inter,
+    system-ui,
+    sans-serif;
 }
 
 /* A session that can no longer take messages must never leave its queue looking pending. */
@@ -2487,7 +2548,7 @@ button {
   background: #171d26;
 }
 
-.queued-prompt[data-editing="true"] {
+.queued-prompt[data-editing='true'] {
   flex-direction: column;
   align-items: stretch;
   border-style: solid;
@@ -2498,7 +2559,10 @@ button {
   flex: 1;
   overflow: hidden;
   color: #c2cad6;
-  font: 11px/1.4 Inter, system-ui, sans-serif;
+  font:
+    11px/1.4 Inter,
+    system-ui,
+    sans-serif;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2512,7 +2576,10 @@ button {
   outline: none;
   color: #dfe4eb;
   background: #0f1217;
-  font: 12px/1.4 Inter, system-ui, sans-serif;
+  font:
+    12px/1.4 Inter,
+    system-ui,
+    sans-serif;
 }
 
 .queued-prompt-actions {
@@ -2563,7 +2630,7 @@ button {
   color: var(--node-accent);
 }
 
-.node-picker[data-picker="sendKey"] {
+.node-picker[data-picker='sendKey'] {
   margin-left: auto;
 }
 
@@ -2578,7 +2645,10 @@ button {
   outline: none;
   color: #dfe4eb;
   background: #0f1217;
-  font: 12px/1.4 Inter, system-ui, sans-serif;
+  font:
+    12px/1.4 Inter,
+    system-ui,
+    sans-serif;
 }
 
 .chat-composer textarea:focus {
@@ -2627,7 +2697,7 @@ button {
   color: #e26d76;
 }
 
-.chat-composer .voice-input-button[data-state="listening"] {
+.chat-composer .voice-input-button[data-state='listening'] {
   border-color: #a75359;
   color: #ffd9dc;
   background: #422429;
@@ -2651,7 +2721,10 @@ button {
   border-radius: 7px;
   color: #e8c9cc;
   background: #21171a;
-  font: 11px/1.35 Inter, system-ui, sans-serif;
+  font:
+    11px/1.35 Inter,
+    system-ui,
+    sans-serif;
   text-overflow: ellipsis;
   white-space: nowrap;
   pointer-events: none;
@@ -2708,7 +2781,7 @@ button {
   background: #202732;
 }
 
-.focus-toggle[aria-pressed="true"] {
+.focus-toggle[aria-pressed='true'] {
   border-color: color-mix(in srgb, var(--node-accent) 60%, #35404e);
   color: var(--node-accent);
   background: color-mix(in srgb, var(--node-accent) 12%, #171b22);
@@ -2753,9 +2826,15 @@ button {
   border-radius: 999px;
 }
 
-.agent-chat-status-bar i[data-tone="green"] { background: #74d8a2; }
-.agent-chat-status-bar i[data-tone="blue"] { background: #71a9ff; }
-.agent-chat-status-bar i[data-tone="gold"] { background: #f1c75b; }
+.agent-chat-status-bar i[data-tone='green'] {
+  background: #74d8a2;
+}
+.agent-chat-status-bar i[data-tone='blue'] {
+  background: #71a9ff;
+}
+.agent-chat-status-bar i[data-tone='gold'] {
+  background: #f1c75b;
+}
 
 .agent-chat-status-bar small {
   margin-left: auto;
@@ -2792,7 +2871,7 @@ button {
   border-radius: 5px;
 }
 
-.session-usage-limit[data-rejected="true"] {
+.session-usage-limit[data-rejected='true'] {
   border-color: #6b2c31;
   background: #241619;
 }
@@ -2805,7 +2884,7 @@ button {
   color: var(--usage-warning);
 }
 
-.session-usage-warning[data-level="critical"] {
+.session-usage-warning[data-level='critical'] {
   color: var(--usage-critical);
 }
 
@@ -2822,12 +2901,12 @@ button {
   line-height: 1.35;
 }
 
-.plan-list li[data-status="completed"] {
+.plan-list li[data-status='completed'] {
   color: #5f6b78;
   text-decoration: line-through;
 }
 
-.plan-list li[data-status="in_progress"] {
+.plan-list li[data-status='in_progress'] {
   color: var(--node-accent);
 }
 
@@ -2861,7 +2940,7 @@ button {
   white-space: nowrap;
 }
 
-.node-worktree[data-detached="true"] {
+.node-worktree[data-detached='true'] {
   border-color: rgba(241, 199, 91, 0.5);
   color: #f1c75b;
   background: rgba(241, 199, 91, 0.08);
@@ -2871,7 +2950,7 @@ button {
 
 /* Work started in a worktree the node does not run in: present, but visibly weaker than
    the badge for a node whose own working directory is the worktree. */
-.node-worktree[data-active="true"] {
+.node-worktree[data-active='true'] {
   border-style: dashed;
   opacity: 0.75;
 }
@@ -2885,11 +2964,15 @@ button {
   border: 1px solid #c992ff;
   border-radius: 11px;
   background: #131019;
-  box-shadow: 0 18px 55px rgba(0, 0, 0, 0.4), 0 0 16px rgba(201, 146, 255, 0.14);
+  box-shadow:
+    0 18px 55px rgba(0, 0, 0, 0.4),
+    0 0 16px rgba(201, 146, 255, 0.14);
 }
 
 .worktree-node.selected {
-  box-shadow: 0 0 0 2px rgba(201, 146, 255, 0.34), 0 20px 60px rgba(0, 0, 0, 0.5);
+  box-shadow:
+    0 0 0 2px rgba(201, 146, 255, 0.34),
+    0 20px 60px rgba(0, 0, 0, 0.5);
 }
 
 .worktree-node-header {
@@ -2961,14 +3044,30 @@ button {
   background: #687280;
 }
 
-.worktree-status[data-kind="clean"] { color: #74d8a2; }
-.worktree-status[data-kind="clean"] .worktree-status-dot { background: #74d8a2; }
-.worktree-status[data-kind="ahead"] { color: #71a9ff; }
-.worktree-status[data-kind="ahead"] .worktree-status-dot { background: #71a9ff; }
-.worktree-status[data-kind="dirty"] { color: #f1c75b; }
-.worktree-status[data-kind="dirty"] .worktree-status-dot { background: #f1c75b; }
-.worktree-status[data-kind="missing"] { color: #df737a; }
-.worktree-status[data-kind="missing"] .worktree-status-dot { background: #df737a; }
+.worktree-status[data-kind='clean'] {
+  color: #74d8a2;
+}
+.worktree-status[data-kind='clean'] .worktree-status-dot {
+  background: #74d8a2;
+}
+.worktree-status[data-kind='ahead'] {
+  color: #71a9ff;
+}
+.worktree-status[data-kind='ahead'] .worktree-status-dot {
+  background: #71a9ff;
+}
+.worktree-status[data-kind='dirty'] {
+  color: #f1c75b;
+}
+.worktree-status[data-kind='dirty'] .worktree-status-dot {
+  background: #f1c75b;
+}
+.worktree-status[data-kind='missing'] {
+  color: #df737a;
+}
+.worktree-status[data-kind='missing'] .worktree-status-dot {
+  background: #df737a;
+}
 
 .worktree-actions {
   display: flex;
@@ -3039,7 +3138,7 @@ button {
   color: #b9c0cb;
 }
 
-.project-setup[data-configured="true"] {
+.project-setup[data-configured='true'] {
   color: #c992ff;
 }
 
@@ -3047,7 +3146,7 @@ button {
   color: #c992ff;
 }
 
-.project-node-state[data-status="worktree"] {
+.project-node-state[data-status='worktree'] {
   color: #c992ff;
 }
 
@@ -3145,8 +3244,12 @@ button {
   font-size: 13px;
 }
 
-.worktree-blockers[data-kind="hard"] { color: #df737a; }
-.worktree-blockers[data-kind="forcible"] { color: #d9a441; }
+.worktree-blockers[data-kind='hard'] {
+  color: #df737a;
+}
+.worktree-blockers[data-kind='forcible'] {
+  color: #d9a441;
+}
 
 .worktree-dialog-actions {
   display: flex;
@@ -3264,7 +3367,7 @@ button {
   padding-left: 19px;
 }
 
-.markdown-body li.task-list-item input[type="checkbox"] {
+.markdown-body li.task-list-item input[type='checkbox'] {
   float: left;
   width: 11px;
   height: 11px;
@@ -3303,7 +3406,7 @@ button {
   border-radius: 4px;
   color: #d6c48a;
   background: #12161d;
-  font-family: "Cascadia Code", Consolas, monospace;
+  font-family: 'Cascadia Code', Consolas, monospace;
   font-size: 0.88em;
   overflow-wrap: anywhere;
 }
@@ -3396,7 +3499,7 @@ button {
 }
 
 .code-block pre code {
-  font-family: "Cascadia Code", Consolas, monospace;
+  font-family: 'Cascadia Code', Consolas, monospace;
 }
 
 /* highlight.js token classes, tuned to the canvas palette. */
@@ -3559,7 +3662,7 @@ button {
   overflow-y: auto;
 }
 
-.slash-command-menu > button[data-active="true"] {
+.slash-command-menu > button[data-active='true'] {
   background: #252c37;
 }
 

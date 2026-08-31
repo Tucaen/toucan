@@ -61,12 +61,13 @@ function claudeText(content: unknown): string | null {
   if (typeof content === 'string') return content
   if (!Array.isArray(content)) return null
   const text = content
-    .filter((item): item is { type: string; text: string } => (
-      Boolean(item)
-      && typeof item === 'object'
-      && (item as { type?: unknown }).type === 'text'
-      && typeof (item as { text?: unknown }).text === 'string'
-    ))
+    .filter(
+      (item): item is { type: string; text: string } =>
+        Boolean(item) &&
+        typeof item === 'object' &&
+        (item as { type?: unknown }).type === 'text' &&
+        typeof (item as { text?: unknown }).text === 'string'
+    )
     .map((item) => item.text)
     .join('\n')
   return text || null
@@ -138,14 +139,16 @@ export function createSessionProviders(options: SessionProviderOptions): Session
     getConversationPreview(kind, conversationId): ConversationPreview | null {
       const key = `${kind}:${conversationId}`
       const cached = conversationFiles.get(key)
-      const root = kind === 'claude'
-        ? join(options.environment.CLAUDE_CONFIG_DIR ?? join(options.homeDirectory, '.claude'), 'projects')
-        : join(options.environment.CODEX_HOME ?? join(options.homeDirectory, '.codex'), 'sessions')
-      const path = cached && existsSync(cached)
-        ? cached
-        : findFile(root, (filename) => kind === 'claude'
-          ? filename === `${conversationId}.jsonl`
-          : filename.endsWith(`${conversationId}.jsonl`))
+      const root =
+        kind === 'claude'
+          ? join(options.environment.CLAUDE_CONFIG_DIR ?? join(options.homeDirectory, '.claude'), 'projects')
+          : join(options.environment.CODEX_HOME ?? join(options.homeDirectory, '.codex'), 'sessions')
+      const path =
+        cached && existsSync(cached)
+          ? cached
+          : findFile(root, (filename) =>
+              kind === 'claude' ? filename === `${conversationId}.jsonl` : filename.endsWith(`${conversationId}.jsonl`)
+            )
       if (!path) return null
       conversationFiles.set(key, path)
       try {

@@ -45,8 +45,18 @@ function QueuedPromptChip(props: {
           }}
         />
         <div className="queued-prompt-actions">
-          <button type="button" onClick={() => { props.edit(text); setEditing(false) }}>Save</button>
-          <button type="button" onClick={stopEditing}>Cancel</button>
+          <button
+            type="button"
+            onClick={() => {
+              props.edit(text)
+              setEditing(false)
+            }}
+          >
+            Save
+          </button>
+          <button type="button" onClick={stopEditing}>
+            Cancel
+          </button>
         </div>
       </li>
     )
@@ -55,7 +65,9 @@ function QueuedPromptChip(props: {
   const summary = promptSummary(props.entry.text, props.entry.images)
   return (
     <li className="queued-prompt">
-      <span className="queued-prompt-text" title={summary}>{summary}</span>
+      <span className="queued-prompt-text" title={summary}>
+        {summary}
+      </span>
       <div className="queued-prompt-actions">
         <button type="button" title="Give this message to the running turn now" onClick={props.sendNow}>
           Send now
@@ -63,7 +75,12 @@ function QueuedPromptChip(props: {
         <button type="button" title="Edit before it is sent" onClick={() => setEditing(true)}>
           Edit
         </button>
-        <button type="button" className="queued-prompt-withdraw" title="Take this message back" onClick={props.withdraw}>
+        <button
+          type="button"
+          className="queued-prompt-withdraw"
+          title="Take this message back"
+          onClick={props.withdraw}
+        >
           Withdraw
         </button>
       </div>

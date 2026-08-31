@@ -26,8 +26,7 @@ function key(provider: ConversationProvider, conversationId: string): string {
 function isConversationTitle(value: unknown): value is ConversationTitle {
   if (!value || typeof value !== 'object') return false
   const title = value as Partial<ConversationTitle>
-  return typeof title.title === 'string'
-    && (title.source === 'generated' || title.source === 'manual')
+  return typeof title.title === 'string' && (title.source === 'generated' || title.source === 'manual')
 }
 
 export function createConversationTitleStore(path: string): ConversationTitleStore {
@@ -62,17 +61,19 @@ export function createConversationTitleStore(path: string): ConversationTitleSto
       let result: ConversationTitle | null = null
       // A failed disk write rejects its caller, but must not poison every later attempt for the
       // rest of the app process. The next write starts again from the last readable state.
-      writes = writes.catch(() => undefined).then(async () => {
-        const titles = await load()
-        const existing = titles[key(provider, conversationId)]
-        if (existing && source === 'generated') {
-          result = existing
-          return
-        }
-        result = { title: normalized, source }
-        titles[key(provider, conversationId)] = result
-        await persist(titles)
-      })
+      writes = writes
+        .catch(() => undefined)
+        .then(async () => {
+          const titles = await load()
+          const existing = titles[key(provider, conversationId)]
+          if (existing && source === 'generated') {
+            result = existing
+            return
+          }
+          result = { title: normalized, source }
+          titles[key(provider, conversationId)] = result
+          await persist(titles)
+        })
       await writes
       return result
     }

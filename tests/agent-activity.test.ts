@@ -17,12 +17,15 @@ test('tool completion patches preserve the descriptive title from the initial ev
   })
 
   assert.equal(Object.hasOwn(completed, 'title'), false)
-  assert.deepEqual({ ...started, ...completed }, {
-    id: 'search-1',
-    title: 'Searched for the session resume path',
-    kind: 'search',
-    status: 'completed'
-  })
+  assert.deepEqual(
+    { ...started, ...completed },
+    {
+      id: 'search-1',
+      title: 'Searched for the session resume path',
+      kind: 'search',
+      status: 'completed'
+    }
+  )
 })
 
 test('the tool name, its raw arguments and its diffs survive the ACP mapping', () => {
@@ -112,7 +115,7 @@ test("a Bash result's output and exit code are read out of the terminal meta cha
   assert.equal(Object.hasOwn(exited, 'exitSignal'), false)
 })
 
-test("a Codex command reports its exit code structurally, and its cwd on the call that starts it", () => {
+test('a Codex command reports its exit code structurally, and its cwd on the call that starts it', () => {
   const started = activityFromUpdate({
     sessionUpdate: 'tool_call',
     toolCallId: 'cmd-1',
@@ -137,33 +140,48 @@ test("a Codex command reports its exit code structurally, and its cwd on the cal
 test('streamed terminal chunks accumulate instead of replacing each other', () => {
   // codex-acp emits one meta per chunk while the command runs, and claude-agent-acp emits the
   // whole output as a single chunk, so appending is the reading that is right for both.
-  const first = mergeActivity(undefined, activityFromUpdate({
-    sessionUpdate: 'tool_call_update',
-    toolCallId: 'cmd-1',
-    _meta: { terminal_output_delta: { terminal_id: 'cmd-1', data: 'compiling\n' } }
-  }), 1000)
-  const second = mergeActivity(first, activityFromUpdate({
-    sessionUpdate: 'tool_call_update',
-    toolCallId: 'cmd-1',
-    _meta: { terminal_output_delta: { terminal_id: 'cmd-1', data: 'done\n' } }
-  }), 1100)
+  const first = mergeActivity(
+    undefined,
+    activityFromUpdate({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'cmd-1',
+      _meta: { terminal_output_delta: { terminal_id: 'cmd-1', data: 'compiling\n' } }
+    }),
+    1000
+  )
+  const second = mergeActivity(
+    first,
+    activityFromUpdate({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'cmd-1',
+      _meta: { terminal_output_delta: { terminal_id: 'cmd-1', data: 'done\n' } }
+    }),
+    1100
+  )
   assert.equal(second.terminalOutput, 'compiling\ndone\n')
   // The chunk is consumed, so re-folding the same object can never double the output.
   assert.equal(second.terminalChunk, undefined)
   assert.equal(mergeActivity(second, second, 1200).terminalOutput, 'compiling\ndone\n')
 
   // An update that carries no output at all leaves what the call already produced alone.
-  const settled = mergeActivity(second, activityFromUpdate({
-    sessionUpdate: 'tool_call_update',
-    toolCallId: 'cmd-1',
-    status: 'completed'
-  }), 1200)
+  const settled = mergeActivity(
+    second,
+    activityFromUpdate({
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'cmd-1',
+      status: 'completed'
+    }),
+    1200
+  )
   assert.equal(settled.terminalOutput, 'compiling\ndone\n')
   assert.equal(settled.endedAt, 1200)
 })
 
 test('untitled activities still get a specific worklog summary', () => {
-  assert.equal(activityTitle({ id: 'edit-1', kind: 'edit', locations: ['src/main/session.ts'] }), 'Updated src/main/session.ts')
+  assert.equal(
+    activityTitle({ id: 'edit-1', kind: 'edit', locations: ['src/main/session.ts'] }),
+    'Updated src/main/session.ts'
+  )
   assert.equal(activityTitle({ id: 'execute-1', kind: 'execute' }), 'Ran a command')
   assert.equal(activityTitle({ id: 'search-1', kind: 'search' }), 'Searched the project')
 })

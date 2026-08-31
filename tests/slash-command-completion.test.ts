@@ -56,21 +56,28 @@ test('a composer with no slash at all never completes', () => {
 })
 
 test('an empty query lists every command in advertised order', () => {
-  assert.deepEqual(filterSlashCommands(commands, '').map((command) => command.name), [
-    'review',
-    'commit',
-    'compact',
-    'mcp:deploy'
-  ])
+  assert.deepEqual(
+    filterSlashCommands(commands, '').map((command) => command.name),
+    ['review', 'commit', 'compact', 'mcp:deploy']
+  )
 })
 
 test('typing narrows the list, prefix matches ranking above interior ones', () => {
-  assert.deepEqual(filterSlashCommands(commands, 'co').map((command) => command.name), ['commit', 'compact'])
-  assert.deepEqual(filterSlashCommands(commands, 'ep').map((command) => command.name), ['mcp:deploy'])
+  assert.deepEqual(
+    filterSlashCommands(commands, 'co').map((command) => command.name),
+    ['commit', 'compact']
+  )
+  assert.deepEqual(
+    filterSlashCommands(commands, 'ep').map((command) => command.name),
+    ['mcp:deploy']
+  )
 })
 
 test('matching ignores case', () => {
-  assert.deepEqual(filterSlashCommands(commands, 'REV').map((command) => command.name), ['review'])
+  assert.deepEqual(
+    filterSlashCommands(commands, 'REV').map((command) => command.name),
+    ['review']
+  )
 })
 
 test('a query nothing matches yields an empty list', () => {
@@ -110,7 +117,10 @@ test('the view opens on a slash token that matches something', () => {
   const view = slashCompletionView('/re', 3, commands, emptySlashCompletion)
   assert.equal(view.open, true)
   assert.deepEqual(view.token, { query: 're', start: 0 })
-  assert.deepEqual(view.matches.map((command) => command.name), ['review'])
+  assert.deepEqual(
+    view.matches.map((command) => command.name),
+    ['review']
+  )
   assert.equal(view.activeIndex, 0)
 })
 

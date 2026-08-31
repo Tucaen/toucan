@@ -3,11 +3,7 @@ import { beforeEach, expect, test, vi } from 'vitest'
 import { ReactFlowProvider } from '@xyflow/react'
 import TerminalNode from '../src/renderer/src/TerminalNode'
 import type { NodeAttentionAction } from '../src/renderer/src/canvas-workspace'
-import {
-  applyAttentionAction,
-  countUnreadAttention,
-  type AttentionState
-} from '../src/shared/attention'
+import { applyAttentionAction, countUnreadAttention, type AttentionState } from '../src/shared/attention'
 import type { TerminalExit, TerminalOutput } from '../src/shared/terminal'
 
 vi.mock('@xterm/xterm', () => ({
@@ -18,15 +14,27 @@ vi.mock('@xterm/xterm', () => ({
     open(): void {}
     write(): void {}
     focus(): void {}
-    onData(): { dispose(): void } { return { dispose: () => undefined } }
-    onSelectionChange(): { dispose(): void } { return { dispose: () => undefined } }
+    onData(): { dispose(): void } {
+      return { dispose: () => undefined }
+    }
+    onSelectionChange(): { dispose(): void } {
+      return { dispose: () => undefined }
+    }
     attachCustomKeyEventHandler(): void {}
-    hasSelection(): boolean { return false }
-    getSelection(): string { return '' }
+    hasSelection(): boolean {
+      return false
+    }
+    getSelection(): string {
+      return ''
+    }
     dispose(): void {}
   }
 }))
-vi.mock('@xterm/addon-fit', () => ({ FitAddon: class { fit(): void {} } }))
+vi.mock('@xterm/addon-fit', () => ({
+  FitAddon: class {
+    fit(): void {}
+  }
+}))
 
 const OUTPUT_DEBOUNCE_MS = 1200
 
@@ -47,19 +55,44 @@ function createAttentionWorkspace(): { state(): AttentionState; onAttention(acti
 }
 
 function terminalElement(onAttention: (action: NodeAttentionAction) => void, unread = 0) {
-  return (<ReactFlowProvider><TerminalNode
-    id="node" type="terminalNode" selected={false} dragging={false} zIndex={0}
-    isConnectable={false} positionAbsoluteX={0} positionAbsoluteY={0}
-    data={{
-      kind: 'terminal', sessionId: 'session', terminalLiveness: 'live', label: 'Terminal 1',
-      projectId: 'project', projectName: 'Project', projectPath: '/project', projectColor: '#fff',
-      workingDirectory: '/project', focusMode: false, dormant: false, launchMode: 'new',
-      unread,
-      onAttention,
-      onStatusChange: vi.fn(), onConversationId: vi.fn(), onPreview: vi.fn(), onFocusModeChange: vi.fn(),
-      onDraftChange: vi.fn(), onPermissionModeChange: vi.fn(), onModelChange: vi.fn(), onResume: vi.fn()
-    }}
-  /></ReactFlowProvider>)
+  return (
+    <ReactFlowProvider>
+      <TerminalNode
+        id="node"
+        type="terminalNode"
+        selected={false}
+        dragging={false}
+        zIndex={0}
+        isConnectable={false}
+        positionAbsoluteX={0}
+        positionAbsoluteY={0}
+        data={{
+          kind: 'terminal',
+          sessionId: 'session',
+          terminalLiveness: 'live',
+          label: 'Terminal 1',
+          projectId: 'project',
+          projectName: 'Project',
+          projectPath: '/project',
+          projectColor: '#fff',
+          workingDirectory: '/project',
+          focusMode: false,
+          dormant: false,
+          launchMode: 'new',
+          unread,
+          onAttention,
+          onStatusChange: vi.fn(),
+          onConversationId: vi.fn(),
+          onPreview: vi.fn(),
+          onFocusModeChange: vi.fn(),
+          onDraftChange: vi.fn(),
+          onPermissionModeChange: vi.fn(),
+          onModelChange: vi.fn(),
+          onResume: vi.fn()
+        }}
+      />
+    </ReactFlowProvider>
+  )
 }
 
 function renderTerminal(onAttention: (action: NodeAttentionAction) => void, unread = 0) {
@@ -68,7 +101,13 @@ function renderTerminal(onAttention: (action: NodeAttentionAction) => void, unre
 
 beforeEach(() => {
   vi.useFakeTimers()
-  vi.stubGlobal('ResizeObserver', class { observe(): void {}; disconnect(): void {} })
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe(): void {}
+      disconnect(): void {}
+    }
+  )
   vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
     callback(0)
     return 0
@@ -102,7 +141,9 @@ test('a flood of terminal output raises exactly one unread record, however much 
   const workspace = createAttentionWorkspace()
   renderTerminal(workspace.onAttention)
 
-  await act(async () => { await Promise.resolve() })
+  await act(async () => {
+    await Promise.resolve()
+  })
 
   // Ten thousand chunks arriving faster than the debounce must not produce ten thousand records -
   // or even ten. Nothing is raised at all until the output actually pauses.
@@ -111,7 +152,9 @@ test('a flood of terminal output raises exactly one unread record, however much 
   })
   expect(workspace.state()).toHaveLength(0)
 
-  act(() => { vi.advanceTimersByTime(OUTPUT_DEBOUNCE_MS + 10) })
+  act(() => {
+    vi.advanceTimersByTime(OUTPUT_DEBOUNCE_MS + 10)
+  })
   expect(countUnreadAttention(workspace.state())).toBe(1)
 
   // A second pause later in the same burst still folds into the record already raised.
@@ -131,7 +174,9 @@ test('a flood of terminal output raises exactly one unread record, however much 
 test('a terminal that exits on an error leaves a record a clean exit would not', async () => {
   const workspace = createAttentionWorkspace()
   renderTerminal(workspace.onAttention)
-  await act(async () => { await Promise.resolve() })
+  await act(async () => {
+    await Promise.resolve()
+  })
 
   act(() => {
     emitExit({ sessionId: 'session', incarnationId: 'inc-1', attachmentId: 'attachment', exitCode: 0 })
@@ -149,7 +194,9 @@ test('a terminal that exits on an error leaves a record a clean exit would not',
 test('marking a terminal read from its own toggle does not silence it for the rest of the incarnation', async () => {
   const workspace = createAttentionWorkspace()
   const view = renderTerminal(workspace.onAttention)
-  await act(async () => { await Promise.resolve() })
+  await act(async () => {
+    await Promise.resolve()
+  })
 
   act(() => {
     write('first burst\r\n')
@@ -160,7 +207,9 @@ test('marking a terminal read from its own toggle does not silence it for the re
   // The workspace pushes that count back down into the node, so the toggle now reads as "mark
   // read" - and that path has to open the next burst just as acknowledging the terminal does.
   view.rerender(terminalElement(workspace.onAttention, 1))
-  act(() => { fireEvent.click(screen.getByRole('button', { name: /mark read/i })) })
+  act(() => {
+    fireEvent.click(screen.getByRole('button', { name: /mark read/i }))
+  })
   expect(countUnreadAttention(workspace.state())).toBe(0)
 
   act(() => {

@@ -18,22 +18,19 @@ export function readCachedCodexModels(codexHome: string, selectedId?: string): A
     if (!Array.isArray(cache.models)) return undefined
     const availableModels = cache.models.flatMap((entry): AgentModel[] => {
       const model = entry as CachedCodexModel
-      if (
-        model.visibility !== 'list'
-        || typeof model.slug !== 'string'
-        || typeof model.display_name !== 'string'
-      ) return []
-      return [{
-        id: model.slug,
-        name: model.display_name,
-        ...(typeof model.description === 'string' && model.description ? { description: model.description } : {})
-      }]
+      if (model.visibility !== 'list' || typeof model.slug !== 'string' || typeof model.display_name !== 'string')
+        return []
+      return [
+        {
+          id: model.slug,
+          name: model.display_name,
+          ...(typeof model.description === 'string' && model.description ? { description: model.description } : {})
+        }
+      ]
     })
     if (availableModels.length === 0) return undefined
     return {
-      currentModelId: availableModels.some((model) => model.id === selectedId)
-        ? selectedId!
-        : availableModels[0].id,
+      currentModelId: availableModels.some((model) => model.id === selectedId) ? selectedId! : availableModels[0].id,
       availableModels
     }
   } catch {

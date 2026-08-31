@@ -49,13 +49,7 @@ const baseChatViewProps: ChatViewProps = {
 function renderChatView(overrides: Partial<ChatViewProps> = {}): HTMLElement {
   const view: ReactElement = (
     <ComposerSendKeyContext.Provider value={{ sendKey: 'enter', setSendKey: vi.fn() }}>
-      <ChatView
-        {...baseChatViewProps}
-        commands={commands}
-        {...overrides}
-        focusMode={false}
-        setFocusMode={vi.fn()}
-      />
+      <ChatView {...baseChatViewProps} commands={commands} {...overrides} focusMode={false} setFocusMode={vi.fn()} />
     </ComposerSendKeyContext.Provider>
   )
   return render(view).container
@@ -103,8 +97,11 @@ describe('composer slash-command completion', () => {
     renderChatView()
     type('/co')
 
-    expect(within(menu()).getAllByRole('option').map((option) => option.querySelector('strong')?.firstChild?.textContent))
-      .toEqual(['/commit', '/compact'])
+    expect(
+      within(menu())
+        .getAllByRole('option')
+        .map((option) => option.querySelector('strong')?.firstChild?.textContent)
+    ).toEqual(['/commit', '/compact'])
   })
 
   test('an agent that advertises nothing never opens a menu', () => {

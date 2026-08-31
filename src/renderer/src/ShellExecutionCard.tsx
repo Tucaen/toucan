@@ -41,9 +41,13 @@ function useFollowUpLabel(execution: ShellExecution): { verb: string; subject: s
  * alone. The exit chip and the working directory sit beside it and never take room from it - a
  * truncated command is still recognizable, a truncated exit code is not.
  */
-export function ShellExecutionSummary(
-  { execution, status }: { execution: ShellExecution; status: AgentActivity['status'] }
-): JSX.Element {
+export function ShellExecutionSummary({
+  execution,
+  status
+}: {
+  execution: ShellExecution
+  status: AgentActivity['status']
+}): JSX.Element {
   const roots = useContext(WorkspaceRootsContext)
   const followUp = useFollowUpLabel(execution)
   const exit = shellExitLabel(execution)
@@ -51,22 +55,26 @@ export function ShellExecutionSummary(
   const cwd = shellWorkingDirectoryLabel(execution.cwd, roots)
   return (
     <span className="shell-summary">
-      {execution.kind === 'run'
-        ? (
-          <code className="shell-summary-command" title={execution.command}>
-            {shellCommandLine(execution.command ?? '')}
-          </code>
-        )
-        : (
-          <span className="shell-summary-command">
-            <span className="shell-summary-verb">{followUp.verb}</span>
-            {' '}
-            <code>{followUp.subject}</code>
-          </span>
-        )}
-      {cwd && <span className="shell-summary-cwd" title={execution.cwd}>in {cwd}</span>}
+      {execution.kind === 'run' ? (
+        <code className="shell-summary-command" title={execution.command}>
+          {shellCommandLine(execution.command ?? '')}
+        </code>
+      ) : (
+        <span className="shell-summary-command">
+          <span className="shell-summary-verb">{followUp.verb}</span> <code>{followUp.subject}</code>
+        </span>
+      )}
+      {cwd && (
+        <span className="shell-summary-cwd" title={execution.cwd}>
+          in {cwd}
+        </span>
+      )}
       {execution.background && <span className="shell-summary-flag">bg</span>}
-      {exit && <span className="shell-summary-exit" data-tone={tone}>{exit}</span>}
+      {exit && (
+        <span className="shell-summary-exit" data-tone={tone}>
+          {exit}
+        </span>
+      )}
     </span>
   )
 }
@@ -87,9 +95,13 @@ function ShellOutputBlockView({ block }: { block: ShellOutputBlock }): JSX.Eleme
   )
 }
 
-export function ShellExecutionBody(
-  { execution, blocks }: { execution: ShellExecution; blocks: ShellOutputBlock[] }
-): JSX.Element {
+export function ShellExecutionBody({
+  execution,
+  blocks
+}: {
+  execution: ShellExecution
+  blocks: ShellOutputBlock[]
+}): JSX.Element {
   const roots = useContext(WorkspaceRootsContext)
   const cwd = shellWorkingDirectoryLabel(execution.cwd, roots)
   return (
@@ -97,10 +109,7 @@ export function ShellExecutionBody(
       {execution.kind === 'run' && execution.command && (
         <div className="shell-command">
           <code title={execution.command}>{execution.command}</code>
-          <button
-            type="button"
-            onClick={() => window.terminalApi?.copyText(execution.command ?? '')}
-          >
+          <button type="button" onClick={() => window.terminalApi?.copyText(execution.command ?? '')}>
             Copy
           </button>
         </div>
@@ -108,7 +117,9 @@ export function ShellExecutionBody(
       {execution.description && <small className="shell-description">{execution.description}</small>}
       {cwd && <small className="shell-cwd">Working directory: {cwd}</small>}
       {execution.shellId && <small className="shell-id">Background shell {execution.shellId}</small>}
-      {blocks.map((block) => <ShellOutputBlockView block={block} key={block.stream} />)}
+      {blocks.map((block) => (
+        <ShellOutputBlockView block={block} key={block.stream} />
+      ))}
     </div>
   )
 }

@@ -27,8 +27,16 @@ function SessionUsageBar({ readout }: { readout: SessionUsageReadout }): JSX.Ele
           <small className="session-usage-tokens">{context.label}</small>
         </span>
       )}
-      {tokens && <span className="session-usage-tokens-only" title={tokens.title}>{tokens.label}</span>}
-      {cost && <span className="session-usage-cost" title={cost.title}>{cost.label}</span>}
+      {tokens && (
+        <span className="session-usage-tokens-only" title={tokens.title}>
+          {tokens.label}
+        </span>
+      )}
+      {cost && (
+        <span className="session-usage-cost" title={cost.title}>
+          {cost.label}
+        </span>
+      )}
       {limit && (
         <span
           className="session-usage-limit usage-window"

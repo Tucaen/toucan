@@ -3,11 +3,7 @@ import { test } from 'node:test'
 import type { AgentActivity } from '../src/shared/agent'
 import { mcpArgumentLines, mcpResultText, parseMcpToolCall } from '../src/renderer/src/mcp-tool-call'
 import { isPlanUpdateFoldedIntoRail, parsePlanUpdate, planUpdateSummary } from '../src/renderer/src/plan-update'
-import {
-  parseSkillInvocation,
-  skillDescription,
-  skillInvocationSummary
-} from '../src/renderer/src/skill-invocation'
+import { parseSkillInvocation, skillDescription, skillInvocationSummary } from '../src/renderer/src/skill-invocation'
 import {
   indexSubagentActivities,
   parseSubagentTask,
@@ -22,17 +18,19 @@ function activity(overrides: Partial<AgentActivity> & { id: string }): AgentActi
 }
 
 test('a Task call names the agent it delegated to and what it asked for', () => {
-  const task = parseSubagentTask(activity({
-    id: 'task-1',
-    toolName: 'Task',
-    subagent: true,
-    rawInput: {
-      subagent_type: 'Explore',
-      description: 'Find the plan rail',
-      prompt: 'Search the renderer for where props.plan is drawn.',
-      model: 'sonnet'
-    }
-  }))
+  const task = parseSubagentTask(
+    activity({
+      id: 'task-1',
+      toolName: 'Task',
+      subagent: true,
+      rawInput: {
+        subagent_type: 'Explore',
+        description: 'Find the plan rail',
+        prompt: 'Search the renderer for where props.plan is drawn.',
+        model: 'sonnet'
+      }
+    })
+  )
 
   assert.deepEqual(task, {
     agentType: 'Explore',
@@ -44,11 +42,13 @@ test('a Task call names the agent it delegated to and what it asked for', () => 
 })
 
 test("a codex subagent activity takes its agent name from the agent file's leaf", () => {
-  const task = parseSubagentTask(activity({
-    id: 'sub-1',
-    subagent: true,
-    rawInput: { agentPath: '.codex/agents/reviewer.md', activityKind: 'started' }
-  }))
+  const task = parseSubagentTask(
+    activity({
+      id: 'sub-1',
+      subagent: true,
+      rawInput: { agentPath: '.codex/agents/reviewer.md', activityKind: 'started' }
+    })
+  )
 
   assert.equal(task?.agentType, 'reviewer.md')
 })
@@ -91,7 +91,10 @@ test("a subagent's tool calls group under the delegation, and orphans keep their
   ]
 
   const nested = indexSubagentActivities(activities)
-  assert.deepEqual(nested.get('task-1')?.map((child) => child.id), ['grep-1', 'read-1'])
+  assert.deepEqual(
+    nested.get('task-1')?.map((child) => child.id),
+    ['grep-1', 'read-1']
+  )
   assert.equal(nested.has('task-gone'), false)
   assert.deepEqual(
     worklogActivities(activities, nested, false).map((entry) => entry.id),
@@ -117,7 +120,10 @@ test('codex reports one delegation as several calls on a thread, and they group 
   ]
 
   const nested = indexSubagentActivities(activities)
-  assert.deepEqual(nested.get('sub-1')?.map((child) => child.id), ['sub-2', 'sub-3'])
+  assert.deepEqual(
+    nested.get('sub-1')?.map((child) => child.id),
+    ['sub-2', 'sub-3']
+  )
   assert.deepEqual(
     worklogActivities(activities, nested, false).map((entry) => entry.id),
     ['sub-1', 'other-thread']
@@ -126,17 +132,21 @@ test('codex reports one delegation as several calls on a thread, and they group 
   assert.equal(subagentProgressLabel(subagentProgress(nested.get('sub-1')!)!), '1 of 2 steps')
 })
 
-test("a codex interaction keeps its verb, so an interrupt cannot read as a start", () => {
-  const started = parseSubagentTask(activity({
-    id: 'sub-1',
-    subagent: true,
-    rawInput: { agentPath: '.codex/agents/reviewer.md', activityKind: 'started', agentThreadId: 't7' }
-  }))!
-  const interrupted = parseSubagentTask(activity({
-    id: 'sub-3',
-    subagent: true,
-    rawInput: { agentPath: '.codex/agents/reviewer.md', activityKind: 'interrupted', agentThreadId: 't7' }
-  }))!
+test('a codex interaction keeps its verb, so an interrupt cannot read as a start', () => {
+  const started = parseSubagentTask(
+    activity({
+      id: 'sub-1',
+      subagent: true,
+      rawInput: { agentPath: '.codex/agents/reviewer.md', activityKind: 'started', agentThreadId: 't7' }
+    })
+  )!
+  const interrupted = parseSubagentTask(
+    activity({
+      id: 'sub-3',
+      subagent: true,
+      rawInput: { agentPath: '.codex/agents/reviewer.md', activityKind: 'interrupted', agentThreadId: 't7' }
+    })
+  )!
 
   assert.equal(subagentTaskSummary(started, activity({ id: 'sub-1' })), 'reviewer.md — Started')
   assert.equal(subagentTaskSummary(interrupted, activity({ id: 'sub-3' })), 'reviewer.md — Interrupted')
@@ -160,27 +170,33 @@ test('a plan write the rail already shows is folded out of the worklog, and a re
 })
 
 test("a plan write's entries are read from either adapter's spelling", () => {
-  const claude = parsePlanUpdate(activity({
-    id: 'todo-1',
-    toolName: 'TodoWrite',
-    rawInput: {
-      todos: [
-        { content: 'Read the issue', status: 'completed' },
-        { content: 'Write the card', status: 'in_progress' },
-        { content: 'Run the tests', status: 'pending' }
-      ]
-    }
-  }))
-  const codex = parsePlanUpdate(activity({
-    id: 'plan-1',
-    toolName: 'update_plan',
-    rawInput: { plan: [{ step: 'Read the issue', status: 'completed' }] }
-  }))
-  const created = parsePlanUpdate(activity({
-    id: 'task-create-1',
-    toolName: 'TaskCreate',
-    rawInput: { subject: 'Ship the cards' }
-  }))
+  const claude = parsePlanUpdate(
+    activity({
+      id: 'todo-1',
+      toolName: 'TodoWrite',
+      rawInput: {
+        todos: [
+          { content: 'Read the issue', status: 'completed' },
+          { content: 'Write the card', status: 'in_progress' },
+          { content: 'Run the tests', status: 'pending' }
+        ]
+      }
+    })
+  )
+  const codex = parsePlanUpdate(
+    activity({
+      id: 'plan-1',
+      toolName: 'update_plan',
+      rawInput: { plan: [{ step: 'Read the issue', status: 'completed' }] }
+    })
+  )
+  const created = parsePlanUpdate(
+    activity({
+      id: 'task-create-1',
+      toolName: 'TaskCreate',
+      rawInput: { subject: 'Ship the cards' }
+    })
+  )
 
   assert.equal(planUpdateSummary(claude!), 'Updated the plan — 3 steps, 1 done')
   assert.deepEqual(codex?.entries, [{ content: 'Read the issue', status: 'completed', priority: 'medium' }])
@@ -189,16 +205,20 @@ test("a plan write's entries are read from either adapter's spelling", () => {
 })
 
 test('a skill invocation is named, and a slash command splits its own arguments off', () => {
-  const skill = parseSkillInvocation(activity({
-    id: 'skill-1',
-    toolName: 'Skill',
-    rawInput: { skill: 'code-review', args: 'since main' }
-  }))
-  const command = parseSkillInvocation(activity({
-    id: 'command-1',
-    toolName: 'SlashCommand',
-    rawInput: { command: '/review 91' }
-  }))
+  const skill = parseSkillInvocation(
+    activity({
+      id: 'skill-1',
+      toolName: 'Skill',
+      rawInput: { skill: 'code-review', args: 'since main' }
+    })
+  )
+  const command = parseSkillInvocation(
+    activity({
+      id: 'command-1',
+      toolName: 'SlashCommand',
+      rawInput: { command: '/review 91' }
+    })
+  )
 
   assert.deepEqual(skill, { name: 'code-review', args: 'since main' })
   assert.equal(skillInvocationSummary(skill!), '/code-review since main')
@@ -208,11 +228,13 @@ test('a skill invocation is named, and a slash command splits its own arguments 
 })
 
 test('why a skill was loaded comes from what the session advertised about it, or from nothing', () => {
-  const invocation = parseSkillInvocation(activity({
-    id: 'skill-1',
-    toolName: 'Skill',
-    rawInput: { skill: 'code-review' }
-  }))!
+  const invocation = parseSkillInvocation(
+    activity({
+      id: 'skill-1',
+      toolName: 'Skill',
+      rawInput: { skill: 'code-review' }
+    })
+  )!
   const commands = [
     { name: 'tdd', description: 'Test-driven development.' },
     { name: '/code-review', description: 'Review the changes since a fixed point.' }

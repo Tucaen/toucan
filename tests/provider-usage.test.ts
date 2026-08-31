@@ -109,7 +109,13 @@ test('a synchronous reader is supported alongside an asynchronous one', async ()
 
 test('a synchronous reader that throws is caught like an async failure', async () => {
   const usage = createProviderUsage({
-    readers: { codex: { read: () => { throw new Error('unreadable transcript') } } },
+    readers: {
+      codex: {
+        read: () => {
+          throw new Error('unreadable transcript')
+        }
+      }
+    },
     ttlMs: 100
   })
 

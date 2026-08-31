@@ -47,12 +47,7 @@ function renderChatView(
 ): HTMLElement {
   const view: ReactElement = (
     <ComposerSendKeyContext.Provider value={{ sendKey, setSendKey }}>
-      <ChatView
-        {...baseChatViewProps}
-        {...overrides}
-        focusMode={false}
-        setFocusMode={vi.fn()}
-      />
+      <ChatView {...baseChatViewProps} {...overrides} focusMode={false} setFocusMode={vi.fn()} />
     </ComposerSendKeyContext.Provider>
   )
   return render(view).container

@@ -7,7 +7,10 @@ import NodeBorderResizer from './NodeBorderResizer'
 /** Git state moves only when something else on the canvas moves it, so this can be lazy. */
 const STATUS_POLL_MS = 10_000
 
-function describeStatus(status: WorktreeStatus | null): { text: string; kind: 'clean' | 'dirty' | 'ahead' | 'missing' | 'unknown' } {
+function describeStatus(status: WorktreeStatus | null): {
+  text: string
+  kind: 'clean' | 'dirty' | 'ahead' | 'missing' | 'unknown'
+} {
   if (!status) return { text: 'Checking…', kind: 'unknown' }
   if (status.message) return { text: status.message, kind: 'unknown' }
   if (!status.exists) return { text: 'Directory is missing', kind: 'missing' }
@@ -28,9 +31,10 @@ export default function WorktreeNode({ data, selected }: NodeProps<WorktreeCanva
   const [status, setStatus] = useState<WorktreeStatus | null>(null)
   const { path, branch, baseRef } = data
 
-  const refresh = useCallback(async (): Promise<WorktreeStatus | null> => (
-    window.worktreeApi.status({ path, branch, baseRef }).catch(() => null)
-  ), [baseRef, branch, path])
+  const refresh = useCallback(
+    async (): Promise<WorktreeStatus | null> => window.worktreeApi.status({ path, branch, baseRef }).catch(() => null),
+    [baseRef, branch, path]
+  )
 
   useEffect(() => {
     let active = true
@@ -57,7 +61,9 @@ export default function WorktreeNode({ data, selected }: NodeProps<WorktreeCanva
     >
       <NodeBorderResizer minWidth={320} minHeight={200} selected={selected} color={data.projectColor} />
       <header className="node-header worktree-node-header">
-        <span className="worktree-glyph" aria-hidden="true">⑂</span>
+        <span className="worktree-glyph" aria-hidden="true">
+          ⑂
+        </span>
         <strong title={branch}>{branch}</strong>
         <span className="node-project" title={data.projectPath}>
           <span className="project-color-dot" />
@@ -115,9 +121,11 @@ export default function WorktreeNode({ data, selected }: NodeProps<WorktreeCanva
           type="button"
           className="worktree-setup"
           disabled={!data.setupCommand}
-          title={data.setupCommand
-            ? `Run in a new terminal: ${data.setupCommand}`
-            : 'No setup command configured for this project'}
+          title={
+            data.setupCommand
+              ? `Run in a new terminal: ${data.setupCommand}`
+              : 'No setup command configured for this project'
+          }
           onMouseDown={(event) => event.stopPropagation()}
           onClick={() => data.onRunSetupCommand(data.worktreeId)}
         >
@@ -126,9 +134,11 @@ export default function WorktreeNode({ data, selected }: NodeProps<WorktreeCanva
         <button
           type="button"
           className="worktree-remove"
-          title={data.attachedNodeCount > 0
-            ? 'Close or detach its nodes before removing this worktree'
-            : 'Check this worktree for unique work and remove it'}
+          title={
+            data.attachedNodeCount > 0
+              ? 'Close or detach its nodes before removing this worktree'
+              : 'Check this worktree for unique work and remove it'
+          }
           onMouseDown={(event) => event.stopPropagation()}
           onClick={() => data.onRemoveWorktree(data.worktreeId)}
         >

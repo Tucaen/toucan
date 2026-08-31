@@ -88,7 +88,12 @@ export interface ConversationApi {
   list(request: ConversationListRequest): Promise<ConversationListPage>
   /** Whether a listed transcript is still on disk. */
   exists(path: string): Promise<boolean>
-  setTitle(provider: 'claude' | 'codex', conversationId: string, title: string, source: ConversationTitleSource): Promise<ConversationTitle | null>
+  setTitle(
+    provider: 'claude' | 'codex',
+    conversationId: string,
+    title: string,
+    source: ConversationTitleSource
+  ): Promise<ConversationTitle | null>
 }
 
 declare global {

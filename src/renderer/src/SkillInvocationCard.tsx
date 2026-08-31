@@ -16,7 +16,10 @@ export function SkillInvocationSummary({ invocation }: { invocation: SkillInvoca
   )
 }
 
-export function SkillInvocationBody({ invocation, output }: {
+export function SkillInvocationBody({
+  invocation,
+  output
+}: {
   invocation: SkillInvocation
   output: string[]
 }): JSX.Element {

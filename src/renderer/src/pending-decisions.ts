@@ -45,8 +45,10 @@ function tag(text: string, name: string): string | undefined {
 }
 
 function taskId(text: string): string | undefined {
-  return tag(text, 'task')
-    ?? /(?:^|\n)\s*(?:[-*]\s*)?([\w.-]+)\s+\[key=[^\]]+\]\s+(?:needs-decision|blocked)\s*:/i.exec(text)?.[1]
+  return (
+    tag(text, 'task') ??
+    /(?:^|\n)\s*(?:[-*]\s*)?([\w.-]+)\s+\[key=[^\]]+\]\s+(?:needs-decision|blocked)\s*:/i.exec(text)?.[1]
+  )
 }
 
 function stableHash(text: string): string {
@@ -79,7 +81,11 @@ export function pendingDecisionStateFromMessages(
   const decisions = new Map<string, PendingDecision>()
   const closed = new Set(persistedClosedIds)
   for (const message of messages) {
-    if (message.role === 'assistant' && message.complete !== false && classifyAssistantMessage(message.text) === 'decision') {
+    if (
+      message.role === 'assistant' &&
+      message.complete !== false &&
+      classifyAssistantMessage(message.text) === 'decision'
+    ) {
       const id = decisionIdentity(message)
       const task = taskId(message.text)
       const supersededKey = tag(message.text, 'supersedes')

@@ -82,14 +82,7 @@ describe('chat focus view', () => {
     )
     expect(screen.queryByText('Reading more files...')).toBeNull()
 
-    rerender(
-      <ChatView
-        {...baseChatViewProps}
-        detail="Model selection failed"
-        focusMode
-        setFocusMode={vi.fn()}
-      />
-    )
+    rerender(<ChatView {...baseChatViewProps} detail="Model selection failed" focusMode setFocusMode={vi.fn()} />)
     expect(screen.getByText('Model selection failed')).toBeTruthy()
   })
 
@@ -105,11 +98,13 @@ describe('chat focus view', () => {
           { id: 'thought-1', role: 'thought', text: 'Then reasoning' },
           { id: 'assistant-1', role: 'assistant', text: 'Final response' }
         ]}
-        activities={[{
-          id: 'tool-1',
-          title: 'Read between messages',
-          status: 'completed'
-        }]}
+        activities={[
+          {
+            id: 'tool-1',
+            title: 'Read between messages',
+            status: 'completed'
+          }
+        ]}
         transcript={[
           { type: 'message', id: 'user-1', role: 'user' },
           { type: 'activity', id: 'tool-1' },
@@ -119,8 +114,7 @@ describe('chat focus view', () => {
       />
     )
 
-    const items = Array.from(container.querySelector('.chat-scroll')!.children)
-      .map((element) => element.textContent)
+    const items = Array.from(container.querySelector('.chat-scroll')!.children).map((element) => element.textContent)
     expect(items).toEqual([
       'First prompt',
       expect.stringContaining('Read between messages'),

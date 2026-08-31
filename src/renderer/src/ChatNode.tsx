@@ -1,4 +1,15 @@
-import { useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react'
+import {
+  useContext,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+  type RefObject
+} from 'react'
 import { createPortal } from 'react-dom'
 import { type NodeProps } from '@xyflow/react'
 import MarkdownMessage from './MarkdownMessage'
@@ -19,8 +30,7 @@ import {
   toolCardElapsed,
   toolCardIsTiming,
   toolCardStatusLabel,
-  type ToolCardChoice,
-  type ToolCardStatus
+  type ToolCardChoice
 } from './tool-card'
 import { TOOL_CARD_LINE_BUDGET, toolCardFamilyFor } from './tool-card-families'
 import { FileOperationBody, fileOperationCard } from './FileOperationCard'
@@ -58,11 +68,7 @@ import {
   moveSlashSelection,
   slashCompletionView
 } from './slash-command-completion'
-import {
-  composerKeyAction,
-  composerSendKeyLabels,
-  type ComposerSendKey
-} from './composer-keys'
+import { composerKeyAction, composerSendKeyLabels, type ComposerSendKey } from './composer-keys'
 import { useComposerSendKey } from './composer-send-key-context'
 import {
   emptyPromptHistory,
@@ -160,9 +166,19 @@ interface PickerOption {
 
 const pickerCopy = {
   provider: { icon: '@', heading: 'Provider', idle: 'Provider', hint: 'Choose the agent provider' },
-  permission: { icon: '*', heading: 'Permission mode', idle: 'Permissions', hint: 'Set the permission mode for this agent' },
+  permission: {
+    icon: '*',
+    heading: 'Permission mode',
+    idle: 'Permissions',
+    hint: 'Set the permission mode for this agent'
+  },
   model: { icon: '#', heading: 'Model', idle: 'Model', hint: 'Choose the model for this conversation' },
-  effort: { icon: '~', heading: 'Thinking effort', idle: 'Effort', hint: 'Set the thinking effort for this conversation' },
+  effort: {
+    icon: '~',
+    heading: 'Thinking effort',
+    idle: 'Effort',
+    hint: 'Set the thinking effort for this conversation'
+  },
   sendKey: { icon: '>', heading: 'Send with', idle: 'Send key', hint: 'Choose which key sends a message' }
 } as const
 
@@ -193,12 +209,14 @@ function usePortalMenuPosition(
       const anchor = anchorRef.current?.getBoundingClientRect()
       if (!anchor) return
       const menu = menuRef.current?.getBoundingClientRect()
-      setPosition(computeNodePickerMenuPosition(
-        anchor,
-        { width: menu?.width || fallback.width, height: menu?.height ?? fallback.height },
-        { width: window.innerWidth, height: window.innerHeight },
-        options
-      ))
+      setPosition(
+        computeNodePickerMenuPosition(
+          anchor,
+          { width: menu?.width || fallback.width, height: menu?.height ?? fallback.height },
+          { width: window.innerWidth, height: window.innerHeight },
+          options
+        )
+      )
     }
     reposition()
     window.addEventListener('resize', reposition)
@@ -212,7 +230,6 @@ function usePortalMenuPosition(
       window.removeEventListener('scroll', reposition, true)
       observer?.disconnect()
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [anchorRef, enabled, menuRef, remeasureOn])
 
   return position
@@ -280,9 +297,7 @@ export function SelectorPicker(props: {
         >
           <strong>
             {option.name}
-            {option.id === props.selectedId && (
-              <i className="node-picker-selected-marker" aria-hidden="true" />
-            )}
+            {option.id === props.selectedId && <i className="node-picker-selected-marker" aria-hidden="true" />}
           </strong>
           {option.description && <span>{option.description}</span>}
         </button>
@@ -399,9 +414,10 @@ function EmptyConversation({ provider }: Pick<ChatViewProps, 'provider'>): JSX.E
   )
 }
 
-function AttachmentPreview(
-  props: { attachments: AgentImageAttachment[]; removeAttachment(id: string): void }
-): JSX.Element | null {
+function AttachmentPreview(props: {
+  attachments: AgentImageAttachment[]
+  removeAttachment(id: string): void
+}): JSX.Element | null {
   if (props.attachments.length === 0) return null
   return (
     <div className="composer-attachments">
@@ -427,9 +443,12 @@ function AttachmentPreview(
  * into one toolbar rather than scattered across the node header so the pickers read as a set and
  * can wrap together when the node is narrow.
  */
-function ComposerToolbar(props: Pick<ChatViewProps,
-  'provider' | 'modes' | 'models' | 'efforts' | 'selectorsDisabled' | 'selectMode' | 'selectModel' | 'selectEffort'
->): JSX.Element {
+function ComposerToolbar(
+  props: Pick<
+    ChatViewProps,
+    'provider' | 'modes' | 'models' | 'efforts' | 'selectorsDisabled' | 'selectMode' | 'selectModel' | 'selectEffort'
+  >
+): JSX.Element {
   const { sendKey, setSendKey } = useComposerSendKey()
   const disabled = props.selectorsDisabled ?? false
   return (
@@ -479,12 +498,36 @@ function ComposerToolbar(props: Pick<ChatViewProps,
   )
 }
 
-export function Composer(props: Pick<ChatViewProps,
-  'provider' | 'messages' | 'draft' | 'setDraft' | 'submit' | 'cancel' | 'status' | 'detail' | 'imageSupport'
-  | 'attachments' | 'addImages' | 'removeAttachment' | 'onDraftChange'
-  | 'queued' | 'editQueued' | 'withdrawQueued' | 'sendQueuedNow' | 'commands'
-  | 'modes' | 'models' | 'efforts' | 'selectorsDisabled' | 'selectMode' | 'selectModel' | 'selectEffort'
->): JSX.Element {
+export function Composer(
+  props: Pick<
+    ChatViewProps,
+    | 'provider'
+    | 'messages'
+    | 'draft'
+    | 'setDraft'
+    | 'submit'
+    | 'cancel'
+    | 'status'
+    | 'detail'
+    | 'imageSupport'
+    | 'attachments'
+    | 'addImages'
+    | 'removeAttachment'
+    | 'onDraftChange'
+    | 'queued'
+    | 'editQueued'
+    | 'withdrawQueued'
+    | 'sendQueuedNow'
+    | 'commands'
+    | 'modes'
+    | 'models'
+    | 'efforts'
+    | 'selectorsDisabled'
+    | 'selectMode'
+    | 'selectModel'
+    | 'selectEffort'
+  >
+): JSX.Element {
   const busy = props.status === 'working'
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const composerDisabled = isSendDisabled(props.status)
@@ -499,10 +542,12 @@ export function Composer(props: Pick<ChatViewProps,
   // A conversation loaded from disk already shows what was asked; ArrowUp should be able to walk
   // back through it too, rather than starting blank above a full transcript.
   useEffect(() => {
-    setHistory((current) => seedPromptHistory(
-      current,
-      props.messages.filter((message) => message.role === 'user').map((message) => message.text)
-    ))
+    setHistory((current) =>
+      seedPromptHistory(
+        current,
+        props.messages.filter((message) => message.role === 'user').map((message) => message.text)
+      )
+    )
   }, [props.messages])
   /** The last value this composer handed upward, so the round trip back down is not mistaken
    *  for an outside edit and does not fight what is being typed right now. */
@@ -531,9 +576,12 @@ export function Composer(props: Pick<ChatViewProps,
   // few keystrokes, so whatever the debounce still owed is flushed on the way out.
   const draftRef = useRef(draft)
   draftRef.current = draft
-  useEffect(() => () => {
-    if (draftRef.current !== publishedDraftRef.current) onDraftChangeRef.current?.(draftRef.current)
-  }, [])
+  useEffect(
+    () => () => {
+      if (draftRef.current !== publishedDraftRef.current) onDraftChangeRef.current?.(draftRef.current)
+    },
+    []
+  )
 
   // The box grows with its content up to a bounded height, then scrolls. Measured against the
   // real element because only the browser knows how the text actually wrapped.
@@ -567,12 +615,7 @@ export function Composer(props: Pick<ChatViewProps,
   // tracks it rather than guessing from the draft's end - a caret parked mid-token still completes.
   const [caret, setCaret] = useState(0)
   const [completionState, setCompletionState] = useState(emptySlashCompletion)
-  const completion = slashCompletionView(
-    composerDisabled ? '' : draft,
-    caret,
-    props.commands ?? [],
-    completionState
-  )
+  const completion = slashCompletionView(composerDisabled ? '' : draft, caret, props.commands ?? [], completionState)
   // What Escape dismissed and what was just accepted are remembered per slash token; once the
   // draft has no token left (it was sent, cleared, or edited away) that memory is spent, and
   // keeping it would silently refuse to complete the next identical token typed in its place.
@@ -616,10 +659,12 @@ export function Composer(props: Pick<ChatViewProps,
     if (!completion.open || event.nativeEvent.isComposing) return false
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault()
-      setCompletionState((current) => highlightSlashCommand(
-        current,
-        moveSlashSelection(completion.activeIndex, completion.matches.length, event.key === 'ArrowDown' ? 1 : -1)
-      ))
+      setCompletionState((current) =>
+        highlightSlashCommand(
+          current,
+          moveSlashSelection(completion.activeIndex, completion.matches.length, event.key === 'ArrowDown' ? 1 : -1)
+        )
+      )
       return true
     }
     if (event.key === 'Escape') {
@@ -649,9 +694,7 @@ export function Composer(props: Pick<ChatViewProps,
     >
       <ComposerQueue {...props} stranded={composerDisabled} />
       <AttachmentPreview attachments={props.attachments} removeAttachment={props.removeAttachment} />
-      {pasteBlocked && (
-        <small className="composer-paste-blocked">This agent doesn't support image attachments.</small>
-      )}
+      {pasteBlocked && <small className="composer-paste-blocked">This agent doesn't support image attachments.</small>}
       {(props.detail || busy) && (
         <div className="composer-notices" role="status" aria-live="polite">
           {props.detail && <small className="composer-status">{props.detail}</small>}
@@ -719,13 +762,12 @@ export function Composer(props: Pick<ChatViewProps,
             highlight={(index) => setCompletionState((current) => highlightSlashCommand(current, index))}
           />
         )}
-        <VoiceInputPrototype
-          draft={draft}
-          disabled={composerDisabled}
-          textareaRef={textareaRef}
-          setDraft={setDraft}
-        />
-        {busy && <button type="button" className="stop-agent" onClick={props.cancel}>Stop</button>}
+        <VoiceInputPrototype draft={draft} disabled={composerDisabled} textareaRef={textareaRef} setDraft={setDraft} />
+        {busy && (
+          <button type="button" className="stop-agent" onClick={props.cancel}>
+            Stop
+          </button>
+        )}
         <button
           type="submit"
           title={composerSendKeyLabels[sendKey].description}
@@ -742,13 +784,7 @@ export function Composer(props: Pick<ChatViewProps,
 function AuthPanel(
   props: Pick<
     ChatViewProps,
-    | 'provider'
-    | 'authMethods'
-    | 'authLink'
-    | 'reauthenticating'
-    | 'authenticate'
-    | 'submitAuthCode'
-    | 'openAuthLink'
+    'provider' | 'authMethods' | 'authLink' | 'reauthenticating' | 'authenticate' | 'submitAuthCode' | 'openAuthLink'
   >
 ): JSX.Element {
   const titleId = useId()
@@ -772,43 +808,46 @@ function AuthPanel(
     return (
       <section {...dialogProps}>
         <div className="chat-auth-card">
-          <span className="auth-lock" aria-hidden="true">*</span>
-        <div>
+          <span className="auth-lock" aria-hidden="true">
+            *
+          </span>
+          <div>
             <strong id={titleId}>Sign in to {providerNames[props.provider]}</strong>
-            <p id={descriptionId}>No sign-in method is available for this session. Restart the conversation to try again.</p>
+            <p id={descriptionId}>
+              No sign-in method is available for this session. Restart the conversation to try again.
+            </p>
           </div>
         </div>
       </section>
     )
   }
-  const subscriptionMethods = props.authMethods.filter((method) => (
-    method.name.toLocaleLowerCase().includes('chatgpt')
-    || method.name.toLocaleLowerCase().includes('subscription')
-    || method.name.toLocaleLowerCase().includes('claude')
-  ))
+  const subscriptionMethods = props.authMethods.filter(
+    (method) =>
+      method.name.toLocaleLowerCase().includes('chatgpt') ||
+      method.name.toLocaleLowerCase().includes('subscription') ||
+      method.name.toLocaleLowerCase().includes('claude')
+  )
   const method = subscriptionMethods[0] ?? props.authMethods[0]
   return (
     <section {...dialogProps}>
       <div className="chat-auth-card">
-        <span className="auth-lock" aria-hidden="true">*</span>
-      <div>
+        <span className="auth-lock" aria-hidden="true">
+          *
+        </span>
+        <div>
           <strong id={titleId}>Sign in to {providerNames[props.provider]}</strong>
           <p id={descriptionId}>Connect your existing subscription to enable messages and voice input.</p>
-          <button
-            type="button"
-            disabled={props.reauthenticating}
-            onClick={() => props.authenticate(method.id)}
-          >
+          <button type="button" disabled={props.reauthenticating} onClick={() => props.authenticate(method.id)}>
             {props.reauthenticating ? 'Signing in…' : method.name}
-        </button>
-        {props.authLink && (
+          </button>
+          {props.authLink && (
             <>
-          <p className="auth-link">
+              <p className="auth-link">
                 Finish signing in in your browser.{' '}
-            <button type="button" className="auth-link-button" onClick={() => props.openAuthLink(props.authLink!)}>
-              Open the sign-in link again
-            </button>
-          </p>
+                <button type="button" className="auth-link-button" onClick={() => props.openAuthLink(props.authLink!)}>
+                  Open the sign-in link again
+                </button>
+              </p>
               {method.type === 'terminal' && props.reauthenticating && (
                 <form
                   className="auth-code-form"
@@ -841,9 +880,13 @@ function AuthPanel(
                       {submittingCode ? 'Submitting…' : 'Submit code'}
                     </button>
                   </div>
-                  {codeError && <small className="auth-code-error" role="alert">{codeError}</small>}
+                  {codeError && (
+                    <small className="auth-code-error" role="alert">
+                      {codeError}
+                    </small>
+                  )}
                 </form>
-        )}
+              )}
             </>
           )}
         </div>
@@ -867,7 +910,11 @@ function ApprovalPanel(props: Pick<ChatViewProps, 'approval' | 'resolveApproval'
         <div className="chat-approval-diff">
           <FileOperationBody operation={diff.operation} blocks={diff.blocks} />
           {diff.hiddenLines > 0 && (
-            <button type="button" className="activity-show-more" onClick={() => setExpandedApprovalId(props.approval!.id)}>
+            <button
+              type="button"
+              className="activity-show-more"
+              onClick={() => setExpandedApprovalId(props.approval!.id)}
+            >
               Show {diff.hiddenLines} more lines
             </button>
           )}
@@ -889,7 +936,9 @@ function ApprovalPanel(props: Pick<ChatViewProps, 'approval' | 'resolveApproval'
             {option.label}
           </button>
         ))}
-        <button type="button" onClick={() => props.resolveApproval(props.approval!.id)}>Cancel</button>
+        <button type="button" onClick={() => props.resolveApproval(props.approval!.id)}>
+          Cancel
+        </button>
       </div>
     </section>
   )
@@ -900,9 +949,13 @@ function ApprovalPanel(props: Pick<ChatViewProps, 'approval' | 'resolveApproval'
  * field. Both paths reuse the ordinary prompt/steering delivery path with decision identity rather
  * than introducing a protocol-level channel; see pending-decisions.ts for state folding.
  */
-function DecisionOptions(
-  props: { decisionId?: string; options: DecisionOption[]; answerDecision: ChatViewProps['answerDecision']; status: ChatViewProps['status']; submitting?: boolean }
-): JSX.Element {
+function DecisionOptions(props: {
+  decisionId?: string
+  options: DecisionOption[]
+  answerDecision: ChatViewProps['answerDecision']
+  status: ChatViewProps['status']
+  submitting?: boolean
+}): JSX.Element {
   const [otherText, setOtherText] = useState('')
   const disabled = isSendDisabled(props.status) || props.submitting
   const send = (text: string): void => props.answerDecision(props.decisionId ?? '', text)
@@ -910,12 +963,7 @@ function DecisionOptions(
     <div className="decision-options">
       <div className="decision-options-buttons">
         {props.options.map((option) => (
-          <button
-            type="button"
-            key={option.id}
-            disabled={disabled}
-            onClick={() => send(option.label)}
-          >
+          <button type="button" key={option.id} disabled={disabled} onClick={() => send(option.label)}>
             {option.label}
           </button>
         ))}
@@ -937,22 +985,26 @@ function DecisionOptions(
           disabled={disabled}
           onChange={(event) => setOtherText(event.target.value)}
         />
-        <button type="submit" disabled={disabled || !otherText.trim()}>Send</button>
+        <button type="submit" disabled={disabled || !otherText.trim()}>
+          Send
+        </button>
       </form>
     </div>
   )
 }
 
 function decisionQuestion(text: string): string {
-  return text.split('\n').map((line) => line.trim()).filter(Boolean).at(-1) ?? 'Choose an option.'
+  return (
+    text
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .at(-1) ?? 'Choose an option.'
+  )
 }
 
 /** Classifies assistant replies for visual tone (see decision-message.ts). */
-function ChatMessageCard(
-  props: {
-    message: AgentChatMessage
-  }
-): JSX.Element {
+function ChatMessageCard(props: { message: AgentChatMessage }): JSX.Element {
   const { message } = props
   const tone = message.role === 'assistant' ? classifyAssistantMessage(message.text) : 'normal'
   return (
@@ -962,9 +1014,11 @@ function ChatMessageCard(
     >
       <div>
         <MarkdownMessage text={message.text} />
-        {message.failed
-          ? <small className="failed-badge">Not sent — delivery was rejected</small>
-          : message.queued && <small className="queued-badge">Queued — will send once the agent is free</small>}
+        {message.failed ? (
+          <small className="failed-badge">Not sent — delivery was rejected</small>
+        ) : (
+          message.queued && <small className="queued-badge">Queued — will send once the agent is free</small>
+        )}
       </div>
     </article>
   )
@@ -1000,12 +1054,7 @@ function ActivityCard({ activity }: { activity: AgentActivity }): JSX.Element {
   const duration = formatToolDuration(toolCardElapsed(activity, now))
   const body = expanded ? family.body(activity, showAll ? null : TOOL_CARD_LINE_BUDGET) : null
   return (
-    <article
-      className="activity-card"
-      data-status={activity.status}
-      data-family={family.id}
-      data-expanded={expanded}
-    >
+    <article className="activity-card" data-status={activity.status} data-family={family.id} data-expanded={expanded}>
       <button
         type="button"
         className="activity-header"
@@ -1050,7 +1099,11 @@ function ReasoningCard({ message }: { message: AgentChatMessage }): JSX.Element 
         <span className="activity-icon">~</span>
         <strong>Reasoning</strong>
       </button>
-      {expanded && <div className="activity-body"><MarkdownMessage text={message.text} /></div>}
+      {expanded && (
+        <div className="activity-body">
+          <MarkdownMessage text={message.text} />
+        </div>
+      )}
     </article>
   )
 }
@@ -1072,7 +1125,11 @@ function PlanCard({ plan }: { plan: AgentPlanEntry[] }): JSX.Element {
       {expanded && (
         <div className="activity-body">
           <ol className="plan-list">
-            {plan.map((entry, index) => <li data-status={entry.status} key={`${index}-${entry.content}`}>{entry.content}</li>)}
+            {plan.map((entry, index) => (
+              <li data-status={entry.status} key={`${index}-${entry.content}`}>
+                {entry.content}
+              </li>
+            ))}
           </ol>
         </div>
       )}
@@ -1095,7 +1152,6 @@ function useStickToBottom(followDeps: readonly unknown[]): {
   useLayoutEffect(() => {
     const element = ref.current
     if (element && stickToBottomRef.current) element.scrollTop = element.scrollHeight
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, followDeps)
 
   return {
@@ -1107,16 +1163,18 @@ function useStickToBottom(followDeps: readonly unknown[]): {
   }
 }
 
-export function ChatView(props: ChatViewProps & {
-  focusMode: boolean
-  setFocusMode(enabled: boolean): void
-  /** Only the selected canvas node responds when several chats are open. */
-  focusShortcutEnabled?: boolean
-  empty?: { icon: string; title: string; description: string }
-  statusBar?: ReactNode
-  completedTaskIds?: ReadonlySet<string>
-  closedDecisionIds?: ReadonlySet<string>
-}): JSX.Element {
+export function ChatView(
+  props: ChatViewProps & {
+    focusMode: boolean
+    setFocusMode(enabled: boolean): void
+    /** Only the selected canvas node responds when several chats are open. */
+    focusShortcutEnabled?: boolean
+    empty?: { icon: string; title: string; description: string }
+    statusBar?: ReactNode
+    completedTaskIds?: ReadonlySet<string>
+    closedDecisionIds?: ReadonlySet<string>
+  }
+): JSX.Element {
   // A subagent's tool calls arrive in the same flat feed as the parent's own; these two say
   // which card each one belongs to. Both are keyed on the ids the adapter reported, never on
   // ordering, so an activity always renders somewhere (see `worklog-activities.ts`).
@@ -1126,11 +1184,7 @@ export function ChatView(props: ChatViewProps & {
     [props.activities, subagentActivities, props.plan.length]
   )
   const authVisible = props.status === 'auth_required' || props.reauthenticating
-  const pendingDecisions = pendingDecisionsFromMessages(
-    props.messages,
-    props.completedTaskIds,
-    props.closedDecisionIds
-  )
+  const pendingDecisions = pendingDecisionsFromMessages(props.messages, props.completedTaskIds, props.closedDecisionIds)
   const { ref: scrollRef, onScroll } = useStickToBottom([
     props.messages,
     props.activities,
@@ -1179,7 +1233,10 @@ export function ChatView(props: ChatViewProps & {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [props.focusMode, props.focusShortcutEnabled, props.setFocusMode])
   return (
-    <div ref={rootRef} className={`agent-chat ${props.focusMode ? 'focus-mode' : ''} ${props.statusBar ? 'has-status-bar' : ''} ${pendingDecisions.length > 0 ? 'has-pending-decisions' : ''}`}>
+    <div
+      ref={rootRef}
+      className={`agent-chat ${props.focusMode ? 'focus-mode' : ''} ${props.statusBar ? 'has-status-bar' : ''} ${pendingDecisions.length > 0 ? 'has-pending-decisions' : ''}`}
+    >
       <button
         type="button"
         className="focus-toggle nodrag nopan"
@@ -1197,20 +1254,26 @@ export function ChatView(props: ChatViewProps & {
           <SubagentActivitiesContext.Provider value={subagentActivities}>
             <SessionCommandsContext.Provider value={props.commands ?? []}>
               <div className="chat-scroll nodrag nopan nowheel" ref={scrollRef} onScroll={onScroll}>
-                {!authVisible && props.messages.length === 0 && (props.empty
-                    ? (
-                      <div className="chat-empty">
-                        <span>{props.empty.icon}</span>
-                        <strong>{props.empty.title}</strong>
-                        <p>{props.empty.description}</p>
-                      </div>
-                    )
-                    : <EmptyConversation provider={props.provider} />)}
-                {transcriptEntries.map((entry) => entry.type === 'activity'
-                  ? (!props.focusMode && <ActivityCard activity={entry.activity} key={entry.key} />)
-                  : entry.message.role === 'thought'
-                    ? (!props.focusMode && <ReasoningCard key={entry.key} message={entry.message} />)
-                    : <ChatMessageCard key={entry.key} message={entry.message} />)}
+                {!authVisible &&
+                  props.messages.length === 0 &&
+                  (props.empty ? (
+                    <div className="chat-empty">
+                      <span>{props.empty.icon}</span>
+                      <strong>{props.empty.title}</strong>
+                      <p>{props.empty.description}</p>
+                    </div>
+                  ) : (
+                    <EmptyConversation provider={props.provider} />
+                  ))}
+                {transcriptEntries.map((entry) =>
+                  entry.type === 'activity' ? (
+                    !props.focusMode && <ActivityCard activity={entry.activity} key={entry.key} />
+                  ) : entry.message.role === 'thought' ? (
+                    !props.focusMode && <ReasoningCard key={entry.key} message={entry.message} />
+                  ) : (
+                    <ChatMessageCard key={entry.key} message={entry.message} />
+                  )
+                )}
                 {!props.focusMode && props.plan.length > 0 && <PlanCard plan={props.plan} />}
                 <ApprovalPanel {...props} />
               </div>
@@ -1222,7 +1285,10 @@ export function ChatView(props: ChatViewProps & {
         <section className="pending-decisions" aria-label="Pending decisions">
           {pendingDecisions.map((decision: PendingDecision) => (
             <article key={decision.id} data-state={decision.state}>
-              <header><strong>Decision needed</strong>{decision.taskId && <small>{decision.taskId}</small>}</header>
+              <header>
+                <strong>Decision needed</strong>
+                {decision.taskId && <small>{decision.taskId}</small>}
+              </header>
               <p>{decisionQuestion(decision.text)}</p>
               <DecisionOptions
                 decisionId={decision.id}
@@ -1286,11 +1352,14 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
 
   useEffect(() => {
     if (data.titleSource || !data.conversationId || status !== 'ready') return
-    const title = deriveConversationTitle(messages
-      .filter((message): message is AgentChatMessage & { role: 'user' | 'assistant' } => (
-        message.role === 'user' || message.role === 'assistant'
-      ))
-      .map(({ role, text }) => ({ role, text })))
+    const title = deriveConversationTitle(
+      messages
+        .filter(
+          (message): message is AgentChatMessage & { role: 'user' | 'assistant' } =>
+            message.role === 'user' || message.role === 'assistant'
+        )
+        .map(({ role, text }) => ({ role, text }))
+    )
     if (title) void data.onTitleChange(id, title, 'generated').then((saved) => setTitleError(!saved))
   }, [data, data.conversationId, data.titleSource, id, messages, status])
 
@@ -1299,17 +1368,13 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
     setRenaming(false)
     if (title && title !== data.label) {
       void data.onTitleChange(id, title, 'manual').then((saved) => setTitleError(!saved))
-    }
-    else setTitleDraft(data.label)
+    } else setTitleDraft(data.label)
   }
   // Account usage belongs to the provider, so it arrives from App's single poll rather than from
   // this node asking for it (see provider-rate-limits.ts).
   const rateLimits = useContext(ProviderRateLimitsContext)[provider] ?? null
   // Recomputed only when a turn reports new usage or the account poll returns, never per chunk.
-  const usageReadout = useMemo(
-    () => describeSessionUsage({ usage, rateLimits }),
-    [usage, rateLimits]
-  )
+  const usageReadout = useMemo(() => describeSessionUsage({ usage, rateLimits }), [usage, rateLimits])
   const [stalled, setStalled] = useState(false)
   const lastProgressAtRef = useRef(Date.now())
 
@@ -1505,11 +1570,21 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
   return (
     <article
       className={`terminal-node chat-node ${selected ? 'selected' : ''}`}
-      style={{ '--node-accent': provider === 'claude' ? '#e69a71' : '#71a9ff', '--project-color': data.projectColor } as React.CSSProperties}
+      style={
+        {
+          '--node-accent': provider === 'claude' ? '#e69a71' : '#71a9ff',
+          '--project-color': data.projectColor
+        } as React.CSSProperties
+      }
     >
       <NodeBorderResizer minWidth={420} minHeight={320} selected={selected} color={data.projectColor} />
       <header className="node-header chat-node-header">
-        <span className="status-dot" data-status={status} data-stalled={stalled} title={stalled ? 'No progress for a while — this session may be stuck' : undefined} />
+        <span
+          className="status-dot"
+          data-status={status}
+          data-stalled={stalled}
+          title={stalled ? 'No progress for a while — this session may be stuck' : undefined}
+        />
         {renaming ? (
           <input
             className="node-title-input nodrag"
@@ -1527,7 +1602,9 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
             }}
           />
         ) : (
-          <strong title="Automatic titles are generated locally and cost no model tokens or account budget.">{data.label}</strong>
+          <strong title="Automatic titles are generated locally and cost no model tokens or account budget.">
+            {data.label}
+          </strong>
         )}
         <button
           type="button"
@@ -1538,9 +1615,18 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
             setTitleDraft(data.label)
             setRenaming(true)
           }}
-        >✎</button>
-        {titleError && <span className="node-title-error" role="alert" title="The conversation title could not be saved.">!</span>}
-        <span className="node-project" title={data.projectPath}><span className="project-color-dot" />{data.projectName}</span>
+        >
+          ✎
+        </button>
+        {titleError && (
+          <span className="node-title-error" role="alert" title="The conversation title could not be saved.">
+            !
+          </span>
+        )}
+        <span className="node-project" title={data.projectPath}>
+          <span className="project-color-dot" />
+          {data.projectName}
+        </span>
         <WorktreeBadge data={data} />
         {/* Model, effort and permission pickers live in the composer's toolbar - see
             ComposerToolbar - so the whole picker row reads as one set and the header keeps its
@@ -1550,9 +1636,11 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
           unread={unread}
           onToggle={(next) => {
             unreadHoldRef.current = next === 'unread'
-            reportAttention?.(next === 'unread'
-              ? { type: 'unread', nodeId: id }
-              : { type: 'read', nodeId: id, kinds: READ_ON_VIEW_KINDS })
+            reportAttention?.(
+              next === 'unread'
+                ? { type: 'unread', nodeId: id }
+                : { type: 'read', nodeId: id, kinds: READ_ON_VIEW_KINDS }
+            )
           }}
         />
         <span className="node-status">{status.replace('_', ' ')}</span>
@@ -1561,7 +1649,11 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
         <div className="dormant-session chat-dormant nodrag">
           <span className="dormant-session-icon">{provider === 'claude' ? 'C' : '<>'}</span>
           <strong>Saved {providerNames[provider]} conversation</strong>
-          <small>{data.conversationId ? 'Load its ACP history and continue where you left off.' : 'Start a new ACP conversation.'}</small>
+          <small>
+            {data.conversationId
+              ? 'Load its ACP history and continue where you left off.'
+              : 'Start a new ACP conversation.'}
+          </small>
           {data.preview?.assistant && <blockquote>{data.preview.assistant}</blockquote>}
           <button type="button" className="resume-session" onClick={() => data.onResume(id)}>
             {data.conversationId ? 'Open conversation' : 'Start conversation'}

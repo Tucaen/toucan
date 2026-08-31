@@ -36,12 +36,7 @@ const baseChatViewProps: ChatViewProps = {
 
 function renderTranscript(activities: AgentActivity[], plan: AgentPlanEntry[] = []): HTMLElement {
   const { container } = render(
-    <ChatView
-      {...baseChatViewProps}
-      activities={activities}
-      plan={plan}
-      workspaceRoots={['D:\\Development\\ADE']}
-    />
+    <ChatView {...baseChatViewProps} activities={activities} plan={plan} workspaceRoots={['D:\\Development\\ADE']} />
   )
   return container.querySelector<HTMLElement>('.chat-scroll') as HTMLElement
 }
@@ -148,16 +143,18 @@ describe('task, plan, skill and MCP tool cards', () => {
     const { container } = render(
       <ChatView
         {...baseChatViewProps}
-        activities={[{
-          id: 'skill-1',
-          kind: 'other',
-          toolName: 'Skill',
-          status: 'completed',
-          rawInput: { skill: 'code-review', args: 'since main' },
-          content: 'Reviewing 7 changed files.',
-          startedAt: 0,
-          endedAt: 10
-        }]}
+        activities={[
+          {
+            id: 'skill-1',
+            kind: 'other',
+            toolName: 'Skill',
+            status: 'completed',
+            rawInput: { skill: 'code-review', args: 'since main' },
+            content: 'Reviewing 7 changed files.',
+            startedAt: 0,
+            endedAt: 10
+          }
+        ]}
         commands={[{ name: 'code-review', description: 'Review the changes since a fixed point.' }]}
         workspaceRoots={['D:\\Development\\ADE']}
       />

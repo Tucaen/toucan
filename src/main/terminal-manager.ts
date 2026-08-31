@@ -98,7 +98,12 @@ export function createTerminalManager(options: TerminalManagerOptions): Terminal
         const terminal = options.spawn(launch, request, cwd)
         const incarnationId = (options.createIncarnationId ?? randomUUID)()
         const running: RunningTerminal = {
-          sessionId, incarnationId, process: terminal, owner, attachmentId, liveness: 'live'
+          sessionId,
+          incarnationId,
+          process: terminal,
+          owner,
+          attachmentId,
+          liveness: 'live'
         }
         terminals.set(sessionId, running)
         lastStates.set(sessionId, { incarnationId, liveness: 'live' })
@@ -109,7 +114,10 @@ export function createTerminalManager(options: TerminalManagerOptions): Terminal
           }
           if (terminals.get(sessionId) === running && running.owner) {
             sendTerminalEvent(running.owner, 'terminal:data', {
-              sessionId, incarnationId, attachmentId: running.attachmentId, data
+              sessionId,
+              incarnationId,
+              attachmentId: running.attachmentId,
+              data
             })
           }
         })
@@ -119,9 +127,13 @@ export function createTerminalManager(options: TerminalManagerOptions): Terminal
           if (current === running) terminals.delete(sessionId)
           if (lastStates.get(sessionId)?.incarnationId !== incarnationId) return
           lastStates.set(sessionId, { incarnationId, liveness: 'exited' })
-          if (running.owner) sendTerminalEvent(running.owner, 'terminal:exit', {
-            sessionId, incarnationId, attachmentId: running.attachmentId, exitCode
-          })
+          if (running.owner)
+            sendTerminalEvent(running.owner, 'terminal:exit', {
+              sessionId,
+              incarnationId,
+              attachmentId: running.attachmentId,
+              exitCode
+            })
         })
         // Only a freshly spawned incarnation gets seeded input; reattaching to a terminal that
         // already exists returns above, so a setup command can never be replayed into a shell

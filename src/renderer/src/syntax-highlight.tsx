@@ -1,13 +1,31 @@
 import { common, createLowlight } from 'lowlight'
-import type { Element as HastElement, RootContent } from 'hast'
+import type { RootContent } from 'hast'
 import type { ReactNode } from 'react'
 
 const lowlight = createLowlight(common)
 
 const LANGUAGE_BY_EXTENSION: Record<string, string> = {
-  c: 'c', cpp: 'cpp', cs: 'csharp', css: 'css', go: 'go', html: 'html', java: 'java',
-  js: 'javascript', jsx: 'javascript', json: 'json', md: 'markdown', py: 'python', rb: 'ruby',
-  rs: 'rust', sh: 'bash', sql: 'sql', ts: 'typescript', tsx: 'typescript', xml: 'xml', yaml: 'yaml', yml: 'yaml'
+  c: 'c',
+  cpp: 'cpp',
+  cs: 'csharp',
+  css: 'css',
+  go: 'go',
+  html: 'html',
+  java: 'java',
+  js: 'javascript',
+  jsx: 'javascript',
+  json: 'json',
+  md: 'markdown',
+  py: 'python',
+  rb: 'ruby',
+  rs: 'rust',
+  sh: 'bash',
+  sql: 'sql',
+  ts: 'typescript',
+  tsx: 'typescript',
+  xml: 'xml',
+  yaml: 'yaml',
+  yml: 'yaml'
 }
 
 function renderHast(nodes: RootContent[], keyPrefix = 'h'): ReactNode[] {
@@ -16,9 +34,11 @@ function renderHast(nodes: RootContent[], keyPrefix = 'h'): ReactNode[] {
     if (node.type === 'text') return node.value
     if (node.type !== 'element') return null
     const className = node.properties?.className
-    return <span key={key} className={Array.isArray(className) ? className.join(' ') : undefined}>
-      {renderHast(node.children as RootContent[], key)}
-    </span>
+    return (
+      <span key={key} className={Array.isArray(className) ? className.join(' ') : undefined}>
+        {renderHast(node.children as RootContent[], key)}
+      </span>
+    )
   })
 }
 
@@ -53,7 +73,11 @@ function splitHighlightedNodes(nodes: RootContent[], keyPrefix = 'l'): ReactNode
     const className = Array.isArray(node.properties?.className) ? node.properties.className.join(' ') : undefined
     childLines.forEach((children, childIndex) => {
       if (childIndex > 0) lines.push([])
-      lines.at(-1)!.push(<span className={className} key={`${keyPrefix}-${index}-${childIndex}`}>{children}</span>)
+      lines.at(-1)!.push(
+        <span className={className} key={`${keyPrefix}-${index}-${childIndex}`}>
+          {children}
+        </span>
+      )
     })
   })
   return lines

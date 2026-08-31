@@ -56,16 +56,23 @@ function FilePathActions({ path }: { path: string }): JSX.Element {
   return (
     <div className="file-op-path">
       <code title={path}>{shortenFilePath(path, roots)}</code>
-      <button type="button" onClick={() => window.terminalApi?.copyText(path)}>Copy path</button>
-      {reveal && <button type="button" onClick={() => void reveal(path)}>Reveal</button>}
+      <button type="button" onClick={() => window.terminalApi?.copyText(path)}>
+        Copy path
+      </button>
+      {reveal && (
+        <button type="button" onClick={() => void reveal(path)}>
+          Reveal
+        </button>
+      )}
     </div>
   )
 }
 
-function FileOperationBlockView(
-  { block, showPath }: { block: FileOperationBlock; showPath: boolean }
-): JSX.Element {
-  const highlighted = highlightedCodeLines(block.lines.map((line) => line.text), block.languagePath ?? '')
+function FileOperationBlockView({ block, showPath }: { block: FileOperationBlock; showPath: boolean }): JSX.Element {
+  const highlighted = highlightedCodeLines(
+    block.lines.map((line) => line.text),
+    block.languagePath ?? ''
+  )
   return (
     <div className={`file-op-block${block.path ? ' file-op-hunk' : ''}`}>
       {showPath && block.path && <FilePathActions path={block.path} />}
@@ -73,22 +80,26 @@ function FileOperationBlockView(
       <div className="file-op-lines">
         {block.lines.map((line, index) => (
           <div className="file-op-line" data-tone={line.tone} key={index}>
-            {block.path
-              ? (
-                <>
-                  <span className="file-op-line-number" aria-hidden="true">{line.oldNumber ?? ''}</span>
-                  <span className="file-op-line-number" aria-hidden="true">{line.newNumber ?? ''}</span>
-                  <span className="file-op-line-mark" aria-hidden="true">
-                    {line.tone === 'old' ? '-' : line.tone === 'new' ? '+' : ' '}
-                  </span>
-                </>
-                )
-              : (
+            {block.path ? (
+              <>
                 <span className="file-op-line-number" aria-hidden="true">
-                  {line.tone === 'old' ? '-' : line.tone === 'new' ? '+' : line.number}
+                  {line.oldNumber ?? ''}
                 </span>
-                )}
-            <span className="file-op-line-text"><code className="hljs">{highlighted[index]}</code></span>
+                <span className="file-op-line-number" aria-hidden="true">
+                  {line.newNumber ?? ''}
+                </span>
+                <span className="file-op-line-mark" aria-hidden="true">
+                  {line.tone === 'old' ? '-' : line.tone === 'new' ? '+' : ' '}
+                </span>
+              </>
+            ) : (
+              <span className="file-op-line-number" aria-hidden="true">
+                {line.tone === 'old' ? '-' : line.tone === 'new' ? '+' : line.number}
+              </span>
+            )}
+            <span className="file-op-line-text">
+              <code className="hljs">{highlighted[index]}</code>
+            </span>
           </div>
         ))}
       </div>
@@ -96,9 +107,13 @@ function FileOperationBlockView(
   )
 }
 
-export function FileOperationBody(
-  { operation, blocks }: { operation: FileOperation; blocks: FileOperationBlock[] }
-): JSX.Element {
+export function FileOperationBody({
+  operation,
+  blocks
+}: {
+  operation: FileOperation
+  blocks: FileOperationBlock[]
+}): JSX.Element {
   return (
     <div className="file-op">
       {!operation.diffs?.length && <FilePathActions path={operation.path} />}

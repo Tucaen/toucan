@@ -12,7 +12,7 @@ const modeOption: SessionConfigOption = {
   options: [{ value: 'default', name: 'Default' }]
 }
 
-test('reads the model selector out of an agent\'s config options', () => {
+test("reads the model selector out of an agent's config options", () => {
   const selector = modelSelectorFromConfigOptions([
     modeOption,
     {
@@ -56,7 +56,10 @@ test('flattens grouped model options into one selectable list', () => {
   ])
 
   assert.equal(selector?.configId, 'acp-model')
-  assert.deepEqual(selector?.models.availableModels.map((model) => model.id), ['gpt-5-codex', 'gpt-5'])
+  assert.deepEqual(
+    selector?.models.availableModels.map((model) => model.id),
+    ['gpt-5-codex', 'gpt-5']
+  )
 })
 
 test('falls back to the conventional id when an agent omits the category hint', () => {

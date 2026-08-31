@@ -76,8 +76,8 @@ test('promptGuard blocks a prompt once the session is parked in auth_required', 
 })
 
 test(
-  'a wake-gate queue built up while the agent was working does not retry once auth_required is hit — '
-  + 'only the first queued message re-triggers the (broken) prompt, the rest short-circuit immediately',
+  'a wake-gate queue built up while the agent was working does not retry once auth_required is hit — ' +
+    'only the first queued message re-triggers the (broken) prompt, the rest short-circuit immediately',
   async () => {
     // Reproduces the "repeatedly shows the error text" symptom: without the authRequired guard,
     // every queued message drained a wake-gate flush would re-attempt delivery against the same
@@ -107,12 +107,10 @@ test(
 )
 
 test('extractLoginUrl finds the OAuth URL in a terminal-auth CLI\'s "click here" line', () => {
-  const line = 'To authorize, open your browser. If the link does not open automatically, '
-    + 'click here: https://claude.ai/oauth/authorize?client_id=abc&state=xyz'
-  assert.equal(
-    extractLoginUrl(line),
-    'https://claude.ai/oauth/authorize?client_id=abc&state=xyz'
-  )
+  const line =
+    'To authorize, open your browser. If the link does not open automatically, ' +
+    'click here: https://claude.ai/oauth/authorize?client_id=abc&state=xyz'
+  assert.equal(extractLoginUrl(line), 'https://claude.ai/oauth/authorize?client_id=abc&state=xyz')
 })
 
 test('extractLoginUrl returns undefined for plain status text with no URL', () => {

@@ -38,12 +38,7 @@ const baseChatViewProps: ChatViewProps = {
 
 function renderChatView(overrides: Partial<ChatViewProps>): HTMLElement {
   const { container } = render(
-    <ChatView
-      {...baseChatViewProps}
-      {...overrides}
-      focusMode={false}
-      setFocusMode={vi.fn()}
-    />
+    <ChatView {...baseChatViewProps} {...overrides} focusMode={false} setFocusMode={vi.fn()} />
   )
   return container
 }

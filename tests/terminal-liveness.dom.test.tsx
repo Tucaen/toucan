@@ -1,9 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
-import {
-  CanvasTerminalLiveness,
-  SidebarTerminalLiveness
-} from '../src/renderer/src/TerminalLivenessPresentation'
+import { CanvasTerminalLiveness, SidebarTerminalLiveness } from '../src/renderer/src/TerminalLivenessPresentation'
 import type { TerminalLiveness } from '../src/shared/terminal'
 
 describe.each([

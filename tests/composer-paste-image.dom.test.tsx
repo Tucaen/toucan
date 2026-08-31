@@ -19,14 +19,7 @@ function Harness(props: { id: string }): JSX.Element {
     onPermissionMode: vi.fn(),
     onModel: vi.fn()
   })
-  return (
-    <ChatView
-      {...conversation}
-      provider="claude"
-      focusMode={false}
-      setFocusMode={vi.fn()}
-    />
-  )
+  return <ChatView {...conversation} provider="claude" focusMode={false} setFocusMode={vi.fn()} />
 }
 
 function pasteImageItem(file: File): { items: Array<{ kind: string; type: string; getAsFile(): File }> } {
@@ -76,7 +69,9 @@ describe('paste-to-attach', () => {
     const textarea = screen.getByPlaceholderText(/message the agent/i)
     const bytes = 'fake-png-bytes'
 
-    fireEvent.paste(textarea, { clipboardData: pasteImageItem(new File([bytes], 'clipboard.png', { type: 'image/png' })) })
+    fireEvent.paste(textarea, {
+      clipboardData: pasteImageItem(new File([bytes], 'clipboard.png', { type: 'image/png' }))
+    })
     await screen.findByAltText('Pasted attachment')
 
     fireEvent.change(textarea, { target: { value: 'look at this' } })
@@ -111,8 +106,8 @@ describe('paste-to-attach', () => {
 
 describe('image capability gating', () => {
   test(
-    'pasting an image when the active agent does not advertise image support shows an inline '
-    + 'message instead of silently attaching (or sending) it',
+    'pasting an image when the active agent does not advertise image support shows an inline ' +
+      'message instead of silently attaching (or sending) it',
     async () => {
       await renderReadyHarness('no-image-support-session', false)
       const textarea = screen.getByPlaceholderText(/message the agent/i)

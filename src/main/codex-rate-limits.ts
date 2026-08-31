@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import { closeSync, existsSync, openSync, readSync, readdirSync, statSync } from 'node:fs'
-import { dirname, extname, join } from 'node:path'
+import { extname, join, win32 } from 'node:path'
 import { createInterface } from 'node:readline'
 import type { AgentRateLimitStatus, AgentRateLimitWindow } from '../shared/agent'
 import { withStallGuard } from '../shared/stall-guard'
@@ -58,12 +58,14 @@ function sessionDirectories(root: string, now: Date): string[] {
   for (let daysAgo = 0; daysAgo < SEARCH_DAYS; daysAgo += 1) {
     const date = new Date(now)
     date.setDate(date.getDate() - daysAgo)
-    directories.push(join(
-      root,
-      String(date.getFullYear()),
-      String(date.getMonth() + 1).padStart(2, '0'),
-      String(date.getDate()).padStart(2, '0')
-    ))
+    directories.push(
+      join(
+        root,
+        String(date.getFullYear()),
+        String(date.getMonth() + 1).padStart(2, '0'),
+        String(date.getDate()).padStart(2, '0')
+      )
+    )
   }
   return directories
 }
@@ -110,7 +112,9 @@ function readTail(path: string): string[] {
   return lines.filter(Boolean)
 }
 
-function toWindow(payload: CodexWindowPayload | null | undefined): { window: AgentRateLimitWindow; minutes: number } | null {
+function toWindow(
+  payload: CodexWindowPayload | null | undefined
+): { window: AgentRateLimitWindow; minutes: number } | null {
   if (!payload || typeof payload.used_percent !== 'number' || typeof payload.window_minutes !== 'number') return null
   // `resets_at` is epoch seconds, unlike every other timestamp ADE handles.
   const resetsAt = typeof payload.resets_at === 'number' ? payload.resets_at * 1000 : undefined
@@ -152,7 +156,8 @@ export function codexRateLimitsFromAppServer(response: unknown): AgentRateLimitS
   if (!response || typeof response !== 'object') return null
   const payload = response as CodexAppServerResponse
   const snapshot = payload.rateLimitsByLimitId?.codex ?? payload.rateLimits
-  if (!snapshot || (snapshot.limitId !== undefined && snapshot.limitId !== null && snapshot.limitId !== 'codex')) return null
+  if (!snapshot || (snapshot.limitId !== undefined && snapshot.limitId !== null && snapshot.limitId !== 'codex'))
+    return null
   return statusFromWindows(
     toAppServerWindow(snapshot.primary),
     toAppServerWindow(snapshot.secondary),
@@ -222,18 +227,15 @@ export function resolveCodexAppServerLaunch(
   }
 
   const script = [
-    join(dirname(command), 'node_modules', '@openai', 'codex', 'bin', 'codex.js'),
-    join(dirname(command), '..', '@openai', 'codex', 'bin', 'codex.js')
+    win32.join(win32.dirname(command), 'node_modules', '@openai', 'codex', 'bin', 'codex.js'),
+    win32.join(win32.dirname(command), '..', '@openai', 'codex', 'bin', 'codex.js')
   ].find(pathExists)
   return script
     ? { executable: nodeExecutable, args: [script, 'app-server', '--listen', 'stdio://'], runElectronAsNode: true }
     : null
 }
 
-async function requestRateLimitsViaAppServer(
-  command: string,
-  environment: NodeJS.ProcessEnv
-): Promise<unknown> {
+async function requestRateLimitsViaAppServer(command: string, environment: NodeJS.ProcessEnv): Promise<unknown> {
   const launch = resolveCodexAppServerLaunch(command)
   if (!launch) throw new Error('Codex command shim could not be resolved')
   const child = spawn(launch.executable, launch.args, {
@@ -262,11 +264,13 @@ async function requestRateLimitsViaAppServer(
       }
     })
 
-    child.stdin.write(`${JSON.stringify({
-      id: 1,
-      method: 'initialize',
-      params: { clientInfo: { name: 'ade', version: '0.1.0' } }
-    })}\n`)
+    child.stdin.write(
+      `${JSON.stringify({
+        id: 1,
+        method: 'initialize',
+        params: { clientInfo: { name: 'ade', version: '0.1.0' } }
+      })}\n`
+    )
   })
 
   try {
@@ -278,8 +282,11 @@ async function requestRateLimitsViaAppServer(
 
 export function createCodexRateLimitReader(options: CodexRateLimitReaderOptions): CodexRateLimitReader {
   const now = options.now ?? ((): Date => new Date())
-  const requestRateLimits = options.requestRateLimits
-    ?? (options.command ? ((): Promise<unknown> => requestRateLimitsViaAppServer(options.command!, options.environment)) : null)
+  const requestRateLimits =
+    options.requestRateLimits ??
+    (options.command
+      ? (): Promise<unknown> => requestRateLimitsViaAppServer(options.command!, options.environment)
+      : null)
   return {
     async read(): Promise<AgentRateLimitStatus | null> {
       if (requestRateLimits) {

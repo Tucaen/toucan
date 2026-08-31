@@ -36,16 +36,19 @@ test('a grep result is grouped by file with line numbers and an aggregate count'
 })
 
 test('a grep summary states its pattern, match count, and file count', () => {
-  assert.equal(searchNavigationSummary({
-    kind: 'grep',
-    pattern: 'useAgentConversation',
-    matchCount: 7,
-    groups: [
-      { path: 'one.ts', matches: [] },
-      { path: 'two.ts', matches: [] },
-      { path: 'three.ts', matches: [] }
-    ]
-  }), 'useAgentConversation — 7 matches in 3 files')
+  assert.equal(
+    searchNavigationSummary({
+      kind: 'grep',
+      pattern: 'useAgentConversation',
+      matchCount: 7,
+      groups: [
+        { path: 'one.ts', matches: [] },
+        { path: 'two.ts', matches: [] },
+        { path: 'three.ts', matches: [] }
+      ]
+    }),
+    'useAgentConversation — 7 matches in 3 files'
+  )
 })
 
 test('a completed grep with no output is unmistakably a zero-result search', () => {
@@ -86,10 +89,7 @@ test('a web search preserves each result title, URL, and host', () => {
     toolName: 'WebSearch',
     status: 'completed',
     rawInput: { query: 'React documentation' },
-    content: [
-      'React (https://react.dev/)',
-      'React repository (https://github.com/facebook/react)'
-    ].join('\n')
+    content: ['React (https://react.dev/)', 'React repository (https://github.com/facebook/react)'].join('\n')
   })
 
   assert.deepEqual(search, {

@@ -3,10 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import {
-  createConversationHistory,
-  encodeClaudeProjectDirectory
-} from '../src/main/conversation-history'
+import { createConversationHistory, encodeClaudeProjectDirectory } from '../src/main/conversation-history'
 import { createConversationTitleStore } from '../src/main/conversation-title-store'
 
 const PROJECT = 'D:\\Dev\\ADE'
@@ -36,12 +33,14 @@ function writeClaudeTranscript(options: {
     lines.push(JSON.stringify({ type: 'ai-title', aiTitle: options.title, sessionId: options.id }))
   }
   options.turns.forEach((turn, index) => {
-    lines.push(JSON.stringify({
-      type: turn.role,
-      isSidechain: turn.sidechain ?? false,
-      timestamp: `2026-08-20T10:0${index}:00.000Z`,
-      message: { role: turn.role, content: [{ type: 'text', text: turn.text }] }
-    }))
+    lines.push(
+      JSON.stringify({
+        type: turn.role,
+        isSidechain: turn.sidechain ?? false,
+        timestamp: `2026-08-20T10:0${index}:00.000Z`,
+        message: { role: turn.role, content: [{ type: 'text', text: turn.text }] }
+      })
+    )
   })
   const path = join(directory, `${options.id}.jsonl`)
   writeFileSync(path, `${lines.join('\n')}\n`)
@@ -76,15 +75,17 @@ function writeCodexTranscript(options: {
   }
   const lines = [JSON.stringify(meta)]
   options.turns.forEach((turn, index) => {
-    lines.push(JSON.stringify({
-      timestamp: `2026-08-20T10:0${index}:00.000Z`,
-      type: 'response_item',
-      payload: {
-        type: 'message',
-        role: turn.role,
-        content: [{ type: turn.role === 'user' ? 'input_text' : 'output_text', text: turn.text }]
-      }
-    }))
+    lines.push(
+      JSON.stringify({
+        timestamp: `2026-08-20T10:0${index}:00.000Z`,
+        type: 'response_item',
+        payload: {
+          type: 'message',
+          role: turn.role,
+          content: [{ type: turn.role === 'user' ? 'input_text' : 'output_text', text: turn.text }]
+        }
+      })
+    )
   })
   const path = join(directory, `rollout-2026-08-${options.day}T10-00-00-${options.id}.jsonl`)
   writeFileSync(path, `${lines.join('\n')}\n`)
@@ -104,7 +105,10 @@ test('lists both providers for a directory, newest first', async () => {
       directoryName: encodeClaudeProjectDirectory(PROJECT),
       id: 'claude-old',
       title: 'Rename the parser',
-      turns: [{ role: 'user', text: 'rename it' }, { role: 'assistant', text: 'done' }],
+      turns: [
+        { role: 'user', text: 'rename it' },
+        { role: 'assistant', text: 'done' }
+      ],
       mtimeSeconds: 1_700_000_000
     })
     writeCodexTranscript({
@@ -112,7 +116,10 @@ test('lists both providers for a directory, newest first', async () => {
       id: 'codex-new',
       cwd: PROJECT,
       day: '21',
-      turns: [{ role: 'user', text: 'ship the release' }, { role: 'assistant', text: 'shipped' }],
+      turns: [
+        { role: 'user', text: 'ship the release' },
+        { role: 'assistant', text: 'shipped' }
+      ],
       mtimeSeconds: 1_700_000_500
     })
 
@@ -120,11 +127,26 @@ test('lists both providers for a directory, newest first', async () => {
 
     assert.equal(page.total, 2)
     assert.equal(page.hasMore, false)
-    assert.deepEqual(page.entries.map((entry) => entry.id), ['codex-new', 'claude-old'])
-    assert.deepEqual(page.entries.map((entry) => entry.provider), ['codex', 'claude'])
-    assert.deepEqual(page.entries.map((entry) => entry.title), ['ship the release', 'Rename the parser'])
-    assert.deepEqual(page.entries.map((entry) => entry.messageCount), [2, 2])
-    assert.deepEqual(page.entries.map((entry) => entry.cwd), [PROJECT, PROJECT])
+    assert.deepEqual(
+      page.entries.map((entry) => entry.id),
+      ['codex-new', 'claude-old']
+    )
+    assert.deepEqual(
+      page.entries.map((entry) => entry.provider),
+      ['codex', 'claude']
+    )
+    assert.deepEqual(
+      page.entries.map((entry) => entry.title),
+      ['ship the release', 'Rename the parser']
+    )
+    assert.deepEqual(
+      page.entries.map((entry) => entry.messageCount),
+      [2, 2]
+    )
+    assert.deepEqual(
+      page.entries.map((entry) => entry.cwd),
+      [PROJECT, PROJECT]
+    )
   } finally {
     rmSync(home, { recursive: true, force: true })
   }
@@ -138,7 +160,10 @@ test('a durable title overrides provider and first-message titles in history', a
       directoryName: encodeClaudeProjectDirectory(PROJECT),
       id: 'claude-renamed',
       title: 'Provider title',
-      turns: [{ role: 'user', text: 'continue' }, { role: 'assistant', text: 'Working on recovery.' }],
+      turns: [
+        { role: 'user', text: 'continue' },
+        { role: 'assistant', text: 'Working on recovery.' }
+      ],
       mtimeSeconds: 1_700_000_000
     })
     const titles = createConversationTitleStore(join(home, 'titles.json'))
@@ -169,7 +194,10 @@ test('matches a Claude project folder whose drive letter case differs from the r
 
     const page = await history(home).list({ directories: ['D:\\Dev\\ADE'] })
 
-    assert.deepEqual(page.entries.map((entry) => entry.id), ['claude-1'])
+    assert.deepEqual(
+      page.entries.map((entry) => entry.id),
+      ['claude-1']
+    )
   } finally {
     rmSync(home, { recursive: true, force: true })
   }
@@ -229,7 +257,10 @@ test('ignores Codex subagent rollouts and transcripts from other directories', a
 
     const page = await history(home).list({ directories: [PROJECT, WORKTREE] })
 
-    assert.deepEqual(page.entries.map((entry) => entry.id), ['codex-worktree'])
+    assert.deepEqual(
+      page.entries.map((entry) => entry.id),
+      ['codex-worktree']
+    )
     assert.equal(page.entries[0].cwd, WORKTREE)
   } finally {
     rmSync(home, { recursive: true, force: true })
@@ -251,7 +282,10 @@ test('reads a Codex session whose meta line outruns the head read', async () => 
 
     const page = await history(home).list({ directories: [PROJECT] })
 
-    assert.deepEqual(page.entries.map((entry) => entry.id), ['codex-big-meta'])
+    assert.deepEqual(
+      page.entries.map((entry) => entry.id),
+      ['codex-big-meta']
+    )
     assert.equal(page.entries[0].title, 'still findable')
   } finally {
     rmSync(home, { recursive: true, force: true })
@@ -336,10 +370,7 @@ test('reports a transcript deleted after it was listed', async () => {
 test('returns nothing when no directory is given', async () => {
   const home = makeHome()
   try {
-    assert.deepEqual(
-      await history(home).list({ directories: [] }),
-      { entries: [], total: 0, hasMore: false }
-    )
+    assert.deepEqual(await history(home).list({ directories: [] }), { entries: [], total: 0, hasMore: false })
   } finally {
     rmSync(home, { recursive: true, force: true })
   }

@@ -22,7 +22,11 @@ import { promptFailure } from '../src/main/acp-session-manager'
 // over a live ACP child process connection that this suite, like the rest of this file's
 // siblings, does not spin up).
 
-function makeHarness(turnTimeoutMs: number): { running: { busy: boolean }; events: AgentEvent[]; wakeGate: PromptWakeGate } {
+function makeHarness(turnTimeoutMs: number): {
+  running: { busy: boolean }
+  events: AgentEvent[]
+  wakeGate: PromptWakeGate
+} {
   const running = { busy: false }
   const events: AgentEvent[] = []
   let wakeGate!: PromptWakeGate
@@ -31,9 +35,10 @@ function makeHarness(turnTimeoutMs: number): { running: { busy: boolean }; event
     running.busy = true
     events.push({ type: 'status', status: 'working' })
     try {
-      const request = text === 'hung message'
-        ? new Promise<{ stopReason: string }>(() => {}) // simulates a wedged ACP subprocess/connection
-        : Promise.resolve({ stopReason: 'end_turn' })
+      const request =
+        text === 'hung message'
+          ? new Promise<{ stopReason: string }>(() => {}) // simulates a wedged ACP subprocess/connection
+          : Promise.resolve({ stopReason: 'end_turn' })
       const response = await withStallGuard(
         request,
         turnTimeoutMs,
@@ -56,38 +61,35 @@ function makeHarness(turnTimeoutMs: number): { running: { busy: boolean }; event
   return { running, events, wakeGate }
 }
 
-test(
-  'a hung turn times out, recovers status to idle, and does not block a message queued behind it',
-  async () => {
-    const { running, events, wakeGate } = makeHarness(20)
+test('a hung turn times out, recovers status to idle, and does not block a message queued behind it', async () => {
+  const { running, events, wakeGate } = makeHarness(20)
 
-    const first = wakeGate.enqueue('hung message')
-    const second = wakeGate.enqueue('second message')
-    wakeGate.flush()
+  const first = wakeGate.enqueue('hung message')
+  const second = wakeGate.enqueue('second message')
+  wakeGate.flush()
 
-    const [firstResult, secondResult] = await Promise.all([first, second])
+  const [firstResult, secondResult] = await Promise.all([first, second])
 
-    assert.equal(firstResult.ok, false, 'the hung turn must resolve, not hang forever, once its bounded timeout fires')
-    assert.equal(
-      secondResult.ok,
-      true,
-      'a message queued behind a hung turn must still be delivered once the timeout frees the wake gate'
-    )
-    assert.equal(running.busy, false, 'busy must clear so the UI can leave "Working" instead of staying wedged')
-    assert.deepEqual(
-      events.filter((event) => event.type === 'status'),
-      [
-        { type: 'status', status: 'working' },
-        { type: 'status', status: 'idle' },
-        { type: 'status', status: 'working' },
-        { type: 'status', status: 'idle' }
-      ],
-      'status must recover to idle after the timeout instead of staying stuck on "working"'
-    )
+  assert.equal(firstResult.ok, false, 'the hung turn must resolve, not hang forever, once its bounded timeout fires')
+  assert.equal(
+    secondResult.ok,
+    true,
+    'a message queued behind a hung turn must still be delivered once the timeout frees the wake gate'
+  )
+  assert.equal(running.busy, false, 'busy must clear so the UI can leave "Working" instead of staying wedged')
+  assert.deepEqual(
+    events.filter((event) => event.type === 'status'),
+    [
+      { type: 'status', status: 'working' },
+      { type: 'status', status: 'idle' },
+      { type: 'status', status: 'working' },
+      { type: 'status', status: 'idle' }
+    ],
+    'status must recover to idle after the timeout instead of staying stuck on "working"'
+  )
 
-    wakeGate.dispose()
-  }
-)
+  wakeGate.dispose()
+})
 
 // Reproduces the "double in-flight prompt" race: once a stall timeout fires, `busy` clearing and
 // the wake gate flushing must not race a `session/cancel` notification that's still in flight -
@@ -142,36 +144,33 @@ function makeCancelAwareHarness(
   return { running, wakeGate, resumeHungTurn: (stopReason) => resolveHungTurn({ stopReason }) }
 }
 
-test(
-  'a message queued behind a stalled turn only dispatches once the cancel notify has settled, and the stalled turn resuming afterward has no effect',
-  async () => {
-    const order: string[] = []
-    const { running, wakeGate, resumeHungTurn } = makeCancelAwareHarness(20, 15, order)
+test('a message queued behind a stalled turn only dispatches once the cancel notify has settled, and the stalled turn resuming afterward has no effect', async () => {
+  const order: string[] = []
+  const { running, wakeGate, resumeHungTurn } = makeCancelAwareHarness(20, 15, order)
 
-    const first = wakeGate.enqueue('hung message')
-    const second = wakeGate.enqueue('second message')
-    wakeGate.flush()
+  const first = wakeGate.enqueue('hung message')
+  const second = wakeGate.enqueue('second message')
+  wakeGate.flush()
 
-    const [firstResult, secondResult] = await Promise.all([first, second])
+  const [firstResult, secondResult] = await Promise.all([first, second])
 
-    assert.equal(firstResult.ok, false, 'the stalled turn must still resolve as a failure once its timeout fires')
-    assert.equal(secondResult.ok, true, 'the queued message must still be delivered after the stalled turn is cancelled')
+  assert.equal(firstResult.ok, false, 'the stalled turn must still resolve as a failure once its timeout fires')
+  assert.equal(secondResult.ok, true, 'the queued message must still be delivered after the stalled turn is cancelled')
 
-    const cancelSettledIndex = order.indexOf('cancel-notify:settled')
-    const secondDispatchIndex = order.indexOf('prompt-dispatch:second message')
-    assert.ok(cancelSettledIndex !== -1, 'the cancel notify must have been sent and settled')
-    assert.ok(secondDispatchIndex !== -1, 'the queued message must have been dispatched')
-    assert.ok(
-      cancelSettledIndex < secondDispatchIndex,
-      'a fresh session/prompt for the same session must not dispatch until the prior turn\'s cancel notify has settled'
-    )
+  const cancelSettledIndex = order.indexOf('cancel-notify:settled')
+  const secondDispatchIndex = order.indexOf('prompt-dispatch:second message')
+  assert.ok(cancelSettledIndex !== -1, 'the cancel notify must have been sent and settled')
+  assert.ok(secondDispatchIndex !== -1, 'the queued message must have been dispatched')
+  assert.ok(
+    cancelSettledIndex < secondDispatchIndex,
+    "a fresh session/prompt for the same session must not dispatch until the prior turn's cancel notify has settled"
+  )
 
-    // The agent "resumes responding" to the original, now-abandoned turn after everything else has
-    // already settled. This must be a no-op: the wrapper already returned a failure result for it.
-    resumeHungTurn('end_turn')
-    await new Promise((resolve) => setTimeout(resolve, 10))
-    assert.equal(running.busy, false, 'a late response from the abandoned turn must not resurrect busy state')
+  // The agent "resumes responding" to the original, now-abandoned turn after everything else has
+  // already settled. This must be a no-op: the wrapper already returned a failure result for it.
+  resumeHungTurn('end_turn')
+  await new Promise((resolve) => setTimeout(resolve, 10))
+  assert.equal(running.busy, false, 'a late response from the abandoned turn must not resurrect busy state')
 
-    wakeGate.dispose()
-  }
-)
+  wakeGate.dispose()
+})

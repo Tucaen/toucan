@@ -58,7 +58,10 @@ const NOISE_LEAD_PATTERNS: RegExp[] = [
 const NOISE_MAX_LENGTH = 220
 
 function cleanOptionLine(line: string): string {
-  return line.replace(/^(?:[-*]|\d+[.)])\s*/, '').replace(/\*\*/g, '').trim()
+  return line
+    .replace(/^(?:[-*]|\d+[.)])\s*/, '')
+    .replace(/\*\*/g, '')
+    .trim()
 }
 
 function isOptionLine(line: string): boolean {
@@ -66,7 +69,10 @@ function isOptionLine(line: string): boolean {
 }
 
 function nonEmptyLines(text: string): string[] {
-  return text.split('\n').map((line) => line.trim()).filter((line) => line.length > 0)
+  return text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
 }
 
 function extractOptionLines(text: string): string[] {

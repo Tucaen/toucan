@@ -15,7 +15,7 @@ function isModelSelector(option: SessionConfigOption): option is SelectConfigOpt
 }
 
 function selectableOptions(option: SelectConfigOption): SessionConfigSelectOption[] {
-  return option.options.flatMap((entry) => 'group' in entry ? entry.options : [entry])
+  return option.options.flatMap((entry) => ('group' in entry ? entry.options : [entry]))
 }
 
 /** Read the model choice out of an ACP session's config options, ignoring the other selectors. */

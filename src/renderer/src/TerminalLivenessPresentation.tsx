@@ -3,11 +3,7 @@ import { terminalLivenessDescription, terminalLivenessLabels } from './terminal-
 
 export function CanvasTerminalLiveness({ liveness }: { liveness: TerminalLiveness }): JSX.Element {
   return (
-    <span
-      className="node-status"
-      data-liveness={liveness}
-      title={terminalLivenessDescription(liveness)}
-    >
+    <span className="node-status" data-liveness={liveness} title={terminalLivenessDescription(liveness)}>
       {terminalLivenessLabels[liveness].toUpperCase()}
     </span>
   )

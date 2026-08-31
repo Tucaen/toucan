@@ -21,13 +21,13 @@ const PRIORITIES: ReadonlySet<AgentPlanEntry['priority']> = new Set(['high', 'me
 
 function planStatus(value: unknown): AgentPlanEntry['status'] {
   return typeof value === 'string' && STATUSES.has(value as AgentPlanEntry['status'])
-    ? value as AgentPlanEntry['status']
+    ? (value as AgentPlanEntry['status'])
     : 'pending'
 }
 
 function planPriority(value: unknown): AgentPlanEntry['priority'] {
   return typeof value === 'string' && PRIORITIES.has(value as AgentPlanEntry['priority'])
-    ? value as AgentPlanEntry['priority']
+    ? (value as AgentPlanEntry['priority'])
     : 'medium'
 }
 
@@ -41,10 +41,9 @@ function planEntries(input: Record<string, unknown>): AgentPlanEntry[] {
   if (list) {
     return list.flatMap((item) => {
       const entry = asRecord(item)
-      const content = asText(entry?.content) ?? asText(entry?.step) ?? asText(entry?.subject) ?? asText(entry?.description)
-      return content
-        ? [{ content, status: planStatus(entry?.status), priority: planPriority(entry?.priority) }]
-        : []
+      const content =
+        asText(entry?.content) ?? asText(entry?.step) ?? asText(entry?.subject) ?? asText(entry?.description)
+      return content ? [{ content, status: planStatus(entry?.status), priority: planPriority(entry?.priority) }] : []
     })
   }
   const content = asText(input.subject) ?? asText(input.description) ?? asText(input.content)

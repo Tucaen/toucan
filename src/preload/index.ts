@@ -35,12 +35,9 @@ const terminalApi = {
   getInitialProject: (): Promise<ProjectDirectory> => ipcRenderer.invoke('project:initial'),
   pickProject: (): Promise<ProjectDirectory | null> => ipcRenderer.invoke('project:pick'),
   loadWorkspace: (): Promise<WorkspaceLoadResult> => ipcRenderer.invoke('workspace:load'),
-  saveWorkspace: (state: WorkspaceState): Promise<WorkspaceSaveResult> =>
-    ipcRenderer.invoke('workspace:save', state),
-  getConversationPreview: (
-    kind: 'claude' | 'codex',
-    conversationId: string
-  ): Promise<ConversationPreview | null> => ipcRenderer.invoke('terminal:preview', kind, conversationId),
+  saveWorkspace: (state: WorkspaceState): Promise<WorkspaceSaveResult> => ipcRenderer.invoke('workspace:save', state),
+  getConversationPreview: (kind: 'claude' | 'codex', conversationId: string): Promise<ConversationPreview | null> =>
+    ipcRenderer.invoke('terminal:preview', kind, conversationId),
   create: (request: TerminalCreateRequest): Promise<TerminalCreateResult> =>
     ipcRenderer.invoke('terminal:create', request),
   write: (sessionId: string, incarnationId: string, data: string): void =>
@@ -51,7 +48,8 @@ const terminalApi = {
     ipcRenderer.send('terminal:kill', sessionId, incarnationId, attachmentId),
   scrollback: (sessionId: string): Promise<TerminalScrollbackSnapshot | null> =>
     ipcRenderer.invoke('terminal:scrollback', sessionId),
-  removeScrollback: (sessionId: string): Promise<boolean> => ipcRenderer.invoke('terminal:scrollback-remove', sessionId),
+  removeScrollback: (sessionId: string): Promise<boolean> =>
+    ipcRenderer.invoke('terminal:scrollback-remove', sessionId),
   copyText: (text: string): void => clipboard.writeText(text),
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke('shell:open-external', url),
   showItemInFolder: (path: string): Promise<void> => ipcRenderer.invoke('shell:show-item-in-folder', path),
@@ -76,29 +74,22 @@ contextBridge.exposeInMainWorld('terminalApi', terminalApi)
 
 const agentApi = {
   create: (request: AgentCreateRequest): Promise<AgentCreateResult> => ipcRenderer.invoke('agent:create', request),
-  prompt: (id: string, content: AgentPromptContent): Promise<AgentPromptResult> => (
-    ipcRenderer.invoke('agent:prompt', id, content)
-  ),
-  promptWhenIdle: (id: string, content: AgentPromptContent): Promise<AgentPromptResult> => (
-    ipcRenderer.invoke('agent:prompt-when-idle', id, content)
-  ),
+  prompt: (id: string, content: AgentPromptContent): Promise<AgentPromptResult> =>
+    ipcRenderer.invoke('agent:prompt', id, content),
+  promptWhenIdle: (id: string, content: AgentPromptContent): Promise<AgentPromptResult> =>
+    ipcRenderer.invoke('agent:prompt-when-idle', id, content),
   setMode: (id: string, modeId: string): Promise<AgentPromptResult> => ipcRenderer.invoke('agent:set-mode', id, modeId),
-  setModel: (id: string, modelId: string): Promise<AgentPromptResult> => (
-    ipcRenderer.invoke('agent:set-model', id, modelId)
-  ),
-  setEffort: (id: string, effortId: string): Promise<AgentPromptResult> => (
-    ipcRenderer.invoke('agent:set-effort', id, effortId)
-  ),
-  authenticate: (id: string, methodId: string): Promise<AgentCreateResult> => (
-    ipcRenderer.invoke('agent:authenticate', id, methodId)
-  ),
-  submitAuthCode: (id: string, code: string): Promise<AgentPromptResult> => (
-    ipcRenderer.invoke('agent:submit-auth-code', id, code)
-  ),
+  setModel: (id: string, modelId: string): Promise<AgentPromptResult> =>
+    ipcRenderer.invoke('agent:set-model', id, modelId),
+  setEffort: (id: string, effortId: string): Promise<AgentPromptResult> =>
+    ipcRenderer.invoke('agent:set-effort', id, effortId),
+  authenticate: (id: string, methodId: string): Promise<AgentCreateResult> =>
+    ipcRenderer.invoke('agent:authenticate', id, methodId),
+  submitAuthCode: (id: string, code: string): Promise<AgentPromptResult> =>
+    ipcRenderer.invoke('agent:submit-auth-code', id, code),
   openAuthLink: (url: string): Promise<void> => ipcRenderer.invoke('agent:open-auth-link', url),
-  resolveApproval: (id: string, approvalId: string, optionId?: string): void => (
-    ipcRenderer.send('agent:approval', id, approvalId, optionId)
-  ),
+  resolveApproval: (id: string, approvalId: string, optionId?: string): void =>
+    ipcRenderer.send('agent:approval', id, approvalId, optionId),
   cancel: (id: string): void => ipcRenderer.send('agent:cancel', id),
   kill: (id: string): void => ipcRenderer.send('agent:kill', id),
   onEvent: (id: string, callback: (event: AgentEventEnvelope['event']) => void): (() => void) => {

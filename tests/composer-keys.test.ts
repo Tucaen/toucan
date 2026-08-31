@@ -2,10 +2,7 @@ import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
 import { composerKeyAction, type ComposerKeyContext, type ComposerKeyEvent } from '../src/renderer/src/composer-keys'
 
-function key(
-  name: string,
-  modifiers: Partial<ComposerKeyEvent> = {}
-): ComposerKeyEvent {
+function key(name: string, modifiers: Partial<ComposerKeyEvent> = {}): ComposerKeyEvent {
   return { key: name, shiftKey: false, ctrlKey: false, metaKey: false, altKey: false, ...modifiers }
 }
 

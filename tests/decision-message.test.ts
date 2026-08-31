@@ -24,10 +24,10 @@ test('decision options are extracted with clean labels, in order', () => {
   ].join('\n')
 
   const options = extractDecisionOptions(text)
-  assert.deepEqual(options.map((option) => option.label), [
-    'Fix it now: remove the unused import and rerun the gate',
-    'Skip it: leave the file as-is'
-  ])
+  assert.deepEqual(
+    options.map((option) => option.label),
+    ['Fix it now: remove the unused import and rerun the gate', 'Skip it: leave the file as-is']
+  )
 })
 
 test('Codex numbered Markdown options classify without admitting ordinary numbered steps', () => {
@@ -38,9 +38,10 @@ test('Codex numbered Markdown options classify without admitting ordinary number
     'Which should I do?'
   ].join('\n')
   assert.equal(classifyAssistantMessage(text), 'decision')
-  assert.deepEqual(extractDecisionOptions(text).map((option) => option.label), [
-    'Use the cache — fastest', 'Read the source — freshest'
-  ])
+  assert.deepEqual(
+    extractDecisionOptions(text).map((option) => option.label),
+    ['Use the cache — fastest', 'Read the source — freshest']
+  )
 })
 
 test('a routine/noise message (short status ping, no options, no question) classifies as noise', () => {
@@ -49,16 +50,14 @@ test('a routine/noise message (short status ping, no options, no question) class
 })
 
 test('a normal conversational reply gets neither treatment', () => {
-  const text = 'Here is a summary of what changed in this commit: the auth middleware now validates '
-    + 'the session token expiry before allowing a refresh.'
+  const text =
+    'Here is a summary of what changed in this commit: the auth middleware now validates ' +
+    'the session token expiry before allowing a refresh.'
   assert.equal(classifyAssistantMessage(text), 'normal')
 })
 
 test('a single option line with a trailing question is not enough to classify as decision', () => {
-  const text = [
-    '- **Fix it now**: remove the unused import',
-    'Should I go ahead?'
-  ].join('\n')
+  const text = ['- **Fix it now**: remove the unused import', 'Should I go ahead?'].join('\n')
   assert.equal(classifyAssistantMessage(text), 'normal')
 })
 
@@ -72,18 +71,16 @@ test('two option lines without a trailing question is not enough to classify as 
 })
 
 test('ordinary numbered step-by-step prose does not false-positive as decision options', () => {
-  const text = [
-    '1. Run the build',
-    '2. Check the logs',
-    '3. Report back',
-    'Does that match what you expected?'
-  ].join('\n')
+  const text = ['1. Run the build', '2. Check the logs', '3. Report back', 'Does that match what you expected?'].join(
+    '\n'
+  )
   assert.equal(classifyAssistantMessage(text), 'normal')
 })
 
 test('a long or multi-paragraph message never classifies as noise even with a routine lead-in', () => {
-  const text = 'Spawning worker for task fm-142.\n\nIt will validate the migration against the staging '
-    + 'database before touching production, and report back once the dry run finishes.'
+  const text =
+    'Spawning worker for task fm-142.\n\nIt will validate the migration against the staging ' +
+    'database before touching production, and report back once the dry run finishes.'
   assert.equal(classifyAssistantMessage(text), 'normal')
 })
 

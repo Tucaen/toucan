@@ -100,11 +100,12 @@ export function parseFileOperation(activity: AgentActivity): FileOperation | nul
   const input = asRecord(activity.rawInput) ?? {}
   const name = normalizeToolName(activity.toolName)
   const notebookPath = asText(input.notebook_path) ?? asText(input.notebookPath)
-  const path = asText(input.file_path)
-    ?? asText(input.filePath)
-    ?? notebookPath
-    ?? (name || activity.kind === 'read' || activity.kind === 'edit' ? activity.locations?.[0] : undefined)
-    ?? activity.diffs?.[0]?.path
+  const path =
+    asText(input.file_path) ??
+    asText(input.filePath) ??
+    notebookPath ??
+    (name || activity.kind === 'read' || activity.kind === 'edit' ? activity.locations?.[0] : undefined) ??
+    activity.diffs?.[0]?.path
   if (!path) return null
 
   if (name === 'notebookedit' || (!name && notebookPath)) {
@@ -130,12 +131,13 @@ export function parseFileOperation(activity: AgentActivity): FileOperation | nul
   const range = readRange(input)
 
   if (name === 'read') return { kind: 'read', path, ...(range ? { range } : {}) }
-  if (name === 'write') return {
-    kind: 'write',
-    path,
-    ...(content !== undefined ? { content } : {}),
-    ...(diffs ? { diffs } : {})
-  }
+  if (name === 'write')
+    return {
+      kind: 'write',
+      path,
+      ...(content !== undefined ? { content } : {}),
+      ...(diffs ? { diffs } : {})
+    }
   if (name === 'multiedit') return { kind: 'multi-edit', path, edits: edits ?? [] }
   if (name === 'edit') return { kind: 'edit', path, ...(edits ? { edits } : {}), ...(diffs ? { diffs } : {}) }
 
@@ -243,17 +245,17 @@ function changedFileLines(diff: FileOperationDiff): FileOperationLine[] {
 }
 
 function hunkRangeLabel(lines: FileOperationLine[]): string {
-  const old = lines.flatMap((line) => line.oldNumber === undefined ? [] : [line.oldNumber])
-  const next = lines.flatMap((line) => line.newNumber === undefined ? [] : [line.newNumber])
-  const oldStart = old[0] ?? ((next[0] ?? 1) - 1)
-  const newStart = next[0] ?? ((old[0] ?? 1) - 1)
+  const old = lines.flatMap((line) => (line.oldNumber === undefined ? [] : [line.oldNumber]))
+  const next = lines.flatMap((line) => (line.newNumber === undefined ? [] : [line.newNumber]))
+  const oldStart = old[0] ?? (next[0] ?? 1) - 1
+  const newStart = next[0] ?? (old[0] ?? 1) - 1
   return `@@ -${oldStart},${old.length} +${newStart},${next.length} @@`
 }
 
 /** Turns a full-file before/after into merged changed hunks with three context lines. */
 function diffBlocks(diff: FileOperationDiff): FileOperationBlock[] {
   const rows = changedFileLines(diff)
-  const changed = rows.flatMap((line, index) => line.tone ? [index] : [])
+  const changed = rows.flatMap((line, index) => (line.tone ? [index] : []))
   if (changed.length === 0) return []
   const ranges: Array<{ start: number; end: number }> = []
   for (const index of changed) {
@@ -274,10 +276,7 @@ function diffBlocks(diff: FileOperationDiff): FileOperationBlock[] {
  * and a preview rather than the whole payload, and an edit is a compact before/after per edit.
  * Kept separate from the JSX so what a card shows is testable without a DOM.
  */
-export function fileOperationBlocks(
-  operation: FileOperation,
-  content: string | undefined
-): FileOperationBlock[] {
+export function fileOperationBlocks(operation: FileOperation, content: string | undefined): FileOperationBlock[] {
   if (operation.diffs?.length) return operation.diffs.flatMap(diffBlocks)
   switch (operation.kind) {
     case 'read': {
@@ -290,9 +289,7 @@ export function fileOperationBlocks(
       if (payload === undefined) return content ? [{ lines: previewLines(content) }] : []
       const lines = previewLines(payload)
       const size = `${formatByteSize(byteLength(payload))} · ${lines.length} lines`
-      const label = operation.kind === 'notebook-edit'
-        ? `${notebookCellLabel(operation)} · ${size}`
-        : size
+      const label = operation.kind === 'notebook-edit' ? `${notebookCellLabel(operation)} · ${size}` : size
       return [{ label, languagePath: operation.path, lines: lines.map((line) => ({ ...line, tone: 'new' })) }]
     }
     case 'edit':

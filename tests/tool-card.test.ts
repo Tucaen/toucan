@@ -17,7 +17,7 @@ test('a running call is expanded, a completed one folds away, a failure stays op
   assert.equal(defaultToolCardExpanded('failed'), true)
 })
 
-test('the reader\'s own toggle outranks the status default', () => {
+test("the reader's own toggle outranks the status default", () => {
   assert.equal(resolveToolCardExpanded('completed', { expanded: true, status: 'completed' }), true)
   assert.equal(resolveToolCardExpanded('in_progress', { expanded: false, status: 'in_progress' }), false)
   assert.equal(resolveToolCardExpanded('in_progress', undefined), true)
@@ -74,7 +74,11 @@ test('activity merges stamp a start once and freeze an end when the call settles
 })
 
 test('a call that resumes after a terminal status starts timing again instead of showing a stale duration', () => {
-  const done = mergeActivity({ id: 'x', status: 'completed', startedAt: 1_000, endedAt: 2_000 }, { id: 'x', status: 'in_progress' }, 5_000)
+  const done = mergeActivity(
+    { id: 'x', status: 'completed', startedAt: 1_000, endedAt: 2_000 },
+    { id: 'x', status: 'in_progress' },
+    5_000
+  )
   assert.equal(done.endedAt, undefined)
   assert.equal(done.startedAt, 1_000)
 })

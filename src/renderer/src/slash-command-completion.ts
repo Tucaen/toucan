@@ -69,7 +69,7 @@ export function acceptSlashCommand(
 /** Up/down through the filtered list, wrapping at both ends. */
 export function moveSlashSelection(current: number, count: number, delta: number): number {
   if (count <= 0) return 0
-  return ((current + delta) % count + count) % count
+  return (((current + delta) % count) + count) % count
 }
 
 /**
@@ -113,10 +113,8 @@ export function slashCompletionView(
 ): SlashCompletionView {
   const token = slashCompletionQuery(draft, caret)
   const matches = token ? filterSlashCommands(commands, token.query) : []
-  const open = token !== null
-    && matches.length > 0
-    && state.dismissedStart !== token.start
-    && state.acceptedQuery !== token.query
+  const open =
+    token !== null && matches.length > 0 && state.dismissedStart !== token.start && state.acceptedQuery !== token.query
   return { token, matches, open, activeIndex: Math.min(state.highlight, Math.max(matches.length - 1, 0)) }
 }
 
@@ -133,9 +131,6 @@ export function dismissSlashCompletion(
 }
 
 /** A command was inserted: nothing is dismissed any more, but this token has been answered. */
-export function acceptedSlashCompletion(
-  state: SlashCompletionState,
-  command: AgentCommand
-): SlashCompletionState {
+export function acceptedSlashCompletion(state: SlashCompletionState, command: AgentCommand): SlashCompletionState {
   return { dismissedStart: null, acceptedQuery: command.name, highlight: 0 }
 }

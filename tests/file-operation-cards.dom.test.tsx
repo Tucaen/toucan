@@ -120,10 +120,7 @@ describe('file-operation tool cards', () => {
     const { container } = render(
       <ChatView
         {...baseChatViewProps}
-        activities={[
-          read('r1', `${worktree}\\src\\a.ts`),
-          read('r2', `${WORKSPACE_ROOT}\\src\\b.ts`)
-        ]}
+        activities={[read('r1', `${worktree}\\src\\a.ts`), read('r2', `${WORKSPACE_ROOT}\\src\\b.ts`)]}
         workspaceRoots={[worktree, WORKSPACE_ROOT]}
         focusMode={false}
         setFocusMode={vi.fn()}
@@ -140,10 +137,12 @@ describe('file-operation tool cards', () => {
   })
 
   test('a read shows its excerpt numbered from the start of the range', () => {
-    const container = renderCards([{
-      ...read('r1', `${WORKSPACE_ROOT}\\src\\a.ts`, { offset: 10, limit: 3 }),
-      content: 'alpha\nbeta\ngamma'
-    }])
+    const container = renderCards([
+      {
+        ...read('r1', `${WORKSPACE_ROOT}\\src\\a.ts`, { offset: 10, limit: 3 }),
+        content: 'alpha\nbeta\ngamma'
+      }
+    ])
     const card = expand(cards(container)[0])
     const lines = card.querySelectorAll('.file-op-line')
     expect(lines.length).toBe(3)
@@ -153,15 +152,17 @@ describe('file-operation tool cards', () => {
 
   test('a write shows a size and a preview instead of the whole payload', () => {
     const payload = Array.from({ length: 500 }, (_, index) => `line ${index}`).join('\n')
-    const container = renderCards([{
-      id: 'w1',
-      kind: 'edit',
-      toolName: 'Write',
-      status: 'completed',
-      rawInput: { file_path: `${WORKSPACE_ROOT}\\out.txt`, content: payload },
-      startedAt: 0,
-      endedAt: 100
-    }])
+    const container = renderCards([
+      {
+        id: 'w1',
+        kind: 'edit',
+        toolName: 'Write',
+        status: 'completed',
+        rawInput: { file_path: `${WORKSPACE_ROOT}\\out.txt`, content: payload },
+        startedAt: 0,
+        endedAt: 100
+      }
+    ])
     const card = expand(cards(container)[0])
     expect(card.textContent).toContain('500 lines')
     expect(card.querySelectorAll('.file-op-line').length).toBe(40)
@@ -170,19 +171,21 @@ describe('file-operation tool cards', () => {
   })
 
   test('an edit shows a compact before and after', () => {
-    const container = renderCards([{
-      id: 'e1',
-      kind: 'edit',
-      toolName: 'Edit',
-      status: 'completed',
-      rawInput: {
-        file_path: `${WORKSPACE_ROOT}\\src\\a.ts`,
-        old_string: 'const a = 1',
-        new_string: 'const a = 2'
-      },
-      startedAt: 0,
-      endedAt: 100
-    }])
+    const container = renderCards([
+      {
+        id: 'e1',
+        kind: 'edit',
+        toolName: 'Edit',
+        status: 'completed',
+        rawInput: {
+          file_path: `${WORKSPACE_ROOT}\\src\\a.ts`,
+          old_string: 'const a = 1',
+          new_string: 'const a = 2'
+        },
+        startedAt: 0,
+        endedAt: 100
+      }
+    ])
     const card = expand(cards(container)[0])
     const before = card.querySelectorAll('.file-op-line[data-tone="old"]')
     const after = card.querySelectorAll('.file-op-line[data-tone="new"]')
@@ -193,25 +196,27 @@ describe('file-operation tool cards', () => {
   })
 
   test('an ACP multi-file edit renders one card with a highlighted diff for each file', () => {
-    const container = renderCards([{
-      id: 'e-multi',
-      kind: 'edit',
-      status: 'completed',
-      diffs: [
-        {
-          path: `${WORKSPACE_ROOT}\\src\\a.ts`,
-          oldText: ['const untouched = true', 'const answer = 41', 'export { answer }'].join('\n'),
-          newText: ['const untouched = true', 'const answer = 42', 'export { answer }'].join('\n')
-        },
-        {
-          path: `${WORKSPACE_ROOT}\\src\\b.ts`,
-          oldText: 'export const enabled = false',
-          newText: 'export const enabled = true'
-        }
-      ],
-      startedAt: 0,
-      endedAt: 100
-    }])
+    const container = renderCards([
+      {
+        id: 'e-multi',
+        kind: 'edit',
+        status: 'completed',
+        diffs: [
+          {
+            path: `${WORKSPACE_ROOT}\\src\\a.ts`,
+            oldText: ['const untouched = true', 'const answer = 41', 'export { answer }'].join('\n'),
+            newText: ['const untouched = true', 'const answer = 42', 'export { answer }'].join('\n')
+          },
+          {
+            path: `${WORKSPACE_ROOT}\\src\\b.ts`,
+            oldText: 'export const enabled = false',
+            newText: 'export const enabled = true'
+          }
+        ],
+        startedAt: 0,
+        endedAt: 100
+      }
+    ])
 
     expect(cards(container)).toHaveLength(1)
     const card = expand(cards(container)[0])
@@ -226,12 +231,14 @@ describe('file-operation tool cards', () => {
     const oldText = Array.from({ length: 20 }, (_, index) => `line ${index + 1}`)
     const newText = [...oldText]
     newText[9] = 'line ten changed'
-    const container = renderCards([{
-      id: 'e-hunk',
-      kind: 'edit',
-      status: 'completed',
-      diffs: [{ path: `${WORKSPACE_ROOT}\\src\\a.ts`, oldText: oldText.join('\n'), newText: newText.join('\n') }]
-    }])
+    const container = renderCards([
+      {
+        id: 'e-hunk',
+        kind: 'edit',
+        status: 'completed',
+        diffs: [{ path: `${WORKSPACE_ROOT}\\src\\a.ts`, oldText: oldText.join('\n'), newText: newText.join('\n') }]
+      }
+    ])
 
     const card = expand(cards(container)[0])
     expect(card.textContent).toContain('@@ -7,7 +7,7 @@')
@@ -242,16 +249,24 @@ describe('file-operation tool cards', () => {
   })
 
   test('separate hunks for one file share one file heading and preserve multiline syntax state', () => {
-    const oldLines = ['/* start', 'continued */', 'const first = false', ...Array.from({ length: 12 }, (_, i) => `const gap${i} = ${i}`), 'const last = false']
+    const oldLines = [
+      '/* start',
+      'continued */',
+      'const first = false',
+      ...Array.from({ length: 12 }, (_, i) => `const gap${i} = ${i}`),
+      'const last = false'
+    ]
     const newLines = [...oldLines]
     newLines[2] = 'const first = true'
     newLines[newLines.length - 1] = 'const last = true'
-    const container = renderCards([{
-      id: 'e-two-hunks',
-      kind: 'edit',
-      status: 'completed',
-      diffs: [{ path: `${WORKSPACE_ROOT}\\src\\a.ts`, oldText: oldLines.join('\n'), newText: newLines.join('\n') }]
-    }])
+    const container = renderCards([
+      {
+        id: 'e-two-hunks',
+        kind: 'edit',
+        status: 'completed',
+        diffs: [{ path: `${WORKSPACE_ROOT}\\src\\a.ts`, oldText: oldLines.join('\n'), newText: newLines.join('\n') }]
+      }
+    ])
 
     const card = expand(cards(container)[0])
     expect(card.querySelectorAll('.file-op-hunk')).toHaveLength(2)
@@ -261,21 +276,23 @@ describe('file-operation tool cards', () => {
   })
 
   test('a MultiEdit labels each of its edits', () => {
-    const container = renderCards([{
-      id: 'e2',
-      kind: 'edit',
-      toolName: 'MultiEdit',
-      status: 'completed',
-      rawInput: {
-        file_path: `${WORKSPACE_ROOT}\\src\\a.ts`,
-        edits: [
-          { old_string: 'a', new_string: 'b' },
-          { old_string: 'c', new_string: 'd' }
-        ]
-      },
-      startedAt: 0,
-      endedAt: 100
-    }])
+    const container = renderCards([
+      {
+        id: 'e2',
+        kind: 'edit',
+        toolName: 'MultiEdit',
+        status: 'completed',
+        rawInput: {
+          file_path: `${WORKSPACE_ROOT}\\src\\a.ts`,
+          edits: [
+            { old_string: 'a', new_string: 'b' },
+            { old_string: 'c', new_string: 'd' }
+          ]
+        },
+        startedAt: 0,
+        endedAt: 100
+      }
+    ])
     const card = expand(cards(container)[0])
     expect(card.textContent).toContain('Edit 1 of 2')
     expect(card.textContent).toContain('Edit 2 of 2')
@@ -283,20 +300,22 @@ describe('file-operation tool cards', () => {
   })
 
   test('a notebook edit names the cell it replaced', () => {
-    const container = renderCards([{
-      id: 'n1',
-      kind: 'edit',
-      toolName: 'NotebookEdit',
-      status: 'completed',
-      rawInput: {
-        notebook_path: `${WORKSPACE_ROOT}\\analysis.ipynb`,
-        cell_id: 'cell-3',
-        edit_mode: 'replace',
-        new_source: 'print(1)'
-      },
-      startedAt: 0,
-      endedAt: 100
-    }])
+    const container = renderCards([
+      {
+        id: 'n1',
+        kind: 'edit',
+        toolName: 'NotebookEdit',
+        status: 'completed',
+        rawInput: {
+          notebook_path: `${WORKSPACE_ROOT}\\analysis.ipynb`,
+          cell_id: 'cell-3',
+          edit_mode: 'replace',
+          new_source: 'print(1)'
+        },
+        startedAt: 0,
+        endedAt: 100
+      }
+    ])
     const card = expand(cards(container)[0])
     expect(within(cards(container)[0]).getAllByRole('button')[0].textContent).toContain('analysis.ipynb')
     expect(card.textContent).toContain('Cell cell-3')
@@ -314,14 +333,16 @@ describe('file-operation tool cards', () => {
   })
 
   test('a still-running read is open and says so without a body it does not have yet', () => {
-    const container = renderCards([{
-      id: 'r1',
-      kind: 'read',
-      toolName: 'Read',
-      status: 'in_progress',
-      rawInput: { file_path: `${WORKSPACE_ROOT}\\src\\a.ts` },
-      startedAt: 0
-    }])
+    const container = renderCards([
+      {
+        id: 'r1',
+        kind: 'read',
+        toolName: 'Read',
+        status: 'in_progress',
+        rawInput: { file_path: `${WORKSPACE_ROOT}\\src\\a.ts` },
+        startedAt: 0
+      }
+    ])
     expect(cards(container)[0].dataset.expanded).toBe('true')
     expect(cards(container)[0].querySelectorAll('.file-op-line').length).toBe(0)
   })
@@ -329,16 +350,18 @@ describe('file-operation tool cards', () => {
   test('a tool that touches no file keeps the generic card', () => {
     // Whatever stands in for "no family claims this" has to be a tool no family claims: every
     // sub-issue that lands a card shrinks that set, so pick something outside all of them.
-    const container = renderCards([{
-      id: 'b1',
-      kind: 'switch_mode',
-      toolName: 'ExitPlanMode',
-      title: 'Left plan mode',
-      status: 'completed',
-      rawInput: {},
-      startedAt: 0,
-      endedAt: 100
-    }])
+    const container = renderCards([
+      {
+        id: 'b1',
+        kind: 'switch_mode',
+        toolName: 'ExitPlanMode',
+        title: 'Left plan mode',
+        status: 'completed',
+        rawInput: {},
+        startedAt: 0,
+        endedAt: 100
+      }
+    ])
     expect(cards(container)[0].dataset.family).toBe('generic')
   })
 })

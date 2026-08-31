@@ -40,14 +40,7 @@ const baseChatViewProps: ChatViewProps = {
 }
 
 function renderChatView(overrides: Partial<ChatViewProps>): void {
-  render(
-    <ChatView
-      {...baseChatViewProps}
-      {...overrides}
-      focusMode={false}
-      setFocusMode={vi.fn()}
-    />
-  )
+  render(<ChatView {...baseChatViewProps} {...overrides} focusMode={false} setFocusMode={vi.fn()} />)
 }
 
 describe('AuthPanel rendering', () => {
@@ -71,8 +64,8 @@ describe('AuthPanel rendering', () => {
   })
 
   test(
-    'still shows a visible auth panel (not nothing) when auth is required but no method was reported — '
-    + 'regression for the "no sign-in button at all" symptom',
+    'still shows a visible auth panel (not nothing) when auth is required but no method was reported — ' +
+      'regression for the "no sign-in button at all" symptom',
     () => {
       renderChatView({ status: 'auth_required', authMethods: [] })
 
@@ -122,8 +115,8 @@ describe('AuthPanel rendering', () => {
   })
 
   test(
-    'shows the sign-in link while status is "starting" as long as reauthenticating is set — '
-    + 'this is the real status during the terminal-auth subprocess, not "auth_required"',
+    'shows the sign-in link while status is "starting" as long as reauthenticating is set — ' +
+      'this is the real status during the terminal-auth subprocess, not "auth_required"',
     () => {
       renderChatView({
         status: 'starting',
@@ -139,21 +132,23 @@ describe('AuthPanel rendering', () => {
 
 describe('useAgentConversation auth_link state', () => {
   test(
-    'a sign-in link surfaced during reauth stays put — it is not overwritten by a later, unrelated '
-    + 'status message — regression for the link "disappearing far too quickly to read or click"',
+    'a sign-in link surfaced during reauth stays put — it is not overwritten by a later, unrelated ' +
+      'status message — regression for the link "disappearing far too quickly to read or click"',
     async () => {
       const { api, emit } = createMockAgentApi()
       window.agentApi = api
 
-      const { result } = renderHook(() => useAgentConversation({
-        id: 'session-auth',
-        provider: 'claude',
-        cwd: '/project',
-        enabled: true,
-        onSessionId: vi.fn(),
-        onPermissionMode: vi.fn(),
-        onModel: vi.fn()
-      }))
+      const { result } = renderHook(() =>
+        useAgentConversation({
+          id: 'session-auth',
+          provider: 'claude',
+          cwd: '/project',
+          enabled: true,
+          onSessionId: vi.fn(),
+          onPermissionMode: vi.fn(),
+          onModel: vi.fn()
+        })
+      )
 
       await waitFor(() => expect(result.current.status).toBe('ready'))
 
@@ -184,15 +179,17 @@ describe('useAgentConversation auth_link state', () => {
     const { api, emit } = createMockAgentApi()
     window.agentApi = api
 
-    const { result } = renderHook(() => useAgentConversation({
-      id: 'session-auth-2',
-      provider: 'claude',
-      cwd: '/project',
-      enabled: true,
-      onSessionId: vi.fn(),
-      onPermissionMode: vi.fn(),
-      onModel: vi.fn()
-    }))
+    const { result } = renderHook(() =>
+      useAgentConversation({
+        id: 'session-auth-2',
+        provider: 'claude',
+        cwd: '/project',
+        enabled: true,
+        onSessionId: vi.fn(),
+        onPermissionMode: vi.fn(),
+        onModel: vi.fn()
+      })
+    )
 
     await waitFor(() => expect(result.current.status).toBe('ready'))
 
@@ -211,9 +208,9 @@ describe('useAgentConversation auth_link state', () => {
   })
 
   test(
-    'the sign-in link is exposed during the real authenticate() call, while status is transiently '
-    + '"starting" rather than "auth_required" — regression for the link never rendering because the '
-    + 'real emission path never coincides with status === "auth_required"',
+    'the sign-in link is exposed during the real authenticate() call, while status is transiently ' +
+      '"starting" rather than "auth_required" — regression for the link never rendering because the ' +
+      'real emission path never coincides with status === "auth_required"',
     async () => {
       let resolveAuthenticate: (result: { ok: boolean; status: 'auth_required'; message?: string }) => void = () => {}
       const authenticatePromise = new Promise<{ ok: boolean; status: 'auth_required'; message?: string }>((resolve) => {
@@ -224,15 +221,17 @@ describe('useAgentConversation auth_link state', () => {
       })
       window.agentApi = api
 
-      const { result } = renderHook(() => useAgentConversation({
-        id: 'session-auth-3',
-        provider: 'claude',
-        cwd: '/project',
-        enabled: true,
-        onSessionId: vi.fn(),
-        onPermissionMode: vi.fn(),
-        onModel: vi.fn()
-      }))
+      const { result } = renderHook(() =>
+        useAgentConversation({
+          id: 'session-auth-3',
+          provider: 'claude',
+          cwd: '/project',
+          enabled: true,
+          onSessionId: vi.fn(),
+          onPermissionMode: vi.fn(),
+          onModel: vi.fn()
+        })
+      )
 
       await waitFor(() => expect(result.current.status).toBe('ready'))
 

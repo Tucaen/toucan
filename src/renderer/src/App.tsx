@@ -144,7 +144,9 @@ function ProviderUsageChip({ provider, status }: { provider: string; status: Age
     status.fiveHour ? describeRateLimitWindow('5h', status.fiveHour).text : null,
     status.weekly ? describeRateLimitWindow('7d', status.weekly).text : null,
     status.rejected ? 'Limit reached' : null
-  ].filter(Boolean).join('\n')
+  ]
+    .filter(Boolean)
+    .join('\n')
 
   return (
     <span className="provider-usage-chip" data-rejected={status.rejected ? 'true' : undefined} title={title}>
@@ -163,7 +165,13 @@ function createProject(directory: ProjectDirectory, index: number): Project {
   }
 }
 
-function WorktreeCreateDialog({ draft, project, onChange, onCancel, onConfirm }: {
+function WorktreeCreateDialog({
+  draft,
+  project,
+  onChange,
+  onCancel,
+  onConfirm
+}: {
   draft: WorktreeDraft
   project: Project
   onChange(patch: Partial<WorktreeDraft>): void
@@ -174,7 +182,13 @@ function WorktreeCreateDialog({ draft, project, onChange, onCancel, onConfirm }:
   const directory = problem ? null : deriveWorktreeDirectory(project.path, draft.branch)
 
   return (
-    <div className="worktree-dialog-overlay" role="dialog" aria-modal="true" aria-labelledby="worktree-create-title" onClick={(event) => event.stopPropagation()}>
+    <div
+      className="worktree-dialog-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="worktree-create-title"
+      onClick={(event) => event.stopPropagation()}
+    >
       <form
         className="worktree-dialog"
         onSubmit={(event) => {
@@ -202,11 +216,17 @@ function WorktreeCreateDialog({ draft, project, onChange, onCancel, onConfirm }:
             onChange={(event) => onChange({ baseRef: event.target.value, error: null })}
           />
         </label>
-        {directory && <p className="worktree-dialog-path" title={directory}>Directory: {directory}</p>}
+        {directory && (
+          <p className="worktree-dialog-path" title={directory}>
+            Directory: {directory}
+          </p>
+        )}
         {problem && draft.branch.length > 0 && <p className="worktree-dialog-error">{problem}</p>}
         {draft.error && <p className="worktree-dialog-error">{draft.error}</p>}
         <div className="worktree-dialog-actions">
-          <button type="button" disabled={draft.busy} onClick={onCancel}>Cancel</button>
+          <button type="button" disabled={draft.busy} onClick={onCancel}>
+            Cancel
+          </button>
           <button type="submit" className="primary" disabled={draft.busy || Boolean(problem) || !draft.branch}>
             {draft.busy ? 'Creating…' : 'Create worktree'}
           </button>
@@ -221,17 +241,29 @@ function WorktreeCreateDialog({ draft, project, onChange, onCancel, onConfirm }:
  * work: it names every blocker, and only lets the user force past the ones whose cost it
  * can state exactly.
  */
-function WorktreeRemoveDialog({ prompt, onCancel, onConfirm }: {
+function WorktreeRemoveDialog({
+  prompt,
+  onCancel,
+  onConfirm
+}: {
   prompt: WorktreeRemovalPrompt
   onCancel(): void
   onConfirm(force: boolean): void
 }): JSX.Element {
   const { plan } = prompt
   return (
-    <div className="worktree-dialog-overlay" role="alertdialog" aria-modal="true" aria-labelledby="worktree-remove-title" onClick={(event) => event.stopPropagation()}>
+    <div
+      className="worktree-dialog-overlay"
+      role="alertdialog"
+      aria-modal="true"
+      aria-labelledby="worktree-remove-title"
+      onClick={(event) => event.stopPropagation()}
+    >
       <div className="worktree-dialog">
         <strong id="worktree-remove-title">Remove worktree {prompt.branch}?</strong>
-        <p className="worktree-dialog-path" title={prompt.path}>{prompt.path}</p>
+        <p className="worktree-dialog-path" title={prompt.path}>
+          {prompt.path}
+        </p>
 
         {plan.decision === 'ready' && (
           <p>Nothing unique lives here: the tree is clean, and its commits are already merged or pushed.</p>
@@ -279,14 +311,24 @@ function WorktreeRemoveDialog({ prompt, onCancel, onConfirm }: {
   )
 }
 
-function SetupCommandDialog({ project, onCancel, onSave }: {
+function SetupCommandDialog({
+  project,
+  onCancel,
+  onSave
+}: {
   project: Project
   onCancel(): void
   onSave(command: string): void
 }): JSX.Element {
   const [value, setValue] = useState(project.setupCommand ?? '')
   return (
-    <div className="worktree-dialog-overlay" role="dialog" aria-modal="true" aria-labelledby="setup-command-title" onClick={(event) => event.stopPropagation()}>
+    <div
+      className="worktree-dialog-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="setup-command-title"
+      onClick={(event) => event.stopPropagation()}
+    >
       <form
         className="worktree-dialog"
         onSubmit={(event) => {
@@ -301,8 +343,12 @@ function SetupCommandDialog({ project, onCancel, onSave }: {
           <input autoFocus value={value} placeholder="npm install" onChange={(event) => setValue(event.target.value)} />
         </label>
         <div className="worktree-dialog-actions">
-          <button type="button" onClick={onCancel}>Cancel</button>
-          <button type="submit" className="primary">Save</button>
+          <button type="button" onClick={onCancel}>
+            Cancel
+          </button>
+          <button type="submit" className="primary">
+            Save
+          </button>
         </div>
       </form>
     </div>
@@ -420,112 +466,140 @@ function Canvas(): JSX.Element {
   /** Every session-node update funnels through here so worktree nodes are never mistaken for one. */
   const patchTerminalNode = useCallback(
     (nodeId: string, patch: (data: TerminalCanvasNode['data']) => Partial<TerminalCanvasNode['data']>): void => {
-      setNodes((current) => current.map((node) => (
-        isTerminalCanvasNode(node) && node.id === nodeId
-          ? { ...node, data: { ...node.data, ...patch(node.data) } }
-          : node
-      )))
+      setNodes((current) =>
+        current.map((node) =>
+          isTerminalCanvasNode(node) && node.id === nodeId
+            ? { ...node, data: { ...node.data, ...patch(node.data) } }
+            : node
+        )
+      )
     },
     [setNodes]
   )
 
-  const handleConversationId = useCallback((nodeId: string, conversationId: string): void => {
-    patchTerminalNode(nodeId, (data) => {
-      if (data.kind !== 'terminal' && data.launchMode === 'new' && data.titleSource) {
-        void window.conversationApi
-          .setTitle(data.kind, conversationId, data.label, data.titleSource)
-          .catch(() => undefined)
+  const handleConversationId = useCallback(
+    (nodeId: string, conversationId: string): void => {
+      patchTerminalNode(nodeId, (data) => {
+        if (data.kind !== 'terminal' && data.launchMode === 'new' && data.titleSource) {
+          void window.conversationApi
+            .setTitle(data.kind, conversationId, data.label, data.titleSource)
+            .catch(() => undefined)
+        }
+        return { conversationId }
+      })
+    },
+    [patchTerminalNode]
+  )
+
+  const handleTitleChange = useCallback(
+    async (nodeId: string, title: string, source: ConversationTitleSource): Promise<boolean> => {
+      const normalized = normalizeConversationTitle(title)
+      if (!normalized) return false
+      const node = nodesRef.current.find((candidate) => isTerminalCanvasNode(candidate) && candidate.id === nodeId)
+      if (!node || (node.data.kind !== 'claude' && node.data.kind !== 'codex')) return false
+      const provider = node.data.kind
+      const conversationId = typeof node.data.conversationId === 'string' ? node.data.conversationId : undefined
+      if (conversationId) {
+        try {
+          const stored = await window.conversationApi.setTitle(provider, conversationId, normalized, source)
+          if (!stored) return false
+          patchTerminalNode(nodeId, () => ({ label: stored.title, titleSource: stored.source }))
+          return true
+        } catch {
+          return false
+        }
       }
-      return { conversationId }
-    })
-  }, [patchTerminalNode])
+      patchTerminalNode(nodeId, () => ({ label: normalized, titleSource: source }))
+      return true
+    },
+    [patchTerminalNode]
+  )
 
-  const handleTitleChange = useCallback(async (nodeId: string, title: string, source: ConversationTitleSource): Promise<boolean> => {
-    const normalized = normalizeConversationTitle(title)
-    if (!normalized) return false
-    const node = nodesRef.current.find((candidate) => isTerminalCanvasNode(candidate) && candidate.id === nodeId)
-    if (!node || (node.data.kind !== 'claude' && node.data.kind !== 'codex')) return false
-    const provider = node.data.kind
-    const conversationId = typeof node.data.conversationId === 'string' ? node.data.conversationId : undefined
-    if (conversationId) {
-      try {
-        const stored = await window.conversationApi.setTitle(
-          provider,
-          conversationId,
-          normalized,
-          source
-        )
-        if (!stored) return false
-        patchTerminalNode(nodeId, () => ({ label: stored.title, titleSource: stored.source }))
-        return true
-      } catch {
-        return false
-      }
-    }
-    patchTerminalNode(nodeId, () => ({ label: normalized, titleSource: source }))
-    return true
-  }, [patchTerminalNode])
+  const handleTerminalLiveness = useCallback(
+    (nodeId: string, liveness: TerminalLiveness): void => {
+      patchTerminalNode(nodeId, () => ({ terminalLiveness: liveness }))
+    },
+    [patchTerminalNode]
+  )
 
-  const handleTerminalLiveness = useCallback((nodeId: string, liveness: TerminalLiveness): void => {
-    patchTerminalNode(nodeId, () => ({ terminalLiveness: liveness }))
-  }, [patchTerminalNode])
+  const handlePreview = useCallback(
+    (nodeId: string, preview: ConversationPreview): void => {
+      patchTerminalNode(nodeId, (data) => ({
+        preview: {
+          ...data.preview,
+          ...preview,
+          user: preview.user ?? data.preview?.user,
+          assistant: preview.assistant ?? data.preview?.assistant
+        }
+      }))
+    },
+    [patchTerminalNode]
+  )
 
-  const handlePreview = useCallback((nodeId: string, preview: ConversationPreview): void => {
-    patchTerminalNode(nodeId, (data) => ({
-      preview: {
-        ...data.preview,
-        ...preview,
-        user: preview.user ?? data.preview?.user,
-        assistant: preview.assistant ?? data.preview?.assistant
-      }
-    }))
-  }, [patchTerminalNode])
-
-  const handleFocusModeChange = useCallback((nodeId: string, enabled: boolean): void => {
-    patchTerminalNode(nodeId, () => ({ focusMode: enabled }))
-  }, [patchTerminalNode])
+  const handleFocusModeChange = useCallback(
+    (nodeId: string, enabled: boolean): void => {
+      patchTerminalNode(nodeId, () => ({ focusMode: enabled }))
+    },
+    [patchTerminalNode]
+  )
 
   // A draft belongs to its node, so it is patched in like any other node state and rides the
   // ordinary workspace autosave out to disk.
-  const handleDraftChange = useCallback((nodeId: string, draft: string): void => {
-    patchTerminalNode(nodeId, (data) => (data.draft === draft ? {} : { draft }))
-  }, [patchTerminalNode])
+  const handleDraftChange = useCallback(
+    (nodeId: string, draft: string): void => {
+      patchTerminalNode(nodeId, (data) => (data.draft === draft ? {} : { draft }))
+    },
+    [patchTerminalNode]
+  )
 
-  const handlePermissionModeChange = useCallback((provider: keyof AgentPermissionModes, modeId: string): void => {
-    setAgentPermissionModes((current) => current[provider] === modeId
-      ? current
-      : { ...current, [provider]: modeId })
-    setNodes((current) => current.map((node) => (
-      isTerminalCanvasNode(node) && node.data.dormant && node.data.kind === provider
-        ? { ...node, data: { ...node.data, preferredPermissionMode: modeId } }
-        : node
-    )))
-  }, [setNodes])
+  const handlePermissionModeChange = useCallback(
+    (provider: keyof AgentPermissionModes, modeId: string): void => {
+      setAgentPermissionModes((current) =>
+        current[provider] === modeId ? current : { ...current, [provider]: modeId }
+      )
+      setNodes((current) =>
+        current.map((node) =>
+          isTerminalCanvasNode(node) && node.data.dormant && node.data.kind === provider
+            ? { ...node, data: { ...node.data, preferredPermissionMode: modeId } }
+            : node
+        )
+      )
+    },
+    [setNodes]
+  )
 
   // A model choice belongs to its conversation, so it is remembered per node rather than per provider.
-  const handleModelChange = useCallback((nodeId: string, modelId: string): void => {
-    patchTerminalNode(nodeId, () => ({ modelId }))
-  }, [patchTerminalNode])
+  const handleModelChange = useCallback(
+    (nodeId: string, modelId: string): void => {
+      patchTerminalNode(nodeId, () => ({ modelId }))
+    },
+    [patchTerminalNode]
+  )
 
-  const resumeNode = useCallback((nodeId: string): void => {
-    setNodes((current) => current.map((node) => {
-      if (!isTerminalCanvasNode(node)) return node
-      if (node.id !== nodeId) return { ...node, selected: false }
-      return {
-        ...node,
-        selected: true,
-        data: {
-          ...node.data,
-          dormant: false,
-          // Resuming a detached node is the user knowingly accepting the project checkout,
-          // so the badge stops warning about a worktree that no longer exists.
-          detachedFromWorktree: false,
-          launchMode: node.data.kind === 'terminal' || node.data.conversationId ? 'resume' : 'new'
-        }
-      }
-    }))
-    setNodeStatuses((current) => ({ ...current, [nodeId]: 'starting' }))
-  }, [setNodes])
+  const resumeNode = useCallback(
+    (nodeId: string): void => {
+      setNodes((current) =>
+        current.map((node) => {
+          if (!isTerminalCanvasNode(node)) return node
+          if (node.id !== nodeId) return { ...node, selected: false }
+          return {
+            ...node,
+            selected: true,
+            data: {
+              ...node.data,
+              dormant: false,
+              // Resuming a detached node is the user knowingly accepting the project checkout,
+              // so the badge stops warning about a worktree that no longer exists.
+              detachedFromWorktree: false,
+              launchMode: node.data.kind === 'terminal' || node.data.conversationId ? 'resume' : 'new'
+            }
+          }
+        })
+      )
+      setNodeStatuses((current) => ({ ...current, [nodeId]: 'starting' }))
+    },
+    [setNodes]
+  )
 
   // Node-data callbacks must keep a stable identity or every worktree node re-renders on each
   // canvas change, so they read the latest workspace through refs instead of dependencies.
@@ -551,33 +625,43 @@ function Canvas(): JSX.Element {
     setRecentlyClosedNodes([])
   }, [])
 
-  const handleNodesChange = useCallback((changes: NodeChange<CanvasNode>[]): void => {
-    const removedIds = new Set(changes.flatMap((change) => change.type === 'remove' ? [change.id] : []))
-    if (removedIds.size > 0) {
-      const removedNodes = nodesRef.current.filter((node) => removedIds.has(node.id))
-      for (const node of removedNodes) {
-        if (isTerminalCanvasNode(node) && node.data.kind === 'terminal') {
-          void window.terminalApi.removeScrollback(node.data.sessionId).then((removed) => {
-            if (!removed) {
-              window.alert('ADE could not remove this terminal’s retained output. It may still exist in the app data folder.')
-            }
-          }).catch(() => {
-            window.alert('ADE could not verify removal of this terminal’s retained output. It may still exist in the app data folder.')
-          })
+  const handleNodesChange = useCallback(
+    (changes: NodeChange<CanvasNode>[]): void => {
+      const removedIds = new Set(changes.flatMap((change) => (change.type === 'remove' ? [change.id] : [])))
+      if (removedIds.size > 0) {
+        const removedNodes = nodesRef.current.filter((node) => removedIds.has(node.id))
+        for (const node of removedNodes) {
+          if (isTerminalCanvasNode(node) && node.data.kind === 'terminal') {
+            void window.terminalApi
+              .removeScrollback(node.data.sessionId)
+              .then((removed) => {
+                if (!removed) {
+                  window.alert(
+                    'ADE could not remove this terminal’s retained output. It may still exist in the app data folder.'
+                  )
+                }
+              })
+              .catch(() => {
+                window.alert(
+                  'ADE could not verify removal of this terminal’s retained output. It may still exist in the app data folder.'
+                )
+              })
+          }
         }
+        const next = rememberClosedSessionNodes(recentlyClosedNodesRef.current, removedNodes)
+        recentlyClosedNodesRef.current = next
+        setRecentlyClosedNodes(next)
+        setNodeStatuses((current) =>
+          Object.fromEntries(Object.entries(current).filter(([nodeId]) => !removedIds.has(nodeId)))
+        )
+        // A closed node cannot be reached any more, so its attention records go with it rather
+        // than propping up a count nothing can clear.
+        setAttention((current) => forgetAttention(current, removedIds))
       }
-      const next = rememberClosedSessionNodes(recentlyClosedNodesRef.current, removedNodes)
-      recentlyClosedNodesRef.current = next
-      setRecentlyClosedNodes(next)
-      setNodeStatuses((current) => Object.fromEntries(
-        Object.entries(current).filter(([nodeId]) => !removedIds.has(nodeId))
-      ))
-      // A closed node cannot be reached any more, so its attention records go with it rather
-      // than propping up a count nothing can clear.
-      setAttention((current) => forgetAttention(current, removedIds))
-    }
-    onNodesChange(changes)
-  }, [onNodesChange])
+      onNodesChange(changes)
+    },
+    [onNodesChange]
+  )
 
   const reopenLastClosedSession = useCallback((): boolean => {
     const result = reopenClosedSession(
@@ -607,16 +691,26 @@ function Canvas(): JSX.Element {
     if (!result.node) return false
 
     const reopened = result.node
-    setNodes((current) => [
-      ...current.map((node) => ({ ...node, selected: false })),
-      reopened
-    ])
+    setNodes((current) => [...current.map((node) => ({ ...node, selected: false })), reopened])
     setNodeStatuses((current) => ({
       ...current,
       [reopened.id]: reopened.data.dormant ? 'dormant' : 'starting'
     }))
     return true
-  }, [dispatchWorktreeHandoff, handleConversationId, handleDraftChange, handleFocusModeChange, handleModelChange, handlePermissionModeChange, handlePreview, handleStatusChange, handleTerminalLiveness, handleTitleChange, resumeNode, setNodes])
+  }, [
+    dispatchWorktreeHandoff,
+    handleConversationId,
+    handleDraftChange,
+    handleFocusModeChange,
+    handleModelChange,
+    handlePermissionModeChange,
+    handlePreview,
+    handleStatusChange,
+    handleTerminalLiveness,
+    handleTitleChange,
+    resumeNode,
+    setNodes
+  ])
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent): void => {
@@ -627,151 +721,181 @@ function Canvas(): JSX.Element {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [reopenLastClosedSession])
 
-  const addSessionNode = useCallback((options: {
-    kind: TerminalKind
-    project: Project
-    worktree?: WorktreeCanvasNode['data']
-    position: { x: number; y: number }
-    initialInput?: string
-    label?: string
-    titleSource?: ConversationTitleSource
-    /** An existing provider conversation this node adopts instead of starting a fresh one. */
-    resumeConversationId?: string
-  }): void => {
-    const { kind, project, worktree, position, resumeConversationId } = options
-    const id = crypto.randomUUID()
-    const label = options.label ?? `${labels[kind]} ${nextSessionNumber.current}`
-    const conversationId = resumeConversationId ?? (kind === 'claude' ? crypto.randomUUID() : undefined)
-    nextSessionNumber.current += 1
-    setNodes((current) => [
-      ...current.map((node) => ({ ...node, selected: false })),
-      {
-        id,
-        type: 'terminalNode',
-        selected: true,
-        position,
-        data: {
-          kind,
-          sessionId: crypto.randomUUID(),
-          terminalLiveness: 'unverifiable',
-          label,
-          titleSource: options.titleSource,
-          projectId: project.id,
-          projectName: project.name,
-          projectPath: project.path,
-          projectColor: project.color,
-          worktreeId: worktree?.worktreeId,
-          worktreeBranch: worktree?.branch,
-          workingDirectory: worktree?.path ?? project.path,
-          conversationId,
-          focusMode: kind !== 'terminal',
-          preferredPermissionMode: kind === 'terminal' ? undefined : permissionModesRef.current[kind],
-          dormant: false,
-          launchMode: resumeConversationId ? 'resume' : 'new',
-          initialInput: options.initialInput,
-          onStatusChange: handleStatusChange,
-          onAttention: handleAttention,
-          onConversationId: handleConversationId,
-          onTitleChange: handleTitleChange,
-          onPreview: handlePreview,
-          onFocusModeChange: handleFocusModeChange,
-          onDraftChange: handleDraftChange,
-          onPermissionModeChange: handlePermissionModeChange,
-          onModelChange: handleModelChange,
-          onResume: resumeNode,
-          onTerminalLiveness: handleTerminalLiveness,
-          onWorktreeHandoff: dispatchWorktreeHandoff
-        },
-        style: { width: 520, height: 340 }
-      }
-    ])
-    setNodeStatuses((current) => ({ ...current, [id]: 'starting' }))
-  }, [handleConversationId, handleDraftChange, handleFocusModeChange, handleModelChange, handlePermissionModeChange, handlePreview, handleStatusChange, handleTerminalLiveness, handleTitleChange, resumeNode, setNodes])
+  const addSessionNode = useCallback(
+    (options: {
+      kind: TerminalKind
+      project: Project
+      worktree?: WorktreeCanvasNode['data']
+      position: { x: number; y: number }
+      initialInput?: string
+      label?: string
+      titleSource?: ConversationTitleSource
+      /** An existing provider conversation this node adopts instead of starting a fresh one. */
+      resumeConversationId?: string
+    }): void => {
+      const { kind, project, worktree, position, resumeConversationId } = options
+      const id = crypto.randomUUID()
+      const label = options.label ?? `${labels[kind]} ${nextSessionNumber.current}`
+      const conversationId = resumeConversationId ?? (kind === 'claude' ? crypto.randomUUID() : undefined)
+      nextSessionNumber.current += 1
+      setNodes((current) => [
+        ...current.map((node) => ({ ...node, selected: false })),
+        {
+          id,
+          type: 'terminalNode',
+          selected: true,
+          position,
+          data: {
+            kind,
+            sessionId: crypto.randomUUID(),
+            terminalLiveness: 'unverifiable',
+            label,
+            titleSource: options.titleSource,
+            projectId: project.id,
+            projectName: project.name,
+            projectPath: project.path,
+            projectColor: project.color,
+            worktreeId: worktree?.worktreeId,
+            worktreeBranch: worktree?.branch,
+            workingDirectory: worktree?.path ?? project.path,
+            conversationId,
+            focusMode: kind !== 'terminal',
+            preferredPermissionMode: kind === 'terminal' ? undefined : permissionModesRef.current[kind],
+            dormant: false,
+            launchMode: resumeConversationId ? 'resume' : 'new',
+            initialInput: options.initialInput,
+            onStatusChange: handleStatusChange,
+            onAttention: handleAttention,
+            onConversationId: handleConversationId,
+            onTitleChange: handleTitleChange,
+            onPreview: handlePreview,
+            onFocusModeChange: handleFocusModeChange,
+            onDraftChange: handleDraftChange,
+            onPermissionModeChange: handlePermissionModeChange,
+            onModelChange: handleModelChange,
+            onResume: resumeNode,
+            onTerminalLiveness: handleTerminalLiveness,
+            onWorktreeHandoff: dispatchWorktreeHandoff
+          },
+          style: { width: 520, height: 340 }
+        }
+      ])
+      setNodeStatuses((current) => ({ ...current, [id]: 'starting' }))
+    },
+    [
+      handleConversationId,
+      handleDraftChange,
+      handleFocusModeChange,
+      handleModelChange,
+      handlePermissionModeChange,
+      handlePreview,
+      handleStatusChange,
+      handleTerminalLiveness,
+      handleTitleChange,
+      resumeNode,
+      setNodes
+    ]
+  )
 
-  const findWorktreeNode = useCallback((worktreeId: string): WorktreeCanvasNode | undefined => (
-    nodesRef.current.filter(isWorktreeCanvasNode).find((node) => node.data.worktreeId === worktreeId)
-  ), [])
+  const findWorktreeNode = useCallback(
+    (worktreeId: string): WorktreeCanvasNode | undefined =>
+      nodesRef.current.filter(isWorktreeCanvasNode).find((node) => node.data.worktreeId === worktreeId),
+    []
+  )
 
   /** New sessions land beside their worktree node, fanned out so they do not stack on one spot. */
-  const openInWorktree = useCallback((worktreeId: string, kind: TerminalKind, initialInput?: string): void => {
-    const worktreeNode = findWorktreeNode(worktreeId)
-    const project = projectsRef.current.find((candidate) => candidate.id === worktreeNode?.data.projectId)
-    if (!worktreeNode || !project) return
-    const offset = worktreeNode.data.attachedNodeCount
-    addSessionNode({
-      kind,
-      project,
-      worktree: worktreeNode.data,
-      position: {
-        x: worktreeNode.position.x + DEFAULT_WORKTREE_SIZE.width + 48,
-        y: worktreeNode.position.y + offset * 40
-      },
-      initialInput
-    })
-  }, [addSessionNode, findWorktreeNode])
-
-  const handleCreateNodeInWorktree = useCallback((worktreeId: string, kind: TerminalKind): void => {
-    openInWorktree(worktreeId, kind)
-  }, [openInWorktree])
-
-  const handleRunSetupCommand = useCallback((worktreeId: string): void => {
-    const worktreeNode = findWorktreeNode(worktreeId)
-    const command = worktreeNode?.data.setupCommand?.trim()
-    if (!command) return
-    // A visible terminal node, not a hidden background process: setup can fail, prompt, or
-    // hang, and the user needs to see it and be able to interrupt it.
-    openInWorktree(worktreeId, 'terminal', `${command}\r`)
-  }, [findWorktreeNode, openInWorktree])
-
-  const handleRemoveWorktree = useCallback((worktreeId: string): void => {
-    const worktreeNode = findWorktreeNode(worktreeId)
-    const project = projectsRef.current.find((candidate) => candidate.id === worktreeNode?.data.projectId)
-    if (!worktreeNode || !project) return
-
-    const attached = worktreeNode.data.attachedNodeCount
-    const open = (blockers: WorktreeRemovalBlocker[]): void => setRemovalPrompt({
-      worktreeId,
-      branch: worktreeNode.data.branch,
-      path: worktreeNode.data.path,
-      plan: planWorktreeRemoval(attached, blockers),
-      busy: false,
-      error: null
-    })
-
-    // Attached nodes settle it on their own; there is no reason to inspect the repository yet.
-    if (attached > 0) {
-      open([])
-      return
-    }
-    void window.worktreeApi
-      .remove({
-        projectPath: project.path,
-        path: worktreeNode.data.path,
-        branch: worktreeNode.data.branch,
-        baseRef: worktreeNode.data.baseRef
+  const openInWorktree = useCallback(
+    (worktreeId: string, kind: TerminalKind, initialInput?: string): void => {
+      const worktreeNode = findWorktreeNode(worktreeId)
+      const project = projectsRef.current.find((candidate) => candidate.id === worktreeNode?.data.projectId)
+      if (!worktreeNode || !project) return
+      const offset = worktreeNode.data.attachedNodeCount
+      addSessionNode({
+        kind,
+        project,
+        worktree: worktreeNode.data,
+        position: {
+          x: worktreeNode.position.x + DEFAULT_WORKTREE_SIZE.width + 48,
+          y: worktreeNode.position.y + offset * 40
+        },
+        initialInput
       })
-      .then((result) => {
-        if (result.ok) {
-          clearRecentlyClosedNodes()
-          setNodes((current) => current.filter(
-            (node) => !(isWorktreeCanvasNode(node) && node.data.worktreeId === worktreeId)
-          ))
-          return
-        }
-        if (result.blockers.length > 0) {
-          open(result.blockers)
-          return
-        }
+    },
+    [addSessionNode, findWorktreeNode]
+  )
+
+  const handleCreateNodeInWorktree = useCallback(
+    (worktreeId: string, kind: TerminalKind): void => {
+      openInWorktree(worktreeId, kind)
+    },
+    [openInWorktree]
+  )
+
+  const handleRunSetupCommand = useCallback(
+    (worktreeId: string): void => {
+      const worktreeNode = findWorktreeNode(worktreeId)
+      const command = worktreeNode?.data.setupCommand?.trim()
+      if (!command) return
+      // A visible terminal node, not a hidden background process: setup can fail, prompt, or
+      // hang, and the user needs to see it and be able to interrupt it.
+      openInWorktree(worktreeId, 'terminal', `${command}\r`)
+    },
+    [findWorktreeNode, openInWorktree]
+  )
+
+  const handleRemoveWorktree = useCallback(
+    (worktreeId: string): void => {
+      const worktreeNode = findWorktreeNode(worktreeId)
+      const project = projectsRef.current.find((candidate) => candidate.id === worktreeNode?.data.projectId)
+      if (!worktreeNode || !project) return
+
+      const attached = worktreeNode.data.attachedNodeCount
+      const open = (blockers: WorktreeRemovalBlocker[]): void =>
         setRemovalPrompt({
           worktreeId,
           branch: worktreeNode.data.branch,
           path: worktreeNode.data.path,
-          plan: planWorktreeRemoval(0, []),
+          plan: planWorktreeRemoval(attached, blockers),
           busy: false,
-          error: result.message ?? 'The worktree could not be removed.'
+          error: null
         })
-      })
-  }, [clearRecentlyClosedNodes, findWorktreeNode, setNodes])
+
+      // Attached nodes settle it on their own; there is no reason to inspect the repository yet.
+      if (attached > 0) {
+        open([])
+        return
+      }
+      void window.worktreeApi
+        .remove({
+          projectPath: project.path,
+          path: worktreeNode.data.path,
+          branch: worktreeNode.data.branch,
+          baseRef: worktreeNode.data.baseRef
+        })
+        .then((result) => {
+          if (result.ok) {
+            clearRecentlyClosedNodes()
+            setNodes((current) =>
+              current.filter((node) => !(isWorktreeCanvasNode(node) && node.data.worktreeId === worktreeId))
+            )
+            return
+          }
+          if (result.blockers.length > 0) {
+            open(result.blockers)
+            return
+          }
+          setRemovalPrompt({
+            worktreeId,
+            branch: worktreeNode.data.branch,
+            path: worktreeNode.data.path,
+            plan: planWorktreeRemoval(0, []),
+            busy: false,
+            error: result.message ?? 'The worktree could not be removed.'
+          })
+        })
+    },
+    [clearRecentlyClosedNodes, findWorktreeNode, setNodes]
+  )
 
   /**
    * A prompt that asked for its own worktree. The worktree is made first and the session is
@@ -780,130 +904,135 @@ function Canvas(): JSX.Element {
    * prompt on every edit. The branch is provisional: the skill renames it once it has read
    * the work, which beats guessing a name from the prompt.
    */
-  const handleWorktreeHandoff = useCallback((
-    nodeId: string,
-    request: WorktreeHandoffPlan
-  ): void => {
-    const node = nodesRef.current.filter(isTerminalCanvasNode).find((candidate) => candidate.id === nodeId)
-    const project = projectsRef.current.find((candidate) => candidate.id === node?.data.projectId)
-    if (!node || !project || node.data.kind === 'terminal') return
+  const handleWorktreeHandoff = useCallback(
+    (nodeId: string, request: WorktreeHandoffPlan): void => {
+      const node = nodesRef.current.filter(isTerminalCanvasNode).find((candidate) => candidate.id === nodeId)
+      const project = projectsRef.current.find((candidate) => candidate.id === node?.data.projectId)
+      if (!node || !project || node.data.kind === 'terminal') return
 
-    void window.worktreeApi
-      .create({ projectPath: project.path, branch: placeholderBranchName(new Date()) })
-      .then((result) => {
-        if (!result.ok || !result.worktree) {
-          // Nothing was created, so the prompt goes back to the composer it was typed in rather
-          // than being silently discarded, and the failure surfaces in the dialog that already
-          // exists for making a worktree by hand - which doubles as the retry.
-          handleDraftChange(nodeId, request.prompt)
-          setWorktreeDraft({
-            projectId: project.id,
-            branch: '',
-            baseRef: '',
-            position: { x: node.position.x, y: node.position.y + (node.height ?? 340) + 64 },
-            busy: false,
-            error: result.message ?? 'The worktree could not be created.'
-          })
-          return
-        }
-        const worktreeId = crypto.randomUUID()
-        const created = result.worktree
-        setNodes((current) => [
-          ...current.map((candidate) => ({ ...candidate, selected: false })),
-          {
-            id: `worktree:${worktreeId}`,
-            type: 'worktreeNode',
-            selected: false,
-            deletable: false,
-            position: { x: node.position.x, y: node.position.y + (node.height ?? 340) + 64 },
-            data: {
-              worktreeId,
-              branch: created.branch,
-              path: created.path,
-              baseRef: created.baseRef,
-              createdAt: new Date().toISOString(),
+      void window.worktreeApi
+        .create({ projectPath: project.path, branch: placeholderBranchName(new Date()) })
+        .then((result) => {
+          if (!result.ok || !result.worktree) {
+            // Nothing was created, so the prompt goes back to the composer it was typed in rather
+            // than being silently discarded, and the failure surfaces in the dialog that already
+            // exists for making a worktree by hand - which doubles as the retry.
+            handleDraftChange(nodeId, request.prompt)
+            setWorktreeDraft({
               projectId: project.id,
-              projectName: project.name,
-              projectPath: project.path,
-              projectColor: project.color,
-              setupCommand: project.setupCommand,
-              attachedNodeCount: 0,
-              onRemoveWorktree: handleRemoveWorktree,
-              onCreateNodeInWorktree: handleCreateNodeInWorktree,
-              onRunSetupCommand: handleRunSetupCommand
-            },
-            style: { ...DEFAULT_WORKTREE_SIZE }
+              branch: '',
+              baseRef: '',
+              position: { x: node.position.x, y: node.position.y + (node.height ?? 340) + 64 },
+              busy: false,
+              error: result.message ?? 'The worktree could not be created.'
+            })
+            return
           }
-        ])
-
-        if (request.mode !== 'rehome') {
-          openInWorktree(worktreeId, node.data.kind, request.prompt)
-          return
-        }
-
-        // Codex can load a conversation in a directory it did not start in, so the node itself
-        // moves rather than a second one appearing beside it - which keeps exactly one owner of
-        // the conversation. Changing `workingDirectory` restarts the session there (it is a
-        // dependency of the session effect), and `resume` makes that restart load the
-        // conversation rather than begin a new one.
-        setNodes((current) => current.map((candidate) => (
-          isTerminalCanvasNode(candidate) && candidate.id === nodeId
-            ? {
-              ...candidate,
+          const worktreeId = crypto.randomUUID()
+          const created = result.worktree
+          setNodes((current) => [
+            ...current.map((candidate) => ({ ...candidate, selected: false })),
+            {
+              id: `worktree:${worktreeId}`,
+              type: 'worktreeNode',
+              selected: false,
+              deletable: false,
+              position: { x: node.position.x, y: node.position.y + (node.height ?? 340) + 64 },
               data: {
-                ...candidate.data,
                 worktreeId,
-                worktreeBranch: created.branch,
-                workingDirectory: created.path,
-                launchMode: 'resume' as const,
-                initialInput: request.prompt
-              }
+                branch: created.branch,
+                path: created.path,
+                baseRef: created.baseRef,
+                createdAt: new Date().toISOString(),
+                projectId: project.id,
+                projectName: project.name,
+                projectPath: project.path,
+                projectColor: project.color,
+                setupCommand: project.setupCommand,
+                attachedNodeCount: 0,
+                onRemoveWorktree: handleRemoveWorktree,
+                onCreateNodeInWorktree: handleCreateNodeInWorktree,
+                onRunSetupCommand: handleRunSetupCommand
+              },
+              style: { ...DEFAULT_WORKTREE_SIZE }
             }
-            : candidate
-        )))
-      })
-  }, [
-    handleCreateNodeInWorktree,
-    handleDraftChange,
-    handleRemoveWorktree,
-    handleRunSetupCommand,
-    openInWorktree,
-    setNodes
-  ])
+          ])
+
+          if (request.mode !== 'rehome') {
+            openInWorktree(worktreeId, node.data.kind, request.prompt)
+            return
+          }
+
+          // Codex can load a conversation in a directory it did not start in, so the node itself
+          // moves rather than a second one appearing beside it - which keeps exactly one owner of
+          // the conversation. Changing `workingDirectory` restarts the session there (it is a
+          // dependency of the session effect), and `resume` makes that restart load the
+          // conversation rather than begin a new one.
+          setNodes((current) =>
+            current.map((candidate) =>
+              isTerminalCanvasNode(candidate) && candidate.id === nodeId
+                ? {
+                    ...candidate,
+                    data: {
+                      ...candidate.data,
+                      worktreeId,
+                      worktreeBranch: created.branch,
+                      workingDirectory: created.path,
+                      launchMode: 'resume' as const,
+                      initialInput: request.prompt
+                    }
+                  }
+                : candidate
+            )
+          )
+        })
+    },
+    [
+      handleCreateNodeInWorktree,
+      handleDraftChange,
+      handleRemoveWorktree,
+      handleRunSetupCommand,
+      openInWorktree,
+      setNodes
+    ]
+  )
   handleWorktreeHandoffRef.current = handleWorktreeHandoff
 
-  const confirmWorktreeRemoval = useCallback((force: boolean): void => {
-    const prompt = removalPrompt
-    const worktreeNode = prompt ? findWorktreeNode(prompt.worktreeId) : undefined
-    const project = projectsRef.current.find((candidate) => candidate.id === worktreeNode?.data.projectId)
-    if (!prompt || !worktreeNode || !project) return
+  const confirmWorktreeRemoval = useCallback(
+    (force: boolean): void => {
+      const prompt = removalPrompt
+      const worktreeNode = prompt ? findWorktreeNode(prompt.worktreeId) : undefined
+      const project = projectsRef.current.find((candidate) => candidate.id === worktreeNode?.data.projectId)
+      if (!prompt || !worktreeNode || !project) return
 
-    setRemovalPrompt({ ...prompt, busy: true, error: null })
-    void window.worktreeApi
-      .remove({
-        projectPath: project.path,
-        path: worktreeNode.data.path,
-        branch: worktreeNode.data.branch,
-        baseRef: worktreeNode.data.baseRef,
-        force
-      })
-      .then((result) => {
-        if (result.ok) {
-          clearRecentlyClosedNodes()
-          setNodes((current) => current.filter(
-            (node) => !(isWorktreeCanvasNode(node) && node.data.worktreeId === prompt.worktreeId)
-          ))
-          setRemovalPrompt(null)
-          return
-        }
-        setRemovalPrompt({
-          ...prompt,
-          busy: false,
-          plan: planWorktreeRemoval(worktreeNode.data.attachedNodeCount, result.blockers),
-          error: result.message ?? null
+      setRemovalPrompt({ ...prompt, busy: true, error: null })
+      void window.worktreeApi
+        .remove({
+          projectPath: project.path,
+          path: worktreeNode.data.path,
+          branch: worktreeNode.data.branch,
+          baseRef: worktreeNode.data.baseRef,
+          force
         })
-      })
-  }, [clearRecentlyClosedNodes, findWorktreeNode, removalPrompt, setNodes])
+        .then((result) => {
+          if (result.ok) {
+            clearRecentlyClosedNodes()
+            setNodes((current) =>
+              current.filter((node) => !(isWorktreeCanvasNode(node) && node.data.worktreeId === prompt.worktreeId))
+            )
+            setRemovalPrompt(null)
+            return
+          }
+          setRemovalPrompt({
+            ...prompt,
+            busy: false,
+            plan: planWorktreeRemoval(worktreeNode.data.attachedNodeCount, result.blockers),
+            error: result.message ?? null
+          })
+        })
+    },
+    [clearRecentlyClosedNodes, findWorktreeNode, removalPrompt, setNodes]
+  )
 
   const seedFreshWorkspace = useCallback(async (): Promise<void> => {
     const directory = await window.terminalApi.getInitialProject()
@@ -956,7 +1085,12 @@ function Canvas(): JSX.Element {
         setRecentlyClosedNodes(saved.recentlyClosedNodes ?? [])
         // What needed attention before the restart still does. Records are pruned to the nodes
         // that actually came back, so a count can never point at something the user cannot open.
-        setAttention(pruneAttention(saved.attention ?? [], restored.nodes.map((node) => node.id)))
+        setAttention(
+          pruneAttention(
+            saved.attention ?? [],
+            restored.nodes.map((node) => node.id)
+          )
+        )
       } else if (unrecoverable) {
         // Never silently seed and autosave a fresh default over damaged state the user might
         // still be able to recover by hand; wait for an explicit acknowledgement instead.
@@ -968,8 +1102,26 @@ function Canvas(): JSX.Element {
       }
       setWorkspaceReady(true)
     })()
-    return () => { active = false }
-  }, [handleConversationId, handleCreateNodeInWorktree, handleDraftChange, handleFocusModeChange, handleModelChange, handlePermissionModeChange, handlePreview, handleRemoveWorktree, handleRunSetupCommand, handleStatusChange, handleTerminalLiveness, handleTitleChange, resumeNode, seedFreshWorkspace, setNodes])
+    return () => {
+      active = false
+    }
+  }, [
+    handleConversationId,
+    handleCreateNodeInWorktree,
+    handleDraftChange,
+    handleFocusModeChange,
+    handleModelChange,
+    handlePermissionModeChange,
+    handlePreview,
+    handleRemoveWorktree,
+    handleRunSetupCommand,
+    handleStatusChange,
+    handleTerminalLiveness,
+    handleTitleChange,
+    resumeNode,
+    seedFreshWorkspace,
+    setNodes
+  ])
 
   // One place decides how many nodes a worktree carries, so the count the teardown gate reads
   // and the count the node shows can never drift apart.
@@ -1011,15 +1163,11 @@ function Canvas(): JSX.Element {
           .filter((node) => node.data.projectId === project.id)
           .map((node) => node.data.path)
 
-        const result = await window.worktreeApi
-          .discover({ projectPath: project.path, known })
-          .catch(() => null)
+        const result = await window.worktreeApi.discover({ projectPath: project.path, known }).catch(() => null)
         if (cancelled || !result || result.worktrees.length === 0) continue
 
         setNodes((current) => {
-          const recorded = new Set(
-            current.filter(isWorktreeCanvasNode).map((node) => node.data.path.toLowerCase())
-          )
+          const recorded = new Set(current.filter(isWorktreeCanvasNode).map((node) => node.data.path.toLowerCase()))
           const fresh = result.worktrees.filter((worktree) => !recorded.has(worktree.path.toLowerCase()))
           if (fresh.length === 0) return current
 
@@ -1052,15 +1200,16 @@ function Canvas(): JSX.Element {
             }
           })
 
-          const linked = claimed.size === 0
-            ? current
-            : current.map((node) => {
-              if (!isTerminalCanvasNode(node)) return node
-              const worktreeId = claimed.get(node.id)
-              if (!worktreeId) return node
-              const branch = added.find((candidate) => candidate.data.worktreeId === worktreeId)?.data.branch
-              return { ...node, data: { ...node.data, activeWorktreeId: worktreeId, activeWorktreeBranch: branch } }
-            })
+          const linked =
+            claimed.size === 0
+              ? current
+              : current.map((node) => {
+                  if (!isTerminalCanvasNode(node)) return node
+                  const worktreeId = claimed.get(node.id)
+                  if (!worktreeId) return node
+                  const branch = added.find((candidate) => candidate.data.worktreeId === worktreeId)?.data.branch
+                  return { ...node, data: { ...node.data, activeWorktreeId: worktreeId, activeWorktreeBranch: branch } }
+                })
 
           return [...linked, ...added]
         })
@@ -1096,15 +1245,23 @@ function Canvas(): JSX.Element {
       })
     }, 180)
     return () => clearTimeout(timeout)
-  }, [activeProjectId, agentPermissionModes, attention, composerSendKey, nodes, projects, recentlyClosedNodes, sidebarCollapsed, workspaceReady])
+  }, [
+    activeProjectId,
+    agentPermissionModes,
+    attention,
+    composerSendKey,
+    nodes,
+    projects,
+    recentlyClosedNodes,
+    sidebarCollapsed,
+    workspaceReady
+  ])
 
   const addProject = useCallback(async (): Promise<void> => {
     const directory = await window.terminalApi.pickProject()
     if (!directory) return
 
-    const existing = projects.find(
-      (project) => project.path.toLocaleLowerCase() === directory.path.toLocaleLowerCase()
-    )
+    const existing = projects.find((project) => project.path.toLocaleLowerCase() === directory.path.toLocaleLowerCase())
     if (existing) {
       setActiveProjectId(existing.id)
       setMenu(null)
@@ -1117,31 +1274,40 @@ function Canvas(): JSX.Element {
     setMenu(null)
   }, [projects])
 
-  const locateProject = useCallback((projectId: string): void => {
-    const matchingNodes = nodes.filter((node) => node.data.projectId === projectId)
-    if (matchingNodes.length > 0) {
-      void fitView({ nodes: matchingNodes, padding: 0.28, duration: 350 })
-    }
-  }, [fitView, nodes])
+  const locateProject = useCallback(
+    (projectId: string): void => {
+      const matchingNodes = nodes.filter((node) => node.data.projectId === projectId)
+      if (matchingNodes.length > 0) {
+        void fitView({ nodes: matchingNodes, padding: 0.28, duration: 350 })
+      }
+    },
+    [fitView, nodes]
+  )
 
-  const removeProject = useCallback((projectId: string): void => {
-    if (projects.length <= 1 || nodes.some((node) => node.data.projectId === projectId)) return
-    const remaining = projects.filter((project) => project.id !== projectId)
-    clearRecentlyClosedNodes()
-    setProjects(remaining)
-    if (activeProjectId === projectId) setActiveProjectId(remaining[0].id)
-    setMenu(null)
-  }, [activeProjectId, clearRecentlyClosedNodes, nodes, projects])
+  const removeProject = useCallback(
+    (projectId: string): void => {
+      if (projects.length <= 1 || nodes.some((node) => node.data.projectId === projectId)) return
+      const remaining = projects.filter((project) => project.id !== projectId)
+      clearRecentlyClosedNodes()
+      setProjects(remaining)
+      if (activeProjectId === projectId) setActiveProjectId(remaining[0].id)
+      setMenu(null)
+    },
+    [activeProjectId, clearRecentlyClosedNodes, nodes, projects]
+  )
 
-  const focusNode = useCallback((nodeId: string): void => {
-    const target = nodes.find((node) => node.id === nodeId)
-    if (!target) return
+  const focusNode = useCallback(
+    (nodeId: string): void => {
+      const target = nodes.find((node) => node.id === nodeId)
+      if (!target) return
 
-    // Selecting a node is enough: each node reports its own status once it sees the focus.
-    setNodes((current) => current.map((node) => ({ ...node, selected: node.id === nodeId })))
-    setMenu(null)
-    void fitView({ nodes: [target], padding: 0.32, duration: 350, maxZoom: 1.15 })
-  }, [fitView, nodes, setNodes])
+      // Selecting a node is enough: each node reports its own status once it sees the focus.
+      setNodes((current) => current.map((node) => ({ ...node, selected: node.id === nodeId })))
+      setMenu(null)
+      void fitView({ nodes: [target], padding: 0.32, duration: 350, maxZoom: 1.15 })
+    },
+    [fitView, nodes, setNodes]
+  )
 
   const openContextMenu = useCallback(
     (event: MouseEvent | ReactMouseEvent): void => {
@@ -1198,24 +1364,27 @@ function Canvas(): JSX.Element {
    * A browsed conversation reopens as a node resumed onto it, attached to whichever worktree it
    * originally ran in so it keeps writing where it always did.
    */
-  const openHistoryConversation = useCallback((entry: ConversationSummary): void => {
-    const project = projectsRef.current.find((candidate) => candidate.id === activeProjectId)
-      ?? projectsRef.current[0]
-    if (!project || !historyDrop) return
-    const worktreeNode = nodesRef.current
-      .filter(isWorktreeCanvasNode)
-      .find((node) => node.data.path.toLocaleLowerCase() === entry.cwd.toLocaleLowerCase())
-    addSessionNode({
-      kind: entry.provider,
-      project,
-      worktree: worktreeNode?.data,
-      position: historyDrop,
-      label: entry.title,
-      titleSource: entry.titleSource,
-      resumeConversationId: entry.id
-    })
-    setHistoryDrop(null)
-  }, [activeProjectId, addSessionNode, historyDrop])
+  const openHistoryConversation = useCallback(
+    (entry: ConversationSummary): void => {
+      const project =
+        projectsRef.current.find((candidate) => candidate.id === activeProjectId) ?? projectsRef.current[0]
+      if (!project || !historyDrop) return
+      const worktreeNode = nodesRef.current
+        .filter(isWorktreeCanvasNode)
+        .find((node) => node.data.path.toLocaleLowerCase() === entry.cwd.toLocaleLowerCase())
+      addSessionNode({
+        kind: entry.provider,
+        project,
+        worktree: worktreeNode?.data,
+        position: historyDrop,
+        label: entry.title,
+        titleSource: entry.titleSource,
+        resumeConversationId: entry.id
+      })
+      setHistoryDrop(null)
+    },
+    [activeProjectId, addSessionNode, historyDrop]
+  )
 
   const startWorktreeDraft = useCallback((): void => {
     if (!menu || !activeProject) return
@@ -1279,11 +1448,13 @@ function Canvas(): JSX.Element {
   }, [handleCreateNodeInWorktree, handleRemoveWorktree, handleRunSetupCommand, projects, setNodes, worktreeDraft])
 
   const saveSetupCommand = useCallback((projectId: string, command: string): void => {
-    setProjects((current) => current.map((project) => (
-      project.id === projectId
-        ? { ...project, ...(command ? { setupCommand: command } : { setupCommand: undefined }) }
-        : project
-    )))
+    setProjects((current) =>
+      current.map((project) =>
+        project.id === projectId
+          ? { ...project, ...(command ? { setupCommand: command } : { setupCommand: undefined }) }
+          : project
+      )
+    )
     setSetupProjectId(null)
   }, [])
 
@@ -1294,375 +1465,408 @@ function Canvas(): JSX.Element {
 
   return (
     <ComposerSendKeyContext.Provider value={sendKeyPreference}>
-    {/* One poll, every node: account usage is per provider, so a chat node reads it from here
+      {/* One poll, every node: account usage is per provider, so a chat node reads it from here
         instead of asking for it itself. */}
-    <ProviderRateLimitsContext.Provider value={providerRateLimits}>
-    <main className="app-shell" onClick={() => setMenu(null)}>
-      {workspaceUnrecoverable && (
-        <div className="unrecoverable-workspace-overlay" role="alertdialog" aria-modal="true" aria-labelledby="unrecoverable-workspace-title">
-          <div className="unrecoverable-workspace-dialog">
-            <strong id="unrecoverable-workspace-title">Your saved workspace could not be recovered</strong>
-            <p>
-              The saved canvas and its backup were both damaged, likely by a crash or an interrupted
-              write. Nothing has been overwritten yet.
-            </p>
-            <button type="button" onClick={() => acknowledgeUnrecoverableWorkspace()}>
-              Start a new workspace
-            </button>
-          </div>
-        </div>
-      )}
-      <header className="app-header">
-        <div>
-          <span className="brand-mark" aria-hidden="true" />
-          <strong>ADE</strong>
-          <span className="prototype-label">canvas agent prototype</span>
-        </div>
-        <div className="header-target">
-          {(statusSummary.working > 0 || statusSummary.stalled > 0 || unreadTotal > 0) && (
-            <div className="global-status-summary" role="status">
-              {statusSummary.working > 0 && (
-                <span className="global-status-chip" data-kind="working">
-                  <span className="global-status-dot" />
-                  {statusSummary.working} working
-                </span>
-              )}
-              {statusSummary.stalled > 0 && (
-                <span
-                  className="global-status-chip"
-                  data-kind="stalled"
-                  title="No progress for a while - these sessions may be stuck"
-                >
-                  <span className="global-status-dot" />
-                  {statusSummary.stalled} may be stuck
-                </span>
-              )}
-              {/* Not recomputed from node status: this is the same durable record set the
-                  project rows and the nodes themselves count, so the numbers agree. */}
-              {unreadTotal > 0 && (
-                <span
-                  className="global-status-chip"
-                  data-kind="attention"
-                  title={describeUnreadAttention(attention)}
-                >
-                  <span className="global-status-dot" />
-                  {unreadTotal} unread
-                </span>
-              )}
-            </div>
-          )}
-          {(providerRateLimits.claude || providerRateLimits.codex) && (
-            <div className="global-usage-summary">
-              {providerRateLimits.claude && (
-                <ProviderUsageChip provider="Claude" status={providerRateLimits.claude} />
-              )}
-              {providerRateLimits.codex && (
-                <ProviderUsageChip provider="Codex" status={providerRateLimits.codex} />
-              )}
-            </div>
-          )}
-          <span className="hint">Right-click to create a session</span>
-          {activeProject && (
-            <span className="target-chip" title={activeProject.path}>
-              <span style={{ background: activeProject.color }} />
-              {activeProject.name}
-            </span>
-          )}
-        </div>
-      </header>
-
-      <div className="workspace-shell">
-        <aside className={`project-sidebar ${sidebarCollapsed ? 'collapsed' : ''}`}>
-          <div className="sidebar-heading">
-            {!sidebarCollapsed && <span>Projects</span>}
-            <button
-              type="button"
-              className="sidebar-toggle"
-              title={sidebarCollapsed ? 'Expand projects' : 'Collapse projects'}
-              onClick={(event) => {
-                event.stopPropagation()
-                setMenu(null)
-                setSidebarCollapsed((current) => !current)
-              }}
+      <ProviderRateLimitsContext.Provider value={providerRateLimits}>
+        <main className="app-shell" onClick={() => setMenu(null)}>
+          {workspaceUnrecoverable && (
+            <div
+              className="unrecoverable-workspace-overlay"
+              role="alertdialog"
+              aria-modal="true"
+              aria-labelledby="unrecoverable-workspace-title"
             >
-              {sidebarCollapsed ? '›' : '‹'}
-            </button>
-          </div>
-
-          <div className="project-list">
-            {projects.map((project) => {
-              const projectNodes = nodes
-                .filter(isTerminalCanvasNode)
-                .filter((node) => node.data.projectId === project.id)
-              const projectWorktrees = nodes
-                .filter(isWorktreeCanvasNode)
-                .filter((node) => node.data.projectId === project.id)
-              const nodeCount = projectNodes.length + projectWorktrees.length
-              // Summed from the same records as the header chip and the nodes, never re-derived.
-              const projectNodeIds = projectNodes.map((node) => node.id)
-              const projectUnread = countUnreadAttention(attention, projectNodeIds)
-              const selected = project.id === activeProject?.id
-              return (
-                <div className="project-section" key={project.id}>
-                  <div className={`project-row ${selected ? 'active' : ''}`}>
-                    <button
-                      type="button"
-                      className="project-select"
-                      title={sidebarCollapsed ? `${project.name}\n${project.path}` : project.path}
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        setActiveProjectId(project.id)
-                        setMenu(null)
-                      }}
+              <div className="unrecoverable-workspace-dialog">
+                <strong id="unrecoverable-workspace-title">Your saved workspace could not be recovered</strong>
+                <p>
+                  The saved canvas and its backup were both damaged, likely by a crash or an interrupted write. Nothing
+                  has been overwritten yet.
+                </p>
+                <button type="button" onClick={() => acknowledgeUnrecoverableWorkspace()}>
+                  Start a new workspace
+                </button>
+              </div>
+            </div>
+          )}
+          <header className="app-header">
+            <div>
+              <span className="brand-mark" aria-hidden="true" />
+              <strong>ADE</strong>
+              <span className="prototype-label">canvas agent prototype</span>
+            </div>
+            <div className="header-target">
+              {(statusSummary.working > 0 || statusSummary.stalled > 0 || unreadTotal > 0) && (
+                <div className="global-status-summary" role="status">
+                  {statusSummary.working > 0 && (
+                    <span className="global-status-chip" data-kind="working">
+                      <span className="global-status-dot" />
+                      {statusSummary.working} working
+                    </span>
+                  )}
+                  {statusSummary.stalled > 0 && (
+                    <span
+                      className="global-status-chip"
+                      data-kind="stalled"
+                      title="No progress for a while - these sessions may be stuck"
                     >
-                      <span className="project-avatar" style={{ '--project-color': project.color } as React.CSSProperties}>
-                        {project.name.slice(0, 1).toUpperCase()}
-                        {projectUnread > 0 && (
-                          <span
-                            className="unread-badge project-unread"
-                            title={describeUnreadAttention(attention, projectNodeIds)}
-                          >
-                            {projectUnread}
-                          </span>
-                        )}
-                      </span>
-                      {!sidebarCollapsed && (
-                        <span className="project-copy">
-                          <strong>{project.name}</strong>
-                          <small>{project.path}</small>
-                        </span>
-                      )}
-                    </button>
-                    {!sidebarCollapsed && (
-                      <div className="project-actions">
+                      <span className="global-status-dot" />
+                      {statusSummary.stalled} may be stuck
+                    </span>
+                  )}
+                  {/* Not recomputed from node status: this is the same durable record set the
+                  project rows and the nodes themselves count, so the numbers agree. */}
+                  {unreadTotal > 0 && (
+                    <span
+                      className="global-status-chip"
+                      data-kind="attention"
+                      title={describeUnreadAttention(attention)}
+                    >
+                      <span className="global-status-dot" />
+                      {unreadTotal} unread
+                    </span>
+                  )}
+                </div>
+              )}
+              {(providerRateLimits.claude || providerRateLimits.codex) && (
+                <div className="global-usage-summary">
+                  {providerRateLimits.claude && (
+                    <ProviderUsageChip provider="Claude" status={providerRateLimits.claude} />
+                  )}
+                  {providerRateLimits.codex && <ProviderUsageChip provider="Codex" status={providerRateLimits.codex} />}
+                </div>
+              )}
+              <span className="hint">Right-click to create a session</span>
+              {activeProject && (
+                <span className="target-chip" title={activeProject.path}>
+                  <span style={{ background: activeProject.color }} />
+                  {activeProject.name}
+                </span>
+              )}
+            </div>
+          </header>
+
+          <div className="workspace-shell">
+            <aside className={`project-sidebar ${sidebarCollapsed ? 'collapsed' : ''}`}>
+              <div className="sidebar-heading">
+                {!sidebarCollapsed && <span>Projects</span>}
+                <button
+                  type="button"
+                  className="sidebar-toggle"
+                  title={sidebarCollapsed ? 'Expand projects' : 'Collapse projects'}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    setMenu(null)
+                    setSidebarCollapsed((current) => !current)
+                  }}
+                >
+                  {sidebarCollapsed ? '›' : '‹'}
+                </button>
+              </div>
+
+              <div className="project-list">
+                {projects.map((project) => {
+                  const projectNodes = nodes
+                    .filter(isTerminalCanvasNode)
+                    .filter((node) => node.data.projectId === project.id)
+                  const projectWorktrees = nodes
+                    .filter(isWorktreeCanvasNode)
+                    .filter((node) => node.data.projectId === project.id)
+                  const nodeCount = projectNodes.length + projectWorktrees.length
+                  // Summed from the same records as the header chip and the nodes, never re-derived.
+                  const projectNodeIds = projectNodes.map((node) => node.id)
+                  const projectUnread = countUnreadAttention(attention, projectNodeIds)
+                  const selected = project.id === activeProject?.id
+                  return (
+                    <div className="project-section" key={project.id}>
+                      <div className={`project-row ${selected ? 'active' : ''}`}>
                         <button
                           type="button"
-                          className="project-setup"
-                          title={project.setupCommand
-                            ? `Worktree setup command: ${project.setupCommand}`
-                            : 'Set a command that prepares a new worktree'}
-                          data-configured={project.setupCommand ? 'true' : undefined}
+                          className="project-select"
+                          title={sidebarCollapsed ? `${project.name}\n${project.path}` : project.path}
                           onClick={(event) => {
                             event.stopPropagation()
-                            setSetupProjectId(project.id)
+                            setActiveProjectId(project.id)
                             setMenu(null)
                           }}
                         >
-                          ⚙
-                        </button>
-                        <button
-                          type="button"
-                          className="project-locate"
-                          title={nodeCount > 0 ? `Show ${project.name} nodes` : 'No nodes on the canvas yet'}
-                          disabled={nodeCount === 0}
-                          onClick={(event) => {
-                            event.stopPropagation()
-                            locateProject(project.id)
-                          }}
-                        >
-                          {nodeCount}
-                        </button>
-                        <button
-                          type="button"
-                          className="project-remove"
-                          title={nodeCount > 0
-                            ? 'Delete this project’s nodes first'
-                            : projects.length === 1
-                              ? 'ADE needs at least one project'
-                              : `Remove ${project.name}`}
-                          disabled={nodeCount > 0 || projects.length === 1}
-                          onClick={(event) => {
-                            event.stopPropagation()
-                            removeProject(project.id)
-                          }}
-                        >
-                          &times;
-                        </button>
-                      </div>
-                    )}
-                  </div>
-
-                  {!sidebarCollapsed && projectWorktrees.length > 0 && (
-                    <div className="project-node-list project-worktree-list">
-                      {projectWorktrees.map((node) => (
-                        <button
-                          type="button"
-                          className={`project-node-row ${node.selected ? 'selected' : ''}`}
-                          key={node.id}
-                          title={`Focus worktree ${node.data.branch}\n${node.data.path}`}
-                          onClick={(event) => {
-                            event.stopPropagation()
-                            focusNode(node.id)
-                          }}
-                        >
-                          <span className="project-node-kind">⑂</span>
-                          <span className="project-node-name">{node.data.branch}</span>
-                          <span className="project-node-state" data-status="worktree">
-                            {node.data.attachedNodeCount}
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-
-                  {!sidebarCollapsed && projectNodes.length > 0 && (
-                    <div className="project-node-list">
-                      {projectNodes.map((node) => {
-                        const status = nodeStatuses[node.id] ?? (node.data.dormant ? 'dormant' : 'starting')
-                        const nodeUnread = unreadByNode[node.id] ?? 0
-                        return (
-                          <button
-                            type="button"
-                            className={`project-node-row ${node.selected ? 'selected' : ''}`}
-                            key={node.id}
-                            data-unread={nodeUnread > 0 ? 'true' : undefined}
-                            title={[
-                              `Focus ${node.data.label} · ${statusLabels[status]}`,
-                              nodeUnread > 0 ? describeUnreadAttention(attention, [node.id]) : null
-                            ].filter(Boolean).join('\n')}
-                            onClick={(event) => {
-                              event.stopPropagation()
-                              focusNode(node.id)
-                            }}
+                          <span
+                            className="project-avatar"
+                            style={{ '--project-color': project.color } as React.CSSProperties}
                           >
-                            <span className="project-node-kind">{node.data.kind === 'terminal' ? '>_' : node.data.kind === 'claude' ? 'C' : '<>'}</span>
-                            <span className="project-node-name">{node.data.label}</span>
-                            {nodeUnread > 0 && <span className="unread-badge">{nodeUnread}</span>}
-                            {node.data.kind === 'terminal' && (
-                              <SidebarTerminalLiveness liveness={node.data.terminalLiveness} />
+                            {project.name.slice(0, 1).toUpperCase()}
+                            {projectUnread > 0 && (
+                              <span
+                                className="unread-badge project-unread"
+                                title={describeUnreadAttention(attention, projectNodeIds)}
+                              >
+                                {projectUnread}
+                              </span>
                             )}
-                            <span className="project-node-state" data-status={status}>
-                              <span className="node-status-indicator" />
-                              {statusLabels[status]}
+                          </span>
+                          {!sidebarCollapsed && (
+                            <span className="project-copy">
+                              <strong>{project.name}</strong>
+                              <small>{project.path}</small>
                             </span>
-                          </button>
-                        )
-                      })}
+                          )}
+                        </button>
+                        {!sidebarCollapsed && (
+                          <div className="project-actions">
+                            <button
+                              type="button"
+                              className="project-setup"
+                              title={
+                                project.setupCommand
+                                  ? `Worktree setup command: ${project.setupCommand}`
+                                  : 'Set a command that prepares a new worktree'
+                              }
+                              data-configured={project.setupCommand ? 'true' : undefined}
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                setSetupProjectId(project.id)
+                                setMenu(null)
+                              }}
+                            >
+                              ⚙
+                            </button>
+                            <button
+                              type="button"
+                              className="project-locate"
+                              title={nodeCount > 0 ? `Show ${project.name} nodes` : 'No nodes on the canvas yet'}
+                              disabled={nodeCount === 0}
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                locateProject(project.id)
+                              }}
+                            >
+                              {nodeCount}
+                            </button>
+                            <button
+                              type="button"
+                              className="project-remove"
+                              title={
+                                nodeCount > 0
+                                  ? 'Delete this project’s nodes first'
+                                  : projects.length === 1
+                                    ? 'ADE needs at least one project'
+                                    : `Remove ${project.name}`
+                              }
+                              disabled={nodeCount > 0 || projects.length === 1}
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                removeProject(project.id)
+                              }}
+                            >
+                              &times;
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      {!sidebarCollapsed && projectWorktrees.length > 0 && (
+                        <div className="project-node-list project-worktree-list">
+                          {projectWorktrees.map((node) => (
+                            <button
+                              type="button"
+                              className={`project-node-row ${node.selected ? 'selected' : ''}`}
+                              key={node.id}
+                              title={`Focus worktree ${node.data.branch}\n${node.data.path}`}
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                focusNode(node.id)
+                              }}
+                            >
+                              <span className="project-node-kind">⑂</span>
+                              <span className="project-node-name">{node.data.branch}</span>
+                              <span className="project-node-state" data-status="worktree">
+                                {node.data.attachedNodeCount}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
+                      {!sidebarCollapsed && projectNodes.length > 0 && (
+                        <div className="project-node-list">
+                          {projectNodes.map((node) => {
+                            const status = nodeStatuses[node.id] ?? (node.data.dormant ? 'dormant' : 'starting')
+                            const nodeUnread = unreadByNode[node.id] ?? 0
+                            return (
+                              <button
+                                type="button"
+                                className={`project-node-row ${node.selected ? 'selected' : ''}`}
+                                key={node.id}
+                                data-unread={nodeUnread > 0 ? 'true' : undefined}
+                                title={[
+                                  `Focus ${node.data.label} · ${statusLabels[status]}`,
+                                  nodeUnread > 0 ? describeUnreadAttention(attention, [node.id]) : null
+                                ]
+                                  .filter(Boolean)
+                                  .join('\n')}
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  focusNode(node.id)
+                                }}
+                              >
+                                <span className="project-node-kind">
+                                  {node.data.kind === 'terminal' ? '>_' : node.data.kind === 'claude' ? 'C' : '<>'}
+                                </span>
+                                <span className="project-node-name">{node.data.label}</span>
+                                {nodeUnread > 0 && <span className="unread-badge">{nodeUnread}</span>}
+                                {node.data.kind === 'terminal' && (
+                                  <SidebarTerminalLiveness liveness={node.data.terminalLiveness} />
+                                )}
+                                <span className="project-node-state" data-status={status}>
+                                  <span className="node-status-indicator" />
+                                  {statusLabels[status]}
+                                </span>
+                              </button>
+                            )
+                          })}
+                        </div>
+                      )}
                     </div>
+                  )
+                })}
+              </div>
+
+              <button
+                type="button"
+                className="add-project"
+                title="Add project folder"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  void addProject()
+                }}
+              >
+                <span>+</span>
+                {!sidebarCollapsed && 'Add project'}
+              </button>
+
+              {!sidebarCollapsed && activeProject && (
+                <div className="creation-target">
+                  <small>New nodes open in</small>
+                  <strong>{activeProject.name}</strong>
+                  <span className="save-state" data-status={saveStatus}>
+                    <span />
+                    {saveStatus === 'saving' ? 'Saving…' : saveStatus === 'saved' ? 'Saved locally' : 'Save failed'}
+                  </span>
+                  {workspaceRecovered && (
+                    <span
+                      className="save-state"
+                      data-status="recovered"
+                      title="The saved workspace was damaged or incomplete, so this canvas was restored from the last known-good backup."
+                    >
+                      <span />
+                      Recovered from backup
+                    </span>
                   )}
                 </div>
-              )
-            })}
+              )}
+            </aside>
+
+            <section className="canvas-region">
+              <ReactFlow
+                nodes={nodes}
+                nodeTypes={nodeTypes}
+                onNodesChange={handleNodesChange}
+                onPaneContextMenu={openContextMenu}
+                onPaneClick={() => setMenu(null)}
+                minZoom={0.25}
+                maxZoom={2}
+                defaultViewport={{ x: 0, y: 0, zoom: 1 }}
+                colorMode="dark"
+                deleteKeyCode={['Backspace', 'Delete']}
+              >
+                <Background variant={BackgroundVariant.Dots} gap={24} size={1.2} color="#303744" />
+                <Controls showInteractive={false} position="bottom-left" />
+              </ReactFlow>
+            </section>
           </div>
 
-          <button
-            type="button"
-            className="add-project"
-            title="Add project folder"
-            onClick={(event) => {
-              event.stopPropagation()
-              void addProject()
-            }}
-          >
-            <span>+</span>{!sidebarCollapsed && 'Add project'}
-          </button>
-
-          {!sidebarCollapsed && activeProject && (
-            <div className="creation-target">
-              <small>New nodes open in</small>
-              <strong>{activeProject.name}</strong>
-              <span className="save-state" data-status={saveStatus}>
-                <span />
-                {saveStatus === 'saving' ? 'Saving…' : saveStatus === 'saved' ? 'Saved locally' : 'Save failed'}
-              </span>
-              {workspaceRecovered && (
-                <span className="save-state" data-status="recovered" title="The saved workspace was damaged or incomplete, so this canvas was restored from the last known-good backup.">
-                  <span />
-                  Recovered from backup
+          {menu && activeProject && (
+            <div
+              className="context-menu"
+              style={{ left: menu.clientX, top: menu.clientY }}
+              role="menu"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <p>Create in {activeProject.name}</p>
+              <button type="button" role="menuitem" onClick={() => createNode('terminal')}>
+                <span className="menu-icon terminal-icon">&gt;_</span>
+                <span>
+                  <strong>Terminal</strong>
+                  <small>Windows shell</small>
                 </span>
-              )}
+              </button>
+              <button type="button" role="menuitem" onClick={() => createNode('claude')}>
+                <span className="menu-icon claude-icon">C</span>
+                <span>
+                  <strong>Claude</strong>
+                  <small>Unified ACP chat</small>
+                </span>
+              </button>
+              <button type="button" role="menuitem" onClick={() => createNode('codex')}>
+                <span className="menu-icon codex-icon">&lt;&gt;</span>
+                <span>
+                  <strong>Codex</strong>
+                  <small>Unified ACP chat</small>
+                </span>
+              </button>
+              <button type="button" role="menuitem" onClick={() => startWorktreeDraft()}>
+                <span className="menu-icon worktree-icon">⑂</span>
+                <span>
+                  <strong>Worktree</strong>
+                  <small>Isolated branch for parallel work</small>
+                </span>
+              </button>
+              <button type="button" role="menuitem" onClick={() => openHistoryBrowser()}>
+                <span className="menu-icon history-icon">↺</span>
+                <span>
+                  <strong>History</strong>
+                  <small>Resume a past conversation</small>
+                </span>
+              </button>
             </div>
           )}
-        </aside>
 
-        <section className="canvas-region">
-          <ReactFlow
-            nodes={nodes}
-            nodeTypes={nodeTypes}
-            onNodesChange={handleNodesChange}
-            onPaneContextMenu={openContextMenu}
-            onPaneClick={() => setMenu(null)}
-            minZoom={0.25}
-            maxZoom={2}
-            defaultViewport={{ x: 0, y: 0, zoom: 1 }}
-            colorMode="dark"
-            deleteKeyCode={['Backspace', 'Delete']}
-          >
-            <Background variant={BackgroundVariant.Dots} gap={24} size={1.2} color="#303744" />
-            <Controls showInteractive={false} position="bottom-left" />
-          </ReactFlow>
-        </section>
+          {historyDrop && activeProject && (
+            <ConversationHistoryDialog
+              projectName={activeProject.name}
+              directories={historyDirectories}
+              directoryLabels={historyDirectoryLabels}
+              onCancel={() => setHistoryDrop(null)}
+              onOpen={openHistoryConversation}
+            />
+          )}
 
-      </div>
+          {worktreeDraft && activeWorktreeDraftProject && (
+            <WorktreeCreateDialog
+              draft={worktreeDraft}
+              project={activeWorktreeDraftProject}
+              onChange={(patch) => setWorktreeDraft((current) => (current ? { ...current, ...patch } : current))}
+              onCancel={() => setWorktreeDraft(null)}
+              onConfirm={confirmWorktreeDraft}
+            />
+          )}
 
-      {menu && activeProject && (
-        <div
-          className="context-menu"
-          style={{ left: menu.clientX, top: menu.clientY }}
-          role="menu"
-          onClick={(event) => event.stopPropagation()}
-        >
-          <p>Create in {activeProject.name}</p>
-          <button type="button" role="menuitem" onClick={() => createNode('terminal')}>
-            <span className="menu-icon terminal-icon">&gt;_</span>
-            <span><strong>Terminal</strong><small>Windows shell</small></span>
-          </button>
-          <button type="button" role="menuitem" onClick={() => createNode('claude')}>
-            <span className="menu-icon claude-icon">C</span>
-            <span><strong>Claude</strong><small>Unified ACP chat</small></span>
-          </button>
-          <button type="button" role="menuitem" onClick={() => createNode('codex')}>
-            <span className="menu-icon codex-icon">&lt;&gt;</span>
-            <span><strong>Codex</strong><small>Unified ACP chat</small></span>
-          </button>
-          <button type="button" role="menuitem" onClick={() => startWorktreeDraft()}>
-            <span className="menu-icon worktree-icon">⑂</span>
-            <span><strong>Worktree</strong><small>Isolated branch for parallel work</small></span>
-          </button>
-          <button type="button" role="menuitem" onClick={() => openHistoryBrowser()}>
-            <span className="menu-icon history-icon">↺</span>
-            <span><strong>History</strong><small>Resume a past conversation</small></span>
-          </button>
-        </div>
-      )}
+          {removalPrompt && (
+            <WorktreeRemoveDialog
+              prompt={removalPrompt}
+              onCancel={() => setRemovalPrompt(null)}
+              onConfirm={confirmWorktreeRemoval}
+            />
+          )}
 
-      {historyDrop && activeProject && (
-        <ConversationHistoryDialog
-          projectName={activeProject.name}
-          directories={historyDirectories}
-          directoryLabels={historyDirectoryLabels}
-          onCancel={() => setHistoryDrop(null)}
-          onOpen={openHistoryConversation}
-        />
-      )}
-
-      {worktreeDraft && activeWorktreeDraftProject && (
-        <WorktreeCreateDialog
-          draft={worktreeDraft}
-          project={activeWorktreeDraftProject}
-          onChange={(patch) => setWorktreeDraft((current) => (current ? { ...current, ...patch } : current))}
-          onCancel={() => setWorktreeDraft(null)}
-          onConfirm={confirmWorktreeDraft}
-        />
-      )}
-
-      {removalPrompt && (
-        <WorktreeRemoveDialog
-          prompt={removalPrompt}
-          onCancel={() => setRemovalPrompt(null)}
-          onConfirm={confirmWorktreeRemoval}
-        />
-      )}
-
-      {setupProject && (
-        <SetupCommandDialog
-          project={setupProject}
-          onCancel={() => setSetupProjectId(null)}
-          onSave={(command) => saveSetupCommand(setupProject.id, command)}
-        />
-      )}
-    </main>
-    </ProviderRateLimitsContext.Provider>
+          {setupProject && (
+            <SetupCommandDialog
+              project={setupProject}
+              onCancel={() => setSetupProjectId(null)}
+              onSave={(command) => saveSetupCommand(setupProject.id, command)}
+            />
+          )}
+        </main>
+      </ProviderRateLimitsContext.Provider>
     </ComposerSendKeyContext.Provider>
   )
 }

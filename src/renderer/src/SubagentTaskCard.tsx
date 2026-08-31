@@ -14,10 +14,7 @@ import {
  * subagent's own tool calls, so a delegation that has been running for four minutes says what it
  * is doing right now instead of only that it is running.
  */
-export function SubagentTaskSummary({ task, activity }: {
-  task: SubagentTask
-  activity: AgentActivity
-}): JSX.Element {
+export function SubagentTaskSummary({ task, activity }: { task: SubagentTask; activity: AgentActivity }): JSX.Element {
   const children = useContext(SubagentActivitiesContext).get(activity.id) ?? []
   const progress = subagentProgress(children)
   return (
@@ -35,7 +32,12 @@ export function SubagentTaskSummary({ task, activity }: {
  * being called here, so a step is drawn by its own tool card's summary without this component
  * having to reach back into the registry that owns it.
  */
-export function SubagentTaskBody({ task, activity, result, renderStep }: {
+export function SubagentTaskBody({
+  task,
+  activity,
+  result,
+  renderStep
+}: {
   task: SubagentTask
   activity: AgentActivity
   result: string[]
@@ -46,11 +48,7 @@ export function SubagentTaskBody({ task, activity, result, renderStep }: {
     <div className="subagent-body">
       {task.model && <small className="subagent-model">Model: {task.model}</small>}
       {task.prompt && <pre className="subagent-prompt">{task.prompt}</pre>}
-      {children.length > 0 && (
-        <div className="subagent-steps">
-          {children.map((step) => renderStep(step))}
-        </div>
-      )}
+      {children.length > 0 && <div className="subagent-steps">{children.map((step) => renderStep(step))}</div>}
       {children.length === 0 && activity.status === 'in_progress' && (
         <p className="subagent-waiting">Waiting for the subagent's first step…</p>
       )}

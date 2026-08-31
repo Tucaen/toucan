@@ -54,17 +54,16 @@ const baseChatViewProps: ChatViewProps = {
   sendQueuedNow: vi.fn()
 }
 
-function renderChatView(overrides: Partial<ChatViewProps>): { scrollContainer: HTMLDivElement; rerender(next: Partial<ChatViewProps>): void } {
+function renderChatView(overrides: Partial<ChatViewProps>): {
+  scrollContainer: HTMLDivElement
+  rerender(next: Partial<ChatViewProps>): void
+} {
   const props = { ...baseChatViewProps, ...overrides }
-  const { container, rerender } = render(
-    <ChatView {...props} focusMode setFocusMode={vi.fn()} />
-  )
+  const { container, rerender } = render(<ChatView {...props} focusMode setFocusMode={vi.fn()} />)
   const scrollContainer = container.querySelector('.chat-scroll') as HTMLDivElement
   return {
     scrollContainer,
-    rerender: (next) => rerender(
-      <ChatView {...props} {...next} focusMode setFocusMode={vi.fn()} />
-    )
+    rerender: (next) => rerender(<ChatView {...props} {...next} focusMode setFocusMode={vi.fn()} />)
   }
 }
 

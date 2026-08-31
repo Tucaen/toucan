@@ -61,7 +61,10 @@ test('expired and corrupt history is ignored without throwing', () => {
   assert.equal(store.load('expired'), null)
 
   store.begin('corrupt', 'inc')
-  const corruptPath = join(directory, readdirSync(directory).find((name) => name.endsWith('.json'))!)
+  const corruptPath = join(
+    directory,
+    readdirSync(directory).find((name) => name.endsWith('.json'))!
+  )
   writeFileSync(corruptPath, '{ definitely not json', 'utf8')
   const restarted = createTerminalScrollbackStore({ directory, maxBytes: 1024, maxAgeMs: 50, now: () => now })
   assert.doesNotThrow(() => restarted.load('corrupt'))
@@ -85,7 +88,10 @@ test('an interrupted promotion marks a gap and cannot expose a retired incarnati
   const store = createTerminalScrollbackStore({ directory, maxBytes: 1024, maxAgeMs: 60_000 })
   store.begin('session', 'inc-1')
   store.append('session', 'inc-1', 'old output')
-  const snapshotPath = join(directory, readdirSync(directory).find((name) => name.endsWith('.json'))!)
+  const snapshotPath = join(
+    directory,
+    readdirSync(directory).find((name) => name.endsWith('.json'))!
+  )
 
   writeFileSync(`${snapshotPath}.pending`, JSON.stringify({ sessionId: 'session', incarnationId: 'inc-1' }), 'utf8')
   const sameIncarnationRestart = createTerminalScrollbackStore({ directory, maxBytes: 1024, maxAgeMs: 60_000 })

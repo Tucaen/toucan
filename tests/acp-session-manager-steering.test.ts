@@ -4,21 +4,31 @@ import { deliverSteeredPrompt } from '../src/main/acp-session-manager'
 
 test('queued captain input is injected once into a working turn through ACP steering', async () => {
   const requests: Array<{ method: string; sessionId: string; text: string }> = []
-  const result = await deliverSteeredPrompt(async (method, params) => {
-    requests.push({
-      method,
-      sessionId: params.sessionId,
-      text: params.prompt[0]?.type === 'text' ? params.prompt[0].text : ''
-    })
-    return { outcome: 'injected' }
-  }, 'session-1', 'second independent idea')
+  const result = await deliverSteeredPrompt(
+    async (method, params) => {
+      requests.push({
+        method,
+        sessionId: params.sessionId,
+        text: params.prompt[0]?.type === 'text' ? params.prompt[0].text : ''
+      })
+      return { outcome: 'injected' }
+    },
+    'session-1',
+    'second independent idea'
+  )
 
   assert.deepEqual(result, { ok: true })
-  assert.deepEqual(requests, [{
-    method: '_session/steering',
-    sessionId: 'session-1',
-    text: 'second independent idea'
-  }], 'one accepted submission must produce exactly one steering request')
+  assert.deepEqual(
+    requests,
+    [
+      {
+        method: '_session/steering',
+        sessionId: 'session-1',
+        text: 'second independent idea'
+      }
+    ],
+    'one accepted submission must produce exactly one steering request'
+  )
 })
 
 test('multiple steered messages retain host submission order without duplicate injection', async () => {

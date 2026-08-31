@@ -7,9 +7,7 @@ import type { AgentActivity } from '../../shared/agent'
  * over on its own. `parse` must never return `undefined` - that is the cache's "not yet asked"
  * marker - which is why every recognizer here returns `T | null`.
  */
-export function memoizePerActivity<T>(
-  parse: (activity: AgentActivity) => T
-): (activity: AgentActivity) => T {
+export function memoizePerActivity<T>(parse: (activity: AgentActivity) => T): (activity: AgentActivity) => T {
   const cache = new WeakMap<AgentActivity, T>()
   return (activity) => {
     const cached = cache.get(activity)
@@ -28,7 +26,7 @@ export function memoizePerActivity<T>(
  */
 export function asRecord(value: unknown): Record<string, unknown> | undefined {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? value as Record<string, unknown>
+    ? (value as Record<string, unknown>)
     : undefined
 }
 
@@ -44,6 +42,10 @@ export function asText(value: unknown): string | undefined {
  */
 export function normalizeToolName(name: string | undefined): string | undefined {
   if (!name) return undefined
-  const bare = name.split(/[.:]|__/).filter(Boolean).at(-1) ?? name
+  const bare =
+    name
+      .split(/[.:]|__/)
+      .filter(Boolean)
+      .at(-1) ?? name
   return bare.toLowerCase().replace(/[^a-z]/g, '')
 }

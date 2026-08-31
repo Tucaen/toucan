@@ -15,9 +15,7 @@ import type { AgentRateLimitStatus, AgentRateLimitWindow } from '../shared/agent
  * `import()` in CommonJS output into `require()`, which cannot load an ESM package. Constructing the
  * import through `Function` keeps it opaque to the bundler so it survives as a real dynamic import.
  */
-const importEsm = new Function('specifier', 'return import(specifier)') as (
-  specifier: string
-) => Promise<unknown>
+const importEsm = new Function('specifier', 'return import(specifier)') as (specifier: string) => Promise<unknown>
 
 /** Booting the CLI dominates this call, so the bound is generous relative to a local round trip. */
 const READ_TIMEOUT_MS = 30_000
@@ -77,7 +75,7 @@ export interface ClaudeUsageReader {
 }
 
 async function requestUsageViaSdk(cwd: string): Promise<SdkUsageResponse | null> {
-  const sdk = await importEsm('@anthropic-ai/claude-agent-sdk') as {
+  const sdk = (await importEsm('@anthropic-ai/claude-agent-sdk')) as {
     query?: (params: { prompt: AsyncIterable<never>; options?: { cwd?: string } }) => SdkQuery
   }
   if (typeof sdk.query !== 'function') return null

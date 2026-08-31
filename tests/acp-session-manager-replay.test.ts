@@ -7,15 +7,11 @@ import type { WebContents } from 'electron'
 import { createAcpSessionManager } from '../src/main/acp-session-manager'
 
 function replayingAdapter(appPath: string): void {
-  const directory = join(
-    appPath,
-    'node_modules',
-    '@agentclientprotocol',
-    'claude-agent-acp',
-    'dist'
-  )
+  const directory = join(appPath, 'node_modules', '@agentclientprotocol', 'claude-agent-acp', 'dist')
   mkdirSync(directory, { recursive: true })
-  writeFileSync(join(directory, 'index.js'), `
+  writeFileSync(
+    join(directory, 'index.js'),
+    `
 const readline = require('node:readline')
 const lines = readline.createInterface({ input: process.stdin })
 const send = (message) => process.stdout.write(JSON.stringify(message) + '\\n')
@@ -48,7 +44,9 @@ lines.on('line', (line) => {
     send({ jsonrpc: '2.0', id: request.id, result: {} })
   }
 })
-`, 'utf8')
+`,
+    'utf8'
+  )
 }
 
 test('returns session/load transcript notifications atomically instead of streaming them separately', async () => {
@@ -62,12 +60,15 @@ test('returns session/load transcript notifications atomically instead of stream
   const manager = createAcpSessionManager({ appPath })
 
   try {
-    const result = await manager.create({
-      id: 'restored-node',
-      provider: 'claude',
-      cwd: appPath,
-      sessionId: 'saved-conversation'
-    }, owner)
+    const result = await manager.create(
+      {
+        id: 'restored-node',
+        provider: 'claude',
+        cwd: appPath,
+        sessionId: 'saved-conversation'
+      },
+      owner
+    )
 
     assert.equal(result.status, 'ready')
     assert.equal(result.sessionId, 'saved-conversation')
@@ -85,7 +86,10 @@ test('returns session/load transcript notifications atomically instead of stream
         text: 'Persisted answer'
       }
     ])
-    assert.equal(streamed.some((entry) => JSON.stringify(entry).includes('Persisted question')), false)
+    assert.equal(
+      streamed.some((entry) => JSON.stringify(entry).includes('Persisted question')),
+      false
+    )
   } finally {
     manager.killAll()
   }

@@ -65,7 +65,9 @@ export function formatResetsAt(resetsAt: number, now: number = Date.now()): stri
       `${days} d`,
       remainingHours > 0 ? `${remainingHours}h` : null,
       remainingMinutes > 0 ? `${remainingMinutes}m` : null
-    ].filter((part): part is string => part !== null).join(' ')
+    ]
+      .filter((part): part is string => part !== null)
+      .join(' ')
     return `${duration} (${pad(reset.getDate())}.${pad(reset.getMonth() + 1)}. - ${pad(reset.getHours())}:${pad(reset.getMinutes())})`
   }
   return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`
@@ -120,10 +122,7 @@ export interface SessionUsageInput {
  * not a replacement: overwriting wholesale would blank a cost or a gauge the reader was already
  * shown, which reads as "it went away" rather than "it was not mentioned this time".
  */
-export function mergeSessionUsage(
-  previous: SessionUsageInput | null,
-  update: SessionUsageInput
-): SessionUsageInput {
+export function mergeSessionUsage(previous: SessionUsageInput | null, update: SessionUsageInput): SessionUsageInput {
   return {
     ...previous,
     ...(update.used !== undefined ? { used: update.used } : {}),
@@ -214,9 +213,14 @@ function describeCost(cost: SessionUsageInput['cost']): UsageLabel | null {
   const amount = Math.max(0, cost.amount)
   // A metered turn whose cost rounds to zero must not read as a free one.
   const tooSmall = amount > 0 && amount < 0.005
-  const label = cost.currency === 'USD'
-    ? (tooSmall ? '<$0.01' : `$${amount.toFixed(2)}`)
-    : (tooSmall ? `<0.01 ${cost.currency}` : `${amount.toFixed(2)} ${cost.currency}`)
+  const label =
+    cost.currency === 'USD'
+      ? tooSmall
+        ? '<$0.01'
+        : `$${amount.toFixed(2)}`
+      : tooSmall
+        ? `<0.01 ${cost.currency}`
+        : `${amount.toFixed(2)} ${cost.currency}`
   return { label, title: `Session cost so far: ${label}` }
 }
 

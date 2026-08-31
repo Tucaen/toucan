@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState, type ReactNode } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { Element as HastElement, Nodes as HastNodes, RootContent } from 'hast'
@@ -40,9 +40,7 @@ function copyToClipboard(text: string): void {
   void navigator.clipboard?.writeText(text)
 }
 
-export const CodeBlock = memo(function CodeBlock(
-  props: { code: string; language?: string }
-): JSX.Element {
+export const CodeBlock = memo(function CodeBlock(props: { code: string; language?: string }): JSX.Element {
   const { code, language } = props
   const [copied, setCopied] = useState(false)
   const timer = useRef<ReturnType<typeof setTimeout>>()
@@ -69,7 +67,9 @@ export const CodeBlock = memo(function CodeBlock(
           {copied ? 'Copied' : 'Copy'}
         </button>
       </div>
-      <pre><code className="hljs">{highlighted}</code></pre>
+      <pre>
+        <code className="hljs">{highlighted}</code>
+      </pre>
     </div>
   )
 })
@@ -101,7 +101,7 @@ const components: Components = {
         href={href}
         onClick={(event) => {
           event.preventDefault()
-          if (href) window.terminalApi?.openExternal?.(href)
+          if (href) void window.terminalApi?.openExternal?.(href)
         }}
       >
         {props.children}
@@ -110,7 +110,11 @@ const components: Components = {
   },
   /* Tables scroll inside the message instead of stretching the node past its width. */
   table(props) {
-    return <div className="markdown-table-scroll"><table>{props.children}</table></div>
+    return (
+      <div className="markdown-table-scroll">
+        <table>{props.children}</table>
+      </div>
+    )
   }
 }
 
@@ -119,7 +123,9 @@ const remarkPlugins = [remarkGfm]
 function MarkdownMessage({ text }: { text: string }): JSX.Element {
   return (
     <div className="markdown-body">
-      <ReactMarkdown remarkPlugins={remarkPlugins} components={components}>{text}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={remarkPlugins} components={components}>
+        {text}
+      </ReactMarkdown>
     </div>
   )
 }
