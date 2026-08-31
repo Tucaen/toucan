@@ -39,12 +39,10 @@ This creates the x64 portable executable at `dist/ADE-0.1.0-portable-x64.exe`. I
 
 ## Architecture
 
-- `src/main/index.ts` composes the application and wires Electron IPC.
-- `src/main/workspace-store.ts` owns workspace validation, migration, loading, and saving behind one store interface.
-- `src/main/session-providers.ts` hides Claude/Codex launch arguments, session discovery, transcript lookup, and preview parsing behind one provider interface.
-- `src/main/terminal-manager.ts` owns PTY processes, renderer ownership, Codex discovery polling, and shutdown behavior behind one lifecycle interface.
-- `src/main/terminal-scrollback-store.ts` owns incarnation-scoped terminal history, its 512 KiB/seven-day retention bounds, and deletion.
-- `src/renderer/src/canvas-workspace.ts` converts between persisted workspace nodes and live canvas nodes.
+ADE is an Electron application with a privileged main process, a narrow context-isolated
+preload seam, and a React renderer. Shared modules hold cross-process contracts and pure
+domain rules. See [the architecture map](docs/architecture.md) for module ownership,
+dependency direction, important seams, and representative verification paths.
 
 `node-pty` 1.1.0 ships Windows x64 prebuilt native binaries, which are unpacked from the application archive. Packaging intentionally skips a source rebuild so contributors do not need Python and Visual Studio Build Tools merely to produce this Windows prototype.
 

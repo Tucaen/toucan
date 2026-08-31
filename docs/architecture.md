@@ -1,0 +1,136 @@
+# ADE architecture
+
+This is the starting map for changing ADE. It describes ownership and dependency
+direction; follow the links for implementation details. ADE is an Electron application
+with a privileged main process, a context-isolated renderer, and a narrow preload seam.
+
+## Runtime map
+
+```text
+local files, Git, PTYs, ACP adapters, provider CLIs
+                         |
+                 src/main modules
+                         |
+                    Electron IPC
+                         |
+             src/preload/index.ts interfaces
+                         |
+        renderer orchestration and feature modules
+                         |
+                  React presentation
+
+src/shared pure contracts and domain rules are imported by both sides.
+```
+
+[`src/main/index.ts`](../src/main/index.ts) is the composition root. It creates the
+main-process modules, registers IPC handlers, owns the `BrowserWindow`, and shuts down
+owned processes. [`src/preload/index.ts`](../src/preload/index.ts) translates those IPC
+channels into the small `window.*Api` interfaces declared by
+[`src/preload/index.d.ts`](../src/preload/index.d.ts). The renderer starts at
+[`src/renderer/src/main.tsx`](../src/renderer/src/main.tsx), with
+[`App.tsx`](../src/renderer/src/App.tsx) owning workspace-level orchestration.
+
+## Ownership map
+
+| Area | Owner | Responsibility and interface |
+| --- | --- | --- |
+| Persisted domain contracts | [`src/shared/terminal.ts`](../src/shared/terminal.ts), [`agent.ts`](../src/shared/agent.ts), [`worktree.ts`](../src/shared/worktree.ts), [`conversation.ts`](../src/shared/conversation.ts) | Cross-process data shapes, validation-independent domain rules, and stable identities. |
+| Cross-cutting pure rules | [`src/shared`](../src/shared) | Attention, activity folding, worktree handoff, titles, stall guards, and text normalization. These modules know no runtime process. |
+| Application composition and IPC | [`src/main/index.ts`](../src/main/index.ts) | Construct adapters, validate IPC entry points, and connect process-owned interfaces to preload channels. Business decisions belong in the module that owns them, not in handlers. |
+| Agent sessions | [`src/main/acp-session-manager.ts`](../src/main/acp-session-manager.ts) | ACP lifecycle, prompts and steering, replay, auth, approvals, model/mode/effort state, commands, and agent events behind `AcpSessionManager`. Process launch policy is isolated in [`agent-process.ts`](../src/main/agent-process.ts). |
+| Plain terminals | [`src/main/terminal-manager.ts`](../src/main/terminal-manager.ts) | PTY ownership, incarnation identity, attachment authorization, liveness, resize/write/kill, and output delivery behind `TerminalManager`. [`terminal-scrollback-store.ts`](../src/main/terminal-scrollback-store.ts) separately owns bounded display-only history. |
+| Provider discovery | [`src/main/session-providers.ts`](../src/main/session-providers.ts) | Claude/Codex launch arguments, installed-session discovery, and lightweight transcript previews behind `SessionProviders`. |
+| Conversation history and titles | [`src/main/conversation-history.ts`](../src/main/conversation-history.ts), [`conversation-title-store.ts`](../src/main/conversation-title-store.ts) | Paginated provider-transcript discovery and ADE-owned durable title metadata. Provider transcripts are read, never rewritten. |
+| Workspace persistence | [`src/main/workspace-store.ts`](../src/main/workspace-store.ts) | Validation, migration, serialized durable writes, backup recovery, and unrecoverable-state reporting behind `WorkspaceStore`. |
+| Git worktrees | [`src/main/git-worktree.ts`](../src/main/git-worktree.ts) | Git execution, discovery, status, and evidence-gated creation/removal behind `WorktreeManager`. Renderer confirmation policy lives in [`worktree-removal.ts`](../src/renderer/src/worktree-removal.ts). |
+| Account usage | [`src/main/provider-usage.ts`](../src/main/provider-usage.ts) | Provider-neutral caching interface over the Claude and Codex usage adapters. |
+| Privilege seam | [`src/preload/index.ts`](../src/preload/index.ts), [`index.d.ts`](../src/preload/index.d.ts) | The only renderer-facing access to IPC, Electron clipboard operations, and process-owned capabilities. Keep runtime exposure and declared interfaces synchronized. |
+| Canvas orchestration | [`src/renderer/src/App.tsx`](../src/renderer/src/App.tsx), [`canvas-workspace.ts`](../src/renderer/src/canvas-workspace.ts) | Load/save coordination, projects, worktrees, React Flow nodes, attention records, recently closed sessions, and conversion between persisted and live nodes. |
+| Agent conversation orchestration | [`src/renderer/src/use-agent-conversation.ts`](../src/renderer/src/use-agent-conversation.ts), [`ChatNode.tsx`](../src/renderer/src/ChatNode.tsx) | Fold ACP events into a transcript and wire conversation state to the rendered chat. Composer and transcript decisions are delegated to pure feature modules. |
+| Terminal presentation | [`src/renderer/src/TerminalNode.tsx`](../src/renderer/src/TerminalNode.tsx) | xterm lifecycle and the presentation of main-owned terminal identity/liveness. Retained scrollback never participates in operational decisions. |
+| Renderer feature logic | Small non-TSX modules in [`src/renderer/src`](../src/renderer/src) | Pure decisions for composer behavior, queued prompts, decisions, usage, activity/card recognition, scrolling, liveness presentation, and worktree removal. Tests call these interfaces directly; TSX modules render their results. |
+| Tool-card extension seam | [`src/renderer/src/tool-card-families.tsx`](../src/renderer/src/tool-card-families.tsx) | Ordered registry mapping normalized agent activities to purpose-built card modules. Add a family here instead of branching throughout the transcript renderer. |
+
+## Dependency direction
+
+These rules are stated in path terms so they can become import-lint rules without
+reinterpretation. “May import” is directional; the reverse direction is forbidden
+unless explicitly listed.
+
+| Importing path | May import | Must not import |
+| --- | --- | --- |
+| `src/shared/**` | `src/shared/**`; runtime-neutral libraries or type-only external contracts | `src/main/**`, `src/preload/**`, `src/renderer/**`, Electron, Node runtime modules, React, browser globals |
+| `src/main/**` | `src/shared/**`, `src/main/**`, Electron/Node and external process adapters | `src/preload/**`, `src/renderer/**` |
+| `src/preload/**` | Shared types and Electron's `contextBridge`, `ipcRenderer`, or deliberately exposed clipboard operations | `src/main/**`, `src/renderer/**`; domain decisions or persistence/process implementations |
+| `src/renderer/src/**` | `src/shared/**`, other renderer modules, browser-safe libraries, and the declared `window.*Api` interfaces | `src/main/**`, the preload implementation, Electron or Node runtime modules, direct filesystem/process/provider access |
+| Renderer pure feature modules | Shared contracts and other pure renderer feature modules | React views (`App.tsx`, `ChatNode.tsx`, card TSX files), `window.*Api`, or side effects |
+
+Additional rules:
+
+- Cross-process values are defined in `src/shared`, transported by preload, and
+  validated or interpreted by their owning module. Do not create a second IPC shape in
+  a renderer module.
+- Main-process adapters satisfy interfaces consumed by `index.ts`; renderer modules do
+  not select or instantiate them.
+- `App.tsx` may orchestrate feature modules, but reusable decisions should flow toward
+  a pure interface rather than back into `App.tsx` or a view.
+- TSX card modules may depend on their adjacent recognition/presentation logic;
+  recognition modules must not depend on the TSX view. The ordered registry is the one
+  intentional assembly point.
+- Tests may cross these production layers to exercise an interface. Production code may
+  never import `tests/**`.
+
+The TypeScript projects already reflect the runtime split:
+[`tsconfig.node.json`](../tsconfig.node.json) builds main, preload, and shared code;
+[`tsconfig.web.json`](../tsconfig.web.json) builds renderer, preload declarations, and
+shared code. They are compilation partitions, not permission to bypass the rules above.
+
+## Important seams and deep modules
+
+- **Preload interfaces** are the privilege seam. A transport change should be possible
+  behind `window.terminalApi`, `window.agentApi`, `window.usageApi`,
+  `window.worktreeApi`, and `window.conversationApi` without changing canvas behavior.
+- **WorkspaceStore**, **TerminalManager**, **AcpSessionManager**, **WorktreeManager**, and
+  **ConversationHistory** are deep modules: each concentrates filesystem, subprocess,
+  protocol, recovery, or lifecycle complexity behind a small interface used by the
+  composition root and its tests.
+- **Shared domain rules** are the cross-process decision seam. Identity and safety rules
+  such as attention folding, worktree blockers, and activity delegation have one owner
+  that both runtimes can use.
+- **Persisted/live canvas conversion** in `canvas-workspace.ts` keeps serializable state
+  independent of React callbacks and runtime handles.
+- **Pure renderer feature modules** keep high-frequency UI decisions testable without
+  rendering. Their adjacent DOM tests verify the wiring rather than duplicating the
+  decision matrix.
+
+## Verification
+
+Canonical repository checks are:
+
+```sh
+npm run typecheck
+npm test
+npm run build
+```
+
+`npm test` first compiles and runs `tests/**/*.test.ts` with Node's test runner, then
+runs `tests/**/*.dom.test.tsx` under Vitest/jsdom. Representative interfaces:
+
+- process and protocol lifecycle: [`acp-session-manager-steering.test.ts`](../tests/acp-session-manager-steering.test.ts), [`terminal-manager.test.ts`](../tests/terminal-manager.test.ts)
+- persistence and recovery: [`workspace-store.test.ts`](../tests/workspace-store.test.ts), [`terminal-scrollback-store.test.ts`](../tests/terminal-scrollback-store.test.ts)
+- worktree safety and canvas restoration: [`git-worktree.test.ts`](../tests/git-worktree.test.ts), [`canvas-workspace.test.ts`](../tests/canvas-workspace.test.ts)
+- pure rule plus rendered wiring: [`session-usage.test.ts`](../tests/session-usage.test.ts) with [`session-usage-bar.dom.test.tsx`](../tests/session-usage-bar.dom.test.tsx), and [`prompt-outbox.test.ts`](../tests/prompt-outbox.test.ts) with [`composer-queue-while-busy.dom.test.tsx`](../tests/composer-queue-while-busy.dom.test.tsx)
+- cross-process replay into UI: [`acp-session-manager-replay.test.ts`](../tests/acp-session-manager-replay.test.ts), [`restored-chat-transcript.dom.test.tsx`](../tests/restored-chat-transcript.dom.test.tsx)
+
+## Documentation responsibilities
+
+- [`README.md`](../README.md) is the human entry point: product status, setup, everyday
+  commands, packaging, and a short link here.
+- This document is the current structural map: process topology, module ownership,
+  dependency rules, seams, and verification routes.
+- [`AGENTS.md`](../AGENTS.md) is durable project memory for non-obvious invariants and
+  sharp edges that agents must preserve. It should point to authoritative code/tests and
+  must not grow into a second architecture map.
+- `docs/brain-dumps` and `docs/research` preserve ideas and investigations; they are not
+  statements of current architecture unless promoted here or into code.
+
