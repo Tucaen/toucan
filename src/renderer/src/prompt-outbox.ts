@@ -1,4 +1,4 @@
-import type { AgentImageAttachment } from './image-attachment'
+import type { AgentImageAttachment } from './image-attachment-contract'
 
 /**
  * A follow-up the captain submitted while the agent was mid-turn. It is held here, in the

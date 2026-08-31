@@ -108,10 +108,13 @@ shared code. They are compilation partitions, not permission to bypass the rules
 Canonical repository checks are:
 
 ```sh
-npm run typecheck
-npm test
-npm run build
+npm run check
+npm run check:full
 ```
+
+`npm run check:architecture` runs the dependency rules in
+[`dependency-cruiser.config.mjs`](../dependency-cruiser.config.mjs), including cycle detection.
+Each rule is named in its failure output and reports the offending importer and dependency path.
 
 `npm test` first compiles and runs `tests/**/*.test.ts` with Node's test runner, then
 runs `tests/**/*.dom.test.tsx` under Vitest/jsdom. Representative interfaces:
@@ -133,4 +136,3 @@ runs `tests/**/*.dom.test.tsx` under Vitest/jsdom. Representative interfaces:
   must not grow into a second architecture map.
 - `docs/brain-dumps` and `docs/research` preserve ideas and investigations; they are not
   statements of current architecture unless promoted here or into code.
-

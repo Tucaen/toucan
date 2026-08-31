@@ -25,7 +25,7 @@ npm run dev
 npm run check
 ```
 
-`npm run check` is the required pre-handoff gate. It checks formatting without modifying files, runs typed ESLint rules, performs strict typechecking, and runs both the Node and DOM test suites. The tests exercise behavior through the workspace, provider, terminal-lifecycle, and canvas-persistence interfaces. They use temporary local files and do not invoke Claude or Codex.
+`npm run check` is the required pre-handoff gate. It checks formatting without modifying files, runs typed ESLint and architecture dependency rules, performs strict typechecking, and runs both the Node and DOM test suites. The tests exercise behavior through the workspace, provider, terminal-lifecycle, and canvas-persistence interfaces. They use temporary local files and do not invoke Claude or Codex.
 
 During iteration, use `npm run format:check`, `npm run lint`, `npm run typecheck`, `npm test`, or `npm run test:dom` for focused feedback. Run `npm run check:full` when changing packaging or the bundled voice model; it adds voice-model verification and a production build to the standard gate.
 

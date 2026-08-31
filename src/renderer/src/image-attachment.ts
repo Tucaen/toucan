@@ -1,9 +1,4 @@
-export interface AgentImageAttachment {
-  id: string
-  /** Base64-encoded image bytes, without the `data:` URL prefix. */
-  data: string
-  mimeType: string
-}
+export type { AgentImageAttachment } from './image-attachment-contract'
 
 /** Reads a pasted image `Blob` into the base64 payload an ACP `image` content block needs. */
 export function readImageAsBase64(blob: Blob): Promise<{ data: string; mimeType: string }> {
