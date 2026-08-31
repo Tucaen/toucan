@@ -185,7 +185,7 @@ function readValidatedSnapshot(path: string): WorkspaceState | null {
 }
 
 /** Writes `contents` fully and durably to `tempPath`, unlinking it again on any failure. */
-async function writeFileDurably(tempPath: string, contents: string): Promise<void> {
+export async function writeFileDurably(tempPath: string, contents: string): Promise<void> {
   try {
     const handle = await open(tempPath, 'w')
     try {
@@ -207,7 +207,7 @@ async function writeFileDurably(tempPath: string, contents: string): Promise<voi
 }
 
 /** Writes `contents` fully and durably to a temp file, then atomically renames it onto `targetPath`. */
-async function writeSnapshotAtomically(targetPath: string, contents: string): Promise<void> {
+export async function writeSnapshotAtomically(targetPath: string, contents: string): Promise<void> {
   const tempPath = `${targetPath}.tmp-${randomUUID()}`
   await writeFileDurably(tempPath, contents)
   try {

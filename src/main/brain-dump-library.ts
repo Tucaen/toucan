@@ -1,7 +1,7 @@
 import { link, mkdir, readFile, readdir, rm, unlink } from 'node:fs/promises'
-import { join } from 'node:path'
+import { isAbsolute, join, normalize, win32 } from 'node:path'
 import type {
-  BrainDumpApi,
+  BrainDumpLibraryApi,
   BrainDumpCollection,
   BrainDumpListResult,
   BrainDumpMutationResult,
@@ -46,6 +46,22 @@ function date(value: string | undefined, name: string): string {
   return value
 }
 
+function projectPath(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined
+  let decoded = value
+  if (value.startsWith('"')) {
+    try {
+      decoded = JSON.parse(value) as string
+    } catch {
+      throw new Error('project must be a valid quoted path with escaped backslashes.')
+    }
+  }
+  if (typeof decoded !== 'string' || (!isAbsolute(decoded) && !win32.isAbsolute(decoded))) {
+    throw new Error('project must be an absolute directory path.')
+  }
+  return win32.isAbsolute(decoded) ? win32.normalize(decoded) : normalize(decoded)
+}
+
 export function parseBrainDumpTopic(markdown: string, slug: string, collection: BrainDumpCollection): BrainDumpTopic {
   const { fields } = parseDocument(markdown)
   const title = fields.get('title')?.trim()
@@ -54,6 +70,7 @@ export function parseBrainDumpTopic(markdown: string, slug: string, collection: 
   const updated = date(fields.get('updated'), 'updated')
   const outcome = fields.get('outcome')
   const archived = fields.get('archived')
+  const assignedProjectPath = projectPath(fields.get('project'))
   if (collection === 'active' && (outcome !== undefined || archived !== undefined))
     throw new Error('Active topics must not contain outcome or archived.')
   if (collection === 'archived') {
@@ -66,6 +83,7 @@ export function parseBrainDumpTopic(markdown: string, slug: string, collection: 
     created,
     updated,
     collection,
+    ...(assignedProjectPath ? { projectPath: assignedProjectPath } : {}),
     ...(outcome ? { outcome: outcome as BrainDumpOutcome } : {}),
     ...(archived ? { archived } : {}),
     markdown
@@ -89,7 +107,7 @@ function mutateFrontmatter(markdown: string, updates: Record<string, string | un
   return output.join('\n')
 }
 
-export function createBrainDumpLibrary(options: BrainDumpLibraryOptions): BrainDumpApi {
+export function createBrainDumpLibrary(options: BrainDumpLibraryOptions): BrainDumpLibraryApi {
   const directory = (collection: BrainDumpCollection): string => join(options.rootDirectory, collection)
   const pathFor = (collection: BrainDumpCollection, slug: string): string => join(directory(collection), `${slug}.md`)
   let mutations = Promise.resolve()

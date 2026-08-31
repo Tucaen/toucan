@@ -4,11 +4,17 @@ import { existsSync } from 'node:fs'
 import { basename, extname, join, normalize } from 'node:path'
 import { spawn } from 'node-pty'
 import type { AgentCreateRequest, AgentPromptContent } from '../shared/agent'
-import type { BrainDumpCollection, BrainDumpOutcome } from '../shared/brain-dump'
 import type { ConversationListRequest } from '../shared/conversation'
 import type { TerminalCreateRequest, WorkspaceState } from '../shared/terminal'
 import { createAcpSessionManager, type AcpSessionManager } from './acp-session-manager'
 import { createBrainDumpLibrary } from './brain-dump-library'
+import {
+  createBrainDumpCaptureManager,
+  type BrainDumpCaptureManager,
+  type BrainDumpCaptureOwner
+} from './brain-dump-capture'
+import { createBrainDumpCaptureStore } from './brain-dump-capture-store'
+import { registerBrainDumpIpc } from './brain-dump-ipc'
 import { createClaudeUsageReader } from './claude-usage'
 import { createConversationHistory, type ConversationHistory } from './conversation-history'
 import { createConversationTitleStore, type ConversationTitleStore } from './conversation-title-store'
@@ -128,27 +134,6 @@ function registerUsageIpc(usage: ProviderUsage): void {
   ipcMain.handle('usage:rate-limits', () => usage.read())
 }
 
-function registerBrainDumpIpc(library: ReturnType<typeof createBrainDumpLibrary>): void {
-  ipcMain.handle('brain-dump:list', (_event, collection: unknown) =>
-    collection === 'active' || collection === 'archived'
-      ? library.list(collection as BrainDumpCollection)
-      : { topics: [], diagnostics: [{ path: '', code: 'invalid-collection', message: 'Collection is invalid.' }] }
-  )
-  ipcMain.handle('brain-dump:resolve', (_event, slug: unknown) =>
-    typeof slug === 'string' ? library.resolve(slug) : { status: 'invalid', slug: '' }
-  )
-  ipcMain.handle('brain-dump:archive', (_event, slug: unknown, outcome: unknown) =>
-    typeof slug === 'string' && typeof outcome === 'string'
-      ? library.archive(slug, outcome as BrainDumpOutcome)
-      : { ok: false, code: 'invalid-request', message: 'Slug and outcome are required.' }
-  )
-  ipcMain.handle('brain-dump:reopen', (_event, slug: unknown) =>
-    typeof slug === 'string'
-      ? library.reopen(slug)
-      : { ok: false, code: 'invalid-request', message: 'Slug is required.' }
-  )
-}
-
 function registerAgentIpc(manager: AcpSessionManager): void {
   ipcMain.handle('agent:create', (event, request: AgentCreateRequest) => manager.create(request, event.sender))
   ipcMain.handle('agent:prompt', (_event, id: string, content: AgentPromptContent) => manager.prompt(id, content))
@@ -168,9 +153,7 @@ function registerAgentIpc(manager: AcpSessionManager): void {
   ipcMain.on('agent:kill', (_event, id: string) => manager.kill(id))
 }
 
-function registerProjectIpc(): void {
-  const workspace = createWorkspaceStore(join(app.getPath('userData'), 'prototype-workspace.json'))
-
+function registerProjectIpc(workspace: ReturnType<typeof createWorkspaceStore>): void {
   ipcMain.handle('project:initial', () => {
     const path = process.cwd()
     return { name: basename(path), path }
@@ -211,7 +194,11 @@ function registerProjectIpc(): void {
   ipcMain.handle('workspace:save', (_event, state: WorkspaceState) => workspace.save(state))
 }
 
-function createWindow(terminalManager: TerminalManager, agentManager: AcpSessionManager): void {
+function createWindow(
+  terminalManager: TerminalManager,
+  agentManager: AcpSessionManager,
+  brainDumpCapture: BrainDumpCaptureManager
+): void {
   const window = new BrowserWindow({
     width: 1440,
     height: 900,
@@ -233,6 +220,7 @@ function createWindow(terminalManager: TerminalManager, agentManager: AcpSession
   contents.on('destroyed', () => {
     terminalManager.disconnectOwner(contents)
     agentManager.killOwned(contents)
+    brainDumpCapture.disconnectOwner(contents as unknown as BrainDumpCaptureOwner)
   })
 
   if (process.env.ELECTRON_RENDERER_URL) {
@@ -286,7 +274,7 @@ function registerVoicePrototypeCrossOriginIsolation(): void {
   })
 }
 
-void app.whenReady().then(() => {
+void app.whenReady().then(async () => {
   registerVoicePrototypePermissions()
   registerVoicePrototypeCrossOriginIsolation()
   const codexHome = process.env.CODEX_HOME ?? join(app.getPath('home'), '.codex')
@@ -317,10 +305,28 @@ void app.whenReady().then(() => {
     codexHome,
     environment: agentEnvironment
   })
+  const workspace = createWorkspaceStore(join(app.getPath('userData'), 'prototype-workspace.json'))
+  const captureStore = createBrainDumpCaptureStore(join(app.getPath('userData'), 'brain-dump-capture.json'))
+  const brainDumpCapture = createBrainDumpCaptureManager({
+    agent: {
+      create: (request, owner) => agentManager.create(request, owner as unknown as Electron.WebContents),
+      prompt: (id, content) => agentManager.prompt(id, content),
+      cancel: (id) => agentManager.cancel(id),
+      kill: (id) => agentManager.kill(id)
+    },
+    homeDirectory: app.getPath('home'),
+    registeredProjectPaths: async () => (await workspace.load()).state?.projects.map(({ path }) => path) ?? [],
+    initialState: await captureStore.load(),
+    publish: (state) => void captureStore.save(state).catch(() => {})
+  })
 
   registerTerminalIpc(manager, providers, scrollback)
   registerAgentIpc(agentManager)
-  registerBrainDumpIpc(createBrainDumpLibrary({ rootDirectory: brainDumpDirectory, today: localCalendarDate }))
+  registerBrainDumpIpc(
+    ipcMain as unknown as Parameters<typeof registerBrainDumpIpc>[0],
+    createBrainDumpLibrary({ rootDirectory: brainDumpDirectory, today: localCalendarDate }),
+    brainDumpCapture
+  )
   const conversationTitles = createConversationTitleStore(join(app.getPath('userData'), 'conversation-titles.json'))
   registerConversationIpc(
     createConversationHistory({
@@ -344,15 +350,16 @@ void app.whenReady().then(() => {
       ttlMs: PROVIDER_USAGE_TTL_MS
     })
   )
-  registerProjectIpc()
-  createWindow(manager, agentManager)
+  registerProjectIpc(workspace)
+  createWindow(manager, agentManager, brainDumpCapture)
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow(manager, agentManager)
+    if (BrowserWindow.getAllWindows().length === 0) createWindow(manager, agentManager, brainDumpCapture)
   })
   app.on('before-quit', () => {
     manager.killAll()
     agentManager.killAll()
+    brainDumpCapture.shutdown()
   })
 })
 

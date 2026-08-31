@@ -13,7 +13,7 @@ Turn the user's raw input into an evolving ADE idea library rooted at `ADE_BRAIN
 2. Consult `$ADE_BRAIN_DUMPS_DIR/archived/` only when no active topic adequately matches or the user explicitly asks about archived material. Never create an active duplicate of an archived slug. If new material extends an archived topic, reopen that topic first by moving it to `active/`, removing `outcome` and `archived`, and updating `updated`.
 3. Break the dump into substantive fragments, then cluster them by durable subject. Match a cluster to an existing topic by meaning and intent, not merely shared wording. Keep independently useful ideas in separate files.
 4. Account for every substantive fragment. Give each fragment one primary topic; connect related topics with `[[slug]]` references instead of copying the same material into several files. Never generate filesystem links between brain-dump topics.
-5. Create one lowercase kebab-case `.md` file for each genuinely new topic. Keep an existing slug stable.
+5. Create one lowercase kebab-case `.md` file for each genuinely new topic. Keep an existing slug stable. When the prompt supplies an explicit project association, add its normalized absolute path as `project` on each new topic created from that capture. Preserve an existing matching topic's `project` value unless the user explicitly changes that association. Treat an explicit `unassigned` association as absence of the field; infer no association from words in the dump.
 6. Rewrite each affected file as a coherent current-state summary that incorporates both its previous content and the new material. Integrate and deduplicate; do not append a chronological dump log. Preserve every existing `[[slug]]` reference while rewriting.
 7. Archive an entire topic only on explicit user instruction, never from inferred completion. Move it to `archived/`, update `updated`, and add the requested valid `outcome` and `archived` date.
 
@@ -26,12 +26,15 @@ Start each file with:
 title: Human-readable topic name
 created: YYYY-MM-DD
 updated: YYYY-MM-DD
+project: "D:\\absolute\\project-path"
 ---
 
 # Human-readable topic name
 
 A concise orientation to the topic and why it matters to ADE.
 ```
+
+Omit `project` for an unassigned topic. Quote Windows paths and escape each backslash as YAML requires.
 
 After the introduction, use only the sections the topic needs. Useful sections include `Current understanding`, `Decisions`, `Possibilities`, `Constraints`, `Open questions`, `Risks and tensions`, and `Related topics`. Prefer clear prose and compact bullets over a rigid template.
 

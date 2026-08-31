@@ -30,7 +30,13 @@ import type {
 } from '../shared/worktree'
 import type { ConversationListPage, ConversationListRequest } from '../shared/conversation'
 import type { ConversationTitleSource } from '../shared/conversation-title'
-import type { BrainDumpApi, BrainDumpCollection, BrainDumpOutcome } from '../shared/brain-dump'
+import type {
+  BrainDumpApi,
+  BrainDumpCaptureRequest,
+  BrainDumpCaptureState,
+  BrainDumpCollection,
+  BrainDumpOutcome
+} from '../shared/brain-dump'
 
 const terminalApi = {
   getInitialProject: (): Promise<ProjectDirectory> => ipcRenderer.invoke('project:initial'),
@@ -137,7 +143,15 @@ const brainDumpApi: BrainDumpApi = {
   list: (collection: BrainDumpCollection) => ipcRenderer.invoke('brain-dump:list', collection),
   resolve: (slug: string) => ipcRenderer.invoke('brain-dump:resolve', slug),
   archive: (slug: string, outcome: BrainDumpOutcome) => ipcRenderer.invoke('brain-dump:archive', slug, outcome),
-  reopen: (slug: string) => ipcRenderer.invoke('brain-dump:reopen', slug)
+  reopen: (slug: string) => ipcRenderer.invoke('brain-dump:reopen', slug),
+  startCapture: (request: BrainDumpCaptureRequest) => ipcRenderer.invoke('brain-dump:capture-start', request),
+  currentCapture: () => ipcRenderer.invoke('brain-dump:capture-current'),
+  cancelCapture: (jobId: string) => ipcRenderer.invoke('brain-dump:capture-cancel', jobId),
+  onCapture: (callback: (state: BrainDumpCaptureState) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, state: BrainDumpCaptureState): void => callback(state)
+    ipcRenderer.on('brain-dump:capture-event', listener)
+    return () => ipcRenderer.removeListener('brain-dump:capture-event', listener)
+  }
 }
 
 contextBridge.exposeInMainWorld('brainDumpApi', brainDumpApi)

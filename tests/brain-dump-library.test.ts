@@ -41,6 +41,31 @@ test('listing is deterministic by updated descending then title and validates co
   )
 })
 
+test('topics expose optional absolute project paths without requiring the project to exist', async () => {
+  const root = await libraryRoot()
+  await mkdir(join(root, 'active'), { recursive: true })
+  await writeFile(
+    join(root, 'active', 'assigned.md'),
+    active.replace('owner: me', 'project: "D:\\\\Development\\\\Missing"')
+  )
+  await writeFile(join(root, 'active', 'unassigned.md'), active)
+  const result = await createBrainDumpLibrary({ rootDirectory: root, today: () => '2026-08-31' }).list('active')
+  assert.equal(result.diagnostics.length, 0)
+  assert.equal(result.topics.find(({ slug }) => slug === 'assigned')?.projectPath, 'D:\\Development\\Missing')
+  assert.equal(result.topics.find(({ slug }) => slug === 'unassigned')?.projectPath, undefined)
+})
+
+test('topics reject malformed or non-absolute project paths', async () => {
+  const root = await libraryRoot()
+  await mkdir(join(root, 'active'), { recursive: true })
+  await writeFile(join(root, 'active', 'relative.md'), active.replace('owner: me', 'project: "projects/ADE"'))
+  await writeFile(join(root, 'active', 'malformed.md'), active.replace('owner: me', 'project: "D:\\Development\\ADE"'))
+  const result = await createBrainDumpLibrary({ rootDirectory: root, today: () => '2026-08-31' }).list('active')
+  assert.equal(result.topics.length, 0)
+  assert.equal(result.diagnostics.length, 2)
+  assert.ok(result.diagnostics.every(({ message }) => /project.*absolute|quoted.*escape/i.test(message)))
+})
+
 test('archives every supported outcome and reopening preserves body and unknown metadata', async () => {
   for (const outcome of ['implemented', 'resolved', 'rejected', 'obsolete'] as const) {
     const root = await libraryRoot()
@@ -60,6 +85,20 @@ test('archives every supported outcome and reopening preserves body and unknown 
     assert.doesNotMatch(restored, /^(outcome|archived):/m)
     assert.match(restored, /updated: 2026-08-31/)
   }
+})
+
+test('archive and reopen preserve the project association', async () => {
+  const root = await libraryRoot()
+  await mkdir(join(root, 'active'), { recursive: true })
+  await writeFile(
+    join(root, 'active', 'active-topic.md'),
+    active.replace('owner: me', 'project: "D:\\\\Development\\\\ADE"')
+  )
+  const library = createBrainDumpLibrary({ rootDirectory: root, today: () => '2026-08-31' })
+  const archived = await library.archive('active-topic', 'resolved')
+  assert.equal(archived.ok && archived.topic.projectPath, 'D:\\Development\\ADE')
+  const reopened = await library.reopen('active-topic')
+  assert.equal(reopened.ok && reopened.topic.projectPath, 'D:\\Development\\ADE')
 })
 
 test('lifecycle changes preserve complex unknown YAML fields verbatim', async () => {
