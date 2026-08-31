@@ -33,26 +33,14 @@ import {
   serializeWorktreeNode,
   type CanvasNode,
   type TerminalCanvasNode,
-  type NodeAttentionAction,
   type TerminalNodeCallbacks,
   type TerminalNodeStatus,
   type WorktreeCanvasNode
 } from './canvas-workspace'
-import type { AgentRateLimitStatus, AgentRateLimitWindow, ProviderRateLimits } from '../../shared/agent'
-import {
-  applyAttentionAction,
-  countUnreadAttention,
-  describeUnreadAttention,
-  dominantUnreadKind,
-  forgetAttention,
-  pruneAttention,
-  unreadAttentionByNode,
-  type AttentionState
-} from '../../shared/attention'
+import type { AgentRateLimitStatus, AgentRateLimitWindow } from '../../shared/agent'
 import type { WorktreeRemovalBlocker } from '../../shared/worktree'
-import { branchNameProblem, describeWorktreeBlocker, deriveWorktreeDirectory } from '../../shared/worktree'
 import { placeholderBranchName, type WorktreeHandoffPlan } from '../../shared/worktree-handoff'
-import { describeForcedRemovalCost, planWorktreeRemoval, type WorktreeRemovalPlan } from './worktree-removal'
+import { planWorktreeRemoval } from './worktree-removal'
 import type { ConversationSummary } from '../../shared/conversation'
 import { normalizeConversationTitle, type ConversationTitleSource } from '../../shared/conversation-title'
 import ConversationHistoryDialog from './ConversationHistoryDialog'
@@ -64,6 +52,16 @@ import SessionNode from './SessionNode'
 import WorktreeNode from './WorktreeNode'
 import { terminalLivenessLabels } from './terminal-liveness'
 import { SidebarTerminalLiveness } from './TerminalLivenessPresentation'
+import { useProviderRateLimits } from './use-provider-rate-limits'
+import { useWorkspacePersistence } from './workspace-persistence'
+import { useWorkspaceAttention } from './workspace-attention'
+import {
+  SetupCommandDialog,
+  WorktreeCreateDialog,
+  WorktreeRemoveDialog,
+  type WorktreeDraft,
+  type WorktreeRemovalPrompt
+} from './WorkspaceDialogs'
 
 type Project = WorkspaceProject
 
@@ -72,24 +70,6 @@ interface ContextMenuState {
   clientY: number
   flowX: number
   flowY: number
-}
-
-interface WorktreeDraft {
-  projectId: string
-  branch: string
-  baseRef: string
-  position: { x: number; y: number }
-  busy: boolean
-  error: string | null
-}
-
-interface WorktreeRemovalPrompt {
-  worktreeId: string
-  branch: string
-  path: string
-  plan: WorktreeRemovalPlan
-  busy: boolean
-  error: string | null
 }
 
 /** How often ADE re-checks git for worktrees it has no record of. */
@@ -115,9 +95,6 @@ const statusLabels: Record<TerminalNodeStatus, string> = {
   stalled: 'Stalled',
   exited: terminalLivenessLabels.exited
 }
-
-/** The main process caches these reads, so this cadence only decides display freshness. */
-const PROVIDER_USAGE_POLL_MS = 60_000
 
 function UsageWindow({ label, window }: { label: string; window: AgentRateLimitWindow }): JSX.Element {
   // Thresholds, clamping and wording are shared with the per-node usage bar so one window never
@@ -165,196 +142,6 @@ function createProject(directory: ProjectDirectory, index: number): Project {
   }
 }
 
-function WorktreeCreateDialog({
-  draft,
-  project,
-  onChange,
-  onCancel,
-  onConfirm
-}: {
-  draft: WorktreeDraft
-  project: Project
-  onChange(patch: Partial<WorktreeDraft>): void
-  onCancel(): void
-  onConfirm(): void
-}): JSX.Element {
-  const problem = draft.branch ? branchNameProblem(draft.branch) : null
-  const directory = problem ? null : deriveWorktreeDirectory(project.path, draft.branch)
-
-  return (
-    <div
-      className="worktree-dialog-overlay"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="worktree-create-title"
-      onClick={(event) => event.stopPropagation()}
-    >
-      <form
-        className="worktree-dialog"
-        onSubmit={(event) => {
-          event.preventDefault()
-          if (!problem && !draft.busy) onConfirm()
-        }}
-      >
-        <strong id="worktree-create-title">New worktree in {project.name}</strong>
-        <label>
-          <span>Branch name</span>
-          <input
-            autoFocus
-            value={draft.branch}
-            placeholder="feature/login"
-            disabled={draft.busy}
-            onChange={(event) => onChange({ branch: event.target.value, error: null })}
-          />
-        </label>
-        <label>
-          <span>Branch from</span>
-          <input
-            value={draft.baseRef}
-            placeholder="current HEAD"
-            disabled={draft.busy}
-            onChange={(event) => onChange({ baseRef: event.target.value, error: null })}
-          />
-        </label>
-        {directory && (
-          <p className="worktree-dialog-path" title={directory}>
-            Directory: {directory}
-          </p>
-        )}
-        {problem && draft.branch.length > 0 && <p className="worktree-dialog-error">{problem}</p>}
-        {draft.error && <p className="worktree-dialog-error">{draft.error}</p>}
-        <div className="worktree-dialog-actions">
-          <button type="button" disabled={draft.busy} onClick={onCancel}>
-            Cancel
-          </button>
-          <button type="submit" className="primary" disabled={draft.busy || Boolean(problem) || !draft.branch}>
-            {draft.busy ? 'Creating…' : 'Create worktree'}
-          </button>
-        </div>
-      </form>
-    </div>
-  )
-}
-
-/**
- * The teardown gate. It never offers a one-click removal for a worktree holding unique
- * work: it names every blocker, and only lets the user force past the ones whose cost it
- * can state exactly.
- */
-function WorktreeRemoveDialog({
-  prompt,
-  onCancel,
-  onConfirm
-}: {
-  prompt: WorktreeRemovalPrompt
-  onCancel(): void
-  onConfirm(force: boolean): void
-}): JSX.Element {
-  const { plan } = prompt
-  return (
-    <div
-      className="worktree-dialog-overlay"
-      role="alertdialog"
-      aria-modal="true"
-      aria-labelledby="worktree-remove-title"
-      onClick={(event) => event.stopPropagation()}
-    >
-      <div className="worktree-dialog">
-        <strong id="worktree-remove-title">Remove worktree {prompt.branch}?</strong>
-        <p className="worktree-dialog-path" title={prompt.path}>
-          {prompt.path}
-        </p>
-
-        {plan.decision === 'ready' && (
-          <p>Nothing unique lives here: the tree is clean, and its commits are already merged or pushed.</p>
-        )}
-        {plan.hard.length > 0 && (
-          <>
-            <p>This worktree cannot be removed yet:</p>
-            <ul className="worktree-blockers" data-kind="hard">
-              {plan.hard.map((blocker: WorktreeRemovalBlocker, index) => (
-                <li key={`${blocker.kind}-${index}`}>{describeWorktreeBlocker(blocker)}</li>
-              ))}
-            </ul>
-          </>
-        )}
-        {plan.hard.length === 0 && plan.forcible.length > 0 && (
-          <>
-            <p>This worktree still holds work that exists nowhere else:</p>
-            <ul className="worktree-blockers" data-kind="forcible">
-              {plan.forcible.map((blocker: WorktreeRemovalBlocker, index) => (
-                <li key={`${blocker.kind}-${index}`}>{describeWorktreeBlocker(blocker)}</li>
-              ))}
-            </ul>
-            <p className="worktree-dialog-cost">{describeForcedRemovalCost(plan.forcible)}</p>
-          </>
-        )}
-        {prompt.error && <p className="worktree-dialog-error">{prompt.error}</p>}
-
-        <div className="worktree-dialog-actions">
-          <button type="button" disabled={prompt.busy} onClick={onCancel}>
-            {plan.decision === 'blocked' ? 'Close' : 'Cancel'}
-          </button>
-          {plan.decision === 'ready' && (
-            <button type="button" className="primary" disabled={prompt.busy} onClick={() => onConfirm(false)}>
-              {prompt.busy ? 'Removing…' : 'Remove worktree'}
-            </button>
-          )}
-          {plan.decision === 'confirm' && (
-            <button type="button" className="danger" disabled={prompt.busy} onClick={() => onConfirm(true)}>
-              {prompt.busy ? 'Removing…' : 'Remove and discard'}
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function SetupCommandDialog({
-  project,
-  onCancel,
-  onSave
-}: {
-  project: Project
-  onCancel(): void
-  onSave(command: string): void
-}): JSX.Element {
-  const [value, setValue] = useState(project.setupCommand ?? '')
-  return (
-    <div
-      className="worktree-dialog-overlay"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="setup-command-title"
-      onClick={(event) => event.stopPropagation()}
-    >
-      <form
-        className="worktree-dialog"
-        onSubmit={(event) => {
-          event.preventDefault()
-          onSave(value.trim())
-        }}
-      >
-        <strong id="setup-command-title">Setup command for {project.name}</strong>
-        <p>Run in a terminal node inside a new worktree to make it usable. Leave empty for none.</p>
-        <label>
-          <span>Command</span>
-          <input autoFocus value={value} placeholder="npm install" onChange={(event) => setValue(event.target.value)} />
-        </label>
-        <div className="worktree-dialog-actions">
-          <button type="button" onClick={onCancel}>
-            Cancel
-          </button>
-          <button type="submit" className="primary">
-            Save
-          </button>
-        </div>
-      </form>
-    </div>
-  )
-}
-
 function Canvas(): JSX.Element {
   const [nodes, setNodes, onNodesChange] = useNodesState<CanvasNode>([])
   const [projects, setProjects] = useState<Project[]>([])
@@ -364,10 +151,6 @@ function Canvas(): JSX.Element {
   const [agentPermissionModes, setAgentPermissionModes] = useState<AgentPermissionModes>({})
   const [composerSendKey, setComposerSendKey] = useState<ComposerSendKey>(COMPOSER_SEND_KEY_DEFAULT)
   const [recentlyClosedNodes, setRecentlyClosedNodes] = useState<WorkspaceTerminalNode[]>([])
-  const [workspaceReady, setWorkspaceReady] = useState(false)
-  const [saveStatus, setSaveStatus] = useState<'saving' | 'saved' | 'error'>('saving')
-  const [workspaceRecovered, setWorkspaceRecovered] = useState(false)
-  const [workspaceUnrecoverable, setWorkspaceUnrecoverable] = useState(false)
   const [menu, setMenu] = useState<ContextMenuState | null>(null)
   const [worktreeDraft, setWorktreeDraft] = useState<WorktreeDraft | null>(null)
   const [removalPrompt, setRemovalPrompt] = useState<WorktreeRemovalPrompt | null>(null)
@@ -391,40 +174,16 @@ function Canvas(): JSX.Element {
     [projects, setupProjectId]
   )
 
-  /**
-   * The one durable unread model behind every attention count in the app. Nodes report what
-   * happened; `shared/attention.ts` decides what it means; the header chip, the project rows, the
-   * sidebar rows and the nodes themselves all read the counts back out of this same set, so they
-   * cannot disagree with each other or be lost on restart.
-   */
-  const [attention, setAttention] = useState<AttentionState>([])
-
-  // Stable identity: this callback rides in every node's data, so it must never be recreated.
-  // The workspace supplies only the clock; what the action means is the reducer's decision.
-  const handleAttention = useCallback((action: NodeAttentionAction): void => {
-    const at = Date.now()
-    setAttention((current) => applyAttentionAction(current, action, at))
-  }, [])
-
-  const unreadByNode = useMemo(() => unreadAttentionByNode(attention), [attention])
-  const unreadTotal = useMemo(() => countUnreadAttention(attention), [attention])
-
-  // The nodes carry their own count so a node, its sidebar row, and the header never render
-  // three separately derived numbers. Only nodes whose count actually moved are re-created.
-  useEffect(() => {
-    setNodes((current) => {
-      let changed = false
-      const next = current.map((node) => {
-        if (!isTerminalCanvasNode(node)) return node
-        const unread = unreadByNode[node.id] ?? 0
-        const unreadKind = dominantUnreadKind(attention, node.id)
-        if ((node.data.unread ?? 0) === unread && node.data.unreadKind === unreadKind) return node
-        changed = true
-        return { ...node, data: { ...node.data, unread, unreadKind } }
-      })
-      return changed ? next : current
-    })
-  }, [attention, setNodes, unreadByNode])
+  const {
+    records: attention,
+    unreadByNode,
+    unreadTotal,
+    count: countUnread,
+    describe: describeUnread,
+    report: handleAttention,
+    forget: forgetNodeAttention,
+    restore: restoreAttention
+  } = useWorkspaceAttention(setNodes)
 
   // A global, always-visible read on the whole workspace: no need to open a node to see
   // whether anything is still busy or looks stuck.
@@ -438,23 +197,7 @@ function Canvas(): JSX.Element {
     return { working, stalled }
   }, [nodeStatuses])
 
-  const [providerRateLimits, setProviderRateLimits] = useState<ProviderRateLimits>({})
-
-  // Both providers report account usage outside any conversation, so this reads on mount rather
-  // than waiting for a node to exist - the header is populated before the canvas is touched.
-  useEffect(() => {
-    let active = true
-    const refresh = async (): Promise<void> => {
-      const limits = await window.usageApi.rateLimits().catch(() => null)
-      if (active && limits) setProviderRateLimits(limits)
-    }
-    void refresh()
-    const interval = setInterval(() => void refresh(), PROVIDER_USAGE_POLL_MS)
-    return () => {
-      active = false
-      clearInterval(interval)
-    }
-  }, [])
+  const providerRateLimits = useProviderRateLimits()
 
   const handleStatusChange = useCallback((nodeId: string, status: TerminalNodeStatus): void => {
     setNodeStatuses((current) => {
@@ -656,11 +399,11 @@ function Canvas(): JSX.Element {
         )
         // A closed node cannot be reached any more, so its attention records go with it rather
         // than propping up a count nothing can clear.
-        setAttention((current) => forgetAttention(current, removedIds))
+        forgetNodeAttention(removedIds)
       }
       onNodesChange(changes)
     },
-    [onNodesChange]
+    [forgetNodeAttention, onNodesChange]
   )
 
   const reopenLastClosedSession = useCallback((): boolean => {
@@ -1041,87 +784,91 @@ function Canvas(): JSX.Element {
     setActiveProjectId(project.id)
   }, [])
 
-  const acknowledgeUnrecoverableWorkspace = useCallback((): void => {
-    void seedFreshWorkspace().then(() => {
-      setWorkspaceUnrecoverable(false)
-      setWorkspaceReady(true)
-    })
-  }, [seedFreshWorkspace])
+  const restoreWorkspace = useCallback(
+    (saved: WorkspaceState): void => {
+      const restored = restoreCanvasWorkspace(saved, {
+        onStatusChange: handleStatusChange,
+        onAttention: handleAttention,
+        onConversationId: handleConversationId,
+        onTitleChange: handleTitleChange,
+        onPreview: handlePreview,
+        onFocusModeChange: handleFocusModeChange,
+        onDraftChange: handleDraftChange,
+        onPermissionModeChange: handlePermissionModeChange,
+        onModelChange: handleModelChange,
+        onResume: resumeNode,
+        onTerminalLiveness: handleTerminalLiveness,
+        onWorktreeHandoff: dispatchWorktreeHandoff,
+        onRemoveWorktree: handleRemoveWorktree,
+        onCreateNodeInWorktree: handleCreateNodeInWorktree,
+        onRunSetupCommand: handleRunSetupCommand
+      })
 
-  useEffect(() => {
-    let active = true
-    void (async () => {
-      const { state: saved, recovered, unrecoverable } = await window.terminalApi.loadWorkspace()
-      if (!active) return
-      setWorkspaceRecovered(recovered)
+      setProjects(saved.projects)
+      setNodes(restored.nodes)
+      setNodeStatuses(restored.statuses)
+      nextSessionNumber.current = restored.nextSessionNumber
+      setActiveProjectId(restored.activeProjectId)
+      setSidebarCollapsed(saved.sidebarCollapsed)
+      setAgentPermissionModes(saved.agentPermissionModes ?? {})
+      setComposerSendKey(saved.composerSendKey ?? COMPOSER_SEND_KEY_DEFAULT)
+      setRecentlyClosedNodes(saved.recentlyClosedNodes ?? [])
+      restoreAttention(
+        saved.attention ?? [],
+        restored.nodes.map((node) => node.id)
+      )
+    },
+    [
+      handleConversationId,
+      handleCreateNodeInWorktree,
+      handleDraftChange,
+      handleFocusModeChange,
+      handleModelChange,
+      handlePermissionModeChange,
+      handlePreview,
+      handleRemoveWorktree,
+      handleRunSetupCommand,
+      handleStatusChange,
+      handleTerminalLiveness,
+      handleTitleChange,
+      resumeNode,
+      restoreAttention,
+      setNodes
+    ]
+  )
 
-      if (saved && saved.projects.length > 0) {
-        const restored = restoreCanvasWorkspace(saved, {
-          onStatusChange: handleStatusChange,
-          onAttention: handleAttention,
-          onConversationId: handleConversationId,
-          onTitleChange: handleTitleChange,
-          onPreview: handlePreview,
-          onFocusModeChange: handleFocusModeChange,
-          onDraftChange: handleDraftChange,
-          onPermissionModeChange: handlePermissionModeChange,
-          onModelChange: handleModelChange,
-          onResume: resumeNode,
-          onTerminalLiveness: handleTerminalLiveness,
-          onWorktreeHandoff: dispatchWorktreeHandoff,
-          onRemoveWorktree: handleRemoveWorktree,
-          onCreateNodeInWorktree: handleCreateNodeInWorktree,
-          onRunSetupCommand: handleRunSetupCommand
-        })
+  const workspaceSnapshot = useMemo<WorkspaceState>(
+    () => ({
+      version: 3,
+      projects,
+      activeProjectId,
+      sidebarCollapsed,
+      agentPermissionModes,
+      composerSendKey,
+      nodes: nodes.filter(isTerminalCanvasNode).map(serializeCanvasNode),
+      recentlyClosedNodes,
+      attention: [...attention],
+      worktrees: nodes.filter(isWorktreeCanvasNode).map(serializeWorktreeNode)
+    }),
+    [
+      activeProjectId,
+      agentPermissionModes,
+      attention,
+      composerSendKey,
+      nodes,
+      projects,
+      recentlyClosedNodes,
+      sidebarCollapsed
+    ]
+  )
 
-        setProjects(saved.projects)
-        setNodes(restored.nodes)
-        setNodeStatuses(restored.statuses)
-        nextSessionNumber.current = restored.nextSessionNumber
-        setActiveProjectId(restored.activeProjectId)
-        setSidebarCollapsed(saved.sidebarCollapsed)
-        setAgentPermissionModes(saved.agentPermissionModes ?? {})
-        setComposerSendKey(saved.composerSendKey ?? COMPOSER_SEND_KEY_DEFAULT)
-        setRecentlyClosedNodes(saved.recentlyClosedNodes ?? [])
-        // What needed attention before the restart still does. Records are pruned to the nodes
-        // that actually came back, so a count can never point at something the user cannot open.
-        setAttention(
-          pruneAttention(
-            saved.attention ?? [],
-            restored.nodes.map((node) => node.id)
-          )
-        )
-      } else if (unrecoverable) {
-        // Never silently seed and autosave a fresh default over damaged state the user might
-        // still be able to recover by hand; wait for an explicit acknowledgement instead.
-        setWorkspaceUnrecoverable(true)
-        return
-      } else {
-        await seedFreshWorkspace()
-        if (!active) return
-      }
-      setWorkspaceReady(true)
-    })()
-    return () => {
-      active = false
-    }
-  }, [
-    handleConversationId,
-    handleCreateNodeInWorktree,
-    handleDraftChange,
-    handleFocusModeChange,
-    handleModelChange,
-    handlePermissionModeChange,
-    handlePreview,
-    handleRemoveWorktree,
-    handleRunSetupCommand,
-    handleStatusChange,
-    handleTerminalLiveness,
-    handleTitleChange,
-    resumeNode,
-    seedFreshWorkspace,
-    setNodes
-  ])
+  const {
+    ready: workspaceReady,
+    recovered: workspaceRecovered,
+    unrecoverable: workspaceUnrecoverable,
+    saveStatus,
+    acknowledgeUnrecoverable: acknowledgeUnrecoverableWorkspace
+  } = useWorkspacePersistence({ snapshot: workspaceSnapshot, restore: restoreWorkspace, seedFresh: seedFreshWorkspace })
 
   // One place decides how many nodes a worktree carries, so the count the teardown gate reads
   // and the count the node shows can never drift apart.
@@ -1223,39 +970,6 @@ function Canvas(): JSX.Element {
       clearInterval(timer)
     }
   }, [handleCreateNodeInWorktree, handleRemoveWorktree, handleRunSetupCommand, setNodes, workspaceReady])
-
-  useEffect(() => {
-    if (!workspaceReady) return
-    setSaveStatus('saving')
-    const timeout = setTimeout(() => {
-      const state: WorkspaceState = {
-        version: 3,
-        projects,
-        activeProjectId,
-        sidebarCollapsed,
-        agentPermissionModes,
-        composerSendKey,
-        nodes: nodes.filter(isTerminalCanvasNode).map(serializeCanvasNode),
-        recentlyClosedNodes,
-        attention: [...attention],
-        worktrees: nodes.filter(isWorktreeCanvasNode).map(serializeWorktreeNode)
-      }
-      void window.terminalApi.saveWorkspace(state).then((result) => {
-        setSaveStatus(result.ok ? 'saved' : 'error')
-      })
-    }, 180)
-    return () => clearTimeout(timeout)
-  }, [
-    activeProjectId,
-    agentPermissionModes,
-    attention,
-    composerSendKey,
-    nodes,
-    projects,
-    recentlyClosedNodes,
-    sidebarCollapsed,
-    workspaceReady
-  ])
 
   const addProject = useCallback(async (): Promise<void> => {
     const directory = await window.terminalApi.pickProject()
@@ -1482,7 +1196,7 @@ function Canvas(): JSX.Element {
                   The saved canvas and its backup were both damaged, likely by a crash or an interrupted write. Nothing
                   has been overwritten yet.
                 </p>
-                <button type="button" onClick={() => acknowledgeUnrecoverableWorkspace()}>
+                <button type="button" onClick={() => void acknowledgeUnrecoverableWorkspace()}>
                   Start a new workspace
                 </button>
               </div>
@@ -1516,11 +1230,7 @@ function Canvas(): JSX.Element {
                   {/* Not recomputed from node status: this is the same durable record set the
                   project rows and the nodes themselves count, so the numbers agree. */}
                   {unreadTotal > 0 && (
-                    <span
-                      className="global-status-chip"
-                      data-kind="attention"
-                      title={describeUnreadAttention(attention)}
-                    >
+                    <span className="global-status-chip" data-kind="attention" title={describeUnread()}>
                       <span className="global-status-dot" />
                       {unreadTotal} unread
                     </span>
@@ -1574,7 +1284,7 @@ function Canvas(): JSX.Element {
                   const nodeCount = projectNodes.length + projectWorktrees.length
                   // Summed from the same records as the header chip and the nodes, never re-derived.
                   const projectNodeIds = projectNodes.map((node) => node.id)
-                  const projectUnread = countUnreadAttention(attention, projectNodeIds)
+                  const projectUnread = countUnread(projectNodeIds)
                   const selected = project.id === activeProject?.id
                   return (
                     <div className="project-section" key={project.id}>
@@ -1595,10 +1305,7 @@ function Canvas(): JSX.Element {
                           >
                             {project.name.slice(0, 1).toUpperCase()}
                             {projectUnread > 0 && (
-                              <span
-                                className="unread-badge project-unread"
-                                title={describeUnreadAttention(attention, projectNodeIds)}
-                              >
+                              <span className="unread-badge project-unread" title={describeUnread(projectNodeIds)}>
                                 {projectUnread}
                               </span>
                             )}
@@ -1699,7 +1406,7 @@ function Canvas(): JSX.Element {
                                 data-unread={nodeUnread > 0 ? 'true' : undefined}
                                 title={[
                                   `Focus ${node.data.label} · ${statusLabels[status]}`,
-                                  nodeUnread > 0 ? describeUnreadAttention(attention, [node.id]) : null
+                                  nodeUnread > 0 ? describeUnread([node.id]) : null
                                 ]
                                   .filter(Boolean)
                                   .join('\n')}
