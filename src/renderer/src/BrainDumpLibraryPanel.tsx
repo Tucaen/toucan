@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { Mic, PenLine, X } from 'lucide-react'
 import type {
   BrainDumpApi,
   BrainDumpCaptureConversation,
@@ -241,7 +242,7 @@ export default function BrainDumpLibraryPanel(props: BrainDumpLibraryPanelProps)
             title={captureTooltip('Write a brain dump — review it, then let the brain-dump skill organize it')}
             onClick={() => openTray(false)}
           >
-            <span aria-hidden="true">✎</span>
+            <PenLine aria-hidden="true" />
           </button>
           <button
             type="button"
@@ -253,7 +254,7 @@ export default function BrainDumpLibraryPanel(props: BrainDumpLibraryPanelProps)
             )}
             onClick={() => openTray(true)}
           >
-            <span aria-hidden="true">🎙</span>
+            <Mic aria-hidden="true" />
           </button>
           <button
             type="button"
@@ -261,7 +262,7 @@ export default function BrainDumpLibraryPanel(props: BrainDumpLibraryPanelProps)
             aria-label="Close the brain-dump library"
             onClick={closePanel}
           >
-            ✕
+            <X aria-hidden="true" />
           </button>
         </div>
       </header>

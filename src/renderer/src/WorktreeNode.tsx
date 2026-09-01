@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { NodeProps } from '@xyflow/react'
+import { GitBranch } from 'lucide-react'
 import type { WorktreeStatus } from '../../shared/worktree'
 import type { WorktreeCanvasNode } from './canvas-workspace'
 import NodeBorderResizer from './NodeBorderResizer'
+import SessionKindIcon from './SessionKindIcon'
 
 /** Git state moves only when something else on the canvas moves it, so this can be lazy. */
 const STATUS_POLL_MS = 10_000
@@ -62,7 +64,7 @@ export default function WorktreeNode({ data, selected }: NodeProps<WorktreeCanva
       <NodeBorderResizer minWidth={320} minHeight={200} selected={selected} color={data.projectColor} />
       <header className="node-header worktree-node-header">
         <span className="worktree-glyph" aria-hidden="true">
-          ⑂
+          <GitBranch />
         </span>
         <strong title={branch}>{branch}</strong>
         <span className="node-project" title={data.projectPath}>
@@ -98,7 +100,7 @@ export default function WorktreeNode({ data, selected }: NodeProps<WorktreeCanva
             onMouseDown={(event) => event.stopPropagation()}
             onClick={() => data.onCreateNodeInWorktree(data.worktreeId, 'terminal')}
           >
-            &gt;_
+            <SessionKindIcon kind="terminal" />
           </button>
           <button
             type="button"
@@ -106,7 +108,7 @@ export default function WorktreeNode({ data, selected }: NodeProps<WorktreeCanva
             onMouseDown={(event) => event.stopPropagation()}
             onClick={() => data.onCreateNodeInWorktree(data.worktreeId, 'claude')}
           >
-            C
+            <SessionKindIcon kind="claude" />
           </button>
           <button
             type="button"
@@ -114,7 +116,7 @@ export default function WorktreeNode({ data, selected }: NodeProps<WorktreeCanva
             onMouseDown={(event) => event.stopPropagation()}
             onClick={() => data.onCreateNodeInWorktree(data.worktreeId, 'codex')}
           >
-            &lt;&gt;
+            <SessionKindIcon kind="codex" />
           </button>
         </div>
         <button

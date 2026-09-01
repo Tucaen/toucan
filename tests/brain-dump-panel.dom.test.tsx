@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import App from '../src/renderer/src/App'
+import styles from '../src/renderer/src/styles.css?inline'
 import {
   BRAIN_DUMP_PANEL_DEFAULT_WIDTH,
   BRAIN_DUMP_PANEL_MAX_WIDTH,
@@ -78,6 +79,18 @@ beforeEach(() => {
 })
 
 describe('the sidebar entry', () => {
+  test('centers the project setup icon within its square button', async () => {
+    await renderApp()
+    const setup = screen.getByTitle('Set a command that prepares a new worktree')
+    const stylesheet = document.createElement('style')
+    stylesheet.textContent = styles
+    document.head.append(stylesheet)
+
+    expect(getComputedStyle(setup).padding).toBe('0px')
+
+    stylesheet.remove()
+  })
+
   test('the library is a global control, separate from the project rows', async () => {
     await renderApp()
     const entry = screen.getByRole('button', { name: /Brain dumps/ })

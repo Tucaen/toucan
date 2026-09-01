@@ -193,7 +193,7 @@ describe('shared tool card shell', () => {
     const family: ToolCardFamily = {
       id: 'test-family',
       matches: (activity) => activity.kind === 'execute',
-      icon: () => '$',
+      icon: () => <svg aria-hidden="true" />,
       summary: () => <span>npm test</span>,
       body: () => ({ content: <em>custom body</em>, hiddenLines: 0 })
     }

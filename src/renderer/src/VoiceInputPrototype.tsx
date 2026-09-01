@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import { MicTranscriber, ModelArch } from '@moonshine-ai/moonshine-wasm'
+import { Mic, Square, X } from 'lucide-react'
 import { withStallGuard } from '../../shared/stall-guard'
 import { errorMessage } from '../../shared/text'
 
@@ -170,7 +171,7 @@ export default function VoiceInputPrototype(props: VoiceInputPrototypeProps): JS
         disabled={props.disabled || state === 'loading' || state === 'stopping'}
         onClick={() => (state === 'listening' ? void finish(true) : void begin())}
       >
-        <span aria-hidden="true">{state === 'listening' ? '■' : '●'}</span>
+        {state === 'listening' ? <Square aria-hidden="true" /> : <Mic aria-hidden="true" />}
         {state === 'loading' ? 'Wait' : state === 'listening' ? 'Done' : 'Mic'}
       </button>
       {state === 'listening' && (
@@ -181,7 +182,7 @@ export default function VoiceInputPrototype(props: VoiceInputPrototypeProps): JS
           aria-label="Discard this dictation"
           onClick={() => void finish(false)}
         >
-          ×
+          <X aria-hidden="true" />
         </button>
       )}
       {(state === 'loading' || state === 'listening' || state === 'stopping') && (

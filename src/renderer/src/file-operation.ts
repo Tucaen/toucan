@@ -314,18 +314,6 @@ export function byteLength(text: string): number {
   return new TextEncoder().encode(text).length
 }
 
-const FILE_OPERATION_ICONS: Record<FileOperationKind, string> = {
-  read: '[]',
-  write: '+',
-  edit: '~',
-  'multi-edit': '~',
-  'notebook-edit': 'nb'
-}
-
-export function fileOperationIcon(operation: FileOperation): string {
-  return FILE_OPERATION_ICONS[operation.kind]
-}
-
 /**
  * Bounds what reaches the DOM the way the shell expects (see `truncateToolOutput`): lines are
  * handed out block by block until the budget runs out, a block left with nothing is dropped

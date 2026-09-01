@@ -1,8 +1,28 @@
-import type { ReactNode } from 'react'
+import type { ReactElement, ReactNode } from 'react'
+import {
+  ArrowLeftRight,
+  BrainCircuit,
+  CircleStop,
+  FilePenLine,
+  FilePlus,
+  FileText,
+  Globe,
+  ListChecks,
+  MoveRight,
+  NotebookPen,
+  Plug,
+  ScrollText,
+  Search,
+  SquareTerminal,
+  Trash2,
+  Users,
+  WandSparkles,
+  Wrench
+} from 'lucide-react'
 import type { AgentActivity } from '../../shared/agent'
 import { activityTitle } from '../../shared/agent-activity'
 import { FileOperationBody, FileOperationSummary, fileOperationCard } from './FileOperationCard'
-import { fileOperationFor, fileOperationIcon } from './file-operation'
+import { fileOperationFor } from './file-operation'
 import { McpToolCallBody, McpToolCallSummary } from './McpToolCallCard'
 import { mcpToolCallCard, mcpToolCallFor } from './mcp-tool-call'
 import { PlanUpdateBody, PlanUpdateSummary } from './PlanUpdateCard'
@@ -15,7 +35,7 @@ import { toolCardStatusLabel, toolOutputLines } from './tool-card'
 import { SearchNavigationBody, SearchNavigationSummary, searchNavigationCard } from './SearchNavigationCard'
 import { searchNavigationFor } from './search-navigation'
 import { ShellExecutionBody, ShellExecutionSummary, shellExecutionCard } from './ShellExecutionCard'
-import { shellExecutionFor, shellExecutionIcon } from './shell-execution'
+import { shellExecutionFor } from './shell-execution'
 import { truncateToolOutput } from './tool-card'
 
 /** How many lines of a tool body reach the DOM before the shell offers "show more". */
@@ -38,33 +58,33 @@ export interface ToolCardBody {
 export interface ToolCardFamily {
   id: string
   matches(activity: AgentActivity): boolean
-  icon(activity: AgentActivity): string
+  icon(activity: AgentActivity): ReactElement
   summary(activity: AgentActivity): ReactNode
   body(activity: AgentActivity, lineBudget: number | null): ToolCardBody
 }
 
-function genericIcon(activity: AgentActivity): string {
+function genericIcon(activity: AgentActivity): ReactElement {
   switch (activity.kind) {
     case 'edit':
-      return '+'
+      return <FilePenLine aria-hidden="true" />
     case 'delete':
-      return '-'
+      return <Trash2 aria-hidden="true" />
     case 'move':
-      return '->'
+      return <MoveRight aria-hidden="true" />
     case 'execute':
-      return '>_'
+      return <SquareTerminal aria-hidden="true" />
     case 'read':
-      return '[]'
+      return <FileText aria-hidden="true" />
     case 'search':
-      return '?'
+      return <Search aria-hidden="true" />
     case 'fetch':
-      return '@'
+      return <Globe aria-hidden="true" />
     case 'think':
-      return '~'
+      return <BrainCircuit aria-hidden="true" />
     case 'switch_mode':
-      return '<>'
+      return <ArrowLeftRight aria-hidden="true" />
     default:
-      return '*'
+      return <Wrench aria-hidden="true" />
   }
 }
 
@@ -103,7 +123,18 @@ export const fileOperationToolCardFamily: ToolCardFamily = {
   matches: (activity) => fileOperationFor(activity) !== null,
   icon: (activity) => {
     const operation = fileOperationFor(activity)
-    return operation ? fileOperationIcon(operation) : genericIcon(activity)
+    if (!operation) return genericIcon(activity)
+    switch (operation.kind) {
+      case 'read':
+        return <FileText aria-hidden="true" />
+      case 'write':
+        return <FilePlus aria-hidden="true" />
+      case 'edit':
+      case 'multi-edit':
+        return <FilePenLine aria-hidden="true" />
+      case 'notebook-edit':
+        return <NotebookPen aria-hidden="true" />
+    }
   },
   summary: (activity) => {
     const operation = fileOperationFor(activity)
@@ -124,7 +155,7 @@ export const searchNavigationToolCardFamily: ToolCardFamily = {
   matches: (activity) => searchNavigationFor(activity) !== null,
   icon: (activity) => {
     const kind = searchNavigationFor(activity)?.kind
-    return kind === 'web-search' || kind === 'web-fetch' ? '@' : '?'
+    return kind === 'web-search' || kind === 'web-fetch' ? <Globe aria-hidden="true" /> : <Search aria-hidden="true" />
   },
   summary: (activity) => {
     const search = searchNavigationFor(activity)
@@ -150,7 +181,10 @@ export const shellExecutionToolCardFamily: ToolCardFamily = {
   matches: (activity) => shellExecutionFor(activity) !== null,
   icon: (activity) => {
     const execution = shellExecutionFor(activity)
-    return execution ? shellExecutionIcon(execution) : genericIcon(activity)
+    if (!execution) return genericIcon(activity)
+    if (execution.kind === 'run') return <SquareTerminal aria-hidden="true" />
+    if (execution.kind === 'output') return <ScrollText aria-hidden="true" />
+    return <CircleStop aria-hidden="true" />
   },
   summary: (activity) => {
     const execution = shellExecutionFor(activity)
@@ -196,7 +230,7 @@ function subagentStepRow(step: AgentActivity): ReactNode {
 export const subagentTaskToolCardFamily: ToolCardFamily = {
   id: 'subagent-task',
   matches: (activity) => subagentTaskFor(activity) !== null,
-  icon: () => '<>',
+  icon: () => <Users aria-hidden="true" />,
   summary: (activity) => {
     const task = subagentTaskFor(activity)
     return task ? <SubagentTaskSummary task={task} activity={activity} /> : activityTitle(activity)
@@ -223,7 +257,7 @@ export const subagentTaskToolCardFamily: ToolCardFamily = {
 export const planUpdateToolCardFamily: ToolCardFamily = {
   id: 'plan-update',
   matches: (activity) => planUpdateFor(activity) !== null,
-  icon: () => '=',
+  icon: () => <ListChecks aria-hidden="true" />,
   summary: (activity) => {
     const update = planUpdateFor(activity)
     return update ? <PlanUpdateSummary update={update} /> : activityTitle(activity)
@@ -239,7 +273,7 @@ export const planUpdateToolCardFamily: ToolCardFamily = {
 export const skillInvocationToolCardFamily: ToolCardFamily = {
   id: 'skill-invocation',
   matches: (activity) => skillInvocationFor(activity) !== null,
-  icon: () => '/',
+  icon: () => <WandSparkles aria-hidden="true" />,
   summary: (activity) => {
     const invocation = skillInvocationFor(activity)
     return invocation ? <SkillInvocationSummary invocation={invocation} /> : activityTitle(activity)
@@ -259,7 +293,7 @@ export const skillInvocationToolCardFamily: ToolCardFamily = {
 export const mcpToolCallToolCardFamily: ToolCardFamily = {
   id: 'mcp-tool-call',
   matches: (activity) => mcpToolCallFor(activity) !== null,
-  icon: () => '::',
+  icon: () => <Plug aria-hidden="true" />,
   summary: (activity) => {
     const call = mcpToolCallFor(activity)
     return call ? <McpToolCallSummary call={call} /> : activityTitle(activity)

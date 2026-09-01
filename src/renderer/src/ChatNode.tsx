@@ -12,6 +12,20 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import { type NodeProps } from '@xyflow/react'
+import {
+  AtSign,
+  BrainCircuit,
+  Check,
+  ChevronDown,
+  CircleAlert,
+  Cpu,
+  Keyboard,
+  ListChecks,
+  LockKeyhole,
+  Pencil,
+  ShieldCheck,
+  X
+} from 'lucide-react'
 import MarkdownMessage from './MarkdownMessage'
 import WorktreeBadge from './WorktreeBadge'
 import {
@@ -81,6 +95,7 @@ import {
 } from './prompt-history'
 import ComposerQueue from './ComposerQueue'
 import ChatSessionControls from './ChatSessionControls'
+import SessionKindIcon from './SessionKindIcon'
 import type { QueuedPrompt } from './prompt-outbox'
 import {
   agentTranscriptEntryKey,
@@ -192,7 +207,7 @@ export type ChatSessionControlsProps = Pick<FlatChatViewProps, 'status' | 'detai
   focusMode: boolean
   setFocusMode(enabled: boolean): void
   focusShortcutEnabled?: boolean
-  empty?: { icon: string; title: string; description: string }
+  empty?: { icon: ReactNode; title: string; description: string }
   statusBar?: ReactNode
   completedTaskIds?: ReadonlySet<string>
   closedDecisionIds?: ReadonlySet<string>
@@ -226,21 +241,21 @@ interface PickerOption {
 }
 
 const pickerCopy = {
-  provider: { icon: '@', heading: 'Provider', idle: 'Provider', hint: 'Choose the agent provider' },
+  provider: { icon: AtSign, heading: 'Provider', idle: 'Provider', hint: 'Choose the agent provider' },
   permission: {
-    icon: '*',
+    icon: ShieldCheck,
     heading: 'Permission mode',
     idle: 'Permissions',
     hint: 'Set the permission mode for this agent'
   },
-  model: { icon: '#', heading: 'Model', idle: 'Model', hint: 'Choose the model for this conversation' },
+  model: { icon: Cpu, heading: 'Model', idle: 'Model', hint: 'Choose the model for this conversation' },
   effort: {
-    icon: '~',
+    icon: BrainCircuit,
     heading: 'Thinking effort',
     idle: 'Effort',
     hint: 'Set the thinking effort for this conversation'
   },
-  sendKey: { icon: '>', heading: 'Send with', idle: 'Send key', hint: 'Choose which key sends a message' }
+  sendKey: { icon: Keyboard, heading: 'Send with', idle: 'Send key', hint: 'Choose which key sends a message' }
 } as const
 
 /**
@@ -309,6 +324,7 @@ export function SelectorPicker(props: {
   const buttonRef = useRef<HTMLButtonElement>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const copy = pickerCopy[props.kind]
+  const PickerIcon = copy.icon
   const selected = props.options.find((option) => option.id === props.selectedId)
   const canOpen = props.options.length > 0 && !props.disabled
 
@@ -358,7 +374,7 @@ export function SelectorPicker(props: {
         >
           <strong>
             {option.name}
-            {option.id === props.selectedId && <i className="node-picker-selected-marker" aria-hidden="true" />}
+            {option.id === props.selectedId && <Check className="node-picker-selected-marker" aria-hidden="true" />}
           </strong>
           {option.description && <span>{option.description}</span>}
         </button>
@@ -384,9 +400,9 @@ export function SelectorPicker(props: {
         title={selected?.description ?? selected?.name ?? copy.hint}
         onClick={() => setOpen((current) => !current)}
       >
-        <span aria-hidden="true">{copy.icon}</span>
+        <PickerIcon aria-hidden="true" />
         {selected?.name ?? copy.idle}
-        <span aria-hidden="true">⌄</span>
+        <ChevronDown aria-hidden="true" />
       </button>
       {menu && createPortal(menu, document.body)}
     </div>
@@ -468,7 +484,9 @@ function SlashCommandMenu(props: {
 function EmptyConversation({ provider }: Pick<FlatChatViewProps, 'provider'>): JSX.Element {
   return (
     <div className="chat-empty">
-      <span>{provider === 'claude' ? 'C' : '<>'}</span>
+      <span>
+        <SessionKindIcon kind={provider} />
+      </span>
       <strong>Start a conversation</strong>
       <p>Ask {providerNames[provider]} to explore, explain, or change this project.</p>
     </div>
@@ -491,7 +509,7 @@ function AttachmentPreview(props: {
             aria-label="Remove attached image"
             onClick={() => props.removeAttachment(attachment.id)}
           >
-            {'×'}
+            <X aria-hidden="true" />
           </button>
         </div>
       ))}
@@ -512,10 +530,11 @@ function ComposerToolbar(
 ): JSX.Element {
   const { sendKey, setSendKey } = useComposerSendKey()
   const disabled = props.selectorsDisabled ?? false
+  const ProviderPickerIcon = pickerCopy.provider.icon
   return (
     <div className="composer-toolbar" role="group" aria-label="Conversation settings">
       <span className="composer-toolbar-provider" title={`This conversation runs on ${providerNames[props.provider]}`}>
-        <span aria-hidden="true">{pickerCopy.provider.icon}</span>
+        <ProviderPickerIcon aria-hidden="true" />
         {providerNames[props.provider]}
       </span>
       {props.models && props.selectModel && (
@@ -844,9 +863,7 @@ function AuthPanel(
     return (
       <section {...dialogProps}>
         <div className="chat-auth-card">
-          <span className="auth-lock" aria-hidden="true">
-            *
-          </span>
+          <LockKeyhole className="auth-lock" aria-hidden="true" />
           <div>
             <strong id={titleId}>Sign in to {providerNames[props.provider]}</strong>
             <p id={descriptionId}>
@@ -867,9 +884,7 @@ function AuthPanel(
   return (
     <section {...dialogProps}>
       <div className="chat-auth-card">
-        <span className="auth-lock" aria-hidden="true">
-          *
-        </span>
+        <LockKeyhole className="auth-lock" aria-hidden="true" />
         <div>
           <strong id={titleId}>Sign in to {providerNames[props.provider]}</strong>
           <p id={descriptionId}>Connect your existing subscription to enable messages and voice input.</p>
@@ -1134,7 +1149,9 @@ function ReasoningCard({ message }: { message: AgentChatMessage }): JSX.Element 
         aria-expanded={expanded}
         onClick={() => setExpanded((current) => !current)}
       >
-        <span className="activity-icon">~</span>
+        <span className="activity-icon">
+          <BrainCircuit aria-hidden="true" />
+        </span>
         <strong>Reasoning</strong>
       </button>
       {expanded && (
@@ -1156,7 +1173,9 @@ function PlanCard({ plan }: { plan: AgentPlanEntry[] }): JSX.Element {
         aria-expanded={expanded}
         onClick={() => setExpanded((current) => !current)}
       >
-        <span className="activity-icon">#</span>
+        <span className="activity-icon">
+          <ListChecks aria-hidden="true" />
+        </span>
         <strong>Plan</strong>
         <span className="activity-state">{plan.length} steps</span>
       </button>
@@ -1648,12 +1667,14 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
             setRenaming(true)
           }}
         >
-          ✎
+          <Pencil aria-hidden="true" />
         </button>
         {titleError && (
-          <span className="node-title-error" role="alert" title="The conversation title could not be saved.">
-            !
-          </span>
+          <CircleAlert
+            className="node-title-error"
+            role="alert"
+            aria-label="The conversation title could not be saved."
+          />
         )}
         <span className="node-project" title={data.projectPath}>
           <span className="project-color-dot" />
@@ -1679,7 +1700,9 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
       </header>
       {data.dormant ? (
         <div className="dormant-session chat-dormant nodrag">
-          <span className="dormant-session-icon">{provider === 'claude' ? 'C' : '<>'}</span>
+          <span className="dormant-session-icon">
+            <SessionKindIcon kind={provider} />
+          </span>
           <strong>Saved {providerNames[provider]} conversation</strong>
           <small>
             {data.conversationId

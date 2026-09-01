@@ -10,6 +10,7 @@ import {
   type NodeTypes
 } from '@xyflow/react'
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
+import { BookOpen, ChevronLeft, ChevronRight, GitBranch, History, Plus, Settings, X } from 'lucide-react'
 import type { AgentRateLimitStatus, AgentRateLimitWindow } from '../../shared/agent'
 import type { ConversationSummary } from '../../shared/conversation'
 import { normalizeConversationTitle, type ConversationTitleSource } from '../../shared/conversation-title'
@@ -56,6 +57,7 @@ import ConversationHistoryDialog from './ConversationHistoryDialog'
 import { ProviderRateLimitsContext } from './provider-rate-limits'
 import { describeRateLimitWindow } from './session-usage'
 import SessionNode from './SessionNode'
+import SessionKindIcon from './SessionKindIcon'
 import { terminalLivenessLabels } from './terminal-liveness'
 import { SidebarTerminalLiveness } from './TerminalLivenessPresentation'
 import { useProviderRateLimits } from './use-provider-rate-limits'
@@ -1162,7 +1164,7 @@ function Canvas(): JSX.Element {
     const labelsByPath: Record<string, string> = {}
     if (activeProject) labelsByPath[activeProject.path.toLocaleLowerCase()] = activeProject.name
     for (const node of nodes.filter(isWorktreeCanvasNode)) {
-      labelsByPath[node.data.path.toLocaleLowerCase()] = `⑂ ${node.data.branch}`
+      labelsByPath[node.data.path.toLocaleLowerCase()] = node.data.branch
     }
     return labelsByPath
   }, [activeProject, nodes])
@@ -1393,7 +1395,7 @@ function Canvas(): JSX.Element {
                     setSidebarCollapsed((current) => !current)
                   }}
                 >
-                  {sidebarCollapsed ? '›' : '‹'}
+                  {sidebarCollapsed ? <ChevronRight aria-hidden="true" /> : <ChevronLeft aria-hidden="true" />}
                 </button>
               </div>
 
@@ -1458,7 +1460,7 @@ function Canvas(): JSX.Element {
                                 setMenu(null)
                               }}
                             >
-                              ⚙
+                              <Settings aria-hidden="true" />
                             </button>
                             <button
                               type="button"
@@ -1488,7 +1490,7 @@ function Canvas(): JSX.Element {
                                 removeProject(project.id)
                               }}
                             >
-                              &times;
+                              <X aria-hidden="true" />
                             </button>
                           </div>
                         )}
@@ -1507,7 +1509,9 @@ function Canvas(): JSX.Element {
                                 focusNode(node.id)
                               }}
                             >
-                              <span className="project-node-kind">⑂</span>
+                              <span className="project-node-kind">
+                                <GitBranch aria-hidden="true" />
+                              </span>
                               <span className="project-node-name">{node.data.branch}</span>
                               <span className="project-node-state" data-status="worktree">
                                 {node.data.attachedNodeCount}
@@ -1540,7 +1544,7 @@ function Canvas(): JSX.Element {
                                 }}
                               >
                                 <span className="project-node-kind">
-                                  {node.data.kind === 'terminal' ? '>_' : node.data.kind === 'claude' ? 'C' : '<>'}
+                                  <SessionKindIcon kind={node.data.kind} />
                                 </span>
                                 <span className="project-node-name">{node.data.label}</span>
                                 {nodeUnread > 0 && <span className="unread-badge">{nodeUnread}</span>}
@@ -1574,7 +1578,7 @@ function Canvas(): JSX.Element {
                 }}
               >
                 <span className="sidebar-global-icon" aria-hidden="true">
-                  📖
+                  <BookOpen />
                 </span>
                 {!sidebarCollapsed && <span>Brain dumps</span>}
                 {sidebarCollapsed && <span className="brain-dump-visually-hidden">Open brain-dump library</span>}
@@ -1589,7 +1593,7 @@ function Canvas(): JSX.Element {
                   void addProject()
                 }}
               >
-                <span>+</span>
+                <Plus aria-hidden="true" />
                 {!sidebarCollapsed && 'Add project'}
               </button>
 
@@ -1659,35 +1663,45 @@ function Canvas(): JSX.Element {
             >
               <p>Create in {activeProject.name}</p>
               <button type="button" role="menuitem" onClick={() => createNode('terminal')}>
-                <span className="menu-icon terminal-icon">&gt;_</span>
+                <span className="menu-icon terminal-icon">
+                  <SessionKindIcon kind="terminal" />
+                </span>
                 <span>
                   <strong>Terminal</strong>
                   <small>Windows shell</small>
                 </span>
               </button>
               <button type="button" role="menuitem" onClick={() => createNode('claude')}>
-                <span className="menu-icon claude-icon">C</span>
+                <span className="menu-icon claude-icon">
+                  <SessionKindIcon kind="claude" />
+                </span>
                 <span>
                   <strong>Claude</strong>
                   <small>Unified ACP chat</small>
                 </span>
               </button>
               <button type="button" role="menuitem" onClick={() => createNode('codex')}>
-                <span className="menu-icon codex-icon">&lt;&gt;</span>
+                <span className="menu-icon codex-icon">
+                  <SessionKindIcon kind="codex" />
+                </span>
                 <span>
                   <strong>Codex</strong>
                   <small>Unified ACP chat</small>
                 </span>
               </button>
               <button type="button" role="menuitem" onClick={() => startWorktreeDraft()}>
-                <span className="menu-icon worktree-icon">⑂</span>
+                <span className="menu-icon worktree-icon">
+                  <GitBranch aria-hidden="true" />
+                </span>
                 <span>
                   <strong>Worktree</strong>
                   <small>Isolated branch for parallel work</small>
                 </span>
               </button>
               <button type="button" role="menuitem" onClick={() => openHistoryBrowser()}>
-                <span className="menu-icon history-icon">↺</span>
+                <span className="menu-icon history-icon">
+                  <History aria-hidden="true" />
+                </span>
                 <span>
                   <strong>History</strong>
                   <small>Resume a past conversation</small>

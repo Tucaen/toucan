@@ -5,6 +5,7 @@ import { Terminal } from '@xterm/xterm'
 import type { TerminalCanvasNode } from './canvas-workspace'
 import { READ_ON_VIEW_KINDS } from '../../shared/attention'
 import NodeBorderResizer from './NodeBorderResizer'
+import SessionKindIcon from './SessionKindIcon'
 import UnreadToggle from './UnreadToggle'
 import { CanvasTerminalLiveness } from './TerminalLivenessPresentation'
 import WorktreeBadge from './WorktreeBadge'
@@ -353,7 +354,9 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
       >
         {data.dormant && (
           <div className={`dormant-session ${hasRestoredScrollback ? 'dormant-session-with-history' : ''}`}>
-            <span className="dormant-session-icon">&gt;_</span>
+            <span className="dormant-session-icon">
+              <SessionKindIcon kind="terminal" />
+            </span>
             <strong>{data.terminalLiveness === 'exited' ? 'Terminal exited' : 'Terminal liveness unverifiable'}</strong>
             <small>
               {data.terminalLiveness === 'exited'

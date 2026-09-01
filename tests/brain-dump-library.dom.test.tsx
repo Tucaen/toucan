@@ -52,6 +52,21 @@ describe('collections and search', () => {
     ]
   })
 
+  test('header actions render consistent SVG icons', async () => {
+    renderPanel(api)
+    await screen.findByText('Voice input')
+
+    for (const name of [
+      'Write a brain dump',
+      'Record a brain dump with the microphone',
+      'Close the brain-dump library'
+    ]) {
+      const button = screen.getByRole('button', { name })
+      expect(button.querySelector('svg.lucide')).toBeInTheDocument()
+      expect(button).toHaveTextContent('')
+    }
+  })
+
   test('active topics load first and archived ones only when asked for', async () => {
     renderPanel(api)
     await screen.findByText('Voice input')

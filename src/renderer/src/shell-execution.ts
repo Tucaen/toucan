@@ -120,16 +120,6 @@ export function parseShellExecution(activity: AgentActivity): ShellExecution | n
 /** `parseShellExecution` for the render path, cached per activity object (`memoizePerActivity`). */
 export const shellExecutionFor = memoizePerActivity(parseShellExecution)
 
-const SHELL_ICONS: Record<ShellExecutionKind, string> = {
-  run: '>_',
-  output: '<<',
-  kill: 'x'
-}
-
-export function shellExecutionIcon(execution: ShellExecution): string {
-  return SHELL_ICONS[execution.kind]
-}
-
 /** The longest command the summary puts into the DOM; a heredoc is not a header. */
 const COMMAND_SUMMARY_LIMIT = 220
 

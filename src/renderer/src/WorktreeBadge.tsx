@@ -1,4 +1,5 @@
 import type { TerminalNodeData } from './canvas-workspace'
+import { GitBranch } from 'lucide-react'
 
 /**
  * Which tree a session is editing is the single most consequential fact about it once
@@ -28,7 +29,7 @@ export default function WorktreeBadge({ data }: { data: TerminalNodeData }): JSX
         title={`Working in a worktree on ${data.activeWorktreeBranch}; this node still runs in ${data.workingDirectory}`}
       >
         <span className="worktree-glyph" aria-hidden="true">
-          ⑂
+          <GitBranch />
         </span>
         {data.activeWorktreeBranch}
       </span>
@@ -37,7 +38,7 @@ export default function WorktreeBadge({ data }: { data: TerminalNodeData }): JSX
   return (
     <span className="node-worktree" title={`Runs in ${data.workingDirectory}`}>
       <span className="worktree-glyph" aria-hidden="true">
-        ⑂
+        <GitBranch />
       </span>
       {data.worktreeBranch}
     </span>

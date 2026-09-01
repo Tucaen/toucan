@@ -33,6 +33,14 @@ button {
   font: inherit;
 }
 
+.lucide {
+  width: 1em;
+  height: 1em;
+  display: block;
+  flex: 0 0 auto;
+  stroke-width: 2;
+}
+
 .app-shell {
   position: relative;
   width: 100%;
@@ -314,7 +322,7 @@ button {
   border-radius: 6px;
   color: #8a94a2;
   background: transparent;
-  font-size: 22px;
+  font-size: 17px;
   line-height: 1;
   cursor: pointer;
 }
@@ -473,6 +481,11 @@ button {
   cursor: pointer;
 }
 
+.project-remove .lucide,
+.project-setup .lucide {
+  font-size: 14px;
+}
+
 .project-remove:hover:not(:disabled) {
   color: #ee8c92;
   background: rgba(223, 115, 122, 0.1);
@@ -540,6 +553,11 @@ button {
   font-size: 11px;
   font-weight: 800;
   text-align: center;
+}
+
+.project-node-kind .lucide {
+  margin: auto;
+  font-size: 14px;
 }
 
 .project-node-name {
@@ -684,9 +702,8 @@ button {
   cursor: pointer;
 }
 
-.add-project span {
-  font-size: 19px;
-  line-height: 1;
+.add-project > .lucide {
+  font-size: 17px;
 }
 
 .add-project:hover {
@@ -900,6 +917,10 @@ button {
   font-family: Consolas, monospace;
   font-size: 14px;
   font-weight: 800;
+}
+
+.menu-icon .lucide {
+  font-size: 17px;
 }
 
 .terminal-icon {
@@ -1149,6 +1170,10 @@ button {
   font-weight: 800;
 }
 
+.dormant-session-icon .lucide {
+  font-size: 19px;
+}
+
 .dormant-session strong {
   font-size: 15px;
 }
@@ -1273,6 +1298,10 @@ button {
   cursor: pointer;
 }
 
+.node-title-rename .lucide {
+  font-size: 13px;
+}
+
 .node-title-rename:hover,
 .node-title-rename:focus-visible {
   color: #dce1e9;
@@ -1280,7 +1309,7 @@ button {
 
 .node-title-error {
   color: #ff8b8b;
-  font-weight: 900;
+  font-size: 14px;
 }
 
 .chat-provider-badge {
@@ -1320,15 +1349,15 @@ button {
   max-width: 128px;
 }
 
-.node-picker-button > span:first-child {
+.node-picker-button > .lucide:first-child {
   color: #f1c75b;
 }
 
-.node-picker[data-picker='model'] .node-picker-button > span:first-child {
+.node-picker[data-picker='model'] .node-picker-button > .lucide:first-child {
   color: #8fb8ff;
 }
 
-.node-picker-button > span:last-child {
+.node-picker-button > .lucide:last-child {
   color: #697483;
 }
 
@@ -1384,13 +1413,12 @@ button {
 }
 
 .node-picker-selected-marker {
-  width: 5px;
-  height: 9px;
-  display: inline-block;
+  width: 12px;
+  height: 12px;
+  display: inline;
   margin-left: 6px;
-  border-right: 2px solid #74d8a2;
-  border-bottom: 2px solid #74d8a2;
-  transform: rotate(45deg);
+  color: #74d8a2;
+  vertical-align: -2px;
 }
 
 .node-picker-menu strong,
@@ -1478,6 +1506,10 @@ button {
   background: color-mix(in srgb, var(--node-accent) 8%, #171b22);
   font-family: Consolas, monospace;
   font-weight: 800;
+}
+
+.chat-empty > span .lucide {
+  font-size: 21px;
 }
 
 .chat-empty strong {
@@ -1787,6 +1819,10 @@ button {
   background: color-mix(in srgb, var(--node-accent) 10%, #202631);
   font-family: Consolas, monospace;
   font-size: 10px;
+}
+
+.activity-icon .lucide {
+  font-size: 14px;
 }
 
 .activity-header strong {
@@ -2501,6 +2537,11 @@ button {
   cursor: pointer;
 }
 
+.composer-attachment-remove .lucide {
+  margin: auto;
+  font-size: 11px;
+}
+
 .composer-paste-blocked {
   color: #efb0b3;
   font:
@@ -2652,7 +2693,7 @@ button {
   white-space: nowrap;
 }
 
-.composer-toolbar-provider > span {
+.composer-toolbar-provider > .lucide {
   color: var(--node-accent);
 }
 
@@ -2718,7 +2759,7 @@ button {
   background: #182534;
 }
 
-.chat-composer .voice-input-button > span {
+.chat-composer .voice-input-button > .lucide {
   margin-right: 4px;
   color: #e26d76;
 }
@@ -2945,7 +2986,7 @@ button {
 
 .worktree-glyph {
   color: #c992ff;
-  font-weight: 800;
+  font-size: 14px;
 }
 
 .node-worktree {
@@ -3131,6 +3172,10 @@ button {
   cursor: pointer;
 }
 
+.worktree-open-group button .lucide {
+  font-size: 14px;
+}
+
 .worktree-actions button:hover:not(:disabled) {
   border-color: #c992ff;
   color: #e6dcf7;
@@ -3151,6 +3196,7 @@ button {
   height: 22px;
   display: grid;
   place-items: center;
+  padding: 0;
   border: 1px solid transparent;
   border-radius: 6px;
   background: transparent;
@@ -3669,6 +3715,12 @@ button {
   font-size: 11px;
 }
 
+.conversation-history-directory-icon {
+  display: inline;
+  margin: 0 4px 0 1px;
+  vertical-align: -2px;
+}
+
 .conversation-history-missing {
   color: #e6796f;
 }
@@ -3798,6 +3850,11 @@ button {
 .brain-dump-capture-button:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+.brain-dump-capture-button .lucide,
+.brain-dump-close .lucide {
+  font-size: 16px;
 }
 
 .brain-dump-panel-filters {
@@ -3997,6 +4054,12 @@ button {
   background: #161a21;
   font-size: 12px;
   cursor: pointer;
+}
+
+.brain-dump-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
 }
 
 .brain-dump-reader-body {
@@ -4308,6 +4371,10 @@ button {
   border-color: #4a6da8;
   color: #e4e9f1;
   background: #1a2331;
+}
+
+.sidebar-global-icon .lucide {
+  font-size: 15px;
 }
 
 .brain-dump-visually-hidden {

@@ -34,7 +34,7 @@ function renderDialog(onOpen = vi.fn()): { onOpen: ReturnType<typeof vi.fn> } {
     <ConversationHistoryDialog
       projectName="ADE"
       directories={[PROJECT, WORKTREE]}
-      directoryLabels={{ [PROJECT.toLocaleLowerCase()]: 'ADE', [WORKTREE.toLocaleLowerCase()]: '⑂ feature' }}
+      directoryLabels={{ [PROJECT.toLocaleLowerCase()]: 'ADE', [WORKTREE.toLocaleLowerCase()]: 'feature' }}
       onCancel={vi.fn()}
       onOpen={onOpen}
     />
@@ -63,7 +63,7 @@ test('shows what a conversation was, when it ran, and where', async () => {
   renderDialog()
 
   const row = await screen.findByRole('button', { name: /Rename the parser/ })
-  expect(row.textContent?.replace(/\s+/g, ' ')).toContain('Codex · 1h ago · 1 message · ⑂ feature')
+  expect(row.textContent?.replace(/\s+/g, ' ')).toContain('Codex · 1h ago · 1 message · feature')
   expect(screen.getByText(/use no model tokens/i)).toBeInTheDocument()
 })
 

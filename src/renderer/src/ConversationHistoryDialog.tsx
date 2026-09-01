@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { Folder } from 'lucide-react'
 import type { ConversationSummary } from '../../shared/conversation'
+import SessionKindIcon from './SessionKindIcon'
 
 /** One page is what a single open reads off disk; the rest of a long history stays unopened. */
 export const CONVERSATION_PAGE_SIZE = 25
@@ -123,7 +125,9 @@ export default function ConversationHistoryDialog({
                   disabled={unavailable}
                   onClick={() => void open(entry)}
                 >
-                  <span className={`menu-icon ${entry.provider}-icon`}>{entry.provider === 'claude' ? 'C' : '<>'}</span>
+                  <span className={`menu-icon ${entry.provider}-icon`}>
+                    <SessionKindIcon kind={entry.provider} />
+                  </span>
                   <span className="conversation-history-copy">
                     <strong>{entry.title}</strong>
                     <small>
@@ -133,6 +137,7 @@ export default function ConversationHistoryDialog({
                       {' · '}
                       {entry.messageCount} {entry.messageCount === 1 ? 'message' : 'messages'}
                       {' · '}
+                      <Folder aria-hidden="true" className="conversation-history-directory-icon" />
                       {directoryLabels[entry.cwd.toLocaleLowerCase()] ?? entry.cwd}
                     </small>
                     {unavailable && (
