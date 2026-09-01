@@ -27,6 +27,7 @@ import type {
   WorkspaceTerminalNode
 } from '../../shared/terminal'
 import type { WorktreeRemovalBlocker } from '../../shared/worktree'
+import toucanLogo from './assets/toucan-logo.svg'
 import { placeholderBranchName, type WorktreeHandoffPlan } from '../../shared/worktree-handoff'
 import {
   BRAIN_DUMP_PANEL_DEFAULT_WIDTH,
@@ -1330,7 +1331,7 @@ function Canvas(): JSX.Element {
           )}
           <header className="app-header">
             <div>
-              <span className="brand-mark" aria-hidden="true" />
+              <img className="brand-mark" src={toucanLogo} alt="" aria-hidden="true" />
               <strong>Toucan</strong>
               <span className="prototype-label">Agentic Development Environment</span>
             </div>

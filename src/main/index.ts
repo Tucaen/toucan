@@ -193,6 +193,15 @@ function registerProjectIpc(workspace: ReturnType<typeof createWorkspaceStore>):
   ipcMain.handle('workspace:save', (_event, state: WorkspaceState) => workspace.save(state))
 }
 
+/**
+ * Packaged Windows builds take their icon from the executable electron-builder stamps, so
+ * this only has to cover `electron-vite dev`, where the app root still holds build/icon.png.
+ */
+function developmentWindowIcon(): string | undefined {
+  const icon = join(app.getAppPath(), 'build', 'icon.png')
+  return existsSync(icon) ? icon : undefined
+}
+
 function createWindow(
   terminalManager: TerminalManager,
   agentManager: AcpSessionManager,
@@ -205,6 +214,7 @@ function createWindow(
     minWidth: 900,
     minHeight: 600,
     backgroundColor: '#0b0d12',
+    icon: developmentWindowIcon(),
     show: false,
     autoHideMenuBar: true,
     webPreferences: {

@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1200">
+  <defs>
+    <linearGradient id="beakTop" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#F5A524"/>
+      <stop offset="100%" stop-color="#FF5A3C"/>
+    </linearGradient>
+    <linearGradient id="beakBottom" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#FF7A1A"/>
+      <stop offset="100%" stop-color="#F23F36"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Faceted toucan head: simple outer silhouette, no self-intersection -->
+  <path fill="#1B1D21" d="
+    M 220 460
+    L 340 340
+    L 455 300
+    L 530 385
+    L 530 495
+    L 685 455
+    L 975 470
+    L 1125 520
+    L 970 480
+    L 675 470
+    L 530 525
+    L 530 610
+    L 705 790
+    L 705 965
+    L 650 1015
+    L 405 1015
+    L 220 825
+    Z"/>
+
+  <!-- Top beak facet -->
+  <path fill="url(#beakTop)" d="
+    M 455 300
+    L 630 270
+    L 990 355
+    L 1125 520
+    L 970 470
+    L 685 455
+    L 530 495
+    L 530 385
+    Z"/>
+
+  <!-- Lower beak facet -->
+  <path fill="url(#beakBottom)" d="
+    M 530 525
+    L 675 470
+    L 970 480
+    L 1125 520
+    L 755 620
+    L 570 665
+    L 530 610
+    Z"/>
+
+  <!-- Eye -->
+  <rect x="415" y="395" width="58" height="58" fill="none" stroke="#F7F7F7" stroke-width="14"/>
+
+  <!-- PCB traces -->
+  <g fill="none" stroke="#F7F7F7" stroke-width="12" stroke-linecap="square" stroke-linejoin="miter">
+    <path d="M 423 454 L 330 555 L 330 670 L 465 805 L 525 805 L 635 915 L 635 950"/>
+    <path d="M 395 635 L 485 725 L 545 725 L 630 810"/>
+    <path d="M 220 735 L 305 820 L 360 820 L 470 930"/>
+  </g>
+
+  <!-- PCB nodes -->
+  <g fill="#F7F7F7">
+    <rect x="382" y="618" width="28" height="28"/>
+    <rect x="620" y="936" width="30" height="30"/>
+    <rect x="455" y="915" width="30" height="30"/>
+  </g>
+</svg>

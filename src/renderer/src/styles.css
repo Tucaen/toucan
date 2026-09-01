@@ -69,12 +69,16 @@ button {
 }
 
 .brand-mark {
-  width: 12px;
-  height: 12px;
-  border: 2px solid #71a9ff;
-  border-radius: 4px;
-  box-shadow: 5px 5px 0 -2px #74d8a2;
+  width: 30px;
+  height: 30px;
+  box-sizing: border-box;
+  padding: 3px;
   margin-right: 3px;
+  object-fit: contain;
+  /* The toucan's head is near-black, so it needs a lifted plate to read on the dark header. */
+  background: #252c39;
+  border: 1px solid #333c4d;
+  border-radius: 8px;
 }
 
 .prototype-label,
