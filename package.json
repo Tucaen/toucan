@@ -8,6 +8,7 @@
   "scripts": {
     "predev": "npm run prepare:voice-model",
     "dev": "electron-vite dev",
+    "repair-electron": "node node_modules/electron/install.js",
     "prepare:voice-model": "node scripts/prepare-voice-model.mjs",
     "migrate:brain-dumps": "tsc -p tsconfig.test.json && electron scripts/migrate-brain-dumps.mjs",
     "check:voice-model": "node scripts/prepare-voice-model.mjs --check",
