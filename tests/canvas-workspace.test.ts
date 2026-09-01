@@ -140,7 +140,7 @@ test('migrates the legacy worklog choice to focus mode and serializes only the n
     worktrees: []
   }
 
-  assert.equal(terminalNodes(restoreCanvasWorkspace(baseState, callbacks).nodes)[0].data.focusMode, true)
+  assert.equal(terminalNodes(restoreCanvasWorkspace(baseState, callbacks).nodes)[0].data.focusMode, false)
 
   baseState.nodes[0].worklogCollapsed = false
   const restored = terminalNodes(restoreCanvasWorkspace(baseState, callbacks).nodes)[0]

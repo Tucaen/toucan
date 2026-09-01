@@ -568,7 +568,7 @@ function Canvas(): JSX.Element {
             worktreeBranch: worktree?.branch,
             workingDirectory: worktree?.path ?? project.path,
             conversationId,
-            focusMode: kind !== 'terminal',
+            focusMode: false,
             preferredPermissionMode: kind === 'terminal' ? undefined : permissionModesRef.current[kind],
             dormant: false,
             launchMode: resumeConversationId ? 'resume' : 'new',

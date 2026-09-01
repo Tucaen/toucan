@@ -150,7 +150,7 @@ export function parseWorkspaceState(value: unknown): WorkspaceState | null {
         const { worklogCollapsed, ...current } = node
         return {
           ...current,
-          ...(node.kind === 'terminal' ? {} : { focusMode: node.focusMode ?? worklogCollapsed ?? true }),
+          ...(node.kind === 'terminal' ? {} : { focusMode: node.focusMode ?? worklogCollapsed ?? false }),
           ...(node.preview
             ? {
                 preview: {

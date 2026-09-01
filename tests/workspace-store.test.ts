@@ -59,6 +59,7 @@ test('migrates a version 2 workspace to an empty worktree set without losing its
   assert.equal(migrated?.nodes.length, 1)
   assert.equal(migrated?.nodes[0].id, 'node-1')
   assert.equal(migrated?.nodes[0].worktreeId, undefined)
+  assert.equal(migrated?.nodes[0].focusMode, false)
 })
 
 test('migrates the legacy worklog preference to per-node focus mode', () => {

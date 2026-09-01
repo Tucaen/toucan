@@ -248,7 +248,7 @@ function restoreTerminalCanvasNode(
       detachedFromWorktree,
       conversationId: savedNode.conversationId,
       preview: savedNode.preview,
-      focusMode: savedNode.focusMode ?? savedNode.worklogCollapsed ?? savedNode.kind !== 'terminal',
+      focusMode: savedNode.focusMode ?? savedNode.worklogCollapsed ?? false,
       draft: savedNode.draft,
       preferredPermissionMode:
         savedNode.kind === 'terminal' ? undefined : workspace.agentPermissionModes?.[savedNode.kind],
