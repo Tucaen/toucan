@@ -90,16 +90,15 @@ test('reads live Codex account limits instead of showing a stale transcript valu
   })
 })
 
-test('a Windows npm command shim resolves to the Codex script without an intermediate shell', () => {
+test('a Windows npm command shim resolves directly to the native Codex executable', () => {
   const command = 'C:\\app\\node_modules\\.bin\\codex.cmd'
-  const script = 'C:\\app\\node_modules\\@openai\\codex\\bin\\codex.js'
+  const executable = 'C:\\app\\node_modules\\@openai\\codex-win32-x64\\vendor\\x86_64-pc-windows-msvc\\bin\\codex.exe'
 
   assert.deepEqual(
-    resolveCodexAppServerLaunch(command, 'node.exe', (path) => path === script),
+    resolveCodexAppServerLaunch(command, 'x64', (path) => path === executable),
     {
-      executable: 'node.exe',
-      args: [script, 'app-server', '--listen', 'stdio://'],
-      runElectronAsNode: true
+      executable,
+      args: ['app-server', '--listen', 'stdio://']
     }
   )
 })

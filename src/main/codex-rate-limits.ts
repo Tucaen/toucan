@@ -210,30 +210,41 @@ export interface CodexRateLimitReader {
 interface CodexAppServerLaunch {
   executable: string
   args: string[]
-  runElectronAsNode: boolean
 }
 
 /**
  * npm exposes Windows CLIs as `.cmd` shims, which `child_process.spawn` cannot execute directly.
- * Run the shim's package entry point with ADE's embedded Node instead; this also avoids leaving a
- * detached app-server behind when a timeout kills an intermediate `cmd.exe` process.
+ * Resolve Codex's platform package and launch its native executable directly. Going through
+ * `codex.js` leaves that wrapper to spawn the native binary with inherited stdio, which can briefly
+ * surface a `PseudoConsoleWindow` even when the wrapper itself was started with `windowsHide`.
  */
 export function resolveCodexAppServerLaunch(
   command: string,
-  nodeExecutable: string = process.execPath,
+  architecture: NodeJS.Architecture = process.arch,
   pathExists: (path: string) => boolean = existsSync
 ): CodexAppServerLaunch | null {
   if (!['.cmd', '.bat'].includes(extname(command).toLowerCase())) {
-    return { executable: command, args: ['app-server', '--listen', 'stdio://'], runElectronAsNode: false }
+    return { executable: command, args: ['app-server', '--listen', 'stdio://'] }
   }
 
-  const script = [
-    win32.join(win32.dirname(command), 'node_modules', '@openai', 'codex', 'bin', 'codex.js'),
-    win32.join(win32.dirname(command), '..', '@openai', 'codex', 'bin', 'codex.js')
-  ].find(pathExists)
-  return script
-    ? { executable: nodeExecutable, args: [script, 'app-server', '--listen', 'stdio://'], runElectronAsNode: true }
-    : null
+  const target =
+    architecture === 'x64'
+      ? { packageName: 'codex-win32-x64', triple: 'x86_64-pc-windows-msvc' }
+      : architecture === 'arm64'
+        ? { packageName: 'codex-win32-arm64', triple: 'aarch64-pc-windows-msvc' }
+        : null
+  if (!target) return null
+
+  const commandDirectory = win32.dirname(command)
+  const packageRoots = [win32.join(commandDirectory, 'node_modules'), win32.join(commandDirectory, '..')]
+  const nativeRelativePath = ['@openai', target.packageName, 'vendor', target.triple, 'bin', 'codex.exe']
+  const executable = packageRoots
+    .flatMap((root) => [
+      win32.join(root, ...nativeRelativePath),
+      win32.join(root, '@openai', 'codex', 'node_modules', ...nativeRelativePath)
+    ])
+    .find(pathExists)
+  return executable ? { executable, args: ['app-server', '--listen', 'stdio://'] } : null
 }
 
 async function requestRateLimitsViaAppServer(command: string, environment: NodeJS.ProcessEnv): Promise<unknown> {
@@ -243,7 +254,7 @@ async function requestRateLimitsViaAppServer(command: string, environment: NodeJ
     launch.executable,
     launch.args,
     hiddenProcessOptions({
-      env: { ...environment, ...(launch.runElectronAsNode ? { ELECTRON_RUN_AS_NODE: '1' } : {}) },
+      env: { ...environment },
       stdio: ['pipe', 'pipe', 'ignore']
     })
   )
