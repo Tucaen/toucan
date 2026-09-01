@@ -7,7 +7,7 @@ import { createMockBrainDumpApi, topicFixture, type MockBrainDumpApi } from './d
 
 /**
  * Reading a topic: Markdown through the shared transcript pipeline, the four link behaviors a
- * topic can contain, and the Archive/Reopen flows with their pending, success, and failure states.
+ * topic can contain, and the one-way Archive flow with its pending, success, and failure states.
  */
 
 const projects: WorkspaceProject[] = [{ id: 'ade', name: 'ADE', path: 'D:\\Development\\ADE', color: '#71a9ff' }]
@@ -115,7 +115,7 @@ describe('links inside a topic', () => {
   })
 })
 
-describe('archive and reopen', () => {
+describe('archive lifecycle', () => {
   test('archiving requires an outcome, moves the topic, and announces the result', async () => {
     const api = createMockBrainDumpApi()
     api.collections.active.topics = [topicFixture({ slug: 'a', title: 'A' }), topicFixture({ slug: 'b', title: 'B' })]
@@ -173,7 +173,7 @@ describe('archive and reopen', () => {
     expect(onPanelChange).not.toHaveBeenCalledWith({ open: false })
   })
 
-  test('reopening moves an archived topic back to Active', async () => {
+  test('an archived topic is a read-only snapshot', async () => {
     const api = createMockBrainDumpApi()
     api.collections.archived.topics = [
       topicFixture({ slug: 'a', title: 'A', collection: 'archived', outcome: 'obsolete' })
@@ -182,28 +182,7 @@ describe('archive and reopen', () => {
 
     fireEvent.click(screen.getByRole('tab', { name: /Archived/ }))
     fireEvent.click(await screen.findByText('A'))
-    fireEvent.click(screen.getByRole('button', { name: 'Reopen topic' }))
-
-    await waitFor(() => expect(api.reopen).toHaveBeenCalledWith('a'))
-    fireEvent.click(screen.getByRole('tab', { name: /Active/ }))
-    await screen.findByText('A')
-  })
-
-  test('a failed reopen keeps the archived reader and offers a retry', async () => {
-    const api = createMockBrainDumpApi()
-    api.collections.archived.topics = [
-      topicFixture({ slug: 'a', title: 'A', collection: 'archived', outcome: 'obsolete' })
-    ]
-    const reopen = api.reopen as ReturnType<typeof vi.fn>
-    reopen.mockResolvedValueOnce({ ok: false, code: 'write-failed', message: 'The topic could not be moved.' })
-    renderPanel(api)
-
-    fireEvent.click(screen.getByRole('tab', { name: /Archived/ }))
-    fireEvent.click(await screen.findByText('A'))
-    fireEvent.click(screen.getByRole('button', { name: 'Reopen topic' }))
-
-    await screen.findByText('The topic could not be moved.')
     expect(screen.getByRole('heading', { name: 'A' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Retry reopen' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /archive|reopen/i })).not.toBeInTheDocument()
   })
 })

@@ -3732,17 +3732,6 @@ button {
   transition: none;
 }
 
-.brain-dump-followup {
-  justify-self: start;
-  padding: 4px 11px;
-  border: 1px solid #4a6da8;
-  border-radius: 999px;
-  color: #e4e9f1;
-  background: #1a2331;
-  font-size: 12px;
-  cursor: pointer;
-}
-
 .brain-dump-resizer {
   position: absolute;
   inset: 0 auto 0 0;

@@ -1,7 +1,7 @@
 ---
 title: Brain-dump entry lifecycle
 created: 2026-08-30
-updated: 2026-08-30
+updated: 2026-09-01
 ---
 
 # Brain-dump entry lifecycle
@@ -17,6 +17,11 @@ Brain-dump entries need a lifecycle beyond "captured". Once an idea has been act
 ## Decisions
 
 - Permanent deletion is not the desired behaviour for finished entries; archiving is preferred.
+- Archiving closes an implementation boundary. Archived files remain immutable historical snapshots
+  and cannot be reopened or edited by a later capture.
+- New material related to an archived topic becomes a distinct active follow-up. The follow-up links
+  to the archived topic, states the new actionable scope explicitly, and carries forward only the
+  context and constraints needed for that scope.
 
 ## Open questions
 
@@ -24,7 +29,6 @@ Brain-dump entries need a lifecycle beyond "captured". Once an idea has been act
 - How is the archive represented: frontmatter status on the existing file, a subdirectory such as `docs/brain-dumps/archive/`, or another mechanism?
 - Should archived entries stay linkable from active topics, and should their inbound Markdown links keep resolving after a move?
 - Can a whole topic file be archived, or does the status apply to individual ideas within a topic? Topic files are coherent summaries that may mix implemented and still-open material.
-- Should the brain-dump skill itself avoid folding new material into an archived topic, or reopen it instead?
 - Who sets the status — the user through a UI, the skill during a dump, or automatically when related work merges?
 
 ## Related topics

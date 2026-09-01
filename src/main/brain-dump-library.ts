@@ -221,10 +221,6 @@ export function createBrainDumpLibrary(options: BrainDumpLibraryOptions): BrainD
           return { ok: false, code: 'invalid-outcome', message: 'Outcome is not supported.' }
         const today = options.today()
         return move(slug, 'active', 'archived', { updated: today, outcome, archived: today })
-      }),
-    reopen: (slug) =>
-      serialized(() =>
-        move(slug, 'archived', 'active', { updated: options.today(), outcome: undefined, archived: undefined })
-      )
+      })
   }
 }

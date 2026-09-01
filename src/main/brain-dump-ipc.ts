@@ -38,11 +38,6 @@ export function registerBrainDumpIpc(
       ? library.archive(slug, outcome as BrainDumpOutcome)
       : { ok: false, code: 'invalid-request', message: 'Slug and outcome are required.' }
   )
-  ipc.handle('brain-dump:reopen', (_event, slug: unknown) =>
-    typeof slug === 'string'
-      ? library.reopen(slug)
-      : { ok: false, code: 'invalid-request', message: 'Slug is required.' }
-  )
   ipc.handle('brain-dump:capture-start', (event, request: unknown) =>
     captureRequest(request)
       ? capture.start(request, event.sender)

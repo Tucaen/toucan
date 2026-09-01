@@ -59,7 +59,6 @@ export default function BrainDumpLibraryPanel(props: BrainDumpLibraryPanelProps)
   const [draftTouched, setDraftTouched] = useState(false)
   /** In a narrow panel the list and reader take turns; selection survives the switch either way. */
   const [narrowView, setNarrowView] = useState<'list' | 'reader'>('list')
-  const [reopened, setReopened] = useState<string | null>(null)
   const [resizing, setResizing] = useState(false)
   const [draftFocusSignal, setDraftFocusSignal] = useState(0)
   /** The provider a running capture was submitted with, promoted to the preference only on success. */
@@ -302,19 +301,6 @@ export default function BrainDumpLibraryPanel(props: BrainDumpLibraryPanelProps)
             )
           })}
         </div>
-        {reopened && (
-          <button
-            type="button"
-            className="brain-dump-followup"
-            onClick={() => {
-              void library.openReference(reopened)
-              setNarrowView('reader')
-              setReopened(null)
-            }}
-          >
-            View in Active
-          </button>
-        )}
       </div>
 
       {library.capture && (
@@ -399,7 +385,6 @@ export default function BrainDumpLibraryPanel(props: BrainDumpLibraryPanelProps)
                 today={props.today}
                 readerRef={readerRef}
                 lifecyclePending={library.lifecycle.pending}
-                lifecycleError={library.lifecycle.error}
                 onBack={
                   mode === 'narrow'
                     ? () => {
@@ -412,12 +397,6 @@ export default function BrainDumpLibraryPanel(props: BrainDumpLibraryPanelProps)
                   library.clearLifecycleError()
                   archiveInvoker.current = document.activeElement as HTMLElement | null
                   setArchiveTarget(selected.slug)
-                }}
-                onReopen={() => {
-                  const slug = selected.slug
-                  void library.reopen(slug).then((ok) => {
-                    if (ok) setReopened(slug)
-                  })
                 }}
                 onOpenReference={(slug) => {
                   void library.openReference(slug).then((result) => {

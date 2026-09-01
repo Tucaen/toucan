@@ -143,7 +143,6 @@ const brainDumpApi: BrainDumpApi = {
   list: (collection: BrainDumpCollection) => ipcRenderer.invoke('brain-dump:list', collection),
   resolve: (slug: string) => ipcRenderer.invoke('brain-dump:resolve', slug),
   archive: (slug: string, outcome: BrainDumpOutcome) => ipcRenderer.invoke('brain-dump:archive', slug, outcome),
-  reopen: (slug: string) => ipcRenderer.invoke('brain-dump:reopen', slug),
   startCapture: (request: BrainDumpCaptureRequest) => ipcRenderer.invoke('brain-dump:capture-start', request),
   currentCapture: () => ipcRenderer.invoke('brain-dump:capture-current'),
   cancelCapture: (jobId: string) => ipcRenderer.invoke('brain-dump:capture-cancel', jobId),

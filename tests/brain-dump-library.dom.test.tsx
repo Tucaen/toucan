@@ -243,24 +243,6 @@ describe('panel modes', () => {
   })
 })
 
-describe('lifecycle follow-up', () => {
-  test('a reopened topic offers a way back to it in Active', async () => {
-    const api = createMockBrainDumpApi()
-    api.collections.archived.topics = [
-      topicFixture({ slug: 'a', title: 'A', collection: 'archived', outcome: 'obsolete' })
-    ]
-    renderPanel(api)
-
-    fireEvent.click(screen.getByRole('tab', { name: /Archived/ }))
-    fireEvent.click(await screen.findByText('A'))
-    fireEvent.click(screen.getByRole('button', { name: 'Reopen topic' }))
-
-    fireEvent.click(await screen.findByRole('button', { name: 'View in Active' }))
-    await screen.findByRole('heading', { name: 'A' })
-    expect(screen.getByRole('tab', { name: /Active/ })).toHaveAttribute('aria-selected', 'true')
-  })
-})
-
 describe('library states', () => {
   test('an empty active collection explains how to fill it', async () => {
     renderPanel(createMockBrainDumpApi())

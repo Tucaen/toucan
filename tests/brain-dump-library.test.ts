@@ -66,7 +66,7 @@ test('topics reject malformed or non-absolute project paths', async () => {
   assert.ok(result.diagnostics.every(({ message }) => /project.*absolute|quoted.*escape/i.test(message)))
 })
 
-test('archives every supported outcome and reopening preserves body and unknown metadata', async () => {
+test('archives every supported outcome while preserving body and unknown metadata', async () => {
   for (const outcome of ['implemented', 'resolved', 'rejected', 'obsolete'] as const) {
     const root = await libraryRoot()
     await mkdir(join(root, 'active'), { recursive: true })
@@ -79,15 +79,11 @@ test('archives every supported outcome and reopening preserves body and unknown 
     assert.match(text, /archived: 2026-08-31/)
     assert.match(text, /owner: me/)
     assert.match(text, /See \[\[other-topic\]\]\./)
-    const reopened = await library.reopen('active-topic')
-    assert.equal(reopened.ok, true)
-    const restored = await readFile(join(root, 'active', 'active-topic.md'), 'utf8')
-    assert.doesNotMatch(restored, /^(outcome|archived):/m)
-    assert.match(restored, /updated: 2026-08-31/)
+    await assert.rejects(readFile(join(root, 'active', 'active-topic.md'), 'utf8'))
   }
 })
 
-test('archive and reopen preserve the project association', async () => {
+test('archiving preserves the project association', async () => {
   const root = await libraryRoot()
   await mkdir(join(root, 'active'), { recursive: true })
   await writeFile(
@@ -97,8 +93,6 @@ test('archive and reopen preserve the project association', async () => {
   const library = createBrainDumpLibrary({ rootDirectory: root, today: () => '2026-08-31' })
   const archived = await library.archive('active-topic', 'resolved')
   assert.equal(archived.ok && archived.topic.projectPath, 'D:\\Development\\ADE')
-  const reopened = await library.reopen('active-topic')
-  assert.equal(reopened.ok && reopened.topic.projectPath, 'D:\\Development\\ADE')
 })
 
 test('lifecycle changes preserve complex unknown YAML fields verbatim', async () => {

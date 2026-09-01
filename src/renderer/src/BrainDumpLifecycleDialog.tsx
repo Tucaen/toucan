@@ -43,7 +43,10 @@ export default function BrainDumpLifecycleDialog(props: BrainDumpLifecycleDialog
         }}
       >
         <strong id="brain-dump-archive-title">Archive “{props.title}”</strong>
-        <p>Archived topics stay readable and searchable under the Archived collection.</p>
+        <p>
+          Archived topics stay readable and searchable under the Archived collection. They remain immutable snapshots;
+          later work belongs in a linked active follow-up.
+        </p>
         <fieldset className="brain-dump-outcomes" disabled={props.pending}>
           <legend>Outcome</legend>
           {BRAIN_DUMP_OUTCOMES.map((candidate, index) => (

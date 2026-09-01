@@ -12,8 +12,7 @@ test('capture IPC rejects malformed input and forwards only the narrow capture r
     {
       list: async () => ({ topics: [], diagnostics: [] }),
       resolve: async (slug) => ({ status: 'missing', slug }),
-      archive: async () => ({ ok: false, code: 'unused', message: 'Unused.' }),
-      reopen: async () => ({ ok: false, code: 'unused', message: 'Unused.' })
+      archive: async () => ({ ok: false, code: 'unused', message: 'Unused.' })
     } satisfies BrainDumpLibraryApi,
     {
       start: async (request) => {

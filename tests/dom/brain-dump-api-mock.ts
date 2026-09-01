@@ -71,14 +71,6 @@ export function createMockBrainDumpApi(overrides: Partial<BrainDumpApi> = {}): M
       collections.archived.topics.unshift(archived)
       return { ok: true as const, topic: archived }
     }),
-    reopen: vi.fn(async (slug: string) => {
-      const index = collections.archived.topics.findIndex((topic) => topic.slug === slug)
-      if (index < 0) return { ok: false as const, code: 'missing-source', message: 'Gone.' }
-      const [moved] = collections.archived.topics.splice(index, 1)
-      const active = { ...moved, collection: 'active' as const, outcome: undefined, archived: undefined }
-      collections.active.topics.unshift(active)
-      return { ok: true as const, topic: active }
-    }),
     startCapture: vi.fn(async () => ({ ok: true as const, state: { status: 'working' as const, jobId: 'job-1' } })),
     currentCapture: vi.fn(async () => null),
     cancelCapture: vi.fn(async () => undefined),

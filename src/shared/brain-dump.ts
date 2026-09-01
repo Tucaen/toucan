@@ -66,7 +66,6 @@ export interface BrainDumpLibraryApi {
   list(collection: BrainDumpCollection): Promise<BrainDumpListResult>
   resolve(slug: string): Promise<BrainDumpReferenceResult>
   archive(slug: string, outcome: BrainDumpOutcome): Promise<BrainDumpMutationResult>
-  reopen(slug: string): Promise<BrainDumpMutationResult>
 }
 
 export interface BrainDumpApi extends BrainDumpLibraryApi {

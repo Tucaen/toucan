@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { ArrowLeft } from 'lucide-react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import type { BrainDumpTopic } from '../../shared/brain-dump'
 import type { WorkspaceProject } from '../../shared/terminal'
@@ -28,11 +29,9 @@ export interface BrainDumpReaderProps {
   projects: readonly WorkspaceProject[]
   today: string
   lifecyclePending: boolean
-  lifecycleError?: string
   /** Rendered only in narrow mode, where the reader replaces the list. */
   onBack?(): void
   onArchive(): void
-  onReopen(): void
   onOpenReference(slug: string): void
   resolveReference(slug: string): Promise<boolean>
   readerRef?: React.RefObject<HTMLDivElement>
@@ -126,7 +125,8 @@ export default function BrainDumpReader(props: BrainDumpReaderProps): JSX.Elemen
       <div className="brain-dump-reader-toolbar">
         {props.onBack && (
           <button type="button" className="brain-dump-back" onClick={props.onBack}>
-            ← Back to list
+            <ArrowLeft aria-hidden="true" />
+            Back to list
           </button>
         )}
         <div className="brain-dump-reader-identity">
@@ -138,22 +138,13 @@ export default function BrainDumpReader(props: BrainDumpReaderProps): JSX.Elemen
           <span className="brain-dump-reader-date">Updated {describeBrainDumpDate(topic.updated, props.today)}</span>
         </div>
         <div className="brain-dump-reader-actions">
-          {topic.collection === 'active' ? (
+          {topic.collection === 'active' && (
             <button type="button" onClick={props.onArchive} disabled={props.lifecyclePending}>
               Archive
-            </button>
-          ) : (
-            <button type="button" onClick={props.onReopen} disabled={props.lifecyclePending}>
-              {props.lifecyclePending ? 'Reopening…' : props.lifecycleError ? 'Retry reopen' : 'Reopen topic'}
             </button>
           )}
         </div>
       </div>
-      {props.lifecycleError && topic.collection === 'archived' && (
-        <p className="brain-dump-reader-error" role="alert">
-          {props.lifecycleError}
-        </p>
-      )}
       <div ref={scroller} className="brain-dump-reader-body" tabIndex={0}>
         <div className="markdown-body brain-dump-prose">
           <ReactMarkdown remarkPlugins={remarkPlugins} components={components} urlTransform={keepHref}>

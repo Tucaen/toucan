@@ -51,7 +51,6 @@ export interface BrainDumpLibrary {
   refresh(collection: BrainDumpCollection): Promise<void>
   lifecycle: BrainDumpLifecycleState
   archive(slug: string, outcome: BrainDumpOutcome): Promise<boolean>
-  reopen(slug: string): Promise<boolean>
   clearLifecycleError(): void
   announcement: string
   capture: BrainDumpCaptureState | null
@@ -281,18 +280,6 @@ export function useBrainDumpLibrary(options: BrainDumpLibraryOptions): BrainDump
     [api, move]
   )
 
-  const reopen = useCallback(
-    (slug: string): Promise<boolean> =>
-      move(
-        slug,
-        () => api.reopen(slug),
-        'archived',
-        'active',
-        (topic) => `${topic.title} moved back to Active.`
-      ),
-    [api, move]
-  )
-
   const startCapture = useCallback(
     async (request: BrainDumpCaptureRequest): Promise<BrainDumpCaptureStartResult> => {
       const result = await api.startCapture(request)
@@ -322,7 +309,6 @@ export function useBrainDumpLibrary(options: BrainDumpLibraryOptions): BrainDump
       },
       lifecycle,
       archive,
-      reopen,
       clearLifecycleError: () => setLifecycle({ pending: false }),
       announcement,
       capture,
@@ -340,7 +326,6 @@ export function useBrainDumpLibrary(options: BrainDumpLibraryOptions): BrainDump
       lifecycle,
       openReference,
       read,
-      reopen,
       resolveReference,
       selectTopic,
       setQuery,
