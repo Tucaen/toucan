@@ -961,7 +961,16 @@ button {
     0 20px 60px rgba(0, 0, 0, 0.5);
 }
 
-/* Keep the resize border visually thin while making every edge easy to grab. */
+/* Resize affordances. NodeBorderResizer places the controls just inside the node border (and says
+   why); these rules keep the border hairline-thin, lift the controls above the node's own content
+   so nothing paints over them, and put the pointer target on a pseudo element that grows inward,
+   where no ancestor can clip it. 8px stays within the padding of every node body, so the band
+   never covers real content. */
+.node-resize-line,
+.node-resize-handle {
+  z-index: 4;
+}
+
 .node-resize-line::after,
 .node-resize-handle::after {
   position: absolute;
@@ -971,20 +980,28 @@ button {
 
 .node-resize-line.left::after,
 .node-resize-line.right::after {
-  inset: 0 -6px;
+  inset: 0 -8px;
 }
 
 .node-resize-line.top::after,
 .node-resize-line.bottom::after {
-  inset: -6px 0;
+  inset: -8px 0;
 }
 
+/* Corners sit above the edges they overlap, so a corner drag never degrades into a one-axis one. */
 .node-resize-handle {
-  z-index: 1;
+  z-index: 5;
+}
+
+/* Chained with xyflow's own classes to outrank its 5px default. */
+.react-flow__resize-control.handle.node-resize-handle {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
 }
 
 .node-resize-handle::after {
-  inset: -6px;
+  inset: -9px;
 }
 
 .node-header {
