@@ -93,6 +93,9 @@ export function useBrainDumpLibrary(options: BrainDumpLibraryOptions): BrainDump
   const [lifecycle, setLifecycle] = useState<BrainDumpLifecycleState>({ pending: false })
   const [announcement, setAnnouncement] = useState('')
   const [capture, setCapture] = useState<BrainDumpCaptureState | null>(null)
+  const captureRef = useRef(capture)
+  captureRef.current = capture
+  const captureRefreshPending = useRef(false)
   const collectionsRef = useRef(collections)
   collectionsRef.current = collections
   const onCaptureFiledRef = useRef(options.onCaptureFiled)
@@ -104,8 +107,8 @@ export function useBrainDumpLibrary(options: BrainDumpLibraryOptions): BrainDump
   }, [])
 
   const read = useCallback(
-    async (target: BrainDumpCollection): Promise<BrainDumpTopic[]> => {
-      patch(target, { status: 'loading', error: undefined })
+    async (target: BrainDumpCollection, background = false): Promise<BrainDumpTopic[]> => {
+      if (!background) patch(target, { status: 'loading', error: undefined })
       try {
         const result = await api.list(target)
         setCollections((current) => {
@@ -156,11 +159,29 @@ export function useBrainDumpLibrary(options: BrainDumpLibraryOptions): BrainDump
     }
   }, [api])
 
+  useEffect(
+    () =>
+      api.onLibraryChange((target) => {
+        // Keep unopened collections lazy. Their first ordinary read will already see the latest
+        // disk state, while a visible or previously-opened collection refreshes without flashing
+        // its loading state for every filesystem notification.
+        const captureState = captureRef.current
+        const captureWillReadActive =
+          target === 'active' &&
+          (captureState?.status === 'working' ||
+            (captureState?.status === 'completed' && !filedJobs.current.has(captureState.jobId)) ||
+            captureRefreshPending.current)
+        if (!captureWillReadActive && collectionsRef.current[target].status !== 'idle') void read(target, true)
+      }),
+    [api, read]
+  )
+
   // A finished capture is only believed once the library has been re-read from disk; the skill's
   // prose summarizes what it did, it does not define what the library now contains.
   useEffect(() => {
     if (capture?.status !== 'completed' || filedJobs.current.has(capture.jobId)) return
     filedJobs.current.add(capture.jobId)
+    captureRefreshPending.current = true
     const before = collectionsRef.current.active.topics
     void read('active').then((after) => {
       const filed = filedTopic(before, after)
@@ -170,6 +191,7 @@ export function useBrainDumpLibrary(options: BrainDumpLibraryOptions): BrainDump
       }
       setAnnouncement(capture.summary)
       onCaptureFiledRef.current?.()
+      captureRefreshPending.current = false
     })
   }, [capture, patch, read])
 

@@ -62,6 +62,41 @@ describe('collections and search', () => {
     expect(api.listCalls).toEqual(['active', 'archived'])
   })
 
+  test('an external library change refreshes the collection while the panel stays mounted', async () => {
+    renderPanel(api)
+    await screen.findByText('Voice input')
+
+    api.collections.active.topics = [topicFixture({ slug: 'new-topic', title: 'New topic' })]
+    api.publishLibraryChange('active')
+
+    await screen.findByText('New topic')
+    expect(screen.queryByText('Voice input')).not.toBeInTheDocument()
+    expect(api.listCalls).toEqual(['active', 'active'])
+  })
+
+  test('an external archive move refreshes both collections after they have been opened', async () => {
+    renderPanel(api)
+    await screen.findByText('Voice input')
+    fireEvent.click(screen.getByRole('tab', { name: /Archived/ }))
+    await screen.findByText('Old idea')
+    fireEvent.click(screen.getByRole('tab', { name: /Active/ }))
+
+    const moved = api.collections.active.topics.shift()!
+    api.collections.archived.topics.unshift({
+      ...moved,
+      collection: 'archived',
+      outcome: 'implemented',
+      archived: '2026-08-31'
+    })
+    api.publishLibraryChange('active')
+    api.publishLibraryChange('archived')
+
+    await waitFor(() => expect(screen.queryByText('Voice input')).not.toBeInTheDocument())
+    fireEvent.click(screen.getByRole('tab', { name: /Archived/ }))
+    await screen.findByText('Voice input')
+    expect(api.listCalls).toEqual(['active', 'archived', 'active', 'archived'])
+  })
+
   test('search filters without blocking input and keeps a per-collection query', async () => {
     renderPanel(api)
     await screen.findByText('Voice input')

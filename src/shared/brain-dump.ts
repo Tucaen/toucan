@@ -74,6 +74,7 @@ export interface BrainDumpApi extends BrainDumpLibraryApi {
   currentCapture(): Promise<BrainDumpCaptureState | null>
   cancelCapture(jobId: string): Promise<void>
   onCapture(callback: (state: BrainDumpCaptureState) => void): () => void
+  onLibraryChange(callback: (collection: BrainDumpCollection) => void): () => void
 }
 
 export const BRAIN_DUMP_OUTCOMES: readonly BrainDumpOutcome[] = ['implemented', 'resolved', 'rejected', 'obsolete']

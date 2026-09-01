@@ -15,6 +15,7 @@
     "src/main/brain-dump-capture.ts",
     "src/main/brain-dump-capture-store.ts",
     "src/main/brain-dump-ipc.ts",
+    "src/main/brain-dump-watcher.ts",
     "src/main/brain-dump-migration.ts",
     "src/main/durable-file.ts",
     "src/main/codex-model-cache.ts",

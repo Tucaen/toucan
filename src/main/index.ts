@@ -16,6 +16,7 @@ import {
 } from './brain-dump-capture'
 import { createBrainDumpCaptureStore } from './brain-dump-capture-store'
 import { registerBrainDumpIpc } from './brain-dump-ipc'
+import { createBrainDumpChangeWatcher, type BrainDumpChangeWatcher } from './brain-dump-watcher'
 import { createClaudeUsageReader } from './claude-usage'
 import { createConversationHistory, type ConversationHistory } from './conversation-history'
 import { createConversationTitleStore, type ConversationTitleStore } from './conversation-title-store'
@@ -195,7 +196,8 @@ function registerProjectIpc(workspace: ReturnType<typeof createWorkspaceStore>):
 function createWindow(
   terminalManager: TerminalManager,
   agentManager: AcpSessionManager,
-  brainDumpCapture: BrainDumpCaptureManager
+  brainDumpCapture: BrainDumpCaptureManager,
+  brainDumpChanges: BrainDumpChangeWatcher
 ): void {
   const window = new BrowserWindow({
     width: 1440,
@@ -219,6 +221,7 @@ function createWindow(
     terminalManager.disconnectOwner(contents)
     agentManager.killOwned(contents)
     brainDumpCapture.disconnectOwner(contents as unknown as BrainDumpCaptureOwner)
+    brainDumpChanges.disconnectOwner(contents)
   })
 
   if (process.env.ELECTRON_RENDERER_URL) {
@@ -317,13 +320,15 @@ void app.whenReady().then(async () => {
     initialState: await captureStore.load(),
     publish: (state) => void captureStore.save(state).catch(() => {})
   })
+  const brainDumpChanges = await createBrainDumpChangeWatcher({ rootDirectory: brainDumpDirectory })
 
   registerTerminalIpc(manager, providers, scrollback)
   registerAgentIpc(agentManager)
   registerBrainDumpIpc(
     ipcMain as unknown as Parameters<typeof registerBrainDumpIpc>[0],
     createBrainDumpLibrary({ rootDirectory: brainDumpDirectory, today: localCalendarDate }),
-    brainDumpCapture
+    brainDumpCapture,
+    brainDumpChanges
   )
   const conversationTitles = createConversationTitleStore(join(app.getPath('userData'), 'conversation-titles.json'))
   registerConversationIpc(
@@ -349,15 +354,17 @@ void app.whenReady().then(async () => {
     })
   )
   registerProjectIpc(workspace)
-  createWindow(manager, agentManager, brainDumpCapture)
+  createWindow(manager, agentManager, brainDumpCapture, brainDumpChanges)
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow(manager, agentManager, brainDumpCapture)
+    if (BrowserWindow.getAllWindows().length === 0)
+      createWindow(manager, agentManager, brainDumpCapture, brainDumpChanges)
   })
   app.on('before-quit', () => {
     manager.killAll()
     agentManager.killAll()
     brainDumpCapture.shutdown()
+    brainDumpChanges.shutdown()
   })
 })
 

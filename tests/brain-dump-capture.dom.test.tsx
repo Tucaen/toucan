@@ -240,6 +240,10 @@ describe('the background job', () => {
     api.collections.active.topics = [
       topicFixture({ slug: 'docked-panel', title: 'Docked panel', updated: '2026-08-31' })
     ]
+    // The filesystem notification arrives before the capture completion event in the real app.
+    // It must not consume the before/after diff that selects the topic filed by this job.
+    api.publishLibraryChange('active')
+    expect(api.listCalls.filter((call) => call === 'active')).toHaveLength(1)
     api.publishCapture({
       status: 'completed',
       jobId: 'job-1',
@@ -248,7 +252,7 @@ describe('the background job', () => {
     })
 
     await screen.findByRole('heading', { name: 'Docked panel' })
-    expect(api.listCalls.filter((call) => call === 'active').length).toBeGreaterThan(1)
+    expect(api.listCalls.filter((call) => call === 'active')).toHaveLength(2)
     expect(panel.onPanelChange).toHaveBeenCalledWith({ draft: '', draftProjectPath: undefined })
     // The provider becomes the remembered preference only once a capture has actually landed.
     expect(panel.onPanelChange).toHaveBeenCalledWith({ provider: 'codex' })

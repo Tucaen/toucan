@@ -1,5 +1,6 @@
 import type { BrainDumpCollection, BrainDumpLibraryApi, BrainDumpOutcome } from '../shared/brain-dump'
 import type { BrainDumpCaptureManager, BrainDumpCaptureOwner } from './brain-dump-capture'
+import type { BrainDumpChangeWatcher } from './brain-dump-watcher'
 
 interface BrainDumpIpcRegistrar {
   handle(channel: string, listener: (event: { sender: BrainDumpCaptureOwner }, ...args: unknown[]) => unknown): void
@@ -20,13 +21,15 @@ function captureRequest(
 export function registerBrainDumpIpc(
   ipc: BrainDumpIpcRegistrar,
   library: BrainDumpLibraryApi,
-  capture: BrainDumpCaptureManager
+  capture: BrainDumpCaptureManager,
+  changes: BrainDumpChangeWatcher
 ): void {
-  ipc.handle('brain-dump:list', (_event, collection: unknown) =>
-    collection === 'active' || collection === 'archived'
+  ipc.handle('brain-dump:list', (event, collection: unknown) => {
+    changes.subscribe(event.sender)
+    return collection === 'active' || collection === 'archived'
       ? library.list(collection as BrainDumpCollection)
       : { topics: [], diagnostics: [{ path: '', code: 'invalid-collection', message: 'Collection is invalid.' }] }
-  )
+  })
   ipc.handle('brain-dump:resolve', (_event, slug: unknown) =>
     typeof slug === 'string' ? library.resolve(slug) : { status: 'invalid', slug: '' }
   )

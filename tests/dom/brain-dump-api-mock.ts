@@ -17,6 +17,9 @@ export interface MockBrainDumpApi extends BrainDumpApi {
   collections: Record<BrainDumpCollection, BrainDumpListResult>
   /** Pushes a capture state to every subscriber, exactly as the main process would. */
   publishCapture(state: BrainDumpCaptureState): void
+  /** Pushes a disk-library change to every subscriber, exactly as the preload bridge would. */
+  publishLibraryChange(collection: BrainDumpCollection): void
+  onLibraryChange(callback: (collection: BrainDumpCollection) => void): () => void
   listCalls: BrainDumpCollection[]
 }
 
@@ -33,6 +36,7 @@ export function topicFixture(overrides: Partial<BrainDumpTopic> & Pick<BrainDump
 
 export function createMockBrainDumpApi(overrides: Partial<BrainDumpApi> = {}): MockBrainDumpApi {
   const subscribers = new Set<(state: BrainDumpCaptureState) => void>()
+  const librarySubscribers = new Set<(collection: BrainDumpCollection) => void>()
   const collections: Record<BrainDumpCollection, BrainDumpListResult> = {
     active: { topics: [], diagnostics: [] },
     archived: { topics: [], diagnostics: [] }
@@ -44,6 +48,9 @@ export function createMockBrainDumpApi(overrides: Partial<BrainDumpApi> = {}): M
     listCalls,
     publishCapture(state) {
       for (const subscriber of subscribers) subscriber(state)
+    },
+    publishLibraryChange(collection) {
+      for (const subscriber of librarySubscribers) subscriber(collection)
     },
     list: vi.fn(async (collection: BrainDumpCollection) => {
       listCalls.push(collection)
@@ -78,6 +85,10 @@ export function createMockBrainDumpApi(overrides: Partial<BrainDumpApi> = {}): M
     onCapture: (callback) => {
       subscribers.add(callback)
       return () => subscribers.delete(callback)
+    },
+    onLibraryChange: (callback) => {
+      librarySubscribers.add(callback)
+      return () => librarySubscribers.delete(callback)
     },
     ...overrides
   }

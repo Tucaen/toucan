@@ -151,6 +151,11 @@ const brainDumpApi: BrainDumpApi = {
     const listener = (_event: Electron.IpcRendererEvent, state: BrainDumpCaptureState): void => callback(state)
     ipcRenderer.on('brain-dump:capture-event', listener)
     return () => ipcRenderer.removeListener('brain-dump:capture-event', listener)
+  },
+  onLibraryChange: (callback: (collection: BrainDumpCollection) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, collection: BrainDumpCollection): void => callback(collection)
+    ipcRenderer.on('brain-dump:library-change', listener)
+    return () => ipcRenderer.removeListener('brain-dump:library-change', listener)
   }
 }
 
