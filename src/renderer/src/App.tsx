@@ -9,8 +9,8 @@ import {
   type NodeChange,
   type NodeTypes
 } from '@xyflow/react'
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import { BookOpen, ChevronLeft, ChevronRight, GitBranch, History, Plus, Settings, X } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import type { AgentRateLimitStatus, AgentRateLimitWindow } from '../../shared/agent'
 import type { ConversationSummary } from '../../shared/conversation'
 import { normalizeConversationTitle, type ConversationTitleSource } from '../../shared/conversation-title'
@@ -56,8 +56,8 @@ import { ComposerSendKeyContext } from './composer-send-key-context'
 import ConversationHistoryDialog from './ConversationHistoryDialog'
 import { ProviderRateLimitsContext } from './provider-rate-limits'
 import { describeRateLimitWindow } from './session-usage'
-import SessionNode from './SessionNode'
 import SessionKindIcon from './SessionKindIcon'
+import SessionNode from './SessionNode'
 import { terminalLivenessLabels } from './terminal-liveness'
 import { SidebarTerminalLiveness } from './TerminalLivenessPresentation'
 import { useProviderRateLimits } from './use-provider-rate-limits'
@@ -1332,7 +1332,7 @@ function Canvas(): JSX.Element {
             <div>
               <span className="brand-mark" aria-hidden="true" />
               <strong>Toucan</strong>
-              <span className="prototype-label">canvas agent prototype</span>
+              <span className="prototype-label">Agentic Development Environment</span>
             </div>
             <div className="header-target">
               {(statusSummary.working > 0 || statusSummary.stalled > 0 || unreadTotal > 0) && (
@@ -1371,7 +1371,6 @@ function Canvas(): JSX.Element {
                   {providerRateLimits.codex && <ProviderUsageChip provider="Codex" status={providerRateLimits.codex} />}
                 </div>
               )}
-              <span className="hint">Right-click to create a session</span>
               {activeProject && (
                 <span className="target-chip" title={activeProject.path}>
                   <span style={{ background: activeProject.color }} />
