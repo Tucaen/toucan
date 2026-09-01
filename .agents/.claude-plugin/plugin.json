@@ -1,5 +1,5 @@
 {
-  "name": "ade-project-skills",
+  "name": "toucan-project-skills",
   "version": "0.1.0",
-  "description": "Project-local skills ADE exposes to the agent it launches."
+  "description": "Project-local skills Toucan exposes to the agent it launches."
 }

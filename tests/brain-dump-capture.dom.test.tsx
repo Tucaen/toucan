@@ -54,7 +54,9 @@ vi.mock('@moonshine-ai/moonshine-wasm', () => {
   return { MicTranscriber, ModelArch: { SmallStreaming: 'small-streaming' } }
 })
 
-const projects: WorkspaceProject[] = [{ id: 'ade', name: 'ADE', path: 'D:\\Development\\ADE', color: '#71a9ff' }]
+const projects: WorkspaceProject[] = [
+  { id: 'toucan', name: 'Toucan', path: 'D:\\Development\\Toucan', color: '#71a9ff' }
+]
 
 function renderPanel(
   api: MockBrainDumpApi,
@@ -154,14 +156,14 @@ describe('the review tray', () => {
   test('a draft defaults to the active project and remembers an explicit change', () => {
     const panel = renderPanel(api, { draft: 'text' })
     fireEvent.click(screen.getByRole('button', { name: 'Write a brain dump' }))
-    expect(screen.getByLabelText('Project')).toHaveValue('D:\\Development\\ADE')
+    expect(screen.getByLabelText('Project')).toHaveValue('D:\\Development\\Toucan')
 
     fireEvent.change(screen.getByLabelText('Project'), { target: { value: '' } })
     expect(panel.onPanelChange).toHaveBeenCalledWith({ draftProjectPath: undefined })
   })
 
   test('submitting sends the reviewed draft, project, and provider', async () => {
-    renderPanel(api, { draft: 'organize me', provider: 'claude', draftProjectPath: 'D:\\Development\\ADE' })
+    renderPanel(api, { draft: 'organize me', provider: 'claude', draftProjectPath: 'D:\\Development\\Toucan' })
     fireEvent.click(screen.getByRole('button', { name: 'Write a brain dump' }))
     fireEvent.click(screen.getByRole('button', { name: 'Organize with brain-dump skill' }))
 
@@ -169,7 +171,7 @@ describe('the review tray', () => {
       expect(api.startCapture).toHaveBeenCalledWith({
         content: 'organize me',
         provider: 'claude',
-        projectPath: 'D:\\Development\\ADE'
+        projectPath: 'D:\\Development\\Toucan'
       })
     )
   })
@@ -248,7 +250,7 @@ describe('the background job', () => {
       status: 'completed',
       jobId: 'job-1',
       summary: 'Created docked-panel.',
-      conversation: { provider: 'codex', conversationId: 'c1', cwd: 'D:\\Development\\ADE' }
+      conversation: { provider: 'codex', conversationId: 'c1', cwd: 'D:\\Development\\Toucan' }
     })
 
     await screen.findByRole('heading', { name: 'Docked panel' })
@@ -270,7 +272,7 @@ describe('the background job', () => {
       jobId: 'job-1',
       code: 'skill',
       message: 'The brain-dump skill reported an error.',
-      conversation: { provider: 'codex', conversationId: 'c1', cwd: 'D:\\Development\\ADE' }
+      conversation: { provider: 'codex', conversationId: 'c1', cwd: 'D:\\Development\\Toucan' }
     })
 
     await screen.findByText('The brain-dump skill reported an error.')
@@ -282,7 +284,7 @@ describe('the background job', () => {
     expect(panel.onOpenSessionOnCanvas).toHaveBeenCalledWith({
       provider: 'codex',
       conversationId: 'c1',
-      cwd: 'D:\\Development\\ADE'
+      cwd: 'D:\\Development\\Toucan'
     })
   })
 
@@ -297,7 +299,7 @@ describe('the background job', () => {
       jobId: 'job-1',
       code: 'auth',
       message: 'Authentication is required.',
-      conversation: { provider: 'codex', conversationId: 'c1', cwd: 'D:\\Development\\ADE' }
+      conversation: { provider: 'codex', conversationId: 'c1', cwd: 'D:\\Development\\Toucan' }
     })
 
     await screen.findByText('Open the session on the canvas to sign in with your provider.')

@@ -1,6 +1,6 @@
 ---
 name: implement-in-worktree
-description: "Run from an explicit leading slash command to implement work in an ADE worktree and open a pull request."
+description: "Run from an explicit leading slash command to implement work in an Toucan worktree and open a pull request."
 disable-model-invocation: true
 user-invocable: true
 ---
@@ -10,7 +10,7 @@ user-invocable: true
 Before taking any action, inspect the current user prompt. Proceed only when its first non-empty line starts with one of these exact command tokens, followed by whitespace or the end of the line:
 
 - `/implement-in-worktree`
-- `/$ade-project-skills:implement-in-worktree`
+- `/$toucan-project-skills:implement-in-worktree`
 
 Treat every other occurrence as discussion, quotation, or an example and handle the request without this workflow. A skill block attached to a prompt that merely mentions either token is not evidence of invocation. In particular, never create a worktree when the token occurs later in prose, inside a quotation, or inside a code block.
 
@@ -27,7 +27,7 @@ node .agents/skills/implement-in-worktree/scripts/settle-worktree.mjs [--branch 
 Derive `--branch` from the work. The script decides what to do with it:
 
 - `"mode":"adopt"` — you are already in a worktree. Work in it as it stands; the branch and setup are the user's.
-- `"mode":"create"` — the script made the worktree, copied local config, and ran ADE's setup command for this project. Change into `worktree` and do all remaining work there.
+- `"mode":"create"` — the script made the worktree, copied local config, and ran Toucan's setup command for this project. Change into `worktree` and do all remaining work there.
 
 Keep `base` for step 3. When it is `null`, ask the user which branch to target before going further.
 

@@ -6,7 +6,7 @@ import { test } from 'node:test'
 import { createConversationTitleStore } from '../src/main/conversation-title-store'
 
 test('generated titles are stable and a manual rename wins permanently', async () => {
-  const directory = mkdtempSync(join(tmpdir(), 'ade-titles-'))
+  const directory = mkdtempSync(join(tmpdir(), 'toucan-titles-'))
   try {
     const store = createConversationTitleStore(join(directory, 'titles.json'))
 
@@ -42,7 +42,7 @@ test('generated titles are stable and a manual rename wins permanently', async (
 })
 
 test('rejects blank titles and normalizes surrounding whitespace', async () => {
-  const directory = mkdtempSync(join(tmpdir(), 'ade-titles-'))
+  const directory = mkdtempSync(join(tmpdir(), 'toucan-titles-'))
   try {
     const store = createConversationTitleStore(join(directory, 'titles.json'))
     assert.equal(await store.set('claude', 'session-1', '   ', 'manual'), null)

@@ -361,7 +361,7 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
             <small>
               {data.terminalLiveness === 'exited'
                 ? 'The process owner confirmed that the previous shell exited.'
-                : 'ADE has no authoritative process-owner evidence that this shell exited.'}
+                : 'Toucan has no authoritative process-owner evidence that this shell exited.'}
             </small>
             {hasRestoredScrollback && (
               <small>Showing retained output from the previous process below. History is display-only.</small>

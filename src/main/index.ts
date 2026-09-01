@@ -226,7 +226,7 @@ function createWindow(
 
   if (process.env.ELECTRON_RENDERER_URL) {
     const rendererUrl = new URL(process.env.ELECTRON_RENDERER_URL)
-    if (process.env.ADE_BRAIN_DUMP_PROTOTYPE === '1') {
+    if (process.env.TOUCAN_BRAIN_DUMP_PROTOTYPE === '1') {
       rendererUrl.searchParams.set('prototype', 'brain-dump-library')
       rendererUrl.searchParams.set('variant', 'A')
     }
@@ -237,7 +237,7 @@ function createWindow(
 }
 
 function registerVoicePrototypePermissions(): void {
-  // PROTOTYPE: allow ADE's own window to request microphone audio, never camera video.
+  // PROTOTYPE: allow Toucan's own window to request microphone audio, never camera video.
   session.defaultSession.setPermissionCheckHandler(
     (contents, permission, _origin, details) =>
       permission === 'media' &&
@@ -280,7 +280,7 @@ void app.whenReady().then(async () => {
   registerVoicePrototypeCrossOriginIsolation()
   const codexHome = process.env.CODEX_HOME ?? join(app.getPath('home'), '.codex')
   const brainDumpDirectory = join(app.getPath('userData'), 'brain-dumps')
-  const agentEnvironment = { ...process.env, ADE_BRAIN_DUMPS_DIR: brainDumpDirectory }
+  const agentEnvironment = { ...process.env, TOUCAN_BRAIN_DUMPS_DIR: brainDumpDirectory }
   const providers = createSessionProviders({
     homeDirectory: app.getPath('home'),
     environment: process.env,

@@ -75,7 +75,7 @@ export const CodeBlock = memo(function CodeBlock(props: { code: string; language
 })
 
 /**
- * Every Markdown block override ADE shares, with no opinion about where a link goes. Transcripts
+ * Every Markdown block override Toucan shares, with no opinion about where a link goes. Transcripts
  * send links straight to the browser; the brain-dump reader has topic and local-file links to tell
  * apart first, so each caller supplies its own `a` on top of these.
  */

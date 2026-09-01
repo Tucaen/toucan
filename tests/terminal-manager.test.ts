@@ -68,7 +68,7 @@ test('keeps session identity stable while replacing each exited process with a n
     kind: 'terminal' as const,
     cols: 80,
     rows: 24,
-    cwd: 'D:\\ADE'
+    cwd: 'D:\\Toucan'
   }
   const first = manager.create(request, owner)
   exits[0]({ exitCode: 0 })
@@ -116,7 +116,7 @@ test('rejects stale input and resize and ignores stale data and exit after repla
     isDestroyed: () => false,
     send: (channel: string, payload: unknown) => events.push({ channel, payload })
   }
-  const request = { id: 'node', sessionId: 'stable', kind: 'terminal' as const, cols: 80, rows: 24, cwd: 'D:\\ADE' }
+  const request = { id: 'node', sessionId: 'stable', kind: 'terminal' as const, cols: 80, rows: 24, cwd: 'D:\\Toucan' }
   manager.create(request, owner)
   processes[0].exit?.({ exitCode: 0 })
   manager.create(request, owner)
@@ -158,7 +158,7 @@ test('owner loss is unverifiable while only the process exit callback proves exi
     })
   })
   const owner = { isDestroyed: () => false, send: () => undefined }
-  manager.create({ id: 'node', sessionId: 'session', kind: 'terminal', cols: 80, rows: 24, cwd: 'D:\\ADE' }, owner)
+  manager.create({ id: 'node', sessionId: 'session', kind: 'terminal', cols: 80, rows: 24, cwd: 'D:\\Toucan' }, owner)
   manager.disconnectOwner(owner)
   assert.deepEqual(manager.state('session'), { incarnationId: 'incarnation', liveness: 'unverifiable' })
   exit?.({ exitCode: 12 })
@@ -187,7 +187,7 @@ test('a retired attachment cannot kill a session reclaimed by a replacement', ()
     })
   })
   const owner = { isDestroyed: () => false, send: () => undefined }
-  const request = { id: 'node', sessionId: 'session', kind: 'terminal' as const, cols: 80, rows: 24, cwd: 'D:\\ADE' }
+  const request = { id: 'node', sessionId: 'session', kind: 'terminal' as const, cols: 80, rows: 24, cwd: 'D:\\Toucan' }
   const first = manager.create({ ...request, attachmentId: 'old-mount' }, owner)
   manager.create({ ...request, attachmentId: 'new-mount' }, owner)
 

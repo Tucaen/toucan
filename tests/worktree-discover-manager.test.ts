@@ -5,8 +5,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createWorktreeManager, type GitResult } from '../src/main/git-worktree'
 
-const PROJECT = 'D:\\Development\\ADE'
-const FEATURE = 'D:\\Development\\ADE-worktrees\\feat-login'
+const PROJECT = 'D:\\Development\\Toucan'
+const FEATURE = 'D:\\Development\\Toucan-worktrees\\feat-login'
 
 const ok = (stdout = ''): GitResult => ({ code: 0, stdout, stderr: '' })
 
@@ -23,8 +23,8 @@ const porcelain = [
 
 /** A common dir on disk, so claim reading exercises the real file path rather than a stub. */
 function commonDirWithClaims(claims: unknown): string {
-  const dir = mkdtempSync(join(tmpdir(), 'ade-claims-'))
-  writeFileSync(join(dir, 'ade-worktree-claims.json'), JSON.stringify(claims))
+  const dir = mkdtempSync(join(tmpdir(), 'toucan-claims-'))
+  writeFileSync(join(dir, 'toucan-worktree-claims.json'), JSON.stringify(claims))
   return dir
 }
 
@@ -66,8 +66,8 @@ test('a claim in the common dir names the node that created the worktree', async
 })
 
 test('a malformed claims file costs the association, not the discovery', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'ade-claims-'))
-  writeFileSync(join(dir, 'ade-worktree-claims.json'), '{ not json')
+  const dir = mkdtempSync(join(tmpdir(), 'toucan-claims-'))
+  writeFileSync(join(dir, 'toucan-worktree-claims.json'), '{ not json')
   const result = await managerFor(dir).discover({ projectPath: PROJECT, known: [] })
 
   assert.equal(result.worktrees.length, 1)

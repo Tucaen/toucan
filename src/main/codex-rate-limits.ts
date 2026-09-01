@@ -117,7 +117,7 @@ function toWindow(
   payload: CodexWindowPayload | null | undefined
 ): { window: AgentRateLimitWindow; minutes: number } | null {
   if (!payload || typeof payload.used_percent !== 'number' || typeof payload.window_minutes !== 'number') return null
-  // `resets_at` is epoch seconds, unlike every other timestamp ADE handles.
+  // `resets_at` is epoch seconds, unlike every other timestamp Toucan handles.
   const resetsAt = typeof payload.resets_at === 'number' ? payload.resets_at * 1000 : undefined
   return {
     window: { usedPercent: payload.used_percent, ...(resetsAt !== undefined ? { resetsAt } : {}) },
@@ -283,7 +283,7 @@ async function requestRateLimitsViaAppServer(command: string, environment: NodeJ
       `${JSON.stringify({
         id: 1,
         method: 'initialize',
-        params: { clientInfo: { name: 'ade', version: '0.1.0' } }
+        params: { clientInfo: { name: 'toucan', version: '0.1.0' } }
       })}\n`
     )
   })

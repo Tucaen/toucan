@@ -85,7 +85,7 @@ export interface WorktreeRemoveResult {
 
 /**
  * Blockers that describe a broken or mistaken identity, rather than unsaved work. No
- * confirmation can clear these, because forcing past them would delete something ADE
+ * confirmation can clear these, because forcing past them would delete something Toucan
  * has not proven it owns.
  */
 export function isForcibleBlocker(blocker: WorktreeRemovalBlocker): boolean {
@@ -176,7 +176,7 @@ export function branchNameProblem(branch: string): string | null {
 }
 
 /**
- * A worktree as git reports it, before ADE knows whether it has a record for it.
+ * A worktree as git reports it, before Toucan knows whether it has a record for it.
  * `isMain` marks the project checkout itself, which is never a worktree node.
  */
 export interface WorktreeListEntry {
@@ -188,7 +188,7 @@ export interface WorktreeListEntry {
 
 /**
  * A note left by an agent that created a worktree for itself, so the node that asked for
- * the work can be linked to it. Written by the agent, never by ADE, so it is read as a
+ * the work can be linked to it. Written by the agent, never by Toucan, so it is read as a
  * hint: an unmatched or stale claim only costs the association, never the worktree record.
  */
 export interface WorktreeClaim {
@@ -198,7 +198,7 @@ export interface WorktreeClaim {
   claimedAt: string
 }
 
-/** A worktree git knows about that ADE has no record of yet. */
+/** A worktree git knows about that Toucan has no record of yet. */
 export interface DiscoveredWorktree {
   path: string
   branch: string
@@ -214,7 +214,7 @@ function comparablePath(value: string): string {
 
 /**
  * The difference between what git has and what the workspace records. Discovery only ever
- * adds: a worktree ADE does not know about becomes a node, while a record whose directory
+ * adds: a worktree Toucan does not know about becomes a node, while a record whose directory
  * has vanished is left alone for the evidence-gated teardown to handle. `baseRef` cannot be
  * recovered from git's worktree list, so discovered worktrees inherit the repository's
  * default branch - enough for teardown to ask "is this merged back?".
@@ -290,4 +290,4 @@ export interface WorktreeDiscoverResult {
  * Claims live in the repository's common git directory, so every worktree of the same
  * repository reads and writes one file, and nothing lands in the user's global config.
  */
-export const WORKTREE_CLAIMS_FILE = 'ade-worktree-claims.json'
+export const WORKTREE_CLAIMS_FILE = 'toucan-worktree-claims.json'

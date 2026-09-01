@@ -105,7 +105,7 @@ lines.on('line', (line) => {
 }
 
 test('returns session/load transcript notifications atomically instead of streaming them separately', async () => {
-  const appPath = mkdtempSync(join(tmpdir(), 'ade-replay-adapter-'))
+  const appPath = mkdtempSync(join(tmpdir(), 'toucan-replay-adapter-'))
   replayingAdapter(appPath)
   const streamed: unknown[] = []
   const owner = {
@@ -159,7 +159,7 @@ test('returns session/load transcript notifications atomically instead of stream
 })
 
 test('gives ID-less replay chunks stable identities without merging separate turns', async () => {
-  const appPath = mkdtempSync(join(tmpdir(), 'ade-idless-replay-adapter-'))
+  const appPath = mkdtempSync(join(tmpdir(), 'toucan-idless-replay-adapter-'))
   idlessReplayingAdapter(appPath)
   const owner = {
     isDestroyed: () => false,

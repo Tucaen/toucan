@@ -6,7 +6,7 @@ updated: 2026-08-30
 
 # Thinking and final-answer presentation
 
-ADE's chat should visually distinguish an agent's interim thinking or progress messages from its actual final answer, so users can immediately tell what is process narration and what is the completed result.
+Toucan's chat should visually distinguish an agent's interim thinking or progress messages from its actual final answer, so users can immediately tell what is process narration and what is the completed result.
 
 ## Current understanding
 

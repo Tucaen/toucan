@@ -6,7 +6,7 @@ import { test } from 'node:test'
 import { readCachedCodexModels } from '../src/main/codex-model-cache'
 
 test('reads model choices from the shared Codex cache without requiring a session', () => {
-  const codexHome = mkdtempSync(join(tmpdir(), 'ade-codex-models-'))
+  const codexHome = mkdtempSync(join(tmpdir(), 'toucan-codex-models-'))
   writeFileSync(
     join(codexHome, 'models_cache.json'),
     JSON.stringify({

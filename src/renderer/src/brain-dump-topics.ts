@@ -12,7 +12,7 @@ import type { WorkspaceProject } from '../../shared/terminal'
 export interface BrainDumpProjectIdentity {
   /** The visible text: a project name, a folder basename, or `Unassigned`. */
   label: string
-  /** Set only for a project ADE currently has registered. */
+  /** Set only for a project Toucan currently has registered. */
   color?: string
   /** The absolute path, for the tooltip. Absent when the topic is unassigned. */
   path?: string
@@ -26,7 +26,7 @@ export const BRAIN_DUMP_UNASSIGNED_LABEL = 'Unassigned'
 export const BRAIN_DUMP_UNREGISTERED_NOTE = 'Project not in workspace'
 
 /**
- * One comparable identity for a filesystem path. The same checkout reaches ADE with either drive
+ * One comparable identity for a filesystem path. The same checkout reaches Toucan with either drive
  * letter case and with either separator, so a topic written on one route must still match the
  * project registered by the other.
  */

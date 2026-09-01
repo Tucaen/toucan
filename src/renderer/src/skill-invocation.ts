@@ -55,7 +55,7 @@ export function skillInvocationSummary(invocation: SkillInvocation): string {
  * Why a skill was loaded, as far as anything actually knows. Neither tool carries a reason field,
  * so the honest answer is the skill's *own* advertised description - the same text the composer's
  * slash list shows, which is what says why an agent would reach for it. Matched on the name the
- * session advertised (and its aliases, which resolve to one command), so a skill ADE never saw
+ * session advertised (and its aliases, which resolve to one command), so a skill Toucan never saw
  * advertised simply has no description rather than a guessed one.
  */
 export function skillDescription(invocation: SkillInvocation, commands: readonly AgentCommand[]): string | undefined {

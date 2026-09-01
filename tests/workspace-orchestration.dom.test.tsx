@@ -5,7 +5,7 @@ import { useWorkspacePersistence } from '../src/renderer/src/workspace-persisten
 
 const savedWorkspace: WorkspaceState = {
   version: 3,
-  projects: [{ id: 'project-1', name: 'ADE', path: '/ade', color: '#fff' }],
+  projects: [{ id: 'project-1', name: 'Toucan', path: '/toucan', color: '#fff' }],
   activeProjectId: 'project-1',
   sidebarCollapsed: false,
   nodes: [],

@@ -10,7 +10,7 @@ export interface ConversationSummary {
   path: string
   /** The agent's own title when it recorded one, else an excerpt of the first user message. */
   title: string
-  /** Durable ADE metadata when present; provider transcript titles count as generated. */
+  /** Durable Toucan metadata when present; provider transcript titles count as generated. */
   titleSource?: ConversationTitleSource
   /** ISO timestamp of the last recorded turn, falling back to the file's mtime. */
   updatedAt: string

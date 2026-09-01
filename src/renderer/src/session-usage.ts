@@ -2,7 +2,7 @@ import type { AgentRateLimitStatus, AgentRateLimitWindow, AgentSessionCost } fro
 
 /**
  * Every decision behind a chat node's usage bar (issue #99): how full the context window is, what
- * the conversation has cost, and which account window is closest to biting. ADE already collects
+ * the conversation has cost, and which account window is closest to biting. Toucan already collects
  * all three - ACP's `usage_update` for the first two, `src/main/provider-usage.ts` for the third -
  * so the only thing missing was somewhere to decide what they mean. Keeping that here means the
  * bar is markup, the thresholds have one home, and the header's account chips can share them.

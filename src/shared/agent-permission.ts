@@ -31,7 +31,7 @@ function inputText(input: Record<string, unknown> | undefined, ...keys: string[]
   return undefined
 }
 
-/** Builds the specific text ADE shows for an ACP permission request using protocol-owned fields. */
+/** Builds the specific text Toucan shows for an ACP permission request using protocol-owned fields. */
 export function agentPermissionTitle(toolCall: AgentPermissionToolCall): string {
   const suppliedTitle = concise(toolCall.title)
   if (suppliedTitle && !GENERIC_PERMISSION_TITLE.test(suppliedTitle)) return suppliedTitle

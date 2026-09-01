@@ -6,8 +6,8 @@ import ConversationHistoryDialog, { formatRelativeTime } from '../src/renderer/s
 // Covers the browsing surface's contract: it reads one page at a time, labels the worktree a
 // conversation ran in, and refuses honestly when a transcript has vanished since it was listed.
 
-const PROJECT = 'D:\\Dev\\ADE'
-const WORKTREE = 'D:\\Dev\\ADE-worktrees\\feature'
+const PROJECT = 'D:\\Dev\\Toucan'
+const WORKTREE = 'D:\\Dev\\Toucan-worktrees\\feature'
 
 function summary(overrides: Partial<ConversationSummary> = {}): ConversationSummary {
   return {
@@ -32,9 +32,9 @@ function installConversationApi(list: ReturnType<typeof vi.fn>, exists: ReturnTy
 function renderDialog(onOpen = vi.fn()): { onOpen: ReturnType<typeof vi.fn> } {
   render(
     <ConversationHistoryDialog
-      projectName="ADE"
+      projectName="Toucan"
       directories={[PROJECT, WORKTREE]}
-      directoryLabels={{ [PROJECT.toLocaleLowerCase()]: 'ADE', [WORKTREE.toLocaleLowerCase()]: 'feature' }}
+      directoryLabels={{ [PROJECT.toLocaleLowerCase()]: 'Toucan', [WORKTREE.toLocaleLowerCase()]: 'feature' }}
       onCancel={vi.fn()}
       onOpen={onOpen}
     />

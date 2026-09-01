@@ -10,7 +10,9 @@ import { createMockBrainDumpApi, topicFixture, type MockBrainDumpApi } from './d
  * topic can contain, and the one-way Archive flow with its pending, success, and failure states.
  */
 
-const projects: WorkspaceProject[] = [{ id: 'ade', name: 'ADE', path: 'D:\\Development\\ADE', color: '#71a9ff' }]
+const projects: WorkspaceProject[] = [
+  { id: 'toucan', name: 'Toucan', path: 'D:\\Development\\Toucan', color: '#71a9ff' }
+]
 
 function renderPanel(api: MockBrainDumpApi, onPanelChange = vi.fn()): void {
   render(
@@ -107,7 +109,7 @@ describe('links inside a topic', () => {
     expect(openExternal).toHaveBeenCalledTimes(1)
   })
 
-  test('a link ADE cannot act on safely is not a link at all', async () => {
+  test('a link Toucan cannot act on safely is not a link at all', async () => {
     renderPanel(api)
     fireEvent.click(await screen.findByText('Hub'))
     expect(screen.queryByRole('link', { name: 'relative one' })).toBeNull()

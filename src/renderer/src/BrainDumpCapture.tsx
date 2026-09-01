@@ -4,7 +4,7 @@ import VoiceInputPrototype, { type VoiceState } from './VoiceInputPrototype'
 
 /**
  * The shared review tray. Both capture buttons land here and differ only in how the first words
- * arrive: typed, or dictated through ADE's existing local speech pipeline. Nothing is ever sent
+ * arrive: typed, or dictated through Toucan's existing local speech pipeline. Nothing is ever sent
  * without the user submitting it - a transcript is a draft, not a decision - and the draft outlives
  * the tray, the panel, and a renderer reload, because the only things allowed to clear it are a
  * filed capture and an explicit Discard. A running job is *not* shown here: it outlives the tray,

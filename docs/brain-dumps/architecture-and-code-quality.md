@@ -6,11 +6,11 @@ updated: 2026-08-31
 
 # Architecture and code quality
 
-Because ADE's production code is written by agents, the codebase should be optimized explicitly for agent comprehension and safe agent modification. That means making the right change easy to locate, keeping the relevant context small and local, exposing important behavior through deep modules, and turning architectural rules into fast mechanical feedback wherever possible.
+Because Toucan's production code is written by agents, the codebase should be optimized explicitly for agent comprehension and safe agent modification. That means making the right change easy to locate, keeping the relevant context small and local, exposing important behavior through deep modules, and turning architectural rules into fast mechanical feedback wherever possible.
 
 ## Current understanding
 
-- ADE is already substantially more agent-friendly than a typical application at this stage, but it is not yet in the ideal shape. The right description is **strong foundations with growing orchestration hotspots**.
+- Toucan is already substantially more agent-friendly than a typical application at this stage, but it is not yet in the ideal shape. The right description is **strong foundations with growing orchestration hotspots**.
 - The strongest pattern is the extraction of behavior into small, pure, specifically named modules such as `attention.ts`, `session-usage.ts`, `composer-keys.ts`, `prompt-outbox.ts`, `worktree-removal.ts`, and `stall-guard.ts`. Their focused tests give an agent a narrow interface through which to understand and change behavior.
 - Several stateful subsystems are deep modules with clear ownership and evidence-backed invariants: workspace persistence, worktree removal, terminal identity and scrollback, conversation history, and ACP prompt delivery. `AGENTS.md` records the non-obvious operational contracts and points to their authoritative implementation and tests.
 - Strict TypeScript, separate Node and DOM test runners, descriptive test names, and tests colocated by module name make verification discoverable. The code also uses very little unsafe typing or suppression.

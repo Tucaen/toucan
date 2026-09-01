@@ -12,7 +12,9 @@ import { createMockBrainDumpApi, topicFixture, type MockBrainDumpApi } from './d
  * brain-dump-panel-layout.ts; this checks the panel is actually wired to them.
  */
 
-const projects: WorkspaceProject[] = [{ id: 'ade', name: 'ADE', path: 'D:\\Development\\ADE', color: '#71a9ff' }]
+const projects: WorkspaceProject[] = [
+  { id: 'toucan', name: 'Toucan', path: 'D:\\Development\\Toucan', color: '#71a9ff' }
+]
 
 function renderPanel(
   api: MockBrainDumpApi,
@@ -44,7 +46,7 @@ describe('collections and search', () => {
   beforeEach(() => {
     api = createMockBrainDumpApi()
     api.collections.active.topics = [
-      topicFixture({ slug: 'voice-input', title: 'Voice input', projectPath: 'd:/development/ade' }),
+      topicFixture({ slug: 'voice-input', title: 'Voice input', projectPath: 'd:/development/toucan' }),
       topicFixture({ slug: 'panel-width', title: 'Panel width', markdown: 'clamping the docked panel' })
     ]
     api.collections.archived.topics = [
@@ -152,13 +154,13 @@ describe('collections and search', () => {
 describe('topic rows', () => {
   test('a registered project shows its name, and its absolute path stays reachable', async () => {
     const api = createMockBrainDumpApi()
-    api.collections.active.topics = [topicFixture({ slug: 'a', title: 'A', projectPath: 'd:/development/ade' })]
+    api.collections.active.topics = [topicFixture({ slug: 'a', title: 'A', projectPath: 'd:/development/toucan' })]
     renderPanel(api)
 
     const row = await screen.findByRole('option', { name: /A/ })
-    expect(within(row).getByText('ADE')).toBeInTheDocument()
-    expect(within(row).getByTitle('D:\\Development\\ADE')).toBeInTheDocument()
-    expect(row).toHaveAccessibleDescription(/Project path D:\\Development\\ADE/)
+    expect(within(row).getByText('Toucan')).toBeInTheDocument()
+    expect(within(row).getByTitle('D:\\Development\\Toucan')).toBeInTheDocument()
+    expect(row).toHaveAccessibleDescription(/Project path D:\\Development\\Toucan/)
   })
 
   test('an unassigned topic says so in text, and an unregistered project explains itself', async () => {

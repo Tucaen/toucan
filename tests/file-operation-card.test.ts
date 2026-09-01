@@ -13,11 +13,11 @@ test('a ranged read carries its path and line range out of the raw tool input', 
     id: 'r1',
     kind: 'read',
     toolName: 'Read',
-    rawInput: { file_path: 'D:\\Development\\ADE\\src\\main\\index.ts', offset: 120, limit: 40 }
+    rawInput: { file_path: 'D:\\Development\\Toucan\\src\\main\\index.ts', offset: 120, limit: 40 }
   })
   assert.deepEqual(operation, {
     kind: 'read',
-    path: 'D:\\Development\\ADE\\src\\main\\index.ts',
+    path: 'D:\\Development\\Toucan\\src\\main\\index.ts',
     range: { start: 120, end: 159 }
   })
 })
@@ -139,10 +139,10 @@ test('tools that touch no file are not file operations', () => {
 })
 
 test('paths are shortened against the workspace or worktree root, case- and separator-insensitively', () => {
-  const roots = ['d:\\Development\\ADE', 'd:\\Development\\ADE\\.worktrees\\feature']
-  assert.equal(shortenFilePath('D:\\Development\\ADE\\src\\a.ts', roots), 'src/a.ts')
+  const roots = ['d:\\Development\\Toucan', 'd:\\Development\\Toucan\\.worktrees\\feature']
+  assert.equal(shortenFilePath('D:\\Development\\Toucan\\src\\a.ts', roots), 'src/a.ts')
   // The deepest matching root wins, so a worktree file is not shown as .worktrees/feature/src/a.ts.
-  assert.equal(shortenFilePath('d:/Development/ADE/.worktrees/feature/src/a.ts', roots), 'src/a.ts')
+  assert.equal(shortenFilePath('d:/Development/Toucan/.worktrees/feature/src/a.ts', roots), 'src/a.ts')
   // A file outside every root keeps its full path rather than a misleading relative one.
   assert.equal(shortenFilePath('C:\\other\\a.ts', roots), 'C:/other/a.ts')
   assert.equal(shortenFilePath('/repo/a.ts', []), '/repo/a.ts')

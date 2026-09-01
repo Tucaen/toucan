@@ -2,8 +2,8 @@ import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
 import { createWorktreeManager, type GitResult } from '../src/main/git-worktree'
 
-const PROJECT = 'D:\\Development\\ADE'
-const WORKTREE = 'D:\\Development\\ADE-worktrees\\feature-login'
+const PROJECT = 'D:\\Development\\Toucan'
+const WORKTREE = 'D:\\Development\\Toucan-worktrees\\feature-login'
 
 type Responder = (args: string[], cwd: string) => GitResult | undefined
 

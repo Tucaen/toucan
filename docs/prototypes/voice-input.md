@@ -2,15 +2,15 @@
 
 Status: working experimental feature. Keep the engine-specific integration isolated until the interaction and transcription quality have been evaluated further.
 
-Question: Does local, streaming voice input feel useful inside ADE's existing agent composer?
+Question: Does local, streaming voice input feel useful inside Toucan's existing agent composer?
 
-Run ADE normally with:
+Run Toucan normally with:
 
 ```powershell
 npm run dev
 ```
 
-The command prepares Moonshine's English Small Streaming model before ADE launches. Create or resume a Claude/Codex node, then select **Mic** beside the composer. The button briefly shows **Wait** while the local model is loaded into memory. Once it changes to **Done**, speak and watch the live preview. Select **Done** to insert the transcript at the saved cursor position, or **×** to discard it. Dictation never sends the prompt automatically. `npm run prototype:voice` remains as a descriptive alias during the experimental phase.
+The command prepares Moonshine's English Small Streaming model before Toucan launches. Create or resume a Claude/Codex node, then select **Mic** beside the composer. The button briefly shows **Wait** while the local model is loaded into memory. Once it changes to **Done**, speak and watch the live preview. Select **Done** to insert the transcript at the saved cursor position, or **×** to discard it. Dictation never sends the prompt automatically. `npm run prototype:voice` remains as a descriptive alias during the experimental phase.
 
 Prototype constraints:
 

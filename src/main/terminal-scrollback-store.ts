@@ -64,7 +64,7 @@ export function createTerminalScrollbackStore(options: TerminalScrollbackStoreOp
     const temporary = `${path}.tmp`
     const pendingPath = pendingPathFor(snapshot.sessionId)
     try {
-      // This marker is written first. If promotion fails or ADE stops between writes, the next
+      // This marker is written first. If promotion fails or Toucan stops between writes, the next
       // load can identify both the missing range and the incarnation it belonged to.
       writeFileSync(
         pendingPath,

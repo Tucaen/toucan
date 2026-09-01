@@ -4,13 +4,13 @@ import { isBrainDumpSlug } from '../../shared/brain-dump'
 /**
  * `[[slug]]` is the brain-dump library's own cross-reference syntax; Markdown knows nothing about
  * it. Rather than teach the renderer a second link concept, this module rewrites each reference
- * into an ordinary Markdown link on an ADE-private scheme, and classifies every href the reader
+ * into an ordinary Markdown link on an Toucan-private scheme, and classifies every href the reader
  * then hands back. Keeping both halves here means the reader never has to guess whether an href
  * is a topic, a browser URL, a local file, or something that must not navigate at all.
  */
 
 /** The private scheme carrying a `[[slug]]` reference through the Markdown pipeline. */
-export const BRAIN_DUMP_TOPIC_SCHEME = 'ade-topic:'
+export const BRAIN_DUMP_TOPIC_SCHEME = 'toucan-topic:'
 
 export type BrainDumpLinkKind =
   | { kind: 'topic'; slug: string }

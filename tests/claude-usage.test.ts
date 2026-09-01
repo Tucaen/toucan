@@ -61,7 +61,7 @@ test('a failing usage request leaves the header blank instead of propagating', a
 test('reads through the injected request without spawning a CLI', async () => {
   const seen: string[] = []
   const reader = createClaudeUsageReader({
-    cwd: 'C:\\projects\\ade',
+    cwd: 'C:\\projects\\toucan',
     requestUsage: (cwd) => {
       seen.push(cwd)
       return Promise.resolve({
@@ -72,5 +72,5 @@ test('reads through the injected request without spawning a CLI', async () => {
   })
 
   assert.deepEqual(await reader.read(), { weekly: { usedPercent: 80 } })
-  assert.deepEqual(seen, ['C:\\projects\\ade'])
+  assert.deepEqual(seen, ['C:\\projects\\toucan'])
 })

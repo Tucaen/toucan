@@ -8,7 +8,7 @@ test('Codex command approvals describe the command instead of showing only a gen
     status: 'pending',
     rawInput: {
       command: 'npm test',
-      cwd: '/workspace/ade'
+      cwd: '/workspace/toucan'
     }
   })
 

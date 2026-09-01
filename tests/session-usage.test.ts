@@ -10,7 +10,7 @@ import {
 } from '../src/renderer/src/session-usage'
 
 // Issue #99: a chat node has to answer "how full is this conversation, what has it cost, and am I
-// near an account limit" from data ADE already collects. Every one of those decisions - the
+// near an account limit" from data Toucan already collects. Every one of those decisions - the
 // thresholds, the formatting, which window is the one about to bite - lives here so the bar itself
 // is only markup.
 

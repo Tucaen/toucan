@@ -62,7 +62,7 @@ function manager(
   return createBrainDumpCaptureManager({
     agent,
     homeDirectory: 'C:\\Users\\Ada',
-    registeredProjectPaths: () => ['D:\\Development\\ADE'],
+    registeredProjectPaths: () => ['D:\\Development\\Toucan'],
     createJobId: () => 'job-1',
     publish: (state) => states.push(state),
     ...overrides
@@ -70,10 +70,10 @@ function manager(
 }
 
 test('capture prompt keeps reviewed content in a separate ACP content block', () => {
-  assert.deepEqual(buildBrainDumpCapturePrompt('raw text', 'D:\\Development\\ADE'), [
+  assert.deepEqual(buildBrainDumpCapturePrompt('raw text', 'D:\\Development\\Toucan'), [
     {
       type: 'text',
-      text: 'Use the brain-dump skill to file the reviewed content. The explicit project association is D:\\Development\\ADE. Preserve an existing topic association unless the content explicitly changes it.'
+      text: 'Use the brain-dump skill to file the reviewed content. The explicit project association is D:\\Development\\Toucan. Preserve an existing topic association unless the content explicitly changes it.'
     },
     { type: 'text', text: 'raw text' }
   ])
@@ -84,11 +84,11 @@ test('assigned capture validates case-insensitively and starts the requested pro
   const result = await manager(agent).start({
     content: 'Reviewed idea',
     provider: 'codex',
-    projectPath: 'd:\\development\\ade'
+    projectPath: 'd:\\development\\toucan'
   })
   assert.deepEqual(result, { ok: true, state: { status: 'working', jobId: 'job-1' } })
   assert.equal(agent.creates[0].provider, 'codex')
-  assert.equal(agent.creates[0].cwd, 'D:\\Development\\ADE')
+  assert.equal(agent.creates[0].cwd, 'D:\\Development\\Toucan')
   assert.equal(agent.creates[0].modelId, undefined)
   assert.equal(agent.creates[0].effortId, undefined)
 })

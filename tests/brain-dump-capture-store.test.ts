@@ -6,7 +6,7 @@ import { test } from 'node:test'
 import { createBrainDumpCaptureStore } from '../src/main/brain-dump-capture-store'
 
 test('capture store persists terminal conversation identity independently of workspace nodes', async () => {
-  const path = join(await mkdtemp(join(tmpdir(), 'ade-capture-store-')), 'capture.json')
+  const path = join(await mkdtemp(join(tmpdir(), 'toucan-capture-store-')), 'capture.json')
   const store = createBrainDumpCaptureStore(path)
   assert.equal(await store.load(), null)
   const state = {

@@ -1,4 +1,4 @@
-.ade/
+.toucan/
 .test-out/
 dist/
 dist-out/
@@ -6,4 +6,4 @@ node_modules/
 out/
 package-lock.json
 src/renderer/public/models/
-docs/ade-overview.html
+docs/toucan-overview.html

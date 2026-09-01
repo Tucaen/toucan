@@ -1,5 +1,5 @@
 # Optional OpenAI host metadata; the workflow remains in the shared SKILL.md.
 interface:
   display_name: "Brain Dump"
-  short_description: "Organize ADE ideas into evolving topic files"
-  default_prompt: "Use $brain-dump to organize these ADE ideas into the evolving topic archive."
+  short_description: "Organize Toucan ideas into evolving topic files"
+  default_prompt: "Use $brain-dump to organize these Toucan ideas into the evolving topic archive."

@@ -36,7 +36,7 @@ describe('permission dialog details', () => {
   test('shows the command requested by a title-less Codex approval', () => {
     const title = agentPermissionTitle({
       kind: 'execute',
-      rawInput: { command: 'npm test', cwd: '/workspace/ade' }
+      rawInput: { command: 'npm test', cwd: '/workspace/toucan' }
     })
 
     render(
@@ -62,7 +62,7 @@ describe('permission dialog details', () => {
         {...baseChatViewProps}
         approval={{
           id: 'approval-edit',
-          title: 'Change file: /workspace/ade/src/a.ts',
+          title: 'Change file: /workspace/toucan/src/a.ts',
           options: [
             { id: 'allow', label: 'Accept', kind: 'allow_once' },
             { id: 'reject', label: 'Reject', kind: 'reject_once' }
@@ -70,10 +70,10 @@ describe('permission dialog details', () => {
           activity: {
             id: 'tool-edit',
             kind: 'edit',
-            diffs: [{ path: '/workspace/ade/src/a.ts', oldText: 'const n = 1', newText: 'const n = 2' }]
+            diffs: [{ path: '/workspace/toucan/src/a.ts', oldText: 'const n = 1', newText: 'const n = 2' }]
           }
         }}
-        workspaceRoots={['/workspace/ade']}
+        workspaceRoots={['/workspace/toucan']}
         resolveApproval={resolveApproval}
         focusMode={false}
         setFocusMode={vi.fn()}

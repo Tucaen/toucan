@@ -6,8 +6,8 @@ import * as ts from 'typescript'
 import { hiddenProcessOptions } from '../src/main/background-process'
 
 test('background process options cannot re-enable Windows command windows', () => {
-  assert.deepEqual(hiddenProcessOptions({ cwd: 'D:\\Development\\ADE', windowsHide: false }), {
-    cwd: 'D:\\Development\\ADE',
+  assert.deepEqual(hiddenProcessOptions({ cwd: 'D:\\Development\\Toucan', windowsHide: false }), {
+    cwd: 'D:\\Development\\Toucan',
     windowsHide: true
   })
 })

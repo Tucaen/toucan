@@ -42,7 +42,7 @@ function worktreeNodes(nodes: CanvasNode[]): WorktreeCanvasNode[] {
 test('restores saved canvas nodes and ignores nodes whose project is gone', () => {
   const state: WorkspaceState = {
     version: 3,
-    projects: [{ id: 'project-1', name: 'ADE', path: 'D:\\Development\\ADE', color: '#71a9ff' }],
+    projects: [{ id: 'project-1', name: 'Toucan', path: 'D:\\Development\\Toucan', color: '#71a9ff' }],
     activeProjectId: 'missing-project',
     sidebarCollapsed: false,
     agentPermissionModes: { codex: 'read-only' },
@@ -78,8 +78,8 @@ test('restores saved canvas nodes and ignores nodes whose project is gone', () =
   assert.equal(nodes.length, 1)
   assert.equal(nodes[0].data.dormant, false)
   assert.equal(restored.statuses['node-1'], 'starting')
-  assert.equal(nodes[0].data.projectPath, 'D:\\Development\\ADE')
-  assert.equal(nodes[0].data.workingDirectory, 'D:\\Development\\ADE')
+  assert.equal(nodes[0].data.projectPath, 'D:\\Development\\Toucan')
+  assert.equal(nodes[0].data.workingDirectory, 'D:\\Development\\Toucan')
   assert.equal(nodes[0].data.worktreeId, undefined)
   assert.equal(nodes[0].data.focusMode, true)
   assert.equal(nodes[0].data.preferredPermissionMode, 'read-only')
@@ -93,7 +93,7 @@ test('restores saved canvas nodes and ignores nodes whose project is gone', () =
 test('keeps restored terminal processes dormant until explicitly opened', () => {
   const state: WorkspaceState = {
     version: 3,
-    projects: [{ id: 'project-1', name: 'ADE', path: 'D:\\Development\\ADE', color: '#71a9ff' }],
+    projects: [{ id: 'project-1', name: 'Toucan', path: 'D:\\Development\\Toucan', color: '#71a9ff' }],
     activeProjectId: 'project-1',
     sidebarCollapsed: false,
     nodes: [
@@ -123,7 +123,7 @@ test('keeps restored terminal processes dormant until explicitly opened', () => 
 test('migrates the legacy worklog choice to focus mode and serializes only the new field', () => {
   const baseState: WorkspaceState = {
     version: 3,
-    projects: [{ id: 'project-1', name: 'ADE', path: 'D:\\Development\\ADE', color: '#71a9ff' }],
+    projects: [{ id: 'project-1', name: 'Toucan', path: 'D:\\Development\\Toucan', color: '#71a9ff' }],
     activeProjectId: 'project-1',
     sidebarCollapsed: false,
     nodes: [
@@ -155,8 +155,8 @@ const worktreeState = (): WorkspaceState => ({
   projects: [
     {
       id: 'project-1',
-      name: 'ADE',
-      path: 'D:\\Development\\ADE',
+      name: 'Toucan',
+      path: 'D:\\Development\\Toucan',
       color: '#71a9ff',
       setupCommand: 'npm install'
     }
@@ -190,7 +190,7 @@ const worktreeState = (): WorkspaceState => ({
       id: 'worktree-1',
       projectId: 'project-1',
       branch: 'feature/login',
-      path: 'D:\\Development\\ADE-worktrees\\feature-login',
+      path: 'D:\\Development\\Toucan-worktrees\\feature-login',
       baseRef: 'main',
       createdAt: '2026-08-27T09:00:00.000Z',
       position: { x: 0, y: 0 },
@@ -205,8 +205,8 @@ test('an attached node runs in its worktree directory, not the project checkout'
   const restored = restoreCanvasWorkspace(state, callbacks)
   const node = terminalNodes(restored.nodes).find((candidate) => candidate.id === 'node-1')!
 
-  assert.equal(node.data.workingDirectory, 'D:\\Development\\ADE-worktrees\\feature-login')
-  assert.equal(node.data.projectPath, 'D:\\Development\\ADE')
+  assert.equal(node.data.workingDirectory, 'D:\\Development\\Toucan-worktrees\\feature-login')
+  assert.equal(node.data.projectPath, 'D:\\Development\\Toucan')
   assert.equal(node.data.worktreeBranch, 'feature/login')
   assert.equal(node.data.detachedFromWorktree, false)
   assert.equal(serializeCanvasNode(node).worktreeId, 'worktree-1')
@@ -248,7 +248,7 @@ test('a node whose worktree record vanished restores detached and dormant', () =
   assert.equal(node.data.detachedFromWorktree, true)
   assert.equal(node.data.dormant, true)
   assert.equal(restored.statuses['node-1'], 'dormant')
-  assert.equal(node.data.workingDirectory, 'D:\\Development\\ADE')
+  assert.equal(node.data.workingDirectory, 'D:\\Development\\Toucan')
   assert.equal(node.data.worktreeBranch, undefined)
   // The attachment is not silently re-persisted, so the record cannot come back to life.
   assert.equal(serializeCanvasNode(node).worktreeId, undefined)
@@ -337,7 +337,7 @@ test('reopening takes the newest closed session and resumes it at its saved posi
   assert.equal(reopened.node?.data.conversationId, 'conversation-2')
   assert.equal(reopened.node?.data.launchMode, 'resume')
   assert.equal(reopened.node?.data.dormant, false)
-  assert.equal(reopened.node?.data.workingDirectory, 'D:\\Development\\ADE-worktrees\\feature-login')
+  assert.equal(reopened.node?.data.workingDirectory, 'D:\\Development\\Toucan-worktrees\\feature-login')
   assert.equal(reopened.node?.data.preferredPermissionMode, 'read-only')
 })
 
@@ -350,7 +350,7 @@ test('a reopened session whose worktree vanished stays detached and dormant', ()
 
   assert.equal(reopened.node?.data.detachedFromWorktree, true)
   assert.equal(reopened.node?.data.dormant, true)
-  assert.equal(reopened.node?.data.workingDirectory, 'D:\\Development\\ADE')
+  assert.equal(reopened.node?.data.workingDirectory, 'D:\\Development\\Toucan')
   assert.equal(reopened.node?.data.worktreeId, undefined)
 })
 

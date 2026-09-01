@@ -22,7 +22,7 @@ test('talking about the skill is not calling it', () => {
   assert.equal(invokesWorktreeSkill('what does /implement-in-worktree do?'), false)
   assert.equal(invokesWorktreeSkill('later, run /implement-in-worktree'), false)
   assert.equal(
-    invokesWorktreeSkill('"Not sent" is wrongly displayed on my /$ade-project-skills:implement-in-worktree message'),
+    invokesWorktreeSkill('"Not sent" is wrongly displayed on my /$toucan-project-skills:implement-in-worktree message'),
     false
   )
 })
@@ -75,7 +75,7 @@ test('a prompt that does not invoke the skill produces no plan at all', () => {
 
 test('the placeholder branch is valid, provisional, and free of the prompt text', () => {
   const branch = placeholderBranchName(new Date(2026, 7, 30, 9, 5, 3))
-  assert.equal(branch, 'ade/20260830-090503')
+  assert.equal(branch, 'toucan/20260830-090503')
 })
 
 test('placeholder branches taken a second apart do not collide', () => {

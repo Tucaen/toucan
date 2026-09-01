@@ -7,7 +7,7 @@ import { createBrainDumpChangeWatcher } from '../src/main/brain-dump-watcher'
 import type { BrainDumpCollection } from '../src/shared/brain-dump'
 
 test('brain-dump watcher coalesces Markdown changes and publishes their collection', async () => {
-  const rootDirectory = await mkdtemp(join(tmpdir(), 'ade-brain-dump-watcher-'))
+  const rootDirectory = await mkdtemp(join(tmpdir(), 'toucan-brain-dump-watcher-'))
   const callbacks = new Map<string, (eventType: string, filename: string | Buffer | null) => void>()
   const closed: string[] = []
   const sent: Array<[string, BrainDumpCollection]> = []

@@ -19,7 +19,7 @@ interface VoiceInputPrototypeProps {
 
 const LOCAL_MODEL_URL = new URL('./models/moonshine-small-streaming-en/', window.location.href).toString()
 
-// The model loads from ADE's own local server/disk, not the network, so this
+// The model loads from Toucan's own local server/disk, not the network, so this
 // only needs to absorb slow hardware — not a slow internet connection. It
 // exists so a dependency that never settles (see shared/stall-guard.ts) can't
 // leave the "Preparing local speech model..." banner stuck forever.
@@ -43,7 +43,7 @@ function insertAtSelection(value: string, text: string, start: number, end: numb
   return `${before}${prefix}${text}${suffix}${after}`
 }
 
-// PROTOTYPE: validates whether local streaming dictation feels useful in ADE's composer.
+// PROTOTYPE: validates whether local streaming dictation feels useful in Toucan's composer.
 export default function VoiceInputPrototype(props: VoiceInputPrototypeProps): JSX.Element {
   const [state, setState] = useState<VoiceState>('idle')
   const [progress, setProgress] = useState(0)

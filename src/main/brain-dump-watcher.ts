@@ -69,8 +69,8 @@ export async function createBrainDumpChangeWatcher(
       // Otherwise only Markdown topics matter; durable-write temporary files are ignored.
       if (filename === null || filename.toString().toLowerCase().endsWith('.md')) schedule(collection)
     })
-    // Avoid an unhandled EventEmitter error taking down ADE. The directories are created before
-    // watching; a later failure simply stops that OS watcher until ADE restarts.
+    // Avoid an unhandled EventEmitter error taking down Toucan. The directories are created before
+    // watching; a later failure simply stops that OS watcher until Toucan restarts.
     watcher.on?.('error', () => {})
     return watcher
   })

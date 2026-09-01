@@ -16,7 +16,7 @@ test('does not send a fallback prompt when request composition fails and recover
     }
   }
   const compose = async (text: string): Promise<string> => {
-    if (!projectAvailable) throw new Error('WSL failure for ADE project "Api" (alpha).')
+    if (!projectAvailable) throw new Error('WSL failure for Toucan project "Api" (alpha).')
     return `assignment\n\n${text}`
   }
   const send = conversation.deliver.bind(conversation)

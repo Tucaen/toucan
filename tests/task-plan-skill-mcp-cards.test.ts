@@ -241,7 +241,7 @@ test('why a skill was loaded comes from what the session advertised about it, or
   ]
 
   assert.equal(skillDescription(invocation, commands), 'Review the changes since a fixed point.')
-  // A skill ADE never saw advertised gets no description rather than a guessed one.
+  // A skill Toucan never saw advertised gets no description rather than a guessed one.
   assert.equal(skillDescription({ name: 'unknown-skill' }, commands), undefined)
 })
 

@@ -56,9 +56,9 @@ test('only http and https reach the external browser handler', () => {
 })
 
 test('an absolute file URL becomes a local path for the reveal action', () => {
-  deepEqual(classifyBrainDumpLink('file:///D:/Development/ADE/notes%20and%20more.md'), {
+  deepEqual(classifyBrainDumpLink('file:///D:/Development/Toucan/notes%20and%20more.md'), {
     kind: 'file',
-    path: 'D:\\Development\\ADE\\notes and more.md'
+    path: 'D:\\Development\\Toucan\\notes and more.md'
   })
   deepEqual(classifyBrainDumpLink('file:///home/user/notes.md'), { kind: 'file', path: '/home/user/notes.md' })
 })

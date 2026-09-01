@@ -48,7 +48,7 @@ interface PendingApproval {
 const PROJECT_SKILLS_DIRECTORY = '.agents'
 
 /**
- * Project-local skills stay in the repository; ADE never installs into the user's global
+ * Project-local skills stay in the repository; Toucan never installs into the user's global
  * agent configuration. Codex discovers `<cwd>/.agents/skills` on its own, so only Claude
  * needs the directory handed to it - as a session-scoped inline plugin, which the ACP
  * adapter forwards from `_meta` straight into the SDK's `plugins` option.
@@ -166,7 +166,7 @@ export async function deliverSteeredPrompt(
 const LOGIN_URL_PATTERN = /https?:\/\/[^\s<>"')]+/
 
 /** Pulls the OAuth sign-in URL out of a terminal-auth subprocess's stdout/stderr line (or an
- *  elicitation message), if it printed one, so ADE can both auto-open it and offer a persistent,
+ *  elicitation message), if it printed one, so Toucan can both auto-open it and offer a persistent,
  *  actionable link instead of relying solely on the CLI's own (not always reachable) browser
  *  launch. */
 export function extractLoginUrl(text: string): string | undefined {
@@ -190,10 +190,10 @@ export function writeAuthCode(input: Writable | undefined, code: string): Promis
   return new Promise((resolve) => {
     try {
       input.write(`${trimmed}\n`, (error) =>
-        resolve(error ? { ok: false, message: 'ADE could not send the sign-in code.' } : { ok: true })
+        resolve(error ? { ok: false, message: 'Toucan could not send the sign-in code.' } : { ok: true })
       )
     } catch {
-      resolve({ ok: false, message: 'ADE could not send the sign-in code.' })
+      resolve({ ok: false, message: 'Toucan could not send the sign-in code.' })
     }
   })
 }
@@ -656,7 +656,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       const child = spawnAgentProcess(launch)
       const pendingApprovals = new Map<string, PendingApproval>()
       let running: RunningAgent
-      const app = client({ name: 'ADE ACP prototype' })
+      const app = client({ name: 'Toucan ACP prototype' })
         .onNotification(methods.client.session.update, ({ params }) => {
           const update = params.update
           if (
@@ -773,9 +773,9 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         context: connection.agent,
         adapterPath: path,
         authMethods: [],
-        // The node's identity travels with the agent so work it starts outside ADE's sight -
+        // The node's identity travels with the agent so work it starts outside Toucan's sight -
         // a worktree it creates for itself - can name the node that asked for it.
-        environment: { ...environment, ADE_NODE_ID: request.id },
+        environment: { ...environment, TOUCAN_NODE_ID: request.id },
         cachedModels:
           request.provider === 'codex' && options.codexHome
             ? readCachedCodexModels(options.codexHome, request.modelId)
@@ -822,7 +822,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
             // has nothing to show but prose. See `terminalChunkOf` in `shared/agent-activity.ts`.
             _meta: { terminal_output: true }
           },
-          clientInfo: { name: 'ade', title: 'ADE', version: '0.1.0' }
+          clientInfo: { name: 'toucan', title: 'Toucan', version: '0.1.0' }
         })
         running.authMethods = (initialized.authMethods ?? []).map(simplifyAuthMethod)
         running.imageSupport = initialized.agentCapabilities?.promptCapabilities?.image ?? false

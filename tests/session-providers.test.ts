@@ -19,8 +19,8 @@ test('prefers PowerShell 7 for a plain terminal', () => {
 })
 
 test('reads the latest human and assistant text from a Claude transcript', () => {
-  const configurationDirectory = mkdtempSync(join(tmpdir(), 'ade-claude-test-'))
-  const projectDirectory = join(configurationDirectory, 'projects', 'D--Development-ADE')
+  const configurationDirectory = mkdtempSync(join(tmpdir(), 'toucan-claude-test-'))
+  const projectDirectory = join(configurationDirectory, 'projects', 'D--Development-Toucan')
   mkdirSync(projectDirectory, { recursive: true })
   writeFileSync(
     join(projectDirectory, 'conversation-3.jsonl'),
@@ -58,7 +58,7 @@ test('reads the latest human and assistant text from a Claude transcript', () =>
 })
 
 test('reads the latest human and assistant text from a Codex transcript', () => {
-  const codexHome = mkdtempSync(join(tmpdir(), 'ade-codex-test-'))
+  const codexHome = mkdtempSync(join(tmpdir(), 'toucan-codex-test-'))
   const sessionDirectory = join(codexHome, 'sessions', '2026', '08', '11')
   mkdirSync(sessionDirectory, { recursive: true })
   writeFileSync(

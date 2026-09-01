@@ -9,31 +9,31 @@ import { hiddenProcessOptions } from '../src/main/background-process'
 
 test('agent adapters force their nested Windows processes to stay hidden', () => {
   const launch = buildAgentProcessLaunch(
-    'C:\\Program Files\\ADE\\ADE.exe',
-    'C:\\Program Files\\ADE\\resources\\claude-agent-acp\\index.js',
-    'D:\\Development\\ADE',
+    'C:\\Program Files\\Toucan\\Toucan.exe',
+    'C:\\Program Files\\Toucan\\resources\\claude-agent-acp\\index.js',
+    'D:\\Development\\Toucan',
     { PATH: 'C:\\Windows\\System32' }
   )
 
   assert.equal(launch.options.windowsHide, true)
-  assert.deepEqual(launch.args, ['C:\\Program Files\\ADE\\resources\\claude-agent-acp\\index.js'])
+  assert.deepEqual(launch.args, ['C:\\Program Files\\Toucan\\resources\\claude-agent-acp\\index.js'])
   assert.match(launch.options.env?.NODE_OPTIONS ?? '', /--import=data:text\/javascript/)
   assert.match(launch.options.env?.NODE_OPTIONS ?? '', /windowsHide%3A%20true/)
-  assert.deepEqual(hiddenProcessOptions({ windowsHide: false, cwd: 'D:\\Development\\ADE' }), {
+  assert.deepEqual(hiddenProcessOptions({ windowsHide: false, cwd: 'D:\\Development\\Toucan' }), {
     windowsHide: true,
-    cwd: 'D:\\Development\\ADE'
+    cwd: 'D:\\Development\\Toucan'
   })
 })
 
 test('agent adapters preserve their environment including the brain-dump library root', () => {
-  const environment = { PATH: 'C:\\Windows', ADE_BRAIN_DUMPS_DIR: 'C:\\Users\\Ada\\ADE\\brain-dumps' }
-  const launch = buildAgentProcessLaunch('electron.exe', 'adapter.js', 'D:\\ADE', environment)
+  const environment = { PATH: 'C:\\Windows', TOUCAN_BRAIN_DUMPS_DIR: 'C:\\Users\\Ada\\Toucan\\brain-dumps' }
+  const launch = buildAgentProcessLaunch('electron.exe', 'adapter.js', 'D:\\Toucan', environment)
   assert.equal(launch.options.env?.PATH, environment.PATH)
-  assert.equal(launch.options.env?.ADE_BRAIN_DUMPS_DIR, environment.ADE_BRAIN_DUMPS_DIR)
+  assert.equal(launch.options.env?.TOUCAN_BRAIN_DUMPS_DIR, environment.TOUCAN_BRAIN_DUMPS_DIR)
 })
 
 test('the hidden-window preload still imports and runs the ACP adapter entrypoint', () => {
-  const directory = mkdtempSync(join(tmpdir(), 'ade-agent-bootstrap-'))
+  const directory = mkdtempSync(join(tmpdir(), 'toucan-agent-bootstrap-'))
   const adapterPath = join(directory, 'adapter.mjs')
   writeFileSync(adapterPath, "process.stdout.write('adapter loaded')\n", 'utf8')
   const launch = buildAgentProcessLaunch(process.execPath, adapterPath, directory, process.env)
@@ -48,7 +48,7 @@ test('the hidden-window preload still imports and runs the ACP adapter entrypoin
 })
 
 test('the hidden-window preload covers every Node child-process API', () => {
-  const directory = mkdtempSync(join(tmpdir(), 'ade-agent-propagation-'))
+  const directory = mkdtempSync(join(tmpdir(), 'toucan-agent-propagation-'))
   const childPath = join(directory, 'child.mjs')
   const adapterPath = join(directory, 'adapter.mjs')
   writeFileSync(
@@ -73,7 +73,7 @@ test('the hidden-window preload covers every Node child-process API', () => {
 })
 
 test('nested agent executables are redirected from app.asar to app.asar.unpacked', () => {
-  const directory = mkdtempSync(join(tmpdir(), 'ade-agent-asar-'))
+  const directory = mkdtempSync(join(tmpdir(), 'toucan-agent-asar-'))
   const packedDirectory = join(directory, 'resources', 'app.asar', 'vendor')
   const unpackedDirectory = join(directory, 'resources', 'app.asar.unpacked', 'vendor')
   const packedExecutable = join(packedDirectory, 'provider.exe')

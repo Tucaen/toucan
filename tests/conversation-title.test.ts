@@ -15,7 +15,7 @@ test('waits for a real exchange before deriving a conversation title', () => {
 test('derives a concise subject from substantive dialogue instead of injected or generic openers', () => {
   assert.equal(
     deriveConversationTitle([
-      { role: 'user', text: '<environment_context>cwd=D:\\Development\\ADE</environment_context>' },
+      { role: 'user', text: '<environment_context>cwd=D:\\Development\\Toucan</environment_context>' },
       { role: 'user', text: 'continue' },
       { role: 'assistant', text: 'I found the workspace recovery implementation.' },
       { role: 'user', text: 'Fix workspace recovery when both snapshots are corrupt' },

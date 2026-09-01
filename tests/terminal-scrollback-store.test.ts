@@ -6,7 +6,7 @@ import { test } from 'node:test'
 import { createTerminalScrollbackStore } from '../src/main/terminal-scrollback-store'
 
 test('retains ANSI, control data, and Unicode for the exact terminal incarnation', () => {
-  const directory = mkdtempSync(join(tmpdir(), 'ade-scrollback-'))
+  const directory = mkdtempSync(join(tmpdir(), 'toucan-scrollback-'))
   const store = createTerminalScrollbackStore({ directory, maxBytes: 1024, maxAgeMs: 60_000, now: () => 100 })
 
   store.begin('session-a', 'incarnation-a')
@@ -24,7 +24,7 @@ test('retains ANSI, control data, and Unicode for the exact terminal incarnation
 })
 
 test('bounds UTF-8 output without splitting characters and makes truncation visible', () => {
-  const directory = mkdtempSync(join(tmpdir(), 'ade-scrollback-'))
+  const directory = mkdtempSync(join(tmpdir(), 'toucan-scrollback-'))
   const store = createTerminalScrollbackStore({ directory, maxBytes: 7, maxAgeMs: 60_000, now: () => 100 })
 
   store.begin('session', 'inc-1')
@@ -38,7 +38,7 @@ test('bounds UTF-8 output without splitting characters and makes truncation visi
 })
 
 test('a new incarnation retires old output and stale callbacks cannot append to it', () => {
-  const directory = mkdtempSync(join(tmpdir(), 'ade-scrollback-'))
+  const directory = mkdtempSync(join(tmpdir(), 'toucan-scrollback-'))
   const store = createTerminalScrollbackStore({ directory, maxBytes: 1024, maxAgeMs: 60_000 })
 
   store.begin('session', 'inc-1')
@@ -52,7 +52,7 @@ test('a new incarnation retires old output and stale callbacks cannot append to 
 })
 
 test('expired and corrupt history is ignored without throwing', () => {
-  const directory = mkdtempSync(join(tmpdir(), 'ade-scrollback-'))
+  const directory = mkdtempSync(join(tmpdir(), 'toucan-scrollback-'))
   let now = 100
   const store = createTerminalScrollbackStore({ directory, maxBytes: 1024, maxAgeMs: 50, now: () => now })
   store.begin('expired', 'inc')
@@ -73,7 +73,7 @@ test('expired and corrupt history is ignored without throwing', () => {
 })
 
 test('removing a terminal removes its retained history', () => {
-  const directory = mkdtempSync(join(tmpdir(), 'ade-scrollback-'))
+  const directory = mkdtempSync(join(tmpdir(), 'toucan-scrollback-'))
   const store = createTerminalScrollbackStore({ directory, maxBytes: 1024, maxAgeMs: 60_000 })
   store.begin('session', 'inc')
   store.append('session', 'inc', 'sensitive output')
@@ -84,7 +84,7 @@ test('removing a terminal removes its retained history', () => {
 })
 
 test('an interrupted promotion marks a gap and cannot expose a retired incarnation', () => {
-  const directory = mkdtempSync(join(tmpdir(), 'ade-scrollback-'))
+  const directory = mkdtempSync(join(tmpdir(), 'toucan-scrollback-'))
   const store = createTerminalScrollbackStore({ directory, maxBytes: 1024, maxAgeMs: 60_000 })
   store.begin('session', 'inc-1')
   store.append('session', 'inc-1', 'old output')

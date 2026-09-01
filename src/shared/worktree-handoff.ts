@@ -6,7 +6,7 @@ import type { AgentMessagePresentation } from './agent'
  * decision alone, so both the composer and its tests can ask the same question.
  */
 
-/** The skill whose whole point is to work in a worktree, so ADE puts it in one up front. */
+/** The skill whose whole point is to work in a worktree, so Toucan puts it in one up front. */
 export const WORKTREE_SKILL = 'implement-in-worktree'
 
 /**
@@ -105,5 +105,5 @@ export function placeholderBranchName(now: Date): string {
     pad(now.getMinutes()),
     pad(now.getSeconds())
   ].join('')
-  return `ade/${stamp}`
+  return `toucan/${stamp}`
 }

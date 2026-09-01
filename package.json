@@ -1,9 +1,9 @@
 {
-  "name": "ade-canvas-terminal-prototype",
+  "name": "toucan",
   "version": "0.1.0",
   "private": true,
-  "description": "Windows-first spatial canvas for terminal and coding-agent sessions.",
-  "author": "ADE contributors",
+  "description": "Toucan is a Windows-first agent development environment: a spatial canvas for terminal and coding-agent sessions.",
+  "author": "Toucan contributors",
   "main": "./out/main/index.js",
   "scripts": {
     "predev": "npm run prepare:voice-model",
@@ -31,8 +31,8 @@
     "package:dir": "npm run build && electron-builder --dir --win --x64"
   },
   "build": {
-    "appId": "dev.ade.canvas",
-    "productName": "ADE",
+    "appId": "dev.toucan.canvas",
+    "productName": "Toucan",
     "directories": {
       "output": "dist"
     },
@@ -54,7 +54,7 @@
           ]
         }
       ],
-      "artifactName": "ADE-${version}-portable-${arch}.${ext}"
+      "artifactName": "Toucan-${version}-portable-${arch}.${ext}"
     }
   },
   "dependencies": {

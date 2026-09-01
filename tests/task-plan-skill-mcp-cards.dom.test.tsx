@@ -36,7 +36,7 @@ const baseChatViewProps: ChatViewProps = {
 
 function renderTranscript(activities: AgentActivity[], plan: AgentPlanEntry[] = []): HTMLElement {
   const { container } = render(
-    <ChatView {...baseChatViewProps} activities={activities} plan={plan} workspaceRoots={['D:\\Development\\ADE']} />
+    <ChatView {...baseChatViewProps} activities={activities} plan={plan} workspaceRoots={['D:\\Development\\Toucan']} />
   )
   return container.querySelector<HTMLElement>('.chat-scroll') as HTMLElement
 }
@@ -66,7 +66,7 @@ describe('task, plan, skill and MCP tool cards', () => {
         parentToolCallId: 'task-1',
         status: 'completed',
         rawInput: { pattern: 'props.plan' },
-        content: 'D:\\Development\\ADE\\src\\renderer\\src\\ChatNode.tsx:1119:props.plan.length',
+        content: 'D:\\Development\\Toucan\\src\\renderer\\src\\ChatNode.tsx:1119:props.plan.length',
         startedAt: 0,
         endedAt: 50
       },
@@ -76,7 +76,7 @@ describe('task, plan, skill and MCP tool cards', () => {
         toolName: 'Read',
         parentToolCallId: 'task-1',
         status: 'in_progress',
-        rawInput: { file_path: 'D:\\Development\\ADE\\src\\renderer\\src\\ChatNode.tsx' },
+        rawInput: { file_path: 'D:\\Development\\Toucan\\src\\renderer\\src\\ChatNode.tsx' },
         startedAt: 50
       }
     ])
@@ -156,7 +156,7 @@ describe('task, plan, skill and MCP tool cards', () => {
           }
         ]}
         commands={[{ name: 'code-review', description: 'Review the changes since a fixed point.' }]}
-        workspaceRoots={['D:\\Development\\ADE']}
+        workspaceRoots={['D:\\Development\\Toucan']}
       />
     )
     const card = container.querySelector<HTMLElement>('.activity-card') as HTMLElement

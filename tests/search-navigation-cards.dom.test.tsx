@@ -37,7 +37,7 @@ function renderCard(activity: AgentActivity): HTMLElement {
     <ChatView
       {...baseChatViewProps}
       activities={[activity]}
-      workspaceRoots={['D:\\Development\\ADE']}
+      workspaceRoots={['D:\\Development\\Toucan']}
       focusMode={false}
       setFocusMode={vi.fn()}
     />
@@ -56,10 +56,10 @@ describe('search and navigation tool cards', () => {
       status: 'completed',
       rawInput: { pattern: 'useAgentConversation', output_mode: 'content' },
       content: [
-        'D:\\Development\\ADE\\src\\renderer\\src\\ChatNode.tsx:14:useAgentConversation()',
-        'D:\\Development\\ADE\\src\\renderer\\src\\ChatNode.tsx:29:const state = useAgentConversation()',
-        'D:\\Development\\ADE\\src\\renderer\\src\\App.tsx:82:useAgentConversation()',
-        'D:\\Development\\ADE\\tests\\chat-node.test.tsx:51:useAgentConversation()'
+        'D:\\Development\\Toucan\\src\\renderer\\src\\ChatNode.tsx:14:useAgentConversation()',
+        'D:\\Development\\Toucan\\src\\renderer\\src\\ChatNode.tsx:29:const state = useAgentConversation()',
+        'D:\\Development\\Toucan\\src\\renderer\\src\\App.tsx:82:useAgentConversation()',
+        'D:\\Development\\Toucan\\tests\\chat-node.test.tsx:51:useAgentConversation()'
       ].join('\n'),
       startedAt: 0,
       endedAt: 100

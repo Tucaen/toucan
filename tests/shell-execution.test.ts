@@ -19,7 +19,7 @@ import {
 // was, where it ran, how it ended, and what its output says - are all here, so they can be
 // pinned against what each adapter actually sends without a DOM.
 
-const ROOT = 'D:\\Development\\ADE'
+const ROOT = 'D:\\Development\\Toucan'
 
 function bash(rawInput: Record<string, unknown>, extra: Partial<AgentActivity> = {}): AgentActivity {
   return {
@@ -68,11 +68,11 @@ test('the directory the terminal reported outranks the arguments', () => {
     bash(
       { command: 'ls', cwd: 'C:\\wrong' },
       {
-        terminalCwd: 'D:\\Development\\ADE\\src'
+        terminalCwd: 'D:\\Development\\Toucan\\src'
       }
     )
   )
-  assert.equal(execution?.cwd, 'D:\\Development\\ADE\\src')
+  assert.equal(execution?.cwd, 'D:\\Development\\Toucan\\src')
 })
 
 test('a tool that runs no command keeps the generic card', () => {
@@ -171,10 +171,10 @@ test('a multi-line command becomes one bounded line', () => {
 })
 
 test('the working directory is shown only when it is not the one the node already runs in', () => {
-  const roots = [ROOT, 'D:\\Development\\ADE-main']
+  const roots = [ROOT, 'D:\\Development\\Toucan-main']
   assert.equal(shellWorkingDirectoryLabel(ROOT, roots), undefined)
   // Same checkout, other drive-letter case and other slash: still the node's own directory.
-  assert.equal(shellWorkingDirectoryLabel('d:/development/ade/', roots), undefined)
+  assert.equal(shellWorkingDirectoryLabel('d:/development/toucan/', roots), undefined)
   assert.equal(shellWorkingDirectoryLabel(`${ROOT}\\src\\main`, roots), 'src/main')
   assert.equal(shellWorkingDirectoryLabel('C:\\elsewhere', roots), 'C:/elsewhere')
   assert.equal(shellWorkingDirectoryLabel(undefined, roots), undefined)

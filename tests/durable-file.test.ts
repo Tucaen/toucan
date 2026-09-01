@@ -6,7 +6,7 @@ import { test } from 'node:test'
 import { syncPromotedFile } from '../src/main/durable-file'
 
 test('syncing a promoted file works on Windows', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'ade-promoted-file-'))
+  const directory = await mkdtemp(join(tmpdir(), 'toucan-promoted-file-'))
   const path = join(directory, 'topic.md')
   try {
     await writeFile(path, 'topic')

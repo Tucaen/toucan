@@ -1,5 +1,5 @@
 /**
- * Apply ADE's invariant for processes that do not own an interactive window.
+ * Apply Toucan's invariant for processes that do not own an interactive window.
  * The policy is applied last so callers cannot accidentally opt back into a
  * transient Windows command window.
  */

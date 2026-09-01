@@ -9,7 +9,7 @@ import type { WorkspaceState } from '../src/shared/terminal'
 function makeState(marker: string): WorkspaceState {
   return {
     version: 3,
-    projects: [{ id: 'project-1', name: marker, path: 'D:\\Development\\ADE', color: '#71a9ff' }],
+    projects: [{ id: 'project-1', name: marker, path: 'D:\\Development\\Toucan', color: '#71a9ff' }],
     activeProjectId: 'project-1',
     sidebarCollapsed: false,
     nodes: [],
@@ -20,14 +20,14 @@ function makeState(marker: string): WorkspaceState {
 test('loads a version 1 workspace as an empty version 3 canvas', () => {
   const migrated = parseWorkspaceState({
     version: 1,
-    projects: [{ id: 'project-1', name: 'ADE', path: 'D:\\Development\\ADE', color: '#71a9ff' }],
+    projects: [{ id: 'project-1', name: 'Toucan', path: 'D:\\Development\\Toucan', color: '#71a9ff' }],
     activeProjectId: 'project-1',
     sidebarCollapsed: true
   })
 
   assert.deepEqual(migrated, {
     version: 3,
-    projects: [{ id: 'project-1', name: 'ADE', path: 'D:\\Development\\ADE', color: '#71a9ff' }],
+    projects: [{ id: 'project-1', name: 'Toucan', path: 'D:\\Development\\Toucan', color: '#71a9ff' }],
     activeProjectId: 'project-1',
     sidebarCollapsed: true,
     nodes: [],
@@ -38,7 +38,7 @@ test('loads a version 1 workspace as an empty version 3 canvas', () => {
 test('migrates a version 2 workspace to an empty worktree set without losing its nodes', () => {
   const migrated = parseWorkspaceState({
     version: 2,
-    projects: [{ id: 'project-1', name: 'ADE', path: 'D:\\Development\\ADE', color: '#71a9ff' }],
+    projects: [{ id: 'project-1', name: 'Toucan', path: 'D:\\Development\\Toucan', color: '#71a9ff' }],
     activeProjectId: 'project-1',
     sidebarCollapsed: false,
     nodes: [
@@ -64,7 +64,7 @@ test('migrates a version 2 workspace to an empty worktree set without losing its
 test('migrates the legacy worklog preference to per-node focus mode', () => {
   const migrated = parseWorkspaceState({
     version: 3,
-    projects: [{ id: 'project-1', name: 'ADE', path: 'D:\\Development\\ADE', color: '#71a9ff' }],
+    projects: [{ id: 'project-1', name: 'Toucan', path: 'D:\\Development\\Toucan', color: '#71a9ff' }],
     activeProjectId: 'project-1',
     sidebarCollapsed: false,
     nodes: [
@@ -98,7 +98,7 @@ test('preserves recently closed session nodes in a version 3 workspace', () => {
     conversationId: 'conversation-1'
   }
   const parsed = parseWorkspaceState({
-    ...makeState('ADE'),
+    ...makeState('Toucan'),
     recentlyClosedNodes: [closedNode]
   })
 
@@ -108,7 +108,7 @@ test('preserves recently closed session nodes in a version 3 workspace', () => {
 test('rejects malformed recently closed session records', () => {
   assert.equal(
     parseWorkspaceState({
-      ...makeState('ADE'),
+      ...makeState('Toucan'),
       recentlyClosedNodes: [{ id: 'missing-session-fields' }]
     }),
     null
@@ -117,7 +117,7 @@ test('rejects malformed recently closed session records', () => {
 
 test('clamps a persisted closed-session stack to its ten newest entries', () => {
   const parsed = parseWorkspaceState({
-    ...makeState('ADE'),
+    ...makeState('Toucan'),
     recentlyClosedNodes: Array.from({ length: 12 }, (_, index) => ({
       id: `closed-node-${index + 1}`,
       kind: 'codex',
@@ -139,7 +139,7 @@ test('clamps a persisted closed-session stack to its ten newest entries', () => 
 test('rejects a workspace whose worktree records are malformed', () => {
   const base = {
     version: 3,
-    projects: [{ id: 'project-1', name: 'ADE', path: 'D:\\Development\\ADE', color: '#71a9ff' }],
+    projects: [{ id: 'project-1', name: 'Toucan', path: 'D:\\Development\\Toucan', color: '#71a9ff' }],
     activeProjectId: 'project-1',
     sidebarCollapsed: false,
     nodes: []
@@ -155,7 +155,7 @@ test('rejects a workspace whose worktree records are malformed', () => {
           id: 'w1',
           projectId: 'project-1',
           branch: 'feature/login',
-          path: 'D:\\Development\\ADE-worktrees\\feature-login',
+          path: 'D:\\Development\\Toucan-worktrees\\feature-login',
           baseRef: 'main',
           createdAt: '2026-08-27T09:00:00.000Z',
           position: { x: 0, y: 0 },
@@ -168,15 +168,15 @@ test('rejects a workspace whose worktree records are malformed', () => {
 })
 
 test('saves and loads a valid workspace through the store', async () => {
-  const directory = mkdtempSync(join(tmpdir(), 'ade-workspace-test-'))
+  const directory = mkdtempSync(join(tmpdir(), 'toucan-workspace-test-'))
   const store = createWorkspaceStore(join(directory, 'workspace.json'))
   const state: WorkspaceState = {
     version: 3,
     projects: [
       {
         id: 'project-1',
-        name: 'ADE',
-        path: 'D:\\Development\\ADE',
+        name: 'Toucan',
+        path: 'D:\\Development\\Toucan',
         color: '#71a9ff',
         setupCommand: 'npm install'
       }
@@ -202,7 +202,7 @@ test('saves and loads a valid workspace through the store', async () => {
         id: 'worktree-1',
         projectId: 'project-1',
         branch: 'feature/login',
-        path: 'D:\\Development\\ADE-worktrees\\feature-login',
+        path: 'D:\\Development\\Toucan-worktrees\\feature-login',
         baseRef: 'main',
         createdAt: '2026-08-27T09:00:00.000Z',
         position: { x: 40, y: 80 },
@@ -219,7 +219,7 @@ test('saves and loads a valid workspace through the store', async () => {
 test('repairs UTF-8 text that an older workspace cached as Windows-1252', () => {
   const parsed = parseWorkspaceState({
     version: 2,
-    projects: [{ id: 'project-1', name: 'ADE', path: 'D:\\Development\\ADE', color: '#71a9ff' }],
+    projects: [{ id: 'project-1', name: 'Toucan', path: 'D:\\Development\\Toucan', color: '#71a9ff' }],
     activeProjectId: 'project-1',
     sidebarCollapsed: false,
     nodes: [
@@ -243,7 +243,7 @@ test('repairs UTF-8 text that an older workspace cached as Windows-1252', () => 
 })
 
 test('rejects an invalid workspace without touching disk', async () => {
-  const directory = mkdtempSync(join(tmpdir(), 'ade-workspace-test-'))
+  const directory = mkdtempSync(join(tmpdir(), 'toucan-workspace-test-'))
   const primaryPath = join(directory, 'workspace.json')
   const store = createWorkspaceStore(primaryPath)
 
@@ -253,7 +253,7 @@ test('rejects an invalid workspace without touching disk', async () => {
 })
 
 test('a corrupt primary snapshot with no backup surfaces an unrecoverable load, never a silent empty state', async () => {
-  const directory = mkdtempSync(join(tmpdir(), 'ade-workspace-test-'))
+  const directory = mkdtempSync(join(tmpdir(), 'toucan-workspace-test-'))
   const primaryPath = join(directory, 'workspace.json')
   writeFileSync(primaryPath, '{ this is not valid json', 'utf8')
 
@@ -266,7 +266,7 @@ test('a corrupt primary snapshot with no backup surfaces an unrecoverable load, 
 })
 
 test('a fresh install with no primary or backup on disk is not reported as unrecoverable', async () => {
-  const directory = mkdtempSync(join(tmpdir(), 'ade-workspace-test-'))
+  const directory = mkdtempSync(join(tmpdir(), 'toucan-workspace-test-'))
   const primaryPath = join(directory, 'workspace.json')
   const store = createWorkspaceStore(primaryPath)
 
@@ -276,7 +276,7 @@ test('a fresh install with no primary or backup on disk is not reported as unrec
 })
 
 test('a corrupt backup with no primary also surfaces an unrecoverable load', async () => {
-  const directory = mkdtempSync(join(tmpdir(), 'ade-workspace-test-'))
+  const directory = mkdtempSync(join(tmpdir(), 'toucan-workspace-test-'))
   const primaryPath = join(directory, 'workspace.json')
   writeFileSync(`${primaryPath}.backup`, 'not json at all', 'utf8')
 
@@ -287,7 +287,7 @@ test('a corrupt backup with no primary also surfaces an unrecoverable load', asy
 })
 
 test('a save that completed before a crash leaves the previous snapshot recoverable as backup', async () => {
-  const directory = mkdtempSync(join(tmpdir(), 'ade-workspace-test-'))
+  const directory = mkdtempSync(join(tmpdir(), 'toucan-workspace-test-'))
   const primaryPath = join(directory, 'workspace.json')
   const store = createWorkspaceStore(primaryPath)
 
@@ -309,7 +309,7 @@ test('a save that completed before a crash leaves the previous snapshot recovera
 })
 
 test('recovers from the backup when the primary snapshot is corrupt', async () => {
-  const directory = mkdtempSync(join(tmpdir(), 'ade-workspace-test-'))
+  const directory = mkdtempSync(join(tmpdir(), 'toucan-workspace-test-'))
   const primaryPath = join(directory, 'workspace.json')
   const store = createWorkspaceStore(primaryPath)
 
@@ -323,7 +323,7 @@ test('recovers from the backup when the primary snapshot is corrupt', async () =
 })
 
 test('reports no recovery possible when both primary and backup are corrupt', async () => {
-  const directory = mkdtempSync(join(tmpdir(), 'ade-workspace-test-'))
+  const directory = mkdtempSync(join(tmpdir(), 'toucan-workspace-test-'))
   const primaryPath = join(directory, 'workspace.json')
   const backupPath = `${primaryPath}.backup`
   writeFileSync(primaryPath, 'garbage', 'utf8')
@@ -336,7 +336,7 @@ test('reports no recovery possible when both primary and backup are corrupt', as
 })
 
 test('a leftover temp file from an interrupted write does not affect load', async () => {
-  const directory = mkdtempSync(join(tmpdir(), 'ade-workspace-test-'))
+  const directory = mkdtempSync(join(tmpdir(), 'toucan-workspace-test-'))
   const primaryPath = join(directory, 'workspace.json')
   const store = createWorkspaceStore(primaryPath)
 
@@ -349,7 +349,7 @@ test('a leftover temp file from an interrupted write does not affect load', asyn
 })
 
 test('concurrent saves are serialized and never interleave file contents', async () => {
-  const directory = mkdtempSync(join(tmpdir(), 'ade-workspace-test-'))
+  const directory = mkdtempSync(join(tmpdir(), 'toucan-workspace-test-'))
   const primaryPath = join(directory, 'workspace.json')
   const store = createWorkspaceStore(primaryPath)
 
@@ -372,7 +372,7 @@ test('concurrent saves are serialized and never interleave file contents', async
 })
 
 test('an invalid save in the middle of a concurrent batch does not corrupt later valid saves', async () => {
-  const directory = mkdtempSync(join(tmpdir(), 'ade-workspace-test-'))
+  const directory = mkdtempSync(join(tmpdir(), 'toucan-workspace-test-'))
   const primaryPath = join(directory, 'workspace.json')
   const store = createWorkspaceStore(primaryPath)
 
@@ -392,7 +392,7 @@ test('an invalid save in the middle of a concurrent batch does not corrupt later
 })
 
 test('a save that fails while replacing the primary does not leak its temp file', async () => {
-  const directory = mkdtempSync(join(tmpdir(), 'ade-workspace-test-'))
+  const directory = mkdtempSync(join(tmpdir(), 'toucan-workspace-test-'))
   const primaryPath = join(directory, 'workspace.json')
   // A directory at the primary path makes the final rename fail after the temp file is written.
   mkdirSync(primaryPath)
@@ -405,8 +405,8 @@ test('a save that fails while replacing the primary does not leak its temp file'
   assert.deepEqual(leftoverTempFiles, [])
 })
 
-test('an unsent composer draft round-trips through the store, so it survives an ADE restart', async () => {
-  const directory = mkdtempSync(join(tmpdir(), 'ade-workspace-test-'))
+test('an unsent composer draft round-trips through the store, so it survives an Toucan restart', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'toucan-workspace-test-'))
   const store = createWorkspaceStore(join(directory, 'workspace.json'))
   const state = makeState('drafts')
   state.nodes = [
@@ -433,7 +433,7 @@ test('an unsent composer draft round-trips through the store, so it survives an 
 test('rejects a workspace whose draft or send-key preference is the wrong shape', () => {
   const base = {
     version: 3,
-    projects: [{ id: 'project-1', name: 'ADE', path: 'D:\Development\ADE', color: '#71a9ff' }],
+    projects: [{ id: 'project-1', name: 'Toucan', path: 'D:\Development\Toucan', color: '#71a9ff' }],
     activeProjectId: 'project-1',
     sidebarCollapsed: false,
     nodes: [],
@@ -463,7 +463,7 @@ test('rejects a workspace whose draft or send-key preference is the wrong shape'
 })
 
 test('unread attention records survive a restart, and stale ones are pruned on the way back in', async () => {
-  const directory = mkdtempSync(join(tmpdir(), 'ade-workspace-test-'))
+  const directory = mkdtempSync(join(tmpdir(), 'toucan-workspace-test-'))
   const store = createWorkspaceStore(join(directory, 'workspace.json'))
   const state = makeState('attention')
   state.nodes = [

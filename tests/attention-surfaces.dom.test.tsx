@@ -49,7 +49,7 @@ function createAttentionWorkspace(): {
 function chatNode(callbacks: TerminalNodeCallbacks & WorktreeNodeCallbacks): TerminalCanvasNode {
   const state: WorkspaceState = {
     version: 3,
-    projects: [{ id: 'project-1', name: 'ADE', path: '/project', color: '#71a9ff' }],
+    projects: [{ id: 'project-1', name: 'Toucan', path: '/project', color: '#71a9ff' }],
     activeProjectId: 'project-1',
     sidebarCollapsed: false,
     nodes: [

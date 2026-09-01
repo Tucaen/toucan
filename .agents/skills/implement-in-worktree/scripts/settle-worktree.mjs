@@ -76,10 +76,10 @@ if (!slug) fail(`branch name yields no usable directory: ${branch}`)
 const target = join(dirname(root), `${root.split(/[\\/]/).pop()}-worktrees`, slug)
 const base = currentBranch
 
-// Setup command: ADE's per-project workspace store.
+// Setup command: Toucan's per-project workspace store.
 const storePath = join(
   process.env.APPDATA ?? join(process.env.HOME ?? '', '.config'),
-  'ade-canvas-terminal-prototype',
+  'toucan',
   'prototype-workspace.json'
 )
 let setupCommand = null
@@ -90,7 +90,7 @@ try {
 } catch { /* no store, unreadable, or unregistered project */ }
 
 // Gitignored local config the worktree needs to run.
-const localConfig = ['.env', '.ade'].filter((name) => existsSync(join(root, name)))
+const localConfig = ['.env', '.toucan'].filter((name) => existsSync(join(root, name)))
 
 if (plan) {
   console.log(JSON.stringify({ ok: true, mode: 'create', plan: true, worktree: target, branch, base, setupCommand, localConfig }))
@@ -118,18 +118,18 @@ if (setupCommand) {
   }
 }
 
-// Leave a claim so ADE can link this worktree back to the node that asked for the work.
+// Leave a claim so Toucan can link this worktree back to the node that asked for the work.
 // Purely a hint for a host that may not be there: any failure is silent.
 let claimed = false
-if (process.env.ADE_NODE_ID) {
+if (process.env.TOUCAN_NODE_ID) {
   try {
-    const claimsPath = join(commonDir, 'ade-worktree-claims.json')
+    const claimsPath = join(commonDir, 'toucan-worktree-claims.json')
     const existing = existsSync(claimsPath)
       ? JSON.parse(readFileSync(claimsPath, 'utf8'))
       : []
     const claims = Array.isArray(existing) ? existing : []
     claims.push({
-      nodeId: process.env.ADE_NODE_ID,
+      nodeId: process.env.TOUCAN_NODE_ID,
       path: target,
       branch,
       claimedAt: new Date().toISOString()

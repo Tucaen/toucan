@@ -82,7 +82,7 @@ interface ContextMenuState {
   flowY: number
 }
 
-/** How often ADE re-checks git for worktrees it has no record of. */
+/** How often Toucan re-checks git for worktrees it has no record of. */
 const WORKTREE_SWEEP_INTERVAL_MS = 15000
 
 const nodeTypes: NodeTypes = { terminalNode: SessionNode, worktreeNode: WorktreeNode }
@@ -414,13 +414,13 @@ function Canvas(): JSX.Element {
               .then((removed) => {
                 if (!removed) {
                   window.alert(
-                    'ADE could not remove this terminal’s retained output. It may still exist in the app data folder.'
+                    'Toucan could not remove this terminal’s retained output. It may still exist in the app data folder.'
                   )
                 }
               })
               .catch(() => {
                 window.alert(
-                  'ADE could not verify removal of this terminal’s retained output. It may still exist in the app data folder.'
+                  'Toucan could not verify removal of this terminal’s retained output. It may still exist in the app data folder.'
                 )
               })
           }
@@ -996,9 +996,9 @@ function Canvas(): JSX.Element {
   }, [nodes, projects, setNodes])
 
   /**
-   * Worktrees can appear without ADE creating them - an agent running the worktree skill, a
+   * Worktrees can appear without Toucan creating them - an agent running the worktree skill, a
    * plain `git worktree add` in a terminal. Discovery only ever adds records, so a worktree
-   * ADE already knows about, or one whose directory has gone, is left to the normal flows.
+   * Toucan already knows about, or one whose directory has gone, is left to the normal flows.
    */
   useEffect(() => {
     if (!workspaceReady) return
@@ -1331,7 +1331,7 @@ function Canvas(): JSX.Element {
           <header className="app-header">
             <div>
               <span className="brand-mark" aria-hidden="true" />
-              <strong>ADE</strong>
+              <strong>Toucan</strong>
               <span className="prototype-label">canvas agent prototype</span>
             </div>
             <div className="header-target">
@@ -1481,7 +1481,7 @@ function Canvas(): JSX.Element {
                                 nodeCount > 0
                                   ? 'Delete this project’s nodes first'
                                   : projects.length === 1
-                                    ? 'ADE needs at least one project'
+                                    ? 'Toucan needs at least one project'
                                     : `Remove ${project.name}`
                               }
                               disabled={nodeCount > 0 || projects.length === 1}
@@ -1565,7 +1565,7 @@ function Canvas(): JSX.Element {
                 })}
               </div>
 
-              {/* Separated from the project rows on purpose: the library is global ADE
+              {/* Separated from the project rows on purpose: the library is global Toucan
                   functionality, not something the active project owns. */}
               <button
                 type="button"

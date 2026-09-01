@@ -6,7 +6,7 @@ updated: 2026-08-30
 
 # Mobile session access
 
-ADE should make it possible to connect to and continue sessions from a mobile device, so an active workspace is not tied to the desktop interface.
+Toucan should make it possible to connect to and continue sessions from a mobile device, so an active workspace is not tied to the desktop interface.
 
 ## Current understanding
 
@@ -20,7 +20,7 @@ ADE should make it possible to connect to and continue sessions from a mobile de
 - What session state and controls must be available remotely?
 - Should SSH be the user-facing transport, an implementation detail, or replaced by a purpose-built secure protocol?
 - Should the mobile experience be a native app, a web app, or another form of companion client?
-- What name best communicates the mobile app's relationship to ADE?
+- What name best communicates the mobile app's relationship to Toucan?
 
 ## Related topics
 

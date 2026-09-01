@@ -10,12 +10,15 @@ import { describeForcedRemovalCost, planWorktreeRemoval } from '../src/renderer/
 
 test('a worktree directory sits beside the checkout, never inside it', () => {
   assert.equal(
-    deriveWorktreeDirectory('D:\\Development\\ADE', 'feature/login'),
-    'D:\\Development\\ADE-worktrees\\feature-login'
+    deriveWorktreeDirectory('D:\\Development\\Toucan', 'feature/login'),
+    'D:\\Development\\Toucan-worktrees\\feature-login'
   )
-  assert.equal(deriveWorktreeDirectory('/home/dev/ade', 'fix/crash'), '/home/dev/ade-worktrees/fix-crash')
+  assert.equal(deriveWorktreeDirectory('/home/dev/toucan', 'fix/crash'), '/home/dev/toucan-worktrees/fix-crash')
   // A trailing separator on the project path must not produce an empty container segment.
-  assert.equal(deriveWorktreeDirectory('D:\\Development\\ADE\\', 'main-2'), 'D:\\Development\\ADE-worktrees\\main-2')
+  assert.equal(
+    deriveWorktreeDirectory('D:\\Development\\Toucan\\', 'main-2'),
+    'D:\\Development\\Toucan-worktrees\\main-2'
+  )
 })
 
 test('branch names collapse to one safe directory segment', () => {

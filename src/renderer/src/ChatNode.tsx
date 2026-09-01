@@ -910,13 +910,13 @@ function AuthPanel(
                     setSubmittingCode(true)
                     void props.submitAuthCode(code).then((sent) => {
                       if (sent) setAuthCode('')
-                      else setCodeError('ADE could not send the code. Start sign-in again and retry.')
+                      else setCodeError('Toucan could not send the code. Start sign-in again and retry.')
                       setSubmittingCode(false)
                     })
                   }}
                 >
                   <label htmlFor={codeInputId}>Paste the code shown in your browser</label>
-                  <small>Only needed if the browser asks you to paste a code back into ADE.</small>
+                  <small>Only needed if the browser asks you to paste a code back into Toucan.</small>
                   <div>
                     <input
                       id={codeInputId}

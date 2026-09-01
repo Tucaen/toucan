@@ -2,8 +2,8 @@ import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
 import { discoverWorktrees, parseWorktreeList, type WorktreeClaim } from '../src/shared/worktree'
 
-const PROJECT = 'D:\\Development\\ADE'
-const FEATURE = 'D:\\Development\\ADE-worktrees\\feat-login'
+const PROJECT = 'D:\\Development\\Toucan'
+const FEATURE = 'D:\\Development\\Toucan-worktrees\\feat-login'
 
 const porcelain = [
   `worktree ${PROJECT}`,
@@ -66,7 +66,7 @@ test('a worktree the workspace already records is left alone', () => {
 test('a recorded path matches whatever slash and case shape git reports', () => {
   const discovered = discoverWorktrees(
     parseWorktreeList(porcelain),
-    [{ path: 'd:/development/ade-worktrees/feat-login/' }],
+    [{ path: 'd:/development/toucan-worktrees/feat-login/' }],
     [],
     'main'
   )

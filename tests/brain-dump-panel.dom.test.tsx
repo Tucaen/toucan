@@ -22,7 +22,7 @@ class ResizeObserverStub {
   disconnect(): void {}
 }
 
-const project = { id: 'ade', name: 'ADE', path: 'D:\\Development\\ADE', color: '#71a9ff' }
+const project = { id: 'toucan', name: 'Toucan', path: 'D:\\Development\\Toucan', color: '#71a9ff' }
 
 function savedWorkspace(overrides: Partial<WorkspaceState> = {}): WorkspaceState {
   return {

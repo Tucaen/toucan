@@ -6,11 +6,11 @@ import { test } from 'node:test'
 import { createConversationHistory, encodeClaudeProjectDirectory } from '../src/main/conversation-history'
 import { createConversationTitleStore } from '../src/main/conversation-title-store'
 
-const PROJECT = 'D:\\Dev\\ADE'
-const WORKTREE = 'D:\\Dev\\ADE-worktrees\\feature'
+const PROJECT = 'D:\\Dev\\Toucan'
+const WORKTREE = 'D:\\Dev\\Toucan-worktrees\\feature'
 
 function makeHome(): string {
-  return mkdtempSync(join(tmpdir(), 'ade-history-'))
+  return mkdtempSync(join(tmpdir(), 'toucan-history-'))
 }
 
 function history(home: string): ReturnType<typeof createConversationHistory> {
@@ -94,7 +94,7 @@ function writeCodexTranscript(options: {
 }
 
 test('encodes a working directory the way Claude names its project folder', () => {
-  assert.equal(encodeClaudeProjectDirectory('d:\\Development\\ADE'), 'd--Development-ADE')
+  assert.equal(encodeClaudeProjectDirectory('d:\\Development\\Toucan'), 'd--Development-Toucan')
 })
 
 test('lists both providers for a directory, newest first', async () => {
@@ -186,13 +186,13 @@ test('matches a Claude project folder whose drive letter case differs from the r
   try {
     writeClaudeTranscript({
       home,
-      directoryName: 'd--Dev-ADE',
+      directoryName: 'd--Dev-Toucan',
       id: 'claude-1',
       turns: [{ role: 'user', text: 'hello' }],
       mtimeSeconds: 1_700_000_000
     })
 
-    const page = await history(home).list({ directories: ['D:\\Dev\\ADE'] })
+    const page = await history(home).list({ directories: ['D:\\Dev\\Toucan'] })
 
     assert.deepEqual(
       page.entries.map((entry) => entry.id),
@@ -212,15 +212,15 @@ test('titles a conversation from the first typed turn, not an injected context b
       cwd: PROJECT,
       day: '21',
       turns: [
-        { role: 'user', text: '<environment_context>cwd=D:\\Dev\\ADE</environment_context>' },
-        { role: 'user', text: 'compare ADE to orca' }
+        { role: 'user', text: '<environment_context>cwd=D:\\Dev\\Toucan</environment_context>' },
+        { role: 'user', text: 'compare Toucan to orca' }
       ],
       mtimeSeconds: 1_700_000_000
     })
 
     const page = await history(home).list({ directories: [PROJECT] })
 
-    assert.equal(page.entries[0].title, 'compare ADE to orca')
+    assert.equal(page.entries[0].title, 'compare Toucan to orca')
   } finally {
     rmSync(home, { recursive: true, force: true })
   }

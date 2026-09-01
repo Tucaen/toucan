@@ -6,7 +6,7 @@ updated: 2026-08-30
 
 # Invisible background processes
 
-ADE's background process execution must never create transient command windows or steal focus from the user's current activity.
+Toucan's background process execution must never create transient command windows or steal focus from the user's current activity.
 
 ## Current understanding
 

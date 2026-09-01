@@ -6,7 +6,7 @@ import type { AgentActivity } from '../src/shared/agent'
 // File-operation tool cards (issue #88): Read/Write/Edit/MultiEdit/NotebookEdit lead with the
 // path, shortened against the workspace root, and show the operation rather than a raw dump.
 
-const WORKSPACE_ROOT = 'D:\\Development\\ADE'
+const WORKSPACE_ROOT = 'D:\\Development\\Toucan'
 
 const baseChatViewProps: ChatViewProps = {
   provider: 'claude',
@@ -116,7 +116,7 @@ describe('file-operation tool cards', () => {
   })
 
   test('a worktree session shortens a file it read from the main checkout too', () => {
-    const worktree = 'D:\\Development\\ADE.worktrees\\feature'
+    const worktree = 'D:\\Development\\Toucan.worktrees\\feature'
     const { container } = render(
       <ChatView
         {...baseChatViewProps}

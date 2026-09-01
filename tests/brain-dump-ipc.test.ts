@@ -36,9 +36,9 @@ test('capture IPC rejects malformed input and forwards only the narrow capture r
   await handlers.get('brain-dump:capture-start')!(event, {
     content: 'reviewed',
     provider: 'codex',
-    projectPath: 'D:\\Development\\ADE'
+    projectPath: 'D:\\Development\\Toucan'
   })
-  assert.deepEqual(starts, [{ content: 'reviewed', provider: 'codex', projectPath: 'D:\\Development\\ADE' }])
+  assert.deepEqual(starts, [{ content: 'reviewed', provider: 'codex', projectPath: 'D:\\Development\\Toucan' }])
 
   await handlers.get('brain-dump:list')!(event, 'active')
   assert.deepEqual(subscribers, [event.sender])

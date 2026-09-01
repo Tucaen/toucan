@@ -17,7 +17,7 @@ import {
 // and where selection lands once a topic leaves the collection it was selected in.
 
 const projects: WorkspaceProject[] = [
-  { id: 'ade', name: 'ADE', path: 'D:\\Development\\ADE', color: '#71a9ff' },
+  { id: 'toucan', name: 'Toucan', path: 'D:\\Development\\Toucan', color: '#71a9ff' },
   { id: 'site', name: 'Site', path: '/home/user/site', color: '#74d8a2' }
 ]
 
@@ -33,14 +33,14 @@ function topic(overrides: Partial<BrainDumpTopic> & Pick<BrainDumpTopic, 'slug'>
 }
 
 test('the same checkout matches whatever drive casing and separators it arrived with', () => {
-  equal(brainDumpPathIdentity('D:\\Development\\ADE\\'), brainDumpPathIdentity('d:/development/ade'))
+  equal(brainDumpPathIdentity('D:\\Development\\Toucan\\'), brainDumpPathIdentity('d:/development/toucan'))
 })
 
 test('a registered project supplies its name and colour', () => {
-  deepEqual(resolveBrainDumpProject('d:/development/ade', projects), {
-    label: 'ADE',
+  deepEqual(resolveBrainDumpProject('d:/development/toucan', projects), {
+    label: 'Toucan',
     color: '#71a9ff',
-    path: 'D:\\Development\\ADE',
+    path: 'D:\\Development\\Toucan',
     registered: true,
     unassigned: false
   })
@@ -101,7 +101,7 @@ test('an empty query keeps every row in library order', () => {
 test('search is case-insensitive across title, slug, body, and project identity', () => {
   const topics = [
     topic({ slug: 'voice-input', title: 'Voice input', markdown: 'moonshine runs locally' }),
-    topic({ slug: 'panel-width', title: 'Panel width', projectPath: 'D:\\Development\\ADE' }),
+    topic({ slug: 'panel-width', title: 'Panel width', projectPath: 'D:\\Development\\Toucan' }),
     topic({ slug: 'other', title: 'Other' })
   ]
   deepEqual(
@@ -109,7 +109,7 @@ test('search is case-insensitive across title, slug, body, and project identity'
     ['voice-input']
   )
   deepEqual(
-    searchBrainDumpTopics(topics, 'ade', projects).map((entry) => entry.slug),
+    searchBrainDumpTopics(topics, 'toucan', projects).map((entry) => entry.slug),
     ['panel-width']
   )
   deepEqual(

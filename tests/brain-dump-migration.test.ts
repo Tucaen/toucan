@@ -9,7 +9,7 @@ const topic = (title: string, body = ''): string =>
   `---\ntitle: ${title}\ncreated: 2026-08-30\nupdated: 2026-08-31\n---\n\n# ${title}\n\n${body}\n`
 
 test('migration plans and imports legacy topics while converting only known topic links', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'ade-migration-'))
+  const directory = await mkdtemp(join(tmpdir(), 'toucan-migration-'))
   const source = join(directory, 'legacy')
   const destination = join(directory, 'brain-dumps')
   await mkdir(source)
@@ -30,7 +30,7 @@ test('migration plans and imports legacy topics while converting only known topi
 })
 
 test('migration performs no writes when any source is malformed or any slug collides', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'ade-migration-'))
+  const directory = await mkdtemp(join(tmpdir(), 'toucan-migration-'))
   const source = join(directory, 'legacy')
   const destination = join(directory, 'brain-dumps')
   await mkdir(source)

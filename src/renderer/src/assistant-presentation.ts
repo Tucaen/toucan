@@ -3,7 +3,7 @@ import type { AgentMessagePresentation } from '../../shared/agent'
 export interface AssistantPresentationMessage {
   role: string
   presentation?: AgentMessagePresentation
-  /** True while ADE is waiting for the turn boundary to decide whether unphased text was final. */
+  /** True while Toucan is waiting for the turn boundary to decide whether unphased text was final. */
   presentationProvisional?: boolean
   complete?: boolean
 }

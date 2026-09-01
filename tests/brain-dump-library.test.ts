@@ -8,7 +8,7 @@ import { createBrainDumpLibrary } from '../src/main/brain-dump-library'
 const active = `---\ntitle: Active topic\ncreated: 2026-08-29\nupdated: 2026-08-30\nowner: me\n---\n\n# Active topic\n\nSee [[other-topic]].\n`
 
 async function libraryRoot(): Promise<string> {
-  return mkdtemp(join(tmpdir(), 'ade-brain-dumps-'))
+  return mkdtemp(join(tmpdir(), 'toucan-brain-dumps-'))
 }
 
 test('missing collections are empty and listing isolates malformed topics', async () => {
@@ -58,8 +58,11 @@ test('topics expose optional absolute project paths without requiring the projec
 test('topics reject malformed or non-absolute project paths', async () => {
   const root = await libraryRoot()
   await mkdir(join(root, 'active'), { recursive: true })
-  await writeFile(join(root, 'active', 'relative.md'), active.replace('owner: me', 'project: "projects/ADE"'))
-  await writeFile(join(root, 'active', 'malformed.md'), active.replace('owner: me', 'project: "D:\\Development\\ADE"'))
+  await writeFile(join(root, 'active', 'relative.md'), active.replace('owner: me', 'project: "projects/Toucan"'))
+  await writeFile(
+    join(root, 'active', 'malformed.md'),
+    active.replace('owner: me', 'project: "D:\\Development\\Toucan"')
+  )
   const result = await createBrainDumpLibrary({ rootDirectory: root, today: () => '2026-08-31' }).list('active')
   assert.equal(result.topics.length, 0)
   assert.equal(result.diagnostics.length, 2)
@@ -88,11 +91,11 @@ test('archiving preserves the project association', async () => {
   await mkdir(join(root, 'active'), { recursive: true })
   await writeFile(
     join(root, 'active', 'active-topic.md'),
-    active.replace('owner: me', 'project: "D:\\\\Development\\\\ADE"')
+    active.replace('owner: me', 'project: "D:\\\\Development\\\\Toucan"')
   )
   const library = createBrainDumpLibrary({ rootDirectory: root, today: () => '2026-08-31' })
   const archived = await library.archive('active-topic', 'resolved')
-  assert.equal(archived.ok && archived.topic.projectPath, 'D:\\Development\\ADE')
+  assert.equal(archived.ok && archived.topic.projectPath, 'D:\\Development\\Toucan')
 })
 
 test('lifecycle changes preserve complex unknown YAML fields verbatim', async () => {
