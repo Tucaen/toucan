@@ -14,12 +14,25 @@ export function BrainDumpProjectChip({ project }: { project: BrainDumpProjectIde
         data-unassigned={project.unassigned ? 'true' : undefined}
         title={project.path ?? 'This topic is not assigned to a project.'}
       >
-        {project.color && (
-          <span className="brain-dump-project-mark" style={{ background: project.color }} aria-hidden="true" />
-        )}
-        <span className="brain-dump-project-label">{project.label}</span>
+        <BrainDumpProjectChipContent project={project} />
       </span>
       {project.note && <span className="brain-dump-project-note">{project.note}</span>}
+    </>
+  )
+}
+
+/**
+ * The identity itself - colour mark and name - without the element that carries it. Shared so the
+ * read-only chip and `BrainDumpProjectPicker`'s trigger can never present the same project two
+ * different ways.
+ */
+export function BrainDumpProjectChipContent({ project }: { project: BrainDumpProjectIdentity }): JSX.Element {
+  return (
+    <>
+      {project.color && (
+        <span className="brain-dump-project-mark" style={{ background: project.color }} aria-hidden="true" />
+      )}
+      <span className="brain-dump-project-label">{project.label}</span>
     </>
   )
 }

@@ -58,14 +58,10 @@ import { WorkspaceRootsContext } from './workspace-root'
 import { buildHandoffPrompt, planWorktreeHandoff } from '../../shared/worktree-handoff'
 import type { TerminalCanvasNode, TerminalNodeStatus } from './canvas-workspace'
 import { attentionTextKey, READ_ON_VIEW_KINDS, type AttentionKind } from '../../shared/attention'
-import {
-  computeNodePickerMenuPosition,
-  type NodePickerMenuOptions,
-  type NodePickerMenuSize
-} from './node-picker-menu-position'
 import { imageFilesFromClipboard, type AgentImageAttachment } from './image-attachment'
 import { classifyAssistantMessage, type DecisionOption } from './decision-message'
 import { pendingDecisionsFromMessages, type PendingDecision } from './pending-decisions'
+import { usePortalMenuPosition } from './use-portal-menu-position'
 import NodeBorderResizer from './NodeBorderResizer'
 import UnreadToggle from './UnreadToggle'
 import SessionUsageBar from './SessionUsageBar'
@@ -257,59 +253,6 @@ const pickerCopy = {
   },
   sendKey: { icon: Keyboard, heading: 'Send with', idle: 'Send key', hint: 'Choose which key sends a message' }
 } as const
-
-/**
- * Positions a portal-rendered menu against an anchor inside a canvas node. Every floating menu in
- * here has to do this the same way - `.terminal-node` is `overflow: hidden`, so a CSS-anchored
- * menu clips the moment its node nears a canvas edge - so the measure/clamp/track loop lives once,
- * here. Returns null until the first measurement, which the caller renders as `visibility: hidden`
- * so the menu never flashes at the wrong place.
- */
-function usePortalMenuPosition(
-  anchorRef: RefObject<HTMLElement>,
-  menuRef: RefObject<HTMLElement>,
-  enabled: boolean,
-  fallback: NodePickerMenuSize,
-  options?: NodePickerMenuOptions,
-  // Anything that can change the menu's own size (its option list, say) and so its placement.
-  remeasureOn?: unknown
-): { top: number; left: number } | null {
-  const [position, setPosition] = useState<{ top: number; left: number } | null>(null)
-
-  useLayoutEffect(() => {
-    if (!enabled) {
-      setPosition(null)
-      return
-    }
-    const reposition = (): void => {
-      const anchor = anchorRef.current?.getBoundingClientRect()
-      if (!anchor) return
-      const menu = menuRef.current?.getBoundingClientRect()
-      setPosition(
-        computeNodePickerMenuPosition(
-          anchor,
-          { width: menu?.width || fallback.width, height: menu?.height ?? fallback.height },
-          { width: window.innerWidth, height: window.innerHeight },
-          options
-        )
-      )
-    }
-    reposition()
-    window.addEventListener('resize', reposition)
-    window.addEventListener('scroll', reposition, true)
-    // The anchor can change size without the window doing anything - a composer growing with its
-    // draft, a node dragged by its resize border - and the menu has to follow it.
-    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(reposition) : null
-    if (anchorRef.current) observer?.observe(anchorRef.current)
-    return () => {
-      window.removeEventListener('resize', reposition)
-      window.removeEventListener('scroll', reposition, true)
-      observer?.disconnect()
-    }
-  }, [anchorRef, enabled, menuRef, remeasureOn])
-
-  return position
-}
 
 /** One dropdown shape for every agent-reported selector, so modes and models stay consistent. */
 export function SelectorPicker(props: {

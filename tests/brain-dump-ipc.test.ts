@@ -7,12 +7,17 @@ test('capture IPC rejects malformed input and forwards only the narrow capture r
   const handlers = new Map<string, (...args: unknown[]) => unknown>()
   const starts: unknown[] = []
   const subscribers: unknown[] = []
+  const assignments: [string, string | undefined][] = []
   registerBrainDumpIpc(
     { handle: (channel, listener) => void handlers.set(channel, listener as (...args: unknown[]) => unknown) },
     {
       list: async () => ({ topics: [], diagnostics: [] }),
       resolve: async (slug) => ({ status: 'missing', slug }),
-      archive: async () => ({ ok: false, code: 'unused', message: 'Unused.' })
+      archive: async () => ({ ok: false, code: 'unused', message: 'Unused.' }),
+      assignProject: async (slug, projectPath) => {
+        assignments.push([slug, projectPath])
+        return { ok: false, code: 'unused', message: 'Unused.' }
+      }
     } satisfies BrainDumpLibraryApi,
     {
       start: async (request) => {
@@ -42,4 +47,17 @@ test('capture IPC rejects malformed input and forwards only the narrow capture r
 
   await handlers.get('brain-dump:list')!(event, 'active')
   assert.deepEqual(subscribers, [event.sender])
+
+  const badAssignment = await handlers.get('brain-dump:assign-project')!(event, 42, 'D:\\Development\\Toucan')
+  assert.deepEqual(badAssignment, {
+    ok: false,
+    code: 'invalid-request',
+    message: 'Slug is required and the project must be a path.'
+  })
+  await handlers.get('brain-dump:assign-project')!(event, 'topic', 'D:\\Development\\Toucan')
+  await handlers.get('brain-dump:assign-project')!(event, 'topic', undefined)
+  assert.deepEqual(assignments, [
+    ['topic', 'D:\\Development\\Toucan'],
+    ['topic', undefined]
+  ])
 })

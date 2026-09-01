@@ -71,6 +71,15 @@ export function createMockBrainDumpApi(overrides: Partial<BrainDumpApi> = {}): M
       collections.archived.topics.unshift(archived)
       return { ok: true as const, topic: archived }
     }),
+    assignProject: vi.fn(async (slug: string, projectPath: string | undefined) => {
+      const topic = collections.active.topics.find((candidate) => candidate.slug === slug)
+      if (!topic) return { ok: false as const, code: 'missing-source', message: 'active topic does not exist.' }
+      const assigned = { ...topic, projectPath }
+      collections.active.topics = collections.active.topics.map((candidate) =>
+        candidate.slug === slug ? assigned : candidate
+      )
+      return { ok: true as const, topic: assigned }
+    }),
     startCapture: vi.fn(async () => ({ ok: true as const, state: { status: 'working' as const, jobId: 'job-1' } })),
     currentCapture: vi.fn(async () => null),
     cancelCapture: vi.fn(async () => undefined),

@@ -62,6 +62,8 @@ export default function BrainDumpLibraryPanel(props: BrainDumpLibraryPanelProps)
   const [narrowView, setNarrowView] = useState<'list' | 'reader'>('list')
   const [resizing, setResizing] = useState(false)
   const [draftFocusSignal, setDraftFocusSignal] = useState(0)
+  /** A list row asked for that topic's project picker; the nonce is what makes a repeat click open it again. */
+  const [projectPicker, setProjectPicker] = useState<{ slug: string; nonce: number } | null>(null)
   /** The provider a running capture was submitted with, promoted to the preference only on success. */
   const submittedProvider = useRef(panel.provider ?? 'codex')
   const searchRef = useRef<HTMLInputElement>(null)
@@ -360,6 +362,12 @@ export default function BrainDumpLibraryPanel(props: BrainDumpLibraryPanelProps)
                   library.selectTopic(slug)
                   setNarrowView('reader')
                 }}
+                onSelectProject={(slug) => {
+                  rememberScroll()
+                  library.selectTopic(slug)
+                  setNarrowView('reader')
+                  setProjectPicker((current) => ({ slug, nonce: (current?.nonce ?? 0) + 1 }))
+                }}
               />
             )}
             {current.diagnostics.length > 0 && (
@@ -386,6 +394,18 @@ export default function BrainDumpLibraryPanel(props: BrainDumpLibraryPanelProps)
                 today={props.today}
                 readerRef={readerRef}
                 lifecyclePending={library.lifecycle.pending}
+                assignmentPending={library.assignment.pending}
+                assignmentError={library.assignment.error}
+                projectPickerSignal={projectPicker?.slug === selected.slug ? projectPicker.nonce : undefined}
+                onAssignProject={(project) => {
+                  void library.assignProject(selected.slug, project?.path, project?.name ?? 'no project')
+                }}
+                onOpenProjectPicker={() => {
+                  library.clearAssignmentError()
+                  // Retired the moment the menu it asked for is open, so a later remount of the
+                  // reader cannot reopen it out of nowhere.
+                  setProjectPicker(null)
+                }}
                 onBack={
                   mode === 'narrow'
                     ? () => {

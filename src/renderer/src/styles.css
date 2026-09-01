@@ -3998,6 +3998,65 @@ button {
   width: 8px;
   height: 8px;
   border-radius: 2px;
+  flex: none;
+}
+
+/* A row's chip is not a control of its own - it routes to the reader's picker - but it has to look
+   like the click it accepts, so it borrows the trigger's hover treatment. */
+.brain-dump-row-project[data-assignable='true'] {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 1px 6px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.brain-dump-row-project[data-assignable='true']:hover {
+  border-color: #333b48;
+  background: #1a212b;
+}
+
+/* The chip as a control: same identity, plus the affordances that say it can be changed. */
+.brain-dump-project-trigger {
+  padding: 1px 6px 1px 5px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: none;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.brain-dump-project-trigger:hover:not(:disabled),
+.brain-dump-project-trigger[aria-expanded='true'] {
+  border-color: #333b48;
+  background: #1a212b;
+  color: #e4e9f1;
+}
+
+.brain-dump-project-trigger:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+.brain-dump-project-trigger > .lucide {
+  width: 12px;
+  height: 12px;
+  opacity: 0.7;
+}
+
+.brain-dump-project-menu > button > strong {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.brain-dump-project-error {
+  margin-left: 6px;
+  color: #ff9b9b;
+  font-size: 11px;
 }
 
 .brain-dump-project-note,

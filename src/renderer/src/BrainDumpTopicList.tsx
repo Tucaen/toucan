@@ -24,6 +24,12 @@ export interface BrainDumpTopicListProps {
   selectedSlug?: string
   labelledBy: string
   onSelect(slug: string): void
+  /**
+   * A row's project chip was clicked. Rows are listbox `option`s, so the chip is not a control of
+   * its own - it selects the row and asks the reader's picker to open, which keeps the listbox
+   * intact while still making the label the user is looking at act like the clickable tag it is.
+   */
+  onSelectProject?(slug: string): void
   listRef?: React.RefObject<HTMLDivElement>
 }
 
@@ -100,7 +106,18 @@ export default function BrainDumpTopicList(props: BrainDumpTopicListProps): JSX.
                 <span className="brain-dump-row-title">{topic.title}</span>
                 <span className="brain-dump-row-preview">{brainDumpTopicPreview(topic.markdown)}</span>
                 <span className="brain-dump-row-meta">
-                  <BrainDumpProjectChip project={project} />
+                  <span
+                    className="brain-dump-row-project"
+                    data-assignable={props.onSelectProject && topic.collection === 'active' ? 'true' : undefined}
+                    onClick={(event) => {
+                      if (!props.onSelectProject || topic.collection !== 'active') return
+                      // The row still selects; only the reader's picker is asked to open as well.
+                      event.stopPropagation()
+                      props.onSelectProject(topic.slug)
+                    }}
+                  >
+                    <BrainDumpProjectChip project={project} />
+                  </span>
                   <span className="brain-dump-row-date">
                     Updated {describeBrainDumpDate(topic.updated, props.today)}
                   </span>

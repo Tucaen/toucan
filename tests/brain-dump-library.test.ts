@@ -162,3 +162,79 @@ test('lifecycle mutations are serialized so concurrent archives cannot both succ
   assert.equal(results.filter((result) => result.ok).length, 1)
   assert.equal(results.filter((result) => !result.ok).length, 1)
 })
+
+test('assigning a project rewrites only the project field and leaves the rest of the topic intact', async () => {
+  const root = await libraryRoot()
+  await mkdir(join(root, 'active'), { recursive: true })
+  await writeFile(join(root, 'active', 'active-topic.md'), active)
+  const library = createBrainDumpLibrary({ rootDirectory: root, today: () => '2026-08-31' })
+
+  const assigned = await library.assignProject('active-topic', 'D:\\Development\\Toucan')
+  assert.equal(assigned.ok, true)
+  if (assigned.ok) assert.equal(assigned.topic.projectPath, 'D:\\Development\\Toucan')
+  const text = await readFile(join(root, 'active', 'active-topic.md'), 'utf8')
+  assert.match(text, /^project: "D:\\\\Development\\\\Toucan"$/m)
+  assert.match(text, /^owner: me$/m)
+  assert.match(text, /See \[\[other-topic\]\]\./)
+  // A metadata correction is not new material, so the topic keeps the date it was last written.
+  assert.match(text, /^updated: 2026-08-30$/m)
+
+  const reassigned = await library.assignProject('active-topic', 'D:\\Development\\Other')
+  assert.equal(reassigned.ok, true)
+  const rewritten = await readFile(join(root, 'active', 'active-topic.md'), 'utf8')
+  assert.equal(rewritten.match(/^project:/gm)?.length, 1)
+  assert.match(rewritten, /^project: "D:\\\\Development\\\\Other"$/m)
+
+  const cleared = await library.assignProject('active-topic', undefined)
+  assert.equal(cleared.ok, true)
+  if (cleared.ok) assert.equal(cleared.topic.projectPath, undefined)
+  const unassigned = await readFile(join(root, 'active', 'active-topic.md'), 'utf8')
+  assert.equal(unassigned.match(/^project:/gm), null)
+  assert.match(unassigned, /^owner: me$/m)
+})
+
+test('assignment rejects bad slugs, bad paths, missing topics, and archived snapshots', async () => {
+  const root = await libraryRoot()
+  await mkdir(join(root, 'active'), { recursive: true })
+  await mkdir(join(root, 'archived'), { recursive: true })
+  await writeFile(join(root, 'active', 'active-topic.md'), active)
+  const archived = active.replace('---\\n\\n#', 'outcome: resolved\\narchived: 2026-08-31\\n---\\n\\n#')
+  await writeFile(join(root, 'archived', 'archived-topic.md'), archived)
+  const library = createBrainDumpLibrary({ rootDirectory: root, today: () => '2026-08-31' })
+
+  const badSlug = await library.assignProject('../escape', 'D:\\Development\\Toucan')
+  assert.equal(badSlug.ok, false)
+  if (!badSlug.ok) assert.equal(badSlug.code, 'invalid-slug')
+
+  for (const path of ['', 'projects/Toucan', './relative']) {
+    const result = await library.assignProject('active-topic', path)
+    assert.equal(result.ok, false, path)
+    if (!result.ok) assert.equal(result.code, 'invalid-project')
+  }
+
+  const missing = await library.assignProject('not-here', 'D:\\Development\\Toucan')
+  assert.equal(missing.ok, false)
+  if (!missing.ok) assert.equal(missing.code, 'missing-source')
+
+  const immutable = await library.assignProject('archived-topic', 'D:\\Development\\Toucan')
+  assert.equal(immutable.ok, false)
+  if (!immutable.ok) assert.equal(immutable.code, 'immutable-archive')
+  assert.equal(await readFile(join(root, 'archived', 'archived-topic.md'), 'utf8'), archived)
+  assert.equal(await readFile(join(root, 'active', 'active-topic.md'), 'utf8'), active)
+  assert.deepEqual(
+    (await readdir(join(root, 'active'))).filter((name) => name.includes('.tmp')),
+    []
+  )
+})
+
+test('assignment refuses a malformed topic rather than rewriting it', async () => {
+  const root = await libraryRoot()
+  await mkdir(join(root, 'active'), { recursive: true })
+  const malformed = '# no frontmatter\\n'
+  await writeFile(join(root, 'active', 'active-topic.md'), malformed)
+  const library = createBrainDumpLibrary({ rootDirectory: root, today: () => '2026-08-31' })
+  const result = await library.assignProject('active-topic', 'D:\\Development\\Toucan')
+  assert.equal(result.ok, false)
+  if (!result.ok) assert.equal(result.code, 'malformed-source')
+  assert.equal(await readFile(join(root, 'active', 'active-topic.md'), 'utf8'), malformed)
+})

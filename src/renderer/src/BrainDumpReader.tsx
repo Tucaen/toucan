@@ -6,6 +6,7 @@ import type { WorkspaceProject } from '../../shared/terminal'
 import { classifyBrainDumpLink, linkifyBrainDumpReferences, parseBrainDumpReferences } from './brain-dump-links'
 import { describeBrainDumpDate, resolveBrainDumpProject } from './brain-dump-topics'
 import { BrainDumpProjectChip } from './BrainDumpProjectChip'
+import BrainDumpProjectPicker from './BrainDumpProjectPicker'
 import { markdownBlockComponents, remarkPlugins } from './MarkdownMessage'
 
 /**
@@ -29,9 +30,16 @@ export interface BrainDumpReaderProps {
   projects: readonly WorkspaceProject[]
   today: string
   lifecyclePending: boolean
+  /** In flight state of a project reassignment, kept separate from the archive's own. */
+  assignmentPending: boolean
+  assignmentError?: string
   /** Rendered only in narrow mode, where the reader replaces the list. */
   onBack?(): void
   onArchive(): void
+  onAssignProject(project: WorkspaceProject | undefined): void
+  onOpenProjectPicker(): void
+  /** Set when something outside the reader - a chip in the list - asked for the picker. */
+  projectPickerSignal?: number
   onOpenReference(slug: string): void
   resolveReference(slug: string): Promise<boolean>
   readerRef?: React.RefObject<HTMLDivElement>
@@ -134,7 +142,20 @@ export default function BrainDumpReader(props: BrainDumpReaderProps): JSX.Elemen
           <span className="brain-dump-reader-slug" title="Reference this topic with this identity">
             [[{topic.slug}]]
           </span>
-          <BrainDumpProjectChip project={project} />
+          {/* An archived topic is an immutable snapshot, so its project is reported, not offered. */}
+          {topic.collection === 'active' ? (
+            <BrainDumpProjectPicker
+              project={project}
+              projects={props.projects}
+              pending={props.assignmentPending}
+              error={props.assignmentError}
+              onAssign={props.onAssignProject}
+              onOpen={props.onOpenProjectPicker}
+              openSignal={props.projectPickerSignal}
+            />
+          ) : (
+            <BrainDumpProjectChip project={project} />
+          )}
           <span className="brain-dump-reader-date">Updated {describeBrainDumpDate(topic.updated, props.today)}</span>
         </div>
         <div className="brain-dump-reader-actions">

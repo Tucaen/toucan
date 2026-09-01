@@ -66,6 +66,12 @@ export interface BrainDumpLibraryApi {
   list(collection: BrainDumpCollection): Promise<BrainDumpListResult>
   resolve(slug: string): Promise<BrainDumpReferenceResult>
   archive(slug: string, outcome: BrainDumpOutcome): Promise<BrainDumpMutationResult>
+  /**
+   * Files an active topic under `projectPath`, or under no project when it is `undefined`. Only
+   * active topics can be reassigned: an archived topic is an immutable snapshot of what was true
+   * when it was archived.
+   */
+  assignProject(slug: string, projectPath: string | undefined): Promise<BrainDumpMutationResult>
 }
 
 export interface BrainDumpApi extends BrainDumpLibraryApi {

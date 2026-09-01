@@ -1,4 +1,4 @@
-import { link, mkdir, readFile, readdir, rm, unlink } from 'node:fs/promises'
+import { link, mkdir, readFile, readdir, rename, rm, unlink } from 'node:fs/promises'
 import { isAbsolute, join, normalize, win32 } from 'node:path'
 import type {
   BrainDumpLibraryApi,
@@ -167,6 +167,50 @@ export function createBrainDumpLibrary(options: BrainDumpLibraryOptions): BrainD
     return result
   }
 
+  /**
+   * Reads a topic, applies `updates` to its frontmatter, and proves the result is still a valid
+   * topic of `destinationCollection` before anything is written. Throws when either end fails to
+   * parse, so no mutation can leave behind a file the library would not have accepted.
+   */
+  async function rewritten(
+    slug: string,
+    sourceCollection: BrainDumpCollection,
+    destinationCollection: BrainDumpCollection,
+    updates: Record<string, string | undefined>
+  ): Promise<string> {
+    const markdown = await readFile(pathFor(sourceCollection, slug), 'utf8')
+    parseBrainDumpTopic(markdown, slug, sourceCollection)
+    const transformed = mutateFrontmatter(markdown, updates)
+    parseBrainDumpTopic(transformed, slug, destinationCollection)
+    return transformed
+  }
+
+  /**
+   * Writes `contents` beside its destination and hands the finished temp file to `promote`, which
+   * is the only thing the two mutation shapes disagree about: a move between collections must
+   * refuse a destination that already exists, an in-place rewrite must replace one. A failure at
+   * any point leaves no temp file behind and the destination as it was.
+   */
+  async function writeThroughTemporary(
+    collection: BrainDumpCollection,
+    slug: string,
+    contents: string,
+    promote: (temporary: string, destination: string) => Promise<void>
+  ): Promise<void> {
+    const folder = directory(collection)
+    const destination = pathFor(collection, slug)
+    await mkdir(folder, { recursive: true })
+    const temporary = join(folder, `.${slug}.${process.pid}.${Date.now()}.tmp`)
+    try {
+      await writeNewFileDurably(temporary, contents)
+      await promote(temporary, destination)
+      await syncPromotedFile(destination, folder)
+    } catch (error) {
+      await rm(temporary, { force: true }).catch(() => {})
+      throw error
+    }
+  }
+
   async function move(
     slug: string,
     sourceCollection: BrainDumpCollection,
@@ -176,31 +220,24 @@ export function createBrainDumpLibrary(options: BrainDumpLibraryOptions): BrainD
     if (!isBrainDumpSlug(slug))
       return { ok: false, code: 'invalid-slug', message: 'Slug must be lowercase kebab-case.' }
     const source = pathFor(sourceCollection, slug)
-    const destination = pathFor(destinationCollection, slug)
     if (!(await pathExists(source)))
       return { ok: false, code: 'missing-source', message: `${sourceCollection} topic does not exist.` }
-    if (await pathExists(destination))
+    if (await pathExists(pathFor(destinationCollection, slug)))
       return { ok: false, code: 'destination-exists', message: 'The slug exists in both collections.' }
     let transformed: string
     try {
-      const markdown = await readFile(source, 'utf8')
-      parseBrainDumpTopic(markdown, slug, sourceCollection)
-      transformed = mutateFrontmatter(markdown, updates)
-      parseBrainDumpTopic(transformed, slug, destinationCollection)
+      transformed = await rewritten(slug, sourceCollection, destinationCollection, updates)
     } catch (error) {
       return { ok: false, code: 'malformed-source', message: (error as Error).message }
     }
-    await mkdir(directory(destinationCollection), { recursive: true })
-    const temporary = join(directory(destinationCollection), `.${slug}.${process.pid}.${Date.now()}.tmp`)
     try {
-      await writeNewFileDurably(temporary, transformed)
-      // A hard-link promotion is atomic and refuses an externally-created destination. A plain
-      // rename would overwrite on POSIX, defeating the conflict guarantee between check and move.
-      await link(temporary, destination)
-      await unlink(temporary)
-      await syncPromotedFile(destination, directory(destinationCollection))
+      await writeThroughTemporary(destinationCollection, slug, transformed, async (temporary, destination) => {
+        // A hard-link promotion is atomic and refuses an externally-created destination. A plain
+        // rename would overwrite on POSIX, defeating the conflict guarantee between check and move.
+        await link(temporary, destination)
+        await unlink(temporary)
+      })
     } catch (error) {
-      await rm(temporary, { force: true }).catch(() => {})
       const code = (error as NodeJS.ErrnoException).code === 'EEXIST' ? 'destination-exists' : 'write-failed'
       return { ok: false, code, message: (error as Error).message }
     }
@@ -212,9 +249,60 @@ export function createBrainDumpLibrary(options: BrainDumpLibraryOptions): BrainD
     return { ok: true, topic: parseBrainDumpTopic(transformed, slug, destinationCollection) }
   }
 
+  /**
+   * Rewrites an active topic's frontmatter in place. Unlike `move` the destination is the file
+   * itself, so promotion is a replacing rename - the conflict guarantee `move` needs between two
+   * collections has no meaning when there is only one path involved.
+   */
+  async function updateActive(
+    slug: string,
+    updates: Record<string, string | undefined>
+  ): Promise<BrainDumpMutationResult> {
+    if (!isBrainDumpSlug(slug))
+      return { ok: false, code: 'invalid-slug', message: 'Slug must be lowercase kebab-case.' }
+    if (!(await pathExists(pathFor('active', slug))))
+      return { ok: false, code: 'missing-source', message: 'active topic does not exist.' }
+    let transformed: string
+    try {
+      transformed = await rewritten(slug, 'active', 'active', updates)
+    } catch (error) {
+      return { ok: false, code: 'malformed-source', message: (error as Error).message }
+    }
+    try {
+      await writeThroughTemporary('active', slug, transformed, (temporary, destination) =>
+        rename(temporary, destination)
+      )
+    } catch (error) {
+      return { ok: false, code: 'write-failed', message: (error as Error).message }
+    }
+    return { ok: true, topic: parseBrainDumpTopic(transformed, slug, 'active') }
+  }
+
   return {
     list,
     resolve,
+    assignProject: (slug, path) =>
+      serialized(async () => {
+        let field: string | undefined
+        if (path !== undefined) {
+          try {
+            field = JSON.stringify(projectPath(path))
+          } catch (error) {
+            return { ok: false, code: 'invalid-project', message: (error as Error).message }
+          }
+        }
+        if (isBrainDumpSlug(slug) && !(await pathExists(pathFor('active', slug)))) {
+          if (await pathExists(pathFor('archived', slug)))
+            return {
+              ok: false,
+              code: 'immutable-archive',
+              message: 'Archived topics are immutable snapshots; assign a project before archiving.'
+            }
+        }
+        // The project is metadata about where the topic belongs, not new material in it, so
+        // `updated` deliberately stays where the last real write left it.
+        return updateActive(slug, { project: field })
+      }),
     archive: (slug, outcome) =>
       serialized(async () => {
         if (!BRAIN_DUMP_OUTCOMES.includes(outcome))

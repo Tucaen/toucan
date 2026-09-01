@@ -31,7 +31,8 @@ export interface BrainDumpCollectionState {
   query: string
 }
 
-export interface BrainDumpLifecycleState {
+/** In-flight state of one library mutation - an archive, a reassignment - and its last failure. */
+export interface BrainDumpMutationState {
   pending: boolean
   error?: string
 }
@@ -49,9 +50,17 @@ export interface BrainDumpLibrary {
   /** Whether `slug` currently exists in either collection, without selecting anything. */
   resolveReference(slug: string): Promise<boolean>
   refresh(collection: BrainDumpCollection): Promise<void>
-  lifecycle: BrainDumpLifecycleState
+  lifecycle: BrainDumpMutationState
   archive(slug: string, outcome: BrainDumpOutcome): Promise<boolean>
   clearLifecycleError(): void
+  /**
+   * Files an active topic under another project, or under none. Kept apart from `lifecycle` so a
+   * failed reassignment can never surface as an archive error, or the other way around.
+   * `projectLabel` is only the display text the announcement uses; the path is what is written.
+   */
+  assignment: BrainDumpMutationState
+  assignProject(slug: string, projectPath: string | undefined, projectLabel: string): Promise<boolean>
+  clearAssignmentError(): void
   announcement: string
   capture: BrainDumpCaptureState | null
   startCapture(request: BrainDumpCaptureRequest): Promise<BrainDumpCaptureStartResult>
@@ -89,7 +98,8 @@ export function useBrainDumpLibrary(options: BrainDumpLibraryOptions): BrainDump
     active: emptyCollection(),
     archived: emptyCollection()
   }))
-  const [lifecycle, setLifecycle] = useState<BrainDumpLifecycleState>({ pending: false })
+  const [lifecycle, setLifecycle] = useState<BrainDumpMutationState>({ pending: false })
+  const [assignment, setAssignment] = useState<BrainDumpMutationState>({ pending: false })
   const [announcement, setAnnouncement] = useState('')
   const [capture, setCapture] = useState<BrainDumpCaptureState | null>(null)
   const captureRef = useRef(capture)
@@ -280,6 +290,37 @@ export function useBrainDumpLibrary(options: BrainDumpLibraryOptions): BrainDump
     [api, move]
   )
 
+  const assignProject = useCallback(
+    async (slug: string, projectPath: string | undefined, projectLabel: string): Promise<boolean> => {
+      setAssignment({ pending: true })
+      let result
+      try {
+        result = await api.assignProject(slug, projectPath)
+      } catch (cause) {
+        setAssignment({ pending: false, error: errorText(cause) })
+        return false
+      }
+      if (!result.ok) {
+        setAssignment({ pending: false, error: result.message })
+        return false
+      }
+      // The topic the library returned is what disk now holds, so it replaces the row in place
+      // rather than being patched locally from what the picker happened to show.
+      const assigned = result.topic
+      setCollections((current) => ({
+        ...current,
+        active: {
+          ...current.active,
+          topics: current.active.topics.map((topic) => (topic.slug === slug ? assigned : topic))
+        }
+      }))
+      setAssignment({ pending: false })
+      setAnnouncement(`${assigned.title} is now filed under ${projectLabel}.`)
+      return true
+    },
+    [api]
+  )
+
   const startCapture = useCallback(
     async (request: BrainDumpCaptureRequest): Promise<BrainDumpCaptureStartResult> => {
       const result = await api.startCapture(request)
@@ -310,6 +351,9 @@ export function useBrainDumpLibrary(options: BrainDumpLibraryOptions): BrainDump
       lifecycle,
       archive,
       clearLifecycleError: () => setLifecycle({ pending: false }),
+      assignment,
+      assignProject,
+      clearAssignmentError: () => setAssignment({ pending: false }),
       announcement,
       capture,
       startCapture,
@@ -319,6 +363,8 @@ export function useBrainDumpLibrary(options: BrainDumpLibraryOptions): BrainDump
     [
       announcement,
       archive,
+      assignProject,
+      assignment,
       cancelCapture,
       capture,
       collection,

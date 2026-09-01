@@ -38,6 +38,11 @@ export function registerBrainDumpIpc(
       ? library.archive(slug, outcome as BrainDumpOutcome)
       : { ok: false, code: 'invalid-request', message: 'Slug and outcome are required.' }
   )
+  ipc.handle('brain-dump:assign-project', (_event, slug: unknown, projectPath: unknown) =>
+    typeof slug === 'string' && (projectPath === undefined || projectPath === null || typeof projectPath === 'string')
+      ? library.assignProject(slug, typeof projectPath === 'string' ? projectPath : undefined)
+      : { ok: false, code: 'invalid-request', message: 'Slug is required and the project must be a path.' }
+  )
   ipc.handle('brain-dump:capture-start', (event, request: unknown) =>
     captureRequest(request)
       ? capture.start(request, event.sender)
