@@ -1,4 +1,3 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import {
   Background,
   BackgroundVariant,
@@ -10,18 +9,31 @@ import {
   type NodeChange,
   type NodeTypes
 } from '@xyflow/react'
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
+import type { AgentRateLimitStatus, AgentRateLimitWindow } from '../../shared/agent'
+import type { ConversationSummary } from '../../shared/conversation'
+import { normalizeConversationTitle, type ConversationTitleSource } from '../../shared/conversation-title'
 import type {
   AgentPermissionModes,
   BrainDumpPanelState,
   ComposerSendKey,
   ConversationPreview,
-  TerminalLiveness,
   ProjectDirectory,
   TerminalKind,
+  TerminalLiveness,
   WorkspaceProject,
   WorkspaceState,
   WorkspaceTerminalNode
 } from '../../shared/terminal'
+import type { WorktreeRemovalBlocker } from '../../shared/worktree'
+import { placeholderBranchName, type WorktreeHandoffPlan } from '../../shared/worktree-handoff'
+import {
+  BRAIN_DUMP_PANEL_DEFAULT_WIDTH,
+  brainDumpPanelKeyAction,
+  clampBrainDumpPanelWidth
+} from './brain-dump-panel-layout'
+import { brainDumpPathIdentity } from './brain-dump-topics'
+import BrainDumpLibraryPanel from './BrainDumpLibraryPanel'
 import {
   closedSessionKeyAction,
   DEFAULT_WORKTREE_SIZE,
@@ -38,31 +50,17 @@ import {
   type TerminalNodeStatus,
   type WorktreeCanvasNode
 } from './canvas-workspace'
-import type { AgentRateLimitStatus, AgentRateLimitWindow } from '../../shared/agent'
-import type { WorktreeRemovalBlocker } from '../../shared/worktree'
-import { placeholderBranchName, type WorktreeHandoffPlan } from '../../shared/worktree-handoff'
-import { planWorktreeRemoval } from './worktree-removal'
-import type { ConversationSummary } from '../../shared/conversation'
-import { normalizeConversationTitle, type ConversationTitleSource } from '../../shared/conversation-title'
-import ConversationHistoryDialog from './ConversationHistoryDialog'
 import { COMPOSER_SEND_KEY_DEFAULT } from './composer-keys'
 import { ComposerSendKeyContext } from './composer-send-key-context'
+import ConversationHistoryDialog from './ConversationHistoryDialog'
 import { ProviderRateLimitsContext } from './provider-rate-limits'
 import { describeRateLimitWindow } from './session-usage'
 import SessionNode from './SessionNode'
-import WorktreeNode from './WorktreeNode'
 import { terminalLivenessLabels } from './terminal-liveness'
 import { SidebarTerminalLiveness } from './TerminalLivenessPresentation'
-import BrainDumpLibraryPanel from './BrainDumpLibraryPanel'
-import {
-  BRAIN_DUMP_PANEL_DEFAULT_WIDTH,
-  brainDumpPanelKeyAction,
-  clampBrainDumpPanelWidth
-} from './brain-dump-panel-layout'
-import { brainDumpPathIdentity } from './brain-dump-topics'
 import { useProviderRateLimits } from './use-provider-rate-limits'
-import { useWorkspacePersistence } from './workspace-persistence'
 import { useWorkspaceAttention } from './workspace-attention'
+import { useWorkspacePersistence } from './workspace-persistence'
 import {
   SetupCommandDialog,
   WorktreeCreateDialog,
@@ -70,6 +68,8 @@ import {
   type WorktreeDraft,
   type WorktreeRemovalPrompt
 } from './WorkspaceDialogs'
+import { planWorktreeRemoval } from './worktree-removal'
+import WorktreeNode from './WorktreeNode'
 
 type Project = WorkspaceProject
 
@@ -583,7 +583,7 @@ function Canvas(): JSX.Element {
             onTerminalLiveness: handleTerminalLiveness,
             onWorktreeHandoff: dispatchWorktreeHandoff
           },
-          style: { width: 520, height: 340 }
+          style: { width: 750, height: 660 }
         }
       ])
       setNodeStatuses((current) => ({ ...current, [id]: 'starting' }))
