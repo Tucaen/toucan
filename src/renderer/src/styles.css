@@ -961,6 +961,20 @@ button {
     0 20px 60px rgba(0, 0, 0, 0.5);
 }
 
+/* xyflow marks the whole node wrapper as draggable. The actual drag target is the header, so the
+   cursor should describe the body content (text, controls, terminal) instead of showing a hand. */
+.react-flow__node.draggable {
+  cursor: default;
+}
+
+.react-flow__node.draggable .node-header {
+  cursor: grab;
+}
+
+.react-flow__node.draggable.dragging .node-header {
+  cursor: grabbing;
+}
+
 /* Resize affordances. NodeBorderResizer places the controls just inside the node border (and says
    why); these rules keep the border hairline-thin, lift the controls above the node's own content
    so nothing paints over them, and put the pointer target on a pseudo element that grows inward,

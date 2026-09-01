@@ -85,9 +85,17 @@ test('restores saved canvas nodes and ignores nodes whose project is gone', () =
   assert.equal(nodes[0].data.preferredPermissionMode, 'read-only')
   assert.equal(nodes[0].data.modelId, 'gpt-5-codex')
   assert.equal(nodes[0].data.titleSource, 'manual')
+  assert.equal(nodes[0].dragHandle, '.node-header')
   assert.equal(restored.nextSessionNumber, 8)
   assert.equal(restored.activeProjectId, 'project-1')
   assert.deepEqual(serializeCanvasNode(nodes[0]), state.nodes[0])
+})
+
+test('restores every canvas node with its top bar as the only drag handle', () => {
+  const nodes = restoreCanvasWorkspace(worktreeState(), callbacks).nodes
+
+  assert.ok(nodes.length > 1)
+  assert.ok(nodes.every((node) => node.dragHandle === '.node-header'))
 })
 
 test('keeps restored terminal processes dormant until explicitly opened', () => {

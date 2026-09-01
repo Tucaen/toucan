@@ -112,6 +112,7 @@ export interface WorktreeNodeData extends Record<string, unknown>, WorktreeNodeC
 export type TerminalCanvasNode = Node<TerminalNodeData, 'terminalNode'>
 export type WorktreeCanvasNode = Node<WorktreeNodeData, 'worktreeNode'>
 export type CanvasNode = TerminalCanvasNode | WorktreeCanvasNode
+export const NODE_DRAG_HANDLE = '.node-header'
 
 /** Enough accidental closes to be useful without letting a workspace snapshot grow forever. */
 export const CLOSED_SESSION_STACK_LIMIT = RECENTLY_CLOSED_SESSION_LIMIT
@@ -226,6 +227,7 @@ function restoreTerminalCanvasNode(
   return {
     id: savedNode.id,
     type: 'terminalNode',
+    dragHandle: NODE_DRAG_HANDLE,
     ...(mode === 'reopen' ? { selected: true } : {}),
     position: savedNode.position,
     data: {
@@ -323,6 +325,7 @@ export function restoreCanvasWorkspace(
     return {
       id: `worktree:${worktree.id}`,
       type: 'worktreeNode',
+      dragHandle: NODE_DRAG_HANDLE,
       // Teardown is a deliberate, evidence-gated act; the Delete key must never be able to
       // drop the record and orphan a directory git still knows about.
       deletable: false,

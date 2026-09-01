@@ -41,6 +41,7 @@ import {
   DEFAULT_WORKTREE_SIZE,
   isTerminalCanvasNode,
   isWorktreeCanvasNode,
+  NODE_DRAG_HANDLE,
   rememberClosedSessionNodes,
   reopenClosedSession,
   restoreCanvasWorkspace,
@@ -552,6 +553,7 @@ function Canvas(): JSX.Element {
         {
           id,
           type: 'terminalNode',
+          dragHandle: NODE_DRAG_HANDLE,
           selected: true,
           position,
           data: {
@@ -764,6 +766,7 @@ function Canvas(): JSX.Element {
             {
               id: `worktree:${worktreeId}`,
               type: 'worktreeNode',
+              dragHandle: NODE_DRAG_HANDLE,
               selected: false,
               deletable: false,
               position: { x: node.position.x, y: node.position.y + (node.height ?? 340) + 64 },
@@ -1027,6 +1030,7 @@ function Canvas(): JSX.Element {
             return {
               id: `worktree:${worktreeId}`,
               type: 'worktreeNode' as const,
+              dragHandle: NODE_DRAG_HANDLE,
               deletable: false,
               position: { x: 80, y: 80 + (recorded.size + index) * (DEFAULT_WORKTREE_SIZE.height + 48) },
               data: {
@@ -1260,6 +1264,7 @@ function Canvas(): JSX.Element {
           {
             id: `worktree:${worktreeId}`,
             type: 'worktreeNode',
+            dragHandle: NODE_DRAG_HANDLE,
             selected: true,
             // Teardown is a deliberate, evidence-gated act; the Delete key must never be able
             // to drop the record and orphan the directory git still knows about.

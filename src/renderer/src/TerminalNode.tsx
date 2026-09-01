@@ -9,6 +9,7 @@ import SessionKindIcon from './SessionKindIcon'
 import UnreadToggle from './UnreadToggle'
 import { CanvasTerminalLiveness } from './TerminalLivenessPresentation'
 import WorktreeBadge from './WorktreeBadge'
+import { correctScaledTerminalPointerCoordinates } from './scaled-pointer-coordinates'
 
 export default function TerminalNode({ id, data, selected }: NodeProps<TerminalCanvasNode>): JSX.Element {
   const hostRef = useRef<HTMLDivElement>(null)
@@ -63,6 +64,10 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
     const fitAddon = new FitAddon()
     terminal.loadAddon(fitAddon)
     terminal.open(hostRef.current)
+    const removePointerCorrection = correctScaledTerminalPointerCoordinates(
+      terminal.element,
+      terminal.element?.querySelector<HTMLElement>('.xterm-screen')
+    )
     const resizeObserver = new ResizeObserver(() => {
       try {
         fitAddon.fit()
@@ -100,6 +105,7 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
     return () => {
       active = false
       resizeObserver.disconnect()
+      removePointerCorrection()
       terminalRef.current = null
       terminal.dispose()
     }
@@ -129,6 +135,10 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
     const fitAddon = new FitAddon()
     terminal.loadAddon(fitAddon)
     terminal.open(hostRef.current)
+    const removePointerCorrection = correctScaledTerminalPointerCoordinates(
+      terminal.element,
+      terminal.element?.querySelector<HTMLElement>('.xterm-screen')
+    )
 
     const fit = (): void => {
       try {
@@ -236,6 +246,7 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
     return () => {
       active = false
       resizeObserver.disconnect()
+      removePointerCorrection()
       removeDataListener()
       removeExitListener()
       inputSubscription.dispose()
