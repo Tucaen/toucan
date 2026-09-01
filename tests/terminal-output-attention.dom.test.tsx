@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, render } from '@testing-library/react'
 import { beforeEach, expect, test, vi } from 'vitest'
 import { ReactFlowProvider } from '@xyflow/react'
 import TerminalNode from '../src/renderer/src/TerminalNode'
@@ -137,7 +137,7 @@ function write(data: string): void {
   emitOutput({ sessionId: 'session', incarnationId: 'inc-1', attachmentId: 'attachment', data })
 }
 
-test('a flood of terminal output raises exactly one unread record, however much is written', async () => {
+test('terminal output alone never raises attention', async () => {
   const workspace = createAttentionWorkspace()
   renderTerminal(workspace.onAttention)
 
@@ -145,8 +145,7 @@ test('a flood of terminal output raises exactly one unread record, however much 
     await Promise.resolve()
   })
 
-  // Ten thousand chunks arriving faster than the debounce must not produce ten thousand records -
-  // or even ten. Nothing is raised at all until the output actually pauses.
+  // Output is progress, not a request for user input, regardless of volume or pauses.
   act(() => {
     for (let index = 0; index < 10_000; index += 1) write(`line ${index}\r\n`)
   })
@@ -155,9 +154,9 @@ test('a flood of terminal output raises exactly one unread record, however much 
   act(() => {
     vi.advanceTimersByTime(OUTPUT_DEBOUNCE_MS + 10)
   })
-  expect(countUnreadAttention(workspace.state())).toBe(1)
+  expect(countUnreadAttention(workspace.state())).toBe(0)
 
-  // A second pause later in the same burst still folds into the record already raised.
+  // Later bursts remain ordinary output too.
   act(() => {
     write('more output\r\n')
     vi.advanceTimersByTime(OUTPUT_DEBOUNCE_MS + 10)
@@ -167,8 +166,8 @@ test('a flood of terminal output raises exactly one unread record, however much 
     vi.advanceTimersByTime(OUTPUT_DEBOUNCE_MS + 10)
   })
 
-  expect(workspace.state()).toHaveLength(1)
-  expect(countUnreadAttention(workspace.state())).toBe(1)
+  expect(workspace.state()).toHaveLength(0)
+  expect(countUnreadAttention(workspace.state())).toBe(0)
 })
 
 test('a terminal that exits on an error leaves a record a clean exit would not', async () => {
@@ -191,9 +190,9 @@ test('a terminal that exits on an error leaves a record a clean exit would not',
   expect(workspace.state()[0].kind).toBe('failure')
 })
 
-test('marking a terminal read from its own toggle does not silence it for the rest of the incarnation', async () => {
+test('separate terminal output bursts never synthesize attention', async () => {
   const workspace = createAttentionWorkspace()
-  const view = renderTerminal(workspace.onAttention)
+  renderTerminal(workspace.onAttention)
   await act(async () => {
     await Promise.resolve()
   })
@@ -202,14 +201,6 @@ test('marking a terminal read from its own toggle does not silence it for the re
     write('first burst\r\n')
     vi.advanceTimersByTime(OUTPUT_DEBOUNCE_MS + 10)
   })
-  expect(countUnreadAttention(workspace.state())).toBe(1)
-
-  // The workspace pushes that count back down into the node, so the toggle now reads as "mark
-  // read" - and that path has to open the next burst just as acknowledging the terminal does.
-  view.rerender(terminalElement(workspace.onAttention, 1))
-  act(() => {
-    fireEvent.click(screen.getByRole('button', { name: /mark read/i }))
-  })
   expect(countUnreadAttention(workspace.state())).toBe(0)
 
   act(() => {
@@ -217,5 +208,5 @@ test('marking a terminal read from its own toggle does not silence it for the re
     vi.advanceTimersByTime(OUTPUT_DEBOUNCE_MS + 10)
   })
 
-  expect(countUnreadAttention(workspace.state())).toBe(1)
+  expect(countUnreadAttention(workspace.state())).toBe(0)
 })

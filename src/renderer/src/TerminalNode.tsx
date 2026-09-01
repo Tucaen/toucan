@@ -13,41 +13,18 @@ import WorktreeBadge from './WorktreeBadge'
 export default function TerminalNode({ id, data, selected }: NodeProps<TerminalCanvasNode>): JSX.Element {
   const hostRef = useRef<HTMLDivElement>(null)
   const terminalRef = useRef<Terminal | null>(null)
-  const selectedRef = useRef(selected)
   const exitedRef = useRef(false)
   const incarnationRef = useRef<string | null>(null)
-  const attentionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  /**
-   * Which burst of output the current attention record belongs to. Output is a condition that
-   * genuinely recurs, and an already-read record is never resurrected (see shared/attention.ts),
-   * so acknowledging the terminal opens the next burst under a new key. Everything written in
-   * between - however much of it - folds into that one record.
-   */
-  const outputBurstRef = useRef(0)
   const unreadHoldRef = useRef(false)
   const [hasSelection, setHasSelection] = useState(false)
   const [scrollbackState, setScrollbackState] = useState<'loading' | 'available' | 'missing'>('loading')
   const hasRestoredScrollback = scrollbackState === 'available'
 
-  selectedRef.current = selected
-
-  const clearAttentionTimer = (): void => {
-    if (attentionTimerRef.current) clearTimeout(attentionTimerRef.current)
-    attentionTimerRef.current = null
-  }
-
-  /**
-   * Every path that reads this terminal has to go through here. The burst counter is what lets
-   * later output raise attention again (a read record is never resurrected under the same key),
-   * so a read that skipped it would silence the terminal for the rest of the incarnation.
-   */
   const markRead = (): void => {
-    outputBurstRef.current += 1
     data.onAttention?.({ type: 'read', nodeId: id, kinds: READ_ON_VIEW_KINDS })
   }
 
   const acknowledgeActivity = (): void => {
-    clearAttentionTimer()
     if (!unreadHoldRef.current) markRead()
     if (!data.dormant && !exitedRef.current) data.onStatusChange(id, 'idle')
   }
@@ -168,29 +145,9 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
     const removeDataListener = window.terminalApi.onData(data.sessionId, attachmentId, (output) => {
       incarnationRef.current ??= output.incarnationId
       terminal.write(output.data)
-      clearAttentionTimer()
-      if (!selectedRef.current) {
-        // The debounce keeps a chatty command from raising anything until it pauses; the burst
-        // key then keeps everything after that pause inside one record.
-        attentionTimerRef.current = setTimeout(() => {
-          if (selectedRef.current || exitedRef.current) return
-          data.onStatusChange(id, 'attention')
-          data.onAttention?.({
-            type: 'raise',
-            signal: {
-              nodeId: id,
-              kind: 'output',
-              key: `${output.incarnationId}:${outputBurstRef.current}`,
-              sourceId: data.sessionId,
-              summary: `${data.label} has new output`
-            }
-          })
-        }, 1200)
-      }
     })
     const removeExitListener = window.terminalApi.onExit(data.sessionId, attachmentId, (result) => {
       incarnationRef.current ??= result.incarnationId
-      clearAttentionTimer()
       exitedRef.current = true
       data.onTerminalLiveness?.(id, 'exited')
       data.onStatusChange(id, 'exited')
@@ -278,7 +235,6 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
 
     return () => {
       active = false
-      clearAttentionTimer()
       resizeObserver.disconnect()
       removeDataListener()
       removeExitListener()
