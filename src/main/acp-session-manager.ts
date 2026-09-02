@@ -1,6 +1,6 @@
 import type { ChildProcessWithoutNullStreams } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { Readable, Writable } from 'node:stream'
 import { shell, type WebContents } from 'electron'
 import {
@@ -44,23 +44,39 @@ interface PendingApproval {
   resolve(response: RequestPermissionResponse): void
 }
 
-/** The repository directory holding project-local skills, shared by both agents. */
+/** The directory holding agent skills inside either a project or the Toucan application. */
 const PROJECT_SKILLS_DIRECTORY = '.agents'
 
+interface SessionSkillsConfiguration {
+  additionalDirectories?: string[]
+  _meta?: { claudeCode: { options: { plugins: Array<{ type: 'local'; path: string }> } } }
+}
+
+/** Resolves unpacked application skills so native provider processes can read packaged builds. */
+export function resolveToucanSkillsRoot(appPath: string, pathExists = existsSync): string | undefined {
+  const roots = [appPath]
+  if (appPath.endsWith('app.asar')) roots.unshift(join(dirname(appPath), 'app.asar.unpacked'))
+  return roots.find((root) => pathExists(join(root, PROJECT_SKILLS_DIRECTORY, 'skills')))
+}
+
 /**
- * Project-local skills stay in the repository; Toucan never installs into the user's global
- * agent configuration. Codex discovers `<cwd>/.agents/skills` on its own, so only Claude
- * needs the directory handed to it - as a session-scoped inline plugin, which the ACP
- * adapter forwards from `_meta` straight into the SDK's `plugins` option.
+ * Toucan-owned skills are session-scoped and never installed into global agent configuration.
+ * Codex uses an additional root for them; Claude receives each skill directory as a local plugin.
  */
-function projectSkillsMeta(
+export function sessionSkillsConfiguration(
   provider: AgentCreateRequest['provider'],
-  cwd: string
-): { _meta: { claudeCode: { options: { plugins: Array<{ type: 'local'; path: string }> } } } } | undefined {
-  if (provider !== 'claude') return undefined
-  const path = join(cwd, PROJECT_SKILLS_DIRECTORY)
-  if (!existsSync(join(path, 'skills'))) return undefined
-  return { _meta: { claudeCode: { options: { plugins: [{ type: 'local', path }] } } } }
+  cwd: string,
+  toucanRoot?: string,
+  pathExists = existsSync
+): SessionSkillsConfiguration {
+  if (provider === 'codex') {
+    return toucanRoot && toucanRoot !== cwd ? { additionalDirectories: [toucanRoot] } : {}
+  }
+  const plugins = [...new Set([cwd, toucanRoot].filter((root): root is string => Boolean(root)))]
+    .map((root) => join(root, PROJECT_SKILLS_DIRECTORY))
+    .filter((path) => pathExists(join(path, 'skills')))
+    .map((path) => ({ type: 'local' as const, path }))
+  return plugins.length > 0 ? { _meta: { claudeCode: { options: { plugins } } } } : {}
 }
 
 interface RunningAgent {
@@ -401,6 +417,7 @@ export interface AcpSessionManager {
 export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpSessionManager {
   const environment = options.environment ?? process.env
   const agents = new Map<string, RunningAgent>()
+  const toucanSkillsRoot = resolveToucanSkillsRoot(options.appPath)
 
   const send = (running: RunningAgent, event: AgentEvent): void => {
     if (running.replayEvents) {
@@ -490,7 +507,11 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         modes = simplifyModes(response.modes)
         configureOptions(response.configOptions)
       }
-      const skillsMeta = projectSkillsMeta(running.request.provider, running.request.cwd)
+      const skillsConfiguration = sessionSkillsConfiguration(
+        running.request.provider,
+        running.request.cwd,
+        toucanSkillsRoot
+      )
       let resumed = false
       let replay: AgentEvent[] | undefined
       if (running.request.sessionId) {
@@ -504,7 +525,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
             sessionId: running.request.sessionId,
             cwd: running.request.cwd,
             mcpServers: [],
-            ...skillsMeta
+            ...skillsConfiguration
           })
         } finally {
           running.replayEvents = undefined
@@ -517,7 +538,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         const response = await running.context.request(methods.agent.session.new, {
           cwd: running.request.cwd,
           mcpServers: [],
-          ...skillsMeta
+          ...skillsConfiguration
         })
         running.sessionId = response.sessionId
         configure(response)
