@@ -23,6 +23,7 @@ import { createConversationTitleStore, type ConversationTitleStore } from './con
 import { createCodexRateLimitReader } from './codex-rate-limits'
 import { createProviderUsage, type ProviderUsage } from './provider-usage'
 import { createSessionProviders, type SessionProviders } from './session-providers'
+import { createTerminalLivenessStore, type TerminalLivenessStore } from './terminal-liveness-store'
 import { createTerminalManager, type TerminalManager } from './terminal-manager'
 import { createTerminalScrollbackStore, type TerminalScrollbackStore } from './terminal-scrollback-store'
 import { createWorktreeManager, type WorktreeManager, type WorktreeStatusRequest } from './git-worktree'
@@ -345,7 +346,7 @@ void app.whenReady().then(async () => {
   })
   const brainDumpChanges = await createBrainDumpChangeWatcher({ rootDirectory: brainDumpDirectory })
 
-  registerTerminalIpc(manager, providers, scrollback)
+  registerTerminalIpc(manager, providers, scrollback, liveness)
   registerAgentIpc(agentManager)
   registerBrainDumpIpc(
     ipcMain as unknown as Parameters<typeof registerBrainDumpIpc>[0],
