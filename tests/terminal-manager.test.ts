@@ -2,6 +2,7 @@ import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
 import { createTerminalManager } from '../src/main/terminal-manager'
 import { createSessionProviders } from '../src/main/session-providers'
+import type { TerminalLiveness } from '../src/shared/terminal'
 
 test('rejects a session when its project folder no longer exists', () => {
   let spawnCount = 0
@@ -195,4 +196,78 @@ test('a retired attachment cannot kill a session reclaimed by a replacement', ()
   assert.equal(killed, 0)
   assert.equal(manager.kill('session', first.incarnationId!, 'new-mount'), true)
   assert.equal(killed, 1)
+})
+
+/** A manager wired to an in-memory stand-in for the durable liveness journal. */
+function managerWithJournal(): {
+  manager: ReturnType<typeof createTerminalManager>
+  recorded: Map<string, { incarnationId: string; liveness: TerminalLiveness }>
+  owner: { isDestroyed: () => boolean; send: () => undefined }
+  exit: () => void
+} {
+  const recorded = new Map<string, { incarnationId: string; liveness: TerminalLiveness }>()
+  let exitListener: ((event: { exitCode: number }) => void) | undefined
+  const manager = createTerminalManager({
+    providers: createSessionProviders({
+      homeDirectory: 'C:\\Users\\tester',
+      environment: {},
+      resolveCommand: () => 'pwsh.exe'
+    }),
+    pathExists: () => true,
+    pathIsDirectory: () => true,
+    createIncarnationId: () => 'incarnation',
+    liveness: {
+      record: (sessionId, incarnationId, liveness) => recorded.set(sessionId, { incarnationId, liveness }),
+      read: (sessionId) => {
+        const record = recorded.get(sessionId)
+        return record ? { ...record, at: 0 } : null
+      },
+      remove: (sessionId) => {
+        recorded.delete(sessionId)
+      }
+    },
+    spawn: () => ({
+      onData: () => undefined,
+      onExit: (listener) => {
+        exitListener = listener
+      },
+      write: () => undefined,
+      resize: () => undefined,
+      kill: () => undefined
+    })
+  })
+  return {
+    manager,
+    recorded,
+    owner: { isDestroyed: () => false, send: () => undefined },
+    exit: () => exitListener?.({ exitCode: 0 })
+  }
+}
+
+test('killing every terminal on quit records exited, so the verdict outlives the process that made it', () => {
+  const { manager, recorded, owner } = managerWithJournal()
+  manager.create({ id: 'node', sessionId: 'session', kind: 'terminal', cols: 80, rows: 24, cwd: 'D:\\Toucan' }, owner)
+  assert.deepEqual(recorded.get('session'), { incarnationId: 'incarnation', liveness: 'live' })
+
+  manager.killAll()
+
+  // Toucan issued the kill itself, so the shutdown that destroys the in-memory verdict has
+  // already written the durable one; nothing here waits on the exit callback.
+  assert.deepEqual(manager.state('session'), { incarnationId: 'incarnation', liveness: 'exited' })
+  assert.deepEqual(recorded.get('session'), { incarnationId: 'incarnation', liveness: 'exited' })
+})
+
+test('losing the renderer records nothing durable because that process is still running', () => {
+  const { manager, recorded, owner, exit } = managerWithJournal()
+  manager.create({ id: 'node', sessionId: 'session', kind: 'terminal', cols: 80, rows: 24, cwd: 'D:\\Toucan' }, owner)
+
+  manager.disconnectOwner(owner)
+
+  assert.deepEqual(manager.state('session'), { incarnationId: 'incarnation', liveness: 'unverifiable' })
+  // Transport loss is not process death: the journal must still say live, or a crash here
+  // would restore as exited and claim a running shell is gone.
+  assert.deepEqual(recorded.get('session'), { incarnationId: 'incarnation', liveness: 'live' })
+
+  exit()
+  assert.deepEqual(recorded.get('session'), { incarnationId: 'incarnation', liveness: 'exited' })
 })
