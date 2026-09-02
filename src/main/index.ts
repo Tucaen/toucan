@@ -73,7 +73,8 @@ function findCommand(command: string): string | null {
 function registerTerminalIpc(
   manager: TerminalManager,
   providers: SessionProviders,
-  scrollback: TerminalScrollbackStore
+  scrollback: TerminalScrollbackStore,
+  liveness: TerminalLivenessStore
 ): void {
   ipcMain.handle('terminal:preview', (_event, kind: unknown, conversationId: unknown) => {
     if ((kind !== 'claude' && kind !== 'codex') || typeof conversationId !== 'string') return null
@@ -92,8 +93,12 @@ function registerTerminalIpc(
   ipcMain.handle('terminal:scrollback', (_event, sessionId: unknown) =>
     typeof sessionId === 'string' ? scrollback.load(sessionId) : null
   )
+  // Removing a canvas node retires its durable session outright, so the process verdict goes with
+  // the retained output. Keeping it would leave a verdict about a session nothing can reach.
   ipcMain.handle('terminal:scrollback-remove', (_event, sessionId: unknown) => {
-    return typeof sessionId === 'string' && scrollback.remove(sessionId)
+    if (typeof sessionId !== 'string') return false
+    liveness.remove(sessionId)
+    return scrollback.remove(sessionId)
   })
 }
 
@@ -302,9 +307,13 @@ void app.whenReady().then(async () => {
   const scrollback = createTerminalScrollbackStore({
     directory: join(app.getPath('userData'), 'terminal-scrollback')
   })
+  const liveness = createTerminalLivenessStore({
+    path: join(app.getPath('userData'), 'terminal-liveness.json')
+  })
   const manager = createTerminalManager({
     providers,
     scrollback,
+    liveness,
     spawn: (launch, request, cwd) =>
       spawn(launch.executable, launch.args, {
         name: 'xterm-256color',

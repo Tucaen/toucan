@@ -6,6 +6,7 @@ import type { SessionLaunch, SessionProviders } from './session-providers'
 import { sendTerminalEvent, type TerminalEventOwner } from './terminal-events'
 import { errorMessage } from '../shared/text'
 import type { TerminalScrollbackStore } from './terminal-scrollback-store'
+import type { TerminalLivenessStore } from './terminal-liveness-store'
 
 export interface TerminalProcess {
   onData(listener: (data: string) => void): unknown
@@ -31,6 +32,7 @@ export interface TerminalManagerOptions {
   pathIsDirectory?(path: string): boolean
   createIncarnationId?(): string
   scrollback?: TerminalScrollbackStore
+  liveness?: TerminalLivenessStore
 }
 
 export interface TerminalManager {
@@ -54,13 +56,26 @@ export function createTerminalManager(options: TerminalManagerOptions): Terminal
     return terminal?.incarnationId === incarnationId ? terminal : undefined
   }
 
+  /**
+   * Records a verdict in memory, and durably whenever the owner actually observed it.
+   * `unverifiable` is a restore-time conclusion rather than an observation — the owner can only
+   * report that it holds a process or that the process is gone — so it is never written to disk.
+   */
+  const remember = (sessionId: string, incarnationId: string, liveness: TerminalLiveness): void => {
+    lastStates.set(sessionId, { incarnationId, liveness })
+    if (liveness !== 'unverifiable') options.liveness?.record(sessionId, incarnationId, liveness)
+  }
+
   const stop = (sessionId: string, incarnationId: string, attachmentId?: string): boolean => {
     const terminal = matches(sessionId, incarnationId)
     if (!terminal || (attachmentId !== undefined && terminal.attachmentId !== attachmentId)) return false
     terminals.delete(sessionId)
     terminal.owner = null
-    terminal.liveness = 'unverifiable'
-    lastStates.set(sessionId, { incarnationId, liveness: 'unverifiable' })
+    // Toucan asked for this termination, so the verdict is recorded on the request rather than on
+    // the exit callback. Shutdown kills the callback along with the process that would deliver it,
+    // and a terminal Toucan itself killed must not come back as `unverifiable`.
+    terminal.liveness = 'exited'
+    remember(sessionId, incarnationId, 'exited')
     terminal.process.kill()
     return true
   }
@@ -74,7 +89,7 @@ export function createTerminalManager(options: TerminalManagerOptions): Terminal
         existing.owner = owner
         existing.attachmentId = attachmentId
         existing.liveness = 'live'
-        lastStates.set(sessionId, { incarnationId: existing.incarnationId, liveness: 'live' })
+        remember(sessionId, existing.incarnationId, 'live')
         return {
           ok: true,
           sessionId: existing.sessionId,
@@ -106,7 +121,7 @@ export function createTerminalManager(options: TerminalManagerOptions): Terminal
           liveness: 'live'
         }
         terminals.set(sessionId, running)
-        lastStates.set(sessionId, { incarnationId, liveness: 'live' })
+        remember(sessionId, incarnationId, 'live')
         options.scrollback?.begin(sessionId, incarnationId)
         terminal.onData((data) => {
           if (terminals.get(sessionId) === running) {
@@ -126,7 +141,7 @@ export function createTerminalManager(options: TerminalManagerOptions): Terminal
           if (current && current !== running) return
           if (current === running) terminals.delete(sessionId)
           if (lastStates.get(sessionId)?.incarnationId !== incarnationId) return
-          lastStates.set(sessionId, { incarnationId, liveness: 'exited' })
+          remember(sessionId, incarnationId, 'exited')
           if (running.owner)
             sendTerminalEvent(running.owner, 'terminal:exit', {
               sessionId,
@@ -165,7 +180,7 @@ export function createTerminalManager(options: TerminalManagerOptions): Terminal
         if (terminal.owner === owner) {
           terminal.owner = null
           terminal.liveness = 'unverifiable'
-          lastStates.set(terminal.sessionId, { incarnationId: terminal.incarnationId, liveness: 'unverifiable' })
+          remember(terminal.sessionId, terminal.incarnationId, 'unverifiable')
         }
       }
     },
