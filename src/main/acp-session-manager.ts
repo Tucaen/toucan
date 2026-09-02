@@ -13,6 +13,7 @@ import {
   type ClientContext,
   type ContentBlock,
   type CreateElicitationRequest,
+  type CreateElicitationResponse,
   type RequestPermissionResponse,
   type SessionConfigOption
 } from '@agentclientprotocol/sdk'
@@ -21,6 +22,8 @@ import type {
   AgentCommand,
   AgentCreateRequest,
   AgentCreateResult,
+  AgentDecisionQuestion,
+  AgentDecisionResponseContent,
   AgentEffortState,
   AgentEvent,
   AgentModeState,
@@ -41,6 +44,89 @@ import { createPromptWakeGate, type PromptWakeGate } from './prompt-wake-gate'
 
 interface PendingApproval {
   resolve(response: RequestPermissionResponse): void
+}
+
+interface PendingElicitation {
+  resolve(response: CreateElicitationResponse): void
+}
+
+function record(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null
+}
+
+function enumOptions(schema: Record<string, unknown>): Array<{ value: string; label: string; description?: string }> {
+  const choices = Array.isArray(schema.oneOf)
+    ? schema.oneOf
+    : Array.isArray(schema.anyOf)
+      ? schema.anyOf
+      : Array.isArray(schema.enum)
+        ? (schema.enum as unknown[]).map((value) => ({ const: value }))
+        : []
+  return choices.flatMap((choice) => {
+    const item = record(choice)
+    if (!item) return []
+    const value = item.const
+    if (typeof value !== 'string') return []
+    return [
+      {
+        value,
+        label: typeof item.title === 'string' ? item.title : value,
+        ...(typeof item.description === 'string' ? { description: item.description } : {})
+      }
+    ]
+  })
+}
+
+export function decisionQuestions(request: CreateElicitationRequest): AgentDecisionQuestion[] {
+  if (request.mode !== 'form' || !('requestedSchema' in request)) return []
+  const schema = record(request.requestedSchema)
+  const properties = record(schema?.properties) ?? {}
+  const required = new Set(
+    Array.isArray(schema?.required)
+      ? (schema.required as unknown[]).filter((id): id is string => typeof id === 'string')
+      : []
+  )
+  const customFor = new Map<string, string>()
+  for (const [id, value] of Object.entries(properties)) {
+    const property = record(value)
+    const meta = record(property?._meta)
+    const marker = record(meta?._askUserQuestionCustomAnswer)
+    const questionId = marker?.questionId
+    if (marker?.isCustomAnswer === true && typeof questionId === 'string') customFor.set(questionId, id)
+    else if (id.endsWith('__other')) customFor.set(id.slice(0, -'__other'.length), id)
+  }
+  return Object.entries(properties).flatMap(([id, value]) => {
+    const property = record(value)
+    if (!property || [...customFor.values()].includes(id)) return []
+    const multiSelect = property.type === 'array'
+    const optionSchema = multiSelect ? (record(property.items) ?? {}) : property
+    const options = enumOptions(optionSchema)
+    const input =
+      options.length > 0
+        ? 'select'
+        : property.type === 'string'
+          ? 'text'
+          : property.type === 'number' || property.type === 'integer'
+            ? 'number'
+            : property.type === 'boolean'
+              ? 'boolean'
+              : null
+    if (!input) return []
+    return [
+      {
+        id,
+        ...(typeof property.title === 'string' ? { title: property.title } : {}),
+        question: typeof property.description === 'string' ? property.description : request.message,
+        options,
+        input,
+        multiSelect,
+        ...(required.has(id) ? { required: true } : {}),
+        ...(customFor.has(id) ? { customAnswerId: customFor.get(id) } : {})
+      }
+    ]
+  })
 }
 
 /** The directory holding agent skills inside either a project or the Toucan application. */
@@ -114,6 +200,7 @@ interface RunningAgent {
   replayMessageKey?: string
   replayMessageId?: string
   pendingApprovals: Map<string, PendingApproval>
+  pendingElicitations: Map<string, PendingElicitation>
   busy: boolean
   stopping: boolean
   /**
@@ -411,6 +498,7 @@ export interface AcpSessionManager {
   submitAuthCode(id: string, code: string): Promise<AgentPromptResult>
   openAuthLink(url: string): Promise<void>
   resolveApproval(id: string, approvalId: string, optionId?: string): void
+  resolveElicitation(id: string, requestId: string, content?: AgentDecisionResponseContent): void
   cancel(id: string): void
   kill(id: string): void
   killOwned(owner: WebContents): void
@@ -619,6 +707,8 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       pending.resolve({ outcome: { outcome: 'cancelled' } })
     }
     running.pendingApprovals.clear()
+    for (const pending of running.pendingElicitations.values()) pending.resolve({ action: 'cancel' })
+    running.pendingElicitations.clear()
     running.authChild?.kill()
     running.connection.close()
     running.process.kill()
@@ -667,6 +757,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       const launch = buildAgentProcessLaunch(process.execPath, path, request.cwd, environment)
       const child = spawnAgentProcess(launch)
       const pendingApprovals = new Map<string, PendingApproval>()
+      const pendingElicitations = new Map<string, PendingElicitation>()
       let running: RunningAgent
       const app = client({ name: 'Toucan ACP prototype' })
         .onNotification(methods.client.session.update, ({ params }) => {
@@ -769,6 +860,16 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
             send(running, { type: 'auth_link', url: elicitation.url })
             return { action: 'accept' as const }
           }
+          if (elicitation.mode === 'form' && 'requestedSchema' in elicitation) {
+            const questions = decisionQuestions(elicitation)
+            if (questions.length === 0) return { action: 'decline' as const }
+            const requestId = crypto.randomUUID()
+            send(running, {
+              type: 'decision_request',
+              request: { id: requestId, message: elicitation.message, questions }
+            })
+            return new Promise((resolve) => pendingElicitations.set(requestId, { resolve }))
+          }
           return { action: 'decline' as const }
         })
 
@@ -793,6 +894,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
             ? readCachedCodexModels(options.codexHome, request.modelId)
             : undefined,
         pendingApprovals,
+        pendingElicitations,
         busy: false,
         stopping: false,
         authRequired: false,
@@ -825,7 +927,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
           protocolVersion: 1,
           clientCapabilities: {
             auth: { terminal: true },
-            elicitation: { url: {} },
+            elicitation: { form: {}, url: {} },
             plan: {},
             // Not ACP's `terminal` capability (which would make us host live terminals for the
             // agent): this `_meta` flag is what both adapters gate their `terminal_output` /
@@ -1032,6 +1134,15 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       pending.resolve({
         outcome: optionId ? { outcome: 'selected', optionId } : { outcome: 'cancelled' }
       })
+    },
+
+    resolveElicitation(id, requestId, content): void {
+      const running = agents.get(id)
+      const pending = running?.pendingElicitations.get(requestId)
+      if (!running || !pending) return
+      running.pendingElicitations.delete(requestId)
+      pending.resolve(content ? { action: 'accept', content } : { action: 'cancel' })
+      send(running, { type: 'decision_resolved', requestId })
     },
 
     cancel(id): void {

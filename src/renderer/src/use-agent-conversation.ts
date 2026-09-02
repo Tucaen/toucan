@@ -4,6 +4,8 @@ import {
   type AgentActivity,
   type AgentAuthMethod,
   type AgentCommand,
+  type AgentDecisionRequest,
+  type AgentDecisionResponseContent,
   type AgentEffortState,
   type AgentEvent,
   type AgentModeState,
@@ -123,6 +125,7 @@ export interface AgentConversationController {
   transcript: AgentTranscriptEntry[]
   plan: AgentPlanEntry[]
   approval: AgentApprovalState | null
+  decisionRequest: AgentDecisionRequest | null
   authMethods: AgentAuthMethod[]
   /**
    * A sign-in URL surfaced during an in-progress reauth attempt (terminal-login stdout or an
@@ -176,6 +179,7 @@ export interface AgentConversationController {
   submitAuthCode(code: string): Promise<boolean>
   openAuthLink(url: string): void
   resolveApproval(approvalId: string, optionId?: string): void
+  resolveElicitation(requestId: string, content?: AgentDecisionResponseContent): void
   selectMode(modeId: string): Promise<boolean>
   selectModel(modelId: string): void
   selectEffort(effortId: string): void
@@ -187,6 +191,8 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
   const [outcomes, setOutcomes] = useState<AgentTurnOutcome[]>([])
   const [plan, setPlan] = useState<AgentPlanEntry[]>([])
   const [approval, setApproval] = useState<AgentApprovalState | null>(null)
+  const [decisionRequests, setDecisionRequests] = useState<AgentDecisionRequest[]>([])
+  const decisionRequest = decisionRequests[0] ?? null
   const [authMethods, setAuthMethods] = useState<AgentAuthMethod[]>([])
   const [authLink, setAuthLink] = useState<string | null>(null)
   const [reauthenticating, setReauthenticating] = useState(false)
@@ -407,6 +413,14 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
           options: event.options,
           ...(event.activity ? { activity: event.activity } : {})
         })
+      } else if (event.type === 'decision_request') {
+        setDecisionRequests((current) => {
+          const existing = current.findIndex((request) => request.id === event.request.id)
+          if (existing < 0) return [...current, event.request]
+          return current.map((request, index) => (index === existing ? event.request : request))
+        })
+      } else if (event.type === 'decision_resolved') {
+        setDecisionRequests((current) => current.filter((request) => request.id !== event.requestId))
       } else if (event.type === 'auth') {
         setAuthMethods(event.methods)
         // A fresh auth-required cycle invalidates any sign-in link surfaced by a previous one.
@@ -661,6 +675,11 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     setApproval(null)
   }
 
+  const resolveElicitation = (requestId: string, content?: AgentDecisionResponseContent): void => {
+    window.agentApi.resolveElicitation(options.id, requestId, content)
+    setDecisionRequests((current) => current.filter((request) => request.id !== requestId))
+  }
+
   const selectMode = async (modeId: string): Promise<boolean> => {
     if (modeId === modes?.currentModeId) return true
     const result = await window.agentApi.setMode(options.id, modeId)
@@ -704,6 +723,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     transcript,
     plan,
     approval,
+    decisionRequest,
     authMethods: status === 'auth_required' || reauthenticating ? authMethods : [],
     authLink: status === 'auth_required' || reauthenticating ? authLink : null,
     reauthenticating,
@@ -735,6 +755,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     submitAuthCode,
     openAuthLink,
     resolveApproval,
+    resolveElicitation,
     selectMode,
     selectModel,
     selectEffort

@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { basename, extname, join, normalize } from 'node:path'
 import { spawn } from 'node-pty'
-import type { AgentCreateRequest, AgentPromptContent } from '../shared/agent'
+import type { AgentCreateRequest, AgentDecisionResponseContent, AgentPromptContent } from '../shared/agent'
 import type { ConversationListRequest } from '../shared/conversation'
 import type { TerminalCreateRequest, WorkspaceState } from '../shared/terminal'
 import { createAcpSessionManager, type AcpSessionManager } from './acp-session-manager'
@@ -147,6 +147,9 @@ function registerAgentIpc(manager: AcpSessionManager): void {
   ipcMain.handle('agent:open-auth-link', (_event, url: string) => manager.openAuthLink(url))
   ipcMain.on('agent:approval', (_event, id: string, approvalId: string, optionId?: string) =>
     manager.resolveApproval(id, approvalId, optionId)
+  )
+  ipcMain.on('agent:elicitation', (_event, id: string, requestId: string, content?: AgentDecisionResponseContent) =>
+    manager.resolveElicitation(id, requestId, content)
   )
   ipcMain.on('agent:cancel', (_event, id: string) => manager.cancel(id))
   ipcMain.on('agent:kill', (_event, id: string) => manager.kill(id))

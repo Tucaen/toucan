@@ -106,6 +106,32 @@ export interface AgentPermissionOption {
   kind: 'allow_once' | 'allow_always' | 'reject_once' | 'reject_always'
 }
 
+export interface AgentDecisionOption {
+  value: string
+  label: string
+  description?: string
+}
+
+export interface AgentDecisionQuestion {
+  id: string
+  title?: string
+  question: string
+  options: AgentDecisionOption[]
+  input: 'select' | 'text' | 'number' | 'boolean'
+  multiSelect: boolean
+  required?: boolean
+  customAnswerId?: string
+}
+
+export interface AgentDecisionRequest {
+  id: string
+  message: string
+  questions: AgentDecisionQuestion[]
+}
+
+export type AgentDecisionValue = string | string[] | number | boolean
+export type AgentDecisionResponseContent = Record<string, AgentDecisionValue>
+
 export interface AgentPlanEntry {
   content: string
   priority: 'high' | 'medium' | 'low'
@@ -247,6 +273,8 @@ export type AgentEvent =
   | { type: 'efforts'; efforts: AgentEffortState | null }
   | { type: 'commands'; commands: AgentCommand[] }
   | { type: 'approval'; approvalId: string; title: string; options: AgentPermissionOption[]; activity?: AgentActivity }
+  | { type: 'decision_request'; request: AgentDecisionRequest }
+  | { type: 'decision_resolved'; requestId: string }
   | { type: 'auth'; methods: AgentAuthMethod[] }
   | { type: 'auth_link'; url: string }
   /**

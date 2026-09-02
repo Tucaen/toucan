@@ -1,5 +1,6 @@
 import type {
   AgentCreateRequest,
+  AgentDecisionResponseContent,
   AgentCreateResult,
   AgentEvent,
   AgentPromptContent,
@@ -42,6 +43,7 @@ export interface AgentApi {
   submitAuthCode(id: string, code: string): Promise<AgentPromptResult>
   openAuthLink(url: string): Promise<void>
   resolveApproval(id: string, approvalId: string, optionId?: string): void
+  resolveElicitation(id: string, requestId: string, content?: AgentDecisionResponseContent): void
   cancel(id: string): void
   kill(id: string): void
   onEvent(id: string, callback: (event: AgentEvent) => void): () => void

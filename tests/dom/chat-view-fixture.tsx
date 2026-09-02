@@ -52,7 +52,9 @@ export function TestChatView(props: TestChatViewProps): JSX.Element {
       }}
       pending={{
         approval: props.approval,
+        decisionRequest: props.decisionRequest,
         resolveApproval: props.resolveApproval,
+        resolveElicitation: props.resolveElicitation,
         authMethods: props.authMethods,
         authLink: props.authLink,
         reauthenticating: props.reauthenticating,

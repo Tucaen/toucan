@@ -1,6 +1,7 @@
 import { clipboard, contextBridge, ipcRenderer } from 'electron'
 import type {
   AgentCreateRequest,
+  AgentDecisionResponseContent,
   AgentCreateResult,
   AgentEventEnvelope,
   AgentPromptContent,
@@ -97,6 +98,8 @@ const agentApi = {
   openAuthLink: (url: string): Promise<void> => ipcRenderer.invoke('agent:open-auth-link', url),
   resolveApproval: (id: string, approvalId: string, optionId?: string): void =>
     ipcRenderer.send('agent:approval', id, approvalId, optionId),
+  resolveElicitation: (id: string, requestId: string, content?: AgentDecisionResponseContent): void =>
+    ipcRenderer.send('agent:elicitation', id, requestId, content),
   cancel: (id: string): void => ipcRenderer.send('agent:cancel', id),
   kill: (id: string): void => ipcRenderer.send('agent:kill', id),
   onEvent: (id: string, callback: (event: AgentEventEnvelope['event']) => void): (() => void) => {

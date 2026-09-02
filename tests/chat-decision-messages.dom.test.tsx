@@ -56,6 +56,23 @@ const noiseText = 'Spawning worker for task fm-142 in the alpha project.'
 
 const normalText = 'Here is a summary of what changed: the auth middleware now checks token expiry before refresh.'
 
+const explanatoryQuestionText = [
+  '**Empfehlung: ein vertikaler Slice**',
+  '',
+  '1. **Container:** Zeilenklick öffnet die Detail-Komponente.',
+  '2. **BAS:** Neuer Request mit vier Sub-DTOs.',
+  '3. **NEXT:** Vier Karten read-only rendern.',
+  '',
+  '**Legacy-Ballast, der jetzt schon entscheidbar ist**',
+  '',
+  'Die bestehenden Options-Spalten sind ein Workaround, keine auswählbaren Alternativen.',
+  '',
+  'Zwei Entscheidungen brauche ich von dir:',
+  '',
+  '1. **Read-only zuerst?** Der Screenshot ist Change mode mit CRUD. Ich würde read-only zuerst schicken.',
+  '2. **Ersetzt der Zeilenklick den VP Cockpit-Button oder bleibt der Sprung auf den Baum-Tab daneben stehen?**'
+].join('\n')
+
 describe('assistant message tone rendering', () => {
   test('a decision-shaped message gets decision styling and clickable options', () => {
     renderChatView({ messages: [{ id: 'm1', role: 'assistant', text: decisionText }] })
@@ -65,6 +82,7 @@ describe('assistant message tone rendering', () => {
     expect(screen.getByRole('button', { name: /Fix it now/ })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Skip it/ })).toBeInTheDocument()
     expect(screen.getByPlaceholderText('Other…')).toBeInTheDocument()
+    expect(screen.queryByPlaceholderText('Message the agent…')).not.toBeInTheDocument()
   })
 
   test('a routine/noise message gets muted styling and no option buttons', () => {
@@ -83,6 +101,95 @@ describe('assistant message tone rendering', () => {
     expect(article?.querySelector('.decision-options')).toBeNull()
   })
 
+  test('explanatory headings and implementation steps do not render as clickable answers', () => {
+    renderChatView({ messages: [{ id: 'm-explanation', role: 'assistant', text: explanatoryQuestionText }] })
+
+    const article = screen.getByText(/Zwei Entscheidungen brauche ich/).closest('article')
+    expect(article).toHaveAttribute('data-tone', 'normal')
+    expect(screen.queryByRole('region', { name: 'Pending decisions' })).not.toBeInTheDocument()
+    expect(article?.querySelector('.decision-options')).toBeNull()
+  })
+
+  test('structured questions use tabs, retain answers, and replace the normal composer', () => {
+    const resolveElicitation = vi.fn()
+    renderChatView({
+      decisionRequest: {
+        id: 'request-1',
+        message: 'Please answer the following questions.',
+        questions: [
+          {
+            id: 'question_0',
+            title: 'Scope',
+            question: 'Read-only zuerst?',
+            input: 'select',
+            multiSelect: false,
+            customAnswerId: 'question_0_custom',
+            options: [
+              { value: 'read-only', label: 'Read-only', description: 'Recommended' },
+              { value: 'crud', label: 'Complete CRUD' }
+            ]
+          },
+          {
+            id: 'question_1',
+            title: 'Navigation',
+            question: 'What should the row click replace?',
+            input: 'select',
+            multiSelect: false,
+            options: [
+              { value: 'replace', label: 'Replace VP Cockpit' },
+              { value: 'keep', label: 'Keep both' }
+            ]
+          }
+        ]
+      },
+      resolveElicitation
+    })
+
+    const panel = screen.getByRole('region', { name: 'Decision questions' })
+    expect(screen.queryByPlaceholderText('Message the agent…')).not.toBeInTheDocument()
+    fireEvent.click(within(panel).getByRole('button', { name: /Read-only/ }))
+    expect(within(panel).getByText('What should the row click replace?')).toBeInTheDocument()
+    fireEvent.click(within(panel).getByRole('button', { name: 'Keep both' }))
+    fireEvent.click(within(panel).getByRole('button', { name: 'Submit answers' }))
+
+    expect(resolveElicitation).toHaveBeenCalledWith('request-1', {
+      question_0: 'read-only',
+      question_1: 'keep'
+    })
+  })
+
+  test('structured questions allow a partial response without cancelling the entire request', () => {
+    const resolveElicitation = vi.fn()
+    renderChatView({
+      decisionRequest: {
+        id: 'request-partial',
+        message: 'Two optional questions',
+        questions: [
+          {
+            id: 'first',
+            question: 'First?',
+            input: 'select',
+            multiSelect: false,
+            options: [{ value: 'yes', label: 'Yes' }]
+          },
+          {
+            id: 'second',
+            question: 'Second?',
+            input: 'select',
+            multiSelect: false,
+            options: [{ value: 'later', label: 'Later' }]
+          }
+        ]
+      },
+      resolveElicitation
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Yes' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Submit answers' }))
+
+    expect(resolveElicitation).toHaveBeenCalledWith('request-partial', { first: 'yes' })
+  })
+
   test('user messages never get a decision/noise tone even if the text happens to match the shape', () => {
     renderChatView({ messages: [{ id: 'm4', role: 'user', text: decisionText }] })
 
@@ -93,6 +200,37 @@ describe('assistant message tone rendering', () => {
 })
 
 describe('decision option interaction', () => {
+  test('queues concurrent structured requests and reveals the next after resolving the first', async () => {
+    const { api, emit } = createMockAgentApi()
+    window.agentApi = api
+    const { result } = renderHook(() =>
+      useAgentConversation({
+        id: 'session-structured-queue',
+        provider: 'codex',
+        cwd: '/project',
+        enabled: true,
+        onSessionId: vi.fn(),
+        onPermissionMode: vi.fn(),
+        onModel: vi.fn()
+      })
+    )
+    await waitFor(() => expect(result.current.status).toBe('ready'))
+    const request = (id: string, question: string) => ({
+      id,
+      message: question,
+      questions: [{ id: `${id}-field`, question, input: 'text' as const, multiSelect: false, options: [] }]
+    })
+
+    act(() => {
+      emit('session-structured-queue', { type: 'decision_request', request: request('first', 'First?') })
+      emit('session-structured-queue', { type: 'decision_request', request: request('second', 'Second?') })
+    })
+    expect(result.current.decisionRequest?.id).toBe('first')
+
+    act(() => result.current.resolveElicitation('first', { 'first-field': 'answer' }))
+    expect(result.current.decisionRequest?.id).toBe('second')
+  })
+
   test("clicking an option calls sendMessage with that option's text", () => {
     const answerDecision = vi.fn()
     renderChatView({

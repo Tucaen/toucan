@@ -77,6 +77,32 @@ test('ordinary numbered step-by-step prose does not false-positive as decision o
   assert.equal(classifyAssistantMessage(text), 'normal')
 })
 
+test('a long technical explanation with emphasized sections and a trailing question is not a decision', () => {
+  const text = [
+    '**Empfehlung: keins von beidem als eigener Schritt — ein vertikaler Slice**',
+    '',
+    'Nicht zuerst die UI als Mock-up angleichen. Das ist eine horizontale Schicht.',
+    '',
+    '**Konkret, ein Slice:**',
+    '',
+    '1. **Container:** Zeilenklick öffnet die Detail-Komponente.',
+    '2. **BAS:** Neuer Request mit vier Sub-DTOs.',
+    '3. **NEXT:** Vier Karten read-only rendern.',
+    '',
+    '**Legacy-Ballast, der jetzt schon entscheidbar ist**',
+    '',
+    'Die bestehenden Options-Spalten sind ein Workaround, keine auswählbaren Alternativen.',
+    '',
+    'Zwei Entscheidungen brauche ich von dir:',
+    '',
+    '1. **Read-only zuerst?** Der Screenshot ist Change mode mit CRUD. Ich würde read-only zuerst schicken.',
+    '2. **Ersetzt der Zeilenklick den VP Cockpit-Button oder bleibt der Sprung auf den Baum-Tab daneben stehen?**'
+  ].join('\n')
+
+  assert.equal(classifyAssistantMessage(text), 'normal')
+  assert.deepEqual(extractDecisionOptions(text), [])
+})
+
 test('a long or multi-paragraph message never classifies as noise even with a routine lead-in', () => {
   const text =
     'Spawning worker for task fm-142.\n\nIt will validate the migration against the staging ' +

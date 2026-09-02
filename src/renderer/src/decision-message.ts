@@ -4,9 +4,9 @@
  * `{ type: 'message', role: 'assistant', text }` event. This module is a conservative,
  * text-shape heuristic that drives styling/interaction from that plain text alone.
  *
- * Decision shape: two or more "option lines" (see OPTION_LINE_PATTERNS) AND the message's last
- * non-empty line ends in a literal "?". Either signal alone is common in ordinary prose; both
- * together is the consistent shape for labeled choices followed by a trailing question.
+ * Decision shape: a trailing question immediately preceded by one compact block of two or more
+ * "option lines" (see OPTION_LINE_PATTERNS). Looking for option-shaped lines anywhere in the
+ * message turns emphasized headings and numbered implementation steps into bogus controls.
  *
  * Noise shape: the whole message is a single short paragraph, has no option lines, asks no
  * question, and opens with one of a fixed list of routine status lead-ins.
@@ -65,6 +65,8 @@ function cleanOptionLine(line: string): string {
 }
 
 function isOptionLine(line: string): boolean {
+  const numberedBoldLabel = /^\d+[.)]\s*\*\*(.+?)\*\*/.exec(line)?.[1]
+  if (numberedBoldLabel?.trim().endsWith('?')) return false
   return OPTION_LINE_PATTERNS.some((pattern) => pattern.test(line))
 }
 
@@ -79,6 +81,22 @@ function extractOptionLines(text: string): string[] {
   return nonEmptyLines(text).filter(isOptionLine).map(cleanOptionLine)
 }
 
+function extractDecisionOptionLines(text: string): string[] {
+  const lines = text.split('\n').map((line) => line.trim())
+  while (lines.at(-1) === '') lines.pop()
+  const question = lines.pop() ?? ''
+  if (!question.endsWith('?')) return []
+
+  // Markdown commonly leaves one or more blank lines between the list and its question.
+  while (lines.at(-1) === '') lines.pop()
+
+  const options: string[] = []
+  while (lines.length > 0 && isOptionLine(lines.at(-1) ?? '')) {
+    options.unshift(cleanOptionLine(lines.pop() ?? ''))
+  }
+  return options.length >= 2 ? options : []
+}
+
 function isNoiseMessage(text: string, optionLines: string[]): boolean {
   if (optionLines.length > 0) return false
   if (text.includes('?')) return false
@@ -91,14 +109,12 @@ export function classifyAssistantMessage(text: string): MessageTone {
   const trimmed = text.trim()
   if (!trimmed) return 'normal'
   const optionLines = extractOptionLines(trimmed)
-  const lines = nonEmptyLines(trimmed)
-  const lastLine = lines[lines.length - 1] ?? ''
-  if (optionLines.length >= 2 && lastLine.endsWith('?')) return 'decision'
+  if (extractDecisionOptionLines(trimmed).length >= 2) return 'decision'
   if (isNoiseMessage(trimmed, optionLines)) return 'noise'
   return 'normal'
 }
 
 /** Only meaningful when `classifyAssistantMessage` returned 'decision' for the same text. */
 export function extractDecisionOptions(text: string): DecisionOption[] {
-  return extractOptionLines(text.trim()).map((label, index) => ({ id: `option-${index}`, label }))
+  return extractDecisionOptionLines(text.trim()).map((label, index) => ({ id: `option-${index}`, label }))
 }

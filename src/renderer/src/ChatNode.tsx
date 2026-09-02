@@ -33,6 +33,8 @@ import {
   type AgentActivity,
   type AgentAuthMethod,
   type AgentCommand,
+  type AgentDecisionRequest,
+  type AgentDecisionResponseContent,
   type AgentEffortState,
   type AgentModeState,
   type AgentModelState,
@@ -111,6 +113,7 @@ interface FlatChatViewProps {
   transcript?: AgentTranscriptEntry[]
   plan: AgentPlanEntry[]
   approval: AgentApprovalState | null
+  decisionRequest?: AgentDecisionRequest | null
   authMethods: AgentAuthMethod[]
   authLink: string | null
   reauthenticating: boolean
@@ -147,6 +150,7 @@ interface FlatChatViewProps {
   submitAuthCode(code: string): Promise<boolean>
   openAuthLink(url: string): void
   resolveApproval(approvalId: string, optionId?: string): void
+  resolveElicitation?(requestId: string, content?: AgentDecisionResponseContent): void
   /** Persists the unsent draft; debounced by the Composer, so it costs one write per pause. */
   onDraftChange?(draft: string): void
   // The agent-reported selectors, rendered as the composer's toolbar. Optional because a chat
@@ -191,7 +195,9 @@ export type ChatComposerProps = Pick<
 export type ChatPendingProps = Pick<
   FlatChatViewProps,
   | 'approval'
+  | 'decisionRequest'
   | 'resolveApproval'
+  | 'resolveElicitation'
   | 'authMethods'
   | 'authLink'
   | 'reauthenticating'
@@ -989,6 +995,153 @@ function DecisionOptions(props: {
   )
 }
 
+function StructuredDecisionPanel(
+  props: Pick<FlatChatViewProps, 'decisionRequest' | 'resolveElicitation'>
+): JSX.Element | null {
+  const request = props.decisionRequest
+  const [active, setActive] = useState(0)
+  const [answers, setAnswers] = useState<AgentDecisionResponseContent>({})
+  if (!request || !props.resolveElicitation) return null
+  const question = request.questions[active]
+  if (!question) return null
+  const currentAnswer = answers[question.id]
+  const answered = (item: AgentDecisionRequest['questions'][number]): boolean => {
+    const custom = item.customAnswerId ? answers[item.customAnswerId] : undefined
+    const selected = answers[item.id]
+    return (
+      (typeof custom === 'string' && custom.trim() !== '') ||
+      (typeof selected === 'string'
+        ? selected !== ''
+        : Array.isArray(selected)
+          ? selected.length > 0
+          : selected !== undefined)
+    )
+  }
+  const requiredComplete = request.questions.every((item) => !item.required || answered(item))
+  const choose = (value: string): void => {
+    setAnswers((current) => {
+      if (!question.multiSelect) return { ...current, [question.id]: value }
+      const selected = Array.isArray(current[question.id]) ? (current[question.id] as string[]) : []
+      return {
+        ...current,
+        [question.id]: selected.includes(value) ? selected.filter((item) => item !== value) : [...selected, value]
+      }
+    })
+    if (!question.multiSelect && active < request.questions.length - 1) setActive(active + 1)
+  }
+  return (
+    <section className="structured-decision" aria-label="Decision questions">
+      {request.questions.length > 1 && (
+        <div className="structured-decision-tabs" role="tablist" aria-label="Questions">
+          {request.questions.map((item, index) => (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={index === active}
+              key={item.id}
+              onClick={() => setActive(index)}
+            >
+              {index + 1}
+              {answered(item) ? ' ✓' : ''}
+            </button>
+          ))}
+        </div>
+      )}
+      <article>
+        <small>
+          Question {active + 1} of {request.questions.length}
+        </small>
+        <strong>{question.title ?? question.question}</strong>
+        {question.title && <p>{question.question}</p>}
+        {question.input === 'select' && (
+          <div className="structured-decision-options">
+            {question.options.map((option) => {
+              const value = answers[question.id]
+              const selected = Array.isArray(value) ? value.includes(option.value) : value === option.value
+              return (
+                <button type="button" aria-pressed={selected} key={option.value} onClick={() => choose(option.value)}>
+                  <span>{option.label}</span>
+                  {option.description && <small>{option.description}</small>}
+                </button>
+              )
+            })}
+          </div>
+        )}
+        {question.input === 'boolean' && (
+          <div className="structured-decision-options">
+            {(['Yes', 'No'] as const).map((label) => {
+              const value = label === 'Yes'
+              return (
+                <button
+                  type="button"
+                  aria-pressed={answers[question.id] === value}
+                  key={label}
+                  onClick={() => {
+                    setAnswers((current) => ({ ...current, [question.id]: value }))
+                    if (active < request.questions.length - 1) setActive(active + 1)
+                  }}
+                >
+                  <span>{label}</span>
+                </button>
+              )
+            })}
+          </div>
+        )}
+        {question.input === 'text' && (
+          <input
+            className="structured-decision-value"
+            type="text"
+            value={typeof currentAnswer === 'string' ? currentAnswer : ''}
+            onChange={(event) => setAnswers((current) => ({ ...current, [question.id]: event.target.value }))}
+          />
+        )}
+        {question.input === 'number' && (
+          <input
+            className="structured-decision-value"
+            type="number"
+            value={typeof currentAnswer === 'number' ? currentAnswer : ''}
+            onChange={(event) => {
+              const value = event.target.value
+              setAnswers((current) => {
+                const next = { ...current }
+                if (value === '') delete next[question.id]
+                else next[question.id] = Number(value)
+                return next
+              })
+            }}
+          />
+        )}
+        {question.customAnswerId && (
+          <label className="structured-decision-other">
+            <span>Other</span>
+            <input
+              type="text"
+              value={
+                typeof answers[question.customAnswerId] === 'string' ? (answers[question.customAnswerId] as string) : ''
+              }
+              onChange={(event) =>
+                setAnswers((current) => ({ ...current, [question.customAnswerId!]: event.target.value }))
+              }
+            />
+          </label>
+        )}
+      </article>
+      <footer>
+        <button type="button" onClick={() => props.resolveElicitation!(request.id)}>
+          Skip
+        </button>
+        <button
+          type="button"
+          disabled={!requiredComplete}
+          onClick={() => props.resolveElicitation!(request.id, answers)}
+        >
+          Submit answers
+        </button>
+      </footer>
+    </section>
+  )
+}
+
 function decisionQuestion(text: string): string {
   return (
     text
@@ -1236,7 +1389,7 @@ export function ChatView(groups: ChatViewProps): JSX.Element {
   return (
     <div
       ref={rootRef}
-      className={`agent-chat ${session.focusMode ? 'focus-mode' : ''} ${session.statusBar ? 'has-status-bar' : ''} ${pendingDecisions.length > 0 ? 'has-pending-decisions' : ''}`}
+      className={`agent-chat ${session.focusMode ? 'focus-mode' : ''} ${session.statusBar ? 'has-status-bar' : ''} ${pendingDecisions.length > 0 || pending.decisionRequest ? 'has-pending-decisions' : ''}`}
     >
       <ChatSessionControls
         rootRef={rootRef}
@@ -1304,16 +1457,19 @@ export function ChatView(groups: ChatViewProps): JSX.Element {
           ))}
         </section>
       )}
+      <StructuredDecisionPanel key={pending.decisionRequest?.id ?? 'no-structured-decision'} {...pending} />
       {session.statusBar && <div className="agent-chat-status-bar">{session.statusBar}</div>}
-      <Composer
-        key={transcript.provider}
-        {...composer}
-        provider={transcript.provider}
-        messages={transcript.messages}
-        commands={transcript.commands}
-        status={session.status}
-        detail={authVisible || (session.focusMode && session.status === 'working') ? undefined : session.detail}
-      />
+      {pendingDecisions.length === 0 && !pending.decisionRequest && (
+        <Composer
+          key={transcript.provider}
+          {...composer}
+          provider={transcript.provider}
+          messages={transcript.messages}
+          commands={transcript.commands}
+          status={session.status}
+          detail={authVisible || (session.focusMode && session.status === 'working') ? undefined : session.detail}
+        />
+      )}
       {authVisible && <AuthPanel provider={transcript.provider} {...pending} />}
     </div>
   )
