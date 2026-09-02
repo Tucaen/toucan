@@ -305,6 +305,34 @@ describe('the background job', () => {
     await screen.findByText('Open the session on the canvas to sign in with your provider.')
   })
 
+  test('an out-of-workspace write request opens a permission dialog and resumes the capture when allowed', async () => {
+    const resolveCaptureApproval = vi.fn()
+    Object.assign(api, { resolveCaptureApproval })
+    renderPanel(api, { draft: 'organize me' })
+    fireEvent.click(screen.getByRole('button', { name: 'Write a brain dump' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Organize with brain-dump skill' }))
+    await screen.findByText(/Organizing brain dump/)
+
+    api.publishCapture({
+      status: 'working',
+      jobId: 'job-1',
+      approval: {
+        id: 'approval-1',
+        title: 'Change file: C:\\Users\\Ada\\AppData\\Roaming\\Toucan\\brain-dumps\\active\\idea.md',
+        options: [
+          { id: 'allow-once', label: 'Allow once', kind: 'allow_once' },
+          { id: 'reject-once', label: 'Reject', kind: 'reject_once' }
+        ]
+      }
+    } as never)
+
+    const dialog = await screen.findByRole('dialog', { name: 'Permission required' })
+    expect(dialog).toHaveTextContent('Toucan needs permission to update your brain-dump library.')
+    expect(dialog).toHaveTextContent('Change file:')
+    fireEvent.click(screen.getByRole('button', { name: 'Allow once' }))
+    expect(resolveCaptureApproval).toHaveBeenCalledWith('job-1', 'approval-1', 'allow-once')
+  })
+
   test('a rejected start is reported without losing the draft', async () => {
     const start = api.startCapture as ReturnType<typeof vi.fn>
     start.mockResolvedValueOnce({ ok: false, code: 'busy', message: 'A brain-dump capture is already running.' })

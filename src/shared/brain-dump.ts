@@ -1,3 +1,5 @@
+import type { AgentActivity, AgentPermissionOption } from './agent'
+
 export type BrainDumpCollection = 'active' | 'archived'
 export type BrainDumpOutcome = 'implemented' | 'resolved' | 'rejected' | 'obsolete'
 
@@ -36,10 +38,17 @@ export interface BrainDumpCaptureConversation {
   cwd: string
 }
 
+export interface BrainDumpCaptureApproval {
+  id: string
+  title: string
+  options: AgentPermissionOption[]
+  activity?: AgentActivity
+}
+
 export type BrainDumpCaptureFailureCode = 'startup' | 'auth' | 'timeout' | 'cancelled' | 'skill' | 'unverifiable'
 
 export type BrainDumpCaptureState =
-  | { status: 'working'; jobId: string }
+  | { status: 'working'; jobId: string; approval?: BrainDumpCaptureApproval }
   | { status: 'completed'; jobId: string; summary: string; conversation: BrainDumpCaptureConversation }
   | {
       status: 'failed'
@@ -77,6 +86,7 @@ export interface BrainDumpLibraryApi {
 export interface BrainDumpApi extends BrainDumpLibraryApi {
   startCapture(request: BrainDumpCaptureRequest): Promise<BrainDumpCaptureStartResult>
   currentCapture(): Promise<BrainDumpCaptureState | null>
+  resolveCaptureApproval(jobId: string, approvalId: string, optionId?: string): Promise<void>
   cancelCapture(jobId: string): Promise<void>
   onCapture(callback: (state: BrainDumpCaptureState) => void): () => void
   onLibraryChange(callback: (collection: BrainDumpCollection) => void): () => void

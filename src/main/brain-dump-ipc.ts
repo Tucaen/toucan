@@ -49,6 +49,17 @@ export function registerBrainDumpIpc(
       : { ok: false, code: 'invalid-content', message: 'Capture request is invalid.' }
   )
   ipc.handle('brain-dump:capture-current', () => capture.current())
+  ipc.handle(
+    'brain-dump:capture-approval',
+    (_event, jobId: unknown, approvalId: unknown, optionId: unknown) => {
+      if (
+        typeof jobId === 'string' &&
+        typeof approvalId === 'string' &&
+        (optionId === undefined || optionId === null || typeof optionId === 'string')
+      )
+        capture.resolveApproval(jobId, approvalId, typeof optionId === 'string' ? optionId : undefined)
+    }
+  )
   ipc.handle('brain-dump:capture-cancel', (_event, jobId: unknown) => {
     if (typeof jobId === 'string') capture.cancel(jobId)
   })

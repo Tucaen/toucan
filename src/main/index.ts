@@ -322,6 +322,7 @@ void app.whenReady().then(async () => {
     agent: {
       create: (request, owner) => agentManager.create(request, owner as unknown as Electron.WebContents),
       prompt: (id, content) => agentManager.prompt(id, content),
+      resolveApproval: (id, approvalId, optionId) => agentManager.resolveApproval(id, approvalId, optionId),
       cancel: (id) => agentManager.cancel(id),
       kill: (id) => agentManager.kill(id)
     },

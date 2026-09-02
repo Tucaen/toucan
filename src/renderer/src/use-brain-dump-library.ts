@@ -64,6 +64,7 @@ export interface BrainDumpLibrary {
   announcement: string
   capture: BrainDumpCaptureState | null
   startCapture(request: BrainDumpCaptureRequest): Promise<BrainDumpCaptureStartResult>
+  resolveCaptureApproval(jobId: string, approvalId: string, optionId?: string): void
   cancelCapture(): void
   dismissCapture(): void
 }
@@ -324,7 +325,11 @@ export function useBrainDumpLibrary(options: BrainDumpLibraryOptions): BrainDump
   const startCapture = useCallback(
     async (request: BrainDumpCaptureRequest): Promise<BrainDumpCaptureStartResult> => {
       const result = await api.startCapture(request)
-      if (result.ok) setCapture(result.state)
+      if (result.ok) {
+        // The agent can request permission before the start IPC response returns. Preserve that
+        // newer event state instead of replacing it with the response's initial `working` state.
+        setCapture((current) => (current?.jobId === result.state.jobId ? current : result.state))
+      }
       return result
     },
     [api]
@@ -357,6 +362,9 @@ export function useBrainDumpLibrary(options: BrainDumpLibraryOptions): BrainDump
       announcement,
       capture,
       startCapture,
+      resolveCaptureApproval: (jobId: string, approvalId: string, optionId?: string) => {
+        void api.resolveCaptureApproval(jobId, approvalId, optionId)
+      },
       cancelCapture,
       dismissCapture: () => setCapture(null)
     }),

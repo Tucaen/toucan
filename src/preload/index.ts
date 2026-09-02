@@ -147,6 +147,8 @@ const brainDumpApi: BrainDumpApi = {
     ipcRenderer.invoke('brain-dump:assign-project', slug, projectPath),
   startCapture: (request: BrainDumpCaptureRequest) => ipcRenderer.invoke('brain-dump:capture-start', request),
   currentCapture: () => ipcRenderer.invoke('brain-dump:capture-current'),
+  resolveCaptureApproval: (jobId: string, approvalId: string, optionId?: string) =>
+    ipcRenderer.invoke('brain-dump:capture-approval', jobId, approvalId, optionId),
   cancelCapture: (jobId: string) => ipcRenderer.invoke('brain-dump:capture-cancel', jobId),
   onCapture: (callback: (state: BrainDumpCaptureState) => void): (() => void) => {
     const listener = (_event: Electron.IpcRendererEvent, state: BrainDumpCaptureState): void => callback(state)

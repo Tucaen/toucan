@@ -8,6 +8,7 @@ test('capture IPC rejects malformed input and forwards only the narrow capture r
   const starts: unknown[] = []
   const subscribers: unknown[] = []
   const assignments: [string, string | undefined][] = []
+  const approvals: Array<{ jobId: string; approvalId: string; optionId?: string }> = []
   registerBrainDumpIpc(
     { handle: (channel, listener) => void handlers.set(channel, listener as (...args: unknown[]) => unknown) },
     {
@@ -25,6 +26,8 @@ test('capture IPC rejects malformed input and forwards only the narrow capture r
         return { ok: true, state: { status: 'working', jobId: 'job' } }
       },
       current: () => null,
+      resolveApproval: (jobId, approvalId, optionId) =>
+        approvals.push({ jobId, approvalId, ...(optionId ? { optionId } : {}) }),
       cancel: () => {},
       disconnectOwner: () => {},
       shutdown: () => {}
@@ -44,6 +47,10 @@ test('capture IPC rejects malformed input and forwards only the narrow capture r
     projectPath: 'D:\\Development\\Toucan'
   })
   assert.deepEqual(starts, [{ content: 'reviewed', provider: 'codex', projectPath: 'D:\\Development\\Toucan' }])
+
+  await handlers.get('brain-dump:capture-approval')!(event, 'job', 'approval', 'allow-once')
+  await handlers.get('brain-dump:capture-approval')!(event, 'job', 42, 'allow-once')
+  assert.deepEqual(approvals, [{ jobId: 'job', approvalId: 'approval', optionId: 'allow-once' }])
 
   await handlers.get('brain-dump:list')!(event, 'active')
   assert.deepEqual(subscribers, [event.sender])

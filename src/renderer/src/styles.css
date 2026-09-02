@@ -4398,6 +4398,12 @@ button {
   font-size: 12px;
 }
 
+.brain-dump-permission-dialog code {
+  overflow-wrap: anywhere;
+  color: #d7dde7;
+  font-size: 11px;
+}
+
 .brain-dump-outcomes {
   display: grid;
   gap: 6px;

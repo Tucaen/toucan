@@ -23,6 +23,7 @@ export interface BrainDumpCaptureOwner {
 export interface BrainDumpCaptureAgent {
   create(request: AgentCreateRequest, owner: BrainDumpCaptureOwner): Promise<AgentCreateResult>
   prompt(id: string, content: AgentPromptContent): Promise<AgentPromptResult>
+  resolveApproval(id: string, approvalId: string, optionId?: string): void
   cancel(id: string): void
   kill?(id: string): void
 }
@@ -30,6 +31,7 @@ export interface BrainDumpCaptureAgent {
 export interface BrainDumpCaptureManager {
   start(request: BrainDumpCaptureRequest, owner?: BrainDumpCaptureOwner): Promise<BrainDumpCaptureStartResult>
   current(): BrainDumpCaptureState | null
+  resolveApproval(jobId: string, approvalId: string, optionId?: string): void
   cancel(jobId: string): void
   disconnectOwner(owner: BrainDumpCaptureOwner): void
   shutdown(): void
@@ -121,6 +123,18 @@ export function createBrainDumpCaptureManager(options: BrainDumpCaptureManagerOp
       if (channel !== 'agent:event' || envelope.id !== activeId || !envelope.event) return
       const event = envelope.event as AgentEvent
       if (event.type === 'session' && conversation) conversation = { ...conversation, conversationId: event.sessionId }
+      if (event.type === 'approval' && state?.status === 'working') {
+        setState({
+          status: 'working',
+          jobId: envelope.id!,
+          approval: {
+            id: event.approvalId,
+            title: event.title,
+            options: event.options,
+            ...(event.activity ? { activity: event.activity } : {})
+          }
+        })
+      }
       if (event.type === 'message' && event.role === 'assistant' && event.presentation !== 'progress') {
         const text = `${assistantMessages.get(event.messageId) ?? ''}${event.text}`
         assistantMessages.set(event.messageId, text)
@@ -231,6 +245,17 @@ export function createBrainDumpCaptureManager(options: BrainDumpCaptureManagerOp
   return {
     start,
     current: () => state,
+    resolveApproval(jobId, approvalId, optionId) {
+      if (
+        activeId !== jobId ||
+        state?.status !== 'working' ||
+        state.approval?.id !== approvalId ||
+        (optionId !== undefined && !state.approval.options.some((option) => option.id === optionId))
+      )
+        return
+      options.agent.resolveApproval(jobId, approvalId, optionId)
+      setState({ status: 'working', jobId })
+    },
     cancel(jobId) {
       if (activeId !== jobId || state?.status !== 'working') return
       clearFinalAnswerTimer()

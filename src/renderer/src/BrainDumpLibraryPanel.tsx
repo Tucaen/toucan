@@ -18,6 +18,7 @@ import { searchBrainDumpTopics } from './brain-dump-topics'
 import BrainDumpCapture from './BrainDumpCapture'
 import BrainDumpCaptureStatus from './BrainDumpCaptureStatus'
 import BrainDumpLifecycleDialog from './BrainDumpLifecycleDialog'
+import BrainDumpPermissionDialog from './BrainDumpPermissionDialog'
 import BrainDumpReader from './BrainDumpReader'
 import BrainDumpTopicList from './BrainDumpTopicList'
 import { useBrainDumpLibrary } from './use-brain-dump-library'
@@ -469,6 +470,15 @@ export default function BrainDumpLibraryPanel(props: BrainDumpLibraryPanelProps)
               if (ok) setArchiveTarget(null)
             })
           }}
+        />
+      )}
+
+      {library.capture?.status === 'working' && library.capture.approval && (
+        <BrainDumpPermissionDialog
+          approval={library.capture.approval}
+          onResolve={(optionId) =>
+            library.resolveCaptureApproval(library.capture!.jobId, library.capture!.approval!.id, optionId)
+          }
         />
       )}
 

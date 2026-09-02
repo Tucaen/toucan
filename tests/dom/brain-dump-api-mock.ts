@@ -82,6 +82,7 @@ export function createMockBrainDumpApi(overrides: Partial<BrainDumpApi> = {}): M
     }),
     startCapture: vi.fn(async () => ({ ok: true as const, state: { status: 'working' as const, jobId: 'job-1' } })),
     currentCapture: vi.fn(async () => null),
+    resolveCaptureApproval: vi.fn(async () => undefined),
     cancelCapture: vi.fn(async () => undefined),
     onCapture: (callback) => {
       subscribers.add(callback)

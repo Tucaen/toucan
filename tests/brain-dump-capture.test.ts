@@ -20,6 +20,7 @@ class FakeAgent implements BrainDumpCaptureAgent {
   creates: AgentCreateRequest[] = []
   prompts: Array<{ id: string; content: AgentPromptContent }> = []
   cancellations: string[] = []
+  approvals: Array<{ id: string; approvalId: string; optionId?: string }> = []
   createResult: AgentCreateResult = { ok: true, status: 'ready', sessionId: 'conversation-1' }
   promptResult: Promise<AgentPromptResult> = Promise.resolve({ ok: true })
   owner?: BrainDumpCaptureOwner
@@ -37,6 +38,10 @@ class FakeAgent implements BrainDumpCaptureAgent {
 
   cancel(id: string): void {
     this.cancellations.push(id)
+  }
+
+  resolveApproval(id: string, approvalId: string, optionId?: string): void {
+    this.approvals.push({ id, approvalId, ...(optionId ? { optionId } : {}) })
   }
 
   event(event: AgentEvent): void {
@@ -117,6 +122,40 @@ test('one job runs at a time and renderer disconnect does not complete it', asyn
   capture.disconnectOwner(owner)
   assert.equal(capture.current()?.status, 'working')
   turn.resolve({ ok: true })
+})
+
+test('capture exposes and resolves an agent permission request instead of leaving the turn wedged', async () => {
+  const agent = new FakeAgent()
+  agent.promptResult = deferred<AgentPromptResult>().promise
+  const capture = manager(agent)
+  await capture.start({ content: 'Idea', provider: 'codex', projectPath: 'D:\\Development\\Toucan' })
+
+  agent.event({
+    type: 'approval',
+    approvalId: 'approval-1',
+    title: 'Change file: C:\\Users\\Ada\\AppData\\Roaming\\Toucan\\brain-dumps\\active\\idea.md',
+    options: [
+      { id: 'allow-once', label: 'Allow once', kind: 'allow_once' },
+      { id: 'reject-once', label: 'Reject', kind: 'reject_once' }
+    ]
+  })
+
+  assert.deepEqual(capture.current(), {
+    status: 'working',
+    jobId: 'job-1',
+    approval: {
+      id: 'approval-1',
+      title: 'Change file: C:\\Users\\Ada\\AppData\\Roaming\\Toucan\\brain-dumps\\active\\idea.md',
+      options: [
+        { id: 'allow-once', label: 'Allow once', kind: 'allow_once' },
+        { id: 'reject-once', label: 'Reject', kind: 'reject_once' }
+      ]
+    }
+  })
+
+  capture.resolveApproval('job-1', 'approval-1', 'allow-once')
+  assert.deepEqual(agent.approvals, [{ id: 'job-1', approvalId: 'approval-1', optionId: 'allow-once' }])
+  assert.deepEqual(capture.current(), { status: 'working', jobId: 'job-1' })
 })
 
 test('a persisted in-flight job restores as unverifiable rather than completed or failed by guesswork', () => {
