@@ -79,6 +79,15 @@ import {
 } from './WorkspaceDialogs'
 import { planWorktreeRemoval } from './worktree-removal'
 import WorktreeNode from './WorktreeNode'
+import {
+  nodeAtGeometry,
+  nodeBeforeTemporaryFit,
+  NODE_FIT_INSET,
+  renderedNodeGeometry,
+  toggleNodeFit,
+  type NodeGeometry
+} from './node-fit'
+import { NodeFitContext } from './node-fit-context'
 
 type Project = WorkspaceProject
 
@@ -197,7 +206,9 @@ function Canvas(): JSX.Element {
   })
   const [brainDumpMounted, setBrainDumpMounted] = useState(false)
   const [workspaceWidth, setWorkspaceWidth] = useState(() => window.innerWidth)
-  const { fitView, screenToFlowPosition } = useReactFlow()
+  const { fitView, getViewport, screenToFlowPosition } = useReactFlow()
+  const canvasRegionRef = useRef<HTMLElement>(null)
+  const nodeRestoreGeometry = useRef(new Map<string, NodeGeometry>())
   const nextSessionNumber = useRef(1)
 
   const activeProject = useMemo(
@@ -244,6 +255,37 @@ function Canvas(): JSX.Element {
       return { ...current, [nodeId]: status }
     })
   }, [])
+
+  const handleToggleNodeFit = useCallback(
+    (nodeId: string): void => {
+      const canvas = canvasRegionRef.current?.getBoundingClientRect()
+      if (!canvas) return
+      setNodes((current) =>
+        current.map((node) => {
+          if (node.id !== nodeId) return node
+          const currentGeometry = renderedNodeGeometry(node)
+          if (!currentGeometry) return node
+          const transition = toggleNodeFit(
+            currentGeometry,
+            nodeRestoreGeometry.current.get(nodeId),
+            canvas,
+            getViewport(),
+            NODE_FIT_INSET
+          )
+          if (transition.restoreGeometry) nodeRestoreGeometry.current.set(nodeId, transition.restoreGeometry)
+          else nodeRestoreGeometry.current.delete(nodeId)
+          return nodeAtGeometry(
+            {
+              ...node,
+              data: { ...node.data, fittedToCanvas: transition.fitted }
+            } as CanvasNode,
+            transition.geometry
+          )
+        })
+      )
+    },
+    [getViewport, setNodes]
+  )
 
   /** Every session-node update funnels through here so worktree nodes are never mistaken for one. */
   const patchTerminalNode = useCallback(
@@ -423,7 +465,10 @@ function Canvas(): JSX.Element {
     (changes: NodeChange<CanvasNode>[]): void => {
       const removedIds = new Set(changes.flatMap((change) => (change.type === 'remove' ? [change.id] : [])))
       if (removedIds.size > 0) {
-        const removedNodes = nodesRef.current.filter((node) => removedIds.has(node.id))
+        const removedNodes = nodesRef.current
+          .filter((node) => removedIds.has(node.id))
+          .map((node) => nodeBeforeTemporaryFit(node, nodeRestoreGeometry.current.get(node.id)))
+        for (const nodeId of removedIds) nodeRestoreGeometry.current.delete(nodeId)
         for (const node of removedNodes) {
           if (isTerminalCanvasNode(node) && node.data.kind === 'terminal') {
             void window.terminalApi
@@ -969,10 +1014,14 @@ function Canvas(): JSX.Element {
       sidebarCollapsed,
       agentPermissionModes,
       composerSendKey,
-      nodes: nodes.filter(isTerminalCanvasNode).map(serializeCanvasNode),
+      nodes: nodes.filter(isTerminalCanvasNode).map((node) => {
+        return serializeCanvasNode(nodeBeforeTemporaryFit(node, nodeRestoreGeometry.current.get(node.id)))
+      }),
       recentlyClosedNodes,
       attention: [...attention],
-      worktrees: nodes.filter(isWorktreeCanvasNode).map(serializeWorktreeNode),
+      worktrees: nodes.filter(isWorktreeCanvasNode).map((node) => {
+        return serializeWorktreeNode(nodeBeforeTemporaryFit(node, nodeRestoreGeometry.current.get(node.id)))
+      }),
       brainDumpPanel
     }),
     [
@@ -1645,22 +1694,24 @@ function Canvas(): JSX.Element {
               )}
             </aside>
 
-            <section className="canvas-region">
-              <ReactFlow
-                nodes={nodes}
-                nodeTypes={nodeTypes}
-                onNodesChange={handleNodesChange}
-                onPaneContextMenu={openContextMenu}
-                onPaneClick={() => setMenu(null)}
-                minZoom={0.25}
-                maxZoom={2}
-                defaultViewport={{ x: 0, y: 0, zoom: 1 }}
-                colorMode="dark"
-                deleteKeyCode={['Backspace', 'Delete']}
-              >
-                <Background variant={BackgroundVariant.Dots} gap={24} size={1.2} color="#303744" />
-                <Controls showInteractive={false} position="bottom-left" />
-              </ReactFlow>
+            <section ref={canvasRegionRef} className="canvas-region">
+              <NodeFitContext.Provider value={handleToggleNodeFit}>
+                <ReactFlow
+                  nodes={nodes}
+                  nodeTypes={nodeTypes}
+                  onNodesChange={handleNodesChange}
+                  onPaneContextMenu={openContextMenu}
+                  onPaneClick={() => setMenu(null)}
+                  minZoom={0.25}
+                  maxZoom={2}
+                  defaultViewport={{ x: 0, y: 0, zoom: 1 }}
+                  colorMode="dark"
+                  deleteKeyCode={['Backspace', 'Delete']}
+                >
+                  <Background variant={BackgroundVariant.Dots} gap={24} size={1.2} color="#303744" />
+                  <Controls showInteractive={false} position="bottom-left" />
+                </ReactFlow>
+              </NodeFitContext.Provider>
             </section>
 
             {/* Docked, never overlaid: the panel is a sibling of the canvas region, so opening it

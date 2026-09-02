@@ -135,6 +135,7 @@ describe.each(['claude', 'codex'] as const)('%s restored chat transcript', (prov
     renderNode(node)
 
     await waitFor(() => expect(screen.getByText('Persisted question')).toBeInTheDocument())
+    expect(screen.getByRole('button', { name: 'Fit to canvas' }).closest('header')).toHaveClass('chat-node-header')
     const progress = screen.getByText('Reading the saved workspace.').closest('article')
     expect(progress).toHaveAttribute('data-presentation', 'progress')
     expect(screen.getByText('Progress')).toBeInTheDocument()

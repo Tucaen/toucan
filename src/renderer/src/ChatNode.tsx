@@ -60,6 +60,7 @@ import { worklogActivities } from './worklog-activities'
 import { WorkspaceRootsContext } from './workspace-root'
 import { buildHandoffPrompt, planWorktreeHandoff } from '../../shared/worktree-handoff'
 import type { TerminalCanvasNode, TerminalNodeStatus } from './canvas-workspace'
+import NodeFitAction from './NodeFitAction'
 import { attentionTextKey, READ_ON_VIEW_KINDS, type AttentionKind } from '../../shared/attention'
 import { imageFilesFromClipboard, type AgentImageAttachment } from './image-attachment'
 import { classifyAssistantMessage, type DecisionOption } from './decision-message'
@@ -1831,6 +1832,7 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
           }}
         />
         <span className="node-status">{status.replace('_', ' ')}</span>
+        <NodeFitAction nodeId={id} fitted={data.fittedToCanvas ?? false} />
       </header>
       {data.dormant ? (
         <div className="dormant-session chat-dormant nodrag">

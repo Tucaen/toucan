@@ -108,6 +108,7 @@ test('a dormant terminal restores display-only history without spawning or accep
   )
 
   await waitFor(() => expect(terminalWrites.join('')).toContain('kept output'))
+  expect(screen.getByRole('button', { name: 'Fit to canvas' }).closest('header')).toHaveClass('node-header')
   expect(terminalWrites.join('')).toContain('Earlier output was truncated or incomplete')
   expect(create).not.toHaveBeenCalled()
   expect(terminalInputs).toHaveLength(0)

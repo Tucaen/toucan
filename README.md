@@ -7,7 +7,8 @@ workspace state is stored locally and the Windows x64 portable build is not yet 
 ## What Toucan does
 
 - Keeps multiple projects, terminals, and coding-agent conversations visible on one
-  zoomable canvas.
+  zoomable canvas. Every node can temporarily fit the visible canvas and then restore its
+  exact previous position and size from the header.
 - Runs Claude and Codex through provider-neutral ACP chat nodes with sign-in, approvals,
   model and effort controls, slash commands, Markdown, file attachments, and local voice
   dictation.

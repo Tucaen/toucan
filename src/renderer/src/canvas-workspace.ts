@@ -47,7 +47,12 @@ export interface TerminalNodeCallbacks {
   onWorktreeHandoff?(nodeId: string, request: WorktreeHandoffPlan): void
 }
 
-export interface TerminalNodeData extends Record<string, unknown>, TerminalNodeCallbacks {
+interface CanvasNodePresentation {
+  /** Session-local presentation state; deliberately omitted from workspace serialization. */
+  fittedToCanvas?: boolean
+}
+
+export interface TerminalNodeData extends Record<string, unknown>, TerminalNodeCallbacks, CanvasNodePresentation {
   kind: TerminalKind
   sessionId: string
   terminalLiveness: TerminalLiveness
@@ -98,7 +103,7 @@ export interface WorktreeNodeCallbacks {
   onRunSetupCommand(worktreeId: string): void
 }
 
-export interface WorktreeNodeData extends Record<string, unknown>, WorktreeNodeCallbacks {
+export interface WorktreeNodeData extends Record<string, unknown>, WorktreeNodeCallbacks, CanvasNodePresentation {
   worktreeId: string
   branch: string
   path: string

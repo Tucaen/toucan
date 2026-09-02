@@ -4,6 +4,7 @@ import { GitBranch } from 'lucide-react'
 import type { WorktreeStatus } from '../../shared/worktree'
 import type { WorktreeCanvasNode } from './canvas-workspace'
 import NodeBorderResizer from './NodeBorderResizer'
+import NodeFitAction from './NodeFitAction'
 import SessionKindIcon from './SessionKindIcon'
 
 /** Git state moves only when something else on the canvas moves it, so this can be lazy. */
@@ -29,7 +30,7 @@ function describeStatus(status: WorktreeStatus | null): {
   return { text: parts.join(' · '), kind: dirty ? 'dirty' : 'ahead' }
 }
 
-export default function WorktreeNode({ data, selected }: NodeProps<WorktreeCanvasNode>): JSX.Element {
+export default function WorktreeNode({ id, data, selected }: NodeProps<WorktreeCanvasNode>): JSX.Element {
   const [status, setStatus] = useState<WorktreeStatus | null>(null)
   const { path, branch, baseRef } = data
 
@@ -72,6 +73,7 @@ export default function WorktreeNode({ data, selected }: NodeProps<WorktreeCanva
           {data.projectName}
         </span>
         <span className="node-status">{data.attachedNodeCount} attached</span>
+        <NodeFitAction nodeId={id} fitted={data.fittedToCanvas ?? false} />
       </header>
 
       <div className="worktree-body nodrag">

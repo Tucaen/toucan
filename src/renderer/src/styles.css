@@ -1031,6 +1031,33 @@ button {
   user-select: none;
 }
 
+.node-fit-action {
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
+  margin-left: auto;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: #8792a2;
+  background: transparent;
+  cursor: pointer;
+}
+
+.node-fit-action:hover,
+.node-fit-action:focus-visible {
+  border-color: #3b4655;
+  color: #dce1e9;
+  background: #252b35;
+}
+
+.node-fit-action svg {
+  width: 15px;
+  height: 15px;
+}
+
 .status-dot {
   width: 7px;
   height: 7px;
