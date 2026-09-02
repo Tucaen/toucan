@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useContext,
   useEffect,
   useId,
@@ -57,6 +58,7 @@ import { indexShellLaunches } from './shell-execution'
 import { SessionCommandsContext } from './skill-invocation'
 import { SubagentActivitiesContext, indexSubagentActivities } from './subagent-task'
 import { worklogActivities } from './worklog-activities'
+import { formatReasoningSize, mergeReasoningEntries, reasoningTailLine, type ReasoningBlock } from './reasoning-blocks'
 import { WorkspaceRootsContext } from './workspace-root'
 import { buildHandoffPrompt, planWorktreeHandoff } from '../../shared/worktree-handoff'
 import type { TerminalCanvasNode, TerminalNodeStatus } from './canvas-workspace'
@@ -1247,25 +1249,52 @@ function ActivityCard({ activity }: { activity: AgentActivity }): JSX.Element {
   )
 }
 
-function ReasoningCard({ message }: { message: AgentChatMessage }): JSX.Element {
-  const [expanded, setExpanded] = useState(false)
+/**
+ * One deliberation, however many thought messages it arrived as. Expansion is owned by `ChatView`
+ * rather than by this component: Focus mode unmounts these cards, and local state would forget a
+ * block the reader had deliberately opened.
+ */
+function ReasoningCard({
+  block,
+  expanded,
+  onToggle
+}: {
+  block: ReasoningBlock
+  expanded: boolean
+  onToggle(): void
+}): JSX.Element {
+  const size = formatReasoningSize(block.estimatedTokens)
+  // Collapsed, a streaming block would otherwise be indistinguishable from a finished one, so the
+  // newest line of reasoning stands in for progress until the block is expanded anyway.
+  const preview = block.streaming && !expanded ? reasoningTailLine(block.text) : ''
+  // One word for both the visible heading and the accessible name, so a screen reader is never
+  // told "Reasoning" while the card reads "Thinking".
+  const heading = block.streaming ? 'Thinking' : 'Reasoning'
   return (
-    <article className="activity-card thought-card" data-family="reasoning" data-expanded={expanded}>
+    <article
+      className="activity-card thought-card"
+      data-family="reasoning"
+      data-expanded={expanded}
+      data-streaming={block.streaming}
+    >
       <button
         type="button"
         className="activity-header"
-        aria-label="Reasoning"
+        aria-label={heading}
         aria-expanded={expanded}
-        onClick={() => setExpanded((current) => !current)}
+        onClick={onToggle}
       >
         <span className="activity-icon">
           <BrainCircuit aria-hidden="true" />
         </span>
-        <strong>Reasoning</strong>
+        <strong>{heading}</strong>
+        {block.chunkIds.length > 1 && <small className="thought-count">{block.chunkIds.length} thoughts</small>}
+        {size && <span className="activity-state">{size}</span>}
       </button>
+      {preview && <p className="thought-preview">{preview}</p>}
       {expanded && (
         <div className="activity-body">
-          <MarkdownMessage text={message.text} />
+          <MarkdownMessage text={block.text} />
         </div>
       )}
     </article>
@@ -1385,8 +1414,26 @@ export function ChatView(groups: ChatViewProps): JSX.Element {
       byKey.delete(key)
       return [match]
     })
-    return [...ordered, ...byKey.values()]
-  }, [inlineActivities, transcript.messages, transcript.outcomes, transcript.transcript])
+    // Merging is a transcript-order concern, not a message-list one: what separates two
+    // deliberations is the tool call or the prose that landed between them.
+    return mergeReasoningEntries(
+      [...ordered, ...byKey.values()],
+      (entry) =>
+        entry.type === 'message' && entry.message.role === 'thought'
+          ? { id: entry.message.id, text: entry.message.text }
+          : null,
+      { working: session.status === 'working' }
+    )
+  }, [inlineActivities, session.status, transcript.messages, transcript.outcomes, transcript.transcript])
+  // Keyed on a block's id, which is its first chunk's id and so survives the block growing.
+  const [expandedReasoning, setExpandedReasoning] = useState<ReadonlySet<string>>(() => new Set())
+  const toggleReasoning = useCallback((id: string) => {
+    setExpandedReasoning((current) => {
+      const next = new Set(current)
+      if (!next.delete(id)) next.add(id)
+      return next
+    })
+  }, [])
   return (
     <div
       ref={rootRef}
@@ -1417,17 +1464,24 @@ export function ChatView(groups: ChatViewProps): JSX.Element {
                   ) : (
                     <EmptyConversation provider={transcript.provider} />
                   ))}
-                {transcriptEntries.map((entry) =>
-                  entry.type === 'activity' ? (
-                    !session.focusMode && <ActivityCard activity={entry.activity} key={entry.key} />
-                  ) : entry.type === 'outcome' ? (
-                    <TurnOutcomeCard key={entry.key} outcome={entry.outcome} />
-                  ) : entry.message.role === 'thought' ? (
-                    !session.focusMode && <ReasoningCard key={entry.key} message={entry.message} />
-                  ) : entry.message.presentation === 'progress' ? (
-                    !session.focusMode && <ChatMessageCard key={entry.key} message={entry.message} />
+                {transcriptEntries.map((item) =>
+                  item.kind === 'reasoning' ? (
+                    !session.focusMode && (
+                      <ReasoningCard
+                        key={`reasoning:${item.block.id}`}
+                        block={item.block}
+                        expanded={expandedReasoning.has(item.block.id)}
+                        onToggle={() => toggleReasoning(item.block.id)}
+                      />
+                    )
+                  ) : item.entry.type === 'activity' ? (
+                    !session.focusMode && <ActivityCard activity={item.entry.activity} key={item.entry.key} />
+                  ) : item.entry.type === 'outcome' ? (
+                    <TurnOutcomeCard key={item.entry.key} outcome={item.entry.outcome} />
+                  ) : item.entry.message.presentation === 'progress' ? (
+                    !session.focusMode && <ChatMessageCard key={item.entry.key} message={item.entry.message} />
                   ) : (
-                    <ChatMessageCard key={entry.key} message={entry.message} />
+                    <ChatMessageCard key={item.entry.key} message={item.entry.message} />
                   )
                 )}
                 {!session.focusMode && transcript.plan.length > 0 && <PlanCard plan={transcript.plan} />}

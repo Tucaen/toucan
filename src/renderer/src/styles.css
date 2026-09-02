@@ -3828,6 +3828,51 @@ button {
   font-size: 11px;
 }
 
+/* A size estimate is a quantity, not a status word, so it keeps its own casing. */
+.thought-card .activity-state {
+  font-weight: 650;
+  text-transform: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.thought-count {
+  color: #6f7a89;
+  font-size: 9px;
+}
+
+/* Collapsed and still streaming: the newest line of reasoning is the progress indicator. */
+.thought-preview {
+  margin: 0;
+  padding: 0 8px 8px 40px;
+  overflow: hidden;
+  color: #7d8796;
+  font-size: 10px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.thought-card[data-streaming='true'] .activity-icon {
+  color: #8fb3ff;
+  animation: thought-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes thought-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thought-card[data-streaming='true'] .activity-icon {
+    animation: none;
+  }
+}
+
 /* ---- Conversation history -------------------------------------------- */
 
 .history-icon {
