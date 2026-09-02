@@ -23,6 +23,7 @@ export function TestChatView(props: TestChatViewProps): JSX.Element {
         provider: props.provider,
         messages: props.messages,
         activities: props.activities,
+        outcomes: props.outcomes,
         transcript: props.transcript,
         plan: props.plan,
         workspaceRoots: props.workspaceRoots,

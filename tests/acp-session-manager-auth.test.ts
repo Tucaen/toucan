@@ -7,7 +7,7 @@ import { extractLoginUrl, promptFailure, promptGuard, writeAuthCode } from '../s
 
 test('turns prompt-level ACP authentication failures into an actionable sign-in state', () => {
   const methods = [{ id: 'claude-ai-login', name: 'Claude Subscription', type: 'terminal' as const }]
-  const failure = promptFailure({ code: -32000, message: 'Authentication required' }, methods)
+  const failure = promptFailure({ code: -32000, message: 'Authentication required' }, methods, 'auth-turn')
 
   assert.deepEqual(failure.events, [
     { type: 'auth', methods },
@@ -29,7 +29,8 @@ test('turns a Claude OAuth-refresh failure into the same actionable sign-in stat
       message: 'Internal error: Failed to authenticate: OAuth session expired and could not be refreshed',
       data: { errorKind: 'authentication_failed' }
     },
-    methods
+    methods,
+    'auth-refresh-turn'
   )
 
   assert.deepEqual(failure.events, [
@@ -46,20 +47,21 @@ test('turns a Claude OAuth-refresh failure into the same actionable sign-in stat
 test('does not treat an unrelated internal error carrying a different errorKind as auth-required', () => {
   const failure = promptFailure(
     { code: -32603, message: 'Internal error: rate limited', data: { errorKind: 'rate_limit' } },
-    []
+    [],
+    'rate-limit-turn'
   )
 
   assert.deepEqual(failure.events, [
-    { type: 'error', message: 'Internal error: rate limited' },
+    { type: 'turn_failed', turnId: 'rate-limit-turn', message: 'Internal error: rate limited' },
     { type: 'status', status: 'idle' }
   ])
 })
 
 test('keeps ordinary prompt failures visible and returns the conversation to idle', () => {
-  const failure = promptFailure(new Error('Provider unavailable'), [])
+  const failure = promptFailure(new Error('Provider unavailable'), [], 'provider-turn')
 
   assert.deepEqual(failure.events, [
-    { type: 'error', message: 'Provider unavailable' },
+    { type: 'turn_failed', turnId: 'provider-turn', message: 'Provider unavailable' },
     { type: 'status', status: 'idle' }
   ])
   assert.deepEqual(failure.result, { ok: false, message: 'Provider unavailable' })

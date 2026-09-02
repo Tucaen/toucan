@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, renameSync, unlinkSync } from 'node:fs'
 import { open } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
+import { AGENT_TURN_OUTCOME_LIMIT } from '../shared/agent'
 import { isAttentionItem } from '../shared/attention'
 import {
   isComposerSendKey,
@@ -64,6 +65,16 @@ function hasValidProjects(
   )
 }
 
+function isAgentTurnOutcome(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false
+  const outcome = value as { id?: unknown; status?: unknown; message?: unknown }
+  return (
+    typeof outcome.id === 'string' &&
+    (outcome.status === 'failed' || outcome.status === 'cancelled') &&
+    typeof outcome.message === 'string'
+  )
+}
+
 function isWorkspaceTerminalNode(value: unknown): boolean {
   if (!value || typeof value !== 'object') return false
   const node = value as Partial<WorkspaceState['nodes'][number]>
@@ -84,6 +95,8 @@ function isWorkspaceTerminalNode(value: unknown): boolean {
     (node.focusMode === undefined || typeof node.focusMode === 'boolean') &&
     (node.worklogCollapsed === undefined || typeof node.worklogCollapsed === 'boolean') &&
     (node.modelId === undefined || typeof node.modelId === 'string') &&
+    (node.turnOutcomes === undefined ||
+      (Array.isArray(node.turnOutcomes) && node.turnOutcomes.every(isAgentTurnOutcome))) &&
     (node.draft === undefined || typeof node.draft === 'string') &&
     (node.terminalLiveness === undefined || ['live', 'unverifiable', 'exited'].includes(node.terminalLiveness)) &&
     (node.preview === undefined ||
@@ -151,6 +164,7 @@ export function parseWorkspaceState(value: unknown): WorkspaceState | null {
         return {
           ...current,
           ...(node.kind === 'terminal' ? {} : { focusMode: node.focusMode ?? worklogCollapsed ?? false }),
+          ...(node.turnOutcomes ? { turnOutcomes: node.turnOutcomes.slice(-AGENT_TURN_OUTCOME_LIMIT) } : {}),
           ...(node.preview
             ? {
                 preview: {

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { createWorkspaceStore, parseWorkspaceState } from '../src/main/workspace-store'
+import { AGENT_TURN_OUTCOME_LIMIT } from '../src/shared/agent'
 import type { WorkspaceState } from '../src/shared/terminal'
 
 function makeState(marker: string): WorkspaceState {
@@ -134,6 +135,33 @@ test('clamps a persisted closed-session stack to its ten newest entries', () => 
   assert.deepEqual(
     parsed?.recentlyClosedNodes?.map((node) => node.id),
     Array.from({ length: 10 }, (_, index) => `closed-node-${index + 3}`)
+  )
+})
+
+test('clamps persisted turn outcomes to the newest bounded history', () => {
+  const parsed = parseWorkspaceState({
+    ...makeState('Toucan'),
+    nodes: [
+      {
+        id: 'node-1',
+        kind: 'codex',
+        label: 'Codex 1',
+        projectId: 'project-1',
+        position: { x: 0, y: 0 },
+        width: 520,
+        height: 340,
+        turnOutcomes: Array.from({ length: AGENT_TURN_OUTCOME_LIMIT + 2 }, (_, index) => ({
+          id: `turn-${index + 1}`,
+          status: 'failed',
+          message: `Failure ${index + 1}`
+        }))
+      }
+    ]
+  })
+
+  assert.deepEqual(
+    parsed?.nodes[0].turnOutcomes?.map((outcome) => outcome.id),
+    Array.from({ length: AGENT_TURN_OUTCOME_LIMIT }, (_, index) => `turn-${index + 3}`)
   )
 })
 

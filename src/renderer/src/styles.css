@@ -1614,6 +1614,37 @@ button {
   margin-bottom: 0;
 }
 
+.turn-outcome {
+  margin: 0 0 15px;
+  padding: 9px 11px;
+  border: 1px solid #5e6672;
+  border-radius: 8px;
+  background: #1d222b;
+}
+
+.turn-outcome[data-status='failed'] {
+  border-color: #8c4f55;
+  background: color-mix(in srgb, #8c4f55 12%, #1d222b);
+}
+
+.turn-outcome strong {
+  display: block;
+  margin-bottom: 5px;
+  color: #d8dee7;
+  font-size: 11px;
+}
+
+.turn-outcome[data-status='failed'] strong {
+  color: #efb0b3;
+}
+
+.turn-outcome p {
+  margin: 0;
+  color: #aeb7c3;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 /* Provider-labelled progress stays readable in the transcript, but its rail and quieter type keep
    process narration from competing with the unframed final answer below it. */
 .chat-message[data-presentation='progress'] > div {

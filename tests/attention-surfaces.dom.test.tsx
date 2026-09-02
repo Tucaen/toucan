@@ -46,7 +46,10 @@ function createAttentionWorkspace(): {
   }
 }
 
-function chatNode(callbacks: TerminalNodeCallbacks & WorktreeNodeCallbacks): TerminalCanvasNode {
+function chatNode(
+  callbacks: TerminalNodeCallbacks & WorktreeNodeCallbacks,
+  turnOutcomes?: WorkspaceState['nodes'][number]['turnOutcomes']
+): TerminalCanvasNode {
   const state: WorkspaceState = {
     version: 3,
     projects: [{ id: 'project-1', name: 'Toucan', path: '/project', color: '#71a9ff' }],
@@ -61,7 +64,8 @@ function chatNode(callbacks: TerminalNodeCallbacks & WorktreeNodeCallbacks): Ter
         position: { x: 0, y: 0 },
         width: 640,
         height: 480,
-        conversationId: 'claude-conversation'
+        conversationId: 'claude-conversation',
+        turnOutcomes
       }
     ],
     worktrees: []
@@ -338,6 +342,68 @@ describe('chat node attention wiring', () => {
 
     await waitFor(() => expect(countUnreadAttention(workspace.state())).toBe(2))
     expect(workspace.state().map((item) => item.kind)).toEqual(['failure', 'failure'])
+  })
+
+  test('a failed turn stays visible in the transcript after the session returns to idle', async () => {
+    const workspace = createAttentionWorkspace()
+    const onTurnOutcome = vi.fn()
+    const node = chatNode({ ...baseCallbacks(workspace.onAttention), onTurnOutcome })
+    renderChat(node, { selected: false, unread: 0 })
+    await settle()
+
+    await act(async () => {
+      mock.emit(NODE_ID, { type: 'status', status: 'working' })
+      mock.emit(NODE_ID, {
+        type: 'turn_failed',
+        turnId: 'failed-turn',
+        message: 'The provider connection closed before the turn completed.'
+      })
+      mock.emit(NODE_ID, { type: 'status', status: 'idle' })
+    })
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Turn failed')
+    expect(screen.getByRole('alert')).toHaveTextContent('The provider connection closed before the turn completed.')
+    await waitFor(() => expect(countUnreadAttention(workspace.state())).toBe(1))
+    expect(workspace.state()[0].kind).toBe('failure')
+    expect(workspace.state()[0].key).toBe('failed-turn')
+    expect(onTurnOutcome).toHaveBeenCalledWith(NODE_ID, {
+      id: 'failed-turn',
+      status: 'failed',
+      message: 'The provider connection closed before the turn completed.'
+    })
+  })
+
+  test('a cancelled turn stays visible without raising failure attention', async () => {
+    const workspace = createAttentionWorkspace()
+    const node = chatNode(baseCallbacks(workspace.onAttention))
+    renderChat(node, { selected: false, unread: 0 })
+    await settle()
+
+    await act(async () => {
+      mock.emit(NODE_ID, { type: 'status', status: 'working' })
+      mock.emit(NODE_ID, {
+        type: 'turn_cancelled',
+        turnId: 'cancelled-turn',
+        message: 'Stopped by you.'
+      })
+      mock.emit(NODE_ID, { type: 'status', status: 'idle' })
+    })
+
+    expect(await screen.findByText('Turn cancelled')).toBeInTheDocument()
+    expect(screen.getByText('Stopped by you.')).toBeInTheDocument()
+    expect(countUnreadAttention(workspace.state())).toBe(0)
+  })
+
+  test('a persisted failure remains visible when no live error event is replayed', async () => {
+    const workspace = createAttentionWorkspace()
+    const node = chatNode(baseCallbacks(workspace.onAttention), [
+      { id: 'restored-failure', status: 'failed', message: 'The previous turn lost its provider connection.' }
+    ])
+    renderChat(node, { selected: true, unread: 0 })
+    await settle()
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Turn failed')
+    expect(screen.getByRole('alert')).toHaveTextContent('The previous turn lost its provider connection.')
   })
 
   test('opening the node clears its records and the toggle puts the last batch back', async () => {

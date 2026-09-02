@@ -1,17 +1,19 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
-import type {
-  AgentActivity,
-  AgentAuthMethod,
-  AgentCommand,
-  AgentEffortState,
-  AgentEvent,
-  AgentModeState,
-  AgentMessagePresentation,
-  AgentModelState,
-  AgentPermissionOption,
-  AgentPlanEntry,
-  AgentProvider,
-  AgentPromptContent
+import {
+  AGENT_TURN_OUTCOME_LIMIT,
+  type AgentActivity,
+  type AgentAuthMethod,
+  type AgentCommand,
+  type AgentEffortState,
+  type AgentEvent,
+  type AgentModeState,
+  type AgentMessagePresentation,
+  type AgentModelState,
+  type AgentPermissionOption,
+  type AgentPlanEntry,
+  type AgentProvider,
+  type AgentPromptContent,
+  type AgentTurnOutcome
 } from '../../shared/agent'
 import { mergeActivity } from '../../shared/agent-activity'
 import { chooseAgentPromptApi, createDispatchOrderGate, deliverAgentPrompt } from './agent-prompt-delivery'
@@ -54,10 +56,13 @@ export interface AgentChatMessage {
 }
 
 export type AgentTranscriptEntry =
-  { type: 'message'; id: string; role: AgentChatMessage['role'] } | { type: 'activity'; id: string }
+  | { type: 'message'; id: string; role: AgentChatMessage['role'] }
+  | { type: 'activity'; id: string }
+  | { type: 'outcome'; id: string }
 
 export function agentTranscriptEntryKey(entry: AgentTranscriptEntry): string {
-  return entry.type === 'message' ? `message:${entry.role}:${entry.id}` : `activity:${entry.id}`
+  if (entry.type === 'message') return `message:${entry.role}:${entry.id}`
+  return `${entry.type}:${entry.id}`
 }
 
 export interface AgentApprovalState {
@@ -112,6 +117,8 @@ export interface AgentConversationOptions {
 export interface AgentConversationController {
   messages: AgentChatMessage[]
   activities: AgentActivity[]
+  /** Failed and cancelled turn boundaries, retained as visible transcript entries. */
+  outcomes: AgentTurnOutcome[]
   /** First-seen event order used to place activity and reasoning inline with dialogue. */
   transcript: AgentTranscriptEntry[]
   plan: AgentPlanEntry[]
@@ -138,6 +145,8 @@ export interface AgentConversationController {
    * a genuine error stays identifiable long enough to become an attention record.
    */
   failure: string | null
+  /** Stable identity for a turn-scoped failure; generic session errors fall back to their text. */
+  failureKey: string | null
   draft: string
   /** Whether the running agent's ACP handshake advertised support for image content blocks. */
   imageSupport: boolean
@@ -175,6 +184,7 @@ export interface AgentConversationController {
 export function useAgentConversation(options: AgentConversationOptions): AgentConversationController {
   const [messages, setMessages] = useState<AgentChatMessage[]>([])
   const [activitiesById, setActivitiesById] = useState<Record<string, AgentActivity>>({})
+  const [outcomes, setOutcomes] = useState<AgentTurnOutcome[]>([])
   const [plan, setPlan] = useState<AgentPlanEntry[]>([])
   const [approval, setApproval] = useState<AgentApprovalState | null>(null)
   const [authMethods, setAuthMethods] = useState<AgentAuthMethod[]>([])
@@ -186,6 +196,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
   const [commands, setCommands] = useState<AgentCommand[]>([])
   const [status, setStatus] = useState<AgentChatStatus>('starting')
   const [failure, setFailure] = useState<string | null>(null)
+  const [failureKey, setFailureKey] = useState<string | null>(null)
   const [usage, setUsage] = useState<AgentUsage | null>(null)
   const [detail, setDetail] = useState<string>()
   const [draft, setDraft] = useState('')
@@ -288,6 +299,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     setTranscript([])
     setMessages([])
     setActivitiesById({})
+    setOutcomes([])
     setPlan([])
     setApproval(null)
     setAuthMethods([])
@@ -301,6 +313,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     setUsage(null)
     setDetail(undefined)
     setFailure(null)
+    setFailureKey(null)
     setImageSupport(false)
     setAttachments([])
     updateQueued(() => [])
@@ -347,6 +360,22 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
         })
       } else if (event.type === 'turn_complete') {
         setMessages(settleCurrentAssistantTurn)
+      } else if (event.type === 'turn_failed' || event.type === 'turn_cancelled') {
+        const outcome: AgentTurnOutcome = {
+          id: event.turnId,
+          status: event.type === 'turn_failed' ? 'failed' : 'cancelled',
+          message: event.message
+        }
+        rememberTranscriptEntry({ type: 'outcome', id: event.turnId })
+        setOutcomes((current) =>
+          current.some((candidate) => candidate.id === outcome.id)
+            ? current
+            : [...current, outcome].slice(-AGENT_TURN_OUTCOME_LIMIT)
+        )
+        if (event.type === 'turn_failed') {
+          setFailure(event.message)
+          setFailureKey(event.turnId)
+        }
       } else if (event.type === 'activity') {
         rememberTranscriptEntry({ type: 'activity', id: event.activity.id })
         setActivitiesById((current) => {
@@ -390,6 +419,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
       } else if (event.type === 'error') {
         setDetail(event.message)
         setFailure(event.message)
+        setFailureKey(null)
       }
     }
     const removeListener = window.agentApi.onEvent(options.id, handleEvent)
@@ -670,6 +700,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
   return {
     messages,
     activities,
+    outcomes,
     transcript,
     plan,
     approval,
@@ -684,6 +715,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     usage,
     detail,
     failure,
+    failureKey,
     draft,
     imageSupport,
     attachments,

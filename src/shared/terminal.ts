@@ -1,4 +1,4 @@
-import type { AgentProvider } from './agent'
+import type { AgentProvider, AgentTurnOutcome } from './agent'
 import type { AttentionItem } from './attention'
 import type { WorkspaceWorktree } from './worktree'
 import type { ConversationTitleSource } from './conversation-title'
@@ -87,6 +87,8 @@ export interface WorkspaceTerminalNode {
   worklogCollapsed?: boolean
   /** The agent model this conversation last ran on, as reported by its ACP adapter. */
   modelId?: string
+  /** Bounded local turn failures/cancellations that provider transcript replay cannot restore. */
+  turnOutcomes?: AgentTurnOutcome[]
   terminalLiveness?: TerminalLiveness
   /** Unsent composer text, kept so a draft survives resize, collapse, and an Toucan restart. */
   draft?: string

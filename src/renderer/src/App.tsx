@@ -11,7 +11,12 @@ import {
 } from '@xyflow/react'
 import { BookOpen, ChevronLeft, ChevronRight, GitBranch, History, Plus, Settings, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
-import type { AgentRateLimitStatus, AgentRateLimitWindow } from '../../shared/agent'
+import {
+  AGENT_TURN_OUTCOME_LIMIT,
+  type AgentRateLimitStatus,
+  type AgentRateLimitWindow,
+  type AgentTurnOutcome
+} from '../../shared/agent'
 import type { ConversationSummary } from '../../shared/conversation'
 import { normalizeConversationTitle, type ConversationTitleSource } from '../../shared/conversation-title'
 import type {
@@ -353,6 +358,16 @@ function Canvas(): JSX.Element {
     [patchTerminalNode]
   )
 
+  const handleTurnOutcome = useCallback(
+    (nodeId: string, outcome: AgentTurnOutcome): void => {
+      patchTerminalNode(nodeId, (data) => {
+        if (data.turnOutcomes?.some((candidate) => candidate.id === outcome.id)) return {}
+        return { turnOutcomes: [...(data.turnOutcomes ?? []), outcome].slice(-AGENT_TURN_OUTCOME_LIMIT) }
+      })
+    },
+    [patchTerminalNode]
+  )
+
   const resumeNode = useCallback(
     (nodeId: string): void => {
       setNodes((current) =>
@@ -460,6 +475,7 @@ function Canvas(): JSX.Element {
         onDraftChange: handleDraftChange,
         onPermissionModeChange: handlePermissionModeChange,
         onModelChange: handleModelChange,
+        onTurnOutcome: handleTurnOutcome,
         onResume: resumeNode,
         onTerminalLiveness: handleTerminalLiveness,
         onWorktreeHandoff: dispatchWorktreeHandoff
@@ -482,6 +498,7 @@ function Canvas(): JSX.Element {
     handleDraftChange,
     handleFocusModeChange,
     handleModelChange,
+    handleTurnOutcome,
     handlePermissionModeChange,
     handlePreview,
     handleStatusChange,
@@ -584,6 +601,7 @@ function Canvas(): JSX.Element {
             onDraftChange: handleDraftChange,
             onPermissionModeChange: handlePermissionModeChange,
             onModelChange: handleModelChange,
+            onTurnOutcome: handleTurnOutcome,
             onResume: resumeNode,
             onTerminalLiveness: handleTerminalLiveness,
             onWorktreeHandoff: dispatchWorktreeHandoff
@@ -598,6 +616,7 @@ function Canvas(): JSX.Element {
       handleDraftChange,
       handleFocusModeChange,
       handleModelChange,
+      handleTurnOutcome,
       handlePermissionModeChange,
       handlePreview,
       handleStatusChange,
@@ -892,6 +911,7 @@ function Canvas(): JSX.Element {
         onDraftChange: handleDraftChange,
         onPermissionModeChange: handlePermissionModeChange,
         onModelChange: handleModelChange,
+        onTurnOutcome: handleTurnOutcome,
         onResume: resumeNode,
         onTerminalLiveness: handleTerminalLiveness,
         onWorktreeHandoff: dispatchWorktreeHandoff,
@@ -927,6 +947,7 @@ function Canvas(): JSX.Element {
       handleDraftChange,
       handleFocusModeChange,
       handleModelChange,
+      handleTurnOutcome,
       handlePermissionModeChange,
       handlePreview,
       handleRemoveWorktree,

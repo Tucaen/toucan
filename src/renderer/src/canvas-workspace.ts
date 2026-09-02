@@ -1,5 +1,6 @@
 import type { Node } from '@xyflow/react'
 import type { AttentionAction, AttentionKind } from '../../shared/attention'
+import type { AgentTurnOutcome } from '../../shared/agent'
 import type {
   AgentPermissionModes,
   ConversationPreview,
@@ -34,6 +35,8 @@ export interface TerminalNodeCallbacks {
   onDraftChange(nodeId: string, draft: string): void
   onPermissionModeChange(provider: keyof AgentPermissionModes, modeId: string): void
   onModelChange(nodeId: string, modelId: string): void
+  /** Persists terminal turn outcomes that provider-owned transcript replay cannot reproduce. */
+  onTurnOutcome?(nodeId: string, outcome: AgentTurnOutcome): void
   onResume(nodeId: string): void
   onTerminalLiveness?(nodeId: string, liveness: TerminalLiveness): void
   /**
@@ -75,6 +78,7 @@ export interface TerminalNodeData extends Record<string, unknown>, TerminalNodeC
   draft?: string
   preferredPermissionMode?: string
   modelId?: string
+  turnOutcomes?: AgentTurnOutcome[]
   dormant: boolean
   /**
    * How many attention records on this node are still unread. Pushed down from the workspace so
@@ -183,6 +187,7 @@ export function serializeCanvasNode(node: TerminalCanvasNode): WorkspaceTerminal
     ...(node.data.conversationId ? { conversationId: node.data.conversationId } : {}),
     ...(node.data.preview ? { preview: node.data.preview } : {}),
     ...(node.data.modelId ? { modelId: node.data.modelId } : {}),
+    ...(node.data.turnOutcomes?.length ? { turnOutcomes: node.data.turnOutcomes } : {}),
     ...(node.data.draft ? { draft: node.data.draft } : {}),
     ...(node.data.kind === 'terminal' ? {} : { focusMode: node.data.focusMode }),
     ...(node.data.kind === 'terminal' ? { terminalLiveness: node.data.terminalLiveness } : {})
@@ -255,6 +260,7 @@ function restoreTerminalCanvasNode(
       preferredPermissionMode:
         savedNode.kind === 'terminal' ? undefined : workspace.agentPermissionModes?.[savedNode.kind],
       modelId: savedNode.kind === 'terminal' ? undefined : savedNode.modelId,
+      turnOutcomes: savedNode.kind === 'terminal' ? undefined : savedNode.turnOutcomes,
       dormant,
       launchMode: 'resume',
       onStatusChange: callbacks.onStatusChange,
@@ -266,6 +272,7 @@ function restoreTerminalCanvasNode(
       onDraftChange: callbacks.onDraftChange,
       onPermissionModeChange: callbacks.onPermissionModeChange,
       onModelChange: callbacks.onModelChange,
+      onTurnOutcome: callbacks.onTurnOutcome,
       onResume: callbacks.onResume,
       onTerminalLiveness: callbacks.onTerminalLiveness,
       onWorktreeHandoff: callbacks.onWorktreeHandoff

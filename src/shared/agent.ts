@@ -211,6 +211,15 @@ export interface AgentSessionCost {
 /** How assistant text should read in the transcript when the provider can distinguish it. */
 export type AgentMessagePresentation = 'progress' | 'final'
 
+/** A non-successful turn boundary that remains visible in the conversation transcript. */
+export interface AgentTurnOutcome {
+  id: string
+  status: 'failed' | 'cancelled'
+  message: string
+}
+
+export const AGENT_TURN_OUTCOME_LIMIT = 20
+
 /** The single predicate for behavior that must be driven by completed assistant output only. */
 export function isFinalAssistantMessage<
   T extends {
@@ -248,6 +257,8 @@ export type AgentEvent =
    */
   | { type: 'usage'; used?: number; size?: number; cost?: AgentSessionCost }
   | { type: 'turn_complete'; stopReason: string }
+  | { type: 'turn_failed'; turnId: string; message: string }
+  | { type: 'turn_cancelled'; turnId: string; message: string }
   | { type: 'error'; message: string }
 
 export interface AgentEventEnvelope {

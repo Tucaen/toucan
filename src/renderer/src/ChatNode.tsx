@@ -36,7 +36,8 @@ import {
   type AgentEffortState,
   type AgentModeState,
   type AgentModelState,
-  type AgentPlanEntry
+  type AgentPlanEntry,
+  type AgentTurnOutcome
 } from '../../shared/agent'
 import { isNearScrollBottom } from './chat-scroll-follow'
 import {
@@ -106,6 +107,7 @@ interface FlatChatViewProps {
   provider: 'claude' | 'codex'
   messages: AgentChatMessage[]
   activities: AgentActivity[]
+  outcomes?: AgentTurnOutcome[]
   transcript?: AgentTranscriptEntry[]
   plan: AgentPlanEntry[]
   approval: AgentApprovalState | null
@@ -160,7 +162,7 @@ interface FlatChatViewProps {
 
 export type ChatTranscriptProps = Pick<
   FlatChatViewProps,
-  'provider' | 'messages' | 'activities' | 'transcript' | 'plan' | 'workspaceRoots' | 'commands'
+  'provider' | 'messages' | 'activities' | 'outcomes' | 'transcript' | 'plan' | 'workspaceRoots' | 'commands'
 >
 
 export type ChatComposerProps = Pick<
@@ -1020,6 +1022,16 @@ function ChatMessageCard(props: { message: AgentChatMessage }): JSX.Element {
   )
 }
 
+function TurnOutcomeCard({ outcome }: { outcome: AgentTurnOutcome }): JSX.Element {
+  const failed = outcome.status === 'failed'
+  return (
+    <article className="turn-outcome" data-status={outcome.status} role={failed ? 'alert' : 'status'}>
+      <strong>{failed ? 'Turn failed' : 'Turn cancelled'}</strong>
+      <MarkdownMessage text={outcome.message} />
+    </article>
+  )
+}
+
 /**
  * Re-renders once a second, but only while something is actually being timed - a rail full of
  * finished cards must not keep a timer alive.
@@ -1182,6 +1194,7 @@ export function ChatView(groups: ChatViewProps): JSX.Element {
   const { ref: scrollRef, onScroll } = useStickToBottom([
     transcript.messages,
     transcript.activities,
+    transcript.outcomes,
     transcript.plan,
     session.focusMode,
     pending.approval,
@@ -1203,6 +1216,11 @@ export function ChatView(groups: ChatViewProps): JSX.Element {
         type: 'activity' as const,
         key: agentTranscriptEntryKey({ type: 'activity', id: activity.id }),
         activity
+      })),
+      ...(transcript.outcomes ?? []).map((outcome) => ({
+        type: 'outcome' as const,
+        key: agentTranscriptEntryKey({ type: 'outcome', id: outcome.id }),
+        outcome
       }))
     ]
     const byKey = new Map(entries.map((entry) => [entry.key, entry]))
@@ -1214,7 +1232,7 @@ export function ChatView(groups: ChatViewProps): JSX.Element {
       return [match]
     })
     return [...ordered, ...byKey.values()]
-  }, [inlineActivities, transcript.messages, transcript.transcript])
+  }, [inlineActivities, transcript.messages, transcript.outcomes, transcript.transcript])
   return (
     <div
       ref={rootRef}
@@ -1235,6 +1253,7 @@ export function ChatView(groups: ChatViewProps): JSX.Element {
               <div className="chat-scroll nodrag nopan nowheel" ref={scrollRef} onScroll={onScroll}>
                 {!authVisible &&
                   transcript.messages.length === 0 &&
+                  (transcript.outcomes?.length ?? 0) === 0 &&
                   (session.empty ? (
                     <div className="chat-empty">
                       <span>{session.empty.icon}</span>
@@ -1247,6 +1266,8 @@ export function ChatView(groups: ChatViewProps): JSX.Element {
                 {transcriptEntries.map((entry) =>
                   entry.type === 'activity' ? (
                     !session.focusMode && <ActivityCard activity={entry.activity} key={entry.key} />
+                  ) : entry.type === 'outcome' ? (
+                    <TurnOutcomeCard key={entry.key} outcome={entry.outcome} />
                   ) : entry.message.role === 'thought' ? (
                     !session.focusMode && <ReasoningCard key={entry.key} message={entry.message} />
                   ) : entry.message.presentation === 'progress' ? (
@@ -1332,10 +1353,23 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
     onPermissionMode: (modeId) => data.onPermissionModeChange(provider, modeId),
     onModel: (modelId) => data.onModelChange(id, modelId)
   })
-  const { status, approval, detail, failure, messages, activities, plan, usage } = conversation
+  const { status, approval, detail, failure, failureKey, messages, activities, plan, usage } = conversation
   const [renaming, setRenaming] = useState(false)
   const [titleDraft, setTitleDraft] = useState(data.label)
   const [titleError, setTitleError] = useState(false)
+  const persistedOutcomeIdsRef = useRef(new Set((data.turnOutcomes ?? []).map((outcome) => outcome.id)))
+  useEffect(() => {
+    for (const outcome of conversation.outcomes) {
+      if (persistedOutcomeIdsRef.current.has(outcome.id)) continue
+      persistedOutcomeIdsRef.current.add(outcome.id)
+      data.onTurnOutcome?.(id, outcome)
+    }
+  }, [conversation.outcomes, data.onTurnOutcome, id])
+  const outcomes = useMemo(() => {
+    const byId = new Map((data.turnOutcomes ?? []).map((outcome) => [outcome.id, outcome]))
+    for (const outcome of conversation.outcomes) byId.set(outcome.id, outcome)
+    return [...byId.values()]
+  }, [conversation.outcomes, data.turnOutcomes])
 
   useEffect(() => {
     if (data.titleSource || !data.conversationId || status !== 'ready') return
@@ -1454,12 +1488,12 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
       signal: {
         nodeId: id,
         kind: 'failure',
-        key: attentionTextKey(failure),
+        key: failureKey ?? attentionTextKey(failure),
         sourceId: attentionSource,
         summary: failure
       }
     })
-  }, [attentionSource, failure, id, reportAttention])
+  }, [attentionSource, failure, failureKey, id, reportAttention])
 
   /**
    * Having the node open is the user reaching its content, so anything raised while it is
@@ -1550,6 +1584,7 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
   const flatProps: FlatChatViewProps = {
     provider,
     ...conversation,
+    outcomes,
     submit,
     // The draft belongs to the node, not to the conversation: it has to outlive resize, collapse
     // and a workspace reload, none of which the ACP session knows anything about.
@@ -1664,6 +1699,7 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
               provider: flatProps.provider,
               messages: flatProps.messages,
               activities: flatProps.activities,
+              outcomes: flatProps.outcomes,
               transcript: flatProps.transcript,
               plan: flatProps.plan,
               workspaceRoots: flatProps.workspaceRoots,
