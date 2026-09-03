@@ -19,6 +19,7 @@ import {
   Check,
   ChevronDown,
   CircleAlert,
+  CircleStop,
   Cpu,
   Keyboard,
   ListChecks,
@@ -30,6 +31,7 @@ import {
   X
 } from 'lucide-react'
 import MarkdownMessage from './MarkdownMessage'
+import { ImageAttachments } from './ImageAttachments'
 import WorktreeBadge from './WorktreeBadge'
 import {
   isFinalAssistantMessage,
@@ -66,7 +68,7 @@ import { buildHandoffPrompt, planWorktreeHandoff } from '../../shared/worktree-h
 import type { TerminalCanvasNode, TerminalNodeStatus } from './canvas-workspace'
 import NodeFitAction from './NodeFitAction'
 import { attentionTextKey, READ_ON_VIEW_KINDS, type AttentionKind } from '../../shared/attention'
-import { imageFilesFromClipboard, type AgentImageAttachment } from './image-attachment'
+import { imageAttachmentSource, imageFilesFromClipboard, type AgentImageAttachment } from './image-attachment'
 import { classifyAssistantMessage, type DecisionOption } from './decision-message'
 import { pendingDecisionsFromMessages, type PendingDecision } from './pending-decisions'
 import { usePortalMenuPosition } from './use-portal-menu-position'
@@ -505,7 +507,7 @@ function AttachmentPreview(props: {
     <div className="composer-attachments">
       {props.attachments.map((attachment) => (
         <div className="composer-attachment" key={attachment.id}>
-          <img src={`data:${attachment.mimeType};base64,${attachment.data}`} alt="Pasted attachment" />
+          <img src={imageAttachmentSource(attachment)} alt="Pasted attachment" />
           <button
             type="button"
             className="composer-attachment-remove"
@@ -954,8 +956,14 @@ export function Composer(props: ComposerProps): JSX.Element {
             setDraft={setDraft}
           />
           {busy && (
-            <button type="button" className="stop-agent" onClick={props.cancel}>
-              Stop
+            <button
+              type="button"
+              className="stop-agent"
+              aria-label="Stop"
+              title="Stop the agent"
+              onClick={props.cancel}
+            >
+              <CircleStop aria-hidden="true" />
             </button>
           )}
           <button
@@ -1450,6 +1458,7 @@ function decisionQuestion(text: string): string {
 function ChatMessageCard(props: { message: AgentChatMessage }): JSX.Element {
   const { message } = props
   const tone = message.role === 'assistant' ? classifyAssistantMessage(message.text) : 'normal'
+  const images = message.images ?? []
   return (
     <article
       className={`chat-message ${message.role}${message.queued ? ' queued' : ''}${message.failed ? ' failed' : ''}`}
@@ -1458,7 +1467,11 @@ function ChatMessageCard(props: { message: AgentChatMessage }): JSX.Element {
     >
       <div>
         {message.presentation === 'progress' && <small className="progress-label">Progress</small>}
-        <MarkdownMessage text={message.text} />
+        {/* An image-only message is the one case that renders no markdown body: `.markdown-body`
+            is emitted even for empty text, and an empty one would sit above the thumbnails as
+            dead space. Every other message keeps its body, so nothing else's layout moves. */}
+        {!(images.length > 0 && !message.text) && <MarkdownMessage text={message.text} />}
+        <ImageAttachments images={images} />
         {message.failed ? (
           <small className="failed-badge">Not sent — delivery was rejected</small>
         ) : (

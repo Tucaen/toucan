@@ -22,7 +22,6 @@ import { chooseAgentPromptApi, createDispatchOrderGate, deliverAgentPrompt } fro
 import {
   editQueuedPrompt,
   enqueuePrompt,
-  promptSummary,
   takeQueuedPrompt,
   withdrawQueuedPrompt,
   type QueuedPrompt
@@ -41,6 +40,12 @@ export interface AgentChatMessage {
   id: string
   role: 'user' | 'assistant' | 'thought'
   text: string
+  /**
+   * Images the captain attached to this message. They stay on the message so a pasted screenshot
+   * remains visible in the transcript instead of collapsing into a text summary of itself.
+   * Render state only: provider replay of a resumed conversation does not return them.
+   */
+  images?: AgentImageAttachment[]
   /** True until the agent actually starts processing this message (only possible for messages sent while busy). */
   queued?: boolean
   /** True if delivery genuinely failed or expired (e.g. a queued send timed out in the wake gate) - never set alongside `queued`. */
@@ -495,7 +500,6 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     if (!intoRunningTurn) setStatus('working')
     const deliverPrompt = chooseAgentPromptApi(status, window.agentApi)
     const id = crypto.randomUUID()
-    const displayText = promptSummary(text, images)
     const transcriptEntry: AgentTranscriptEntry = { type: 'message', id, role: 'user' }
 
     const slot = dispatchGateRef.current.reserve()
@@ -525,7 +529,10 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
           {
             id,
             role: 'user',
-            text: displayText,
+            // The images themselves are the message's visible body when no text was typed, so
+            // the transcript never needs `promptSummary`'s "N images attached" stand-in.
+            text,
+            ...(images.length > 0 ? { images } : {}),
             queued: intoRunningTurn,
             decisionReplyTo,
             deliveryPending: decisionReplyTo !== undefined

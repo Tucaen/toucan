@@ -1,3 +1,5 @@
+import type { AgentImageAttachment } from './image-attachment-contract'
+
 export type { AgentImageAttachment } from './image-attachment-contract'
 
 /** Reads a pasted image `Blob` into the base64 payload an ACP `image` content block needs. */
@@ -27,4 +29,9 @@ export function imageFilesFromClipboard(items: DataTransferItemList | undefined 
     if (file) files.push(file)
   }
   return files
+}
+
+/** The `data:` URL an attachment renders as - the only shape an `<img src>` can take here. */
+export function imageAttachmentSource(image: AgentImageAttachment): string {
+  return `data:${image.mimeType};base64,${image.data}`
 }
