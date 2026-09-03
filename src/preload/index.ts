@@ -31,6 +31,7 @@ import type {
 } from '../shared/worktree'
 import type { ConversationListPage, ConversationListRequest } from '../shared/conversation'
 import type { WorkspaceFileIndex } from '../shared/workspace-files'
+import type { RemoteAccessSettings, RemoteAccessState, RemoteWorkspaceProjection } from '../shared/remote-access'
 import type { ConversationTitleSource } from '../shared/conversation-title'
 import type {
   BrainDumpApi,
@@ -148,6 +149,22 @@ const conversationApi = {
 }
 
 contextBridge.exposeInMainWorld('conversationApi', conversationApi)
+
+const remoteApi = {
+  state: (): Promise<RemoteAccessState> => ipcRenderer.invoke('remote:state'),
+  applySettings: (settings: RemoteAccessSettings): Promise<RemoteAccessState> =>
+    ipcRenderer.invoke('remote:apply-settings', settings),
+  regenerateToken: (): Promise<RemoteAccessState> => ipcRenderer.invoke('remote:regenerate-token'),
+  publishWorkspace: (projection: RemoteWorkspaceProjection): void =>
+    ipcRenderer.send('remote:publish-workspace', projection),
+  onStateChange: (callback: (state: RemoteAccessState) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, state: RemoteAccessState): void => callback(state)
+    ipcRenderer.on('remote:state-changed', listener)
+    return () => ipcRenderer.removeListener('remote:state-changed', listener)
+  }
+}
+
+contextBridge.exposeInMainWorld('remoteApi', remoteApi)
 
 const brainDumpApi: BrainDumpApi = {
   list: (collection: BrainDumpCollection) => ipcRenderer.invoke('brain-dump:list', collection),

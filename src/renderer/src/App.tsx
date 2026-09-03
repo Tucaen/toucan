@@ -9,7 +9,7 @@ import {
   type NodeChange,
   type NodeTypes
 } from '@xyflow/react'
-import { BookOpen, ChevronLeft, ChevronRight, GitBranch, History, Plus, Settings, X } from 'lucide-react'
+import { BookOpen, ChevronLeft, ChevronRight, GitBranch, History, Plus, Settings, Smartphone, X } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import {
   AGENT_TURN_OUTCOME_LIMIT,
@@ -60,6 +60,8 @@ import {
 } from './canvas-workspace'
 import { COMPOSER_SEND_KEY_DEFAULT } from './composer-keys'
 import { ComposerSendKeyContext } from './composer-send-key-context'
+import { RemoteAccessDialog } from './RemoteAccessDialog'
+import { useRemoteAccess } from './use-remote-access'
 import ConversationHistoryDialog from './ConversationHistoryDialog'
 import { ProviderRateLimitsContext } from './provider-rate-limits'
 import { describeRateLimitWindow } from './session-usage'
@@ -1013,6 +1015,12 @@ function Canvas(): JSX.Element {
     ]
   )
 
+  const [remoteAccessOpen, setRemoteAccessOpen] = useState(false)
+  // One owner for the host's remote-access state and for the canvas projection a paired phone
+  // lists. The projection is derived from the same snapshot that gets persisted, so the phone and
+  // the canvas can never be looking at two different sets of nodes.
+  const remoteAccess = useRemoteAccess(workspaceSnapshot, nodeStatuses)
+
   const {
     ready: workspaceReady,
     recovered: workspaceRecovered,
@@ -1404,6 +1412,23 @@ function Canvas(): JSX.Element {
                   {providerRateLimits.codex && <ProviderUsageChip provider="Codex" status={providerRateLimits.codex} />}
                 </div>
               )}
+              <button
+                type="button"
+                className="header-remote-access"
+                title={
+                  remoteAccess.state?.listening
+                    ? `Remote access is on (port ${remoteAccess.state.boundPort ?? remoteAccess.state.settings.port})`
+                    : 'Remote access is off - open to serve the mobile companion'
+                }
+                data-listening={remoteAccess.state?.listening ? 'true' : undefined}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  setMenu(null)
+                  setRemoteAccessOpen(true)
+                }}
+              >
+                <Smartphone aria-hidden="true" />
+              </button>
               {activeProject && (
                 <span className="target-chip" title={activeProject.path}>
                   <span style={{ background: activeProject.color }} />
@@ -1761,6 +1786,17 @@ function Canvas(): JSX.Element {
               onChange={(patch) => setWorktreeDraft((current) => (current ? { ...current, ...patch } : current))}
               onCancel={() => setWorktreeDraft(null)}
               onConfirm={confirmWorktreeDraft}
+            />
+          )}
+
+          {remoteAccessOpen && (
+            <RemoteAccessDialog
+              state={remoteAccess.state}
+              busy={remoteAccess.busy}
+              onApply={(settings) => void remoteAccess.applySettings(settings)}
+              onRegenerate={() => void remoteAccess.regenerateToken()}
+              onCopyToken={(token) => window.terminalApi.copyText(token)}
+              onClose={() => setRemoteAccessOpen(false)}
             />
           )}
 

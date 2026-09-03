@@ -3,6 +3,9 @@ const shared = `${source}shared/`
 const main = `${source}main/`
 const preload = `${source}preload/`
 const renderer = `${source}renderer/src/`
+// The mobile companion is served by the host over HTTP, not loaded into a privileged process, so
+// it may read shared contracts and nothing else of Toucan's.
+const mobile = '(^|/)mobile/'
 
 // These are the pure decision modules named by docs/architecture.md. The list is explicit because
 // other renderer .ts files intentionally own React contexts, browser APIs, or orchestration.
@@ -126,6 +129,27 @@ export default {
       severity: 'error',
       from: { path: `${renderer}file-operation\\.ts$` },
       to: { dependencyTypes: ['npm'], pathNot: '(^|/)node_modules/diff/' }
+    },
+    {
+      name: 'mobile-only-imports-shared-contracts',
+      comment:
+        'The mobile client runs in a phone browser and reaches the host over HTTP. Importing a main, preload or renderer module would put privileged code in a page anyone on the tailnet can load.',
+      severity: 'error',
+      from: { path: mobile },
+      to: { path: `(${main}|${preload}|${renderer})` }
+    },
+    {
+      name: 'mobile-does-not-import-node-runtime',
+      severity: 'error',
+      from: { path: mobile },
+      to: { dependencyTypes: ['core'] }
+    },
+    {
+      name: 'shared-does-not-import-the-mobile-client',
+      comment: 'Shared contracts are read by every runtime; depending on one client inverts that.',
+      severity: 'error',
+      from: { path: shared },
+      to: { path: mobile }
     },
     {
       name: 'production-does-not-import-tests',

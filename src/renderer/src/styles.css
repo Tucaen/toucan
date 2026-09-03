@@ -5086,3 +5086,147 @@ button {
     system-ui,
     sans-serif;
 }
+
+.header-remote-access {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid #2a3140;
+  border-radius: 6px;
+  background: #161b24;
+  color: #7d8798;
+  cursor: pointer;
+}
+
+.header-remote-access:hover {
+  border-color: #3a4250;
+  color: #cbd2dc;
+}
+
+.header-remote-access[data-listening='true'] {
+  border-color: #2f6f4f;
+  color: #6fd1a0;
+}
+
+.header-remote-access svg {
+  width: 14px;
+  height: 14px;
+}
+
+.remote-dialog-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.remote-dialog-toggle input {
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  accent-color: #c992ff;
+}
+
+.remote-dialog-toggle span {
+  color: #cbd2dc;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.remote-dialog-status {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #9aa3b0;
+  font-size: 12px;
+}
+
+.remote-dialog-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #4b5361;
+}
+
+.remote-dialog-dot[data-listening='true'] {
+  background: #6fd1a0;
+}
+
+.remote-dialog-addresses {
+  display: grid;
+  gap: 5px;
+}
+
+.remote-dialog-addresses > span {
+  color: #687280;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.remote-dialog-addresses code {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #e3e8ef;
+  font-family: Consolas, monospace;
+  font-size: 12px;
+}
+
+.remote-dialog-addresses code em {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: #223347;
+  color: #7fb2e6;
+  font-size: 10px;
+  font-style: normal;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.remote-dialog-token {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.remote-dialog-token code {
+  flex: 1;
+  overflow-wrap: anywhere;
+  padding: 8px 10px;
+  border: 1px solid #323a46;
+  border-radius: 6px;
+  background: #131720;
+  color: #e3e8ef;
+  font-family: Consolas, monospace;
+  font-size: 12px;
+}
+
+.remote-dialog-token button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid #323a46;
+  border-radius: 6px;
+  background: #1b2029;
+  color: #9aa3b0;
+  cursor: pointer;
+}
+
+.remote-dialog-token button:hover:not(:disabled) {
+  border-color: #4a5464;
+  color: #e3e8ef;
+}
+
+.remote-dialog-token button svg {
+  width: 13px;
+  height: 13px;
+}

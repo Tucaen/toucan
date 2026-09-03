@@ -27,6 +27,12 @@
     "src/main/session-providers.ts",
     "src/main/terminal-manager.ts",
     "src/main/workspace-store.ts",
+    "src/main/remote/host-addresses.ts",
+    "src/main/remote/pairing.ts",
+    "src/main/remote/remote-access-store.ts",
+    "src/main/remote/remote-routes.ts",
+    "src/main/remote/remote-server.ts",
+    "mobile/src/chat-list.ts",
     "src/renderer/src/canvas-workspace.ts",
     "src/renderer/src/node-picker-menu-position.ts",
     "src/shared/**/*.ts"
