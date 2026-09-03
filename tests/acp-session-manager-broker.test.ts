@@ -1,7 +1,9 @@
 import { strict as assert } from 'node:assert'
+import type { ChildProcessWithoutNullStreams } from 'node:child_process'
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { PassThrough } from 'node:stream'
 import { test } from 'node:test'
 import type { WebContents } from 'electron'
 import { createAcpSessionManager } from '../src/main/acp-session-manager'
@@ -146,4 +148,50 @@ test('killing a session closes its broker channel so a later incarnation starts 
   } finally {
     manager.killAll()
   }
+})
+
+test("a killed adapter's straggling stderr cannot resurrect the closed broker channel", async () => {
+  const appPath = mkdtempSync(join(tmpdir(), 'toucan-broker-straggler-'))
+  approvingAdapter(appPath)
+  const broker = createAgentEventBroker()
+  const owner = { isDestroyed: () => false, send: () => {} } as unknown as WebContents
+  let stderr: PassThrough | undefined
+  const manager = createAcpSessionManager({
+    appPath,
+    broker,
+    // An in-process adapter that completes the handshake, so the session is fully established
+    // before the kill: the leak this locks down needs no pending create to sweep up after it.
+    spawnAgent: () => {
+      const child = new PassThrough() as unknown as ChildProcessWithoutNullStreams & { kill(): boolean }
+      const stdin = new PassThrough()
+      const stdout = new PassThrough()
+      stderr = new PassThrough()
+      stdin.setEncoding('utf8')
+      stdin.on('data', (data: string) => {
+        for (const line of data.split('\n').filter(Boolean)) {
+          const request = JSON.parse(line) as { id?: number; method?: string }
+          const result =
+            request.method === 'initialize'
+              ? { protocolVersion: 1, agentCapabilities: {}, authMethods: [] }
+              : request.method === 'session/new'
+                ? { sessionId: 'live-session' }
+                : undefined
+          if (result !== undefined) stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id: request.id, result })}\n`)
+        }
+      })
+      Object.assign(child, { stdin, stdout, stderr, kill: () => true })
+      return child
+    }
+  })
+
+  const result = await manager.create({ id: 'node-1', provider: 'claude', cwd: appPath }, owner)
+  assert.equal(result.status, 'ready')
+  manager.kill('node-1')
+
+  // Await actual delivery: the manager's own 'data' listener runs first (it was attached first).
+  const delivered = new Promise((resolve) => stderr?.once('data', resolve))
+  stderr?.write('late diagnostic after kill\n')
+  await delivered
+
+  assert.equal(broker.snapshot('node-1'), null)
 })

@@ -531,6 +531,9 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
   const toucanSkillsRoot = resolveToucanSkillsRoot(options.appPath)
 
   const send = (running: RunningAgent, event: AgentEvent): void => {
+    // A stopped session's channel is closed; a straggler (late stderr, a rejected in-flight
+    // request) publishing after that would lazily resurrect a ghost channel nothing ever closes.
+    if (running.stopping) return
     if (running.replayEvents) {
       // Replay stays off the live channel (it travels inside the create result), but the broker's
       // snapshot must still learn what it restored, or a late subscriber would miss the history.
