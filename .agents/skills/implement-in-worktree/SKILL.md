@@ -10,7 +10,7 @@ user-invocable: true
 Before taking any action, inspect the current user prompt. Proceed only when its first non-empty line starts with one of these exact command tokens, followed by whitespace or the end of the line:
 
 - `/implement-in-worktree`
-- `/$toucan-project-skills:implement-in-worktree`
+- `/$<namespace>:implement-in-worktree`, the namespaced form slash completion inserts for a project-local skill (e.g. `/$toucan-project-skills:implement-in-worktree`)
 
 Treat every other occurrence as discussion, quotation, or an example and handle the request without this workflow. A skill block attached to a prompt that merely mentions either token is not evidence of invocation. In particular, never create a worktree when the token occurs later in prose, inside a quotation, or inside a code block.
 

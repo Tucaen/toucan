@@ -434,6 +434,18 @@ export interface AcpSessionManagerOptions {
   codexHome?: string
   /** Environment inherited by both adapters and the provider processes they launch. */
   environment?: NodeJS.ProcessEnv
+  /** Seam for tests to observe the launch the primary adapter is actually spawned with. */
+  spawnAgent?: (launch: AgentProcessLaunch) => ChildProcessWithoutNullStreams
+}
+
+/**
+ * The environment an agent runs in. The node's identity travels with it so work the agent
+ * starts outside Toucan's sight - a worktree it creates for itself - can name the node that
+ * asked for it. One function builds it, because a node id that reaches only the record kept
+ * beside the process and not the process itself is exactly as good as no node id at all.
+ */
+export function agentProcessEnvironment(environment: NodeJS.ProcessEnv, nodeId: string): NodeJS.ProcessEnv {
+  return { ...environment, TOUCAN_NODE_ID: nodeId }
 }
 
 export function promptFailure(
@@ -754,8 +766,9 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         return { ok: false, status: 'error', message: `The ${request.provider} ACP adapter is not installed.` }
       }
 
-      const launch = buildAgentProcessLaunch(process.execPath, path, request.cwd, environment)
-      const child = spawnAgentProcess(launch)
+      const agentEnvironment = agentProcessEnvironment(environment, request.id)
+      const launch = buildAgentProcessLaunch(process.execPath, path, request.cwd, agentEnvironment)
+      const child = (options.spawnAgent ?? spawnAgentProcess)(launch)
       const pendingApprovals = new Map<string, PendingApproval>()
       const pendingElicitations = new Map<string, PendingElicitation>()
       let running: RunningAgent
@@ -886,9 +899,9 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         context: connection.agent,
         adapterPath: path,
         authMethods: [],
-        // The node's identity travels with the agent so work it starts outside Toucan's sight -
-        // a worktree it creates for itself - can name the node that asked for it.
-        environment: { ...environment, TOUCAN_NODE_ID: request.id },
+        // The very environment the adapter was launched with, so a terminal sign-in re-launch
+        // and the running adapter cannot disagree about who this node is.
+        environment: agentEnvironment,
         cachedModels:
           request.provider === 'codex' && options.codexHome
             ? readCachedCodexModels(options.codexHome, request.modelId)

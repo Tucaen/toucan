@@ -19,6 +19,7 @@ import {
   deriveWorktreeDirectory,
   discoverWorktrees,
   isForcibleBlocker,
+  matchWorktreeClaims,
   parseWorktreeList
 } from '../shared/worktree'
 import { errorMessage } from '../shared/text'
@@ -310,23 +311,24 @@ export function createWorktreeManager(options: WorktreeManagerOptions = {}): Wor
       try {
         const listed = await runGit(['worktree', 'list', '--porcelain'], request.projectPath)
         if (listed.code !== 0) {
-          return { worktrees: [], message: listed.stderr.trim() || 'git worktree list failed' }
+          return { worktrees: [], claims: [], message: listed.stderr.trim() || 'git worktree list failed' }
         }
 
         const commonDir = await readCommonDir(request.projectPath)
         const claims = commonDir ? readClaims(join(commonDir, WORKTREE_CLAIMS_FILE)) : []
         const defaultBranch = await resolveBaseRef(request.projectPath)
+        const entries = parseWorktreeList(listed.stdout)
 
         return {
           worktrees: discoverWorktrees(
-            parseWorktreeList(listed.stdout),
+            entries,
             request.known.map((path) => ({ path })),
-            claims,
             defaultBranch
-          )
+          ),
+          claims: matchWorktreeClaims(entries, claims)
         }
       } catch (error) {
-        return { worktrees: [], message: errorMessage(error) }
+        return { worktrees: [], claims: [], message: errorMessage(error) }
       }
     }
   }

@@ -203,8 +203,12 @@ export interface DiscoveredWorktree {
   path: string
   branch: string
   baseRef: string
-  /** The node that claimed authorship, when a claim matches this path. */
-  claimedByNodeId?: string
+}
+
+/** A claim matched to a worktree git actually lists, whether or not Toucan already records it. */
+export interface WorktreeClaimMatch {
+  path: string
+  nodeId: string
 }
 
 /** Paths come back from git with forward slashes even on Windows, so compare on one shape. */
@@ -222,20 +226,34 @@ function comparablePath(value: string): string {
 export function discoverWorktrees(
   listed: readonly WorktreeListEntry[],
   known: readonly { path: string }[],
-  claims: readonly WorktreeClaim[],
   defaultBranch: string
 ): DiscoveredWorktree[] {
   const recorded = new Set(known.map((worktree) => comparablePath(worktree.path)))
-  const claimedBy = new Map(claims.map((claim) => [comparablePath(claim.path), claim.nodeId]))
 
   return listed
     .filter((entry) => !entry.isMain && entry.branch && !recorded.has(comparablePath(entry.path)))
-    .map((entry) => ({
-      path: entry.path,
-      branch: entry.branch,
-      baseRef: defaultBranch,
-      claimedByNodeId: claimedBy.get(comparablePath(entry.path))
-    }))
+    .map((entry) => ({ path: entry.path, branch: entry.branch, baseRef: defaultBranch }))
+}
+
+/**
+ * Claims are reported for every worktree git lists, not only the newly discovered ones. The
+ * agent writes its claim after `git worktree add` and after the project's setup command has
+ * run, which can easily be minutes; a sweep in between records the worktree first, and a claim
+ * that only ever reached unrecorded worktrees would then be lost for good. The last claim for a
+ * path wins, since the file is appended to and a directory can be created more than once.
+ */
+export function matchWorktreeClaims(
+  listed: readonly WorktreeListEntry[],
+  claims: readonly WorktreeClaim[]
+): WorktreeClaimMatch[] {
+  const claimedBy = new Map(claims.map((claim) => [comparablePath(claim.path), claim.nodeId]))
+
+  return listed
+    .filter((entry) => !entry.isMain && entry.branch)
+    .flatMap((entry) => {
+      const nodeId = claimedBy.get(comparablePath(entry.path))
+      return nodeId ? [{ path: entry.path, nodeId }] : []
+    })
 }
 
 /**
@@ -283,6 +301,8 @@ export interface WorktreeDiscoverRequest {
 
 export interface WorktreeDiscoverResult {
   worktrees: DiscoveredWorktree[]
+  /** Every claim git's listing backs, so one that arrives after discovery still finds its node. */
+  claims: WorktreeClaimMatch[]
   message?: string
 }
 
