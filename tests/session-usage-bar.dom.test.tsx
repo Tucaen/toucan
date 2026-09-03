@@ -92,7 +92,7 @@ describe('the per-node usage bar', () => {
     expect(limit.textContent).toContain('7d')
     expect(limit.textContent).toContain('91%')
     expect(limit.title).toContain('5h: 20%')
-    expect(limit.title).toContain('7d: 91% (resets in 2h)')
+    expect(limit.title).toMatch(/7d: 91% \(reset in 2h \| \d\d:\d\d\)/)
   })
 
   test('marks a provider that has actually refused a request', () => {

@@ -108,7 +108,7 @@ test('the surfaced account window is the one that will bite first', () => {
   assert.equal(readout.limit?.level, 'warning')
   // Both windows still reach the tooltip - the bar only has room to show one.
   assert.match(String(readout.limit?.title), /5h: 12%/)
-  assert.match(String(readout.limit?.title), /7d: 83% \(resets in 1h\)/)
+  assert.match(String(readout.limit?.title), /7d: 83% \(resets in 1h \| \d\d:\d\d\)/)
 })
 
 test('a provider that has actually refused a request reads as critical whatever its percentages say', () => {
@@ -142,18 +142,22 @@ test('a later report keeps what it does not mention rather than blanking the bar
   assert.deepEqual(mergeSessionUsage(third, {}), third)
 })
 
-test('reset times are relative, coarse, and never negative', () => {
+test('reset times are relative, coarse, never negative, and name the clock time they land on', () => {
   assert.equal(formatResetsAt(0, 1_000), 'now')
-  assert.equal(formatResetsAt(1_000, 0), '1m')
-  assert.equal(formatResetsAt(90 * 60_000, 0), '1h 30m')
-  assert.equal(formatResetsAt(120 * 60_000, 0), '2h')
+
+  // Built from local components rather than epoch offsets: the clock half of the readout is local,
+  // so a fixed string would only pass in the timezone it was written in.
+  const resetsAt = new Date(2026, 8, 1, 13, 37).getTime()
+  assert.equal(formatResetsAt(resetsAt, resetsAt - 60_000), '1m | 13:37')
+  assert.equal(formatResetsAt(resetsAt, resetsAt - 90 * 60_000), '1h 30m | 13:37')
+  assert.equal(formatResetsAt(resetsAt, resetsAt - 120 * 60_000), '2h | 13:37')
 })
 
 test('reset times longer than a day use days and include the local reset date', () => {
   const resetsAt = new Date(2026, 8, 1, 13, 37).getTime()
   const now = resetsAt - ((3 * 24 + 10) * 60 + 4) * 60_000
 
-  assert.equal(formatResetsAt(resetsAt, now), '3 d 10h 4m (01.09. - 13:37)')
+  assert.equal(formatResetsAt(resetsAt, now), '3d 10h 4m | 01.09. - 13:37')
 })
 
 test('one window describes itself the same way wherever it is rendered', () => {
@@ -162,7 +166,7 @@ test('one window describes itself the same way wherever it is rendered', () => {
     percent: 96.4,
     displayPercent: 96,
     level: 'critical',
-    text: '5h: 96% (resets in 1m)'
+    text: `5h: 96% (resets in 1m | ${formatResetsAt(60_000, 0).split(' | ')[1]})`
   })
   assert.deepEqual(describeRateLimitWindow('7d', { usedPercent: 5 }, 0), {
     label: '7d',

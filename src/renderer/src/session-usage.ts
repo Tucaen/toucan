@@ -46,31 +46,37 @@ export function formatTokens(tokens: number): string {
 }
 
 /**
- * How long until a window resets, relative and deliberately coarse - the exact second is never
- * what the reader wants, and a past reset reads as "now" rather than as a negative duration.
+ * How long until a window resets, plus the wall-clock moment it lands on. The relative duration is
+ * what the reader plans around and is deliberately coarse, so the clock time carries the precision
+ * the duration drops; a reset more than a day out also needs its date to be unambiguous. A past
+ * reset reads as "now" rather than as a negative duration.
  */
 export function formatResetsAt(resetsAt: number, now: number = Date.now()): string {
   const delta = resetsAt - now
   if (delta <= 0) return 'now'
   const minutes = Math.ceil(delta / 60_000)
-  if (minutes < 60) return `${minutes}m`
   const hours = Math.floor(minutes / 60)
   const remainingMinutes = minutes % 60
-  if (minutes > 24 * 60) {
-    const days = Math.floor(hours / 24)
-    const remainingHours = hours % 24
-    const reset = new Date(resetsAt)
-    const pad = (value: number): string => String(value).padStart(2, '0')
-    const duration = [
-      `${days} d`,
-      remainingHours > 0 ? `${remainingHours}h` : null,
-      remainingMinutes > 0 ? `${remainingMinutes}m` : null
-    ]
-      .filter((part): part is string => part !== null)
-      .join(' ')
-    return `${duration} (${pad(reset.getDate())}.${pad(reset.getMonth() + 1)}. - ${pad(reset.getHours())}:${pad(reset.getMinutes())})`
-  }
-  return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`
+  const remainingHours = hours % 24
+  const beyondADay = minutes > 24 * 60
+  const duration = beyondADay
+    ? [
+        `${Math.floor(hours / 24)}d`,
+        remainingHours > 0 ? `${remainingHours}h` : null,
+        remainingMinutes > 0 ? `${remainingMinutes}m` : null
+      ]
+        .filter((part): part is string => part !== null)
+        .join(' ')
+    : minutes < 60
+      ? `${minutes}m`
+      : remainingMinutes > 0
+        ? `${hours}h ${remainingMinutes}m`
+        : `${hours}h`
+  const reset = new Date(resetsAt)
+  const pad = (value: number): string => String(value).padStart(2, '0')
+  const clock = `${pad(reset.getHours())}:${pad(reset.getMinutes())}`
+  const stamp = beyondADay ? `${pad(reset.getDate())}.${pad(reset.getMonth() + 1)}. - ${clock}` : clock
+  return `${duration} | ${stamp}`
 }
 
 export interface RateLimitWindowReadout {
