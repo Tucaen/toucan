@@ -66,6 +66,13 @@ const PROPOSAL_CONTEXT =
   /\b(?:blocked by|blocking edges?|breakdown|granularity|implementation|plan|proposal|seams?|steps?|tickets?|what it delivers)\b/i
 const CHOICE_CONTEXT = /\b(?:alternatives?|choices?|choose|options?|pick|select)\b/i
 
+/** A line that is a Markdown list item: a bullet or number, whitespace, then content. */
+const LIST_ITEM = /^(?:[-*]|\d+[.)])\s+\S/
+
+function isListItem(line: string): boolean {
+  return LIST_ITEM.test(line)
+}
+
 function removeListMarker(line: string): string {
   return line.replace(/^(?:[-*]|\d+[.)])\s*/, '')
 }
@@ -125,13 +132,13 @@ function isConfirmationQuestion(line: string): boolean {
  * the panel's wording depends on this; classification stays on the strict confirmation shape.
  */
 function isQuestionLine(line: string): boolean {
-  const question = cleanQuestionLine(line)
+  const question = cleanMarkdownLine(line)
   if (question === '') return false
-  return question.endsWith('?') || (/^(?:[-*]|\d+[.)])\s+/.test(line) && question.includes('?'))
+  return question.endsWith('?') || (isListItem(line) && question.includes('?'))
 }
 
 function hasEnumeratedProposal(lines: string[]): boolean {
-  return lines.filter((line) => /^(?:[-*]|\d+[.)])\s+\S/.test(line)).length >= 2
+  return lines.filter(isListItem).length >= 2
 }
 
 function hasTrailingConfirmationQuestions(text: string): boolean {

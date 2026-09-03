@@ -1268,14 +1268,14 @@ function StructuredDecisionPanel(
   )
 }
 
-/** The panel replaces the composer, so it must carry every question the decision asks. */
+/** Wording comes from decisionQuestions (see decision-message.ts). */
 function DecisionQuestions(props: { text: string }): JSX.Element {
   const questions = decisionQuestions(props.text)
   if (questions.length > 1)
     return (
       <ol className="decision-questions">
         {questions.map((question, index) => (
-          <li key={`${index}:${question}`}>{question}</li>
+          <li key={index}>{question}</li>
         ))}
       </ol>
     )

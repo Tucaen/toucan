@@ -819,17 +819,15 @@ describe('decision option interaction', () => {
   )
 })
 
+// Wiring only - the question block itself is covered in decision-message.test.ts.
 const multiQuestionText = [
-  'Six tickets, ready to write:',
+  'Two tickets, ready to write:',
   '',
-  '1. **Next installment skips charged rates**',
-  '2. **Document upload rejects PDFs**',
+  '1. **Charged rates**',
+  '2. **Document upload**',
   '',
-  'Questions:',
-  '',
-  '1. **Screenshot 2** — which app is that? It may be out of scope here.',
-  '2. **Granularity** — happy with 6, or should I merge 2 into 1 (giving 3 tickets total)?',
-  '3. Should tickets 1-6 get a **parent reference to CICBP-384** in their bodies?'
+  '1. **Screenshot 2** - which app is that? Possibly out of scope.',
+  '2. Should both tickets carry a parent reference?'
 ].join('\n')
 
 test('the pending decision panel shows every question, not just the last one', () => {
@@ -837,8 +835,7 @@ test('the pending decision panel shows every question, not just the last one', (
 
   const panel = screen.getByRole('region', { name: 'Pending decisions' })
   expect(within(panel).getByText(/Screenshot 2/)).toBeInTheDocument()
-  expect(within(panel).getByText(/Granularity/)).toBeInTheDocument()
-  expect(within(panel).getByText(/parent reference to CICBP-384/)).toBeInTheDocument()
+  expect(within(panel).getByText(/parent reference/)).toBeInTheDocument()
   expect(within(panel).getByRole('button', { name: 'Agree' })).toBeInTheDocument()
   expect(within(panel).getByPlaceholderText('Other…')).toBeInTheDocument()
 })
