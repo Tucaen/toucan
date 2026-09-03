@@ -2,6 +2,7 @@ import { readFile, stat } from 'node:fs/promises'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { join } from 'node:path'
 import type { Duplex } from 'node:stream'
+import { WebSocketServer, type WebSocket } from 'ws'
 import {
   EMPTY_REMOTE_WORKSPACE_SNAPSHOT,
   remoteAccessPortProblem,
@@ -11,9 +12,21 @@ import {
   type RemoteWorkspaceProjection,
   type RemoteWorkspaceSnapshot
 } from '../../shared/remote-access'
+import {
+  REMOTE_CHAT_PROTOCOL,
+  tokenFromWebSocketProtocols,
+  type RemoteChatServerMessage
+} from '../../shared/remote-chat'
+import type { AgentEventBroker } from '../agent-event-broker'
 import { describeHostAddresses } from './host-addresses'
 import { pairingTokenMatches, presentedPairingToken } from './pairing'
-import { clientContentType, resolveClientAsset, resolveRemoteRoute, routeRequiresPairing } from './remote-routes'
+import {
+  clientContentType,
+  resolveClientAsset,
+  resolveRemoteRoute,
+  resolveRemoteSocketRoute,
+  routeRequiresPairing
+} from './remote-routes'
 import type { RemoteAccessStore } from './remote-access-store'
 
 /**
@@ -48,9 +61,18 @@ export interface RemoteAccessServerOptions {
   store: RemoteAccessStore
   /** Directory holding the built mobile client, served at `/`. */
   clientRoot: string
+  /**
+   * Where live chats are read from: the same broker every session publishes to, so a phone and the
+   * desktop renderer observe one stream. Without it every chat socket is refused as not found.
+   */
+  chats?: Pick<AgentEventBroker, 'subscribe'>
   addresses?: () => RemoteAccessAddress[]
   now?: () => number
 }
+
+/** Local close codes the phone can tell apart from a network drop. */
+const CLOSE_SESSION_RETIRED = 4001
+const CLOSE_UNAUTHORIZED = 1008
 
 const UNAUTHORIZED_BODY = JSON.stringify({ error: 'unauthorized' })
 
@@ -118,16 +140,70 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
   }
 
   /**
-   * Reading a chat live is a later ticket, so no socket route exists yet - but the token gate does,
-   * and it runs before anything else. An unauthorized upgrade is refused with the same bare 401 an
-   * HTTP request gets, so adding the chat socket later cannot accidentally add an unguarded one.
+   * The chat sockets. `noServer` because the pairing gate must run before the WebSocket handshake
+   * is even attempted; the accepted subprotocol is pinned so a client that offered one gets back
+   * the one this host actually speaks.
    */
-  const handleUpgrade = (request: IncomingMessage, socket: Duplex): void => {
-    if (!authorized(request.headers)) {
+  const chatSockets = new Set<WebSocket>()
+  const socketServer = new WebSocketServer({
+    noServer: true,
+    handleProtocols: (protocols) => (protocols.has(REMOTE_CHAT_PROTOCOL) ? REMOTE_CHAT_PROTOCOL : false)
+  })
+
+  const attachChatSocket = (
+    connection: WebSocket,
+    chats: Pick<AgentEventBroker, 'subscribe'>,
+    chatId: string
+  ): void => {
+    chatSockets.add(connection)
+    const deliver = (message: RemoteChatServerMessage): void => {
+      if (connection.readyState === connection.OPEN) connection.send(JSON.stringify(message))
+    }
+    // Subscribe-then-send is atomic on this event loop, so the snapshot and the first tail event
+    // cannot race: everything published after the subscription lands strictly after the snapshot.
+    const subscription = chats.subscribe(chatId, (event) => deliver({ type: 'event', event }), {
+      // The session was retired (killed, or about to be recreated). A silently dead subscription
+      // would present a stale transcript as live, so the socket closes and the phone rejoins.
+      closed: () => connection.close(CLOSE_SESSION_RETIRED, 'session retired'),
+      // A session/load replay folded into the snapshot without fanning out; resend it whole. The
+      // client treats every snapshot as a full resync, which is what makes this gap-proof.
+      resync: (state) => deliver({ type: 'snapshot', state })
+    })
+    deliver({ type: 'snapshot', state: subscription.snapshot })
+    connection.on('close', () => {
+      subscription.unsubscribe()
+      chatSockets.delete(connection)
+    })
+    connection.on('error', () => {
+      /* 'close' always follows; the subscription is retired there. */
+    })
+  }
+
+  /**
+   * The token gate runs before any route is considered, so a socket route added later can never be
+   * an unguarded one. Browsers cannot set an `Authorization` header on an upgrade, so the token is
+   * also accepted from the `Sec-WebSocket-Protocol` list - still a header, never a URL.
+   */
+  const handleUpgrade = (request: IncomingMessage, socket: Duplex, head: Buffer): void => {
+    const presented =
+      presentedPairingToken(request.headers) ?? tokenFromWebSocketProtocols(request.headers['sec-websocket-protocol'])
+    if (!pairingTokenMatches(options.store.read().token, presented)) {
       socket.end('HTTP/1.1 401 Unauthorized\r\nwww-authenticate: Bearer\r\nconnection: close\r\n\r\n')
       return
     }
-    socket.end('HTTP/1.1 404 Not Found\r\nconnection: close\r\n\r\n')
+    const route = resolveRemoteSocketRoute(request.url)
+    // The published projection is the authority on what a phone may open: a chat the desktop does
+    // not list is not joinable, which also keeps unknown ids from minting ghost broker channels.
+    const chats = options.chats
+    if (route.kind !== 'chat' || !chats || !snapshot.chats.some((chat) => chat.id === route.chatId)) {
+      socket.end('HTTP/1.1 404 Not Found\r\nconnection: close\r\n\r\n')
+      return
+    }
+    socketServer.handleUpgrade(request, socket, head, (connection) => attachChatSocket(connection, chats, route.chatId))
+  }
+
+  const closeChatSockets = (code: number, reason: string): void => {
+    for (const connection of [...chatSockets]) connection.close(code, reason)
   }
 
   const stop = async (): Promise<void> => {
@@ -135,6 +211,9 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
     server = null
     boundPort = undefined
     if (!running) return
+    // `Server.close` waits for open connections and does not know about upgraded sockets at all,
+    // so the chat sockets are closed first rather than left to strand the shutdown.
+    closeChatSockets(1001, 'server stopping')
     await new Promise<void>((resolve) => running.close(() => resolve()))
   }
 
@@ -199,9 +278,11 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
       return problem ? apply({ ...stored.settings, port: settings.port }) : apply(stored.settings)
     },
     regenerateToken(): Promise<RemoteAccessState> {
-      // Nothing to await: the old token stops being accepted the moment the store holds a new one,
-      // and there are no long-lived connections to tear down yet.
+      // The old token stops being accepted the moment the store holds a new one, and every live
+      // chat socket was authorized by that old token, so each one is closed rather than left
+      // reading a session its holder is no longer allowed to see.
       options.store.regenerateToken()
+      closeChatSockets(CLOSE_UNAUTHORIZED, 'token regenerated')
       return Promise.resolve(publishState())
     },
     publishWorkspace(projection): void {

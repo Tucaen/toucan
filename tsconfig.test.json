@@ -33,6 +33,8 @@
     "src/main/remote/remote-routes.ts",
     "src/main/remote/remote-server.ts",
     "mobile/src/chat-list.ts",
+    "mobile/src/chat-connection.ts",
+    "mobile/src/chat-view.ts",
     "src/renderer/src/canvas-workspace.ts",
     "src/renderer/src/node-picker-menu-position.ts",
     "src/shared/**/*.ts"

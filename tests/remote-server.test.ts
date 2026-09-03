@@ -4,8 +4,18 @@ import { connect, createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, test } from 'node:test'
+import { WebSocket } from 'ws'
+import { createAgentEventBroker, type AgentEventBroker } from '../src/main/agent-event-broker'
 import { createRemoteAccessStore, type RemoteAccessStore } from '../src/main/remote/remote-access-store'
 import { createRemoteAccessServer, type RemoteAccessServer } from '../src/main/remote/remote-server'
+import type { AgentEvent } from '../src/shared/agent'
+import { foldAgentEvent, type AgentTranscriptState } from '../src/shared/agent-transcript'
+import {
+  REMOTE_CHAT_PROTOCOL,
+  parseRemoteChatServerMessage,
+  remoteChatBearerProtocol,
+  type RemoteChatServerMessage
+} from '../src/shared/remote-chat'
 
 /**
  * The listener itself: that it is not there until the user asks for it, that the pairing token is
@@ -52,7 +62,7 @@ interface Harness {
   get(path: string, token?: string | null): Promise<{ status: number; body: string; headers: Headers }>
 }
 
-function harness(options: { clientFiles?: Record<string, string> } = {}): Harness {
+function harness(options: { clientFiles?: Record<string, string>; chats?: AgentEventBroker } = {}): Harness {
   const directory = temporaryDirectory()
   const clientRoot = join(directory, 'mobile')
   mkdirSync(clientRoot, { recursive: true })
@@ -66,7 +76,8 @@ function harness(options: { clientFiles?: Record<string, string> } = {}): Harnes
   const server = createRemoteAccessServer({
     store,
     clientRoot,
-    addresses: () => [{ kind: 'tailscale', host: '100.1.2.3' }]
+    addresses: () => [{ kind: 'tailscale', host: '100.1.2.3' }],
+    ...(options.chats ? { chats: options.chats } : {})
   })
   running.push(server)
 
@@ -191,7 +202,7 @@ describe('remote access server', () => {
     await server.applySettings({ enabled: true, port: await freePort() })
 
     assert.match(await upgrade(server.state().boundPort!), /^HTTP\/1\.1 401 Unauthorized/)
-    // Reading a chat over a socket arrives with a later ticket; the gate is what exists now.
+    // Authorized, but the desktop never listed chat-1 (and no chat source is wired here at all).
     assert.match(await upgrade(server.state().boundPort!, store.read().token), /^HTTP\/1\.1 404 Not Found/)
   })
 
@@ -261,5 +272,188 @@ describe('remote access server', () => {
     assert.equal(server.state().listening, false)
     assert.match(server.state().error ?? '', /1024 or higher/)
     assert.equal(store.read().settings.port, 7391)
+  })
+})
+
+/** One socket under test: messages queue up, and waiting for the next one is a promise. */
+interface ChatSocket {
+  next(): Promise<RemoteChatServerMessage>
+  closed: Promise<{ code: number }>
+  rejected: Promise<number>
+  close(): void
+}
+
+function connectChat(port: number, chatId: string, auth: { header?: string; protocolToken?: string }): ChatSocket {
+  const socket = new WebSocket(
+    `ws://127.0.0.1:${port}/api/chats/${chatId}`,
+    auth.protocolToken ? [REMOTE_CHAT_PROTOCOL, remoteChatBearerProtocol(auth.protocolToken)] : [],
+    { headers: auth.header ? { authorization: `Bearer ${auth.header}` } : {} }
+  )
+  const queue: RemoteChatServerMessage[] = []
+  const waiting: ((message: RemoteChatServerMessage) => void)[] = []
+  socket.on('message', (data: Buffer) => {
+    const message = parseRemoteChatServerMessage(data.toString('utf8'))
+    assert.ok(message, 'the host sent an unparsable frame')
+    const waiter = waiting.shift()
+    if (waiter) waiter(message)
+    else queue.push(message)
+  })
+  socket.on('error', () => {
+    /* handshake rejections surface through `rejected`; a bare error must not crash the test */
+  })
+  return {
+    next: () =>
+      new Promise((resolve) => {
+        const queued = queue.shift()
+        if (queued) resolve(queued)
+        else waiting.push(resolve)
+      }),
+    closed: new Promise((resolve) => socket.on('close', (code: number) => resolve({ code }))),
+    rejected: new Promise((resolve) =>
+      socket.on('unexpected-response', (_request, response) => {
+        resolve(response.statusCode ?? 0)
+        response.destroy()
+      })
+    ),
+    close: () => socket.close()
+  }
+}
+
+const CHAT_PROJECTION = {
+  projects: [{ id: 'toucan', name: 'Toucan', color: '#71a9ff' }],
+  chats: [
+    {
+      id: 'chat-1',
+      kind: 'claude' as const,
+      title: 'Fix the parser',
+      projectId: 'toucan',
+      status: 'working' as const,
+      unread: 0
+    }
+  ]
+}
+
+function assistantChunk(messageId: string, text: string): AgentEvent {
+  return { type: 'message', role: 'assistant', messageId, text }
+}
+
+describe('remote chat socket', () => {
+  test('joining a listed chat delivers the snapshot, then the live tail folds to the same transcript', async () => {
+    const chats = createAgentEventBroker()
+    const { server, store } = harness({ chats })
+    await server.applySettings({ enabled: true, port: await freePort() })
+    server.publishWorkspace(CHAT_PROJECTION)
+
+    chats.publish('chat-1', { type: 'status', status: 'working' })
+    chats.publish('chat-1', assistantChunk('a1', 'first '))
+
+    // The pairing token rides in the subprotocol list: a browser cannot set a header on an upgrade.
+    const socket = connectChat(server.state().boundPort!, 'chat-1', { protocolToken: store.read().token })
+    const first = await socket.next()
+    assert.equal(first.type, 'snapshot')
+    let transcript = (first as { state: AgentTranscriptState }).state
+    assert.equal(transcript.messages[0]?.text, 'first ')
+
+    chats.publish('chat-1', assistantChunk('a1', 'half'))
+    chats.publish('chat-1', { type: 'turn_complete', stopReason: 'end_turn' })
+
+    for (let i = 0; i < 2; i += 1) {
+      const message = await socket.next()
+      assert.equal(message.type, 'event')
+      transcript = foldAgentEvent(transcript, (message as { event: AgentEvent }).event, Date.now())
+    }
+    // Snapshot + tail converges with the host's own snapshot: no duplicates, no gaps.
+    assert.equal(transcript.messages[0]?.text, 'first half')
+    assert.equal(transcript.messages[0]?.complete, true)
+    assert.equal(chats.snapshot('chat-1')?.messages[0]?.text, 'first half')
+    socket.close()
+  })
+
+  test('a chat the desktop has not listed is refused even with a valid token', async () => {
+    const chats = createAgentEventBroker()
+    const { server, store } = harness({ chats })
+    await server.applySettings({ enabled: true, port: await freePort() })
+    server.publishWorkspace(CHAT_PROJECTION)
+
+    const socket = connectChat(server.state().boundPort!, 'not-a-chat', { header: store.read().token })
+    assert.equal(await socket.rejected, 404)
+  })
+
+  test('a wrong token in the subprotocol is a 401, not a 404', async () => {
+    const chats = createAgentEventBroker()
+    const { server } = harness({ chats })
+    await server.applySettings({ enabled: true, port: await freePort() })
+    server.publishWorkspace(CHAT_PROJECTION)
+
+    const socket = connectChat(server.state().boundPort!, 'chat-1', { protocolToken: 'not-the-token' })
+    assert.equal(await socket.rejected, 401)
+  })
+
+  test('regenerating the token closes live chat sockets', async () => {
+    const chats = createAgentEventBroker()
+    const { server, store } = harness({ chats })
+    await server.applySettings({ enabled: true, port: await freePort() })
+    server.publishWorkspace(CHAT_PROJECTION)
+
+    const socket = connectChat(server.state().boundPort!, 'chat-1', { header: store.read().token })
+    assert.equal((await socket.next()).type, 'snapshot')
+
+    await server.regenerateToken()
+    const { code } = await socket.closed
+    assert.equal(code, 1008)
+  })
+
+  test('retiring the session closes the socket so the phone rejoins for a fresh snapshot', async () => {
+    const chats = createAgentEventBroker()
+    const { server, store } = harness({ chats })
+    await server.applySettings({ enabled: true, port: await freePort() })
+    server.publishWorkspace(CHAT_PROJECTION)
+
+    const socket = connectChat(server.state().boundPort!, 'chat-1', { header: store.read().token })
+    assert.equal((await socket.next()).type, 'snapshot')
+
+    // The desktop's kill-then-recreate cycle: a silently stale socket here is exactly the bug.
+    chats.close('chat-1')
+    const { code } = await socket.closed
+    assert.equal(code, 4001)
+  })
+
+  test('a replay folded behind a live subscriber is resynced as a fresh snapshot', async () => {
+    const chats = createAgentEventBroker()
+    const { server, store } = harness({ chats })
+    await server.applySettings({ enabled: true, port: await freePort() })
+    server.publishWorkspace(CHAT_PROJECTION)
+
+    const socket = connectChat(server.state().boundPort!, 'chat-1', { header: store.read().token })
+    assert.equal((await socket.next()).type, 'snapshot')
+
+    // A session resumed on the desktop replays its history through `fold`, which never fans out;
+    // the create result is when every remote subscriber is handed the settled transcript again.
+    chats.fold('chat-1', { type: 'message', role: 'user', messageId: 'u1', text: 'question' })
+    chats.fold('chat-1', assistantChunk('a1', 'replayed answer'))
+    chats.applyCreateResult('chat-1', { ok: true, status: 'ready', sessionId: 's-1' })
+
+    const resynced = await socket.next()
+    assert.equal(resynced.type, 'snapshot')
+    const state = (resynced as { state: AgentTranscriptState }).state
+    assert.equal(state.messages.length, 2)
+    assert.equal(state.messages[1]?.text, 'replayed answer')
+    assert.equal(state.messages[1]?.complete, true)
+    socket.close()
+  })
+
+  test('disabling the listener closes live chat sockets instead of stranding them', async () => {
+    const chats = createAgentEventBroker()
+    const { server, store } = harness({ chats })
+    const port = await freePort()
+    await server.applySettings({ enabled: true, port })
+    server.publishWorkspace(CHAT_PROJECTION)
+
+    const socket = connectChat(server.state().boundPort!, 'chat-1', { header: store.read().token })
+    assert.equal((await socket.next()).type, 'snapshot')
+
+    await server.applySettings({ enabled: false, port })
+    await socket.closed
+    assert.equal(server.state().listening, false)
   })
 })

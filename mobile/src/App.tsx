@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { EMPTY_REMOTE_WORKSPACE_SNAPSHOT, type RemoteWorkspaceSnapshot } from '../../src/shared/remote-access'
+import {
+  EMPTY_REMOTE_WORKSPACE_SNAPSHOT,
+  type RemoteChatSummary,
+  type RemoteWorkspaceSnapshot
+} from '../../src/shared/remote-access'
 import { attentionLabel, chatStatusLabel, countActiveChats, groupChatsByProject, isAwaitingDesktop } from './chat-list'
+import ChatScreen from './ChatScreen'
 import {
   WORKSPACE_POLL_MS,
   fetchWorkspace,
@@ -9,33 +14,74 @@ import {
   storedToken,
   verifyToken
 } from './remote-client'
+import { chatPathname, routeFromPathname, type MobileRoute } from './routes'
 
 /**
- * Toucan on a phone: pair once, then watch the workspace's agent chats.
+ * Toucan on a phone: pair once, then watch the workspace's agent chats and read any of them live.
  *
  * Two states, and the difference between them is one token. Unpaired shows the pairing screen;
- * paired polls the host for its workspace projection. A `401` at any point drops straight back to
- * pairing rather than showing a stale list, because a revoked token means the list is no longer
- * something this device is allowed to see.
+ * paired shows the chat list or one chat, addressed by pathname so the browser's back button and a
+ * reloaded deep link both work. A `401` at any point drops straight back to pairing rather than
+ * showing a stale view, because a revoked token means none of this is something this device is
+ * allowed to see.
  */
 export default function App(): JSX.Element {
   const [token, setToken] = useState<string | null>(() => storedToken())
+  const [route, setRoute] = useState<MobileRoute>(() => routeFromPathname(window.location.pathname))
+  // What the list knew about the chat it navigated to, so the chat header has a title immediately.
+  const [openedChat, setOpenedChat] = useState<RemoteChatSummary | null>(null)
+
+  useEffect(() => {
+    const onPopState = (): void => setRoute(routeFromPathname(window.location.pathname))
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
+  }, [])
 
   const unpair = useCallback(() => {
     forgetToken()
     setToken(null)
   }, [])
 
-  return token === null ? (
-    <PairingScreen
-      onPaired={(paired) => {
-        rememberToken(paired)
-        setToken(paired)
-      }}
-    />
-  ) : (
-    <ChatListScreen token={token} onUnauthorized={unpair} onUnpair={unpair} />
-  )
+  const openChat = useCallback((chat: RemoteChatSummary) => {
+    setOpenedChat(chat)
+    window.history.pushState({ chat: true }, '', chatPathname(chat.id))
+    setRoute({ screen: 'chat', chatId: chat.id })
+  }, [])
+
+  const backToList = useCallback(() => {
+    // Navigated from the list: the browser's own history entry is the way back. A reloaded deep
+    // link has no entry to pop, so the list is put in place rather than leaving the app.
+    if (window.history.state && (window.history.state as { chat?: boolean }).chat) {
+      window.history.back()
+      return
+    }
+    window.history.replaceState(null, '', '/')
+    setRoute({ screen: 'list' })
+  }, [])
+
+  if (token === null) {
+    return (
+      <PairingScreen
+        onPaired={(paired) => {
+          rememberToken(paired)
+          setToken(paired)
+        }}
+      />
+    )
+  }
+  if (route.screen === 'chat') {
+    return (
+      <ChatScreen
+        key={route.chatId}
+        token={token}
+        chatId={route.chatId}
+        summary={openedChat?.id === route.chatId ? openedChat : null}
+        onBack={backToList}
+        onUnauthorized={unpair}
+      />
+    )
+  }
+  return <ChatListScreen token={token} onUnauthorized={unpair} onUnpair={unpair} onOpenChat={openChat} />
 }
 
 function PairingScreen({ onPaired }: { onPaired(token: string): void }): JSX.Element {
@@ -102,11 +148,13 @@ function PairingScreen({ onPaired }: { onPaired(token: string): void }): JSX.Ele
 function ChatListScreen({
   token,
   onUnauthorized,
-  onUnpair
+  onUnpair,
+  onOpenChat
 }: {
   token: string
   onUnauthorized(): void
   onUnpair(): void
+  onOpenChat(chat: RemoteChatSummary): void
 }): JSX.Element {
   const [snapshot, setSnapshot] = useState<RemoteWorkspaceSnapshot>(EMPTY_REMOTE_WORKSPACE_SNAPSHOT)
   const [problem, setProblem] = useState<string | null>(null)
@@ -181,16 +229,18 @@ function ChatListScreen({
           </h2>
           <ul>
             {group.chats.map((chat) => (
-              <li className="chat" key={chat.id} data-status={chat.status}>
-                <span className="chat-kind" data-kind={chat.kind}>
-                  {chat.kind === 'claude' ? 'CL' : 'CX'}
-                </span>
-                <span className="chat-copy">
-                  <strong>{chat.title}</strong>
-                  <small>{chatStatusLabel(chat.status)}</small>
-                </span>
-                {chat.attention && <span className="chat-attention">{attentionLabel(chat.attention)}</span>}
-                {chat.unread > 0 && <span className="chat-unread">{chat.unread}</span>}
+              <li key={chat.id}>
+                <button type="button" className="chat" data-status={chat.status} onClick={() => onOpenChat(chat)}>
+                  <span className="chat-kind" data-kind={chat.kind}>
+                    {chat.kind === 'claude' ? 'CL' : 'CX'}
+                  </span>
+                  <span className="chat-copy">
+                    <strong>{chat.title}</strong>
+                    <small>{chatStatusLabel(chat.status)}</small>
+                  </span>
+                  {chat.attention && <span className="chat-attention">{attentionLabel(chat.attention)}</span>}
+                  {chat.unread > 0 && <span className="chat-unread">{chat.unread}</span>}
+                </button>
               </li>
             ))}
           </ul>

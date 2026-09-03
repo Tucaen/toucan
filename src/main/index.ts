@@ -371,7 +371,10 @@ void app.whenReady().then(async () => {
     store: createRemoteAccessStore({ path: join(app.getPath('userData'), 'remote-access.json') }),
     // The mobile client is built beside the main and renderer bundles, so the same path resolves
     // in `electron-vite dev` and inside a packaged build.
-    clientRoot: join(app.getAppPath(), 'out', 'mobile')
+    clientRoot: join(app.getAppPath(), 'out', 'mobile'),
+    // Live chats are read straight off the session broker: the phone is just another subscriber
+    // to the same fan-out the desktop renderer receives.
+    chats: agentEvents
   })
   // Off unless the user turned it on and the setting survived a restart; `start` only ever binds
   // what the stored settings already asked for.

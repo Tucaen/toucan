@@ -35,6 +35,20 @@ export function routeRequiresPairing(route: RemoteRoute): boolean {
   return route.kind === 'workspace' || route.kind === 'pairing'
 }
 
+/**
+ * What a WebSocket upgrade may become. Resolved separately from the HTTP routes because an upgrade
+ * is not a method - the only socket the host speaks is the live view of one chat, and everything
+ * else is refused after the pairing gate has already run.
+ */
+export type RemoteSocketRoute = { kind: 'chat'; chatId: string } | { kind: 'not-found' }
+
+export function resolveRemoteSocketRoute(target: string | undefined): RemoteSocketRoute {
+  const pathname = requestPathname(target)
+  if (pathname === null) return { kind: 'not-found' }
+  const match = /^\/api\/chats\/([^/]+)$/.exec(pathname)
+  return match ? { kind: 'chat', chatId: match[1] } : { kind: 'not-found' }
+}
+
 function requestPathname(target: string | undefined): string | null {
   if (!target) return null
   try {

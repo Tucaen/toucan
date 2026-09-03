@@ -100,6 +100,53 @@ test('the create result settles the snapshot the same way the renderer settles i
   assert.equal(snapshot?.messages[1]?.complete, true)
 })
 
+test('closing a session tells hooked subscribers their channel is gone', () => {
+  const broker = createAgentEventBroker({ now: () => NOW })
+  let closed = 0
+  const plain: AgentEvent[] = []
+  broker.subscribe('node-1', () => {}, { closed: () => (closed += 1) })
+  broker.subscribe('node-1', (event) => plain.push(event))
+
+  broker.close('node-1')
+
+  assert.equal(closed, 1)
+  // A second close of an already-retired channel must not re-notify anyone.
+  broker.close('node-1')
+  assert.equal(closed, 1)
+})
+
+test('an unsubscribed subscriber is not told about a later close', () => {
+  const broker = createAgentEventBroker({ now: () => NOW })
+  let closed = 0
+  const subscription = broker.subscribe('node-1', () => {}, { closed: () => (closed += 1) })
+  subscription.unsubscribe()
+
+  broker.close('node-1')
+
+  assert.equal(closed, 0)
+})
+
+test('a create result resyncs hooked subscribers with the settled snapshot', () => {
+  const broker = createAgentEventBroker({ now: () => NOW })
+  const resyncs: AgentTranscriptState[] = []
+  const live: AgentEvent[] = []
+  broker.subscribe('node-1', (event) => live.push(event), { resync: (state) => resyncs.push(state) })
+
+  // A session/load replay folds into the snapshot without fanning out, so a subscriber attached
+  // before the replay has a stale tail; the create result is the moment it can be made whole.
+  broker.fold('node-1', { type: 'message', role: 'user', messageId: 'u1', text: 'question' })
+  broker.fold('node-1', message('a1', 'replayed answer'))
+  broker.applyCreateResult('node-1', { ok: true, status: 'ready', sessionId: 's-1' })
+
+  assert.deepEqual(live, [])
+  assert.equal(resyncs.length, 1)
+  assert.equal(resyncs[0].sessionId, 's-1')
+  assert.equal(resyncs[0].messages.length, 2)
+  // The resynced state is the settled one - folding the live tail from here converges with the
+  // renderer's own view of the same session.
+  assert.equal(resyncs[0].messages[1]?.complete, true)
+})
+
 test('closing a session drops its snapshot and its subscribers', () => {
   const broker = createAgentEventBroker({ now: () => NOW })
   const seen: AgentEvent[] = []

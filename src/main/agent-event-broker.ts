@@ -17,6 +17,17 @@ import {
 
 export type AgentEventSubscriber = (event: AgentEvent) => void
 
+/**
+ * Lifecycle notifications a subscriber may opt into. The renderer needs neither - its session and
+ * its subscription are torn down together - but a remote client outlives both, so it must hear
+ * that its channel was retired (`closed`) and that the snapshot learned something the live tail
+ * did not carry (`resync`, after a session/load replay was folded without fanning out).
+ */
+export interface AgentEventSubscriptionHooks {
+  closed?(): void
+  resync?(snapshot: AgentTranscriptState): void
+}
+
 export interface AgentEventSubscription {
   /** The transcript as of the moment this subscription began; the tail starts right after it. */
   snapshot: AgentTranscriptState
@@ -35,15 +46,20 @@ export interface AgentEventBroker {
   fold(id: string, event: AgentEvent): void
   /** Applies what a create result reports beyond its events, keeping snapshot parity with the renderer. */
   applyCreateResult(id: string, result: AgentCreateResult): void
-  subscribe(id: string, subscriber: AgentEventSubscriber): AgentEventSubscription
+  subscribe(id: string, subscriber: AgentEventSubscriber, hooks?: AgentEventSubscriptionHooks): AgentEventSubscription
   snapshot(id: string): AgentTranscriptState | null
   /** Retires a session: drops its snapshot and its subscribers. The id may be reused fresh later. */
   close(id: string): void
 }
 
+interface ChannelMember {
+  subscriber: AgentEventSubscriber
+  hooks?: AgentEventSubscriptionHooks
+}
+
 interface SessionChannel {
   snapshot: AgentTranscriptState
-  subscribers: Set<AgentEventSubscriber>
+  members: Set<ChannelMember>
 }
 
 export function createAgentEventBroker(options?: { now?: () => number }): AgentEventBroker {
@@ -53,7 +69,7 @@ export function createAgentEventBroker(options?: { now?: () => number }): AgentE
   const channel = (id: string): SessionChannel => {
     const existing = channels.get(id)
     if (existing) return existing
-    const created: SessionChannel = { snapshot: initialAgentTranscriptState(), subscribers: new Set() }
+    const created: SessionChannel = { snapshot: initialAgentTranscriptState(), members: new Set() }
     channels.set(id, created)
     return created
   }
@@ -64,9 +80,9 @@ export function createAgentEventBroker(options?: { now?: () => number }): AgentE
       session.snapshot = foldAgentEvent(session.snapshot, event, now())
       // Snapshot of the set: a subscriber added by a callback joins from the *next* event, which
       // is exactly what its own subscription snapshot (folded above) promises it.
-      for (const subscriber of [...session.subscribers]) {
+      for (const member of [...session.members]) {
         try {
-          subscriber(event)
+          member.subscriber(event)
         } catch {
           // One broken subscriber (a renderer torn down mid-send) must not starve the rest.
         }
@@ -81,14 +97,25 @@ export function createAgentEventBroker(options?: { now?: () => number }): AgentE
     applyCreateResult(id, result): void {
       const session = channel(id)
       session.snapshot = applyAgentCreateResult(session.snapshot, result)
+      // Replay reached this snapshot through `fold`, which deliberately does not fan out (the
+      // renderer receives replay inside the create result). A subscriber attached before the
+      // replay is therefore behind; the create result is the settled moment to make it whole.
+      for (const member of [...session.members]) {
+        try {
+          member.hooks?.resync?.(session.snapshot)
+        } catch {
+          // Same rule as publish: one broken subscriber must not starve the rest.
+        }
+      }
     },
 
-    subscribe(id, subscriber): AgentEventSubscription {
+    subscribe(id, subscriber, hooks): AgentEventSubscription {
       const session = channel(id)
-      session.subscribers.add(subscriber)
+      const member: ChannelMember = { subscriber, ...(hooks ? { hooks } : {}) }
+      session.members.add(member)
       return {
         snapshot: session.snapshot,
-        unsubscribe: () => session.subscribers.delete(subscriber)
+        unsubscribe: () => session.members.delete(member)
       }
     },
 
@@ -97,7 +124,16 @@ export function createAgentEventBroker(options?: { now?: () => number }): AgentE
     },
 
     close(id): void {
+      const session = channels.get(id)
       channels.delete(id)
+      if (!session) return
+      for (const member of session.members) {
+        try {
+          member.hooks?.closed?.()
+        } catch {
+          // Closing must retire every subscriber even when one throws on the way out.
+        }
+      }
     }
   }
 }
