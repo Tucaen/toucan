@@ -6,6 +6,7 @@ import type {
   ConversationPreview,
   TerminalLiveness,
   TerminalKind,
+  TerminalNodeStatus,
   WorkspaceState,
   WorkspaceTerminalNode
 } from '../../shared/terminal'
@@ -14,8 +15,8 @@ import type { WorkspaceWorktree } from '../../shared/worktree'
 import type { WorktreeHandoffPlan } from '../../shared/worktree-handoff'
 import type { ConversationTitleSource } from '../../shared/conversation-title'
 
-export type TerminalNodeStatus =
-  'dormant' | 'starting' | 'idle' | 'working' | 'result' | 'attention' | 'stalled' | 'exited'
+/** Re-exported so canvas modules keep one import site; the union itself is a shared contract. */
+export type { TerminalNodeStatus }
 
 /** What a node reports about its own attention; the reducer that consumes it lives in shared/attention.ts. */
 export type NodeAttentionAction = AttentionAction

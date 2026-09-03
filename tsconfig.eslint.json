@@ -7,6 +7,8 @@
   "include": [
     "electron.vite.config.ts",
     "vitest.config.ts",
+    "mobile/**/*.ts",
+    "mobile/**/*.tsx",
     "src/**/*.ts",
     "src/**/*.tsx",
     "tests/**/*.ts",

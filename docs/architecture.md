@@ -20,6 +20,10 @@ local files, Git, PTYs, ACP adapters, provider CLIs
                   React presentation
 
 src/shared pure contracts and domain rules are imported by both sides.
+
+mobile/ is a separate static client, served by src/main/remote over HTTP to a phone.
+It imports src/shared contracts only, and reaches the host through the same HTTP API
+any other client would.
 ```
 
 [`src/main/index.ts`](../src/main/index.ts) is the composition root. It creates the
@@ -45,6 +49,8 @@ channels into the small `window.*Api` interfaces declared by
 | Workspace persistence            | [`src/main/workspace-store.ts`](../src/main/workspace-store.ts)                                                                                                                                                        | Validation, migration, serialized durable writes, backup recovery, and unrecoverable-state reporting behind `WorkspaceStore`.                                                                                                                                                                                                                                                    |
 | Git worktrees                    | [`src/main/git-worktree.ts`](../src/main/git-worktree.ts)                                                                                                                                                              | Git execution, discovery, status, and evidence-gated creation/removal behind `WorktreeManager`. Renderer confirmation policy lives in [`worktree-removal.ts`](../src/renderer/src/worktree-removal.ts).                                                                                                                                                                          |
 | Account usage                    | [`src/main/provider-usage.ts`](../src/main/provider-usage.ts)                                                                                                                                                          | Provider-neutral caching interface over the Claude and Codex usage adapters.                                                                                                                                                                                                                                                                                                     |
+| Remote access                    | [`src/main/remote/remote-server.ts`](../src/main/remote/remote-server.ts)                                                                                                                                                                                                                              | The HTTP listener a paired phone talks to, off by default, plus its pairing token ([`pairing.ts`](../src/main/remote/pairing.ts)), durable settings ([`remote-access-store.ts`](../src/main/remote/remote-access-store.ts)) and route/asset decisions ([`remote-routes.ts`](../src/main/remote/remote-routes.ts)). The workspace projection it serves is pushed in by the renderer; it derives none of its own.                                                                                       |
+| Mobile companion client          | [`mobile/`](../mobile)                                                                                                                                                                                                                                                                                | Pairing screen and chat list as a static build served at `/`. Its list decisions live in [`chat-list.ts`](../mobile/src/chat-list.ts) and its transport in [`remote-client.ts`](../mobile/src/remote-client.ts).                                                                                                                                                                                                                                                                                       |
 | Privilege seam                   | [`src/preload/index.ts`](../src/preload/index.ts), [`index.d.ts`](../src/preload/index.d.ts)                                                                                                                           | The only renderer-facing access to IPC, Electron clipboard operations, and process-owned capabilities. Keep runtime exposure and declared interfaces synchronized.                                                                                                                                                                                                               |
 | Canvas orchestration             | [`src/renderer/src/App.tsx`](../src/renderer/src/App.tsx), [`canvas-workspace.ts`](../src/renderer/src/canvas-workspace.ts), [`node-fit.ts`](../src/renderer/src/node-fit.ts)                                          | Compose workspace modules, projects, worktrees, React Flow nodes, recently closed sessions, conversion between persisted and live nodes, and session-local fit/restore geometry.                                                                                                                                                                                                 |
 | Workspace lifecycle              | [`workspace-persistence.ts`](../src/renderer/src/workspace-persistence.ts), [`workspace-attention.ts`](../src/renderer/src/workspace-attention.ts), [`WorkspaceDialogs.tsx`](../src/renderer/src/WorkspaceDialogs.tsx) | Load-before-save and unrecoverable-state safety; durable attention transitions, aggregation, pruning, and canvas-node projection; workspace-level dialog presentation. [`use-provider-rate-limits.ts`](../src/renderer/src/use-provider-rate-limits.ts) owns the single account-wide usage poll.                                                                                 |
@@ -66,6 +72,8 @@ unless explicitly listed.
 | `src/main/**`                 | `src/shared/**`, `src/main/**`, Electron/Node and external process adapters                                | `src/preload/**`, `src/renderer/**`                                                                                    |
 | `src/preload/**`              | Shared types and Electron's `contextBridge`, `ipcRenderer`, or deliberately exposed clipboard operations   | `src/main/**`, `src/renderer/**`; domain decisions or persistence/process implementations                              |
 | `src/renderer/src/**`         | `src/shared/**`, other renderer modules, browser-safe libraries, and the declared `window.*Api` interfaces | `src/main/**`, the preload implementation, Electron or Node runtime modules, direct filesystem/process/provider access |
+| `src/main/remote/**`          | `src/shared/**`, other `src/main` modules, Node's HTTP and crypto                                        | Electron's `app`/`BrowserWindow`/`ipcMain` beyond the composition root's wiring, and any renderer module            |
+| `mobile/**`                   | `src/shared/**` type contracts, React, browser APIs                                                        | `src/main/**`, `src/preload/**`, `src/renderer/**`, Node runtime modules                                            |
 | Renderer pure feature modules | Shared contracts and other pure renderer feature modules                                                   | React views (`App.tsx`, `ChatNode.tsx`, card TSX files), `window.*Api`, or side effects                                |
 
 Additional rules:
@@ -146,6 +154,12 @@ shared code. They are compilation partitions, not permission to bypass the rules
   once opened so selection, search, scroll, and an unsent draft survive a close. What the
   library contains is always re-read from `window.brainDumpApi`; a capture's prose summary is
   never treated as state.
+- **Remote access** has one gate and one authority. Every `/api` route is authorized by the
+  pairing token, compared in constant time and never accepted from a URL; the static client
+  bundle is public because the pairing screen has to load before a token exists. The canvas
+  remains the authority on what a phone lists: the renderer publishes a
+  `RemoteWorkspaceProjection` and the host serves the latest one rather than deriving a second
+  view of the workspace.
 - **Pure renderer feature modules** keep high-frequency UI decisions testable without
   rendering. Their adjacent DOM tests verify the wiring rather than duplicating the
   decision matrix.
@@ -163,12 +177,16 @@ npm run check:full
 [`dependency-cruiser.config.mjs`](../dependency-cruiser.config.mjs), including cycle detection.
 Each rule is named in its failure output and reports the offending importer and dependency path.
 
+`npm run build:mobile` builds the phone client into `out/mobile`, where the remote server looks
+for it; `npm run build` runs it after `electron-vite build`, which owns the sibling directories.
+
 `npm test` first compiles and runs `tests/**/*.test.ts` with Node's test runner, then
 runs `tests/**/*.dom.test.tsx` under Vitest/jsdom. Representative interfaces:
 
 - process and protocol lifecycle: [`acp-session-manager-steering.test.ts`](../tests/acp-session-manager-steering.test.ts), [`terminal-manager.test.ts`](../tests/terminal-manager.test.ts)
 - persistence and recovery: [`workspace-store.test.ts`](../tests/workspace-store.test.ts), [`terminal-scrollback-store.test.ts`](../tests/terminal-scrollback-store.test.ts)
 - worktree safety and canvas restoration: [`git-worktree.test.ts`](../tests/git-worktree.test.ts), [`canvas-workspace.test.ts`](../tests/canvas-workspace.test.ts)
+- remote access, decisions then listener: [`remote-access.test.ts`](../tests/remote-access.test.ts), [`remote-server.test.ts`](../tests/remote-server.test.ts), [`remote-access.dom.test.tsx`](../tests/remote-access.dom.test.tsx)
 - pure rule plus rendered wiring: [`session-usage.test.ts`](../tests/session-usage.test.ts) with [`session-usage-bar.dom.test.tsx`](../tests/session-usage-bar.dom.test.tsx), and [`prompt-outbox.test.ts`](../tests/prompt-outbox.test.ts) with [`composer-queue-while-busy.dom.test.tsx`](../tests/composer-queue-while-busy.dom.test.tsx)
 - cross-process replay into UI: [`acp-session-manager-replay.test.ts`](../tests/acp-session-manager-replay.test.ts), [`restored-chat-transcript.dom.test.tsx`](../tests/restored-chat-transcript.dom.test.tsx)
 

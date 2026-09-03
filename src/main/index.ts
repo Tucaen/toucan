@@ -22,6 +22,9 @@ import { createConversationHistory, type ConversationHistory } from './conversat
 import { createConversationTitleStore, type ConversationTitleStore } from './conversation-title-store'
 import { createCodexRateLimitReader } from './codex-rate-limits'
 import { createProviderUsage, type ProviderUsage } from './provider-usage'
+import { createRemoteAccessStore } from './remote/remote-access-store'
+import { forwardRemoteStateChanges, registerRemoteIpc } from './remote/remote-ipc'
+import { createRemoteAccessServer, type RemoteAccessServer } from './remote/remote-server'
 import { createSessionProviders, type SessionProviders } from './session-providers'
 import { createTerminalLivenessStore, type TerminalLivenessStore } from './terminal-liveness-store'
 import { createTerminalManager, type TerminalManager } from './terminal-manager'
@@ -224,7 +227,8 @@ function createWindow(
   terminalManager: TerminalManager,
   agentManager: AcpSessionManager,
   brainDumpCapture: BrainDumpCaptureManager,
-  brainDumpChanges: BrainDumpChangeWatcher
+  brainDumpChanges: BrainDumpChangeWatcher,
+  remote: RemoteAccessServer
 ): void {
   const window = new BrowserWindow({
     width: 1440,
@@ -245,7 +249,11 @@ function createWindow(
 
   window.once('ready-to-show', () => window.show())
   const contents = window.webContents
+  // The settings dialog has to see a listener that failed or died on its own, not only the state
+  // it last asked for, so the window subscribes for as long as it exists.
+  const stopForwardingRemoteState = forwardRemoteStateChanges(remote, contents)
   contents.on('destroyed', () => {
+    stopForwardingRemoteState()
     terminalManager.disconnectOwner(contents)
     agentManager.killOwned(contents)
     brainDumpCapture.disconnectOwner(contents as unknown as BrainDumpCaptureOwner)
@@ -354,6 +362,15 @@ void app.whenReady().then(async () => {
     publish: (state) => void captureStore.save(state).catch(() => {})
   })
   const brainDumpChanges = await createBrainDumpChangeWatcher({ rootDirectory: brainDumpDirectory })
+  const remote = createRemoteAccessServer({
+    store: createRemoteAccessStore({ path: join(app.getPath('userData'), 'remote-access.json') }),
+    // The mobile client is built beside the main and renderer bundles, so the same path resolves
+    // in `electron-vite dev` and inside a packaged build.
+    clientRoot: join(app.getAppPath(), 'out', 'mobile')
+  })
+  // Off unless the user turned it on and the setting survived a restart; `start` only ever binds
+  // what the stored settings already asked for.
+  await remote.start()
 
   registerTerminalIpc(manager, providers, scrollback, liveness)
   registerAgentIpc(agentManager)
@@ -388,17 +405,19 @@ void app.whenReady().then(async () => {
     })
   )
   registerProjectIpc(workspace)
-  createWindow(manager, agentManager, brainDumpCapture, brainDumpChanges)
+  registerRemoteIpc(ipcMain, remote)
+  createWindow(manager, agentManager, brainDumpCapture, brainDumpChanges, remote)
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0)
-      createWindow(manager, agentManager, brainDumpCapture, brainDumpChanges)
+      createWindow(manager, agentManager, brainDumpCapture, brainDumpChanges, remote)
   })
   app.on('before-quit', () => {
     manager.killAll()
     agentManager.killAll()
     brainDumpCapture.shutdown()
     brainDumpChanges.shutdown()
+    void remote.shutdown()
   })
 })
 

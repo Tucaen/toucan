@@ -31,8 +31,13 @@ workspace state is stored locally and the Windows x64 portable build is not yet 
   follow-up. Capture a new dump by typing or dictating it for the brain-dump skill to organize
   in the background. `Ctrl+Shift+B` toggles the panel; `Ctrl+K` focuses its search while it is open.
 
-Live shell processes still end when Toucan exits. Mobile access, remote access, and live PTY
-process restoration are not implemented.
+- Serves a mobile companion to your phone over your own tailnet. The remote server is off
+  until you turn it on, pairing is one long token, and the phone shows the workspace's active
+  agent chats with status and unread badges. Reading a chat, sending a message, and answering
+  approvals from the phone are still to come.
+
+Live shell processes still end when Toucan exits, and live PTY process restoration is not
+implemented.
 
 ## Set up and run
 
@@ -52,6 +57,29 @@ Toucan opens the repository directory as its first project. Use **Add project** 
 folders, select a project in the sidebar, then right-click the canvas to create a
 **Terminal**, **Claude**, **Codex**, or **Worktree** node, or to open **History**. Claude
 and Codex use their existing subscription sign-in flows when authentication is required.
+
+## Use Toucan from your phone
+
+Remote access is off in a fresh install. Open it from the phone icon in the header, enable it,
+and note the port and pairing token.
+
+Reachability is deliberately not Toucan's problem: install [Tailscale](https://tailscale.com)
+on the PC and the phone, join both to the same tailnet, then open `http://<tailnet-address>:<port>`
+in the phone's browser and paste the pairing token once. The dialog lists the addresses to try
+and labels the tailnet one. A device on your tailnet is *reachable*, not *trusted* - the token is
+what authorizes it, so **Regenerate** locks out every phone holding the old one.
+
+The desktop has to be running: the server lives in Toucan's main process, and the phone shows the
+canvas that desktop has open. Plain terminals are never listed.
+
+The phone client is built as static assets Toucan serves itself:
+
+```powershell
+npm run build:mobile
+```
+
+`npm run build` and `npm run package:win` already include it; run it once by hand before using
+remote access from `npm run dev`.
 
 ## Verify changes
 
@@ -73,6 +101,7 @@ npm run check:architecture
 npm run typecheck
 npm test
 npm run test:dom
+npm run build:mobile
 ```
 
 For packaging or voice-model changes, run the extended gate, which also verifies the local
