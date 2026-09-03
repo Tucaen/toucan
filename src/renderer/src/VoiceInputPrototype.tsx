@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import { MicTranscriber, ModelArch } from '@moonshine-ai/moonshine-wasm'
-import { Mic, Square, X } from 'lucide-react'
+import { LoaderCircle, Mic, Square, X } from 'lucide-react'
 import { withStallGuard } from '../../shared/stall-guard'
 import { errorMessage } from '../../shared/text'
 
@@ -171,8 +171,13 @@ export default function VoiceInputPrototype(props: VoiceInputPrototypeProps): JS
         disabled={props.disabled || state === 'loading' || state === 'stopping'}
         onClick={() => (state === 'listening' ? void finish(true) : void begin())}
       >
-        {state === 'listening' ? <Square aria-hidden="true" /> : <Mic aria-hidden="true" />}
-        {state === 'loading' ? 'Wait' : state === 'listening' ? 'Done' : 'Mic'}
+        {state === 'loading' || state === 'stopping' ? (
+          <LoaderCircle aria-hidden="true" />
+        ) : state === 'listening' ? (
+          <Square aria-hidden="true" />
+        ) : (
+          <Mic aria-hidden="true" />
+        )}
       </button>
       {state === 'listening' && (
         <button

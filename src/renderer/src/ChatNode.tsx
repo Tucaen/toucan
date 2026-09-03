@@ -22,8 +22,10 @@ import {
   Cpu,
   Keyboard,
   ListChecks,
+  ListPlus,
   LockKeyhole,
   Pencil,
+  SendHorizontal,
   ShieldCheck,
   X
 } from 'lucide-react'
@@ -779,10 +781,12 @@ export function Composer(props: ComposerProps): JSX.Element {
         )}
         <button
           type="submit"
+          className="composer-send"
+          aria-label={busy ? 'Queue' : 'Send'}
           title={composerSendKeyLabels[sendKey].description}
           disabled={(!draft.trim() && props.attachments.length === 0) || composerDisabled}
         >
-          {busy ? 'Queue' : 'Send'}
+          {busy ? <ListPlus aria-hidden="true" /> : <SendHorizontal aria-hidden="true" />}
         </button>
       </div>
       <ComposerToolbar {...props} />
