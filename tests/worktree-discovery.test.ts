@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
-import { discoverWorktrees, parseWorktreeList, type WorktreeClaim } from '../src/shared/worktree'
+import { discoverWorktrees, matchWorktreeClaims, parseWorktreeList, type WorktreeClaim } from '../src/shared/worktree'
 
 const PROJECT = 'D:\\Development\\Toucan'
 const FEATURE = 'D:\\Development\\Toucan-worktrees\\feat-login'
@@ -43,7 +43,7 @@ test('a detached worktree reports no branch rather than a guessed one', () => {
 })
 
 test('a worktree git knows about and the workspace does not becomes a discovery', () => {
-  const discovered = discoverWorktrees(parseWorktreeList(porcelain), [], [], 'main')
+  const discovered = discoverWorktrees(parseWorktreeList(porcelain), [], 'main')
   assert.equal(discovered.length, 1)
   assert.equal(discovered[0].path, FEATURE)
   assert.equal(discovered[0].branch, 'feat/login')
@@ -51,7 +51,7 @@ test('a worktree git knows about and the workspace does not becomes a discovery'
 })
 
 test('the project checkout is never discovered as a worktree', () => {
-  const discovered = discoverWorktrees(parseWorktreeList(porcelain), [], [], 'main')
+  const discovered = discoverWorktrees(parseWorktreeList(porcelain), [], 'main')
   assert.equal(
     discovered.some((worktree) => worktree.path === PROJECT),
     false
@@ -59,7 +59,7 @@ test('the project checkout is never discovered as a worktree', () => {
 })
 
 test('a worktree the workspace already records is left alone', () => {
-  const discovered = discoverWorktrees(parseWorktreeList(porcelain), [{ path: FEATURE }], [], 'main')
+  const discovered = discoverWorktrees(parseWorktreeList(porcelain), [{ path: FEATURE }], 'main')
   assert.deepEqual(discovered, [])
 })
 
@@ -67,7 +67,6 @@ test('a recorded path matches whatever slash and case shape git reports', () => 
   const discovered = discoverWorktrees(
     parseWorktreeList(porcelain),
     [{ path: 'd:/development/toucan-worktrees/feat-login/' }],
-    [],
     'main'
   )
   assert.deepEqual(discovered, [])
@@ -86,27 +85,55 @@ test('a detached worktree is skipped: there is no branch for the record to own',
       ''
     ].join('\n')
   )
-  assert.deepEqual(discoverWorktrees(entries, [], [], 'main'), [])
+  assert.deepEqual(discoverWorktrees(entries, [], 'main'), [])
 })
 
-test('a claim on the discovered path names the node that asked for the work', () => {
+test('a claim on a listed path names the node that asked for the work', () => {
   const claims: WorktreeClaim[] = [
     { nodeId: 'node-7', path: FEATURE, branch: 'feat/login', claimedAt: '2026-08-30T10:00:00.000Z' }
   ]
-  const discovered = discoverWorktrees(parseWorktreeList(porcelain), [], claims, 'main')
-  assert.equal(discovered[0].claimedByNodeId, 'node-7')
+  assert.deepEqual(matchWorktreeClaims(parseWorktreeList(porcelain), claims), [{ path: FEATURE, nodeId: 'node-7' }])
+})
+
+test('a claim still matches a worktree the workspace already records', () => {
+  // The claim is written after the worktree exists and its setup command has run, so the sweep
+  // that recorded the worktree routinely runs first. A claim reported only for newly discovered
+  // worktrees would be lost exactly when an agent made the worktree for itself.
+  const claims: WorktreeClaim[] = [
+    { nodeId: 'node-7', path: FEATURE, branch: 'feat/login', claimedAt: '2026-08-30T10:00:00.000Z' }
+  ]
+  const entries = parseWorktreeList(porcelain)
+
+  assert.deepEqual(discoverWorktrees(entries, [{ path: FEATURE }], 'main'), [])
+  assert.deepEqual(matchWorktreeClaims(entries, claims), [{ path: FEATURE, nodeId: 'node-7' }])
+})
+
+test('the last claim for a path wins, since the file is only ever appended to', () => {
+  const claims: WorktreeClaim[] = [
+    { nodeId: 'node-1', path: FEATURE, branch: 'feat/login', claimedAt: '2026-08-30T10:00:00.000Z' },
+    { nodeId: 'node-9', path: FEATURE, branch: 'feat/login', claimedAt: '2026-08-31T10:00:00.000Z' }
+  ]
+  assert.deepEqual(matchWorktreeClaims(parseWorktreeList(porcelain), claims), [{ path: FEATURE, nodeId: 'node-9' }])
 })
 
 test('a claim for some other path costs the association, not the discovery', () => {
   const claims: WorktreeClaim[] = [
     { nodeId: 'node-7', path: 'D:\\elsewhere', branch: 'feat/other', claimedAt: '2026-08-30T10:00:00.000Z' }
   ]
-  const discovered = discoverWorktrees(parseWorktreeList(porcelain), [], claims, 'main')
-  assert.equal(discovered.length, 1)
-  assert.equal(discovered[0].claimedByNodeId, undefined)
+  const entries = parseWorktreeList(porcelain)
+
+  assert.equal(discoverWorktrees(entries, [], 'main').length, 1)
+  assert.deepEqual(matchWorktreeClaims(entries, claims), [])
+})
+
+test('the project checkout is never claimable, whatever the claims file says', () => {
+  const claims: WorktreeClaim[] = [
+    { nodeId: 'node-7', path: PROJECT, branch: 'main', claimedAt: '2026-08-30T10:00:00.000Z' }
+  ]
+  assert.deepEqual(matchWorktreeClaims(parseWorktreeList(porcelain), claims), [])
 })
 
 test('a listing with no worktrees beyond the checkout discovers nothing', () => {
   const entries = parseWorktreeList([`worktree ${PROJECT}`, 'HEAD abc123', 'branch refs/heads/main', ''].join('\n'))
-  assert.deepEqual(discoverWorktrees(entries, [], [], 'main'), [])
+  assert.deepEqual(discoverWorktrees(entries, [], 'main'), [])
 })

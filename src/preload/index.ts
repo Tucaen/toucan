@@ -30,6 +30,7 @@ import type {
   WorktreeStatus
 } from '../shared/worktree'
 import type { ConversationListPage, ConversationListRequest } from '../shared/conversation'
+import type { WorkspaceFileIndex } from '../shared/workspace-files'
 import type { ConversationTitleSource } from '../shared/conversation-title'
 import type {
   BrainDumpApi,
@@ -112,6 +113,12 @@ const agentApi = {
 }
 
 contextBridge.exposeInMainWorld('agentApi', agentApi)
+
+const workspaceFilesApi = {
+  index: (root: string): Promise<WorkspaceFileIndex> => ipcRenderer.invoke('workspace:file-index', root)
+}
+
+contextBridge.exposeInMainWorld('workspaceFilesApi', workspaceFilesApi)
 
 const usageApi = {
   rateLimits: (): Promise<ProviderRateLimits> => ipcRenderer.invoke('usage:rate-limits')

@@ -29,6 +29,7 @@ import type {
   WorktreeStatus
 } from '../shared/worktree'
 import type { ConversationListPage, ConversationListRequest } from '../shared/conversation'
+import type { WorkspaceFileIndex } from '../shared/workspace-files'
 import type { ConversationTitle, ConversationTitleSource } from '../shared/conversation-title'
 import type { BrainDumpApi } from '../shared/brain-dump'
 
@@ -72,6 +73,15 @@ export interface TerminalApi {
   onExit(sessionId: string, attachmentId: string, callback: (result: TerminalExit) => void): () => void
 }
 
+export interface WorkspaceFilesApi {
+  /**
+   * A bounded, cached listing of one working directory for the composer's `@` picker. Always the
+   * node's resolved `workingDirectory` - a worktree session must never be offered the checkout's
+   * files, since the reference it inserts would point at the wrong tree.
+   */
+  index(root: string): Promise<WorkspaceFileIndex>
+}
+
 export interface UsageApi {
   /** Account-wide plan usage windows per provider; omits a provider with nothing to report. */
   rateLimits(): Promise<ProviderRateLimits>
@@ -103,6 +113,7 @@ declare global {
   interface Window {
     terminalApi: TerminalApi
     agentApi: AgentApi
+    workspaceFilesApi: WorkspaceFilesApi
     usageApi: UsageApi
     worktreeApi: WorktreeApi
     conversationApi: ConversationApi

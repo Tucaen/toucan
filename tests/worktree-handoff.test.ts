@@ -137,3 +137,38 @@ test('a handoff with nothing worth carrying is just the prompt', () => {
     '/implement-in-worktree go'
   )
 })
+
+test('the namespaced command a project skill is actually advertised as invokes the same skill', () => {
+  // What slash completion inserts for a project-local skill; the unqualified spelling is only
+  // ever typed by hand. Recognising one and not the other let the real invocation through.
+  assert.equal(invokesWorktreeSkill('/$toucan-project-skills:implement-in-worktree the idea written down in…'), true)
+  assert.equal(invokesWorktreeSkill('/$ade-project-skills:implement-in-worktree do the thing'), true)
+  assert.equal(invokesWorktreeSkill('/$toucan-project-skills:implement-in-worktree'), true)
+})
+
+test('a namespace does not smuggle in a different skill', () => {
+  assert.equal(invokesWorktreeSkill('/$toucan-project-skills:implement-in-worktree-v2 go'), false)
+  assert.equal(invokesWorktreeSkill('/$toucan-project-skills:implement go'), false)
+  assert.equal(invokesWorktreeSkill('/$:implement-in-worktree go'), false)
+  assert.equal(invokesWorktreeSkill('/toucan-project-skills:implement-in-worktree go'), false)
+  assert.equal(invokesWorktreeSkill('$toucan-project-skills:implement-in-worktree go'), false)
+})
+
+test('an ongoing Codex conversation rehomes for the advertised namespaced command', () => {
+  const plan = planWorktreeHandoff('/$ade-project-skills:implement-in-worktree the idea written down in…', {
+    hasHistory: true,
+    alreadyInWorktree: false,
+    provider: 'codex'
+  })
+  assert.equal(plan?.mode, 'rehome')
+  assert.equal(plan?.prompt, '/$ade-project-skills:implement-in-worktree the idea written down in…')
+})
+
+test('Claude still hands off rather than rehoming for the namespaced command', () => {
+  const plan = planWorktreeHandoff('/$ade-project-skills:implement-in-worktree go', {
+    hasHistory: true,
+    alreadyInWorktree: false,
+    provider: 'claude'
+  })
+  assert.equal(plan?.mode, 'handoff')
+})

@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { promptSummary, type QueuedPrompt } from './prompt-outbox'
+import type { QueuedPrompt } from './prompt-outbox'
+import { ImageAttachments } from './ImageAttachments'
 
 export interface ComposerQueueProps {
   queued: QueuedPrompt[]
@@ -62,12 +63,16 @@ function QueuedPromptChip(props: {
     )
   }
 
-  const summary = promptSummary(props.entry.text, props.entry.images)
   return (
     <li className="queued-prompt">
-      <span className="queued-prompt-text" title={summary}>
-        {summary}
-      </span>
+      {/* Attached images are shown rather than summarized: a waiting screenshot the captain can
+          still withdraw has to be identifiable as the one they meant to take back. */}
+      {props.entry.text && (
+        <span className="queued-prompt-text" title={props.entry.text}>
+          {props.entry.text}
+        </span>
+      )}
+      <ImageAttachments images={props.entry.images} />
       <div className="queued-prompt-actions">
         <button type="button" title="Give this message to the running turn now" onClick={props.sendNow}>
           Send now

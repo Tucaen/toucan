@@ -30,6 +30,15 @@ export interface WorktreeHandoffPlan {
 }
 
 /**
+ * The spellings that genuinely call the skill. Slash completion inserts a project-local skill
+ * under the namespace its agent advertises it as (`/$toucan-project-skills:<skill>`), while the
+ * unqualified `/<skill>` is what a user types by hand; both are the same call, so the namespace
+ * is matched by shape rather than against any one host's name. The token must match whole, which
+ * is what keeps `/implement-in-worktree-v2` and `/$ns:implement` out.
+ */
+const WORKTREE_SKILL_COMMAND = new RegExp(`^/(?:\\$[A-Za-z0-9][A-Za-z0-9._-]*:)?${WORKTREE_SKILL}$`)
+
+/**
  * A prompt invokes the skill when its first non-empty line opens with the slash command.
  * Anything further into the message is the user talking *about* the skill, not calling it.
  */
@@ -40,7 +49,7 @@ export function invokesWorktreeSkill(text: string): boolean {
     .find(Boolean)
   if (!firstLine) return false
   const [command] = firstLine.split(/\s/)
-  return command === `/${WORKTREE_SKILL}`
+  return WORKTREE_SKILL_COMMAND.test(command)
 }
 
 export function planWorktreeHandoff(

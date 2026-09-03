@@ -14,6 +14,7 @@ const pureRendererFeatureNames = [
   'composer-autosize',
   'composer-keys',
   'decision-message',
+  'file-mention-completion',
   'file-operation',
   'image-attachment-contract',
   'mcp-tool-call',

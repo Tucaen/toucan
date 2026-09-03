@@ -19,6 +19,7 @@ import {
   Check,
   ChevronDown,
   CircleAlert,
+  CircleStop,
   Cpu,
   Keyboard,
   ListChecks,
@@ -30,6 +31,7 @@ import {
   X
 } from 'lucide-react'
 import MarkdownMessage from './MarkdownMessage'
+import { ImageAttachments } from './ImageAttachments'
 import WorktreeBadge from './WorktreeBadge'
 import {
   isFinalAssistantMessage,
@@ -66,7 +68,7 @@ import { buildHandoffPrompt, planWorktreeHandoff } from '../../shared/worktree-h
 import type { TerminalCanvasNode, TerminalNodeStatus } from './canvas-workspace'
 import NodeFitAction from './NodeFitAction'
 import { attentionTextKey, READ_ON_VIEW_KINDS, type AttentionKind } from '../../shared/attention'
-import { imageFilesFromClipboard, type AgentImageAttachment } from './image-attachment'
+import { imageAttachmentSource, imageFilesFromClipboard, type AgentImageAttachment } from './image-attachment'
 import { classifyAssistantMessage, decisionQuestions, type DecisionOption } from './decision-message'
 import { pendingDecisionsFromMessages, type PendingDecision } from './pending-decisions'
 import { usePortalMenuPosition } from './use-portal-menu-position'
@@ -87,6 +89,18 @@ import {
   moveSlashSelection,
   slashCompletionView
 } from './slash-command-completion'
+import {
+  acceptFileMention,
+  acceptedFileMention,
+  dismissFileMentionCompletion,
+  emptyFileMentionCompletion,
+  fileMentionCompletionView,
+  fileMentionExclusionNote,
+  fileMentionQuery,
+  highlightFileMention,
+  recentMentionPaths
+} from './file-mention-completion'
+import type { WorkspaceFileEntry, WorkspaceFileIndex } from '../../shared/workspace-files'
 import { composerKeyAction, composerSendKeyLabels, type ComposerSendKey } from './composer-keys'
 import { useComposerSendKey } from './composer-send-key-context'
 import {
@@ -109,6 +123,20 @@ import {
   type AgentChatStatus,
   type AgentTranscriptEntry
 } from './use-agent-conversation'
+
+/**
+ * What the composer needs to complete a file reference. `root` is the node's resolved
+ * `workingDirectory` - the worktree when the node is attached to one, never the display-only
+ * `projectPath` - because that is the directory the agent will resolve the inserted reference
+ * against. `read` is asked only once a mention token actually appears, so a node that never types
+ * an `@` never costs a directory listing.
+ */
+export interface ComposerFileMentions {
+  root: string
+  /** Root-relative paths this conversation's agent has already touched, newest first. */
+  recent: readonly string[]
+  read(root: string): Promise<WorkspaceFileIndex>
+}
 
 interface FlatChatViewProps {
   provider: 'claude' | 'codex'
@@ -135,6 +163,11 @@ interface FlatChatViewProps {
    * has nothing to offer until then.
    */
   commands?: AgentCommand[]
+  /**
+   * Where the composer's `@` picker reads its files from. Optional because a chat view renders
+   * perfectly well without one - the completion simply has nothing to offer.
+   */
+  fileMentions?: ComposerFileMentions
   /**
    * The directories tool cards shorten absolute paths against: the one the agent runs in (the
    * worktree when the node has one) and the project checkout. A path under none of them keeps
@@ -188,6 +221,7 @@ export type ChatComposerProps = Pick<
   | 'sendQueuedNow'
   | 'cancel'
   | 'onDraftChange'
+  | 'fileMentions'
   | 'modes'
   | 'models'
   | 'efforts'
@@ -365,20 +399,34 @@ export function SelectorPicker(props: {
   )
 }
 
+interface CompletionOption {
+  key: string
+  /** The token the option inserts, shown as the row's own name. */
+  label: string
+  /** Whatever qualifies the token: a command's argument hint, a folder marker. */
+  hint?: string
+  description?: string
+}
+
 /**
- * The composer's slash-command list. Like `SelectorPicker` it portals to `<body>` and positions
- * itself in JS against its anchor's viewport rect - `.terminal-node` clips overflow, so a
- * CSS-anchored menu would be cut off the moment the node sits near a canvas edge. It opens above
- * the composer by preference, since the composer already sits at the bottom of its node.
+ * The composer's completion list, shared by the slash-command and `@`-mention pickers. Like
+ * `SelectorPicker` it portals to `<body>` and positions itself in JS against its anchor's
+ * viewport rect - `.terminal-node` clips overflow, so a CSS-anchored menu would be cut off the
+ * moment the node sits near a canvas edge. It opens above the composer by preference, since the
+ * composer already sits at the bottom of its node.
  */
-function SlashCommandMenu(props: {
+function CompletionMenu(props: {
   anchorRef: RefObject<HTMLElement>
   id: string
-  options: AgentCommand[]
+  className: string
+  label: string
+  options: CompletionOption[]
   activeIndex: number
   optionId(index: number): string
-  accept(command: AgentCommand): void
+  accept(index: number): void
   highlight(index: number): void
+  /** Says what the list is not showing; rendered below the rows, outside the listbox rows. */
+  note?: string | null
 }): JSX.Element | null {
   const menuRef = useRef<HTMLDivElement>(null)
   const position = usePortalMenuPosition(
@@ -403,9 +451,9 @@ function SlashCommandMenu(props: {
     <div
       ref={menuRef}
       id={props.id}
-      className="node-picker-menu slash-command-menu"
+      className={`node-picker-menu ${props.className}`}
       role="listbox"
-      aria-label="Slash commands"
+      aria-label={props.label}
       style={{
         position: 'fixed',
         top: position?.top ?? 0,
@@ -414,24 +462,25 @@ function SlashCommandMenu(props: {
       }}
       onMouseDown={(event) => event.preventDefault()}
     >
-      {props.options.map((command, index) => (
+      {props.options.map((option, index) => (
         <button
           type="button"
           role="option"
           id={props.optionId(index)}
-          key={command.name}
+          key={option.key}
           aria-selected={index === props.activeIndex}
           data-active={index === props.activeIndex}
           onMouseEnter={() => props.highlight(index)}
-          onClick={() => props.accept(command)}
+          onClick={() => props.accept(index)}
         >
           <strong>
-            {`/${command.name}`}
-            {command.input?.hint && <em className="slash-command-hint">{command.input.hint}</em>}
+            <span>{option.label}</span>
+            {option.hint && <em className="slash-command-hint">{option.hint}</em>}
           </strong>
-          {command.description && <span>{command.description}</span>}
+          {option.description && <span>{option.description}</span>}
         </button>
       ))}
+      {props.note && <small className="completion-menu-note">{props.note}</small>}
     </div>,
     document.body
   )
@@ -458,7 +507,7 @@ function AttachmentPreview(props: {
     <div className="composer-attachments">
       {props.attachments.map((attachment) => (
         <div className="composer-attachment" key={attachment.id}>
-          <img src={`data:${attachment.mimeType};base64,${attachment.data}`} alt="Pasted attachment" />
+          <img src={imageAttachmentSource(attachment)} alt="Pasted attachment" />
           <button
             type="button"
             className="composer-attachment-remove"
@@ -532,6 +581,55 @@ function ComposerToolbar(
       />
     </div>
   )
+}
+
+/**
+ * Reads the working directory's file index, and only while the composer is actually offering a
+ * mention. The listing is fetched on each transition into offering one rather than per keystroke
+ * (the main-process index is cached, so that costs at most one IPC round trip per `@` typed), and
+ * a listing for a directory the node has since left is discarded rather than rendered - a
+ * rehomed node must never be offered the previous tree's files.
+ */
+function useFileMentionIndex(source: ComposerFileMentions | undefined, offering: boolean): WorkspaceFileIndex | null {
+  const [index, setIndex] = useState<WorkspaceFileIndex | null>(null)
+  const readRef = useRef(source?.read)
+  readRef.current = source?.read
+  const root = source?.root
+  useEffect(() => {
+    if (!offering || !root) return
+    let live = true
+    void readRef.current?.(root).then(
+      (next) => {
+        if (live) setIndex(next)
+      },
+      // A directory that cannot be listed costs the completion and nothing else.
+      () => {}
+    )
+    return () => {
+      live = false
+    }
+  }, [offering, root])
+  return index?.root === root ? index : null
+}
+
+/**
+ * Both completions remember two things per token - what Escape dismissed and what was just
+ * accepted - and both must forget them the moment the draft stops offering that token: keeping
+ * the memory would silently refuse to complete the next identical token typed in its place. The
+ * highlight goes back to the top whenever the token itself changes. Sharing one hook is what
+ * keeps the two pickers from drifting apart over either rule.
+ */
+function useCompletionTokenMemory<State>(
+  token: { query: string; start: number } | null,
+  empty: State,
+  resetHighlight: (state: State) => State,
+  setState: (next: State | ((current: State) => State)) => void
+): void {
+  const offering = token !== null
+  useEffect(() => {
+    if (!offering) setState(empty)
+  }, [offering])
+  useEffect(() => setState(resetHighlight), [token?.query, token?.start])
 }
 
 type ComposerProps = ChatComposerProps &
@@ -626,17 +724,37 @@ export function Composer(props: ComposerProps): JSX.Element {
   // tracks it rather than guessing from the draft's end - a caret parked mid-token still completes.
   const [caret, setCaret] = useState(0)
   const [completionState, setCompletionState] = useState(emptySlashCompletion)
-  const completion = slashCompletionView(composerDisabled ? '' : draft, caret, props.commands ?? [], completionState)
-  // What Escape dismissed and what was just accepted are remembered per slash token; once the
-  // draft has no token left (it was sent, cleared, or edited away) that memory is spent, and
-  // keeping it would silently refuse to complete the next identical token typed in its place.
-  const hasToken = completion.token !== null
-  useEffect(() => {
-    if (!hasToken) setCompletionState(emptySlashCompletion)
-  }, [hasToken])
-  useEffect(
-    () => setCompletionState((current) => highlightSlashCommand(current, 0)),
-    [completion.token?.query, completion.token?.start]
+  const [mentionState, setMentionState] = useState(emptyFileMentionCompletion)
+  const editable = composerDisabled ? '' : draft
+  const completion = slashCompletionView(editable, caret, props.commands ?? [], completionState)
+  // The workspace listing is read only while a mention is actually being typed, so a conversation
+  // nobody points at a file never costs a directory walk.
+  const mentionIndex = useFileMentionIndex(props.fileMentions, fileMentionQuery(editable, caret) !== null)
+  const mention = fileMentionCompletionView(
+    editable,
+    caret,
+    mentionIndex,
+    props.fileMentions?.recent ?? [],
+    mentionState
+  )
+  // One word can hold both tokens (`/fo@o`), so the one starting closer to the caret is the one
+  // being typed, and it takes the menu and the keys. Only ever one of them is open.
+  const mentionActive =
+    mention.open &&
+    mention.token !== null &&
+    (!completion.open || completion.token === null || mention.token.start > completion.token.start)
+  const slashActive = completion.open && !mentionActive
+  useCompletionTokenMemory(
+    completion.token,
+    emptySlashCompletion,
+    (current) => highlightSlashCommand(current, 0),
+    setCompletionState
+  )
+  useCompletionTokenMemory(
+    mention.token,
+    emptyFileMentionCompletion,
+    (current) => highlightFileMention(current, 0),
+    setMentionState
   )
 
   /** Set by an acceptance so the caret can be restored once React has rendered the new draft. */
@@ -661,32 +779,59 @@ export function Composer(props: ComposerProps): JSX.Element {
     pendingCaretRef.current = next.caret
   }
 
+  const acceptMention = (entry: WorkspaceFileEntry | undefined): void => {
+    if (!mention.token || !entry) return
+    const next = acceptFileMention(draft, caret, mention.token, entry)
+    setDraft(next.draft)
+    setHistory(leaveHistory)
+    setMentionState((current) => acceptedFileMention(current, entry))
+    pendingCaretRef.current = next.caret
+  }
+
+  /** Neither picker should keep hovering once the composer has lost focus. */
   const dismissCompletion = (): void => {
     setCompletionState((current) => dismissSlashCompletion(current, completion.token))
+    setMentionState((current) => dismissFileMentionCompletion(current, mention.token))
   }
+
+  /** The open picker's keyboard contract, or null when neither is offering anything. */
+  const activeCompletion = mentionActive
+    ? {
+        count: mention.matches.length,
+        index: mention.activeIndex,
+        highlight: (next: number) => setMentionState((current) => highlightFileMention(current, next)),
+        dismiss: () => setMentionState((current) => dismissFileMentionCompletion(current, mention.token)),
+        accept: () => acceptMention(mention.matches[mention.activeIndex])
+      }
+    : slashActive
+      ? {
+          count: completion.matches.length,
+          index: completion.activeIndex,
+          highlight: (next: number) => setCompletionState((current) => highlightSlashCommand(current, next)),
+          dismiss: () => setCompletionState((current) => dismissSlashCompletion(current, completion.token)),
+          accept: () => acceptCompletion(completion.matches[completion.activeIndex])
+        }
+      : null
 
   /** Returns true when the completion has claimed the key press, so the composer's own bindings stay out of it. */
   const handleCompletionKey = (event: React.KeyboardEvent<HTMLTextAreaElement>): boolean => {
-    if (!completion.open || event.nativeEvent.isComposing) return false
+    if (!activeCompletion || event.nativeEvent.isComposing) return false
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault()
-      setCompletionState((current) =>
-        highlightSlashCommand(
-          current,
-          moveSlashSelection(completion.activeIndex, completion.matches.length, event.key === 'ArrowDown' ? 1 : -1)
-        )
+      activeCompletion.highlight(
+        moveSlashSelection(activeCompletion.index, activeCompletion.count, event.key === 'ArrowDown' ? 1 : -1)
       )
       return true
     }
     if (event.key === 'Escape') {
       event.preventDefault()
-      dismissCompletion()
+      activeCompletion.dismiss()
       return true
     }
-    // Shift/Alt+Enter still means "newline" here; only a plain accept keystroke picks a command.
+    // Shift/Alt+Enter still means "newline" here; only a plain accept keystroke picks an entry.
     if (event.key === 'Tab' || (event.key === 'Enter' && !event.shiftKey && !event.altKey)) {
       event.preventDefault()
-      acceptCompletion(completion.matches[completion.activeIndex])
+      activeCompletion.accept()
       return true
     }
     return false
@@ -758,19 +903,44 @@ export function Composer(props: ComposerProps): JSX.Element {
           // The menu is a portal, so focus leaving the composer entirely (not into the menu, whose
           // mousedown is suppressed) means the captain has moved on and it should stop hovering.
           onBlur={dismissCompletion}
-          aria-expanded={completion.open}
-          aria-controls={completion.open ? completionId : undefined}
-          aria-activedescendant={completion.open ? `${completionId}-${completion.activeIndex}` : undefined}
+          aria-expanded={activeCompletion !== null}
+          aria-controls={activeCompletion ? completionId : undefined}
+          aria-activedescendant={activeCompletion ? `${completionId}-${activeCompletion.index}` : undefined}
         />
-        {completion.open && (
-          <SlashCommandMenu
+        {slashActive && (
+          <CompletionMenu
             anchorRef={textareaRef}
             id={completionId}
-            options={completion.matches}
+            className="slash-command-menu"
+            label="Slash commands"
+            options={completion.matches.map((command) => ({
+              key: command.name,
+              label: `/${command.name}`,
+              hint: command.input?.hint,
+              description: command.description
+            }))}
             activeIndex={completion.activeIndex}
             optionId={(index) => `${completionId}-${index}`}
-            accept={acceptCompletion}
+            accept={(index) => acceptCompletion(completion.matches[index])}
             highlight={(index) => setCompletionState((current) => highlightSlashCommand(current, index))}
+          />
+        )}
+        {mentionActive && (
+          <CompletionMenu
+            anchorRef={textareaRef}
+            id={completionId}
+            className="file-mention-menu"
+            label="Workspace files"
+            options={mention.matches.map((entry) => ({
+              key: entry.path,
+              label: entry.directory ? `${entry.path}/` : entry.path,
+              hint: props.fileMentions?.recent.includes(entry.path) ? 'already read' : undefined
+            }))}
+            activeIndex={mention.activeIndex}
+            optionId={(index) => `${completionId}-${index}`}
+            accept={(index) => acceptMention(mention.matches[index])}
+            highlight={(index) => setMentionState((current) => highlightFileMention(current, index))}
+            note={fileMentionExclusionNote(mentionIndex)}
           />
         )}
       </div>
@@ -786,8 +956,14 @@ export function Composer(props: ComposerProps): JSX.Element {
             setDraft={setDraft}
           />
           {busy && (
-            <button type="button" className="stop-agent" onClick={props.cancel}>
-              Stop
+            <button
+              type="button"
+              className="stop-agent"
+              aria-label="Stop"
+              title="Stop the agent"
+              onClick={props.cancel}
+            >
+              <CircleStop aria-hidden="true" />
             </button>
           )}
           <button
@@ -1286,6 +1462,7 @@ function DecisionQuestions(props: { text: string }): JSX.Element {
 function ChatMessageCard(props: { message: AgentChatMessage }): JSX.Element {
   const { message } = props
   const tone = message.role === 'assistant' ? classifyAssistantMessage(message.text) : 'normal'
+  const images = message.images ?? []
   return (
     <article
       className={`chat-message ${message.role}${message.queued ? ' queued' : ''}${message.failed ? ' failed' : ''}`}
@@ -1294,7 +1471,11 @@ function ChatMessageCard(props: { message: AgentChatMessage }): JSX.Element {
     >
       <div>
         {message.presentation === 'progress' && <small className="progress-label">Progress</small>}
-        <MarkdownMessage text={message.text} />
+        {/* An image-only message is the one case that renders no markdown body: `.markdown-body`
+            is emitted even for empty text, and an empty one would sit above the thumbnails as
+            dead space. Every other message keeps its body, so nothing else's layout moves. */}
+        {!(images.length > 0 && !message.text) && <MarkdownMessage text={message.text} />}
+        <ImageAttachments images={images} />
         {message.failed ? (
           <small className="failed-badge">Not sent — delivery was rejected</small>
         ) : (
@@ -1919,8 +2100,29 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
     conversation.sendMessage(pending)
   }, [conversation, data.initialInput, status])
 
+  // Which files the agent has already opened is the only thing the composer knows about what it
+  // can see, so it becomes the top band of the `@` picker. Newest first, which for a transcript
+  // read front to back means walking the activities backwards.
+  const mentionRecent = useMemo(
+    () =>
+      recentMentionPaths(
+        [...conversation.activities].reverse().flatMap((activity) => activity.locations ?? []),
+        data.workingDirectory
+      ),
+    [conversation.activities, data.workingDirectory]
+  )
+  const fileMentions = useMemo(
+    (): ComposerFileMentions => ({
+      root: data.workingDirectory,
+      recent: mentionRecent,
+      read: (root) => window.workspaceFilesApi.index(root)
+    }),
+    [data.workingDirectory, mentionRecent]
+  )
+
   const flatProps: FlatChatViewProps = {
     provider,
+    fileMentions,
     ...conversation,
     outcomes,
     submit,

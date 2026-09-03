@@ -12,14 +12,6 @@ export interface QueuedPrompt {
   images: AgentImageAttachment[]
 }
 
-/**
- * How a prompt reads when there is no text to show - the one place that decides it, so a queued
- * chip and the transcript entry it later becomes can never describe the same send differently.
- */
-export function promptSummary(text: string, images: readonly unknown[]): string {
-  return text || `${images.length} image${images.length === 1 ? '' : 's'} attached`
-}
-
 export function enqueuePrompt(queue: readonly QueuedPrompt[], entry: QueuedPrompt): QueuedPrompt[] {
   return [...queue, entry]
 }

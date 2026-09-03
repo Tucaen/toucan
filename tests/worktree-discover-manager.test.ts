@@ -50,10 +50,14 @@ test('discovery reports the worktree the workspace has no record of', async () =
   assert.equal(result.worktrees[0].baseRef, 'main')
 })
 
-test('a worktree already known to the workspace is not rediscovered', async () => {
-  const result = await managerFor(commonDirWithClaims([])).discover({ projectPath: PROJECT, known: [FEATURE] })
+test('a worktree already known to the workspace is not rediscovered, but its claim still reports', async () => {
+  const commonDir = commonDirWithClaims([
+    { nodeId: 'node-42', path: FEATURE, branch: 'feat/login', claimedAt: '2026-08-30T10:00:00.000Z' }
+  ])
+  const result = await managerFor(commonDir).discover({ projectPath: PROJECT, known: [FEATURE] })
 
   assert.deepEqual(result.worktrees, [])
+  assert.deepEqual(result.claims, [{ path: FEATURE, nodeId: 'node-42' }])
 })
 
 test('a claim in the common dir names the node that created the worktree', async () => {
@@ -62,7 +66,7 @@ test('a claim in the common dir names the node that created the worktree', async
   ])
   const result = await managerFor(commonDir).discover({ projectPath: PROJECT, known: [] })
 
-  assert.equal(result.worktrees[0].claimedByNodeId, 'node-42')
+  assert.deepEqual(result.claims, [{ path: FEATURE, nodeId: 'node-42' }])
 })
 
 test('a malformed claims file costs the association, not the discovery', async () => {
@@ -71,14 +75,14 @@ test('a malformed claims file costs the association, not the discovery', async (
   const result = await managerFor(dir).discover({ projectPath: PROJECT, known: [] })
 
   assert.equal(result.worktrees.length, 1)
-  assert.equal(result.worktrees[0].claimedByNodeId, undefined)
+  assert.deepEqual(result.claims, [])
 })
 
 test('a claim of the wrong shape is ignored rather than trusted', async () => {
   const commonDir = commonDirWithClaims([{ nodeId: 7, path: FEATURE }, 'nonsense', null])
   const result = await managerFor(commonDir).discover({ projectPath: PROJECT, known: [] })
 
-  assert.equal(result.worktrees[0].claimedByNodeId, undefined)
+  assert.deepEqual(result.claims, [])
 })
 
 test('a repository git cannot list reports nothing rather than failing the caller', async () => {

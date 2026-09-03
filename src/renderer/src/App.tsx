@@ -78,16 +78,11 @@ import {
   type WorktreeRemovalPrompt
 } from './WorkspaceDialogs'
 import { planWorktreeRemoval } from './worktree-removal'
+import { adoptClaimedWorktrees, applyAttachedNodeCounts, applyWorktreeClaims } from './worktree-attachment'
 import WorktreeNode from './WorktreeNode'
-import {
-  nodeAtGeometry,
-  nodeBeforeTemporaryFit,
-  NODE_FIT_INSET,
-  renderedNodeGeometry,
-  toggleNodeFit,
-  type NodeGeometry
-} from './node-fit'
+import { nodeBeforeTemporaryFit } from './node-fit'
 import { NodeFitContext } from './node-fit-context'
+import { useNodeFit } from './use-node-fit'
 
 type Project = WorkspaceProject
 
@@ -208,7 +203,6 @@ function Canvas(): JSX.Element {
   const [workspaceWidth, setWorkspaceWidth] = useState(() => window.innerWidth)
   const { fitView, getViewport, screenToFlowPosition } = useReactFlow()
   const canvasRegionRef = useRef<HTMLElement>(null)
-  const nodeRestoreGeometry = useRef(new Map<string, NodeGeometry>())
   const nextSessionNumber = useRef(1)
 
   const activeProject = useMemo(
@@ -255,37 +249,6 @@ function Canvas(): JSX.Element {
       return { ...current, [nodeId]: status }
     })
   }, [])
-
-  const handleToggleNodeFit = useCallback(
-    (nodeId: string): void => {
-      const canvas = canvasRegionRef.current?.getBoundingClientRect()
-      if (!canvas) return
-      setNodes((current) =>
-        current.map((node) => {
-          if (node.id !== nodeId) return node
-          const currentGeometry = renderedNodeGeometry(node)
-          if (!currentGeometry) return node
-          const transition = toggleNodeFit(
-            currentGeometry,
-            nodeRestoreGeometry.current.get(nodeId),
-            canvas,
-            getViewport(),
-            NODE_FIT_INSET
-          )
-          if (transition.restoreGeometry) nodeRestoreGeometry.current.set(nodeId, transition.restoreGeometry)
-          else nodeRestoreGeometry.current.delete(nodeId)
-          return nodeAtGeometry(
-            {
-              ...node,
-              data: { ...node.data, fittedToCanvas: transition.fitted }
-            } as CanvasNode,
-            transition.geometry
-          )
-        })
-      )
-    },
-    [getViewport, setNodes]
-  )
 
   /** Every session-node update funnels through here so worktree nodes are never mistaken for one. */
   const patchTerminalNode = useCallback(
@@ -456,6 +419,14 @@ function Canvas(): JSX.Element {
   recentlyClosedNodesRef.current = recentlyClosedNodes
   brainDumpOpenRef.current = brainDumpPanel.open
 
+  const getCanvasNodes = useCallback((): CanvasNode[] => nodesRef.current, [])
+  const nodeFit = useNodeFit<CanvasNode>({
+    canvasRef: canvasRegionRef,
+    getNodes: getCanvasNodes,
+    getViewport,
+    setNodes
+  })
+
   const clearRecentlyClosedNodes = useCallback((): void => {
     recentlyClosedNodesRef.current = []
     setRecentlyClosedNodes([])
@@ -467,8 +438,7 @@ function Canvas(): JSX.Element {
       if (removedIds.size > 0) {
         const removedNodes = nodesRef.current
           .filter((node) => removedIds.has(node.id))
-          .map((node) => nodeBeforeTemporaryFit(node, nodeRestoreGeometry.current.get(node.id)))
-        for (const nodeId of removedIds) nodeRestoreGeometry.current.delete(nodeId)
+          .map((node) => nodeBeforeTemporaryFit(node, nodeFit.state()))
         for (const node of removedNodes) {
           if (isTerminalCanvasNode(node) && node.data.kind === 'terminal') {
             void window.terminalApi
@@ -497,9 +467,12 @@ function Canvas(): JSX.Element {
         // than propping up a count nothing can clear.
         forgetNodeAttention(removedIds)
       }
+      // Fit mode reads the changes before they land: a drag or manual resize of the fitted node
+      // leaves fit mode, and a removed node must not leave a restore waiting for it.
+      nodeFit.observeChanges(changes)
       onNodesChange(changes)
     },
-    [forgetNodeAttention, onNodesChange]
+    [forgetNodeAttention, nodeFit, onNodesChange]
   )
 
   const reopenLastClosedSession = useCallback((): boolean => {
@@ -1006,6 +979,9 @@ function Canvas(): JSX.Element {
     ]
   )
 
+  // Fit state is read through a ref rather than listed as a dependency: every fit, restore, reflow
+  // and exit also rewrites `nodes`, so the snapshot is already recomputed whenever it can differ -
+  // and a fitted node must never be persisted filling the canvas.
   const workspaceSnapshot = useMemo<WorkspaceState>(
     () => ({
       version: 3,
@@ -1015,12 +991,12 @@ function Canvas(): JSX.Element {
       agentPermissionModes,
       composerSendKey,
       nodes: nodes.filter(isTerminalCanvasNode).map((node) => {
-        return serializeCanvasNode(nodeBeforeTemporaryFit(node, nodeRestoreGeometry.current.get(node.id)))
+        return serializeCanvasNode(nodeBeforeTemporaryFit(node, nodeFit.state()))
       }),
       recentlyClosedNodes,
       attention: [...attention],
       worktrees: nodes.filter(isWorktreeCanvasNode).map((node) => {
-        return serializeWorktreeNode(nodeBeforeTemporaryFit(node, nodeRestoreGeometry.current.get(node.id)))
+        return serializeWorktreeNode(nodeBeforeTemporaryFit(node, nodeFit.state()))
       }),
       brainDumpPanel
     }),
@@ -1048,26 +1024,18 @@ function Canvas(): JSX.Element {
   // One place decides how many nodes a worktree carries, so the count the teardown gate reads
   // and the count the node shows can never drift apart.
   useEffect(() => {
-    setNodes((current) => {
-      const counts = new Map<string, number>()
-      for (const node of current) {
-        if (isTerminalCanvasNode(node) && node.data.worktreeId) {
-          counts.set(node.data.worktreeId, (counts.get(node.data.worktreeId) ?? 0) + 1)
-        }
-      }
-      let changed = false
-      const next = current.map((node) => {
-        if (!isWorktreeCanvasNode(node)) return node
-        const project = projectsRef.current.find((candidate) => candidate.id === node.data.projectId)
-        const attachedNodeCount = counts.get(node.data.worktreeId) ?? 0
-        const setupCommand = project?.setupCommand
-        if (node.data.attachedNodeCount === attachedNodeCount && node.data.setupCommand === setupCommand) return node
-        changed = true
-        return { ...node, data: { ...node.data, attachedNodeCount, setupCommand } }
-      })
-      return changed ? next : current
-    })
+    setNodes((current) => applyAttachedNodeCounts(current, projectsRef.current))
   }, [nodes, projects, setNodes])
+
+  /**
+   * A worktree an agent made for itself is discovered with a claim naming the node that asked
+   * for the work, but a claim is only an association until the node can safely move. Redeeming
+   * it restarts the session in the worktree, so it waits for a boundary where there is no turn
+   * to lose - and then the node is genuinely attached, counted, and persisted as such.
+   */
+  useEffect(() => {
+    setNodes((current) => adoptClaimedWorktrees(current, nodeStatuses))
+  }, [nodeStatuses, nodes, setNodes])
 
   /**
    * Worktrees can appear without Toucan creating them - an agent running the worktree skill, a
@@ -1086,17 +1054,14 @@ function Canvas(): JSX.Element {
           .map((node) => node.data.path)
 
         const result = await window.worktreeApi.discover({ projectPath: project.path, known }).catch(() => null)
-        if (cancelled || !result || result.worktrees.length === 0) continue
+        if (cancelled || !result || (result.worktrees.length === 0 && result.claims.length === 0)) continue
 
         setNodes((current) => {
           const recorded = new Set(current.filter(isWorktreeCanvasNode).map((node) => node.data.path.toLowerCase()))
           const fresh = result.worktrees.filter((worktree) => !recorded.has(worktree.path.toLowerCase()))
-          if (fresh.length === 0) return current
 
-          const claimed = new Map<string, string>()
           const added = fresh.map((worktree, index) => {
             const worktreeId = crypto.randomUUID()
-            if (worktree.claimedByNodeId) claimed.set(worktree.claimedByNodeId, worktreeId)
             return {
               id: `worktree:${worktreeId}`,
               type: 'worktreeNode' as const,
@@ -1123,18 +1088,10 @@ function Canvas(): JSX.Element {
             }
           })
 
-          const linked =
-            claimed.size === 0
-              ? current
-              : current.map((node) => {
-                  if (!isTerminalCanvasNode(node)) return node
-                  const worktreeId = claimed.get(node.id)
-                  if (!worktreeId) return node
-                  const branch = added.find((candidate) => candidate.data.worktreeId === worktreeId)?.data.branch
-                  return { ...node, data: { ...node.data, activeWorktreeId: worktreeId, activeWorktreeBranch: branch } }
-                })
-
-          return [...linked, ...added]
+          // Claims are applied against every worktree on the canvas, not just the ones this
+          // sweep added: the agent writes its claim after the worktree exists and its setup
+          // command has run, so the sweep that records the worktree is routinely earlier.
+          return applyWorktreeClaims(added.length === 0 ? current : [...current, ...added], result.claims)
         })
       }
     }
@@ -1695,7 +1652,7 @@ function Canvas(): JSX.Element {
             </aside>
 
             <section ref={canvasRegionRef} className="canvas-region">
-              <NodeFitContext.Provider value={handleToggleNodeFit}>
+              <NodeFitContext.Provider value={nodeFit.toggle}>
                 <ReactFlow
                   nodes={nodes}
                   nodeTypes={nodeTypes}
