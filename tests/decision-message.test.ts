@@ -44,6 +44,91 @@ test('Codex numbered Markdown options classify without admitting ordinary number
   )
 })
 
+test('an enumerated ticket proposal followed by confirmation questions offers Agree, not the tickets', () => {
+  const text = [
+    'Here is the proposed breakdown:',
+    '',
+    '1. **Persist draft metadata**',
+    '   Blocked by: None',
+    '   What it delivers: Drafts survive a restart.',
+    '2. **Restore drafts in the composer**',
+    '   Blocked by: Persist draft metadata',
+    '   What it delivers: A reopened node shows its draft.',
+    '',
+    'Before I publish these:',
+    '',
+    '- Does the granularity feel right?',
+    '- Are the blocking edges correct?',
+    '- Should any tickets be merged or split further?'
+  ].join('\n')
+
+  assert.equal(classifyAssistantMessage(text), 'decision')
+  assert.deepEqual(
+    extractDecisionOptions(text).map((option) => option.label),
+    ['Agree']
+  )
+})
+
+test('plain numbered implementation steps followed by approval remain content', () => {
+  const text = [
+    'Suggested implementation:',
+    '1. Add the persistence boundary.',
+    '2. Restore the saved draft.',
+    '3. Render the restored value.',
+    '',
+    'Does this plan look good?'
+  ].join('\n')
+
+  assert.equal(classifyAssistantMessage(text), 'decision')
+  assert.deepEqual(
+    extractDecisionOptions(text).map((option) => option.label),
+    ['Agree']
+  )
+})
+
+test('a genuine numbered choice list keeps its choices when the question contains confirmation vocabulary', () => {
+  const text = [
+    'Choose the release action:',
+    '1. **Approve** — publish now',
+    '2. **Reject** — return to draft',
+    'Which option looks good?'
+  ].join('\n')
+
+  assert.deepEqual(
+    extractDecisionOptions(text).map((option) => option.label),
+    ['Approve — publish now', 'Reject — return to draft']
+  )
+})
+
+test('a yes-no question about genuine options does not replace them with Agree', () => {
+  const text = [
+    'Choose an implementation plan:',
+    '1. **Approve** — publish now',
+    '2. **Reject** — return to draft',
+    'Do these options look good?'
+  ].join('\n')
+
+  assert.deepEqual(
+    extractDecisionOptions(text).map((option) => option.label),
+    ['Approve — publish now', 'Reject — return to draft']
+  )
+})
+
+test('bulleted seam proposals followed by approval offer Agree instead of seam buttons', () => {
+  const text = [
+    'Suggested seams:',
+    '- **Parser seam** — recognize proposal confirmation',
+    '- **Renderer seam** — render the resulting action',
+    '',
+    'Does this proposal look good?'
+  ].join('\n')
+
+  assert.deepEqual(
+    extractDecisionOptions(text).map((option) => option.label),
+    ['Agree']
+  )
+})
+
 test('a routine/noise message (short status ping, no options, no question) classifies as noise', () => {
   assert.equal(classifyAssistantMessage('Spawning worker for task fm-142 in the alpha project.'), 'noise')
   assert.equal(classifyAssistantMessage('No action needed here — the gate already passed.'), 'noise')

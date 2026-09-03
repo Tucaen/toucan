@@ -4,9 +4,10 @@
  * `{ type: 'message', role: 'assistant', text }` event. This module is a conservative,
  * text-shape heuristic that drives styling/interaction from that plain text alone.
  *
- * Decision shape: a trailing question immediately preceded by one compact block of two or more
- * "option lines" (see OPTION_LINE_PATTERNS). Looking for option-shaped lines anywhere in the
- * message turns emphasized headings and numbered implementation steps into bogus controls.
+ * Decision shape: either a trailing question immediately preceded by one compact block of two or
+ * more "option lines" (see OPTION_LINE_PATTERNS), or enumerated proposal content followed by a
+ * compact confirmation-question block. The latter offers one synthetic Agree action: proposal
+ * items are content to approve, not choices to extract.
  *
  * Noise shape: the whole message is a single short paragraph, has no option lines, asks no
  * question, and opens with one of a fixed list of routine status lead-ins.
@@ -56,12 +57,21 @@ const NOISE_LEAD_PATTERNS: RegExp[] = [
 ]
 
 const NOISE_MAX_LENGTH = 220
+const CONFIRMATION_OPTION = 'Agree'
+
+const CONFIRMATION_CUE =
+  /\b(?:agree|approve|blocking edges?|correct|feel right|granularity|look good|merge(?:d)?|okay|proposal|sound good|split|tickets?)\b/i
+const CONFIRMATION_OPENING = /^(?:are|can|could|did|do|does|has|have|is|should|was|were|will|would)\b/i
+const PROPOSAL_CONTEXT =
+  /\b(?:blocked by|blocking edges?|breakdown|granularity|implementation|plan|proposal|seams?|steps?|tickets?|what it delivers)\b/i
+const CHOICE_CONTEXT = /\b(?:alternatives?|choices?|choose|options?|pick|select)\b/i
+
+function removeListMarker(line: string): string {
+  return line.replace(/^(?:[-*]|\d+[.)])\s*/, '')
+}
 
 function cleanOptionLine(line: string): string {
-  return line
-    .replace(/^(?:[-*]|\d+[.)])\s*/, '')
-    .replace(/\*\*/g, '')
-    .trim()
+  return removeListMarker(line).replace(/\*\*/g, '').trim()
 }
 
 function isOptionLine(line: string): boolean {
@@ -97,6 +107,42 @@ function extractDecisionOptionLines(text: string): string[] {
   return options.length >= 2 ? options : []
 }
 
+function cleanQuestionLine(line: string): string {
+  return removeListMarker(line)
+    .replace(/^\*\*(.*?)\*\*$/, '$1')
+    .trim()
+}
+
+function isConfirmationQuestion(line: string): boolean {
+  const question = cleanQuestionLine(line)
+  return question.endsWith('?') && CONFIRMATION_OPENING.test(question) && CONFIRMATION_CUE.test(question)
+}
+
+function hasEnumeratedProposal(lines: string[]): boolean {
+  return lines.filter((line) => /^(?:[-*]|\d+[.)])\s+\S/.test(line)).length >= 2
+}
+
+function hasTrailingConfirmationQuestions(text: string): boolean {
+  const lines = nonEmptyLines(text)
+  let confirmationQuestions = 0
+  while (isConfirmationQuestion(lines.at(-1) ?? '')) {
+    confirmationQuestions += 1
+    lines.pop()
+  }
+  const proposalText = lines.join('\n')
+  return (
+    confirmationQuestions > 0 &&
+    hasEnumeratedProposal(lines) &&
+    PROPOSAL_CONTEXT.test(proposalText) &&
+    !CHOICE_CONTEXT.test(proposalText)
+  )
+}
+
+function extractDecisionOptionsFromText(text: string): string[] {
+  if (hasTrailingConfirmationQuestions(text)) return [CONFIRMATION_OPTION]
+  return extractDecisionOptionLines(text)
+}
+
 function isNoiseMessage(text: string, optionLines: string[]): boolean {
   if (optionLines.length > 0) return false
   if (text.includes('?')) return false
@@ -109,12 +155,12 @@ export function classifyAssistantMessage(text: string): MessageTone {
   const trimmed = text.trim()
   if (!trimmed) return 'normal'
   const optionLines = extractOptionLines(trimmed)
-  if (extractDecisionOptionLines(trimmed).length >= 2) return 'decision'
+  if (extractDecisionOptionsFromText(trimmed).length > 0) return 'decision'
   if (isNoiseMessage(trimmed, optionLines)) return 'noise'
   return 'normal'
 }
 
 /** Only meaningful when `classifyAssistantMessage` returned 'decision' for the same text. */
 export function extractDecisionOptions(text: string): DecisionOption[] {
-  return extractDecisionOptionLines(text.trim()).map((label, index) => ({ id: `option-${index}`, label }))
+  return extractDecisionOptionsFromText(text.trim()).map((label, index) => ({ id: `option-${index}`, label }))
 }

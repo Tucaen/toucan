@@ -73,6 +73,23 @@ const explanatoryQuestionText = [
   '2. **Ersetzt der Zeilenklick den VP Cockpit-Button oder bleibt der Sprung auf den Baum-Tab daneben stehen?**'
 ].join('\n')
 
+const ticketReviewText = [
+  'Here is the proposed breakdown:',
+  '',
+  '1. **Persist draft metadata**',
+  '   Blocked by: None',
+  '   What it delivers: Drafts survive a restart.',
+  '2. **Restore drafts in the composer**',
+  '   Blocked by: Persist draft metadata',
+  '   What it delivers: A reopened node shows its draft.',
+  '',
+  'Before I publish these:',
+  '',
+  '- Does the granularity feel right?',
+  '- Are the blocking edges correct?',
+  '- Should any tickets be merged or split further?'
+].join('\n')
+
 describe('assistant message tone rendering', () => {
   test('a decision-shaped message gets decision styling and clickable options', () => {
     renderChatView({ messages: [{ id: 'm1', role: 'assistant', text: decisionText }] })
@@ -108,6 +125,17 @@ describe('assistant message tone rendering', () => {
     expect(article).toHaveAttribute('data-tone', 'normal')
     expect(screen.queryByRole('region', { name: 'Pending decisions' })).not.toBeInTheDocument()
     expect(article?.querySelector('.decision-options')).toBeNull()
+  })
+
+  test('a ticket review keeps proposals as content and offers Agree plus Other', () => {
+    renderChatView({ messages: [{ id: 'm-ticket-review', role: 'assistant', text: ticketReviewText }] })
+
+    const article = screen.getByText('Persist draft metadata').closest('article')
+    expect(article).toHaveAttribute('data-tone', 'decision')
+    expect(screen.getByRole('button', { name: 'Agree' })).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Other…')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Persist draft metadata/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Restore drafts in the composer/ })).not.toBeInTheDocument()
   })
 
   test('structured questions use tabs, retain answers, and replace the normal composer', () => {
