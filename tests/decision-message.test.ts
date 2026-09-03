@@ -1,6 +1,10 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
-import { classifyAssistantMessage, extractDecisionOptions } from '../src/renderer/src/decision-message'
+import {
+  classifyAssistantMessage,
+  decisionQuestions,
+  extractDecisionOptions
+} from '../src/renderer/src/decision-message'
 
 test('a decision-shaped message (labeled options + trailing question) classifies as decision', () => {
   const text = [
@@ -198,4 +202,55 @@ test('a long or multi-paragraph message never classifies as noise even with a ro
 test('empty text classifies as normal', () => {
   assert.equal(classifyAssistantMessage(''), 'normal')
   assert.equal(classifyAssistantMessage('   '), 'normal')
+})
+
+test('every trailing question of a confirmation decision is reported, in order', () => {
+  const text = [
+    'Six tickets, ready to write:',
+    '',
+    '1. **Next installment skips charged rates**',
+    '2. **Document upload rejects PDFs**',
+    '',
+    'Questions:',
+    '',
+    '1. **Screenshot 2** — which app is that? It may be out of scope here.',
+    '2. **Granularity** — happy with 6, or should I merge 2 into 1 (giving 3 tickets total)?',
+    '3. Should tickets 1-6 get a **parent reference to CICBP-384** in their bodies?'
+  ].join('\n')
+
+  assert.equal(classifyAssistantMessage(text), 'decision')
+  assert.deepEqual(decisionQuestions(text), [
+    'Screenshot 2 — which app is that? It may be out of scope here.',
+    'Granularity — happy with 6, or should I merge 2 into 1 (giving 3 tickets total)?',
+    'Should tickets 1-6 get a parent reference to CICBP-384 in their bodies?'
+  ])
+})
+
+test('a choice decision reports only its trailing question, not the option lines', () => {
+  const text = [
+    'The lint gate failed on the unused import. I can:',
+    '',
+    '- **Fix it now**: remove the unused import and rerun the gate',
+    '- **Skip it**: leave the file as-is',
+    '',
+    'Which would you like?'
+  ].join('\n')
+
+  assert.deepEqual(decisionQuestions(text), ['Which would you like?'])
+})
+
+test('a message with no trailing question reports no questions', () => {
+  assert.deepEqual(decisionQuestions('I removed the unused import and the gate is green.'), [])
+  assert.deepEqual(decisionQuestions(''), [])
+})
+
+test('an option line ending on a question mark is not reported as one of the questions', () => {
+  const text = [
+    'Two ways to proceed:',
+    '- **Fix it now**: remove the unused import?',
+    '- **Skip it**: leave the file as-is?',
+    'Which would you like?'
+  ].join('\n')
+
+  assert.deepEqual(decisionQuestions(text), ['Which would you like?'])
 })
