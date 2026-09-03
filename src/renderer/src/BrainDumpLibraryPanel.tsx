@@ -96,6 +96,10 @@ export default function BrainDumpLibraryPanel(props: BrainDumpLibraryPanelProps)
   const visible = searchBrainDumpTopics(current.topics, current.query, projects)
   const selected = visible.find((topic) => topic.slug === current.selectedSlug)
   const jobActive = library.capture?.status === 'working'
+  const pendingCaptureApproval =
+    library.capture?.status === 'working' && library.capture.approval
+      ? { jobId: library.capture.jobId, approval: library.capture.approval }
+      : null
   const showReader = mode === 'wide' || (narrowView === 'reader' && !!selected)
   const showList = mode === 'wide' || !showReader
 
@@ -473,11 +477,11 @@ export default function BrainDumpLibraryPanel(props: BrainDumpLibraryPanelProps)
         />
       )}
 
-      {library.capture?.status === 'working' && library.capture.approval && (
+      {pendingCaptureApproval && (
         <BrainDumpPermissionDialog
-          approval={library.capture.approval}
+          approval={pendingCaptureApproval.approval}
           onResolve={(optionId) =>
-            library.resolveCaptureApproval(library.capture!.jobId, library.capture!.approval!.id, optionId)
+            library.resolveCaptureApproval(pendingCaptureApproval.jobId, pendingCaptureApproval.approval.id, optionId)
           }
         />
       )}
