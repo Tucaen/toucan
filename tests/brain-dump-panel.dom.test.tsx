@@ -1,7 +1,7 @@
+import { readFileSync } from 'node:fs'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import App from '../src/renderer/src/App'
-import styles from '../src/renderer/src/styles.css?inline'
 import {
   BRAIN_DUMP_PANEL_DEFAULT_WIDTH,
   BRAIN_DUMP_PANEL_MAX_WIDTH,
@@ -9,6 +9,8 @@ import {
 } from '../src/renderer/src/brain-dump-panel-layout'
 import type { WorkspaceState } from '../src/shared/terminal'
 import { createMockBrainDumpApi, topicFixture, type MockBrainDumpApi } from './dom/brain-dump-api-mock'
+
+const styles = readFileSync('src/renderer/src/styles.css', 'utf8')
 
 /**
  * The panel inside the real workspace: its sidebar entry, its global shortcut, the fact that
