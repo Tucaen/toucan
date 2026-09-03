@@ -79,15 +79,9 @@ import {
 } from './WorkspaceDialogs'
 import { planWorktreeRemoval } from './worktree-removal'
 import WorktreeNode from './WorktreeNode'
-import {
-  nodeAtGeometry,
-  nodeBeforeTemporaryFit,
-  NODE_FIT_INSET,
-  renderedNodeGeometry,
-  toggleNodeFit,
-  type NodeGeometry
-} from './node-fit'
+import { nodeBeforeTemporaryFit } from './node-fit'
 import { NodeFitContext } from './node-fit-context'
+import { useNodeFit } from './use-node-fit'
 
 type Project = WorkspaceProject
 
@@ -208,7 +202,6 @@ function Canvas(): JSX.Element {
   const [workspaceWidth, setWorkspaceWidth] = useState(() => window.innerWidth)
   const { fitView, getViewport, screenToFlowPosition } = useReactFlow()
   const canvasRegionRef = useRef<HTMLElement>(null)
-  const nodeRestoreGeometry = useRef(new Map<string, NodeGeometry>())
   const nextSessionNumber = useRef(1)
 
   const activeProject = useMemo(
@@ -255,37 +248,6 @@ function Canvas(): JSX.Element {
       return { ...current, [nodeId]: status }
     })
   }, [])
-
-  const handleToggleNodeFit = useCallback(
-    (nodeId: string): void => {
-      const canvas = canvasRegionRef.current?.getBoundingClientRect()
-      if (!canvas) return
-      setNodes((current) =>
-        current.map((node) => {
-          if (node.id !== nodeId) return node
-          const currentGeometry = renderedNodeGeometry(node)
-          if (!currentGeometry) return node
-          const transition = toggleNodeFit(
-            currentGeometry,
-            nodeRestoreGeometry.current.get(nodeId),
-            canvas,
-            getViewport(),
-            NODE_FIT_INSET
-          )
-          if (transition.restoreGeometry) nodeRestoreGeometry.current.set(nodeId, transition.restoreGeometry)
-          else nodeRestoreGeometry.current.delete(nodeId)
-          return nodeAtGeometry(
-            {
-              ...node,
-              data: { ...node.data, fittedToCanvas: transition.fitted }
-            } as CanvasNode,
-            transition.geometry
-          )
-        })
-      )
-    },
-    [getViewport, setNodes]
-  )
 
   /** Every session-node update funnels through here so worktree nodes are never mistaken for one. */
   const patchTerminalNode = useCallback(
@@ -456,6 +418,14 @@ function Canvas(): JSX.Element {
   recentlyClosedNodesRef.current = recentlyClosedNodes
   brainDumpOpenRef.current = brainDumpPanel.open
 
+  const getCanvasNodes = useCallback((): CanvasNode[] => nodesRef.current, [])
+  const nodeFit = useNodeFit<CanvasNode>({
+    canvasRef: canvasRegionRef,
+    getNodes: getCanvasNodes,
+    getViewport,
+    setNodes
+  })
+
   const clearRecentlyClosedNodes = useCallback((): void => {
     recentlyClosedNodesRef.current = []
     setRecentlyClosedNodes([])
@@ -467,8 +437,7 @@ function Canvas(): JSX.Element {
       if (removedIds.size > 0) {
         const removedNodes = nodesRef.current
           .filter((node) => removedIds.has(node.id))
-          .map((node) => nodeBeforeTemporaryFit(node, nodeRestoreGeometry.current.get(node.id)))
-        for (const nodeId of removedIds) nodeRestoreGeometry.current.delete(nodeId)
+          .map((node) => nodeBeforeTemporaryFit(node, nodeFit.state()))
         for (const node of removedNodes) {
           if (isTerminalCanvasNode(node) && node.data.kind === 'terminal') {
             void window.terminalApi
@@ -497,9 +466,12 @@ function Canvas(): JSX.Element {
         // than propping up a count nothing can clear.
         forgetNodeAttention(removedIds)
       }
+      // Fit mode reads the changes before they land: a drag or manual resize of the fitted node
+      // leaves fit mode, and a removed node must not leave a restore waiting for it.
+      nodeFit.observeChanges(changes)
       onNodesChange(changes)
     },
-    [forgetNodeAttention, onNodesChange]
+    [forgetNodeAttention, nodeFit, onNodesChange]
   )
 
   const reopenLastClosedSession = useCallback((): boolean => {
@@ -1006,6 +978,9 @@ function Canvas(): JSX.Element {
     ]
   )
 
+  // Fit state is read through a ref rather than listed as a dependency: every fit, restore, reflow
+  // and exit also rewrites `nodes`, so the snapshot is already recomputed whenever it can differ -
+  // and a fitted node must never be persisted filling the canvas.
   const workspaceSnapshot = useMemo<WorkspaceState>(
     () => ({
       version: 3,
@@ -1015,12 +990,12 @@ function Canvas(): JSX.Element {
       agentPermissionModes,
       composerSendKey,
       nodes: nodes.filter(isTerminalCanvasNode).map((node) => {
-        return serializeCanvasNode(nodeBeforeTemporaryFit(node, nodeRestoreGeometry.current.get(node.id)))
+        return serializeCanvasNode(nodeBeforeTemporaryFit(node, nodeFit.state()))
       }),
       recentlyClosedNodes,
       attention: [...attention],
       worktrees: nodes.filter(isWorktreeCanvasNode).map((node) => {
-        return serializeWorktreeNode(nodeBeforeTemporaryFit(node, nodeRestoreGeometry.current.get(node.id)))
+        return serializeWorktreeNode(nodeBeforeTemporaryFit(node, nodeFit.state()))
       }),
       brainDumpPanel
     }),
@@ -1695,7 +1670,7 @@ function Canvas(): JSX.Element {
             </aside>
 
             <section ref={canvasRegionRef} className="canvas-region">
-              <NodeFitContext.Provider value={handleToggleNodeFit}>
+              <NodeFitContext.Provider value={nodeFit.toggle}>
                 <ReactFlow
                   nodes={nodes}
                   nodeTypes={nodeTypes}
