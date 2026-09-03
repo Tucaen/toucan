@@ -141,15 +141,22 @@ export function initialAgentTranscriptState(): AgentTranscriptState {
 }
 
 /**
- * Records an entry in first-seen order exactly once. Messages and activities piggyback on their
- * own collections for the "seen before" check (their identities mirror the entry key); outcomes
- * scan the transcript itself because the outcome list is bounded and eviction must not let a
- * re-reported turn id enter the order twice.
+ * Records an entry in first-seen order. Deduplication is the caller's job: messages and
+ * activities check their own collections (whose identities mirror the entry key) before calling,
+ * so folding a chunk or patch for a known id never rescans the order.
  */
 function withTranscriptEntry(state: AgentTranscriptState, entry: AgentTranscriptEntry): AgentTranscriptState {
-  const key = agentTranscriptEntryKey(entry)
-  if (state.transcript.some((existing) => agentTranscriptEntryKey(existing) === key)) return state
   return { ...state, transcript: [...state.transcript, entry] }
+}
+
+/**
+ * Outcomes cannot use their own collection as the "seen before" check: the list is bounded, and
+ * eviction must not let a re-reported turn id enter the order twice, so they scan the (rarely
+ * appended) transcript itself.
+ */
+function hasTranscriptEntry(state: AgentTranscriptState, entry: AgentTranscriptEntry): boolean {
+  const key = agentTranscriptEntryKey(entry)
+  return state.transcript.some((existing) => agentTranscriptEntryKey(existing) === key)
 }
 
 function foldMessage(
@@ -198,7 +205,8 @@ function foldTurnOutcome(
     status: event.type === 'turn_failed' ? 'failed' : 'cancelled',
     message: event.message
   }
-  const next = withTranscriptEntry(state, { type: 'outcome', id: event.turnId })
+  const entry: AgentTranscriptEntry = { type: 'outcome', id: event.turnId }
+  const next = hasTranscriptEntry(state, entry) ? state : withTranscriptEntry(state, entry)
   const outcomes = next.outcomes.some((candidate) => candidate.id === outcome.id)
     ? next.outcomes
     : [...next.outcomes, outcome].slice(-AGENT_TURN_OUTCOME_LIMIT)
@@ -324,6 +332,7 @@ export function applyAgentCreateResult(state: AgentTranscriptState, result: Agen
  * never sends optimistically folds the echo as the message itself.
  */
 export function appendLocalUserMessage(state: AgentTranscriptState, message: AgentChatMessage): AgentTranscriptState {
-  const next = withTranscriptEntry(state, { type: 'message', id: message.id, role: message.role })
+  const entry: AgentTranscriptEntry = { type: 'message', id: message.id, role: message.role }
+  const next = hasTranscriptEntry(state, entry) ? state : withTranscriptEntry(state, entry)
   return { ...next, messages: [...next.messages, message] }
 }
