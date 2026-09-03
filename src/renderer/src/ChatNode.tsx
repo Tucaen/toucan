@@ -69,7 +69,7 @@ import type { TerminalCanvasNode, TerminalNodeStatus } from './canvas-workspace'
 import NodeFitAction from './NodeFitAction'
 import { attentionTextKey, READ_ON_VIEW_KINDS, type AttentionKind } from '../../shared/attention'
 import { imageAttachmentSource, imageFilesFromClipboard, type AgentImageAttachment } from './image-attachment'
-import { classifyAssistantMessage, type DecisionOption } from './decision-message'
+import { classifyAssistantMessage, decisionQuestions, type DecisionOption } from './decision-message'
 import { pendingDecisionsFromMessages, type PendingDecision } from './pending-decisions'
 import { usePortalMenuPosition } from './use-portal-menu-position'
 import NodeBorderResizer from './NodeBorderResizer'
@@ -1444,14 +1444,18 @@ function StructuredDecisionPanel(
   )
 }
 
-function decisionQuestion(text: string): string {
-  return (
-    text
-      .split('\n')
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .at(-1) ?? 'Choose an option.'
-  )
+/** Wording comes from decisionQuestions (see decision-message.ts). */
+function DecisionQuestions(props: { text: string }): JSX.Element {
+  const questions = decisionQuestions(props.text)
+  if (questions.length > 1)
+    return (
+      <ol className="decision-questions">
+        {questions.map((question, index) => (
+          <li key={index}>{question}</li>
+        ))}
+      </ol>
+    )
+  return <p>{questions[0] ?? 'Choose an option.'}</p>
 }
 
 /** Classifies assistant replies for visual tone (see decision-message.ts). */
@@ -1803,7 +1807,7 @@ export function ChatView(groups: ChatViewProps): JSX.Element {
                 <strong>Decision needed</strong>
                 {decision.taskId && <small>{decision.taskId}</small>}
               </header>
-              <p>{decisionQuestion(decision.text)}</p>
+              <DecisionQuestions text={decision.text} />
               <DecisionOptions
                 decisionId={decision.id}
                 options={decision.options}

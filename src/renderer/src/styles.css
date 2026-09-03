@@ -1841,6 +1841,13 @@ button {
   color: #f0d9a4;
 }
 
+.pending-decisions .decision-questions {
+  margin: 6px 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+}
+
 .pending-decisions > article[data-state='submitting'] {
   opacity: 0.72;
 }
