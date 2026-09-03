@@ -190,6 +190,98 @@ describe('assistant message tone rendering', () => {
     expect(resolveElicitation).toHaveBeenCalledWith('request-partial', { first: 'yes' })
   })
 
+  test('structured questions expose context, progress, answer state, and keyboard-accessible navigation', () => {
+    renderChatView({
+      decisionRequest: {
+        id: 'request-navigation',
+        message: 'Choose how the migration should proceed.',
+        questions: [
+          {
+            id: 'strategy',
+            title: 'Migration strategy',
+            question: 'Which rollout should we use?',
+            input: 'select',
+            multiSelect: false,
+            options: [{ value: 'gradual', label: 'Gradual', description: 'Roll out in stages' }]
+          },
+          {
+            id: 'note',
+            title: 'Release note',
+            question: 'What should users know?',
+            input: 'text',
+            multiSelect: false,
+            options: []
+          }
+        ]
+      },
+      resolveElicitation: vi.fn()
+    })
+
+    const panel = screen.getByRole('region', { name: 'Decision questions' })
+    expect(within(panel).getByText('Choose how the migration should proceed.')).toBeInTheDocument()
+    expect(within(panel).getByText('Question 1 of 2')).toBeInTheDocument()
+
+    const firstTab = within(panel).getByRole('tab', { name: /Question 1: Migration strategy/ })
+    const secondTab = within(panel).getByRole('tab', { name: /Question 2: Release note/ })
+    expect(firstTab).toHaveAttribute('aria-selected', 'true')
+    expect(firstTab).toHaveAttribute('tabindex', '0')
+    expect(secondTab).toHaveAttribute('tabindex', '-1')
+    expect(firstTab).toHaveAttribute('data-answered', 'false')
+
+    fireEvent.keyDown(firstTab, { key: 'ArrowRight' })
+    expect(secondTab).toHaveFocus()
+    expect(secondTab).toHaveAttribute('aria-selected', 'true')
+    expect(within(panel).getByRole('tabpanel')).toHaveAttribute('aria-labelledby', secondTab.id)
+    fireEvent.keyDown(secondTab, { key: 'ArrowLeft' })
+    expect(firstTab).toHaveFocus()
+
+    fireEvent.click(within(panel).getByRole('button', { name: /Gradual.*Roll out in stages/ }))
+    expect(firstTab).toHaveAttribute('data-answered', 'true')
+    expect(secondTab).toHaveAttribute('aria-selected', 'true')
+    expect(secondTab).toHaveFocus()
+    expect(within(panel).getByRole('textbox', { name: 'What should users know?' })).toBeInTheDocument()
+    expect(within(panel).getByRole('tabpanel')).toHaveAttribute('data-scroll-region', 'question')
+    expect(within(panel).getByRole('navigation', { name: 'Question navigation' })).toBeInTheDocument()
+    expect(panel.querySelector('footer')).toContainElement(
+      within(panel).getByRole('button', { name: 'Submit answers' })
+    )
+
+    fireEvent.click(within(panel).getByRole('button', { name: 'Previous question' }))
+    expect(firstTab).toHaveAttribute('aria-selected', 'true')
+    firstTab.focus()
+    expect(firstTab).toHaveFocus()
+  })
+
+  test('required questions expose validation and keep submission disabled until answered', () => {
+    renderChatView({
+      decisionRequest: {
+        id: 'request-required',
+        message: 'Release approval',
+        questions: [
+          {
+            id: 'approval',
+            question: 'Approve this release?',
+            input: 'boolean',
+            multiSelect: false,
+            required: true,
+            options: []
+          }
+        ]
+      },
+      resolveElicitation: vi.fn()
+    })
+
+    const panel = screen.getByRole('region', { name: 'Decision questions' })
+    expect(within(panel).getByText('Required')).toBeInTheDocument()
+    const submit = within(panel).getByRole('button', { name: 'Submit answers' })
+    expect(submit).toBeDisabled()
+    expect(within(panel).getByRole('status')).toHaveTextContent('1 required answer remaining')
+
+    fireEvent.click(within(panel).getByRole('button', { name: 'Yes' }))
+    expect(submit).toBeEnabled()
+    expect(within(panel).getByRole('status')).toHaveTextContent('Ready to submit')
+  })
+
   test('user messages never get a decision/noise tone even if the text happens to match the shape', () => {
     renderChatView({ messages: [{ id: 'm4', role: 'user', text: decisionText }] })
 

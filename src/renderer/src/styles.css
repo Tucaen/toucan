@@ -1526,6 +1526,7 @@ button {
 .agent-chat {
   height: calc(100% - 38px);
   color: #d7dce5;
+  container-type: inline-size;
 }
 
 .chat-scroll {
@@ -1848,39 +1849,139 @@ button {
   grid-column: 1;
   grid-row: 2;
   display: grid;
-  gap: 10px;
-  max-height: min(45vh, 360px);
-  padding: 10px;
-  overflow: auto;
-  border-top: 1px solid #594a2c;
-  background: color-mix(in srgb, #171b22 94%, #d3aa52);
+  grid-template-rows: auto auto minmax(0, 1fr) auto auto;
+  gap: 0;
+  min-height: 0;
+  max-height: min(52vh, 440px);
+  overflow: hidden;
+  border-top: 1px solid color-mix(in srgb, var(--node-accent) 45%, #343b47);
+  background: #141820;
 }
 
-.structured-decision-tabs,
-.structured-decision footer {
+.structured-decision-header {
   display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px 10px;
+  border-bottom: 1px solid #292f3a;
+  background: color-mix(in srgb, var(--node-accent) 6%, #171b22);
+}
+
+.structured-decision-heading {
+  min-width: 0;
+  display: flex;
+  gap: 9px;
+}
+
+.structured-decision-heading p {
+  margin: 3px 0 0;
+  color: #9ca6b4;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.structured-decision-icon {
+  padding: 5px;
+  border-radius: 6px;
+  color: var(--node-accent);
+  background: color-mix(in srgb, var(--node-accent) 12%, #202631);
+}
+
+.structured-decision-count {
+  flex: 0 0 auto;
+  color: #8e99a8;
+  font-size: 10px;
+}
+
+.structured-decision-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 8px 14px;
+  overflow-x: auto;
+  border-bottom: 1px solid #292f3a;
+}
+
+.structured-decision-tabs button {
+  min-width: 34px;
+  display: flex;
+  align-items: center;
   gap: 6px;
+  padding: 5px 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: #8994a3;
+  background: transparent;
+}
+
+.structured-decision-tabs button > span {
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #46505e;
+  border-radius: 50%;
+  font-size: 10px;
+}
+
+.structured-decision-tabs button small {
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.structured-decision-tabs button[data-answered='true'] > span {
+  border-color: #4f8a68;
+  color: #83c89d;
+  background: #1b3226;
 }
 
 .structured-decision-tabs button[aria-selected='true'] {
-  border-color: #d3aa52;
-  color: #f0d9a4;
+  border-color: color-mix(in srgb, var(--node-accent) 55%, #3a4554);
+  color: #e7ebf1;
+  background: color-mix(in srgb, var(--node-accent) 10%, #1c2029);
 }
 
-.structured-decision article,
+.structured-decision-question,
 .structured-decision-options {
   display: grid;
   gap: 8px;
 }
 
-.structured-decision article > strong {
+.structured-decision-question {
+  min-height: 0;
+  padding: 12px 14px;
+  overflow-y: auto;
+}
+
+.structured-decision-question > strong {
   font-size: 14px;
 }
 
-.structured-decision article > p {
+.structured-decision-question > p {
   margin: 0;
-  color: #aeb7c4;
-  font-size: 12px;
+  color: #d8dee7;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.structured-decision-progress {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #8e99a8;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.structured-decision-required {
+  padding: 2px 5px;
+  border-radius: 4px;
+  color: #f0c887;
+  background: #392d1d;
 }
 
 .structured-decision-options button {
@@ -1892,15 +1993,26 @@ button {
   color: #dbe1e9;
   background: #1c2029;
   text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    background 120ms ease,
+    transform 120ms ease;
+}
+
+.structured-decision-options button:hover {
+  border-color: #596779;
+  background: #222834;
 }
 
 .structured-decision-options button[aria-pressed='true'] {
-  border-color: #d3aa52;
-  background: color-mix(in srgb, #d3aa52 18%, #1c2029);
+  border-color: var(--node-accent);
+  background: color-mix(in srgb, var(--node-accent) 16%, #1c2029);
+  box-shadow: inset 3px 0 var(--node-accent);
 }
 
 .structured-decision-options small,
-.structured-decision article > small {
+.structured-decision-question > small {
   color: #8e99a8;
 }
 
@@ -1926,8 +2038,58 @@ button {
   background: #171b22;
 }
 
+.structured-decision input:focus-visible,
+.structured-decision button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--node-accent) 80%, white);
+  outline-offset: 2px;
+}
+
+.structured-decision-navigation {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 14px;
+  border-top: 1px solid #292f3a;
+}
+
+.structured-decision-navigation button,
+.structured-decision footer button {
+  padding: 6px 9px;
+  border: 1px solid #3a4554;
+  border-radius: 6px;
+  color: #cbd3dd;
+  background: #1c2029;
+}
+
+.structured-decision button:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
 .structured-decision footer {
+  display: flex;
+  align-items: center;
+  gap: 7px;
   justify-content: flex-end;
+  padding: 9px 14px 12px;
+  background: #141820;
+}
+
+.structured-decision footer [role='status'] {
+  margin-right: auto;
+  color: #8e99a8;
+  font-size: 10px;
+}
+
+.structured-decision footer button:last-child:not(:disabled) {
+  border-color: var(--node-accent);
+  color: #11151b;
+  background: var(--node-accent);
+  font-weight: 700;
+}
+
+.structured-decision-skip {
+  border-color: transparent !important;
+  background: transparent !important;
 }
 
 @media (max-width: 620px) {
@@ -1938,6 +2100,42 @@ button {
 
   .pending-decisions > article {
     flex-basis: auto;
+  }
+}
+
+@container (max-width: 380px) {
+  .structured-decision {
+    max-height: min(58vh, 380px);
+  }
+
+  .structured-decision-tabs button small,
+  .structured-decision-count {
+    display: none;
+  }
+
+  .structured-decision-header,
+  .structured-decision-question,
+  .structured-decision-tabs,
+  .structured-decision-navigation,
+  .structured-decision footer {
+    padding-right: 10px;
+    padding-left: 10px;
+  }
+
+  .structured-decision-navigation button {
+    font-size: 0;
+  }
+
+  .structured-decision-navigation button::after {
+    font-size: 11px;
+  }
+
+  .structured-decision-navigation button:first-child::after {
+    content: 'Previous';
+  }
+
+  .structured-decision-navigation button:last-child::after {
+    content: 'Next';
   }
 }
 

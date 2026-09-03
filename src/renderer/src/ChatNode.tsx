@@ -1004,6 +1004,14 @@ function StructuredDecisionPanel(
   const request = props.decisionRequest
   const [active, setActive] = useState(0)
   const [answers, setAnswers] = useState<AgentDecisionResponseContent>({})
+  const headingId = useId()
+  const questionTabs = useRef<Array<HTMLButtonElement | null>>([])
+  const pendingQuestionFocus = useRef<number | null>(null)
+  useLayoutEffect(() => {
+    if (pendingQuestionFocus.current !== active) return
+    questionTabs.current[active]?.focus()
+    pendingQuestionFocus.current = null
+  }, [active])
   if (!request || !props.resolveElicitation) return null
   const question = request.questions[active]
   if (!question) return null
@@ -1021,6 +1029,18 @@ function StructuredDecisionPanel(
     )
   }
   const requiredComplete = request.questions.every((item) => !item.required || answered(item))
+  const requiredRemaining = request.questions.filter((item) => item.required && !answered(item)).length
+  const questionLabel = (item: AgentDecisionRequest['questions'][number], index: number): string =>
+    `Question ${index + 1}: ${item.title ?? item.question}${answered(item) ? ', answered' : ''}`
+  const activateTab = (index: number, tabList: HTMLElement): void => {
+    setActive(index)
+    const tabs = tabList.querySelectorAll<HTMLButtonElement>('[role="tab"]')
+    tabs[index]?.focus()
+  }
+  const advanceTo = (index: number): void => {
+    pendingQuestionFocus.current = index
+    setActive(index)
+  }
   const choose = (value: string): void => {
     setAnswers((current) => {
       if (!question.multiSelect) return { ...current, [question.id]: value }
@@ -1030,10 +1050,24 @@ function StructuredDecisionPanel(
         [question.id]: selected.includes(value) ? selected.filter((item) => item !== value) : [...selected, value]
       }
     })
-    if (!question.multiSelect && active < request.questions.length - 1) setActive(active + 1)
+    if (!question.multiSelect && active < request.questions.length - 1) advanceTo(active + 1)
   }
   return (
-    <section className="structured-decision" aria-label="Decision questions">
+    <section className="structured-decision" aria-labelledby={headingId} aria-describedby={`${headingId}-context`}>
+      <header className="structured-decision-header">
+        <div className="structured-decision-heading">
+          <span className="structured-decision-icon" aria-hidden="true">
+            <ListChecks />
+          </span>
+          <div>
+            <strong id={headingId}>Decision questions</strong>
+            <p id={`${headingId}-context`}>{request.message}</p>
+          </div>
+        </div>
+        <span className="structured-decision-count">
+          {request.questions.filter(answered).length}/{request.questions.length} answered
+        </span>
+      </header>
       {request.questions.length > 1 && (
         <div className="structured-decision-tabs" role="tablist" aria-label="Questions">
           {request.questions.map((item, index) => (
@@ -1041,23 +1075,60 @@ function StructuredDecisionPanel(
               type="button"
               role="tab"
               aria-selected={index === active}
+              aria-label={questionLabel(item, index)}
+              aria-controls={`${headingId}-panel`}
+              id={`${headingId}-tab-${index}`}
+              ref={(element) => {
+                questionTabs.current[index] = element
+              }}
+              tabIndex={index === active ? 0 : -1}
+              data-answered={answered(item)}
               key={item.id}
               onClick={() => setActive(index)}
+              onKeyDown={(event) => {
+                const last = request.questions.length - 1
+                const next =
+                  event.key === 'ArrowRight'
+                    ? index === last
+                      ? 0
+                      : index + 1
+                    : event.key === 'ArrowLeft'
+                      ? index === 0
+                        ? last
+                        : index - 1
+                      : event.key === 'Home'
+                        ? 0
+                        : event.key === 'End'
+                          ? last
+                          : null
+                if (next === null) return
+                event.preventDefault()
+                activateTab(next, event.currentTarget.parentElement!)
+              }}
             >
-              {index + 1}
-              {answered(item) ? ' ✓' : ''}
+              <span>{answered(item) ? <Check aria-hidden="true" /> : index + 1}</span>
+              <small>{item.title ?? `Question ${index + 1}`}</small>
             </button>
           ))}
         </div>
       )}
-      <article>
-        <small>
-          Question {active + 1} of {request.questions.length}
-        </small>
-        <strong>{question.title ?? question.question}</strong>
-        {question.title && <p>{question.question}</p>}
+      <article
+        className="structured-decision-question"
+        id={`${headingId}-panel`}
+        data-scroll-region="question"
+        role={request.questions.length > 1 ? 'tabpanel' : undefined}
+        aria-labelledby={request.questions.length > 1 ? `${headingId}-tab-${active}` : `${headingId}-question`}
+      >
+        <div className="structured-decision-progress">
+          <span>
+            Question {active + 1} of {request.questions.length}
+          </span>
+          {question.required && <span className="structured-decision-required">Required</span>}
+        </div>
+        {question.title && <strong>{question.title}</strong>}
+        <p id={`${headingId}-question`}>{question.question}</p>
         {question.input === 'select' && (
-          <div className="structured-decision-options">
+          <div className="structured-decision-options" role="group" aria-labelledby={`${headingId}-question`}>
             {question.options.map((option) => {
               const value = answers[question.id]
               const selected = Array.isArray(value) ? value.includes(option.value) : value === option.value
@@ -1071,7 +1142,7 @@ function StructuredDecisionPanel(
           </div>
         )}
         {question.input === 'boolean' && (
-          <div className="structured-decision-options">
+          <div className="structured-decision-options" role="group" aria-labelledby={`${headingId}-question`}>
             {(['Yes', 'No'] as const).map((label) => {
               const value = label === 'Yes'
               return (
@@ -1081,7 +1152,7 @@ function StructuredDecisionPanel(
                   key={label}
                   onClick={() => {
                     setAnswers((current) => ({ ...current, [question.id]: value }))
-                    if (active < request.questions.length - 1) setActive(active + 1)
+                    if (active < request.questions.length - 1) advanceTo(active + 1)
                   }}
                 >
                   <span>{label}</span>
@@ -1094,6 +1165,7 @@ function StructuredDecisionPanel(
           <input
             className="structured-decision-value"
             type="text"
+            aria-label={question.question}
             value={typeof currentAnswer === 'string' ? currentAnswer : ''}
             onChange={(event) => setAnswers((current) => ({ ...current, [question.id]: event.target.value }))}
           />
@@ -1102,6 +1174,7 @@ function StructuredDecisionPanel(
           <input
             className="structured-decision-value"
             type="number"
+            aria-label={question.question}
             value={typeof currentAnswer === 'number' ? currentAnswer : ''}
             onChange={(event) => {
               const value = event.target.value
@@ -1116,7 +1189,7 @@ function StructuredDecisionPanel(
         )}
         {question.customAnswerId && (
           <label className="structured-decision-other">
-            <span>Other</span>
+            <span>Other answer</span>
             <input
               type="text"
               value={
@@ -1129,8 +1202,29 @@ function StructuredDecisionPanel(
           </label>
         )}
       </article>
+      <nav className="structured-decision-navigation" aria-label="Question navigation">
+        <button type="button" disabled={active === 0} onClick={() => setActive((value) => value - 1)}>
+          Previous question
+        </button>
+        <button
+          type="button"
+          disabled={active === request.questions.length - 1}
+          onClick={() => setActive((value) => value + 1)}
+        >
+          Next question
+        </button>
+      </nav>
       <footer>
-        <button type="button" onClick={() => props.resolveElicitation!(request.id)}>
+        <span role="status" aria-live="polite">
+          {requiredRemaining === 0
+            ? 'Ready to submit'
+            : `${requiredRemaining} required answer${requiredRemaining === 1 ? '' : 's'} remaining`}
+        </span>
+        <button
+          className="structured-decision-skip"
+          type="button"
+          onClick={() => props.resolveElicitation!(request.id)}
+        >
           Skip
         </button>
         <button
