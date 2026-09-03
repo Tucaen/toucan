@@ -158,6 +158,104 @@ describe('assistant message tone rendering', () => {
     })
   })
 
+  test('an Other answer advances without submitting and leaves the next question answerable', () => {
+    const resolveElicitation = vi.fn()
+    renderChatView({
+      decisionRequest: {
+        id: 'request-other',
+        message: 'Choose both settings.',
+        questions: [
+          {
+            id: 'editor',
+            question: 'Which editor?',
+            input: 'select',
+            multiSelect: false,
+            customAnswerId: 'editor_custom',
+            options: [{ value: 'vscode', label: 'VS Code' }]
+          },
+          {
+            id: 'theme',
+            question: 'Which theme?',
+            input: 'select',
+            multiSelect: false,
+            options: [{ value: 'dark', label: 'Dark' }]
+          }
+        ]
+      },
+      resolveElicitation
+    })
+
+    const panel = screen.getByRole('region', { name: 'Decision questions' })
+    fireEvent.change(within(panel).getByRole('textbox', { name: 'Other answer' }), {
+      target: { value: 'Zed' }
+    })
+
+    expect(within(panel).queryByRole('button', { name: 'Submit answers' })).not.toBeInTheDocument()
+    fireEvent.click(within(panel).getByRole('button', { name: 'Next question' }))
+
+    expect(resolveElicitation).not.toHaveBeenCalled()
+    expect(within(panel).getByText('Which theme?')).toBeInTheDocument()
+    fireEvent.click(within(panel).getByRole('button', { name: 'Dark' }))
+    fireEvent.click(within(panel).getByRole('button', { name: 'Submit answers' }))
+
+    expect(resolveElicitation).toHaveBeenCalledTimes(1)
+    expect(resolveElicitation).toHaveBeenCalledWith('request-other', {
+      editor_custom: 'Zed',
+      theme: 'dark'
+    })
+
+    fireEvent.click(within(panel).getByRole('tab', { name: /Question 1/ }))
+    expect(within(panel).getByRole('textbox', { name: 'Other answer' })).toHaveValue('Zed')
+  })
+
+  test('switching between Other and a listed option keeps only the current answer mode', () => {
+    const resolveElicitation = vi.fn()
+    renderChatView({
+      decisionRequest: {
+        id: 'request-other-switch',
+        message: 'Choose an editor and theme.',
+        questions: [
+          {
+            id: 'editor',
+            question: 'Which editor?',
+            input: 'select',
+            multiSelect: false,
+            customAnswerId: 'editor_custom',
+            options: [{ value: 'vscode', label: 'VS Code' }]
+          },
+          {
+            id: 'theme',
+            question: 'Which theme?',
+            input: 'select',
+            multiSelect: false,
+            options: [{ value: 'dark', label: 'Dark' }]
+          }
+        ]
+      },
+      resolveElicitation
+    })
+
+    const panel = screen.getByRole('region', { name: 'Decision questions' })
+    const other = within(panel).getByRole('textbox', { name: 'Other answer' })
+    fireEvent.change(other, { target: { value: 'Zed' } })
+    fireEvent.click(within(panel).getByRole('button', { name: 'VS Code' }))
+    fireEvent.click(within(panel).getByRole('tab', { name: /Question 1/ }))
+    expect(within(panel).getByRole('textbox', { name: 'Other answer' })).toHaveValue('')
+
+    fireEvent.change(within(panel).getByRole('textbox', { name: 'Other answer' }), {
+      target: { value: 'Sublime Text' }
+    })
+    expect(within(panel).getByRole('button', { name: 'VS Code' })).toHaveAttribute('aria-pressed', 'false')
+    fireEvent.click(within(panel).getByRole('tab', { name: /Question 2/ }))
+    fireEvent.click(within(panel).getByRole('button', { name: 'Dark' }))
+    fireEvent.click(within(panel).getByRole('button', { name: 'Submit answers' }))
+
+    expect(resolveElicitation).toHaveBeenCalledWith('request-other-switch', {
+      editor_custom: 'Sublime Text',
+      theme: 'dark'
+    })
+  })
+
   test('structured questions allow a partial response without cancelling the entire request', () => {
     const resolveElicitation = vi.fn()
     renderChatView({
@@ -280,6 +378,162 @@ describe('assistant message tone rendering', () => {
     fireEvent.click(within(panel).getByRole('button', { name: 'Yes' }))
     expect(submit).toBeEnabled()
     expect(within(panel).getByRole('status')).toHaveTextContent('Ready to submit')
+  })
+
+  test('final submission resolves the structured request exactly once', () => {
+    const resolveElicitation = vi.fn()
+    renderChatView({
+      decisionRequest: {
+        id: 'request-once',
+        message: 'Confirm once.',
+        questions: [
+          {
+            id: 'confirmation',
+            question: 'Proceed?',
+            input: 'boolean',
+            multiSelect: false,
+            options: []
+          }
+        ]
+      },
+      resolveElicitation
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Yes' }))
+    const submit = screen.getByRole('button', { name: 'Submit answers' })
+    fireEvent.click(submit)
+    fireEvent.click(submit)
+
+    expect(resolveElicitation).toHaveBeenCalledTimes(1)
+    expect(submit).toBeDisabled()
+  })
+
+  test('a queued request gets fresh submission controls after the previous request resolves', () => {
+    const resolveElicitation = vi.fn()
+    const request = (id: string, question: string) => ({
+      id,
+      message: question,
+      questions: [{ id: `${id}-answer`, question, input: 'boolean' as const, multiSelect: false, options: [] }]
+    })
+    const view = render(
+      <ChatView
+        {...baseChatViewProps}
+        focusMode={false}
+        setFocusMode={vi.fn()}
+        decisionRequest={request('first-request', 'First?')}
+        resolveElicitation={resolveElicitation}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Yes' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Submit answers' }))
+    view.rerender(
+      <ChatView
+        {...baseChatViewProps}
+        focusMode={false}
+        setFocusMode={vi.fn()}
+        decisionRequest={request('second-request', 'Second?')}
+        resolveElicitation={resolveElicitation}
+      />
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'No' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Submit answers' }))
+
+    expect(resolveElicitation).toHaveBeenNthCalledWith(1, 'first-request', { 'first-request-answer': true })
+    expect(resolveElicitation).toHaveBeenNthCalledWith(2, 'second-request', { 'second-request-answer': false })
+  })
+
+  test('answers of every supported form shape can be revisited and edited before submission', () => {
+    const resolveElicitation = vi.fn()
+    renderChatView({
+      decisionRequest: {
+        id: 'request-editing',
+        message: 'Configure the run.',
+        questions: [
+          {
+            id: 'runner',
+            question: 'Which runner?',
+            input: 'select',
+            multiSelect: false,
+            options: [
+              { value: 'local', label: 'Local' },
+              { value: 'remote', label: 'Remote' }
+            ]
+          },
+          {
+            id: 'checks',
+            question: 'Which checks?',
+            input: 'select',
+            multiSelect: true,
+            options: [
+              { value: 'lint', label: 'Lint' },
+              { value: 'test', label: 'Test' }
+            ]
+          },
+          {
+            id: 'retries',
+            question: 'How many retries?',
+            input: 'number',
+            multiSelect: false,
+            options: []
+          },
+          {
+            id: 'format',
+            question: 'Which output format?',
+            input: 'select',
+            multiSelect: false,
+            customAnswerId: 'format_custom',
+            options: []
+          },
+          {
+            id: 'enabled',
+            question: 'Enable it?',
+            input: 'boolean',
+            multiSelect: false,
+            options: []
+          }
+        ]
+      },
+      resolveElicitation
+    })
+
+    const panel = screen.getByRole('region', { name: 'Decision questions' })
+    fireEvent.click(within(panel).getByRole('button', { name: 'Local' }))
+    fireEvent.click(within(panel).getByRole('button', { name: 'Lint' }))
+    fireEvent.click(within(panel).getByRole('button', { name: 'Test' }))
+    fireEvent.click(within(panel).getByRole('button', { name: 'Next question' }))
+    fireEvent.change(within(panel).getByRole('spinbutton', { name: 'How many retries?' }), {
+      target: { value: '2' }
+    })
+    fireEvent.click(within(panel).getByRole('button', { name: 'Next question' }))
+    fireEvent.change(within(panel).getByRole('textbox', { name: 'Other answer' }), {
+      target: { value: 'JSON Lines' }
+    })
+    fireEvent.click(within(panel).getByRole('button', { name: 'Next question' }))
+    fireEvent.click(within(panel).getByRole('button', { name: 'Yes' }))
+
+    fireEvent.click(within(panel).getByRole('tab', { name: /Question 1/ }))
+    fireEvent.click(within(panel).getByRole('button', { name: 'Remote' }))
+    fireEvent.click(within(panel).getByRole('tab', { name: /Question 2/ }))
+    fireEvent.click(within(panel).getByRole('button', { name: 'Lint' }))
+    fireEvent.click(within(panel).getByRole('tab', { name: /Question 3/ }))
+    fireEvent.change(within(panel).getByRole('spinbutton', { name: 'How many retries?' }), {
+      target: { value: '4' }
+    })
+    fireEvent.click(within(panel).getByRole('tab', { name: /Question 4/ }))
+    fireEvent.change(within(panel).getByRole('textbox', { name: 'Other answer' }), {
+      target: { value: 'NDJSON' }
+    })
+    fireEvent.click(within(panel).getByRole('tab', { name: /Question 5/ }))
+    fireEvent.click(within(panel).getByRole('button', { name: 'Submit answers' }))
+
+    expect(resolveElicitation).toHaveBeenCalledWith('request-editing', {
+      runner: 'remote',
+      checks: ['test'],
+      retries: 4,
+      format_custom: 'NDJSON',
+      enabled: true
+    })
   })
 
   test('user messages never get a decision/noise tone even if the text happens to match the shape', () => {

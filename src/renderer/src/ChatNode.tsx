@@ -1004,6 +1004,8 @@ function StructuredDecisionPanel(
   const request = props.decisionRequest
   const [active, setActive] = useState(0)
   const [answers, setAnswers] = useState<AgentDecisionResponseContent>({})
+  const [resolving, setResolving] = useState(false)
+  const resolutionStarted = useRef(false)
   const headingId = useId()
   const questionTabs = useRef<Array<HTMLButtonElement | null>>([])
   const pendingQuestionFocus = useRef<number | null>(null)
@@ -1041,12 +1043,20 @@ function StructuredDecisionPanel(
     pendingQuestionFocus.current = index
     setActive(index)
   }
+  const resolveOnce = (content?: AgentDecisionResponseContent): void => {
+    if (resolutionStarted.current) return
+    resolutionStarted.current = true
+    setResolving(true)
+    props.resolveElicitation!(request.id, content)
+  }
   const choose = (value: string): void => {
     setAnswers((current) => {
-      if (!question.multiSelect) return { ...current, [question.id]: value }
+      const next = { ...current }
+      if (question.customAnswerId) delete next[question.customAnswerId]
+      if (!question.multiSelect) return { ...next, [question.id]: value }
       const selected = Array.isArray(current[question.id]) ? (current[question.id] as string[]) : []
       return {
-        ...current,
+        ...next,
         [question.id]: selected.includes(value) ? selected.filter((item) => item !== value) : [...selected, value]
       }
     })
@@ -1195,9 +1205,19 @@ function StructuredDecisionPanel(
               value={
                 typeof answers[question.customAnswerId] === 'string' ? (answers[question.customAnswerId] as string) : ''
               }
-              onChange={(event) =>
-                setAnswers((current) => ({ ...current, [question.customAnswerId!]: event.target.value }))
-              }
+              onChange={(event) => {
+                const value = event.target.value
+                setAnswers((current) => {
+                  const next = { ...current }
+                  if (value.trim()) {
+                    delete next[question.id]
+                    next[question.customAnswerId!] = value
+                  } else {
+                    delete next[question.customAnswerId!]
+                  }
+                  return next
+                })
+              }}
             />
           </label>
         )}
@@ -1220,20 +1240,14 @@ function StructuredDecisionPanel(
             ? 'Ready to submit'
             : `${requiredRemaining} required answer${requiredRemaining === 1 ? '' : 's'} remaining`}
         </span>
-        <button
-          className="structured-decision-skip"
-          type="button"
-          onClick={() => props.resolveElicitation!(request.id)}
-        >
+        <button className="structured-decision-skip" type="button" disabled={resolving} onClick={() => resolveOnce()}>
           Skip
         </button>
-        <button
-          type="button"
-          disabled={!requiredComplete}
-          onClick={() => props.resolveElicitation!(request.id, answers)}
-        >
-          Submit answers
-        </button>
+        {active === request.questions.length - 1 && (
+          <button type="button" disabled={!requiredComplete || resolving} onClick={() => resolveOnce(answers)}>
+            Submit answers
+          </button>
+        )}
       </footer>
     </section>
   )
