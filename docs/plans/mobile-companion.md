@@ -55,7 +55,25 @@ project.
 
 ## Tickets
 
-Dependency-ordered. T1–T4 are host-side (main process), T5–T8 are the PWA, T9–T10 polish.
+Published as GitHub issues (2026-09-03), reshaped into tracer-bullet vertical slices; the
+issues are the authoritative, detailed versions — the sections below are the original
+sketch:
+
+| Issue | Slice | Blocked by |
+| --- | --- | --- |
+| #125 | Prefactor: shared transcript reducer | — |
+| #126 | Remote server + pairing + chat list on the phone | — |
+| #127 | Prefactor: agent event broker in main | #125 |
+| #128 | Read a chat live from the phone | #127, #126 |
+| #129 | Send a message from the phone | #128 |
+| #130 | Answer approvals from the phone | #128 |
+| #131 | Spawn a new chat from the phone | #128 |
+| #132 | Multiple hosts | #126 |
+| #133 | Installable PWA + Tailscale HTTPS + setup docs | #126 |
+| #134 | Push notifications for attention events | #130, #133 |
+
+Dependency-ordered sketch below. T1–T4 are host-side (main process), T5–T8 the PWA,
+T9–T10 polish.
 
 ### T1 — Shared transcript reducer
 

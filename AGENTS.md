@@ -30,6 +30,8 @@ This file is the project's committed home for project-intrinsic agent knowledge:
 
 - Fit mode is workspace state, not node state: `useNodeFit` (`src/renderer/src/use-node-fit.ts`) owns the single fitted node and its session-local restore geometry, and the decisions are pure functions in `node-fit.ts` (`requestNodeFit` restores whichever node is already fitted before fitting the next, `reflowFittedNode` recomputes geometry for a changed canvas, `exitsNodeFitMode` distinguishes a user drag/resize from React Flow's own measurement). The usable canvas is _observed_, not derived: one `ResizeObserver` on `.canvas-region` covers application resize, sidebar collapse, and the docked brain-dump panel, because all three are layout siblings - so nothing reads window size or panel state, and reflow only ever reads the viewport, never writes it. The node's `fittedToCanvas` data flag is presentation for the header action; persistence and recently-closed capture must go through `nodeBeforeTemporaryFit`, which keys on the fitted node's id so a fitted node is never saved filling the screen. See `tests/node-fit.test.ts`, `tests/node-fit-mode.dom.test.tsx` and `tests/node-fit-action.dom.test.tsx`.
 
+- Work is tracked as GitHub issues on this repo (`gh issue list`). `ready-for-agent` marks a ticket an agent may pick up now; `blocked` plus the issue body's "Blocked by" section gates a ticket on other issues; `backlog` defers it. When a ticket lands, flip any ticket it was the last blocker for from `blocked` to `ready-for-agent`. Feature plans that spawned a ticket set live under `docs/plans/` and each issue links its plan.
+
 ## Maintaining this file
 
 Keep this file for knowledge useful to almost every future agent session in this project.
