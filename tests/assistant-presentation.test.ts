@@ -4,7 +4,7 @@ import {
   initialAssistantPresentation,
   settleCurrentAssistantTurn,
   settleReplayedAssistantTurns
-} from '../src/renderer/src/assistant-presentation'
+} from '../src/shared/assistant-presentation'
 
 test('unphased assistant text is provisional progress until its turn completes', () => {
   const initial = initialAssistantPresentation(undefined)

@@ -1,4 +1,4 @@
-import type { AgentMessagePresentation } from '../../shared/agent'
+import type { AgentMessagePresentation } from './agent'
 
 export interface AssistantPresentationMessage {
   role: string
