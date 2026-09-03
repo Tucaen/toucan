@@ -773,23 +773,34 @@ export function Composer(props: ComposerProps): JSX.Element {
             highlight={(index) => setCompletionState((current) => highlightSlashCommand(current, index))}
           />
         )}
-        <VoiceInputPrototype draft={draft} disabled={composerDisabled} textareaRef={textareaRef} setDraft={setDraft} />
-        {busy && (
-          <button type="button" className="stop-agent" onClick={props.cancel}>
-            Stop
-          </button>
-        )}
-        <button
-          type="submit"
-          className="composer-send"
-          aria-label={busy ? 'Queue' : 'Send'}
-          title={composerSendKeyLabels[sendKey].description}
-          disabled={(!draft.trim() && props.attachments.length === 0) || composerDisabled}
-        >
-          {busy ? <ListPlus aria-hidden="true" /> : <SendHorizontal aria-hidden="true" />}
-        </button>
       </div>
-      <ComposerToolbar {...props} />
+      {/* Dictation, stop, and send sit in the footer rather than beside the textarea: stretched
+          alongside a growing input they ballooned with it. */}
+      <div className="composer-footer">
+        <ComposerToolbar {...props} />
+        <div className="composer-actions">
+          <VoiceInputPrototype
+            draft={draft}
+            disabled={composerDisabled}
+            textareaRef={textareaRef}
+            setDraft={setDraft}
+          />
+          {busy && (
+            <button type="button" className="stop-agent" onClick={props.cancel}>
+              Stop
+            </button>
+          )}
+          <button
+            type="submit"
+            className="composer-send"
+            aria-label={busy ? 'Queue' : 'Send'}
+            title={composerSendKeyLabels[sendKey].description}
+            disabled={(!draft.trim() && props.attachments.length === 0) || composerDisabled}
+          >
+            {busy ? <ListPlus aria-hidden="true" /> : <SendHorizontal aria-hidden="true" />}
+          </button>
+        </div>
+      </div>
     </form>
   )
 }
