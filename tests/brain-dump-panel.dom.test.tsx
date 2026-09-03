@@ -60,6 +60,17 @@ function installWindowApis(state: WorkspaceState): void {
   define('worktreeApi', { discover: vi.fn(async () => ({ worktrees: [], claims: [] })) })
   define('conversationApi', { setTitle: vi.fn(async () => null) })
   define('agentApi', { onEvent: () => () => undefined })
+  define('remoteApi', {
+    state: vi.fn(async () => ({
+      settings: { enabled: false, port: 7391 },
+      listening: false,
+      token: 'token',
+      tokenUpdatedAt: 0,
+      addresses: []
+    })),
+    publishWorkspace: vi.fn(),
+    onStateChange: () => () => undefined
+  })
   define('brainDumpApi', api)
 }
 

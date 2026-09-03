@@ -16,12 +16,12 @@
     "preprototype:voice": "npm run prepare:voice-model",
     "prototype:voice": "electron-vite dev",
     "prebuild": "npm run prepare:voice-model",
-    "build": "electron-vite build",
+    "build": "electron-vite build && npm run build:mobile",
     "start": "electron-vite preview",
-    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"tests/**/*.{ts,tsx}\" \"*.{ts,json,mjs}\" \"scripts/**/*.mjs\"",
-    "lint": "eslint src tests *.ts --max-warnings 0",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"mobile/**/*.{ts,tsx,css}\" \"tests/**/*.{ts,tsx}\" \"*.{ts,json,mjs}\" \"scripts/**/*.mjs\"",
+    "lint": "eslint src tests mobile *.ts --max-warnings 0",
     "check:architecture": "depcruise --config dependency-cruiser.config.mjs src",
-    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.mobile.json",
     "test": "tsc -p tsconfig.test.json && node --test .test-out/tests/*.test.js && npm run test:dom",
     "check": "npm run format:check && npm run lint && npm run check:architecture && npm run typecheck && npm test",
     "check:full": "npm run check && npm run check:voice-model && npm run build",
@@ -29,7 +29,8 @@
     "test:dom": "vitest run",
     "test:dom:watch": "vitest",
     "package:win": "npm run build && electron-builder --win portable --x64",
-    "package:dir": "npm run build && electron-builder --dir --win --x64"
+    "package:dir": "npm run build && electron-builder --dir --win --x64",
+    "build:mobile": "vite build --config mobile/vite.config.ts"
   },
   "build": {
     "appId": "dev.toucan.canvas",

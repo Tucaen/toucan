@@ -6,6 +6,28 @@ import type { ConversationTitleSource } from './conversation-title'
 export type TerminalKind = 'terminal' | 'claude' | 'codex'
 export type TerminalLiveness = 'live' | 'unverifiable' | 'exited'
 
+/**
+ * The live verdict on one canvas session. It is a *live* read - whoever runs the session owns it -
+ * and deliberately not the unread model: `shared/attention.ts` decides what needs the user, while
+ * this only says what the session is doing right now. Defined here rather than in the canvas so the
+ * host and the mobile client can name the same states.
+ */
+export const terminalNodeStatuses = [
+  'dormant',
+  'starting',
+  'idle',
+  'working',
+  'result',
+  'attention',
+  'stalled',
+  'exited'
+] as const
+export type TerminalNodeStatus = (typeof terminalNodeStatuses)[number]
+
+export function isTerminalNodeStatus(value: unknown): value is TerminalNodeStatus {
+  return terminalNodeStatuses.includes(value as TerminalNodeStatus)
+}
+
 export const RECENTLY_CLOSED_SESSION_LIMIT = 10
 
 export type AgentPermissionModes = Partial<Record<AgentProvider, string>>

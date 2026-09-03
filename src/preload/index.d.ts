@@ -30,6 +30,7 @@ import type {
 } from '../shared/worktree'
 import type { ConversationListPage, ConversationListRequest } from '../shared/conversation'
 import type { WorkspaceFileIndex } from '../shared/workspace-files'
+import type { RemoteAccessSettings, RemoteAccessState, RemoteWorkspaceProjection } from '../shared/remote-access'
 import type { ConversationTitle, ConversationTitleSource } from '../shared/conversation-title'
 import type { BrainDumpApi } from '../shared/brain-dump'
 
@@ -109,6 +110,17 @@ export interface ConversationApi {
   ): Promise<ConversationTitle | null>
 }
 
+export interface RemoteApi {
+  state(): Promise<RemoteAccessState>
+  /** Starts, stops or rebinds the listener and returns the state that actually took effect. */
+  applySettings(settings: RemoteAccessSettings): Promise<RemoteAccessState>
+  /** Mints a new pairing token; clients holding the old one are unauthorized from then on. */
+  regenerateToken(): Promise<RemoteAccessState>
+  /** The canvas projection a paired phone lists. The canvas stays its only authority. */
+  publishWorkspace(projection: RemoteWorkspaceProjection): void
+  onStateChange(callback: (state: RemoteAccessState) => void): () => void
+}
+
 declare global {
   interface Window {
     terminalApi: TerminalApi
@@ -117,6 +129,7 @@ declare global {
     usageApi: UsageApi
     worktreeApi: WorktreeApi
     conversationApi: ConversationApi
+    remoteApi: RemoteApi
     brainDumpApi: BrainDumpApi
   }
 }
