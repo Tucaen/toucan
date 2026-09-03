@@ -42,6 +42,7 @@ export function TestChatView(props: TestChatViewProps): JSX.Element {
         sendQueuedNow: props.sendQueuedNow,
         cancel: props.cancel,
         onDraftChange: props.onDraftChange,
+        fileMentions: props.fileMentions,
         modes: props.modes,
         models: props.models,
         efforts: props.efforts,

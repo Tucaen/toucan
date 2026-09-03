@@ -4182,15 +4182,49 @@ button {
 
 /* The slash-command completion reuses the picker menu's shell, but it lists a whole command set
    rather than a handful of options, so it is wider and scrolls instead of growing unbounded. */
-.slash-command-menu {
+.slash-command-menu,
+.file-mention-menu {
   width: 320px;
   max-width: calc(100vw - 16px);
   max-height: 260px;
   overflow-y: auto;
 }
 
-.slash-command-menu > button[data-active='true'] {
+.slash-command-menu > button[data-active='true'],
+.file-mention-menu > button[data-active='true'] {
   background: #252c37;
+}
+
+.file-mention-menu strong {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  justify-content: space-between;
+  font-family: Consolas, monospace;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+/* A long path is clipped rather than wrapped; the hint keeps its own width beside it. */
+.file-mention-menu strong > :first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.file-mention-menu strong > em {
+  flex: none;
+}
+
+/* The exclusion note is the picker telling on itself; it sticks so scrolling can't hide it. */
+.completion-menu-note {
+  position: sticky;
+  bottom: 0;
+  display: block;
+  padding: 6px 10px;
+  border-top: 1px solid #232a35;
+  background: #171c24;
+  color: #717c8a;
+  font-size: 10px;
 }
 
 .slash-command-menu strong {

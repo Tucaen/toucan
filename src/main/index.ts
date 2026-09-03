@@ -27,6 +27,7 @@ import { createTerminalLivenessStore, type TerminalLivenessStore } from './termi
 import { createTerminalManager, type TerminalManager } from './terminal-manager'
 import { createTerminalScrollbackStore, type TerminalScrollbackStore } from './terminal-scrollback-store'
 import { createWorktreeManager, type WorktreeManager, type WorktreeStatusRequest } from './git-worktree'
+import { createWorkspaceFileIndex, type WorkspaceFileIndexReader } from './workspace-file-index'
 import { createWorkspaceStore } from './workspace-store'
 import type { WorktreeCreateRequest, WorktreeDiscoverRequest, WorktreeRemoveRequest } from '../shared/worktree'
 
@@ -133,6 +134,14 @@ function registerWorktreeIpc(worktrees: WorktreeManager): void {
   ipcMain.handle('worktree:status', (_event, request: WorktreeStatusRequest) => worktrees.status(request))
   ipcMain.handle('worktree:remove', (_event, request: WorktreeRemoveRequest) => worktrees.remove(request))
   ipcMain.handle('worktree:discover', (_event, request: WorktreeDiscoverRequest) => worktrees.discover(request))
+}
+
+/**
+ * The composer's `@` picker asks for this on every mention token, so the reader is deliberately
+ * the cached one: an unbounded directory walk per keystroke is exactly what this must not become.
+ */
+function registerWorkspaceFileIpc(files: WorkspaceFileIndexReader): void {
+  ipcMain.handle('workspace:file-index', (_event, root: unknown) => files.read(typeof root === 'string' ? root : ''))
 }
 
 function registerUsageIpc(usage: ProviderUsage): void {
@@ -364,6 +373,7 @@ void app.whenReady().then(async () => {
     conversationTitles
   )
   registerWorktreeIpc(createWorktreeManager())
+  registerWorkspaceFileIpc(createWorkspaceFileIndex())
   registerUsageIpc(
     createProviderUsage({
       readers: {
