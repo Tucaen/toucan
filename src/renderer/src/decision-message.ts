@@ -70,7 +70,8 @@ function removeListMarker(line: string): string {
   return line.replace(/^(?:[-*]|\d+[.)])\s*/, '')
 }
 
-function cleanOptionLine(line: string): string {
+/** Strips the list marker and Markdown emphasis so a line can be shown as plain UI text. */
+function cleanMarkdownLine(line: string): string {
   return removeListMarker(line).replace(/\*\*/g, '').trim()
 }
 
@@ -88,7 +89,7 @@ function nonEmptyLines(text: string): string[] {
 }
 
 function extractOptionLines(text: string): string[] {
-  return nonEmptyLines(text).filter(isOptionLine).map(cleanOptionLine)
+  return nonEmptyLines(text).filter(isOptionLine).map(cleanMarkdownLine)
 }
 
 function extractDecisionOptionLines(text: string): string[] {
@@ -102,7 +103,7 @@ function extractDecisionOptionLines(text: string): string[] {
 
   const options: string[] = []
   while (lines.length > 0 && isOptionLine(lines.at(-1) ?? '')) {
-    options.unshift(cleanOptionLine(lines.pop() ?? ''))
+    options.unshift(cleanMarkdownLine(lines.pop() ?? ''))
   }
   return options.length >= 2 ? options : []
 }
@@ -116,6 +117,17 @@ function cleanQuestionLine(line: string): string {
 function isConfirmationQuestion(line: string): boolean {
   const question = cleanQuestionLine(line)
   return question.endsWith('?') && CONFIRMATION_OPENING.test(question) && CONFIRMATION_CUE.test(question)
+}
+
+/**
+ * A question line, judged loosely enough to catch the numbered members of a question block whose
+ * text does not end on the question mark ("1. Which app is that? It may be out of scope."). Only
+ * the panel's wording depends on this; classification stays on the strict confirmation shape.
+ */
+function isQuestionLine(line: string): boolean {
+  const question = cleanQuestionLine(line)
+  if (question === '') return false
+  return question.endsWith('?') || (/^(?:[-*]|\d+[.)])\s+/.test(line) && question.includes('?'))
 }
 
 function hasEnumeratedProposal(lines: string[]): boolean {
@@ -158,6 +170,26 @@ export function classifyAssistantMessage(text: string): MessageTone {
   if (extractDecisionOptionsFromText(trimmed).length > 0) return 'decision'
   if (isNoiseMessage(trimmed, optionLines)) return 'noise'
   return 'normal'
+}
+
+/**
+ * Every question the message closes on, cleaned for display, in the order asked. A decision that
+ * asks several questions at once must show all of them: the panel replaces the composer, so a
+ * question it leaves out is a question the captain cannot see while answering.
+ */
+export function decisionQuestions(text: string): string[] {
+  const trimmed = text.trim()
+  const lines = nonEmptyLines(trimmed)
+  // A choice decision answers itself through its option lines, so only its closing question is a
+  // question — an option line that happens to end on a question mark is not one. A confirmation
+  // decision has no options to confuse, and is the shape that may ask several questions at once.
+  if (!hasTrailingConfirmationQuestions(trimmed) && extractDecisionOptionLines(trimmed).length > 0) {
+    const last = lines.at(-1) ?? ''
+    return isQuestionLine(last) ? [cleanMarkdownLine(last)] : []
+  }
+  const questions: string[] = []
+  while (isQuestionLine(lines.at(-1) ?? '')) questions.unshift(cleanMarkdownLine(lines.pop() ?? ''))
+  return questions
 }
 
 /** Only meaningful when `classifyAssistantMessage` returned 'decision' for the same text. */
