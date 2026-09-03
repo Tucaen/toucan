@@ -7,6 +7,10 @@ import type { RemoteWorkspaceSnapshot } from '../../src/shared/remote-access'
  *
  * `localStorage` is the right home for it: it is per device and per origin, which is exactly the
  * scope of a pairing, and it survives the reloads a phone browser does on its own.
+ *
+ * API paths are absolute. The host serves this client's shell at any path so a reload lands
+ * somewhere usable, so a relative `api/workspace` would resolve against whatever path the browser
+ * happens to be on and quietly ask the wrong place.
  */
 const TOKEN_KEY = 'toucan.pairing-token'
 
@@ -61,7 +65,7 @@ async function request(path: string, token: string, signal?: AbortSignal): Promi
  * up as an empty list, which reads as "nothing is running" rather than "you are not paired".
  */
 export async function verifyToken(token: string): Promise<RemoteResult<true>> {
-  const result = await request('api/pairing', token)
+  const result = await request('/api/pairing', token)
   return result.ok ? { ok: true, value: true } : result
 }
 
@@ -69,7 +73,7 @@ export async function fetchWorkspace(
   token: string,
   signal?: AbortSignal
 ): Promise<RemoteResult<RemoteWorkspaceSnapshot>> {
-  const result = await request('api/workspace', token, signal)
+  const result = await request('/api/workspace', token, signal)
   if (!result.ok) return result
   try {
     return { ok: true, value: (await result.value.json()) as RemoteWorkspaceSnapshot }

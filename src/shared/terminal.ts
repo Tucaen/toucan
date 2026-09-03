@@ -24,10 +24,6 @@ export const terminalNodeStatuses = [
 ] as const
 export type TerminalNodeStatus = (typeof terminalNodeStatuses)[number]
 
-export function isTerminalNodeStatus(value: unknown): value is TerminalNodeStatus {
-  return terminalNodeStatuses.includes(value as TerminalNodeStatus)
-}
-
 export const RECENTLY_CLOSED_SESSION_LIMIT = 10
 
 export type AgentPermissionModes = Partial<Record<AgentProvider, string>>

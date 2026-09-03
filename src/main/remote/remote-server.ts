@@ -90,34 +90,30 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
     if (routeRequiresPairing(route) && !authorized(request.headers)) {
       // Deliberately featureless: whether the token was missing, malformed or simply wrong is not
       // information an unauthorized caller gets to collect.
-      response.writeHead(401, {
+      send(request, response, 401, UNAUTHORIZED_BODY, {
         'content-type': 'application/json; charset=utf-8',
-        'content-length': Buffer.byteLength(UNAUTHORIZED_BODY),
-        'www-authenticate': 'Bearer',
-        'cache-control': 'no-store'
+        'www-authenticate': 'Bearer'
       })
-      response.end(request.method === 'HEAD' ? undefined : UNAUTHORIZED_BODY)
       return
     }
 
     switch (route.kind) {
       case 'pairing':
-        response.writeHead(204, { 'cache-control': 'no-store' })
-        response.end()
+        send(request, response, 204, null)
         return
       case 'workspace':
-        sendJson(request, response, snapshot)
+        send(request, response, 200, JSON.stringify(snapshot), {
+          'content-type': 'application/json; charset=utf-8'
+        })
         return
       case 'client':
         await sendClientAsset(request, response, options.clientRoot, route.pathname)
         return
       case 'method-not-allowed':
-        response.writeHead(405, { allow: 'GET, HEAD', 'cache-control': 'no-store' })
-        response.end()
+        send(request, response, 405, null, { allow: 'GET, HEAD' })
         return
       case 'not-found':
-        response.writeHead(404, { 'cache-control': 'no-store' })
-        response.end()
+        send(request, response, 404, null)
     }
   }
 
@@ -145,8 +141,8 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
   const listen = async (port: number): Promise<void> => {
     const next = createServer((request, response) => {
       void handle(request, response).catch(() => {
-        if (!response.headersSent) response.writeHead(500, { 'cache-control': 'no-store' })
-        response.end()
+        if (!response.headersSent) send(request, response, 500, null)
+        else response.end()
       })
     })
     next.on('upgrade', handleUpgrade)
@@ -226,15 +222,25 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
   }
 }
 
-function sendJson(request: IncomingMessage, response: ServerResponse, body: unknown): void {
-  const payload = JSON.stringify(body)
-  response.writeHead(200, {
-    'content-type': 'application/json; charset=utf-8',
-    'content-length': Buffer.byteLength(payload),
+/**
+ * The one place a response is written. Every reply on this server is uncached, never sniffed, and
+ * carries a body only when the request was not a HEAD - three rules that are easy to get right once
+ * and easy to forget per route.
+ */
+function send(
+  request: IncomingMessage,
+  response: ServerResponse,
+  status: number,
+  body: string | Buffer | null,
+  headers: Record<string, string | number> = {}
+): void {
+  response.writeHead(status, {
     'cache-control': 'no-store',
-    'x-content-type-options': 'nosniff'
+    'x-content-type-options': 'nosniff',
+    ...(body === null ? {} : { 'content-length': Buffer.byteLength(body) }),
+    ...headers
   })
-  response.end(request.method === 'HEAD' ? undefined : payload)
+  response.end(body === null || request.method === 'HEAD' ? undefined : body)
 }
 
 /**
@@ -252,14 +258,11 @@ async function sendClientAsset(
   if (resolved) {
     const file = await readFileIfPresent(resolved)
     if (file) {
-      response.writeHead(200, {
+      send(request, response, 200, file, {
         'content-type': clientContentType(resolved),
-        'content-length': file.byteLength,
-        'x-content-type-options': 'nosniff',
         // Vite fingerprints everything under /assets, so only the shell must never be cached.
-        'cache-control': pathname.startsWith('/assets/') ? 'public, max-age=31536000, immutable' : 'no-store'
+        ...(pathname.startsWith('/assets/') ? { 'cache-control': 'public, max-age=31536000, immutable' } : {})
       })
-      response.end(request.method === 'HEAD' ? undefined : file)
       return
     }
   }
@@ -267,21 +270,10 @@ async function sendClientAsset(
   const shell = await readFileIfPresent(join(root, 'index.html'))
   if (!shell) {
     const message = 'The Toucan mobile client has not been built. Run "npm run build:mobile" on the host.'
-    response.writeHead(503, {
-      'content-type': 'text/plain; charset=utf-8',
-      'content-length': Buffer.byteLength(message),
-      'cache-control': 'no-store'
-    })
-    response.end(request.method === 'HEAD' ? undefined : message)
+    send(request, response, 503, message, { 'content-type': 'text/plain; charset=utf-8' })
     return
   }
-  response.writeHead(200, {
-    'content-type': 'text/html; charset=utf-8',
-    'content-length': shell.byteLength,
-    'cache-control': 'no-store',
-    'x-content-type-options': 'nosniff'
-  })
-  response.end(request.method === 'HEAD' ? undefined : shell)
+  send(request, response, 200, shell, { 'content-type': 'text/html; charset=utf-8' })
 }
 
 async function readFileIfPresent(path: string): Promise<Buffer | null> {

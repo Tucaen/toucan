@@ -9,8 +9,8 @@
  *
  * The second is *what* a paired phone sees. `RemoteWorkspaceSnapshot` is a projection of the
  * canvas, not a second model of it: the canvas stays the authority on node identity, titles and
- * status, and `deriveRemoteWorkspaceSnapshot` is the one function that reduces that state to what
- * a small screen needs. It lives here, runtime-neutral, so the host, the desktop renderer and the
+ * status, and `deriveRemoteWorkspaceProjection` is the one function that reduces that state to
+ * what a small screen needs. It lives here, runtime-neutral, so the host, the desktop renderer and the
  * mobile client all read the same wire shape from one definition rather than three DTO layers.
  */
 

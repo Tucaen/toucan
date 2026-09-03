@@ -20,7 +20,7 @@
     "start": "electron-vite preview",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"mobile/**/*.{ts,tsx,css}\" \"tests/**/*.{ts,tsx}\" \"*.{ts,json,mjs}\" \"scripts/**/*.mjs\"",
     "lint": "eslint src tests mobile *.ts --max-warnings 0",
-    "check:architecture": "depcruise --config dependency-cruiser.config.mjs src",
+    "check:architecture": "depcruise --config dependency-cruiser.config.mjs src mobile",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.mobile.json",
     "test": "tsc -p tsconfig.test.json && node --test .test-out/tests/*.test.js && npm run test:dom",
     "check": "npm run format:check && npm run lint && npm run check:architecture && npm run typecheck && npm test",

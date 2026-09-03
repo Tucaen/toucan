@@ -65,15 +65,15 @@ export function attentionLabel(kind: AttentionKind): string {
 }
 
 /**
- * How stale the list is. The phone polls, so a snapshot is always a little old and pretending
- * otherwise is what makes a remote list untrustworthy; only a genuinely stale one is called out.
+ * Whether the host has ever been handed a projection. Until it has, an empty list means "the
+ * desktop has not said anything yet", which is a different thing from "nothing is running" - and
+ * telling the two apart is the difference between a trustworthy remote list and a misleading one.
+ *
+ * The age of the projection is deliberately *not* shown. `updatedAt` marks when the canvas last
+ * changed, not when the phone last heard from the host, so an idle workspace would drift into
+ * looking stale while the poll was in fact succeeding every few seconds. A poll that actually
+ * fails surfaces its own error instead.
  */
-export const STALE_SNAPSHOT_MS = 15_000
-
-export function snapshotAgeLabel(snapshot: RemoteWorkspaceSnapshot, now: number): string | null {
-  if (snapshot.updatedAt === 0) return 'Waiting for the desktop'
-  const age = now - snapshot.updatedAt
-  if (age < STALE_SNAPSHOT_MS) return null
-  const minutes = Math.floor(age / 60_000)
-  return minutes < 1 ? `Updated ${Math.floor(age / 1000)}s ago` : `Updated ${minutes}m ago`
+export function isAwaitingDesktop(snapshot: RemoteWorkspaceSnapshot): boolean {
+  return snapshot.updatedAt === 0
 }

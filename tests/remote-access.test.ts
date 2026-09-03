@@ -20,7 +20,7 @@ import {
   routeRequiresPairing
 } from '../src/main/remote/remote-routes'
 import { describeHostAddresses, isTailscaleAddress } from '../src/main/remote/host-addresses'
-import { groupChatsByProject, snapshotAgeLabel } from '../mobile/src/chat-list'
+import { groupChatsByProject, isAwaitingDesktop } from '../mobile/src/chat-list'
 
 /**
  * The decisions behind remote access, away from any socket: what a phone is allowed to see, what
@@ -140,9 +140,10 @@ describe('workspace projection', () => {
     assert.equal(groups.length, 1)
     assert.equal(groups[0].project.id, 'toucan')
     assert.equal(groups[0].unread, 2)
-    assert.equal(snapshotAgeLabel(snapshot, 6_000), null)
-    assert.equal(snapshotAgeLabel(snapshot, 95_000), 'Updated 1m ago')
-    assert.equal(snapshotAgeLabel({ ...snapshot, updatedAt: 0 }, 6_000), 'Waiting for the desktop')
+    // A projection the host has stamped is never called stale, however long the canvas has been
+    // idle; only one that has never arrived is.
+    assert.equal(isAwaitingDesktop(snapshot), false)
+    assert.equal(isAwaitingDesktop({ ...snapshot, updatedAt: 0 }), true)
   })
 })
 

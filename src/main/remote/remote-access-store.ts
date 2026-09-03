@@ -1,4 +1,14 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
+import {
+  closeSync,
+  existsSync,
+  fsyncSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  unlinkSync,
+  writeSync
+} from 'node:fs'
 import { dirname } from 'node:path'
 import {
   REMOTE_ACCESS_DEFAULT_SETTINGS,
@@ -52,7 +62,16 @@ export function createRemoteAccessStore(options: RemoteAccessStoreOptions): Remo
     const temporary = `${options.path}.tmp`
     try {
       mkdirSync(dirname(options.path), { recursive: true })
-      writeFileSync(temporary, JSON.stringify(stored), 'utf8')
+      // Synchronous and fsynced: the record is read before any window exists, so it cannot await,
+      // and a pairing token that reached only the page cache would be lost by the crash that took
+      // the app down - leaving a paired phone holding a token the host no longer knows.
+      const handle = openSync(temporary, 'w')
+      try {
+        writeSync(handle, JSON.stringify(stored), null, 'utf8')
+        fsyncSync(handle)
+      } finally {
+        closeSync(handle)
+      }
       renameSync(temporary, options.path)
     } catch {
       if (existsSync(temporary)) {

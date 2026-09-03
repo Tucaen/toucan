@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { EMPTY_REMOTE_WORKSPACE_SNAPSHOT, type RemoteWorkspaceSnapshot } from '../../src/shared/remote-access'
-import { attentionLabel, chatStatusLabel, countActiveChats, groupChatsByProject, snapshotAgeLabel } from './chat-list'
+import { attentionLabel, chatStatusLabel, countActiveChats, groupChatsByProject, isAwaitingDesktop } from './chat-list'
 import {
   WORKSPACE_POLL_MS,
   fetchWorkspace,
@@ -110,12 +110,9 @@ function ChatListScreen({
 }): JSX.Element {
   const [snapshot, setSnapshot] = useState<RemoteWorkspaceSnapshot>(EMPTY_REMOTE_WORKSPACE_SNAPSHOT)
   const [problem, setProblem] = useState<string | null>(null)
-  const [now, setNow] = useState(() => Date.now())
   const unauthorized = useRef(onUnauthorized)
   unauthorized.current = onUnauthorized
 
-  // One interval owns both the poll and the clock the staleness label reads, so the list cannot
-  // claim to be fresh while nothing is actually being fetched.
   useEffect(() => {
     let cancelled = false
     const controller = new AbortController()
@@ -123,7 +120,6 @@ function ChatListScreen({
     const poll = async (): Promise<void> => {
       const result = await fetchWorkspace(token, controller.signal)
       if (cancelled) return
-      setNow(Date.now())
       if (result.ok) {
         setSnapshot(result.value)
         setProblem(null)
@@ -147,7 +143,7 @@ function ChatListScreen({
 
   const groups = useMemo(() => groupChatsByProject(snapshot), [snapshot])
   const summary = useMemo(() => countActiveChats(snapshot), [snapshot])
-  const age = snapshotAgeLabel(snapshot, now)
+  const awaiting = isAwaitingDesktop(snapshot)
 
   return (
     <main className="screen">
@@ -159,18 +155,22 @@ function ChatListScreen({
           </button>
         </div>
         <p>
-          {summary.working > 0 && <span className="summary-chip working">{summary.working} working</span>}
-          {summary.unread > 0 && <span className="summary-chip unread">{summary.unread} unread</span>}
-          {summary.working === 0 && summary.unread === 0 && <span className="summary-chip">Nothing running</span>}
-          {age && <span className="summary-chip stale">{age}</span>}
+          {awaiting && <span className="summary-chip stale">Waiting for the desktop</span>}
+          {!awaiting && summary.working > 0 && <span className="summary-chip working">{summary.working} working</span>}
+          {!awaiting && summary.unread > 0 && <span className="summary-chip unread">{summary.unread} unread</span>}
+          {!awaiting && summary.working === 0 && summary.unread === 0 && (
+            <span className="summary-chip">Nothing running</span>
+          )}
         </p>
       </header>
 
       {problem && <p className="problem">{problem}</p>}
 
-      {groups.length === 0 && !problem && (
+      {/* "Nothing is open" and "the desktop has not reported yet" must not read the same. */}
+      {groups.length === 0 && !problem && !awaiting && (
         <p className="empty">No agent chats are open on the desktop. Terminals are not shown here.</p>
       )}
+      {awaiting && !problem && <p className="empty">Paired. Waiting for this desktop to report what it has open.</p>}
 
       {groups.map((group) => (
         <section className="project" key={group.project.id}>
