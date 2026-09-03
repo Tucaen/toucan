@@ -273,6 +273,8 @@ export type AgentEvent =
   | { type: 'efforts'; efforts: AgentEffortState | null }
   | { type: 'commands'; commands: AgentCommand[] }
   | { type: 'approval'; approvalId: string; title: string; options: AgentPermissionOption[]; activity?: AgentActivity }
+  /** An approval was answered (by any client), so every subscriber retires the pending card. */
+  | { type: 'approval_resolved'; approvalId: string }
   | { type: 'decision_request'; request: AgentDecisionRequest }
   | { type: 'decision_resolved'; requestId: string }
   | { type: 'auth'; methods: AgentAuthMethod[] }

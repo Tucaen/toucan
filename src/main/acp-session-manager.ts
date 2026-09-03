@@ -38,6 +38,7 @@ import { activityFromUpdate } from '../shared/agent-activity'
 import { agentPermissionTitle } from '../shared/agent-permission'
 import { effortSelectorFromConfigOptions } from '../shared/agent-effort'
 import { modelSelectorFromConfigOptions } from '../shared/agent-models'
+import { createAgentEventBroker, type AgentEventBroker } from './agent-event-broker'
 import { buildAgentProcessLaunch, spawnAgentProcess, type AgentProcessLaunch } from './agent-process'
 import { readCachedCodexModels } from './codex-model-cache'
 import { createPromptWakeGate, type PromptWakeGate } from './prompt-wake-gate'
@@ -436,6 +437,12 @@ export interface AcpSessionManagerOptions {
   environment?: NodeJS.ProcessEnv
   /** Seam for tests to observe the launch the primary adapter is actually spawned with. */
   spawnAgent?: (launch: AgentProcessLaunch) => ChildProcessWithoutNullStreams
+  /**
+   * The fan-out every session publishes its `AgentEvent`s to. The creating renderer is only
+   * subscriber #1; injecting the broker lets other hosts (the remote server) subscribe to the
+   * same sessions and read the same live transcript snapshots.
+   */
+  broker?: AgentEventBroker
 }
 
 /**
@@ -520,14 +527,18 @@ export interface AcpSessionManager {
 export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpSessionManager {
   const environment = options.environment ?? process.env
   const agents = new Map<string, RunningAgent>()
+  const broker = options.broker ?? createAgentEventBroker()
   const toucanSkillsRoot = resolveToucanSkillsRoot(options.appPath)
 
   const send = (running: RunningAgent, event: AgentEvent): void => {
     if (running.replayEvents) {
+      // Replay stays off the live channel (it travels inside the create result), but the broker's
+      // snapshot must still learn what it restored, or a late subscriber would miss the history.
       running.replayEvents.push(event)
+      broker.fold(running.request.id, event)
       return
     }
-    if (!running.owner.isDestroyed()) running.owner.send('agent:event', { id: running.request.id, event })
+    broker.publish(running.request.id, event)
   }
 
   const adapterPath = (provider: AgentCreateRequest['provider']): string =>
@@ -589,7 +600,14 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
     }
   }
 
+  /** Every create result also lands in the broker snapshot, mirroring the renderer's own fold. */
   const openSession = async (running: RunningAgent): Promise<AgentCreateResult> => {
+    const result = await openProviderSession(running)
+    broker.applyCreateResult(running.request.id, result)
+    return result
+  }
+
+  const openProviderSession = async (running: RunningAgent): Promise<AgentCreateResult> => {
     send(running, { type: 'status', status: 'starting' })
     try {
       let modes: AgentModeState | undefined
@@ -711,6 +729,10 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
   }
 
   const stop = (id: string): void => {
+    // Unconditional: an unexpectedly exited agent is already out of `agents`, but its channel
+    // (snapshot and subscribers, the owner's forwarding among them) must still be retired, or the
+    // renderer's kill-then-recreate cycle would stack a second owner subscription per restart.
+    broker.close(id)
     const running = agents.get(id)
     if (!running) return
     running.wakeGate?.dispose()
@@ -765,6 +787,12 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       if (!existsSync(path)) {
         return { ok: false, status: 'error', message: `The ${request.provider} ACP adapter is not installed.` }
       }
+
+      // Subscriber #1: the creating renderer, receiving the same fanned-out stream any other
+      // client would. Retired with the session by `stop`'s broker.close.
+      broker.subscribe(request.id, (event) => {
+        if (!owner.isDestroyed()) owner.send('agent:event', { id: request.id, event })
+      })
 
       const agentEnvironment = agentProcessEnvironment(environment, request.id)
       const launch = buildAgentProcessLaunch(process.execPath, path, request.cwd, agentEnvironment)
@@ -1147,6 +1175,8 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       pending.resolve({
         outcome: optionId ? { outcome: 'selected', optionId } : { outcome: 'cancelled' }
       })
+      // Whoever answered, every subscriber must see the pending approval retire.
+      send(running, { type: 'approval_resolved', approvalId })
     },
 
     resolveElicitation(id, requestId, content): void {

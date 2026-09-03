@@ -7,6 +7,7 @@ import type { AgentCreateRequest, AgentDecisionResponseContent, AgentPromptConte
 import type { ConversationListRequest } from '../shared/conversation'
 import type { TerminalCreateRequest, WorkspaceState } from '../shared/terminal'
 import { createAcpSessionManager, type AcpSessionManager } from './acp-session-manager'
+import { createAgentEventBroker } from './agent-event-broker'
 import { createBrainDumpLibrary } from './brain-dump-library'
 import { hiddenProcessOptions } from './background-process'
 import {
@@ -341,10 +342,14 @@ void app.whenReady().then(async () => {
         env: { ...process.env, TERM: 'xterm-256color' }
       })
   })
+  // Sessions publish their events here; the renderer subscribes per session at create, and the
+  // remote server will subscribe the same way. Created at the composition root so both can share it.
+  const agentEvents = createAgentEventBroker()
   const agentManager = createAcpSessionManager({
     appPath: app.getAppPath(),
     codexHome,
-    environment: agentEnvironment
+    environment: agentEnvironment,
+    broker: agentEvents
   })
   const workspace = createWorkspaceStore(join(app.getPath('userData'), 'prototype-workspace.json'))
   const captureStore = createBrainDumpCaptureStore(join(app.getPath('userData'), 'brain-dump-capture.json'))

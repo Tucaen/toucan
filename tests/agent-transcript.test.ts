@@ -250,3 +250,31 @@ test('a failed create result lands exited with its message', () => {
   assert.equal(state.status, 'exited')
   assert.equal(state.detail, 'adapter missing')
 })
+
+test('an approval answered anywhere clears the pending approval every subscriber sees', () => {
+  const raised = fold([
+    {
+      type: 'approval',
+      approvalId: 'ap-1',
+      title: 'Run npm test',
+      options: [{ id: 'allow', label: 'Allow', kind: 'allow_once' }]
+    }
+  ])
+  assert.equal(raised.approval?.id, 'ap-1')
+
+  const resolved = fold([{ type: 'approval_resolved', approvalId: 'ap-1' }], raised)
+  assert.equal(resolved.approval, null)
+})
+
+test('a stale approval_resolved does not clear a newer pending approval', () => {
+  const state = fold([
+    {
+      type: 'approval',
+      approvalId: 'ap-2',
+      title: 'Edit file',
+      options: [{ id: 'allow', label: 'Allow', kind: 'allow_once' }]
+    },
+    { type: 'approval_resolved', approvalId: 'ap-1' }
+  ])
+  assert.equal(state.approval?.id, 'ap-2')
+})

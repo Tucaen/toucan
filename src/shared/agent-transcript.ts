@@ -272,6 +272,9 @@ export function foldAgentEvent(state: AgentTranscriptState, event: AgentEvent, n
           ...(event.activity ? { activity: event.activity } : {})
         }
       }
+    case 'approval_resolved':
+      // A stale resolution (an already-superseded approval) must not clear a newer request.
+      return state.approval?.id === event.approvalId ? { ...state, approval: null } : state
     case 'decision_request': {
       const existing = state.decisionRequests.findIndex((request) => request.id === event.request.id)
       return {
