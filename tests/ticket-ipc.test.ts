@@ -10,6 +10,7 @@ interface Harness {
   subscribed: TicketChangeOwner[]
   revealed: string[]
   statuses: Array<[string, string, string]>
+  removals: Array<[string, string]>
 }
 
 function harness(library: Partial<TicketLibrary> = {}): Harness {
@@ -18,6 +19,7 @@ function harness(library: Partial<TicketLibrary> = {}): Harness {
   const subscribed: TicketChangeOwner[] = []
   const revealed: string[] = []
   const statuses: Array<[string, string, string]> = []
+  const removals: Array<[string, string]> = []
   const changes: TicketChangeWatcher = {
     watchProject: async (projectPath) => void watched.push(projectPath),
     subscribe: (owner) => void subscribed.push(owner),
@@ -32,13 +34,18 @@ function harness(library: Partial<TicketLibrary> = {}): Harness {
         statuses.push([projectPath, slug, status])
         return { ok: false, code: 'unused', message: 'Unused.' }
       },
+      remove: async (projectPath, slug) => {
+        removals.push([projectPath, slug])
+        return { ok: true }
+      },
       pathFor: async (_projectPath, slug) => (slug === 'ticket-board' ? 'D:\\p\\docs\\tickets\\ticket-board.md' : null),
       ...library
     },
     changes,
-    (path) => revealed.push(path)
+    (path) => revealed.push(path),
+    async (projectPath) => projectPath === 'D:\\p'
   )
-  return { handlers, watched, subscribed, revealed, statuses }
+  return { handlers, watched, subscribed, revealed, statuses, removals }
 }
 
 const event = { sender: { isDestroyed: () => false, send: () => {} } }
@@ -87,4 +94,29 @@ test('reveal only ever hands the shell a path the library resolved', async () =>
   assert.deepEqual(revealed, [])
   await handlers.get('tickets:reveal')!(event, 'D:\\p', 'ticket-board')
   assert.deepEqual(revealed, ['D:\\p\\docs\\tickets\\ticket-board.md'])
+})
+
+test('a malformed removal request never reaches the files', async () => {
+  const { handlers, removals } = harness()
+  assert.deepEqual(await handlers.get('tickets:remove')!(event, 'D:\\p', 7), {
+    ok: false,
+    code: 'invalid-request',
+    message: 'Project and ticket are required.'
+  })
+  assert.deepEqual(await handlers.get('tickets:remove')!(event, '', 'ticket-board'), {
+    ok: false,
+    code: 'invalid-request',
+    message: 'Project and ticket are required.'
+  })
+  assert.deepEqual(removals, [])
+  assert.deepEqual(await handlers.get('tickets:remove')!(event, 'D:\\p', 'ticket-board'), { ok: true })
+  assert.deepEqual(removals, [['D:\\p', 'ticket-board']])
+})
+
+test('the delete confirmation is told whether the project is a git checkout', async () => {
+  const { handlers } = harness()
+  assert.equal(await handlers.get('tickets:is-git-repository')!(event, 'D:\\p'), true)
+  assert.equal(await handlers.get('tickets:is-git-repository')!(event, 'D:\\not-git'), false)
+  // A path that is not one cannot be probed, and an unprobed project gets the cautious answer.
+  assert.equal(await handlers.get('tickets:is-git-repository')!(event, 42), false)
 })

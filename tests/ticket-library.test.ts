@@ -160,3 +160,58 @@ test('the file behind a card can be located for the shell to reveal', async () =
     assert.equal(await library().pathFor(project, '../escape'), null)
   })
 })
+
+test('removing a ticket deletes its file and takes it out of the listing', async () => {
+  await withProject(async (project, folder) => {
+    await writeFile(
+      join(folder, 'ticket-board.md'),
+      ticketFile({ title: 'Board', status: 'done', created: '2026-08-01', updated: '2026-08-01' }),
+      'utf8'
+    )
+    await writeFile(
+      join(folder, 'ticket-delete.md'),
+      ticketFile({ title: 'Delete', status: 'open', created: TODAY, updated: TODAY, blocked_by: 'ticket-board' }),
+      'utf8'
+    )
+    const store = library()
+
+    assert.deepEqual(await store.remove(project, 'ticket-board'), { ok: true })
+    await assert.rejects(readFile(join(folder, 'ticket-board.md'), 'utf8'))
+
+    // The blocker it left behind is the board's existing "missing" chip, not a third state.
+    const { cards, diagnostics } = await store.list(project)
+    assert.deepEqual(
+      cards.map((card) => card.id),
+      ['ticket-delete']
+    )
+    assert.deepEqual(cards[0].blockedBy, ['ticket-board'])
+    assert.deepEqual(diagnostics, [])
+  })
+})
+
+test('removing refuses anything that is not a slug in the tickets folder', async () => {
+  await withProject(async (project, folder) => {
+    const outside = join(project, 'secrets.md')
+    await writeFile(outside, 'not a ticket\n', 'utf8')
+    await writeFile(
+      join(folder, 'ticket-board.md'),
+      ticketFile({ title: 'Board', status: 'open', created: TODAY, updated: TODAY }),
+      'utf8'
+    )
+    const store = library()
+
+    for (const rejected of ['../secrets', 'sub/ticket-board', '..', '', 'Ticket-Board']) {
+      const result = await store.remove(project, rejected)
+      assert.equal(result.ok, false)
+      assert.equal(result.ok === false && result.code, 'invalid-slug')
+    }
+    assert.equal(await readFile(outside, 'utf8'), 'not a ticket\n')
+    assert.equal((await store.list(project)).cards.length, 1)
+  })
+})
+
+test('removing a ticket that is already gone is the outcome the caller asked for', async () => {
+  await withProject(async (project) => {
+    assert.deepEqual(await library().remove(project, 'never-written'), { ok: true })
+  })
+})

@@ -84,6 +84,11 @@ export function ticketDropAllowed(card: TicketCard, sources: readonly TicketSour
   return !!sources.find((source) => source.id === card.sourceId)?.setStatus
 }
 
+/** A card can only be deleted when its source's records are Toucan's to destroy; issues are not. */
+export function ticketRemoveAllowed(card: TicketCard, sources: readonly TicketSource[]): boolean {
+  return !!sources.find((source) => source.id === card.sourceId)?.remove
+}
+
 /**
  * Newest first, then alphabetically, then by source: a board that reorders itself between two
  * identical listings is a board nobody can point at.
@@ -113,16 +118,30 @@ function columnStatuses(cards: readonly TicketCard[]): string[] {
   return [...defaults, ...extra]
 }
 
+/**
+ * Closed, and closed long enough ago that the Done column has folded it away. One predicate for
+ * the cutoff, so what the bulk delete offers to remove is exactly what the column stopped showing:
+ * two spellings of "older than 30 days" would eventually disagree about a card on the boundary.
+ */
+function isStaleDone(card: TicketCard, today: string): boolean {
+  if (card.status !== 'done') return false
+  const elapsed = calendarDaysBetween(card.updated, today)
+  // An unreadable date is never stale: a file Toucan cannot date is not one it may offer to delete.
+  return elapsed !== null && elapsed > DONE_COLUMN_RECENT_DAYS
+}
+
+/** The Done cards the cutoff has folded away, newest first, for the Done column's bulk delete. */
+export function staleDoneCards(cards: readonly TicketCard[], today: string): TicketCard[] {
+  return cards.filter((card) => isStaleDone(card, today)).sort(byRecencyThenTitle)
+}
+
 export function ticketBoardColumns(input: TicketBoardInput): TicketBoardColumn[] {
   const cards = input.listings.flatMap((listing) => listing.cards)
   return columnStatuses(cards).map((status) => {
     const inColumn = cards.filter((card) => card.status === status).sort(byRecencyThenTitle)
     if (status !== 'done' || input.showAllDone)
       return { status, label: ticketStatusLabel(status), cards: inColumn, hidden: 0 }
-    const recent = inColumn.filter((card) => {
-      const elapsed = calendarDaysBetween(card.updated, input.today)
-      return elapsed === null || elapsed <= DONE_COLUMN_RECENT_DAYS
-    })
+    const recent = inColumn.filter((card) => !isStaleDone(card, input.today))
     return { status, label: ticketStatusLabel(status), cards: recent, hidden: inColumn.length - recent.length }
   })
 }

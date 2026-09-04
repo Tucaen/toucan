@@ -435,17 +435,21 @@ void app.whenReady().then(async () => {
     }),
     conversationTitles
   )
+  // One manager for both: the delete confirmation asks git the same question worktree discovery
+  // does, so it asks the same object rather than shelling out on its own.
+  const worktrees = createWorktreeManager()
   registerTicketIpc(
     ipcMain as unknown as Parameters<typeof registerTicketIpc>[0],
     createTicketLibrary({ directoryFor: ticketsFolderFor, today: localCalendarDate }),
     ticketChanges,
-    (path) => shell.showItemInFolder(normalize(path))
+    (path) => shell.showItemInFolder(normalize(path)),
+    (projectPath) => worktrees.isRepository(projectPath)
   )
   registerGithubIssuesIpc(
     ipcMain as unknown as Parameters<typeof registerGithubIssuesIpc>[0],
     createGithubIssueReader({ resolveCommand: findCommand })
   )
-  registerWorktreeIpc(createWorktreeManager())
+  registerWorktreeIpc(worktrees)
   registerWorkspaceFileIpc(createWorkspaceFileIndex())
   registerUsageIpc(
     createProviderUsage({

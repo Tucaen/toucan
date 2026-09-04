@@ -1,7 +1,7 @@
 import { mkdir, readFile, readdir, rename, rm } from 'node:fs/promises'
-import { join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { rewriteFrontmatter } from '../shared/frontmatter'
-import type { TicketMutationResult, TicketSourceListResult } from '../shared/ticket-source'
+import type { TicketMutationResult, TicketRemovalResult, TicketSourceListResult } from '../shared/ticket-source'
 import { ticketCard } from '../shared/ticket-source'
 import type { Ticket, TicketDiagnostic } from '../shared/tickets'
 import { isTicketSlug, isTicketStatus, parseTicket } from '../shared/tickets'
@@ -28,6 +28,12 @@ export interface TicketLibraryOptions {
 export interface TicketLibrary {
   list(projectPath: string): Promise<TicketSourceListResult>
   setStatus(projectPath: string, slug: string, status: string): Promise<TicketMutationResult>
+  /**
+   * Deletes the ticket file. There is no archive folder and no trash: every Toucan project is a git
+   * checkout, so history is the backup, and a deleted slug someone still names in `blocked_by`
+   * shows as the board's existing "missing" chip rather than a third blocker state.
+   */
+  remove(projectPath: string, slug: string): Promise<TicketRemovalResult>
   /** The file behind a slug, or `null` when the slug is not one - never an unchecked join. */
   pathFor(projectPath: string, slug: string): Promise<string | null>
 }
@@ -87,6 +93,27 @@ export function createTicketLibrary(options: TicketLibraryOptions): TicketLibrar
     }
   }
 
+  /**
+   * Path identity rather than string equality: what may be deleted is a direct `.md` child of this
+   * project's tickets folder, decided by resolving both ends - so no slug, however it was spelled
+   * or normalized on the way in, can name a file anywhere else.
+   */
+  async function applyRemove(projectPath: string, slug: string): Promise<TicketRemovalResult> {
+    if (!isTicketSlug(slug)) return { ok: false, code: 'invalid-slug', message: 'Slug must be lowercase kebab-case.' }
+    const folder = await options.directoryFor(projectPath)
+    const path = resolve(folder, `${slug}.md`)
+    if (dirname(path) !== resolve(folder))
+      return { ok: false, code: 'invalid-slug', message: 'A ticket is a file directly in the tickets folder.' }
+    try {
+      // `force` because a ticket that is already gone is the outcome the caller asked for: a bulk
+      // delete racing the watcher must not fail on a file someone else removed a moment earlier.
+      await rm(path, { force: true })
+    } catch (error) {
+      return { ok: false, code: 'delete-failed', message: (error as Error).message }
+    }
+    return { ok: true }
+  }
+
   async function applyStatus(projectPath: string, slug: string, status: string): Promise<TicketMutationResult> {
     if (!isTicketSlug(slug)) return { ok: false, code: 'invalid-slug', message: 'Slug must be lowercase kebab-case.' }
     if (!isTicketStatus(status))
@@ -118,19 +145,20 @@ export function createTicketLibrary(options: TicketLibraryOptions): TicketLibrar
     return { ok: true, card: ticketCard(rewritten) }
   }
 
+  /** Every write queues behind every other one, so no two of them interleave a read with a write. */
+  function serialized<T>(apply: () => Promise<T>): Promise<T> {
+    const result = mutations.then(apply, apply)
+    mutations = result.then(
+      () => undefined,
+      () => undefined
+    )
+    return result
+  }
+
   return {
     list,
     pathFor,
-    setStatus: (projectPath, slug, status) => {
-      const result = mutations.then(
-        () => applyStatus(projectPath, slug, status),
-        () => applyStatus(projectPath, slug, status)
-      )
-      mutations = result.then(
-        () => undefined,
-        () => undefined
-      )
-      return result
-    }
+    setStatus: (projectPath, slug, status) => serialized(() => applyStatus(projectPath, slug, status)),
+    remove: (projectPath, slug) => serialized(() => applyRemove(projectPath, slug))
   }
 }

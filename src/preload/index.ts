@@ -206,6 +206,8 @@ const ticketsApi: TicketFilesApi = {
   list: (projectPath: string) => ipcRenderer.invoke('tickets:list', projectPath),
   setStatus: (projectPath: string, slug: string, status: string) =>
     ipcRenderer.invoke('tickets:set-status', projectPath, slug, status),
+  remove: (projectPath: string, slug: string) => ipcRenderer.invoke('tickets:remove', projectPath, slug),
+  isGitRepository: (projectPath: string) => ipcRenderer.invoke('tickets:is-git-repository', projectPath),
   revealInFolder: (projectPath: string, slug: string) => void ipcRenderer.invoke('tickets:reveal', projectPath, slug),
   onChange: (callback: (projectPath: string) => void): (() => void) => {
     const listener = (_event: Electron.IpcRendererEvent, projectPath: string): void => callback(projectPath)

@@ -5002,6 +5002,7 @@ button {
 
 .brain-dump-capture-error,
 .brain-dump-reader-error,
+.app-dialog-error,
 .brain-dump-dialog-error {
   margin: 0;
   color: #e0787f;
@@ -5033,6 +5034,9 @@ button {
   text-transform: uppercase;
 }
 
+/* The shared modal shell. Neutral names because a dialog outside brain dumps - the ticket
+   board’s delete confirmation - wears the same frame and must not inherit another panel’s. */
+.app-dialog-overlay,
 .brain-dump-dialog-overlay {
   position: absolute;
   inset: 0;
@@ -5044,6 +5048,7 @@ button {
   background: rgba(12, 14, 18, 0.72);
 }
 
+.app-dialog,
 .brain-dump-dialog {
   display: flex;
   flex-direction: column;
@@ -5055,6 +5060,7 @@ button {
   background: #1b1e24;
 }
 
+.app-dialog p,
 .brain-dump-dialog p {
   margin: 0;
   color: #9aa4b2;
@@ -5088,12 +5094,14 @@ button {
   font-size: 13px;
 }
 
+.app-dialog-actions,
 .brain-dump-dialog-actions {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
 }
 
+.app-dialog-actions button,
 .brain-dump-dialog-actions button {
   padding: 6px 13px;
   border: 1px solid #2b323d;
@@ -5103,6 +5111,7 @@ button {
   cursor: pointer;
 }
 
+.app-dialog-actions .primary,
 .brain-dump-dialog-actions .primary {
   border-color: #3f5f96;
   background: #24405f;
@@ -5622,6 +5631,7 @@ button {
 }
 
 .ticket-column-count {
+  margin-left: auto;
   color: #7d8796;
   font-size: 12px;
 }
@@ -5753,6 +5763,73 @@ button {
 .ticket-card-reveal svg {
   width: 13px;
   height: 13px;
+}
+
+/* Same affordance as reveal, one step further right; the confirmation is what keeps it safe. */
+.ticket-card-delete,
+.ticket-column-sweep {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  color: #6f7988;
+  background: transparent;
+  cursor: pointer;
+}
+
+.ticket-card-delete:hover,
+.ticket-card-delete:focus-visible,
+.ticket-column-sweep:hover,
+.ticket-column-sweep:focus-visible {
+  color: #e0787f;
+  background: #241a1c;
+}
+
+.ticket-card-delete svg,
+.ticket-column-sweep svg {
+  width: 13px;
+  height: 13px;
+}
+
+.ticket-delete-dialog .ticket-delete-list {
+  display: grid;
+  gap: 4px;
+  max-height: 200px;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.ticket-delete-list li {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 12px;
+}
+
+.ticket-delete-list code {
+  flex: none;
+  color: #8a94a2;
+}
+
+.ticket-delete-list span {
+  overflow: hidden;
+  color: #cbd2dc;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ticket-delete-dialog {
+  border-color: #5a2f33;
+}
+
+.ticket-delete-dialog .ticket-delete-confirm {
+  border-color: #7a3a40;
+  background: #5a2f33;
 }
 
 /* The live session card: which chat is on this ticket, and the way back to it. */

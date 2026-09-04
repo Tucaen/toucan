@@ -21,6 +21,9 @@ export interface MockTicketsApi extends TicketFilesApi {
   publishChange(projectPath: string): void
   listCalls: string[]
   revealCalls: Array<[string, string]>
+  removeCalls: Array<[string, string]>
+  /** Whether the project is a git checkout, which is all the delete confirmation asks about. */
+  setGitRepository(repository: boolean): void
 }
 
 export function cardFixture(overrides: Partial<TicketCard> & Pick<TicketCard, 'id'>): TicketCard {
@@ -39,6 +42,8 @@ export function createMockTicketsApi(): MockTicketsApi {
   const projects = new Map<string, TicketSourceListResult>()
   const listCalls: string[] = []
   const revealCalls: Array<[string, string]> = []
+  const removeCalls: Array<[string, string]> = []
+  let gitRepository = true
   const listingFor = (projectPath: string): TicketSourceListResult => {
     const listing = projects.get(projectPath) ?? { cards: [], diagnostics: [] }
     projects.set(projectPath, listing)
@@ -49,6 +54,8 @@ export function createMockTicketsApi(): MockTicketsApi {
     projects,
     listCalls,
     revealCalls,
+    removeCalls,
+    setGitRepository: (repository) => void (gitRepository = repository),
     publishChange(projectPath) {
       for (const subscriber of subscribers) subscriber(projectPath)
     },
@@ -64,6 +71,13 @@ export function createMockTicketsApi(): MockTicketsApi {
       card.status = status
       return { ok: true as const, card: { ...card } }
     }),
+    remove: vi.fn(async (projectPath: string, slug: string) => {
+      removeCalls.push([projectPath, slug])
+      const listing = listingFor(projectPath)
+      listing.cards = listing.cards.filter((candidate) => candidate.id !== slug)
+      return { ok: true as const }
+    }),
+    isGitRepository: vi.fn(async () => gitRepository),
     revealInFolder: vi.fn((projectPath: string, slug: string) => void revealCalls.push([projectPath, slug])),
     onChange: (callback) => {
       subscribers.add(callback)

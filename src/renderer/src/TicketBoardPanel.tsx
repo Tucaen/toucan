@@ -1,13 +1,20 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
-import { ExternalLink, FolderOpen, GripVertical, RefreshCw, X } from 'lucide-react'
+import { ExternalLink, FolderOpen, GripVertical, RefreshCw, Trash2, X } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import type { TicketBoardPanelState } from '../../shared/terminal'
 import type { TicketCard, TicketSource } from '../../shared/ticket-source'
 import { ticketCardKey } from '../../shared/ticket-source'
 import { markdownBlockComponents, remarkPlugins } from './MarkdownMessage'
 import SessionKindIcon from './SessionKindIcon'
+import TicketDeleteDialog from './TicketDeleteDialog'
 import type { TicketSessionChip } from './ticket-activity'
-import { describeTicketDate, ticketBlockers, ticketStatusBeside, type TicketBoardColumn } from './ticket-board'
+import {
+  DONE_COLUMN_RECENT_DAYS,
+  describeTicketDate,
+  ticketBlockers,
+  ticketStatusBeside,
+  type TicketBoardColumn
+} from './ticket-board'
 import { clampTicketBoardWidth, ticketBoardBounds, ticketBoardWidthFromPointer } from './ticket-board-layout'
 import { useTicketBoard } from './use-ticket-board'
 
@@ -66,6 +73,9 @@ export default function TicketBoardPanel(props: TicketBoardPanelProps): JSX.Elem
   // Closed work is history, not the board: Done starts collapsed to a strip and the user opens it.
   const [doneExpanded, setDoneExpanded] = useState(false)
   const [resizing, setResizing] = useState(false)
+  /** The cards a confirmation is currently open for; deleting never happens without one. */
+  const [deleting, setDeleting] = useState<readonly TicketCard[] | null>(null)
+  const [deletePending, setDeletePending] = useState(false)
   const columnRefs = useRef(new Map<string, HTMLElement>())
   const scrollRef = useRef<HTMLDivElement>(null)
   /** Restored whenever the board comes back: a hidden panel loses its scroll offset. */
@@ -142,6 +152,21 @@ export default function TicketBoardPanel(props: TicketBoardPanelProps): JSX.Elem
     if (next) void board.moveCard(card, next)
   }
 
+  const askToDelete = (cards: readonly TicketCard[]): void => {
+    if (cards.length === 0) return
+    board.clearMoveError()
+    setDeleting(cards)
+  }
+
+  const confirmDelete = async (): Promise<void> => {
+    if (!deleting) return
+    setDeletePending(true)
+    const done = await board.removeCards(deleting)
+    setDeletePending(false)
+    // A failure keeps the dialog open on Retry; the board underneath has already been re-read.
+    if (done) setDeleting(null)
+  }
+
   const renderCard = (card: TicketCard): JSX.Element => {
     const key = ticketCardKey(card)
     const blockers = ticketBlockers(card, board.cards)
@@ -197,6 +222,19 @@ export default function TicketBoardPanel(props: TicketBoardPanelProps): JSX.Elem
           >
             {card.url ? <ExternalLink aria-hidden="true" /> : <FolderOpen aria-hidden="true" />}
           </button>
+          {/* Offered for any status, not just Done: a ticket that turned out to be the wrong idea
+              is deleted where it stands. The confirmation is what makes an errant click harmless. */}
+          {board.canRemove(card) && (
+            <button
+              type="button"
+              className="ticket-card-delete"
+              title={`Delete ${card.id}`}
+              aria-label={`Delete ${card.id}`}
+              onClick={() => askToDelete([card])}
+            >
+              <Trash2 aria-hidden="true" />
+            </button>
+          )}
         </div>
         {session && (
           <button
@@ -253,6 +291,10 @@ export default function TicketBoardPanel(props: TicketBoardPanelProps): JSX.Elem
     // Collapsed, Done is still a full-height drop target - closing a ticket by dragging it there
     // is the whole point - it just does not spend board width on work that is finished.
     const collapsed = isDone && !doneExpanded
+    // Offered on the collapsed column too, which is the state it exists for: a folder of hundreds
+    // of closed tickets costs every listing and every agent that reads it, and the cards it would
+    // remove are precisely the ones a collapsed Done has already stopped showing.
+    const sweepable = isDone ? board.sweepableDone : []
     return (
       <section
         key={column.status}
@@ -278,6 +320,17 @@ export default function TicketBoardPanel(props: TicketBoardPanelProps): JSX.Elem
             <h3>{column.label}</h3>
           )}
           <span className="ticket-column-count">{column.cards.length + column.hidden}</span>
+          {sweepable.length > 0 && (
+            <button
+              type="button"
+              className="ticket-column-sweep"
+              title={`Delete done tickets older than ${DONE_COLUMN_RECENT_DAYS} days`}
+              aria-label={`Delete done tickets older than ${DONE_COLUMN_RECENT_DAYS} days`}
+              onClick={() => askToDelete(sweepable)}
+            >
+              <Trash2 aria-hidden="true" />
+            </button>
+          )}
         </header>
         {!collapsed && (
           <>
@@ -305,7 +358,8 @@ export default function TicketBoardPanel(props: TicketBoardPanelProps): JSX.Elem
       style={{ width, minWidth: width }}
       aria-labelledby={headingId}
       onKeyDown={(event) => {
-        if (event.key !== 'Escape' || drag) return
+        // A confirmation's own Escape closes the confirmation; it must not also close the board.
+        if (event.key !== 'Escape' || drag || deleting) return
         closePanel()
         event.stopPropagation()
       }}
@@ -389,7 +443,8 @@ export default function TicketBoardPanel(props: TicketBoardPanelProps): JSX.Elem
         </div>
       )}
 
-      {board.mutation.error && (
+      {/* While a confirmation is open it owns the failure, so the banner does not say it twice. */}
+      {board.mutation.error && !deleting && (
         <p className="ticket-board-state" role="alert">
           {board.mutation.error}
           <button type="button" onClick={board.clearMoveError}>
@@ -426,6 +481,20 @@ export default function TicketBoardPanel(props: TicketBoardPanelProps): JSX.Elem
             ))}
           </ul>
         </div>
+      )}
+
+      {deleting && (
+        <TicketDeleteDialog
+          cards={deleting}
+          notes={board.removalNotes(deleting)}
+          pending={deletePending}
+          error={board.mutation.error}
+          onConfirm={() => void confirmDelete()}
+          onCancel={() => {
+            setDeleting(null)
+            board.clearMoveError()
+          }}
+        />
       )}
 
       {/* One polite region for everything the board announces, so nothing steals focus. */}

@@ -79,6 +79,12 @@ export interface WorktreeManager {
    * inspected reports nothing rather than failing the caller.
    */
   discover(request: WorktreeDiscoverRequest): Promise<WorktreeDiscoverResult>
+  /**
+   * Whether git knows this path as a checkout at all. Here rather than beside its one caller
+   * because it is the same `rev-parse` probe `discover` and `remove` already lean on, and a second
+   * way of asking would eventually answer differently.
+   */
+  isRepository(path: string): Promise<boolean>
 }
 
 const GIT_MAX_BUFFER = 8 * 1024 * 1024
@@ -329,6 +335,16 @@ export function createWorktreeManager(options: WorktreeManagerOptions = {}): Wor
         }
       } catch (error) {
         return { worktrees: [], claims: [], message: errorMessage(error) }
+      }
+    },
+
+    async isRepository(path): Promise<boolean> {
+      // Anything that is not a repository - a missing path, a git that will not run - is `false`,
+      // because every caller uses this to decide whether it may promise history keeps something.
+      try {
+        return pathExists(path) && (await readCommonDir(path)) !== null
+      } catch {
+        return false
       }
     }
   }

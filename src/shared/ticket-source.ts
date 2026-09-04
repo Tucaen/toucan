@@ -51,6 +51,9 @@ export interface TicketSourceListResult {
 
 export type TicketMutationResult = { ok: true; card: TicketCard } | { ok: false; code: string; message: string }
 
+/** No card comes back: what succeeded is that the card is gone. */
+export type TicketRemovalResult = { ok: true } | { ok: false; code: string; message: string }
+
 export interface TicketSource {
   id: string
   label: string
@@ -66,6 +69,19 @@ export interface TicketSource {
    * drop. A source that can write is expected to have persisted the change before it resolves.
    */
   setStatus?(projectPath: string, cardId: string, status: string): Promise<TicketMutationResult>
+  /**
+   * Absent when the source's records are not Toucan's to destroy - a GitHub issue is closed, never
+   * deleted - which is exactly what hides Delete on its cards. A folder of hundreds of closed
+   * tickets is what this exists for: list and agent read cost should stay proportional to live work.
+   */
+  remove?(projectPath: string, cardId: string): Promise<TicketRemovalResult>
+  /**
+   * What deleting from this source costs, in the source's own words, for the confirmation to show.
+   * The board never learns *why* - whether a checkout's history would keep the file is the files
+   * source's business - so a source that cannot say resolves to undefined and the board says only
+   * that the card is deleted.
+   */
+  removalNote?(projectPath: string): Promise<string | undefined>
   /** Reveals the card where it actually lives - a file in the shell, an issue in the browser. */
   openExternal?(projectPath: string, cardId: string): void
   /**
@@ -84,6 +100,13 @@ export function ticketCardKey(card: Pick<TicketCard, 'sourceId' | 'id'>): string
 export interface TicketFilesApi {
   list(projectPath: string): Promise<TicketSourceListResult>
   setStatus(projectPath: string, slug: string, status: string): Promise<TicketMutationResult>
+  /** Deletes the ticket file. Nothing is archived or trashed; a git checkout's history is the backup. */
+  remove(projectPath: string, slug: string): Promise<TicketRemovalResult>
+  /**
+   * Whether the project is a git checkout, which is the whole difference between a deletion that
+   * history keeps and one that is final - and so the only thing the delete confirmation needs.
+   */
+  isGitRepository(projectPath: string): Promise<boolean>
   /** Shows the ticket file in the OS file manager. */
   revealInFolder(projectPath: string, slug: string): void
   /** Fires with the project path whose tickets folder changed on disk. */

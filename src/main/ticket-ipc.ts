@@ -13,14 +13,15 @@ const EMPTY: TicketSourceListResult = { cards: [], diagnostics: [] }
  * the window to that project's folder: a board that can read the tickets must find out when they
  * change, and tying the two together removes the failure mode where one happened without the other.
  *
- * `reveal` is injected rather than imported so this module stays free of Electron, exactly as
- * `brain-dump-ipc.ts` is.
+ * `reveal` and `isGitRepository` are injected rather than imported so this module stays free of
+ * Electron and of git, exactly as `brain-dump-ipc.ts` is.
  */
 export function registerTicketIpc(
   ipc: TicketIpcRegistrar,
   library: TicketLibrary,
   changes: TicketChangeWatcher,
-  reveal: (path: string) => void
+  reveal: (path: string) => void,
+  isGitRepository: (projectPath: string) => Promise<boolean>
 ): void {
   ipc.handle('tickets:list', async (event, projectPath: unknown) => {
     if (typeof projectPath !== 'string' || !projectPath) return EMPTY
@@ -41,6 +42,18 @@ export function registerTicketIpc(
     typeof projectPath === 'string' && typeof slug === 'string' && typeof status === 'string'
       ? library.setStatus(projectPath, slug, status)
       : { ok: false, code: 'invalid-request', message: 'Project, ticket and status are required.' }
+  )
+
+  ipc.handle('tickets:remove', (_event, projectPath: unknown, slug: unknown) =>
+    typeof projectPath === 'string' && projectPath && typeof slug === 'string'
+      ? library.remove(projectPath, slug)
+      : { ok: false, code: 'invalid-request', message: 'Project and ticket are required.' }
+  )
+
+  // The cautious answer for anything that cannot be probed: a confirmation must never promise that
+  // history keeps a file it has no evidence is in a repository at all.
+  ipc.handle('tickets:is-git-repository', async (_event, projectPath: unknown) =>
+    typeof projectPath === 'string' && projectPath ? isGitRepository(projectPath).catch(() => false) : false
   )
 
   ipc.handle('tickets:reveal', async (_event, projectPath: unknown, slug: unknown) => {

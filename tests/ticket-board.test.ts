@@ -5,6 +5,7 @@ import { ticketCardKey } from '../src/shared/ticket-source'
 import {
   DONE_COLUMN_RECENT_DAYS,
   describeTicketDate,
+  staleDoneCards,
   ticketBlockers,
   ticketBoardColumns,
   ticketDropAllowed,
@@ -150,4 +151,25 @@ test('a keyboard move steps one column and stops at either end of the board', ()
   assert.equal(ticketStatusBeside(columns, 'open', -1), undefined)
   assert.equal(ticketStatusBeside(columns, 'done', 1), undefined)
   assert.equal(ticketStatusBeside(columns, 'invented', 1), undefined)
+})
+
+test('the bulk delete offers exactly the Done cards the collapsed column already folded away', () => {
+  const cards = [
+    card({ id: 'closed-long-ago', status: 'done', updated: '2026-06-01' }),
+    card({ id: 'closed-on-the-cutoff', status: 'done', updated: '2026-08-05' }),
+    card({ id: 'closed-a-day-past', status: 'done', updated: '2026-08-04' }),
+    card({ id: 'closed-today', status: 'done', updated: TODAY }),
+    card({ id: 'still-open', status: 'open', updated: '2026-01-01' }),
+    card({ id: 'undated', status: 'done', updated: 'not-a-date' })
+  ]
+  assert.deepEqual(
+    staleDoneCards(cards, TODAY).map((entry) => entry.id),
+    ['closed-a-day-past', 'closed-long-ago']
+  )
+  // The same cutoff either way: what the bulk delete offers is what the column is not showing.
+  const done = ticketBoardColumns({ listings: [listing(cards)], today: TODAY, showAllDone: false }).find(
+    (entry) => entry.status === 'done'
+  )!
+  assert.equal(done.hidden, staleDoneCards(cards, TODAY).length)
+  assert.equal(DONE_COLUMN_RECENT_DAYS, 30)
 })

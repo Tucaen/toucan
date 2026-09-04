@@ -7,7 +7,13 @@ import type {
 } from '../../shared/ticket-source'
 import { ticketCardKey } from '../../shared/ticket-source'
 import type { TicketDiagnostic } from '../../shared/tickets'
-import { ticketBoardColumns, ticketDropAllowed, type TicketBoardColumn } from './ticket-board'
+import {
+  staleDoneCards,
+  ticketBoardColumns,
+  ticketDropAllowed,
+  ticketRemoveAllowed,
+  type TicketBoardColumn
+} from './ticket-board'
 
 /**
  * The one owner of the board's async state: what each source last returned for the active project,
@@ -54,6 +60,25 @@ export interface TicketBoard {
   /** Whether this card's source can write a status at all, which is what a column may accept. */
   canMove(card: TicketCard): boolean
   moveCard(card: TicketCard, status: string): Promise<boolean>
+  /** Whether this card's source is one Toucan may delete from at all; GitHub issues are not. */
+  canRemove(card: TicketCard): boolean
+  /**
+   * Deletes every card given, then re-reads once. One call per card because that is what a source
+   * offers, one re-read because the board is a projection of what is on disk afterwards - and the
+   * whole set is reported together, so a bulk delete that half-failed says which half.
+   */
+  removeCards(cards: readonly TicketCard[]): Promise<boolean>
+  /**
+   * Exactly what the Done column's bulk delete would remove: the cards past the cutoff that the
+   * collapsed column has folded away, minus any whose source refuses deletion. Derived here rather
+   * than in the panel, because both halves of that decision are the hook's.
+   */
+  sweepableDone: TicketCard[]
+  /**
+   * What deleting these cards costs, in their sources' own words, deduplicated. Empty while the
+   * sources are still answering, so the confirmation shows only sentences it can stand behind.
+   */
+  removalNotes(cards: readonly TicketCard[]): string[]
   clearMoveError(): void
   reveal(card: TicketCard): void
   refresh(): Promise<void>
@@ -98,6 +123,8 @@ export function useTicketBoard(options: TicketBoardOptions): TicketBoard {
   const enabledKey = (options.enabledSources ?? []).join(',')
   const enabled = useMemo(() => new Set(enabledKey.split(',').filter(Boolean)), [enabledKey])
   const [availability, setAvailability] = useState<Record<string, TicketSourceAvailability>>({})
+  /** What each source says a deletion costs here, keyed by source id; absent until it has answered. */
+  const [removalNotes, setRemovalNotes] = useState<Record<string, string>>({})
   const sources = useMemo(
     () => configured.filter((source) => !isOptional(source) || enabled.has(source.id)),
     [configured, enabled]
@@ -181,6 +208,26 @@ export function useTicketBoard(options: TicketBoardOptions): TicketBoard {
     }
   }, [configured, projectPath])
 
+  // Asked once per project rather than once per confirmation: the answer is a property of the
+  // checkout, and a dialog that opened before a subprocess returned would have nothing to say.
+  useEffect(() => {
+    setRemovalNotes({})
+    if (!projectPath) return
+    let current = true
+    for (const source of configured) {
+      if (!source.removalNote) continue
+      void source
+        .removalNote(projectPath)
+        .catch(() => undefined)
+        .then((note) => {
+          if (current && note) setRemovalNotes((seen) => ({ ...seen, [source.id]: note }))
+        })
+    }
+    return () => {
+      current = false
+    }
+  }, [configured, projectPath])
+
   const sourceStates = useMemo(
     () =>
       configured.map((source): TicketSourceState => {
@@ -230,6 +277,59 @@ export function useTicketBoard(options: TicketBoardOptions): TicketBoard {
     [projectPath, read, sources]
   )
 
+  const canRemove = useCallback((card: TicketCard) => ticketRemoveAllowed(card, sources), [sources])
+
+  const removeCards = useCallback(
+    async (targets: readonly TicketCard[]): Promise<boolean> => {
+      const removable = targets.filter((card) => ticketRemoveAllowed(card, sources))
+      if (!projectPath || removable.length === 0) return false
+      setMutation(removable.length === 1 ? { cardKey: ticketCardKey(removable[0]) } : {})
+      // One at a time, in the order the confirmation listed them, so a failure names the card it
+      // belongs to rather than arriving out of a race.
+      const failures: string[] = []
+      for (const card of removable) {
+        const remove = sources.find((source) => source.id === card.sourceId)?.remove
+        if (!remove) continue
+        try {
+          const result = await remove(projectPath, card.id)
+          if (!result.ok) failures.push(`${card.id}: ${result.message}`)
+        } catch (cause) {
+          failures.push(`${card.id}: ${errorText(cause)}`)
+        }
+      }
+      // Re-read whatever happened: after a partial failure the board must show what actually
+      // survived, not the set the confirmation was built from.
+      await read(true)
+      if (failures.length > 0) {
+        setMutation({ error: `${failures.length} ticket(s) could not be deleted. ${failures.join(' ')}` })
+        return false
+      }
+      setMutation({})
+      setAnnouncement(
+        removable.length === 1 ? `${removable[0].title} deleted.` : `${removable.length} tickets deleted.`
+      )
+      return true
+    },
+    [projectPath, read, sources]
+  )
+
+  const notesFor = useCallback(
+    (targets: readonly TicketCard[]): string[] => [
+      ...new Set(
+        targets
+          .filter((card) => ticketRemoveAllowed(card, sources))
+          .map((card) => removalNotes[card.sourceId])
+          .filter((note): note is string => Boolean(note))
+      )
+    ],
+    [removalNotes, sources]
+  )
+
+  const sweepableDone = useMemo(
+    () => staleDoneCards(cards, today).filter((card) => ticketRemoveAllowed(card, sources)),
+    [cards, sources, today]
+  )
+
   const reveal = useCallback(
     (card: TicketCard): void => {
       if (!projectPath) return
@@ -249,6 +349,10 @@ export function useTicketBoard(options: TicketBoardOptions): TicketBoard {
     mutation,
     canMove,
     moveCard,
+    canRemove,
+    removeCards,
+    sweepableDone,
+    removalNotes: notesFor,
     clearMoveError: () => setMutation({}),
     reveal,
     refresh: () => read(false),

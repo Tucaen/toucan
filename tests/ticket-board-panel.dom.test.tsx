@@ -98,6 +98,15 @@ async function openBoard(state?: WorkspaceState): Promise<void> {
 
 const column = (label: string): HTMLElement => screen.getByRole('region', { name: new RegExp(`^${label},`) })
 
+const issue = (overrides: Partial<ReturnType<typeof cardFixture>> = {}): ReturnType<typeof cardFixture> =>
+  cardFixture({
+    sourceId: 'github',
+    id: '147',
+    title: 'GitHub issues as a second source',
+    url: 'https://github.com/tucaen/toucan/issues/147',
+    ...overrides
+  })
+
 const COLUMN_WIDTH = 260
 
 /** jsdom measures nothing, so the drag maths is given the layout the board would have had. */
@@ -359,15 +368,6 @@ describe('persisted panel state', () => {
 })
 
 describe('GitHub as a second source', () => {
-  const issue = (overrides: Partial<ReturnType<typeof cardFixture>> = {}): ReturnType<typeof cardFixture> =>
-    cardFixture({
-      sourceId: 'github',
-      id: '147',
-      title: 'GitHub issues as a second source',
-      url: 'https://github.com/tucaen/toucan/issues/147',
-      ...overrides
-    })
-
   test('a project with no GitHub remote is not offered the source at all', async () => {
     await openBoard()
     await waitFor(() => expect(github.availability).toHaveBeenCalledWith(project.path))
@@ -473,5 +473,104 @@ describe('remembered GitHub choices', () => {
     await screen.findByRole('heading', { name: 'Tickets' })
     fireEvent.keyDown(screen.getByRole('separator', { name: 'Resize the ticket board' }), { key: 'ArrowLeft' })
     await waitFor(() => expect(saved.at(-1)?.ticketBoardPanel?.enabledSources).toEqual({ [project.path]: ['github'] }))
+  })
+})
+
+describe('deleting tickets', () => {
+  test('a card is only deleted through a confirmation, and the board waits for the re-read', async () => {
+    await openBoard()
+    await screen.findByText('File node')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete file-node' }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByText('Delete “File node”?')).toBeTruthy()
+    expect(tickets.removeCalls).toEqual([])
+
+    // Cancel is not a deletion, and it leaves the card exactly where it was.
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(tickets.removeCalls).toEqual([])
+    expect(screen.getByText('File node')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete file-node' }))
+    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Delete' }))
+    await waitFor(() => expect(screen.queryByText('File node')).toBeNull())
+    expect(tickets.removeCalls).toEqual([[project.path, 'file-node']])
+    // Disk is truth here too: the card left because the re-read no longer listed it.
+    expect(tickets.listCalls.filter((path) => path === project.path).length).toBeGreaterThan(1)
+  })
+
+  test('a git checkout is told the file stays recoverable', async () => {
+    await openBoard()
+    await screen.findByText('File node')
+    fireEvent.click(screen.getByRole('button', { name: 'Delete file-node' }))
+    expect(within(await screen.findByRole('dialog')).getByText(/Git history keeps it/)).toBeTruthy()
+  })
+
+  test('a project that is not a checkout is told the deletion is final', async () => {
+    tickets.setGitRepository(false)
+    await openBoard()
+    await screen.findByText('File node')
+    fireEvent.click(screen.getByRole('button', { name: 'Delete file-node' }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByText(/not a git checkout, so this is final/)).toBeTruthy()
+    expect(within(dialog).queryByText(/Git history keeps it/)).toBeNull()
+  })
+
+  test('the Done column sweeps only tickets past the cutoff, naming every one it would delete', async () => {
+    tickets.projects.set(project.path, {
+      cards: [
+        cardFixture({ id: 'closed-long-ago', title: 'Closed long ago', status: 'done', updated: '2026-01-05' }),
+        cardFixture({ id: 'also-long-ago', title: 'Also long ago', status: 'done', updated: '2026-02-05' }),
+        cardFixture({ id: 'closed-recently', title: 'Closed recently', status: 'done', updated: '2026-09-01' }),
+        cardFixture({ id: 'still-open', title: 'Still open', status: 'open', updated: '2026-01-05' })
+      ],
+      diagnostics: []
+    })
+    await openBoard()
+    await screen.findByText('Still open')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete done tickets older than 30 days' }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByText('Delete 2 done tickets?')).toBeTruthy()
+    expect(within(dialog).getByText('also-long-ago')).toBeTruthy()
+    expect(within(dialog).getByText('closed-long-ago')).toBeTruthy()
+    expect(within(dialog).queryByText('closed-recently')).toBeNull()
+    expect(within(dialog).queryByText('still-open')).toBeNull()
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    // One call per slug, and only for the slugs the confirmation listed.
+    expect(tickets.removeCalls).toEqual([
+      [project.path, 'also-long-ago'],
+      [project.path, 'closed-long-ago']
+    ])
+    expect(screen.getByText('Still open')).toBeTruthy()
+    // Done is still collapsed, so what survived is counted rather than listed: 1, not 3.
+    expect(within(column('Done')).getByText('1')).toBeTruthy()
+  })
+
+  test('a GitHub card offers no Delete, because its issues are not Toucan’s to destroy', async () => {
+    github.setAvailability({ available: true })
+    github.setListing({ available: true, cards: [issue()], diagnostics: [] })
+    await openBoard()
+    fireEvent.click(await screen.findByRole('button', { name: 'GitHub' }))
+    await screen.findByText('GitHub issues as a second source')
+
+    expect(screen.queryByRole('button', { name: 'Delete 147' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Delete file-node' })).toBeTruthy()
+  })
+
+  test('a deletion that fails keeps the confirmation open with a retry and the card on the board', async () => {
+    tickets.remove = vi.fn(async () => ({ ok: false as const, code: 'delete-failed', message: 'EPERM: denied' }))
+    await openBoard()
+    await screen.findByText('File node')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete file-node' }))
+    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Delete' }))
+    const dialog = await screen.findByRole('dialog')
+    expect(await within(dialog).findByText(/EPERM: denied/)).toBeTruthy()
+    expect(within(dialog).getByRole('button', { name: 'Retry' })).toBeTruthy()
+    expect(screen.getByText('File node')).toBeTruthy()
   })
 })
