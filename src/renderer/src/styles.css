@@ -3313,6 +3313,8 @@ button {
 .chat-composer textarea {
   min-width: 0;
   height: 46px;
+  scrollbar-color: #3b4553 transparent;
+  scrollbar-width: thin;
   flex: 1;
   resize: none;
   padding: 9px 10px;

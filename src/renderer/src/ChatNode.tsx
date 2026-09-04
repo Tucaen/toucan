@@ -79,7 +79,7 @@ import { ProviderRateLimitsContext } from './provider-rate-limits'
 import { describeSessionUsage } from './session-usage'
 import { deriveConversationTitle } from '../../shared/conversation-title'
 import VoiceInputPrototype from './VoiceInputPrototype'
-import { composerTextareaSize } from './composer-autosize'
+import { composerConsumesWheel, composerTextareaSize } from './composer-autosize'
 import {
   acceptSlashCommand,
   acceptedSlashCompletion,
@@ -702,6 +702,20 @@ export function Composer(props: ComposerProps): JSX.Element {
     element.style.height = `${height}px`
     element.style.overflowY = scrollable ? 'auto' : 'hidden'
   }, [draft, props.attachments, props.queued])
+
+  // React Flow zooms on any wheel it sees, and the composer is not covered by a static `nowheel`
+  // because it should only claim the gesture while it actually has somewhere to scroll. The
+  // listener is native and bound to the element so it runs before d3-zoom's own listener on the
+  // pane above it - React's delegated handler at the app root would fire too late to stop it.
+  useEffect(() => {
+    const element = textareaRef.current
+    if (!element) return
+    const onWheel = (event: WheelEvent): void => {
+      if (composerConsumesWheel(element, event.deltaY)) event.stopPropagation()
+    }
+    element.addEventListener('wheel', onWheel)
+    return () => element.removeEventListener('wheel', onWheel)
+  }, [])
 
   const handlePaste = (event: React.ClipboardEvent<HTMLTextAreaElement>): void => {
     const files = imageFilesFromClipboard(event.clipboardData?.items)

@@ -23,3 +23,24 @@ export function composerTextareaSize(scrollHeight: number): ComposerTextareaSize
     scrollable: scrollHeight > COMPOSER_MAX_HEIGHT
   }
 }
+
+/** The parts of a scrolled textarea that decide whether it can absorb a wheel gesture. */
+export interface ComposerScrollState {
+  scrollTop: number
+  scrollHeight: number
+  clientHeight: number
+}
+
+/**
+ * True when the composer itself can move under this wheel gesture, in which case the canvas must
+ * not also see it. A grown-but-full composer swallowing the wheel is what stops the canvas zooming
+ * out from under someone re-reading their own prompt; once the box is at the end of its travel the
+ * event is deliberately left to the canvas, so a wheel over a short draft still zooms as usual.
+ * Fractional layout heights make the ends land just shy of the integer bounds, hence the 1px slack.
+ */
+export function composerConsumesWheel(state: ComposerScrollState, deltaY: number): boolean {
+  const remaining = state.scrollHeight - state.clientHeight - state.scrollTop
+  if (deltaY < 0) return state.scrollTop > 1
+  if (deltaY > 0) return remaining > 1
+  return false
+}
