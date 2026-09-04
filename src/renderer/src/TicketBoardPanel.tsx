@@ -5,6 +5,8 @@ import type { TicketBoardPanelState } from '../../shared/terminal'
 import type { TicketCard, TicketSource } from '../../shared/ticket-source'
 import { ticketCardKey } from '../../shared/ticket-source'
 import { markdownBlockComponents, remarkPlugins } from './MarkdownMessage'
+import SessionKindIcon from './SessionKindIcon'
+import type { TicketSessionChip } from './ticket-activity'
 import { describeTicketDate, ticketBlockers, ticketStatusBeside, type TicketBoardColumn } from './ticket-board'
 import { clampTicketBoardWidth, ticketBoardBounds, ticketBoardWidthFromPointer } from './ticket-board-layout'
 import { useTicketBoard } from './use-ticket-board'
@@ -31,6 +33,14 @@ export interface TicketBoardPanelProps {
   sources: readonly TicketSource[]
   /** Today as `YYYY-MM-DD`, so relative dates and the Done cutoff stay testable. */
   today: string
+  /**
+   * Which session is on which card, keyed by `ticketCardKey` (see `ticket-activity.ts`). Evidence,
+   * not a guess: a card only gets a chip because a chat actually wrote its file, which is why a
+   * ticket left in `in-progress` by a session that moved on shows nothing extra.
+   */
+  sessions?: ReadonlyMap<string, TicketSessionChip>
+  /** Focuses and fits that session's node on the canvas; the workspace owns how. */
+  onFocusSession?(nodeId: string): void
   onPanelChange(patch: Partial<TicketBoardPanelState>): void
 }
 
@@ -118,6 +128,7 @@ export default function TicketBoardPanel(props: TicketBoardPanelProps): JSX.Elem
     const blockers = ticketBlockers(card, board.cards)
     const isExpanded = expanded === key
     const movable = board.canMove(card)
+    const session = props.sessions?.get(key)
     return (
       <article
         key={key}
@@ -166,6 +177,22 @@ export default function TicketBoardPanel(props: TicketBoardPanelProps): JSX.Elem
             <FolderOpen aria-hidden="true" />
           </button>
         </div>
+        {session && (
+          <button
+            type="button"
+            className="ticket-session-chip"
+            data-working={session.working ? 'true' : undefined}
+            title={
+              session.working
+                ? `${session.label} is working on this ticket - click to focus it`
+                : `${session.label} worked on this ticket - click to focus it`
+            }
+            onClick={() => props.onFocusSession?.(session.nodeId)}
+          >
+            <SessionKindIcon kind={session.kind} />
+            <span>{session.label}</span>
+          </button>
+        )}
         {blockers.length > 0 && (
           <ul className="ticket-blockers">
             {blockers.map((blocker) => (

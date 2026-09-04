@@ -5721,6 +5721,50 @@ button {
   height: 13px;
 }
 
+/* The live session card: which chat is on this ticket, and the way back to it. */
+.ticket-session-chip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 2px 8px 2px 6px;
+  border: 1px solid #2b323d;
+  border-radius: 999px;
+  color: #9aa4b2;
+  background: #171b22;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.ticket-session-chip:hover {
+  border-color: #3b4553;
+  color: #dbe1ea;
+}
+
+.ticket-session-chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ticket-session-chip svg {
+  flex: none;
+  width: 12px;
+  height: 12px;
+}
+
+/* Still mid-turn: the same pulse the canvas uses for a working session. */
+.ticket-session-chip[data-working='true'] {
+  border-color: #35506e;
+  color: #cfe0f4;
+}
+
+.ticket-session-chip[data-working='true'] svg {
+  color: #71a9ff;
+  animation: chat-pulse 1.6s ease-in-out infinite;
+}
+
 .ticket-blockers {
   display: flex;
   flex-wrap: wrap;
@@ -5781,6 +5825,10 @@ button {
 @media (prefers-reduced-motion: reduce) {
   .ticket-board-panel {
     transition: none;
+  }
+
+  .ticket-session-chip[data-working='true'] svg {
+    animation: none;
   }
 }
 

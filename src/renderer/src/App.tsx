@@ -59,6 +59,7 @@ import {
 import { brainDumpPathIdentity } from './brain-dump-topics'
 import BrainDumpLibraryPanel from './BrainDumpLibraryPanel'
 import { TICKET_BOARD_DEFAULT_WIDTH, clampTicketBoardWidth, ticketBoardKeyAction } from './ticket-board-layout'
+import { ticketSessionsFromNodes, type TicketActivityReport } from './ticket-activity'
 import { createTicketFileSource } from './ticket-file-source'
 import TicketBoardPanel from './TicketBoardPanel'
 import {
@@ -215,6 +216,7 @@ function Canvas(): JSX.Element {
   const [projects, setProjects] = useState<Project[]>([])
   const [projectGroups, setProjectGroups] = useState<ProjectGroup[]>([])
   const [nodeStatuses, setNodeStatuses] = useState<Record<string, TerminalNodeStatus>>({})
+  const [ticketActivity, setTicketActivity] = useState<Record<string, TicketActivityReport>>({})
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [agentPermissionModes, setAgentPermissionModes] = useState<AgentPermissionModes>({})
@@ -295,6 +297,16 @@ function Canvas(): JSX.Element {
       if (current[nodeId] === status) return current
       return { ...current, [nodeId]: status }
     })
+  }, [])
+
+  /**
+   * Which files each session has been writing, reported by the node itself. Session-local: what a
+   * chat is doing right now is not worth persisting, and a restored workspace has no turns in
+   * flight to describe. The board reads it through `ticketSessionsByCard`, which is the only place
+   * that decides whether a written path is a ticket.
+   */
+  const handleTicketActivity = useCallback((nodeId: string, report: TicketActivityReport): void => {
+    setTicketActivity((current) => ({ ...current, [nodeId]: report }))
   }, [])
 
   /** Every session-node update funnels through here so worktree nodes are never mistaken for one. */
@@ -515,6 +527,10 @@ function Canvas(): JSX.Element {
         // A closed node cannot be reached any more, so its attention records go with it rather
         // than propping up a count nothing can clear.
         forgetNodeAttention(removedIds)
+        // Same for its ticket chips: a chip that focuses a node that is gone is worse than none.
+        setTicketActivity((current) =>
+          Object.fromEntries(Object.entries(current).filter(([nodeId]) => !removedIds.has(nodeId)))
+        )
       }
       // Fit mode reads the changes before they land: a drag or manual resize of the fitted node
       // leaves fit mode, and a removed node must not leave a restore waiting for it.
@@ -535,6 +551,7 @@ function Canvas(): JSX.Element {
       {
         onStatusChange: handleStatusChange,
         onAttention: handleAttention,
+        onTicketActivity: handleTicketActivity,
         onConversationId: handleConversationId,
         onTitleChange: handleTitleChange,
         onPreview: handlePreview,
@@ -569,6 +586,7 @@ function Canvas(): JSX.Element {
     handlePermissionModeChange,
     handlePreview,
     handleStatusChange,
+    handleTicketActivity,
     handleTerminalLiveness,
     handleTitleChange,
     resumeNode,
@@ -679,6 +697,7 @@ function Canvas(): JSX.Element {
             initialInput: options.initialInput,
             onStatusChange: handleStatusChange,
             onAttention: handleAttention,
+            onTicketActivity: handleTicketActivity,
             onConversationId: handleConversationId,
             onTitleChange: handleTitleChange,
             onPreview: handlePreview,
@@ -706,6 +725,7 @@ function Canvas(): JSX.Element {
       handlePermissionModeChange,
       handlePreview,
       handleStatusChange,
+      handleTicketActivity,
       handleTerminalLiveness,
       handleTitleChange,
       resumeNode,
@@ -990,6 +1010,7 @@ function Canvas(): JSX.Element {
       const restored = restoreCanvasWorkspace(saved, {
         onStatusChange: handleStatusChange,
         onAttention: handleAttention,
+        onTicketActivity: handleTicketActivity,
         onConversationId: handleConversationId,
         onTitleChange: handleTitleChange,
         onPreview: handlePreview,
@@ -1047,6 +1068,7 @@ function Canvas(): JSX.Element {
       handleRemoveWorktree,
       handleRunSetupCommand,
       handleStatusChange,
+      handleTicketActivity,
       handleTerminalLiveness,
       handleTitleChange,
       resumeNode,
@@ -1269,6 +1291,15 @@ function Canvas(): JSX.Element {
       void fitView({ nodes: [target], padding: 0.32, duration: 350, maxZoom: 1.15 })
     },
     [fitView, nodes, setNodes]
+  )
+
+  /** The board's live session cards; which report becomes which chip is `ticket-activity.ts`. */
+  const ticketSessions = useMemo(
+    () =>
+      activeProject
+        ? ticketSessionsFromNodes(nodes.filter(isTerminalCanvasNode), ticketActivity, activeProject)
+        : undefined,
+    [activeProject, nodes, ticketActivity]
   )
 
   const openContextMenu = useCallback(
@@ -2121,6 +2152,8 @@ function Canvas(): JSX.Element {
                 projectName={activeProject?.name}
                 sources={ticketSources}
                 today={localCalendarDate()}
+                sessions={ticketSessions}
+                onFocusSession={focusNode}
                 onPanelChange={(patch) => setTicketBoardPanel((current) => ({ ...current, ...patch }))}
               />
             )}

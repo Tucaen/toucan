@@ -100,6 +100,11 @@ export function isTicketStatus(value: string): boolean {
   return isTicketSlug(value)
 }
 
+/** Absolute in either flavour: a leading separator, or a Windows drive or UNC prefix. */
+export function isAbsolutePath(value: string): boolean {
+  return /^([a-zA-Z]:|[\\/])/.test(value)
+}
+
 /**
  * Whether `value` is usable as a project's `ticketsDirectory`. Tickets live *inside* the checkout,
  * so an absolute path or one that climbs out of it is refused: a hand-edited snapshot must not be
@@ -110,6 +115,15 @@ export function isTicketsDirectory(value: string): boolean {
   if (!trimmed) return false
   const segments = trimmed.split(/[\\/]+/)
   if (segments.some((segment) => segment === '..')) return false
-  // Absolute in either flavour: a leading separator, or a Windows drive or UNC prefix.
-  return !/^([a-zA-Z]:|[\\/])/.test(trimmed)
+  return !isAbsolutePath(trimmed)
+}
+
+/**
+ * The folder a project keeps tickets in, relative to its checkout: its own if it named a usable
+ * one, and the default otherwise - including when it named one that leaves the checkout, which is
+ * ignored rather than obeyed. The one answer to that question, so main's `ticketsDirectoryFor`
+ * and the renderer's `ticketsRootFor` cannot drift apart.
+ */
+export function ticketsDirectoryOrDefault(configured?: string): string {
+  return configured && isTicketsDirectory(configured) ? configured.trim() : DEFAULT_TICKETS_DIRECTORY
 }

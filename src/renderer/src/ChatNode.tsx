@@ -62,6 +62,7 @@ import { indexShellLaunches } from './shell-execution'
 import { SessionCommandsContext } from './skill-invocation'
 import { SubagentActivitiesContext, indexSubagentActivities } from './subagent-task'
 import { worklogActivities } from './worklog-activities'
+import { recentlyWrittenPaths } from './ticket-activity'
 import { formatReasoningSize, mergeReasoningEntries, reasoningTailLine, type ReasoningBlock } from './reasoning-blocks'
 import { WorkspaceRootsContext } from './workspace-root'
 import { buildHandoffPrompt, planWorktreeHandoff } from '../../shared/worktree-handoff'
@@ -2072,6 +2073,35 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
     const waiting = approval !== null || decisionRequest !== null
     data.onStatusChange(id, sidebarStatus(status, waiting, data.unreadKind, stalled))
   }, [approval, data.dormant, data.onStatusChange, data.unreadKind, decisionRequest, id, status, stalled])
+
+  /**
+   * What this session has been writing, for the ticket board's live card. Paths go up, not
+   * tickets: which of them is a ticket depends on the project's tickets folder, which the
+   * workspace knows and a node does not (`ticket-activity.ts`). Where the running turn began is
+   * observed here because this is the only place that sees the status change - a steer sent
+   * mid-turn is another message from the captain, and the transcript alone cannot tell the two
+   * apart. The report fires on a change of *contents*, not on every streamed event.
+   */
+  const reportTicketActivity = data.onTicketActivity
+  const turnStartedAtRef = useRef<number | undefined>(undefined)
+  const turnWasRunningRef = useRef(false)
+  const reportedTurnRef = useRef<string | undefined>(undefined)
+  useEffect(() => {
+    const working = status === 'working'
+    // The turn's own start, taken when it begins and kept once it ends: between turns the turn
+    // that just finished *is* the last completed one, and its writes are what the card shows.
+    if (working && !turnWasRunningRef.current) turnStartedAtRef.current = conversation.transcript.length
+    turnWasRunningRef.current = working
+    const paths = recentlyWrittenPaths(conversation.transcript, activities, {
+      working,
+      startedAt: turnStartedAtRef.current
+    })
+    // Reported on a change of contents, not on every streamed event of a turn.
+    const reported = `${working}\n${paths.join('\n')}`
+    if (reported === reportedTurnRef.current) return
+    reportedTurnRef.current = reported
+    reportTicketActivity?.(id, { paths, working })
+  }, [activities, conversation.transcript, id, reportTicketActivity, status])
 
   /**
    * A prompt asking for its own worktree never runs here. It goes up to the workspace, which

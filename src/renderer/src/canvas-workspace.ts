@@ -14,6 +14,7 @@ import { RECENTLY_CLOSED_SESSION_LIMIT } from '../../shared/terminal'
 import type { WorkspaceWorktree } from '../../shared/worktree'
 import type { WorktreeHandoffPlan } from '../../shared/worktree-handoff'
 import type { ConversationTitleSource } from '../../shared/conversation-title'
+import type { TicketActivityReport } from './ticket-activity'
 
 /** Re-exported so canvas modules keep one import site; the union itself is a shared contract. */
 export type { TerminalNodeStatus }
@@ -28,6 +29,13 @@ export interface TerminalNodeCallbacks {
    * be rendered in isolation (tests, storybook-style harnesses) without a workspace behind it.
    */
   onAttention?(action: NodeAttentionAction): void
+  /**
+   * Which ticket files this session has been writing, so the board can show a live card. The node
+   * reports paths rather than tickets because it knows its transcript but not where its project
+   * keeps tickets; the workspace resolves them (`ticket-activity.ts`). Optional for the same
+   * reason `onAttention` is: a node must render without a workspace behind it.
+   */
+  onTicketActivity?(nodeId: string, report: TicketActivityReport): void
   onConversationId(nodeId: string, conversationId: string): void
   onTitleChange(nodeId: string, title: string, source: ConversationTitleSource): Promise<boolean>
   onPreview(nodeId: string, preview: ConversationPreview): void
@@ -306,6 +314,7 @@ function restoreTerminalCanvasNode(
       launchMode: 'resume',
       onStatusChange: callbacks.onStatusChange,
       onAttention: callbacks.onAttention,
+      onTicketActivity: callbacks.onTicketActivity,
       onConversationId: callbacks.onConversationId,
       onTitleChange: callbacks.onTitleChange,
       onPreview: callbacks.onPreview,
