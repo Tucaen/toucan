@@ -40,11 +40,14 @@ branching and worktree groups (no felt need yet).
   worktree's recorded `baseRef` (or `HEAD` for the primary checkout) so it shows what is actually
   on disk, including edits from several sessions. The per-hunk rendering reuses the transcript's
   file-operation blocks.
-- **One folder, no archive directory.** Unlike brain dumps, a ticket is never rewritten as a
-  summary and needs no immutable snapshot, so `status: done` is the only closure signal. A
-  second signal (an `archived/` folder) could disagree with it, and moving files breaks
-  `git log --follow` for an agent tracing a ticket. Growth of the Done column is a board
-  concern: Done is collapsed by default and shows only recently closed tickets.
+- **Status closes a ticket; archiving removes it from view.** Unlike brain dumps, a ticket is
+  never rewritten as a summary and needs no immutable snapshot, so `status: done` is the only
+  closure signal and the Done column is collapsed by default. Separately, an explicit user
+  action can move a ticket to `archived/` under the tickets folder (#149). Archived files count
+  as deleted: the board never lists the folder, agents never read it, and a blocker pointing at
+  one shows as "archived". This keeps list and agent read cost proportional to live tickets even
+  when a project has accumulated hundreds of closed ones. Moving is a rename, so
+  `git log --follow` still works.
 - **The board reads several sources through one seam.** A `TicketSource` in `src/shared/`
   (id, `list` returning cards plus diagnostics, optional `setStatus` and `openExternal`
   capabilities). The files source is always on; GitHub is detected per project and switched on
@@ -110,3 +113,4 @@ Body: context, acceptance criteria, notes. Ordinary Markdown.
 | #143 | File node: read a file on the canvas | — |
 | #144 | Diff node: review a worktree's changes | — |
 | #148 | Editing inside the file node | #143 (backlog) |
+| #149 | Archive a ticket so it is no longer read | #145 (backlog) |
