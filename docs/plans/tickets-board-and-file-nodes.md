@@ -40,6 +40,18 @@ branching and worktree groups (no felt need yet).
   worktree's recorded `baseRef` (or `HEAD` for the primary checkout) so it shows what is actually
   on disk, including edits from several sessions. The per-hunk rendering reuses the transcript's
   file-operation blocks.
+- **One folder, no archive directory.** Unlike brain dumps, a ticket is never rewritten as a
+  summary and needs no immutable snapshot, so `status: done` is the only closure signal. A
+  second signal (an `archived/` folder) could disagree with it, and moving files breaks
+  `git log --follow` for an agent tracing a ticket. Growth of the Done column is a board
+  concern: Done is collapsed by default and shows only recently closed tickets.
+- **The board reads several sources through one seam.** A `TicketSource` in `src/shared/`
+  (id, `list` returning cards plus diagnostics, optional `setStatus` and `openExternal`
+  capabilities). The files source is always on; GitHub is detected per project and switched on
+  from the board; further trackers plug in the same way. A local Markdown ticket stays useful
+  even when a real tracker exists, so sources are additive, never exclusive. Cards are keyed by
+  source plus id and carry a source badge; a column accepts drops only from sources that can set
+  status. `blocked_by` references file slugs only; cross-source links are prose in the body.
 - **Ticket folder is per project, with a default.** `docs/tickets/` unless the project sets
   `ticketsDirectory`. Optional field on `WorkspaceProject`, accepted by the store validator.
 
@@ -94,7 +106,7 @@ Body: context, acceptance criteria, notes. Ordinary Markdown.
 | #142 | Ticket file convention and `tickets` skill | — |
 | #145 | Ticket board panel for the active project | #142 |
 | #146 | Live session cards on the ticket board | #145 |
-| #147 | GitHub issues as a second board source | #145 (backlog) |
+| #147 | GitHub issues as a second ticket source | #145 (backlog) |
 | #143 | File node: read a file on the canvas | — |
 | #144 | Diff node: review a worktree's changes | — |
 | #148 | Editing inside the file node | #143 (backlog) |
