@@ -90,3 +90,26 @@ export function parseTicket(markdown: string, slug: string): Ticket {
     markdown
   }
 }
+
+/**
+ * A status is one lowercase kebab-case word - the same shape as a slug, because both end up as
+ * something a person types and a column is named after. Here rather than in the board or the
+ * library so the file convention, the skill and every writer agree on one answer.
+ */
+export function isTicketStatus(value: string): boolean {
+  return isTicketSlug(value)
+}
+
+/**
+ * Whether `value` is usable as a project's `ticketsDirectory`. Tickets live *inside* the checkout,
+ * so an absolute path or one that climbs out of it is refused: a hand-edited snapshot must not be
+ * able to point Toucan's ticket reads and writes at an arbitrary folder.
+ */
+export function isTicketsDirectory(value: string): boolean {
+  const trimmed = value.trim()
+  if (!trimmed) return false
+  const segments = trimmed.split(/[\\/]+/)
+  if (segments.some((segment) => segment === '..')) return false
+  // Absolute in either flavour: a leading separator, or a Windows drive or UNC prefix.
+  return !/^([a-zA-Z]:|[\\/])/.test(trimmed)
+}

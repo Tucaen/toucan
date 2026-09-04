@@ -41,6 +41,7 @@ import type {
   BrainDumpCollection,
   BrainDumpOutcome
 } from '../shared/brain-dump'
+import type { TicketFilesApi } from '../shared/ticket-source'
 
 const terminalApi = {
   getInitialProject: (): Promise<ProjectDirectory> => ipcRenderer.invoke('project:initial'),
@@ -199,3 +200,18 @@ const brainDumpApi: BrainDumpApi = {
 }
 
 contextBridge.exposeInMainWorld('brainDumpApi', brainDumpApi)
+
+/** The files ticket source, seen from the renderer. Other sources reach the board differently. */
+const ticketsApi: TicketFilesApi = {
+  list: (projectPath: string) => ipcRenderer.invoke('tickets:list', projectPath),
+  setStatus: (projectPath: string, slug: string, status: string) =>
+    ipcRenderer.invoke('tickets:set-status', projectPath, slug, status),
+  revealInFolder: (projectPath: string, slug: string) => void ipcRenderer.invoke('tickets:reveal', projectPath, slug),
+  onChange: (callback: (projectPath: string) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, projectPath: string): void => callback(projectPath)
+    ipcRenderer.on('tickets:changed', listener)
+    return () => ipcRenderer.removeListener('tickets:changed', listener)
+  }
+}
+
+contextBridge.exposeInMainWorld('ticketsApi', ticketsApi)

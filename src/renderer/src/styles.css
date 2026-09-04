@@ -5429,3 +5429,384 @@ button {
   width: 13px;
   height: 13px;
 }
+
+/* Ticket board: the second docked panel, sharing the brain-dump panel's docking mechanics (real
+   layout width, never an overlay; `[hidden]` keeps a closed board mounted at zero width) and
+   nothing else - a board of columns scrolls sideways where a library scrolls down. */
+.ticket-board-panel {
+  position: relative;
+  transition:
+    width 160ms ease,
+    min-width 160ms ease;
+  z-index: 6;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid #222832;
+  background: #0f1217;
+  color: #cbd2dc;
+  overflow: hidden;
+}
+
+.ticket-board-panel[hidden] {
+  display: none;
+}
+
+.ticket-board-panel[data-resizing='true'] {
+  transition: none;
+}
+
+.ticket-board-resizer {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 6px;
+  cursor: col-resize;
+  background: transparent;
+}
+
+.ticket-board-resizer:hover,
+.ticket-board-resizer:focus-visible {
+  background: #33507a;
+  outline: none;
+}
+
+.ticket-board-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px 10px 18px;
+  border-bottom: 1px solid #1c222b;
+}
+
+.ticket-board-eyebrow {
+  display: block;
+  overflow: hidden;
+  max-width: 320px;
+  color: #6f7988;
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.09em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.ticket-board-identity h2 {
+  margin: 2px 0 0;
+  color: #e4e9f1;
+  font-size: 17px;
+}
+
+.ticket-board-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ticket-board-button,
+.ticket-board-close {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #2b323d;
+  border-radius: 7px;
+  color: #cbd2dc;
+  background: #161a21;
+  cursor: pointer;
+}
+
+.ticket-board-button:hover,
+.ticket-board-close:hover {
+  border-color: #3c4655;
+  background: #1c2129;
+}
+
+.ticket-board-state {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 14px 18px;
+  color: #8a94a2;
+  font-size: 13px;
+}
+
+.ticket-board-state button {
+  padding: 3px 10px;
+  border: 1px solid #2b323d;
+  border-radius: 6px;
+  color: #cbd2dc;
+  background: #161a21;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.ticket-board-columns {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 12px;
+  padding: 12px 16px 16px 18px;
+  overflow: auto;
+}
+
+.ticket-column {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 260px;
+  min-height: 0;
+  border: 1px solid #1c222b;
+  border-radius: 10px;
+  background: #12161c;
+}
+
+/* The column a drag is currently over. The card has not moved yet - nothing moves until the
+   source has written the change and the board has re-read it. */
+.ticket-column[data-over='true'] {
+  border-color: #4a6da8;
+  background: #151d29;
+}
+
+.ticket-column-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 9px 12px;
+  border-bottom: 1px solid #1c222b;
+}
+
+.ticket-column-header h3 {
+  margin: 0;
+  color: #cbd2dc;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.ticket-column-count {
+  color: #7d8796;
+  font-size: 12px;
+}
+
+.ticket-column-cards {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  overflow: auto;
+}
+
+.ticket-column-more {
+  margin: 0 10px 10px;
+  padding: 5px 8px;
+  border: 1px dashed #2b323d;
+  border-radius: 7px;
+  color: #8a94a2;
+  background: transparent;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.ticket-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 9px 10px;
+  border: 1px solid #262d38;
+  border-radius: 8px;
+  background: #161a21;
+}
+
+.ticket-card[data-dragging='true'] {
+  border-color: #4a6da8;
+  opacity: 0.7;
+}
+
+/* A write is in flight. The card stays exactly where the file still says it is. */
+.ticket-card[data-pending='true'] {
+  opacity: 0.6;
+}
+
+.ticket-card-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.ticket-card-grip {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  color: #6f7988;
+  background: transparent;
+  cursor: grab;
+}
+
+.ticket-card-grip:hover,
+.ticket-card-grip:focus-visible {
+  color: #cbd2dc;
+  background: #1c2129;
+}
+
+.ticket-card-grip svg {
+  width: 14px;
+  height: 14px;
+}
+
+.ticket-card-title {
+  flex: 1;
+  padding: 0;
+  border: none;
+  color: #e4e9f1;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ticket-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #7d8796;
+  font-size: 11px;
+}
+
+.ticket-card-meta code {
+  overflow: hidden;
+  max-width: 130px;
+  color: #8a94a2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ticket-card-source {
+  padding: 1px 6px;
+  border: 1px solid #2b323d;
+  border-radius: 999px;
+}
+
+.ticket-card-reveal {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  margin-left: auto;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  color: #6f7988;
+  background: transparent;
+  cursor: pointer;
+}
+
+.ticket-card-reveal:hover {
+  color: #cbd2dc;
+  background: #1c2129;
+}
+
+.ticket-card-reveal svg {
+  width: 13px;
+  height: 13px;
+}
+
+.ticket-blockers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ticket-blockers li {
+  padding: 1px 6px;
+  border: 1px solid #2b323d;
+  border-radius: 999px;
+  color: #9aa4b2;
+  font-size: 11px;
+}
+
+/* A blocker that is finished is struck through rather than removed: the ticket still records it. */
+.ticket-blockers li[data-state='done'] {
+  color: #6f7988;
+  text-decoration: line-through;
+}
+
+/* A slug naming no ticket in the folder is a typo someone has to see. */
+.ticket-blockers li[data-state='missing'] {
+  border-color: #6b4a2f;
+  color: #d9a066;
+}
+
+.ticket-card-body {
+  padding-top: 4px;
+  border-top: 1px solid #232a34;
+  color: #b9c1cd;
+  font-size: 12px;
+}
+
+.ticket-board-diagnostics {
+  padding: 10px 18px 14px;
+  border-top: 1px solid #1c222b;
+  color: #d9a066;
+  font-size: 12px;
+}
+
+.ticket-board-diagnostics ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
+.ticket-board-visually-hidden {
+  position: absolute;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  width: 1px;
+  height: 1px;
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ticket-board-panel {
+    transition: none;
+  }
+}
+
+/* Done collapsed: a strip wide enough to read its count and drop a card onto, no wider. Closed
+   work is history, and history should not spend the width live columns need. */
+.ticket-column[data-collapsed='true'] {
+  flex: 0 0 92px;
+}
+
+.ticket-column[data-collapsed='true'] .ticket-column-header {
+  border-bottom: none;
+}
+
+.ticket-column-toggle {
+  padding: 0;
+  border: none;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+
+.ticket-column-toggle h3 {
+  margin: 0;
+  color: #cbd2dc;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}

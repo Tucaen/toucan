@@ -662,3 +662,25 @@ test("a project's tickets folder override round-trips, and a non-string one is r
 
   rmSync(directory, { recursive: true, force: true })
 })
+
+test('the ticket board panel round-trips, and a malformed one is refused rather than repaired', () => {
+  const base = makeState('Toucan')
+
+  const restored = parseWorkspaceState({ ...base, ticketBoardPanel: { open: true, width: 880 } })
+  assert.deepEqual(restored?.ticketBoardPanel, { open: true, width: 880 })
+  // A snapshot written before the board existed simply has no panel; it must still load.
+  assert.equal(parseWorkspaceState(base)?.ticketBoardPanel, undefined)
+
+  for (const panel of [{ open: true }, { open: 'yes', width: 880 }, { open: true, width: Number.NaN }, null, 'open']) {
+    assert.equal(parseWorkspaceState({ ...base, ticketBoardPanel: panel }), null)
+  }
+})
+
+test('a project may name its own tickets folder, and the snapshot keeps it', () => {
+  const base = makeState('Toucan')
+  const withFolder = {
+    ...base,
+    projects: [{ ...base.projects[0], ticketsDirectory: 'notes/tickets' }]
+  }
+  assert.equal(parseWorkspaceState(withFolder)?.projects[0].ticketsDirectory, 'notes/tickets')
+})

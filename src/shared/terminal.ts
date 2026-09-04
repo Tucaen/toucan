@@ -147,6 +147,15 @@ export interface BrainDumpPanelState {
   provider?: 'claude' | 'codex'
 }
 
+/**
+ * The board is a projection of files on disk, so there is nothing about a ticket worth persisting
+ * here - only where the panel sits and whether it is open.
+ */
+export interface TicketBoardPanelState {
+  open: boolean
+  width: number
+}
+
 export interface WorkspaceState {
   version: 3
   projects: WorkspaceProject[]
@@ -171,6 +180,8 @@ export interface WorkspaceState {
   worktrees: WorkspaceWorktree[]
   /** Absent in every snapshot written before the library existed; the panel starts closed there. */
   brainDumpPanel?: BrainDumpPanelState
+  /** Absent in every snapshot written before the board existed; the panel starts closed there. */
+  ticketBoardPanel?: TicketBoardPanelState
 }
 
 export interface WorkspaceSaveResult {

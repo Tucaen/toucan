@@ -18,6 +18,9 @@ import {
 import { createBrainDumpCaptureStore } from './brain-dump-capture-store'
 import { registerBrainDumpIpc } from './brain-dump-ipc'
 import { createBrainDumpChangeWatcher, type BrainDumpChangeWatcher } from './brain-dump-watcher'
+import { registerTicketIpc } from './ticket-ipc'
+import { createTicketLibrary } from './ticket-library'
+import { createTicketChangeWatcher, type TicketChangeWatcher } from './ticket-watcher'
 import { createClaudeUsageReader } from './claude-usage'
 import { createConversationHistory, type ConversationHistory } from './conversation-history'
 import { createConversationTitleStore, type ConversationTitleStore } from './conversation-title-store'
@@ -34,6 +37,7 @@ import { createTerminalScrollbackStore, type TerminalScrollbackStore } from './t
 import { createWorktreeManager, type WorktreeManager, type WorktreeStatusRequest } from './git-worktree'
 import { createWorkspaceFileIndex, type WorkspaceFileIndexReader } from './workspace-file-index'
 import { createWorkspaceStore } from './workspace-store'
+import { ticketsDirectoryFor } from './ticket-directory'
 import type { WorktreeCreateRequest, WorktreeDiscoverRequest, WorktreeRemoveRequest } from '../shared/worktree'
 
 /**
@@ -230,6 +234,7 @@ function createWindow(
   agentManager: AcpSessionManager,
   brainDumpCapture: BrainDumpCaptureManager,
   brainDumpChanges: BrainDumpChangeWatcher,
+  ticketChanges: TicketChangeWatcher,
   remote: RemoteAccessServer,
   spawner: RemoteChatSpawner
 ): void {
@@ -266,6 +271,7 @@ function createWindow(
     agentManager.killOwned(contents)
     brainDumpCapture.disconnectOwner(contents as unknown as BrainDumpCaptureOwner)
     brainDumpChanges.disconnectOwner(contents)
+    ticketChanges.disconnectOwner(contents)
   })
 
   if (process.env.ELECTRON_RENDERER_URL) {
@@ -374,6 +380,12 @@ void app.whenReady().then(async () => {
     publish: (state) => void captureStore.save(state).catch(() => {})
   })
   const brainDumpChanges = await createBrainDumpChangeWatcher({ rootDirectory: brainDumpDirectory })
+  // The snapshot is the only place a project's `ticketsDirectory` is recorded, so it is read per
+  // call rather than cached: a project whose folder setting changed is read from the new folder on
+  // the very next listing. Which folder that is, is decided in `ticket-directory.ts`.
+  const ticketsFolderFor = async (projectPath: string): Promise<string> =>
+    ticketsDirectoryFor(projectPath, (await workspace.load()).state?.projects ?? [])
+  const ticketChanges = createTicketChangeWatcher({ directoryFor: ticketsFolderFor })
   // Spawning is the one remote operation main cannot perform alone: the canvas owns node identity,
   // geometry and working-directory resolution, so a phone's "New chat" is a request the desktop
   // window runs through its own add-node path and reports the verdict on.
@@ -421,6 +433,12 @@ void app.whenReady().then(async () => {
     }),
     conversationTitles
   )
+  registerTicketIpc(
+    ipcMain as unknown as Parameters<typeof registerTicketIpc>[0],
+    createTicketLibrary({ directoryFor: ticketsFolderFor, today: localCalendarDate }),
+    ticketChanges,
+    (path) => shell.showItemInFolder(normalize(path))
+  )
   registerWorktreeIpc(createWorktreeManager())
   registerWorkspaceFileIpc(createWorkspaceFileIndex())
   registerUsageIpc(
@@ -438,17 +456,18 @@ void app.whenReady().then(async () => {
   )
   registerProjectIpc(workspace)
   registerRemoteIpc(ipcMain, remote, chatSpawner)
-  createWindow(manager, agentManager, brainDumpCapture, brainDumpChanges, remote, chatSpawner)
+  createWindow(manager, agentManager, brainDumpCapture, brainDumpChanges, ticketChanges, remote, chatSpawner)
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0)
-      createWindow(manager, agentManager, brainDumpCapture, brainDumpChanges, remote, chatSpawner)
+      createWindow(manager, agentManager, brainDumpCapture, brainDumpChanges, ticketChanges, remote, chatSpawner)
   })
   app.on('before-quit', () => {
     manager.killAll()
     agentManager.killAll()
     brainDumpCapture.shutdown()
     brainDumpChanges.shutdown()
+    ticketChanges.shutdown()
     void remote.shutdown()
   })
 })

@@ -14,6 +14,7 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ClipboardList,
   FolderPlus,
   GitBranch,
   GripVertical,
@@ -42,6 +43,7 @@ import type {
   ProjectGroup,
   TerminalKind,
   TerminalLiveness,
+  TicketBoardPanelState,
   WorkspaceProject,
   WorkspaceState,
   WorkspaceTerminalNode
@@ -56,6 +58,9 @@ import {
 } from './brain-dump-panel-layout'
 import { brainDumpPathIdentity } from './brain-dump-topics'
 import BrainDumpLibraryPanel from './BrainDumpLibraryPanel'
+import { TICKET_BOARD_DEFAULT_WIDTH, clampTicketBoardWidth, ticketBoardKeyAction } from './ticket-board-layout'
+import { createTicketFileSource } from './ticket-file-source'
+import TicketBoardPanel from './TicketBoardPanel'
 import {
   closedSessionKeyAction,
   DEFAULT_WORKTREE_SIZE,
@@ -232,6 +237,16 @@ function Canvas(): JSX.Element {
     width: BRAIN_DUMP_PANEL_DEFAULT_WIDTH
   })
   const [brainDumpMounted, setBrainDumpMounted] = useState(false)
+  // The board is a projection of the active project's files, so the workspace persists only where
+  // the panel sits; everything it shows is re-read from disk.
+  const [ticketBoardPanel, setTicketBoardPanel] = useState<TicketBoardPanelState>({
+    open: false,
+    width: TICKET_BOARD_DEFAULT_WIDTH
+  })
+  const [ticketBoardMounted, setTicketBoardMounted] = useState(false)
+  // Built once: the seam is a list of sources, and this ticket ships the files one. Adding GitHub
+  // later appends to this array and touches nothing else in the board.
+  const ticketSources = useMemo(() => [createTicketFileSource(window.ticketsApi)], [])
   const [workspaceWidth, setWorkspaceWidth] = useState(() => window.innerWidth)
   const { fitView, getViewport, screenToFlowPosition } = useReactFlow()
   const canvasRegionRef = useRef<HTMLElement>(null)
@@ -437,6 +452,7 @@ function Canvas(): JSX.Element {
   const permissionModesRef = useRef<AgentPermissionModes>({})
   const recentlyClosedNodesRef = useRef<WorkspaceTerminalNode[]>([])
   const brainDumpOpenRef = useRef(false)
+  const ticketBoardOpenRef = useRef(false)
   // Held in a ref because the handler is declared after the node factories that hand it out,
   // and because a node's stored callback must not go stale as the handler is recreated.
   const handleWorktreeHandoffRef = useRef<TerminalNodeCallbacks['onWorktreeHandoff']>(undefined)
@@ -450,6 +466,7 @@ function Canvas(): JSX.Element {
   permissionModesRef.current = agentPermissionModes
   recentlyClosedNodesRef.current = recentlyClosedNodes
   brainDumpOpenRef.current = brainDumpPanel.open
+  ticketBoardOpenRef.current = ticketBoardPanel.open
 
   const getCanvasNodes = useCallback((): CanvasNode[] => nodesRef.current, [])
   const nodeFit = useNodeFit<CanvasNode>({
@@ -558,6 +575,14 @@ function Canvas(): JSX.Element {
     setNodes
   ])
 
+  const toggleTicketBoardPanel = useCallback((): void => {
+    setTicketBoardMounted(true)
+    setTicketBoardPanel((current) => ({
+      open: !current.open,
+      width: clampTicketBoardWidth(current.width, window.innerWidth)
+    }))
+  }, [])
+
   const toggleBrainDumpPanel = useCallback((): void => {
     setBrainDumpMounted(true)
     setBrainDumpPanel((current) => ({
@@ -577,12 +602,17 @@ function Canvas(): JSX.Element {
         toggleBrainDumpPanel()
         return
       }
+      if (ticketBoardKeyAction(event) === 'toggle-panel') {
+        event.preventDefault()
+        toggleTicketBoardPanel()
+        return
+      }
       if (closedSessionKeyAction(event, recentlyClosedNodesRef.current.length > 0) !== 'reopen') return
       if (reopenLastClosedSession()) event.preventDefault()
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [reopenLastClosedSession, toggleBrainDumpPanel])
+  }, [reopenLastClosedSession, toggleBrainDumpPanel, toggleTicketBoardPanel])
 
   // The panel takes real layout width, so a smaller window must narrow it rather than let it push
   // the canvas off-screen.
@@ -591,6 +621,10 @@ function Canvas(): JSX.Element {
       setWorkspaceWidth(window.innerWidth)
       setBrainDumpPanel((current) => {
         const width = clampBrainDumpPanelWidth(current.width, window.innerWidth)
+        return width === current.width ? current : { ...current, width }
+      })
+      setTicketBoardPanel((current) => {
+        const width = clampTicketBoardWidth(current.width, window.innerWidth)
         return width === current.width ? current : { ...current, width }
       })
     }
@@ -986,6 +1020,13 @@ function Canvas(): JSX.Element {
         setBrainDumpPanel({ ...saved.brainDumpPanel, width })
         if (saved.brainDumpPanel.open) setBrainDumpMounted(true)
       }
+      if (saved.ticketBoardPanel) {
+        setTicketBoardPanel({
+          ...saved.ticketBoardPanel,
+          width: clampTicketBoardWidth(saved.ticketBoardPanel.width, window.innerWidth)
+        })
+        if (saved.ticketBoardPanel.open) setTicketBoardMounted(true)
+      }
       setAgentPermissionModes(saved.agentPermissionModes ?? {})
       setComposerSendKey(saved.composerSendKey ?? COMPOSER_SEND_KEY_DEFAULT)
       setRecentlyClosedNodes(saved.recentlyClosedNodes ?? [])
@@ -1036,7 +1077,8 @@ function Canvas(): JSX.Element {
       worktrees: nodes.filter(isWorktreeCanvasNode).map((node) => {
         return serializeWorktreeNode(nodeBeforeTemporaryFit(node, nodeFit.state()))
       }),
-      brainDumpPanel
+      brainDumpPanel,
+      ticketBoardPanel
     }),
     [
       activeProjectId,
@@ -1048,7 +1090,8 @@ function Canvas(): JSX.Element {
       projectGroups,
       projects,
       recentlyClosedNodes,
-      sidebarCollapsed
+      sidebarCollapsed,
+      ticketBoardPanel
     ]
   )
 
@@ -1968,6 +2011,23 @@ function Canvas(): JSX.Element {
                 {sidebarCollapsed && <span className="brain-dump-visually-hidden">Open brain-dump library</span>}
               </button>
 
+              <button
+                type="button"
+                className="sidebar-global-entry"
+                aria-pressed={ticketBoardPanel.open}
+                title={sidebarCollapsed ? 'Open the ticket board' : 'Tickets (Ctrl+Shift+K)'}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  toggleTicketBoardPanel()
+                }}
+              >
+                <span className="sidebar-global-icon" aria-hidden="true">
+                  <ClipboardList />
+                </span>
+                {!sidebarCollapsed && <span>Tickets</span>}
+                {sidebarCollapsed && <span className="brain-dump-visually-hidden">Open the ticket board</span>}
+              </button>
+
               <div className="sidebar-add-row">
                 <button
                   type="button"
@@ -2050,6 +2110,18 @@ function Canvas(): JSX.Element {
                 today={localCalendarDate()}
                 onPanelChange={(patch) => setBrainDumpPanel((current) => ({ ...current, ...patch }))}
                 onOpenSessionOnCanvas={openBrainDumpSession}
+              />
+            )}
+
+            {ticketBoardMounted && (
+              <TicketBoardPanel
+                panel={ticketBoardPanel}
+                workspaceWidth={workspaceWidth}
+                projectPath={activeProject?.path}
+                projectName={activeProject?.name}
+                sources={ticketSources}
+                today={localCalendarDate()}
+                onPanelChange={(patch) => setTicketBoardPanel((current) => ({ ...current, ...patch }))}
               />
             )}
           </div>

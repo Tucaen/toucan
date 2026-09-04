@@ -32,6 +32,8 @@ const pureRendererFeatureNames = [
   'shell-execution',
   'slash-command-completion',
   'terminal-liveness',
+  'ticket-board',
+  'ticket-board-layout',
   'tool-card',
   'tool-input',
   'worklog-activities',
