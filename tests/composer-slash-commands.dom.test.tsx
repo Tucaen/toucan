@@ -111,11 +111,22 @@ describe('composer slash-command completion', () => {
     expect(screen.queryByRole('listbox', { name: 'Slash commands' })).toBeNull()
   })
 
-  test('a slash in the middle of a sentence is ordinary text', () => {
+  test('a slash welded to a word is ordinary text', () => {
     renderChatView()
     type('look in src/')
 
     expect(screen.queryByRole('listbox', { name: 'Slash commands' })).toBeNull()
+  })
+
+  test('a slash opening a word mid-prompt still lists commands', () => {
+    renderChatView()
+    type('refactored this, now run /co')
+
+    expect(
+      within(menu())
+        .getAllByRole('option')
+        .map((option) => option.querySelector('strong')?.firstChild?.textContent)
+    ).toEqual(['/commit', '/compact'])
   })
 
   test('arrow keys move the selection and Enter accepts it', () => {

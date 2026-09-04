@@ -32,9 +32,29 @@ test('a caret parked inside the token still completes the part before it', () =>
   assert.deepEqual(slashCompletionQuery('/review', 3), { query: 're', start: 0 })
 })
 
-test('a slash that is not the first thing on its line is ordinary text', () => {
+test('a slash inside a word is ordinary text', () => {
   assert.equal(slashCompletionQuery('see src/main', 12), null)
-  assert.equal(slashCompletionQuery('ask /review', 11), null)
+  assert.equal(slashCompletionQuery('and/or', 6), null)
+})
+
+test('a slash mid-prompt completes, because agents honour /name anywhere', () => {
+  assert.deepEqual(slashCompletionQuery('ask /rev', 8), { query: 'rev', start: 4 })
+  const draft = 'refactored this, now run /code-rev'
+  assert.deepEqual(slashCompletionQuery(draft, draft.length), { query: 'code-rev', start: 25 })
+})
+
+test('any whitespace opens a word, tabs included', () => {
+  assert.deepEqual(slashCompletionQuery('ask\t/rev', 8), { query: 'rev', start: 4 })
+})
+
+test('only whitespace opens a word - punctuation in front leaves the slash as text', () => {
+  assert.equal(slashCompletionQuery('(/rev', 5), null)
+  assert.equal(slashCompletionQuery('"/rev', 5), null)
+})
+
+test('a path typed after the command name stays part of its arguments, not a new token', () => {
+  const draft = '/commit src/main'
+  assert.equal(slashCompletionQuery(draft, draft.length), null)
 })
 
 test('a slash opening a later line completes too', () => {

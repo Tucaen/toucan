@@ -1,12 +1,8 @@
 import type { WorkspaceFileEntry, WorkspaceFileIndex } from '../../shared/workspace-files'
+import { tokenOpeningWord, type CompletionToken } from './completion-token'
 import { shortenFilePath } from './file-operation'
 
-export interface FileMentionQuery {
-  /** What has been typed after the `@`, up to the caret. */
-  query: string
-  /** Index of the `@` in the draft, so accepting can rewrite exactly that token. */
-  start: number
-}
+export type FileMentionQuery = CompletionToken
 
 /** How many entries the menu may show at once, however large the repository is. */
 const MENTION_MATCH_LIMIT = 50
@@ -16,15 +12,11 @@ const RECENT_PATH_LIMIT = 10
 
 /**
  * An `@` only means "point me at a file" when it opens a word - welded to one it is an address
- * (`morgan@example.com`) or a version (`react@19`), and a picker appearing there would fight the
- * typing. The query runs to the caret rather than to the end of the token, so a caret parked
- * mid-path still narrows the list, and it never spans whitespace: a space ends the reference.
+ * (`morgan@example.com`) or a version (`react@19`). `tokenOpeningWord` owns that rule, shared with
+ * the slash picker so the two can never drift.
  */
 export function fileMentionQuery(draft: string, caret: number): FileMentionQuery | null {
-  let start = caret
-  while (start > 0 && !/\s/.test(draft[start - 1])) start -= 1
-  if (draft[start] !== '@') return null
-  return { query: draft.slice(start + 1, caret), start }
+  return tokenOpeningWord(draft, caret, '@')
 }
 
 const basenameOf = (path: string): string => path.slice(path.lastIndexOf('/') + 1)

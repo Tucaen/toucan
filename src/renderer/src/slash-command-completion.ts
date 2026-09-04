@@ -1,24 +1,16 @@
 import type { AgentCommand } from '../../shared/agent'
+import { tokenOpeningWord, type CompletionToken } from './completion-token'
 
-export interface SlashCompletionQuery {
-  /** What has been typed after the slash, up to the caret. */
-  query: string
-  /** Index of the `/` in the draft, so accepting can rewrite exactly that token. */
-  start: number
-}
+export type SlashCompletionQuery = CompletionToken
 
 /**
- * A slash command is only a command when it opens a line - anywhere else (`src/main`, `and/or`)
- * a slash is ordinary prose, and a completion popping up there would fight the typing. The query
- * stops at the caret so the menu still narrows while the caret sits inside a half-typed name, and
- * it never spans whitespace: once a space is typed the captain is writing arguments, not choosing.
+ * A slash starts a command wherever a word starts - `tokenOpeningWord` owns that rule, shared with
+ * the `@` picker so the two can never drift. Anywhere in the prompt, not just opening a line:
+ * agents read `/name` as an invocation wherever it appears ("refactored this, now run /code-review
+ * since main"), so a menu anchored to the line start would refuse to help with exactly those.
  */
 export function slashCompletionQuery(draft: string, caret: number): SlashCompletionQuery | null {
-  const lineStart = draft.lastIndexOf('\n', caret - 1) + 1
-  const line = draft.slice(lineStart, caret)
-  const match = /^(\s*)\/(\S*)$/.exec(line)
-  if (!match) return null
-  return { query: match[2], start: lineStart + match[1].length }
+  return tokenOpeningWord(draft, caret, '/')
 }
 
 /**

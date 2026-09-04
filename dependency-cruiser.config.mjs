@@ -16,6 +16,7 @@ const pureRendererFeatureNames = [
   'chat-scroll-follow',
   'composer-autosize',
   'composer-keys',
+  'completion-token',
   'decision-message',
   'file-mention-completion',
   'file-operation',
