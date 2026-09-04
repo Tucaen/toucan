@@ -18,6 +18,8 @@ import {
 import { createBrainDumpCaptureStore } from './brain-dump-capture-store'
 import { registerBrainDumpIpc } from './brain-dump-ipc'
 import { createBrainDumpChangeWatcher, type BrainDumpChangeWatcher } from './brain-dump-watcher'
+import { createGithubIssueReader } from './github-issues'
+import { registerGithubIssuesIpc } from './github-issues-ipc'
 import { registerTicketIpc } from './ticket-ipc'
 import { createTicketLibrary } from './ticket-library'
 import { createTicketChangeWatcher, type TicketChangeWatcher } from './ticket-watcher'
@@ -438,6 +440,10 @@ void app.whenReady().then(async () => {
     createTicketLibrary({ directoryFor: ticketsFolderFor, today: localCalendarDate }),
     ticketChanges,
     (path) => shell.showItemInFolder(normalize(path))
+  )
+  registerGithubIssuesIpc(
+    ipcMain as unknown as Parameters<typeof registerGithubIssuesIpc>[0],
+    createGithubIssueReader({ resolveCommand: findCommand })
   )
   registerWorktreeIpc(createWorktreeManager())
   registerWorkspaceFileIpc(createWorkspaceFileIndex())

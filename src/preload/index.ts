@@ -41,7 +41,7 @@ import type {
   BrainDumpCollection,
   BrainDumpOutcome
 } from '../shared/brain-dump'
-import type { TicketFilesApi } from '../shared/ticket-source'
+import type { TicketFilesApi, TicketGithubApi } from '../shared/ticket-source'
 
 const terminalApi = {
   getInitialProject: (): Promise<ProjectDirectory> => ipcRenderer.invoke('project:initial'),
@@ -215,3 +215,10 @@ const ticketsApi: TicketFilesApi = {
 }
 
 contextBridge.exposeInMainWorld('ticketsApi', ticketsApi)
+
+const githubIssuesApi: TicketGithubApi = {
+  availability: (projectPath: string) => ipcRenderer.invoke('github-issues:availability', projectPath),
+  list: (projectPath: string) => ipcRenderer.invoke('github-issues:list', projectPath)
+}
+
+contextBridge.exposeInMainWorld('githubIssuesApi', githubIssuesApi)

@@ -154,6 +154,12 @@ export interface BrainDumpPanelState {
 export interface TicketBoardPanelState {
   open: boolean
   width: number
+  /**
+   * Which optional ticket sources are switched on, keyed by project path. Only a choice is stored,
+   * never a listing: whether this checkout shows its GitHub issues is the user's answer, and the
+   * issues themselves are still read fresh from `gh` every time the board lists.
+   */
+  enabledSources?: Record<string, string[]>
 }
 
 export interface WorkspaceState {

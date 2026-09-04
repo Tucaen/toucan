@@ -3,8 +3,8 @@ import type { Ticket, TicketDiagnostic } from './tickets'
 /**
  * What the ticket board renders. A board never renders tickets: it renders *cards*, so a Markdown
  * file in the checkout, a GitHub issue and whatever tracker comes next reach the same columns
- * through one interface. Only the files source ships today; everything above this seam - the
- * panel, the hook, the column maths - is already written against several.
+ * through one interface. The files in a checkout and a project’s GitHub issues both arrive this
+ * way, and everything above the seam - the panel, the hook, the column maths - knows only cards.
  *
  * Pure: a source's implementation lives wherever its data does (preload bridge, HTTP client), but
  * the contract itself is runtime-neutral so main, preload and renderer can all name it.
@@ -29,6 +29,20 @@ export interface TicketCard {
   url?: string
 }
 
+/**
+ * Whether a source can answer for this project at all. A source that never says otherwise is
+ * always usable; one that answers this is *optional*, and the board offers it as a per-project
+ * toggle rather than listing it unasked. `reason` is shown to the user, so it says what to do.
+ */
+export interface TicketSourceUnavailable {
+  available: false
+  reason: string
+}
+
+export type TicketSourceAvailability =
+  /** `detail` identifies what was found, e.g. the GitHub repository the remote points at. */
+  { available: true; detail?: string } | TicketSourceUnavailable
+
 export interface TicketSourceListResult {
   cards: TicketCard[]
   /** Never dropped silently: a file or record the source could not read is shown on the board. */
@@ -41,6 +55,12 @@ export interface TicketSource {
   id: string
   label: string
   list(projectPath: string): Promise<TicketSourceListResult>
+  /**
+   * Absent for a source that is always usable - the files in a checkout always are. Present for
+   * one that depends on the machine or the project, and answering it is what makes the source
+   * optional: the board probes it, offers a toggle, and lists the source only once switched on.
+   */
+  availability?(projectPath: string): Promise<TicketSourceAvailability>
   /**
    * Absent when the source cannot be written to, which is exactly what makes its columns refuse a
    * drop. A source that can write is expected to have persisted the change before it resolves.
@@ -68,6 +88,19 @@ export interface TicketFilesApi {
   revealInFolder(projectPath: string, slug: string): void
   /** Fires with the project path whose tickets folder changed on disk. */
   onChange(callback: (projectPath: string) => void): () => void
+}
+
+/**
+ * A listing, or the reason there is nothing to list. One type rather than two calls: probing and
+ * listing can disagree - `gh` was there a second ago and is unauthenticated now - and a board that
+ * asked for issues must be told that, not handed an empty column that looks like an empty backlog.
+ */
+export type TicketGithubListResult = (TicketSourceListResult & { available: true }) | TicketSourceUnavailable
+
+/** The renderer-facing half of the GitHub source, exposed by the preload bridge as `githubIssuesApi`. */
+export interface TicketGithubApi {
+  availability(projectPath: string): Promise<TicketSourceAvailability>
+  list(projectPath: string): Promise<TicketGithubListResult>
 }
 
 /** The id of the always-on source backed by the project's own Markdown files. */

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
-import { FolderOpen, GripVertical, RefreshCw, X } from 'lucide-react'
+import { ExternalLink, FolderOpen, GripVertical, RefreshCw, X } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import type { TicketBoardPanelState } from '../../shared/terminal'
 import type { TicketCard, TicketSource } from '../../shared/ticket-source'
@@ -54,7 +54,13 @@ export default function TicketBoardPanel(props: TicketBoardPanelProps): JSX.Elem
   const { panel, projectPath, sources, today } = props
   const { open, width } = panel
   const headingId = useId()
-  const board = useTicketBoard({ sources, projectPath, today })
+  // An optional source is switched on per project, not per board: the answer to "show GitHub here"
+  // belongs to the checkout, and following the user from project to project would be a surprise.
+  const enabledSources = useMemo(
+    () => (projectPath ? (panel.enabledSources?.[projectPath] ?? []) : []),
+    [panel.enabledSources, projectPath]
+  )
+  const board = useTicketBoard({ sources, projectPath, today, enabledSources })
   const [expanded, setExpanded] = useState<string | null>(null)
   const [drag, setDrag] = useState<DragState | null>(null)
   // Closed work is history, not the board: Done starts collapsed to a strip and the user opens it.
@@ -67,10 +73,23 @@ export default function TicketBoardPanel(props: TicketBoardPanelProps): JSX.Elem
 
   const bounds = ticketBoardBounds(props.workspaceWidth)
   const sourceLabels = useMemo(() => new Map(sources.map((source) => [source.id, source.label])), [sources])
+  // The badge earns its width only when two sources are actually feeding the board.
+  const showSourceBadges = board.sources.filter((source) => source.enabled).length > 1
+  const optionalSources = board.sources.filter(
+    (source) => source.optional && (source.available === true || source.enabled)
+  )
 
   useEffect(() => {
     if (open && scrollRef.current) scrollRef.current.scrollLeft = scrollMemory.current
   }, [open, board.status])
+
+  const toggleSource = (sourceId: string, enabled: boolean): void => {
+    if (!projectPath) return
+    const remaining = enabledSources.filter((id) => id !== sourceId)
+    props.onPanelChange({
+      enabledSources: { ...panel.enabledSources, [projectPath]: enabled ? [...remaining, sourceId] : remaining }
+    })
+  }
 
   const closePanel = (): void => {
     scrollMemory.current = scrollRef.current?.scrollLeft ?? scrollMemory.current
@@ -166,15 +185,17 @@ export default function TicketBoardPanel(props: TicketBoardPanelProps): JSX.Elem
         <div className="ticket-card-meta">
           <code>{card.id}</code>
           <span>{describeTicketDate(card.updated, today)}</span>
-          {sources.length > 1 && <span className="ticket-card-source">{sourceLabels.get(card.sourceId)}</span>}
+          {showSourceBadges && <span className="ticket-card-source">{sourceLabels.get(card.sourceId)}</span>}
+          {/* A card that names somewhere on the web is opened there; one that does not is a file,
+              and the only place to open a file is the folder it lives in. */}
           <button
             type="button"
             className="ticket-card-reveal"
-            title={`Show ${card.id} in the folder`}
-            aria-label={`Show ${card.id} in the folder`}
+            title={card.url ? `Open ${card.id} in the browser` : `Show ${card.id} in the folder`}
+            aria-label={card.url ? `Open ${card.id} in the browser` : `Show ${card.id} in the folder`}
             onClick={() => board.reveal(card)}
           >
-            <FolderOpen aria-hidden="true" />
+            {card.url ? <ExternalLink aria-hidden="true" /> : <FolderOpen aria-hidden="true" />}
           </button>
         </div>
         {session && (
@@ -347,6 +368,26 @@ export default function TicketBoardPanel(props: TicketBoardPanelProps): JSX.Elem
           </button>
         </div>
       </header>
+
+      {/* Only sources the user has a choice about, and only once the probe has an answer: a
+          toggle that appears and vanishes while a project loads is worse than one that waits. */}
+      {projectPath && optionalSources.length > 0 && (
+        <div className="ticket-board-sources" role="group" aria-label="Ticket sources">
+          {optionalSources.map((source) => (
+            <button
+              key={source.id}
+              type="button"
+              className="ticket-board-source-toggle"
+              aria-pressed={source.enabled}
+              disabled={!source.available && !source.enabled}
+              title={source.reason ?? `${source.enabled ? 'Hide' : 'Show'} ${source.detail ?? source.label} tickets`}
+              onClick={() => toggleSource(source.id, !source.enabled)}
+            >
+              {source.label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {board.mutation.error && (
         <p className="ticket-board-state" role="alert">

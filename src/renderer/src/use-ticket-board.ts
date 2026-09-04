@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { TicketCard, TicketSource, TicketSourceListResult } from '../../shared/ticket-source'
+import type {
+  TicketCard,
+  TicketSource,
+  TicketSourceAvailability,
+  TicketSourceListResult
+} from '../../shared/ticket-source'
 import { ticketCardKey } from '../../shared/ticket-source'
 import type { TicketDiagnostic } from '../../shared/tickets'
 import { ticketBoardColumns, ticketDropAllowed, type TicketBoardColumn } from './ticket-board'
@@ -22,6 +27,21 @@ export interface TicketBoardMutation {
   error?: string
 }
 
+/** One source as the board's controls see it: whether it may be offered, and whether it is on. */
+export interface TicketSourceState {
+  id: string
+  label: string
+  /** True for a source the user chooses per project; false for one that is simply always there. */
+  optional: boolean
+  enabled: boolean
+  /** Undefined while the probe is still out, so the board can wait rather than say "unavailable". */
+  available?: boolean
+  /** Why it is unavailable, in the source's own words. */
+  reason?: string
+  /** What it found - the GitHub repository, say - so a toggle can name what it would show. */
+  detail?: string
+}
+
 export interface TicketBoard {
   status: TicketBoardStatus
   columns: TicketBoardColumn[]
@@ -38,6 +58,8 @@ export interface TicketBoard {
   reveal(card: TicketCard): void
   refresh(): Promise<void>
   announcement: string
+  /** Every configured source, in order, for the board's per-source toggles. */
+  sources: TicketSourceState[]
 }
 
 export interface TicketBoardOptions {
@@ -46,6 +68,12 @@ export interface TicketBoardOptions {
   projectPath?: string
   /** Today as `YYYY-MM-DD`, so the Done cutoff and relative dates stay testable. */
   today: string
+  /**
+   * Ids of the *optional* sources switched on for this project. An optional source that is not
+   * listed here is never listed at all: an unasked-for tracker must not cost a subprocess, and a
+   * board that quietly showed someone else's issues would not be this project's board.
+   */
+  enabledSources?: readonly string[]
 }
 
 const EMPTY: TicketSourceListResult = { cards: [], diagnostics: [] }
@@ -54,8 +82,26 @@ function errorText(cause: unknown): string {
   return cause instanceof Error ? cause.message : 'The tickets could not be read.'
 }
 
+/**
+ * A source is the user's to choose exactly when it can be absent, which is what answering
+ * `availability` means. One predicate rather than three `source.availability` tests, so listing,
+ * probing and the toggles can never disagree about which sources are optional.
+ */
+function isOptional(source: TicketSource): boolean {
+  return Boolean(source.availability)
+}
+
 export function useTicketBoard(options: TicketBoardOptions): TicketBoard {
-  const { projectPath, sources, today } = options
+  const { projectPath, sources: configured, today } = options
+  // A caller that rebuilds its array every render must not restart every read, so what the memos
+  // below depend on is the *set of ids*, not the array that carried them.
+  const enabledKey = (options.enabledSources ?? []).join(',')
+  const enabled = useMemo(() => new Set(enabledKey.split(',').filter(Boolean)), [enabledKey])
+  const [availability, setAvailability] = useState<Record<string, TicketSourceAvailability>>({})
+  const sources = useMemo(
+    () => configured.filter((source) => !isOptional(source) || enabled.has(source.id)),
+    [configured, enabled]
+  )
   const [status, setStatus] = useState<TicketBoardStatus>('idle')
   const [listings, setListings] = useState<TicketSourceListResult[]>([])
   const [error, setError] = useState<string | undefined>(undefined)
@@ -115,6 +161,44 @@ export function useTicketBoard(options: TicketBoardOptions): TicketBoard {
     }
   }, [projectPath, read, sources])
 
+  // Probing is what decides whether a toggle is offered at all, so it runs for every optional
+  // source on every project - including the ones already switched off - and never for the rest.
+  useEffect(() => {
+    setAvailability({})
+    if (!projectPath) return
+    let current = true
+    for (const source of configured) {
+      if (!source.availability) continue
+      void source
+        .availability(projectPath)
+        .catch((cause: unknown) => ({ available: false as const, reason: errorText(cause) }))
+        .then((result) => {
+          if (current) setAvailability((seen) => ({ ...seen, [source.id]: result }))
+        })
+    }
+    return () => {
+      current = false
+    }
+  }, [configured, projectPath])
+
+  const sourceStates = useMemo(
+    () =>
+      configured.map((source): TicketSourceState => {
+        const optional = isOptional(source)
+        const probed = availability[source.id]
+        return {
+          id: source.id,
+          label: source.label,
+          optional,
+          enabled: !optional || enabled.has(source.id),
+          ...(optional ? { available: probed?.available } : { available: true }),
+          ...(probed?.available === false ? { reason: probed.reason } : {}),
+          ...(probed?.available && probed.detail ? { detail: probed.detail } : {})
+        }
+      }),
+    [availability, configured, enabled]
+  )
+
   const cards = useMemo(() => listings.flatMap((listing) => listing.cards), [listings])
   const diagnostics = useMemo(() => listings.flatMap((listing) => listing.diagnostics), [listings])
   const columns = useMemo(() => ticketBoardColumns({ listings, today, showAllDone }), [listings, showAllDone, today])
@@ -168,6 +252,7 @@ export function useTicketBoard(options: TicketBoardOptions): TicketBoard {
     clearMoveError: () => setMutation({}),
     reveal,
     refresh: () => read(false),
-    announcement
+    announcement,
+    sources: sourceStates
   }
 }

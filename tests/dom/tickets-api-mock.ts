@@ -1,5 +1,12 @@
 import { vi } from 'vitest'
-import type { TicketCard, TicketFilesApi, TicketSourceListResult } from '../../src/shared/ticket-source'
+import type {
+  TicketCard,
+  TicketFilesApi,
+  TicketGithubApi,
+  TicketGithubListResult,
+  TicketSourceAvailability,
+  TicketSourceListResult
+} from '../../src/shared/ticket-source'
 
 /**
  * The files ticket source as the preload bridge exposes it, backed by a plain array the test
@@ -62,5 +69,32 @@ export function createMockTicketsApi(): MockTicketsApi {
       subscribers.add(callback)
       return () => subscribers.delete(callback)
     }
+  }
+}
+
+/**
+ * The GitHub source as the preload bridge exposes it. Availability and the listing are held apart
+ * because that is the pair the board has to keep straight: a repository whose issues it may offer,
+ * and the issues themselves, which it only asks for once the user has switched the source on.
+ */
+export interface MockGithubIssuesApi extends TicketGithubApi {
+  setAvailability(result: TicketSourceAvailability): void
+  setListing(result: TicketGithubListResult): void
+  listCalls: string[]
+}
+
+export function createMockGithubIssuesApi(): MockGithubIssuesApi {
+  let availability: TicketSourceAvailability = { available: false, reason: 'This project has no GitHub remote.' }
+  let listing: TicketGithubListResult = { available: true, cards: [], diagnostics: [] }
+  const listCalls: string[] = []
+  return {
+    listCalls,
+    setAvailability: (result) => void (availability = result),
+    setListing: (result) => void (listing = result),
+    availability: vi.fn(async () => availability),
+    list: vi.fn(async (projectPath: string) => {
+      listCalls.push(projectPath)
+      return listing
+    })
   }
 }

@@ -34,7 +34,7 @@ import type { RemoteAccessSettings, RemoteAccessState, RemoteWorkspaceProjection
 import type { RemoteChatSpawnRequest, RemoteChatSpawnResult } from '../shared/remote-spawn'
 import type { ConversationTitle, ConversationTitleSource } from '../shared/conversation-title'
 import type { BrainDumpApi } from '../shared/brain-dump'
-import type { TicketFilesApi } from '../shared/ticket-source'
+import type { TicketFilesApi, TicketGithubApi } from '../shared/ticket-source'
 
 export interface AgentApi {
   create(request: AgentCreateRequest): Promise<AgentCreateResult>
@@ -141,5 +141,6 @@ declare global {
     remoteApi: RemoteApi
     brainDumpApi: BrainDumpApi
     ticketsApi: TicketFilesApi
+    githubIssuesApi: TicketGithubApi
   }
 }

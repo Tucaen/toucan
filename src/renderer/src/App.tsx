@@ -61,6 +61,7 @@ import BrainDumpLibraryPanel from './BrainDumpLibraryPanel'
 import { TICKET_BOARD_DEFAULT_WIDTH, clampTicketBoardWidth, ticketBoardKeyAction } from './ticket-board-layout'
 import { ticketSessionsFromNodes, type TicketActivityReport } from './ticket-activity'
 import { createTicketFileSource } from './ticket-file-source'
+import { createTicketGithubSource } from './ticket-github-source'
 import TicketBoardPanel from './TicketBoardPanel'
 import {
   closedSessionKeyAction,
@@ -246,9 +247,15 @@ function Canvas(): JSX.Element {
     width: TICKET_BOARD_DEFAULT_WIDTH
   })
   const [ticketBoardMounted, setTicketBoardMounted] = useState(false)
-  // Built once: the seam is a list of sources, and this ticket ships the files one. Adding GitHub
-  // later appends to this array and touches nothing else in the board.
-  const ticketSources = useMemo(() => [createTicketFileSource(window.ticketsApi)], [])
+  // Built once, in board order: the files in the checkout are always on, GitHub is offered per
+  // project. A further tracker is another entry here and nothing else above the seam.
+  const ticketSources = useMemo(
+    () => [
+      createTicketFileSource(window.ticketsApi),
+      createTicketGithubSource(window.githubIssuesApi, (url) => void window.terminalApi.openExternal(url))
+    ],
+    []
+  )
   const [workspaceWidth, setWorkspaceWidth] = useState(() => window.innerWidth)
   const { fitView, getViewport, screenToFlowPosition } = useReactFlow()
   const canvasRegionRef = useRef<HTMLElement>(null)
@@ -1042,8 +1049,14 @@ function Canvas(): JSX.Element {
         if (saved.brainDumpPanel.open) setBrainDumpMounted(true)
       }
       if (saved.ticketBoardPanel) {
+        // A source switched on for a project that has since been removed would be remembered for
+        // good, so the restored choices are pruned to the projects that still exist.
+        const paths = new Set(saved.projects.map((entry) => entry.path))
         setTicketBoardPanel({
           ...saved.ticketBoardPanel,
+          enabledSources: Object.fromEntries(
+            Object.entries(saved.ticketBoardPanel.enabledSources ?? {}).filter(([path]) => paths.has(path))
+          ),
           width: clampTicketBoardWidth(saved.ticketBoardPanel.width, window.innerWidth)
         })
         if (saved.ticketBoardPanel.open) setTicketBoardMounted(true)

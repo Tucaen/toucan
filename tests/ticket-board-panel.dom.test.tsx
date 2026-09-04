@@ -4,7 +4,13 @@ import App from '../src/renderer/src/App'
 import { TICKET_BOARD_DEFAULT_WIDTH, TICKET_BOARD_MAX_WIDTH } from '../src/renderer/src/ticket-board-layout'
 import type { WorkspaceState } from '../src/shared/terminal'
 import { createMockBrainDumpApi } from './dom/brain-dump-api-mock'
-import { cardFixture, createMockTicketsApi, type MockTicketsApi } from './dom/tickets-api-mock'
+import {
+  cardFixture,
+  createMockGithubIssuesApi,
+  createMockTicketsApi,
+  type MockGithubIssuesApi,
+  type MockTicketsApi
+} from './dom/tickets-api-mock'
 
 /**
  * The board inside the real workspace: its sidebar entry, its shortcut, the columns it derives
@@ -34,6 +40,7 @@ function savedWorkspace(overrides: Partial<WorkspaceState> = {}): WorkspaceState
 }
 
 let tickets: MockTicketsApi
+let github: MockGithubIssuesApi
 let saved: WorkspaceState[]
 
 function installWindowApis(state: WorkspaceState): void {
@@ -70,6 +77,7 @@ function installWindowApis(state: WorkspaceState): void {
   })
   define('brainDumpApi', createMockBrainDumpApi())
   define('ticketsApi', tickets)
+  define('githubIssuesApi', github)
 }
 
 function setWindowWidth(width: number): void {
@@ -134,6 +142,7 @@ beforeEach(() => {
   vi.stubGlobal('ResizeObserver', ResizeObserverStub)
   setWindowWidth(1920)
   tickets = createMockTicketsApi()
+  github = createMockGithubIssuesApi()
   tickets.projects.set(project.path, {
     cards: [
       cardFixture({ id: 'ticket-board', title: 'Ticket board', status: 'in-progress', updated: '2026-09-03' }),
@@ -346,5 +355,123 @@ describe('persisted panel state', () => {
     await openBoard()
     fireEvent.keyDown(screen.getByRole('separator', { name: 'Resize the ticket board' }), { key: 'ArrowLeft' })
     await waitFor(() => expect(saved.at(-1)?.ticketBoardPanel?.width).toBe(TICKET_BOARD_DEFAULT_WIDTH + 24))
+  })
+})
+
+describe('GitHub as a second source', () => {
+  const issue = (overrides: Partial<ReturnType<typeof cardFixture>> = {}): ReturnType<typeof cardFixture> =>
+    cardFixture({
+      sourceId: 'github',
+      id: '147',
+      title: 'GitHub issues as a second source',
+      url: 'https://github.com/tucaen/toucan/issues/147',
+      ...overrides
+    })
+
+  test('a project with no GitHub remote is not offered the source at all', async () => {
+    await openBoard()
+    await waitFor(() => expect(github.availability).toHaveBeenCalledWith(project.path))
+    expect(screen.queryByRole('button', { name: 'GitHub' })).toBeNull()
+    expect(github.list).not.toHaveBeenCalled()
+  })
+
+  test('an available source is offered, off, and costs no listing until it is switched on', async () => {
+    github.setAvailability({ available: true, detail: 'tucaen/toucan' })
+    github.setListing({ available: true, cards: [issue()], diagnostics: [] })
+    await openBoard()
+
+    const toggle = await screen.findByRole('button', { name: 'GitHub' })
+    expect(toggle).toHaveAttribute('aria-pressed', 'false')
+    expect(github.list).not.toHaveBeenCalled()
+    expect(screen.queryByText('GitHub issues as a second source')).toBeNull()
+
+    fireEvent.click(toggle)
+    await screen.findByText('GitHub issues as a second source')
+    expect(github.listCalls).toEqual([project.path])
+    // Files stay on the same board: the sources are additive, never exclusive.
+    expect(within(column('In progress')).getByText('Ticket board')).toBeTruthy()
+  })
+
+  test('the choice is remembered per project, not for every project on the board', async () => {
+    github.setAvailability({ available: true })
+    await openBoard()
+    fireEvent.click(await screen.findByRole('button', { name: 'GitHub' }))
+    await waitFor(() => expect(saved.at(-1)?.ticketBoardPanel?.enabledSources).toEqual({ [project.path]: ['github'] }))
+
+    const list = document.querySelector('.project-list') as HTMLElement
+    fireEvent.click(within(list).getByText('Atlas'))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'GitHub' })).toHaveAttribute('aria-pressed', 'false'))
+  })
+
+  test('a restored choice lists GitHub without the user asking again', async () => {
+    github.setAvailability({ available: true })
+    github.setListing({ available: true, cards: [issue()], diagnostics: [] })
+    await renderApp(
+      savedWorkspace({
+        ticketBoardPanel: {
+          open: true,
+          width: TICKET_BOARD_DEFAULT_WIDTH,
+          enabledSources: { [project.path]: ['github'] }
+        }
+      })
+    )
+    await screen.findByText('GitHub issues as a second source')
+  })
+
+  test('a GitHub card cannot be dragged, because nothing would be written back', async () => {
+    github.setAvailability({ available: true })
+    github.setListing({ available: true, cards: [issue()], diagnostics: [] })
+    await openBoard()
+    fireEvent.click(await screen.findByRole('button', { name: 'GitHub' }))
+    await screen.findByText('GitHub issues as a second source')
+
+    expect(screen.queryByTitle('Move GitHub issues as a second source to another column')).toBeNull()
+    expect(screen.getByTitle('Move Ticket board to another column')).toBeTruthy()
+  })
+
+  test('a GitHub card opens its issue in the browser instead of a folder', async () => {
+    github.setAvailability({ available: true })
+    github.setListing({ available: true, cards: [issue()], diagnostics: [] })
+    await openBoard()
+    fireEvent.click(await screen.findByRole('button', { name: 'GitHub' }))
+    await screen.findByText('GitHub issues as a second source')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open 147 in the browser' }))
+    expect(window.terminalApi.openExternal).toHaveBeenCalledWith('https://github.com/tucaen/toucan/issues/147')
+    expect(tickets.revealCalls).toEqual([])
+  })
+
+  test('a source that stops working says so on the board rather than emptying a column', async () => {
+    github.setAvailability({ available: true })
+    github.setListing({ available: false, reason: 'gh: please run gh auth login' })
+    await openBoard()
+    fireEvent.click(await screen.findByRole('button', { name: 'GitHub' }))
+    await screen.findByText(/gh auth login/)
+    // The files are still the board; only GitHub failed.
+    expect(within(column('In progress')).getByText('Ticket board')).toBeTruthy()
+  })
+})
+
+describe('remembered GitHub choices', () => {
+  test('the toggle names the repository the probe found', async () => {
+    github.setAvailability({ available: true, detail: 'tucaen/toucan' })
+    await openBoard()
+    expect(await screen.findByTitle('Show tucaen/toucan tickets')).toBeTruthy()
+  })
+
+  test('a choice for a project that no longer exists is dropped rather than kept for good', async () => {
+    github.setAvailability({ available: true })
+    await renderApp(
+      savedWorkspace({
+        ticketBoardPanel: {
+          open: true,
+          width: TICKET_BOARD_DEFAULT_WIDTH,
+          enabledSources: { [project.path]: ['github'], 'D:\Development\Gone': ['github'] }
+        }
+      })
+    )
+    await screen.findByRole('heading', { name: 'Tickets' })
+    fireEvent.keyDown(screen.getByRole('separator', { name: 'Resize the ticket board' }), { key: 'ArrowLeft' })
+    await waitFor(() => expect(saved.at(-1)?.ticketBoardPanel?.enabledSources).toEqual({ [project.path]: ['github'] }))
   })
 })

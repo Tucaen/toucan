@@ -133,7 +133,17 @@ function isBrainDumpPanelState(value: unknown): boolean {
 function isTicketBoardPanelState(value: unknown): boolean {
   if (!value || typeof value !== 'object') return false
   const panel = value as Partial<NonNullable<WorkspaceState['ticketBoardPanel']>>
-  return typeof panel.open === 'boolean' && typeof panel.width === 'number' && Number.isFinite(panel.width)
+  return (
+    typeof panel.open === 'boolean' &&
+    typeof panel.width === 'number' &&
+    Number.isFinite(panel.width) &&
+    (panel.enabledSources === undefined ||
+      (typeof panel.enabledSources === 'object' &&
+        panel.enabledSources !== null &&
+        Object.values(panel.enabledSources).every(
+          (ids) => Array.isArray(ids) && ids.every((id) => typeof id === 'string')
+        )))
+  )
 }
 
 export function isWorkspaceState(value: unknown): value is WorkspaceState {
