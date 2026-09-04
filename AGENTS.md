@@ -34,6 +34,8 @@ This file is the project's committed home for project-intrinsic agent knowledge:
 
 - Work is tracked as GitHub issues on this repo (`gh issue list`). `ready-for-agent` marks a ticket an agent may pick up now; `blocked` plus the issue body's "Blocked by" section gates a ticket on other issues; `backlog` defers it; `frontier-model` flags an architecture-sensitive ticket that should be implemented with the strongest available model rather than the default. When a ticket lands, flip any ticket it was the last blocker for from `blocked` to `ready-for-agent`. Feature plans that spawned a ticket set live under `docs/plans/` and each issue links its plan.
 
+- Every commit message subject follows `type(affected-feature): ticket-number commit-message` - for example `feat(agent): 127 fan agent events out through a main-process broker`. `type` is a conventional-commit type (`feat`, `fix`, `chore`, `refactor`, `docs`, `test`, `build`, `ci`, `perf`), `affected-feature` names the area touched (`agent`, `mobile`, `worktree`, `remote`, ...), and `ticket-number` is the bare GitHub issue number the work belongs to - no `#`, which git would strip as a comment in an editor-composed message. When no issue covers the work, drop the number and keep the rest of the shape. Keep the message itself imperative, lowercase, no trailing period.
+
 ## Maintaining this file
 
 Keep this file for knowledge useful to almost every future agent session in this project.
