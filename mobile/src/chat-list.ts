@@ -28,9 +28,10 @@ export function chatNeedsApproval(chat: RemoteChatSummary): boolean {
 
 /**
  * Projects in the host's order, each with its own chats. Empty projects are dropped: a phone
- * screen is small, and a project heading with nothing under it is pure noise until spawning a
- * chat remotely exists. A chat whose project the snapshot does not name is dropped for the same
- * reason it would be unusable - there is nowhere to file it.
+ * screen is small, and a project heading with nothing under it is pure noise - spawning offers
+ * every project in its own picker, so the list does not have to double as one. A chat whose
+ * project the snapshot does not name is dropped for the same reason it would be unusable - there
+ * is nowhere to file it.
  */
 export function groupChatsByProject(snapshot: RemoteWorkspaceSnapshot): ChatGroup[] {
   return snapshot.projects

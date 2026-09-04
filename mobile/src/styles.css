@@ -849,3 +849,106 @@ body {
   background: #40202a;
   color: var(--attention);
 }
+
+/* Starting a chat: the list's one action, and the form behind it. Both are deliberately built
+   from the same tokens as the pairing form - this is the second thing a paired phone ever does,
+   and it should not look like a different app. */
+.new-chat {
+  width: 100%;
+  padding: 14px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ink-dim);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.new-chat-form {
+  display: grid;
+  gap: 18px;
+}
+
+.new-chat-form fieldset {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.new-chat-form legend,
+.new-chat-input span {
+  padding: 0;
+  color: var(--ink-faint);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.new-chat-projects,
+.new-chat-kinds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.new-chat-project,
+.new-chat-kind {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  /* Comfortably past the 44px tap target these are all competing for on a phone. */
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-dim);
+  font-size: 14px;
+}
+
+.new-chat-project[data-selected],
+.new-chat-kind[data-selected] {
+  border-color: var(--accent);
+  color: var(--ink);
+}
+
+.new-chat-input {
+  display: grid;
+  gap: 7px;
+}
+
+.new-chat-input textarea {
+  width: 100%;
+  /* 16px minimum, same reason as the pairing input: smaller text zooms the viewport on focus. */
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #101520;
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 16px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.new-chat-input textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.new-chat-form > button[type='submit'] {
+  padding: 15px;
+  border: none;
+  border-radius: 10px;
+  background: var(--accent);
+  color: #1a0f27;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.new-chat-form > button[type='submit']:disabled {
+  background: #3a3350;
+  color: #8c85a0;
+}

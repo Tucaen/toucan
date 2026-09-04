@@ -4,6 +4,8 @@ import {
   type RemoteAccessState,
   type RemoteWorkspaceProjection
 } from '../../shared/remote-access'
+import type { RemoteChatSpawnResult } from '../../shared/remote-spawn'
+import { SPAWN_CHAT_RESULT_CHANNEL, type RemoteChatSpawner } from './chat-spawn'
 import type { RemoteAccessServer } from './remote-server'
 
 /**
@@ -15,7 +17,7 @@ import type { RemoteAccessServer } from './remote-server'
  * renderer and are only ever handed straight back out as JSON, so the check that matters is that
  * a malformed message cannot replace a good projection with something unserializable.
  */
-export function registerRemoteIpc(ipc: IpcMain, server: RemoteAccessServer): void {
+export function registerRemoteIpc(ipc: IpcMain, server: RemoteAccessServer, spawner: RemoteChatSpawner): void {
   ipc.handle('remote:state', () => server.state())
   ipc.handle('remote:apply-settings', (_event, settings: unknown) =>
     isRemoteAccessSettings(settings) ? server.applySettings(settings) : server.state()
@@ -23,6 +25,12 @@ export function registerRemoteIpc(ipc: IpcMain, server: RemoteAccessServer): voi
   ipc.handle('remote:regenerate-token', () => server.regenerateToken())
   ipc.on('remote:publish-workspace', (_event, projection: unknown) => {
     if (isPublishableProjection(projection)) server.publishWorkspace(projection)
+  })
+  // The renderer's verdict on a spawn main asked it to perform. An unrecognizable answer is
+  // dropped rather than settled as a failure: the spawner's own timeout is the honest fallback,
+  // and inventing a refusal here could retire a request whose node is on its way up.
+  ipc.on(SPAWN_CHAT_RESULT_CHANNEL, (_event, requestId: unknown, result: unknown) => {
+    if (typeof requestId === 'string' && isSpawnResult(result)) spawner.complete(requestId, result)
   })
 }
 
@@ -35,6 +43,13 @@ export function forwardRemoteStateChanges(server: RemoteAccessServer, contents: 
   return server.onChange((state: RemoteAccessState) => {
     if (!contents.isDestroyed()) contents.send('remote:state-changed', state)
   })
+}
+
+function isSpawnResult(value: unknown): value is RemoteChatSpawnResult {
+  if (!value || typeof value !== 'object') return false
+  const result = value as { ok?: unknown; chatId?: unknown; message?: unknown }
+  if (result.ok === true) return typeof result.chatId === 'string' && result.chatId.length > 0
+  return result.ok === false && typeof result.message === 'string'
 }
 
 function isPublishableProjection(value: unknown): value is RemoteWorkspaceProjection {

@@ -1,4 +1,5 @@
 import type { RemoteWorkspaceSnapshot } from '../../src/shared/remote-access'
+import type { RemoteChatSpawnRequest } from '../../src/shared/remote-spawn'
 
 /**
  * The phone's side of pairing. The host is implicit - it is whatever origin served this page - so
@@ -71,19 +72,30 @@ export type RemoteFailure = { kind: 'unauthorized' } | { kind: 'unreachable'; me
 
 export type RemoteResult<T> = { ok: true; value: T } | ({ ok: false } & RemoteFailure)
 
-async function request(path: string, token: string, signal?: AbortSignal): Promise<RemoteResult<Response>> {
+/**
+ * One request, with the pairing header and the two failures every caller reacts to. A non-`ok`
+ * status is *not* one of them: only the caller knows whether the body carries a reason worth
+ * reading, so the response is handed over whatever it says and `request` decides for the callers
+ * that have nothing to read.
+ */
+async function send(path: string, token: string, init: RequestInit = {}): Promise<RemoteResult<Response>> {
   try {
     const response = await fetch(path, {
-      headers: { authorization: `Bearer ${token}` },
-      cache: 'no-store',
-      signal
+      ...init,
+      headers: { ...init.headers, authorization: `Bearer ${token}` },
+      cache: 'no-store'
     })
-    if (response.status === 401) return { ok: false, kind: 'unauthorized' }
-    if (!response.ok) return { ok: false, kind: 'unreachable', message: `Host replied ${response.status}` }
-    return { ok: true, value: response }
+    return response.status === 401 ? { ok: false, kind: 'unauthorized' } : { ok: true, value: response }
   } catch (error) {
     return { ok: false, kind: 'unreachable', message: error instanceof Error ? error.message : 'Host unreachable' }
   }
+}
+
+async function request(path: string, token: string, signal?: AbortSignal): Promise<RemoteResult<Response>> {
+  const result = await send(path, token, signal ? { signal } : {})
+  if (!result.ok) return result
+  if (!result.value.ok) return { ok: false, kind: 'unreachable', message: `Host replied ${result.value.status}` }
+  return result
 }
 
 /**
@@ -105,6 +117,44 @@ export async function fetchWorkspace(
     return { ok: true, value: (await result.value.json()) as RemoteWorkspaceSnapshot }
   } catch (error) {
     return { ok: false, kind: 'unreachable', message: error instanceof Error ? error.message : 'Unreadable reply' }
+  }
+}
+
+/**
+ * Asks the desktop to start a chat, and answers with the id of one that actually exists.
+ *
+ * This is the only request the phone makes that *changes* the desktop, and it is deliberately the
+ * slow one: the host holds it open until the canvas has added the node and the session behind it
+ * has come up. That is what makes the reply safe to navigate to. A refusal carries the host's own
+ * wording - no window open, a session that died, a project that has since been closed - because
+ * every one of those is something the reader can act on, and none of them is "try again".
+ */
+export async function createChat(token: string, spawn: RemoteChatSpawnRequest): Promise<RemoteResult<string>> {
+  const sent = await send('/api/chats', token, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(spawn)
+  })
+  if (!sent.ok) return sent
+  const response = sent.value
+
+  const payload = await readJsonBody(response)
+  if (!response.ok) {
+    const reported = typeof payload?.error === 'string' ? payload.error : null
+    return { ok: false, kind: 'unreachable', message: reported ?? `Host replied ${response.status}` }
+  }
+  if (typeof payload?.chatId !== 'string' || payload.chatId.length === 0) {
+    return { ok: false, kind: 'unreachable', message: 'The host did not say which chat it started.' }
+  }
+  return { ok: true, value: payload.chatId }
+}
+
+/** A body that is not JSON is not a reason to lose the status; the caller falls back to it. */
+async function readJsonBody(response: Response): Promise<{ chatId?: unknown; error?: unknown } | null> {
+  try {
+    return (await response.json()) as { chatId?: unknown; error?: unknown }
+  } catch {
+    return null
   }
 }
 

@@ -2,6 +2,8 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import App from '../src/renderer/src/App'
 import type { RemoteAccessState, RemoteWorkspaceProjection } from '../src/shared/remote-access'
+import type { RemoteChatSpawnRequest, RemoteChatSpawnResult } from '../src/shared/remote-spawn'
+import type { AgentApi } from '../src/preload/index.d'
 import type { WorkspaceState } from '../src/shared/terminal'
 import { createMockAgentApi } from './dom/agent-api-mock'
 import { createMockBrainDumpApi } from './dom/brain-dump-api-mock'
@@ -60,12 +62,21 @@ let published: RemoteWorkspaceProjection[]
 let applied: { enabled: boolean; port: number }[]
 let copied: string[]
 let regenerated: number
+/** The host's side of a spawn: what it asked, and what the renderer eventually answered. */
+let requestSpawn: ((requestId: string, request: RemoteChatSpawnRequest) => void) | null
+let spawnResults: { requestId: string; result: RemoteChatSpawnResult; publishedByThen: number }[]
 
-function installWindowApis(state: WorkspaceState, initial: RemoteAccessState): void {
+function installWindowApis(
+  state: WorkspaceState,
+  initial: RemoteAccessState,
+  agentOverrides: Partial<AgentApi> = {}
+): void {
   published = []
   applied = []
   copied = []
   regenerated = 0
+  requestSpawn = null
+  spawnResults = []
   const define = (name: string, value: unknown): void =>
     Object.defineProperty(window, name, { configurable: true, value })
 
@@ -80,7 +91,7 @@ function installWindowApis(state: WorkspaceState, initial: RemoteAccessState): v
   define('usageApi', { rateLimits: vi.fn(async () => ({})) })
   define('worktreeApi', { discover: vi.fn(async () => ({ worktrees: [], claims: [] })) })
   define('conversationApi', { setTitle: vi.fn(async () => null) })
-  define('agentApi', createMockAgentApi().api)
+  define('agentApi', createMockAgentApi(agentOverrides).api)
   define('brainDumpApi', createMockBrainDumpApi())
   define('remoteApi', {
     state: vi.fn(async () => initial),
@@ -93,12 +104,25 @@ function installWindowApis(state: WorkspaceState, initial: RemoteAccessState): v
       return remoteState({ token: 'a-new-token' })
     }),
     publishWorkspace: vi.fn((projection: RemoteWorkspaceProjection) => published.push(projection)),
-    onStateChange: () => () => undefined
+    onStateChange: () => () => undefined,
+    onSpawnChat: (callback: (requestId: string, request: RemoteChatSpawnRequest) => void) => {
+      requestSpawn = callback
+      return () => {
+        requestSpawn = null
+      }
+    },
+    // `publishedByThen` is recorded so a test can ask what the host had been handed at the moment
+    // it was answered - the ordering the phone's very next request depends on.
+    completeSpawn: (requestId: string, result: RemoteChatSpawnResult) =>
+      spawnResults.push({ requestId, result, publishedByThen: published.length })
   })
 }
 
-async function renderApp(initial: RemoteAccessState = remoteState()): Promise<void> {
-  installWindowApis(savedWorkspace(), initial)
+async function renderApp(
+  initial: RemoteAccessState = remoteState(),
+  agentOverrides: Partial<AgentApi> = {}
+): Promise<void> {
+  installWindowApis(savedWorkspace(), initial, agentOverrides)
   render(<App />)
   await screen.findByText('Add project')
 }
@@ -184,5 +208,69 @@ describe('the remote access dialog', () => {
     fireEvent.click(screen.getByTitle(/Generate a new token/))
     await waitFor(() => expect(regenerated).toBe(1))
     await screen.findByText('a-new-token')
+  })
+})
+
+/**
+ * Spawning, read from the renderer's side of the seam. Node identity is the canvas's, so what has
+ * to hold here is that the host's request goes through the *same* add-node path a right-click uses,
+ * and that the answer it gets back describes a session that actually came up - the phone navigates
+ * on that answer, so an optimistic one would be a chat that is not there.
+ */
+describe('a chat a phone asked for', () => {
+  const request: RemoteChatSpawnRequest = { projectId: project.id, kind: 'codex', input: 'fix the parser' }
+
+  test('is added to the canvas and answered with its id once the session is up', async () => {
+    await renderApp()
+    await waitFor(() => expect(requestSpawn).not.toBeNull())
+
+    requestSpawn!('req-1', request)
+
+    await waitFor(() => expect(spawnResults).toHaveLength(1))
+    const answer = spawnResults[0]
+    expect(answer.requestId).toBe('req-1')
+    expect(answer.result.ok).toBe(true)
+
+    const chatId = (answer.result as { chatId: string }).chatId
+    // The id was only reported once the host already held a projection listing it. Joining a chat
+    // socket is gated on that list, so an answer that arrived first would hand the phone an id its
+    // very next request would be refused for.
+    const knownWhenAnswered = published
+      .slice(0, answer.publishedByThen)
+      .some((projection) => projection.chats.some((chat) => chat.id === chatId))
+    expect(knownWhenAnswered).toBe(true)
+
+    // And it is an ordinary canvas node: it stays in the projection like every other one.
+    const spawned = published[published.length - 1].chats.find((chat) => chat.id === chatId)!
+    expect(spawned.kind).toBe('codex')
+    expect(spawned.projectId).toBe(project.id)
+  })
+
+  test('a project the canvas no longer has is refused without adding anything', async () => {
+    await renderApp()
+    await waitFor(() => expect(requestSpawn).not.toBeNull())
+    const before = published[published.length - 1].chats.length
+
+    requestSpawn!('req-1', { projectId: 'closed-project', kind: 'claude' })
+
+    await waitFor(() => expect(spawnResults).toHaveLength(1))
+    expect(spawnResults[0].result).toEqual({
+      ok: false,
+      message: 'That project is no longer open on the desktop.'
+    })
+    expect(published[published.length - 1].chats.length).toBe(before)
+  })
+
+  test('a session that cannot start is reported as a failure, not as a chat', async () => {
+    // The node is added either way - that is the canvas's own path - but the spawn only succeeds
+    // if a session came up behind it, which is the difference between a chat and a phantom.
+    await renderApp(remoteState(), { create: vi.fn(async () => ({ ok: false as const, error: 'no adapter' })) })
+    await waitFor(() => expect(requestSpawn).not.toBeNull())
+
+    requestSpawn!('req-1', request)
+
+    await waitFor(() => expect(spawnResults).toHaveLength(1))
+    expect(spawnResults[0].result.ok).toBe(false)
+    expect((spawnResults[0].result as { message: string }).message).toMatch(/could not be started/)
   })
 })

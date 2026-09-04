@@ -22,6 +22,13 @@ import {
   type RemoteChatClientMessage,
   type RemoteChatServerMessage
 } from '../../shared/remote-chat'
+import {
+  parseRemoteChatSpawnRequest,
+  remoteChatSpawnProblem,
+  REMOTE_SPAWN_BODY_LIMIT,
+  type RemoteChatSpawnRequest,
+  type RemoteChatSpawnResult
+} from '../../shared/remote-spawn'
 import type { AgentDecisionResponseContent, AgentPromptResult } from '../../shared/agent'
 import type { AgentEventBroker } from '../agent-event-broker'
 import { describeHostAddresses } from './host-addresses'
@@ -78,9 +85,18 @@ export interface RemoteAccessServerOptions {
    * readable in a single type rather than inferred from call sites. Absent, chats are read-only.
    */
   sessions?: RemoteChatSessionOperations
+  /**
+   * How a chat that does not exist yet is brought into being. Separate from `sessions` because it
+   * is not a session operation at all: node identity and geometry are the canvas's, so this seam
+   * round-trips through the desktop renderer. Absent, the host cannot start chats and says so.
+   */
+  spawn?: RemoteChatSpawn
   addresses?: () => RemoteAccessAddress[]
   now?: () => number
 }
+
+/** Performs one spawn and reports its verdict. Never rejects; a failure is `{ ok: false }`. */
+export type RemoteChatSpawn = (request: RemoteChatSpawnRequest) => Promise<RemoteChatSpawnResult>
 
 export interface RemoteChatSessionOperations {
   /**
@@ -141,6 +157,62 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
   const authorized = (headers: IncomingMessage['headers']): boolean =>
     pairingTokenMatches(options.store.read().token, presentedPairingToken(headers))
 
+  /**
+   * `POST /api/chats`. The only request that changes the canvas rather than a session, and the one
+   * place a phone learns about a chat before the workspace projection does.
+   *
+   * The order of the gates is the point. Shape and size are settled before anything is asked of the
+   * desktop, so a malformed body never costs a round-trip; the project is checked against the
+   * published projection, exactly as a chat socket checks the chat id, so the canvas stays the
+   * authority on what a phone may address; and only then is the spawn performed. The response
+   * carries an id only for a session that actually came up - a `201` here is the phone's licence to
+   * navigate, so an optimistic one would be a chat that is not there.
+   */
+  const createChat = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
+    const refuse = (status: number, message: string): void =>
+      send(request, response, status, JSON.stringify({ error: message }), {
+        'content-type': 'application/json; charset=utf-8'
+      })
+
+    const spawn = options.spawn
+    if (!spawn) {
+      refuse(503, 'This host is not accepting new chats.')
+      return
+    }
+    const body = await readBoundedBody(request, REMOTE_SPAWN_BODY_LIMIT)
+    if (body === null) {
+      refuse(413, 'That request was too large to read.')
+      return
+    }
+    const spawnRequest = parseRemoteChatSpawnRequest(body)
+    if (!spawnRequest) {
+      refuse(400, 'That request was not a chat this host knows how to start.')
+      return
+    }
+    const problem = remoteChatSpawnProblem(spawnRequest)
+    if (problem) {
+      refuse(400, problem)
+      return
+    }
+    if (!snapshot.projects.some((project) => project.id === spawnRequest.projectId)) {
+      refuse(400, 'That project is not open on the desktop.')
+      return
+    }
+
+    const result = await spawn(spawnRequest)
+    if (!result.ok) {
+      // Everything past the gates above is the *desktop* being unable to comply - no window, a
+      // window that closed, a session that died, a project the canvas dropped after the projection
+      // said it was there. The request was well-formed and addressable when it was checked, so
+      // this is 503 rather than a client error, with the reason passed through verbatim.
+      refuse(503, result.message)
+      return
+    }
+    send(request, response, 201, JSON.stringify({ chatId: result.chatId }), {
+      'content-type': 'application/json; charset=utf-8'
+    })
+  }
+
   const handle = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
     const route = resolveRemoteRoute(request.method, request.url)
     if (routeRequiresPairing(route) && !authorized(request.headers)) {
@@ -162,11 +234,14 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
           'content-type': 'application/json; charset=utf-8'
         })
         return
+      case 'create-chat':
+        await createChat(request, response)
+        return
       case 'client':
         await sendClientAsset(request, response, options.clientRoot, route.pathname)
         return
       case 'method-not-allowed':
-        send(request, response, 405, null, { allow: 'GET, HEAD' })
+        send(request, response, 405, null, { allow: route.allow })
         return
       case 'not-found':
         send(request, response, 404, null)
@@ -440,6 +515,40 @@ function frameText(data: unknown): string | null {
     return Buffer.concat(data as Buffer[]).toString('utf8')
   }
   return null
+}
+
+/**
+ * Reads a request body, or null once it exceeds `limit`.
+ *
+ * The bound is enforced while the body arrives rather than after: this is a network surface, so a
+ * caller that keeps writing must stop costing memory at the limit, not at the end. Past the limit
+ * the remaining bytes are drained and discarded rather than the stream being destroyed, because
+ * destroying it takes the socket with it - and the caller still has a `413` to deliver.
+ */
+async function readBoundedBody(request: IncomingMessage, limit: number): Promise<string | null> {
+  return new Promise((resolve) => {
+    const chunks: Buffer[] = []
+    let size = 0
+    let settled = false
+    const settle = (value: string | null): void => {
+      if (settled) return
+      settled = true
+      resolve(value)
+    }
+    request.on('data', (chunk: Buffer) => {
+      if (settled) return
+      size += chunk.length
+      if (size > limit) {
+        chunks.length = 0
+        settle(null)
+        return
+      }
+      chunks.push(chunk)
+    })
+    request.on('end', () => settle(Buffer.concat(chunks).toString('utf8')))
+    // A body that never finishes arriving is not a body; the caller refuses it as unreadable.
+    request.on('error', () => settle(null))
+  })
 }
 
 /**

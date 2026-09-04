@@ -10,8 +10,10 @@ import { createRemoteAccessStore, type RemoteAccessStore } from '../src/main/rem
 import {
   createRemoteAccessServer,
   type RemoteAccessServer,
-  type RemoteChatSessionOperations
+  type RemoteChatSessionOperations,
+  type RemoteChatSpawn
 } from '../src/main/remote/remote-server'
+import { REMOTE_SPAWN_BODY_LIMIT, type RemoteChatSpawnRequest } from '../src/shared/remote-spawn'
 import type { AgentEvent } from '../src/shared/agent'
 import { foldAgentEvent, type AgentTranscriptState } from '../src/shared/agent-transcript'
 import {
@@ -66,6 +68,7 @@ interface Harness {
   clientRoot: string
   port(): number
   get(path: string, token?: string | null): Promise<{ status: number; body: string; headers: Headers }>
+  post(path: string, body: string, token?: string | null): Promise<{ status: number; body: string; headers: Headers }>
 }
 
 function harness(
@@ -73,6 +76,7 @@ function harness(
     clientFiles?: Record<string, string>
     chats?: AgentEventBroker
     sessions?: RemoteChatSessionOperations
+    spawn?: RemoteChatSpawn
   } = {}
 ): Harness {
   const directory = temporaryDirectory()
@@ -90,7 +94,8 @@ function harness(
     clientRoot,
     addresses: () => [{ kind: 'tailscale', host: '100.1.2.3' }],
     ...(options.chats ? { chats: options.chats } : {}),
-    ...(options.sessions ? { sessions: options.sessions } : {})
+    ...(options.sessions ? { sessions: options.sessions } : {}),
+    ...(options.spawn ? { spawn: options.spawn } : {})
   })
   running.push(server)
 
@@ -108,6 +113,17 @@ function harness(
     async get(path, token): Promise<{ status: number; body: string; headers: Headers }> {
       const response = await fetch(`http://127.0.0.1:${port()}${path}`, {
         headers: token ? { authorization: `Bearer ${token}` } : {}
+      })
+      return { status: response.status, body: await response.text(), headers: response.headers }
+    },
+    async post(path, body, token): Promise<{ status: number; body: string; headers: Headers }> {
+      const response = await fetch(`http://127.0.0.1:${port()}${path}`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          ...(token ? { authorization: `Bearer ${token}` } : {})
+        },
+        body
       })
       return { status: response.status, body: await response.text(), headers: response.headers }
     }
@@ -833,5 +849,127 @@ describe('answering a pending request over a chat socket', () => {
     assert.match((await answerVerdict(socket)).message ?? '', /no longer open/)
     assert.deepEqual(sessions.approvals, [])
     socket.close()
+  })
+})
+
+/**
+ * `POST /api/chats`: the one request that changes the desktop rather than a session.
+ *
+ * The gates are what matter here. A body is validated before anything is asked of the renderer,
+ * the project is checked against the published projection exactly as a chat id is, and the `201`
+ * is only ever written for a spawn the desktop said actually came up - because a phone reads that
+ * status as permission to navigate.
+ */
+describe('spawning a chat over HTTP', () => {
+  async function spawnHarness(spawn?: RemoteChatSpawn): Promise<Harness> {
+    const created = harness(spawn ? { spawn } : {})
+    await created.server.applySettings({ enabled: true, port: await freePort() })
+    created.server.publishWorkspace(CHAT_PROJECTION)
+    return created
+  }
+
+  const body = (overrides: Partial<RemoteChatSpawnRequest> = {}): string =>
+    JSON.stringify({ projectId: 'toucan', kind: 'claude', ...overrides })
+
+  test('an unpaired caller cannot start a chat', async () => {
+    const asked: RemoteChatSpawnRequest[] = []
+    const { post } = await spawnHarness(async (request) => {
+      asked.push(request)
+      return { ok: true, chatId: 'node-1' }
+    })
+
+    const response = await post('/api/chats', body(), 'wrong-token')
+    assert.equal(response.status, 401)
+    // The gate runs before the body is read, so an unauthorized caller cannot reach the desktop.
+    assert.deepEqual(asked, [])
+  })
+
+  test('a spawn the desktop performed answers with the id it minted', async () => {
+    const asked: RemoteChatSpawnRequest[] = []
+    const created = await spawnHarness(async (request) => {
+      asked.push(request)
+      return { ok: true, chatId: 'node-1' }
+    })
+
+    const response = await created.post(
+      '/api/chats',
+      body({ kind: 'codex', input: 'fix it' }),
+      created.store.read().token
+    )
+    assert.equal(response.status, 201)
+    assert.deepEqual(JSON.parse(response.body), { chatId: 'node-1' })
+    assert.deepEqual(asked, [{ projectId: 'toucan', kind: 'codex', input: 'fix it' }])
+  })
+
+  test('a desktop that could not do it refuses in its own words', async () => {
+    const created = await spawnHarness(async () => ({
+      ok: false,
+      message: 'Toucan is not open on the desktop, so there is nothing to start the chat in.'
+    }))
+
+    const response = await created.post('/api/chats', body(), created.store.read().token)
+    assert.equal(response.status, 503)
+    // The reason is passed through verbatim: "no window" and "the session died" are different
+    // problems, and flattening them would leave the phone with nothing to act on.
+    assert.deepEqual(JSON.parse(response.body), {
+      error: 'Toucan is not open on the desktop, so there is nothing to start the chat in.'
+    })
+  })
+
+  test('a host with no spawn seam says so instead of failing obscurely', async () => {
+    const created = await spawnHarness()
+    const response = await created.post('/api/chats', body(), created.store.read().token)
+    assert.equal(response.status, 503)
+    assert.deepEqual(JSON.parse(response.body), { error: 'This host is not accepting new chats.' })
+  })
+
+  test('a project the desktop does not list is not a spawn target', async () => {
+    const asked: RemoteChatSpawnRequest[] = []
+    const created = await spawnHarness(async (request) => {
+      asked.push(request)
+      return { ok: true, chatId: 'node-1' }
+    })
+
+    const response = await created.post('/api/chats', body({ projectId: 'not-listed' }), created.store.read().token)
+    assert.equal(response.status, 400)
+    assert.deepEqual(JSON.parse(response.body), { error: 'That project is not open on the desktop.' })
+    assert.deepEqual(asked, [])
+  })
+
+  test('a malformed body and an unsendable prompt are both refused before the desktop is asked', async () => {
+    const asked: RemoteChatSpawnRequest[] = []
+    const created = await spawnHarness(async (request) => {
+      asked.push(request)
+      return { ok: true, chatId: 'node-1' }
+    })
+    const token = created.store.read().token
+
+    const malformed = await created.post('/api/chats', '{"kind":"claude"}', token)
+    assert.equal(malformed.status, 400)
+    assert.match((JSON.parse(malformed.body) as { error: string }).error, /not a chat this host knows how to start/)
+
+    const blank = await created.post('/api/chats', body({ input: '   ' }), token)
+    assert.equal(blank.status, 400)
+    assert.equal(JSON.parse(blank.body).error, 'Type a message first.')
+
+    assert.deepEqual(asked, [])
+  })
+
+  test('an oversized body is answered rather than buffered', async () => {
+    const created = await spawnHarness(async () => ({ ok: true, chatId: 'node-1' }))
+    const response = await created.post(
+      '/api/chats',
+      body({ input: 'x'.repeat(REMOTE_SPAWN_BODY_LIMIT + 1) }),
+      created.store.read().token
+    )
+    assert.equal(response.status, 413)
+    assert.deepEqual(JSON.parse(response.body), { error: 'That request was too large to read.' })
+  })
+
+  test('the collection is not readable over HTTP; the projection is where chats are listed', async () => {
+    const created = await spawnHarness(async () => ({ ok: true, chatId: 'node-1' }))
+    const response = await created.get('/api/chats', created.store.read().token)
+    assert.equal(response.status, 405)
+    assert.equal(response.headers.get('allow'), 'POST')
   })
 })

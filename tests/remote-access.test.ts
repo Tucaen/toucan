@@ -252,8 +252,16 @@ describe('routing', () => {
     assert.equal(routeRequiresPairing(resolveRemoteRoute('GET', '/')), false)
     assert.deepEqual(resolveRemoteRoute('GET', '/assets/app.js'), { kind: 'client', pathname: '/assets/app.js' })
     assert.deepEqual(resolveRemoteRoute('GET', '/api/chats/1'), { kind: 'not-found' })
-    assert.deepEqual(resolveRemoteRoute('POST', '/api/workspace'), { kind: 'method-not-allowed' })
+    assert.deepEqual(resolveRemoteRoute('POST', '/api/workspace'), { kind: 'method-not-allowed', allow: 'GET, HEAD' })
     assert.deepEqual(resolveRemoteRoute('GET', undefined), { kind: 'not-found' })
+  })
+
+  test('starting a chat is a POST-only route, and it is behind the same gate', () => {
+    assert.deepEqual(resolveRemoteRoute('POST', '/api/chats'), { kind: 'create-chat' })
+    assert.equal(routeRequiresPairing(resolveRemoteRoute('POST', '/api/chats')), true)
+    // The collection is not readable: what chats exist is the workspace projection's answer, and
+    // `Allow` names the method this path really takes rather than the server's usual pair.
+    assert.deepEqual(resolveRemoteRoute('GET', '/api/chats'), { kind: 'method-not-allowed', allow: 'POST' })
   })
 
   test('a query string never carries a route decision', () => {

@@ -10,6 +10,7 @@ import {
   restoreCanvasWorkspace,
   serializeCanvasNode,
   serializeWorktreeNode,
+  cascadedNodePosition,
   type CanvasNode,
   type TerminalCanvasNode,
   type WorktreeCanvasNode
@@ -378,4 +379,35 @@ test('an old closed-chat record without a conversation cannot reopen as a new on
 
   assert.equal(reopened.node, null)
   assert.deepEqual(reopened.recentlyClosedNodes, [])
+})
+
+/**
+ * A node created without a pointer - a phone spawning a chat - still needs somewhere to land, and
+ * "somewhere" must not be exactly on top of the last one: a stacked node is invisible, which reads
+ * to the user as a spawn that did not happen.
+ */
+test('a spawn position steps clear of whatever already occupies it', () => {
+  const origin = { x: 100, y: 100 }
+
+  assert.deepEqual(cascadedNodePosition([], origin), origin)
+  assert.deepEqual(cascadedNodePosition([{ position: { x: 900, y: 900 } }], origin), origin)
+
+  const first = cascadedNodePosition([{ position: origin }], origin)
+  assert.notDeepEqual(first, origin)
+
+  // Each occupied step pushes the candidate further, so a run of spawns fans out rather than
+  // alternating between two spots.
+  const second = cascadedNodePosition([{ position: origin }, { position: first }], origin)
+  assert.notDeepEqual(second, origin)
+  assert.notDeepEqual(second, first)
+})
+
+test('a canvas with no room left still yields a position rather than searching forever', () => {
+  // Every step of the search is occupied; taking the last candidate anyway is a slight overlap,
+  // which is a far smaller problem than a loop that does not end.
+  const origin = { x: 0, y: 0 }
+  const crowded = Array.from({ length: 200 }, (_, index) => ({ position: { x: index * 48, y: index * 48 } }))
+  const position = cascadedNodePosition(crowded, origin)
+  assert.equal(Number.isFinite(position.x), true)
+  assert.equal(Number.isFinite(position.y), true)
 })

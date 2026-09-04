@@ -69,7 +69,9 @@ function installWindowApis(state: WorkspaceState): void {
       addresses: []
     })),
     publishWorkspace: vi.fn(),
-    onStateChange: () => () => undefined
+    onStateChange: () => () => undefined,
+    onSpawnChat: () => () => undefined,
+    completeSpawn: vi.fn()
   })
   define('brainDumpApi', api)
 }

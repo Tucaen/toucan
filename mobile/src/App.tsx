@@ -13,6 +13,7 @@ import {
   isAwaitingDesktop
 } from './chat-list'
 import ChatScreen from './ChatScreen'
+import NewChatScreen from './NewChatScreen'
 import {
   WORKSPACE_POLL_MS,
   fetchWorkspace,
@@ -21,7 +22,7 @@ import {
   storedToken,
   verifyToken
 } from './remote-client'
-import { chatPathname, routeFromPathname, type MobileRoute } from './routes'
+import { chatPathname, routeFromPathname, NEW_CHAT_PATHNAME, type MobileRoute } from './routes'
 
 /**
  * Toucan on a phone: pair once, then watch the workspace's agent chats and read any of them live.
@@ -53,6 +54,22 @@ export default function App(): JSX.Element {
     setOpenedChat(chat)
     window.history.pushState({ chat: true }, '', chatPathname(chat.id))
     setRoute({ screen: 'chat', chatId: chat.id })
+  }, [])
+
+  const openNewChat = useCallback(() => {
+    window.history.pushState({ chat: true }, '', NEW_CHAT_PATHNAME)
+    setRoute({ screen: 'new' })
+  }, [])
+
+  /**
+   * A spawn landed. The form's history entry is *replaced* rather than added to: nobody wants Back
+   * out of a chat they just created to put them in the form that created it, so the chat takes the
+   * entry the form was occupying and Back still means the list.
+   */
+  const enterSpawnedChat = useCallback((chatId: string) => {
+    setOpenedChat(null)
+    window.history.replaceState({ chat: true }, '', chatPathname(chatId))
+    setRoute({ screen: 'chat', chatId })
   }, [])
 
   const backToList = useCallback(() => {
@@ -88,7 +105,18 @@ export default function App(): JSX.Element {
       />
     )
   }
-  return <ChatListScreen token={token} onUnauthorized={unpair} onUnpair={unpair} onOpenChat={openChat} />
+  if (route.screen === 'new') {
+    return <NewChatScreen token={token} onBack={backToList} onUnauthorized={unpair} onSpawned={enterSpawnedChat} />
+  }
+  return (
+    <ChatListScreen
+      token={token}
+      onUnauthorized={unpair}
+      onUnpair={unpair}
+      onOpenChat={openChat}
+      onNewChat={openNewChat}
+    />
+  )
 }
 
 function PairingScreen({ onPaired }: { onPaired(token: string): void }): JSX.Element {
@@ -156,12 +184,14 @@ function ChatListScreen({
   token,
   onUnauthorized,
   onUnpair,
-  onOpenChat
+  onOpenChat,
+  onNewChat
 }: {
   token: string
   onUnauthorized(): void
   onUnpair(): void
   onOpenChat(chat: RemoteChatSummary): void
+  onNewChat(): void
 }): JSX.Element {
   const [snapshot, setSnapshot] = useState<RemoteWorkspaceSnapshot>(EMPTY_REMOTE_WORKSPACE_SNAPSHOT)
   const [problem, setProblem] = useState<string | null>(null)
@@ -224,6 +254,12 @@ function ChatListScreen({
       </header>
 
       {problem && <p className="problem">{problem}</p>}
+
+      {/* The list's one action. Offered even while the desktop is quiet: a workspace with nothing
+          open is exactly when starting something is the useful thing to do. */}
+      <button type="button" className="new-chat" onClick={onNewChat}>
+        New chat
+      </button>
 
       {/* "Nothing is open" and "the desktop has not reported yet" must not read the same. */}
       {groups.length === 0 && !problem && !awaiting && (

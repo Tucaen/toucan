@@ -164,6 +164,41 @@ export interface RestoredCanvasWorkspace {
 const DEFAULT_TERMINAL_SIZE = { width: 520, height: 340 }
 export const DEFAULT_WORKTREE_SIZE = { width: 360, height: 232 }
 
+/** How far each retry of `cascadedNodePosition` steps, and how many times it may step. */
+const CASCADE_STEP = 48
+const CASCADE_ATTEMPTS = 24
+
+/**
+ * A spot near `origin` whose top-left corner no node already sits on, cascaded down-right.
+ *
+ * A node created from the canvas lands where the pointer was, which is inherently distinguishable.
+ * One created with no pointer behind it - a phone spawning a chat - has only a default spot, and
+ * two of those in a row would land on the exact same coordinates, hiding the first behind the
+ * second completely. This is the same cascade a window manager offers for the same reason, and it
+ * makes the same promise: the new node's header and controls are reachable, *not* that it does not
+ * overlap (a session node is many times wider than one step). After enough attempts the last
+ * candidate is taken regardless - a node landing on another is a far smaller problem than a search
+ * that does not end.
+ */
+export function cascadedNodePosition(
+  nodes: readonly { position: { x: number; y: number } }[],
+  origin: { x: number; y: number }
+): { x: number; y: number } {
+  const taken = (candidate: { x: number; y: number }): boolean =>
+    nodes.some(
+      (node) =>
+        Math.abs(node.position.x - candidate.x) < CASCADE_STEP && Math.abs(node.position.y - candidate.y) < CASCADE_STEP
+    )
+  let candidate = origin
+  for (let attempt = 0; attempt < CASCADE_ATTEMPTS && taken(candidate); attempt += 1) {
+    candidate = {
+      x: origin.x + (attempt + 1) * CASCADE_STEP,
+      y: origin.y + (attempt + 1) * CASCADE_STEP
+    }
+  }
+  return candidate
+}
+
 type SessionRestoreWorkspace = Pick<WorkspaceState, 'projects' | 'worktrees' | 'agentPermissionModes'>
 type SessionRestoreMode = 'hydrate' | 'reopen'
 

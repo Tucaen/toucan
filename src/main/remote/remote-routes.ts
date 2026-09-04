@@ -13,26 +13,34 @@ export type RemoteRoute =
   | { kind: 'workspace' }
   /** Lets a phone check a token the moment it is entered instead of at the first real request. */
   | { kind: 'pairing' }
+  /** The one write the phone makes over HTTP: start a chat that does not exist yet. */
+  | { kind: 'create-chat' }
   | { kind: 'client'; pathname: string }
   | { kind: 'not-found' }
-  | { kind: 'method-not-allowed' }
+  /** Carries the methods this path *does* accept, so `Allow` is never a guess at the call site. */
+  | { kind: 'method-not-allowed'; allow: string }
 
 export function resolveRemoteRoute(method: string | undefined, target: string | undefined): RemoteRoute {
   const pathname = requestPathname(target)
   if (pathname === null) return { kind: 'not-found' }
 
   if (pathname === '/api/workspace' || pathname === '/api/pairing') {
-    if (method !== 'GET' && method !== 'HEAD') return { kind: 'method-not-allowed' }
+    if (method !== 'GET' && method !== 'HEAD') return { kind: 'method-not-allowed', allow: 'GET, HEAD' }
     return pathname === '/api/workspace' ? { kind: 'workspace' } : { kind: 'pairing' }
   }
+  if (pathname === '/api/chats') {
+    // `POST` and nothing else: a collection this host does not enumerate over HTTP, because what
+    // chats exist is already the workspace projection's answer.
+    return method === 'POST' ? { kind: 'create-chat' } : { kind: 'method-not-allowed', allow: 'POST' }
+  }
   if (pathname.startsWith('/api/')) return { kind: 'not-found' }
-  if (method !== 'GET' && method !== 'HEAD') return { kind: 'method-not-allowed' }
+  if (method !== 'GET' && method !== 'HEAD') return { kind: 'method-not-allowed', allow: 'GET, HEAD' }
   return { kind: 'client', pathname }
 }
 
 /** Route authorization is a property of the route, not of the handler that happens to run it. */
 export function routeRequiresPairing(route: RemoteRoute): boolean {
-  return route.kind === 'workspace' || route.kind === 'pairing'
+  return route.kind === 'workspace' || route.kind === 'pairing' || route.kind === 'create-chat'
 }
 
 /**

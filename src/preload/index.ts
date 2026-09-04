@@ -32,6 +32,7 @@ import type {
 import type { ConversationListPage, ConversationListRequest } from '../shared/conversation'
 import type { WorkspaceFileIndex } from '../shared/workspace-files'
 import type { RemoteAccessSettings, RemoteAccessState, RemoteWorkspaceProjection } from '../shared/remote-access'
+import type { RemoteChatSpawnRequest, RemoteChatSpawnResult } from '../shared/remote-spawn'
 import type { ConversationTitleSource } from '../shared/conversation-title'
 import type {
   BrainDumpApi,
@@ -161,7 +162,15 @@ const remoteApi = {
     const listener = (_event: Electron.IpcRendererEvent, state: RemoteAccessState): void => callback(state)
     ipcRenderer.on('remote:state-changed', listener)
     return () => ipcRenderer.removeListener('remote:state-changed', listener)
-  }
+  },
+  onSpawnChat: (callback: (requestId: string, request: RemoteChatSpawnRequest) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, requestId: string, request: RemoteChatSpawnRequest): void =>
+      callback(requestId, request)
+    ipcRenderer.on('remote:spawn-chat', listener)
+    return () => ipcRenderer.removeListener('remote:spawn-chat', listener)
+  },
+  completeSpawn: (requestId: string, result: RemoteChatSpawnResult): void =>
+    ipcRenderer.send('remote:spawn-chat-result', requestId, result)
 }
 
 contextBridge.exposeInMainWorld('remoteApi', remoteApi)

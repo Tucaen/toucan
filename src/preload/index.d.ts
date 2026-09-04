@@ -31,6 +31,7 @@ import type {
 import type { ConversationListPage, ConversationListRequest } from '../shared/conversation'
 import type { WorkspaceFileIndex } from '../shared/workspace-files'
 import type { RemoteAccessSettings, RemoteAccessState, RemoteWorkspaceProjection } from '../shared/remote-access'
+import type { RemoteChatSpawnRequest, RemoteChatSpawnResult } from '../shared/remote-spawn'
 import type { ConversationTitle, ConversationTitleSource } from '../shared/conversation-title'
 import type { BrainDumpApi } from '../shared/brain-dump'
 
@@ -119,6 +120,13 @@ export interface RemoteApi {
   /** The canvas projection a paired phone lists. The canvas stays its only authority. */
   publishWorkspace(projection: RemoteWorkspaceProjection): void
   onStateChange(callback: (state: RemoteAccessState) => void): () => void
+  /**
+   * A spawn the host wants performed. Node identity and geometry are the canvas's, so main asks
+   * rather than mints; the renderer answers on `completeSpawn` once the session is up or has
+   * failed, and the phone's HTTP request is waiting on exactly that answer.
+   */
+  onSpawnChat(callback: (requestId: string, request: RemoteChatSpawnRequest) => void): () => void
+  completeSpawn(requestId: string, result: RemoteChatSpawnResult): void
 }
 
 declare global {

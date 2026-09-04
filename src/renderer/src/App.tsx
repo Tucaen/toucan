@@ -52,6 +52,7 @@ import {
   restoreCanvasWorkspace,
   serializeCanvasNode,
   serializeWorktreeNode,
+  cascadedNodePosition,
   type CanvasNode,
   type TerminalCanvasNode,
   type TerminalNodeCallbacks,
@@ -62,6 +63,7 @@ import { COMPOSER_SEND_KEY_DEFAULT } from './composer-keys'
 import { ComposerSendKeyContext } from './composer-send-key-context'
 import { RemoteAccessDialog } from './RemoteAccessDialog'
 import { useRemoteAccess } from './use-remote-access'
+import type { RemoteChatSpawnRequest, RemoteChatSpawnResult } from '../../shared/remote-spawn'
 import ConversationHistoryDialog from './ConversationHistoryDialog'
 import { ProviderRateLimitsContext } from './provider-rate-limits'
 import { describeRateLimitWindow } from './session-usage'
@@ -579,7 +581,8 @@ function Canvas(): JSX.Element {
       titleSource?: ConversationTitleSource
       /** An existing provider conversation this node adopts instead of starting a fresh one. */
       resumeConversationId?: string
-    }): void => {
+      // Returns the canvas node id it minted, so a caller waiting on this session can find it.
+    }): string => {
       const { kind, project, worktree, position, resumeConversationId } = options
       const id = crypto.randomUUID()
       const label = options.label ?? `${labels[kind]} ${nextSessionNumber.current}`
@@ -630,6 +633,7 @@ function Canvas(): JSX.Element {
         }
       ])
       setNodeStatuses((current) => ({ ...current, [id]: 'starting' }))
+      return id
     },
     [
       handleConversationId,
@@ -1016,10 +1020,37 @@ function Canvas(): JSX.Element {
   )
 
   const [remoteAccessOpen, setRemoteAccessOpen] = useState(false)
-  // One owner for the host's remote-access state and for the canvas projection a paired phone
-  // lists. The projection is derived from the same snapshot that gets persisted, so the phone and
-  // the canvas can never be looking at two different sets of nodes.
-  const remoteAccess = useRemoteAccess(workspaceSnapshot, nodeStatuses)
+
+  /**
+   * A chat a phone asked for, created through the canvas's own add-node path so the result is
+   * indistinguishable from a right-click on the canvas: same id minting, same working-directory
+   * resolution, same launch mode, same persistence. Only the position is decided differently -
+   * there is no pointer behind this one - and a spawn into a worktree is deliberately not offered,
+   * because choosing one is a decision the phone has no way to make well.
+   */
+  const startRemoteSpawn = useCallback(
+    (request: RemoteChatSpawnRequest): RemoteChatSpawnResult => {
+      const project = projectsRef.current.find((candidate) => candidate.id === request.projectId)
+      if (!project) return { ok: false, message: 'That project is no longer open on the desktop.' }
+      const origin = screenToFlowPosition({ x: window.innerWidth / 2, y: window.innerHeight / 2 })
+      return {
+        ok: true,
+        chatId: addSessionNode({
+          kind: request.kind,
+          project,
+          position: cascadedNodePosition(nodesRef.current, origin),
+          initialInput: request.input
+        })
+      }
+    },
+    [addSessionNode, screenToFlowPosition]
+  )
+
+  // One owner for the host's remote-access state, for the canvas projection a paired phone
+  // lists, and for the spawns that phone asks for. The projection is derived from the same
+  // snapshot that gets persisted, so the phone and the canvas can never be looking at two
+  // different sets of nodes.
+  const remoteAccess = useRemoteAccess(workspaceSnapshot, nodeStatuses, startRemoteSpawn)
 
   const {
     ready: workspaceReady,
