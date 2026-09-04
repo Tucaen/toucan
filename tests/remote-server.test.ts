@@ -7,10 +7,15 @@ import { afterEach, describe, test } from 'node:test'
 import { WebSocket } from 'ws'
 import { createAgentEventBroker, type AgentEventBroker } from '../src/main/agent-event-broker'
 import { createRemoteAccessStore, type RemoteAccessStore } from '../src/main/remote/remote-access-store'
-import { createRemoteAccessServer, type RemoteAccessServer } from '../src/main/remote/remote-server'
+import {
+  createRemoteAccessServer,
+  type RemoteAccessServer,
+  type RemoteChatSessionOperations
+} from '../src/main/remote/remote-server'
 import type { AgentEvent } from '../src/shared/agent'
 import { foldAgentEvent, type AgentTranscriptState } from '../src/shared/agent-transcript'
 import {
+  REMOTE_CHAT_PROMPT_LIMIT,
   REMOTE_CHAT_PROTOCOL,
   parseRemoteChatServerMessage,
   remoteChatBearerProtocol,
@@ -62,7 +67,13 @@ interface Harness {
   get(path: string, token?: string | null): Promise<{ status: number; body: string; headers: Headers }>
 }
 
-function harness(options: { clientFiles?: Record<string, string>; chats?: AgentEventBroker } = {}): Harness {
+function harness(
+  options: {
+    clientFiles?: Record<string, string>
+    chats?: AgentEventBroker
+    sessions?: RemoteChatSessionOperations
+  } = {}
+): Harness {
   const directory = temporaryDirectory()
   const clientRoot = join(directory, 'mobile')
   mkdirSync(clientRoot, { recursive: true })
@@ -77,7 +88,8 @@ function harness(options: { clientFiles?: Record<string, string>; chats?: AgentE
     store,
     clientRoot,
     addresses: () => [{ kind: 'tailscale', host: '100.1.2.3' }],
-    ...(options.chats ? { chats: options.chats } : {})
+    ...(options.chats ? { chats: options.chats } : {}),
+    ...(options.sessions ? { sessions: options.sessions } : {})
   })
   running.push(server)
 
@@ -280,6 +292,8 @@ interface ChatSocket {
   next(): Promise<RemoteChatServerMessage>
   closed: Promise<{ code: number }>
   rejected: Promise<number>
+  /** Writes one raw frame; raw on purpose, so malformed input can be driven at the host too. */
+  send(raw: string): Promise<void>
   close(): void
 }
 
@@ -315,6 +329,7 @@ function connectChat(port: number, chatId: string, auth: { header?: string; prot
         response.destroy()
       })
     ),
+    send: (raw) => new Promise((resolve, reject) => socket.send(raw, (error) => (error ? reject(error) : resolve()))),
     close: () => socket.close()
   }
 }
@@ -455,5 +470,173 @@ describe('remote chat socket', () => {
     await server.applySettings({ enabled: false, port })
     await socket.closed
     assert.equal(server.state().listening, false)
+  })
+})
+
+/**
+ * Sending from the phone. Every path out of an inbound frame answers the client - accepted, or
+ * refused with a reason - because a prompt that vanishes without a verdict is the one outcome the
+ * composer cannot recover from. The refused-while-busy case is the policy: the host does not
+ * queue and does not steer, it says no out loud.
+ */
+
+/** The next frame, asserted to be a verdict, so the union is narrowed once per call site. */
+async function verdict(socket: ChatSocket): Promise<{ requestId: string; ok: boolean; message?: string }> {
+  const message = await socket.next()
+  assert.equal(message.type, 'prompt_result')
+  return message as { requestId: string; ok: boolean; message?: string }
+}
+
+interface RecordedPrompt {
+  chatId: string
+  text: string
+}
+
+function recordingSessions(outcome: (prompt: RecordedPrompt) => { ok: boolean; message?: string }): {
+  operations: RemoteChatSessionOperations
+  prompts: RecordedPrompt[]
+} {
+  const prompts: RecordedPrompt[] = []
+  return {
+    prompts,
+    operations: {
+      prompt: (chatId, text) => {
+        const recorded = { chatId, text }
+        prompts.push(recorded)
+        return outcome(recorded)
+      }
+    }
+  }
+}
+
+async function joinedChat(options: {
+  sessions?: RemoteChatSessionOperations
+}): Promise<{ server: RemoteAccessServer; chats: AgentEventBroker; socket: ChatSocket }> {
+  const chats = createAgentEventBroker()
+  const { server, store } = harness({ chats, ...(options.sessions ? { sessions: options.sessions } : {}) })
+  await server.applySettings({ enabled: true, port: await freePort() })
+  server.publishWorkspace(CHAT_PROJECTION)
+  const socket = connectChat(server.state().boundPort!, 'chat-1', { header: store.read().token })
+  assert.equal((await socket.next()).type, 'snapshot')
+  return { server, chats, socket }
+}
+
+describe('sending a message over a chat socket', () => {
+  test('a prompt reaches the session and its acceptance is reported back', async () => {
+    const sessions = recordingSessions(() => ({ ok: true }))
+    const { socket } = await joinedChat({ sessions: sessions.operations })
+
+    await socket.send(JSON.stringify({ type: 'prompt', requestId: 'r1', text: '  ship it  ' }))
+    assert.deepEqual(await verdict(socket), { type: 'prompt_result', requestId: 'r1', ok: true })
+    // Trimmed once, on the host, so every client sends the same message the desktop would.
+    assert.deepEqual(sessions.prompts, [{ chatId: 'chat-1', text: 'ship it' }])
+    socket.close()
+  })
+
+  test('the sent message echoes to every subscriber as an event, not as a host-invented bubble', async () => {
+    const sessions = recordingSessions(() => ({ ok: true }))
+    const { chats, socket } = await joinedChat({ sessions: sessions.operations })
+
+    await socket.send(JSON.stringify({ type: 'prompt', requestId: 'r1', text: 'ship it' }))
+    assert.equal((await verdict(socket)).ok, true)
+
+    // What the provider echoes is the one source of the user bubble, shared by phone and desktop.
+    chats.publish('chat-1', { type: 'message', role: 'user', messageId: 'u1', text: 'ship it' })
+    const echoed = await socket.next()
+    assert.deepEqual(echoed, {
+      type: 'event',
+      event: { type: 'message', role: 'user', messageId: 'u1', text: 'ship it' }
+    })
+    assert.equal(chats.snapshot('chat-1')?.messages.length, 1)
+    socket.close()
+  })
+
+  test('a busy session refuses with its own reason rather than queueing or steering', async () => {
+    const sessions = recordingSessions(() => ({ ok: false, message: 'The agent session is busy.' }))
+    const { socket } = await joinedChat({ sessions: sessions.operations })
+
+    await socket.send(JSON.stringify({ type: 'prompt', requestId: 'r1', text: 'and also this' }))
+    assert.deepEqual(await verdict(socket), {
+      type: 'prompt_result',
+      requestId: 'r1',
+      ok: false,
+      message: 'The agent session is busy.'
+    })
+    socket.close()
+  })
+
+  test('a host with no session operations answers read-only instead of swallowing the prompt', async () => {
+    const { socket } = await joinedChat({})
+    await socket.send(JSON.stringify({ type: 'prompt', requestId: 'r1', text: 'ship it' }))
+    assert.equal((await verdict(socket)).ok, false)
+    socket.close()
+  })
+
+  test('an empty or oversized prompt is refused without reaching the session', async () => {
+    const sessions = recordingSessions(() => ({ ok: true }))
+    const { socket } = await joinedChat({ sessions: sessions.operations })
+
+    await socket.send(JSON.stringify({ type: 'prompt', requestId: 'r1', text: '   ' }))
+    // The wording is the shared predicate's, so the host refuses in exactly the words the phone
+    // greys its own button out with.
+    assert.equal((await verdict(socket)).message, 'Type a message first.')
+
+    await socket.send(
+      JSON.stringify({ type: 'prompt', requestId: 'r2', text: 'x'.repeat(REMOTE_CHAT_PROMPT_LIMIT + 1) })
+    )
+    assert.match((await verdict(socket)).message ?? '', /at most/)
+
+    assert.deepEqual(sessions.prompts, [])
+    socket.close()
+  })
+
+  test('a chat the desktop has since unlisted is not a prompt target either', async () => {
+    const sessions = recordingSessions(() => ({ ok: true }))
+    const chats = createAgentEventBroker()
+    const { server, store } = harness({ chats, sessions: sessions.operations })
+    await server.applySettings({ enabled: true, port: await freePort() })
+    server.publishWorkspace(CHAT_PROJECTION)
+    const socket = connectChat(server.state().boundPort!, 'chat-1', { header: store.read().token })
+    assert.equal((await socket.next()).type, 'snapshot')
+
+    // The node was closed on the canvas; the socket may still be draining when a send arrives.
+    server.publishWorkspace({ projects: CHAT_PROJECTION.projects, chats: [] })
+    await socket.send(JSON.stringify({ type: 'prompt', requestId: 'r1', text: 'ship it' }))
+    assert.match((await verdict(socket)).message ?? '', /no longer open/)
+    assert.deepEqual(sessions.prompts, [])
+    socket.close()
+  })
+
+  test('a session that throws is reported as a failed send, not as a dead socket', async () => {
+    const { socket } = await joinedChat({
+      sessions: {
+        prompt: () => {
+          throw new Error('the adapter went away')
+        }
+      }
+    })
+
+    await socket.send(JSON.stringify({ type: 'prompt', requestId: 'r1', text: 'ship it' }))
+    assert.deepEqual(await verdict(socket), {
+      type: 'prompt_result',
+      requestId: 'r1',
+      ok: false,
+      message: 'the adapter went away'
+    })
+    socket.close()
+  })
+
+  test('a frame that is not a recognizable prompt is ignored, and the socket keeps working', async () => {
+    const sessions = recordingSessions(() => ({ ok: true }))
+    const { chats, socket } = await joinedChat({ sessions: sessions.operations })
+
+    for (const raw of ['not json', JSON.stringify({ type: 'prompt' }), JSON.stringify({ type: 'mystery' })]) {
+      await socket.send(raw)
+    }
+    // Nothing was acted on, and the live tail still flows: a junk frame is not a fatal one.
+    chats.publish('chat-1', assistantChunk('a1', 'still here'))
+    assert.equal((await socket.next()).type, 'event')
+    assert.deepEqual(sessions.prompts, [])
+    socket.close()
   })
 })

@@ -536,3 +536,87 @@ body {
   background: var(--raised);
   color: var(--ink-dim);
 }
+
+/*
+ * The composer. Sticky to the bottom the way the header is sticky to the top, so the transcript
+ * scrolls behind it and the send control is always in thumb reach. The busy policy is stated in
+ * the UI rather than hidden: the button goes dead and the hint says why, because a phone that
+ * quietly pockets a prompt while a turn runs is the failure this design refuses.
+ */
+.composer {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  display: grid;
+  gap: 6px;
+  margin: 0 -16px;
+  padding: 10px 16px calc(env(safe-area-inset-bottom) + 10px);
+  border-top: 1px solid var(--line);
+  background: color-mix(in srgb, var(--ground) 92%, transparent);
+  backdrop-filter: blur(8px);
+}
+
+.composer-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.composer-input {
+  flex: 1;
+  min-width: 0;
+  /* Grows with the message but never eats the transcript; the field scrolls past that. */
+  min-height: 46px;
+  max-height: 35vh;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #101520;
+  color: var(--ink);
+  font-family: inherit;
+  /* 16px minimum: anything smaller makes mobile browsers zoom the page on focus. */
+  font-size: 16px;
+  line-height: 1.4;
+  resize: none;
+  field-sizing: content;
+}
+
+.composer-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.composer-send {
+  flex: 0 0 auto;
+  height: 46px;
+  padding: 0 18px;
+  border: none;
+  border-radius: 10px;
+  background: var(--accent);
+  color: #1a0f27;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.composer-send:disabled {
+  background: #2a2b38;
+  color: var(--ink-faint);
+}
+
+.composer-hint {
+  margin: 0;
+  color: var(--ink-faint);
+  font-size: 12px;
+}
+
+/* A send that did not land keeps its text in the box; this says why, in the loud colour. */
+.send-error {
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px solid #6d3340;
+  border-radius: 10px;
+  background: #21151a;
+  color: #f3b3bf;
+  font-size: 13px;
+  line-height: 1.45;
+}

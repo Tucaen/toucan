@@ -40,6 +40,32 @@ export function forgetToken(): void {
   }
 }
 
+/**
+ * An unsent message, retained on this device only. Not drafts *sync* - the desktop never sees
+ * this and never will - but the phone's own retention, which is what keeps the acceptance
+ * criterion honest: a token revoked mid-compose unmounts the whole chat screen on its way back to
+ * pairing, and the reader must find their text again afterwards rather than retype it. Also
+ * covers what phone browsers do unasked: evicting a background tab.
+ */
+const DRAFT_KEY_PREFIX = 'toucan.draft.'
+
+export function storedDraft(chatId: string): string {
+  try {
+    return window.localStorage.getItem(DRAFT_KEY_PREFIX + chatId) ?? ''
+  } catch {
+    return ''
+  }
+}
+
+export function rememberDraft(chatId: string, draft: string): void {
+  try {
+    if (draft.length === 0) window.localStorage.removeItem(DRAFT_KEY_PREFIX + chatId)
+    else window.localStorage.setItem(DRAFT_KEY_PREFIX + chatId, draft)
+  } catch {
+    /* Blocked site data costs retention, not the ability to send. */
+  }
+}
+
 /** Why a request failed, in the two terms the UI actually reacts to. */
 export type RemoteFailure = { kind: 'unauthorized' } | { kind: 'unreachable'; message: string }
 

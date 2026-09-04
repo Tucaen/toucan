@@ -1,14 +1,23 @@
-import { useEffect, useRef, useState } from 'react'
-import { REMOTE_CHAT_PROTOCOL, remoteChatBearerProtocol, remoteChatSocketPath } from '../../src/shared/remote-chat'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  REMOTE_CHAT_PROTOCOL,
+  remoteChatBearerProtocol,
+  remoteChatSocketPath,
+  type RemoteChatClientMessage
+} from '../../src/shared/remote-chat'
 import {
   applyServerFrame,
   chatGone,
   connectionLost,
-  initialChatConnectionState,
+  draftChanged,
+  plannedSend,
   reconnectDelayMs,
+  restoredChatConnectionState,
+  sendFailed,
+  withSend,
   type ChatConnectionState
 } from './chat-connection'
-import { fetchWorkspace } from './remote-client'
+import { fetchWorkspace, rememberDraft, storedDraft } from './remote-client'
 
 /**
  * Owns the WebSocket for one chat; every decision about what frames and drops *mean* lives in
@@ -20,13 +29,25 @@ import { fetchWorkspace } from './remote-client'
  * one authenticated HTTP probe: a revoked token unpaired the device, a chat the desktop no longer
  * lists is gone, and anything else is a blip worth rejoining after a bounded backoff.
  */
-export function useChatConnection(token: string, chatId: string, onUnauthorized: () => void): ChatConnectionState {
-  const [state, setState] = useState<ChatConnectionState>(initialChatConnectionState)
+export interface ChatConnection extends ChatConnectionState {
+  onDraftChange(draft: string): void
+  /** Sends the current draft, if the state allows it. Ignored otherwise, so a stale tap is inert. */
+  onSend(): void
+}
+
+export function useChatConnection(token: string, chatId: string, onUnauthorized: () => void): ChatConnection {
+  const [state, setState] = useState<ChatConnectionState>(() => restoredChatConnectionState(storedDraft(chatId)))
   const unauthorized = useRef(onUnauthorized)
   unauthorized.current = onUnauthorized
+  // The live socket, readable by the send path. A send is only ever attempted on the socket that
+  // is open right now; a superseded one is never written to.
+  const live = useRef<WebSocket | null>(null)
+  // The send path reads state outside a render, and it must read the newest committed one.
+  const stateRef = useRef(state)
+  stateRef.current = state
 
   useEffect(() => {
-    setState(initialChatConnectionState())
+    setState(restoredChatConnectionState(storedDraft(chatId)))
     let disposed = false
     let socket: WebSocket | null = null
     let timer: number | undefined
@@ -62,6 +83,7 @@ export function useChatConnection(token: string, chatId: string, onUnauthorized:
       socket = next
       next.onopen = () => {
         attempt = 0
+        live.current = next
       }
       next.onmessage = (event) => {
         if (!disposed) setState((current) => applyServerFrame(current, event.data, Date.now()))
@@ -70,6 +92,7 @@ export function useChatConnection(token: string, chatId: string, onUnauthorized:
         // A superseded socket's close must not tear down its replacement's state.
         if (disposed || socket !== next) return
         socket = null
+        if (live.current === next) live.current = null
         setState(connectionLost)
         void classifyThenRetry()
       }
@@ -78,10 +101,53 @@ export function useChatConnection(token: string, chatId: string, onUnauthorized:
     connect()
     return () => {
       disposed = true
+      live.current = null
       window.clearTimeout(timer)
       socket?.close()
     }
   }, [token, chatId])
 
-  return state
+  // Retention mirrors the state rather than the keystrokes, so every path that changes the draft -
+  // typing, a cleared send, a recovered refusal - is covered by one write.
+  useEffect(() => {
+    rememberDraft(chatId, state.draft)
+  }, [chatId, state.draft])
+
+  const onDraftChange = useCallback((draft: string) => {
+    setState((current) => draftChanged(current, draft))
+  }, [])
+
+  const onSend = useCallback(() => {
+    // `plannedSend` is the gate: null means the composer had nothing to offer or the session was
+    // not a send target, and nothing must reach the socket in that case.
+    const planned = plannedSend(stateRef.current, newRequestId())
+    if (!planned) return
+    const message: RemoteChatClientMessage = { type: 'prompt', requestId: planned.requestId, text: planned.text }
+    const delivered = writeToSocket(live.current, message)
+    // The socket write happens exactly once, out here. The updater then *applies* that one
+    // decision rather than re-deciding it: the frame is already on the wire, so the composer has
+    // to clear and the slot has to hold the verdict, whatever else landed in the same tick.
+    setState((current) => {
+      const applied = withSend(current, planned)
+      return delivered ? applied : sendFailed(applied, 'Not connected — your message was not sent.')
+    })
+  }, [])
+
+  return { ...state, onDraftChange, onSend }
+}
+
+/** Correlates one send with its verdict. Only uniqueness matters, so no crypto API is required. */
+function newRequestId(): string {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+}
+
+/** True only if the frame actually went out; a closed or throwing socket is a failed send. */
+function writeToSocket(socket: WebSocket | null, message: RemoteChatClientMessage): boolean {
+  if (!socket || socket.readyState !== WebSocket.OPEN) return false
+  try {
+    socket.send(JSON.stringify(message))
+    return true
+  } catch {
+    return false
+  }
 }

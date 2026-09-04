@@ -13,10 +13,14 @@ import {
   type RemoteWorkspaceSnapshot
 } from '../../shared/remote-access'
 import {
+  parseRemoteChatClientMessage,
+  promptTextProblem,
+  REMOTE_CHAT_PROMPT_LIMIT,
   REMOTE_CHAT_PROTOCOL,
   tokenFromWebSocketProtocols,
   type RemoteChatServerMessage
 } from '../../shared/remote-chat'
+import type { AgentPromptResult } from '../../shared/agent'
 import type { AgentEventBroker } from '../agent-event-broker'
 import { describeHostAddresses } from './host-addresses'
 import { pairingTokenMatches, presentedPairingToken } from './pairing'
@@ -66,8 +70,24 @@ export interface RemoteAccessServerOptions {
    * desktop renderer observe one stream. Without it every chat socket is refused as not found.
    */
   chats?: Pick<AgentEventBroker, 'subscribe'>
+  /**
+   * What a phone may *do* to a chat. Narrow on purpose: the remote surface reaches the session
+   * manager through this one seam, so the set of operations a paired device can perform is
+   * readable in a single type rather than inferred from call sites. Absent, chats are read-only.
+   */
+  sessions?: RemoteChatSessionOperations
   addresses?: () => RemoteAccessAddress[]
   now?: () => number
+}
+
+export interface RemoteChatSessionOperations {
+  /**
+   * Starts a turn with this text, or refuses - and answers as soon as that is decided, not when
+   * the turn ends. The refusal is the load-bearing half: this is deliberately the non-steering,
+   * non-queuing prompt path, so a chat that is mid-turn answers `ok: false` and the phone shows
+   * why. A prompt is therefore never silently dropped and never injected into a turn in flight.
+   */
+  prompt(chatId: string, text: string): AgentPromptResult | Promise<AgentPromptResult>
 }
 
 /** Local close codes the phone can tell apart from a network drop. */
@@ -147,8 +167,61 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
   const chatSockets = new Set<WebSocket>()
   const socketServer = new WebSocketServer({
     noServer: true,
-    handleProtocols: (protocols) => (protocols.has(REMOTE_CHAT_PROTOCOL) ? REMOTE_CHAT_PROTOCOL : false)
+    handleProtocols: (protocols) => (protocols.has(REMOTE_CHAT_PROTOCOL) ? REMOTE_CHAT_PROTOCOL : false),
+    // Inbound frames are prompts, and a prompt is bounded (see REMOTE_CHAT_PROMPT_LIMIT). The
+    // headroom covers the JSON envelope and multi-byte characters; anything larger is dropped by
+    // `ws` before it is buffered rather than after.
+    maxPayload: REMOTE_CHAT_PROMPT_LIMIT * 4 + 1024
   })
+
+  /**
+   * The inbound half of a chat socket. Only one thing may cross it - a prompt - and every path out
+   * of here answers the client: accepted, or refused with a reason. That is the whole no-silent-drop
+   * guarantee, and it is why the refusal text is passed through verbatim from the session manager
+   * ("The agent session is busy.", "The agent session is not ready.") rather than flattened.
+   */
+  const handleChatFrame = async (
+    chatId: string,
+    raw: string | null,
+    deliver: (message: RemoteChatServerMessage) => void
+  ): Promise<void> => {
+    const message = raw === null ? null : parseRemoteChatClientMessage(raw)
+    // Unrecognizable, so there is no request to answer. The peer is Toucan's own client, so this
+    // is a version skew or a probe, not a case worth inventing a correlation id for.
+    if (!message) return
+
+    const refuse = (reason: string): void =>
+      deliver({ type: 'prompt_result', requestId: message.requestId, ok: false, message: reason })
+
+    if (!options.sessions) {
+      refuse('This host is not accepting messages.')
+      return
+    }
+    // The same predicate the composer greys its button out with, so the two cannot disagree.
+    const problem = promptTextProblem(message.text)
+    if (problem) {
+      refuse(problem)
+      return
+    }
+    // The published projection gates what a phone may drive, exactly as it gates what it may open:
+    // a chat the desktop has since unlisted is not a prompt target either.
+    if (!snapshot.chats.some((chat) => chat.id === chatId)) {
+      refuse('This chat is no longer open on the desktop.')
+      return
+    }
+
+    try {
+      const result = await options.sessions.prompt(chatId, message.text.trim())
+      deliver({
+        type: 'prompt_result',
+        requestId: message.requestId,
+        ok: result.ok,
+        ...(result.message ? { message: result.message } : {})
+      })
+    } catch (cause) {
+      refuse(cause instanceof Error ? cause.message : 'The host could not deliver the message.')
+    }
+  }
 
   const attachChatSocket = (
     connection: WebSocket,
@@ -170,6 +243,9 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
       resync: (state) => deliver({ type: 'snapshot', state })
     })
     deliver({ type: 'snapshot', state: subscription.snapshot })
+    connection.on('message', (data) => {
+      void handleChatFrame(chatId, frameText(data), deliver)
+    })
     connection.on('close', () => {
       subscription.unsubscribe()
       chatSockets.delete(connection)
@@ -301,6 +377,20 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
       await stop()
     }
   }
+}
+
+/**
+ * Reads one inbound frame as text. `ws` hands over a Buffer (or a fragment array) unless told
+ * otherwise, and a binary frame is not something this protocol has any meaning for, so anything
+ * that is not decodable text is reported as null and refused rather than coerced.
+ */
+function frameText(data: unknown): string | null {
+  if (typeof data === 'string') return data
+  if (Buffer.isBuffer(data)) return data.toString('utf8')
+  if (Array.isArray(data) && data.every((part) => Buffer.isBuffer(part))) {
+    return Buffer.concat(data as Buffer[]).toString('utf8')
+  }
+  return null
 }
 
 /**

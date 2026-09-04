@@ -374,7 +374,14 @@ void app.whenReady().then(async () => {
     clientRoot: join(app.getAppPath(), 'out', 'mobile'),
     // Live chats are read straight off the session broker: the phone is just another subscriber
     // to the same fan-out the desktop renderer receives.
-    chats: agentEvents
+    chats: agentEvents,
+    // What a paired phone may drive. `startPrompt` rather than `prompt` on purpose: the phone
+    // needs to know its message was delivered, which is decided immediately, not when the turn it
+    // started finally ends. And it is the non-steering path, so a busy session refuses out loud
+    // instead of the prompt being injected into a turn already under way.
+    sessions: {
+      prompt: (id, text) => agentManager.startPrompt(id, text)
+    }
   })
   // Off unless the user turned it on and the setting survived a restart; `start` only ever binds
   // what the stored settings already asked for.

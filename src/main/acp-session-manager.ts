@@ -509,6 +509,13 @@ export async function settleAgentTurn(
 export interface AcpSessionManager {
   create(request: AgentCreateRequest, owner: WebContents): Promise<AgentCreateResult>
   prompt(id: string, content: AgentPromptContent): Promise<AgentPromptResult>
+  /**
+   * Accepts or refuses a prompt without waiting for the turn it starts. `prompt`'s promise settles
+   * at the *end* of the turn, which is the wrong answer for a client asking "did my message get
+   * through?" - a phone composer would hold its text for the whole turn and then read a failed
+   * turn as a failed send. This reports delivery only; the turn reports itself through events.
+   */
+  startPrompt(id: string, content: AgentPromptContent): AgentPromptResult
   promptWhenIdle(id: string, content: AgentPromptContent): Promise<AgentPromptResult>
   setMode(id: string, modeId: string): Promise<AgentPromptResult>
   setModel(id: string, modelId: string): Promise<AgentPromptResult>
@@ -752,22 +759,41 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
     agents.delete(id)
   }
 
-  const runPrompt = async (id: string, content: AgentPromptContent): Promise<AgentPromptResult> => {
+  /**
+   * Splits a prompt into its two genuinely different moments: whether the session *accepts* it,
+   * which is decided synchronously here, and how the resulting turn ends, which can be minutes
+   * later. Callers that want a delivery acknowledgement (`startPrompt`) must not be made to wait
+   * for a turn outcome, and callers that want the outcome (`prompt`) must not have to re-derive
+   * acceptance - so both read this one decision. Marking the session busy is part of accepting,
+   * and it happens before this returns, so two concurrent prompts cannot both be accepted.
+   */
+  const beginTurn = (
+    id: string,
+    content: AgentPromptContent
+  ): { refusal: AgentPromptResult } | { turn: Promise<AgentPromptResult> } => {
     const running = agents.get(id)
-    if (!running?.sessionId) return { ok: false, message: 'The agent session is not ready.' }
+    if (!running?.sessionId) return { refusal: { ok: false, message: 'The agent session is not ready.' } }
     const guard = promptGuard(running)
-    if (guard) return guard
-    if (running.busy) return { ok: false, message: 'The agent session is busy.' }
+    if (guard) return { refusal: guard }
+    if (running.busy) return { refusal: { ok: false, message: 'The agent session is busy.' } }
     const blocks = toPromptBlocks(content)
     const imageGuard = imageCapabilityGuard(running, blocks)
-    if (imageGuard) return imageGuard
+    if (imageGuard) return { refusal: imageGuard }
     running.busy = true
     send(running, { type: 'status', status: 'working' })
+    return { turn: settleTurn(running, running.sessionId, blocks) }
+  }
+
+  const settleTurn = async (
+    running: RunningAgent,
+    sessionId: string,
+    blocks: AgentPromptBlock[]
+  ): Promise<AgentPromptResult> => {
     try {
       const turn = await settleAgentTurn(
         crypto.randomUUID(),
         running.context.request(methods.agent.session.prompt, {
-          sessionId: running.sessionId,
+          sessionId,
           prompt: blocks as ContentBlock[]
         }),
         running.authMethods
@@ -779,6 +805,11 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       running.busy = false
       running.wakeGate?.flush()
     }
+  }
+
+  const runPrompt = async (id: string, content: AgentPromptContent): Promise<AgentPromptResult> => {
+    const started = beginTurn(id, content)
+    return 'refusal' in started ? started.refusal : started.turn
   }
 
   return {
@@ -996,6 +1027,18 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
     },
 
     prompt: runPrompt,
+
+    startPrompt(id, content): AgentPromptResult {
+      const started = beginTurn(id, content)
+      if ('refusal' in started) return started.refusal
+      // Nothing awaits the turn: its outcome reaches every subscriber - the desktop renderer and
+      // any remote client - as `turn_complete`/`turn_failed` events on the broker, which is where
+      // a caller that only sent a message should be reading it from anyway.
+      void started.turn.catch(() => {
+        /* Every failure mode already reported itself as an event; there is no second channel. */
+      })
+      return { ok: true }
+    },
 
     async promptWhenIdle(id: string, content: AgentPromptContent): Promise<AgentPromptResult> {
       const running = agents.get(id)

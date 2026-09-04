@@ -2,15 +2,21 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { RemoteChatSummary } from '../../src/shared/remote-access'
+import { canSendDraft, sendBlockedReason } from './chat-connection'
 import { chatStatusSummary, deriveChatViewItems, type ChatViewItem } from './chat-view'
 import { fetchWorkspace } from './remote-client'
-import { useChatConnection } from './use-chat-connection'
+import { useChatConnection, type ChatConnection } from './use-chat-connection'
 
 /**
- * One chat, read live. The transcript is the shared reducer state the connection hook maintains;
- * this component only renders what `chat-view.ts` derived from it. Read-only by design - the
- * composer is a separate ticket - so the whole screen is a scroll of bubbles with a status header
- * that never pretends a stale transcript is live.
+ * One chat, read live and written to. The transcript is the shared reducer state the connection
+ * hook maintains; this component only renders what `chat-view.ts` derived from it, and the
+ * composer only renders what `chat-connection.ts` decided - whether a send is possible, why not,
+ * and what happened to the last one. Nothing here pretends a stale transcript is live, and nothing
+ * here renders a sent message: that arrives as the provider's echo like every other message.
+ *
+ * An unsent draft is retained on this device (see `rememberDraft`), which is what carries the
+ * typed text through the one failure that unmounts this screen - a revoked token, on its way back
+ * to pairing. It is retention, not drafts sync: the desktop never sees it.
  */
 export default function ChatScreen({
   token,
@@ -106,7 +112,54 @@ export default function ChatScreen({
         )}
         <div ref={endRef} />
       </div>
+
+      <Composer connection={connection} />
     </main>
+  )
+}
+
+/**
+ * Multiline text and a send button; no slash commands, no mentions, no drafts sync. The busy
+ * policy is visible rather than clever: while a turn is working the button is disabled and says
+ * so, so a prompt is never queued invisibly on the phone nor steered into a turn in flight. A
+ * refused or unconfirmed send puts the text straight back and reports the reason.
+ */
+function Composer({ connection }: { connection: ChatConnection }): JSX.Element {
+  const blocked = sendBlockedReason(connection)
+  const canSend = canSendDraft(connection)
+  const failure = connection.send.status === 'failed' ? connection.send.message : null
+
+  return (
+    <form
+      className="composer"
+      onSubmit={(event) => {
+        event.preventDefault()
+        connection.onSend()
+      }}
+    >
+      {failure && (
+        <p className="send-error" role="alert">
+          {failure}
+        </p>
+      )}
+      <div className="composer-row">
+        <textarea
+          className="composer-input"
+          value={connection.draft}
+          rows={1}
+          // The phone keyboard's Enter inserts a newline: on a touch composer the button is the
+          // only send, so a stray return can never fire a prompt.
+          onChange={(event) => connection.onDraftChange(event.target.value)}
+          placeholder={blocked ?? 'Message…'}
+          aria-label="Message"
+        />
+        <button type="submit" className="composer-send" disabled={!canSend}>
+          {connection.send.status === 'sending' ? '…' : 'Send'}
+        </button>
+      </div>
+      {/* Only reasons that are about the session, not about an empty box, are worth stating. */}
+      {blocked && connection.send.status !== 'sending' && <p className="composer-hint">{blocked}</p>}
+    </form>
   )
 }
 

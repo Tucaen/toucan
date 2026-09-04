@@ -195,3 +195,48 @@ test("a killed adapter's straggling stderr cannot resurrect the closed broker ch
 
   assert.equal(broker.snapshot('node-1'), null)
 })
+
+test('startPrompt reports delivery immediately and refuses a second prompt while the turn runs', async () => {
+  const appPath = mkdtempSync(join(tmpdir(), 'toucan-broker-start-prompt-'))
+  approvingAdapter(appPath)
+  const broker = createAgentEventBroker()
+  const owner = { isDestroyed: () => false, send: () => {} } as unknown as WebContents
+  const remote: AgentEvent[] = []
+  broker.subscribe('node-1', (event) => remote.push(event))
+  const manager = createAcpSessionManager({ appPath, broker })
+
+  try {
+    await manager.create({ id: 'node-1', provider: 'claude', cwd: appPath }, owner)
+
+    // This adapter parks the turn on an approval, so the turn is provably still open below.
+    assert.deepEqual(manager.startPrompt('node-1', 'run the tests'), { ok: true })
+    const approval = await until(() =>
+      remote.find((event): event is Extract<AgentEvent, { type: 'approval' }> => event.type === 'approval')
+    )
+
+    // The busy policy the phone's composer reflects: refused with a reason, never queued here and
+    // never steered into the turn in flight.
+    assert.deepEqual(manager.startPrompt('node-1', 'and also this'), {
+      ok: false,
+      message: 'The agent session is busy.'
+    })
+
+    manager.resolveApproval('node-1', approval.approvalId, 'allow')
+    // The turn's own outcome arrives as events, which is the only channel a remote client has.
+    await until(() => remote.find((event) => event.type === 'turn_complete'))
+    await until(() => remote.some((event) => event.type === 'status' && event.status === 'idle') || undefined)
+
+    // Idle again, so the same session accepts the next prompt.
+    assert.deepEqual(manager.startPrompt('node-1', 'now this'), { ok: true })
+  } finally {
+    manager.killAll()
+  }
+})
+
+test('startPrompt refuses a session that does not exist instead of dropping the message', () => {
+  const manager = createAcpSessionManager({ appPath: mkdtempSync(join(tmpdir(), 'toucan-broker-no-session-')) })
+  assert.deepEqual(manager.startPrompt('nobody', 'hello'), {
+    ok: false,
+    message: 'The agent session is not ready.'
+  })
+})
