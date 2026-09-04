@@ -1,9 +1,39 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import type { AgentDecisionQuestion, AgentDecisionResponseContent } from '../../src/shared/agent'
 import type { RemoteChatSummary } from '../../src/shared/remote-access'
-import { canSendDraft, sendBlockedReason } from './chat-connection'
-import { chatStatusSummary, deriveChatViewItems, type ChatViewItem } from './chat-view'
+import {
+  answerFailure,
+  answerInFlight,
+  canSendDraft,
+  composerHidden,
+  pendingRequest,
+  sendBlockedReason
+} from './chat-connection'
+import {
+  activitySummaryLine,
+  chatStatusSummary,
+  deriveChatViewItems,
+  type ChatViewItem,
+  type PendingRequest
+} from './chat-view'
+import {
+  advancesOnAnswer,
+  answeredCount,
+  answerFieldText,
+  chooseOption,
+  customAnswerText,
+  initialDecisionAnswers,
+  isBooleanAnswer,
+  isOptionSelected,
+  isQuestionAnswered,
+  setBooleanAnswer,
+  setCustomAnswer,
+  setNumberAnswer,
+  setTextAnswer,
+  submitDecisionProblem
+} from './decision-answers'
 import { fetchWorkspace } from './remote-client'
 import { useChatConnection, type ChatConnection } from './use-chat-connection'
 
@@ -58,6 +88,7 @@ export default function ChatScreen({
     [connection.transcript]
   )
   const status = connection.transcript ? chatStatusSummary(connection.transcript) : null
+  const pending = pendingRequest(connection)
 
   // Follow the tail the way a chat should: stick to the bottom while the reader is there, and
   // stop following the moment they scroll up to read history.
@@ -113,8 +144,213 @@ export default function ChatScreen({
         <div ref={endRef} />
       </div>
 
-      <Composer connection={connection} />
+      {/* One decision at a time, and while it stands the plain composer is gone rather than
+          disabled: free text must not be able to bypass the channel the agent is waiting on. */}
+      {pending && <PendingRequestCard key={pending.id} pending={pending} connection={connection} />}
+      {!composerHidden(connection) && <Composer connection={connection} />}
     </main>
+  )
+}
+
+/**
+ * The pending request, as the phone's answer surface. Both shapes route through the connection's
+ * answer path rather than through the composer, and both are inert while an answer is on the wire
+ * or once the request has been resolved elsewhere - the state decides that, not this component.
+ */
+function PendingRequestCard({
+  pending,
+  connection
+}: {
+  pending: PendingRequest
+  connection: ChatConnection
+}): JSX.Element {
+  const failure = answerFailure(connection)
+  const busy = answerInFlight(connection)
+  return (
+    <section className="pending-request" data-kind={pending.kind} aria-label="Pending request">
+      {failure && (
+        <p className="send-error" role="alert">
+          {failure}
+        </p>
+      )}
+      {pending.kind === 'approval' ? (
+        <ApprovalCard pending={pending} busy={busy} onApprove={connection.onApprove} />
+      ) : (
+        <DecisionCard pending={pending} busy={busy} onAnswer={connection.onAnswerDecision} />
+      )}
+    </section>
+  )
+}
+
+function ApprovalCard({
+  pending,
+  busy,
+  onApprove
+}: {
+  pending: Extract<PendingRequest, { kind: 'approval' }>
+  busy: boolean
+  onApprove(optionId?: string): void
+}): JSX.Element {
+  return (
+    <>
+      <header className="pending-request-head">
+        <strong>{pending.title}</strong>
+        {/* What the agent is about to do, in the same one-line form the transcript uses. */}
+        {pending.activity && <small>{activitySummaryLine(pending.activity)}</small>}
+      </header>
+      <div className="pending-request-options">
+        {pending.options.map((option) => (
+          <button
+            type="button"
+            key={option.id}
+            data-kind={option.kind}
+            disabled={busy}
+            onClick={() => onApprove(option.id)}
+          >
+            {option.label}
+          </button>
+        ))}
+        {/* The agent's own option set may not contain a refusal, so dismissing stays available. */}
+        <button type="button" className="pending-request-dismiss" disabled={busy} onClick={() => onApprove()}>
+          Dismiss
+        </button>
+      </div>
+    </>
+  )
+}
+
+/**
+ * A question set, one question on screen at a time - the desktop's rule, and on a phone the only
+ * readable one. Answers accumulate locally and are submitted as a single response, because that is
+ * what the elicitation is: one form, not a question per turn.
+ */
+function DecisionCard({
+  pending,
+  busy,
+  onAnswer
+}: {
+  pending: Extract<PendingRequest, { kind: 'decision' }>
+  busy: boolean
+  onAnswer(content?: AgentDecisionResponseContent): void
+}): JSX.Element {
+  const request = pending.request
+  const [active, setActive] = useState(0)
+  const [answers, setAnswers] = useState<AgentDecisionResponseContent>(initialDecisionAnswers)
+  const question = request.questions[Math.min(active, request.questions.length - 1)]
+  const problem = submitDecisionProblem(request, answers)
+  const last = request.questions.length - 1
+
+  // Choosing a single-value option is also an answer to "what next", so it advances. A
+  // multi-select must not: the reader is still adding to it.
+  const advanceAfter = (item: AgentDecisionQuestion): void => {
+    if (advancesOnAnswer(item) && active < last) setActive(active + 1)
+  }
+
+  if (!question) return <p className="empty">This question set is empty.</p>
+
+  return (
+    <>
+      <header className="pending-request-head">
+        <strong>{question.title ?? 'Decision questions'}</strong>
+        <small>{request.message}</small>
+      </header>
+      <p className="decision-progress">
+        Question {active + 1} of {request.questions.length} · {answeredCount(request, answers)} answered
+        {question.required && <span className="decision-required">Required</span>}
+      </p>
+      <p className="decision-question">{question.question}</p>
+
+      {question.input === 'select' && (
+        <div className="pending-request-options" role="group" aria-label={question.question}>
+          {question.options.map((option) => (
+            <button
+              type="button"
+              key={option.value}
+              aria-pressed={isOptionSelected(answers, question, option.value)}
+              disabled={busy}
+              onClick={() => {
+                setAnswers((current) => chooseOption(current, question, option.value))
+                advanceAfter(question)
+              }}
+            >
+              <span>{option.label}</span>
+              {option.description && <small>{option.description}</small>}
+            </button>
+          ))}
+        </div>
+      )}
+      {question.input === 'boolean' && (
+        <div className="pending-request-options" role="group" aria-label={question.question}>
+          {[true, false].map((value) => (
+            <button
+              type="button"
+              key={String(value)}
+              aria-pressed={isBooleanAnswer(answers, question, value)}
+              disabled={busy}
+              onClick={() => {
+                setAnswers((current) => setBooleanAnswer(current, question, value))
+                advanceAfter(question)
+              }}
+            >
+              {value ? 'Yes' : 'No'}
+            </button>
+          ))}
+        </div>
+      )}
+      {question.input === 'text' && (
+        <input
+          className="decision-value"
+          type="text"
+          aria-label={question.question}
+          disabled={busy}
+          value={answerFieldText(answers, question)}
+          onChange={(event) => setAnswers((current) => setTextAnswer(current, question, event.target.value))}
+        />
+      )}
+      {question.input === 'number' && (
+        <input
+          className="decision-value"
+          type="number"
+          aria-label={question.question}
+          disabled={busy}
+          value={answerFieldText(answers, question)}
+          onChange={(event) => setAnswers((current) => setNumberAnswer(current, question, event.target.value))}
+        />
+      )}
+      {question.customAnswerId && (
+        <label className="decision-other">
+          <span>Other answer</span>
+          <input
+            type="text"
+            disabled={busy}
+            value={customAnswerText(answers, question)}
+            onChange={(event) => setAnswers((current) => setCustomAnswer(current, question, event.target.value))}
+          />
+        </label>
+      )}
+
+      {request.questions.length > 1 && (
+        <nav className="decision-navigation" aria-label="Question navigation">
+          <button type="button" disabled={active === 0} onClick={() => setActive(active - 1)}>
+            Previous
+          </button>
+          <span>{request.questions.map((item) => (isQuestionAnswered(answers, item) ? '●' : '○')).join(' ')}</span>
+          <button type="button" disabled={active >= last} onClick={() => setActive(active + 1)}>
+            Next
+          </button>
+        </nav>
+      )}
+
+      <footer className="decision-actions">
+        <button type="button" className="decision-skip" disabled={busy} onClick={() => onAnswer()}>
+          Skip
+        </button>
+        <button type="button" disabled={busy || problem !== null} onClick={() => onAnswer(answers)}>
+          {busy ? 'Answering…' : 'Submit answers'}
+        </button>
+      </footer>
+      {problem && <p className="composer-hint">{problem}</p>}
+    </>
   )
 }
 

@@ -303,6 +303,48 @@ describe('chat node attention wiring', () => {
     await waitFor(() => expect(workspace.state()).toHaveLength(0))
   })
 
+  test('a structured question set is the same waiting-on-you record an approval is', async () => {
+    const workspace = createAttentionWorkspace()
+    const node = chatNode(baseCallbacks(workspace.onAttention))
+    renderChat(node, { selected: false, unread: 0 })
+    await settle()
+
+    const request = {
+      type: 'decision_request' as const,
+      request: {
+        id: 'elicit-3',
+        message: 'Please answer the following questions.',
+        questions: [
+          {
+            id: 'scope',
+            title: 'Scope',
+            question: 'Read-only first?',
+            options: [{ value: 'Read-only', label: 'Read-only' }],
+            input: 'select' as const,
+            multiSelect: false
+          }
+        ]
+      }
+    }
+    await act(async () => {
+      mock.emit(NODE_ID, request)
+      mock.emit(NODE_ID, request)
+    })
+
+    // One record, keyed by the elicitation, under the same kind a tool permission raises: a chat
+    // stalled on a question has to be findable from a list exactly like one stalled on a
+    // permission, which is what the phone's "needs approval" badge reads.
+    await waitFor(() => expect(countUnreadAttention(workspace.state())).toBe(1))
+    expect(workspace.state()[0].kind).toBe('approval')
+    expect(workspace.state()[0].key).toBe('elicit-3')
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Skip' }))
+    })
+
+    await waitFor(() => expect(workspace.state()).toHaveLength(0))
+  })
+
   test('a sign-in request is raised while it holds and retired once the session gets past it', async () => {
     const workspace = createAttentionWorkspace()
     const node = chatNode(baseCallbacks(workspace.onAttention))

@@ -1872,7 +1872,8 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
     onPermissionMode: (modeId) => data.onPermissionModeChange(provider, modeId),
     onModel: (modelId) => data.onModelChange(id, modelId)
   })
-  const { status, approval, detail, failure, failureKey, messages, activities, plan, usage } = conversation
+  const { status, approval, decisionRequest, detail, failure, failureKey, messages, activities, plan, usage } =
+    conversation
   const [renaming, setRenaming] = useState(false)
   const [titleDraft, setTitleDraft] = useState(data.label)
   const [titleError, setTitleError] = useState(false)
@@ -1954,29 +1955,32 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
     })
   }, [attentionSource, data.label, id, messages, reportAttention, selected, status])
 
-  // An approval is its own condition: the ACP request id is the key, so the same request seen
-  // twice is one record, and answering it retires that record rather than marking it read.
-  const approvalId = approval?.id ?? null
-  const approvalTitle = approval?.title
-  const previousApprovalRef = useRef<string | null>(null)
+  // A request the session is parked on is its own condition: the ACP request id is the key, so the
+  // same request seen twice is one record, and answering it retires that record rather than
+  // marking it read. A tool permission and a structured question set are one condition here, not
+  // two - both are the agent waiting on an answer, and a chat stalled on either has to be findable
+  // from a list (the phone's "needs approval" badge reads exactly this record).
+  const requestId = approval?.id ?? decisionRequest?.id ?? null
+  const requestTitle = approval?.title ?? decisionRequest?.message
+  const previousRequestRef = useRef<string | null>(null)
   useEffect(() => {
-    const previous = previousApprovalRef.current
-    previousApprovalRef.current = approvalId
-    if (previous && previous !== approvalId) {
+    const previous = previousRequestRef.current
+    previousRequestRef.current = requestId
+    if (previous && previous !== requestId) {
       reportAttention?.({ type: 'resolve', nodeId: id, kind: 'approval', key: previous })
     }
-    if (!approvalId) return
+    if (!requestId) return
     reportAttention?.({
       type: 'raise',
       signal: {
         nodeId: id,
         kind: 'approval',
-        key: approvalId,
+        key: requestId,
         sourceId: attentionSource,
-        summary: approvalTitle ?? `${data.label} needs approval`
+        summary: requestTitle ?? `${data.label} needs approval`
       }
     })
-  }, [approvalId, approvalTitle, attentionSource, data.label, id, reportAttention])
+  }, [attentionSource, data.label, id, reportAttention, requestId, requestTitle])
 
   // Sign-in is a standing condition rather than an event, so it is raised while it holds and
   // retired the moment the session gets past it.
@@ -2050,8 +2054,10 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
 
   useEffect(() => {
     if (data.dormant) return
-    data.onStatusChange(id, sidebarStatus(status, approval !== null, data.unreadKind, stalled))
-  }, [approval, data.dormant, data.onStatusChange, data.unreadKind, id, status, stalled])
+    // Either kind of pending request is the same thing to a list: the agent is waiting on you.
+    const waiting = approval !== null || decisionRequest !== null
+    data.onStatusChange(id, sidebarStatus(status, waiting, data.unreadKind, stalled))
+  }, [approval, data.dormant, data.onStatusChange, data.unreadKind, decisionRequest, id, status, stalled])
 
   /**
    * A prompt asking for its own worktree never runs here. It goes up to the workspace, which

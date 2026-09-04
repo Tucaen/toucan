@@ -379,8 +379,13 @@ void app.whenReady().then(async () => {
     // needs to know its message was delivered, which is decided immediately, not when the turn it
     // started finally ends. And it is the non-steering path, so a busy session refuses out loud
     // instead of the prompt being injected into a turn already under way.
+    // Answering is the reason the phone is useful at all: without it a remote chat stalls at the
+    // first permission request. Both answer paths are the *same* manager operations the desktop's
+    // own cards call, so the pending-request map decides a race between the two devices.
     sessions: {
-      prompt: (id, text) => agentManager.startPrompt(id, text)
+      prompt: (id, text) => agentManager.startPrompt(id, text),
+      approve: (id, approvalId, optionId) => agentManager.resolveApproval(id, approvalId, optionId),
+      answerDecision: (id, decisionId, content) => agentManager.resolveElicitation(id, decisionId, content)
     }
   })
   // Off unless the user turned it on and the setting survived a restart; `start` only ever binds

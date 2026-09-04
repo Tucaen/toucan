@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import type { AgentDecisionResponseContent } from '../../src/shared/agent'
 import {
   REMOTE_CHAT_PROTOCOL,
   remoteChatBearerProtocol,
@@ -6,14 +7,18 @@ import {
   type RemoteChatClientMessage
 } from '../../src/shared/remote-chat'
 import {
+  answerFailed,
   applyServerFrame,
   chatGone,
   connectionLost,
   draftChanged,
+  pendingRequest,
+  plannedAnswer,
   plannedSend,
   reconnectDelayMs,
   restoredChatConnectionState,
   sendFailed,
+  withAnswer,
   withSend,
   type ChatConnectionState
 } from './chat-connection'
@@ -33,6 +38,14 @@ export interface ChatConnection extends ChatConnectionState {
   onDraftChange(draft: string): void
   /** Sends the current draft, if the state allows it. Ignored otherwise, so a stale tap is inert. */
   onSend(): void
+  /**
+   * Answers the pending tool permission; an omitted option cancels it. Every guard is the state's,
+   * so a tap on a card the desktop answered a moment ago is inert here rather than a second answer
+   * on the wire - and if it does reach the host, the host refuses it on the request id anyway.
+   */
+  onApprove(optionId?: string): void
+  /** Answers the pending question set, or skips it when `content` is omitted. */
+  onAnswerDecision(content?: AgentDecisionResponseContent): void
 }
 
 export function useChatConnection(token: string, chatId: string, onUnauthorized: () => void): ChatConnection {
@@ -133,7 +146,49 @@ export function useChatConnection(token: string, chatId: string, onUnauthorized:
     })
   }, [])
 
-  return { ...state, onDraftChange, onSend }
+  /**
+   * The two answer paths share everything but the frame they build, so they share the write too:
+   * plan against the newest committed state, write once, then apply the decision already made.
+   */
+  const answerPending = useCallback(
+    (build: (requestId: string, target: string) => RemoteChatClientMessage | null): void => {
+      const target = pendingRequest(stateRef.current)
+      if (!target) return
+      const requestId = newRequestId()
+      const planned = plannedAnswer(stateRef.current, requestId, target.id)
+      if (!planned) return
+      const message = build(requestId, target.id)
+      if (!message) return
+      const delivered = writeToSocket(live.current, message)
+      setState((current) => {
+        const applied = withAnswer(current, planned)
+        return delivered ? applied : answerFailed(applied, 'Not connected — your answer was not sent.')
+      })
+    },
+    []
+  )
+
+  const onApprove = useCallback(
+    (optionId?: string) => {
+      answerPending((requestId, target) => {
+        if (pendingRequest(stateRef.current)?.kind !== 'approval') return null
+        return { type: 'approval', requestId, approvalId: target, ...(optionId ? { optionId } : {}) }
+      })
+    },
+    [answerPending]
+  )
+
+  const onAnswerDecision = useCallback(
+    (content?: AgentDecisionResponseContent) => {
+      answerPending((requestId, target) => {
+        if (pendingRequest(stateRef.current)?.kind !== 'decision') return null
+        return { type: 'decision', requestId, decisionId: target, ...(content ? { content } : {}) }
+      })
+    },
+    [answerPending]
+  )
+
+  return { ...state, onDraftChange, onSend, onApprove, onAnswerDecision }
 }
 
 /** Correlates one send with its verdict. Only uniqueness matters, so no crypto API is required. */

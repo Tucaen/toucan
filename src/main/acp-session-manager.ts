@@ -280,6 +280,17 @@ export async function deliverSteeredPrompt(
   }
 }
 
+/**
+ * Why an answer to a pending request did not land. Both readings matter to a remote client: it
+ * lost a race against another device (or against the desktop), or the session it was answering is
+ * no longer running at all. The wording is what a phone shows verbatim.
+ */
+const REQUEST_ALREADY_ANSWERED: AgentPromptResult = {
+  ok: false,
+  message: 'That request was already answered.'
+}
+const SESSION_NOT_RUNNING: AgentPromptResult = { ok: false, message: 'This agent session is not running.' }
+
 const LOGIN_URL_PATTERN = /https?:\/\/[^\s<>"')]+/
 
 /** Pulls the OAuth sign-in URL out of a terminal-auth subprocess's stdout/stderr line (or an
@@ -537,8 +548,15 @@ export interface AcpSessionManager {
   authenticate(id: string, methodId: string): Promise<AgentCreateResult>
   submitAuthCode(id: string, code: string): Promise<AgentPromptResult>
   openAuthLink(url: string): Promise<void>
-  resolveApproval(id: string, approvalId: string, optionId?: string): void
-  resolveElicitation(id: string, requestId: string, content?: AgentDecisionResponseContent): void
+  /**
+   * Answers a pending tool permission, and reports whether *this* answer is the one that landed.
+   * The pending map is the race key: whichever client gets here first removes the entry and
+   * resolves the provider's request, and every later answer for the same id is refused rather than
+   * sent twice. The desktop ignores the verdict (it answered its own visible card); a remote
+   * client needs it, which is why this reports instead of returning void.
+   */
+  resolveApproval(id: string, approvalId: string, optionId?: string): AgentPromptResult
+  resolveElicitation(id: string, requestId: string, content?: AgentDecisionResponseContent): AgentPromptResult
   cancel(id: string): void
   kill(id: string): void
   killOwned(owner: WebContents): void
@@ -1252,25 +1270,29 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       await shell.openExternal(url)
     },
 
-    resolveApproval(id, approvalId, optionId): void {
+    resolveApproval(id, approvalId, optionId): AgentPromptResult {
       const running = agents.get(id)
-      const pending = running?.pendingApprovals.get(approvalId)
-      if (!running || !pending) return
+      if (!running) return SESSION_NOT_RUNNING
+      const pending = running.pendingApprovals.get(approvalId)
+      if (!pending) return REQUEST_ALREADY_ANSWERED
       running.pendingApprovals.delete(approvalId)
       pending.resolve({
         outcome: optionId ? { outcome: 'selected', optionId } : { outcome: 'cancelled' }
       })
       // Whoever answered, every subscriber must see the pending approval retire.
       send(running, { type: 'approval_resolved', approvalId })
+      return { ok: true }
     },
 
-    resolveElicitation(id, requestId, content): void {
+    resolveElicitation(id, requestId, content): AgentPromptResult {
       const running = agents.get(id)
-      const pending = running?.pendingElicitations.get(requestId)
-      if (!running || !pending) return
+      if (!running) return SESSION_NOT_RUNNING
+      const pending = running.pendingElicitations.get(requestId)
+      if (!pending) return REQUEST_ALREADY_ANSWERED
       running.pendingElicitations.delete(requestId)
       pending.resolve(content ? { action: 'accept', content } : { action: 'cancel' })
       send(running, { type: 'decision_resolved', requestId })
+      return { ok: true }
     },
 
     cancel(id): void {

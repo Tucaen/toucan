@@ -1,5 +1,6 @@
 import { foldAgentEvent, type AgentTranscriptState } from '../../src/shared/agent-transcript'
 import { parseRemoteChatServerMessage, promptTextProblem } from '../../src/shared/remote-chat'
+import { pendingRequestFrom, type PendingRequest } from './chat-view'
 
 /**
  * Everything the chat view's connection decides, without a socket. The hook owns the WebSocket and
@@ -39,15 +40,30 @@ export type ChatSendState =
   | { status: 'sending'; requestId: string; text: string }
   | { status: 'failed'; message: string }
 
+/**
+ * One answer at a time, like the send slot, and for a stronger reason: the transcript only ever
+ * presents one pending request, so a second answer in flight could only be an answer to something
+ * the reader is no longer looking at.
+ *
+ * `target` is the *request's* id, not the correlation id, and it is kept on the failure too. That
+ * is what makes a refusal self-retiring: a notice about the approval that was already answered
+ * elsewhere is not shown against the next request to arrive.
+ */
+export type ChatAnswerState =
+  | { status: 'idle' }
+  | { status: 'answering'; requestId: string; target: string }
+  | { status: 'failed'; target: string; message: string }
+
 export interface ChatConnectionState {
   transcript: AgentTranscriptState | null
   phase: ChatConnectionPhase
   draft: string
   send: ChatSendState
+  answer: ChatAnswerState
 }
 
 export function initialChatConnectionState(): ChatConnectionState {
-  return { transcript: null, phase: 'connecting', draft: '', send: { status: 'idle' } }
+  return { transcript: null, phase: 'connecting', draft: '', send: { status: 'idle' }, answer: { status: 'idle' } }
 }
 
 /**
@@ -69,16 +85,96 @@ export function restoredChatConnectionState(draft: string): ChatConnectionState 
 export function applyServerFrame(state: ChatConnectionState, raw: unknown, now: number): ChatConnectionState {
   const message = parseRemoteChatServerMessage(raw)
   if (!message) return state
-  if (message.type === 'prompt_result') {
-    // A verdict on a superseded send (one this state already gave up on) must not resurrect it.
-    if (state.send.status !== 'sending' || state.send.requestId !== message.requestId) return state
-    return message.ok
-      ? { ...state, send: { status: 'idle' } }
-      : recoverDraft(state, state.send.text, message.message ?? 'The host refused the message.')
+  switch (message.type) {
+    case 'prompt_result':
+      // A verdict on a superseded send (one this state already gave up on) must not resurrect it.
+      if (state.send.status !== 'sending' || state.send.requestId !== message.requestId) return state
+      return message.ok
+        ? { ...state, send: { status: 'idle' } }
+        : recoverDraft(state, state.send.text, message.message ?? 'The host refused the message.')
+    case 'answer_result': {
+      if (state.answer.status !== 'answering' || state.answer.requestId !== message.requestId) return state
+      // Accepted: the card itself retires when the session's own resolution event arrives, which
+      // is the same source the client that lost the race learns it from.
+      if (message.ok) return { ...state, answer: { status: 'idle' } }
+      return {
+        ...state,
+        answer: {
+          status: 'failed',
+          target: state.answer.target,
+          message: message.message ?? 'The host refused the answer.'
+        }
+      }
+    }
+    case 'snapshot':
+      return { ...state, transcript: message.state, phase: 'live' }
+    case 'event':
+      if (!state.transcript) return state
+      return { ...state, transcript: foldAgentEvent(state.transcript, message.event, now) }
   }
-  if (message.type === 'snapshot') return { ...state, transcript: message.state, phase: 'live' }
-  if (!state.transcript) return state
-  return { ...state, transcript: foldAgentEvent(state.transcript, message.event, now) }
+}
+
+/** What this connection's transcript is blocked on; the rule itself is `pendingRequestFrom`. */
+export function pendingRequest(state: ChatConnectionState): PendingRequest | null {
+  return state.transcript ? pendingRequestFrom(state.transcript) : null
+}
+
+/**
+ * Whether an answer to what is currently pending is on the wire. Keyed on the request rather than
+ * on the slot alone, so a verdict that never arrived for a request that has since been resolved
+ * elsewhere cannot leave the new card disabled.
+ */
+export function answerInFlight(state: ChatConnectionState): boolean {
+  return state.answer.status === 'answering' && state.answer.target === pendingRequest(state)?.id
+}
+
+/**
+ * The last refusal, but only while it still concerns the request the reader is looking at.
+ *
+ * A refusal deliberately re-enables the card rather than sealing it: most refusals are transient
+ * (a socket that was not open, a host that could not deliver it) and have to be retryable. The one
+ * that is not - losing the race - retires the card a moment later through the session's own
+ * resolution event, and the host would refuse a second answer on the request id anyway, so a
+ * retryable card cannot become a double answer.
+ */
+export function answerFailure(state: ChatConnectionState): string | null {
+  if (state.answer.status !== 'failed') return null
+  return state.answer.target === pendingRequest(state)?.id ? state.answer.message : null
+}
+
+/**
+ * Why this answer cannot be sent right now, or null. Deliberately not a busy check: a pending
+ * request is what a *working* turn is waiting on, so "the session is working" is never a reason to
+ * refuse the one thing that would unblock it.
+ */
+export function answerBlockedReason(state: ChatConnectionState, target: string): string | null {
+  if (state.phase === 'gone') return 'This chat is no longer open on the desktop.'
+  if (state.phase !== 'live') return 'Not connected.'
+  if (pendingRequest(state)?.id !== target) return 'That request is no longer pending.'
+  if (answerInFlight(state)) return 'Answering…'
+  return null
+}
+
+export type PendingAnswer = Extract<ChatAnswerState, { status: 'answering' }>
+
+/**
+ * The answer slot a tap would create, or null when it must not reach the socket. Split from
+ * applying it for the same reason `plannedSend` is: the socket write sits between the two, so the
+ * caller decides once and then applies the decision it already made.
+ */
+export function plannedAnswer(state: ChatConnectionState, requestId: string, target: string): PendingAnswer | null {
+  if (answerBlockedReason(state, target)) return null
+  return { status: 'answering', requestId, target }
+}
+
+export function withAnswer(state: ChatConnectionState, answer: PendingAnswer): ChatConnectionState {
+  return { ...state, answer }
+}
+
+/** An answer that never reached the socket, or whose socket died before the host confirmed it. */
+export function answerFailed(state: ChatConnectionState, message: string): ChatConnectionState {
+  if (state.answer.status !== 'answering') return state
+  return { ...state, answer: { status: 'failed', target: state.answer.target, message } }
 }
 
 /**
@@ -93,12 +189,19 @@ export function applyServerFrame(state: ChatConnectionState, raw: unknown, now: 
  */
 export function connectionLost(state: ChatConnectionState): ChatConnectionState {
   const phase = state.transcript ? 'reconnecting' : 'connecting'
-  if (state.send.status !== 'sending') return { ...state, phase }
-  return { ...recoverDraft(state, state.send.text, DISCONNECTED_WHILE_SENDING), phase }
+  // An answer in flight has the same unknowable outcome as a send, and the same honest reading:
+  // report it as unconfirmed. The rejoin's snapshot then says whether the card is still pending,
+  // which is the only trustworthy answer to "did it land".
+  const dropped = answerFailed(state, DISCONNECTED_WHILE_ANSWERING)
+  if (dropped.send.status !== 'sending') return { ...dropped, phase }
+  return { ...recoverDraft(dropped, dropped.send.text, DISCONNECTED_WHILE_SENDING), phase }
 }
 
 export const DISCONNECTED_WHILE_SENDING =
   'Disconnected before the host confirmed the message. Check the transcript before sending it again.'
+
+export const DISCONNECTED_WHILE_ANSWERING =
+  'Disconnected before the host confirmed the answer. It is still pending if the card is still here.'
 
 export function chatGone(state: ChatConnectionState): ChatConnectionState {
   return { ...state, phase: 'gone' }
@@ -137,12 +240,22 @@ export function sendBlockedReason(state: ChatConnectionState): string | null {
   if (status === 'working' || status === 'starting') return 'Working — you can send when the turn finishes.'
   if (status === 'auth_required') return 'This session needs signing in on the desktop.'
   if (status === 'exited') return 'This session has exited.'
-  if (state.transcript?.approval || (state.transcript?.decisionRequests.length ?? 0) > 0) {
-    // Answering is a separate ticket; free text here would bypass the channel the agent is
-    // actually waiting on, which is the desktop's rule too.
-    return 'Waiting on an answer that has to be given on the desktop.'
+  if (pendingRequest(state)) {
+    // The composer is *hidden* while a request is pending, not merely disabled: free text here
+    // would bypass the channel the agent is actually waiting on, which is the desktop's rule too.
+    // This reason is the invariant stated in one place, for any caller that renders it anyway.
+    return 'Answer the request above to continue.'
   }
   return null
+}
+
+/**
+ * Whether the plain composer may be on screen at all. One decision at a time is the rule both
+ * clients keep, and on a phone the honest way to keep it is to take the text box away rather than
+ * to leave a disabled one inviting the reader to type past the request.
+ */
+export function composerHidden(state: ChatConnectionState): boolean {
+  return pendingRequest(state) !== null
 }
 
 /** What the composer offers, decided in one place so the button and the hint cannot disagree. */

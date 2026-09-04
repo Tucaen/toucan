@@ -65,6 +65,54 @@ lines.on('line', (line) => {
   )
 }
 
+/**
+ * An adapter whose prompt turn parks on a form elicitation instead of a permission request, so a
+ * structured question set can be answered against a real session rather than a stub.
+ */
+function elicitingAdapter(appPath: string): void {
+  const directory = join(appPath, 'node_modules', '@agentclientprotocol', 'claude-agent-acp', 'dist')
+  mkdirSync(directory, { recursive: true })
+  writeFileSync(
+    join(directory, 'index.js'),
+    `
+const readline = require('node:readline')
+const lines = readline.createInterface({ input: process.stdin })
+const send = (message) => process.stdout.write(JSON.stringify(message) + '\\n')
+let pendingPrompt
+lines.on('line', (line) => {
+  const request = JSON.parse(line)
+  if (request.method === 'initialize') {
+    send({ jsonrpc: '2.0', id: request.id, result: { protocolVersion: 1, agentCapabilities: {}, authMethods: [] } })
+  } else if (request.method === 'session/new') {
+    send({ jsonrpc: '2.0', id: request.id, result: { sessionId: 'live-session' } })
+  } else if (request.method === 'session/prompt') {
+    pendingPrompt = request.id
+    send({ jsonrpc: '2.0', id: 901, method: 'elicitation/create', params: {
+      mode: 'form',
+      sessionId: request.params.sessionId,
+      message: 'Please answer the following questions.',
+      requestedSchema: {
+        type: 'object',
+        required: ['scope'],
+        properties: {
+          scope: {
+            type: 'string',
+            title: 'Scope',
+            description: 'Read-only first?',
+            oneOf: [{ const: 'Read-only', title: 'Read-only' }, { const: 'Complete CRUD', title: 'Complete CRUD' }]
+          }
+        }
+      }
+    } })
+  } else if (request.method === undefined && request.id === 901) {
+    send({ jsonrpc: '2.0', id: pendingPrompt, result: { stopReason: 'end_turn' } })
+  }
+})
+`,
+    'utf8'
+  )
+}
+
 async function until<T>(get: () => T | undefined): Promise<T> {
   for (let attempt = 0; attempt < 300; attempt++) {
     const value = get()
@@ -361,4 +409,82 @@ test('a follow-up steered into a working turn is published as a user message whe
   } finally {
     manager.killAll()
   }
+})
+
+/**
+ * Answering the same request from two clients at once - the desktop and a phone - is the race the
+ * remote surface makes possible, so the pending-request map is where it has to be decided. Both
+ * cases below assert the same three things: exactly one answer reaches the provider, the loser is
+ * told why, and every subscriber sees one resolution.
+ */
+test('two clients answering one approval: the first wins, the second is refused, the provider hears one answer', async () => {
+  const appPath = mkdtempSync(join(tmpdir(), 'toucan-broker-approval-race-'))
+  promptingAdapter(appPath, {})
+  const broker = createAgentEventBroker()
+  const owner = { isDestroyed: () => false, send: () => {} } as unknown as WebContents
+  const remote: AgentEvent[] = []
+  broker.subscribe('node-1', (event) => remote.push(event))
+  const manager = createAcpSessionManager({ appPath, broker })
+
+  try {
+    await manager.create({ id: 'node-1', provider: 'claude', cwd: appPath }, owner)
+    const turn = manager.prompt('node-1', 'run the tests')
+    const approval = await until(() =>
+      remote.find((event): event is Extract<AgentEvent, { type: 'approval' }> => event.type === 'approval')
+    )
+
+    assert.deepEqual(manager.resolveApproval('node-1', approval.approvalId, 'allow'), { ok: true })
+    // The second device answering the card it was still showing. Refused, not sent twice.
+    const loser = manager.resolveApproval('node-1', approval.approvalId, 'reject')
+    assert.equal(loser.ok, false)
+    assert.match(loser.message ?? '', /already answered/)
+
+    assert.equal((await turn).ok, true)
+    // One resolution reaches every subscriber, so the loser's card retires from the same source.
+    assert.equal(remote.filter((event) => event.type === 'approval_resolved').length, 1)
+    assert.equal(broker.snapshot('node-1')?.approval, null)
+  } finally {
+    manager.killAll()
+  }
+})
+
+test('two clients answering one structured question set: one answer reaches the agent', async () => {
+  const appPath = mkdtempSync(join(tmpdir(), 'toucan-broker-decision-race-'))
+  elicitingAdapter(appPath)
+  const broker = createAgentEventBroker()
+  const owner = { isDestroyed: () => false, send: () => {} } as unknown as WebContents
+  const remote: AgentEvent[] = []
+  broker.subscribe('node-1', (event) => remote.push(event))
+  const manager = createAcpSessionManager({ appPath, broker })
+
+  try {
+    await manager.create({ id: 'node-1', provider: 'claude', cwd: appPath }, owner)
+    const turn = manager.prompt('node-1', 'ask me')
+    const request = await until(() =>
+      remote.find(
+        (event): event is Extract<AgentEvent, { type: 'decision_request' }> => event.type === 'decision_request'
+      )
+    )
+    assert.deepEqual(
+      broker.snapshot('node-1')?.decisionRequests.map((pending) => pending.id),
+      [request.request.id]
+    )
+
+    assert.deepEqual(manager.resolveElicitation('node-1', request.request.id, { scope: 'Read-only' }), { ok: true })
+    const loser = manager.resolveElicitation('node-1', request.request.id, { scope: 'Complete CRUD' })
+    assert.equal(loser.ok, false)
+    assert.match(loser.message ?? '', /already answered/)
+
+    assert.equal((await turn).ok, true)
+    assert.equal(remote.filter((event) => event.type === 'decision_resolved').length, 1)
+    assert.deepEqual(broker.snapshot('node-1')?.decisionRequests, [])
+  } finally {
+    manager.killAll()
+  }
+})
+
+test('answering a request on a session that is not running is refused rather than ignored', () => {
+  const manager = createAcpSessionManager({ appPath: mkdtempSync(join(tmpdir(), 'toucan-broker-absent-')) })
+  assert.match(manager.resolveApproval('nope', 'approval-1', 'allow').message ?? '', /not running/)
+  assert.match(manager.resolveElicitation('nope', 'request-1').message ?? '', /not running/)
 })

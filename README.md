@@ -33,8 +33,11 @@ workspace state is stored locally and the Windows x64 portable build is not yet 
 
 - Serves a mobile companion to your phone over your own tailnet. The remote server is off
   until you turn it on, pairing is one long token, and the phone shows the workspace's active
-  agent chats with status and unread badges. Reading a chat, sending a message, and answering
-  approvals from the phone are still to come.
+  agent chats with status, unread badges and a distinct "needs approval" state. Open one to
+  read its transcript live, send a message, and answer what the agent is waiting on - tool
+  permissions and structured questions alike. Answering is race-safe: whether you answer on
+  the phone or on the desktop, exactly one answer reaches the agent and the other client's
+  card resolves. Spawning a new chat from the phone is still to come.
 
 Live shell processes still end when Toucan exits, and live PTY process restoration is not
 implemented.
@@ -66,7 +69,7 @@ and note the port and pairing token.
 Reachability is deliberately not Toucan's problem: install [Tailscale](https://tailscale.com)
 on the PC and the phone, join both to the same tailnet, then open `http://<tailnet-address>:<port>`
 in the phone's browser and paste the pairing token once. The dialog lists the addresses to try
-and labels the tailnet one. A device on your tailnet is *reachable*, not *trusted* - the token is
+and labels the tailnet one. A device on your tailnet is _reachable_, not _trusted_ - the token is
 what authorizes it, so **Regenerate** locks out every phone holding the old one.
 
 The desktop has to be running: the server lives in Toucan's main process, and the phone shows the

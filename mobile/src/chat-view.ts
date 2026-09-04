@@ -1,4 +1,4 @@
-import type { AgentActivity } from '../../src/shared/agent'
+import type { AgentActivity, AgentDecisionRequest, AgentPermissionOption } from '../../src/shared/agent'
 import { isFinalAssistantMessage } from '../../src/shared/agent'
 import { agentTranscriptEntryKey, type AgentTranscriptState } from '../../src/shared/agent-transcript'
 
@@ -63,6 +63,36 @@ export function deriveChatViewItems(state: AgentTranscriptState): ChatViewItem[]
   return items
 }
 
+/**
+ * What the chat is blocked on, or null. One request at a time, and an approval outranks a question
+ * set because it is what an in-flight turn is actually parked on - the same order the desktop
+ * presents, so the two surfaces cannot be answering different things.
+ *
+ * This is the *one* reading of "something is pending": the answer card, the status pill and the
+ * hidden composer all derive from it, so none of them can disagree about whether the chat is
+ * stalled.
+ */
+export type PendingRequest =
+  | { kind: 'approval'; id: string; title: string; options: AgentPermissionOption[]; activity?: AgentActivity }
+  | { kind: 'decision'; id: string; request: AgentDecisionRequest }
+
+export function pendingRequestFrom(state: AgentTranscriptState): PendingRequest | null {
+  const approval = state.approval
+  if (approval) {
+    return {
+      kind: 'approval',
+      id: approval.id,
+      title: approval.title,
+      options: approval.options,
+      ...(approval.activity ? { activity: approval.activity } : {})
+    }
+  }
+  // The head of the queue, not all of it: the reducer keeps provider questions FIFO and the
+  // desktop presents one, so a phone that presented two would be answering out of order.
+  const request = state.decisionRequests[0]
+  return request ? { kind: 'decision', id: request.id, request } : null
+}
+
 /** One line per tool call: what ran, against what, no diffs and no expansion in this view. */
 export function activitySummaryLine(activity: AgentActivity): string {
   const title = activity.title?.replace(/`/g, '').trim()
@@ -90,6 +120,10 @@ export function chatStatusSummary(state: AgentTranscriptState): {
   label: string
   tone: 'working' | 'idle' | 'attention'
 } {
+  // A parked turn still reports itself as working, which is true and useless: what the reader has
+  // to know is that nothing moves until they answer. This outranks every other status for the same
+  // reason the answer card outranks the composer.
+  if (pendingRequestFrom(state)) return { label: 'Needs you', tone: 'attention' }
   switch (state.status) {
     case 'starting':
     case 'working':

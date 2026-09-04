@@ -1,23 +1,32 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
 import {
+  answerBlockedReason,
+  answerFailed,
+  answerFailure,
+  answerInFlight,
   applyServerFrame,
   beginSend,
   canSendDraft,
   chatGone,
+  composerHidden,
   connectionLost,
+  DISCONNECTED_WHILE_ANSWERING,
   DISCONNECTED_WHILE_SENDING,
   draftChanged,
   initialChatConnectionState,
+  pendingRequest,
+  plannedAnswer,
   plannedSend,
   reconnectDelayMs,
   restoredChatConnectionState,
   sendBlockedReason,
   sendFailed,
+  withAnswer,
   withSend,
   type ChatConnectionState
 } from '../mobile/src/chat-connection'
-import type { AgentEvent } from '../src/shared/agent'
+import type { AgentDecisionRequest, AgentEvent } from '../src/shared/agent'
 import { foldAgentEvent, initialAgentTranscriptState, type AgentTranscriptState } from '../src/shared/agent-transcript'
 import { promptTextProblem, REMOTE_CHAT_PROMPT_LIMIT } from '../src/shared/remote-chat'
 
@@ -206,22 +215,11 @@ test('a session that is not live, exited, or waiting on an answer is never a sen
   assert.match(sendBlockedReason(typed(chatGone(live(READY)))) ?? '', /no longer open/)
   assert.match(sendBlockedReason(typed(live([{ type: 'status', status: 'exited' }]))) ?? '', /exited/)
   assert.match(sendBlockedReason(typed(live([{ type: 'status', status: 'auth_required' }]))) ?? '', /signing in/)
-  assert.match(
-    sendBlockedReason(
-      typed(
-        live([
-          ...READY,
-          {
-            type: 'approval',
-            approvalId: 'p1',
-            title: 'Run tests',
-            options: [{ id: 'allow', label: 'Allow', kind: 'allow_once' }]
-          }
-        ])
-      )
-    ) ?? '',
-    /on the desktop/
-  )
+  const parked = typed(live([...READY, APPROVAL]))
+  assert.match(sendBlockedReason(parked) ?? '', /Answer the request/)
+  // Not merely blocked: while a request stands there is no composer to type into at all.
+  assert.equal(composerHidden(parked), true)
+  assert.equal(composerHidden(typed(live(READY))), false)
 })
 
 test('an empty or oversized draft is refused before it reaches the socket', () => {
@@ -313,4 +311,180 @@ test('a state restored from device retention comes back with the draft and nothi
   assert.deepEqual(restored.send, { status: 'idle' })
   // Not sendable until the rejoin lands, and it says why rather than looking broken.
   assert.match(sendBlockedReason(restored) ?? '', /Not connected/)
+})
+
+/**
+ * Answering, from the phone's side. The rules under test are the ones that keep two clients from
+ * disagreeing about one request: only what the transcript says is pending may be answered, only
+ * one answer may be in flight, a refusal is reported against the request it was about and not the
+ * next one, and a resolution the *other* client caused retires the card here too - the phone never
+ * decides that on its own.
+ */
+
+const APPROVAL: AgentEvent = {
+  type: 'approval',
+  approvalId: 'p1',
+  title: 'Run npm test',
+  options: [
+    { id: 'allow', label: 'Allow', kind: 'allow_once' },
+    { id: 'reject', label: 'Reject', kind: 'reject_once' }
+  ]
+}
+
+const QUESTIONS: AgentDecisionRequest = {
+  id: 'd1',
+  message: 'Please answer the following questions.',
+  questions: [
+    {
+      id: 'scope',
+      title: 'Scope',
+      question: 'Read-only first?',
+      options: [
+        { value: 'Read-only', label: 'Read-only' },
+        { value: 'Complete CRUD', label: 'Complete CRUD' }
+      ],
+      input: 'select',
+      multiSelect: false,
+      required: true,
+      customAnswerId: 'scope_custom'
+    },
+    {
+      id: 'note',
+      question: 'Anything else?',
+      options: [],
+      input: 'text',
+      multiSelect: false
+    }
+  ]
+}
+
+const DECISION: AgentEvent = { type: 'decision_request', request: QUESTIONS }
+
+test('a pending approval is what the phone presents, and it outranks a queued question set', () => {
+  assert.equal(pendingRequest(live(READY)), null)
+
+  const both = live([...READY, DECISION, APPROVAL])
+  const pending = pendingRequest(both)
+  assert.equal(pending?.kind, 'approval')
+  assert.equal(pending?.id, 'p1')
+  assert.deepEqual(pending?.kind === 'approval' ? pending.options.map((option) => option.id) : [], ['allow', 'reject'])
+
+  // With the approval answered, the question set behind it is the one presented - the head of it,
+  // never two at once.
+  const queued = live([...READY, DECISION, { type: 'decision_request', request: { ...QUESTIONS, id: 'd2' } }])
+  const next = pendingRequest(queued)
+  assert.equal(next?.kind, 'decision')
+  assert.equal(next?.id, 'd1')
+})
+
+test('only the pending request may be answered, and only one answer at a time', () => {
+  const parked = live([...READY, APPROVAL])
+  assert.equal(answerBlockedReason(parked, 'p1'), null)
+  // A working session is never a reason to refuse the answer that would unblock it.
+  assert.equal(answerBlockedReason(live([{ type: 'status', status: 'working' }, APPROVAL]), 'p1'), null)
+  assert.match(answerBlockedReason(parked, 'stale-id') ?? '', /no longer pending/)
+  assert.match(answerBlockedReason(connectionLost(parked), 'p1') ?? '', /Not connected/)
+  assert.match(answerBlockedReason(chatGone(parked), 'p1') ?? '', /no longer open/)
+
+  const answering = withAnswer(parked, plannedAnswer(parked, 'r1', 'p1')!)
+  assert.equal(answerInFlight(answering), true)
+  assert.match(answerBlockedReason(answering, 'p1') ?? '', /Answering/)
+  assert.equal(plannedAnswer(answering, 'r2', 'p1'), null)
+})
+
+test('an accepted answer clears the slot, and the card retires on the session event, not locally', () => {
+  const parked = live([...READY, APPROVAL])
+  const answering = withAnswer(parked, plannedAnswer(parked, 'r1', 'p1')!)
+
+  const accepted = applyServerFrame(answering, frame({ type: 'answer_result', requestId: 'r1', ok: true }), NOW)
+  assert.deepEqual(accepted.answer, { status: 'idle' })
+  // Still pending: the phone does not get to decide the request is over.
+  assert.equal(pendingRequest(accepted)?.id, 'p1')
+
+  const resolved = applyServerFrame(
+    accepted,
+    frame({ type: 'event', event: { type: 'approval_resolved', approvalId: 'p1' } }),
+    NOW
+  )
+  assert.equal(pendingRequest(resolved), null)
+  assert.equal(composerHidden(resolved), false)
+})
+
+test('losing the race is reported on the card, and the card resolves rather than double-answering', () => {
+  const parked = live([...READY, APPROVAL])
+  const answering = withAnswer(parked, plannedAnswer(parked, 'r1', 'p1')!)
+
+  const refused = applyServerFrame(
+    answering,
+    frame({ type: 'answer_result', requestId: 'r1', ok: false, message: 'That request was already answered.' }),
+    NOW
+  )
+  assert.match(answerFailure(refused) ?? '', /already answered/)
+  assert.equal(answerInFlight(refused), false)
+
+  // The winner's resolution reaches every client as the session's own event; the loser's card goes
+  // with it, and its notice goes too rather than following the reader to the next request.
+  const resolved = applyServerFrame(
+    refused,
+    frame({ type: 'event', event: { type: 'approval_resolved', approvalId: 'p1' } }),
+    NOW
+  )
+  assert.equal(pendingRequest(resolved), null)
+  assert.equal(answerFailure(resolved), null)
+})
+
+test('a refusal notice does not carry over onto the next request to arrive', () => {
+  const parked = live([...READY, APPROVAL])
+  const refused = applyServerFrame(
+    withAnswer(parked, plannedAnswer(parked, 'r1', 'p1')!),
+    frame({ type: 'answer_result', requestId: 'r1', ok: false, message: 'That request was already answered.' }),
+    NOW
+  )
+  const nextRequest = applyFrames(refused, [
+    frame({ type: 'event', event: { type: 'approval_resolved', approvalId: 'p1' } }),
+    frame({
+      type: 'event',
+      event: { ...APPROVAL, approvalId: 'p2', title: 'Delete file: src/gone.ts' }
+    })
+  ])
+  assert.equal(pendingRequest(nextRequest)?.id, 'p2')
+  assert.equal(answerFailure(nextRequest), null)
+  assert.equal(answerBlockedReason(nextRequest, 'p2'), null)
+})
+
+test('a verdict for a superseded answer is ignored', () => {
+  const parked = live([...READY, APPROVAL])
+  const answering = withAnswer(parked, plannedAnswer(parked, 'r1', 'p1')!)
+  const other = applyServerFrame(answering, frame({ type: 'answer_result', requestId: 'r9', ok: false }), NOW)
+  assert.deepEqual(other, answering)
+})
+
+test('a drop mid-answer reports it as unconfirmed rather than as sent', () => {
+  const parked = live([...READY, APPROVAL])
+  const dropped = connectionLost(withAnswer(parked, plannedAnswer(parked, 'r1', 'p1')!))
+  assert.equal(dropped.phase, 'reconnecting')
+  assert.equal(answerFailure(dropped), DISCONNECTED_WHILE_ANSWERING)
+  // The rejoin's snapshot is the only trustworthy answer to "did it land": here it still stands.
+  assert.equal(pendingRequest(dropped)?.id, 'p1')
+})
+
+test('an answer that never reached the socket is reported, not assumed delivered', () => {
+  const parked = live([...READY, APPROVAL])
+  const failed = answerFailed(withAnswer(parked, plannedAnswer(parked, 'r1', 'p1')!), 'Not connected.')
+  assert.equal(answerFailure(failed), 'Not connected.')
+  assert.equal(answerInFlight(failed), false)
+})
+
+test('a question set hides the composer exactly like an approval does', () => {
+  const parked = live([...READY, DECISION])
+  assert.equal(composerHidden(parked), true)
+  assert.match(sendBlockedReason(draftChanged(parked, 'hello')) ?? '', /Answer the request/)
+
+  const resolved = applyServerFrame(
+    parked,
+    frame({ type: 'event', event: { type: 'decision_resolved', requestId: 'd1' } }),
+    NOW
+  )
+  assert.equal(composerHidden(resolved), false)
+  assert.equal(sendBlockedReason(draftChanged(resolved, 'hello')), null)
 })

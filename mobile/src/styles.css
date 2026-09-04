@@ -15,6 +15,8 @@
   --accent: #c992ff;
   --working: #7fb2e6;
   --unread: #ffb454;
+  /* Blocking, not merely unseen: a request nobody has answered gets its own reading. */
+  --attention: #ffb0c0;
   color-scheme: dark;
 }
 
@@ -619,4 +621,231 @@ body {
   color: #f3b3bf;
   font-size: 13px;
   line-height: 1.45;
+}
+
+/*
+ * The answer surface. It takes the composer's place at the bottom of the screen - same sticky
+ * position, same thumb reach - because it is the composer while a request stands: the one thing
+ * the reader can do here, in the one place they already look for input.
+ *
+ * Loud on purpose. A chat that is parked on a question is stalled work, so the card is bordered in
+ * the attention colour rather than blending into the transcript it interrupts.
+ */
+.pending-request {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  display: grid;
+  gap: 10px;
+  margin: 12px -16px 0;
+  padding: 12px 16px calc(env(safe-area-inset-bottom) + 12px);
+  border-top: 2px solid var(--attention);
+  background: color-mix(in srgb, var(--raised) 94%, transparent);
+  backdrop-filter: blur(8px);
+}
+
+.pending-request-head {
+  display: grid;
+  gap: 4px;
+}
+
+.pending-request-head strong {
+  font-size: 15px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.pending-request-head small {
+  color: var(--ink-dim);
+  font-size: 12px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+/*
+ * One option per row rather than a row of small chips: an approval is a decision with consequences,
+ * and a mis-tap on a 40px-wide "Reject" is exactly the mistake worth designing out.
+ */
+.pending-request-options {
+  display: grid;
+  gap: 8px;
+}
+
+.pending-request-options button {
+  display: grid;
+  gap: 2px;
+  min-height: 46px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #101520;
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  text-align: left;
+}
+
+.pending-request-options button small {
+  color: var(--ink-faint);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+/* The verdict is readable from the colour before the label is read. */
+.pending-request-options button[data-kind^='allow'] {
+  border-color: #2f5b3c;
+  color: #a6e0b8;
+}
+
+.pending-request-options button[data-kind^='reject'] {
+  border-color: #6d3340;
+  color: #f3b3bf;
+}
+
+.pending-request-options button[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: #1c1428;
+}
+
+.pending-request-options button:disabled {
+  opacity: 0.55;
+}
+
+.pending-request-dismiss {
+  color: var(--ink-dim);
+}
+
+.decision-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--ink-faint);
+  font-size: 12px;
+}
+
+.decision-required {
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--unread);
+}
+
+.decision-question {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.decision-value,
+.decision-other input {
+  width: 100%;
+  min-height: 46px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #101520;
+  color: var(--ink);
+  font-family: inherit;
+  /* 16px minimum, same reason as the composer: anything smaller zooms the page on focus. */
+  font-size: 16px;
+}
+
+.decision-value:focus,
+.decision-other input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.decision-other {
+  display: grid;
+  gap: 6px;
+}
+
+.decision-other span {
+  color: var(--ink-faint);
+  font-size: 12px;
+}
+
+.decision-navigation {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.decision-navigation span {
+  color: var(--ink-faint);
+  font-size: 13px;
+  letter-spacing: 2px;
+}
+
+.decision-navigation button,
+.decision-actions button {
+  min-height: 42px;
+  padding: 0 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--raised);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.decision-navigation button:disabled,
+.decision-actions button:disabled {
+  color: var(--ink-faint);
+  opacity: 0.55;
+}
+
+.decision-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.decision-actions button:last-child {
+  flex: 1;
+  border-color: transparent;
+  background: var(--accent);
+  color: #1a0f27;
+}
+
+.decision-actions button:last-child:disabled {
+  background: #2a2b38;
+  color: var(--ink-faint);
+}
+
+.decision-skip {
+  flex: 0 0 auto;
+}
+
+/* The list side of the same condition: a stalled chat must be findable without opening one. */
+.summary-chip.approval,
+.project-approval {
+  border: 1px solid #6d3340;
+  border-radius: 999px;
+  padding: 4px 10px;
+  color: var(--attention);
+  font-size: 12px;
+}
+
+.project-approval {
+  padding: 2px 8px;
+  font-size: 11px;
+}
+
+.chat[data-needs-approval] {
+  border-left-color: var(--attention);
+}
+
+.chat[data-needs-approval] .chat-copy small {
+  color: var(--attention);
+}
+
+.chat-attention[data-kind='approval'] {
+  background: #40202a;
+  color: var(--attention);
 }

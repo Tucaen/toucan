@@ -15,6 +15,7 @@ import {
 import type { AgentEvent } from '../src/shared/agent'
 import { foldAgentEvent, type AgentTranscriptState } from '../src/shared/agent-transcript'
 import {
+  REMOTE_CHAT_ANSWER_VALUE_LIMIT,
   REMOTE_CHAT_PROMPT_LIMIT,
   REMOTE_CHAT_PROTOCOL,
   parseRemoteChatServerMessage,
@@ -504,9 +505,16 @@ function recordingSessions(outcome: (prompt: RecordedPrompt) => { ok: boolean; m
         const recorded = { chatId, text }
         prompts.push(recorded)
         return outcome(recorded)
-      }
+      },
+      ...refusingAnswers
     }
   }
+}
+
+/** Answering is exercised by its own recorder; a prompt test must not accidentally drive it. */
+const refusingAnswers = {
+  approve: () => ({ ok: false, message: 'not under test' }),
+  answerDecision: () => ({ ok: false, message: 'not under test' })
 }
 
 async function joinedChat(options: {
@@ -612,7 +620,8 @@ describe('sending a message over a chat socket', () => {
       sessions: {
         prompt: () => {
           throw new Error('the adapter went away')
-        }
+        },
+        ...refusingAnswers
       }
     })
 
@@ -637,6 +646,192 @@ describe('sending a message over a chat socket', () => {
     chats.publish('chat-1', assistantChunk('a1', 'still here'))
     assert.equal((await socket.next()).type, 'event')
     assert.deepEqual(sessions.prompts, [])
+    socket.close()
+  })
+})
+
+/**
+ * Answering from the phone. The host is the referee: it keys acceptance on the pending request's
+ * own id, so two clients answering the same card produce one answer to the agent and one refusal
+ * with a reason. Everything else here is the same no-silent-drop rule the prompt path has - an
+ * answer that is malformed, oversized, or aimed at an unlisted chat comes back refused rather than
+ * disappearing, because a card that never resolves is a chat the reader cannot unblock.
+ */
+
+interface RecordedApproval {
+  chatId: string
+  approvalId: string
+  optionId?: string
+}
+
+interface RecordedDecision {
+  chatId: string
+  decisionId: string
+  content?: Record<string, unknown>
+}
+
+/**
+ * Session operations backed by a set of pending request ids, which is exactly how the real manager
+ * decides a race: the first answer removes the id, later ones find nothing to answer.
+ */
+function answeringSessions(pending: readonly string[]): {
+  operations: RemoteChatSessionOperations
+  approvals: RecordedApproval[]
+  decisions: RecordedDecision[]
+} {
+  const open = new Set(pending)
+  const approvals: RecordedApproval[] = []
+  const decisions: RecordedDecision[] = []
+  const take = (id: string): { ok: boolean; message?: string } =>
+    open.delete(id) ? { ok: true } : { ok: false, message: 'That request was already answered.' }
+  return {
+    approvals,
+    decisions,
+    operations: {
+      prompt: () => ({ ok: false, message: 'not under test' }),
+      approve: (chatId, approvalId, optionId) => {
+        approvals.push({ chatId, approvalId, ...(optionId === undefined ? {} : { optionId }) })
+        return take(approvalId)
+      },
+      answerDecision: (chatId, decisionId, content) => {
+        decisions.push({ chatId, decisionId, ...(content === undefined ? {} : { content }) })
+        return take(decisionId)
+      }
+    }
+  }
+}
+
+/** The next frame, asserted to be an *answer* verdict, so a prompt verdict cannot pass for one. */
+async function answerVerdict(socket: ChatSocket): Promise<{ requestId: string; ok: boolean; message?: string }> {
+  const message = await socket.next()
+  assert.equal(message.type, 'answer_result')
+  return message as { requestId: string; ok: boolean; message?: string }
+}
+
+describe('answering a pending request over a chat socket', () => {
+  test('a tool permission answer reaches the session with the option the phone tapped', async () => {
+    const sessions = answeringSessions(['approval-1'])
+    const { socket } = await joinedChat({ sessions: sessions.operations })
+
+    await socket.send(
+      JSON.stringify({ type: 'approval', requestId: 'r1', approvalId: 'approval-1', optionId: 'allow' })
+    )
+    assert.deepEqual(await answerVerdict(socket), { type: 'answer_result', requestId: 'r1', ok: true })
+    assert.deepEqual(sessions.approvals, [{ chatId: 'chat-1', approvalId: 'approval-1', optionId: 'allow' }])
+    socket.close()
+  })
+
+  test('an answer with no option is a cancellation, not a malformed frame', async () => {
+    const sessions = answeringSessions(['approval-1'])
+    const { socket } = await joinedChat({ sessions: sessions.operations })
+
+    await socket.send(JSON.stringify({ type: 'approval', requestId: 'r1', approvalId: 'approval-1' }))
+    assert.equal((await answerVerdict(socket)).ok, true)
+    assert.deepEqual(sessions.approvals, [{ chatId: 'chat-1', approvalId: 'approval-1' }])
+    socket.close()
+  })
+
+  test('losing the race to the desktop is reported, and the resolution still arrives as an event', async () => {
+    const sessions = answeringSessions(['approval-1'])
+    const { chats, socket } = await joinedChat({ sessions: sessions.operations })
+
+    // The desktop answered first: the request id is no longer pending by the time this lands.
+    sessions.operations.approve('chat-1', 'approval-1', 'allow')
+    await socket.send(
+      JSON.stringify({ type: 'approval', requestId: 'r1', approvalId: 'approval-1', optionId: 'reject' })
+    )
+    const refused = await answerVerdict(socket)
+    assert.equal(refused.ok, false)
+    assert.match(refused.message ?? '', /already answered/)
+
+    // The card retires from the session's own event, the same one the winner sees.
+    chats.publish('chat-1', { type: 'approval_resolved', approvalId: 'approval-1' })
+    assert.deepEqual(await socket.next(), {
+      type: 'event',
+      event: { type: 'approval_resolved', approvalId: 'approval-1' }
+    })
+    socket.close()
+  })
+
+  test('a structured answer travels verbatim, and an omitted content is a skip', async () => {
+    const sessions = answeringSessions(['decision-1', 'decision-2', 'decision-3'])
+    const { socket } = await joinedChat({ sessions: sessions.operations })
+
+    const content = { scope: 'Read-only', tags: ['a', 'b'], retries: 3, verbose: true }
+    await socket.send(JSON.stringify({ type: 'decision', requestId: 'r1', decisionId: 'decision-1', content }))
+    assert.equal((await answerVerdict(socket)).ok, true)
+
+    await socket.send(JSON.stringify({ type: 'decision', requestId: 'r2', decisionId: 'decision-2' }))
+    assert.equal((await answerVerdict(socket)).ok, true)
+
+    // An accept with no fields is a valid answer to a set with nothing required, and it says
+    // something different from the skip above: accepted, rather than cancelled.
+    await socket.send(JSON.stringify({ type: 'decision', requestId: 'r3', decisionId: 'decision-3', content: {} }))
+    assert.equal((await answerVerdict(socket)).ok, true)
+
+    assert.deepEqual(sessions.decisions, [
+      { chatId: 'chat-1', decisionId: 'decision-1', content },
+      { chatId: 'chat-1', decisionId: 'decision-2' },
+      { chatId: 'chat-1', decisionId: 'decision-3', content: {} }
+    ])
+    socket.close()
+  })
+
+  test('an answer value the elicitation contract has no shape for never reaches the session', async () => {
+    const sessions = answeringSessions(['decision-1'])
+    const { chats, socket } = await joinedChat({ sessions: sessions.operations })
+
+    for (const content of [{ scope: { nested: true } }, { scope: [1, 2] }, { scope: null }]) {
+      await socket.send(JSON.stringify({ type: 'decision', requestId: 'r1', decisionId: 'decision-1', content }))
+    }
+    // Unparsable frames get no verdict (there is no request the host can trust it read), so the
+    // proof they were dropped is that the socket still works and nothing was answered.
+    chats.publish('chat-1', assistantChunk('a1', 'still here'))
+    assert.equal((await socket.next()).type, 'event')
+    assert.deepEqual(sessions.decisions, [])
+    socket.close()
+  })
+
+  test('an oversized structured answer is refused in the words the phone would use', async () => {
+    const sessions = answeringSessions(['decision-1'])
+    const { socket } = await joinedChat({ sessions: sessions.operations })
+
+    const oversized = { note: 'x'.repeat(REMOTE_CHAT_ANSWER_VALUE_LIMIT + 1) }
+    await socket.send(
+      JSON.stringify({ type: 'decision', requestId: 'r2', decisionId: 'decision-1', content: oversized })
+    )
+    assert.match((await answerVerdict(socket)).message ?? '', /at most/)
+
+    assert.deepEqual(sessions.decisions, [])
+    socket.close()
+  })
+
+  test('a read-only host answers the card instead of leaving it pending forever', async () => {
+    const { socket } = await joinedChat({})
+    await socket.send(
+      JSON.stringify({ type: 'approval', requestId: 'r1', approvalId: 'approval-1', optionId: 'allow' })
+    )
+    const refused = await answerVerdict(socket)
+    assert.equal(refused.ok, false)
+    assert.match(refused.message ?? '', /not accepting/)
+    socket.close()
+  })
+
+  test('a chat the desktop has since unlisted is not an answer target either', async () => {
+    const sessions = answeringSessions(['approval-1'])
+    const chats = createAgentEventBroker()
+    const { server, store } = harness({ chats, sessions: sessions.operations })
+    await server.applySettings({ enabled: true, port: await freePort() })
+    server.publishWorkspace(CHAT_PROJECTION)
+    const socket = connectChat(server.state().boundPort!, 'chat-1', { header: store.read().token })
+    assert.equal((await socket.next()).type, 'snapshot')
+
+    server.publishWorkspace({ projects: CHAT_PROJECTION.projects, chats: [] })
+    await socket.send(
+      JSON.stringify({ type: 'approval', requestId: 'r1', approvalId: 'approval-1', optionId: 'allow' })
+    )
+    assert.match((await answerVerdict(socket)).message ?? '', /no longer open/)
+    assert.deepEqual(sessions.approvals, [])
     socket.close()
   })
 })

@@ -4,7 +4,14 @@ import {
   type RemoteChatSummary,
   type RemoteWorkspaceSnapshot
 } from '../../src/shared/remote-access'
-import { attentionLabel, chatStatusLabel, countActiveChats, groupChatsByProject, isAwaitingDesktop } from './chat-list'
+import {
+  attentionLabel,
+  chatNeedsApproval,
+  chatStatusLabel,
+  countActiveChats,
+  groupChatsByProject,
+  isAwaitingDesktop
+} from './chat-list'
 import ChatScreen from './ChatScreen'
 import {
   WORKSPACE_POLL_MS,
@@ -204,6 +211,10 @@ function ChatListScreen({
         </div>
         <p>
           {awaiting && <span className="summary-chip stale">Waiting for the desktop</span>}
+          {/* Stalled first: a chat nobody can advance outranks a count of things still moving. */}
+          {!awaiting && summary.approvals > 0 && (
+            <span className="summary-chip approval">{summary.approvals} needs approval</span>
+          )}
           {!awaiting && summary.working > 0 && <span className="summary-chip working">{summary.working} working</span>}
           {!awaiting && summary.unread > 0 && <span className="summary-chip unread">{summary.unread} unread</span>}
           {!awaiting && summary.working === 0 && summary.unread === 0 && (
@@ -225,20 +236,33 @@ function ChatListScreen({
           <h2>
             <span className="project-dot" style={{ background: group.project.color }} />
             {group.project.name}
+            {group.approvals > 0 && <span className="project-approval">Needs approval</span>}
             {group.unread > 0 && <span className="project-unread">{group.unread}</span>}
           </h2>
           <ul>
             {group.chats.map((chat) => (
               <li key={chat.id}>
-                <button type="button" className="chat" data-status={chat.status} onClick={() => onOpenChat(chat)}>
+                <button
+                  type="button"
+                  className="chat"
+                  data-status={chat.status}
+                  // A stalled chat has to be findable at a glance, so it carries its own state
+                  // rather than only a count that looks like every other unread badge.
+                  data-needs-approval={chatNeedsApproval(chat) || undefined}
+                  onClick={() => onOpenChat(chat)}
+                >
                   <span className="chat-kind" data-kind={chat.kind}>
                     {chat.kind === 'claude' ? 'CL' : 'CX'}
                   </span>
                   <span className="chat-copy">
                     <strong>{chat.title}</strong>
-                    <small>{chatStatusLabel(chat.status)}</small>
+                    <small>{chatNeedsApproval(chat) ? 'Needs approval' : chatStatusLabel(chat.status)}</small>
                   </span>
-                  {chat.attention && <span className="chat-attention">{attentionLabel(chat.attention)}</span>}
+                  {chat.attention && (
+                    <span className="chat-attention" data-kind={chat.attention}>
+                      {attentionLabel(chat.attention)}
+                    </span>
+                  )}
                   {chat.unread > 0 && <span className="chat-unread">{chat.unread}</span>}
                 </button>
               </li>

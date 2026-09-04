@@ -7,6 +7,7 @@ import {
   REMOTE_ACCESS_DEFAULT_PORT,
   deriveRemoteWorkspaceProjection,
   remoteAccessPortProblem,
+  type RemoteChatSummary,
   type RemoteWorkspaceSource
 } from '../src/shared/remote-access'
 import { recordAttention, type AttentionState } from '../src/shared/attention'
@@ -20,7 +21,7 @@ import {
   routeRequiresPairing
 } from '../src/main/remote/remote-routes'
 import { describeHostAddresses, isTailscaleAddress } from '../src/main/remote/host-addresses'
-import { groupChatsByProject, isAwaitingDesktop } from '../mobile/src/chat-list'
+import { chatNeedsApproval, countActiveChats, groupChatsByProject, isAwaitingDesktop } from '../mobile/src/chat-list'
 
 /**
  * The decisions behind remote access, away from any socket: what a phone is allowed to see, what
@@ -140,10 +141,40 @@ describe('workspace projection', () => {
     assert.equal(groups.length, 1)
     assert.equal(groups[0].project.id, 'toucan')
     assert.equal(groups[0].unread, 2)
+    assert.equal(groups[0].approvals, 0)
     // A projection the host has stamped is never called stale, however long the canvas has been
     // idle; only one that has never arrived is.
     assert.equal(isAwaitingDesktop(snapshot), false)
     assert.equal(isAwaitingDesktop({ ...snapshot, updatedAt: 0 }), true)
+  })
+
+  test('a chat parked on a request badges as needing approval, distinctly from ordinary unread', () => {
+    const chat = (id: string, extra: Partial<RemoteChatSummary>): RemoteChatSummary => ({
+      id,
+      kind: 'claude',
+      title: id,
+      projectId: 'toucan',
+      status: 'working',
+      unread: 0,
+      ...extra
+    })
+    const snapshot = {
+      updatedAt: 5_000,
+      projects: [{ id: 'toucan', name: 'Toucan', color: '#71a9ff' }],
+      chats: [
+        chat('parked', { unread: 1, attention: 'approval' }),
+        // Unread for another reason entirely: a finished turn is not a stalled chat.
+        chat('finished', { status: 'result', unread: 3, attention: 'result' }),
+        chat('quiet', {})
+      ]
+    }
+
+    assert.equal(chatNeedsApproval(snapshot.chats[0]), true)
+    assert.equal(chatNeedsApproval(snapshot.chats[1]), false)
+    assert.equal(chatNeedsApproval(snapshot.chats[2]), false)
+    // The counts stay separate: four unread records, but only one chat a tap can unblock.
+    assert.deepEqual(countActiveChats(snapshot), { working: 2, unread: 4, approvals: 1 })
+    assert.equal(groupChatsByProject(snapshot)[0].approvals, 1)
   })
 })
 

@@ -12,6 +12,18 @@ export interface ChatGroup {
   chats: RemoteChatSummary[]
   /** Unread across the group, so a collapsed project still shows that something wants attention. */
   unread: number
+  /** Chats in this project that are parked on a request, which is a stronger claim than unread. */
+  approvals: number
+}
+
+/**
+ * Whether this chat is stalled waiting to be answered. Read off the attention model rather than
+ * off the status: a parked turn still reports itself as working, and `dominantUnreadKind` already
+ * ranks a pending approval above every other unread condition on the node - so a chat that badges
+ * this way is one that a tap can actually unblock.
+ */
+export function chatNeedsApproval(chat: RemoteChatSummary): boolean {
+  return chat.attention === 'approval'
 }
 
 /**
@@ -24,16 +36,26 @@ export function groupChatsByProject(snapshot: RemoteWorkspaceSnapshot): ChatGrou
   return snapshot.projects
     .map((project) => {
       const chats = snapshot.chats.filter((chat) => chat.projectId === project.id)
-      return { project, chats, unread: chats.reduce((total, chat) => total + chat.unread, 0) }
+      return {
+        project,
+        chats,
+        unread: chats.reduce((total, chat) => total + chat.unread, 0),
+        approvals: chats.filter(chatNeedsApproval).length
+      }
     })
     .filter((group) => group.chats.length > 0)
 }
 
 /** Sessions doing something, for the header summary. Mirrors the desktop's own status chips. */
-export function countActiveChats(snapshot: RemoteWorkspaceSnapshot): { working: number; unread: number } {
+export function countActiveChats(snapshot: RemoteWorkspaceSnapshot): {
+  working: number
+  unread: number
+  approvals: number
+} {
   return {
     working: snapshot.chats.filter((chat) => chat.status === 'working' || chat.status === 'starting').length,
-    unread: snapshot.chats.reduce((total, chat) => total + chat.unread, 0)
+    unread: snapshot.chats.reduce((total, chat) => total + chat.unread, 0),
+    approvals: snapshot.chats.filter(chatNeedsApproval).length
   }
 }
 

@@ -13,14 +13,16 @@ import {
   type RemoteWorkspaceSnapshot
 } from '../../shared/remote-access'
 import {
+  decisionContentProblem,
   parseRemoteChatClientMessage,
   promptTextProblem,
   REMOTE_CHAT_PROMPT_LIMIT,
   REMOTE_CHAT_PROTOCOL,
   tokenFromWebSocketProtocols,
+  type RemoteChatClientMessage,
   type RemoteChatServerMessage
 } from '../../shared/remote-chat'
-import type { AgentPromptResult } from '../../shared/agent'
+import type { AgentDecisionResponseContent, AgentPromptResult } from '../../shared/agent'
 import type { AgentEventBroker } from '../agent-event-broker'
 import { describeHostAddresses } from './host-addresses'
 import { pairingTokenMatches, presentedPairingToken } from './pairing'
@@ -88,6 +90,18 @@ export interface RemoteChatSessionOperations {
    * why. A prompt is therefore never silently dropped and never injected into a turn in flight.
    */
   prompt(chatId: string, text: string): AgentPromptResult | Promise<AgentPromptResult>
+  /**
+   * Answers a pending tool permission. Race safety is the host's, not the phone's: the operation
+   * is keyed on the approval id, so whichever client arrives first is the one acted on and a
+   * second answer for the same id is refused. An omitted `optionId` cancels, as on the desktop.
+   */
+  approve(chatId: string, approvalId: string, optionId?: string): AgentPromptResult | Promise<AgentPromptResult>
+  /** Answers a structured question set, or skips it when `content` is omitted. Same race key rule. */
+  answerDecision(
+    chatId: string,
+    decisionId: string,
+    content?: AgentDecisionResponseContent
+  ): AgentPromptResult | Promise<AgentPromptResult>
 }
 
 /** Local close codes the phone can tell apart from a network drop. */
@@ -175,10 +189,15 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
   })
 
   /**
-   * The inbound half of a chat socket. Only one thing may cross it - a prompt - and every path out
-   * of here answers the client: accepted, or refused with a reason. That is the whole no-silent-drop
-   * guarantee, and it is why the refusal text is passed through verbatim from the session manager
-   * ("The agent session is busy.", "The agent session is not ready.") rather than flattened.
+   * The inbound half of a chat socket. Three things may cross it - a prompt, an answer to a tool
+   * permission, an answer to a structured question set - and every path out of here answers the
+   * client: accepted, or refused with a reason. That is the whole no-silent-drop guarantee, and it
+   * is why the refusal text is passed through verbatim from the session manager ("The agent session
+   * is busy.", "That request was already answered.") rather than flattened.
+   *
+   * Answers are *not* a second prompt path. A pending decision closes the phone's composer, so the
+   * only way to answer one is this message, keyed on the request's own id - which is also what
+   * makes a race between two clients decidable by the host rather than by whoever rendered last.
    */
   const handleChatFrame = async (
     chatId: string,
@@ -190,36 +209,45 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
     // is a version skew or a probe, not a case worth inventing a correlation id for.
     if (!message) return
 
-    const refuse = (reason: string): void =>
-      deliver({ type: 'prompt_result', requestId: message.requestId, ok: false, message: reason })
+    // A prompt and an answer are correlated the same way but reported on their own channels, so
+    // a client cannot mistake a verdict on one for a verdict on the other.
+    const resultType = message.type === 'prompt' ? 'prompt_result' : 'answer_result'
+    const answer = (result: AgentPromptResult): void =>
+      deliver({
+        type: resultType,
+        requestId: message.requestId,
+        ok: result.ok,
+        ...(result.message ? { message: result.message } : {})
+      })
+    const refuse = (reason: string): void => answer({ ok: false, message: reason })
 
-    if (!options.sessions) {
+    const sessions = options.sessions
+    if (!sessions) {
       refuse('This host is not accepting messages.')
       return
     }
-    // The same predicate the composer greys its button out with, so the two cannot disagree.
-    const problem = promptTextProblem(message.text)
+    // The same predicates the phone greys its own controls out with, so the two cannot disagree.
+    const problem =
+      message.type === 'prompt'
+        ? promptTextProblem(message.text)
+        : message.type === 'decision' && message.content
+          ? decisionContentProblem(message.content)
+          : null
     if (problem) {
       refuse(problem)
       return
     }
     // The published projection gates what a phone may drive, exactly as it gates what it may open:
-    // a chat the desktop has since unlisted is not a prompt target either.
+    // a chat the desktop has since unlisted is not a prompt or an answer target either.
     if (!snapshot.chats.some((chat) => chat.id === chatId)) {
       refuse('This chat is no longer open on the desktop.')
       return
     }
 
     try {
-      const result = await options.sessions.prompt(chatId, message.text.trim())
-      deliver({
-        type: 'prompt_result',
-        requestId: message.requestId,
-        ok: result.ok,
-        ...(result.message ? { message: result.message } : {})
-      })
+      answer(await perform(sessions, chatId, message))
     } catch (cause) {
-      refuse(cause instanceof Error ? cause.message : 'The host could not deliver the message.')
+      refuse(cause instanceof Error ? cause.message : 'The host could not deliver it.')
     }
   }
 
@@ -376,6 +404,27 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
       listeners.clear()
       await stop()
     }
+  }
+}
+
+/**
+ * Runs one validated client message against the session operations. Split out so the frame handler
+ * reads as the policy it is - gate, then perform, then answer - and so the mapping from message to
+ * operation is one exhaustive switch rather than three nested branches.
+ */
+function perform(
+  sessions: RemoteChatSessionOperations,
+  chatId: string,
+  message: RemoteChatClientMessage
+): AgentPromptResult | Promise<AgentPromptResult> {
+  switch (message.type) {
+    case 'prompt':
+      // Trimmed once, on the host, so every client sends the message the desktop would have sent.
+      return sessions.prompt(chatId, message.text.trim())
+    case 'approval':
+      return sessions.approve(chatId, message.approvalId, message.optionId)
+    case 'decision':
+      return sessions.answerDecision(chatId, message.decisionId, message.content)
   }
 }
 
