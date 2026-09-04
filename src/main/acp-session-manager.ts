@@ -31,6 +31,7 @@ import type {
   AgentModelState,
   AgentPermissionOption,
   AgentPromptBlock,
+  AgentPromptTextBlock,
   AgentPromptContent,
   AgentPromptResult
 } from '../shared/agent'
@@ -220,6 +221,19 @@ interface RunningAgent {
 /** Normalizes a prompt submission (plain text, or a mix of text/image content blocks) into the ACP content-block array. */
 export function toPromptBlocks(content: AgentPromptContent): AgentPromptBlock[] {
   return typeof content === 'string' ? [{ type: 'text', text: content }] : content
+}
+
+/**
+ * The text of the user message main publishes for an accepted prompt: its text blocks, and only
+ * those. Images stay desktop-local render state (`AgentChatMessage.images`) - a phone cannot attach
+ * them and the snapshot should not carry their bytes - so an image-only prompt yields `''` and no
+ * user message is published for it.
+ */
+export function promptText(content: AgentPromptContent): string {
+  return toPromptBlocks(content)
+    .filter((block): block is AgentPromptTextBlock => block.type === 'text')
+    .map((block) => block.text)
+    .join('\n')
 }
 
 /**
@@ -780,8 +794,23 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
     const imageGuard = imageCapabilityGuard(running, blocks)
     if (imageGuard) return { refusal: imageGuard }
     running.busy = true
+    publishUserMessage(running, content)
     send(running, { type: 'status', status: 'working' })
     return { turn: settleTurn(running, running.sessionId, blocks) }
+  }
+
+  /**
+   * Main is the author of the user message. Neither adapter replays a live prompt back as a
+   * `user_message_chunk` (only `session/load` does), and the desktop's own bubble is renderer-local
+   * state no other client can see - so the one place every accepted prompt passes through, whatever
+   * its origin (renderer IPC, the remote socket), publishes it once to the broker. It is published
+   * at acceptance, ahead of `status: 'working'`, so every host folds it into the same transcript
+   * position; the desktop consumes it as the echo of its optimistic bubble (`pendingSentRef`).
+   */
+  const publishUserMessage = (running: RunningAgent, content: AgentPromptContent): void => {
+    const text = promptText(content)
+    if (text.length === 0) return
+    send(running, { type: 'message', role: 'user', messageId: crypto.randomUUID(), text })
   }
 
   const settleTurn = async (
@@ -846,6 +875,10 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
           if (
             update.sessionUpdate === 'user_message_chunk' &&
             update.content.type === 'text' &&
+            // Only `session/load` replay may author user messages from the adapter's side: a live
+            // one would be a second copy of the prompt `publishUserMessage` already published for
+            // this turn, and dropping it here spares every client a dedupe of its own.
+            running.replayEvents &&
             !isInternalNotificationText(update.content.text)
           ) {
             send(running, {
@@ -1046,11 +1079,17 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       if (!running.wakeGate) return runPrompt(id, content)
       if (!running.busy) return runPrompt(id, content)
       if (running.steeringSupport) {
-        return deliverSteeredPrompt(
+        const result = await deliverSteeredPrompt(
           (method, params) => running.context.request<SteeringResponse, typeof params>(method, params),
           running.sessionId,
           content
         )
+        // Injected into the turn in flight, so accepted here rather than through `beginTurn` - and
+        // only once the adapter has said so, since a published message cannot be taken back. The
+        // cost is that assistant text streamed during that round trip lands ahead of it in the
+        // shared transcript, where the desktop's optimistic bubble sits before it.
+        if (result.ok) publishUserMessage(running, content)
+        return result
       }
       return running.wakeGate.enqueue(content)
     },

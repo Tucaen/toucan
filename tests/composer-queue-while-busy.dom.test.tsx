@@ -303,6 +303,63 @@ test('a decision answer given mid-turn still goes straight into the running turn
   expect(result.current.queued).toEqual([])
 })
 
+test('the host-authored user message consumes the optimistic bubble for composed prompts and decision replies alike', async () => {
+  // Main publishes one `role: 'user'` message per accepted prompt (the same event every remote
+  // client folds). The desktop already drew its own bubble - with UI metadata a host event cannot
+  // carry - so that event must land as the echo of the local message, never as a second one.
+  const { api, emit } = createMockAgentApi()
+  window.agentApi = api
+
+  const { result } = renderHook(() =>
+    useAgentConversation({
+      id: 'session-host-echo',
+      provider: 'claude',
+      cwd: '/project',
+      enabled: true,
+      composePrompt: (text) => `[with context] ${text}`,
+      onSessionId: vi.fn(),
+      onPermissionMode: vi.fn(),
+      onModel: vi.fn()
+    })
+  )
+
+  await waitFor(() => expect(result.current.status).toBe('ready'))
+  act(() => result.current.setDraft('typed on the desktop'))
+  act(() => {
+    result.current.submit(fakeSubmitEvent())
+  })
+  await waitFor(() =>
+    expect(api.prompt).toHaveBeenCalledWith('session-host-echo', '[with context] typed on the desktop')
+  )
+
+  // The host publishes what the agent actually received, which is the composed prompt.
+  emit('session-host-echo', {
+    type: 'message',
+    role: 'user',
+    messageId: 'host-1',
+    text: '[with context] typed on the desktop'
+  })
+  await waitFor(() =>
+    expect(result.current.messages).toEqual([expect.objectContaining({ role: 'user', queued: false })])
+  )
+  expect(result.current.messages[0].text).toBe('typed on the desktop')
+
+  act(() => {
+    result.current.answerDecision('decision-1', 'Option B')
+  })
+  await waitFor(() => expect(result.current.messages).toHaveLength(2))
+  expect(result.current.messages[1]).toEqual(
+    expect.objectContaining({ text: 'Option B', decisionReplyTo: 'decision-1' })
+  )
+
+  emit('session-host-echo', { type: 'message', role: 'user', messageId: 'host-2', text: '[with context] Option B' })
+  await waitFor(() => expect(result.current.messages[1].deliveryPending).toBeUndefined())
+  expect(result.current.messages).toHaveLength(2)
+  expect(result.current.messages[1]).toEqual(
+    expect.objectContaining({ text: 'Option B', decisionReplyTo: 'decision-1', queued: false })
+  )
+})
+
 test('each accepted queued send is acknowledged independently and later echoes are deduplicated', async () => {
   const { api, emit } = createMockAgentApi()
   window.agentApi = api

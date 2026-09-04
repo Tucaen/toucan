@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
-import { imageCapabilityGuard, toPromptBlocks } from '../src/main/acp-session-manager'
+import { imageCapabilityGuard, promptText, toPromptBlocks } from '../src/main/acp-session-manager'
 
 test('toPromptBlocks wraps a plain-text submission in a single text content block', () => {
   assert.deepEqual(toPromptBlocks('hello there'), [{ type: 'text', text: 'hello there' }])
@@ -37,4 +37,18 @@ test('imageCapabilityGuard rejects an image submission when the agent never adve
   ])
   const guard = imageCapabilityGuard(running, blocks)
   assert.deepEqual(guard, { ok: false, message: 'This agent does not support image attachments.' })
+})
+
+test('promptText is the text a host-authored user message carries: text blocks only, never image bytes', () => {
+  assert.equal(promptText('hello there'), 'hello there')
+  assert.equal(
+    promptText([
+      { type: 'text', text: 'look at this' },
+      { type: 'image', data: 'aGVsbG8=', mimeType: 'image/png' }
+    ]),
+    'look at this'
+  )
+  // An image-only prompt has nothing a host without the bytes could show; the desktop keeps the
+  // images as its own render state and no user message is published for it.
+  assert.equal(promptText([{ type: 'image', data: 'aGVsbG8=', mimeType: 'image/png' }]), '')
 })

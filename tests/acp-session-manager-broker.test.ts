@@ -10,8 +10,12 @@ import { createAcpSessionManager } from '../src/main/acp-session-manager'
 import { createAgentEventBroker } from '../src/main/agent-event-broker'
 import type { AgentEvent, AgentEventEnvelope } from '../src/shared/agent'
 
-/** An adapter that opens a session and, on the first prompt, asks permission before finishing. */
-function approvingAdapter(appPath: string): void {
+/**
+ * An adapter whose prompt turn parks on an approval (so it is provably still working), optionally
+ * echoing the prompt back as a live `user_message_chunk` the way a provider might, and optionally
+ * advertising the steering extension so a follow-up can be injected into the open turn.
+ */
+function promptingAdapter(appPath: string, behaviour: { echoPrompt?: boolean; steering?: boolean }): void {
   const directory = join(appPath, 'node_modules', '@agentclientprotocol', 'claude-agent-acp', 'dist')
   mkdirSync(directory, { recursive: true })
   writeFileSync(
@@ -27,12 +31,21 @@ lines.on('line', (line) => {
     send({ jsonrpc: '2.0', id: request.id, result: {
       protocolVersion: 1,
       agentCapabilities: {},
-      authMethods: []
+      authMethods: [],
+      ${behaviour.steering ? '_meta: { steering: { supported: true } },' : ''}
     } })
   } else if (request.method === 'session/new') {
     send({ jsonrpc: '2.0', id: request.id, result: { sessionId: 'live-session' } })
   } else if (request.method === 'session/prompt') {
     pendingPrompt = request.id
+    ${
+      behaviour.echoPrompt
+        ? `send({ jsonrpc: '2.0', method: 'session/update', params: {
+      sessionId: request.params.sessionId,
+      update: { sessionUpdate: 'user_message_chunk', content: request.params.prompt[0] }
+    } })`
+        : ''
+    }
     send({ jsonrpc: '2.0', id: 900, method: 'session/request_permission', params: {
       sessionId: request.params.sessionId,
       toolCall: { toolCallId: 'call-1', title: 'Run npm test', kind: 'execute' },
@@ -41,6 +54,8 @@ lines.on('line', (line) => {
         { optionId: 'reject', name: 'Reject', kind: 'reject_once' }
       ]
     } })
+  } else if (request.method === '_session/steering') {
+    send({ jsonrpc: '2.0', id: request.id, result: { outcome: 'injected' } })
   } else if (request.method === undefined && request.id === 900) {
     send({ jsonrpc: '2.0', id: pendingPrompt, result: { stopReason: 'end_turn' } })
   }
@@ -61,7 +76,7 @@ async function until<T>(get: () => T | undefined): Promise<T> {
 
 test('agent events fan out to broker subscribers, the owning renderer among them', async () => {
   const appPath = mkdtempSync(join(tmpdir(), 'toucan-broker-fanout-'))
-  approvingAdapter(appPath)
+  promptingAdapter(appPath, {})
   const broker = createAgentEventBroker()
   const ownerEvents: AgentEvent[] = []
   const owner = {
@@ -87,7 +102,7 @@ test('agent events fan out to broker subscribers, the owning renderer among them
 
 test('an approval answered via one client is reflected in every subscriber stream and the snapshot', async () => {
   const appPath = mkdtempSync(join(tmpdir(), 'toucan-broker-approval-'))
-  approvingAdapter(appPath)
+  promptingAdapter(appPath, {})
   const broker = createAgentEventBroker()
   const ownerEvents: AgentEvent[] = []
   const owner = {
@@ -128,7 +143,7 @@ test('an approval answered via one client is reflected in every subscriber strea
 
 test('killing a session closes its broker channel so a later incarnation starts clean', async () => {
   const appPath = mkdtempSync(join(tmpdir(), 'toucan-broker-close-'))
-  approvingAdapter(appPath)
+  promptingAdapter(appPath, {})
   const broker = createAgentEventBroker()
   const owner = { isDestroyed: () => false, send: () => {} } as unknown as WebContents
   const stale: AgentEvent[] = []
@@ -152,7 +167,7 @@ test('killing a session closes its broker channel so a later incarnation starts 
 
 test("a killed adapter's straggling stderr cannot resurrect the closed broker channel", async () => {
   const appPath = mkdtempSync(join(tmpdir(), 'toucan-broker-straggler-'))
-  approvingAdapter(appPath)
+  promptingAdapter(appPath, {})
   const broker = createAgentEventBroker()
   const owner = { isDestroyed: () => false, send: () => {} } as unknown as WebContents
   let stderr: PassThrough | undefined
@@ -198,7 +213,7 @@ test("a killed adapter's straggling stderr cannot resurrect the closed broker ch
 
 test('startPrompt reports delivery immediately and refuses a second prompt while the turn runs', async () => {
   const appPath = mkdtempSync(join(tmpdir(), 'toucan-broker-start-prompt-'))
-  approvingAdapter(appPath)
+  promptingAdapter(appPath, {})
   const broker = createAgentEventBroker()
   const owner = { isDestroyed: () => false, send: () => {} } as unknown as WebContents
   const remote: AgentEvent[] = []
@@ -239,4 +254,111 @@ test('startPrompt refuses a session that does not exist instead of dropping the 
     ok: false,
     message: 'The agent session is not ready.'
   })
+})
+
+const userMessages = (events: AgentEvent[]): Array<Extract<AgentEvent, { type: 'message' }>> =>
+  events.filter(
+    (event): event is Extract<AgentEvent, { type: 'message' }> => event.type === 'message' && event.role === 'user'
+  )
+
+test('an accepted prompt publishes exactly one host-authored user message to every subscriber and the snapshot', async () => {
+  const appPath = mkdtempSync(join(tmpdir(), 'toucan-broker-user-message-'))
+  promptingAdapter(appPath, {})
+  const broker = createAgentEventBroker()
+  const ownerEvents: AgentEvent[] = []
+  const owner = {
+    isDestroyed: () => false,
+    send: (_channel: string, envelope: AgentEventEnvelope) => ownerEvents.push(envelope.event)
+  } as unknown as WebContents
+  const remote: AgentEvent[] = []
+  broker.subscribe('node-1', (event) => remote.push(event))
+  const manager = createAcpSessionManager({ appPath, broker })
+
+  try {
+    await manager.create({ id: 'node-1', provider: 'claude', cwd: appPath }, owner)
+    assert.deepEqual(manager.startPrompt('node-1', 'run the tests'), { ok: true })
+    const approval = await until(() => remote.find((event) => event.type === 'approval'))
+    assert.ok(approval)
+
+    // A refused prompt is not a message anyone sent, so it publishes nothing.
+    assert.equal(manager.startPrompt('node-1', 'and also this').ok, false)
+
+    const published = userMessages(remote)
+    assert.equal(published.length, 1)
+    assert.equal(published[0].text, 'run the tests')
+    assert.ok(published[0].messageId.length > 0)
+    assert.deepEqual(userMessages(ownerEvents), published)
+    // The message is accepted before the turn is reported as working, so a transcript folded from
+    // the stream places it ahead of everything the turn produces.
+    assert.ok(
+      remote.indexOf(published[0]) < remote.findIndex((event) => event.type === 'status' && event.status === 'working')
+    )
+    // A late joiner reads it from the snapshot, in transcript position.
+    const snapshot = broker.snapshot('node-1')
+    assert.deepEqual(
+      snapshot?.messages.filter((message) => message.role === 'user').map((message) => message.text),
+      ['run the tests']
+    )
+    assert.deepEqual(snapshot?.transcript[0], { type: 'message', id: published[0].messageId, role: 'user' })
+  } finally {
+    manager.killAll()
+  }
+})
+
+test('an adapter that echoes the prompt back live does not make a second user message', async () => {
+  const appPath = mkdtempSync(join(tmpdir(), 'toucan-broker-echo-'))
+  promptingAdapter(appPath, { echoPrompt: true })
+  const broker = createAgentEventBroker()
+  const owner = { isDestroyed: () => false, send: () => {} } as unknown as WebContents
+  const remote: AgentEvent[] = []
+  broker.subscribe('node-1', (event) => remote.push(event))
+  const manager = createAcpSessionManager({ appPath, broker })
+
+  try {
+    await manager.create({ id: 'node-1', provider: 'claude', cwd: appPath }, owner)
+    const turn = manager.prompt('node-1', 'run the tests')
+    const approval = await until(() =>
+      remote.find((event): event is Extract<AgentEvent, { type: 'approval' }> => event.type === 'approval')
+    )
+    manager.resolveApproval('node-1', approval.approvalId, 'allow')
+    await turn
+
+    assert.deepEqual(
+      userMessages(remote).map((message) => message.text),
+      ['run the tests']
+    )
+    assert.equal(broker.snapshot('node-1')?.messages.filter((message) => message.role === 'user').length, 1)
+  } finally {
+    manager.killAll()
+  }
+})
+
+test('a follow-up steered into a working turn is published as a user message when the adapter accepts it', async () => {
+  const appPath = mkdtempSync(join(tmpdir(), 'toucan-broker-steered-'))
+  promptingAdapter(appPath, { steering: true })
+  const broker = createAgentEventBroker()
+  const owner = { isDestroyed: () => false, send: () => {} } as unknown as WebContents
+  const remote: AgentEvent[] = []
+  broker.subscribe('node-1', (event) => remote.push(event))
+  const manager = createAcpSessionManager({ appPath, broker })
+
+  try {
+    await manager.create({ id: 'node-1', provider: 'claude', cwd: appPath }, owner)
+    const turn = manager.prompt('node-1', 'run the tests')
+    const approval = await until(() =>
+      remote.find((event): event is Extract<AgentEvent, { type: 'approval' }> => event.type === 'approval')
+    )
+    assert.deepEqual(await manager.promptWhenIdle('node-1', 'and also lint'), { ok: true })
+    manager.resolveApproval('node-1', approval.approvalId, 'allow')
+    await turn
+
+    assert.deepEqual(
+      userMessages(remote).map((message) => message.text),
+      ['run the tests', 'and also lint']
+    )
+    const [first, second] = userMessages(remote)
+    assert.notEqual(first.messageId, second.messageId)
+  } finally {
+    manager.killAll()
+  }
 })
