@@ -3,10 +3,13 @@ import { open } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import { AGENT_TURN_OUTCOME_LIMIT } from '../shared/agent'
 import { isAttentionItem } from '../shared/attention'
+import { isProjectColor, paletteColorAt } from '../shared/project-colors'
 import {
   isComposerSendKey,
   RECENTLY_CLOSED_SESSION_LIMIT,
+  type ProjectGroup,
   type WorkspaceLoadResult,
+  type WorkspaceProject,
   type WorkspaceSaveResult,
   type WorkspaceState
 } from '../shared/terminal'
@@ -60,9 +63,16 @@ function hasValidProjects(
       typeof project.id === 'string' &&
       typeof project.name === 'string' &&
       typeof project.path === 'string' &&
-      typeof project.color === 'string' &&
-      (project.setupCommand === undefined || typeof project.setupCommand === 'string')
+      isProjectColor(project.color) &&
+      (project.setupCommand === undefined || typeof project.setupCommand === 'string') &&
+      (project.groupId === undefined || typeof project.groupId === 'string')
   )
+}
+
+function isProjectGroup(value: unknown): value is ProjectGroup {
+  if (!value || typeof value !== 'object') return false
+  const group = value as Partial<ProjectGroup>
+  return typeof group.id === 'string' && typeof group.name === 'string' && typeof group.collapsed === 'boolean'
 }
 
 function isAgentTurnOutcome(value: unknown): boolean {
@@ -125,6 +135,11 @@ export function isWorkspaceState(value: unknown): value is WorkspaceState {
   if (state.version !== 3 || !Array.isArray(state.nodes)) return false
   if (!Array.isArray(state.worktrees) || !state.worktrees.every(isWorkspaceWorktree)) return false
   if (
+    state.projectGroups !== undefined &&
+    (!Array.isArray(state.projectGroups) || !state.projectGroups.every(isProjectGroup))
+  )
+    return false
+  if (
     state.agentPermissionModes !== undefined &&
     (!state.agentPermissionModes ||
       typeof state.agentPermissionModes !== 'object' ||
@@ -143,7 +158,45 @@ export function isWorkspaceState(value: unknown): value is WorkspaceState {
   )
 }
 
-export function parseWorkspaceState(value: unknown): WorkspaceState | null {
+/**
+ * The project half of a snapshot, made loadable before it is validated. A colour is user-editable
+ * now, so a snapshot carrying one Toucan would not have written (hand-edited, or from a future
+ * build) must still open with a palette colour substituted rather than being refused - and a
+ * `groupId` that names no group, or a group id listed twice, must not survive into the sidebar,
+ * where either would render a project into a folder that does not exist.
+ */
+function normalizeProjectsAndGroups(value: unknown): unknown {
+  if (!value || typeof value !== 'object') return value
+  const state = value as { projects?: unknown; projectGroups?: unknown }
+  if (!Array.isArray(state.projects)) return value
+
+  // A malformed group is left exactly as it is so validation refuses the snapshot; only a
+  // well-formed list is deduped, because two groups sharing an id would render one twice.
+  const seen = new Set<string>()
+  const declared = state.projectGroups
+  const groups =
+    Array.isArray(declared) && declared.every(isProjectGroup)
+      ? (declared as ProjectGroup[]).filter((group) => {
+          if (seen.has(group.id)) return false
+          seen.add(group.id)
+          return true
+        })
+      : undefined
+
+  const projects = (state.projects as unknown[]).map((entry, index) => {
+    if (!entry || typeof entry !== 'object') return entry
+    const project = entry as WorkspaceProject
+    const color = isProjectColor(project.color) ? project.color : paletteColorAt(index)
+    const grouped = typeof project.groupId === 'string' && seen.has(project.groupId)
+    const { groupId, ...rest } = project
+    return { ...rest, color, ...(grouped ? { groupId } : {}) }
+  })
+
+  return { ...state, projects, ...(groups ? { projectGroups: groups } : {}) }
+}
+
+export function parseWorkspaceState(candidate: unknown): WorkspaceState | null {
+  const value = normalizeProjectsAndGroups(candidate)
   if (!hasValidProjects(value)) return null
   const version = (value as Partial<WorkspaceState>).version
 

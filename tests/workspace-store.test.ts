@@ -565,3 +565,82 @@ test('rejects a workspace whose attention records are malformed', () => {
   )
   assert.equal(parseWorkspaceState({ ...base, attention: {} }), null)
 })
+
+test('substitutes a palette colour for a malformed one rather than refusing the workspace', () => {
+  const loaded = parseWorkspaceState({
+    ...makeState('colours'),
+    projects: [
+      { id: 'project-1', name: 'One', path: 'D:\One', color: 'rebeccapurple' },
+      { id: 'project-2', name: 'Two', path: 'D:\Two', color: '#71A9FF' },
+      { id: 'project-3', name: 'Three', path: 'D:\Three', color: '#74d8a2' }
+    ]
+  })
+
+  assert.deepEqual(
+    loaded?.projects.map((project) => project.color),
+    ['#71a9ff', '#e69a71', '#74d8a2']
+  )
+})
+
+test('keeps project groups and prunes the memberships that name no group', () => {
+  const loaded = parseWorkspaceState({
+    ...makeState('groups'),
+    projects: [
+      { id: 'project-1', name: 'One', path: 'D:\One', color: '#71a9ff', groupId: 'group-1' },
+      { id: 'project-2', name: 'Two', path: 'D:\Two', color: '#e69a71', groupId: 'ghost' }
+    ],
+    projectGroups: [
+      { id: 'group-1', name: 'Work', collapsed: true },
+      { id: 'group-1', name: 'Duplicate', collapsed: false }
+    ]
+  })
+
+  assert.deepEqual(loaded?.projectGroups, [{ id: 'group-1', name: 'Work', collapsed: true }])
+  assert.equal(loaded?.projects[0].groupId, 'group-1')
+  assert.equal('groupId' in (loaded?.projects[1] ?? {}), false)
+})
+
+test('rejects a workspace whose project groups are malformed', () => {
+  const base = makeState('groups')
+
+  assert.equal(parseWorkspaceState({ ...base, projectGroups: {} }), null)
+  assert.equal(parseWorkspaceState({ ...base, projectGroups: [{ id: 'group-1', name: 'Work' }] }), null)
+  assert.equal(parseWorkspaceState({ ...base, projectGroups: [{ id: 'group-1', name: 7, collapsed: false }] }), null)
+})
+
+test('a snapshot written before groups existed loads unchanged', () => {
+  const before = makeState('legacy')
+  assert.deepEqual(parseWorkspaceState(before), before)
+  assert.equal(parseWorkspaceState(before)?.projectGroups, undefined)
+})
+
+test('saves a workspace carrying project groups', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'toucan-groups-'))
+  const path = join(directory, 'workspace.json')
+  const store = createWorkspaceStore(path)
+  const state: WorkspaceState = {
+    ...makeState('groups'),
+    projects: [{ id: 'project-1', name: 'One', path: 'D:\One', color: '#c992ff', groupId: 'group-1' }],
+    projectGroups: [{ id: 'group-1', name: 'Work', collapsed: false }]
+  }
+
+  assert.equal((await store.save(state)).ok, true)
+  const loaded = await store.load()
+  assert.deepEqual(loaded.state, state)
+
+  rmSync(directory, { recursive: true, force: true })
+})
+
+test('refuses to write a project colour that is not a stored #rrggbb', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'toucan-colour-'))
+  const store = createWorkspaceStore(join(directory, 'workspace.json'))
+  const state = makeState('colour')
+
+  const result = await store.save({
+    ...state,
+    projects: [{ ...state.projects[0], color: 'red' }]
+  })
+  assert.equal(result.ok, false)
+
+  rmSync(directory, { recursive: true, force: true })
+})

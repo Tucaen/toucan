@@ -62,12 +62,25 @@ export interface ProjectDirectory {
 
 export interface WorkspaceProject extends ProjectDirectory {
   id: string
+  /** Always stored as lowercase `#rrggbb`; see `isProjectColor` in `shared/project-colors.ts`. */
   color: string
   /**
    * Shell command that makes a freshly created worktree usable (dependency install, env copy,
    * first build). Optional: a worktree is created whether or not one is configured.
    */
   setupCommand?: string
+  /** The group this project sits in; absent means top level. Dangling ids are dropped on load. */
+  groupId?: string
+}
+
+/**
+ * A collapsible sidebar folder. Groups are a desktop-sidebar affordance only: they never reach the
+ * canvas, the remote projection, or the phone.
+ */
+export interface ProjectGroup {
+  id: string
+  name: string
+  collapsed: boolean
 }
 
 export interface ConversationPreview {
@@ -132,6 +145,11 @@ export interface BrainDumpPanelState {
 export interface WorkspaceState {
   version: 3
   projects: WorkspaceProject[]
+  /**
+   * Absent in every snapshot written before groups existed. Array order is the order groups appear
+   * in the sidebar, exactly as `projects` order is the order projects appear.
+   */
+  projectGroups?: ProjectGroup[]
   activeProjectId: string | null
   sidebarCollapsed: boolean
   agentPermissionModes?: AgentPermissionModes
