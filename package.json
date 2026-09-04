@@ -11,6 +11,7 @@
     "repair-electron": "node node_modules/electron/install.js",
     "prepare:voice-model": "node scripts/prepare-voice-model.mjs",
     "icon:generate": "node scripts/generate-app-icon.mjs",
+    "icon:mobile": "node scripts/generate-mobile-icons.mjs",
     "migrate:brain-dumps": "tsc -p tsconfig.test.json && electron scripts/migrate-brain-dumps.mjs",
     "check:voice-model": "node scripts/prepare-voice-model.mjs --check",
     "preprototype:voice": "npm run prepare:voice-model",

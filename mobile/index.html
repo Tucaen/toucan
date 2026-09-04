@@ -5,6 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="color-scheme" content="dark" />
     <meta name="theme-color" content="#0b0d12" />
+    <!--
+      Absolute paths, because the client is always served at the origin root and a deep link like
+      /chats/node-1 would otherwise resolve these one directory down. The manifest is what makes
+      Chrome offer "Install app"; iOS ignores it and uses the apple-touch-icon instead. Both are
+      inert over plain HTTP, where the app is simply an ordinary web page.
+    -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icon-192.png" />
+    <link rel="apple-touch-icon" href="/icon-192.png" />
     <title>Toucan</title>
   </head>
   <body>

@@ -37,7 +37,9 @@ workspace state is stored locally and the Windows x64 portable build is not yet 
   read its transcript live, send a message, and answer what the agent is waiting on - tool
   permissions and structured questions alike. Answering is race-safe: whether you answer on
   the phone or on the desktop, exactly one answer reaches the agent and the other client's
-  card resolves. Spawning a new chat from the phone is still to come.
+  card resolves. Start a new chat for a project from the phone, and keep several PCs in one
+  installed app, switching between them. Put `tailscale serve` in front of a host and the client
+  installs to the Android home screen as a standalone app.
 
 Live shell processes still end when Toucan exits, and live PTY process restoration is not
 implemented.
@@ -71,6 +73,14 @@ on the PC and the phone, join both to the same tailnet, then open `http://<tailn
 in the phone's browser and paste the pairing token once. The dialog lists the addresses to try
 and labels the tailnet one. A device on your tailnet is _reachable_, not _trusted_ - the token is
 what authorizes it, so **Regenerate** locks out every phone holding the old one.
+
+To install the client to the home screen, put HTTPS in front of that port with
+`tailscale serve` - a browser will not register a service worker over plain HTTP, so installing
+needs a secure origin, and Toucan deliberately owns no certificates. Over plain HTTP the app
+still works as an ordinary web page; it just never offers to install.
+
+**[docs/mobile-companion-setup.md](docs/mobile-companion-setup.md)** walks the whole path
+end to end, including adding a second PC and what the tailnet and the token each protect.
 
 The desktop has to be running: the server lives in Toucan's main process, and the phone shows the
 canvas that desktop has open. Plain terminals are never listed.

@@ -257,6 +257,36 @@ describe('remote access server', () => {
     assert.match(deep.body, /Toucan/)
   })
 
+  test('serves the install surface: the manifest typed as one, and a worker the browser cannot cache', async () => {
+    const { server, get } = harness({
+      clientFiles: {
+        'index.html': '<!doctype html><title>Toucan</title>',
+        'manifest.webmanifest': '{"name":"Toucan Companion"}',
+        'sw.js': 'self.addEventListener("fetch", () => {})',
+        'icon-192.png': 'PNG'
+      }
+    })
+    await server.applySettings({ enabled: true, port: await freePort() })
+
+    // Unauthenticated like the rest of the bundle: a phone cannot set a header on the navigation
+    // that loads the pairing screen, and none of these files carry workspace data.
+    const manifest = await get('/manifest.webmanifest')
+    assert.equal(manifest.status, 200)
+    // Chrome refuses a manifest served as anything else, and refuses it silently.
+    assert.match(manifest.headers.get('content-type') ?? '', /application\/manifest\+json/)
+
+    const worker = await get('/sw.js')
+    assert.equal(worker.status, 200)
+    assert.match(worker.headers.get('content-type') ?? '', /javascript/)
+    // Unhashed, so it must never be served from the HTTP cache: a cached worker would outlive the
+    // bundle it shipped with. Only /assets/ is content-addressed enough to be immutable.
+    assert.match(worker.headers.get('cache-control') ?? '', /no-store/)
+
+    const icon = await get('/icon-192.png')
+    assert.equal(icon.status, 200)
+    assert.match(icon.headers.get('content-type') ?? '', /image\/png/)
+  })
+
   test('a path that escapes the bundle directory cannot read a file', async () => {
     const directory = temporaryDirectory()
     const clientRoot = join(directory, 'mobile')
