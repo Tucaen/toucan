@@ -35,6 +35,7 @@ import { describeHostAddresses } from './host-addresses'
 import { pairingTokenMatches, presentedPairingToken } from './pairing'
 import {
   clientContentType,
+  REMOTE_CORS_HEADERS,
   resolveClientAsset,
   resolveRemoteRoute,
   resolveRemoteSocketRoute,
@@ -236,6 +237,11 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
         return
       case 'create-chat':
         await createChat(request, response)
+        return
+      case 'preflight':
+        // The CORS headers themselves are added by `send`; what is left to say here is that the
+        // question was understood and carries no body.
+        send(request, response, 204, null)
         return
       case 'client':
         await sendClientAsset(request, response, options.clientRoot, route.pathname)
@@ -552,20 +558,28 @@ async function readBoundedBody(request: IncomingMessage, limit: number): Promise
 }
 
 /**
- * The one place a response is written. Every reply on this server is uncached, never sniffed, and
- * carries a body only when the request was not a HEAD - three rules that are easy to get right once
- * and easy to forget per route.
+ * The one place a response is written. Every reply on this server is uncached, never sniffed,
+ * cross-origin readable, and carries a body only when the request was not a HEAD - four rules that
+ * are easy to get right once and easy to forget per route.
+ *
+ * Cross-origin readability is the default here rather than something each API route opts into. A
+ * phone holds connections to hosts that did not serve it (see `REMOTE_CORS_HEADERS`), and the reply
+ * a cross-host client most needs to be able to *read* is the `401` - stripping the headers from
+ * failures is exactly how a revoked token would present itself as an unreachable host. Only the
+ * static bundle opts out, because a navigation has no use for them.
  */
 function send(
   request: IncomingMessage,
   response: ServerResponse,
   status: number,
   body: string | Buffer | null,
-  headers: Record<string, string | number> = {}
+  headers: Record<string, string | number> = {},
+  crossOrigin = true
 ): void {
   response.writeHead(status, {
     'cache-control': 'no-store',
     'x-content-type-options': 'nosniff',
+    ...(crossOrigin ? REMOTE_CORS_HEADERS : {}),
     ...(body === null ? {} : { 'content-length': Buffer.byteLength(body) }),
     ...headers
   })
@@ -583,15 +597,24 @@ async function sendClientAsset(
   root: string,
   pathname: string
 ): Promise<void> {
+  // Served without CORS headers, unlike every API reply: the bundle is fetched by navigation, so no
+  // other origin has reason to read it with script.
   const resolved = resolveClientAsset(root, pathname)
   if (resolved) {
     const file = await readFileIfPresent(resolved)
     if (file) {
-      send(request, response, 200, file, {
-        'content-type': clientContentType(resolved),
-        // Vite fingerprints everything under /assets, so only the shell must never be cached.
-        ...(pathname.startsWith('/assets/') ? { 'cache-control': 'public, max-age=31536000, immutable' } : {})
-      })
+      send(
+        request,
+        response,
+        200,
+        file,
+        {
+          'content-type': clientContentType(resolved),
+          // Vite fingerprints everything under /assets, so only the shell must never be cached.
+          ...(pathname.startsWith('/assets/') ? { 'cache-control': 'public, max-age=31536000, immutable' } : {})
+        },
+        false
+      )
       return
     }
   }
@@ -599,10 +622,10 @@ async function sendClientAsset(
   const shell = await readFileIfPresent(join(root, 'index.html'))
   if (!shell) {
     const message = 'The Toucan mobile client has not been built. Run "npm run build:mobile" on the host.'
-    send(request, response, 503, message, { 'content-type': 'text/plain; charset=utf-8' })
+    send(request, response, 503, message, { 'content-type': 'text/plain; charset=utf-8' }, false)
     return
   }
-  send(request, response, 200, shell, { 'content-type': 'text/html; charset=utf-8' })
+  send(request, response, 200, shell, { 'content-type': 'text/html; charset=utf-8' }, false)
 }
 
 async function readFileIfPresent(path: string): Promise<Buffer | null> {

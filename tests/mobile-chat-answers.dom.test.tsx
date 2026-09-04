@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import ChatScreen from '../mobile/src/ChatScreen'
+import type { SavedHost } from '../mobile/src/hosts'
 import type { AgentEvent } from '../src/shared/agent'
 import { foldAgentEvent, initialAgentTranscriptState } from '../src/shared/agent-transcript'
 import type { RemoteChatSummary } from '../src/shared/remote-access'
@@ -45,6 +46,8 @@ class StubSocket {
     return JSON.parse(this.sent[this.sent.length - 1]) as Record<string, unknown>
   }
 }
+
+const HOST: SavedHost = { id: 'host-1', name: 'Work PC', origin: 'http://work-pc:1789', token: 'token' }
 
 const SUMMARY: RemoteChatSummary = {
   id: 'chat-1',
@@ -111,7 +114,7 @@ function snapshotFrame(events: readonly AgentEvent[]): RemoteChatServerMessage {
 
 /** Renders the screen with an open socket and the host's first frame already delivered. */
 function open(events: readonly AgentEvent[]): StubSocket {
-  render(<ChatScreen token="token" chatId="chat-1" summary={SUMMARY} onBack={() => {}} onUnauthorized={() => {}} />)
+  render(<ChatScreen host={HOST} chatId="chat-1" summary={SUMMARY} onBack={() => {}} onUnauthorized={() => {}} />)
   const socket = StubSocket.instances[0]
   act(() => {
     socket.onopen?.()

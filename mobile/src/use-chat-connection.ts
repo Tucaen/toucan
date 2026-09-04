@@ -22,16 +22,23 @@ import {
   withSend,
   type ChatConnectionState
 } from './chat-connection'
+import { hostSocketUrl, type SavedHost } from './hosts'
 import { fetchWorkspace, rememberDraft, storedDraft } from './remote-client'
 
 /**
- * Owns the WebSocket for one chat; every decision about what frames and drops *mean* lives in
- * `chat-connection.ts`. The token rides in the subprotocol list because a browser cannot put an
- * `Authorization` header on an upgrade request.
+ * Owns the WebSocket for one chat on one host; every decision about what frames and drops *mean*
+ * lives in `chat-connection.ts`. The token rides in the subprotocol list because a browser cannot
+ * put an `Authorization` header on an upgrade request.
+ *
+ * The socket's URL is the *host's*, not the page's: this client may be served by one host while
+ * reading a chat on another, so the scheme follows the host's own origin. A browser applies no CORS
+ * to a WebSocket, so the token in the subprotocol is the whole gate cross-host as well - but it
+ * does refuse `ws:` from an HTTPS page, which surfaces here as an ordinary failure to connect and
+ * is named for what it is by `hostBlockedByPageScheme` where the reader can act on it.
  *
  * A closed socket is ambiguous on purpose - the browser will not say whether the handshake was
  * refused with 401, refused with 404, or the network blinked - so every drop is classified through
- * one authenticated HTTP probe: a revoked token unpaired the device, a chat the desktop no longer
+ * one authenticated HTTP probe: a revoked token unpaired this host, a chat the desktop no longer
  * lists is gone, and anything else is a blip worth rejoining after a bounded backoff.
  */
 export interface ChatConnection extends ChatConnectionState {
@@ -48,8 +55,10 @@ export interface ChatConnection extends ChatConnectionState {
   onAnswerDecision(content?: AgentDecisionResponseContent): void
 }
 
-export function useChatConnection(token: string, chatId: string, onUnauthorized: () => void): ChatConnection {
-  const [state, setState] = useState<ChatConnectionState>(() => restoredChatConnectionState(storedDraft(chatId)))
+export function useChatConnection(host: SavedHost, chatId: string, onUnauthorized: () => void): ChatConnection {
+  const [state, setState] = useState<ChatConnectionState>(() =>
+    restoredChatConnectionState(storedDraft(host.id, chatId))
+  )
   const unauthorized = useRef(onUnauthorized)
   unauthorized.current = onUnauthorized
   // The live socket, readable by the send path. A send is only ever attempted on the socket that
@@ -60,14 +69,14 @@ export function useChatConnection(token: string, chatId: string, onUnauthorized:
   stateRef.current = state
 
   useEffect(() => {
-    setState(restoredChatConnectionState(storedDraft(chatId)))
+    setState(restoredChatConnectionState(storedDraft(host.id, chatId)))
     let disposed = false
     let socket: WebSocket | null = null
     let timer: number | undefined
     let attempt = 0
 
     const classifyThenRetry = async (): Promise<void> => {
-      const workspace = await fetchWorkspace(token)
+      const workspace = await fetchWorkspace(host)
       if (disposed) return
       if (!workspace.ok) {
         if (workspace.kind === 'unauthorized') {
@@ -88,10 +97,9 @@ export function useChatConnection(token: string, chatId: string, onUnauthorized:
 
     const connect = (): void => {
       if (disposed) return
-      const scheme = window.location.protocol === 'https:' ? 'wss' : 'ws'
-      const next = new WebSocket(`${scheme}://${window.location.host}${remoteChatSocketPath(chatId)}`, [
+      const next = new WebSocket(hostSocketUrl(host.origin, remoteChatSocketPath(chatId)), [
         REMOTE_CHAT_PROTOCOL,
-        remoteChatBearerProtocol(token)
+        remoteChatBearerProtocol(host.token)
       ])
       socket = next
       next.onopen = () => {
@@ -118,13 +126,15 @@ export function useChatConnection(token: string, chatId: string, onUnauthorized:
       window.clearTimeout(timer)
       socket?.close()
     }
-  }, [token, chatId])
+    // Re-addressing or re-pairing the host is a different connection, so it tears this one down and
+    // starts over rather than leaving a socket authorized by a token that is gone.
+  }, [host.id, host.origin, host.token, chatId])
 
   // Retention mirrors the state rather than the keystrokes, so every path that changes the draft -
   // typing, a cleared send, a recovered refusal - is covered by one write.
   useEffect(() => {
-    rememberDraft(chatId, state.draft)
-  }, [chatId, state.draft])
+    rememberDraft(host.id, chatId, state.draft)
+  }, [host.id, chatId, state.draft])
 
   const onDraftChange = useCallback((draft: string) => {
     setState((current) => draftChanged(current, draft))

@@ -27,6 +27,27 @@ project.
 - **Scope v1**: agent chats (claude/codex) only. No terminal nodes. Approvals ARE in v1 —
   without them a remote chat stalls at the first tool permission and read/send is near
   useless.
+- **Cross-origin: CORS, not per-host bookmarks** (decided while implementing #132, the
+  multiple-hosts slice). The client is *served by* one host but holds connections *to*
+  another, and same-origin is only guaranteed for the serving host. The alternative —
+  bookmark each host separately — is not a host switcher at all: the saved host list lives
+  in `localStorage`, which is per origin, so each bookmark would keep its own list and its
+  own tokens and switching would mean leaving the app. So Toucan's remote surface answers
+  CORS preflights (`OPTIONS`, unauthenticated by necessity — a browser sends a preflight
+  without the header it is asking permission to send) and returns
+  `Access-Control-Allow-Origin: *` on *every* response, refusals included. `*` grants
+  nothing: authorization is the pairing token in an `Authorization` header the requesting
+  page has to already know, there are no cookies and no session state, and
+  `Access-Control-Allow-Credentials` is deliberately absent, so a hostile page reaching a
+  tailnet host learns exactly what any unauthorized caller learns — `401`. Putting the
+  headers on failures too is what makes a revoked token distinguishable from an unreachable
+  PC: without them a browser turns the `401` into an opaque network error and the phone
+  would retry an outage forever instead of dropping that one host into re-pairing.
+  WebSockets are not CORS-gated at all, so the chat socket needs nothing extra — but a
+  browser *does* refuse `ws:`/`http:` from an HTTPS page, so a phone loaded over
+  `tailscale serve` HTTPS can only reach hosts that also speak HTTPS. That is named in the
+  UI (`hostBlockedByPageScheme`) rather than left to look like an offline host, and the way
+  out is `tailscale serve` on both hosts (#133) or opening the other host directly.
 
 ## Architectural obstacles (from code survey, 2026-09-03)
 

@@ -34,6 +34,7 @@ import {
   setTextAnswer,
   submitDecisionProblem
 } from './decision-answers'
+import type { SavedHost } from './hosts'
 import { fetchWorkspace } from './remote-client'
 import { useChatConnection, type ChatConnection } from './use-chat-connection'
 
@@ -49,28 +50,30 @@ import { useChatConnection, type ChatConnection } from './use-chat-connection'
  * to pairing. It is retention, not drafts sync: the desktop never sees it.
  */
 export default function ChatScreen({
-  token,
+  host,
   chatId,
   summary: initialSummary,
   onBack,
   onUnauthorized
 }: {
-  token: string
+  /** The host this chat lives on; every request and the socket are addressed to it. */
+  host: SavedHost
   chatId: string
   /** What the chat list knew when it navigated here; null on a reloaded deep link. */
   summary: RemoteChatSummary | null
   onBack(): void
   onUnauthorized(): void
 }): JSX.Element {
-  const connection = useChatConnection(token, chatId, onUnauthorized)
+  const connection = useChatConnection(host, chatId, onUnauthorized)
   const [summary, setSummary] = useState(initialSummary)
 
   // A reloaded deep link arrives without the list's knowledge of the chat; one workspace read
-  // restores the title. Unauthorized here means unauthorized everywhere - straight back to pairing.
+  // restores the title. Unauthorized here means this *host* stopped accepting the token - which
+  // sends only this host back to pairing, not the device.
   useEffect(() => {
     if (summary) return
     let cancelled = false
-    void fetchWorkspace(token).then((result) => {
+    void fetchWorkspace(host).then((result) => {
       if (cancelled) return
       if (!result.ok) {
         if (result.kind === 'unauthorized') onUnauthorized()
@@ -81,7 +84,7 @@ export default function ChatScreen({
     return () => {
       cancelled = true
     }
-  }, [summary, token, chatId, onUnauthorized])
+  }, [summary, host, chatId, onUnauthorized])
 
   const items = useMemo(
     () => (connection.transcript ? deriveChatViewItems(connection.transcript) : []),

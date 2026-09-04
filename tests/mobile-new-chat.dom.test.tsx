@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
+import type { SavedHost } from '../mobile/src/hosts'
 import NewChatScreen from '../mobile/src/NewChatScreen'
 import type { RemoteWorkspaceSnapshot } from '../src/shared/remote-access'
 
@@ -12,6 +13,8 @@ import type { RemoteWorkspaceSnapshot } from '../src/shared/remote-access'
  * to leave what was typed intact so it can be retried, and the screen must navigate only on an id
  * the host vouched for - never optimistically, because there would be no chat behind it.
  */
+
+const HOST: SavedHost = { id: 'host-1', name: 'Work PC', origin: 'http://work-pc:1789', token: 'pairing-token' }
 
 const SNAPSHOT: RemoteWorkspaceSnapshot = {
   updatedAt: 1_000,
@@ -31,7 +34,7 @@ function deferredPost(): {
   let settle: ((response: Response) => void) | null = null
   let sent = '{}'
   const fetch = vi.fn((path: string, init?: RequestInit) => {
-    if (path === '/api/workspace') {
+    if (path === `${HOST.origin}/api/workspace`) {
       return Promise.resolve(new Response(JSON.stringify(SNAPSHOT), { status: 200 }))
     }
     sent = typeof init?.body === 'string' ? init.body : '{}'
@@ -53,7 +56,7 @@ function renderScreen(fetchStub: ReturnType<typeof vi.fn>): void {
   vi.stubGlobal('fetch', fetchStub)
   render(
     <NewChatScreen
-      token="pairing-token"
+      host={HOST}
       onBack={() => undefined}
       onUnauthorized={() => {
         unauthorized += 1

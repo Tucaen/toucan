@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { RemoteWorkspaceSnapshot } from '../../src/shared/remote-access'
 import { EMPTY_REMOTE_WORKSPACE_SNAPSHOT } from '../../src/shared/remote-access'
+import type { SavedHost } from './hosts'
 import { initialNewChatForm, newChatProblem, newChatRequest, NEW_CHAT_KINDS, type NewChatForm } from './new-chat'
 import { createChat, fetchWorkspace } from './remote-client'
 
@@ -16,12 +17,13 @@ import { createChat, fetchWorkspace } from './remote-client'
  * reader might fix and retry rather than retype.
  */
 export default function NewChatScreen({
-  token,
+  host,
   onBack,
   onUnauthorized,
   onSpawned
 }: {
-  token: string
+  /** The host the chat is started on: the project list and the spawn are both its own. */
+  host: SavedHost
   onBack(): void
   onUnauthorized(): void
   onSpawned(chatId: string): void
@@ -38,7 +40,7 @@ export default function NewChatScreen({
   useEffect(() => {
     let cancelled = false
     const controller = new AbortController()
-    void fetchWorkspace(token, controller.signal).then((result) => {
+    void fetchWorkspace(host, controller.signal).then((result) => {
       if (cancelled) return
       if (result.ok) {
         setSnapshot(result.value)
@@ -55,7 +57,7 @@ export default function NewChatScreen({
       cancelled = true
       controller.abort()
     }
-  }, [token])
+  }, [host])
 
   const blocked = useMemo(
     () => (snapshot ? newChatProblem(form, snapshot) : 'Reading the workspace…'),
@@ -66,7 +68,7 @@ export default function NewChatScreen({
     if (!snapshot || blocked) return
     setBusy(true)
     setProblem(null)
-    const result = await createChat(token, newChatRequest(form))
+    const result = await createChat(host, newChatRequest(form))
     if (result.ok) {
       onSpawned(result.value)
       return

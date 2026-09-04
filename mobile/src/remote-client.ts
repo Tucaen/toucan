@@ -1,67 +1,98 @@
 import type { RemoteWorkspaceSnapshot } from '../../src/shared/remote-access'
 import type { RemoteChatSpawnRequest } from '../../src/shared/remote-spawn'
+import {
+  EMPTY_HOST_DIRECTORY,
+  hostApiUrl,
+  migratedHostDirectory,
+  newHostId,
+  parseHostDirectory,
+  type HostDirectory,
+  type HostEndpoint
+} from './hosts'
 
 /**
- * The phone's side of pairing. The host is implicit - it is whatever origin served this page - so
- * the only thing a device has to hold is the token, and it is sent as a bearer header on every
- * request, never in a URL where it would land in logs and history.
+ * The phone's side of talking to a host. Every request is addressed to one saved host and carries
+ * that host's token as a bearer header, never in a URL where it would land in logs and history.
  *
- * `localStorage` is the right home for it: it is per device and per origin, which is exactly the
- * scope of a pairing, and it survives the reloads a phone browser does on its own.
+ * The host is *explicit*, which is the whole difference from the single-host slice: this client is
+ * served by one host but may hold connections to another, so a relative `/api/workspace` would
+ * always ask whoever served the page. Paths are still absolute against the host's origin, because
+ * the host serves this client's shell at any path so a reload lands somewhere usable - a relative
+ * path would resolve against whatever route the browser happens to be on.
  *
- * API paths are absolute. The host serves this client's shell at any path so a reload lands
- * somewhere usable, so a relative `api/workspace` would resolve against whatever path the browser
- * happens to be on and quietly ask the wrong place.
+ * `localStorage` is the right home for what has to persist: it is per device and per origin, which
+ * is exactly the scope of a pairing, and it survives the reloads a phone browser does on its own.
+ * Every read and write is wrapped, because private browsing and blocked site data both throw here -
+ * and losing the saved hosts must cost this session's convenience, never the ability to pair.
  */
-const TOKEN_KEY = 'toucan.pairing-token'
+const HOSTS_KEY = 'toucan.hosts'
 
-export function storedToken(): string | null {
+/** The single-host slice's key. Read once, migrated into a host, then removed. */
+const LEGACY_TOKEN_KEY = 'toucan.pairing-token'
+
+export function storedHostDirectory(): HostDirectory {
   try {
-    return window.localStorage.getItem(TOKEN_KEY)
+    const raw = window.localStorage.getItem(HOSTS_KEY)
+    if (raw !== null) return parseHostDirectory(JSON.parse(raw))
+    return migratedLegacyPairing()
   } catch {
-    // Private browsing and blocked site data both throw here. Pairing still works for the
-    // session; it just will not be remembered.
-    return null
+    return EMPTY_HOST_DIRECTORY
   }
 }
 
-export function rememberToken(token: string): void {
+export function rememberHostDirectory(directory: HostDirectory): void {
   try {
-    window.localStorage.setItem(TOKEN_KEY, token)
+    window.localStorage.setItem(HOSTS_KEY, JSON.stringify(directory))
   } catch {
-    /* Not remembering a token is a worse session, not a failed pairing. */
-  }
-}
-
-export function forgetToken(): void {
-  try {
-    window.localStorage.removeItem(TOKEN_KEY)
-  } catch {
-    /* Nothing to do: the in-memory token is cleared by the caller either way. */
+    /* Not remembering the host list is a worse session, not a failed pairing. */
   }
 }
 
 /**
- * An unsent message, retained on this device only. Not drafts *sync* - the desktop never sees
- * this and never will - but the phone's own retention, which is what keeps the acceptance
- * criterion honest: a token revoked mid-compose unmounts the whole chat screen on its way back to
- * pairing, and the reader must find their text again afterwards rather than retype it. Also
- * covers what phone browsers do unasked: evicting a background tab.
+ * A device paired before there was a host list still holds a valid token for the host that served
+ * it, so that pairing becomes the first saved entry rather than something the user redoes.
+ */
+function migratedLegacyPairing(): HostDirectory {
+  const token = window.localStorage.getItem(LEGACY_TOKEN_KEY)
+  if (token === null || token.length === 0) return EMPTY_HOST_DIRECTORY
+  const migrated = migratedHostDirectory(token, window.location.origin, newHostId())
+  rememberHostDirectory(migrated)
+  try {
+    window.localStorage.removeItem(LEGACY_TOKEN_KEY)
+  } catch {
+    /* A key left behind is harmless: the migration only runs when no host list exists. */
+  }
+  return migrated
+}
+
+/**
+ * An unsent message, retained on this device only. Not drafts *sync* - the desktop never sees this
+ * and never will - but the phone's own retention, which is what keeps the acceptance criterion
+ * honest: a token revoked mid-compose unmounts the whole chat screen on its way back to pairing,
+ * and the reader must find their text again afterwards rather than retype it. Also covers what
+ * phone browsers do unasked: evicting a background tab.
+ *
+ * Keyed by host as well as chat, because a chat id only identifies a node on the host that minted
+ * it and two hosts can hand out the same one.
  */
 const DRAFT_KEY_PREFIX = 'toucan.draft.'
 
-export function storedDraft(chatId: string): string {
+function draftKey(hostId: string, chatId: string): string {
+  return `${DRAFT_KEY_PREFIX}${hostId}.${chatId}`
+}
+
+export function storedDraft(hostId: string, chatId: string): string {
   try {
-    return window.localStorage.getItem(DRAFT_KEY_PREFIX + chatId) ?? ''
+    return window.localStorage.getItem(draftKey(hostId, chatId)) ?? ''
   } catch {
     return ''
   }
 }
 
-export function rememberDraft(chatId: string, draft: string): void {
+export function rememberDraft(hostId: string, chatId: string, draft: string): void {
   try {
-    if (draft.length === 0) window.localStorage.removeItem(DRAFT_KEY_PREFIX + chatId)
-    else window.localStorage.setItem(DRAFT_KEY_PREFIX + chatId, draft)
+    if (draft.length === 0) window.localStorage.removeItem(draftKey(hostId, chatId))
+    else window.localStorage.setItem(draftKey(hostId, chatId), draft)
   } catch {
     /* Blocked site data costs retention, not the ability to send. */
   }
@@ -77,12 +108,17 @@ export type RemoteResult<T> = { ok: true; value: T } | ({ ok: false } & RemoteFa
  * status is *not* one of them: only the caller knows whether the body carries a reason worth
  * reading, so the response is handed over whatever it says and `request` decides for the callers
  * that have nothing to read.
+ *
+ * A cross-host request that the browser blocks - CORS refused, a plain-HTTP host from an HTTPS
+ * page - throws here exactly like an unreachable one, and is reported as unreachable. That is the
+ * honest reading: from the phone's side the host cannot be talked to, and the switcher says which
+ * host it is.
  */
-async function send(path: string, token: string, init: RequestInit = {}): Promise<RemoteResult<Response>> {
+async function send(path: string, host: HostEndpoint, init: RequestInit = {}): Promise<RemoteResult<Response>> {
   try {
-    const response = await fetch(path, {
+    const response = await fetch(hostApiUrl(host.origin, path), {
       ...init,
-      headers: { ...init.headers, authorization: `Bearer ${token}` },
+      headers: { ...init.headers, authorization: `Bearer ${host.token}` },
       cache: 'no-store'
     })
     return response.status === 401 ? { ok: false, kind: 'unauthorized' } : { ok: true, value: response }
@@ -91,27 +127,29 @@ async function send(path: string, token: string, init: RequestInit = {}): Promis
   }
 }
 
-async function request(path: string, token: string, signal?: AbortSignal): Promise<RemoteResult<Response>> {
-  const result = await send(path, token, signal ? { signal } : {})
+async function request(path: string, host: HostEndpoint, signal?: AbortSignal): Promise<RemoteResult<Response>> {
+  const result = await send(path, host, signal ? { signal } : {})
   if (!result.ok) return result
   if (!result.value.ok) return { ok: false, kind: 'unreachable', message: `Host replied ${result.value.status}` }
   return result
 }
 
 /**
- * Checks a token the moment it is entered. Without this the first wrong character would only show
- * up as an empty list, which reads as "nothing is running" rather than "you are not paired".
+ * Checks a token against a host. Two jobs, one request: it is the pairing screen's answer the
+ * moment a token is entered - without it the first wrong character would only show up as an empty
+ * list, which reads as "nothing is running" rather than "you are not paired" - and it is the
+ * cheapest thing to ask a saved host to find out whether it is still there.
  */
-export async function verifyToken(token: string): Promise<RemoteResult<true>> {
-  const result = await request('/api/pairing', token)
+export async function verifyHost(host: HostEndpoint, signal?: AbortSignal): Promise<RemoteResult<true>> {
+  const result = await request('/api/pairing', host, signal)
   return result.ok ? { ok: true, value: true } : result
 }
 
 export async function fetchWorkspace(
-  token: string,
+  host: HostEndpoint,
   signal?: AbortSignal
 ): Promise<RemoteResult<RemoteWorkspaceSnapshot>> {
-  const result = await request('/api/workspace', token, signal)
+  const result = await request('/api/workspace', host, signal)
   if (!result.ok) return result
   try {
     return { ok: true, value: (await result.value.json()) as RemoteWorkspaceSnapshot }
@@ -129,8 +167,8 @@ export async function fetchWorkspace(
  * wording - no window open, a session that died, a project that has since been closed - because
  * every one of those is something the reader can act on, and none of them is "try again".
  */
-export async function createChat(token: string, spawn: RemoteChatSpawnRequest): Promise<RemoteResult<string>> {
-  const sent = await send('/api/chats', token, {
+export async function createChat(host: HostEndpoint, spawn: RemoteChatSpawnRequest): Promise<RemoteResult<string>> {
+  const sent = await send('/api/chats', host, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(spawn)

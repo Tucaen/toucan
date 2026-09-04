@@ -973,3 +973,81 @@ describe('spawning a chat over HTTP', () => {
     assert.equal(response.headers.get('allow'), 'POST')
   })
 })
+
+/**
+ * The cross-origin half of multiple hosts. The phone is served by one host and holds connections to
+ * another, so every reply has to be readable from a page the host did not serve - and the reply that
+ * matters most is the `401`, because without CORS headers a browser turns it into an opaque network
+ * error and the client cannot tell a revoked token from an unreachable PC.
+ */
+describe('cross-origin requests from a client another host served', () => {
+  async function listening(): Promise<Harness> {
+    const created = harness()
+    await created.server.applySettings({ enabled: true, port: await freePort() })
+    return created
+  }
+
+  async function options(port: number, path: string): Promise<Response> {
+    return fetch(`http://127.0.0.1:${port}${path}`, {
+      method: 'OPTIONS',
+      headers: {
+        origin: 'http://other-host:1789',
+        'access-control-request-method': 'POST',
+        'access-control-request-headers': 'authorization, content-type'
+      }
+    })
+  }
+
+  test('a preflight is answered without the token it is asking permission to send', async () => {
+    const created = await listening()
+    // The gate cannot apply here: a browser sends the preflight *without* the Authorization header,
+    // so requiring the token would refuse every cross-host request before it was ever attempted.
+    for (const path of ['/api/workspace', '/api/pairing', '/api/chats']) {
+      const response = await options(created.port(), path)
+      assert.equal(response.status, 204, path)
+      assert.equal(response.headers.get('access-control-allow-origin'), '*')
+      assert.match(response.headers.get('access-control-allow-headers') ?? '', /authorization/)
+      assert.match(response.headers.get('access-control-allow-methods') ?? '', /POST/)
+    }
+  })
+
+  test('an authorized reply is readable cross-origin, and grants no ambient authority', async () => {
+    const created = await listening()
+    created.server.publishWorkspace({ projects: [], chats: [] })
+    const response = await created.get('/api/workspace', created.store.read().token)
+    assert.equal(response.status, 200)
+    assert.equal(response.headers.get('access-control-allow-origin'), '*')
+    // `*` is only safe because there is nothing ambient to send: no cookies, no session, so a
+    // hostile page reaching a tailnet host has no way to be authorized. Allowing credentials
+    // alongside `*` would be exactly the mistake this asserts against.
+    assert.equal(response.headers.get('access-control-allow-credentials'), null)
+  })
+
+  test('a refusal is readable too, so a revoked token does not present itself as an outage', async () => {
+    const created = await listening()
+    const response = await created.get('/api/workspace', 'not-the-token')
+    assert.equal(response.status, 401)
+    assert.equal(response.headers.get('access-control-allow-origin'), '*')
+  })
+
+  test('the client bundle is served without them: a navigation has no use for CORS', async () => {
+    const created = harness({ clientFiles: { 'index.html': '<!doctype html>' } })
+    await created.server.applySettings({ enabled: true, port: await freePort() })
+    const response = await created.get('/')
+    assert.equal(response.status, 200)
+    // Scoped to the API and its preflights, which is the spec's "authorized bearer requests" read
+    // literally: nothing else on this host is meant to be read cross-origin by script.
+    assert.equal(response.headers.get('access-control-allow-origin'), null)
+  })
+
+  test('a preflight is not a way past the method rules of the request that follows', async () => {
+    const created = await listening()
+    // Answering the preflight says what the host permits, not that a `PUT` will be served.
+    const response = await fetch(`http://127.0.0.1:${created.port()}/api/workspace`, {
+      method: 'PUT',
+      headers: { authorization: `Bearer ${created.store.read().token}` }
+    })
+    assert.equal(response.status, 405)
+    assert.equal(response.headers.get('allow'), 'GET, HEAD')
+  })
+})

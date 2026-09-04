@@ -952,3 +952,203 @@ body {
   background: #3a3350;
   color: #8c85a0;
 }
+
+/*
+ * Saved hosts. One phone drives several PCs, so which host is being driven and whether it is
+ * answering are permanent fixtures of the header rather than something behind a menu - and the
+ * reachability dot is one rule shared by the header and the host list, so a host can never read as
+ * two different states on two screens.
+ */
+
+.host-dot {
+  width: 9px;
+  height: 9px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--ink-faint);
+}
+
+.host-dot[data-reachability='online'] {
+  background: #6fd08c;
+}
+
+.host-dot[data-reachability='offline'] {
+  background: #f3b3bf;
+}
+
+.host-dot[data-reachability='unpaired'] {
+  background: var(--unread);
+}
+
+.host-switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 62%;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-dim);
+  font-size: 13px;
+  text-align: left;
+}
+
+.host-switch-name {
+  overflow: hidden;
+  color: var(--ink);
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.host-switch-state {
+  flex: none;
+  color: var(--ink-faint);
+  font-size: 11px;
+}
+
+.host-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.host-row {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--raised);
+}
+
+.host-row[data-selected] {
+  border-color: var(--accent);
+}
+
+.host {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+}
+
+.host .host-dot {
+  margin-top: 6px;
+}
+
+.host-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.host-copy strong {
+  font-size: 16px;
+}
+
+.host-copy small {
+  overflow: hidden;
+  color: var(--ink-faint);
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.host-state {
+  font-family: inherit !important;
+  white-space: normal !important;
+}
+
+.host-state[data-reachability='offline'] {
+  color: #f3b3bf;
+}
+
+.host-state[data-reachability='unpaired'] {
+  color: var(--unread);
+}
+
+.host-problem {
+  color: #f3b3bf !important;
+  font-family: inherit !important;
+  line-height: 1.5;
+  white-space: normal !important;
+}
+
+.host-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.host-actions button {
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-dim);
+  font-size: 13px;
+}
+
+.host-actions .host-remove {
+  border-color: #6d3340;
+  color: #f3b3bf;
+}
+
+.host-rename {
+  display: grid;
+  gap: 10px;
+}
+
+.host-rename label {
+  display: grid;
+  gap: 6px;
+}
+
+.host-rename label span {
+  color: var(--ink-faint);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.host-rename input {
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #101520;
+  color: var(--ink);
+  font-size: 16px;
+}
+
+.host-rename button {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ink);
+  font-size: 15px;
+}
+
+/* The add form's Cancel must not look like the action that saves a pairing. */
+.pairing button[type='button'] {
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--ink-dim);
+  font-weight: 500;
+}
+
+.new-chat:disabled {
+  background: #2a2f3b;
+  color: var(--ink-faint);
+}
