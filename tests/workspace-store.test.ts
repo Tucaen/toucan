@@ -644,3 +644,21 @@ test('refuses to write a project colour that is not a stored #rrggbb', async () 
 
   rmSync(directory, { recursive: true, force: true })
 })
+
+test("a project's tickets folder override round-trips, and a non-string one is refused", async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'toucan-tickets-directory-'))
+  const store = createWorkspaceStore(join(directory, 'workspace.json'))
+  const state = makeState('tickets')
+  const project = { ...state.projects[0], ticketsDirectory: 'notes/tickets' }
+
+  assert.equal((await store.save({ ...state, projects: [project] })).ok, true)
+  assert.equal((await store.load()).state?.projects[0].ticketsDirectory, 'notes/tickets')
+
+  const refused = await store.save({
+    ...state,
+    projects: [{ ...project, ticketsDirectory: 7 as unknown as string }]
+  })
+  assert.equal(refused.ok, false)
+
+  rmSync(directory, { recursive: true, force: true })
+})

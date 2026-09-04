@@ -71,6 +71,11 @@ export interface WorkspaceProject extends ProjectDirectory {
   setupCommand?: string
   /** The group this project sits in; absent means top level. Dangling ids are dropped on load. */
   groupId?: string
+  /**
+   * Where this project keeps its Markdown tickets, relative to its root. Absent means
+   * `DEFAULT_TICKETS_DIRECTORY` in `shared/tickets.ts`.
+   */
+  ticketsDirectory?: string
 }
 
 /**

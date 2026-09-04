@@ -65,7 +65,8 @@ function hasValidProjects(
       typeof project.path === 'string' &&
       isProjectColor(project.color) &&
       (project.setupCommand === undefined || typeof project.setupCommand === 'string') &&
-      (project.groupId === undefined || typeof project.groupId === 'string')
+      (project.groupId === undefined || typeof project.groupId === 'string') &&
+      (project.ticketsDirectory === undefined || typeof project.ticketsDirectory === 'string')
   )
 }
 

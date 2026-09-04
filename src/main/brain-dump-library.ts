@@ -10,35 +10,12 @@ import type {
   BrainDumpTopic
 } from '../shared/brain-dump'
 import { BRAIN_DUMP_OUTCOMES, isBrainDumpSlug } from '../shared/brain-dump'
+import { parseFrontmatter, rewriteFrontmatter } from '../shared/frontmatter'
 import { pathExists, syncPromotedFile, writeNewFileDurably } from './durable-file'
 
 export interface BrainDumpLibraryOptions {
   rootDirectory: string
   today: () => string
-}
-
-interface ParsedDocument {
-  fields: Map<string, string>
-  lines: string[]
-  closing: number
-}
-
-function parseDocument(markdown: string): ParsedDocument {
-  const lines = markdown.split('\n')
-  if (lines[0] !== '---') throw new Error('Topic must start with YAML frontmatter.')
-  const closing = lines.indexOf('---', 1)
-  if (closing < 0) throw new Error('Topic frontmatter must have a closing --- delimiter.')
-  const fields = new Map<string, string>()
-  for (let index = 1; index < closing; index += 1) {
-    const match = /^([A-Za-z][A-Za-z0-9_-]*):\s*(.*?)\s*$/.exec(lines[index])
-    if (!match) {
-      if (/^(?:\s|#|$)/.test(lines[index])) continue
-      throw new Error(`Invalid frontmatter line ${index + 1}.`)
-    }
-    if (fields.has(match[1])) throw new Error(`Duplicate frontmatter field "${match[1]}".`)
-    fields.set(match[1], match[2])
-  }
-  return { fields, lines, closing }
 }
 
 function date(value: string | undefined, name: string): string {
@@ -63,7 +40,9 @@ function projectPath(value: string | undefined): string | undefined {
 }
 
 export function parseBrainDumpTopic(markdown: string, slug: string, collection: BrainDumpCollection): BrainDumpTopic {
-  const { fields } = parseDocument(markdown)
+  const parsed = parseFrontmatter(markdown, 'Topic')
+  if (!parsed.ok) throw new Error(parsed.message)
+  const { fields } = parsed
   const title = fields.get('title')?.trim()
   if (!title) throw new Error('title is required.')
   const created = date(fields.get('created'), 'created')
@@ -88,23 +67,6 @@ export function parseBrainDumpTopic(markdown: string, slug: string, collection: 
     ...(archived ? { archived } : {}),
     markdown
   }
-}
-
-function mutateFrontmatter(markdown: string, updates: Record<string, string | undefined>): string {
-  const parsed = parseDocument(markdown)
-  const remaining = new Map(Object.entries(updates))
-  const output = [parsed.lines[0]]
-  for (let index = 1; index < parsed.closing; index += 1) {
-    const key = /^([A-Za-z][A-Za-z0-9_-]*):/.exec(parsed.lines[index])?.[1]
-    if (key && remaining.has(key)) {
-      const value = remaining.get(key)
-      if (value !== undefined) output.push(`${key}: ${value}`)
-      remaining.delete(key)
-    } else output.push(parsed.lines[index])
-  }
-  for (const [key, value] of remaining) if (value !== undefined) output.push(`${key}: ${value}`)
-  output.push(...parsed.lines.slice(parsed.closing))
-  return output.join('\n')
 }
 
 export function createBrainDumpLibrary(options: BrainDumpLibraryOptions): BrainDumpLibraryApi {
@@ -180,7 +142,7 @@ export function createBrainDumpLibrary(options: BrainDumpLibraryOptions): BrainD
   ): Promise<string> {
     const markdown = await readFile(pathFor(sourceCollection, slug), 'utf8')
     parseBrainDumpTopic(markdown, slug, sourceCollection)
-    const transformed = mutateFrontmatter(markdown, updates)
+    const transformed = rewriteFrontmatter(markdown, updates)
     parseBrainDumpTopic(transformed, slug, destinationCollection)
     return transformed
   }
