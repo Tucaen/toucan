@@ -18,6 +18,8 @@
     "src/main/brain-dump-watcher.ts",
     "src/main/brain-dump-migration.ts",
     "src/main/durable-file.ts",
+    "src/main/file-view.ts",
+    "src/main/file-view-ipc.ts",
     "src/main/codex-model-cache.ts",
     "src/main/codex-rate-limits.ts",
     "src/main/claude-usage.ts",
@@ -36,6 +38,7 @@
     "mobile/src/chat-connection.ts",
     "mobile/src/chat-view.ts",
     "src/renderer/src/canvas-workspace.ts",
+    "src/renderer/src/file-node.ts",
     "src/renderer/src/node-picker-menu-position.ts",
     "src/shared/**/*.ts"
   ]

@@ -19,6 +19,7 @@ const pureRendererFeatureNames = [
   'completion-token',
   'decision-message',
   'file-mention-completion',
+  'file-node',
   'file-operation',
   'image-attachment-contract',
   'mcp-tool-call',

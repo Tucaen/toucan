@@ -18,6 +18,8 @@ import {
 import { createBrainDumpCaptureStore } from './brain-dump-capture-store'
 import { registerBrainDumpIpc } from './brain-dump-ipc'
 import { createBrainDumpChangeWatcher, type BrainDumpChangeWatcher } from './brain-dump-watcher'
+import { createFileView, type FileView } from './file-view'
+import { registerFileViewIpc } from './file-view-ipc'
 import { createGithubIssueReader } from './github-issues'
 import { registerGithubIssuesIpc } from './github-issues-ipc'
 import { registerTicketIpc } from './ticket-ipc'
@@ -238,6 +240,7 @@ function createWindow(
   brainDumpCapture: BrainDumpCaptureManager,
   brainDumpChanges: BrainDumpChangeWatcher,
   ticketChanges: TicketChangeWatcher,
+  fileView: FileView,
   remote: RemoteAccessServer,
   spawner: RemoteChatSpawner
 ): void {
@@ -275,6 +278,7 @@ function createWindow(
     brainDumpCapture.disconnectOwner(contents as unknown as BrainDumpCaptureOwner)
     brainDumpChanges.disconnectOwner(contents)
     ticketChanges.disconnectOwner(contents)
+    fileView.disconnectOwner(contents)
   })
 
   if (process.env.ELECTRON_RENDERER_URL) {
@@ -394,6 +398,15 @@ void app.whenReady().then(async () => {
       projectFor(projectPath, (await workspace.load()).state?.projects ?? [])?.githubInProgressLabel
     )
   const ticketChanges = createTicketChangeWatcher({ directoryFor: ticketsFolderFor })
+  // A file node may read anywhere inside a registered project or one of its worktrees and nowhere
+  // else. The roots come from the snapshot per call, so a project added a moment ago is readable
+  // and one removed a moment ago is not - fail closed, like brain-dump project assignment.
+  const fileView = createFileView({
+    roots: async () => {
+      const state = (await workspace.load()).state
+      return [...(state?.projects.map(({ path }) => path) ?? []), ...(state?.worktrees.map(({ path }) => path) ?? [])]
+    }
+  })
   // Spawning is the one remote operation main cannot perform alone: the canvas owns node identity,
   // geometry and working-directory resolution, so a phone's "New chat" is a request the desktop
   // window runs through its own add-node path and reports the verdict on.
@@ -455,6 +468,7 @@ void app.whenReady().then(async () => {
     createGithubIssueReader({ resolveCommand: findCommand, statusLabelsFor: githubLabelsFor })
   )
   registerWorktreeIpc(worktrees)
+  registerFileViewIpc(ipcMain as unknown as Parameters<typeof registerFileViewIpc>[0], fileView)
   registerWorkspaceFileIpc(createWorkspaceFileIndex())
   registerUsageIpc(
     createProviderUsage({
@@ -471,11 +485,20 @@ void app.whenReady().then(async () => {
   )
   registerProjectIpc(workspace)
   registerRemoteIpc(ipcMain, remote, chatSpawner)
-  createWindow(manager, agentManager, brainDumpCapture, brainDumpChanges, ticketChanges, remote, chatSpawner)
+  createWindow(manager, agentManager, brainDumpCapture, brainDumpChanges, ticketChanges, fileView, remote, chatSpawner)
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0)
-      createWindow(manager, agentManager, brainDumpCapture, brainDumpChanges, ticketChanges, remote, chatSpawner)
+      createWindow(
+        manager,
+        agentManager,
+        brainDumpCapture,
+        brainDumpChanges,
+        ticketChanges,
+        fileView,
+        remote,
+        chatSpawner
+      )
   })
   app.on('before-quit', () => {
     manager.killAll()
@@ -483,6 +506,7 @@ void app.whenReady().then(async () => {
     brainDumpCapture.shutdown()
     brainDumpChanges.shutdown()
     ticketChanges.shutdown()
+    fileView.shutdown()
     void remote.shutdown()
   })
 })

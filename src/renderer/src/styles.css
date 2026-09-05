@@ -6010,3 +6010,237 @@ button {
   letter-spacing: 0.05em;
   text-transform: uppercase;
 }
+
+/* ---- File nodes -------------------------------------------------------- */
+
+.file-icon {
+  color: #74d8a2;
+  background: rgba(116, 216, 162, 0.12);
+}
+
+.file-node {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid #3a4a44;
+  border-radius: 11px;
+  background: #0f1412;
+  box-shadow:
+    0 18px 55px rgba(0, 0, 0, 0.4),
+    0 0 16px rgba(116, 216, 162, 0.1);
+}
+
+.file-node.selected {
+  box-shadow:
+    0 0 0 2px rgba(116, 216, 162, 0.3),
+    0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.file-node-header {
+  background: #151c19;
+  border-bottom-color: #26332d;
+}
+
+.file-node-header strong {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-node-glyph {
+  display: grid;
+  place-items: center;
+  color: #74d8a2;
+}
+
+.file-node-glyph svg {
+  width: 16px;
+  height: 16px;
+}
+
+.file-node-path {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: #687280;
+  font-family: Consolas, monospace;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-node-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+}
+
+.file-node-actions button {
+  padding: 3px 8px;
+  border: 1px solid #2f3d37;
+  border-radius: 6px;
+  background: transparent;
+  color: #b9c0cb;
+  font-family: Consolas, monospace;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.file-node-actions button:hover {
+  border-color: #74d8a2;
+  color: #e6f5ec;
+}
+
+.file-node-view-toggle {
+  display: inline-flex;
+  border: 1px solid #2f3d37;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.file-node-view-toggle button {
+  border: 0;
+  border-radius: 0;
+}
+
+.file-node-view-toggle button[aria-pressed='true'] {
+  background: rgba(116, 216, 162, 0.16);
+  color: #e6f5ec;
+}
+
+.file-node-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px 16px 24px;
+  cursor: text;
+}
+
+.file-node-body[data-view='raw'] {
+  padding: 8px 0 20px;
+}
+
+.file-node-prose {
+  max-width: 72ch;
+}
+
+.file-node-notice {
+  margin: 0 0 10px;
+  color: #9aa3b0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.file-node-body[data-view='raw'] .file-node-notice {
+  padding: 0 16px;
+}
+
+.file-node-notice[data-reason='not-found'],
+.file-node-notice[data-reason='outside-workspace'] {
+  color: #df737a;
+}
+
+.file-node-lines {
+  font:
+    12px/1.55 Consolas,
+    monospace;
+}
+
+.file-node-line {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 10px;
+  padding-right: 16px;
+  color: #c3cad5;
+  white-space: pre;
+}
+
+.file-node-line:hover {
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.file-node-line-number {
+  padding-left: 12px;
+  color: #4f5866;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  user-select: none;
+}
+
+.file-node-line-text code {
+  padding: 0;
+  background: none;
+  font: inherit;
+}
+
+.file-node-inert-link {
+  color: #a9b3c1;
+  text-decoration: underline dotted;
+}
+
+/* ---- File picker ------------------------------------------------------- */
+
+.file-picker-dialog {
+  width: min(640px, calc(100vw - 48px));
+}
+
+.file-picker-search {
+  width: 100%;
+}
+
+.file-picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: min(48vh, 400px);
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.file-picker-row {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: #cbd2dc;
+  font-family: Consolas, monospace;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.file-picker-row svg {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  color: #74d8a2;
+}
+
+.file-picker-row span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-picker-row:hover,
+.file-picker-row[data-active='true'] {
+  border-color: #3a3350;
+  background: #23272f;
+}
+
+.file-picker-note {
+  color: #6f7a89 !important;
+  font-size: 11px !important;
+}

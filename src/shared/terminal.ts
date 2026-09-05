@@ -1,5 +1,6 @@
 import type { AgentProvider, AgentTurnOutcome } from './agent'
 import type { AttentionItem } from './attention'
+import type { WorkspaceFileNode } from './file-view'
 import type { WorkspaceWorktree } from './worktree'
 import type { ConversationTitleSource } from './conversation-title'
 
@@ -189,6 +190,11 @@ export interface WorkspaceState {
    */
   attention?: AttentionItem[]
   worktrees: WorkspaceWorktree[]
+  /**
+   * File nodes on the canvas. Absent in every snapshot written before they existed, and written
+   * only when there is at least one, so a workspace without them keeps its old snapshot shape.
+   */
+  files?: WorkspaceFileNode[]
   /** Absent in every snapshot written before the library existed; the panel starts closed there. */
   brainDumpPanel?: BrainDumpPanelState
   /** Absent in every snapshot written before the board existed; the panel starts closed there. */

@@ -15,6 +15,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ClipboardList,
+  FileText,
   FolderPlus,
   GitBranch,
   GripVertical,
@@ -49,6 +50,7 @@ import type {
   WorkspaceTerminalNode
 } from '../../shared/terminal'
 import type { WorktreeRemovalBlocker } from '../../shared/worktree'
+import type { FileViewMode } from '../../shared/file-view'
 import toucanLogo from './assets/toucan-logo.svg'
 import { placeholderBranchName, type WorktreeHandoffPlan } from '../../shared/worktree-handoff'
 import {
@@ -70,7 +72,9 @@ import { createTicketGithubSource } from './ticket-github-source'
 import TicketBoardPanel from './TicketBoardPanel'
 import {
   closedSessionKeyAction,
+  createFileCanvasNode,
   DEFAULT_WORKTREE_SIZE,
+  isFileCanvasNode,
   isTerminalCanvasNode,
   isWorktreeCanvasNode,
   NODE_DRAG_HANDLE,
@@ -78,6 +82,7 @@ import {
   reopenClosedSession,
   restoreCanvasWorkspace,
   serializeCanvasNode,
+  serializeFileNode,
   serializeWorktreeNode,
   cascadedNodePosition,
   type CanvasNode,
@@ -92,6 +97,10 @@ import { RemoteAccessDialog } from './RemoteAccessDialog'
 import { useRemoteAccess } from './use-remote-access'
 import type { RemoteChatSpawnRequest, RemoteChatSpawnResult } from '../../shared/remote-spawn'
 import ConversationHistoryDialog from './ConversationHistoryDialog'
+import FileNode from './FileNode'
+import FilePickerDialog from './FilePickerDialog'
+import { OpenFileContext } from './open-file-context'
+import { projectOwningPath } from './file-node'
 import {
   groupDropTarget,
   moveGroup,
@@ -138,7 +147,7 @@ interface ContextMenuState {
 /** How often Toucan re-checks git for worktrees it has no record of. */
 const WORKTREE_SWEEP_INTERVAL_MS = 15000
 
-const nodeTypes: NodeTypes = { terminalNode: SessionNode, worktreeNode: WorktreeNode }
+const nodeTypes: NodeTypes = { terminalNode: SessionNode, worktreeNode: WorktreeNode, fileNode: FileNode }
 
 const labels: Record<TerminalKind, string> = {
   terminal: 'Terminal',
@@ -238,6 +247,8 @@ function Canvas(): JSX.Element {
   // Where a conversation picked from the history browser lands, captured when the browser opens
   // so the node still appears where the user right-clicked.
   const [historyDrop, setHistoryDrop] = useState<{ x: number; y: number } | null>(null)
+  /** Where the file picked from the canvas menu will land; open while the picker is shown. */
+  const [filePickerDrop, setFilePickerDrop] = useState<{ x: number; y: number } | null>(null)
   // The brain-dump library is global rather than per-project, so the workspace owns its persisted
   // panel state and the panel itself only renders it.
   const [brainDumpPanel, setBrainDumpPanel] = useState<BrainDumpPanelState>({
@@ -410,6 +421,19 @@ function Canvas(): JSX.Element {
     [patchTerminalNode]
   )
 
+  const handleFileViewModeChange = useCallback(
+    (nodeId: string, view: FileViewMode): void => {
+      setNodes((current) =>
+        current.map((node) =>
+          isFileCanvasNode(node) && node.id === nodeId && node.data.view !== view
+            ? { ...node, data: { ...node.data, view } }
+            : node
+        )
+      )
+    },
+    [setNodes]
+  )
+
   const handlePermissionModeChange = useCallback(
     (provider: keyof AgentPermissionModes, modeId: string): void => {
       setAgentPermissionModes((current) =>
@@ -530,7 +554,12 @@ function Canvas(): JSX.Element {
               })
           }
         }
-        const next = rememberClosedSessionNodes(recentlyClosedNodesRef.current, removedNodes)
+        // A file node is layout, not a session: closing one is not an accidental close worth
+        // undoing, and it must not wipe the reopen stack the way closing a worktree node does.
+        const next = rememberClosedSessionNodes(
+          recentlyClosedNodesRef.current,
+          removedNodes.filter((node) => !isFileCanvasNode(node))
+        )
         recentlyClosedNodesRef.current = next
         setRecentlyClosedNodes(next)
         setNodeStatuses((current) =>
@@ -1038,7 +1067,8 @@ function Canvas(): JSX.Element {
         onWorktreeHandoff: dispatchWorktreeHandoff,
         onRemoveWorktree: handleRemoveWorktree,
         onCreateNodeInWorktree: handleCreateNodeInWorktree,
-        onRunSetupCommand: handleRunSetupCommand
+        onRunSetupCommand: handleRunSetupCommand,
+        onViewModeChange: handleFileViewModeChange
       })
 
       setProjects(saved.projects)
@@ -1078,6 +1108,7 @@ function Canvas(): JSX.Element {
       handleConversationId,
       handleCreateNodeInWorktree,
       handleDraftChange,
+      handleFileViewModeChange,
       handleFocusModeChange,
       handleModelChange,
       handleTurnOutcome,
@@ -1117,6 +1148,15 @@ function Canvas(): JSX.Element {
       worktrees: nodes.filter(isWorktreeCanvasNode).map((node) => {
         return serializeWorktreeNode(nodeBeforeTemporaryFit(node, nodeFit.state()))
       }),
+      // Absent rather than empty, like `projectGroups`, so a canvas that never opened a file keeps
+      // writing the snapshot shape it always did.
+      ...(nodes.some(isFileCanvasNode)
+        ? {
+            files: nodes
+              .filter(isFileCanvasNode)
+              .map((node) => serializeFileNode(nodeBeforeTemporaryFit(node, nodeFit.state())))
+          }
+        : {}),
       brainDumpPanel,
       ticketBoardPanel
     }),
@@ -1371,6 +1411,60 @@ function Canvas(): JSX.Element {
     setMenu(null)
   }, [activeProject, menu])
 
+  const openFilePicker = useCallback((): void => {
+    if (!menu || !activeProject) return
+    setFilePickerDrop({ x: menu.flowX, y: menu.flowY })
+    setMenu(null)
+  }, [activeProject, menu])
+
+  /** Puts one file on the canvas as a node; the node reads and watches the file itself. */
+  const addFileNode = useCallback(
+    (path: string, project: Project, position: { x: number; y: number }): void => {
+      const node = createFileCanvasNode({ id: `file-${crypto.randomUUID()}`, path, position }, project, {
+        onViewModeChange: handleFileViewModeChange
+      })
+      setNodes((current) => [
+        ...current.map((candidate) => ({ ...candidate, selected: false })),
+        { ...node, selected: true }
+      ])
+    },
+    [handleFileViewModeChange, setNodes]
+  )
+
+  const openPickedFile = useCallback(
+    (path: string): void => {
+      if (!filePickerDrop || !activeProject) return
+      addFileNode(path, activeProject, filePickerDrop)
+      setFilePickerDrop(null)
+    },
+    [activeProject, addFileNode, filePickerDrop]
+  )
+
+  /**
+   * "Open" on a transcript's file card. The file belongs to whichever project's checkout or
+   * worktree contains it - a worktree session's file must not be filed under another project just
+   * because that one is active - and falls back to the active project only for a path outside
+   * every root, where the node will report that the file is not readable.
+   */
+  const openFileFromCard = useCallback(
+    (path: string): void => {
+      const owningId = projectOwningPath(path, [
+        ...projectsRef.current.map((project) => ({ projectId: project.id, root: project.path })),
+        ...nodesRef.current
+          .filter(isWorktreeCanvasNode)
+          .map((node) => ({ projectId: node.data.projectId, root: node.data.path }))
+      ])
+      const owner =
+        projectsRef.current.find((project) => project.id === owningId) ??
+        projectsRef.current.find((project) => project.id === activeProjectId) ??
+        projectsRef.current[0]
+      if (!owner) return
+      const centre = screenToFlowPosition({ x: window.innerWidth / 2, y: window.innerHeight / 2 })
+      addFileNode(path, owner, cascadedNodePosition(nodesRef.current, centre))
+    },
+    [activeProjectId, addFileNode, screenToFlowPosition]
+  )
+
   /**
    * A browsed conversation reopens as a node resumed onto it, attached to whichever worktree it
    * originally ran in so it keeps writing where it always did.
@@ -1506,11 +1600,11 @@ function Canvas(): JSX.Element {
       setNodes((current) =>
         current.map((node) => {
           if (node.data.projectId !== projectId) return node
-          // `projectColor` is on both node kinds, so this is one patch - but the node type is a
-          // union, and TypeScript only keeps the discriminant when each half is built separately.
-          return isTerminalCanvasNode(node)
-            ? { ...node, data: { ...node.data, projectColor: color } }
-            : { ...node, data: { ...node.data, projectColor: color } }
+          // `projectColor` is on every node kind, so this is one patch - but the node type is a
+          // union, and TypeScript only keeps the discriminant when each member is built separately.
+          if (isTerminalCanvasNode(node)) return { ...node, data: { ...node.data, projectColor: color } }
+          if (isWorktreeCanvasNode(node)) return { ...node, data: { ...node.data, projectColor: color } }
+          return { ...node, data: { ...node.data, projectColor: color } }
         })
       )
     },
@@ -2128,21 +2222,23 @@ function Canvas(): JSX.Element {
 
             <section ref={canvasRegionRef} className="canvas-region">
               <NodeFitContext.Provider value={nodeFit.toggle}>
-                <ReactFlow
-                  nodes={nodes}
-                  nodeTypes={nodeTypes}
-                  onNodesChange={handleNodesChange}
-                  onPaneContextMenu={openContextMenu}
-                  onPaneClick={() => setMenu(null)}
-                  minZoom={0.25}
-                  maxZoom={2}
-                  defaultViewport={{ x: 0, y: 0, zoom: 1 }}
-                  colorMode="dark"
-                  deleteKeyCode={['Backspace', 'Delete']}
-                >
-                  <Background variant={BackgroundVariant.Dots} gap={24} size={1.2} color="#303744" />
-                  <Controls showInteractive={false} position="bottom-left" />
-                </ReactFlow>
+                <OpenFileContext.Provider value={openFileFromCard}>
+                  <ReactFlow
+                    nodes={nodes}
+                    nodeTypes={nodeTypes}
+                    onNodesChange={handleNodesChange}
+                    onPaneContextMenu={openContextMenu}
+                    onPaneClick={() => setMenu(null)}
+                    minZoom={0.25}
+                    maxZoom={2}
+                    defaultViewport={{ x: 0, y: 0, zoom: 1 }}
+                    colorMode="dark"
+                    deleteKeyCode={['Backspace', 'Delete']}
+                  >
+                    <Background variant={BackgroundVariant.Dots} gap={24} size={1.2} color="#303744" />
+                    <Controls showInteractive={false} position="bottom-left" />
+                  </ReactFlow>
+                </OpenFileContext.Provider>
               </NodeFitContext.Provider>
             </section>
 
@@ -2245,7 +2341,25 @@ function Canvas(): JSX.Element {
                   <small>Resume a past conversation</small>
                 </span>
               </button>
+              <button type="button" role="menuitem" onClick={() => openFilePicker()}>
+                <span className="menu-icon file-icon">
+                  <FileText aria-hidden="true" />
+                </span>
+                <span>
+                  <strong>File…</strong>
+                  <small>Read a project file on the canvas</small>
+                </span>
+              </button>
             </div>
+          )}
+
+          {filePickerDrop && activeProject && (
+            <FilePickerDialog
+              projectName={activeProject.name}
+              root={activeProject.path}
+              onCancel={() => setFilePickerDrop(null)}
+              onOpen={openPickedFile}
+            />
           )}
 
           {historyDrop && activeProject && (
