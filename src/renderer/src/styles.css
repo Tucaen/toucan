@@ -1098,9 +1098,11 @@ button {
   background: #2a313c;
 }
 
-.context-menu button span:last-child {
+.context-menu button span:last-of-type {
   display: grid;
   gap: 2px;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .context-menu small {
@@ -6242,4 +6244,17 @@ button {
 .file-picker-note {
   color: #6f7a89 !important;
   font-size: 11px !important;
+}
+
+.context-menu kbd {
+  flex: 0 0 auto;
+  align-self: flex-start;
+  padding: 2px 5px;
+  border: 1px solid #3a4351;
+  border-radius: 5px;
+  color: #8f99a8;
+  background: #1f252e;
+  font-family: inherit;
+  font-size: 11px;
+  white-space: nowrap;
 }

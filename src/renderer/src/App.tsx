@@ -72,6 +72,9 @@ import { createTicketGithubSource } from './ticket-github-source'
 import TicketBoardPanel from './TicketBoardPanel'
 import {
   closedSessionKeyAction,
+  createNodeKeyAction,
+  type CreateNodeKeyAction,
+  NODE_SHORTCUT_LABELS,
   createFileCanvasNode,
   DEFAULT_WORKTREE_SIZE,
   isFileCanvasNode,
@@ -148,6 +151,12 @@ interface ContextMenuState {
 const WORKTREE_SWEEP_INTERVAL_MS = 15000
 
 const nodeTypes: NodeTypes = { terminalNode: SessionNode, worktreeNode: WorktreeNode, fileNode: FileNode }
+
+const SESSION_KIND_BY_ACTION = {
+  'create-terminal': 'terminal',
+  'create-claude': 'claude',
+  'create-codex': 'codex'
+} as const
 
 const labels: Record<TerminalKind, string> = {
   terminal: 'Terminal',
@@ -652,28 +661,6 @@ function Canvas(): JSX.Element {
       width: clampBrainDumpPanelWidth(current.width, window.innerWidth)
     }))
   }, [])
-
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent): void => {
-      const target = event.target as HTMLElement | null
-      const editingText =
-        target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || !!target?.isContentEditable
-      if (brainDumpPanelKeyAction(event, { panelOpen: brainDumpOpenRef.current, editingText }) === 'toggle-panel') {
-        event.preventDefault()
-        toggleBrainDumpPanel()
-        return
-      }
-      if (ticketBoardKeyAction(event) === 'toggle-panel') {
-        event.preventDefault()
-        toggleTicketBoardPanel()
-        return
-      }
-      if (closedSessionKeyAction(event, recentlyClosedNodesRef.current.length > 0) !== 'reopen') return
-      if (reopenLastClosedSession()) event.preventDefault()
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [reopenLastClosedSession, toggleBrainDumpPanel, toggleTicketBoardPanel])
 
   // The panel takes real layout width, so a smaller window must narrow it rather than let it push
   // the canvas off-screen.
@@ -1375,17 +1362,6 @@ function Canvas(): JSX.Element {
     [activeProject, screenToFlowPosition]
   )
 
-  // A node created from the canvas runs in the project checkout; attaching to a worktree is
-  // always an explicit act, either from the worktree node or by creating the worktree first.
-  const createNode = useCallback(
-    (kind: TerminalKind): void => {
-      if (!menu || !activeProject) return
-      addSessionNode({ kind, project: activeProject, position: { x: menu.flowX, y: menu.flowY } })
-      setMenu(null)
-    },
-    [activeProject, addSessionNode, menu]
-  )
-
   /** Transcripts belong to a working directory, so browsing spans the checkout and its worktrees. */
   const historyDirectories = useMemo(() => {
     if (!activeProject) return []
@@ -1405,17 +1381,94 @@ function Canvas(): JSX.Element {
     return labelsByPath
   }, [activeProject, nodes])
 
-  const openHistoryBrowser = useCallback((): void => {
-    if (!menu || !activeProject) return
-    setHistoryDrop({ x: menu.flowX, y: menu.flowY })
-    setMenu(null)
-  }, [activeProject, menu])
+  /**
+   * One entry of the canvas context menu, run at a canvas position. A node created from the canvas
+   * runs in the project checkout; attaching to a worktree is always an explicit act, either from the
+   * worktree node or by creating the worktree first.
+   */
+  const runCreateAction = useCallback(
+    (action: Exclude<CreateNodeKeyAction, 'none'>, position: { x: number; y: number }): void => {
+      if (!activeProject) return
+      const project = activeProject
+      switch (action) {
+        case 'create-terminal':
+        case 'create-claude':
+        case 'create-codex':
+          addSessionNode({ kind: SESSION_KIND_BY_ACTION[action], project, position })
+          break
+        case 'create-worktree':
+          setWorktreeDraft({ projectId: project.id, branch: '', baseRef: '', position, busy: false, error: null })
+          break
+        case 'open-history':
+          setHistoryDrop(position)
+          break
+        case 'open-file':
+          setFilePickerDrop(position)
+          break
+      }
+    },
+    [activeProject, addSessionNode]
+  )
 
-  const openFilePicker = useCallback((): void => {
-    if (!menu || !activeProject) return
-    setFilePickerDrop({ x: menu.flowX, y: menu.flowY })
-    setMenu(null)
-  }, [activeProject, menu])
+  const runCreateActionFromMenu = useCallback(
+    (action: Exclude<CreateNodeKeyAction, 'none'>): void => {
+      if (!menu) return
+      runCreateAction(action, { x: menu.flowX, y: menu.flowY })
+      setMenu(null)
+    },
+    [menu, runCreateAction]
+  )
+
+  /** A shortcut has no click position, so its node lands at the viewport centre and cascades clear. */
+  const viewportCentreDropPosition = useCallback(
+    (): { x: number; y: number } =>
+      cascadedNodePosition(
+        nodesRef.current,
+        screenToFlowPosition({ x: window.innerWidth / 2, y: window.innerHeight / 2 })
+      ),
+    [screenToFlowPosition]
+  )
+
+  // While a picker, draft or dialog is open the create shortcuts do nothing, so a node cannot
+  // appear behind it. The panels are fine: they dock beside the canvas rather than cover it.
+  const dialogOpen = !!(filePickerDrop || historyDrop || worktreeDraft || removalPrompt || remoteAccessOpen)
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      const target = event.target as HTMLElement | null
+      const editingText =
+        target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || !!target?.isContentEditable
+      if (brainDumpPanelKeyAction(event, { panelOpen: brainDumpOpenRef.current, editingText }) === 'toggle-panel') {
+        event.preventDefault()
+        toggleBrainDumpPanel()
+        return
+      }
+      if (ticketBoardKeyAction(event) === 'toggle-panel') {
+        event.preventDefault()
+        toggleTicketBoardPanel()
+        return
+      }
+      if (closedSessionKeyAction(event, recentlyClosedNodesRef.current.length > 0) === 'reopen') {
+        if (reopenLastClosedSession()) event.preventDefault()
+        return
+      }
+      const editingTerminal = !!target?.closest('.terminal-host')
+      const action = createNodeKeyAction(event, { editingTerminal })
+      if (action === 'none' || dialogOpen) return
+      event.preventDefault()
+      setMenu(null)
+      runCreateAction(action, viewportCentreDropPosition())
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [
+    dialogOpen,
+    reopenLastClosedSession,
+    runCreateAction,
+    toggleBrainDumpPanel,
+    toggleTicketBoardPanel,
+    viewportCentreDropPosition
+  ])
 
   /** Puts one file on the canvas as a node; the node reads and watches the file itself. */
   const addFileNode = useCallback(
@@ -1515,19 +1568,6 @@ function Canvas(): JSX.Element {
     },
     [activeProjectId, addSessionNode, screenToFlowPosition]
   )
-
-  const startWorktreeDraft = useCallback((): void => {
-    if (!menu || !activeProject) return
-    setWorktreeDraft({
-      projectId: activeProject.id,
-      branch: '',
-      baseRef: '',
-      position: { x: menu.flowX, y: menu.flowY },
-      busy: false,
-      error: null
-    })
-    setMenu(null)
-  }, [activeProject, menu])
 
   const confirmWorktreeDraft = useCallback((): void => {
     const draft = worktreeDraft
@@ -2296,7 +2336,7 @@ function Canvas(): JSX.Element {
               onClick={(event) => event.stopPropagation()}
             >
               <p>Create in {activeProject.name}</p>
-              <button type="button" role="menuitem" onClick={() => createNode('terminal')}>
+              <button type="button" role="menuitem" onClick={() => runCreateActionFromMenu('create-terminal')}>
                 <span className="menu-icon terminal-icon">
                   <SessionKindIcon kind="terminal" />
                 </span>
@@ -2304,8 +2344,9 @@ function Canvas(): JSX.Element {
                   <strong>Terminal</strong>
                   <small>Windows shell</small>
                 </span>
+                <kbd>{NODE_SHORTCUT_LABELS['create-terminal']}</kbd>
               </button>
-              <button type="button" role="menuitem" onClick={() => createNode('claude')}>
+              <button type="button" role="menuitem" onClick={() => runCreateActionFromMenu('create-claude')}>
                 <span className="menu-icon claude-icon">
                   <SessionKindIcon kind="claude" />
                 </span>
@@ -2313,8 +2354,9 @@ function Canvas(): JSX.Element {
                   <strong>Claude</strong>
                   <small>Unified ACP chat</small>
                 </span>
+                <kbd>{NODE_SHORTCUT_LABELS['create-claude']}</kbd>
               </button>
-              <button type="button" role="menuitem" onClick={() => createNode('codex')}>
+              <button type="button" role="menuitem" onClick={() => runCreateActionFromMenu('create-codex')}>
                 <span className="menu-icon codex-icon">
                   <SessionKindIcon kind="codex" />
                 </span>
@@ -2322,8 +2364,9 @@ function Canvas(): JSX.Element {
                   <strong>Codex</strong>
                   <small>Unified ACP chat</small>
                 </span>
+                <kbd>{NODE_SHORTCUT_LABELS['create-codex']}</kbd>
               </button>
-              <button type="button" role="menuitem" onClick={() => startWorktreeDraft()}>
+              <button type="button" role="menuitem" onClick={() => runCreateActionFromMenu('create-worktree')}>
                 <span className="menu-icon worktree-icon">
                   <GitBranch aria-hidden="true" />
                 </span>
@@ -2331,8 +2374,9 @@ function Canvas(): JSX.Element {
                   <strong>Worktree</strong>
                   <small>Isolated branch for parallel work</small>
                 </span>
+                <kbd>{NODE_SHORTCUT_LABELS['create-worktree']}</kbd>
               </button>
-              <button type="button" role="menuitem" onClick={() => openHistoryBrowser()}>
+              <button type="button" role="menuitem" onClick={() => runCreateActionFromMenu('open-history')}>
                 <span className="menu-icon history-icon">
                   <History aria-hidden="true" />
                 </span>
@@ -2340,8 +2384,9 @@ function Canvas(): JSX.Element {
                   <strong>History</strong>
                   <small>Resume a past conversation</small>
                 </span>
+                <kbd>{NODE_SHORTCUT_LABELS['open-history']}</kbd>
               </button>
-              <button type="button" role="menuitem" onClick={() => openFilePicker()}>
+              <button type="button" role="menuitem" onClick={() => runCreateActionFromMenu('open-file')}>
                 <span className="menu-icon file-icon">
                   <FileText aria-hidden="true" />
                 </span>
@@ -2349,6 +2394,7 @@ function Canvas(): JSX.Element {
                   <strong>File…</strong>
                   <small>Read a project file on the canvas</small>
                 </span>
+                <kbd>{NODE_SHORTCUT_LABELS['open-file']}</kbd>
               </button>
             </div>
           )}

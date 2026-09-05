@@ -9,6 +9,9 @@ workspace state is stored locally and the Windows x64 portable build is not yet 
 - Keeps multiple projects, terminals, and coding-agent conversations visible on one
   zoomable canvas. Every node can temporarily fit the visible canvas and then restore its
   exact previous position and size from the header.
+- Creates every canvas node type from the context menu or from the keyboard: `Ctrl+T` terminal,
+  `Ctrl+N` Claude, `Ctrl+Shift+N` Codex, `Ctrl+Shift+G` worktree, `Ctrl+H` history browser and
+  `Ctrl+P` file. A shortcut drops its node at the viewport centre and yields inside a terminal.
 - Runs Claude and Codex through provider-neutral ACP chat nodes with sign-in, approvals,
   model and effort controls, slash commands, Markdown, file attachments, and local voice
   dictation.

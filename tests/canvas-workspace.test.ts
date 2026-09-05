@@ -3,6 +3,9 @@ import { test } from 'node:test'
 import {
   CLOSED_SESSION_STACK_LIMIT,
   closedSessionKeyAction,
+  createNodeKeyAction,
+  NODE_SHORTCUT_LABELS,
+  type ShortcutKey,
   isTerminalCanvasNode,
   isWorktreeCanvasNode,
   rememberClosedSessionNodes,
@@ -337,6 +340,64 @@ test('the reopen shortcut falls through unless Ctrl+Shift+T can restore a sessio
   assert.equal(closedSessionKeyAction(key({ ctrlKey: false }), true), 'none')
   assert.equal(closedSessionKeyAction(key({ altKey: true }), true), 'none')
   assert.equal(closedSessionKeyAction(key({ key: 'R' }), true), 'none')
+})
+
+test('each node type has a direct Ctrl shortcut that mirrors the context menu', () => {
+  const key = (overrides: Partial<ShortcutKey> = {}): ShortcutKey => ({
+    key: 'p',
+    ctrlKey: true,
+    shiftKey: false,
+    altKey: false,
+    metaKey: false,
+    ...overrides
+  })
+  const canvas = { editingTerminal: false }
+
+  assert.equal(createNodeKeyAction(key(), canvas), 'open-file')
+  assert.equal(createNodeKeyAction(key({ key: 'P' }), canvas), 'open-file')
+  assert.equal(createNodeKeyAction(key({ key: 't' }), canvas), 'create-terminal')
+  assert.equal(createNodeKeyAction(key({ key: 'n' }), canvas), 'create-claude')
+  assert.equal(createNodeKeyAction(key({ key: 'N', shiftKey: true }), canvas), 'create-codex')
+  assert.equal(createNodeKeyAction(key({ key: 'h' }), canvas), 'open-history')
+  assert.equal(createNodeKeyAction(key({ key: 'G', shiftKey: true }), canvas), 'create-worktree')
+  // Shift changes the meaning, so a shifted key without a shifted binding does nothing.
+  assert.equal(createNodeKeyAction(key({ key: 'P', shiftKey: true }), canvas), 'none')
+  assert.equal(createNodeKeyAction(key({ key: 'g' }), canvas), 'none')
+  // Ctrl+Shift+T stays the reopen shortcut.
+  assert.equal(createNodeKeyAction(key({ key: 'T', shiftKey: true }), canvas), 'none')
+  assert.equal(createNodeKeyAction(key({ ctrlKey: false }), canvas), 'none')
+  assert.equal(createNodeKeyAction(key({ altKey: true }), canvas), 'none')
+  assert.equal(createNodeKeyAction(key({ metaKey: true }), canvas), 'none')
+  // A held key repeats; only the first press may create a node.
+  assert.equal(createNodeKeyAction(key({ repeat: true }), canvas), 'none')
+})
+
+test('node shortcuts stay out of a focused terminal, where Ctrl+P, Ctrl+N, Ctrl+H and Ctrl+T are shell keys', () => {
+  const key = (k: string, shiftKey = false): ShortcutKey => ({
+    key: k,
+    ctrlKey: true,
+    shiftKey,
+    altKey: false,
+    metaKey: false
+  })
+  const terminal = { editingTerminal: true }
+  assert.equal(createNodeKeyAction(key('p'), terminal), 'none')
+  assert.equal(createNodeKeyAction(key('n'), terminal), 'none')
+  assert.equal(createNodeKeyAction(key('h'), terminal), 'none')
+  assert.equal(createNodeKeyAction(key('t'), terminal), 'none')
+  assert.equal(createNodeKeyAction(key('N', true), terminal), 'none')
+  assert.equal(createNodeKeyAction(key('G', true), terminal), 'none')
+})
+
+test('the menu hints are derived from the same bindings the handler reads', () => {
+  assert.deepEqual(NODE_SHORTCUT_LABELS, {
+    'create-terminal': 'Ctrl+T',
+    'create-claude': 'Ctrl+N',
+    'create-codex': 'Ctrl+Shift+N',
+    'create-worktree': 'Ctrl+Shift+G',
+    'open-history': 'Ctrl+H',
+    'open-file': 'Ctrl+P'
+  })
 })
 
 test('reopening takes the newest closed session and resumes it at its saved position', () => {

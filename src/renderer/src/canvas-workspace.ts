@@ -152,15 +152,18 @@ export const NODE_DRAG_HANDLE = '.node-header'
 /** Enough accidental closes to be useful without letting a workspace snapshot grow forever. */
 export const CLOSED_SESSION_STACK_LIMIT = RECENTLY_CLOSED_SESSION_LIMIT
 
-interface ClosedSessionShortcutKey {
+/** The subset of `KeyboardEvent` the canvas shortcuts read, so callers can test without a DOM. */
+export interface ShortcutKey {
   key: string
   ctrlKey: boolean
   shiftKey: boolean
   altKey: boolean
   metaKey: boolean
+  /** True while a held key auto-repeats; a shortcut that creates something must fire only once. */
+  repeat?: boolean
 }
 
-export function closedSessionKeyAction(event: ClosedSessionShortcutKey, hasClosedSession: boolean): 'reopen' | 'none' {
+export function closedSessionKeyAction(event: ShortcutKey, hasClosedSession: boolean): 'reopen' | 'none' {
   return hasClosedSession &&
     event.key.toLocaleLowerCase() === 't' &&
     event.ctrlKey &&
@@ -169,6 +172,46 @@ export function closedSessionKeyAction(event: ClosedSessionShortcutKey, hasClose
     !event.metaKey
     ? 'reopen'
     : 'none'
+}
+
+/** One entry of the canvas context menu, reachable from the keyboard without opening the menu. */
+export type CreateNodeKeyAction =
+  'create-terminal' | 'create-claude' | 'create-codex' | 'create-worktree' | 'open-history' | 'open-file' | 'none'
+
+/**
+ * Ctrl+P mirrors VS Code's quick-open for the file node; the others follow the same "Ctrl plus the
+ * node's initial" idea, with Shift for the secondary agent and for the worktree (Ctrl+Shift+G is
+ * VS Code's source-control view). Ctrl+Alt is deliberately unused: on German layouts it is AltGr
+ * and types characters. Ctrl+Shift+T is taken by `closedSessionKeyAction`.
+ */
+const NODE_SHORTCUTS: readonly { action: Exclude<CreateNodeKeyAction, 'none'>; key: string; shift: boolean }[] = [
+  { action: 'create-terminal', key: 't', shift: false },
+  { action: 'create-claude', key: 'n', shift: false },
+  { action: 'create-codex', key: 'n', shift: true },
+  { action: 'create-worktree', key: 'g', shift: true },
+  { action: 'open-history', key: 'h', shift: false },
+  { action: 'open-file', key: 'p', shift: false }
+]
+
+/** Shown beside each menu entry so the shortcuts are discoverable where the mouse already is. */
+export const NODE_SHORTCUT_LABELS = Object.fromEntries(
+  NODE_SHORTCUTS.map(({ action, key, shift }) => [action, `Ctrl+${shift ? 'Shift+' : ''}${key.toLocaleUpperCase()}`])
+) as Record<Exclude<CreateNodeKeyAction, 'none'>, string>
+
+export interface CreateNodeKeyContext {
+  /** Whether the key went to a terminal, where Ctrl+P/N/H/T are readline keys the shell must keep. */
+  editingTerminal: boolean
+}
+
+/**
+ * Text fields are fine - none of these keys mean anything in an input - but a terminal owns them,
+ * so the shortcut yields there. A held key repeats the event and would otherwise spawn a node per
+ * repeat, so only the first press counts.
+ */
+export function createNodeKeyAction(event: ShortcutKey, context: CreateNodeKeyContext): CreateNodeKeyAction {
+  if (context.editingTerminal || event.repeat || !event.ctrlKey || event.altKey || event.metaKey) return 'none'
+  const key = event.key.toLocaleLowerCase()
+  return NODE_SHORTCUTS.find((binding) => binding.key === key && binding.shift === event.shiftKey)?.action ?? 'none'
 }
 
 export function isTerminalCanvasNode(node: CanvasNode): node is TerminalCanvasNode {
