@@ -1435,7 +1435,9 @@ function Canvas(): JSX.Element {
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent): void => {
-      const target = event.target as HTMLElement | null
+      // Not every keydown target is an element - the document and window fire these too, and
+      // neither has closest()/isContentEditable.
+      const target = event.target instanceof HTMLElement ? event.target : null
       const editingText =
         target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || !!target?.isContentEditable
       if (brainDumpPanelKeyAction(event, { panelOpen: brainDumpOpenRef.current, editingText }) === 'toggle-panel') {
