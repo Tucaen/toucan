@@ -1,6 +1,6 @@
 ---
 title: Make voice input accurate enough to use, and add it to the mobile companion
-status: open
+status: done
 created: 2026-09-05
 updated: 2026-09-05
 ---
