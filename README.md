@@ -136,8 +136,7 @@ npm run package:win
 This produces two x64 artifacts in `dist/`:
 
 - `Toucan-Setup-0.1.0-x64.exe` - an NSIS installer. It installs per user (no admin rights),
-  lets you choose the directory, adds Start menu and desktop shortcuts, and is removed again
-  through Settings > Apps. Prefer this one; in-place updates will build on it.
+  lets you choose the directory, and is removed again through Settings > Apps. Prefer this one; in-place updates will build on it.
 - `Toucan-0.1.0-portable-x64.exe` - a single executable that needs no installer and cannot
   update itself.
 
