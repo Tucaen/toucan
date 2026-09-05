@@ -1731,10 +1731,11 @@ button {
   scrollbar-width: thin;
 }
 
-/* React Flow disables selection on nodes; restore native copy selection in chat content. */
+/* React Flow disables selection on nodes; restore native copy selection in chat and file content. */
 .chat-scroll,
 .chat-dormant blockquote,
-.chat-composer textarea {
+.chat-composer textarea,
+.file-node-body {
   -webkit-user-select: text;
   user-select: text;
 }
@@ -6117,6 +6118,8 @@ button {
   flex: 1;
   min-height: 0;
   overflow: auto;
+  scrollbar-color: #3b4553 transparent;
+  scrollbar-width: thin;
   padding: 12px 16px 24px;
   cursor: text;
 }
@@ -6125,8 +6128,10 @@ button {
   padding: 8px 0 20px;
 }
 
+/* A reading-width cap, centred so the column follows the node when it is widened past it. */
 .file-node-prose {
   max-width: 72ch;
+  margin: 0 auto;
 }
 
 .file-node-notice {

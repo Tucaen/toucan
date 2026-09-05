@@ -185,3 +185,36 @@ test('serialization reads the restore geometry only for the fitted node', () => 
   equal(nodeBeforeTemporaryFit({ ...fitted, id: 'b' }, fit).position.x, 16)
   equal(nodeBeforeTemporaryFit(fitted, null), fitted)
 })
+
+// React Flow's resize control writes the new size to the node's `width`/`height` attributes, and
+// those outrank `style` when the node is rendered. A fit or restore after a manual resize must
+// therefore rewrite them too, or the node only moves while keeping its old size.
+test('fit and restore rewrite the size attributes a manual resize left on the node', () => {
+  const nodes = [
+    {
+      id: 'a',
+      position: { x: 10, y: 20 },
+      data: {},
+      width: 420,
+      height: 452,
+      style: { width: 480, height: 560 },
+      measured: { width: 420, height: 452 }
+    }
+  ]
+  const fitted = requestNodeFit(nodes, null, 'a', { width: 1000, height: 700 }, { x: 0, y: 0, zoom: 1 }, 16)
+  equal(fitted.nodes[0].width, 968)
+  equal(fitted.nodes[0].height, 668)
+  deepEqual(fitted.fit?.restoreGeometry, { position: { x: 10, y: 20 }, width: 420, height: 452 })
+
+  const restored = nodeBeforeTemporaryFit(fitted.nodes[0], fitted.fit)
+  equal(restored.width, 420)
+  equal(restored.height, 452)
+  deepEqual(restored.style, { width: 420, height: 452 })
+})
+
+test('fit leaves the size attributes alone on a node that never had them', () => {
+  const nodes = [{ id: 'a', position: { x: 10, y: 20 }, data: {}, style: { width: 300, height: 200 } }]
+  const fitted = requestNodeFit(nodes, null, 'a', { width: 1000, height: 700 }, { x: 0, y: 0, zoom: 1 }, 16)
+  equal('width' in fitted.nodes[0], false)
+  equal('height' in fitted.nodes[0], false)
+})

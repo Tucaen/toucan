@@ -43,11 +43,18 @@ export function renderedNodeGeometry(node: Node): NodeGeometry | null {
   return width > 0 && height > 0 ? { position: { ...node.position }, width, height } : null
 }
 
-/** Projects geometry onto a React Flow node without changing any other runtime fields. */
+/**
+ * Projects geometry onto a React Flow node without changing any other runtime fields. A manual
+ * resize leaves the new size on the node's `width`/`height` attributes, and React Flow renders
+ * those in preference to `style` - so when they are present they are rewritten as well, or a fit
+ * after a resize would move the node while leaving it at its old size.
+ */
 export function nodeAtGeometry<T extends Node>(node: T, geometry: NodeGeometry): T {
   return {
     ...node,
     position: geometry.position,
+    ...(node.width !== undefined ? { width: geometry.width } : {}),
+    ...(node.height !== undefined ? { height: geometry.height } : {}),
     style: { ...node.style, width: geometry.width, height: geometry.height },
     measured: { ...node.measured, width: geometry.width, height: geometry.height }
   }
