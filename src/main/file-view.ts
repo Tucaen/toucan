@@ -1,7 +1,12 @@
 import { watch } from 'node:fs'
-import { open, realpath, stat } from 'node:fs/promises'
-import { basename, dirname, relative, resolve, isAbsolute } from 'node:path'
-import { FILE_VIEW_MAX_BYTES, type FileReadResult } from '../shared/file-view'
+import { open, realpath, rename, stat, unlink } from 'node:fs/promises'
+import { basename, dirname, join, relative, resolve, isAbsolute } from 'node:path'
+import {
+  FILE_VIEW_MAX_BYTES,
+  type FileReadResult,
+  type FileWriteRequest,
+  type FileWriteResult
+} from '../shared/file-view'
 
 const DEFAULT_DEBOUNCE_MS = 100
 
@@ -25,6 +30,7 @@ type WatchDirectory = (
 
 export interface FileView {
   read(path: string): Promise<FileReadResult>
+  write(request: FileWriteRequest): Promise<FileWriteResult>
   watch(path: string, owner: FileViewOwner): Promise<void>
   unwatch(path: string, owner: FileViewOwner): void
   disconnectOwner(owner: FileViewOwner): void
@@ -56,6 +62,11 @@ interface FileWatch {
  * cannot turn a canvas node into a reader of arbitrary files. Reads are capped rather than
  * refused past the cap, because a truncated view of a huge log is still useful; a binary file is
  * reported as such instead of being decoded into noise.
+ *
+ * Writes go through the same guard and replace the file atomically - a temporary beside it,
+ * fsynced, renamed over - so a crash mid-save leaves the old file rather than a torn one. A save
+ * is refused as a conflict when the file's modification time is not the one the edit was based
+ * on: disk is truth, and the node shows the external change rather than overwriting it.
  *
  * Changes are watched through the file's directory, not the file itself: editors and agents
  * replace a file by writing a temporary and renaming it over, which a watch on the old inode
@@ -147,6 +158,57 @@ export function createFileView(options: FileViewOptions): FileView {
     }
   }
 
+  const write = async ({ path, content, baseMtime }: FileWriteRequest): Promise<FileWriteResult> => {
+    if (!(await insideWorkspace(path))) {
+      return {
+        ok: false,
+        reason: 'outside-workspace',
+        message: 'This file is outside every project and worktree in the workspace, so it is not written.'
+      }
+    }
+    const resolved = resolve(path)
+    let current
+    try {
+      current = await stat(resolved)
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      if (code === 'ENOENT' || code === 'ENOTDIR') {
+        return {
+          ok: false,
+          reason: 'not-found',
+          message: 'This file is not on disk any more, so the edit was not saved.'
+        }
+      }
+      return { ok: false, reason: 'unwritable', message: (error as Error).message }
+    }
+    if (current.isDirectory()) {
+      return { ok: false, reason: 'directory', message: 'This path is a folder, not a file.' }
+    }
+    if (current.mtime.toISOString() !== baseMtime) {
+      return {
+        ok: false,
+        reason: 'conflict',
+        message: 'This file changed on disk while you were editing it, so your version was not written over it.'
+      }
+    }
+    const temporary = join(dirname(resolved), `.${basename(resolved)}.${process.pid}.${Date.now()}.tmp`)
+    try {
+      const handle = await open(temporary, 'w', current.mode)
+      try {
+        await handle.writeFile(content, 'utf8')
+        await handle.sync()
+      } finally {
+        await handle.close()
+      }
+      await rename(temporary, resolved)
+    } catch (error) {
+      await unlink(temporary).catch(() => {})
+      return { ok: false, reason: 'unwritable', message: (error as Error).message }
+    }
+    const written = await stat(resolved)
+    return { ok: true, mtime: written.mtime.toISOString(), size: written.size }
+  }
+
   const release = (key: string): void => {
     const entry = watches.get(key)
     if (!entry) return
@@ -180,6 +242,7 @@ export function createFileView(options: FileViewOptions): FileView {
 
   return {
     read,
+    write,
     watch: async (path, owner) => {
       if (stopped) return
       const resolved = resolve(path)

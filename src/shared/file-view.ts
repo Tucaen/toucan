@@ -1,7 +1,7 @@
 /**
- * A file node shows one file from a project on the canvas, read-only. This is the vocabulary
- * both processes agree on: what a node persists, what a read returns, and how the renderer
- * reaches the file. Nothing here touches the filesystem.
+ * A file node shows one file from a project on the canvas and can save edits back to it. This is
+ * the vocabulary both processes agree on: what a node persists, what a read or write returns, and
+ * how the renderer reaches the file. Nothing here touches the filesystem.
  */
 
 export type FileViewMode = 'rendered' | 'raw'
@@ -43,8 +43,39 @@ export type FileReadResult =
     }
   | { ok: false; reason: FileReadFailure; message: string }
 
+export type FileWriteFailure =
+  /** The path resolves outside every registered project and worktree; write refused. */
+  | 'outside-workspace'
+  /** The file on disk is not the one the edit was based on: disk is truth, so nothing was written. */
+  | 'conflict'
+  | 'not-found'
+  | 'directory'
+  | 'unwritable'
+
+export interface FileWriteRequest {
+  path: string
+  /** The whole file, UTF-8. A node never writes part of a file. */
+  content: string
+  /**
+   * The `mtime` of the read the edit was made against. The write is refused as a `conflict` when
+   * the file on disk has a different one, so an external change is never overwritten silently.
+   */
+  baseMtime: string
+}
+
+export type FileWriteResult =
+  | {
+      ok: true
+      /** The written file's modification time, the base for the next edit. */
+      mtime: string
+      size: number
+    }
+  | { ok: false; reason: FileWriteFailure; message: string }
+
 export interface FileViewApi {
   read(path: string): Promise<FileReadResult>
+  /** Replaces the file's content atomically; main decides whether the path may be written at all. */
+  write(request: FileWriteRequest): Promise<FileWriteResult>
   /** Starts telling this window when the file changes on disk. Idempotent per window and path. */
   watch(path: string): Promise<void>
   unwatch(path: string): Promise<void>

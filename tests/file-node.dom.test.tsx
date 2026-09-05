@@ -1,19 +1,23 @@
+import { EditorView } from '@codemirror/view'
 import { ReactFlowProvider } from '@xyflow/react'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
-import type { FileReadResult } from '../src/shared/file-view'
+import type { FileReadResult, FileWriteRequest, FileWriteResult } from '../src/shared/file-view'
 import type { FileCanvasNode } from '../src/renderer/src/canvas-workspace'
 import FileNode from '../src/renderer/src/FileNode'
 
 /*
- * The file node (issue #143): one project file on the canvas, Markdown rendered by default with a
- * raw toggle, everything else raw only, live-updating, and honest about a file that is not there.
+ * The file node (issues #143 and #148): one project file on the canvas, Markdown rendered by default
+ * with a raw toggle, everything else raw only, live-updating, honest about a file that is not
+ * there - and editable, with disk as the truth when the two disagree.
  */
 
 const PATH = 'D:\\Development\\Toucan\\docs\\plan.md'
+const TEXT_PATH = 'D:\\Development\\Toucan\\notes.txt'
 
 interface Stub {
   read: ReturnType<typeof vi.fn>
+  write: ReturnType<typeof vi.fn>
   watch: ReturnType<typeof vi.fn>
   unwatch: ReturnType<typeof vi.fn>
   emitChange: (path: string) => void
@@ -21,9 +25,12 @@ interface Stub {
   showItemInFolder: ReturnType<typeof vi.fn>
 }
 
-function stubApis(result: FileReadResult): Stub {
+function stubApis(result: FileReadResult, write?: (request: FileWriteRequest) => Promise<FileWriteResult>): Stub {
   let listener: ((path: string) => void) | null = null
   const read = vi.fn(async () => result)
+  const writeStub = vi.fn(
+    write ?? (async (request: FileWriteRequest) => ({ ok: true, mtime: 'saved', size: request.content.length }))
+  )
   const watch = vi.fn(async () => undefined)
   const unwatch = vi.fn(async () => undefined)
   const copyText = vi.fn()
@@ -33,6 +40,7 @@ function stubApis(result: FileReadResult): Stub {
     writable: true,
     value: {
       read,
+      write: writeStub,
       watch,
       unwatch,
       onChange: (callback: (path: string) => void) => {
@@ -48,7 +56,7 @@ function stubApis(result: FileReadResult): Stub {
     writable: true,
     value: { copyText, showItemInFolder, openExternal: vi.fn(async () => undefined) }
   })
-  return { read, watch, unwatch, emitChange: (path) => listener?.(path), copyText, showItemInFolder }
+  return { read, write: writeStub, watch, unwatch, emitChange: (path) => listener?.(path), copyText, showItemInFolder }
 }
 
 afterEach(() => {
@@ -66,34 +74,57 @@ const ok = (content: string, extra: Partial<Extract<FileReadResult, { ok: true }
   ...extra
 })
 
-function renderNode(data: Partial<FileCanvasNode['data']> = {}): { onViewModeChange: ReturnType<typeof vi.fn> } {
+const node = (data: Partial<FileCanvasNode['data']>, onViewModeChange: ReturnType<typeof vi.fn>): JSX.Element => (
+  <ReactFlowProvider>
+    <FileNode
+      id="file-1"
+      type="fileNode"
+      selected={false}
+      dragging={false}
+      zIndex={0}
+      isConnectable={false}
+      positionAbsoluteX={0}
+      positionAbsoluteY={0}
+      data={{
+        path: PATH,
+        view: 'rendered',
+        projectId: 'project',
+        projectName: 'Toucan',
+        projectPath: 'D:\\Development\\Toucan',
+        projectColor: '#71a9ff',
+        onViewModeChange,
+        ...data
+      }}
+    />
+  </ReactFlowProvider>
+)
+
+function renderNode(data: Partial<FileCanvasNode['data']> = {}): {
+  onViewModeChange: ReturnType<typeof vi.fn>
+  unmount: () => void
+  rerender: (data: Partial<FileCanvasNode['data']>) => void
+} {
   const onViewModeChange = vi.fn()
-  render(
-    <ReactFlowProvider>
-      <FileNode
-        id="file-1"
-        type="fileNode"
-        selected={false}
-        dragging={false}
-        zIndex={0}
-        isConnectable={false}
-        positionAbsoluteX={0}
-        positionAbsoluteY={0}
-        data={{
-          path: PATH,
-          view: 'rendered',
-          projectId: 'project',
-          projectName: 'Toucan',
-          projectPath: 'D:\\Development\\Toucan',
-          projectColor: '#71a9ff',
-          onViewModeChange,
-          ...data
-        }}
-      />
-    </ReactFlowProvider>
-  )
-  return { onViewModeChange }
+  const { unmount, rerender } = render(node(data, onViewModeChange))
+  return { onViewModeChange, unmount, rerender: (next) => rerender(node(next, onViewModeChange)) }
 }
+
+/** The mounted CodeMirror view, found the way CodeMirror itself offers rather than through React. */
+async function editor(): Promise<EditorView> {
+  return waitFor(() => {
+    const element = document.querySelector('.cm-editor')
+    const view = element && EditorView.findFromDOM(element as HTMLElement)
+    if (!view) throw new Error('no editor mounted')
+    return view
+  })
+}
+
+/** Types by dispatching to the editor, which is what a keystroke ends up as. */
+function type(view: EditorView, text: string, at = view.state.doc.length): void {
+  act(() => view.dispatch({ changes: { from: at, insert: text } }))
+}
+
+const saveButton = (): HTMLElement => screen.getByRole('button', { name: 'Save' })
 
 test('renders Markdown by default and offers the raw view through the node, not local state', async () => {
   stubApis(ok('# Plan\n\nRead **this**.\n'))
@@ -102,34 +133,37 @@ test('renders Markdown by default and offers the raw view through the node, not 
   expect(await screen.findByRole('heading', { level: 1, name: 'Plan' })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: 'Rendered' })).toHaveAttribute('aria-pressed', 'true')
 
-  fireEvent.click(screen.getByRole('button', { name: 'Raw' }))
+  // The raw view is where editing happens, so for an editable file the toggle says so.
+  fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
   expect(onViewModeChange).toHaveBeenCalledWith('file-1', 'raw')
   // Clicking the already-active view is not a change.
   fireEvent.click(screen.getByRole('button', { name: 'Rendered' }))
   expect(onViewModeChange).toHaveBeenCalledTimes(1)
 })
 
-test('the raw view shows numbered source lines, and a non-Markdown file has no toggle', async () => {
+test('the raw view is a CodeMirror editor with numbered lines and a grammar picked from the file name', async () => {
   stubApis(ok('const a = 1\nconst b = 2\n'))
-  renderNode({ path: 'D:\\Development\\Toucan\\src\\index.ts', view: 'rendered' })
+  renderNode({ path: 'D:\\Development\\Toucan\\src\\index.tsx', view: 'rendered' })
 
-  await waitFor(() => expect(document.querySelectorAll('.file-node-line')).toHaveLength(2))
+  const view = await editor()
+  expect(view.state.doc.toString()).toBe('const a = 1\nconst b = 2\n')
   expect(screen.queryByRole('button', { name: 'Rendered' })).toBeNull()
-  expect(screen.queryByRole('button', { name: 'Raw' })).toBeNull()
-  const lines = document.querySelectorAll('.file-node-line')
-  // Highlighting splits a line into tokens; the line still reads as its source text.
-  expect(lines[1].querySelector('.file-node-line-text')?.textContent).toBe('const b = 2')
-  expect(lines[1].querySelector('.hljs-keyword')).not.toBeNull()
-  expect(lines[1].querySelector('.file-node-line-number')?.textContent).toBe('2')
+  expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull()
   expect(document.querySelector('.file-node-body')?.getAttribute('data-view')).toBe('raw')
+  expect(document.querySelector('.cm-lineNumbers')).not.toBeNull()
+  // `.tsx` is a grammar lowlight never had; CodeMirror's language data loads it and tokens get
+  // stable `tok-*` classes the stylesheet themes.
+  await waitFor(() => expect(document.querySelector('.cm-content .tok-keyword')).not.toBeNull())
+  expect(document.querySelectorAll('.cm-line')[1].textContent).toBe('const b = 2')
 })
 
 test('a Markdown file the reader switched to raw comes back raw', async () => {
   stubApis(ok('# Plan\n'))
   renderNode({ view: 'raw' })
-  await screen.findByText('# Plan')
+  const view = await editor()
+  expect(view.state.doc.toString()).toBe('# Plan\n')
   expect(screen.queryByRole('heading')).toBeNull()
-  expect(screen.getByRole('button', { name: 'Raw' })).toHaveAttribute('aria-pressed', 'true')
+  expect(screen.getByRole('button', { name: 'Edit' })).toHaveAttribute('aria-pressed', 'true')
 })
 
 test('a file that is gone keeps its node and says so', async () => {
@@ -140,6 +174,7 @@ test('a file that is gone keeps its node and says so', async () => {
   expect(notice.textContent).toMatch(/not on disk/)
   // The header still names the file, so the reader knows what the empty node was showing.
   expect(screen.getByText('plan.md')).toBeInTheDocument()
+  expect(document.querySelector('.cm-editor')).toBeNull()
 })
 
 test('the header shortens the path against the project and offers Copy path and Reveal', async () => {
@@ -156,56 +191,183 @@ test('the header shortens the path against the project and offers Copy path and 
 
 test('a change to the watched file re-reads it, and unmounting stops the watch', async () => {
   const stub = stubApis(ok('before'))
-  const { unmount } = render(
-    <ReactFlowProvider>
-      <FileNode
-        id="file-1"
-        type="fileNode"
-        selected={false}
-        dragging={false}
-        zIndex={0}
-        isConnectable={false}
-        positionAbsoluteX={0}
-        positionAbsoluteY={0}
-        data={{
-          path: PATH,
-          view: 'raw',
-          projectId: 'project',
-          projectName: 'Toucan',
-          projectPath: 'D:\\Development\\Toucan',
-          projectColor: '#71a9ff',
-          onViewModeChange: vi.fn()
-        }}
-      />
-    </ReactFlowProvider>
-  )
-  await screen.findByText('before')
+  const { unmount } = renderNode({ view: 'raw' })
+  const view = await editor()
+  expect(view.state.doc.toString()).toBe('before')
   expect(stub.watch).toHaveBeenCalledWith(PATH)
 
-  stub.read.mockResolvedValue(ok('after'))
+  stub.read.mockResolvedValue(ok('after', { mtime: '2026-09-05T09:01:00.000Z' }))
   // A different file changing is not this node's business.
   act(() => stub.emitChange('D:\\Development\\Toucan\\docs\\other.md'))
   expect(stub.read).toHaveBeenCalledTimes(1)
   // The same file under another spelling of its path is.
   act(() => stub.emitChange('d:/development/toucan/docs/PLAN.md'))
-  await waitFor(() => expect(screen.getByText('after')).toBeInTheDocument())
+  await waitFor(() => expect(view.state.doc.toString()).toBe('after'))
 
   unmount()
   expect(stub.unwatch).toHaveBeenCalledWith(PATH)
 })
 
-test('binary and truncated files are described rather than dumped', async () => {
+test('binary files are described rather than dumped, and there is nothing to edit', async () => {
   stubApis(ok('', { binary: true, size: 4096 }))
   renderNode({ path: 'D:\\Development\\Toucan\\build\\icon.png' })
   const binary = await screen.findByRole('status')
   expect(binary).toHaveAttribute('data-reason', 'binary')
   expect(binary.textContent).toMatch(/4\.0 KB/)
+  expect(document.querySelector('.cm-editor')).toBeNull()
 })
 
-test('a truncated read says how much of the file is shown', async () => {
+test('a truncated read says how much of the file is shown and stays read-only', async () => {
   stubApis(ok('head', { truncated: true, size: 2048 }))
   renderNode({ path: 'D:\\Development\\Toucan\\big.log' })
   const notice = await screen.findByRole('status')
   expect(notice).toHaveAttribute('data-reason', 'truncated')
   expect(notice.textContent).toMatch(/of 2\.0 KB/)
+  const view = await editor()
+  // Saving the first megabyte back as the whole file would destroy the rest: no edit is accepted.
+  expect(view.state.readOnly).toBe(true)
+  expect(view.contentDOM.getAttribute('contenteditable')).toBe('false')
+})
+
+test('typing makes a draft, Save writes it with the mtime it was based on, and the node rebases', async () => {
+  const stub = stubApis(ok('# Plan\n'))
+  renderNode({ view: 'raw' })
+  const view = await editor()
+  expect(view.state.readOnly).toBe(false)
+  expect(screen.queryByRole('button', { name: /^Save/ })).toBeNull()
+
+  type(view, '\nMore.\n')
+  expect(await screen.findByLabelText('Unsaved changes')).toBeInTheDocument()
+  expect(document.querySelector('.file-node')).toHaveAttribute('data-dirty', 'true')
+
+  fireEvent.click(saveButton())
+  await waitFor(() => expect(stub.write).toHaveBeenCalledTimes(1))
+  expect(stub.write).toHaveBeenCalledWith({
+    path: PATH,
+    content: '# Plan\n\nMore.\n',
+    baseMtime: '2026-09-05T09:00:00.000Z'
+  })
+  await waitFor(() => expect(screen.queryByLabelText('Unsaved changes')).toBeNull())
+  expect(view.state.doc.toString()).toBe('# Plan\n\nMore.\n')
+
+  // The watcher reports the node's own save; with the mtime the write returned, it is not news.
+  stub.read.mockResolvedValue(ok('# Plan\n\nMore.\n', { mtime: 'saved' }))
+  act(() => stub.emitChange(PATH))
+  await waitFor(() => expect(stub.read).toHaveBeenCalledTimes(2))
+  expect(screen.queryByRole('alert')).toBeNull()
+
+  // The next edit is based on the saved file.
+  type(view, 'Again.\n')
+  fireEvent.click(await screen.findByRole('button', { name: 'Save' }))
+  await waitFor(() => expect(stub.write).toHaveBeenCalledTimes(2))
+  expect(stub.write.mock.calls[1][0]).toMatchObject({ baseMtime: 'saved' })
+})
+
+test('Ctrl+S inside the editor saves, and Discard returns to the file on disk', async () => {
+  const stub = stubApis(ok('one\n'))
+  renderNode({ path: TEXT_PATH })
+  const view = await editor()
+  type(view, 'two\n')
+  fireEvent.keyDown(view.contentDOM, { key: 's', ctrlKey: true })
+  await waitFor(() => expect(stub.write).toHaveBeenCalledTimes(1))
+  expect(stub.write.mock.calls[0][0]).toMatchObject({ content: 'one\ntwo\n' })
+
+  type(view, 'three\n')
+  fireEvent.click(await screen.findByRole('button', { name: 'Discard' }))
+  await waitFor(() => expect(view.state.doc.toString()).toBe('one\ntwo\n'))
+  expect(screen.queryByRole('button', { name: 'Discard' })).toBeNull()
+  expect(stub.write).toHaveBeenCalledTimes(1)
+})
+
+test('an external change under a draft is a conflict: the draft stays, and the reader chooses', async () => {
+  const stub = stubApis(ok('mine\n'))
+  renderNode({ path: TEXT_PATH })
+  const view = await editor()
+  type(view, 'edited\n')
+
+  stub.read.mockResolvedValue(ok('theirs\n', { mtime: '2026-09-05T09:05:00.000Z' }))
+  act(() => stub.emitChange(TEXT_PATH))
+  const alert = await screen.findByRole('alert')
+  expect(alert).toHaveAttribute('data-reason', 'changed')
+  expect(alert.textContent).toMatch(/changed on disk/)
+  // Nothing was written and the draft was not replaced.
+  expect(stub.write).not.toHaveBeenCalled()
+  expect(view.state.doc.toString()).toBe('mine\nedited\n')
+  expect(saveButton()).toBeDisabled()
+
+  // Keeping the edits rebases them on what is now on disk, so the next save is accepted.
+  fireEvent.click(screen.getByRole('button', { name: 'Keep my edits' }))
+  await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
+  expect(view.state.doc.toString()).toBe('mine\nedited\n')
+  fireEvent.click(saveButton())
+  await waitFor(() => expect(stub.write).toHaveBeenCalledTimes(1))
+  expect(stub.write.mock.calls[0][0]).toMatchObject({
+    content: 'mine\nedited\n',
+    baseMtime: '2026-09-05T09:05:00.000Z'
+  })
+})
+
+test('reloading from disk resolves a conflict in favour of the file', async () => {
+  const stub = stubApis(ok('mine\n'))
+  renderNode({ path: TEXT_PATH })
+  const view = await editor()
+  type(view, 'edited\n')
+  stub.read.mockResolvedValue(ok('theirs\n', { mtime: '2026-09-05T09:05:00.000Z' }))
+  act(() => stub.emitChange(TEXT_PATH))
+  fireEvent.click(await screen.findByRole('button', { name: 'Reload from disk' }))
+  await waitFor(() => expect(view.state.doc.toString()).toBe('theirs\n'))
+  expect(screen.queryByRole('alert')).toBeNull()
+  expect(screen.queryByLabelText('Unsaved changes')).toBeNull()
+})
+
+test('a save main refuses as a conflict is shown as one rather than retried', async () => {
+  const stub = stubApis(ok('mine\n'), async () => ({ ok: false, reason: 'conflict', message: 'changed' }))
+  renderNode({ path: TEXT_PATH })
+  const view = await editor()
+  type(view, 'edited\n')
+  // By the time Save lands, disk has moved on and main says so; the node re-reads to show it.
+  stub.read.mockResolvedValue(ok('theirs\n', { mtime: '2026-09-05T09:05:00.000Z' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Save' }))
+  const alert = await screen.findByRole('alert')
+  expect(alert).toHaveAttribute('data-reason', 'changed')
+  expect(view.state.doc.toString()).toBe('mine\nedited\n')
+  expect(stub.write).toHaveBeenCalledTimes(1)
+})
+
+test('a file deleted under a draft keeps the draft and says the file is gone', async () => {
+  const stub = stubApis(ok('mine\n'))
+  renderNode({ path: TEXT_PATH })
+  const view = await editor()
+  type(view, 'edited\n')
+  stub.read.mockResolvedValue({ ok: false, reason: 'not-found', message: 'gone' })
+  act(() => stub.emitChange(TEXT_PATH))
+  const alert = await screen.findByRole('alert')
+  expect(alert).toHaveAttribute('data-reason', 'gone')
+  expect(view.state.doc.toString()).toBe('mine\nedited\n')
+  expect(screen.queryByRole('button', { name: 'Keep my edits' })).toBeNull()
+  expect(screen.getByRole('button', { name: 'Drop my edits' })).toBeInTheDocument()
+})
+
+test('a write refused outside the workspace is reported in the node, and the draft survives', async () => {
+  const stub = stubApis(ok('mine\n'), async () => ({ ok: false, reason: 'outside-workspace', message: 'no' }))
+  renderNode({ path: TEXT_PATH })
+  const view = await editor()
+  type(view, 'edited\n')
+  fireEvent.click(await screen.findByRole('button', { name: 'Save' }))
+  const alert = await screen.findByRole('alert')
+  expect(alert).toHaveAttribute('data-reason', 'outside-workspace')
+  expect(alert.textContent).toMatch(/does not write it/)
+  expect(stub.write).toHaveBeenCalledTimes(1)
+  expect(view.state.doc.toString()).toBe('mine\nedited\n')
+})
+
+test('with unsaved edits the rendered view previews the draft and still offers Save', async () => {
+  stubApis(ok('# Plan\n'))
+  const { rerender } = renderNode({ view: 'raw' })
+  const view = await editor()
+  type(view, '\n## Next\n')
+  rerender({ view: 'rendered' })
+  expect(await screen.findByRole('heading', { level: 2, name: 'Next' })).toBeInTheDocument()
+  expect(saveButton()).toBeEnabled()
+  expect(screen.getByLabelText('Unsaved changes')).toBeInTheDocument()
 })

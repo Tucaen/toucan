@@ -111,5 +111,5 @@ Body: context, acceptance criteria, notes. Ordinary Markdown.
 | #147 | GitHub issues as a second ticket source | #145 (backlog) |
 | #143 | File node: read a file on the canvas | — |
 | #144 | Diff node: review a worktree's changes | — |
-| #148 | Editing inside the file node | #143 (backlog) |
+| #148 | Editing inside the file node | #143 |
 | #149 | Delete tickets that are no longer needed | #145 (backlog) |

@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -288,5 +288,88 @@ test('a window that disconnects releases the watch handles it alone was holding'
 
     view.shutdown()
     assert.deepEqual(closed, [root, root])
+  })
+})
+
+/*
+ * Writing (issue #148): the same in-project guard as reading, an atomic replace through a
+ * temporary file, and a refusal - never a silent overwrite - when the file on disk is no longer
+ * the one the edit was based on.
+ */
+
+test('writes a file inside a registered project atomically and reports the new base', async () => {
+  await withRoot(async (root) => {
+    const project = join(root, 'project')
+    await mkdir(join(project, 'docs'), { recursive: true })
+    const file = join(project, 'docs', 'notes.md')
+    await writeFile(file, '# Notes\n', 'utf8')
+    const view = createFileView({ roots: async () => [project] })
+    const before = await view.read(file)
+    assert.ok(before.ok)
+
+    const written = await view.write({ path: file, content: '# Notes\n\nEdited.\n', baseMtime: before.mtime })
+    assert.ok(written.ok)
+    assert.equal(written.size, Buffer.byteLength('# Notes\n\nEdited.\n'))
+    const after = await view.read(file)
+    assert.ok(after.ok)
+    assert.equal(after.content, '# Notes\n\nEdited.\n')
+    assert.equal(after.mtime, written.mtime)
+    // No temporary file is left beside the document.
+    assert.deepEqual(await readdir(join(project, 'docs')), ['notes.md'])
+  })
+})
+
+test('refuses to write outside every registered root, with no file created', async () => {
+  await withRoot(async (root) => {
+    const project = join(root, 'project')
+    await mkdir(project, { recursive: true })
+    await writeFile(join(root, 'secret.txt'), 'nope', 'utf8')
+    const view = createFileView({ roots: async () => [project] })
+
+    const outside = await view.write({ path: join(root, 'secret.txt'), content: 'x', baseMtime: 'whatever' })
+    assert.equal(!outside.ok && outside.reason, 'outside-workspace')
+    assert.equal(await readFile(join(root, 'secret.txt'), 'utf8'), 'nope')
+
+    const climbing = await view.write({ path: join(project, '..', 'new.txt'), content: 'x', baseMtime: 'whatever' })
+    assert.equal(!climbing.ok && climbing.reason, 'outside-workspace')
+    assert.deepEqual((await readdir(root)).sort(), ['project', 'secret.txt'])
+  })
+})
+
+test('a file changed on disk since the edit began is a conflict, and nothing is overwritten', async () => {
+  await withRoot(async (root) => {
+    const file = join(root, 'plan.md')
+    await writeFile(file, 'v1', 'utf8')
+    const view = createFileView({ roots: async () => [root] })
+    const base = await view.read(file)
+    assert.ok(base.ok)
+
+    // Another writer lands in between; make sure the clock moved so the mtime differs.
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    await writeFile(file, 'v2 from elsewhere', 'utf8')
+    const external = await view.read(file)
+    assert.ok(external.ok && external.mtime !== base.mtime)
+
+    const conflict = await view.write({ path: file, content: 'v2 from the node', baseMtime: base.mtime })
+    assert.equal(!conflict.ok && conflict.reason, 'conflict')
+    assert.equal(await readFile(file, 'utf8'), 'v2 from elsewhere')
+
+    // Re-based on the current disk state, the same write goes through.
+    const rebased = await view.write({ path: file, content: 'v2 from the node', baseMtime: external.mtime })
+    assert.ok(rebased.ok)
+    assert.equal(await readFile(file, 'utf8'), 'v2 from the node')
+  })
+})
+
+test('a file that vanished or turned into a folder is not recreated by a save', async () => {
+  await withRoot(async (root) => {
+    const view = createFileView({ roots: async () => [root] })
+    const gone = await view.write({ path: join(root, 'gone.md'), content: 'x', baseMtime: '2026-09-05T00:00:00.000Z' })
+    assert.equal(!gone.ok && gone.reason, 'not-found')
+    assert.deepEqual(await readdir(root), [])
+
+    await mkdir(join(root, 'docs'))
+    const folder = await view.write({ path: join(root, 'docs'), content: 'x', baseMtime: '2026-09-05T00:00:00.000Z' })
+    assert.equal(!folder.ok && folder.reason, 'directory')
   })
 })

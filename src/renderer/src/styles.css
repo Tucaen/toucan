@@ -4255,6 +4255,100 @@ button {
   font-weight: 700;
 }
 
+/* Lezer `classHighlighter` classes (file node editor), the same palette as highlight.js above. */
+.tok-comment,
+.tok-lineComment,
+.tok-blockComment,
+.tok-docComment {
+  color: #6b7484;
+  font-style: italic;
+}
+
+.tok-keyword,
+.tok-controlKeyword,
+.tok-operatorKeyword,
+.tok-definitionKeyword,
+.tok-moduleKeyword,
+.tok-bool,
+.tok-null,
+.tok-atom,
+.tok-self {
+  color: #c193e0;
+}
+
+.tok-string,
+.tok-string2,
+.tok-regexp,
+.tok-inserted,
+.tok-attributeValue {
+  color: #9ad39f;
+}
+
+.tok-number,
+.tok-integer,
+.tok-float,
+.tok-variableName,
+.tok-labelName,
+.tok-url,
+.tok-link,
+.tok-list {
+  color: #e0a06a;
+}
+
+.tok-heading,
+.tok-heading1,
+.tok-heading2,
+.tok-heading3,
+.tok-heading4,
+.tok-heading5,
+.tok-heading6 {
+  color: #71a9ff;
+  font-weight: 700;
+}
+
+.tok-function,
+.tok-definition.tok-variableName,
+.tok-function.tok-variableName,
+.tok-className,
+.tok-macroName,
+.tok-namespace {
+  color: #71a9ff;
+}
+
+.tok-typeName,
+.tok-standard,
+.tok-standard.tok-variableName,
+.tok-annotation,
+.tok-modifier {
+  color: #6fd0c4;
+}
+
+.tok-propertyName,
+.tok-attributeName,
+.tok-tagName,
+.tok-meta,
+.tok-processingInstruction,
+.tok-monospace {
+  color: #d6c48a;
+}
+
+.tok-deleted,
+.tok-invalid {
+  color: #d97d83;
+}
+
+.tok-emphasis {
+  font-style: italic;
+}
+
+.tok-strong {
+  font-weight: 700;
+}
+
+.tok-strikethrough {
+  text-decoration: line-through;
+}
+
 /* Reasoning cards keep their muted, smaller voice even with the richer markdown treatment. */
 .thought-card .markdown-body,
 .thought-card .markdown-body p,
@@ -6117,7 +6211,10 @@ button {
 }
 
 .file-node-body[data-view='raw'] {
-  padding: 8px 0 20px;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
 }
 
 .file-node-notice {
@@ -6128,45 +6225,152 @@ button {
 }
 
 .file-node-body[data-view='raw'] .file-node-notice {
-  padding: 0 16px;
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 8px 16px;
 }
 
 .file-node-notice[data-reason='not-found'],
-.file-node-notice[data-reason='outside-workspace'] {
+.file-node-notice[data-reason='outside-workspace'],
+.file-node-notice[data-reason='unwritable'],
+.file-node-notice[data-reason='conflict'] {
   color: #df737a;
 }
 
-.file-node-lines {
+.file-node-dirty {
+  margin-left: 6px;
+  color: #e0a06a;
+  font-size: 10px;
+  vertical-align: middle;
+}
+
+.file-node-actions .file-node-save {
+  border-color: rgba(224, 160, 106, 0.6);
+  color: #f0c9a1;
+}
+
+.file-node-actions .file-node-save:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Disk changed under a draft: the reader chooses, and nothing happens until they do. */
+.file-node-conflict {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin: 0 0 10px;
+  padding: 8px 12px;
+  border: 1px solid rgba(224, 160, 106, 0.45);
+  border-radius: 8px;
+  background: rgba(224, 160, 106, 0.1);
+  color: #f0c9a1;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.file-node-body[data-view='raw'] .file-node-conflict {
+  margin: 8px 12px;
+}
+
+.file-node-conflict p {
+  flex: 1 1 200px;
+  margin: 0;
+}
+
+.file-node-conflict-actions {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.file-node-conflict button {
+  padding: 3px 8px;
+  border: 1px solid rgba(224, 160, 106, 0.6);
+  border-radius: 6px;
+  background: transparent;
+  color: #f0c9a1;
+  font-family: Consolas, monospace;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.file-node-conflict button:hover {
+  background: rgba(224, 160, 106, 0.18);
+}
+
+/* CodeMirror fills the raw view; its own scroller is the one scroll container there. */
+.code-editor {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.code-editor .cm-editor {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+  background: transparent;
+  color: #c3cad5;
   font:
     12px/1.55 Consolas,
     monospace;
 }
 
-.file-node-line {
-  display: grid;
-  grid-template-columns: 48px minmax(0, 1fr);
-  gap: 10px;
-  padding-right: 16px;
-  color: #c3cad5;
-  white-space: pre;
+.code-editor .cm-editor.cm-focused {
+  outline: none;
 }
 
-.file-node-line:hover {
-  background: rgba(255, 255, 255, 0.025);
-}
-
-.file-node-line-number {
-  padding-left: 12px;
-  color: #4f5866;
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-  user-select: none;
-}
-
-.file-node-line-text code {
-  padding: 0;
-  background: none;
+.code-editor .cm-scroller {
+  overflow: auto;
+  padding: 8px 0 20px;
   font: inherit;
+}
+
+.code-editor .cm-content {
+  padding: 0;
+  caret-color: #e6f5ec;
+}
+
+.code-editor .cm-line {
+  padding: 0 16px 0 10px;
+}
+
+.code-editor .cm-gutters {
+  border-right: 0;
+  background: transparent;
+  color: #4f5866;
+}
+
+.code-editor .cm-lineNumbers .cm-gutterElement {
+  min-width: 48px;
+  padding: 0 0 0 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.code-editor .cm-activeLineGutter {
+  background: transparent;
+}
+
+.code-editor .cm-selectionBackground,
+.code-editor .cm-editor.cm-focused .cm-selectionBackground,
+.code-editor .cm-content ::selection {
+  background: rgba(116, 216, 162, 0.22);
+}
+
+.code-editor .cm-cursor {
+  border-left-color: #e6f5ec;
+}
+
+.code-editor .cm-matchingBracket {
+  background: rgba(116, 216, 162, 0.18);
+  outline: none;
+}
+
+.code-editor .cm-specialChar {
+  color: #df737a;
 }
 
 .file-node-inert-link {

@@ -2,10 +2,12 @@ import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
 import { registerFileViewIpc } from '../src/main/file-view-ipc'
 import type { FileView, FileViewOwner } from '../src/main/file-view'
+import type { FileWriteRequest } from '../src/shared/file-view'
 
 interface Harness {
   handlers: Map<string, (...args: unknown[]) => unknown>
   reads: string[]
+  writes: FileWriteRequest[]
   watched: Array<[string, FileViewOwner]>
   unwatched: Array<[string, FileViewOwner]>
 }
@@ -13,12 +15,17 @@ interface Harness {
 function harness(): Harness {
   const handlers = new Map<string, (...args: unknown[]) => unknown>()
   const reads: string[] = []
+  const writes: FileWriteRequest[] = []
   const watched: Array<[string, FileViewOwner]> = []
   const unwatched: Array<[string, FileViewOwner]> = []
   const view: FileView = {
     read: async (path) => {
       reads.push(path)
       return { ok: true, content: 'x', truncated: false, size: 1, mtime: '2026-09-05T00:00:00.000Z', binary: false }
+    },
+    write: async (request) => {
+      writes.push(request)
+      return { ok: true, mtime: '2026-09-05T00:00:01.000Z', size: Buffer.byteLength(request.content) }
     },
     watch: async (path, owner) => void watched.push([path, owner]),
     unwatch: (path, owner) => void unwatched.push([path, owner]),
@@ -29,7 +36,7 @@ function harness(): Harness {
     { handle: (channel, listener) => void handlers.set(channel, listener as (...args: unknown[]) => unknown) },
     view
   )
-  return { handlers, reads, watched, unwatched }
+  return { handlers, reads, writes, watched, unwatched }
 }
 
 const event = { sender: { isDestroyed: () => false, send: () => {} } }
@@ -56,4 +63,26 @@ test('watch and unwatch carry the requesting window along as the owner', async (
   await handlers.get('file-view:unwatch')!(event, 'D:\\p\\README.md')
   await handlers.get('file-view:unwatch')!(event, undefined)
   assert.deepEqual(unwatched, [['D:\\p\\README.md', event.sender]])
+})
+
+test('a write is forwarded only for a well-formed request, never a partial one', async () => {
+  const { handlers, writes } = harness()
+  const request = { path: 'D:\p\README.md', content: '# Hi\n', baseMtime: '2026-09-05T00:00:00.000Z' }
+  const result = await handlers.get('file-view:write')!(event, request)
+  assert.deepEqual(result, { ok: true, mtime: '2026-09-05T00:00:01.000Z', size: 5 })
+  assert.deepEqual(writes, [request])
+
+  for (const malformed of [
+    undefined,
+    'D:\p\README.md',
+    { path: 'D:\p\README.md' },
+    { path: '', content: 'x', baseMtime: 'm' },
+    { path: 'D:\p\README.md', content: 42, baseMtime: 'm' },
+    { path: 'D:\p\README.md', content: 'x', baseMtime: null }
+  ]) {
+    const refused = (await handlers.get('file-view:write')!(event, malformed)) as { ok: boolean; reason: string }
+    assert.equal(refused.ok, false)
+    assert.equal(refused.reason, 'unwritable')
+  }
+  assert.equal(writes.length, 1)
 })

@@ -2,12 +2,20 @@ import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
 import {
   describeFileReadFailure,
+  describeFileWriteFailure,
+  editStateAfterEdit,
+  editStateAfterRead,
+  editStateAfterSave,
+  fileEditability,
   fileNodeName,
+  isDirty,
   joinWorkspacePath,
+  keepDraftOverDisk,
   projectOwningPath,
-  rawFileLines
+  UNEDITED,
+  type FileEditState
 } from '../src/renderer/src/file-node'
-import { defaultFileViewMode, fileViewPathIdentity, isMarkdownPath } from '../src/shared/file-view'
+import { defaultFileViewMode, fileViewPathIdentity, isMarkdownPath, type FileReadResult } from '../src/shared/file-view'
 
 test('a picked relative path joins the root in the root’s own separator', () => {
   assert.equal(
@@ -48,13 +56,89 @@ test('a file opened from a card is filed under the deepest root that contains it
   assert.equal(projectOwningPath('E:\\elsewhere\\x.md', roots), undefined)
 })
 
-test('raw lines drop only the trailing newline, and every failure has words', () => {
-  assert.deepEqual(rawFileLines('a\nb\n'), ['a', 'b'])
-  assert.deepEqual(rawFileLines('a\r\nb'), ['a', 'b'])
-  assert.deepEqual(rawFileLines(''), [''])
-  assert.deepEqual(rawFileLines('a\n\n'), ['a', ''])
+test('every failure has words', () => {
   for (const reason of ['not-found', 'outside-workspace', 'directory', 'unreadable'] as const) {
     assert.ok(describeFileReadFailure(reason, 'EPERM').length > 0)
   }
   assert.equal(describeFileReadFailure('unreadable', 'EPERM: denied'), 'EPERM: denied')
+  for (const reason of ['conflict', 'not-found', 'outside-workspace', 'directory', 'unwritable'] as const) {
+    assert.ok(describeFileWriteFailure(reason, 'EPERM').length > 0)
+  }
+  assert.equal(describeFileWriteFailure('unwritable', 'EACCES: denied'), 'EACCES: denied')
+})
+
+/*
+ * Editing (issue #148): the draft is the reader's only copy of their work, so a change on disk
+ * never replaces it silently - it becomes a conflict the reader resolves - while the node's own
+ * save, which the watcher also reports, is recognised by its mtime and changes nothing.
+ */
+
+const disk = (content: string, mtime: string): Extract<FileReadResult, { ok: true }> => ({
+  ok: true,
+  content,
+  truncated: false,
+  size: content.length,
+  mtime,
+  binary: false
+})
+
+test('without a draft every read is simply the new base', () => {
+  const first = editStateAfterRead(UNEDITED, disk('a', 't1'))
+  assert.deepEqual(first, { draft: null, baseMtime: 't1', conflict: false })
+  assert.deepEqual(editStateAfterRead(first, disk('b', 't2')), { draft: null, baseMtime: 't2', conflict: false })
+  assert.deepEqual(editStateAfterRead(first, { ok: false, reason: 'not-found', message: '' }), UNEDITED)
+})
+
+test('typing makes a draft based on the current read, and typing the file back is no edit', () => {
+  const base = editStateAfterRead(UNEDITED, disk('a', 't1'))
+  const edited = editStateAfterEdit(base, 'ab', { content: 'a', mtime: 't1' })
+  assert.deepEqual(edited, { draft: 'ab', baseMtime: 't1', conflict: false })
+  assert.equal(isDirty(edited), true)
+  const restored = editStateAfterEdit(edited, 'a', { content: 'a', mtime: 't1' })
+  assert.deepEqual(restored, { draft: null, baseMtime: 't1', conflict: false })
+  assert.equal(isDirty(restored), false)
+})
+
+test('a read with the same mtime under a draft is the node’s own save; a different one is a conflict', () => {
+  const edited = editStateAfterEdit(editStateAfterRead(UNEDITED, disk('a', 't1')), 'ab', { content: 'a', mtime: 't1' })
+  assert.equal(editStateAfterRead(edited, disk('a', 't1')), edited)
+  const conflict = editStateAfterRead(edited, disk('external', 't2'))
+  assert.deepEqual(conflict, { draft: 'ab', baseMtime: 't1', conflict: true })
+  // The file vanishing under a draft is a conflict too: the draft must not be lost.
+  assert.deepEqual(editStateAfterRead(edited, { ok: false, reason: 'not-found', message: '' }), {
+    draft: 'ab',
+    baseMtime: 't1',
+    conflict: true
+  })
+  // Further external writes do not reset a conflict the reader has yet to see.
+  assert.equal(editStateAfterRead(conflict, disk('external 2', 't3')), conflict)
+})
+
+test('the reader resolves a conflict by keeping the draft (rebased) or by reloading; a save clears it', () => {
+  const conflict: FileEditState = { draft: 'ab', baseMtime: 't1', conflict: true }
+  assert.deepEqual(keepDraftOverDisk(conflict, disk('external', 't2')), {
+    draft: 'ab',
+    baseMtime: 't2',
+    conflict: false
+  })
+  assert.deepEqual(editStateAfterRead(UNEDITED, disk('external', 't2')), {
+    draft: null,
+    baseMtime: 't2',
+    conflict: false
+  })
+  assert.deepEqual(editStateAfterSave('t3'), { draft: null, baseMtime: 't3', conflict: false })
+})
+
+test('only a whole text file may be edited', () => {
+  assert.deepEqual(fileEditability(disk('a', 't1')), { editable: true })
+  assert.deepEqual(fileEditability(null), { editable: false, reason: 'unavailable' })
+  assert.deepEqual(fileEditability({ ok: false, reason: 'not-found', message: '' }), {
+    editable: false,
+    reason: 'unavailable'
+  })
+  assert.deepEqual(fileEditability({ ...disk('', 't1'), binary: true }), { editable: false, reason: 'binary' })
+  assert.deepEqual(fileEditability({ ...disk('head', 't1'), truncated: true }), {
+    editable: false,
+    reason: 'truncated'
+  })
 })
