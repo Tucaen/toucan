@@ -2,7 +2,7 @@
 
 Toucan is a Windows-first desktop workspace for arranging local shells, Claude sessions,
 Codex sessions, and Git worktrees on one spatial canvas. It is under active development;
-workspace state is stored locally and the Windows x64 portable build is not yet signed.
+workspace state is stored locally and the Windows x64 builds are not yet signed.
 
 ## What Toucan does
 
@@ -135,9 +135,34 @@ npm run check:full
 npm run package:win
 ```
 
-The output is the portable x64 executable `dist/Toucan-0.1.0-portable-x64.exe`. It needs no
-installer. The build currently uses Electron's default icon and is not digitally signed,
-so Windows may show an unfamiliar-app warning.
+This produces two x64 artifacts in `dist/`:
+
+- `Toucan-Setup-0.1.0-x64.exe` - an NSIS installer. It installs per user (no admin rights),
+  lets you choose the directory, and is removed again through Settings > Apps. Prefer this one; in-place updates will build on it.
+- `Toucan-0.1.0-portable-x64.exe` - a single executable that needs no installer and cannot
+  update itself.
+
+`npm run package:win:installer` and `npm run package:win:portable` build just one of them.
+
+The builds are not digitally signed. When a downloaded exe is first run, Windows SmartScreen
+shows "Windows protected your PC": click **More info**, then **Run anyway**.
+
+## Release
+
+Builds are published as GitHub Releases on the public
+[Tucaen/toucan-releases](https://github.com/Tucaen/toucan-releases/releases/latest) repository,
+so anyone can download the installer without a GitHub account while this repository stays
+private. Cutting a release is a tag:
+
+```powershell
+npm version 0.2.0
+git push --follow-tags
+```
+
+The tag runs `.github/workflows/release.yml` on a Windows runner: it verifies the change with
+`npm run check`, builds, and only then packages and uploads both artifacts plus the
+`latest.yml` and `.blockmap` files that in-place updates will read. A failing check publishes
+nothing. Release notes are public - keep internal details out of them.
 
 ## Architecture and project documentation
 
