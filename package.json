@@ -29,7 +29,9 @@
     "test:terminal-events": "tsc -p tsconfig.test.json && node --test .test-out/tests/terminal-events.test.js",
     "test:dom": "vitest run",
     "test:dom:watch": "vitest",
-    "package:win": "npm run build && electron-builder --win portable --x64",
+    "package:win": "npm run build && electron-builder --win --x64",
+    "package:win:installer": "npm run build && electron-builder --win nsis --x64",
+    "package:win:portable": "npm run build && electron-builder --win portable --x64",
     "package:dir": "npm run build && electron-builder --dir --win --x64",
     "build:mobile": "vite build --config mobile/vite.config.ts"
   },
@@ -53,14 +55,28 @@
     "win": {
       "target": [
         {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
           "target": "portable",
           "arch": [
             "x64"
           ]
         }
       ],
-      "artifactName": "Toucan-${version}-portable-${arch}.${ext}",
       "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "Toucan-Setup-${version}-${arch}.${ext}"
+    },
+    "portable": {
+      "artifactName": "Toucan-${version}-portable-${arch}.${ext}"
     }
   },
   "dependencies": {
