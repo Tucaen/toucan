@@ -1,6 +1,6 @@
 ---
 title: Make voice input accurate enough to use, and add it to the mobile companion
-status: open
+status: done
 created: 2026-09-05
 updated: 2026-09-05
 ---
@@ -27,6 +27,26 @@ Two outcomes, one ticket because they share the decision on where transcription 
 
 - Cloud transcription is acceptable, but only a free service, and only if it is really good. Paid services are out.
 - Local dictation stays as the offline path regardless. The user usually has a connection but will not depend on it unless the cloud result is clearly better.
+
+## Outcome (2026-09-05)
+
+- **Desktop stays local**, on Moonshine 0.1.5 with the Medium Streaming English model (published
+  LibriSpeech WER 2.17% against Small's 2.61%; ~305 MB) plus context biasing: the composer hands
+  the model the draft and the newest exchange so identifiers and file names on screen are what it
+  leans towards. No cloud service was added: nothing key-less and free is clearly better, and the
+  Web Speech API is not available inside Electron.
+- **WER on real prompts is measured with `npm run voice:wer -- <dir>`**, which compares small and
+  medium on a directory of `.wav`/`.txt` pairs. Recordings of the user's own prompts are the
+  input; none were available in this environment, so the model choice rests on the published
+  numbers and the measurement is the next step for the user.
+- **Mobile** has a microphone in the composer with the same idle/loading/listening/stopping/error
+  states. It uses the browser's own recognizer in the phone's language where one exists, and
+  otherwise records 16 kHz PCM and posts it to `/api/transcribe`, where the desktop transcribes
+  with the same model files in the main process.
+- **Non-English**: the desktop names its language (`Dictate (English)`, `Listening (English
+  only)…`) instead of producing garbage; the phone path is multilingual. Moonshine's WASM catalog
+  has no non-English streaming models yet, so German on the desktop stays out of reach for now.
+- `VoiceInputPrototype` is `VoiceInput`; the prototype note moved to `docs/voice-input.md`.
 
 ## Notes
 

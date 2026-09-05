@@ -1,50 +1,58 @@
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import { MicTranscriber, ModelArch } from '@moonshine-ai/moonshine-wasm'
 import { LoaderCircle, Mic, Square, X } from 'lucide-react'
+import { VOICE_MODEL_ASSET_DIRECTORY, VOICE_MODEL_LANGUAGE } from '../../shared/remote-voice'
 import { withStallGuard } from '../../shared/stall-guard'
 import { errorMessage } from '../../shared/text'
+import {
+  insertAtSelection,
+  joinTranscript,
+  voiceControlLabel,
+  voiceLivePreview,
+  type VoiceState
+} from './voice-transcript'
 
-export type VoiceState = 'idle' | 'loading' | 'listening' | 'stopping' | 'error'
+export type { VoiceState } from './voice-transcript'
 
-interface VoiceInputPrototypeProps {
+/**
+ * The composer's dictation control: local, streaming, English.
+ *
+ * Speech runs entirely on this machine with Moonshine's Medium Streaming English model, the most
+ * accurate streaming model it publishes, loaded from Toucan's own prepared assets rather than the
+ * network. Live partial text is shown while speaking; the finished transcript is inserted at the
+ * cursor position the microphone was pressed at, and it is never sent on its own - a transcript is
+ * a draft.
+ *
+ * Accuracy on the words a general model gets wrong - identifiers, file names, product words - comes
+ * from `context`: the caller hands over the text the speaker is most likely talking about, and the
+ * model is biased towards the terms in it for the duration of the dictation.
+ *
+ * The model understands English only. The control says so in its label and its preview rather
+ * than letting another language come out as plausible-looking nonsense; a phone's own recognizer
+ * (see `mobile/src/MobileVoiceInput.tsx`) is the multilingual path.
+ */
+interface VoiceInputProps {
   draft: string
   disabled: boolean
   textareaRef: RefObject<HTMLTextAreaElement>
   setDraft(value: string): void
   /** Starts dictation as soon as the control mounts, for callers opened *by* a microphone action. */
   autoStart?: boolean
+  /** Text whose vocabulary the model should lean towards; see `dictationContext`. */
+  context?: string
   /** Lets a surrounding surface show the same loading/listening/failure states this button owns. */
   onStateChange?(state: VoiceState, error: string): void
 }
 
-const LOCAL_MODEL_URL = new URL('./models/moonshine-small-streaming-en/', window.location.href).toString()
+const LOCAL_MODEL_URL = new URL(`./${VOICE_MODEL_ASSET_DIRECTORY}/`, window.location.href).toString()
 
-// The model loads from Toucan's own local server/disk, not the network, so this
-// only needs to absorb slow hardware — not a slow internet connection. It
-// exists so a dependency that never settles (see shared/stall-guard.ts) can't
-// leave the "Preparing local speech model..." banner stuck forever.
+// The model loads from Toucan's own local server/disk, not the network, so this only needs to
+// absorb slow hardware - not a slow internet connection. It exists so a dependency that never
+// settles (see shared/stall-guard.ts) can't leave the "Preparing local speech model..." banner
+// stuck forever: a WASM worker that dies on startup never rejects its load promise.
 const VOICE_STALL_TIMEOUT_MS = 60_000
 
-function joinTranscript(lines: string[], partial: string): string {
-  const parts = [...lines]
-  const tail = partial.trim()
-  if (tail && parts.at(-1)?.trim() !== tail) parts.push(tail)
-  return parts
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .join(' ')
-}
-
-function insertAtSelection(value: string, text: string, start: number, end: number): string {
-  const before = value.slice(0, start)
-  const after = value.slice(end)
-  const prefix = before && !/\s$/.test(before) ? ' ' : ''
-  const suffix = after && !/^\s/.test(after) ? ' ' : ''
-  return `${before}${prefix}${text}${suffix}${after}`
-}
-
-// PROTOTYPE: validates whether local streaming dictation feels useful in Toucan's composer.
-export default function VoiceInputPrototype(props: VoiceInputPrototypeProps): JSX.Element {
+export default function VoiceInput(props: VoiceInputProps): JSX.Element {
   const [state, setState] = useState<VoiceState>('idle')
   const [progress, setProgress] = useState(0)
   const [partial, setPartial] = useState('')
@@ -86,8 +94,8 @@ export default function VoiceInputPrototype(props: VoiceInputPrototypeProps): JS
       let transcriber = transcriberRef.current
       if (!transcriber) {
         transcriber = new MicTranscriber()
-          .language('en')
-          .modelArch(ModelArch.SmallStreaming)
+          .language(VOICE_MODEL_LANGUAGE)
+          .modelArch(ModelArch.MediumStreaming)
           .modelsFrom(LOCAL_MODEL_URL)
           .onProgress((fraction) => setProgress(fraction))
           .onText((text) => {
@@ -106,6 +114,9 @@ export default function VoiceInputPrototype(props: VoiceInputPrototypeProps): JS
         transcriberRef.current = transcriber
         await withStallGuard(transcriber.load(), VOICE_STALL_TIMEOUT_MS, 'Local speech model timed out while loading.')
       }
+      // Re-applied on every start rather than once: what the speaker is talking about changes
+      // between dictations, and an empty context clears the previous one instead of keeping it.
+      transcriber.setContext(props.context ?? '')
       await withStallGuard(transcriber.start(), VOICE_STALL_TIMEOUT_MS, 'Local speech model timed out while starting.')
       setState('listening')
     } catch (cause) {
@@ -149,19 +160,11 @@ export default function VoiceInputPrototype(props: VoiceInputPrototypeProps): JS
     }
   }
 
-  const loadingLabel =
-    progress > 0 ? `Preparing local speech model ${Math.round(progress * 100)}%` : 'Preparing local speech model'
-  const label =
-    state === 'loading'
-      ? loadingLabel
-      : state === 'listening'
-        ? 'Stop dictation'
-        : state === 'stopping'
-          ? 'Finishing...'
-          : 'Dictate locally'
+  const label = voiceControlLabel(state, progress)
+  const preview = voiceLivePreview(state, progress, partial)
 
   return (
-    <div className="voice-input-prototype">
+    <div className="voice-input">
       <button
         type="button"
         className="voice-input-button"
@@ -190,9 +193,9 @@ export default function VoiceInputPrototype(props: VoiceInputPrototypeProps): JS
           <X aria-hidden="true" />
         </button>
       )}
-      {(state === 'loading' || state === 'listening' || state === 'stopping') && (
-        <span className="voice-live-preview" title={state === 'loading' ? loadingLabel : partial || 'Listening…'}>
-          {state === 'loading' ? `${loadingLabel}…` : partial || 'Listening…'}
+      {preview !== null && (
+        <span className="voice-live-preview" title={preview}>
+          {preview}
         </span>
       )}
     </div>

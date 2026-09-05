@@ -3351,7 +3351,7 @@ button {
   background: #321f22;
 }
 
-.voice-input-prototype {
+.voice-input {
   position: relative;
   display: flex;
   gap: 4px;

@@ -39,6 +39,7 @@ vi.mock('@moonshine-ai/moonshine-wasm', () => {
     onError(): this {
       return this
     }
+    setContext(): void {}
     async load(): Promise<void> {
       if (speech.failLoad) throw new Error('The microphone could not be opened.')
     }
@@ -51,7 +52,7 @@ vi.mock('@moonshine-ai/moonshine-wasm', () => {
     }
     close(): void {}
   }
-  return { MicTranscriber, ModelArch: { SmallStreaming: 'small-streaming' } }
+  return { MicTranscriber, ModelArch: { MediumStreaming: 'medium-streaming' } }
 })
 
 const projects: WorkspaceProject[] = [

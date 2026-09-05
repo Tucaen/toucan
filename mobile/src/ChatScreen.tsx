@@ -35,7 +35,9 @@ import {
   submitDecisionProblem
 } from './decision-answers'
 import type { SavedHost } from './hosts'
+import MobileVoiceInput, { voiceStatusLine, type MobileVoiceStatus } from './MobileVoiceInput'
 import { fetchWorkspace } from './remote-client'
+import { appendDictation } from './voice-input'
 import { useChatConnection, type ChatConnection } from './use-chat-connection'
 
 /**
@@ -150,7 +152,7 @@ export default function ChatScreen({
       {/* One decision at a time, and while it stands the plain composer is gone rather than
           disabled: free text must not be able to bypass the channel the agent is waiting on. */}
       {pending && <PendingRequestCard key={pending.id} pending={pending} connection={connection} />}
-      {!composerHidden(connection) && <Composer connection={connection} />}
+      {!composerHidden(connection) && <Composer connection={connection} host={host} />}
     </main>
   )
 }
@@ -358,15 +360,20 @@ function DecisionCard({
 }
 
 /**
- * Multiline text and a send button; no slash commands, no mentions, no drafts sync. The busy
- * policy is visible rather than clever: while a turn is working the button is disabled and says
- * so, so a prompt is never queued invisibly on the phone nor steered into a turn in flight. A
- * refused or unconfirmed send puts the text straight back and reports the reason.
+ * Multiline text, a microphone and a send button; no slash commands, no mentions, no drafts sync.
+ * The busy policy is visible rather than clever: while a turn is working the button is disabled
+ * and says so, so a prompt is never queued invisibly on the phone nor steered into a turn in
+ * flight. A refused or unconfirmed send puts the text straight back and reports the reason.
+ *
+ * Dictation lands in the draft, after whatever is already there, and never sends: on a phone the
+ * transcript needs reading at least as much as on the desktop.
  */
-function Composer({ connection }: { connection: ChatConnection }): JSX.Element {
+function Composer({ connection, host }: { connection: ChatConnection; host: SavedHost }): JSX.Element {
   const blocked = sendBlockedReason(connection)
   const canSend = canSendDraft(connection)
   const failure = connection.send.status === 'failed' ? connection.send.message : null
+  const [voice, setVoice] = useState<MobileVoiceStatus | null>(null)
+  const voiceLine = voice ? voiceStatusLine(voice) : null
 
   return (
     <form
@@ -382,6 +389,11 @@ function Composer({ connection }: { connection: ChatConnection }): JSX.Element {
         </p>
       )}
       <div className="composer-row">
+        <MobileVoiceInput
+          host={host}
+          onTranscript={(text) => connection.onDraftChange(appendDictation(connection.draft, text))}
+          onStatus={setVoice}
+        />
         <textarea
           className="composer-input"
           value={connection.draft}
@@ -396,6 +408,12 @@ function Composer({ connection }: { connection: ChatConnection }): JSX.Element {
           {connection.send.status === 'sending' ? '…' : 'Send'}
         </button>
       </div>
+      {/* What the microphone heard so far, or why it stopped; the row itself stays one line. */}
+      {voiceLine && (
+        <p className="voice-status" data-tone={voiceLine.tone} role={voiceLine.tone === 'error' ? 'alert' : 'status'}>
+          {voiceLine.text}
+        </p>
+      )}
       {/* Only reasons that are about the session, not about an empty box, are worth stating. */}
       {blocked && connection.send.status !== 'sending' && <p className="composer-hint">{blocked}</p>}
     </form>

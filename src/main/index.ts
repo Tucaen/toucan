@@ -34,6 +34,9 @@ import { createRemoteAccessStore } from './remote/remote-access-store'
 import { forwardRemoteStateChanges, registerRemoteIpc } from './remote/remote-ipc'
 import { createRemoteChatSpawner, type RemoteChatSpawner } from './remote/chat-spawn'
 import { createRemoteAccessServer, type RemoteAccessServer } from './remote/remote-server'
+import { createRemoteVoiceTranscriber } from './remote/voice-transcription'
+import { loadMoonshineEngine, resolveVoiceModelDirectory } from './remote/voice-engine'
+import { VOICE_MODEL_ASSET_DIRECTORY } from '../shared/remote-voice'
 import { createSessionProviders, type SessionProviders } from './session-providers'
 import { createTerminalLivenessStore, type TerminalLivenessStore } from './terminal-liveness-store'
 import { createTerminalManager, type TerminalManager } from './terminal-manager'
@@ -293,8 +296,8 @@ function createWindow(
   }
 }
 
-function registerVoicePrototypePermissions(): void {
-  // PROTOTYPE: allow Toucan's own window to request microphone audio, never camera video.
+function registerVoicePermissions(): void {
+  // Dictation: allow Toucan's own window to request microphone audio, never camera video.
   session.defaultSession.setPermissionCheckHandler(
     (contents, permission, _origin, details) =>
       permission === 'media' &&
@@ -313,8 +316,8 @@ function registerVoicePrototypePermissions(): void {
   })
 }
 
-function registerVoicePrototypeCrossOriginIsolation(): void {
-  // PROTOTYPE: Moonshine's threaded WASM build needs SharedArrayBuffer, which
+function registerVoiceCrossOriginIsolation(): void {
+  // Moonshine's threaded WASM build needs SharedArrayBuffer, which
   // Chromium only exposes to a crossOriginIsolated page. electron.vite.config.ts
   // sets these headers for the dev server, but a packaged build loads the
   // renderer via loadFile() (file://), which never goes through that dev
@@ -333,8 +336,8 @@ function registerVoicePrototypeCrossOriginIsolation(): void {
 }
 
 void app.whenReady().then(async () => {
-  registerVoicePrototypePermissions()
-  registerVoicePrototypeCrossOriginIsolation()
+  registerVoicePermissions()
+  registerVoiceCrossOriginIsolation()
   const codexHome = process.env.CODEX_HOME ?? join(app.getPath('home'), '.codex')
   const brainDumpDirectory = join(app.getPath('userData'), 'brain-dumps')
   const agentEnvironment = { ...process.env, TOUCAN_BRAIN_DUMPS_DIR: brainDumpDirectory }
@@ -411,6 +414,18 @@ void app.whenReady().then(async () => {
   // geometry and working-directory resolution, so a phone's "New chat" is a request the desktop
   // window runs through its own add-node path and reports the verdict on.
   const chatSpawner = createRemoteChatSpawner()
+  // A phone whose browser cannot recognize speech sends its recording here, and main transcribes
+  // it with the same prepared model files the renderer dictates with - loaded lazily, because a
+  // 300 MB model is not paid for by a desktop nobody dictates to from a phone.
+  const voiceTranscriber = createRemoteVoiceTranscriber({
+    loadEngine: () =>
+      loadMoonshineEngine(
+        resolveVoiceModelDirectory([
+          join(app.getAppPath(), 'src', 'renderer', 'public', VOICE_MODEL_ASSET_DIRECTORY),
+          join(app.getAppPath(), 'out', 'renderer', VOICE_MODEL_ASSET_DIRECTORY)
+        ])
+      )
+  })
   const remote = createRemoteAccessServer({
     store: createRemoteAccessStore({ path: join(app.getPath('userData'), 'remote-access.json') }),
     // The mobile client is built beside the main and renderer bundles, so the same path resolves
@@ -431,7 +446,8 @@ void app.whenReady().then(async () => {
       approve: (id, approvalId, optionId) => agentManager.resolveApproval(id, approvalId, optionId),
       answerDecision: (id, decisionId, content) => agentManager.resolveElicitation(id, decisionId, content)
     },
-    spawn: (request) => chatSpawner.spawn(request)
+    spawn: (request) => chatSpawner.spawn(request),
+    transcriber: voiceTranscriber
   })
   // Off unless the user turned it on and the setting survived a restart; `start` only ever binds
   // what the stored settings already asked for.
@@ -508,6 +524,7 @@ void app.whenReady().then(async () => {
     ticketChanges.shutdown()
     fileView.shutdown()
     void remote.shutdown()
+    voiceTranscriber.shutdown()
   })
 })
 

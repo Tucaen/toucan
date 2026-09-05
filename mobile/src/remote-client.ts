@@ -1,5 +1,6 @@
 import type { RemoteWorkspaceSnapshot } from '../../src/shared/remote-access'
 import type { RemoteChatSpawnRequest } from '../../src/shared/remote-spawn'
+import { parseRemoteTranscriptionReply, REMOTE_VOICE_CONTENT_TYPE } from '../../src/shared/remote-voice'
 import {
   EMPTY_HOST_DIRECTORY,
   hostApiUrl,
@@ -185,6 +186,34 @@ export async function createChat(host: HostEndpoint, spawn: RemoteChatSpawnReque
     return { ok: false, kind: 'unreachable', message: 'The host did not say which chat it started.' }
   }
   return { ok: true, value: payload.chatId }
+}
+
+/**
+ * Hands the host a recording and gets its transcript back. For phones whose browser has no speech
+ * recognizer of its own: the desktop's model does the work, so the reply takes as long as the
+ * desktop takes, and a refusal - no model prepared, a recording too long - is the desktop's own
+ * wording, which is what the reader needs to fix it.
+ */
+export async function transcribeRecording(
+  host: HostEndpoint,
+  pcm: Uint8Array<ArrayBuffer>
+): Promise<RemoteResult<string>> {
+  const sent = await send('/api/transcribe', host, {
+    method: 'POST',
+    headers: { 'content-type': REMOTE_VOICE_CONTENT_TYPE },
+    body: pcm
+  })
+  if (!sent.ok) return sent
+  const response = sent.value
+  let payload: unknown = null
+  try {
+    payload = await response.json()
+  } catch {
+    /* A body that is not JSON falls through to the status below. */
+  }
+  const reply = parseRemoteTranscriptionReply(payload)
+  if (!reply) return { ok: false, kind: 'unreachable', message: `Host replied ${response.status}` }
+  return reply.ok ? { ok: true, value: reply.text } : { ok: false, kind: 'unreachable', message: reply.message }
 }
 
 /** A body that is not JSON is not a reason to lose the status; the caller falls back to it. */
