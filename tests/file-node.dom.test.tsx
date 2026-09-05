@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs'
 import { ReactFlowProvider } from '@xyflow/react'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
@@ -209,21 +208,4 @@ test('a truncated read says how much of the file is shown', async () => {
   const notice = await screen.findByRole('status')
   expect(notice).toHaveAttribute('data-reason', 'truncated')
   expect(notice.textContent).toMatch(/of 2\.0 KB/)
-})
-
-test('the body scrolls with the same thin canvas scrollbar as the chat transcript', () => {
-  const styles = readFileSync('src/renderer/src/styles.css', 'utf8')
-  // Every declaration block the selector closes, since a selector can appear in several rules.
-  const rule = (selector: string): string =>
-    [...styles.matchAll(new RegExp(`\\n${selector.replace(/\./g, '\\.')} \\{([^}]*)\\}`, 'g'))]
-      .map((match) => match[1])
-      .join('\n')
-  const scrollbar = (block: string): string[] =>
-    block
-      .split('\n')
-      .map((line) => line.trim())
-      .filter((line) => line.startsWith('scrollbar-'))
-      .sort()
-  expect(scrollbar(rule('.file-node-body')).length).toBeGreaterThan(0)
-  expect(scrollbar(rule('.file-node-body'))).toEqual(scrollbar(rule('.chat-scroll')))
 })

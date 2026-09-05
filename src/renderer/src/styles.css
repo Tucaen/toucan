@@ -2,6 +2,10 @@
   /* The two usage bands, shared by every gauge and warning that reports consumption. */
   --usage-warning: #eab308;
   --usage-critical: #ff6b6f;
+  /* One scrollbar for the whole app. Both properties inherit, so every scroll
+     container below :root gets the chat-node scrollbar without opting in. */
+  scrollbar-color: #3b4553 transparent;
+  scrollbar-width: thin;
   color: #d9dee8;
   background: #0b0d12;
   font-family:
@@ -1515,11 +1519,6 @@ button {
   height: 100%;
 }
 
-.terminal-host .xterm-viewport {
-  scrollbar-color: #3b4553 transparent;
-  scrollbar-width: thin;
-}
-
 /* Provider-neutral ACP chat surface. */
 .chat-node {
   position: relative;
@@ -1726,11 +1725,6 @@ button {
   height: calc(100% - 38px);
   color: #d7dce5;
   container-type: inline-size;
-}
-
-.chat-scroll {
-  scrollbar-color: #3b4553 transparent;
-  scrollbar-width: thin;
 }
 
 /* React Flow disables selection on nodes; restore native copy selection in chat and file content. */
@@ -3316,8 +3310,6 @@ button {
 .chat-composer textarea {
   min-width: 0;
   height: 46px;
-  scrollbar-color: #3b4553 transparent;
-  scrollbar-width: thin;
   flex: 1;
   resize: none;
   padding: 9px 10px;
@@ -6120,8 +6112,6 @@ button {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  scrollbar-color: #3b4553 transparent;
-  scrollbar-width: thin;
   padding: 12px 16px 24px;
   cursor: text;
 }
