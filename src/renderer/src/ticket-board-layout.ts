@@ -5,11 +5,12 @@
  * only thing standing between a restored width and a canvas squeezed out of existence.
  *
  * Deliberately not shared with `brain-dump-panel-layout.ts`: the two panels agree on the docking
- * mechanics and on nothing else. A board of columns needs a different floor from a list-and-reader
- * pane, and folding both into one module would make every future change to either a negotiation.
+ * mechanics and on nothing else, and folding both into one module would make every future change
+ * to either a negotiation. Where the board's own panes sit *inside* this width is
+ * `ticket-board-panes.ts`; this module only answers how much of the workspace the board may take.
  */
 
-/** Below this a board of columns is narrower than the cards it holds. */
+/** Below this the states pane and the ticket list no longer both fit. */
 export const TICKET_BOARD_MIN_WIDTH = 480
 export const TICKET_BOARD_DEFAULT_WIDTH = 880
 export const TICKET_BOARD_MAX_WIDTH = 1240

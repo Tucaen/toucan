@@ -161,6 +161,13 @@ export interface TicketBoardPanelState {
   open: boolean
   width: number
   /**
+   * How wide the detail pane is inside the board, when the panel is wide enough to show the ticket
+   * list and the detail side by side. Absent in every snapshot written before the three-pane
+   * layout, and folded back into the panel's current width on read: a width stored by a wider board
+   * must never squeeze the ticket list out of existence.
+   */
+  detailWidth?: number
+  /**
    * Which optional ticket sources are switched on, keyed by project path. Only a choice is stored,
    * never a listing: whether this checkout shows its GitHub issues is the user's answer, and the
    * issues themselves are still read fresh from `gh` every time the board lists.

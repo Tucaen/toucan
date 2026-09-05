@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import App from '../src/renderer/src/App'
 import { TICKET_BOARD_DEFAULT_WIDTH, TICKET_BOARD_MAX_WIDTH } from '../src/renderer/src/ticket-board-layout'
+import { TICKET_DETAIL_DEFAULT_WIDTH } from '../src/renderer/src/ticket-board-panes'
 import type { WorkspaceState } from '../src/shared/terminal'
 import { createMockBrainDumpApi } from './dom/brain-dump-api-mock'
 import {
@@ -96,7 +97,18 @@ async function openBoard(state?: WorkspaceState): Promise<void> {
   await screen.findByRole('heading', { name: 'Tickets' })
 }
 
-const column = (label: string): HTMLElement => screen.getByRole('region', { name: new RegExp(`^${label},`) })
+const stateRow = (label: string): HTMLElement => screen.getByRole('tab', { name: new RegExp(`^${label},`) })
+
+/**
+ * The tickets pane only ever shows one state, so looking inside another means choosing it - which
+ * is exactly what a user does. Returns the pane, so the assertions below read as they did.
+ */
+const column = (label: string): HTMLElement => {
+  fireEvent.click(stateRow(label))
+  return screen.getByRole('tabpanel', { name: `${label} tickets` })
+}
+
+const detail = (): HTMLElement => screen.getByRole('region', { name: 'Ticket detail' })
 
 const issue = (overrides: Partial<ReturnType<typeof cardFixture>> = {}): ReturnType<typeof cardFixture> =>
   cardFixture({
@@ -114,44 +126,46 @@ async function chooseCardAction(cardId: string, action: RegExp | string): Promis
   fireEvent.click(within(menu).getByRole('menuitem', { name: action }))
 }
 
-const COLUMN_WIDTH = 260
+const STATE_ROW_HEIGHT = 32
 
-/** jsdom measures nothing, so the drag maths is given the layout the board would have had. */
-function layoutColumns(): void {
-  document.querySelectorAll<HTMLElement>('.ticket-column').forEach((element, index) => {
+/** jsdom measures nothing, so the drag maths is given the layout the state list would have had. */
+function layoutStates(): void {
+  document.querySelectorAll<HTMLElement>('.ticket-state-row').forEach((element, index) => {
+    const top = index * STATE_ROW_HEIGHT
     element.getBoundingClientRect = (): DOMRect =>
       ({
-        top: 0,
-        bottom: 600,
-        left: index * COLUMN_WIDTH,
-        right: index * COLUMN_WIDTH + COLUMN_WIDTH,
-        width: COLUMN_WIDTH,
-        height: 600,
-        x: index * COLUMN_WIDTH,
-        y: 0,
+        top,
+        bottom: top + STATE_ROW_HEIGHT,
+        left: 0,
+        right: 140,
+        width: 140,
+        height: STATE_ROW_HEIGHT,
+        x: 0,
+        y: top,
         toJSON: () => ({})
       }) as DOMRect
   })
 }
 
 /** jsdom has no `PointerEvent`, and the board only ever reads the coordinates off one. */
-function pointer(type: string, target: EventTarget, clientX: number): void {
-  const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX, clientY: 100 })
+function pointer(type: string, target: EventTarget, clientY: number): void {
+  const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: 60, clientY })
   Object.defineProperty(event, 'pointerId', { value: 1 })
   act(() => {
     target.dispatchEvent(event)
   })
 }
 
-function dragCard(cardTitle: string, toColumnIndex: number, options: { cancel?: boolean } = {}): void {
-  layoutColumns()
-  pointer('pointerdown', screen.getByTitle(`Move ${cardTitle} to another column`), 10)
-  pointer('pointermove', window, toColumnIndex * COLUMN_WIDTH + 20)
+/** The drop target is a state row now, so a drag runs down the state list rather than across. */
+function dragCard(cardTitle: string, toStateIndex: number, options: { cancel?: boolean } = {}): void {
+  layoutStates()
+  pointer('pointerdown', screen.getByTitle(`Move ${cardTitle} to another state`), 500)
+  pointer('pointermove', window, toStateIndex * STATE_ROW_HEIGHT + 10)
   if (options.cancel) {
     fireEvent.keyDown(window, { key: 'Escape' })
     return
   }
-  pointer('pointerup', window, toColumnIndex * COLUMN_WIDTH + 20)
+  pointer('pointerup', window, toStateIndex * STATE_ROW_HEIGHT + 10)
 }
 
 beforeEach(() => {
@@ -198,24 +212,25 @@ describe('reaching the board', () => {
   })
 })
 
-describe('the columns', () => {
-  test('every shipped status has a column and each card lands in its own', async () => {
+describe('the three panes', () => {
+  test('every shipped status is a state row, and the pane shows the one that is selected', async () => {
     await openBoard()
-    await screen.findByText('Ticket board')
-    expect(screen.getAllByRole('heading', { level: 3 }).map((heading) => heading.textContent)).toEqual([
-      'Open',
-      'In progress',
-      'Blocked',
-      'Done'
+    await screen.findByText('File node')
+    expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
+      'Open1',
+      'In progress1',
+      'Blocked0',
+      'Done1'
     ])
-    expect(within(column('Open')).getByText('File node')).toBeInTheDocument()
+    // The first state with tickets opens the board; the others are one click away.
+    expect(stateRow('Open')).toHaveAttribute('aria-selected', 'true')
+    expect(screen.queryByText('Ticket board')).toBeNull()
+
     expect(within(column('In progress')).getByText('Ticket board')).toBeInTheDocument()
-    // Done is collapsed by default, so its card is counted but not listed.
-    expect(within(column('Done')).queryByText('Shared frontmatter')).toBeNull()
-    expect(within(column('Done')).getByText('1')).toBeInTheDocument()
+    expect(screen.queryByText('File node')).toBeNull()
   })
 
-  test('Done opens on request and offers everything it is withholding', async () => {
+  test('Done still lists the recent ones only, and offers everything it is withholding', async () => {
     tickets.projects.set(project.path, {
       cards: [
         cardFixture({ id: 'recent', title: 'Recently closed', status: 'done', updated: '2026-09-01' }),
@@ -224,10 +239,7 @@ describe('the columns', () => {
       diagnostics: []
     })
     await openBoard()
-    await waitFor(() => expect(within(column('Done')).getByText('2')).toBeInTheDocument())
-    expect(screen.queryByText('Recently closed')).toBeNull()
-
-    fireEvent.click(screen.getByTitle('Expand the Done column'))
+    await waitFor(() => expect(within(stateRow('Done')).getByText('2')).toBeInTheDocument())
     expect(screen.getByText('Recently closed')).toBeInTheDocument()
     // Older than the 30-day cutoff: counted, withheld, and reachable through the toggle.
     expect(screen.queryByText('Long closed')).toBeNull()
@@ -237,6 +249,12 @@ describe('the columns', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Show recent only' }))
     expect(screen.queryByText('Long closed')).toBeNull()
+  })
+
+  test('a state nobody has filled is still a row, so there is somewhere to drop a card', async () => {
+    await openBoard()
+    await screen.findByText('File node')
+    expect(within(column('Blocked')).getByText('No tickets in Blocked.')).toBeInTheDocument()
   })
 
   test('a blocker chip shows whether the ticket it names is finished or unknown', async () => {
@@ -262,21 +280,130 @@ describe('the columns', () => {
     expect(screen.getByText(/title is required/)).toBeInTheDocument()
   })
 
-  test('expanding a card renders its Markdown body in place', async () => {
+  test('selecting a ticket renders its Markdown in the detail pane, not inside the card', async () => {
     tickets.projects.set(project.path, {
       cards: [cardFixture({ id: 'file-node', title: 'File node', body: '\n## Acceptance\n\nRenders Markdown.\n' })],
       diagnostics: []
     })
     await openBoard()
-    const title = await screen.findByRole('button', { name: 'File node' })
-    expect(title).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByRole('region', { name: 'Ticket detail' })).toBeNull()
 
-    fireEvent.click(title)
-    expect(await screen.findByRole('heading', { name: 'Acceptance' })).toBeInTheDocument()
-    expect(screen.getByText('Renders Markdown.')).toBeInTheDocument()
+    fireEvent.click(await screen.findByRole('button', { name: 'File node' }))
 
-    fireEvent.click(title)
-    await waitFor(() => expect(screen.queryByRole('heading', { name: 'Acceptance' })).toBeNull())
+    const body = await screen.findByRole('heading', { name: 'Acceptance' })
+    // The whole point of the redesign: the body wraps at the pane, not at a 200px card.
+    expect(detail().contains(body)).toBe(true)
+    expect(body.closest('.ticket-card')).toBeNull()
+    expect(within(detail()).getByText('Renders Markdown.')).toBeInTheDocument()
+  })
+
+  test('a ticket stays open after it changes state, and the state list follows it', async () => {
+    await openBoard()
+    fireEvent.click(await screen.findByRole('button', { name: 'File node' }))
+    expect(within(detail()).getByRole('heading', { name: 'File node' })).toBeInTheDocument()
+
+    dragCard('File node', 3)
+
+    await waitFor(() => expect(stateRow('Done')).toHaveAttribute('aria-selected', 'true'))
+    expect(within(detail()).getByRole('heading', { name: 'File node' })).toBeInTheDocument()
+  })
+
+  test('a ticket that is deleted out from under the detail closes it rather than showing a ghost', async () => {
+    await openBoard()
+    fireEvent.click(await screen.findByRole('button', { name: 'File node' }))
+    await screen.findByRole('region', { name: 'Ticket detail' })
+
+    const listing = tickets.projects.get(project.path)!
+    listing.cards = listing.cards.filter((card) => card.id !== 'file-node')
+    act(() => tickets.publishChange(project.path))
+
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Ticket detail' })).toBeNull())
+  })
+
+  test('a ticket deleted after it was moved leaves the board on the state it moved to', async () => {
+    await openBoard()
+    fireEvent.click(await screen.findByRole('button', { name: 'File node' }))
+
+    dragCard('File node', 3)
+    await waitFor(() => expect(stateRow('Done')).toHaveAttribute('aria-selected', 'true'))
+
+    const listing = tickets.projects.get(project.path)!
+    listing.cards = listing.cards.filter((card) => card.id !== 'file-node')
+    act(() => tickets.publishChange(project.path))
+
+    // The state the user is reading in outlives the ticket that took them there.
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Ticket detail' })).toBeNull())
+    expect(stateRow('Done')).toHaveAttribute('aria-selected', 'true')
+  })
+})
+
+describe('a board too narrow for three panes', () => {
+  test('the detail replaces the list, and a back affordance returns to it with focus', async () => {
+    await renderApp(savedWorkspace({ ticketBoardPanel: { open: true, width: 520 } }))
+    fireEvent.click(await screen.findByRole('button', { name: 'File node' }))
+
+    await screen.findByRole('region', { name: 'Ticket detail' })
+    expect(screen.queryByRole('tabpanel', { name: 'Open tickets' })).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: /^Back to Open/ }))
+    const list = await screen.findByRole('tabpanel', { name: 'Open tickets' })
+    expect(screen.queryByRole('region', { name: 'Ticket detail' })).toBeNull()
+    // The way out only re-mounts the list on the next render, so focus has to wait for it.
+    expect(list.contains(document.activeElement)).toBe(true)
+  })
+
+  test('a wide board shows both, with a divider between them', async () => {
+    await openBoard()
+    fireEvent.click(await screen.findByRole('button', { name: 'File node' }))
+
+    await screen.findByRole('region', { name: 'Ticket detail' })
+    expect(screen.getByRole('tabpanel', { name: 'Open tickets' })).toBeInTheDocument()
+    expect(screen.getByRole('separator', { name: 'Resize the ticket detail' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Back to/ })).toBeNull()
+  })
+
+  test('the divider resizes the detail, and the width is remembered', async () => {
+    await openBoard()
+    fireEvent.click(await screen.findByRole('button', { name: 'File node' }))
+    const divider = await screen.findByRole('separator', { name: 'Resize the ticket detail' })
+
+    fireEvent.keyDown(divider, { key: 'ArrowLeft' })
+
+    await waitFor(() => expect(saved.at(-1)?.ticketBoardPanel?.detailWidth).toBe(TICKET_DETAIL_DEFAULT_WIDTH + 24))
+  })
+})
+
+describe('moving around the board with the keyboard', () => {
+  test('Up and Down walk the state list, Right steps into the tickets', async () => {
+    await openBoard()
+    await screen.findByText('File node')
+
+    fireEvent.keyDown(stateRow('Open'), { key: 'ArrowDown' })
+    await waitFor(() => expect(stateRow('In progress')).toHaveAttribute('aria-selected', 'true'))
+    expect(screen.getByText('Ticket board')).toBeInTheDocument()
+
+    fireEvent.keyDown(stateRow('In progress'), { key: 'ArrowRight' })
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Ticket board' }))
+  })
+
+  test('Up and Down walk the tickets, and Left goes back to the states', async () => {
+    tickets.projects.set(project.path, {
+      cards: [
+        cardFixture({ id: 'first', title: 'First ticket', updated: '2026-09-03' }),
+        cardFixture({ id: 'second', title: 'Second ticket', updated: '2026-09-02' })
+      ],
+      diagnostics: []
+    })
+    await openBoard()
+    const first = await screen.findByRole('button', { name: 'First ticket' })
+    fireEvent.click(first)
+
+    fireEvent.keyDown(first, { key: 'ArrowDown' })
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Second ticket' }))
+    expect(within(detail()).getByRole('heading', { name: 'Second ticket' })).toBeInTheDocument()
+
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Second ticket' }), { key: 'ArrowLeft' })
+    expect(document.activeElement).toBe(stateRow('Open'))
   })
 })
 
@@ -318,7 +445,7 @@ describe('moving a card', () => {
     await openBoard()
     await screen.findByText('File node')
 
-    fireEvent.keyDown(screen.getByTitle('Move File node to another column'), { key: 'ArrowRight' })
+    fireEvent.keyDown(screen.getByTitle('Move File node to another state'), { key: 'ArrowRight' })
 
     await waitFor(() => expect(tickets.setStatus).toHaveBeenCalledWith(project.path, 'file-node', 'in-progress'))
   })
@@ -327,7 +454,7 @@ describe('moving a card', () => {
 describe('following the project and the disk', () => {
   test('an edit made outside Toucan reaches the board without a restart', async () => {
     await openBoard()
-    await screen.findByText('Ticket board')
+    await screen.findByText('File node')
 
     tickets.projects.get(project.path)!.cards.push(cardFixture({ id: 'diff-node', title: 'Diff node' }))
     act(() => tickets.publishChange(project.path))
@@ -341,13 +468,13 @@ describe('following the project and the disk', () => {
       diagnostics: []
     })
     await openBoard()
-    await screen.findByText('Ticket board')
+    await screen.findByText('File node')
 
     const list = document.querySelector('.project-list')!
     fireEvent.click(within(list as HTMLElement).getByText('Atlas'))
 
     expect(await screen.findByText('Atlas only')).toBeInTheDocument()
-    await waitFor(() => expect(screen.queryByText('Ticket board')).toBeNull())
+    await waitFor(() => expect(screen.queryByText('File node')).toBeNull())
     expect(tickets.listCalls).toContain(other.path)
   })
 
@@ -453,8 +580,9 @@ describe('GitHub as a second source', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'GitHub' }))
     await screen.findByText('GitHub issues as a second source')
 
-    expect(screen.queryByTitle('Move GitHub issues as a second source to another column')).toBeNull()
-    expect(screen.getByTitle('Move Ticket board to another column')).toBeTruthy()
+    expect(screen.queryByTitle('Move GitHub issues as a second source to another state')).toBeNull()
+    // A file card in the same list still has its grip: only GitHub refuses the write.
+    expect(screen.getByTitle('Move File node to another state')).toBeTruthy()
   })
 
   test('a GitHub card opens its issue in the browser instead of a folder', async () => {
@@ -557,6 +685,7 @@ describe('deleting tickets', () => {
     })
     await openBoard()
     await screen.findByText('Still open')
+    column('Done')
 
     fireEvent.click(screen.getByRole('button', { name: 'Delete done tickets older than 30 days' }))
     const dialog = await screen.findByRole('dialog')
@@ -573,9 +702,10 @@ describe('deleting tickets', () => {
       [project.path, 'also-long-ago'],
       [project.path, 'closed-long-ago']
     ])
-    expect(screen.getByText('Still open')).toBeTruthy()
-    // Done is still collapsed, so what survived is counted rather than listed: 1, not 3.
-    expect(within(column('Done')).getByText('1')).toBeTruthy()
+    expect(within(column('Open')).getByText('Still open')).toBeTruthy()
+    // Only the two past the cutoff went; the recent one is what Done still lists.
+    expect(within(stateRow('Done')).getByText('1')).toBeTruthy()
+    expect(within(column('Done')).getByText('Closed recently')).toBeTruthy()
   })
 
   test('a GitHub card offers no Delete, because its issues are not Toucan’s to destroy', async () => {

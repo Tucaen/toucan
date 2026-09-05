@@ -5676,42 +5676,89 @@ button {
   cursor: pointer;
 }
 
-.ticket-board-columns {
+/* Three panes: the states, the selected state's tickets, and the ticket being read. Only the
+   panes scroll - the row never does, because a board that scrolls sideways is the layout this
+   one replaced. */
+.ticket-board-panes {
   flex: 1;
   min-height: 0;
   display: flex;
-  gap: 12px;
+  gap: 10px;
   padding: 12px 16px 16px 18px;
+  overflow: hidden;
+}
+
+.ticket-state-list {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 138px;
+  gap: 2px;
+  min-height: 0;
   overflow: auto;
 }
 
-.ticket-column {
+.ticket-state-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: #8a94a2;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-align: left;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.ticket-state-row:hover {
+  color: #cbd2dc;
+  background: #151a21;
+}
+
+.ticket-state-row[aria-selected='true'] {
+  border-color: #2b323d;
+  color: #e4e9f1;
+  background: #1a1f27;
+}
+
+/* The state row a drag is currently over. The card has not moved yet - nothing moves until the
+   source has written the change and the board has re-read it. */
+.ticket-state-row[data-over='true'] {
+  border-color: #4a6da8;
+  background: #151d29;
+}
+
+.ticket-state-count {
+  color: #7d8796;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.ticket-list-pane {
   display: flex;
   flex-direction: column;
-  flex: 0 0 260px;
+  flex: 1 1 240px;
+  min-width: 0;
   min-height: 0;
   border: 1px solid #1c222b;
   border-radius: 10px;
   background: #12161c;
 }
 
-/* The column a drag is currently over. The card has not moved yet - nothing moves until the
-   source has written the change and the board has re-read it. */
-.ticket-column[data-over='true'] {
-  border-color: #4a6da8;
-  background: #151d29;
-}
-
-.ticket-column-header {
+.ticket-list-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
   padding: 9px 12px;
   border-bottom: 1px solid #1c222b;
 }
 
-.ticket-column-header h3 {
+.ticket-list-header h3 {
   margin: 0;
   color: #cbd2dc;
   font-size: 12px;
@@ -5720,13 +5767,13 @@ button {
   text-transform: uppercase;
 }
 
-.ticket-column-count {
+.ticket-list-count {
   margin-left: auto;
   color: #7d8796;
   font-size: 12px;
 }
 
-.ticket-column-cards {
+.ticket-list-cards {
   flex: 1;
   min-height: 0;
   display: flex;
@@ -5736,7 +5783,7 @@ button {
   overflow: auto;
 }
 
-.ticket-column-more {
+.ticket-list-more {
   margin: 0 10px 10px;
   padding: 5px 8px;
   border: 1px dashed #2b323d;
@@ -5747,6 +5794,94 @@ button {
   cursor: pointer;
 }
 
+.ticket-detail-resizer {
+  flex: 0 0 6px;
+  align-self: stretch;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  cursor: col-resize;
+}
+
+.ticket-detail-resizer:hover,
+.ticket-detail-resizer:focus-visible {
+  background: #33507a;
+  outline: none;
+}
+
+/* The reading surface the three panes exist for: one column of prose at the pane's own width,
+   which is why the body is never rendered inside a card again. */
+.ticket-detail-pane {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid #1c222b;
+  border-radius: 10px;
+  background: #12161c;
+}
+
+.ticket-board-panes[data-mode='two'] .ticket-detail-pane {
+  flex: 1 1 100%;
+}
+
+.ticket-detail-head {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 14px;
+  border-bottom: 1px solid #1c222b;
+}
+
+.ticket-detail-head h3 {
+  margin: 0;
+  color: #e4e9f1;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.ticket-detail-back {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  align-self: flex-start;
+  padding: 2px 8px 2px 4px;
+  border: 1px solid #2b323d;
+  border-radius: 999px;
+  color: #8a94a2;
+  background: #161a21;
+  font-size: 11px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.ticket-detail-back:hover {
+  border-color: #3c4655;
+  color: #cbd2dc;
+}
+
+.ticket-detail-back svg {
+  width: 12px;
+  height: 12px;
+}
+
+.ticket-detail-body {
+  flex: 1;
+  min-height: 0;
+  padding: 12px 14px 16px;
+  color: #b9c1cd;
+  font-size: 13px;
+  line-height: 1.55;
+  overflow: auto;
+}
+
+.ticket-detail-body pre,
+.ticket-detail-body table {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
 .ticket-card {
   display: flex;
   flex-direction: column;
@@ -5755,6 +5890,12 @@ button {
   border: 1px solid #262d38;
   border-radius: 8px;
   background: #161a21;
+}
+
+/* The card the detail pane is currently reading. */
+.ticket-card[data-selected='true'] {
+  border-color: #3f6ea8;
+  background: #1a2029;
 }
 
 .ticket-card[data-dragging='true'] {
@@ -5909,7 +6050,7 @@ button {
 }
 
 /* The confirmation is what keeps the sweep safe. */
-.ticket-column-sweep {
+.ticket-list-sweep {
   display: grid;
   place-items: center;
   width: 20px;
@@ -5922,13 +6063,13 @@ button {
   cursor: pointer;
 }
 
-.ticket-column-sweep:hover,
-.ticket-column-sweep:focus-visible {
+.ticket-list-sweep:hover,
+.ticket-list-sweep:focus-visible {
   color: #e0787f;
   background: #241a1c;
 }
 
-.ticket-column-sweep svg {
+.ticket-list-sweep svg {
   width: 13px;
   height: 13px;
 }
@@ -6044,13 +6185,6 @@ button {
   color: #d9a066;
 }
 
-.ticket-card-body {
-  padding-top: 4px;
-  border-top: 1px solid #232a34;
-  color: #b9c1cd;
-  font-size: 12px;
-}
-
 .ticket-board-diagnostics {
   padding: 10px 18px 14px;
   border-top: 1px solid #1c222b;
@@ -6071,33 +6205,6 @@ button {
   .ticket-session-chip[data-working='true'] svg {
     animation: none;
   }
-}
-
-/* Done collapsed: a strip wide enough to read its count and drop a card onto, no wider. Closed
-   work is history, and history should not spend the width live columns need. */
-.ticket-column[data-collapsed='true'] {
-  flex: 0 0 92px;
-}
-
-.ticket-column[data-collapsed='true'] .ticket-column-header {
-  border-bottom: none;
-}
-
-.ticket-column-toggle {
-  padding: 0;
-  border: none;
-  color: inherit;
-  background: transparent;
-  cursor: pointer;
-}
-
-.ticket-column-toggle h3 {
-  margin: 0;
-  color: #cbd2dc;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
 }
 
 /* ---- File nodes -------------------------------------------------------- */

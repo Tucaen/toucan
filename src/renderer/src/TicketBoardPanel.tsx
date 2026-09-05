@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
-import { ExternalLink, FolderOpen, GripVertical, MoreHorizontal, RefreshCw, Trash2, X } from 'lucide-react'
+import { ArrowLeft, ExternalLink, FolderOpen, GripVertical, MoreHorizontal, RefreshCw, Trash2, X } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import type { TicketBoardPanelState } from '../../shared/terminal'
 import type { TicketCard, TicketSource } from '../../shared/ticket-source'
@@ -22,20 +22,34 @@ import {
   ticketBoardWidthFromPointer,
   withEnabledSource
 } from './ticket-board-layout'
+import {
+  clampTicketDetailWidth,
+  resolveTicketPanes,
+  ticketDetailWidthFromPointer,
+  ticketArrowStep,
+  ticketIndexBeside,
+  ticketPaneBeside,
+  ticketPaneMode,
+  visibleTicketPanes,
+  type TicketPane,
+  type TicketPaneSelection
+} from './ticket-board-panes'
 import { useTicketBoard } from './use-ticket-board'
 
 /**
- * The docked ticket board. It renders what `use-ticket-board.ts` and `ticket-board.ts` already
- * decided; what it genuinely owns is the board's interaction surface - which card is expanded,
- * which card's menu is open, which column a pointer is currently over, and where a drag ends. Like
- * the brain-dump panel it stays mounted once opened and merely hides, so reopening is the same
- * board - re-listed on reopen, because the files may have moved on while it was hidden.
+ * The docked ticket board, as three panes: the states on the left, the selected state's tickets in
+ * the middle, and the selected ticket's body on the right. It renders what `use-ticket-board.ts`,
+ * `ticket-board.ts` and `ticket-board-panes.ts` already decided; what it genuinely owns is the
+ * board's interaction surface - which card's menu is open, which state row a pointer is currently
+ * over, where a drag ends, and where focus goes. Like the brain-dump panel it stays mounted once
+ * opened and merely hides, so reopening is the same board - re-listed on reopen, because the files
+ * may have moved on while it was hidden.
  *
  * A card never moves because the user dragged it. It moves because the source wrote the change and
- * the re-read came back with it in the new column; until then the card shows as pending.
+ * the re-read came back with it under the new state; until then the card shows as pending.
  */
 
-/** How far one arrow press moves the resize separator, for resizing without a pointer. */
+/** How far one arrow press moves either resize separator, for resizing without a pointer. */
 const KEYBOARD_RESIZE_STEP = 24
 
 export interface TicketBoardPanelProps {
@@ -60,7 +74,7 @@ export interface TicketBoardPanelProps {
 
 interface DragState {
   card: TicketCard
-  /** The column the pointer is currently over, or the card's own while it is over nothing. */
+  /** The state row the pointer is currently over, or the card's own while it is over nothing. */
   over: string
 }
 
@@ -74,6 +88,8 @@ export default function TicketBoardPanel(props: TicketBoardPanelProps): JSX.Elem
   const { panel, projectPath, sources, today } = props
   const { open, width } = panel
   const headingId = useId()
+  /** The pane each state row controls; one id, because only one state is ever shown. */
+  const ticketListId = `${headingId}-tickets`
   // An optional source is switched on per project, not per board: the answer to "show GitHub here"
   // belongs to the checkout, and following the user from project to project would be a surprise.
   const enabledSources = useMemo(
@@ -81,18 +97,23 @@ export default function TicketBoardPanel(props: TicketBoardPanelProps): JSX.Elem
     [panel.enabledSources, projectPath]
   )
   const board = useTicketBoard({ sources, projectPath, today, enabledSources })
-  const [expanded, setExpanded] = useState<string | null>(null)
+  /** What the board is pointed at. Resolved against every fresh listing, never trusted raw. */
+  const [selection, setSelection] = useState<TicketPaneSelection>({ status: null, cardKey: null })
   /** The card whose actions menu is open; at most one, closed by any action or by Escape. */
   const [menuFor, setMenuFor] = useState<string | null>(null)
   const [drag, setDrag] = useState<DragState | null>(null)
-  // Closed work is history, not the board: Done starts collapsed to a strip and the user opens it.
-  const [doneExpanded, setDoneExpanded] = useState(false)
-  const [resizing, setResizing] = useState(false)
+  const [resizing, setResizing] = useState<'panel' | 'detail' | null>(null)
   /** The confirmation currently open; deleting never happens without one. */
   const [deleting, setDeleting] = useState<DeleteRequest | null>(null)
   const [deletePending, setDeletePending] = useState(false)
-  const columnRefs = useRef(new Map<string, HTMLElement>())
+  const stateRefs = useRef(new Map<string, HTMLElement>())
+  const cardRefs = useRef(new Map<string, HTMLElement>())
+  const panesRef = useRef<HTMLDivElement>(null)
+  const listRef = useRef<HTMLElement>(null)
+  const detailRef = useRef<HTMLElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
+  /** A pane to focus once the render that brings it back has happened. See `focusPaneAfterRender`. */
+  const pendingFocus = useRef<TicketPane | null>(null)
   /** Restored whenever the board comes back: a hidden panel loses its scroll offset. */
   const scrollMemory = useRef(0)
   const wasOpen = useRef(open)
@@ -105,8 +126,28 @@ export default function TicketBoardPanel(props: TicketBoardPanelProps): JSX.Elem
     (source) => source.optional && (source.availability?.available === true || source.enabled)
   )
 
+  const resolved = useMemo(
+    () => resolveTicketPanes({ columns: board.columns, cards: board.cards, selection }),
+    [board.cards, board.columns, selection]
+  )
+  // Written back only when an open ticket says so: it is the ticket that moved, and the state it
+  // moved to is where the user is now reading, so that state must survive the ticket later being
+  // deleted or swept. A state the board merely *fell back to* is never committed - the very first
+  // render happens before any source has answered, and committing that guess would pin the board
+  // to the first status forever, whatever the listing turned out to hold.
   useEffect(() => {
-    if (open && scrollRef.current) scrollRef.current.scrollLeft = scrollMemory.current
+    if (resolved.cardKey !== selection.cardKey || (resolved.cardKey && resolved.status !== selection.status))
+      setSelection(resolved)
+  }, [resolved, selection])
+
+  const column = board.columns.find((entry) => entry.status === resolved.status)
+  const openCard = resolved.cardKey ? board.cards.find((card) => ticketCardKey(card) === resolved.cardKey) : undefined
+  const mode = ticketPaneMode(width)
+  const visiblePanes = visibleTicketPanes(mode, Boolean(openCard))
+  const detailWidth = clampTicketDetailWidth(panel.detailWidth, width)
+
+  useEffect(() => {
+    if (open && scrollRef.current) scrollRef.current.scrollTop = scrollMemory.current
   }, [open, board.status])
 
   // Reopening re-lists quietly: a source without a watcher (GitHub) has no other way to catch up
@@ -122,18 +163,76 @@ export default function TicketBoardPanel(props: TicketBoardPanelProps): JSX.Elem
   }
 
   const closePanel = (): void => {
-    scrollMemory.current = scrollRef.current?.scrollLeft ?? scrollMemory.current
+    scrollMemory.current = scrollRef.current?.scrollTop ?? scrollMemory.current
     props.onPanelChange({ open: false })
   }
 
-  const registerColumn = useCallback((status: string, element: HTMLElement | null): void => {
-    if (element) columnRefs.current.set(status, element)
-    else columnRefs.current.delete(status)
+  /** Choosing a state clears the open ticket, which is what lets the choice survive a re-read. */
+  const selectState = (status: string): void => setSelection({ status, cardKey: null })
+  const selectCard = (card: TicketCard): void => setSelection({ status: card.status, cardKey: ticketCardKey(card) })
+
+  const registerState = useCallback((status: string, element: HTMLElement | null): void => {
+    if (element) stateRefs.current.set(status, element)
+    else stateRefs.current.delete(status)
   }, [])
 
-  /** The column under the pointer, by measurement: the board scrolls, so index maths would lie. */
-  const columnAt = (clientX: number, clientY: number): string | null => {
-    for (const [status, element] of columnRefs.current) {
+  const focusPane = (pane: TicketPane | undefined): void => {
+    if (!pane) return
+    if (pane === 'states') {
+      stateRefs.current.get(resolved.status ?? '')?.focus()
+      return
+    }
+    if (pane === 'detail') {
+      detailRef.current?.focus()
+      return
+    }
+    const selected = resolved.cardKey ? cardRefs.current.get(resolved.cardKey) : undefined
+    const first = listRef.current?.querySelector<HTMLElement>('.ticket-card-title')
+    ;(selected ?? first ?? listRef.current)?.focus()
+  }
+
+  /**
+   * Focus a pane that the same interaction is about to bring back. On a narrow board the way out
+   * of the detail is also what re-mounts the list, so focusing it before React has rendered would
+   * aim at an element that does not exist yet and drop focus on the body.
+   */
+  const focusPaneAfterRender = (pane: TicketPane): void => {
+    pendingFocus.current = pane
+  }
+  useEffect(() => {
+    const pane = pendingFocus.current
+    if (!pane) return
+    pendingFocus.current = null
+    focusPane(pane)
+  })
+
+  /** Closing the detail is one decision, whether it came from the back button or from Left. */
+  const closeDetail = (): void => {
+    setSelection({ status: resolved.status, cardKey: null })
+    focusPaneAfterRender('list')
+  }
+
+  /**
+   * The pointer choreography both separators share: capture, mark the board as resizing so the
+   * width stops animating, report every move, and let go on release. Only what a drag *means* -
+   * which width it is setting - differs between them.
+   */
+  const startWidthDrag = (event: React.PointerEvent, what: 'panel' | 'detail', report: (pointerX: number) => void) => {
+    event.currentTarget.setPointerCapture(event.pointerId)
+    setResizing(what)
+    const move = (pointer: PointerEvent): void => report(pointer.clientX)
+    const release = (): void => {
+      setResizing(null)
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', release)
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', release)
+  }
+
+  /** The state row under the pointer, by measurement: the list scrolls, so index maths would lie. */
+  const stateAt = (clientX: number, clientY: number): string | null => {
+    for (const [status, element] of stateRefs.current) {
       const rect = element.getBoundingClientRect()
       if (clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom) return status
     }
@@ -148,7 +247,7 @@ export default function TicketBoardPanel(props: TicketBoardPanelProps): JSX.Elem
     let over = card.status
     setDrag({ card, over })
     const move = (pointer: PointerEvent): void => {
-      over = columnAt(pointer.clientX, pointer.clientY) ?? card.status
+      over = stateAt(pointer.clientX, pointer.clientY) ?? card.status
       setDrag({ card, over })
     }
     const finish = (commit: boolean): void => {
@@ -167,7 +266,7 @@ export default function TicketBoardPanel(props: TicketBoardPanelProps): JSX.Elem
     window.addEventListener('keydown', cancel)
   }
 
-  /** The same move without a pointer: the grip answers Left/Right with the neighbouring column. */
+  /** The same move without a pointer: the grip answers Left/Right with the neighbouring state. */
   const moveByKeyboard = (card: TicketCard, delta: number): void => {
     const next = ticketStatusBeside(board.columns, card.status, delta)
     if (next) void board.moveCard(card, next)
@@ -256,16 +355,66 @@ export default function TicketBoardPanel(props: TicketBoardPanelProps): JSX.Elem
     )
   }
 
+  /** Id, age and source badge, shared by the compact card and the detail's own head. */
+  const renderMeta = (card: TicketCard): JSX.Element => (
+    <div className="ticket-card-meta">
+      <code>{card.id}</code>
+      <span>{describeTicketDate(card.updated, today)}</span>
+      {showSourceBadges && <span className="ticket-card-source">{sourceLabels.get(card.sourceId)}</span>}
+    </div>
+  )
+
+  const renderSessionChip = (session: TicketSessionChip): JSX.Element => (
+    <button
+      type="button"
+      className="ticket-session-chip"
+      data-working={session.working ? 'true' : undefined}
+      title={
+        session.working
+          ? `${session.label} is working on this ticket - click to focus it`
+          : `${session.label} worked on this ticket - click to focus it`
+      }
+      onClick={() => props.onFocusSession?.(session.nodeId)}
+    >
+      <SessionKindIcon kind={session.kind} />
+      <span>{session.label}</span>
+    </button>
+  )
+
+  const renderBlockers = (card: TicketCard): JSX.Element | null => {
+    const blockers = ticketBlockers(card, board.cards)
+    if (blockers.length === 0) return null
+    return (
+      <ul className="ticket-blockers">
+        {blockers.map((blocker) => (
+          <li
+            key={blocker.id}
+            data-state={blocker.state}
+            title={
+              blocker.state === 'done'
+                ? `${blocker.id} is done`
+                : blocker.state === 'missing'
+                  ? `${blocker.id} is not a ticket in this folder`
+                  : `Blocked by ${blocker.id}`
+            }
+          >
+            {blocker.id}
+          </li>
+        ))}
+      </ul>
+    )
+  }
+
   const renderCard = (card: TicketCard): JSX.Element => {
     const key = ticketCardKey(card)
-    const blockers = ticketBlockers(card, board.cards)
-    const isExpanded = expanded === key
+    const selected = resolved.cardKey === key
     const movable = board.canMove(card)
     const session = props.sessions?.get(key)
     return (
       <article
         key={key}
         className="ticket-card"
+        data-selected={selected ? 'true' : undefined}
         data-pending={board.mutation.cardKey === key ? 'true' : undefined}
         data-dragging={drag && ticketCardKey(drag.card) === key ? 'true' : undefined}
       >
@@ -274,14 +423,17 @@ export default function TicketBoardPanel(props: TicketBoardPanelProps): JSX.Elem
             <button
               type="button"
               className="ticket-card-grip"
-              title={`Move ${card.title} to another column`}
-              aria-label={`Move ${card.title} to another column`}
+              title={`Move ${card.title} to another state`}
+              aria-label={`Move ${card.title} to another state`}
               onPointerDown={(event) => startDrag(card, event)}
               onKeyDown={(event) => {
-                const delta = event.key === 'ArrowLeft' ? -1 : event.key === 'ArrowRight' ? 1 : 0
-                if (!delta) return
+                const step = ticketArrowStep(event.key)
+                if (step?.axis !== 'horizontal') return
                 event.preventDefault()
-                moveByKeyboard(card, delta)
+                // The list's own Left/Right moves focus between panes; from the grip they move
+                // the ticket, so the press must not be read twice.
+                event.stopPropagation()
+                moveByKeyboard(card, step.delta)
               }}
             >
               <GripVertical aria-hidden="true" />
@@ -290,106 +442,109 @@ export default function TicketBoardPanel(props: TicketBoardPanelProps): JSX.Elem
           <button
             type="button"
             className="ticket-card-title"
-            aria-expanded={isExpanded}
-            onClick={() => setExpanded(isExpanded ? null : key)}
+            aria-current={selected ? 'true' : undefined}
+            ref={(element) => {
+              if (element) cardRefs.current.set(key, element)
+              else cardRefs.current.delete(key)
+            }}
+            onClick={() => selectCard(card)}
           >
             {card.title}
           </button>
           {renderCardMenu(card, key)}
         </div>
-        <div className="ticket-card-meta">
-          <code>{card.id}</code>
-          <span>{describeTicketDate(card.updated, today)}</span>
-          {showSourceBadges && <span className="ticket-card-source">{sourceLabels.get(card.sourceId)}</span>}
-        </div>
-        {session && (
-          <button
-            type="button"
-            className="ticket-session-chip"
-            data-working={session.working ? 'true' : undefined}
-            title={
-              session.working
-                ? `${session.label} is working on this ticket - click to focus it`
-                : `${session.label} worked on this ticket - click to focus it`
-            }
-            onClick={() => props.onFocusSession?.(session.nodeId)}
-          >
-            <SessionKindIcon kind={session.kind} />
-            <span>{session.label}</span>
-          </button>
-        )}
-        {blockers.length > 0 && (
-          <ul className="ticket-blockers">
-            {blockers.map((blocker) => (
-              <li
-                key={blocker.id}
-                data-state={blocker.state}
-                title={
-                  blocker.state === 'done'
-                    ? `${blocker.id} is done`
-                    : blocker.state === 'missing'
-                      ? `${blocker.id} is not a ticket in this folder`
-                      : `Blocked by ${blocker.id}`
-                }
-              >
-                {blocker.id}
-              </li>
-            ))}
-          </ul>
-        )}
-        {isExpanded && (
-          <div className="ticket-card-body">
-            {card.body?.trim() ? (
-              <ReactMarkdown remarkPlugins={remarkPlugins} components={markdownBlockComponents}>
-                {card.body}
-              </ReactMarkdown>
-            ) : (
-              <p className="ticket-board-state">This ticket has no body yet.</p>
-            )}
-          </div>
-        )}
+        {renderMeta(card)}
+        {session && renderSessionChip(session)}
+        {renderBlockers(card)}
       </article>
     )
   }
 
-  const renderColumn = (column: TicketBoardColumn): JSX.Element => {
-    const isDone = column.status === TICKET_STATUS.done
-    // Collapsed, Done is still a full-height drop target - closing a ticket by dragging it there
-    // is the whole point - it just does not spend board width on work that is finished.
-    const collapsed = isDone && !doneExpanded
-    // Offered on the collapsed column too, which is the state it exists for: a folder of hundreds
-    // of closed tickets costs every listing and every agent that reads it, and the cards it would
-    // remove are precisely the ones a collapsed Done has already stopped showing.
+  const renderStates = (): JSX.Element => (
+    <div
+      className="ticket-state-list"
+      role="tablist"
+      aria-orientation="vertical"
+      aria-label="Ticket states"
+      onKeyDown={(event) => {
+        const step = ticketArrowStep(event.key)
+        if (!step) return
+        event.preventDefault()
+        if (step.axis === 'horizontal') {
+          focusPane(ticketPaneBeside(visiblePanes, 'states', step.delta))
+          return
+        }
+        const index = board.columns.findIndex((entry) => entry.status === resolved.status)
+        const next = board.columns[ticketIndexBeside(board.columns.length, index, step.delta)]
+        if (!next) return
+        selectState(next.status)
+        stateRefs.current.get(next.status)?.focus()
+      }}
+    >
+      {board.columns.map((entry) => {
+        const selected = entry.status === resolved.status
+        const count = entry.cards.length + entry.hidden
+        return (
+          <button
+            key={entry.status}
+            type="button"
+            role="tab"
+            className="ticket-state-row"
+            data-status={entry.status}
+            data-over={drag?.over === entry.status ? 'true' : undefined}
+            aria-selected={selected}
+            aria-controls={ticketListId}
+            aria-label={`${entry.label}, ${count === 1 ? '1 ticket' : `${count} tickets`}`}
+            tabIndex={selected ? 0 : -1}
+            ref={(element) => registerState(entry.status, element)}
+            onClick={() => selectState(entry.status)}
+          >
+            <span className="ticket-state-label">{entry.label}</span>
+            <span className="ticket-state-count">{count}</span>
+          </button>
+        )
+      })}
+    </div>
+  )
+
+  const renderList = (selectedColumn: TicketBoardColumn): JSX.Element => {
+    const isDone = selectedColumn.status === TICKET_STATUS.done
+    // Offered on the Done list, which is the state it exists for: a folder of hundreds of closed
+    // tickets costs every listing and every agent that reads it, and the cards it would remove are
+    // precisely the ones the cutoff has already stopped showing.
     const sweepable = isDone ? board.sweepableDone : []
     return (
       <section
-        key={column.status}
-        className="ticket-column"
-        data-status={column.status}
-        data-collapsed={collapsed ? 'true' : undefined}
-        data-over={drag?.over === column.status ? 'true' : undefined}
-        aria-label={`${column.label}, ${column.cards.length} ticket(s)`}
-        ref={(element) => registerColumn(column.status, element)}
+        className="ticket-list-pane"
+        id={ticketListId}
+        role="tabpanel"
+        aria-label={`${selectedColumn.label} tickets`}
+        ref={listRef}
+        tabIndex={-1}
+        onKeyDown={(event) => {
+          // A card's open menu owns its own arrows; so does a card's grip, which moves the ticket.
+          if ((event.target as HTMLElement).closest('.ticket-card-menu-list')) return
+          const step = ticketArrowStep(event.key)
+          if (!step) return
+          event.preventDefault()
+          if (step.axis === 'horizontal') {
+            focusPane(ticketPaneBeside(visiblePanes, 'list', step.delta))
+            return
+          }
+          const index = selectedColumn.cards.findIndex((card) => ticketCardKey(card) === resolved.cardKey)
+          const next = selectedColumn.cards[ticketIndexBeside(selectedColumn.cards.length, index, step.delta)]
+          if (!next) return
+          selectCard(next)
+          cardRefs.current.get(ticketCardKey(next))?.focus()
+        }}
       >
-        <header className="ticket-column-header">
-          {isDone ? (
-            <button
-              type="button"
-              className="ticket-column-toggle"
-              aria-expanded={doneExpanded}
-              title={doneExpanded ? 'Collapse the Done column' : 'Expand the Done column'}
-              onClick={() => setDoneExpanded((current) => !current)}
-            >
-              <h3>{column.label}</h3>
-            </button>
-          ) : (
-            <h3>{column.label}</h3>
-          )}
-          <span className="ticket-column-count">{column.cards.length + column.hidden}</span>
+        <header className="ticket-list-header">
+          <h3>{selectedColumn.label}</h3>
+          <span className="ticket-list-count">{selectedColumn.cards.length + selectedColumn.hidden}</span>
           {sweepable.length > 0 && (
             <button
               type="button"
-              className="ticket-column-sweep"
+              className="ticket-list-sweep"
               title={`Delete done tickets older than ${DONE_COLUMN_RECENT_DAYS} days`}
               aria-label={`Delete done tickets older than ${DONE_COLUMN_RECENT_DAYS} days`}
               onClick={() => void askToDelete(sweepable)}
@@ -398,23 +553,61 @@ export default function TicketBoardPanel(props: TicketBoardPanelProps): JSX.Elem
             </button>
           )}
         </header>
-        {!collapsed && (
-          <>
-            <div className="ticket-column-cards">{column.cards.map(renderCard)}</div>
-            {isDone && (column.hidden > 0 || board.showAllDone) && (
-              <button
-                type="button"
-                className="ticket-column-more"
-                onClick={() => board.setShowAllDone(!board.showAllDone)}
-              >
-                {board.showAllDone ? 'Show recent only' : `Show all (${column.hidden} older)`}
-              </button>
-            )}
-          </>
+        <div className="ticket-list-cards" ref={scrollRef}>
+          {selectedColumn.cards.length === 0 && (
+            <p className="ticket-board-state">No tickets in {selectedColumn.label}.</p>
+          )}
+          {selectedColumn.cards.map(renderCard)}
+        </div>
+        {/* Closed work is history, not news: Done lists the recent ones and offers the rest. */}
+        {isDone && (selectedColumn.hidden > 0 || board.showAllDone) && (
+          <button type="button" className="ticket-list-more" onClick={() => board.setShowAllDone(!board.showAllDone)}>
+            {board.showAllDone ? 'Show recent only' : `Show all (${selectedColumn.hidden} older)`}
+          </button>
         )}
       </section>
     )
   }
+
+  const renderDetail = (card: TicketCard): JSX.Element => (
+    <section
+      className="ticket-detail-pane"
+      aria-label="Ticket detail"
+      ref={detailRef}
+      tabIndex={0}
+      style={mode === 'three' ? { width: detailWidth, minWidth: detailWidth } : undefined}
+      onKeyDown={(event) => {
+        // Only the pane itself: inside the body the arrows belong to whatever is being read.
+        if (event.target !== event.currentTarget || event.key !== 'ArrowLeft') return
+        event.preventDefault()
+        // Where the list is still on screen, Left is only a move; where it is not, it is the exit.
+        if (mode === 'two') closeDetail()
+        else focusPane('list')
+      }}
+    >
+      <header className="ticket-detail-head">
+        {/* A narrow board showed the detail *instead of* the list, so it owes the way back. */}
+        {mode === 'two' && (
+          <button type="button" className="ticket-detail-back" onClick={closeDetail}>
+            <ArrowLeft aria-hidden="true" />
+            <span>{`Back to ${column?.label ?? 'the tickets'}`}</span>
+          </button>
+        )}
+        <h3>{card.title}</h3>
+        {renderMeta(card)}
+        {renderBlockers(card)}
+      </header>
+      <div className="ticket-detail-body">
+        {card.body?.trim() ? (
+          <ReactMarkdown remarkPlugins={remarkPlugins} components={markdownBlockComponents}>
+            {card.body}
+          </ReactMarkdown>
+        ) : (
+          <p className="ticket-board-state">This ticket has no body yet.</p>
+        )}
+      </div>
+    </section>
+  )
 
   return (
     <aside
@@ -445,28 +638,19 @@ export default function TicketBoardPanel(props: TicketBoardPanelProps): JSX.Elem
         aria-valuemax={bounds.max}
         tabIndex={0}
         onKeyDown={(event) => {
-          const delta =
-            event.key === 'ArrowLeft' ? KEYBOARD_RESIZE_STEP : event.key === 'ArrowRight' ? -KEYBOARD_RESIZE_STEP : 0
-          if (!delta) return
+          const step = ticketArrowStep(event.key)
+          if (step?.axis !== 'horizontal') return
           event.preventDefault()
-          props.onPanelChange({ width: clampTicketBoardWidth(width + delta, props.workspaceWidth) })
+          // Both boards grow leftwards, so Left widens: the separator sits on the pane's left edge.
+          props.onPanelChange({
+            width: clampTicketBoardWidth(width - step.delta * KEYBOARD_RESIZE_STEP, props.workspaceWidth)
+          })
         }}
         onPointerDown={(event) => {
           const panelRight = event.currentTarget.parentElement?.getBoundingClientRect().right ?? 0
-          event.currentTarget.setPointerCapture(event.pointerId)
-          setResizing(true)
-          const move = (pointer: PointerEvent): void => {
-            props.onPanelChange({
-              width: ticketBoardWidthFromPointer(pointer.clientX, panelRight, props.workspaceWidth)
-            })
-          }
-          const release = (): void => {
-            setResizing(false)
-            window.removeEventListener('pointermove', move)
-            window.removeEventListener('pointerup', release)
-          }
-          window.addEventListener('pointermove', move)
-          window.addEventListener('pointerup', release)
+          startWidthDrag(event, 'panel', (pointerX) =>
+            props.onPanelChange({ width: ticketBoardWidthFromPointer(pointerX, panelRight, props.workspaceWidth) })
+          )
         }}
       />
 
@@ -544,8 +728,34 @@ export default function TicketBoardPanel(props: TicketBoardPanelProps): JSX.Elem
       )}
 
       {projectPath && board.status === 'ready' && (
-        <div className="ticket-board-columns" ref={scrollRef}>
-          {board.columns.map(renderColumn)}
+        <div className="ticket-board-panes" data-mode={mode} ref={panesRef}>
+          {renderStates()}
+          {column && visiblePanes.includes('list') && renderList(column)}
+          {openCard && visiblePanes.includes('detail') && mode === 'three' && (
+            <div
+              className="ticket-detail-resizer"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize the ticket detail"
+              aria-valuenow={detailWidth}
+              tabIndex={0}
+              onKeyDown={(event) => {
+                const step = ticketArrowStep(event.key)
+                if (step?.axis !== 'horizontal') return
+                event.preventDefault()
+                props.onPanelChange({
+                  detailWidth: clampTicketDetailWidth(detailWidth - step.delta * KEYBOARD_RESIZE_STEP, width)
+                })
+              }}
+              onPointerDown={(event) => {
+                const panesRight = panesRef.current?.getBoundingClientRect().right ?? 0
+                startWidthDrag(event, 'detail', (pointerX) =>
+                  props.onPanelChange({ detailWidth: ticketDetailWidthFromPointer(pointerX, panesRight, width) })
+                )
+              }}
+            />
+          )}
+          {openCard && visiblePanes.includes('detail') && renderDetail(openCard)}
         </div>
       )}
 

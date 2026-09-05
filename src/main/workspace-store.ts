@@ -154,6 +154,8 @@ function isTicketBoardPanelState(value: unknown): boolean {
     typeof panel.open === 'boolean' &&
     typeof panel.width === 'number' &&
     Number.isFinite(panel.width) &&
+    (panel.detailWidth === undefined ||
+      (typeof panel.detailWidth === 'number' && Number.isFinite(panel.detailWidth))) &&
     (panel.enabledSources === undefined ||
       (typeof panel.enabledSources === 'object' &&
         panel.enabledSources !== null &&

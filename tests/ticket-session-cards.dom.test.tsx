@@ -182,8 +182,10 @@ function boardSource(): TicketSource {
     label: 'Files',
     list: async () => ({
       cards: [
+        // Both in the same state, so the board's one ticket pane holds them side by side: what
+        // separates them here is which one a session actually wrote, not where they sit.
         cardFixture({ id: 'live-session-cards', title: 'Live session cards', status: 'in-progress' }),
-        cardFixture({ id: 'file-node', title: 'File node' })
+        cardFixture({ id: 'file-node', title: 'File node', status: 'in-progress' })
       ],
       diagnostics: []
     }),
