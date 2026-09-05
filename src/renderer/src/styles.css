@@ -6128,12 +6128,6 @@ button {
   padding: 8px 0 20px;
 }
 
-/* A reading-width cap, centred so the column follows the node when it is widened past it. */
-.file-node-prose {
-  max-width: 72ch;
-  margin: 0 auto;
-}
-
 .file-node-notice {
   margin: 0 0 10px;
   color: #9aa3b0;
