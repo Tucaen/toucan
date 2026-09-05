@@ -1,6 +1,6 @@
 ---
 title: Make voice input accurate enough to use, and add it to the mobile companion
-status: done
+status: in review
 created: 2026-09-05
 updated: 2026-09-05
 ---
@@ -47,6 +47,9 @@ Two outcomes, one ticket because they share the decision on where transcription 
   only)…`) instead of producing garbage; the phone path is multilingual. Moonshine's WASM catalog
   has no non-English streaming models yet, so German on the desktop stays out of reach for now.
 - `VoiceInputPrototype` is `VoiceInput`; the prototype note moved to `docs/voice-input.md`.
+- **Remaining before this closes:** record a handful of real prompts and run `npm run voice:wer`
+  to confirm the two-sentence acceptance criterion on the medium model; the model choice so far
+  rests on Moonshine's published numbers.
 
 ## Notes
 

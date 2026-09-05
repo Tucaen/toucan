@@ -50,13 +50,14 @@ export function isRemoteVoiceContentType(value: string | undefined): boolean {
   return channels === undefined || channels === '1'
 }
 
+/** Said when a recording exceeds the bound, whether the host counted the bytes before or as they arrived. */
+export const REMOTE_VOICE_TOO_LONG_MESSAGE = `The recording was too long. Dictations are limited to ${REMOTE_VOICE_MAX_SECONDS} seconds.`
+
 /** Why a body of this many bytes cannot be transcribed, or null when it can. */
 export function remoteVoiceBodyProblem(byteLength: number): string | null {
   if (byteLength === 0) return 'The recording contained no audio.'
   if (byteLength % 2 !== 0) return 'The recording was not 16-bit PCM.'
-  if (byteLength > REMOTE_VOICE_BODY_LIMIT) {
-    return `The recording was too long. Dictations are limited to ${REMOTE_VOICE_MAX_SECONDS} seconds.`
-  }
+  if (byteLength > REMOTE_VOICE_BODY_LIMIT) return REMOTE_VOICE_TOO_LONG_MESSAGE
   return null
 }
 

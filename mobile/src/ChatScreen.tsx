@@ -35,9 +35,9 @@ import {
   submitDecisionProblem
 } from './decision-answers'
 import type { SavedHost } from './hosts'
-import MobileVoiceInput, { voiceStatusLine, type MobileVoiceStatus } from './MobileVoiceInput'
+import MobileVoiceInput from './MobileVoiceInput'
 import { fetchWorkspace } from './remote-client'
-import { appendDictation } from './voice-input'
+import { appendDictation, voiceStatusLine, type MobileVoiceStatus } from './voice-input'
 import { useChatConnection, type ChatConnection } from './use-chat-connection'
 
 /**

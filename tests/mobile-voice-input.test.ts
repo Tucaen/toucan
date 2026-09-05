@@ -7,6 +7,7 @@ import {
   recognitionErrorMessage,
   recognitionLanguage,
   voiceInputMode,
+  voiceStatusLine,
   voiceUnavailableReason
 } from '../mobile/src/voice-input'
 
@@ -83,14 +84,32 @@ describe('recognitionLanguage', () => {
   })
 })
 
+describe('voiceStatusLine', () => {
+  test('shows the wait, the interim text, or the error, and nothing when idle', () => {
+    const status = { state: 'idle' as const, label: 'Dictate', interim: '', error: '' }
+    assert.equal(voiceStatusLine(status), null)
+    assert.deepEqual(voiceStatusLine({ ...status, state: 'loading', label: 'Starting microphone' }), {
+      text: 'Starting microphone…',
+      tone: 'live'
+    })
+    assert.deepEqual(voiceStatusLine({ ...status, state: 'listening' }), { text: 'Listening…', tone: 'live' })
+    assert.deepEqual(voiceStatusLine({ ...status, state: 'listening', interim: 'fix the' }), {
+      text: 'fix the',
+      tone: 'live'
+    })
+    assert.deepEqual(voiceStatusLine({ ...status, state: 'error', error: 'denied' }), { text: 'denied', tone: 'error' })
+    assert.equal(voiceStatusLine({ ...status, state: 'error' }), null)
+  })
+})
+
 describe('mobileVoiceLabel', () => {
   test('says what the button does, and that a host transcription is what the wait is for', () => {
     assert.equal(mobileVoiceLabel('idle', 'platform'), 'Dictate')
-    assert.equal(mobileVoiceLabel('idle', 'host'), 'Dictate (transcribed on the desktop)')
+    assert.equal(mobileVoiceLabel('idle', 'host'), 'Dictate in English (transcribed on the desktop)')
     assert.equal(mobileVoiceLabel('loading', 'host'), 'Starting microphone')
     assert.equal(mobileVoiceLabel('listening', 'platform'), 'Stop dictation')
     assert.equal(mobileVoiceLabel('stopping', 'platform'), 'Finishing')
     assert.equal(mobileVoiceLabel('stopping', 'host'), 'Transcribing on the desktop')
-    assert.equal(mobileVoiceLabel('error', 'host'), 'Dictate (transcribed on the desktop)')
+    assert.equal(mobileVoiceLabel('error', 'host'), 'Dictate in English (transcribed on the desktop)')
   })
 })

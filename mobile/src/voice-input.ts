@@ -109,6 +109,31 @@ export function mobileVoiceLabel(state: MobileVoiceState, mode: VoiceInputMode):
       return mode === 'host' ? 'Transcribing on the desktop' : 'Finishing'
     case 'idle':
     case 'error':
-      return mode === 'host' ? 'Dictate (transcribed on the desktop)' : 'Dictate'
+      return mode === 'host' ? 'Dictate in English (transcribed on the desktop)' : 'Dictate'
+  }
+}
+
+/** What the microphone control reports to the composer around it. */
+export interface MobileVoiceStatus {
+  state: MobileVoiceState
+  /** The button's own label in this state, which is also what a busy state is waiting for. */
+  label: string
+  /** Live text while listening: what the recognizer has heard so far. */
+  interim: string
+  error: string
+}
+
+/** The line under the composer row that says what the microphone is doing, or nothing when idle. */
+export function voiceStatusLine(status: MobileVoiceStatus): { text: string; tone: 'live' | 'error' } | null {
+  switch (status.state) {
+    case 'loading':
+    case 'stopping':
+      return { text: `${status.label}…`, tone: 'live' }
+    case 'listening':
+      return { text: status.interim || 'Listening…', tone: 'live' }
+    case 'error':
+      return status.error ? { text: status.error, tone: 'error' } : null
+    case 'idle':
+      return null
   }
 }

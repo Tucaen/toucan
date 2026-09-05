@@ -16,11 +16,9 @@ if (process.argv.includes('--check')) {
   process.exit(0)
 }
 
-const files = await manifestFiles(STREAMING_ARCHS[MODEL].arch)
-if ((await missingFiles(files, directory)).length === 0) {
-  console.log('Local Moonshine voice model is already prepared.')
-  process.exit(0)
-}
-
-await ensureModelFiles(STREAMING_ARCHS[MODEL].arch, directory, (message) => console.log(`[voice model] ${message}`))
-console.log('Local Moonshine voice model is ready.')
+let downloaded = false
+await ensureModelFiles(STREAMING_ARCHS[MODEL].arch, directory, (message) => {
+  downloaded = true
+  console.log(`[voice model] ${message}`)
+})
+console.log(downloaded ? 'Local Moonshine voice model is ready.' : 'Local Moonshine voice model is already prepared.')

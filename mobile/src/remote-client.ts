@@ -205,13 +205,7 @@ export async function transcribeRecording(
   })
   if (!sent.ok) return sent
   const response = sent.value
-  let payload: unknown = null
-  try {
-    payload = await response.json()
-  } catch {
-    /* A body that is not JSON falls through to the status below. */
-  }
-  const reply = parseRemoteTranscriptionReply(payload)
+  const reply = parseRemoteTranscriptionReply(await readJsonBody(response))
   if (!reply) return { ok: false, kind: 'unreachable', message: `Host replied ${response.status}` }
   return reply.ok ? { ok: true, value: reply.text } : { ok: false, kind: 'unreachable', message: reply.message }
 }

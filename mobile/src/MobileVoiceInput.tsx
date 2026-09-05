@@ -16,6 +16,7 @@ import {
   voiceInputMode,
   voiceUnavailableReason,
   type MobileVoiceState,
+  type MobileVoiceStatus,
   type VoiceCapabilities
 } from './voice-input'
 
@@ -40,15 +41,6 @@ export interface MobileVoiceInputProps {
   onStatus?(status: MobileVoiceStatus): void
 }
 
-export interface MobileVoiceStatus {
-  state: MobileVoiceState
-  /** The button's own label in this state, which is also what a busy state is waiting for. */
-  label: string
-  /** Live text while listening: what the recognizer has heard so far. */
-  interim: string
-  error: string
-}
-
 export default function MobileVoiceInput({
   host,
   disabled,
@@ -58,6 +50,10 @@ export default function MobileVoiceInput({
   const capabilities = useMemo(readCapabilities, [])
   const mode = voiceInputMode(capabilities)
   const [state, setState] = useState<MobileVoiceState>('idle')
+  // Read by callbacks the session fires later (the recording cap), which must see the state as it is
+  // then, not as it was in the render that started the session.
+  const stateRef = useRef(state)
+  stateRef.current = state
   const [interim, setInterim] = useState('')
   const [error, setError] = useState('')
   const session = useRef<DictationSession | null>(null)
@@ -107,9 +103,13 @@ export default function MobileVoiceInput({
 
   const finish = async (): Promise<void> => {
     const active = session.current
-    if (!active || state !== 'listening') return
+    if (!active || stateRef.current !== 'listening') return
     setState('stopping')
-    await active.finish()
+    try {
+      await active.finish()
+    } catch (cause) {
+      fail(cause instanceof Error ? cause.message : String(cause))
+    }
   }
 
   const discard = (): void => {
@@ -145,21 +145,6 @@ export default function MobileVoiceInput({
       )}
     </div>
   )
-}
-
-/** The line under the composer row that says what the microphone is doing, or nothing when idle. */
-export function voiceStatusLine(status: MobileVoiceStatus): { text: string; tone: 'live' | 'error' } | null {
-  switch (status.state) {
-    case 'loading':
-    case 'stopping':
-      return { text: `${status.label}…`, tone: 'live' }
-    case 'listening':
-      return { text: status.interim || 'Listening…', tone: 'live' }
-    case 'error':
-      return status.error ? { text: status.error, tone: 'error' } : null
-    case 'idle':
-      return null
-  }
 }
 
 /** One dictation in progress, whichever engine is behind it. */

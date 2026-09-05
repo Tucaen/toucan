@@ -214,7 +214,7 @@ describe('mobile dictation without a recognizer', () => {
     vi.stubGlobal('fetch', fetchMock)
     open()
 
-    const button = screen.getByRole('button', { name: 'Dictate (transcribed on the desktop)' })
+    const button = screen.getByRole('button', { name: 'Dictate in English (transcribed on the desktop)' })
     fireEvent.click(button)
     await waitFor(() => expect(screen.getByRole('button', { name: 'Stop dictation' })).toBeInTheDocument())
     act(() => audio.emit(Array.from({ length: 3200 }, () => 0.5)))
@@ -244,7 +244,7 @@ describe('mobile dictation without a recognizer', () => {
         )
     )
     open()
-    fireEvent.click(screen.getByRole('button', { name: 'Dictate (transcribed on the desktop)' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Dictate in English (transcribed on the desktop)' }))
     await waitFor(() => expect(screen.getByRole('button', { name: 'Stop dictation' })).toBeInTheDocument())
     fireEvent.click(screen.getByRole('button', { name: 'Stop dictation' }))
     await waitFor(() =>

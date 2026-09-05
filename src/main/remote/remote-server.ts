@@ -34,6 +34,7 @@ import {
   isRemoteVoiceContentType,
   REMOTE_VOICE_BODY_LIMIT,
   REMOTE_VOICE_CONTENT_TYPE,
+  REMOTE_VOICE_TOO_LONG_MESSAGE,
   remoteVoiceBodyProblem
 } from '../../shared/remote-voice'
 import type { AgentDecisionResponseContent, AgentPromptResult } from '../../shared/agent'
@@ -230,9 +231,10 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
   /**
    * `POST /api/transcribe`. A phone that cannot recognize speech itself sends what it heard as raw
    * PCM, and gets text back. The gates run cheapest first: the seam, the declared media type, the
-   * byte bound while the body arrives, then the body's own shape - so the model is only ever handed
-   * audio this contract already vouched for. What the model could not do is a 503 in its own words,
-   * like a spawn the desktop could not perform: the request was well-formed, the desktop was not able.
+   * byte bound while the body arrives (a body that stops arriving is refused the same way, as the
+   * spawn route does), then the body's own shape - so the model is only ever handed audio this
+   * contract already vouched for. What the model could not do is a 503 in its own words, like a spawn
+   * the desktop could not perform: the request was well-formed, the desktop was not able.
    */
   const transcribe = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
     const refuse = (status: number, message: string): void =>
@@ -251,7 +253,7 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
     }
     const body = await readBoundedBytes(request, REMOTE_VOICE_BODY_LIMIT)
     if (body === null) {
-      refuse(413, remoteVoiceBodyProblem(REMOTE_VOICE_BODY_LIMIT + 2) ?? 'That recording was too long.')
+      refuse(413, REMOTE_VOICE_TOO_LONG_MESSAGE)
       return
     }
     const problem = remoteVoiceBodyProblem(body.byteLength)
