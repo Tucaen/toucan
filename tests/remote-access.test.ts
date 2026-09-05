@@ -264,6 +264,12 @@ describe('routing', () => {
     assert.deepEqual(resolveRemoteRoute('GET', '/api/chats'), { kind: 'method-not-allowed', allow: 'POST' })
   })
 
+  test('transcribing a recording is a POST-only route behind the same gate', () => {
+    assert.deepEqual(resolveRemoteRoute('POST', '/api/transcribe'), { kind: 'transcribe' })
+    assert.equal(routeRequiresPairing(resolveRemoteRoute('POST', '/api/transcribe')), true)
+    assert.deepEqual(resolveRemoteRoute('GET', '/api/transcribe'), { kind: 'method-not-allowed', allow: 'POST' })
+  })
+
   test('a query string never carries a route decision', () => {
     assert.deepEqual(resolveRemoteRoute('GET', '/api/workspace?token=leaked'), { kind: 'workspace' })
   })

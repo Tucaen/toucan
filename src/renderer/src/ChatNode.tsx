@@ -79,7 +79,8 @@ import SessionUsageBar from './SessionUsageBar'
 import { ProviderRateLimitsContext } from './provider-rate-limits'
 import { describeSessionUsage } from './session-usage'
 import { deriveConversationTitle } from '../../shared/conversation-title'
-import VoiceInputPrototype from './VoiceInputPrototype'
+import VoiceInput from './VoiceInput'
+import { dictationContext } from './voice-transcript'
 import { composerConsumesWheel, composerTextareaSize } from './composer-autosize'
 import {
   acceptSlashCommand,
@@ -964,11 +965,12 @@ export function Composer(props: ComposerProps): JSX.Element {
       <div className="composer-footer">
         <ComposerToolbar {...props} />
         <div className="composer-actions">
-          <VoiceInputPrototype
+          <VoiceInput
             draft={draft}
             disabled={composerDisabled}
             textareaRef={textareaRef}
             setDraft={setDraft}
+            context={dictationContext(draft, props.messages)}
           />
           {busy && (
             <button

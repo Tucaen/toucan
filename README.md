@@ -57,9 +57,11 @@ npm ci
 npm run dev
 ```
 
-The first launch prepares the bundled experimental English speech-to-text model. This may
-download about 165 MB into the gitignored
-`src/renderer/public/models/moonshine-small-streaming-en/` directory.
+The first launch prepares the English speech-to-text model the composer dictates with. This may
+download about 305 MB into the gitignored
+`src/renderer/public/models/moonshine-medium-streaming-en/` directory. See
+[docs/voice-input.md](docs/voice-input.md) for what runs where and how to measure accuracy on
+your own recordings.
 
 Toucan opens the repository directory as its first project. Use **Add project** for more
 folders, select a project in the sidebar, then right-click the canvas to create a
@@ -153,6 +155,5 @@ Documentation has deliberately separate roles:
   dependency boundaries.
 - [AGENTS.md](AGENTS.md) records non-obvious operational invariants and sharp edges for
   agents working in the repository.
-- `docs/brain-dumps`, `docs/research`, and `docs/prototypes` preserve ideas, investigations,
-  and experiments; they are not claims about current behavior unless promoted into the
-  README or architecture map.
+- `docs/brain-dumps` and `docs/research` preserve ideas and investigations; they are not
+  claims about current behavior unless promoted into the README or architecture map.

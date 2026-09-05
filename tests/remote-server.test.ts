@@ -14,6 +14,12 @@ import {
   type RemoteChatSpawn
 } from '../src/main/remote/remote-server'
 import { REMOTE_SPAWN_BODY_LIMIT, type RemoteChatSpawnRequest } from '../src/shared/remote-spawn'
+import {
+  encodePcm16,
+  REMOTE_VOICE_BODY_LIMIT,
+  REMOTE_VOICE_CONTENT_TYPE,
+  type RemoteTranscriptionResult
+} from '../src/shared/remote-voice'
 import type { AgentEvent } from '../src/shared/agent'
 import { foldAgentEvent, type AgentTranscriptState } from '../src/shared/agent-transcript'
 import {
@@ -77,6 +83,7 @@ function harness(
     chats?: AgentEventBroker
     sessions?: RemoteChatSessionOperations
     spawn?: RemoteChatSpawn
+    transcriber?: { transcribe: (audio: Float32Array) => Promise<RemoteTranscriptionResult> }
   } = {}
 ): Harness {
   const directory = temporaryDirectory()
@@ -95,7 +102,8 @@ function harness(
     addresses: () => [{ kind: 'tailscale', host: '100.1.2.3' }],
     ...(options.chats ? { chats: options.chats } : {}),
     ...(options.sessions ? { sessions: options.sessions } : {}),
-    ...(options.spawn ? { spawn: options.spawn } : {})
+    ...(options.spawn ? { spawn: options.spawn } : {}),
+    ...(options.transcriber ? { transcriber: options.transcriber } : {})
   })
   running.push(server)
 
@@ -1079,5 +1087,112 @@ describe('cross-origin requests from a client another host served', () => {
     })
     assert.equal(response.status, 405)
     assert.equal(response.headers.get('allow'), 'GET, HEAD')
+  })
+})
+
+/**
+ * Dictation from a phone that cannot recognize speech itself: raw PCM in, text out. The gates are
+ * ordered so the model is only ever handed audio the contract vouched for - the pairing token first,
+ * then the declared media type, then the byte bound as the body arrives, then its shape - and what
+ * the desktop could not do comes back in its own words rather than as a generic failure.
+ */
+describe('transcribing a recording over HTTP', () => {
+  type Transcriber = (audio: Float32Array) => Promise<RemoteTranscriptionResult>
+
+  async function voiceHarness(transcribe?: Transcriber): Promise<Harness & { postBytes: PostBytes }> {
+    const created = harness(transcribe ? { transcriber: { transcribe } } : {})
+    await created.server.applySettings({ enabled: true, port: await freePort() })
+    return { ...created, postBytes: postBytesTo(created) }
+  }
+
+  type PostBytes = (
+    body: Uint8Array<ArrayBuffer>,
+    token: string | null,
+    contentType?: string
+  ) => Promise<{ status: number; body: string }>
+
+  function postBytesTo(created: Harness): PostBytes {
+    return async (body, token, contentType = REMOTE_VOICE_CONTENT_TYPE) => {
+      const response = await fetch(`http://127.0.0.1:${created.port()}/api/transcribe`, {
+        method: 'POST',
+        headers: { 'content-type': contentType, ...(token ? { authorization: `Bearer ${token}` } : {}) },
+        body
+      })
+      return { status: response.status, body: await response.text() }
+    }
+  }
+
+  const speech = encodePcm16(new Float32Array(16_000).fill(0.2))
+
+  test('an unpaired caller gets nothing transcribed', async () => {
+    let asked = 0
+    const { postBytes } = await voiceHarness(async () => {
+      asked += 1
+      return { ok: true, text: 'hi' }
+    })
+    const response = await postBytes(speech, 'wrong-token')
+    assert.equal(response.status, 401)
+    assert.equal(asked, 0)
+  })
+
+  test('a recording is decoded to samples and answered with the text', async () => {
+    const heard: Float32Array[] = []
+    const created = await voiceHarness(async (audio) => {
+      heard.push(audio)
+      return { ok: true, text: 'fix the parser' }
+    })
+    const response = await created.postBytes(speech, created.store.read().token)
+    assert.equal(response.status, 200)
+    assert.deepEqual(JSON.parse(response.body), { text: 'fix the parser' })
+    assert.equal(heard.length, 1)
+    assert.equal(heard[0].length, 16_000)
+    assert.ok(Math.abs(heard[0][100] - 0.2) < 0.001)
+  })
+
+  test('a host without a transcriber says so', async () => {
+    const created = await voiceHarness()
+    const response = await created.postBytes(speech, created.store.read().token)
+    assert.equal(response.status, 503)
+    assert.deepEqual(JSON.parse(response.body), { error: 'This host does not transcribe dictation.' })
+  })
+
+  test('anything but 16 kHz PCM is refused before it is read', async () => {
+    let asked = 0
+    const created = await voiceHarness(async () => {
+      asked += 1
+      return { ok: true, text: 'hi' }
+    })
+    const response = await created.postBytes(speech, created.store.read().token, 'audio/webm')
+    assert.equal(response.status, 415)
+    assert.match((JSON.parse(response.body) as { error: string }).error, /audio\/L16/)
+    assert.equal(asked, 0)
+  })
+
+  test('an empty recording and a half-sample one are malformed, not silence', async () => {
+    const created = await voiceHarness(async () => ({ ok: true, text: '' }))
+    const token = created.store.read().token
+    assert.equal((await created.postBytes(new Uint8Array(0), token)).status, 400)
+    assert.equal((await created.postBytes(new Uint8Array(3), token)).status, 400)
+  })
+
+  test('a recording past the bound is cut off at 413 while it is still arriving', async () => {
+    let asked = 0
+    const created = await voiceHarness(async () => {
+      asked += 1
+      return { ok: true, text: 'hi' }
+    })
+    const response = await created.postBytes(new Uint8Array(REMOTE_VOICE_BODY_LIMIT + 2), created.store.read().token)
+    assert.equal(response.status, 413)
+    assert.equal(asked, 0)
+  })
+
+  test('what the desktop could not transcribe is refused in its own words', async () => {
+    const created = await voiceHarness(async () => ({
+      ok: false,
+      message: 'The desktop has no prepared speech model.'
+    }))
+    const response = await created.postBytes(speech, created.store.read().token)
+    assert.equal(response.status, 503)
+    assert.deepEqual(JSON.parse(response.body), { error: 'The desktop has no prepared speech model.' })
   })
 })

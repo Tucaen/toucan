@@ -18,7 +18,7 @@ export default defineConfig({
       format: 'es'
     },
     server: {
-      // PROTOTYPE: Moonshine's threaded WASM build requires SharedArrayBuffer.
+      // Moonshine's threaded WASM build requires SharedArrayBuffer; see registerVoiceCrossOriginIsolation.
       headers: {
         'Cross-Origin-Opener-Policy': 'same-origin',
         'Cross-Origin-Embedder-Policy': 'require-corp'

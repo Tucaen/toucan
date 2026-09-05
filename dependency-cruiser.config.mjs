@@ -40,6 +40,7 @@ const pureRendererFeatureNames = [
   'ticket-github-source',
   'tool-card',
   'tool-input',
+  'voice-transcript',
   'worklog-activities',
   'worktree-removal'
 ]

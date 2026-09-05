@@ -37,9 +37,12 @@
     "mobile/src/chat-list.ts",
     "mobile/src/chat-connection.ts",
     "mobile/src/chat-view.ts",
+    "mobile/src/voice-input.ts",
     "src/renderer/src/canvas-workspace.ts",
     "src/renderer/src/file-node.ts",
     "src/renderer/src/node-picker-menu-position.ts",
+    "src/renderer/src/voice-transcript.ts",
+    "src/main/remote/voice-transcription.ts",
     "src/shared/**/*.ts"
   ]
 }

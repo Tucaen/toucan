@@ -10,8 +10,8 @@ Follow it once per PC. Everything except the last section is a per-host step.
 
 - An icon on your phone's home screen that opens Toucan standalone, with no browser chrome.
 - A host switcher listing every PC you paired, each with its own token and its own chats.
-- Live transcripts, sending messages, answering tool permissions and questions, and starting
-  new chats — all against whichever host is selected.
+- Live transcripts, sending messages, answering tool permissions and questions, dictating into
+  the composer, and starting new chats — all against whichever host is selected.
 
 Toucan holds no cloud component and no relay. The phone talks straight to each PC.
 
@@ -95,8 +95,10 @@ Notes worth knowing:
 Open the `https://…ts.net/` URL in Chrome on Android, then **⋮ → Add to Home screen** (Chrome
 may also offer an install prompt on its own). It launches standalone from the home screen icon.
 
-Over plain HTTP the app still works as an ordinary web page — it just never offers to install.
-That is a supported way to use it, not a broken state.
+Over plain HTTP the app still works as an ordinary web page — it just never offers to install,
+and the composer's microphone stays off, because no phone browser shares a microphone with a plain
+HTTP page. That is a supported way to use it, not a broken state; dictation is one more reason to
+do this step.
 
 ## 5. Pair the phone with the host
 
@@ -156,4 +158,6 @@ Consequences to keep in mind:
 | Chrome never offers to install | The page is not on an HTTPS origin. Check `tailscale serve status`. |
 | A host shows as blocked by the page scheme | The app is on HTTPS and that host is saved as `http://`. Run `tailscale serve` on it. |
 | A host asks to pair again | Its token was regenerated, or Toucan was reinstalled on that PC. |
+| The microphone button is greyed out and mentions HTTPS | The page is on plain HTTP. Run `tailscale serve` and open the `https://` URL. |
+| Dictation says the desktop has no prepared speech model | The phone's browser has no recognizer of its own, so the desktop transcribes; run `npm run prepare:voice-model` on that PC. |
 | The host list is empty after reinstalling the app | Saved hosts live in browser storage for that origin; installing from a different origin starts a fresh list. |

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { WorkspaceProject } from '../../shared/terminal'
-import VoiceInputPrototype, { type VoiceState } from './VoiceInputPrototype'
+import VoiceInput, { type VoiceState } from './VoiceInput'
 
 /**
  * The shared review tray. Both capture buttons land here and differ only in how the first words
@@ -64,8 +64,9 @@ export default function BrainDumpCapture(props: BrainDumpCaptureProps): JSX.Elem
 
       {props.microphone && (
         <div className="brain-dump-capture-voice">
-          <VoiceInputPrototype
+          <VoiceInput
             autoStart
+            context={props.draft}
             draft={props.draft}
             disabled={props.jobActive}
             textareaRef={textareaRef}

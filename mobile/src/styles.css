@@ -605,6 +605,70 @@ body {
   color: var(--ink-faint);
 }
 
+/* The microphone: the same box as Send, with the recording state loud and the preview quiet. */
+.voice-input {
+  display: flex;
+  gap: 6px;
+  align-self: flex-end;
+}
+
+.voice-button,
+.voice-discard {
+  flex: 0 0 auto;
+  width: 46px;
+  height: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #101520;
+  color: var(--ink);
+}
+
+.voice-button[data-state='listening'] {
+  border-color: #a75359;
+  background: #422429;
+  color: #ffd9dc;
+}
+
+.voice-button[data-state='loading'] svg,
+.voice-button[data-state='stopping'] svg {
+  animation: voice-spin 1s linear infinite;
+}
+
+.voice-button:disabled {
+  color: var(--ink-faint);
+}
+
+.voice-discard {
+  color: #b9a4a8;
+  font-size: 22px;
+  line-height: 1;
+}
+
+.voice-status {
+  margin: 0;
+  font-size: 13px;
+  color: #e8c9cc;
+  font-style: italic;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.voice-status[data-tone='error'] {
+  color: #e0787f;
+  font-style: normal;
+  white-space: normal;
+}
+
+@keyframes voice-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .composer-hint {
   margin: 0;
   color: var(--ink-faint);

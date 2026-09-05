@@ -5,7 +5,7 @@ out/
 dist/
 dist-out/
 .test-out/
-src/renderer/public/models/moonshine-small-streaming-en/
+src/renderer/public/models/
 *.tsbuildinfo
 .stow-notes.md
 docs/research/orca-comparison.md

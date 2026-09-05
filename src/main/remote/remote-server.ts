@@ -29,6 +29,14 @@ import {
   type RemoteChatSpawnRequest,
   type RemoteChatSpawnResult
 } from '../../shared/remote-spawn'
+import {
+  decodePcm16,
+  isRemoteVoiceContentType,
+  REMOTE_VOICE_BODY_LIMIT,
+  REMOTE_VOICE_CONTENT_TYPE,
+  REMOTE_VOICE_TOO_LONG_MESSAGE,
+  remoteVoiceBodyProblem
+} from '../../shared/remote-voice'
 import type { AgentDecisionResponseContent, AgentPromptResult } from '../../shared/agent'
 import type { AgentEventBroker } from '../agent-event-broker'
 import { describeHostAddresses } from './host-addresses'
@@ -42,6 +50,7 @@ import {
   routeRequiresPairing
 } from './remote-routes'
 import type { RemoteAccessStore } from './remote-access-store'
+import type { RemoteVoiceTranscriber } from './voice-transcription'
 
 /**
  * Toucan's only network surface: an HTTP listener the phone talks to, off unless the user turned
@@ -92,6 +101,11 @@ export interface RemoteAccessServerOptions {
    * round-trips through the desktop renderer. Absent, the host cannot start chats and says so.
    */
   spawn?: RemoteChatSpawn
+  /**
+   * Transcribes a phone's recording with the desktop's own speech model, for phones whose browser
+   * has no recognizer of its own. Absent, the route says the host does not transcribe.
+   */
+  transcriber?: Pick<RemoteVoiceTranscriber, 'transcribe'>
   addresses?: () => RemoteAccessAddress[]
   now?: () => number
 }
@@ -214,6 +228,51 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
     })
   }
 
+  /**
+   * `POST /api/transcribe`. A phone that cannot recognize speech itself sends what it heard as raw
+   * PCM, and gets text back. The gates run cheapest first: the seam, the declared media type, the
+   * byte bound while the body arrives (a body that stops arriving is refused the same way, as the
+   * spawn route does), then the body's own shape - so the model is only ever handed audio this
+   * contract already vouched for. What the model could not do is a 503 in its own words, like a spawn
+   * the desktop could not perform: the request was well-formed, the desktop was not able.
+   */
+  const transcribe = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
+    const refuse = (status: number, message: string): void =>
+      send(request, response, status, JSON.stringify({ error: message }), {
+        'content-type': 'application/json; charset=utf-8'
+      })
+
+    const transcriber = options.transcriber
+    if (!transcriber) {
+      refuse(503, 'This host does not transcribe dictation.')
+      return
+    }
+    if (!isRemoteVoiceContentType(request.headers['content-type'])) {
+      refuse(415, `Dictation must be sent as ${REMOTE_VOICE_CONTENT_TYPE}.`)
+      return
+    }
+    const body = await readBoundedBytes(request, REMOTE_VOICE_BODY_LIMIT)
+    if (body === null) {
+      refuse(413, REMOTE_VOICE_TOO_LONG_MESSAGE)
+      return
+    }
+    const problem = remoteVoiceBodyProblem(body.byteLength)
+    if (problem) {
+      refuse(400, problem)
+      return
+    }
+    const result = await transcriber.transcribe(
+      decodePcm16(new Uint8Array(body.buffer, body.byteOffset, body.byteLength))
+    )
+    if (!result.ok) {
+      refuse(503, result.message)
+      return
+    }
+    send(request, response, 200, JSON.stringify({ text: result.text }), {
+      'content-type': 'application/json; charset=utf-8'
+    })
+  }
+
   const handle = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
     const route = resolveRemoteRoute(request.method, request.url)
     if (routeRequiresPairing(route) && !authorized(request.headers)) {
@@ -237,6 +296,9 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
         return
       case 'create-chat':
         await createChat(request, response)
+        return
+      case 'transcribe':
+        await transcribe(request, response)
         return
       case 'preflight':
         // The CORS headers themselves are added by `send`; what is left to say here is that the
@@ -532,11 +594,16 @@ function frameText(data: unknown): string | null {
  * destroying it takes the socket with it - and the caller still has a `413` to deliver.
  */
 async function readBoundedBody(request: IncomingMessage, limit: number): Promise<string | null> {
+  const bytes = await readBoundedBytes(request, limit)
+  return bytes === null ? null : bytes.toString('utf8')
+}
+
+async function readBoundedBytes(request: IncomingMessage, limit: number): Promise<Buffer | null> {
   return new Promise((resolve) => {
     const chunks: Buffer[] = []
     let size = 0
     let settled = false
-    const settle = (value: string | null): void => {
+    const settle = (value: Buffer | null): void => {
       if (settled) return
       settled = true
       resolve(value)
@@ -551,7 +618,7 @@ async function readBoundedBody(request: IncomingMessage, limit: number): Promise
       }
       chunks.push(chunk)
     })
-    request.on('end', () => settle(Buffer.concat(chunks).toString('utf8')))
+    request.on('end', () => settle(Buffer.concat(chunks)))
     // A body that never finishes arriving is not a body; the caller refuses it as unreadable.
     request.on('error', () => settle(null))
   })

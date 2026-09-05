@@ -13,8 +13,10 @@ export type RemoteRoute =
   | { kind: 'workspace' }
   /** Lets a phone check a token the moment it is entered instead of at the first real request. */
   | { kind: 'pairing' }
-  /** The one write the phone makes over HTTP: start a chat that does not exist yet. */
+  /** Starts a chat that does not exist yet. */
   | { kind: 'create-chat' }
+  /** A phone's recording, to be transcribed by the desktop's speech model and handed back as text. */
+  | { kind: 'transcribe' }
   | { kind: 'client'; pathname: string }
   /**
    * A CORS preflight. Never authorized, and it cannot be: a browser sends the preflight *without*
@@ -42,6 +44,9 @@ export function resolveRemoteRoute(method: string | undefined, target: string | 
     // chats exist is already the workspace projection's answer.
     return method === 'POST' ? { kind: 'create-chat' } : { kind: 'method-not-allowed', allow: 'POST' }
   }
+  if (pathname === '/api/transcribe') {
+    return method === 'POST' ? { kind: 'transcribe' } : { kind: 'method-not-allowed', allow: 'POST' }
+  }
   if (pathname.startsWith('/api/')) return { kind: 'not-found' }
   if (method !== 'GET' && method !== 'HEAD') return { kind: 'method-not-allowed', allow: 'GET, HEAD' }
   return { kind: 'client', pathname }
@@ -49,7 +54,12 @@ export function resolveRemoteRoute(method: string | undefined, target: string | 
 
 /** Route authorization is a property of the route, not of the handler that happens to run it. */
 export function routeRequiresPairing(route: RemoteRoute): boolean {
-  return route.kind === 'workspace' || route.kind === 'pairing' || route.kind === 'create-chat'
+  return (
+    route.kind === 'workspace' ||
+    route.kind === 'pairing' ||
+    route.kind === 'create-chat' ||
+    route.kind === 'transcribe'
+  )
 }
 
 /**
