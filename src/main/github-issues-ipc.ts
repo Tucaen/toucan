@@ -1,9 +1,7 @@
 import type { TicketGithubListResult, TicketSourceAvailability } from '../shared/ticket-source'
+import { errorMessage } from '../shared/text'
 import type { GithubIssueReader } from './github-issues'
-
-interface GithubIssuesIpcRegistrar {
-  handle(channel: string, listener: (event: unknown, ...args: unknown[]) => unknown): void
-}
+import type { IpcRegistrar } from './ipc-registrar'
 
 const NO_PROJECT = { available: false as const, reason: 'No project is selected.' }
 
@@ -13,7 +11,7 @@ const NO_PROJECT = { available: false as const, reason: 'No project is selected.
  * and *what are its issues* only once the user has switched it on. Kept apart from `ticket-ipc.ts`
  * because nothing is shared but the seam - GitHub has no folder to watch and nothing to write.
  */
-export function registerGithubIssuesIpc(ipc: GithubIssuesIpcRegistrar, reader: GithubIssueReader): void {
+export function registerGithubIssuesIpc(ipc: IpcRegistrar, reader: GithubIssueReader): void {
   ipc.handle('github-issues:availability', async (_event, projectPath: unknown): Promise<TicketSourceAvailability> =>
     typeof projectPath === 'string' && projectPath ? reader.availability(projectPath) : NO_PROJECT
   )
@@ -24,7 +22,7 @@ export function registerGithubIssuesIpc(ipc: GithubIssuesIpcRegistrar, reader: G
       return await reader.list(projectPath)
     } catch (error) {
       // The reader promises not to throw; if it ever does, the board still gets a reason.
-      return { available: false, reason: (error as Error).message }
+      return { available: false, reason: errorMessage(error) }
     }
   })
 }

@@ -1,4 +1,4 @@
-import { DEFAULT_TICKET_STATUSES } from '../../shared/tickets'
+import { DEFAULT_TICKET_STATUSES, TICKET_STATUS } from '../../shared/tickets'
 import type { TicketCard, TicketSource, TicketSourceListResult } from '../../shared/ticket-source'
 
 /**
@@ -75,18 +75,23 @@ export function ticketBlockers(card: TicketCard, cards: readonly TicketCard[]): 
   const siblings = new Map(cards.filter((entry) => entry.sourceId === card.sourceId).map((entry) => [entry.id, entry]))
   return card.blockedBy.map((id) => {
     const blocker = siblings.get(id)
-    return { id, state: blocker ? (blocker.status === 'done' ? 'done' : 'pending') : 'missing' }
+    return { id, state: blocker ? (blocker.status === TICKET_STATUS.done ? 'done' : 'pending') : 'missing' }
   })
+}
+
+/** The source a card came from, or `undefined` for a card whose source is no longer configured. */
+export function ticketSourceFor(card: TicketCard, sources: readonly TicketSource[]): TicketSource | undefined {
+  return sources.find((source) => source.id === card.sourceId)
 }
 
 /** A card can only change column when the source that owns it can write the change back. */
 export function ticketDropAllowed(card: TicketCard, sources: readonly TicketSource[]): boolean {
-  return !!sources.find((source) => source.id === card.sourceId)?.setStatus
+  return !!ticketSourceFor(card, sources)?.setStatus
 }
 
 /** A card can only be deleted when its source's records are Toucan's to destroy; issues are not. */
 export function ticketRemoveAllowed(card: TicketCard, sources: readonly TicketSource[]): boolean {
-  return !!sources.find((source) => source.id === card.sourceId)?.remove
+  return !!ticketSourceFor(card, sources)?.remove
 }
 
 /**
@@ -104,9 +109,9 @@ function byRecencyThenTitle(left: TicketCard, right: TicketCard): number {
 
 /**
  * The four shipped statuses always have a column, whether or not a ticket sits in one - an empty
- * column is where a card gets dropped - followed by any status a project invented. Invented ones
- * are ordered alphabetically rather than by first appearance, so the board does not reshuffle
- * itself because a file was renamed.
+ * column is where a card gets dropped - followed by any status a project invented, in the order
+ * the cards were listed: the files source lists its folder alphabetically, so that order is as
+ * stable as the folder is.
  */
 function columnStatuses(cards: readonly TicketCard[]): string[] {
   const defaults = DEFAULT_TICKET_STATUSES as readonly string[]
@@ -114,7 +119,6 @@ function columnStatuses(cards: readonly TicketCard[]): string[] {
   for (const card of cards) {
     if (!defaults.includes(card.status) && !extra.includes(card.status)) extra.push(card.status)
   }
-  extra.sort((left, right) => left.localeCompare(right))
   return [...defaults, ...extra]
 }
 
@@ -124,7 +128,7 @@ function columnStatuses(cards: readonly TicketCard[]): string[] {
  * two spellings of "older than 30 days" would eventually disagree about a card on the boundary.
  */
 function isStaleDone(card: TicketCard, today: string): boolean {
-  if (card.status !== 'done') return false
+  if (card.status !== TICKET_STATUS.done) return false
   const elapsed = calendarDaysBetween(card.updated, today)
   // An unreadable date is never stale: a file Toucan cannot date is not one it may offer to delete.
   return elapsed !== null && elapsed > DONE_COLUMN_RECENT_DAYS
@@ -139,7 +143,7 @@ export function ticketBoardColumns(input: TicketBoardInput): TicketBoardColumn[]
   const cards = input.listings.flatMap((listing) => listing.cards)
   return columnStatuses(cards).map((status) => {
     const inColumn = cards.filter((card) => card.status === status).sort(byRecencyThenTitle)
-    if (status !== 'done' || input.showAllDone)
+    if (status !== TICKET_STATUS.done || input.showAllDone)
       return { status, label: ticketStatusLabel(status), cards: inColumn, hidden: 0 }
     const recent = inColumn.filter((card) => !isStaleDone(card, input.today))
     return { status, label: ticketStatusLabel(status), cards: recent, hidden: inColumn.length - recent.length }

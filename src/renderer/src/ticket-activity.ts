@@ -2,7 +2,8 @@ import type { AgentActivity } from '../../shared/agent'
 import type { AgentTranscriptEntry } from '../../shared/agent-transcript'
 import type { TerminalKind } from '../../shared/terminal'
 import { TICKET_FILES_SOURCE_ID, ticketCardKey } from '../../shared/ticket-source'
-import { isAbsolutePath, isTicketSlug, ticketsDirectoryOrDefault } from '../../shared/tickets'
+import { isAbsolutePath } from '../../shared/paths'
+import { isTicketSlug, ticketsDirectoryOrDefault } from '../../shared/tickets'
 import { fileOperationFor, shortenFilePath } from './file-operation'
 
 /**

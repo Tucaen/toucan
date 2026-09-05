@@ -9,6 +9,7 @@ import {
   ticketBlockers,
   ticketBoardColumns,
   ticketDropAllowed,
+  ticketSourceFor,
   ticketStatusBeside,
   ticketStatusLabel
 } from '../src/renderer/src/ticket-board'
@@ -43,6 +44,24 @@ test('columns are the shipped statuses, then any the project invented', () => {
     columns.map((column) => column.label),
     ['Open', 'In progress', 'Blocked', 'Done', 'Review']
   )
+})
+
+test('invented statuses take their columns in the order the cards were listed', () => {
+  const columns = ticketBoardColumns({
+    listings: [
+      listing([card({ id: 'a', status: 'review' }), card({ id: 'b', status: 'design' })]),
+      listing([card({ id: 'c', status: 'archive', sourceId: 'github' }), card({ id: 'd', status: 'review' })])
+    ],
+    today: TODAY,
+    showAllDone: false
+  })
+  assert.deepEqual(columns.map((column) => column.status).slice(4), ['review', 'design', 'archive'])
+})
+
+test('a card is resolved to the source that produced it, and to nothing when that source is gone', () => {
+  const files = { id: 'files', label: 'Files', list: async () => listing([]) }
+  assert.equal(ticketSourceFor(card({ id: 'a', sourceId: 'files' }), [files]), files)
+  assert.equal(ticketSourceFor(card({ id: 'a', sourceId: 'github' }), [files]), undefined)
 })
 
 test('a column orders its cards by most recently updated, then by title', () => {

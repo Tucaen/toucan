@@ -487,7 +487,7 @@ export default function BrainDumpLibraryPanel(props: BrainDumpLibraryPanelProps)
       )}
 
       {/* One polite region for every status this panel produces, so nothing steals focus. */}
-      <div className="brain-dump-visually-hidden" role="status" aria-live="polite">
+      <div className="visually-hidden" role="status" aria-live="polite">
         {library.announcement}
       </div>
     </aside>

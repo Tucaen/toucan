@@ -58,7 +58,12 @@ import {
 } from './brain-dump-panel-layout'
 import { brainDumpPathIdentity } from './brain-dump-topics'
 import BrainDumpLibraryPanel from './BrainDumpLibraryPanel'
-import { TICKET_BOARD_DEFAULT_WIDTH, clampTicketBoardWidth, ticketBoardKeyAction } from './ticket-board-layout'
+import {
+  TICKET_BOARD_DEFAULT_WIDTH,
+  clampTicketBoardWidth,
+  pruneEnabledSources,
+  ticketBoardKeyAction
+} from './ticket-board-layout'
 import { ticketSessionsFromNodes, type TicketActivityReport } from './ticket-activity'
 import { createTicketFileSource } from './ticket-file-source'
 import { createTicketGithubSource } from './ticket-github-source'
@@ -602,7 +607,9 @@ function Canvas(): JSX.Element {
 
   const toggleTicketBoardPanel = useCallback((): void => {
     setTicketBoardMounted(true)
+    // Spread first: the per-project source choices must survive every open and close.
     setTicketBoardPanel((current) => ({
+      ...current,
       open: !current.open,
       width: clampTicketBoardWidth(current.width, window.innerWidth)
     }))
@@ -1049,13 +1056,11 @@ function Canvas(): JSX.Element {
         if (saved.brainDumpPanel.open) setBrainDumpMounted(true)
       }
       if (saved.ticketBoardPanel) {
-        // A source switched on for a project that has since been removed would be remembered for
-        // good, so the restored choices are pruned to the projects that still exist.
-        const paths = new Set(saved.projects.map((entry) => entry.path))
         setTicketBoardPanel({
           ...saved.ticketBoardPanel,
-          enabledSources: Object.fromEntries(
-            Object.entries(saved.ticketBoardPanel.enabledSources ?? {}).filter(([path]) => paths.has(path))
+          enabledSources: pruneEnabledSources(
+            saved.ticketBoardPanel.enabledSources,
+            saved.projects.map((entry) => entry.path)
           ),
           width: clampTicketBoardWidth(saved.ticketBoardPanel.width, window.innerWidth)
         })
@@ -2052,7 +2057,7 @@ function Canvas(): JSX.Element {
                   <BookOpen />
                 </span>
                 {!sidebarCollapsed && <span>Brain dumps</span>}
-                {sidebarCollapsed && <span className="brain-dump-visually-hidden">Open brain-dump library</span>}
+                {sidebarCollapsed && <span className="visually-hidden">Open brain-dump library</span>}
               </button>
 
               <button
@@ -2069,7 +2074,7 @@ function Canvas(): JSX.Element {
                   <ClipboardList />
                 </span>
                 {!sidebarCollapsed && <span>Tickets</span>}
-                {sidebarCollapsed && <span className="brain-dump-visually-hidden">Open the ticket board</span>}
+                {sidebarCollapsed && <span className="visually-hidden">Open the ticket board</span>}
               </button>
 
               <div className="sidebar-add-row">

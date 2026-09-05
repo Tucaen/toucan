@@ -1,10 +1,7 @@
 import type { BrainDumpCollection, BrainDumpLibraryApi, BrainDumpOutcome } from '../shared/brain-dump'
 import type { BrainDumpCaptureManager, BrainDumpCaptureOwner } from './brain-dump-capture'
 import type { BrainDumpChangeWatcher } from './brain-dump-watcher'
-
-interface BrainDumpIpcRegistrar {
-  handle(channel: string, listener: (event: { sender: BrainDumpCaptureOwner }, ...args: unknown[]) => unknown): void
-}
+import type { IpcRegistrar } from './ipc-registrar'
 
 function captureRequest(
   value: unknown
@@ -19,7 +16,7 @@ function captureRequest(
 }
 
 export function registerBrainDumpIpc(
-  ipc: BrainDumpIpcRegistrar,
+  ipc: IpcRegistrar<BrainDumpCaptureOwner>,
   library: BrainDumpLibraryApi,
   capture: BrainDumpCaptureManager,
   changes: BrainDumpChangeWatcher

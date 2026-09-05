@@ -76,6 +76,11 @@ export interface WorkspaceProject extends ProjectDirectory {
    * `DEFAULT_TICKETS_DIRECTORY` in `shared/tickets.ts`.
    */
   ticketsDirectory?: string
+  /**
+   * The GitHub label that puts an open issue in the board's In progress column. Absent means
+   * `DEFAULT_GITHUB_STATUS_LABELS.inProgress` in `shared/github-issues.ts`.
+   */
+  githubInProgressLabel?: string
 }
 
 /**

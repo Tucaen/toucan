@@ -29,21 +29,25 @@ function harness(library: Partial<TicketLibrary> = {}): Harness {
   registerTicketIpc(
     { handle: (channel, listener) => void handlers.set(channel, listener as (...args: unknown[]) => unknown) },
     {
-      list: async () => ({ cards: [], diagnostics: [] }),
-      setStatus: async (projectPath, slug, status) => {
-        statuses.push([projectPath, slug, status])
-        return { ok: false, code: 'unused', message: 'Unused.' }
+      library: {
+        list: async () => ({ cards: [], diagnostics: [] }),
+        read: async () => null,
+        setStatus: async (projectPath, slug, status) => {
+          statuses.push([projectPath, slug, status])
+          return { ok: false, code: 'unused', message: 'Unused.' }
+        },
+        remove: async (projectPath, slug) => {
+          removals.push([projectPath, slug])
+          return { ok: true }
+        },
+        pathFor: async (_projectPath, slug) =>
+          slug === 'ticket-board' ? 'D:\\p\\docs\\tickets\\ticket-board.md' : null,
+        ...library
       },
-      remove: async (projectPath, slug) => {
-        removals.push([projectPath, slug])
-        return { ok: true }
-      },
-      pathFor: async (_projectPath, slug) => (slug === 'ticket-board' ? 'D:\\p\\docs\\tickets\\ticket-board.md' : null),
-      ...library
-    },
-    changes,
-    (path) => revealed.push(path),
-    async (projectPath) => projectPath === 'D:\\p'
+      changes,
+      reveal: (path) => revealed.push(path),
+      isGitRepository: async (projectPath) => projectPath === 'D:\\p'
+    }
   )
   return { handlers, watched, subscribed, revealed, statuses, removals }
 }

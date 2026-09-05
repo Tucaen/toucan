@@ -18,7 +18,7 @@ const UNDOABLE = 'Deleting cannot be undone from Toucan.'
 
 export interface TicketDeleteDialogProps {
   cards: readonly TicketCard[]
-  /** What deleting these costs, in their sources' words. Empty while a source is still answering. */
+  /** What deleting these costs, in their sources' words. Empty when no source had anything to say. */
   notes: readonly string[]
   pending: boolean
   error?: string
@@ -58,7 +58,7 @@ export default function TicketDeleteDialog(props: TicketDeleteDialogProps): JSX.
         }}
       >
         <strong id={titleId}>{single ? `Delete “${single.title}”?` : `Delete ${cards.length} done tickets?`}</strong>
-        {/* A source that has not answered yet leaves the dialog with nothing to say about the cost,
+        {/* A source that cannot say what a deletion costs leaves the dialog with nothing about it,
             and a confirmation with no consequence in it is not one - so it falls back to the part
             that is true of every source rather than to silence. */}
         {(props.notes.length > 0 ? props.notes : [UNDOABLE]).map((note) => (

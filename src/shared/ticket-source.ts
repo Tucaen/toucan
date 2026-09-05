@@ -49,6 +49,9 @@ export interface TicketSourceListResult {
   diagnostics: TicketDiagnostic[]
 }
 
+/** The listing of a project with nothing to list, for every caller that has to say so. */
+export const EMPTY_TICKET_LISTING: TicketSourceListResult = { cards: [], diagnostics: [] }
+
 export type TicketMutationResult = { ok: true; card: TicketCard } | { ok: false; code: string; message: string }
 
 /** No card comes back: what succeeded is that the card is gone. */

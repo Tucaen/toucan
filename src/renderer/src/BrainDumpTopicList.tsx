@@ -126,7 +126,7 @@ export default function BrainDumpTopicList(props: BrainDumpTopicListProps): JSX.
                   )}
                 </span>
                 {describedBy && (
-                  <span id={describedBy} className="brain-dump-visually-hidden">
+                  <span id={describedBy} className="visually-hidden">
                     {brainDumpProjectDescription(project)}
                   </span>
                 )}

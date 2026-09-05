@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
-import { ExternalLink, FolderOpen, GripVertical, RefreshCw, Trash2, X } from 'lucide-react'
+import { ExternalLink, FolderOpen, GripVertical, MoreHorizontal, RefreshCw, Trash2, X } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import type { TicketBoardPanelState } from '../../shared/terminal'
 import type { TicketCard, TicketSource } from '../../shared/ticket-source'
 import { ticketCardKey } from '../../shared/ticket-source'
+import { TICKET_STATUS } from '../../shared/tickets'
 import { markdownBlockComponents, remarkPlugins } from './MarkdownMessage'
 import SessionKindIcon from './SessionKindIcon'
 import TicketDeleteDialog from './TicketDeleteDialog'
@@ -15,14 +16,20 @@ import {
   ticketStatusBeside,
   type TicketBoardColumn
 } from './ticket-board'
-import { clampTicketBoardWidth, ticketBoardBounds, ticketBoardWidthFromPointer } from './ticket-board-layout'
+import {
+  clampTicketBoardWidth,
+  ticketBoardBounds,
+  ticketBoardWidthFromPointer,
+  withEnabledSource
+} from './ticket-board-layout'
 import { useTicketBoard } from './use-ticket-board'
 
 /**
  * The docked ticket board. It renders what `use-ticket-board.ts` and `ticket-board.ts` already
  * decided; what it genuinely owns is the board's interaction surface - which card is expanded,
- * which column a pointer is currently over, and where a drag ends. Like the brain-dump panel it
- * stays mounted once opened and merely hides, so reopening is the same board.
+ * which card's menu is open, which column a pointer is currently over, and where a drag ends. Like
+ * the brain-dump panel it stays mounted once opened and merely hides, so reopening is the same
+ * board - re-listed on reopen, because the files may have moved on while it was hidden.
  *
  * A card never moves because the user dragged it. It moves because the source wrote the change and
  * the re-read came back with it in the new column; until then the card shows as pending.
@@ -57,6 +64,12 @@ interface DragState {
   over: string
 }
 
+/** A confirmation in progress: the cards it names and what their sources said the loss costs. */
+interface DeleteRequest {
+  cards: readonly TicketCard[]
+  notes: string[]
+}
+
 export default function TicketBoardPanel(props: TicketBoardPanelProps): JSX.Element {
   const { panel, projectPath, sources, today } = props
   const { open, width } = panel
@@ -69,36 +82,43 @@ export default function TicketBoardPanel(props: TicketBoardPanelProps): JSX.Elem
   )
   const board = useTicketBoard({ sources, projectPath, today, enabledSources })
   const [expanded, setExpanded] = useState<string | null>(null)
+  /** The card whose actions menu is open; at most one, closed by any action or by Escape. */
+  const [menuFor, setMenuFor] = useState<string | null>(null)
   const [drag, setDrag] = useState<DragState | null>(null)
   // Closed work is history, not the board: Done starts collapsed to a strip and the user opens it.
   const [doneExpanded, setDoneExpanded] = useState(false)
   const [resizing, setResizing] = useState(false)
-  /** The cards a confirmation is currently open for; deleting never happens without one. */
-  const [deleting, setDeleting] = useState<readonly TicketCard[] | null>(null)
+  /** The confirmation currently open; deleting never happens without one. */
+  const [deleting, setDeleting] = useState<DeleteRequest | null>(null)
   const [deletePending, setDeletePending] = useState(false)
   const columnRefs = useRef(new Map<string, HTMLElement>())
   const scrollRef = useRef<HTMLDivElement>(null)
   /** Restored whenever the board comes back: a hidden panel loses its scroll offset. */
   const scrollMemory = useRef(0)
+  const wasOpen = useRef(open)
 
   const bounds = ticketBoardBounds(props.workspaceWidth)
   const sourceLabels = useMemo(() => new Map(sources.map((source) => [source.id, source.label])), [sources])
   // The badge earns its width only when two sources are actually feeding the board.
   const showSourceBadges = board.sources.filter((source) => source.enabled).length > 1
   const optionalSources = board.sources.filter(
-    (source) => source.optional && (source.available === true || source.enabled)
+    (source) => source.optional && (source.availability?.available === true || source.enabled)
   )
 
   useEffect(() => {
     if (open && scrollRef.current) scrollRef.current.scrollLeft = scrollMemory.current
   }, [open, board.status])
 
-  const toggleSource = (sourceId: string, enabled: boolean): void => {
+  // Reopening re-lists quietly: a source without a watcher (GitHub) has no other way to catch up
+  // on what changed while the board was hidden, and the mount already read the first time.
+  useEffect(() => {
+    if (open && !wasOpen.current) void board.refresh({ quiet: true })
+    wasOpen.current = open
+  }, [open])
+
+  const toggleSource = (sourceId: string, on: boolean): void => {
     if (!projectPath) return
-    const remaining = enabledSources.filter((id) => id !== sourceId)
-    props.onPanelChange({
-      enabledSources: { ...panel.enabledSources, [projectPath]: enabled ? [...remaining, sourceId] : remaining }
-    })
+    props.onPanelChange({ enabledSources: withEnabledSource(panel.enabledSources, projectPath, sourceId, on) })
   }
 
   const closePanel = (): void => {
@@ -123,7 +143,8 @@ export default function TicketBoardPanel(props: TicketBoardPanelProps): JSX.Elem
   const startDrag = (card: TicketCard, event: React.PointerEvent): void => {
     if (!board.canMove(card)) return
     event.preventDefault()
-    board.clearMoveError()
+    board.clearActionError()
+    setMenuFor(null)
     let over = card.status
     setDrag({ card, over })
     const move = (pointer: PointerEvent): void => {
@@ -152,19 +173,87 @@ export default function TicketBoardPanel(props: TicketBoardPanelProps): JSX.Elem
     if (next) void board.moveCard(card, next)
   }
 
-  const askToDelete = (cards: readonly TicketCard[]): void => {
+  /**
+   * The confirmation opens with the sources' words already in it: what a deletion costs is asked
+   * first, so the dialog never has to guess while a probe is still out.
+   */
+  const askToDelete = async (cards: readonly TicketCard[]): Promise<void> => {
     if (cards.length === 0) return
-    board.clearMoveError()
-    setDeleting(cards)
+    board.clearActionError()
+    setMenuFor(null)
+    const notes = await board.removalNotes(cards)
+    setDeleting({ cards, notes })
   }
 
   const confirmDelete = async (): Promise<void> => {
     if (!deleting) return
     setDeletePending(true)
-    const done = await board.removeCards(deleting)
+    const done = await board.removeCards(deleting.cards)
     setDeletePending(false)
     // A failure keeps the dialog open on Retry; the board underneath has already been re-read.
     if (done) setDeleting(null)
+  }
+
+  const renderCardMenu = (card: TicketCard, key: string): JSX.Element => {
+    const menuOpen = menuFor === key
+    const menuId = `${headingId}-menu-${key}`
+    // A card that names somewhere on the web is opened there; one that does not is a file, and
+    // the only place to open a file is the folder it lives in.
+    const revealLabel = card.url ? `Open ${card.id} in the browser` : `Show ${card.id} in the folder`
+    return (
+      <div className="ticket-card-menu">
+        <button
+          type="button"
+          className="ticket-card-menu-button"
+          title={`Actions for ${card.id}`}
+          aria-label={`Actions for ${card.id}`}
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
+          aria-controls={menuOpen ? menuId : undefined}
+          onClick={() => setMenuFor(menuOpen ? null : key)}
+        >
+          <MoreHorizontal aria-hidden="true" />
+        </button>
+        {menuOpen && (
+          <div
+            id={menuId}
+            className="ticket-card-menu-list"
+            role="menu"
+            aria-label={`Actions for ${card.id}`}
+            onKeyDown={(event) => {
+              if (event.key !== 'Escape') return
+              event.stopPropagation()
+              setMenuFor(null)
+            }}
+          >
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setMenuFor(null)
+                board.reveal(card)
+              }}
+            >
+              {card.url ? <ExternalLink aria-hidden="true" /> : <FolderOpen aria-hidden="true" />}
+              <span>{revealLabel}</span>
+            </button>
+            {/* Offered for any status, not just Done: a ticket that turned out to be the wrong idea
+                is deleted where it stands. The confirmation is what makes an errant click harmless. */}
+            {board.canRemove(card) && (
+              <button
+                type="button"
+                role="menuitem"
+                className="ticket-card-menu-delete"
+                onClick={() => void askToDelete([card])}
+              >
+                <Trash2 aria-hidden="true" />
+                <span>{`Delete ${card.id}`}</span>
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    )
   }
 
   const renderCard = (card: TicketCard): JSX.Element => {
@@ -206,35 +295,12 @@ export default function TicketBoardPanel(props: TicketBoardPanelProps): JSX.Elem
           >
             {card.title}
           </button>
+          {renderCardMenu(card, key)}
         </div>
         <div className="ticket-card-meta">
           <code>{card.id}</code>
           <span>{describeTicketDate(card.updated, today)}</span>
           {showSourceBadges && <span className="ticket-card-source">{sourceLabels.get(card.sourceId)}</span>}
-          {/* A card that names somewhere on the web is opened there; one that does not is a file,
-              and the only place to open a file is the folder it lives in. */}
-          <button
-            type="button"
-            className="ticket-card-reveal"
-            title={card.url ? `Open ${card.id} in the browser` : `Show ${card.id} in the folder`}
-            aria-label={card.url ? `Open ${card.id} in the browser` : `Show ${card.id} in the folder`}
-            onClick={() => board.reveal(card)}
-          >
-            {card.url ? <ExternalLink aria-hidden="true" /> : <FolderOpen aria-hidden="true" />}
-          </button>
-          {/* Offered for any status, not just Done: a ticket that turned out to be the wrong idea
-              is deleted where it stands. The confirmation is what makes an errant click harmless. */}
-          {board.canRemove(card) && (
-            <button
-              type="button"
-              className="ticket-card-delete"
-              title={`Delete ${card.id}`}
-              aria-label={`Delete ${card.id}`}
-              onClick={() => askToDelete([card])}
-            >
-              <Trash2 aria-hidden="true" />
-            </button>
-          )}
         </div>
         {session && (
           <button
@@ -287,7 +353,7 @@ export default function TicketBoardPanel(props: TicketBoardPanelProps): JSX.Elem
   }
 
   const renderColumn = (column: TicketBoardColumn): JSX.Element => {
-    const isDone = column.status === 'done'
+    const isDone = column.status === TICKET_STATUS.done
     // Collapsed, Done is still a full-height drop target - closing a ticket by dragging it there
     // is the whole point - it just does not spend board width on work that is finished.
     const collapsed = isDone && !doneExpanded
@@ -326,7 +392,7 @@ export default function TicketBoardPanel(props: TicketBoardPanelProps): JSX.Elem
               className="ticket-column-sweep"
               title={`Delete done tickets older than ${DONE_COLUMN_RECENT_DAYS} days`}
               aria-label={`Delete done tickets older than ${DONE_COLUMN_RECENT_DAYS} days`}
-              onClick={() => askToDelete(sweepable)}
+              onClick={() => void askToDelete(sweepable)}
             >
               <Trash2 aria-hidden="true" />
             </button>
@@ -360,6 +426,11 @@ export default function TicketBoardPanel(props: TicketBoardPanelProps): JSX.Elem
       onKeyDown={(event) => {
         // A confirmation's own Escape closes the confirmation; it must not also close the board.
         if (event.key !== 'Escape' || drag || deleting) return
+        if (menuFor) {
+          setMenuFor(null)
+          event.stopPropagation()
+          return
+        }
         closePanel()
         event.stopPropagation()
       }}
@@ -427,19 +498,27 @@ export default function TicketBoardPanel(props: TicketBoardPanelProps): JSX.Elem
           toggle that appears and vanishes while a project loads is worse than one that waits. */}
       {projectPath && optionalSources.length > 0 && (
         <div className="ticket-board-sources" role="group" aria-label="Ticket sources">
-          {optionalSources.map((source) => (
-            <button
-              key={source.id}
-              type="button"
-              className="ticket-board-source-toggle"
-              aria-pressed={source.enabled}
-              disabled={!source.available && !source.enabled}
-              title={source.reason ?? `${source.enabled ? 'Hide' : 'Show'} ${source.detail ?? source.label} tickets`}
-              onClick={() => toggleSource(source.id, !source.enabled)}
-            >
-              {source.label}
-            </button>
-          ))}
+          {optionalSources.map((source) => {
+            const probed = source.availability
+            const detail = probed?.available ? probed.detail : undefined
+            return (
+              <button
+                key={source.id}
+                type="button"
+                className="ticket-board-source-toggle"
+                aria-pressed={source.enabled}
+                disabled={probed?.available !== true && !source.enabled}
+                title={
+                  probed?.available === false
+                    ? probed.reason
+                    : `${source.enabled ? 'Hide' : 'Show'} ${detail ?? source.label} tickets`
+                }
+                onClick={() => toggleSource(source.id, !source.enabled)}
+              >
+                {source.label}
+              </button>
+            )
+          })}
         </div>
       )}
 
@@ -447,7 +526,7 @@ export default function TicketBoardPanel(props: TicketBoardPanelProps): JSX.Elem
       {board.mutation.error && !deleting && (
         <p className="ticket-board-state" role="alert">
           {board.mutation.error}
-          <button type="button" onClick={board.clearMoveError}>
+          <button type="button" onClick={board.clearActionError}>
             Dismiss
           </button>
         </p>
@@ -485,20 +564,20 @@ export default function TicketBoardPanel(props: TicketBoardPanelProps): JSX.Elem
 
       {deleting && (
         <TicketDeleteDialog
-          cards={deleting}
-          notes={board.removalNotes(deleting)}
+          cards={deleting.cards}
+          notes={deleting.notes}
           pending={deletePending}
           error={board.mutation.error}
           onConfirm={() => void confirmDelete()}
           onCancel={() => {
             setDeleting(null)
-            board.clearMoveError()
+            board.clearActionError()
           }}
         />
       )}
 
       {/* One polite region for everything the board announces, so nothing steals focus. */}
-      <div className="ticket-board-visually-hidden" role="status" aria-live="polite">
+      <div className="visually-hidden" role="status" aria-live="polite">
         {board.announcement}
       </div>
     </aside>

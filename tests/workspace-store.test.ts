@@ -676,6 +676,14 @@ test('the ticket board panel round-trips, and a malformed one is refused rather 
   }
 })
 
+test("a project's GitHub in-progress label round-trips, and a non-string one is refused", () => {
+  const base = makeState('Toucan')
+  const withLabel = { ...base, projects: [{ ...base.projects[0], githubInProgressLabel: 'doing' }] }
+  assert.equal(parseWorkspaceState(withLabel)?.projects[0].githubInProgressLabel, 'doing')
+  const refused = { ...base, projects: [{ ...base.projects[0], githubInProgressLabel: 3 }] }
+  assert.equal(parseWorkspaceState(refused), null)
+})
+
 test('a project may name its own tickets folder, and the snapshot keeps it', () => {
   const base = makeState('Toucan')
   const withFolder = {

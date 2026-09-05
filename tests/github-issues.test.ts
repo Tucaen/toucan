@@ -2,11 +2,13 @@ import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
 import type { GithubIssueRecord } from '../src/shared/github-issues'
 import {
+  DEFAULT_GITHUB_STATUS_LABELS,
   GITHUB_ISSUE_FIELDS,
   TICKET_GITHUB_SOURCE_ID,
   githubIssueCard,
   githubIssueStatus,
   githubRemoteRepository,
+  githubStatusLabelsFor,
   parseGithubIssues
 } from '../src/shared/github-issues'
 
@@ -38,6 +40,20 @@ test('an open issue takes its column from its labels, blocked winning over in pr
   assert.equal(githubIssueStatus({ state: 'OPEN', labels: [{ name: 'in-progress' }] }), 'in-progress')
   assert.equal(githubIssueStatus({ state: 'OPEN', labels: [{ name: 'blocked' }] }), 'blocked')
   assert.equal(githubIssueStatus({ state: 'OPEN', labels: [{ name: 'in-progress' }, { name: 'blocked' }] }), 'blocked')
+})
+
+test('a project may name the label that means in progress, and blank means the default', () => {
+  const labels = githubStatusLabelsFor('doing')
+  assert.deepEqual(labels, { blocked: 'blocked', inProgress: 'doing' })
+  assert.equal(githubIssueStatus({ state: 'OPEN', labels: [{ name: 'Doing' }] }, labels), 'in-progress')
+  assert.equal(githubIssueStatus({ state: 'OPEN', labels: [{ name: 'in-progress' }] }, labels), 'open')
+  assert.equal(githubIssueStatus({ state: 'OPEN', labels: [{ name: 'blocked' }] }, labels), 'blocked')
+  assert.equal(githubStatusLabelsFor('  '), DEFAULT_GITHUB_STATUS_LABELS)
+  assert.equal(githubStatusLabelsFor(undefined), DEFAULT_GITHUB_STATUS_LABELS)
+  assert.equal(
+    parseGithubIssues(JSON.stringify([issue({ labels: [{ name: 'doing' }] })]), labels).cards[0].status,
+    'in-progress'
+  )
 })
 
 test('label matching ignores the casing and spacing a repository happens to use', () => {

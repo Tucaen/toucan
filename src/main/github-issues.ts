@@ -2,7 +2,13 @@ import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { basename, dirname, extname, join } from 'node:path'
 import { hiddenProcessOptions } from './background-process'
-import { GITHUB_ISSUE_FIELDS, githubRemoteRepository, parseGithubIssues } from '../shared/github-issues'
+import {
+  DEFAULT_GITHUB_STATUS_LABELS,
+  GITHUB_ISSUE_FIELDS,
+  githubRemoteRepository,
+  parseGithubIssues,
+  type GithubStatusLabels
+} from '../shared/github-issues'
 import type { TicketGithubListResult, TicketSourceAvailability, TicketSourceUnavailable } from '../shared/ticket-source'
 
 /**
@@ -42,10 +48,15 @@ export interface GithubIssueReaderOptions {
   pathExists?(path: string): boolean
   /** How long a probe stands before it is asked again; a manual refresh past it re-checks. */
   probeTtlMs?: number
+  /**
+   * Which labels this project maps to columns. Read per listing rather than once, because the
+   * label is a workspace setting the user may change while the board is open.
+   */
+  statusLabelsFor?(projectPath: string): GithubStatusLabels | Promise<GithubStatusLabels>
 }
 
 /** A project that has a GitHub source, or the reason it does not. */
-type Probed = { gh: string; repository: string } | TicketSourceUnavailable
+type GithubProbe = { gh: string; repository: string } | TicketSourceUnavailable
 
 export interface GithubIssueReader {
   /** A PATH lookup, `git remote -v` and `gh auth status`. Never lists issues. */
@@ -92,15 +103,16 @@ export function createGithubIssueReader(options: GithubIssueReaderOptions): Gith
   const limit = options.limit ?? ISSUE_LIMIT
   const exists = options.pathExists ?? existsSync
   const probeTtlMs = options.probeTtlMs ?? PROBE_TTL_MS
+  const statusLabelsFor = options.statusLabelsFor ?? ((): GithubStatusLabels => DEFAULT_GITHUB_STATUS_LABELS)
   /** The last probe per project, so opening the board does not pay for the same three answers. */
-  const probes = new Map<string, { at: number; result: Promise<Probed> }>()
+  const probes = new Map<string, { at: number; result: Promise<GithubProbe> }>()
 
   /**
    * Both entry points start here, so the toggle the board offers and the listing behind it can
    * never disagree about whether this project has a GitHub source at all. Three questions, in
    * increasing cost, each answered only when the cheaper ones said yes.
    */
-  async function probeOnce(projectPath: string): Promise<Probed> {
+  async function probeOnce(projectPath: string): Promise<GithubProbe> {
     const resolved = options.resolveCommand('gh')
     if (!resolved) return NO_CLI
     const gh = nativeCommand(resolved, exists)
@@ -119,7 +131,7 @@ export function createGithubIssueReader(options: GithubIssueReaderOptions): Gith
     return { gh, repository }
   }
 
-  function probe(projectPath: string): Promise<Probed> {
+  function probe(projectPath: string): Promise<GithubProbe> {
     const cached = probes.get(projectPath)
     if (cached && Date.now() - cached.at < probeTtlMs) return cached.result
     const result = probeOnce(projectPath)
@@ -151,7 +163,7 @@ export function createGithubIssueReader(options: GithubIssueReaderOptions): Gith
           reason: issues.stderr.trim() || `gh issue list exited with code ${issues.code}.`
         }
       }
-      return { available: true, ...parseGithubIssues(issues.stdout) }
+      return { available: true, ...parseGithubIssues(issues.stdout, await statusLabelsFor(projectPath)) }
     }
   }
 }

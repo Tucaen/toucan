@@ -5,10 +5,28 @@ import {
   TICKET_BOARD_MAX_WIDTH,
   TICKET_BOARD_MIN_WIDTH,
   clampTicketBoardWidth,
+  pruneEnabledSources,
   ticketBoardBounds,
   ticketBoardKeyAction,
-  ticketBoardWidthFromPointer
+  ticketBoardWidthFromPointer,
+  withEnabledSource
 } from '../src/renderer/src/ticket-board-layout'
+
+test('a source is switched on and off for one project without touching the others', () => {
+  const on = withEnabledSource(undefined, 'D:\\a', 'github', true)
+  assert.deepEqual(on, { 'D:\\a': ['github'] })
+  // Switching on twice does not list it twice; switching off leaves the other project's choice.
+  assert.deepEqual(withEnabledSource(on, 'D:\\a', 'github', true), { 'D:\\a': ['github'] })
+  const both = withEnabledSource(on, 'D:\\b', 'github', true)
+  assert.deepEqual(withEnabledSource(both, 'D:\\a', 'github', false), { 'D:\\a': [], 'D:\\b': ['github'] })
+})
+
+test('choices for projects that no longer exist are dropped on restore', () => {
+  assert.deepEqual(pruneEnabledSources({ 'D:\\a': ['github'], 'D:\\gone': ['github'] }, ['D:\\a']), {
+    'D:\\a': ['github']
+  })
+  assert.deepEqual(pruneEnabledSources(undefined, ['D:\\a']), {})
+})
 
 const key = (
   overrides: Partial<Parameters<typeof ticketBoardKeyAction>[0]>

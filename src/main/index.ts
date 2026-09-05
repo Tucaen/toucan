@@ -39,7 +39,8 @@ import { createTerminalScrollbackStore, type TerminalScrollbackStore } from './t
 import { createWorktreeManager, type WorktreeManager, type WorktreeStatusRequest } from './git-worktree'
 import { createWorkspaceFileIndex, type WorkspaceFileIndexReader } from './workspace-file-index'
 import { createWorkspaceStore } from './workspace-store'
-import { ticketsDirectoryFor } from './ticket-directory'
+import { projectFor, ticketsDirectoryFor } from './ticket-directory'
+import { githubStatusLabelsFor, type GithubStatusLabels } from '../shared/github-issues'
 import type { WorktreeCreateRequest, WorktreeDiscoverRequest, WorktreeRemoveRequest } from '../shared/worktree'
 
 /**
@@ -387,6 +388,11 @@ void app.whenReady().then(async () => {
   // the very next listing. Which folder that is, is decided in `ticket-directory.ts`.
   const ticketsFolderFor = async (projectPath: string): Promise<string> =>
     ticketsDirectoryFor(projectPath, (await workspace.load()).state?.projects ?? [])
+  // Same reasoning for the GitHub label mapping: a per-project workspace setting, read per listing.
+  const githubLabelsFor = async (projectPath: string): Promise<GithubStatusLabels> =>
+    githubStatusLabelsFor(
+      projectFor(projectPath, (await workspace.load()).state?.projects ?? [])?.githubInProgressLabel
+    )
   const ticketChanges = createTicketChangeWatcher({ directoryFor: ticketsFolderFor })
   // Spawning is the one remote operation main cannot perform alone: the canvas owns node identity,
   // geometry and working-directory resolution, so a phone's "New chat" is a request the desktop
@@ -438,16 +444,15 @@ void app.whenReady().then(async () => {
   // One manager for both: the delete confirmation asks git the same question worktree discovery
   // does, so it asks the same object rather than shelling out on its own.
   const worktrees = createWorktreeManager()
-  registerTicketIpc(
-    ipcMain as unknown as Parameters<typeof registerTicketIpc>[0],
-    createTicketLibrary({ directoryFor: ticketsFolderFor, today: localCalendarDate }),
-    ticketChanges,
-    (path) => shell.showItemInFolder(normalize(path)),
-    (projectPath) => worktrees.isRepository(projectPath)
-  )
+  registerTicketIpc(ipcMain as unknown as Parameters<typeof registerTicketIpc>[0], {
+    library: createTicketLibrary({ directoryFor: ticketsFolderFor, today: localCalendarDate }),
+    changes: ticketChanges,
+    reveal: (path) => shell.showItemInFolder(normalize(path)),
+    isGitRepository: (projectPath) => worktrees.isRepository(projectPath)
+  })
   registerGithubIssuesIpc(
     ipcMain as unknown as Parameters<typeof registerGithubIssuesIpc>[0],
-    createGithubIssueReader({ resolveCommand: findCommand })
+    createGithubIssueReader({ resolveCommand: findCommand, statusLabelsFor: githubLabelsFor })
   )
   registerWorktreeIpc(worktrees)
   registerWorkspaceFileIpc(createWorkspaceFileIndex())

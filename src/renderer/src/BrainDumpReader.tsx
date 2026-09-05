@@ -90,7 +90,7 @@ export default function BrainDumpReader(props: BrainDumpReaderProps): JSX.Elemen
           return (
             <span className="brain-dump-missing-link" role="note">
               {anchorProps.children}
-              <span className="brain-dump-visually-hidden"> — Missing topic. It has not been written yet.</span>
+              <span className="visually-hidden"> — Missing topic. It has not been written yet.</span>
               <span aria-hidden="true" className="brain-dump-missing-badge">
                 Missing topic
               </span>

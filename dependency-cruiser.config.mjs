@@ -35,6 +35,8 @@ const pureRendererFeatureNames = [
   'ticket-activity',
   'ticket-board',
   'ticket-board-layout',
+  'ticket-file-source',
+  'ticket-github-source',
   'tool-card',
   'tool-input',
   'worklog-activities',

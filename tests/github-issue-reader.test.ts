@@ -137,6 +137,34 @@ test('a GitHub checkout is available, and lists its issues as cards', async () =
   ])
 })
 
+test("the project's own in-progress label decides the column its issues land in", async () => {
+  const labelled = JSON.stringify([
+    { number: 1, title: 'Doing', state: 'OPEN', updatedAt: '2026-09-04T00:00:00Z', labels: [{ name: 'doing' }] },
+    { number: 2, title: 'Default', state: 'OPEN', updatedAt: '2026-09-04T00:00:00Z', labels: [{ name: 'in-progress' }] }
+  ])
+  const asked: string[] = []
+  const github = createGithubIssueReader({
+    resolveCommand: (command) => command,
+    pathExists: () => false,
+    probeTtlMs: 0,
+    run: async (_command, args) => ({ code: 0, stdout: args[0] === 'remote' ? REMOTES : labelled, stderr: '' }),
+    statusLabelsFor: async (projectPath) => {
+      asked.push(projectPath)
+      return { blocked: 'blocked', inProgress: 'doing' }
+    }
+  })
+  const listed = await github.list(PROJECT)
+  assert.ok(listed.available)
+  assert.deepEqual(
+    listed.cards.map((card) => [card.id, card.status]),
+    [
+      ['1', 'in-progress'],
+      ['2', 'open']
+    ]
+  )
+  assert.deepEqual(asked, [PROJECT])
+})
+
 test('a gh that exits non-zero hands its own words to the board', async () => {
   const { reader: github } = reader({
     ...READY,

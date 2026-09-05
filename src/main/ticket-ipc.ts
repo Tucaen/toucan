@@ -1,30 +1,31 @@
-import type { TicketSourceListResult } from '../shared/ticket-source'
+import { EMPTY_TICKET_LISTING } from '../shared/ticket-source'
+import { errorMessage } from '../shared/text'
+import type { IpcRegistrar } from './ipc-registrar'
 import type { TicketLibrary } from './ticket-library'
 import type { TicketChangeOwner, TicketChangeWatcher } from './ticket-watcher'
 
-interface TicketIpcRegistrar {
-  handle(channel: string, listener: (event: { sender: TicketChangeOwner }, ...args: unknown[]) => unknown): void
+/**
+ * Everything the ticket channels are wired to. `reveal` and `isGitRepository` are injected rather
+ * than imported so this module stays free of Electron and of git, exactly as `brain-dump-ipc.ts` is.
+ */
+export interface TicketIpcDependencies {
+  library: TicketLibrary
+  changes: TicketChangeWatcher
+  /** Shows a file in the OS file manager. */
+  reveal(path: string): void
+  isGitRepository(projectPath: string): Promise<boolean>
 }
-
-const EMPTY: TicketSourceListResult = { cards: [], diagnostics: [] }
 
 /**
  * The renderer's only route to a project's ticket files. Listing a project is also what subscribes
  * the window to that project's folder: a board that can read the tickets must find out when they
  * change, and tying the two together removes the failure mode where one happened without the other.
- *
- * `reveal` and `isGitRepository` are injected rather than imported so this module stays free of
- * Electron and of git, exactly as `brain-dump-ipc.ts` is.
  */
-export function registerTicketIpc(
-  ipc: TicketIpcRegistrar,
-  library: TicketLibrary,
-  changes: TicketChangeWatcher,
-  reveal: (path: string) => void,
-  isGitRepository: (projectPath: string) => Promise<boolean>
-): void {
+export function registerTicketIpc(ipc: IpcRegistrar<TicketChangeOwner>, deps: TicketIpcDependencies): void {
+  const { library, changes, reveal, isGitRepository } = deps
+
   ipc.handle('tickets:list', async (event, projectPath: unknown) => {
-    if (typeof projectPath !== 'string' || !projectPath) return EMPTY
+    if (typeof projectPath !== 'string' || !projectPath) return EMPTY_TICKET_LISTING
     changes.subscribe(event.sender)
     void changes.watchProject(projectPath)
     try {
@@ -33,7 +34,7 @@ export function registerTicketIpc(
       // A folder that cannot be read at all is one diagnostic row, not a board that fails to open.
       return {
         cards: [],
-        diagnostics: [{ path: projectPath, code: 'unreadable-folder', message: (error as Error).message }]
+        diagnostics: [{ path: projectPath, code: 'unreadable-folder', message: errorMessage(error) }]
       }
     }
   })

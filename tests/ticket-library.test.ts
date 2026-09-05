@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -151,6 +151,57 @@ test('a write leaves no temporary file behind for the next listing to trip over'
     const { cards, diagnostics } = await library().list(project)
     assert.equal(cards.length, 1)
     assert.deepEqual(diagnostics, [])
+  })
+})
+
+test('one ticket reads fresh from its file, a missing one is null, a broken one says why', async () => {
+  await withProject(async (project, folder) => {
+    await writeFile(
+      join(folder, 'ticket-board.md'),
+      ticketFile({ title: 'Ticket board', status: 'open', created: TODAY, updated: TODAY }, 'Body.\n'),
+      'utf8'
+    )
+    await writeFile(join(folder, 'broken.md'), 'no frontmatter\n', 'utf8')
+    const store = library()
+
+    const ticket = await store.read(project, 'ticket-board')
+    assert.equal(ticket?.title, 'Ticket board')
+    assert.equal(ticket?.body, '\nBody.\n')
+    assert.equal(await store.read(project, 'never-written'), null)
+    assert.equal(await store.read(project, '../escape'), null)
+    await assert.rejects(store.read(project, 'broken'), /frontmatter/)
+  })
+})
+
+test('a body edited outside Toucan between a listing and a drop survives the status write intact', async () => {
+  await withProject(async (project, folder) => {
+    const path = join(folder, 'ticket-board.md')
+    await writeFile(
+      path,
+      ticketFile({ title: 'Ticket board', status: 'open', created: '2026-09-01', updated: '2026-09-01' }, 'Old.\n'),
+      'utf8'
+    )
+    const store = library()
+    await store.list(project)
+
+    // The editor saves after the board listed and before the user drops: the write must read the
+    // file as it is now, not as the board last saw it.
+    const edited = '# Rewritten\n\nBy hand, with  odd   spacing.\n'
+    await writeFile(
+      path,
+      ticketFile({ title: 'Ticket board', status: 'open', created: '2026-09-01', updated: '2026-09-01' }, edited),
+      'utf8'
+    )
+    const result = await store.setStatus(project, 'ticket-board', 'done')
+    assert.equal(result.ok, true)
+
+    const written = await readFile(path, 'utf8')
+    assert.equal(
+      written,
+      `---\ntitle: Ticket board\nstatus: done\ncreated: 2026-09-01\nupdated: ${TODAY}\n---\n\n${edited}`
+    )
+    // Promoted through a temporary file: nothing but the ticket is left in the folder.
+    assert.deepEqual(await readdir(folder), ['ticket-board.md'])
   })
 })
 

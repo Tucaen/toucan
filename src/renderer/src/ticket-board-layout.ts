@@ -1,6 +1,6 @@
 /**
- * The docked ticket board's width and shortcut decisions, kept out of `App.tsx` and the panel view
- * so they can be reasoned about (and tested) without a DOM. The board *consumes* workspace width
+ * The docked ticket board's width, shortcut and persisted-choice decisions, kept out of `App.tsx`
+ * and the panel view so they can be reasoned about (and tested) without a DOM. The board *consumes* workspace width
  * rather than overlaying the canvas, exactly as the brain-dump panel does, so these bounds are the
  * only thing standing between a restored width and a canvas squeezed out of existence.
  *
@@ -49,6 +49,35 @@ export function clampTicketBoardWidth(width: number, workspaceWidth: number): nu
 /** The board is docked right, so a left-edge drag's width is whatever remains to that edge. */
 export function ticketBoardWidthFromPointer(pointerX: number, workspaceRight: number, workspaceWidth: number): number {
   return clampTicketBoardWidth(workspaceRight - pointerX, workspaceWidth)
+}
+
+/** Which optional sources are on, per project path - the shape `TicketBoardPanelState` persists. */
+export type EnabledTicketSources = Record<string, string[]>
+
+/**
+ * The choices with one source switched on or off for one project. A choice is per project, not
+ * per board: whether this checkout shows its GitHub issues belongs to the checkout.
+ */
+export function withEnabledSource(
+  enabled: EnabledTicketSources | undefined,
+  projectPath: string,
+  sourceId: string,
+  on: boolean
+): EnabledTicketSources {
+  const remaining = (enabled?.[projectPath] ?? []).filter((id) => id !== sourceId)
+  return { ...enabled, [projectPath]: on ? [...remaining, sourceId] : remaining }
+}
+
+/**
+ * The choices restricted to projects that still exist. Without this a source switched on for a
+ * project that was later removed would be remembered for good.
+ */
+export function pruneEnabledSources(
+  enabled: EnabledTicketSources | undefined,
+  projectPaths: readonly string[]
+): EnabledTicketSources {
+  const known = new Set(projectPaths)
+  return Object.fromEntries(Object.entries(enabled ?? {}).filter(([path]) => known.has(path)))
 }
 
 /** The subset of `KeyboardEvent` the board's shortcut reads, so callers can test without a DOM. */

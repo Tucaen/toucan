@@ -2,7 +2,8 @@ import { mkdir, readFile, readdir, rename, rm } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { rewriteFrontmatter } from '../shared/frontmatter'
 import type { TicketMutationResult, TicketRemovalResult, TicketSourceListResult } from '../shared/ticket-source'
-import { ticketCard } from '../shared/ticket-source'
+import { EMPTY_TICKET_LISTING, ticketCard } from '../shared/ticket-source'
+import { errorMessage } from '../shared/text'
 import type { Ticket, TicketDiagnostic } from '../shared/tickets'
 import { isTicketSlug, isTicketStatus, parseTicket } from '../shared/tickets'
 import { syncPromotedFile, writeNewFileDurably } from './durable-file'
@@ -27,6 +28,11 @@ export interface TicketLibraryOptions {
 
 export interface TicketLibrary {
   list(projectPath: string): Promise<TicketSourceListResult>
+  /**
+   * One ticket, parsed fresh from its file: `null` when no such file exists, and a throw with the
+   * parse reason when the file is not a conforming ticket - the same reason `list` would report.
+   */
+  read(projectPath: string, slug: string): Promise<Ticket | null>
   setStatus(projectPath: string, slug: string, status: string): Promise<TicketMutationResult>
   /**
    * Deletes the ticket file. There is no archive folder and no trash: every Toucan project is a git
@@ -47,6 +53,23 @@ export function createTicketLibrary(options: TicketLibraryOptions): TicketLibrar
     return join(await options.directoryFor(projectPath), `${slug}.md`)
   }
 
+  function isMissing(error: unknown): boolean {
+    return (error as NodeJS.ErrnoException).code === 'ENOENT'
+  }
+
+  async function read(projectPath: string, slug: string): Promise<Ticket | null> {
+    const path = await pathFor(projectPath, slug)
+    if (!path) return null
+    let markdown: string
+    try {
+      markdown = await readFile(path, 'utf8')
+    } catch (error) {
+      if (isMissing(error)) return null
+      throw error
+    }
+    return parseTicket(markdown, slug)
+  }
+
   async function list(projectPath: string): Promise<TicketSourceListResult> {
     const folder = await options.directoryFor(projectPath)
     let entries
@@ -54,7 +77,7 @@ export function createTicketLibrary(options: TicketLibraryOptions): TicketLibrar
       entries = await readdir(folder, { withFileTypes: true })
     } catch (error) {
       // A project that has never filed a ticket is not an error; it is a project with no tickets.
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { cards: [], diagnostics: [] }
+      if (isMissing(error)) return EMPTY_TICKET_LISTING
       throw error
     }
     const cards: TicketSourceListResult['cards'] = []
@@ -67,7 +90,7 @@ export function createTicketLibrary(options: TicketLibraryOptions): TicketLibrar
       try {
         cards.push(ticketCard(parseTicket(await readFile(path, 'utf8'), entry.name.slice(0, -3))))
       } catch (error) {
-        diagnostics.push({ path, code: 'malformed-ticket', message: (error as Error).message })
+        diagnostics.push({ path, code: 'malformed-ticket', message: errorMessage(error) })
       }
     }
     diagnostics.sort((left, right) => left.path.localeCompare(right.path))
@@ -109,7 +132,7 @@ export function createTicketLibrary(options: TicketLibraryOptions): TicketLibrar
       // delete racing the watcher must not fail on a file someone else removed a moment earlier.
       await rm(path, { force: true })
     } catch (error) {
-      return { ok: false, code: 'delete-failed', message: (error as Error).message }
+      return { ok: false, code: 'delete-failed', message: errorMessage(error) }
     }
     return { ok: true }
   }
@@ -124,7 +147,7 @@ export function createTicketLibrary(options: TicketLibraryOptions): TicketLibrar
     try {
       markdown = await readFile(path, 'utf8')
     } catch (error) {
-      return { ok: false, code: 'missing-ticket', message: (error as Error).message }
+      return { ok: false, code: 'missing-ticket', message: errorMessage(error) }
     }
     // Both ends are parsed before anything is written, so a mutation can never leave behind a file
     // this library would refuse to read back - and a file someone broke by hand is left alone.
@@ -135,12 +158,12 @@ export function createTicketLibrary(options: TicketLibraryOptions): TicketLibrar
       contents = rewriteFrontmatter(markdown, { status, updated: options.today() })
       rewritten = parseTicket(contents, slug)
     } catch (error) {
-      return { ok: false, code: 'malformed-source', message: (error as Error).message }
+      return { ok: false, code: 'malformed-source', message: errorMessage(error) }
     }
     try {
       await writeThroughTemporary(folder, slug, contents)
     } catch (error) {
-      return { ok: false, code: 'write-failed', message: (error as Error).message }
+      return { ok: false, code: 'write-failed', message: errorMessage(error) }
     }
     return { ok: true, card: ticketCard(rewritten) }
   }
@@ -157,6 +180,7 @@ export function createTicketLibrary(options: TicketLibraryOptions): TicketLibrar
 
   return {
     list,
+    read,
     pathFor,
     setStatus: (projectPath, slug, status) => serialized(() => applyStatus(projectPath, slug, status)),
     remove: (projectPath, slug) => serialized(() => applyRemove(projectPath, slug))

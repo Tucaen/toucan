@@ -1,4 +1,5 @@
 import { parseFrontmatter } from './frontmatter'
+import { isAbsolutePath } from './paths'
 
 /**
  * A ticket is a Markdown file in a project's tickets folder, and the file is the truth: Toucan
@@ -10,8 +11,24 @@ import { parseFrontmatter } from './frontmatter'
 /** The statuses Toucan ships columns for. A project may invent more; see `Ticket.status`. */
 export type TicketStatus = 'open' | 'in-progress' | 'blocked' | 'done'
 
+/**
+ * The shipped statuses by name, so a rule about "done" reads as one rather than as a string that
+ * happens to match the file convention.
+ */
+export const TICKET_STATUS = {
+  open: 'open',
+  inProgress: 'in-progress',
+  blocked: 'blocked',
+  done: 'done'
+} as const satisfies Record<string, TicketStatus>
+
 /** Board order, left to right. `done` last because the Done column is collapsed by default. */
-export const DEFAULT_TICKET_STATUSES: readonly TicketStatus[] = ['open', 'in-progress', 'blocked', 'done']
+export const DEFAULT_TICKET_STATUSES: readonly TicketStatus[] = [
+  TICKET_STATUS.open,
+  TICKET_STATUS.inProgress,
+  TICKET_STATUS.blocked,
+  TICKET_STATUS.done
+]
 
 /** Relative to the project root, unless the project sets `ticketsDirectory`. */
 export const DEFAULT_TICKETS_DIRECTORY = 'docs/tickets'
@@ -98,11 +115,6 @@ export function parseTicket(markdown: string, slug: string): Ticket {
  */
 export function isTicketStatus(value: string): boolean {
   return isTicketSlug(value)
-}
-
-/** Absolute in either flavour: a leading separator, or a Windows drive or UNC prefix. */
-export function isAbsolutePath(value: string): boolean {
-  return /^([a-zA-Z]:|[\\/])/.test(value)
 }
 
 /**

@@ -1,6 +1,6 @@
 import type { TicketCard, TicketSourceListResult } from './ticket-source'
 import { errorMessage } from './text'
-import type { TicketDiagnostic } from './tickets'
+import { TICKET_STATUS, type TicketDiagnostic } from './tickets'
 
 /**
  * What a GitHub issue is, to a board that renders cards. Everything here is a decision about the
@@ -20,10 +20,24 @@ export const GITHUB_ISSUE_FIELDS = ['number', 'title', 'state', 'updatedAt', 'la
 /**
  * The open issue's column is its label. Only these two are recognised, because they are the only
  * two columns a GitHub project can express without Toucan inventing a convention for it: every
- * other open issue is simply Open, and a closed one is Done.
+ * other open issue is simply Open, and a closed one is Done. A project that already uses another
+ * label for work in flight names it in `WorkspaceProject.githubInProgressLabel`.
  */
-export const GITHUB_BLOCKED_LABEL = 'blocked'
-export const GITHUB_IN_PROGRESS_LABEL = 'in-progress'
+export interface GithubStatusLabels {
+  blocked: string
+  inProgress: string
+}
+
+export const DEFAULT_GITHUB_STATUS_LABELS: GithubStatusLabels = {
+  blocked: TICKET_STATUS.blocked,
+  inProgress: TICKET_STATUS.inProgress
+}
+
+/** The labels a project maps to columns: its own In progress label when it set one, else the defaults. */
+export function githubStatusLabelsFor(inProgressLabel?: string): GithubStatusLabels {
+  const configured = inProgressLabel?.trim()
+  return configured ? { ...DEFAULT_GITHUB_STATUS_LABELS, inProgress: configured } : DEFAULT_GITHUB_STATUS_LABELS
+}
 
 export interface GithubLabel {
   name: string
@@ -51,12 +65,15 @@ function labelToken(name: string): string {
 }
 
 /** The one place a GitHub issue turns into a board column. */
-export function githubIssueStatus(issue: Pick<GithubIssueRecord, 'state' | 'labels'>): string {
-  if (issue.state.toLocaleLowerCase() === 'closed') return 'done'
+export function githubIssueStatus(
+  issue: Pick<GithubIssueRecord, 'state' | 'labels'>,
+  statusLabels: GithubStatusLabels = DEFAULT_GITHUB_STATUS_LABELS
+): string {
+  if (issue.state.toLocaleLowerCase() === 'closed') return TICKET_STATUS.done
   const labels = (issue.labels ?? []).map((label) => labelToken(label.name))
-  if (labels.includes(GITHUB_BLOCKED_LABEL)) return GITHUB_BLOCKED_LABEL
-  if (labels.includes(GITHUB_IN_PROGRESS_LABEL)) return GITHUB_IN_PROGRESS_LABEL
-  return 'open'
+  if (labels.includes(labelToken(statusLabels.blocked))) return TICKET_STATUS.blocked
+  if (labels.includes(labelToken(statusLabels.inProgress))) return TICKET_STATUS.inProgress
+  return TICKET_STATUS.open
 }
 
 /** The date part of an ISO timestamp; anything else is passed through for the board to show raw. */
@@ -70,12 +87,15 @@ function calendarDay(updatedAt: string): string {
  * `blocked_by` names siblings in the same source, and GitHub expresses blocking as a label and as
  * prose, neither of which is a card id.
  */
-export function githubIssueCard(issue: GithubIssueRecord): TicketCard {
+export function githubIssueCard(
+  issue: GithubIssueRecord,
+  statusLabels: GithubStatusLabels = DEFAULT_GITHUB_STATUS_LABELS
+): TicketCard {
   return {
     sourceId: TICKET_GITHUB_SOURCE_ID,
     id: String(issue.number),
     title: issue.title,
-    status: githubIssueStatus(issue),
+    status: githubIssueStatus(issue, statusLabels),
     updated: calendarDay(issue.updatedAt),
     ...(issue.body ? { body: issue.body } : {}),
     ...(issue.url ? { url: issue.url } : {})
@@ -101,7 +121,10 @@ function isGithubIssueRecord(value: unknown): value is GithubIssueRecord {
  * `gh`'s stdout as cards. A record Toucan cannot read is a diagnostic row on the board, exactly as
  * a malformed ticket file is: the board's promise is that nothing it was told about disappears.
  */
-export function parseGithubIssues(stdout: string): TicketSourceListResult {
+export function parseGithubIssues(
+  stdout: string,
+  statusLabels: GithubStatusLabels = DEFAULT_GITHUB_STATUS_LABELS
+): TicketSourceListResult {
   let parsed: unknown
   try {
     parsed = JSON.parse(stdout)
@@ -120,7 +143,7 @@ export function parseGithubIssues(stdout: string): TicketSourceListResult {
   const cards: TicketCard[] = []
   const diagnostics: TicketDiagnostic[] = []
   parsed.forEach((record, index) => {
-    if (isGithubIssueRecord(record)) cards.push(githubIssueCard(record))
+    if (isGithubIssueRecord(record)) cards.push(githubIssueCard(record, statusLabels))
     else
       diagnostics.push({
         path: `gh issue list[${index}]`,

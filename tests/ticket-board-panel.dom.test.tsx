@@ -107,6 +107,13 @@ const issue = (overrides: Partial<ReturnType<typeof cardFixture>> = {}): ReturnT
     ...overrides
   })
 
+/** Every card action sits behind the card's own menu, so the test opens it the way a user would. */
+async function chooseCardAction(cardId: string, action: RegExp | string): Promise<void> {
+  fireEvent.click(screen.getByRole('button', { name: `Actions for ${cardId}` }))
+  const menu = await screen.findByRole('menu', { name: `Actions for ${cardId}` })
+  fireEvent.click(within(menu).getByRole('menuitem', { name: action }))
+}
+
 const COLUMN_WIDTH = 260
 
 /** jsdom measures nothing, so the drag maths is given the layout the board would have had. */
@@ -343,6 +350,27 @@ describe('following the project and the disk', () => {
     await waitFor(() => expect(screen.queryByText('Ticket board')).toBeNull())
     expect(tickets.listCalls).toContain(other.path)
   })
+
+  test('reopening the board re-lists, so a source with no watcher catches up on what changed', async () => {
+    github.setAvailability({ available: true })
+    github.setListing({ available: true, cards: [issue()], diagnostics: [] })
+    await openBoard()
+    fireEvent.click(await screen.findByRole('button', { name: 'GitHub' }))
+    await screen.findByText('GitHub issues as a second source')
+    const listedBefore = github.listCalls.length
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close the ticket board' }))
+    await waitFor(() => expect(screen.queryByRole('heading', { name: 'Tickets' })).toBeNull())
+    github.setListing({
+      available: true,
+      cards: [issue({ id: '148', title: 'Editing inside the file node' })],
+      diagnostics: []
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /^Tickets/ }))
+    expect(await screen.findByText('Editing inside the file node')).toBeInTheDocument()
+    expect(github.listCalls.length).toBe(listedBefore + 1)
+  })
 })
 
 describe('persisted panel state', () => {
@@ -436,7 +464,7 @@ describe('GitHub as a second source', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'GitHub' }))
     await screen.findByText('GitHub issues as a second source')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Open 147 in the browser' }))
+    await chooseCardAction('147', 'Open 147 in the browser')
     expect(window.terminalApi.openExternal).toHaveBeenCalledWith('https://github.com/tucaen/toucan/issues/147')
     expect(tickets.revealCalls).toEqual([])
   })
@@ -481,7 +509,7 @@ describe('deleting tickets', () => {
     await openBoard()
     await screen.findByText('File node')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Delete file-node' }))
+    await chooseCardAction('file-node', 'Delete file-node')
     const dialog = await screen.findByRole('dialog')
     expect(within(dialog).getByText('Delete “File node”?')).toBeTruthy()
     expect(tickets.removeCalls).toEqual([])
@@ -492,7 +520,7 @@ describe('deleting tickets', () => {
     expect(tickets.removeCalls).toEqual([])
     expect(screen.getByText('File node')).toBeTruthy()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Delete file-node' }))
+    await chooseCardAction('file-node', 'Delete file-node')
     fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Delete' }))
     await waitFor(() => expect(screen.queryByText('File node')).toBeNull())
     expect(tickets.removeCalls).toEqual([[project.path, 'file-node']])
@@ -503,7 +531,7 @@ describe('deleting tickets', () => {
   test('a git checkout is told the file stays recoverable', async () => {
     await openBoard()
     await screen.findByText('File node')
-    fireEvent.click(screen.getByRole('button', { name: 'Delete file-node' }))
+    await chooseCardAction('file-node', 'Delete file-node')
     expect(within(await screen.findByRole('dialog')).getByText(/Git history keeps it/)).toBeTruthy()
   })
 
@@ -511,7 +539,7 @@ describe('deleting tickets', () => {
     tickets.setGitRepository(false)
     await openBoard()
     await screen.findByText('File node')
-    fireEvent.click(screen.getByRole('button', { name: 'Delete file-node' }))
+    await chooseCardAction('file-node', 'Delete file-node')
     const dialog = await screen.findByRole('dialog')
     expect(within(dialog).getByText(/not a git checkout, so this is final/)).toBeTruthy()
     expect(within(dialog).queryByText(/Git history keeps it/)).toBeNull()
@@ -557,8 +585,15 @@ describe('deleting tickets', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'GitHub' }))
     await screen.findByText('GitHub issues as a second source')
 
-    expect(screen.queryByRole('button', { name: 'Delete 147' })).toBeNull()
-    expect(screen.getByRole('button', { name: 'Delete file-node' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for 147' }))
+    const issueMenu = await screen.findByRole('menu', { name: 'Actions for 147' })
+    expect(within(issueMenu).queryByRole('menuitem', { name: 'Delete 147' })).toBeNull()
+    expect(within(issueMenu).getByRole('menuitem', { name: 'Open 147 in the browser' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for file-node' }))
+    const fileMenu = await screen.findByRole('menu', { name: 'Actions for file-node' })
+    expect(within(fileMenu).getByRole('menuitem', { name: 'Delete file-node' })).toBeTruthy()
+    // One menu at a time: opening the file card's closed the issue's.
+    expect(screen.queryByRole('menu', { name: 'Actions for 147' })).toBeNull()
   })
 
   test('a deletion that fails keeps the confirmation open with a retry and the card on the board', async () => {
@@ -566,7 +601,7 @@ describe('deleting tickets', () => {
     await openBoard()
     await screen.findByText('File node')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Delete file-node' }))
+    await chooseCardAction('file-node', 'Delete file-node')
     fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Delete' }))
     const dialog = await screen.findByRole('dialog')
     expect(await within(dialog).findByText(/EPERM: denied/)).toBeTruthy()

@@ -5149,7 +5149,8 @@ button {
   font-size: 15px;
 }
 
-.brain-dump-visually-hidden {
+/* Off-screen but read aloud: the one utility every panel's live region and icon-only label uses. */
+.visually-hidden {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -5741,12 +5742,17 @@ button {
   border-radius: 999px;
 }
 
-.ticket-card-reveal {
+/* The card's actions live behind one button, so a card's head stays title-first. */
+.ticket-card-menu {
+  position: relative;
+  margin-left: auto;
+}
+
+.ticket-card-menu-button {
   display: grid;
   place-items: center;
   width: 20px;
-  height: 20px;
-  margin-left: auto;
+  height: 22px;
   padding: 0;
   border: none;
   border-radius: 5px;
@@ -5755,18 +5761,65 @@ button {
   cursor: pointer;
 }
 
-.ticket-card-reveal:hover {
+.ticket-card-menu-button:hover,
+.ticket-card-menu-button:focus-visible,
+.ticket-card-menu-button[aria-expanded='true'] {
   color: #cbd2dc;
   background: #1c2129;
 }
 
-.ticket-card-reveal svg {
-  width: 13px;
-  height: 13px;
+.ticket-card-menu-button svg {
+  width: 14px;
+  height: 14px;
 }
 
-/* Same affordance as reveal, one step further right; the confirmation is what keeps it safe. */
-.ticket-card-delete,
+.ticket-card-menu-list {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 3;
+  display: grid;
+  min-width: 200px;
+  margin-top: 4px;
+  padding: 4px;
+  border: 1px solid #2b323d;
+  border-radius: 8px;
+  background: #12161c;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.ticket-card-menu-list [role='menuitem'] {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 5px;
+  color: #cbd2dc;
+  background: transparent;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ticket-card-menu-list [role='menuitem']:hover,
+.ticket-card-menu-list [role='menuitem']:focus-visible {
+  background: #1c2129;
+}
+
+.ticket-card-menu-list [role='menuitem'] svg {
+  width: 13px;
+  height: 13px;
+  flex: none;
+}
+
+.ticket-card-menu-delete:hover,
+.ticket-card-menu-delete:focus-visible {
+  color: #e0787f;
+  background: #241a1c;
+}
+
+/* The confirmation is what keeps the sweep safe. */
 .ticket-column-sweep {
   display: grid;
   place-items: center;
@@ -5780,15 +5833,12 @@ button {
   cursor: pointer;
 }
 
-.ticket-card-delete:hover,
-.ticket-card-delete:focus-visible,
 .ticket-column-sweep:hover,
 .ticket-column-sweep:focus-visible {
   color: #e0787f;
   background: #241a1c;
 }
 
-.ticket-card-delete svg,
 .ticket-column-sweep svg {
   width: 13px;
   height: 13px;
@@ -5922,15 +5972,6 @@ button {
 .ticket-board-diagnostics ul {
   margin: 6px 0 0;
   padding-left: 18px;
-}
-
-.ticket-board-visually-hidden {
-  position: absolute;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  width: 1px;
-  height: 1px;
-  white-space: nowrap;
 }
 
 @media (prefers-reduced-motion: reduce) {

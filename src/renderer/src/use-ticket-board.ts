@@ -5,13 +5,14 @@ import type {
   TicketSourceAvailability,
   TicketSourceListResult
 } from '../../shared/ticket-source'
-import { ticketCardKey } from '../../shared/ticket-source'
+import { EMPTY_TICKET_LISTING, ticketCardKey } from '../../shared/ticket-source'
 import type { TicketDiagnostic } from '../../shared/tickets'
 import {
   staleDoneCards,
   ticketBoardColumns,
   ticketDropAllowed,
   ticketRemoveAllowed,
+  ticketSourceFor,
   type TicketBoardColumn
 } from './ticket-board'
 
@@ -41,11 +42,7 @@ export interface TicketSourceState {
   optional: boolean
   enabled: boolean
   /** Undefined while the probe is still out, so the board can wait rather than say "unavailable". */
-  available?: boolean
-  /** Why it is unavailable, in the source's own words. */
-  reason?: string
-  /** What it found - the GitHub repository, say - so a toggle can name what it would show. */
-  detail?: string
+  availability?: TicketSourceAvailability
 }
 
 export interface TicketBoard {
@@ -75,13 +72,16 @@ export interface TicketBoard {
    */
   sweepableDone: TicketCard[]
   /**
-   * What deleting these cards costs, in their sources' own words, deduplicated. Empty while the
-   * sources are still answering, so the confirmation shows only sentences it can stand behind.
+   * What deleting these cards costs, in their sources' own words, deduplicated. Awaited rather than
+   * read from state so a confirmation never opens before the sources have answered - the sentence
+   * about whether history keeps a file must be there the moment the dialog is.
    */
-  removalNotes(cards: readonly TicketCard[]): string[]
-  clearMoveError(): void
+  removalNotes(cards: readonly TicketCard[]): Promise<string[]>
+  /** Forgets the last failed move or deletion, whichever the board is currently showing. */
+  clearActionError(): void
   reveal(card: TicketCard): void
-  refresh(): Promise<void>
+  /** Re-lists every source. A quiet refresh keeps the board on screen instead of showing "loading". */
+  refresh(options?: { quiet?: boolean }): Promise<void>
   announcement: string
   /** Every configured source, in order, for the board's per-source toggles. */
   sources: TicketSourceState[]
@@ -100,8 +100,6 @@ export interface TicketBoardOptions {
    */
   enabledSources?: readonly string[]
 }
-
-const EMPTY: TicketSourceListResult = { cards: [], diagnostics: [] }
 
 function errorText(cause: unknown): string {
   return cause instanceof Error ? cause.message : 'The tickets could not be read.'
@@ -123,8 +121,6 @@ export function useTicketBoard(options: TicketBoardOptions): TicketBoard {
   const enabledKey = (options.enabledSources ?? []).join(',')
   const enabled = useMemo(() => new Set(enabledKey.split(',').filter(Boolean)), [enabledKey])
   const [availability, setAvailability] = useState<Record<string, TicketSourceAvailability>>({})
-  /** What each source says a deletion costs here, keyed by source id; absent until it has answered. */
-  const [removalNotes, setRemovalNotes] = useState<Record<string, string>>({})
   const sources = useMemo(
     () => configured.filter((source) => !isOptional(source) || enabled.has(source.id)),
     [configured, enabled]
@@ -136,28 +132,35 @@ export function useTicketBoard(options: TicketBoardOptions): TicketBoard {
   const [mutation, setMutation] = useState<TicketBoardMutation>({})
   const [announcement, setAnnouncement] = useState('')
   /** Only the newest read may publish: a change event landing mid-read must not lose to it. */
-  const reads = useRef(0)
+  const readGeneration = useRef(0)
+  /**
+   * Each source's answer about what a deletion costs in this project, asked once and kept: the
+   * answer is a property of the checkout, not of the confirmation that happens to need it.
+   */
+  const removalNoteCache = useRef(new Map<string, Promise<string | undefined>>())
 
   const read = useCallback(
-    async (background: boolean): Promise<void> => {
+    async (quiet: boolean): Promise<void> => {
       if (!projectPath) {
         setListings([])
         setStatus('idle')
         return
       }
-      const generation = (reads.current += 1)
-      if (!background) {
+      const generation = (readGeneration.current += 1)
+      if (!quiet) {
         setStatus('loading')
         setError(undefined)
       }
       try {
-        const results = await Promise.all(sources.map((source) => source.list(projectPath).catch(() => EMPTY)))
-        if (generation !== reads.current) return
+        const results = await Promise.all(
+          sources.map((source) => source.list(projectPath).catch(() => EMPTY_TICKET_LISTING))
+        )
+        if (generation !== readGeneration.current) return
         setListings(results)
         setStatus('ready')
         setError(undefined)
       } catch (cause) {
-        if (generation !== reads.current) return
+        if (generation !== readGeneration.current) return
         setStatus('error')
         setError(errorText(cause))
       }
@@ -171,6 +174,7 @@ export function useTicketBoard(options: TicketBoardOptions): TicketBoard {
     setListings([])
     setShowAllDone(false)
     setMutation({})
+    removalNoteCache.current = new Map()
     void read(false)
   }, [read])
 
@@ -208,39 +212,16 @@ export function useTicketBoard(options: TicketBoardOptions): TicketBoard {
     }
   }, [configured, projectPath])
 
-  // Asked once per project rather than once per confirmation: the answer is a property of the
-  // checkout, and a dialog that opened before a subprocess returned would have nothing to say.
-  useEffect(() => {
-    setRemovalNotes({})
-    if (!projectPath) return
-    let current = true
-    for (const source of configured) {
-      if (!source.removalNote) continue
-      void source
-        .removalNote(projectPath)
-        .catch(() => undefined)
-        .then((note) => {
-          if (current && note) setRemovalNotes((seen) => ({ ...seen, [source.id]: note }))
-        })
-    }
-    return () => {
-      current = false
-    }
-  }, [configured, projectPath])
-
   const sourceStates = useMemo(
     () =>
       configured.map((source): TicketSourceState => {
         const optional = isOptional(source)
-        const probed = availability[source.id]
         return {
           id: source.id,
           label: source.label,
           optional,
           enabled: !optional || enabled.has(source.id),
-          ...(optional ? { available: probed?.available } : { available: true }),
-          ...(probed?.available === false ? { reason: probed.reason } : {}),
-          ...(probed?.available && probed.detail ? { detail: probed.detail } : {})
+          availability: optional ? availability[source.id] : { available: true }
         }
       }),
     [availability, configured, enabled]
@@ -254,7 +235,7 @@ export function useTicketBoard(options: TicketBoardOptions): TicketBoard {
 
   const moveCard = useCallback(
     async (card: TicketCard, next: string): Promise<boolean> => {
-      const source = sources.find((candidate) => candidate.id === card.sourceId)
+      const source = ticketSourceFor(card, sources)
       if (!projectPath || !source?.setStatus || card.status === next) return false
       const key = ticketCardKey(card)
       setMutation({ cardKey: key })
@@ -288,7 +269,7 @@ export function useTicketBoard(options: TicketBoardOptions): TicketBoard {
       // belongs to rather than arriving out of a race.
       const failures: string[] = []
       for (const card of removable) {
-        const remove = sources.find((source) => source.id === card.sourceId)?.remove
+        const remove = ticketSourceFor(card, sources)?.remove
         if (!remove) continue
         try {
           const result = await remove(projectPath, card.id)
@@ -313,16 +294,25 @@ export function useTicketBoard(options: TicketBoardOptions): TicketBoard {
     [projectPath, read, sources]
   )
 
-  const notesFor = useCallback(
-    (targets: readonly TicketCard[]): string[] => [
-      ...new Set(
-        targets
-          .filter((card) => ticketRemoveAllowed(card, sources))
-          .map((card) => removalNotes[card.sourceId])
-          .filter((note): note is string => Boolean(note))
+  const removalNotes = useCallback(
+    async (targets: readonly TicketCard[]): Promise<string[]> => {
+      if (!projectPath) return []
+      const asked = new Set(targets.filter((card) => ticketRemoveAllowed(card, sources)).map((card) => card.sourceId))
+      const notes = await Promise.all(
+        [...asked].map((sourceId) => {
+          const cached = removalNoteCache.current.get(sourceId)
+          if (cached) return cached
+          const source = sources.find((candidate) => candidate.id === sourceId)
+          // A source that cannot say what a deletion costs, or fails to, leaves the sentence to the
+          // dialog's one fallback rather than inventing the reassuring half of it.
+          const note = source?.removalNote?.(projectPath).catch(() => undefined) ?? Promise.resolve(undefined)
+          removalNoteCache.current.set(sourceId, note)
+          return note
+        })
       )
-    ],
-    [removalNotes, sources]
+      return [...new Set(notes.filter((note): note is string => Boolean(note)))]
+    },
+    [projectPath, sources]
   )
 
   const sweepableDone = useMemo(
@@ -333,7 +323,7 @@ export function useTicketBoard(options: TicketBoardOptions): TicketBoard {
   const reveal = useCallback(
     (card: TicketCard): void => {
       if (!projectPath) return
-      sources.find((candidate) => candidate.id === card.sourceId)?.openExternal?.(projectPath, card.id)
+      ticketSourceFor(card, sources)?.openExternal?.(projectPath, card.id)
     },
     [projectPath, sources]
   )
@@ -352,10 +342,10 @@ export function useTicketBoard(options: TicketBoardOptions): TicketBoard {
     canRemove,
     removeCards,
     sweepableDone,
-    removalNotes: notesFor,
-    clearMoveError: () => setMutation({}),
+    removalNotes,
+    clearActionError: () => setMutation({}),
     reveal,
-    refresh: () => read(false),
+    refresh: (refreshOptions) => read(Boolean(refreshOptions?.quiet)),
     announcement,
     sources: sourceStates
   }
