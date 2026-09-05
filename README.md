@@ -145,6 +145,23 @@ This produces two x64 artifacts in `dist/`:
 The builds are not digitally signed. When a downloaded exe is first run, Windows SmartScreen
 shows "Windows protected your PC": click **More info**, then **Run anyway**.
 
+## Release
+
+Builds are published as GitHub Releases on the public
+[Tucaen/toucan-releases](https://github.com/Tucaen/toucan-releases/releases/latest) repository,
+so anyone can download the installer without a GitHub account while this repository stays
+private. Cutting a release is a tag:
+
+```powershell
+npm version 0.2.0
+git push --follow-tags
+```
+
+The tag runs `.github/workflows/release.yml` on a Windows runner: it verifies the change with
+`npm run check`, builds, and only then packages and uploads both artifacts plus the
+`latest.yml` and `.blockmap` files that in-place updates will read. A failing check publishes
+nothing. Release notes are public - keep internal details out of them.
+
 ## Architecture and project documentation
 
 Toucan is an Electron application with a privileged main process, a narrow context-isolated
