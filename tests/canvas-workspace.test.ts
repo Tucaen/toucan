@@ -11,7 +11,12 @@ import {
   serializeCanvasNode,
   serializeWorktreeNode,
   cascadedNodePosition,
+  createFileCanvasNode,
+  DEFAULT_FILE_NODE_SIZE,
+  isFileCanvasNode,
+  serializeFileNode,
   type CanvasNode,
+  type FileCanvasNode,
   type TerminalCanvasNode,
   type WorktreeCanvasNode
 } from '../src/renderer/src/canvas-workspace'
@@ -29,7 +34,8 @@ const callbacks = {
   onResume: () => undefined,
   onRemoveWorktree: () => undefined,
   onCreateNodeInWorktree: () => undefined,
-  onRunSetupCommand: () => undefined
+  onRunSetupCommand: () => undefined,
+  onViewModeChange: () => undefined
 }
 
 function terminalNodes(nodes: CanvasNode[]): TerminalCanvasNode[] {
@@ -38,6 +44,10 @@ function terminalNodes(nodes: CanvasNode[]): TerminalCanvasNode[] {
 
 function worktreeNodes(nodes: CanvasNode[]): WorktreeCanvasNode[] {
   return nodes.filter(isWorktreeCanvasNode)
+}
+
+function fileNodes(nodes: CanvasNode[]): FileCanvasNode[] {
+  return nodes.filter(isFileCanvasNode)
 }
 
 test('restores saved canvas nodes and ignores nodes whose project is gone', () => {
@@ -410,4 +420,67 @@ test('a canvas with no room left still yields a position rather than searching f
   const position = cascadedNodePosition(crowded, origin)
   assert.equal(Number.isFinite(position.x), true)
   assert.equal(Number.isFinite(position.y), true)
+})
+
+/**
+ * A file node is layout, and layout must survive a restart even when the file it showed does
+ * not: the node restores with its position and view mode and shows its not-found body itself.
+ */
+test('a file node survives save, load and restore with its position and view mode', () => {
+  const state = worktreeState()
+  state.files = [
+    {
+      id: 'file-1',
+      projectId: 'project-1',
+      path: 'D:\\Development\\Toucan\\docs\\plan.md',
+      view: 'raw',
+      position: { x: 900, y: 40 },
+      width: 480,
+      height: 560
+    },
+    {
+      id: 'file-orphan',
+      projectId: 'deleted-project',
+      path: 'D:\\Elsewhere\\notes.md',
+      view: 'rendered',
+      position: { x: 0, y: 0 },
+      width: 480,
+      height: 560
+    }
+  ]
+  const restored = restoreCanvasWorkspace(state, callbacks)
+  const files = fileNodes(restored.nodes)
+
+  assert.equal(files.length, 1)
+  assert.equal(files[0].id, 'file-1')
+  assert.equal(files[0].type, 'fileNode')
+  assert.equal(files[0].dragHandle, '.node-header')
+  assert.deepEqual(files[0].position, { x: 900, y: 40 })
+  assert.equal(files[0].data.view, 'raw')
+  assert.equal(files[0].data.path, 'D:\\Development\\Toucan\\docs\\plan.md')
+  assert.equal(files[0].data.projectPath, 'D:\\Development\\Toucan')
+  assert.equal(files[0].data.projectColor, '#71a9ff')
+  assert.equal(files[0].data.onViewModeChange, callbacks.onViewModeChange)
+  assert.deepEqual(serializeFileNode(files[0]), state.files[0])
+  // The file's identity is not a session, so a closed file node never becomes a reopen target.
+  assert.deepEqual(rememberClosedSessionNodes([state.nodes[0]], [files[0]]), [])
+})
+
+test('a new file node opens Markdown rendered and everything else raw', () => {
+  const project = worktreeState().projects[0]
+  const markdown = createFileCanvasNode(
+    { id: 'file-1', path: 'D:\\Development\\Toucan\\README.md', position: { x: 1, y: 2 } },
+    project,
+    callbacks
+  )
+  const source = createFileCanvasNode(
+    { id: 'file-2', path: 'D:\\Development\\Toucan\\src\\index.ts', position: { x: 1, y: 2 } },
+    project,
+    callbacks
+  )
+  assert.equal(markdown.data.view, 'rendered')
+  assert.equal(source.data.view, 'raw')
+  assert.equal(markdown.data.projectId, project.id)
+  assert.deepEqual(markdown.style, { width: DEFAULT_FILE_NODE_SIZE.width, height: DEFAULT_FILE_NODE_SIZE.height })
+  assert.equal(serializeFileNode(markdown).width, DEFAULT_FILE_NODE_SIZE.width)
 })

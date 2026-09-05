@@ -12,6 +12,7 @@ import {
   type FileOperation,
   type FileOperationBlock
 } from './file-operation'
+import { OpenFileContext } from './open-file-context'
 import { WorkspaceRootsContext } from './workspace-root'
 import { highlightedCodeLines } from './syntax-highlight'
 
@@ -48,14 +49,21 @@ export function FileOperationSummary({ operation }: { operation: FileOperation }
 /**
  * The path row every file card opens with. The path is a header button's child in the summary,
  * so the actions that need a click of their own live here, in the body: copying the absolute
- * path always works, and revealing it in the OS file manager is offered when the host exposes it.
+ * path always works, revealing it in the OS file manager is offered when the host exposes it, and
+ * opening it as a file node beside this chat is offered when a canvas is behind the card.
  */
 function FilePathActions({ path }: { path: string }): JSX.Element {
   const roots = useContext(WorkspaceRootsContext)
+  const openFile = useContext(OpenFileContext)
   const reveal = window.terminalApi?.showItemInFolder
   return (
     <div className="file-op-path">
       <code title={path}>{shortenFilePath(path, roots)}</code>
+      {openFile && (
+        <button type="button" title="Open this file as a node on the canvas" onClick={() => openFile(path)}>
+          Open
+        </button>
+      )}
       <button type="button" onClick={() => window.terminalApi?.copyText(path)}>
         Copy path
       </button>

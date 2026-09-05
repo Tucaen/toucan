@@ -42,6 +42,7 @@ import type {
   BrainDumpOutcome
 } from '../shared/brain-dump'
 import type { TicketFilesApi, TicketGithubApi } from '../shared/ticket-source'
+import type { FileViewApi } from '../shared/file-view'
 
 const terminalApi = {
   getInitialProject: (): Promise<ProjectDirectory> => ipcRenderer.invoke('project:initial'),
@@ -224,3 +225,17 @@ const githubIssuesApi: TicketGithubApi = {
 }
 
 contextBridge.exposeInMainWorld('githubIssuesApi', githubIssuesApi)
+
+/** Read-only access to one project file for the canvas's file node; main decides what is readable. */
+const fileViewApi: FileViewApi = {
+  read: (path: string) => ipcRenderer.invoke('file-view:read', path),
+  watch: (path: string) => ipcRenderer.invoke('file-view:watch', path),
+  unwatch: (path: string) => ipcRenderer.invoke('file-view:unwatch', path),
+  onChange: (callback: (path: string) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, path: string): void => callback(path)
+    ipcRenderer.on('file-view:changed', listener)
+    return () => ipcRenderer.removeListener('file-view:changed', listener)
+  }
+}
+
+contextBridge.exposeInMainWorld('fileViewApi', fileViewApi)

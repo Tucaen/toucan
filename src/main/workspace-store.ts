@@ -3,6 +3,7 @@ import { open } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import { AGENT_TURN_OUTCOME_LIMIT } from '../shared/agent'
 import { isAttentionItem } from '../shared/attention'
+import { isFileViewMode, type WorkspaceFileNode } from '../shared/file-view'
 import { isProjectColor, paletteColorAt } from '../shared/project-colors'
 import {
   isComposerSendKey,
@@ -45,6 +46,21 @@ function isWorkspaceWorktree(value: unknown): boolean {
     typeof worktree.position?.y === 'number' &&
     typeof worktree.width === 'number' &&
     typeof worktree.height === 'number'
+  )
+}
+
+function isWorkspaceFileNode(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false
+  const file = value as Partial<WorkspaceFileNode>
+  return (
+    typeof file.id === 'string' &&
+    typeof file.projectId === 'string' &&
+    typeof file.path === 'string' &&
+    isFileViewMode(file.view) &&
+    typeof file.position?.x === 'number' &&
+    typeof file.position?.y === 'number' &&
+    typeof file.width === 'number' &&
+    typeof file.height === 'number'
   )
 }
 
@@ -151,6 +167,8 @@ export function isWorkspaceState(value: unknown): value is WorkspaceState {
   const state = value as Partial<WorkspaceState>
   if (state.version !== 3 || !Array.isArray(state.nodes)) return false
   if (!Array.isArray(state.worktrees) || !state.worktrees.every(isWorkspaceWorktree)) return false
+  if (state.files !== undefined && (!Array.isArray(state.files) || !state.files.every(isWorkspaceFileNode)))
+    return false
   if (
     state.projectGroups !== undefined &&
     (!Array.isArray(state.projectGroups) || !state.projectGroups.every(isProjectGroup))

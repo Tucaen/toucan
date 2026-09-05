@@ -10,7 +10,8 @@ import type {
   WorkspaceState,
   WorkspaceTerminalNode
 } from '../../shared/terminal'
-import { RECENTLY_CLOSED_SESSION_LIMIT } from '../../shared/terminal'
+import { RECENTLY_CLOSED_SESSION_LIMIT, type WorkspaceProject } from '../../shared/terminal'
+import { defaultFileViewMode, type FileViewMode, type WorkspaceFileNode } from '../../shared/file-view'
 import type { WorkspaceWorktree } from '../../shared/worktree'
 import type { WorktreeHandoffPlan } from '../../shared/worktree-handoff'
 import type { ConversationTitleSource } from '../../shared/conversation-title'
@@ -127,9 +128,25 @@ export interface WorktreeNodeData extends Record<string, unknown>, WorktreeNodeC
   attachedNodeCount: number
 }
 
+export interface FileNodeCallbacks {
+  /** The reader switched between rendered Markdown and raw text; the choice persists with the node. */
+  onViewModeChange(nodeId: string, view: FileViewMode): void
+}
+
+export interface FileNodeData extends Record<string, unknown>, FileNodeCallbacks, CanvasNodePresentation {
+  /** Absolute path of the file shown. Kept even when the file is gone so the layout survives. */
+  path: string
+  view: FileViewMode
+  projectId: string
+  projectName: string
+  projectPath: string
+  projectColor: string
+}
+
 export type TerminalCanvasNode = Node<TerminalNodeData, 'terminalNode'>
 export type WorktreeCanvasNode = Node<WorktreeNodeData, 'worktreeNode'>
-export type CanvasNode = TerminalCanvasNode | WorktreeCanvasNode
+export type FileCanvasNode = Node<FileNodeData, 'fileNode'>
+export type CanvasNode = TerminalCanvasNode | WorktreeCanvasNode | FileCanvasNode
 export const NODE_DRAG_HANDLE = '.node-header'
 
 /** Enough accidental closes to be useful without letting a workspace snapshot grow forever. */
@@ -162,6 +179,10 @@ export function isWorktreeCanvasNode(node: CanvasNode): node is WorktreeCanvasNo
   return node.type === 'worktreeNode'
 }
 
+export function isFileCanvasNode(node: CanvasNode): node is FileCanvasNode {
+  return node.type === 'fileNode'
+}
+
 export interface RestoredCanvasWorkspace {
   nodes: CanvasNode[]
   statuses: Record<string, TerminalNodeStatus>
@@ -171,6 +192,8 @@ export interface RestoredCanvasWorkspace {
 
 const DEFAULT_TERMINAL_SIZE = { width: 520, height: 340 }
 export const DEFAULT_WORKTREE_SIZE = { width: 360, height: 232 }
+/** Taller than wide: a file node is for reading a document, and prose is read downward. */
+export const DEFAULT_FILE_NODE_SIZE = { width: 480, height: 560 }
 
 /** How far each retry of `cascadedNodePosition` steps, and how many times it may step. */
 const CASCADE_STEP = 48
@@ -363,9 +386,60 @@ export function serializeWorktreeNode(node: WorktreeCanvasNode): WorkspaceWorktr
   }
 }
 
+export function serializeFileNode(node: FileCanvasNode): WorkspaceFileNode {
+  const size = measured(node, DEFAULT_FILE_NODE_SIZE)
+  return {
+    id: node.id,
+    projectId: node.data.projectId,
+    path: node.data.path,
+    view: node.data.view,
+    position: node.position,
+    width: size.width,
+    height: size.height
+  }
+}
+
+export interface FileNodeSeed {
+  id: string
+  path: string
+  position: { x: number; y: number }
+  /** Absent for a freshly opened file, which then opens the way its type reads best. */
+  view?: FileViewMode
+  width?: number
+  height?: number
+}
+
+/**
+ * The one place a file node is built, whether it is opened from the picker, from a transcript's
+ * file card, or restored from a snapshot - so every path lands with the same header, drag handle
+ * and size rules. The project is denormalised onto the node exactly as it is for session nodes.
+ */
+export function createFileCanvasNode(
+  seed: FileNodeSeed,
+  project: WorkspaceProject,
+  callbacks: FileNodeCallbacks
+): FileCanvasNode {
+  return {
+    id: seed.id,
+    type: 'fileNode',
+    dragHandle: NODE_DRAG_HANDLE,
+    position: seed.position,
+    data: {
+      path: seed.path,
+      view: seed.view ?? defaultFileViewMode(seed.path),
+      projectId: project.id,
+      projectName: project.name,
+      projectPath: project.path,
+      projectColor: project.color,
+      onViewModeChange: callbacks.onViewModeChange
+    },
+    style: { width: seed.width ?? DEFAULT_FILE_NODE_SIZE.width, height: seed.height ?? DEFAULT_FILE_NODE_SIZE.height }
+  }
+}
+
 export function restoreCanvasWorkspace(
   state: WorkspaceState,
-  callbacks: TerminalNodeCallbacks & WorktreeNodeCallbacks
+  callbacks: TerminalNodeCallbacks & WorktreeNodeCallbacks & FileNodeCallbacks
 ): RestoredCanvasWorkspace {
   const projectsById = new Map(state.projects.map((project) => [project.id, project]))
   const worktrees = (state.worktrees ?? []).filter((worktree) => projectsById.has(worktree.projectId))
@@ -417,8 +491,15 @@ export function restoreCanvasWorkspace(
     return Math.max(highest, match ? Number(match[1]) : 0)
   }, 0)
 
+  // A file whose project is gone has no root to be read under, so it goes with the project; a
+  // file that is merely missing from disk keeps its node, which reports that itself.
+  const fileNodes = (state.files ?? []).flatMap<FileCanvasNode>((file) => {
+    const project = projectsById.get(file.projectId)
+    return project ? [createFileCanvasNode(file, project, callbacks)] : []
+  })
+
   return {
-    nodes: [...worktreeNodes, ...terminalNodes],
+    nodes: [...worktreeNodes, ...terminalNodes, ...fileNodes],
     statuses: Object.fromEntries(
       terminalNodes.map((node) => [node.id, node.data.dormant ? ('dormant' as const) : ('starting' as const)])
     ),

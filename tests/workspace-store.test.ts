@@ -684,3 +684,32 @@ test('a project may name its own tickets folder, and the snapshot keeps it', () 
   }
   assert.equal(parseWorkspaceState(withFolder)?.projects[0].ticketsDirectory, 'notes/tickets')
 })
+
+test('file nodes round-trip through the snapshot and malformed ones are refused', async () => {
+  const base = makeState('Toucan')
+  const file = {
+    id: 'file-1',
+    projectId: 'project-1',
+    path: 'D:\\Development\\Toucan\\docs\\plan.md',
+    view: 'rendered' as const,
+    position: { x: 40, y: 60 },
+    width: 480,
+    height: 520
+  }
+
+  // A snapshot written before file nodes existed carries no `files` and still loads.
+  assert.ok(parseWorkspaceState(base))
+  assert.deepEqual(parseWorkspaceState({ ...base, files: [file] })?.files, [file])
+  assert.equal(parseWorkspaceState({ ...base, files: [{ ...file, view: 'editing' }] }), null)
+  assert.equal(parseWorkspaceState({ ...base, files: [{ ...file, path: 7 }] }), null)
+  assert.equal(parseWorkspaceState({ ...base, files: 'nope' }), null)
+
+  const directory = mkdtempSync(join(tmpdir(), 'toucan-workspace-files-'))
+  try {
+    const store = createWorkspaceStore(join(directory, 'workspace.json'))
+    assert.deepEqual(await store.save({ ...base, files: [file] }), { ok: true })
+    assert.deepEqual((await store.load()).state?.files, [file])
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
