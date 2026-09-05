@@ -67,18 +67,18 @@ test('watch and unwatch carry the requesting window along as the owner', async (
 
 test('a write is forwarded only for a well-formed request, never a partial one', async () => {
   const { handlers, writes } = harness()
-  const request = { path: 'D:\p\README.md', content: '# Hi\n', baseMtime: '2026-09-05T00:00:00.000Z' }
+  const request = { path: 'D:\\p\\README.md', content: '# Hi\n', baseMtime: '2026-09-05T00:00:00.000Z' }
   const result = await handlers.get('file-view:write')!(event, request)
   assert.deepEqual(result, { ok: true, mtime: '2026-09-05T00:00:01.000Z', size: 5 })
   assert.deepEqual(writes, [request])
 
   for (const malformed of [
     undefined,
-    'D:\p\README.md',
-    { path: 'D:\p\README.md' },
+    'D:\\p\\README.md',
+    { path: 'D:\\p\\README.md' },
     { path: '', content: 'x', baseMtime: 'm' },
-    { path: 'D:\p\README.md', content: 42, baseMtime: 'm' },
-    { path: 'D:\p\README.md', content: 'x', baseMtime: null }
+    { path: 'D:\\p\\README.md', content: 42, baseMtime: 'm' },
+    { path: 'D:\\p\\README.md', content: 'x', baseMtime: null }
   ]) {
     const refused = (await handlers.get('file-view:write')!(event, malformed)) as { ok: boolean; reason: string }
     assert.equal(refused.ok, false)

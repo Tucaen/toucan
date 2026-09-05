@@ -16,6 +16,7 @@ import {
   describeFileWriteFailure,
   editStateAfterEdit,
   editStateAfterRead,
+  editStateAfterRefusedSave,
   editStateAfterSave,
   fileEditability,
   fileNodeName,
@@ -54,7 +55,11 @@ const components: Components = {
 
 const stopDrag = (event: React.MouseEvent): void => event.stopPropagation()
 
-const NOT_READ: FileReadResult = { ok: false, reason: 'not-found', message: 'This file is not on disk any more.' }
+const NOTHING_ON_DISK: FileReadResult = {
+  ok: false,
+  reason: 'not-found',
+  message: 'This file is not on disk any more.'
+}
 
 /**
  * One project file on the canvas, live and editable. The node owns its geometry and view choice;
@@ -70,6 +75,7 @@ export default function FileNode({ id, data, selected }: NodeProps<FileCanvasNod
   const [edit, setEdit] = useState<FileEditState>(UNEDITED)
   const [saveFailure, setSaveFailure] = useState<Extract<FileWriteResult, { ok: false }> | null>(null)
   const [saving, setSaving] = useState(false)
+  const savingRef = useRef(false)
   const editRef = useRef(edit)
   editRef.current = edit
   const resultRef = useRef(result)
@@ -123,7 +129,10 @@ export default function FileNode({ id, data, selected }: NodeProps<FileCanvasNod
 
   const save = useCallback(async (): Promise<void> => {
     const state = editRef.current
-    if (state.draft === null || state.baseMtime === null || state.conflict) return
+    // One write at a time: a second Ctrl+S mid-flight would carry the same base and be refused as
+    // a conflict against the node's own save.
+    if (savingRef.current || state.draft === null || state.baseMtime === null || state.conflict) return
+    savingRef.current = true
     setSaving(true)
     const written = await window.fileViewApi
       .write({ path, content: state.draft, baseMtime: state.baseMtime })
@@ -132,36 +141,35 @@ export default function FileNode({ id, data, selected }: NodeProps<FileCanvasNod
         reason: 'unwritable',
         message: (error as Error).message
       }))
+    savingRef.current = false
     setSaving(false)
     if (!written.ok) {
       if (written.reason === 'conflict' || written.reason === 'not-found') {
-        // The guard refused because disk moved on: the same conflict the watcher would have
-        // raised, resolved the same way, with a re-read to show what is there now beside the draft.
-        setEdit((state) => (state.conflict ? state : { ...state, conflict: true }))
+        // Disk moved on: resolved like a watcher-raised conflict, with a re-read to show what is there.
+        setEdit(editStateAfterRefusedSave)
         void read()
       } else {
         setSaveFailure(written)
       }
       return
     }
+    const saved = state.draft
     setSaveFailure(null)
     setResult((current) =>
-      current?.ok
-        ? { ...current, content: state.draft ?? current.content, mtime: written.mtime, size: written.size }
-        : current
+      current?.ok ? { ...current, content: saved, mtime: written.mtime, size: written.size } : current
     )
-    setEdit(editStateAfterSave(written.mtime))
+    setEdit((current) => editStateAfterSave(written.mtime, saved, current.draft))
   }, [path, read])
 
   /** Back to the file as it is on disk; also how a conflict is resolved in disk's favour. */
   const discard = (): void => {
-    setEdit(editStateAfterRead(UNEDITED, resultRef.current ?? NOT_READ))
+    setEdit(editStateAfterRead(UNEDITED, resultRef.current ?? NOTHING_ON_DISK))
     setSaveFailure(null)
   }
 
   /** The draft wins the conflict: rebased on disk so the next save is accepted, still unsaved. */
   const keepDraft = (): void => {
-    setEdit((state) => keepDraftOverDisk(state, resultRef.current ?? NOT_READ))
+    setEdit((state) => keepDraftOverDisk(state, resultRef.current ?? NOTHING_ON_DISK))
     setSaveFailure(null)
   }
 
@@ -265,6 +273,12 @@ export default function FileNode({ id, data, selected }: NodeProps<FileCanvasNod
                 </button>
               )}
             </span>
+            {result?.ok && !result.binary && (
+              <details className="file-node-conflict-disk">
+                <summary>What is on disk now</summary>
+                <pre>{result.content}</pre>
+              </details>
+            )}
           </div>
         )}
         {saveFailure && !edit.conflict && (

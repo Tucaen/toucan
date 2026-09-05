@@ -166,7 +166,9 @@ export function createFileView(options: FileViewOptions): FileView {
         message: 'This file is outside every project and worktree in the workspace, so it is not written.'
       }
     }
-    const resolved = resolve(path)
+    // Write the file the guard validated: through a link, that is the target, so a save never
+    // turns a symlink in the checkout into a regular file.
+    const resolved = await realPathOf(resolve(path))
     let current
     try {
       current = await stat(resolved)

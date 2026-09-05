@@ -6300,6 +6300,32 @@ button {
   background: rgba(224, 160, 106, 0.18);
 }
 
+/* The external change itself, so the reader chooses with both versions in view. */
+.file-node-conflict-disk {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+
+.file-node-conflict-disk summary {
+  cursor: pointer;
+  color: #d6c48a;
+}
+
+.file-node-conflict-disk pre {
+  max-height: 200px;
+  margin: 6px 0 0;
+  padding: 6px 8px;
+  overflow: auto;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.35);
+  color: #c3cad5;
+  font:
+    11px/1.5 Consolas,
+    monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 /* CodeMirror fills the raw view; its own scroller is the one scroll container there. */
 .code-editor {
   flex: 1 1 auto;

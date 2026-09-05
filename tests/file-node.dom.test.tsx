@@ -263,6 +263,28 @@ test('typing makes a draft, Save writes it with the mtime it was based on, and t
   expect(stub.write.mock.calls[1][0]).toMatchObject({ baseMtime: 'saved' })
 })
 
+test('keystrokes during a save become a new draft on the saved file, and a second Ctrl+S waits', async () => {
+  let finish: (result: FileWriteResult) => void = () => {}
+  const stub = stubApis(ok('one\n'), () => new Promise<FileWriteResult>((resolve) => (finish = resolve)))
+  renderNode({ path: TEXT_PATH })
+  const view = await editor()
+  type(view, 'two\n')
+  fireEvent.keyDown(view.contentDOM, { key: 's', ctrlKey: true })
+  fireEvent.keyDown(view.contentDOM, { key: 's', ctrlKey: true })
+  await waitFor(() => expect(stub.write).toHaveBeenCalledTimes(1))
+  expect(screen.getByRole('button', { name: 'Saving…' })).toBeDisabled()
+
+  type(view, 'three\n')
+  await act(async () => finish({ ok: true, mtime: 'saved', size: 8 }))
+
+  // The write carried 'one\ntwo\n'; 'three' typed meanwhile is still here, unsaved, based on the save.
+  expect(view.state.doc.toString()).toBe('one\ntwo\nthree\n')
+  expect(screen.getByLabelText('Unsaved changes')).toBeInTheDocument()
+  fireEvent.click(saveButton())
+  await waitFor(() => expect(stub.write).toHaveBeenCalledTimes(2))
+  expect(stub.write.mock.calls[1][0]).toMatchObject({ content: 'one\ntwo\nthree\n', baseMtime: 'saved' })
+})
+
 test('Ctrl+S inside the editor saves, and Discard returns to the file on disk', async () => {
   const stub = stubApis(ok('one\n'))
   renderNode({ path: TEXT_PATH })
@@ -290,9 +312,10 @@ test('an external change under a draft is a conflict: the draft stays, and the r
   const alert = await screen.findByRole('alert')
   expect(alert).toHaveAttribute('data-reason', 'changed')
   expect(alert.textContent).toMatch(/changed on disk/)
-  // Nothing was written and the draft was not replaced.
+  // Nothing was written and the draft was not replaced; the external change is shown beside it.
   expect(stub.write).not.toHaveBeenCalled()
   expect(view.state.doc.toString()).toBe('mine\nedited\n')
+  expect(document.querySelector('.file-node-conflict-disk pre')?.textContent).toBe('theirs\n')
   expect(saveButton()).toBeDisabled()
 
   // Keeping the edits rebases them on what is now on disk, so the next save is accepted.

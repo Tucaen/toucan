@@ -5,6 +5,7 @@ import {
   describeFileWriteFailure,
   editStateAfterEdit,
   editStateAfterRead,
+  editStateAfterRefusedSave,
   editStateAfterSave,
   fileEditability,
   fileNodeName,
@@ -126,7 +127,13 @@ test('the reader resolves a conflict by keeping the draft (rebased) or by reload
     baseMtime: 't2',
     conflict: false
   })
-  assert.deepEqual(editStateAfterSave('t3'), { draft: null, baseMtime: 't3', conflict: false })
+  assert.deepEqual(editStateAfterSave('t3', 'ab', 'ab'), { draft: null, baseMtime: 't3', conflict: false })
+  assert.deepEqual(editStateAfterSave('t3', 'ab', null), { draft: null, baseMtime: 't3', conflict: false })
+  // Typed while the write was in flight: a new draft on the saved file, not lost and not "saved".
+  assert.deepEqual(editStateAfterSave('t3', 'ab', 'abc'), { draft: 'abc', baseMtime: 't3', conflict: false })
+  const refused = editStateAfterRefusedSave({ draft: 'ab', baseMtime: 't1', conflict: false })
+  assert.deepEqual(refused, { draft: 'ab', baseMtime: 't1', conflict: true })
+  assert.equal(editStateAfterRefusedSave(refused), refused)
 })
 
 test('only a whole text file may be edited', () => {

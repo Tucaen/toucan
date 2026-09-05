@@ -46,9 +46,19 @@ export function editStateAfterEdit(
   return { draft: text, baseMtime: state.baseMtime ?? disk.mtime, conflict: state.conflict }
 }
 
-/** A save went through: the file is the draft now, and the write's mtime is the next base. */
-export function editStateAfterSave(mtime: string): FileEditState {
+/**
+ * A save went through. `saved` is the text that was written; `current` is the editor's text now,
+ * which may already differ if the reader kept typing while the write was in flight - those
+ * keystrokes are a new draft based on the saved file, never lost.
+ */
+export function editStateAfterSave(mtime: string, saved: string, current: string | null): FileEditState {
+  if (current !== null && current !== saved) return { draft: current, baseMtime: mtime, conflict: false }
   return { draft: null, baseMtime: mtime, conflict: false }
+}
+
+/** Main refused the save because disk moved on: the same conflict the watcher would have raised. */
+export function editStateAfterRefusedSave(state: FileEditState): FileEditState {
+  return state.conflict ? state : { ...state, conflict: true }
 }
 
 /**
