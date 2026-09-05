@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -153,6 +153,9 @@ test('a watched file publishes one coalesced change to the windows watching it',
     await settle()
     assert.equal(sent.length, 2)
 
+    // Each watch is one hold, so the second node closing is what releases the handle.
+    view.unwatch(file, owner)
+    assert.deepEqual(closed, [])
     view.unwatch(file, owner)
     assert.deepEqual(closed, [join(root, 'docs')])
     folder('change', 'plan.md')
@@ -191,6 +194,75 @@ test('watching refuses a path outside the workspace and a destroyed window is fo
     listener!('change', 'a.md')
     await settle()
     assert.deepEqual(sent, [])
+  })
+})
+
+test('a link inside the checkout that points outside it is refused, whatever the path says', async () => {
+  await withRoot(async (root) => {
+    const project = join(root, 'project')
+    const elsewhere = join(root, 'elsewhere')
+    await mkdir(project, { recursive: true })
+    await mkdir(elsewhere, { recursive: true })
+    await writeFile(join(elsewhere, 'secret.txt'), 'nope', 'utf8')
+    // A junction needs no privilege on Windows and is a symlink everywhere else.
+    await symlink(elsewhere, join(project, 'linked'), 'junction')
+    const view = createFileView({ roots: async () => [project] })
+
+    const result = await view.read(join(project, 'linked', 'secret.txt'))
+    assert.equal(!result.ok && result.reason, 'outside-workspace')
+  })
+})
+
+test('two nodes on the same file in one window keep the watch until the last one closes', async () => {
+  await withRoot(async (root) => {
+    const closed: string[] = []
+    const sent: string[] = []
+    let listener: WatchListener | undefined
+    await writeFile(join(root, 'a.md'), 'a', 'utf8')
+    const view = createFileView({
+      roots: async () => [root],
+      debounceMs: 5,
+      watchDirectory: (path, callback) => {
+        listener = callback
+        return { close: () => closed.push(path) }
+      }
+    })
+    const owner = { isDestroyed: () => false, send: (_channel: string, path: string) => sent.push(path) }
+    await view.watch(join(root, 'a.md'), owner)
+    await view.watch(join(root, 'a.md'), owner)
+
+    view.unwatch(join(root, 'a.md'), owner)
+    assert.deepEqual(closed, [])
+    listener!('change', 'a.md')
+    await settle()
+    assert.equal(sent.length, 1)
+
+    view.unwatch(join(root, 'a.md'), owner)
+    assert.deepEqual(closed, [root])
+    view.shutdown()
+  })
+})
+
+test('an unwatch that arrives while the watch is still being set up wins', async () => {
+  await withRoot(async (root) => {
+    const attempts: string[] = []
+    await writeFile(join(root, 'a.md'), 'a', 'utf8')
+    const view = createFileView({
+      // Slow enough that the unwatch below lands while the roots are still being read.
+      roots: () => new Promise<string[]>((resolve) => setTimeout(() => resolve([root]), 20)),
+      watchDirectory: (path) => {
+        attempts.push(path)
+        return { close: () => undefined }
+      }
+    })
+    const owner = { isDestroyed: () => false, send: () => {} }
+    // A node mounted and unmounted before main finished checking its roots - a fast close, or
+    // React's development double-mount - must not leave a watcher nobody will ever release.
+    const watching = view.watch(join(root, 'a.md'), owner)
+    view.unwatch(join(root, 'a.md'), owner)
+    await watching
+    assert.deepEqual(attempts, [])
+    view.shutdown()
   })
 })
 

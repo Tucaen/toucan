@@ -25,6 +25,26 @@ export function joinWorkspacePath(root: string, relativePath: string): string {
   return [trimmedRoot, ...segments].join(separator)
 }
 
+/**
+ * Which project a file opened from a transcript card belongs to: the one whose checkout or
+ * worktree contains it, and when roots nest, the deepest - a project inside another project's
+ * folder owns its own files. Comparison is separator- and case-insensitive, like
+ * `shortenFilePath`, because paths from adapters and from the snapshot differ in both.
+ */
+export function projectOwningPath(
+  path: string,
+  roots: readonly { projectId: string; root: string }[]
+): string | undefined {
+  const haystack = path.replace(/\\/g, '/').toLowerCase()
+  let best: { projectId: string; length: number } | undefined
+  for (const { projectId, root } of roots) {
+    const prefix = root.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+    if (!prefix || !haystack.startsWith(`${prefix}/`)) continue
+    if (!best || prefix.length > best.length) best = { projectId, length: prefix.length }
+  }
+  return best?.projectId
+}
+
 /** The file name alone, for the node's header. */
 export function fileNodeName(path: string): string {
   const segments = path.replace(/\\/g, '/').split('/').filter(Boolean)

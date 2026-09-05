@@ -95,7 +95,7 @@ import ConversationHistoryDialog from './ConversationHistoryDialog'
 import FileNode from './FileNode'
 import FilePickerDialog from './FilePickerDialog'
 import { OpenFileContext } from './open-file-context'
-import { shortenFilePath } from './file-operation'
+import { projectOwningPath } from './file-node'
 import {
   groupDropTarget,
   moveGroup,
@@ -1443,18 +1443,14 @@ function Canvas(): JSX.Element {
    */
   const openFileFromCard = useCallback(
     (path: string): void => {
-      const normalized = path.replace(/\\/g, '/')
-      const worktreeProjects = new Map(
-        nodesRef.current.filter(isWorktreeCanvasNode).map((node) => [node.data.path, node.data.projectId])
-      )
+      const owningId = projectOwningPath(path, [
+        ...projectsRef.current.map((project) => ({ projectId: project.id, root: project.path })),
+        ...nodesRef.current
+          .filter(isWorktreeCanvasNode)
+          .map((node) => ({ projectId: node.data.projectId, root: node.data.path }))
+      ])
       const owner =
-        projectsRef.current.find((project) => shortenFilePath(path, [project.path]) !== normalized) ??
-        projectsRef.current.find((project) =>
-          [...worktreeProjects].some(
-            ([worktreePath, projectId]) =>
-              projectId === project.id && shortenFilePath(path, [worktreePath]) !== normalized
-          )
-        ) ??
+        projectsRef.current.find((project) => project.id === owningId) ??
         projectsRef.current.find((project) => project.id === activeProjectId) ??
         projectsRef.current[0]
       if (!owner) return

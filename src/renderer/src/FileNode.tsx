@@ -5,7 +5,7 @@ import ReactMarkdown, { type Components } from 'react-markdown'
 import { fileViewPathIdentity, isMarkdownPath, type FileReadResult, type FileViewMode } from '../../shared/file-view'
 import type { FileCanvasNode } from './canvas-workspace'
 import { describeFileReadFailure, fileNodeName, RAW_HIGHLIGHT_LINE_LIMIT, rawFileLines } from './file-node'
-import { formatByteSize, shortenFilePath } from './file-operation'
+import { byteLength, formatByteSize, shortenFilePath } from './file-operation'
 import { markdownBlockComponents, remarkPlugins } from './MarkdownMessage'
 import NodeBorderResizer from './NodeBorderResizer'
 import NodeFitAction from './NodeFitAction'
@@ -171,7 +171,7 @@ export default function FileNode({ id, data, selected }: NodeProps<FileCanvasNod
           <>
             {result.truncated && (
               <p className="file-node-notice" data-reason="truncated" role="status">
-                Showing the first {formatByteSize(result.content.length)} of {formatByteSize(result.size)}.
+                Showing the first {formatByteSize(byteLength(result.content))} of {formatByteSize(result.size)}.
               </p>
             )}
             {mode === 'rendered' ? (

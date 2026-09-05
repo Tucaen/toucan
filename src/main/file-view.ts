@@ -1,7 +1,7 @@
 import { watch } from 'node:fs'
-import { open, stat } from 'node:fs/promises'
+import { open, realpath, stat } from 'node:fs/promises'
 import { basename, dirname, relative, resolve, isAbsolute } from 'node:path'
-import { FILE_VIEW_MAX_BYTES, fileViewPathIdentity, type FileReadResult } from '../shared/file-view'
+import { FILE_VIEW_MAX_BYTES, type FileReadResult } from '../shared/file-view'
 
 const DEFAULT_DEBOUNCE_MS = 100
 
@@ -46,9 +46,7 @@ export interface FileViewOptions {
 
 interface FileWatch {
   path: string
-  directory: string
   watcher: DirectoryWatcher
-  owners: Set<FileViewOwner>
   timer?: NodeJS.Timeout
 }
 
@@ -68,20 +66,37 @@ export function createFileView(options: FileViewOptions): FileView {
   const caseInsensitive = options.caseInsensitivePaths ?? process.platform === 'win32'
   const watchDirectory: WatchDirectory = options.watchDirectory ?? ((path, listener) => watch(path, listener))
   const watches = new Map<string, FileWatch>()
+  /**
+   * Who wants each file watched, counted per window: one window may show the same file in two
+   * nodes, and closing one must not blind the other. Recorded synchronously at `watch()` so an
+   * `unwatch()` that lands while the roots are still being checked is not lost.
+   */
+  const holders = new Map<string, Map<FileViewOwner, number>>()
   let stopped = false
 
-  const comparable = (path: string): string => {
-    const resolved = resolve(path)
-    return caseInsensitive ? resolved.toLowerCase() : resolved
-  }
+  const comparable = (path: string): string => (caseInsensitive ? path.toLowerCase() : path)
+
+  /** The path as the filesystem knows it, so a link inside a checkout cannot point a read outside. */
+  const realPathOf = (path: string): Promise<string> => realpath(path).catch(() => resolve(path))
 
   const insideWorkspace = async (path: string): Promise<boolean> => {
-    const target = comparable(path)
+    const target = comparable(await realPathOf(resolve(path)))
     for (const root of await options.roots()) {
-      const between = relative(comparable(root), target)
+      const between = relative(comparable(await realPathOf(resolve(root))), target)
       if (between && !between.startsWith('..') && !isAbsolute(between)) return true
     }
     return false
+  }
+
+  const watchKey = (path: string): string => comparable(resolve(path))
+
+  const hold = (key: string, owner: FileViewOwner, delta: 1 | -1): void => {
+    const byOwner = holders.get(key) ?? new Map<FileViewOwner, number>()
+    const count = (byOwner.get(owner) ?? 0) + delta
+    if (count > 0) byOwner.set(owner, count)
+    else byOwner.delete(owner)
+    if (byOwner.size > 0) holders.set(key, byOwner)
+    else holders.delete(key)
   }
 
   const read = async (path: string): Promise<FileReadResult> => {
@@ -144,11 +159,14 @@ export function createFileView(options: FileViewOptions): FileView {
     const entry = watches.get(key)
     if (!entry) return
     entry.timer = undefined
-    for (const owner of entry.owners) {
-      if (owner.isDestroyed()) entry.owners.delete(owner)
+    for (const owner of [...(holders.get(key)?.keys() ?? [])]) {
+      if (owner.isDestroyed()) holders.get(key)?.delete(owner)
       else owner.send('file-view:changed', entry.path)
     }
-    if (entry.owners.size === 0) release(key)
+    if (!holders.get(key)?.size) {
+      holders.delete(key)
+      release(key)
+    }
   }
 
   const schedule = (key: string): void => {
@@ -163,46 +181,49 @@ export function createFileView(options: FileViewOptions): FileView {
   return {
     read,
     watch: async (path, owner) => {
-      if (stopped || !(await insideWorkspace(path))) return
+      if (stopped) return
       const resolved = resolve(path)
-      const key = fileViewPathIdentity(resolved)
-      const existing = watches.get(key)
-      if (existing) {
-        existing.owners.add(owner)
+      const key = watchKey(resolved)
+      hold(key, owner, 1)
+      if (!(await insideWorkspace(resolved))) {
+        hold(key, owner, -1)
         return
       }
-      const directory = dirname(resolved)
+      // Released while the roots were being read, or shut down: nothing left to watch for.
+      if (stopped || !holders.get(key)?.has(owner) || watches.has(key)) return
       const name = basename(resolved)
-      const sameName = (candidate: string): boolean =>
-        caseInsensitive ? candidate.toLowerCase() === name.toLowerCase() : candidate === name
+      const sameName = (candidate: string): boolean => comparable(candidate) === comparable(name)
       try {
-        const watcher = watchDirectory(directory, (_eventType, filename) => {
+        const watcher = watchDirectory(dirname(resolved), (_eventType, filename) => {
           // A missing filename means the platform cannot say which entry changed, so refresh anyway.
           const changed = filename?.toString()
           if (changed === undefined || sameName(changed)) schedule(key)
         })
         // A folder deleted under a live watcher stops reporting; that must not take Toucan down.
         watcher.on?.('error', () => {})
-        watches.set(key, { path: resolved, directory, watcher, owners: new Set([owner]) })
+        watches.set(key, { path: resolved, watcher })
       } catch {
         // The directory is gone or unwatchable: the node still shows its not-found body on read.
+        hold(key, owner, -1)
       }
     },
     unwatch: (path, owner) => {
-      const key = fileViewPathIdentity(resolve(path))
-      const entry = watches.get(key)
-      if (!entry) return
-      entry.owners.delete(owner)
-      if (entry.owners.size === 0) release(key)
+      const key = watchKey(path)
+      hold(key, owner, -1)
+      if (!holders.has(key)) release(key)
     },
     disconnectOwner: (owner) => {
-      for (const [key, entry] of watches) {
-        entry.owners.delete(owner)
-        if (entry.owners.size === 0) release(key)
+      for (const [key, byOwner] of holders) {
+        byOwner.delete(owner)
+        if (byOwner.size === 0) {
+          holders.delete(key)
+          release(key)
+        }
       }
     },
     shutdown: () => {
       stopped = true
+      holders.clear()
       for (const key of [...watches.keys()]) release(key)
     }
   }
