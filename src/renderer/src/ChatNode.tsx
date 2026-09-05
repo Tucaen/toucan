@@ -19,7 +19,6 @@ import {
   Check,
   ChevronDown,
   CircleAlert,
-  CircleStop,
   Cpu,
   Keyboard,
   ListChecks,
@@ -28,6 +27,7 @@ import {
   Pencil,
   SendHorizontal,
   ShieldCheck,
+  Square,
   X
 } from 'lucide-react'
 import MarkdownMessage from './MarkdownMessage'
@@ -978,7 +978,7 @@ export function Composer(props: ComposerProps): JSX.Element {
               title="Stop the agent"
               onClick={props.cancel}
             >
-              <CircleStop aria-hidden="true" />
+              <Square aria-hidden="true" />
             </button>
           )}
           <button
