@@ -9,6 +9,7 @@ import {
 } from '../src/renderer/src/brain-dump-panel-layout'
 import type { WorkspaceState } from '../src/shared/terminal'
 import { createMockBrainDumpApi, topicFixture, type MockBrainDumpApi } from './dom/brain-dump-api-mock'
+import { createMockAppUpdateApi } from './dom/app-update-api-mock'
 
 const styles = readFileSync('src/renderer/src/styles.css', 'utf8')
 
@@ -60,6 +61,7 @@ function installWindowApis(state: WorkspaceState): void {
   define('worktreeApi', { discover: vi.fn(async () => ({ worktrees: [], claims: [] })) })
   define('conversationApi', { setTitle: vi.fn(async () => null) })
   define('agentApi', { onEvent: () => () => undefined })
+  define('appUpdateApi', createMockAppUpdateApi())
   define('remoteApi', {
     state: vi.fn(async () => ({
       settings: { enabled: false, port: 7391 },

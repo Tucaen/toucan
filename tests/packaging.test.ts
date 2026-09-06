@@ -10,6 +10,8 @@ interface WindowsTarget {
 
 interface PackageManifest {
   scripts?: Record<string, string>
+  dependencies?: Record<string, string>
+  devDependencies?: Record<string, string>
   build?: {
     asarUnpack?: string[]
     win?: {
@@ -73,4 +75,12 @@ test('package:win builds every configured Windows target rather than only the po
   const script = manifest.scripts?.['package:win'] ?? ''
   assert.match(script, /electron-builder --win --x64/)
   assert.doesNotMatch(script, /--win portable/, 'naming one target on the CLI overrides the configured list')
+})
+
+test('the updater ships with the app, because a devDependency is stripped from the package', () => {
+  assert.ok(
+    manifest.dependencies?.['electron-updater'],
+    'electron-updater runs inside the packaged main process, so it is a runtime dependency'
+  )
+  assert.equal(manifest.devDependencies?.['electron-updater'], undefined)
 })

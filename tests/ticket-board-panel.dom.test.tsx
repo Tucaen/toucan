@@ -5,6 +5,7 @@ import { TICKET_BOARD_DEFAULT_WIDTH, TICKET_BOARD_MAX_WIDTH } from '../src/rende
 import { TICKET_DETAIL_DEFAULT_WIDTH } from '../src/renderer/src/ticket-board-panes'
 import type { WorkspaceState } from '../src/shared/terminal'
 import { createMockBrainDumpApi } from './dom/brain-dump-api-mock'
+import { createMockAppUpdateApi } from './dom/app-update-api-mock'
 import {
   cardFixture,
   createMockGithubIssuesApi,
@@ -63,6 +64,7 @@ function installWindowApis(state: WorkspaceState): void {
   define('worktreeApi', { discover: vi.fn(async () => ({ worktrees: [], claims: [] })) })
   define('conversationApi', { setTitle: vi.fn(async () => null) })
   define('agentApi', { onEvent: () => () => undefined })
+  define('appUpdateApi', createMockAppUpdateApi())
   define('remoteApi', {
     state: vi.fn(async () => ({
       settings: { enabled: false, port: 7391 },

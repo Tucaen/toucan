@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import App from '../src/renderer/src/App'
 import type { WorkspaceState } from '../src/shared/terminal'
+import { createMockAppUpdateApi } from './dom/app-update-api-mock'
 
 /**
  * The project sidebar as the user works it: recolouring a project, dragging rows into a new order,
@@ -55,6 +56,7 @@ function installWindowApis(state: WorkspaceState): void {
   })
   define('conversationApi', { setTitle: vi.fn(async () => null) })
   define('agentApi', { onEvent: () => () => undefined })
+  define('appUpdateApi', createMockAppUpdateApi())
   define('remoteApi', {
     state: vi.fn(async () => ({
       settings: { enabled: false, port: 7391 },

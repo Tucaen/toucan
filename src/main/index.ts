@@ -6,7 +6,10 @@ import { spawn } from 'node-pty'
 import type { AgentCreateRequest, AgentDecisionResponseContent, AgentPromptContent } from '../shared/agent'
 import type { ConversationListRequest } from '../shared/conversation'
 import type { TerminalCreateRequest, WorkspaceState } from '../shared/terminal'
+import { autoUpdater } from 'electron-updater'
 import { createAcpSessionManager, type AcpSessionManager } from './acp-session-manager'
+import { createAppUpdater, type AppUpdater } from './app-update'
+import { forwardAppUpdateChanges, registerAppUpdateIpc } from './app-update-ipc'
 import { createAgentEventBroker } from './agent-event-broker'
 import { createBrainDumpLibrary } from './brain-dump-library'
 import { hiddenProcessOptions } from './background-process'
@@ -245,7 +248,8 @@ function createWindow(
   ticketChanges: TicketChangeWatcher,
   fileView: FileView,
   remote: RemoteAccessServer,
-  spawner: RemoteChatSpawner
+  spawner: RemoteChatSpawner,
+  appUpdater: AppUpdater
 ): void {
   const window = new BrowserWindow({
     width: 1440,
@@ -269,12 +273,16 @@ function createWindow(
   // The settings dialog has to see a listener that failed or died on its own, not only the state
   // it last asked for, so the window subscribes for as long as it exists.
   const stopForwardingRemoteState = forwardRemoteStateChanges(remote, contents)
+  // A download finishes minutes after the window last asked, so the header subscribes for as long
+  // as the window exists rather than polling the release feed.
+  const stopForwardingUpdates = forwardAppUpdateChanges(appUpdater, contents)
   // A phone's spawn is performed by a window, so the window has to be reachable from the host -
   // and detaching on destroy is what turns "the desktop closed mid-spawn" into a refusal the
   // phone can read rather than a request that waits out its timeout.
   const detachSpawnWindow = spawner.attach(contents)
   contents.on('destroyed', () => {
     stopForwardingRemoteState()
+    stopForwardingUpdates()
     detachSpawnWindow()
     terminalManager.disconnectOwner(contents)
     agentManager.killOwned(contents)
@@ -501,7 +509,28 @@ void app.whenReady().then(async () => {
   )
   registerProjectIpc(workspace)
   registerRemoteIpc(ipcMain, remote, chatSpawner)
-  createWindow(manager, agentManager, brainDumpCapture, brainDumpChanges, ticketChanges, fileView, remote, chatSpawner)
+  // Self-updating from the public releases repo. Constructed before the window so the header is
+  // subscribed to the very first check, and started after it so a slow feed never delays the UI.
+  const appUpdater = createAppUpdater({
+    updater: autoUpdater,
+    currentVersion: app.getVersion(),
+    packaged: app.isPackaged,
+    environment: process.env,
+    log: (message) => console.warn(`[update] ${message}`)
+  })
+  registerAppUpdateIpc(ipcMain as unknown as Parameters<typeof registerAppUpdateIpc>[0], appUpdater)
+  createWindow(
+    manager,
+    agentManager,
+    brainDumpCapture,
+    brainDumpChanges,
+    ticketChanges,
+    fileView,
+    remote,
+    chatSpawner,
+    appUpdater
+  )
+  void appUpdater.check()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0)
@@ -513,7 +542,8 @@ void app.whenReady().then(async () => {
         ticketChanges,
         fileView,
         remote,
-        chatSpawner
+        chatSpawner,
+        appUpdater
       )
   })
   app.on('before-quit', () => {

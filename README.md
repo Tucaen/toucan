@@ -138,7 +138,8 @@ npm run package:win
 This produces two x64 artifacts in `dist/`:
 
 - `Toucan-Setup-0.1.0-x64.exe` - an NSIS installer. It installs per user (no admin rights),
-  lets you choose the directory, and is removed again through Settings > Apps. Prefer this one; in-place updates will build on it.
+  lets you choose the directory, and is removed again through Settings > Apps. Prefer this one: it is the
+  only build that updates itself.
 - `Toucan-0.1.0-portable-x64.exe` - a single executable that needs no installer and cannot
   update itself.
 
@@ -146,6 +147,12 @@ This produces two x64 artifacts in `dist/`:
 
 The builds are not digitally signed. When a downloaded exe is first run, Windows SmartScreen
 shows "Windows protected your PC": click **More info**, then **Run anyway**.
+
+An installed Toucan checks the public releases feed on startup and downloads a newer version in
+the background. Nothing is installed until you click **Restart to update** on the version chip in
+the header, so an update never interrupts a running session. That chip also shows the version you
+are on and checks for updates when clicked. Portable builds and `npm run dev` never contact the
+feed.
 
 ## Release
 

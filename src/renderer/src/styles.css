@@ -6585,3 +6585,46 @@ button {
   font-size: 11px;
   white-space: nowrap;
 }
+
+/* The version chip, and the restart offer it becomes. Sits beside the other header status
+   controls: an update is a thing to know about, never a thing that takes the canvas. */
+.header-app-update {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid #2a3140;
+  border-radius: 6px;
+  background: #161b24;
+  color: #7d8798;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.header-app-update:hover:not(:disabled) {
+  border-color: #3a4250;
+  color: #cbd2dc;
+}
+
+.header-app-update:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.header-app-update[data-phase='downloaded'] {
+  border-color: #4a3f6f;
+  background: #1d1830;
+  color: #c992ff;
+}
+
+.header-app-update[data-phase='error'] {
+  border-color: #5a3540;
+  color: #e08a9a;
+}
+
+.header-app-update svg {
+  width: 12px;
+  height: 12px;
+}

@@ -43,6 +43,7 @@ import type {
 } from '../shared/brain-dump'
 import type { TicketFilesApi, TicketGithubApi } from '../shared/ticket-source'
 import type { FileViewApi, FileWriteRequest } from '../shared/file-view'
+import type { AppUpdateApi, AppUpdateSnapshot } from '../shared/app-update'
 
 const terminalApi = {
   getInitialProject: (): Promise<ProjectDirectory> => ipcRenderer.invoke('project:initial'),
@@ -240,3 +241,16 @@ const fileViewApi: FileViewApi = {
 }
 
 contextBridge.exposeInMainWorld('fileViewApi', fileViewApi)
+
+const appUpdateApi: AppUpdateApi = {
+  state: () => ipcRenderer.invoke('app-update:state'),
+  check: () => ipcRenderer.invoke('app-update:check'),
+  restart: () => ipcRenderer.invoke('app-update:restart'),
+  onChange: (callback: (snapshot: AppUpdateSnapshot) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, snapshot: AppUpdateSnapshot): void => callback(snapshot)
+    ipcRenderer.on('app-update:changed', listener)
+    return () => ipcRenderer.removeListener('app-update:changed', listener)
+  }
+}
+
+contextBridge.exposeInMainWorld('appUpdateApi', appUpdateApi)

@@ -7,6 +7,7 @@ import type { AgentApi } from '../src/preload/index.d'
 import type { WorkspaceState } from '../src/shared/terminal'
 import { createMockAgentApi } from './dom/agent-api-mock'
 import { createMockBrainDumpApi } from './dom/brain-dump-api-mock'
+import { createMockAppUpdateApi } from './dom/app-update-api-mock'
 
 /**
  * Remote access as the user meets it: a header control that says whether the host is listening, a
@@ -93,6 +94,7 @@ function installWindowApis(
   define('conversationApi', { setTitle: vi.fn(async () => null) })
   define('agentApi', createMockAgentApi(agentOverrides).api)
   define('brainDumpApi', createMockBrainDumpApi())
+  define('appUpdateApi', createMockAppUpdateApi())
   define('remoteApi', {
     state: vi.fn(async () => initial),
     applySettings: vi.fn(async (settings: { enabled: boolean; port: number }) => {

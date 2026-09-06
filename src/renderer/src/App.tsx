@@ -96,6 +96,8 @@ import {
 } from './canvas-workspace'
 import { COMPOSER_SEND_KEY_DEFAULT } from './composer-keys'
 import { ComposerSendKeyContext } from './composer-send-key-context'
+import { AppUpdateChip } from './AppUpdateChip'
+import { useAppUpdate } from './use-app-update'
 import { RemoteAccessDialog } from './RemoteAccessDialog'
 import { useRemoteAccess } from './use-remote-access'
 import type { RemoteChatSpawnRequest, RemoteChatSpawnResult } from '../../shared/remote-spawn'
@@ -1194,6 +1196,7 @@ function Canvas(): JSX.Element {
   // snapshot that gets persisted, so the phone and the canvas can never be looking at two
   // different sets of nodes.
   const remoteAccess = useRemoteAccess(workspaceSnapshot, nodeStatuses, startRemoteSpawn)
+  const appUpdate = useAppUpdate()
 
   const {
     ready: workspaceReady,
@@ -1853,6 +1856,13 @@ function Canvas(): JSX.Element {
                   {providerRateLimits.codex && <ProviderUsageChip provider="Codex" status={providerRateLimits.codex} />}
                 </div>
               )}
+              <AppUpdateChip
+                snapshot={appUpdate.snapshot}
+                announceError={appUpdate.announceError}
+                busy={appUpdate.busy}
+                onCheck={appUpdate.check}
+                onRestart={appUpdate.restart}
+              />
               <button
                 type="button"
                 className="header-remote-access"

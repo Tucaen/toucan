@@ -35,6 +35,7 @@ import type { RemoteChatSpawnRequest, RemoteChatSpawnResult } from '../shared/re
 import type { ConversationTitle, ConversationTitleSource } from '../shared/conversation-title'
 import type { BrainDumpApi } from '../shared/brain-dump'
 import type { TicketFilesApi, TicketGithubApi } from '../shared/ticket-source'
+import type { AppUpdateApi } from '../shared/app-update'
 import type { FileViewApi } from '../shared/file-view'
 
 export interface AgentApi {
@@ -144,5 +145,6 @@ declare global {
     ticketsApi: TicketFilesApi
     githubIssuesApi: TicketGithubApi
     fileViewApi: FileViewApi
+    appUpdateApi: AppUpdateApi
   }
 }
