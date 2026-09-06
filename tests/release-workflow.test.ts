@@ -63,7 +63,14 @@ test('publishes with a token scoped to the releases repository', () => {
 
 test('caches the voice model the build downloads rather than fetching 165 MB per release', () => {
   const modelDirectory = 'src/renderer/public/models/moonshine-small-streaming-en'
-  assert.ok(gitignore.includes(`${modelDirectory}/`), 'the cached path must be the gitignored model directory')
+  // The model is downloaded, never committed, so the cached path has to be ignored - by its own
+  // entry or by an ancestor's, which is how .gitignore actually covers it today.
+  const ignored = gitignore
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith('#'))
+    .some((line) => `${modelDirectory}/`.startsWith(line.replace(/^\//, '')))
+  assert.ok(ignored, 'the cached path must be a gitignored directory')
   assert.ok(workflow.includes(`path: ${modelDirectory}`))
   assert.ok(
     stepIndex('actions/cache') < stepIndex('npm run prepare:voice-model'),
