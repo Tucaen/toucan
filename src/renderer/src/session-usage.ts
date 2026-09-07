@@ -84,7 +84,7 @@ export function formatResetsAt(resetsAt: number, now: number = Date.now()): stri
 }
 
 export interface RateLimitWindowReadout {
-  /** The short window name the UI shows: `5h` or `7d`. */
+  /** The window name the UI shows: `5h`, `7d`, or a provider's model name such as `Fable`. */
   label: string
   /** Unrounded and unclamped, so comparing two windows never turns on display precision. */
   percent: number
@@ -115,6 +115,22 @@ export function describeRateLimitWindow(
     level: usageLevel(percent),
     text: `${label}: ${displayPercent}%${resets}`
   }
+}
+
+/**
+ * Every window a status carries, in display order: the plan-wide 5h and 7d first, then any
+ * per-model allowance under the provider's own name. Exported so the header's chip and the node's
+ * bar list the same windows in the same order.
+ */
+export function describeRateLimitWindows(
+  status: AgentRateLimitStatus,
+  now: number = Date.now()
+): RateLimitWindowReadout[] {
+  return [
+    status.fiveHour ? describeRateLimitWindow('5h', status.fiveHour, now) : null,
+    status.weekly ? describeRateLimitWindow('7d', status.weekly, now) : null,
+    ...(status.models ?? []).map((model) => describeRateLimitWindow(model.label, model, now))
+  ].filter((window): window is RateLimitWindowReadout => window !== null)
 }
 
 export interface ContextGauge {
@@ -212,10 +228,7 @@ function describeCost(cost: SessionUsageInput['cost']): UsageLabel | null {
 
 function describeLimit(status: AgentRateLimitStatus | null | undefined, now: number): RateLimitReadout | null {
   if (!status) return null
-  const windows = [
-    status.fiveHour ? describeRateLimitWindow('5h', status.fiveHour, now) : null,
-    status.weekly ? describeRateLimitWindow('7d', status.weekly, now) : null
-  ].filter((window): window is RateLimitWindowReadout => window !== null)
+  const windows = describeRateLimitWindows(status, now)
   if (windows.length === 0) return null
 
   // The window closest to exhaustion is the one that will actually stop the next turn, so that is

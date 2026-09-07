@@ -3,7 +3,7 @@ import { hiddenProcessOptions } from './background-process'
 import { closeSync, existsSync, openSync, readSync, readdirSync, statSync } from 'node:fs'
 import { extname, join, win32 } from 'node:path'
 import { createInterface } from 'node:readline'
-import type { AgentRateLimitStatus, AgentRateLimitWindow } from '../shared/agent'
+import type { AgentModelRateLimitWindow, AgentRateLimitStatus, AgentRateLimitWindow } from '../shared/agent'
 import { withStallGuard } from '../shared/stall-guard'
 
 /**
@@ -44,6 +44,7 @@ interface CodexAppServerWindow {
 
 interface CodexAppServerSnapshot {
   limitId?: unknown
+  limitName?: unknown
   primary?: CodexAppServerWindow | null
   secondary?: CodexAppServerWindow | null
   rateLimitReachedType?: unknown
@@ -152,18 +153,49 @@ function statusFromWindows(
   return status.fiveHour || status.weekly ? status : null
 }
 
+/** The account-wide Codex allowance; every other id in `rateLimitsByLimitId` meters something narrower. */
+const CODEX_LIMIT_ID = 'codex'
+
+/**
+ * App-server keys every allowance by `limitId`, and the response shape leaves room for more than
+ * the account-wide one. Anything beyond `codex` is shown as a named allowance alongside Claude's
+ * per-model windows. Its longest window is the one surfaced, matching the weekly scope Claude uses
+ * per model; a limit that only reports a short window contributes that instead of vanishing.
+ */
+function modelWindowsFromAppServer(
+  byLimitId: Record<string, CodexAppServerSnapshot> | null | undefined
+): AgentModelRateLimitWindow[] {
+  if (!byLimitId || typeof byLimitId !== 'object') return []
+  const models: AgentModelRateLimitWindow[] = []
+  for (const [limitId, snapshot] of Object.entries(byLimitId)) {
+    if (limitId === CODEX_LIMIT_ID || !snapshot || typeof snapshot !== 'object') continue
+    const windows = [toAppServerWindow(snapshot.primary), toAppServerWindow(snapshot.secondary)].filter(
+      (candidate): candidate is NonNullable<typeof candidate> => candidate !== null
+    )
+    if (windows.length === 0) continue
+    const longest = windows.reduce((a, b) => (b.minutes > a.minutes ? b : a))
+    const label =
+      typeof snapshot.limitName === 'string' && snapshot.limitName.trim() !== '' ? snapshot.limitName.trim() : limitId
+    models.push({ label, ...longest.window })
+  }
+  return models
+}
+
 /** Exported for tests: maps the live app-server response onto the renderer's provider shape. */
 export function codexRateLimitsFromAppServer(response: unknown): AgentRateLimitStatus | null {
   if (!response || typeof response !== 'object') return null
   const payload = response as CodexAppServerResponse
-  const snapshot = payload.rateLimitsByLimitId?.codex ?? payload.rateLimits
-  if (!snapshot || (snapshot.limitId !== undefined && snapshot.limitId !== null && snapshot.limitId !== 'codex'))
+  const snapshot = payload.rateLimitsByLimitId?.[CODEX_LIMIT_ID] ?? payload.rateLimits
+  if (!snapshot || (snapshot.limitId !== undefined && snapshot.limitId !== null && snapshot.limitId !== CODEX_LIMIT_ID))
     return null
-  return statusFromWindows(
+  const status = statusFromWindows(
     toAppServerWindow(snapshot.primary),
     toAppServerWindow(snapshot.secondary),
     typeof snapshot.rateLimitReachedType === 'string'
   )
+  if (!status) return null
+  const models = modelWindowsFromAppServer(payload.rateLimitsByLimitId)
+  return models.length > 0 ? { ...status, models } : status
 }
 
 /** Exported for tests: turns one transcript's lines into the newest usable rate-limit report. */

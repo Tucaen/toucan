@@ -1,6 +1,7 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
 import {
+  codexRateLimitsFromAppServer,
   createCodexRateLimitReader,
   parseCodexRateLimits,
   resolveCodexAppServerLaunch
@@ -87,6 +88,40 @@ test('reads live Codex account limits instead of showing a stale transcript valu
   assert.deepEqual(await reader.read(), {
     fiveHour: { usedPercent: 7, resetsAt: 1787943590000 },
     weekly: { usedPercent: 1, resetsAt: 1788505836000 }
+  })
+})
+
+test('an allowance keyed by another limit id is surfaced by name beside the account-wide windows', () => {
+  const status = codexRateLimitsFromAppServer({
+    rateLimits: {
+      limitId: 'codex',
+      primary: { usedPercent: 29, windowDurationMins: 300, resetsAt: 1788782448 },
+      secondary: { usedPercent: 4, windowDurationMins: 10080, resetsAt: 1789369248 }
+    },
+    rateLimitsByLimitId: {
+      codex: {
+        limitId: 'codex',
+        primary: { usedPercent: 29, windowDurationMins: 300, resetsAt: 1788782448 },
+        secondary: { usedPercent: 4, windowDurationMins: 10080, resetsAt: 1789369248 }
+      },
+      astra: {
+        limitId: 'astra',
+        limitName: 'Astra',
+        primary: { usedPercent: 12, windowDurationMins: 300 },
+        secondary: { usedPercent: 61, windowDurationMins: 10080, resetsAt: 1789369248 }
+      },
+      unnamed: { limitId: 'unnamed', limitName: null, primary: { usedPercent: 3, windowDurationMins: 300 } },
+      empty: { limitId: 'empty', primary: null, secondary: null }
+    }
+  })
+
+  assert.deepEqual(status, {
+    fiveHour: { usedPercent: 29, resetsAt: 1788782448000 },
+    weekly: { usedPercent: 4, resetsAt: 1789369248000 },
+    models: [
+      { label: 'Astra', usedPercent: 61, resetsAt: 1789369248000 },
+      { label: 'unnamed', usedPercent: 3 }
+    ]
   })
 })
 

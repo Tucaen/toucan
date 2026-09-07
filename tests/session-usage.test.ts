@@ -111,6 +111,23 @@ test('the surfaced account window is the one that will bite first', () => {
   assert.match(String(readout.limit?.title), /7d: 83% \(resets in 1h \| \d\d:\d\d\)/)
 })
 
+test('a per-model allowance competes for the bar under its own name and reaches the tooltip', () => {
+  const readout = describeSessionUsage({
+    rateLimits: {
+      fiveHour: { usedPercent: 42 },
+      weekly: { usedPercent: 24 },
+      models: [{ label: 'Fable', usedPercent: 91, resetsAt: 3_600_000 }]
+    },
+    now: 0
+  })
+  assert.equal(readout.limit?.label, 'Fable')
+  assert.equal(readout.limit?.displayPercent, 91)
+  assert.equal(readout.limit?.level, 'critical')
+  assert.match(String(readout.limit?.title), /5h: 42%/)
+  assert.match(String(readout.limit?.title), /7d: 24%/)
+  assert.match(String(readout.limit?.title), /Fable: 91% \(resets in 1h \| \d\d:\d\d\)/)
+})
+
 test('a provider that has actually refused a request reads as critical whatever its percentages say', () => {
   const readout = describeSessionUsage({ rateLimits: { fiveHour: { usedPercent: 41 }, rejected: true } })
   assert.equal(readout.limit?.level, 'critical')

@@ -118,7 +118,7 @@ import {
 } from './project-order'
 import ProjectRowMenu, { type ProjectMenuTarget } from './ProjectRowMenu'
 import { ProviderRateLimitsContext } from './provider-rate-limits'
-import { describeRateLimitWindow } from './session-usage'
+import { describeRateLimitWindow, describeRateLimitWindows } from './session-usage'
 import SessionKindIcon from './SessionKindIcon'
 import SessionNode from './SessionNode'
 import { terminalLivenessLabels } from './terminal-liveness'
@@ -193,14 +193,15 @@ function UsageWindow({ label, window }: { label: string; window: AgentRateLimitW
 }
 
 /**
- * Not every plan meters both windows - a Codex plan may report only the one it bills against - so
- * a chip renders just the windows its provider actually reported.
+ * Not every plan meters both windows - a Codex plan may report only the one it bills against - and
+ * some add a per-model allowance (Claude's weekly Fable window), so a chip renders just the windows
+ * its provider actually reported, plan-wide ones first.
  */
 function ProviderUsageChip({ provider, status }: { provider: string; status: AgentRateLimitStatus }): JSX.Element {
+  const windows = describeRateLimitWindows(status)
   const title = [
     `${provider} account usage`,
-    status.fiveHour ? describeRateLimitWindow('5h', status.fiveHour).text : null,
-    status.weekly ? describeRateLimitWindow('7d', status.weekly).text : null,
+    ...windows.map((window) => window.text),
     status.rejected ? 'Limit reached' : null
   ]
     .filter(Boolean)
@@ -211,6 +212,9 @@ function ProviderUsageChip({ provider, status }: { provider: string; status: Age
       <span className="provider-usage-name">{provider}</span>
       {status.fiveHour && <UsageWindow label="5h" window={status.fiveHour} />}
       {status.weekly && <UsageWindow label="7d" window={status.weekly} />}
+      {(status.models ?? []).map((model) => (
+        <UsageWindow key={model.label} label={model.label} window={model} />
+      ))}
     </span>
   )
 }

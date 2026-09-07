@@ -1,5 +1,5 @@
 import { pathToFileURL } from 'node:url'
-import type { AgentRateLimitStatus, AgentRateLimitWindow } from '../shared/agent'
+import type { AgentModelRateLimitWindow, AgentRateLimitStatus, AgentRateLimitWindow } from '../shared/agent'
 
 /**
  * Claude publishes plan usage nowhere on disk - its transcripts carry a `rateLimits` field that is
@@ -42,11 +42,17 @@ interface SdkUsageWindow {
   resets_at?: unknown
 }
 
+interface SdkModelScopedWindow extends SdkUsageWindow {
+  display_name?: unknown
+}
+
 interface SdkUsageResponse {
   rate_limits_available?: unknown
   rate_limits?: {
     five_hour?: SdkUsageWindow | null
     seven_day?: SdkUsageWindow | null
+    /** Per-model weekly windows, e.g. the Fable allowance; only present when the server emits them. */
+    model_scoped?: SdkModelScopedWindow[] | null
   } | null
 }
 
@@ -64,16 +70,30 @@ function toWindow(payload: SdkUsageWindow | null | undefined): AgentRateLimitWin
   }
 }
 
+function toModelWindows(payload: SdkModelScopedWindow[] | null | undefined): AgentModelRateLimitWindow[] {
+  if (!Array.isArray(payload)) return []
+  const models: AgentModelRateLimitWindow[] = []
+  for (const entry of payload) {
+    const window = toWindow(entry)
+    // The server names the bucket ("Fable"); an unnamed one has nothing a reader could attribute it to.
+    if (!window || typeof entry.display_name !== 'string' || entry.display_name.trim() === '') continue
+    models.push({ label: entry.display_name.trim(), ...window })
+  }
+  return models
+}
+
 /** Exported for tests: maps one SDK usage response onto the shape the renderer displays. */
 export function claudeRateLimitsFromUsage(response: SdkUsageResponse | null | undefined): AgentRateLimitStatus | null {
   // Plan limits do not apply to API-key, Bedrock, or Vertex sessions, which report no windows.
   if (!response || response.rate_limits_available === false) return null
   const fiveHour = toWindow(response.rate_limits?.five_hour)
   const weekly = toWindow(response.rate_limits?.seven_day)
-  if (!fiveHour && !weekly) return null
+  const models = toModelWindows(response.rate_limits?.model_scoped)
+  if (!fiveHour && !weekly && models.length === 0) return null
   return {
     ...(fiveHour ? { fiveHour } : {}),
-    ...(weekly ? { weekly } : {})
+    ...(weekly ? { weekly } : {}),
+    ...(models.length > 0 ? { models } : {})
   }
 }
 

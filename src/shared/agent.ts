@@ -217,9 +217,19 @@ export interface AgentRateLimitWindow {
   resetsAt?: number
 }
 
+/**
+ * A window that meters one model family rather than the whole plan, such as Claude's weekly Fable
+ * allowance. The provider names it, so the label is display text and never a slot key.
+ */
+export interface AgentModelRateLimitWindow extends AgentRateLimitWindow {
+  label: string
+}
+
 export interface AgentRateLimitStatus {
   fiveHour?: AgentRateLimitWindow
   weekly?: AgentRateLimitWindow
+  /** Per-model allowances, in the order the provider listed them; absent when the plan has none. */
+  models?: AgentModelRateLimitWindow[]
   /** Set when the provider has actively refused a request, not merely warned. */
   rejected?: boolean
 }

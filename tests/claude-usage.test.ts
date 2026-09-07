@@ -23,6 +23,37 @@ test('maps both plan windows, converting the ISO reset into epoch milliseconds',
   })
 })
 
+test('a per-model allowance such as Fable is kept under the name the server gives it', () => {
+  const status = claudeRateLimitsFromUsage({
+    rate_limits_available: true,
+    rate_limits: {
+      five_hour: { utilization: 42, resets_at: '2026-09-07T10:00:00.455761+00:00' },
+      seven_day: { utilization: 24, resets_at: '2026-09-08T03:00:00.455787+00:00' },
+      model_scoped: [
+        { display_name: 'Fable', utilization: 43, resets_at: '2026-09-08T03:00:00.456106+00:00' },
+        // Unnamed or unmetered entries cannot be attributed to anything and are dropped.
+        { display_name: '', utilization: 10, resets_at: null },
+        { display_name: 'Opus', utilization: null, resets_at: null }
+      ]
+    }
+  })
+
+  assert.deepEqual(status?.models, [
+    { label: 'Fable', usedPercent: 43, resetsAt: Date.parse('2026-09-08T03:00:00.456106+00:00') }
+  ])
+  assert.equal(status?.fiveHour?.usedPercent, 42)
+  assert.equal(status?.weekly?.usedPercent, 24)
+})
+
+test('a plan that only reports a per-model allowance still produces a status', () => {
+  const status = claudeRateLimitsFromUsage({
+    rate_limits_available: true,
+    rate_limits: { model_scoped: [{ display_name: 'Fable', utilization: 7, resets_at: null }] }
+  })
+
+  assert.deepEqual(status, { models: [{ label: 'Fable', usedPercent: 7 }] })
+})
+
 test('keeps a window that reports usage without a reset time', () => {
   const status = claudeRateLimitsFromUsage({
     rate_limits_available: true,
