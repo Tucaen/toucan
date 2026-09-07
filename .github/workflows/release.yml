@@ -40,11 +40,17 @@ jobs:
       # tag") and takes the remaining uploads down with it - which is how v0.3.1 ended up holding
       # its two installers but no latest.yml, leaving the updater with no feed to read. Claiming
       # the release up front leaves both publishers with nothing to do but upload into it.
+      # The notes are the tag's annotation body, written by `npm run release`. Checkout stores the
+      # tag as a plain pointer to the commit, so the annotated object is fetched again first.
       - name: Claim the release before packaging
         run: |
+          git fetch --force --quiet origin "refs/tags/$env:TAG:refs/tags/$env:TAG"
+          $notes = (git tag -l --format='%(contents:body)' "$env:TAG" | Out-String).Trim()
+          if (-not $notes) { $notes = "Automated release." }
+          Set-Content -Path release-notes.md -Value $notes -Encoding utf8
           gh release view "$env:TAG" --repo Tucaen/toucan-releases *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create "$env:TAG" --repo Tucaen/toucan-releases --title "$env:TAG" --notes "Automated release."
+            gh release create "$env:TAG" --repo Tucaen/toucan-releases --title "Toucan $env:TAG" --notes-file release-notes.md
           }
         env:
           GH_TOKEN: ${{ secrets.RELEASES_REPO_TOKEN }}

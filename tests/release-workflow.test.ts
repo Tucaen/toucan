@@ -89,3 +89,18 @@ test('caches the voice model the build downloads rather than fetching 165 MB per
     'restoring after the download would cache nothing useful'
   )
 })
+
+test('release notes come from the tag annotation that npm run release writes', () => {
+  assert.equal(manifest.scripts?.release, 'node scripts/release.mjs')
+  assert.match(
+    workflow,
+    /git tag -l --format='%\(contents:body\)'/,
+    'the tag body is the only place notes are authored'
+  )
+  assert.match(
+    workflow,
+    /git fetch --force .*refs\/tags\//,
+    'checkout flattens the annotated tag, so it must be re-fetched'
+  )
+  assert.match(workflow, /--notes-file release-notes\.md/)
+})

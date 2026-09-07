@@ -33,6 +33,7 @@
     "package:win:portable": "npm run build && electron-builder --win portable --x64",
     "package:dir": "npm run build && electron-builder --dir --win --x64",
     "publish:win": "electron-builder --win --x64 --publish always",
+    "release": "node scripts/release.mjs",
     "build:mobile": "vite build --config mobile/vite.config.ts"
   },
   "build": {
