@@ -74,7 +74,12 @@ const ok = (content: string, extra: Partial<Extract<FileReadResult, { ok: true }
   ...extra
 })
 
-const node = (data: Partial<FileCanvasNode['data']>, onViewModeChange: ReturnType<typeof vi.fn>): JSX.Element => (
+const node = (
+  data: Partial<FileCanvasNode['data']>,
+  onViewModeChange: ReturnType<typeof vi.fn>,
+  onRequestFilePath: ReturnType<typeof vi.fn>,
+  onPathChange: ReturnType<typeof vi.fn>
+): JSX.Element => (
   <ReactFlowProvider>
     <FileNode
       id="file-1"
@@ -85,28 +90,42 @@ const node = (data: Partial<FileCanvasNode['data']>, onViewModeChange: ReturnTyp
       isConnectable={false}
       positionAbsoluteX={0}
       positionAbsoluteY={0}
-      data={{
-        path: PATH,
-        view: 'rendered',
-        projectId: 'project',
-        projectName: 'Toucan',
-        projectPath: 'D:\\Development\\Toucan',
-        projectColor: '#71a9ff',
-        onViewModeChange,
-        ...data
-      }}
+      data={
+        {
+          path: PATH,
+          view: 'rendered',
+          projectId: 'project',
+          projectName: 'Toucan',
+          projectPath: 'D:\\Development\\Toucan',
+          projectColor: '#71a9ff',
+          onViewModeChange,
+          onRequestFilePath,
+          onPathChange,
+          ...data
+        } as FileCanvasNode['data']
+      }
     />
   </ReactFlowProvider>
 )
 
 function renderNode(data: Partial<FileCanvasNode['data']> = {}): {
   onViewModeChange: ReturnType<typeof vi.fn>
+  onRequestFilePath: ReturnType<typeof vi.fn>
+  onPathChange: ReturnType<typeof vi.fn>
   unmount: () => void
   rerender: (data: Partial<FileCanvasNode['data']>) => void
 } {
   const onViewModeChange = vi.fn()
-  const { unmount, rerender } = render(node(data, onViewModeChange))
-  return { onViewModeChange, unmount, rerender: (next) => rerender(node(next, onViewModeChange)) }
+  const onRequestFilePath = vi.fn(async () => null)
+  const onPathChange = vi.fn()
+  const { unmount, rerender } = render(node(data, onViewModeChange, onRequestFilePath, onPathChange))
+  return {
+    onViewModeChange,
+    onRequestFilePath,
+    onPathChange,
+    unmount,
+    rerender: (next) => rerender(node(next, onViewModeChange, onRequestFilePath, onPathChange))
+  }
 }
 
 /** The mounted CodeMirror view, found the way CodeMirror itself offers rather than through React. */
@@ -125,6 +144,205 @@ function type(view: EditorView, text: string, at = view.state.doc.length): void 
 }
 
 const saveButton = (): HTMLElement => screen.getByRole('button', { name: 'Save' })
+
+test('the filename and path change the displayed file without replacing the node', async () => {
+  stubApis(ok('# Plan\n'))
+  const nextPath = 'D:\\Development\\Toucan\\docs\\next.md'
+  const onRequestFilePath = vi.fn(async () => nextPath)
+  const { onPathChange } = renderNode({ onRequestFilePath } as Partial<FileCanvasNode['data']>)
+
+  fireEvent.click(screen.getByRole('button', { name: 'Change displayed file' }))
+
+  await waitFor(() => expect(onRequestFilePath).toHaveBeenCalledWith('file-1'))
+  expect(onPathChange).toHaveBeenCalledWith('file-1', nextPath)
+})
+
+test('a late read from the old path cannot replace the newly selected file', async () => {
+  let finishOldRead: (result: FileReadResult) => void = () => {}
+  const oldRead = new Promise<FileReadResult>((resolve) => {
+    finishOldRead = resolve
+  })
+  const stub = stubApis(ok('fallback\n'))
+  stub.read.mockReturnValueOnce(oldRead).mockResolvedValueOnce(ok('new file\n', { mtime: 'new-file-mtime' }))
+  const nextPath = 'D:\\Development\\Toucan\\docs\\next.txt'
+  const onRequestFilePath = vi.fn(async () => nextPath)
+  const { onPathChange, rerender } = renderNode({ path: TEXT_PATH, onRequestFilePath } as Partial<
+    FileCanvasNode['data']
+  >)
+
+  fireEvent.click(screen.getByRole('button', { name: 'Change displayed file' }))
+  await waitFor(() => expect(onPathChange).toHaveBeenCalledWith('file-1', nextPath))
+  rerender({ path: nextPath, view: 'raw' })
+  const view = await editor()
+  await waitFor(() => expect(view.state.doc.toString()).toBe('new file\n'))
+
+  await act(async () => finishOldRead(ok('old file\n', { mtime: 'old-file-mtime' })))
+  expect(view.state.doc.toString()).toBe('new file\n')
+
+  type(view, 'edited\n')
+  fireEvent.click(saveButton())
+  await waitFor(() => expect(stub.write).toHaveBeenCalledTimes(1))
+  expect(stub.write).toHaveBeenCalledWith({
+    path: nextPath,
+    content: 'new file\nedited\n',
+    baseMtime: 'new-file-mtime'
+  })
+})
+
+test.each([
+  ['a cancelled picker', null],
+  ['selecting the same file', 'd:/development/toucan/NOTES.txt']
+])('%s leaves the current file and draft untouched', async (_case, nextPath) => {
+  stubApis(ok('old\n'))
+  const onRequestFilePath = vi.fn(async () => nextPath)
+  const { onPathChange } = renderNode({ path: TEXT_PATH, onRequestFilePath } as Partial<FileCanvasNode['data']>)
+  const view = await editor()
+  type(view, 'pending\n')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Change displayed file' }))
+
+  await waitFor(() => expect(onRequestFilePath).toHaveBeenCalledWith('file-1'))
+  expect(screen.queryByRole('dialog', { name: 'Unsaved changes' })).toBeNull()
+  expect(onPathChange).not.toHaveBeenCalled()
+  expect(view.state.doc.toString()).toBe('old\npending\n')
+})
+
+test('aborting a file change keeps the old file and its pending edits', async () => {
+  stubApis(ok('old\n'))
+  const nextPath = 'D:\\Development\\Toucan\\docs\\next.md'
+  const onRequestFilePath = vi.fn(async () => nextPath)
+  const { onPathChange } = renderNode({ path: TEXT_PATH, onRequestFilePath } as Partial<FileCanvasNode['data']>)
+  const view = await editor()
+  type(view, 'pending\n')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Change displayed file' }))
+  const dialog = await screen.findByRole('dialog', { name: 'Unsaved changes' })
+  expect(onPathChange).not.toHaveBeenCalled()
+  const abort = screen.getByRole('button', { name: 'Abort' })
+  expect(abort).toHaveFocus()
+  fireEvent.keyDown(abort, { key: 'Tab', shiftKey: true })
+  expect(screen.getByRole('button', { name: 'Save and switch' })).toHaveFocus()
+  fireEvent.keyDown(screen.getByRole('button', { name: 'Save and switch' }), { key: 'Tab' })
+  expect(abort).toHaveFocus()
+  fireEvent.click(abort)
+
+  await waitFor(() => expect(dialog).not.toBeInTheDocument())
+  expect(screen.getByRole('button', { name: 'Change displayed file' })).toHaveFocus()
+  expect(onPathChange).not.toHaveBeenCalled()
+  expect(view.state.doc.toString()).toBe('old\npending\n')
+  expect(screen.getByLabelText('Unsaved changes')).toBeInTheDocument()
+})
+
+test('discarding pending edits switches to the selected file without saving', async () => {
+  const stub = stubApis(ok('old\n'))
+  const nextPath = 'D:\\Development\\Toucan\\docs\\next.md'
+  const onRequestFilePath = vi.fn(async () => nextPath)
+  const { onPathChange } = renderNode({ path: TEXT_PATH, onRequestFilePath } as Partial<FileCanvasNode['data']>)
+  const view = await editor()
+  type(view, 'pending\n')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Change displayed file' }))
+  await screen.findByRole('dialog', { name: 'Unsaved changes' })
+  fireEvent.click(screen.getByRole('button', { name: 'Discard and switch' }))
+
+  expect(stub.write).not.toHaveBeenCalled()
+  expect(onPathChange).toHaveBeenCalledWith('file-1', nextPath)
+  await waitFor(() => expect(screen.queryByLabelText('Unsaved changes')).toBeNull())
+  expect(view.state.doc.toString()).toBe('old\n')
+})
+
+test('saving pending edits writes the old file before switching to the selected file', async () => {
+  const stub = stubApis(ok('old\n'))
+  const nextPath = 'D:\\Development\\Toucan\\docs\\next.md'
+  const onRequestFilePath = vi.fn(async () => nextPath)
+  const { onPathChange } = renderNode({ path: TEXT_PATH, onRequestFilePath } as Partial<FileCanvasNode['data']>)
+  const view = await editor()
+  type(view, 'pending\n')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Change displayed file' }))
+  await screen.findByRole('dialog', { name: 'Unsaved changes' })
+  fireEvent.click(screen.getByRole('button', { name: 'Save and switch' }))
+
+  await waitFor(() =>
+    expect(stub.write).toHaveBeenCalledWith({
+      path: TEXT_PATH,
+      content: 'old\npending\n',
+      baseMtime: '2026-09-05T09:00:00.000Z'
+    })
+  )
+  expect(onPathChange).toHaveBeenCalledWith('file-1', nextPath)
+})
+
+test('a file-change prompt opened during a save keeps keyboard focus inside until actions return', async () => {
+  let finish: (result: FileWriteResult) => void = () => {}
+  stubApis(ok('old\n'), () => new Promise<FileWriteResult>((resolve) => (finish = resolve)))
+  const nextPath = 'D:\\Development\\Toucan\\docs\\next.md'
+  const onRequestFilePath = vi.fn(async () => nextPath)
+  const { onPathChange } = renderNode({ path: TEXT_PATH, onRequestFilePath } as Partial<FileCanvasNode['data']>)
+  const view = await editor()
+  type(view, 'pending\n')
+  fireEvent.click(saveButton())
+
+  fireEvent.click(screen.getByRole('button', { name: 'Change displayed file' }))
+  await screen.findByRole('dialog', { name: 'Unsaved changes' })
+  const panel = document.querySelector('.worktree-dialog') as HTMLElement
+  await waitFor(() => expect(panel).toHaveFocus())
+  fireEvent.keyDown(panel, { key: 'Tab' })
+  expect(panel).toHaveFocus()
+
+  await act(async () => finish({ ok: true, mtime: 'saved', size: 12 }))
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Abort' })).toHaveFocus())
+  fireEvent.click(screen.getByRole('button', { name: 'Switch' }))
+  expect(onPathChange).toHaveBeenCalledWith('file-1', nextPath)
+})
+
+test('edits made while save-and-switch is writing must be saved before the node switches', async () => {
+  let finish: (result: FileWriteResult) => void = () => {}
+  const stub = stubApis(ok('old\n'), () => new Promise<FileWriteResult>((resolve) => (finish = resolve)))
+  const nextPath = 'D:\\Development\\Toucan\\docs\\next.md'
+  const onRequestFilePath = vi.fn(async () => nextPath)
+  const { onPathChange } = renderNode({ path: TEXT_PATH, onRequestFilePath } as Partial<FileCanvasNode['data']>)
+  const view = await editor()
+  type(view, 'pending\n')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Change displayed file' }))
+  await screen.findByRole('dialog', { name: 'Unsaved changes' })
+  fireEvent.click(screen.getByRole('button', { name: 'Save and switch' }))
+  await waitFor(() => expect(stub.write).toHaveBeenCalledTimes(1))
+  await waitFor(() => expect(document.querySelector('.worktree-dialog')).toHaveFocus())
+
+  type(view, 'new\n')
+  await act(async () => finish({ ok: true, mtime: 'saved-once', size: 12 }))
+
+  expect(onPathChange).not.toHaveBeenCalled()
+  expect(screen.getByRole('dialog', { name: 'Unsaved changes' })).toBeInTheDocument()
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Abort' })).toHaveFocus())
+  fireEvent.click(screen.getByRole('button', { name: 'Save and switch' }))
+  await waitFor(() => expect(stub.write).toHaveBeenCalledTimes(2))
+  expect(stub.write.mock.calls[1][0]).toMatchObject({ content: 'old\npending\nnew\n', baseMtime: 'saved-once' })
+  await act(async () => finish({ ok: true, mtime: 'saved-twice', size: 16 }))
+
+  await waitFor(() => expect(onPathChange).toHaveBeenCalledWith('file-1', nextPath))
+})
+
+test('a failed save aborts the switch and leaves the pending edits on the old file', async () => {
+  const stub = stubApis(ok('old\n'), async () => ({ ok: false, reason: 'unwritable', message: 'Access denied.' }))
+  const nextPath = 'D:\\Development\\Toucan\\docs\\next.md'
+  const onRequestFilePath = vi.fn(async () => nextPath)
+  const { onPathChange } = renderNode({ path: TEXT_PATH, onRequestFilePath } as Partial<FileCanvasNode['data']>)
+  const view = await editor()
+  type(view, 'pending\n')
+
+  fireEvent.click(screen.getByRole('button', { name: 'Change displayed file' }))
+  await screen.findByRole('dialog', { name: 'Unsaved changes' })
+  fireEvent.click(screen.getByRole('button', { name: 'Save and switch' }))
+
+  expect(await screen.findByRole('alert')).toHaveTextContent('Access denied.')
+  expect(screen.queryByRole('dialog', { name: 'Unsaved changes' })).toBeNull()
+  expect(onPathChange).not.toHaveBeenCalled()
+  expect(view.state.doc.toString()).toBe('old\npending\n')
+  expect(stub.write).toHaveBeenCalledTimes(1)
+})
 
 test('renders Markdown by default and offers the raw view through the node, not local state', async () => {
   stubApis(ok('# Plan\n\nRead **this**.\n'))

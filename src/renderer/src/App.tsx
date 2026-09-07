@@ -50,7 +50,7 @@ import type {
   WorkspaceTerminalNode
 } from '../../shared/terminal'
 import type { WorktreeRemovalBlocker } from '../../shared/worktree'
-import type { FileViewMode } from '../../shared/file-view'
+import { fileViewPathIdentity, type FileViewMode } from '../../shared/file-view'
 import toucanLogo from './assets/toucan-logo.svg'
 import { placeholderBranchName, type WorktreeHandoffPlan } from '../../shared/worktree-handoff'
 import {
@@ -75,6 +75,7 @@ import {
   createNodeKeyAction,
   type CreateNodeKeyAction,
   NODE_SHORTCUT_LABELS,
+  changeFileCanvasNodePath,
   createFileCanvasNode,
   DEFAULT_WORKTREE_SIZE,
   isFileCanvasNode,
@@ -106,7 +107,7 @@ import ConversationHistoryDialog from './ConversationHistoryDialog'
 import FileNode from './FileNode'
 import FilePickerDialog from './FilePickerDialog'
 import { OpenFileContext } from './open-file-context'
-import { projectOwningPath } from './file-node'
+import { projectOwningPath, workspaceRootOwningPath } from './file-node'
 import {
   groupDropTarget,
   moveGroup,
@@ -149,6 +150,20 @@ interface ContextMenuState {
   flowX: number
   flowY: number
 }
+
+type FilePickerRequest =
+  | {
+      kind: 'create'
+      projectId: string
+      projectName: string
+      root: string
+      position: { x: number; y: number }
+    }
+  | {
+      kind: 'change'
+      projectName: string
+      root: string
+    }
 
 /** How often Toucan re-checks git for worktrees it has no record of. */
 const WORKTREE_SWEEP_INTERVAL_MS = 15000
@@ -286,8 +301,9 @@ function Canvas(): JSX.Element {
   // Where a conversation picked from the history browser lands, captured when the browser opens
   // so the node still appears where the user right-clicked.
   const [historyDrop, setHistoryDrop] = useState<{ x: number; y: number } | null>(null)
-  /** Where the file picked from the canvas menu will land; open while the picker is shown. */
-  const [filePickerDrop, setFilePickerDrop] = useState<{ x: number; y: number } | null>(null)
+  /** Whether the picker will create a node or return a new path to an existing file node. */
+  const [filePickerRequest, setFilePickerRequest] = useState<FilePickerRequest | null>(null)
+  const filePickerResolver = useRef<((path: string | null) => void) | null>(null)
   // The brain-dump library is global rather than per-project, so the workspace owns its persisted
   // panel state and the panel itself only renders it.
   const [brainDumpPanel, setBrainDumpPanel] = useState<BrainDumpPanelState>({
@@ -473,6 +489,11 @@ function Canvas(): JSX.Element {
     [setNodes]
   )
 
+  const handleFilePathChange = useCallback(
+    (nodeId: string, path: string): void => setNodes((current) => changeFileCanvasNodePath(current, nodeId, path)),
+    [setNodes]
+  )
+
   const handlePermissionModeChange = useCallback(
     (provider: keyof AgentPermissionModes, modeId: string): void => {
       setAgentPermissionModes((current) =>
@@ -554,6 +575,34 @@ function Canvas(): JSX.Element {
   recentlyClosedNodesRef.current = recentlyClosedNodes
   brainDumpOpenRef.current = brainDumpPanel.open
   ticketBoardOpenRef.current = ticketBoardPanel.open
+
+  const handleRequestFilePath = useCallback((nodeId: string): Promise<string | null> => {
+    if (filePickerResolver.current) return Promise.resolve(null)
+    const node = nodesRef.current.filter(isFileCanvasNode).find((candidate) => candidate.id === nodeId)
+    const project = projectsRef.current.find((candidate) => candidate.id === node?.data.projectId)
+    if (!node || !project) return Promise.resolve(null)
+
+    const projectWorktrees = nodesRef.current
+      .filter(isWorktreeCanvasNode)
+      .filter((candidate) => candidate.data.projectId === project.id)
+    const owner = workspaceRootOwningPath(node.data.path, [
+      { projectId: project.id, root: project.path },
+      ...projectWorktrees.map((candidate) => ({ projectId: project.id, root: candidate.data.path }))
+    ])
+    const root = owner?.root ?? project.path
+    const worktree = projectWorktrees.find(
+      (candidate) => fileViewPathIdentity(candidate.data.path) === fileViewPathIdentity(root)
+    )
+
+    return new Promise((resolve) => {
+      filePickerResolver.current = resolve
+      setFilePickerRequest({
+        kind: 'change',
+        projectName: worktree ? `${project.name} · ${worktree.data.branch}` : project.name,
+        root
+      })
+    })
+  }, [])
 
   const getCanvasNodes = useCallback((): CanvasNode[] => nodesRef.current, [])
   const nodeFit = useNodeFit<CanvasNode>({
@@ -1085,7 +1134,9 @@ function Canvas(): JSX.Element {
         onRemoveWorktree: handleRemoveWorktree,
         onCreateNodeInWorktree: handleCreateNodeInWorktree,
         onRunSetupCommand: handleRunSetupCommand,
-        onViewModeChange: handleFileViewModeChange
+        onViewModeChange: handleFileViewModeChange,
+        onRequestFilePath: handleRequestFilePath,
+        onPathChange: handleFilePathChange
       })
 
       setProjects(saved.projects)
@@ -1125,6 +1176,8 @@ function Canvas(): JSX.Element {
       handleConversationId,
       handleCreateNodeInWorktree,
       handleDraftChange,
+      handleFilePathChange,
+      handleRequestFilePath,
       handleFileViewModeChange,
       handleFocusModeChange,
       handleModelChange,
@@ -1435,7 +1488,13 @@ function Canvas(): JSX.Element {
           setHistoryDrop(position)
           break
         case 'open-file':
-          setFilePickerDrop(position)
+          setFilePickerRequest({
+            kind: 'create',
+            projectId: project.id,
+            projectName: project.name,
+            root: project.path,
+            position
+          })
           break
       }
     },
@@ -1464,7 +1523,7 @@ function Canvas(): JSX.Element {
   // While a picker, draft or dialog is open the create shortcuts do nothing, so a node cannot
   // appear behind it. The panels are fine: they dock beside the canvas rather than cover it.
   const dialogOpen = !!(
-    filePickerDrop ||
+    filePickerRequest ||
     historyDrop ||
     worktreeDraft ||
     removalPrompt ||
@@ -1515,24 +1574,40 @@ function Canvas(): JSX.Element {
   const addFileNode = useCallback(
     (path: string, project: Project, position: { x: number; y: number }): void => {
       const node = createFileCanvasNode({ id: `file-${crypto.randomUUID()}`, path, position }, project, {
-        onViewModeChange: handleFileViewModeChange
+        onViewModeChange: handleFileViewModeChange,
+        onRequestFilePath: handleRequestFilePath,
+        onPathChange: handleFilePathChange
       })
       setNodes((current) => [
         ...current.map((candidate) => ({ ...candidate, selected: false })),
         { ...node, selected: true }
       ])
     },
-    [handleFileViewModeChange, setNodes]
+    [handleFilePathChange, handleFileViewModeChange, handleRequestFilePath, setNodes]
   )
 
   const openPickedFile = useCallback(
     (path: string): void => {
-      if (!filePickerDrop || !activeProject) return
-      addFileNode(path, activeProject, filePickerDrop)
-      setFilePickerDrop(null)
+      if (!filePickerRequest) return
+      setFilePickerRequest(null)
+      if (filePickerRequest.kind === 'create') {
+        const project = projectsRef.current.find((candidate) => candidate.id === filePickerRequest.projectId)
+        if (project) addFileNode(path, project, filePickerRequest.position)
+        return
+      }
+      const resolve = filePickerResolver.current
+      filePickerResolver.current = null
+      resolve?.(path)
     },
-    [activeProject, addFileNode, filePickerDrop]
+    [addFileNode, filePickerRequest]
   )
+
+  const cancelFilePicker = useCallback((): void => {
+    setFilePickerRequest(null)
+    const resolve = filePickerResolver.current
+    filePickerResolver.current = null
+    resolve?.(null)
+  }, [])
 
   /**
    * "Open" on a transcript's file card. The file belongs to whichever project's checkout or
@@ -2472,11 +2547,11 @@ function Canvas(): JSX.Element {
             </div>
           )}
 
-          {filePickerDrop && activeProject && (
+          {filePickerRequest && (
             <FilePickerDialog
-              projectName={activeProject.name}
-              root={activeProject.path}
-              onCancel={() => setFilePickerDrop(null)}
+              projectName={filePickerRequest.projectName}
+              root={filePickerRequest.root}
+              onCancel={cancelFilePicker}
               onOpen={openPickedFile}
             />
           )}

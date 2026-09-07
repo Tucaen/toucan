@@ -6291,6 +6291,30 @@ button {
   white-space: nowrap;
 }
 
+.file-node-identity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.file-node-identity:hover strong {
+  color: #e6f5ec;
+}
+
+.file-node-identity:focus-visible {
+  outline: 2px solid #74d8a2;
+  outline-offset: 2px;
+}
+
 .file-node-glyph {
   display: grid;
   place-items: center;

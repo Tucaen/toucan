@@ -6,14 +6,14 @@ import { joinWorkspacePath } from './file-node'
 
 export interface FilePickerDialogProps {
   projectName: string
-  /** The directory the listing is relative to - the project checkout. */
+  /** The checkout or worktree directory the listing is relative to. */
   root: string
   onCancel(): void
   onOpen(path: string): void
 }
 
 /**
- * The canvas's "File..." picker. It reads the same git-aware index the composer's `@` mention
+ * The canvas's file picker. It reads the same git-aware index the composer's `@` mention
  * uses and ranks with the same rule, so a path found one way is found the other way too; only
  * files are offered, since a directory has nothing to show in a node.
  */
@@ -54,7 +54,7 @@ export default function FilePickerDialog({ projectName, root, onCancel, onOpen }
       onClick={(event) => event.stopPropagation()}
     >
       <div className="worktree-dialog file-picker-dialog">
-        <strong id="file-picker-title">Open a file from {projectName}</strong>
+        <strong id="file-picker-title">Choose a file from {projectName}</strong>
         <p>Markdown opens rendered; anything else opens as highlighted text. The node updates as the file changes.</p>
         <input
           className="file-picker-search"

@@ -121,18 +121,25 @@ export function joinWorkspacePath(root: string, relativePath: string): string {
  * folder owns its own files. Comparison is separator- and case-insensitive, like
  * `shortenFilePath`, because paths from adapters and from the snapshot differ in both.
  */
+export function workspaceRootOwningPath(
+  path: string,
+  roots: readonly { projectId: string; root: string }[]
+): { projectId: string; root: string } | undefined {
+  const haystack = path.replace(/\\/g, '/').toLowerCase()
+  let best: { projectId: string; root: string; length: number } | undefined
+  for (const { projectId, root } of roots) {
+    const prefix = root.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+    if (!prefix || !haystack.startsWith(`${prefix}/`)) continue
+    if (!best || prefix.length > best.length) best = { projectId, root, length: prefix.length }
+  }
+  return best
+}
+
 export function projectOwningPath(
   path: string,
   roots: readonly { projectId: string; root: string }[]
 ): string | undefined {
-  const haystack = path.replace(/\\/g, '/').toLowerCase()
-  let best: { projectId: string; length: number } | undefined
-  for (const { projectId, root } of roots) {
-    const prefix = root.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
-    if (!prefix || !haystack.startsWith(`${prefix}/`)) continue
-    if (!best || prefix.length > best.length) best = { projectId, length: prefix.length }
-  }
-  return best?.projectId
+  return workspaceRootOwningPath(path, roots)?.projectId
 }
 
 /** The file name alone, for the node's header. */

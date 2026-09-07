@@ -13,6 +13,7 @@ import {
   joinWorkspacePath,
   keepDraftOverDisk,
   projectOwningPath,
+  workspaceRootOwningPath,
   UNEDITED,
   type FileEditState
 } from '../src/renderer/src/file-node'
@@ -55,6 +56,20 @@ test('a file opened from a card is filed under the deepest root that contains it
   // A sibling that merely shares a prefix is not inside the root.
   assert.equal(projectOwningPath('D:\\Development\\Toucan-old\\x.md', roots.slice(1)), undefined)
   assert.equal(projectOwningPath('E:\\elsewhere\\x.md', roots), undefined)
+})
+
+test('a file node changes files within the deepest checkout or worktree root that contains it', () => {
+  const roots = [
+    { projectId: 'toucan', root: 'D:\\Development\\Toucan' },
+    { projectId: 'toucan', root: 'D:\\Development\\Toucan-worktrees\\feature' }
+  ]
+
+  assert.equal(
+    workspaceRootOwningPath('d:/development/toucan-worktrees/feature/src/a.ts', roots)?.root,
+    'D:\\Development\\Toucan-worktrees\\feature'
+  )
+  assert.equal(workspaceRootOwningPath('D:\\Development\\Toucan\\README.md', roots)?.root, 'D:\\Development\\Toucan')
+  assert.equal(workspaceRootOwningPath('E:\\elsewhere\\x.md', roots), undefined)
 })
 
 test('every failure has words', () => {

@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { NodeProps } from '@xyflow/react'
 import { FileText } from 'lucide-react'
 import ReactMarkdown, { type Components } from 'react-markdown'
@@ -61,6 +62,8 @@ const NOTHING_ON_DISK: FileReadResult = {
   message: 'This file is not on disk any more.'
 }
 
+type SaveOutcome = 'saved' | 'still-dirty' | 'failed'
+
 /**
  * One project file on the canvas, live and editable. The node owns its geometry and view choice;
  * the bytes are read through `fileViewApi` on mount and again whenever main reports the file
@@ -75,25 +78,55 @@ export default function FileNode({ id, data, selected }: NodeProps<FileCanvasNod
   const [edit, setEdit] = useState<FileEditState>(UNEDITED)
   const [saveFailure, setSaveFailure] = useState<Extract<FileWriteResult, { ok: false }> | null>(null)
   const [saving, setSaving] = useState(false)
+  const [pendingPath, setPendingPath] = useState<string | null>(null)
   const savingRef = useRef(false)
+  const readGenerationRef = useRef(0)
   const editRef = useRef(edit)
   editRef.current = edit
   const resultRef = useRef(result)
   resultRef.current = result
+  const fileIdentityRef = useRef<HTMLButtonElement>(null)
+  const pendingDialogRef = useRef<HTMLDivElement>(null)
+  const hadPendingPathRef = useRef(false)
+  const pendingFileChangeTitleId = useId()
   const markdown = isMarkdownPath(path)
   const mode: FileViewMode = markdown ? view : 'raw'
   const editability = fileEditability(result)
   const dirty = isDirty(edit)
 
   const read = useCallback(async (): Promise<void> => {
+    const generation = ++readGenerationRef.current
     const next = await window.fileViewApi.read(path).catch((error: unknown): FileReadResult => ({
       ok: false,
       reason: 'unreadable',
       message: (error as Error).message
     }))
+    if (generation !== readGenerationRef.current) return
     setResult(next)
     setEdit((state) => editStateAfterRead(state, next))
   }, [path])
+
+  useEffect(() => {
+    if (pendingPath) {
+      hadPendingPathRef.current = true
+      const dialog = pendingDialogRef.current
+      if (!dialog) return
+      const firstAction = dialog.querySelector<HTMLButtonElement>('button:not(:disabled)')
+      const focused = document.activeElement
+      if (saving || !firstAction) dialog.focus()
+      else if (
+        focused === dialog ||
+        !dialog.contains(focused) ||
+        (focused instanceof HTMLButtonElement && focused.disabled)
+      ) {
+        firstAction.focus()
+      }
+      return
+    }
+    if (!hadPendingPathRef.current) return
+    hadPendingPathRef.current = false
+    fileIdentityRef.current?.focus()
+  }, [pendingPath, saving])
 
   useEffect(() => {
     let active = true
@@ -103,6 +136,7 @@ export default function FileNode({ id, data, selected }: NodeProps<FileCanvasNod
     setResult(null)
     setEdit(UNEDITED)
     setSaveFailure(null)
+    setPendingPath(null)
     void read()
     void api.watch(path)
     const identity = fileViewPathIdentity(path)
@@ -111,6 +145,7 @@ export default function FileNode({ id, data, selected }: NodeProps<FileCanvasNod
     })
     return () => {
       active = false
+      readGenerationRef.current += 1
       stop()
       void api.unwatch(path)
     }
@@ -127,11 +162,11 @@ export default function FileNode({ id, data, selected }: NodeProps<FileCanvasNod
     setSaveFailure(null)
   }, [])
 
-  const save = useCallback(async (): Promise<void> => {
+  const save = useCallback(async (): Promise<SaveOutcome> => {
     const state = editRef.current
     // One write at a time: a second Ctrl+S mid-flight would carry the same base and be refused as
     // a conflict against the node's own save.
-    if (savingRef.current || state.draft === null || state.baseMtime === null || state.conflict) return
+    if (savingRef.current || state.draft === null || state.baseMtime === null || state.conflict) return 'failed'
     savingRef.current = true
     setSaving(true)
     const written = await window.fileViewApi
@@ -151,7 +186,7 @@ export default function FileNode({ id, data, selected }: NodeProps<FileCanvasNod
       } else {
         setSaveFailure(written)
       }
-      return
+      return 'failed'
     }
     const saved = state.draft
     setSaveFailure(null)
@@ -159,6 +194,9 @@ export default function FileNode({ id, data, selected }: NodeProps<FileCanvasNod
       current?.ok ? { ...current, content: saved, mtime: written.mtime, size: written.size } : current
     )
     setEdit((current) => editStateAfterSave(written.mtime, saved, current.draft))
+    // A draft can still move while an asynchronous write is in flight. That newer text remains
+    // dirty and must get its own save before a file change may hide it.
+    return editRef.current.draft === saved ? 'saved' : 'still-dirty'
   }, [path, read])
 
   /** Back to the file as it is on disk; also how a conflict is resolved in disk's favour. */
@@ -177,6 +215,59 @@ export default function FileNode({ id, data, selected }: NodeProps<FileCanvasNod
   const shownContent = edit.draft ?? (result?.ok ? result.content : '')
   const canSave = dirty && !edit.conflict && !saving && editability.editable
 
+  const requestFilePath = useCallback(async (): Promise<void> => {
+    const nextPath = await data.onRequestFilePath(id)
+    if (!nextPath || fileViewPathIdentity(nextPath) === fileViewPathIdentity(path)) return
+    if (isDirty(editRef.current)) setPendingPath(nextPath)
+    else data.onPathChange(id, nextPath)
+  }, [data, id, path])
+
+  const discardAndSwitch = (): void => {
+    if (!pendingPath) return
+    const nextPath = pendingPath
+    setPendingPath(null)
+    setEdit(editStateAfterRead(UNEDITED, resultRef.current ?? NOTHING_ON_DISK))
+    setSaveFailure(null)
+    data.onPathChange(id, nextPath)
+  }
+
+  const saveAndSwitch = async (): Promise<void> => {
+    if (!pendingPath) return
+    const nextPath = pendingPath
+    // The picker may have opened while an ordinary Save was already in flight. If that save has
+    // since cleared the draft, there is nothing left to write before honoring the selected path.
+    if (!dirty) {
+      setPendingPath(null)
+      data.onPathChange(id, nextPath)
+      return
+    }
+    const outcome = await save()
+    if (outcome === 'still-dirty') return
+    setPendingPath(null)
+    if (outcome === 'saved') data.onPathChange(id, nextPath)
+  }
+
+  const trapPendingFileChangeFocus = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (event.key !== 'Tab') return
+    const dialog = pendingDialogRef.current
+    if (!dialog) return
+    const focusable = [...dialog.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')]
+    if (focusable.length === 0) {
+      event.preventDefault()
+      dialog.focus()
+      return
+    }
+    const first = focusable[0]
+    const last = focusable[focusable.length - 1]
+    if (event.shiftKey && (document.activeElement === first || !dialog.contains(document.activeElement))) {
+      event.preventDefault()
+      last.focus()
+    } else if (!event.shiftKey && (document.activeElement === last || !dialog.contains(document.activeElement))) {
+      event.preventDefault()
+      first.focus()
+    }
+  }
+
   return (
     <article
       className={`file-node ${selected ? 'selected' : ''}`}
@@ -188,17 +279,27 @@ export default function FileNode({ id, data, selected }: NodeProps<FileCanvasNod
         <span className="file-node-glyph" aria-hidden="true">
           <FileText />
         </span>
-        <strong title={path}>
-          {fileNodeName(path)}
-          {dirty && (
-            <span className="file-node-dirty" title="Unsaved changes" aria-label="Unsaved changes">
-              ●
-            </span>
-          )}
-        </strong>
-        <span className="file-node-path" title={path}>
-          {shortenFilePath(path, [data.projectPath])}
-        </span>
+        <button
+          ref={fileIdentityRef}
+          type={'button'}
+          className={'file-node-identity nodrag'}
+          aria-label={'Change displayed file'}
+          title={path}
+          onMouseDown={stopDrag}
+          onClick={() => void requestFilePath()}
+        >
+          <strong>
+            {fileNodeName(path)}
+            {dirty && (
+              <span className="file-node-dirty" title="Unsaved changes" aria-label="Unsaved changes">
+                ●
+              </span>
+            )}
+          </strong>
+          <span className="file-node-path" title={path}>
+            {shortenFilePath(path, [data.projectPath])}
+          </span>
+        </button>
         <span className="file-node-actions nodrag">
           {dirty && (
             <>
@@ -312,6 +413,46 @@ export default function FileNode({ id, data, selected }: NodeProps<FileCanvasNod
           </>
         ) : null}
       </div>
+      {pendingPath &&
+        createPortal(
+          <div
+            className={'worktree-dialog-overlay'}
+            role={'dialog'}
+            aria-modal={true}
+            aria-labelledby={pendingFileChangeTitleId}
+            onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                event.stopPropagation()
+                if (!saving) setPendingPath(null)
+                return
+              }
+              trapPendingFileChangeFocus(event)
+            }}
+          >
+            <div ref={pendingDialogRef} className={'worktree-dialog'} tabIndex={-1}>
+              <strong id={pendingFileChangeTitleId}>Unsaved changes</strong>
+              <p>Choose what happens to the pending edits before displaying {fileNodeName(pendingPath)}.</p>
+              <div className={'worktree-dialog-actions'}>
+                <button type={'button'} disabled={saving} onClick={() => setPendingPath(null)}>
+                  Abort
+                </button>
+                <button type={'button'} className={'danger'} disabled={saving} onClick={discardAndSwitch}>
+                  Discard and switch
+                </button>
+                <button
+                  type={'button'}
+                  className={'primary'}
+                  disabled={saving || (dirty && !canSave)}
+                  onClick={() => void saveAndSwitch()}
+                >
+                  {saving ? 'Saving…' : dirty ? 'Save and switch' : 'Switch'}
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
     </article>
   )
 }
