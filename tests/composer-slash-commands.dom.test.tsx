@@ -217,4 +217,63 @@ describe('composer slash-command completion', () => {
     expect(menu().parentElement).toBe(document.body)
     expect(getComputedStyle(menu()).position).toBe('fixed')
   })
+
+  test('a command accepted mid-draft is hoisted to the front on send, so the agent expands it', () => {
+    const submit = vi.fn()
+    renderChatView({ submit })
+    const textarea = type('refactored this, now run /rev')
+    fireEvent.keyDown(textarea, { key: 'Enter' })
+    expect(textarea.value).toBe('refactored this, now run /review')
+
+    fireEvent.keyDown(textarea, { key: 'Enter' })
+    expect(submit).toHaveBeenCalledWith(expect.anything(), '/review\nrefactored this, now run', expect.any(Function))
+  })
+
+  test('arguments typed after the acceptance ride with the hoisted command', () => {
+    const submit = vi.fn()
+    renderChatView({ submit })
+    const textarea = type('refactored this, now run /rev')
+    fireEvent.keyDown(textarea, { key: 'Enter' })
+    // The caret leaves the token here, which is what spends the completion's own acceptance memory.
+    type('refactored this, now run /review since main')
+
+    fireEvent.keyDown(textarea, { key: 'Enter' })
+    expect(submit).toHaveBeenCalledWith(
+      expect.anything(),
+      '/review since main\nrefactored this, now run',
+      expect.any(Function)
+    )
+  })
+
+  test('a draft that already opens with its command is sent untouched', () => {
+    const submit = vi.fn()
+    renderChatView({ submit })
+    const textarea = type('/commit fix the parser')
+    fireEvent.keyDown(textarea, { key: 'Escape' })
+    fireEvent.keyDown(textarea, { key: 'Enter' })
+    expect(submit).toHaveBeenCalledWith(expect.anything(), '/commit fix the parser', expect.any(Function))
+  })
+
+  test('a command the captain only typed about is sent as the prose it is', () => {
+    const submit = vi.fn()
+    renderChatView({ submit })
+    const textarea = type('what does /review do?')
+    fireEvent.keyDown(textarea, { key: 'Escape' })
+    fireEvent.keyDown(textarea, { key: 'Enter' })
+    expect(submit).toHaveBeenCalledWith(expect.anything(), 'what does /review do?', expect.any(Function))
+  })
+
+  test('an acceptance is spent on the draft it was made in, so the next prompt is prose again', () => {
+    // A real send clears the composer through `onPrepared`; the acceptance goes with it.
+    const submit = vi.fn((_event, _text, onPrepared?: () => void) => onPrepared?.())
+    renderChatView({ submit })
+    const textarea = type('/rev')
+    fireEvent.keyDown(textarea, { key: 'Enter' })
+    fireEvent.keyDown(textarea, { key: 'Enter' })
+
+    type('what does /review do?')
+    fireEvent.keyDown(textarea, { key: 'Escape' })
+    fireEvent.keyDown(textarea, { key: 'Enter' })
+    expect(submit).toHaveBeenLastCalledWith(expect.anything(), 'what does /review do?', expect.any(Function))
+  })
 })

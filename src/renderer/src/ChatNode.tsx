@@ -88,6 +88,7 @@ import {
   dismissSlashCompletion,
   emptySlashCompletion,
   highlightSlashCommand,
+  hoistSlashCommand,
   moveSlashSelection,
   slashCompletionView
 } from './slash-command-completion'
@@ -741,6 +742,13 @@ export function Composer(props: ComposerProps): JSX.Element {
   const [caret, setCaret] = useState(0)
   const [completionState, setCompletionState] = useState(emptySlashCompletion)
   const [mentionState, setMentionState] = useState(emptyFileMentionCompletion)
+  /**
+   * The command taken from the menu in this draft - the only one `hoistSlashCommand` will move to
+   * the front on send. Deliberately not `completionState.acceptedQuery`: that memory belongs to
+   * one token and is spent the moment the caret leaves it, which is exactly when the captain
+   * starts typing the command's arguments. This one lives as long as the draft does.
+   */
+  const [acceptedCommand, setAcceptedCommand] = useState<string | null>(null)
   const editable = composerDisabled ? '' : draft
   const completion = slashCompletionView(editable, caret, props.commands ?? [], completionState)
   // The workspace listing is read only while a mention is actually being typed, so a conversation
@@ -792,6 +800,7 @@ export function Composer(props: ComposerProps): JSX.Element {
     setDraft(next.draft)
     setHistory(leaveHistory)
     setCompletionState((current) => acceptedSlashCompletion(current, command))
+    setAcceptedCommand(command.name)
     pendingCaretRef.current = next.caret
   }
 
@@ -857,9 +866,13 @@ export function Composer(props: ComposerProps): JSX.Element {
     <form
       className="chat-composer nodrag"
       onSubmit={(event) => {
-        const sent = draft
-        props.submit(event, draft, () => {
+        // A command taken from the menu only runs if it opens the prompt, so it moves to the
+        // front here - what is sent is what is remembered and echoed, hoist included. The
+        // acceptance is spent with the draft it belonged to, so the next prompt starts as prose.
+        const sent = hoistSlashCommand(draft, props.commands ?? [], acceptedCommand)
+        props.submit(event, sent, () => {
           setDraft('')
+          setAcceptedCommand(null)
           setHistory((current) => rememberPrompt(current, sent))
         })
       }}

@@ -7,6 +7,7 @@ import {
   emptySlashCompletion,
   filterSlashCommands,
   highlightSlashCommand,
+  hoistSlashCommand,
   moveSlashSelection,
   slashCompletionQuery,
   slashCompletionView
@@ -188,4 +189,64 @@ test('editing an accepted token offers the list right back', () => {
 test('accepting clears any earlier dismissal rather than compounding with it', () => {
   const dismissed = dismissSlashCompletion(emptySlashCompletion, { query: 'co', start: 0 })
   assert.equal(acceptedSlashCompletion(dismissed, commands[1]).dismissedStart, null)
+})
+
+test('a draft that already opens with a command is sent as it stands', () => {
+  assert.equal(hoistSlashCommand('/commit fix the parser', commands, 'commit'), '/commit fix the parser')
+})
+
+test('leading whitespace is trimmed away so the command really opens the prompt', () => {
+  assert.equal(hoistSlashCommand('  \n/commit fix the parser', commands, null), '/commit fix the parser')
+})
+
+test('an accepted command typed mid-draft is hoisted, arguments and all, with the prose below', () => {
+  assert.equal(
+    hoistSlashCommand('refactored this, now run /review since main', commands, 'review'),
+    '/review since main\nrefactored this, now run'
+  )
+})
+
+test('a command that ends the draft is hoisted and leaves the prose behind it', () => {
+  assert.equal(hoistSlashCommand('have a look then /compact', commands, 'compact'), '/compact\nhave a look then')
+})
+
+test('later lines stay below the hoisted command, behind its own arguments', () => {
+  assert.equal(
+    hoistSlashCommand('please /commit fix the parser\nthen push it', commands, 'commit'),
+    '/commit fix the parser\nplease\nthen push it'
+  )
+})
+
+test('a hoisted command with nothing else in the draft stands alone', () => {
+  assert.equal(hoistSlashCommand('   /review', commands, 'review'), '/review')
+})
+
+test('trailing prose punctuation does not hide the command', () => {
+  assert.equal(hoistSlashCommand('when done, /review.', commands, 'review'), '/review\nwhen done,')
+})
+
+test('only the accepted command is hoisted; other command names in the draft are prose', () => {
+  assert.equal(hoistSlashCommand('first /review then /compact', commands, 'compact'), '/compact\nfirst /review then')
+})
+
+test('a command the captain only mentioned is never invoked behind their back', () => {
+  assert.equal(hoistSlashCommand('what does /review do?', commands, null), 'what does /review do?')
+  assert.equal(hoistSlashCommand('the /review command is broken', commands, 'commit'), 'the /review command is broken')
+})
+
+test('a slash that is not an advertised command is left exactly where it is', () => {
+  assert.equal(hoistSlashCommand('look in /usr/bin for it', commands, 'review'), 'look in /usr/bin for it')
+  assert.equal(hoistSlashCommand('try /notacommand please', commands, 'review'), 'try /notacommand please')
+})
+
+test('a slash welded to a word is ordinary text, never a hoist', () => {
+  assert.equal(hoistSlashCommand('see src/review for the code', commands, 'review'), 'see src/review for the code')
+})
+
+test('a command name with a colon hoists like any other', () => {
+  assert.equal(hoistSlashCommand('ship it: /mcp:deploy now', commands, 'mcp:deploy'), '/mcp:deploy now\nship it:')
+})
+
+test('with no advertised commands the draft is untouched', () => {
+  assert.equal(hoistSlashCommand('now run /review please', [], 'review'), 'now run /review please')
 })
