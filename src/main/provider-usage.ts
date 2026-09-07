@@ -21,8 +21,17 @@ export interface ProviderUsageOptions {
   now?(): number
 }
 
+export interface ProviderUsageReadOptions {
+  /**
+   * Skip the TTL and ask the providers again. This exists for a read the user asked for by
+   * clicking the header chip: the point of that click is to learn something the cached value does
+   * not already say, so answering it from the cache would make the click look broken.
+   */
+  force?: boolean
+}
+
 export interface ProviderUsage {
-  read(): Promise<ProviderRateLimits>
+  read(options?: ProviderUsageReadOptions): Promise<ProviderRateLimits>
 }
 
 export function createProviderUsage(options: ProviderUsageOptions): ProviderUsage {
@@ -32,11 +41,14 @@ export function createProviderUsage(options: ProviderUsageOptions): ProviderUsag
 
   const readProvider = async (
     provider: AgentProvider,
-    reader: ProviderUsageReader
+    reader: ProviderUsageReader,
+    force: boolean
   ): Promise<AgentRateLimitStatus | null> => {
     const cached = cache.get(provider)
-    if (cached && cached.expiresAt > now()) return cached.status
+    if (!force && cached && cached.expiresAt > now()) return cached.status
 
+    // A forced read still joins a request already on its way: that answer is no staler than one
+    // started now, and joining keeps a burst of clicks from spawning a CLI process per click.
     const pending = inFlight.get(provider)
     if (pending) return pending
 
@@ -56,10 +68,11 @@ export function createProviderUsage(options: ProviderUsageOptions): ProviderUsag
   }
 
   return {
-    async read(): Promise<ProviderRateLimits> {
+    async read(readOptions?: ProviderUsageReadOptions): Promise<ProviderRateLimits> {
+      const force = readOptions?.force ?? false
       const entries = Object.entries(options.readers) as Array<[AgentProvider, ProviderUsageReader]>
       const results = await Promise.all(
-        entries.map(async ([provider, reader]) => [provider, await readProvider(provider, reader)] as const)
+        entries.map(async ([provider, reader]) => [provider, await readProvider(provider, reader, force)] as const)
       )
       const limits: ProviderRateLimits = {}
       for (const [provider, status] of results) {

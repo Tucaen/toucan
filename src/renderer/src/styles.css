@@ -213,6 +213,18 @@ button {
   font-size: 10px;
   font-weight: 700;
   white-space: nowrap;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.provider-usage-chip:hover:not(:disabled) {
+  border-color: #4d5a6b;
+  background: #202631;
+}
+
+.provider-usage-chip:disabled {
+  cursor: default;
+  opacity: 0.7;
 }
 
 .provider-usage-chip[data-rejected='true'] {

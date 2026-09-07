@@ -121,3 +121,37 @@ test('a synchronous reader that throws is caught like an async failure', async (
 
   assert.deepEqual(await usage.read(), {})
 })
+
+test('a forced read bypasses the cache the poll is served from', async () => {
+  let reads = 0
+  const usage = createProviderUsage({
+    readers: { claude: { read: () => Promise.resolve({ fiveHour: { usedPercent: reads++ } }) } },
+    ttlMs: 60_000
+  })
+
+  assert.deepEqual(await usage.read(), { claude: { fiveHour: { usedPercent: 0 } } })
+  // Still inside the TTL, so the poll sees the cached reading and a forced read does not.
+  assert.deepEqual(await usage.read(), { claude: { fiveHour: { usedPercent: 0 } } })
+  assert.deepEqual(await usage.read({ force: true }), { claude: { fiveHour: { usedPercent: 1 } } })
+  assert.equal(reads, 2)
+})
+
+test('a forced read that fails keeps the last good reading', async () => {
+  let attempt = 0
+  const usage = createProviderUsage({
+    readers: {
+      claude: {
+        read: () => {
+          attempt += 1
+          return attempt === 1
+            ? Promise.resolve({ fiveHour: { usedPercent: 41 } })
+            : Promise.reject(new Error('offline'))
+        }
+      }
+    },
+    ttlMs: 60_000
+  })
+
+  await usage.read()
+  assert.deepEqual(await usage.read({ force: true }), { claude: { fiveHour: { usedPercent: 41 } } })
+})

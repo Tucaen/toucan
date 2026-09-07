@@ -142,7 +142,8 @@ const workspaceFilesApi = {
 contextBridge.exposeInMainWorld('workspaceFilesApi', workspaceFilesApi)
 
 const usageApi = {
-  rateLimits: (): Promise<ProviderRateLimits> => ipcRenderer.invoke('usage:rate-limits')
+  rateLimits: (options?: { force?: boolean }): Promise<ProviderRateLimits> =>
+    ipcRenderer.invoke('usage:rate-limits', options)
 }
 
 contextBridge.exposeInMainWorld('usageApi', usageApi)

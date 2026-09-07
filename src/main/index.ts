@@ -174,7 +174,9 @@ function registerWorkspaceFileIpc(files: WorkspaceFileIndexReader): void {
 }
 
 function registerUsageIpc(usage: ProviderUsage): void {
-  ipcMain.handle('usage:rate-limits', () => usage.read())
+  ipcMain.handle('usage:rate-limits', (_event, options: unknown) =>
+    usage.read({ force: Boolean((options as { force?: unknown } | undefined)?.force) })
+  )
 }
 
 function registerAgentIpc(manager: AcpSessionManager): void {

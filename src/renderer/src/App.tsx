@@ -197,26 +197,49 @@ function UsageWindow({ label, window }: { label: string; window: AgentRateLimitW
  * Not every plan meters both windows - a Codex plan may report only the one it bills against - and
  * some add a per-model allowance (Claude's weekly Fable window), so a chip renders just the windows
  * its provider actually reported, plan-wide ones first.
+ *
+ * The chip is also the button that refreshes it. Usage is otherwise only as fresh as the poll, and
+ * the moment a user actually cares about the number - right after a long turn, or after waiting out
+ * a limit - is exactly the moment a minute-old reading is the wrong one to be looking at.
  */
-function ProviderUsageChip({ provider, status }: { provider: string; status: AgentRateLimitStatus }): JSX.Element {
+function ProviderUsageChip({
+  provider,
+  status,
+  refreshing,
+  onRefresh
+}: {
+  provider: string
+  status: AgentRateLimitStatus
+  refreshing: boolean
+  onRefresh(): void
+}): JSX.Element {
   const windows = describeRateLimitWindows(status)
   const title = [
     `${provider} account usage`,
     ...windows.map((window) => window.text),
-    status.rejected ? 'Limit reached' : null
+    status.rejected ? 'Limit reached' : null,
+    refreshing ? 'Refreshing…' : 'Click to refresh'
   ]
     .filter(Boolean)
     .join('\n')
 
   return (
-    <span className="provider-usage-chip" data-rejected={status.rejected ? 'true' : undefined} title={title}>
+    <button
+      type="button"
+      className="provider-usage-chip"
+      data-rejected={status.rejected ? 'true' : undefined}
+      data-refreshing={refreshing ? 'true' : undefined}
+      title={title}
+      disabled={refreshing}
+      onClick={onRefresh}
+    >
       <span className="provider-usage-name">{provider}</span>
       {status.fiveHour && <UsageWindow label="5h" window={status.fiveHour} />}
       {status.weekly && <UsageWindow label="7d" window={status.weekly} />}
       {(status.models ?? []).map((model) => (
         <UsageWindow key={model.label} label={model.label} window={model} />
       ))}
-    </span>
+    </button>
   )
 }
 
@@ -1805,7 +1828,7 @@ function Canvas(): JSX.Element {
     <ComposerSendKeyContext.Provider value={sendKeyPreference}>
       {/* One poll, every node: account usage is per provider, so a chat node reads it from here
         instead of asking for it itself. */}
-      <ProviderRateLimitsContext.Provider value={providerRateLimits}>
+      <ProviderRateLimitsContext.Provider value={providerRateLimits.limits}>
         <main className="app-shell" onClick={() => setMenu(null)}>
           {workspaceUnrecoverable && (
             <div
@@ -1861,12 +1884,24 @@ function Canvas(): JSX.Element {
                   )}
                 </div>
               )}
-              {(providerRateLimits.claude || providerRateLimits.codex) && (
+              {(providerRateLimits.limits.claude || providerRateLimits.limits.codex) && (
                 <div className="global-usage-summary">
-                  {providerRateLimits.claude && (
-                    <ProviderUsageChip provider="Claude" status={providerRateLimits.claude} />
+                  {providerRateLimits.limits.claude && (
+                    <ProviderUsageChip
+                      provider="Claude"
+                      status={providerRateLimits.limits.claude}
+                      refreshing={providerRateLimits.refreshing}
+                      onRefresh={providerRateLimits.refresh}
+                    />
                   )}
-                  {providerRateLimits.codex && <ProviderUsageChip provider="Codex" status={providerRateLimits.codex} />}
+                  {providerRateLimits.limits.codex && (
+                    <ProviderUsageChip
+                      provider="Codex"
+                      status={providerRateLimits.limits.codex}
+                      refreshing={providerRateLimits.refreshing}
+                      onRefresh={providerRateLimits.refresh}
+                    />
+                  )}
                 </div>
               )}
               <AppUpdateChip

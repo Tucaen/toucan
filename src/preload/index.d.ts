@@ -90,8 +90,12 @@ export interface WorkspaceFilesApi {
 }
 
 export interface UsageApi {
-  /** Account-wide plan usage windows per provider; omits a provider with nothing to report. */
-  rateLimits(): Promise<ProviderRateLimits>
+  /**
+   * Account-wide plan usage windows per provider; omits a provider with nothing to report. Reads
+   * are served from the host's cache unless `force` is set, which is what a user-initiated
+   * refresh passes.
+   */
+  rateLimits(options?: { force?: boolean }): Promise<ProviderRateLimits>
 }
 
 export interface WorktreeApi {
