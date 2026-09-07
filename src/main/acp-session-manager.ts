@@ -226,6 +226,28 @@ interface RunningAgent {
   wakeGate?: PromptWakeGate<AgentPromptContent>
 }
 
+/**
+ * The adapter diagnostics that carry nothing a user could act on, so they are never published as
+ * `starting` progress. claude-agent-acp probes `claude auth status --json` while the session opens
+ * and logs every failed read to stderr; the probe is advisory - the session's own account info is
+ * what the header and the sign-in affordance read - so a probe that times out, fails, or returns
+ * output it cannot parse changes nothing on screen except a Claude node wearing an alarming hint.
+ */
+const IGNORED_ADAPTER_DIAGNOSTICS = [/^claude auth status\b/i]
+
+/**
+ * The progress text one stderr chunk is worth: its lines minus the ignored diagnostics. A chunk can
+ * carry several lines, so the filter is per line rather than per chunk, and a chunk left with
+ * nothing publishes no status at all.
+ */
+export function startingProgressFrom(chunk: string): string | undefined {
+  const kept = chunk
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line !== '' && !IGNORED_ADAPTER_DIAGNOSTICS.some((pattern) => pattern.test(line)))
+  return kept.length > 0 ? kept.join('\n') : undefined
+}
+
 /** Normalizes a prompt submission (plain text, or a mix of text/image content blocks) into the ACP content-block array. */
 export function toPromptBlocks(content: AgentPromptContent): AgentPromptBlock[] {
   return typeof content === 'string' ? [{ type: 'text', text: content }] : content
@@ -1057,7 +1079,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       child.stderr.on('data', (data: string) => {
         // Only the opening phase reports stderr as progress; see `RunningAgent.opening`.
         if (!running.opening) return
-        const message = data.trim()
+        const message = startingProgressFrom(data)
         if (message) send(running, { type: 'status', status: 'starting', message })
       })
       child.on('exit', (code) => {

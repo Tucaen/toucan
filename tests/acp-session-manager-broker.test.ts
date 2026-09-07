@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
 import { test } from 'node:test'
 import type { WebContents } from 'electron'
-import { createAcpSessionManager } from '../src/main/acp-session-manager'
+import { createAcpSessionManager, startingProgressFrom } from '../src/main/acp-session-manager'
 import { createAgentEventBroker } from '../src/main/agent-event-broker'
 import type { AgentEvent, AgentEventEnvelope } from '../src/shared/agent'
 
@@ -564,4 +564,37 @@ test('adapter stderr during the handshake still surfaces as starting progress', 
   } finally {
     manager.killAll()
   }
+})
+
+test("the adapter's advisory claude auth status diagnostics never reach the node as progress", async () => {
+  const appPath = mkdtempSync(join(tmpdir(), 'toucan-broker-auth-probe-stderr-'))
+  promptingAdapter(appPath, {})
+  const broker = createAgentEventBroker()
+  const delivered: AgentEvent[] = []
+  const owner = {
+    isDestroyed: () => false,
+    send: (_channel: string, envelope: AgentEventEnvelope) => delivered.push(envelope.event)
+  } as unknown as WebContents
+  const adapter = stderrControlledAdapter({ handshakeDiagnostic: 'claude auth status returned unparseable output' })
+  const manager = createAcpSessionManager({ appPath, broker, spawnAgent: adapter.spawnAgent })
+
+  try {
+    const result = await manager.create({ id: 'node-1', provider: 'claude', cwd: appPath }, owner)
+    assert.equal(result.status, 'ready')
+    assert.ok(
+      !delivered.some((event) => event.type === 'status' && (event.message ?? '').includes('claude auth status')),
+      'a failed auth probe changes nothing on screen, so it must not be published as a hint'
+    )
+  } finally {
+    manager.killAll()
+  }
+})
+
+test('a stderr chunk keeps the lines around an ignored diagnostic', () => {
+  assert.equal(
+    startingProgressFrom('claude auth status returned unparseable output\nLoading provider credentials...'),
+    'Loading provider credentials...'
+  )
+  assert.equal(startingProgressFrom('claude auth status failed: ENOENT\n'), undefined)
+  assert.equal(startingProgressFrom('   \n'), undefined)
 })
