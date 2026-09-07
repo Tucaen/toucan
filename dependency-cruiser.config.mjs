@@ -18,6 +18,7 @@ const pureRendererFeatureNames = [
   'composer-keys',
   'completion-token',
   'decision-message',
+  'diff-node',
   'file-mention-completion',
   'file-node',
   'file-operation',

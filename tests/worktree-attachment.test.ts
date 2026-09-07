@@ -75,7 +75,8 @@ function worktreeNode(worktreeId: string, attachedNodeCount = 0): CanvasNode {
       attachedNodeCount,
       onRemoveWorktree: () => {},
       onCreateNodeInWorktree: () => {},
-      onRunSetupCommand: () => {}
+      onRunSetupCommand: () => {},
+      onOpenDiff: () => {}
     }
   }
 }
@@ -161,10 +162,29 @@ test('an association whose worktree record is gone adopts nothing', () => {
 })
 
 test('the attached count a worktree shows is the number of nodes actually running in it', () => {
+  // A diff node reviews the worktree without running anything in it, so it is never attached and
+  // never blocks the worktree's removal (issue #144).
+  const diffNode: CanvasNode = {
+    id: 'diff-1',
+    type: 'diffNode',
+    position: { x: 0, y: 0 },
+    data: {
+      projectId: 'project-1',
+      projectName: 'ADE',
+      projectPath: 'D:\\Development\\ADE',
+      projectColor: '#fff',
+      worktreeId: 'worktree-1',
+      label: 'feature/thinking-final-presentation',
+      path: WORKTREE_PATH,
+      baseRef: 'main',
+      onSelectDiffPath: () => {}
+    }
+  }
   const nodes = [
     sessionNode('node-1', { worktreeId: 'worktree-1' }),
     sessionNode('node-2', { worktreeId: 'worktree-1' }),
     sessionNode('node-3', { activeWorktreeId: 'worktree-1' }),
+    diffNode,
     worktreeNode('worktree-1')
   ]
 

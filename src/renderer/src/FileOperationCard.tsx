@@ -76,7 +76,14 @@ function FilePathActions({ path }: { path: string }): JSX.Element {
   )
 }
 
-function FileOperationBlockView({ block, showPath }: { block: FileOperationBlock; showPath: boolean }): JSX.Element {
+/** One block of lines; also the diff node's hunk renderer, so a hunk reads the same everywhere. */
+export function FileOperationBlockView({
+  block,
+  showPath
+}: {
+  block: FileOperationBlock
+  showPath: boolean
+}): JSX.Element {
   const highlighted = highlightedCodeLines(
     block.lines.map((line) => line.text),
     block.languagePath ?? ''

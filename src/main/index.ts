@@ -59,6 +59,7 @@ import { createWorkspaceStore } from './workspace-store'
 import { projectFor, ticketsDirectoryFor } from './ticket-directory'
 import { githubStatusLabelsFor, type GithubStatusLabels } from '../shared/github-issues'
 import type { WorktreeCreateRequest, WorktreeDiscoverRequest, WorktreeRemoveRequest } from '../shared/worktree'
+import type { GitDiffRequest, GitFileDiffRequest } from '../shared/git-diff'
 
 /**
  * Plan usage moves slowly and a Claude read boots a CLI, so this caps how often that happens
@@ -163,6 +164,8 @@ function registerWorktreeIpc(worktrees: WorktreeManager): void {
   ipcMain.handle('worktree:status', (_event, request: WorktreeStatusRequest) => worktrees.status(request))
   ipcMain.handle('worktree:remove', (_event, request: WorktreeRemoveRequest) => worktrees.remove(request))
   ipcMain.handle('worktree:discover', (_event, request: WorktreeDiscoverRequest) => worktrees.discover(request))
+  ipcMain.handle('worktree:diff', (_event, request: GitDiffRequest) => worktrees.diff(request))
+  ipcMain.handle('worktree:diff-file', (_event, request: GitFileDiffRequest) => worktrees.diffFile(request))
 }
 
 /**

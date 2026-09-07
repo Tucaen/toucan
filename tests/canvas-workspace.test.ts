@@ -16,10 +16,18 @@ import {
   cascadedNodePosition,
   changeFileCanvasNodePath,
   createFileCanvasNode,
+  createDiffCanvasNode,
+  DEFAULT_DIFF_NODE_SIZE,
   DEFAULT_FILE_NODE_SIZE,
+  isDiffCanvasNode,
   isFileCanvasNode,
+  isLayoutCanvasNode,
+  selectDiffCanvasNodePath,
+  serializeDiffNode,
   serializeFileNode,
+  withoutWorktree,
   type CanvasNode,
+  type DiffCanvasNode,
   type FileCanvasNode,
   type TerminalCanvasNode,
   type WorktreeCanvasNode
@@ -39,9 +47,11 @@ const callbacks = {
   onRemoveWorktree: () => undefined,
   onCreateNodeInWorktree: () => undefined,
   onRunSetupCommand: () => undefined,
+  onOpenDiff: () => undefined,
   onViewModeChange: () => undefined,
   onRequestFilePath: async () => null,
-  onPathChange: () => undefined
+  onPathChange: () => undefined,
+  onSelectDiffPath: () => undefined
 }
 
 function terminalNodes(nodes: CanvasNode[]): TerminalCanvasNode[] {
@@ -399,7 +409,8 @@ test('the menu hints are derived from the same bindings the handler reads', () =
     'create-codex': 'Ctrl+Shift+N',
     'create-worktree': 'Ctrl+Shift+G',
     'open-history': 'Ctrl+H',
-    'open-file': 'Ctrl+P'
+    'open-file': 'Ctrl+P',
+    'open-diff': 'Ctrl+D'
   })
 })
 
@@ -578,4 +589,92 @@ test('changing a file node path preserves its canvas identity, geometry and view
   assert.equal(changed.data.onRequestFilePath, callbacks.onRequestFilePath)
   assert.equal(changed.data.onPathChange, callbacks.onPathChange)
   assert.equal(serializeFileNode(changed as FileCanvasNode).path, 'D:\\Development\\Toucan\\docs\\next.md')
+})
+
+/*
+ * A diff node (issue #144) reviews a checkout, so it is layout that survives a restart: position,
+ * size and the open file come back, a worktree review goes with its worktree, and a primary-checkout
+ * review compares against HEAD because that is the only base it has.
+ */
+test('a diff node survives save, load and restore, and goes with its worktree or project', () => {
+  const state = worktreeState()
+  state.diffs = [
+    {
+      id: 'diff-1',
+      projectId: 'project-1',
+      worktreeId: 'worktree-1',
+      position: { x: 0, y: 300 },
+      width: 760,
+      height: 560,
+      selectedPath: 'src/a.ts'
+    },
+    { id: 'diff-primary', projectId: 'project-1', position: { x: 900, y: 0 }, width: 700, height: 400 },
+    {
+      id: 'diff-orphan-worktree',
+      projectId: 'project-1',
+      worktreeId: 'gone',
+      position: { x: 0, y: 0 },
+      width: 1,
+      height: 1
+    },
+    { id: 'diff-orphan-project', projectId: 'deleted', position: { x: 0, y: 0 }, width: 1, height: 1 }
+  ]
+  const restored = restoreCanvasWorkspace(state, callbacks)
+  const diffs = restored.nodes.filter(isDiffCanvasNode)
+
+  assert.deepEqual(
+    diffs.map((node) => node.id),
+    ['diff-1', 'diff-primary']
+  )
+  const [review, primary] = diffs
+  assert.equal(review.type, 'diffNode')
+  assert.equal(review.dragHandle, '.node-header')
+  assert.equal(review.data.path, 'D:\\Development\\Toucan-worktrees\\feature-login')
+  assert.equal(review.data.baseRef, 'main')
+  assert.equal(review.data.label, 'feature/login')
+  assert.equal(review.data.selectedPath, 'src/a.ts')
+  assert.equal(review.data.onSelectDiffPath, callbacks.onSelectDiffPath)
+  assert.deepEqual(serializeDiffNode(review), state.diffs[0])
+
+  assert.equal(primary.data.path, 'D:\\Development\\Toucan')
+  assert.equal(primary.data.baseRef, 'HEAD')
+  assert.equal(primary.data.label, 'Toucan')
+  assert.equal(primary.data.worktreeId, undefined)
+  assert.deepEqual(serializeDiffNode(primary), state.diffs[1])
+
+  // Like a file node, a review is not a session: closing one never becomes a reopen target.
+  assert.equal(isLayoutCanvasNode(review), true)
+  assert.deepEqual(rememberClosedSessionNodes([state.nodes[0]], [review]), [])
+})
+
+test('a fresh diff node takes the default size and remembers the file the reader opens', () => {
+  const project = worktreeState().projects[0]
+  const node = createDiffCanvasNode({ id: 'diff-new', position: { x: 10, y: 20 } }, project, undefined, callbacks)
+  assert.deepEqual(node.style, DEFAULT_DIFF_NODE_SIZE)
+  assert.equal(node.data.selectedPath, undefined)
+
+  const nodes: CanvasNode[] = [node]
+  const selected = selectDiffCanvasNodePath(nodes, 'diff-new', 'src/a.ts')
+  assert.equal((selected[0] as DiffCanvasNode).data.selectedPath, 'src/a.ts')
+  assert.equal(serializeDiffNode(selected[0] as DiffCanvasNode).selectedPath, 'src/a.ts')
+  assert.equal(selectDiffCanvasNodePath(selected, 'diff-new', 'src/a.ts'), selected, 'same path is a no-op')
+  assert.equal(
+    (selectDiffCanvasNodePath(selected, 'diff-new', undefined)[0] as DiffCanvasNode).data.selectedPath,
+    undefined
+  )
+  assert.equal(selectDiffCanvasNodePath(nodes, 'missing', 'x'), nodes)
+})
+
+test('removing a worktree removes its diff nodes and nothing else', () => {
+  const state = worktreeState()
+  state.diffs = [
+    { id: 'diff-1', projectId: 'project-1', worktreeId: 'worktree-1', position: { x: 0, y: 0 }, width: 1, height: 1 },
+    { id: 'diff-primary', projectId: 'project-1', position: { x: 0, y: 0 }, width: 1, height: 1 }
+  ]
+  const nodes = restoreCanvasWorkspace(state, callbacks).nodes
+  const remaining = withoutWorktree(nodes, 'worktree-1')
+  assert.deepEqual(remaining.map((node) => node.id).sort(), ['diff-primary', 'node-1', 'node-2'])
+  // A diff node is not attached to the worktree: it runs nothing there, so it never blocks removal.
+  const worktree = worktreeNodes(nodes)[0]
+  assert.equal(worktree.data.attachedNodeCount, 2)
 })

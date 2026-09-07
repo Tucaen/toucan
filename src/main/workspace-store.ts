@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { AGENT_TURN_OUTCOME_LIMIT } from '../shared/agent'
 import { isAttentionItem } from '../shared/attention'
 import { isFileViewMode, type WorkspaceFileNode } from '../shared/file-view'
+import type { WorkspaceDiffNode } from '../shared/git-diff'
 import { isProjectColor, paletteColorAt } from '../shared/project-colors'
 import {
   isComposerSendKey,
@@ -61,6 +62,21 @@ function isWorkspaceFileNode(value: unknown): boolean {
     typeof file.position?.y === 'number' &&
     typeof file.width === 'number' &&
     typeof file.height === 'number'
+  )
+}
+
+function isWorkspaceDiffNode(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false
+  const diff = value as Partial<WorkspaceDiffNode>
+  return (
+    typeof diff.id === 'string' &&
+    typeof diff.projectId === 'string' &&
+    (diff.worktreeId === undefined || typeof diff.worktreeId === 'string') &&
+    (diff.selectedPath === undefined || typeof diff.selectedPath === 'string') &&
+    typeof diff.position?.x === 'number' &&
+    typeof diff.position?.y === 'number' &&
+    typeof diff.width === 'number' &&
+    typeof diff.height === 'number'
   )
 }
 
@@ -171,6 +187,8 @@ export function isWorkspaceState(value: unknown): value is WorkspaceState {
   if (state.version !== 3 || !Array.isArray(state.nodes)) return false
   if (!Array.isArray(state.worktrees) || !state.worktrees.every(isWorkspaceWorktree)) return false
   if (state.files !== undefined && (!Array.isArray(state.files) || !state.files.every(isWorkspaceFileNode)))
+    return false
+  if (state.diffs !== undefined && (!Array.isArray(state.diffs) || !state.diffs.every(isWorkspaceDiffNode)))
     return false
   if (
     state.projectGroups !== undefined &&

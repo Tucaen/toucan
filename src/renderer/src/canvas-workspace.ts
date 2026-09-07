@@ -12,6 +12,7 @@ import type {
 } from '../../shared/terminal'
 import { RECENTLY_CLOSED_SESSION_LIMIT, type WorkspaceProject } from '../../shared/terminal'
 import { defaultFileViewMode, type FileViewMode, type WorkspaceFileNode } from '../../shared/file-view'
+import type { WorkspaceDiffNode } from '../../shared/git-diff'
 import type { WorkspaceWorktree } from '../../shared/worktree'
 import type { WorktreeHandoffPlan } from '../../shared/worktree-handoff'
 import type { ConversationTitleSource } from '../../shared/conversation-title'
@@ -111,6 +112,8 @@ export interface WorktreeNodeCallbacks {
   onRemoveWorktree(worktreeId: string): void
   onCreateNodeInWorktree(worktreeId: string, kind: TerminalKind): void
   onRunSetupCommand(worktreeId: string): void
+  /** Opens a diff node reviewing this worktree's changes against the ref it was branched from. */
+  onOpenDiff(worktreeId: string): void
 }
 
 export interface WorktreeNodeData extends Record<string, unknown>, WorktreeNodeCallbacks, CanvasNodePresentation {
@@ -147,10 +150,32 @@ export interface FileNodeData extends Record<string, unknown>, FileNodeCallbacks
   projectColor: string
 }
 
+export interface DiffNodeCallbacks {
+  /** The reader opened another file's hunks (or none); the choice persists with the node. */
+  onSelectDiffPath(nodeId: string, path: string | undefined): void
+}
+
+export interface DiffNodeData extends Record<string, unknown>, DiffNodeCallbacks, CanvasNodePresentation {
+  projectId: string
+  projectName: string
+  projectPath: string
+  projectColor: string
+  /** The worktree under review; absent for the project's primary checkout. */
+  worktreeId?: string
+  /** Shown as the node's identity: the worktree branch, or the project name for the primary checkout. */
+  label: string
+  /** The checkout directory git runs in. */
+  path: string
+  /** What the working tree is compared against; `HEAD` for the primary checkout. */
+  baseRef: string
+  selectedPath?: string
+}
+
 export type TerminalCanvasNode = Node<TerminalNodeData, 'terminalNode'>
 export type WorktreeCanvasNode = Node<WorktreeNodeData, 'worktreeNode'>
 export type FileCanvasNode = Node<FileNodeData, 'fileNode'>
-export type CanvasNode = TerminalCanvasNode | WorktreeCanvasNode | FileCanvasNode
+export type DiffCanvasNode = Node<DiffNodeData, 'diffNode'>
+export type CanvasNode = TerminalCanvasNode | WorktreeCanvasNode | FileCanvasNode | DiffCanvasNode
 export const NODE_DRAG_HANDLE = '.node-header'
 
 /** Enough accidental closes to be useful without letting a workspace snapshot grow forever. */
@@ -180,7 +205,14 @@ export function closedSessionKeyAction(event: ShortcutKey, hasClosedSession: boo
 
 /** One entry of the canvas context menu, reachable from the keyboard without opening the menu. */
 export type CreateNodeKeyAction =
-  'create-terminal' | 'create-claude' | 'create-codex' | 'create-worktree' | 'open-history' | 'open-file' | 'none'
+  | 'create-terminal'
+  | 'create-claude'
+  | 'create-codex'
+  | 'create-worktree'
+  | 'open-history'
+  | 'open-file'
+  | 'open-diff'
+  | 'none'
 
 /**
  * Ctrl+P mirrors VS Code's quick-open for the file node; the others follow the same "Ctrl plus the
@@ -194,7 +226,8 @@ const NODE_SHORTCUTS: readonly { action: Exclude<CreateNodeKeyAction, 'none'>; k
   { action: 'create-codex', key: 'n', shift: true },
   { action: 'create-worktree', key: 'g', shift: true },
   { action: 'open-history', key: 'h', shift: false },
-  { action: 'open-file', key: 'p', shift: false }
+  { action: 'open-file', key: 'p', shift: false },
+  { action: 'open-diff', key: 'd', shift: false }
 ]
 
 /** Shown beside each menu entry so the shortcuts are discoverable where the mouse already is. */
@@ -230,6 +263,18 @@ export function isFileCanvasNode(node: CanvasNode): node is FileCanvasNode {
   return node.type === 'fileNode'
 }
 
+export function isDiffCanvasNode(node: CanvasNode): node is DiffCanvasNode {
+  return node.type === 'diffNode'
+}
+
+/**
+ * Nodes that are layout rather than sessions: closing one is not an accidental close worth
+ * undoing, so they never enter the recently-closed stack - and never wipe it either.
+ */
+export function isLayoutCanvasNode(node: CanvasNode): node is FileCanvasNode | DiffCanvasNode {
+  return isFileCanvasNode(node) || isDiffCanvasNode(node)
+}
+
 export interface RestoredCanvasWorkspace {
   nodes: CanvasNode[]
   statuses: Record<string, TerminalNodeStatus>
@@ -241,6 +286,8 @@ const DEFAULT_TERMINAL_SIZE = { width: 520, height: 340 }
 export const DEFAULT_WORKTREE_SIZE = { width: 360, height: 232 }
 /** Taller than wide: a file node is for reading a document, and prose is read downward. */
 export const DEFAULT_FILE_NODE_SIZE = { width: 480, height: 560 }
+/** Wide enough for a file rail beside hunks that keep their line numbers readable. */
+export const DEFAULT_DIFF_NODE_SIZE = { width: 760, height: 560 }
 
 /** How far each retry of `cascadedNodePosition` steps, and how many times it may step. */
 const CASCADE_STEP = 48
@@ -495,9 +542,81 @@ export function createFileCanvasNode(
   }
 }
 
+export function serializeDiffNode(node: DiffCanvasNode): WorkspaceDiffNode {
+  const size = measured(node, DEFAULT_DIFF_NODE_SIZE)
+  return {
+    id: node.id,
+    projectId: node.data.projectId,
+    ...(node.data.worktreeId ? { worktreeId: node.data.worktreeId } : {}),
+    position: node.position,
+    width: size.width,
+    height: size.height,
+    ...(node.data.selectedPath ? { selectedPath: node.data.selectedPath } : {})
+  }
+}
+
+export interface DiffNodeSeed {
+  id: string
+  position: { x: number; y: number }
+  selectedPath?: string
+  width?: number
+  height?: number
+}
+
+/**
+ * The one place a diff node is built, from the worktree node header, the canvas menu, or a
+ * snapshot. Against a worktree it reviews that directory against the ref the branch was cut
+ * from; without one it reviews the project's primary checkout against `HEAD`, which is the only
+ * base a checkout with no recorded origin has.
+ */
+export function createDiffCanvasNode(
+  seed: DiffNodeSeed,
+  project: WorkspaceProject,
+  worktree: Pick<WorkspaceWorktree, 'id' | 'branch' | 'path' | 'baseRef'> | undefined,
+  callbacks: DiffNodeCallbacks
+): DiffCanvasNode {
+  return {
+    id: seed.id,
+    type: 'diffNode',
+    dragHandle: NODE_DRAG_HANDLE,
+    position: seed.position,
+    data: {
+      projectId: project.id,
+      projectName: project.name,
+      projectPath: project.path,
+      projectColor: project.color,
+      ...(worktree ? { worktreeId: worktree.id } : {}),
+      label: worktree ? worktree.branch : project.name,
+      path: worktree ? worktree.path : project.path,
+      baseRef: worktree ? worktree.baseRef : 'HEAD',
+      ...(seed.selectedPath ? { selectedPath: seed.selectedPath } : {}),
+      onSelectDiffPath: callbacks.onSelectDiffPath
+    },
+    style: { width: seed.width ?? DEFAULT_DIFF_NODE_SIZE.width, height: seed.height ?? DEFAULT_DIFF_NODE_SIZE.height }
+  }
+}
+
+/** Records which file a diff node has open without rebuilding the canvas object that owns its layout. */
+export function selectDiffCanvasNodePath(nodes: CanvasNode[], nodeId: string, path: string | undefined): CanvasNode[] {
+  const target = nodes.find((node) => isDiffCanvasNode(node) && node.id === nodeId)
+  if (!target || target.data.selectedPath === path) return nodes
+  return nodes.map((node) =>
+    isDiffCanvasNode(node) && node.id === nodeId ? { ...node, data: { ...node.data, selectedPath: path } } : node
+  )
+}
+
+/** A worktree's diff nodes go with it: they review a directory that no longer exists. */
+export function withoutWorktree(nodes: CanvasNode[], worktreeId: string): CanvasNode[] {
+  return nodes.filter(
+    (node) =>
+      !(isWorktreeCanvasNode(node) && node.data.worktreeId === worktreeId) &&
+      !(isDiffCanvasNode(node) && node.data.worktreeId === worktreeId)
+  )
+}
+
 export function restoreCanvasWorkspace(
   state: WorkspaceState,
-  callbacks: TerminalNodeCallbacks & WorktreeNodeCallbacks & FileNodeCallbacks
+  callbacks: TerminalNodeCallbacks & WorktreeNodeCallbacks & FileNodeCallbacks & DiffNodeCallbacks
 ): RestoredCanvasWorkspace {
   const projectsById = new Map(state.projects.map((project) => [project.id, project]))
   const worktrees = (state.worktrees ?? []).filter((worktree) => projectsById.has(worktree.projectId))
@@ -533,7 +652,8 @@ export function restoreCanvasWorkspace(
         attachedNodeCount: attachedCounts.get(worktree.id) ?? 0,
         onRemoveWorktree: callbacks.onRemoveWorktree,
         onCreateNodeInWorktree: callbacks.onCreateNodeInWorktree,
-        onRunSetupCommand: callbacks.onRunSetupCommand
+        onRunSetupCommand: callbacks.onRunSetupCommand,
+        onOpenDiff: callbacks.onOpenDiff
       },
       style: { width: worktree.width, height: worktree.height }
     }
@@ -556,8 +676,19 @@ export function restoreCanvasWorkspace(
     return project ? [createFileCanvasNode(file, project, callbacks)] : []
   })
 
+  // A diff node reviews a checkout, so it goes with its worktree record (or its project) the
+  // way a worktree's teardown removes it; a checkout that is merely dirty or gone from disk keeps
+  // its node, which reports that itself.
+  const diffNodes = (state.diffs ?? []).flatMap<DiffCanvasNode>((diff) => {
+    const project = projectsById.get(diff.projectId)
+    if (!project) return []
+    const worktree = diff.worktreeId ? worktreesById.get(diff.worktreeId) : undefined
+    if (diff.worktreeId && !worktree) return []
+    return [createDiffCanvasNode(diff, project, worktree, callbacks)]
+  })
+
   return {
-    nodes: [...worktreeNodes, ...terminalNodes, ...fileNodes],
+    nodes: [...worktreeNodes, ...terminalNodes, ...fileNodes, ...diffNodes],
     statuses: Object.fromEntries(
       terminalNodes.map((node) => [node.id, node.data.dormant ? ('dormant' as const) : ('starting' as const)])
     ),

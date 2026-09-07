@@ -29,6 +29,7 @@ import type {
   WorktreeRemoveResult,
   WorktreeStatus
 } from '../shared/worktree'
+import type { GitDiffRequest, GitDiffSummary, GitFileDiff, GitFileDiffRequest } from '../shared/git-diff'
 import type { ConversationListPage, ConversationListRequest } from '../shared/conversation'
 import type { WorkspaceFileIndex } from '../shared/workspace-files'
 import type { RemoteAccessSettings, RemoteAccessState, RemoteWorkspaceProjection } from '../shared/remote-access'
@@ -156,7 +157,9 @@ const worktreeApi = {
   remove: (request: WorktreeRemoveRequest): Promise<WorktreeRemoveResult> =>
     ipcRenderer.invoke('worktree:remove', request),
   discover: (request: WorktreeDiscoverRequest): Promise<WorktreeDiscoverResult> =>
-    ipcRenderer.invoke('worktree:discover', request)
+    ipcRenderer.invoke('worktree:discover', request),
+  diff: (request: GitDiffRequest): Promise<GitDiffSummary> => ipcRenderer.invoke('worktree:diff', request),
+  diffFile: (request: GitFileDiffRequest): Promise<GitFileDiff> => ipcRenderer.invoke('worktree:diff-file', request)
 }
 
 contextBridge.exposeInMainWorld('worktreeApi', worktreeApi)

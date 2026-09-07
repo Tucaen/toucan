@@ -18,6 +18,7 @@ import {
   FileText,
   FolderPlus,
   GitBranch,
+  GitCompare,
   GripVertical,
   History,
   Plus,
@@ -76,18 +77,24 @@ import {
   type CreateNodeKeyAction,
   NODE_SHORTCUT_LABELS,
   changeFileCanvasNodePath,
+  createDiffCanvasNode,
   createFileCanvasNode,
   DEFAULT_WORKTREE_SIZE,
+  isDiffCanvasNode,
   isFileCanvasNode,
+  isLayoutCanvasNode,
   isTerminalCanvasNode,
   isWorktreeCanvasNode,
   NODE_DRAG_HANDLE,
   rememberClosedSessionNodes,
   reopenClosedSession,
   restoreCanvasWorkspace,
+  selectDiffCanvasNodePath,
   serializeCanvasNode,
+  serializeDiffNode,
   serializeFileNode,
   serializeWorktreeNode,
+  withoutWorktree,
   cascadedNodePosition,
   type CanvasNode,
   type TerminalCanvasNode,
@@ -105,6 +112,7 @@ import { useRemoteAccess } from './use-remote-access'
 import type { RemoteChatSpawnRequest, RemoteChatSpawnResult } from '../../shared/remote-spawn'
 import ConversationHistoryDialog from './ConversationHistoryDialog'
 import FileNode from './FileNode'
+import DiffNode from './DiffNode'
 import FilePickerDialog from './FilePickerDialog'
 import { OpenFileContext } from './open-file-context'
 import { projectOwningPath, workspaceRootOwningPath } from './file-node'
@@ -168,7 +176,12 @@ type FilePickerRequest =
 /** How often Toucan re-checks git for worktrees it has no record of. */
 const WORKTREE_SWEEP_INTERVAL_MS = 15000
 
-const nodeTypes: NodeTypes = { terminalNode: SessionNode, worktreeNode: WorktreeNode, fileNode: FileNode }
+const nodeTypes: NodeTypes = {
+  terminalNode: SessionNode,
+  worktreeNode: WorktreeNode,
+  fileNode: FileNode,
+  diffNode: DiffNode
+}
 
 const SESSION_KIND_BY_ACTION = {
   'create-terminal': 'terminal',
@@ -494,6 +507,12 @@ function Canvas(): JSX.Element {
     [setNodes]
   )
 
+  const handleSelectDiffPath = useCallback(
+    (nodeId: string, path: string | undefined): void =>
+      setNodes((current) => selectDiffCanvasNodePath(current, nodeId, path)),
+    [setNodes]
+  )
+
   const handlePermissionModeChange = useCallback(
     (provider: keyof AgentPermissionModes, modeId: string): void => {
       setAgentPermissionModes((current) =>
@@ -646,7 +665,7 @@ function Canvas(): JSX.Element {
         // undoing, and it must not wipe the reopen stack the way closing a worktree node does.
         const next = rememberClosedSessionNodes(
           recentlyClosedNodesRef.current,
-          removedNodes.filter((node) => !isFileCanvasNode(node))
+          removedNodes.filter((node) => !isLayoutCanvasNode(node))
         )
         recentlyClosedNodesRef.current = next
         setRecentlyClosedNodes(next)
@@ -848,6 +867,45 @@ function Canvas(): JSX.Element {
     []
   )
 
+  /** Puts a review of one checkout on the canvas; the node reads git itself. */
+  const addDiffNode = useCallback(
+    (project: Project, worktree: WorktreeCanvasNode['data'] | undefined, position: { x: number; y: number }): void => {
+      const node = createDiffCanvasNode(
+        { id: `diff-${crypto.randomUUID()}`, position },
+        project,
+        worktree
+          ? { id: worktree.worktreeId, branch: worktree.branch, path: worktree.path, baseRef: worktree.baseRef }
+          : undefined,
+        { onSelectDiffPath: handleSelectDiffPath }
+      )
+      setNodes((current) => [
+        ...current.map((candidate) => ({ ...candidate, selected: false })),
+        { ...node, selected: true }
+      ])
+    },
+    [handleSelectDiffPath, setNodes]
+  )
+
+  /** "Diff" on a worktree node: the review lands below the worktree it reviews. */
+  const handleOpenDiff = useCallback(
+    (worktreeId: string): void => {
+      const worktreeNode = findWorktreeNode(worktreeId)
+      const project = projectsRef.current.find((candidate) => candidate.id === worktreeNode?.data.projectId)
+      if (!worktreeNode || !project) return
+      const height =
+        typeof worktreeNode.style?.height === 'number' ? worktreeNode.style.height : DEFAULT_WORKTREE_SIZE.height
+      addDiffNode(
+        project,
+        worktreeNode.data,
+        cascadedNodePosition(nodesRef.current, {
+          x: worktreeNode.position.x,
+          y: worktreeNode.position.y + (worktreeNode.measured?.height ?? height) + 48
+        })
+      )
+    },
+    [addDiffNode, findWorktreeNode]
+  )
+
   /** New sessions land beside their worktree node, fanned out so they do not stack on one spot. */
   const openInWorktree = useCallback(
     (worktreeId: string, kind: TerminalKind, initialInput?: string): void => {
@@ -929,9 +987,7 @@ function Canvas(): JSX.Element {
         .then((result) => {
           if (result.ok) {
             clearRecentlyClosedNodes()
-            setNodes((current) =>
-              current.filter((node) => !(isWorktreeCanvasNode(node) && node.data.worktreeId === worktreeId))
-            )
+            setNodes((current) => withoutWorktree(current, worktreeId))
             setRemovalPrompt(null)
             return
           }
@@ -1018,7 +1074,8 @@ function Canvas(): JSX.Element {
                 attachedNodeCount: 0,
                 onRemoveWorktree: handleRemoveWorktree,
                 onCreateNodeInWorktree: handleCreateNodeInWorktree,
-                onRunSetupCommand: handleRunSetupCommand
+                onRunSetupCommand: handleRunSetupCommand,
+                onOpenDiff: handleOpenDiff
               },
               style: { ...DEFAULT_WORKTREE_SIZE }
             }
@@ -1058,6 +1115,7 @@ function Canvas(): JSX.Element {
       handleDraftChange,
       handleRemoveWorktree,
       handleRunSetupCommand,
+      handleOpenDiff,
       openInWorktree,
       setNodes
     ]
@@ -1083,9 +1141,7 @@ function Canvas(): JSX.Element {
         .then((result) => {
           if (result.ok) {
             clearRecentlyClosedNodes()
-            setNodes((current) =>
-              current.filter((node) => !(isWorktreeCanvasNode(node) && node.data.worktreeId === prompt.worktreeId))
-            )
+            setNodes((current) => withoutWorktree(current, prompt.worktreeId))
             setRemovalPrompt(null)
             return
           }
@@ -1134,9 +1190,11 @@ function Canvas(): JSX.Element {
         onRemoveWorktree: handleRemoveWorktree,
         onCreateNodeInWorktree: handleCreateNodeInWorktree,
         onRunSetupCommand: handleRunSetupCommand,
+        onOpenDiff: handleOpenDiff,
         onViewModeChange: handleFileViewModeChange,
         onRequestFilePath: handleRequestFilePath,
-        onPathChange: handleFilePathChange
+        onPathChange: handleFilePathChange,
+        onSelectDiffPath: handleSelectDiffPath
       })
 
       setProjects(saved.projects)
@@ -1185,7 +1243,9 @@ function Canvas(): JSX.Element {
       handlePermissionModeChange,
       handlePreview,
       handleRemoveWorktree,
+      handleSelectDiffPath,
       handleRunSetupCommand,
+      handleOpenDiff,
       handleStatusChange,
       handleTicketActivity,
       handleTerminalLiveness,
@@ -1225,6 +1285,13 @@ function Canvas(): JSX.Element {
             files: nodes
               .filter(isFileCanvasNode)
               .map((node) => serializeFileNode(nodeBeforeTemporaryFit(node, nodeFit.state())))
+          }
+        : {}),
+      ...(nodes.some(isDiffCanvasNode)
+        ? {
+            diffs: nodes
+              .filter(isDiffCanvasNode)
+              .map((node) => serializeDiffNode(nodeBeforeTemporaryFit(node, nodeFit.state())))
           }
         : {}),
       brainDumpPanel,
@@ -1349,7 +1416,8 @@ function Canvas(): JSX.Element {
                 attachedNodeCount: 0,
                 onRemoveWorktree: handleRemoveWorktree,
                 onCreateNodeInWorktree: handleCreateNodeInWorktree,
-                onRunSetupCommand: handleRunSetupCommand
+                onRunSetupCommand: handleRunSetupCommand,
+                onOpenDiff: handleOpenDiff
               },
               style: { ...DEFAULT_WORKTREE_SIZE }
             }
@@ -1369,7 +1437,14 @@ function Canvas(): JSX.Element {
       cancelled = true
       clearInterval(timer)
     }
-  }, [handleCreateNodeInWorktree, handleRemoveWorktree, handleRunSetupCommand, setNodes, workspaceReady])
+  }, [
+    handleCreateNodeInWorktree,
+    handleOpenDiff,
+    handleRemoveWorktree,
+    handleRunSetupCommand,
+    setNodes,
+    workspaceReady
+  ])
 
   const addProject = useCallback(async (): Promise<void> => {
     const directory = await window.terminalApi.pickProject()
@@ -1496,9 +1571,12 @@ function Canvas(): JSX.Element {
             position
           })
           break
+        case 'open-diff':
+          addDiffNode(project, undefined, position)
+          break
       }
     },
-    [activeProject, addSessionNode]
+    [activeProject, addDiffNode, addSessionNode]
   )
 
   const runCreateActionFromMenu = useCallback(
@@ -1725,14 +1803,23 @@ function Canvas(): JSX.Element {
               attachedNodeCount: 0,
               onRemoveWorktree: handleRemoveWorktree,
               onCreateNodeInWorktree: handleCreateNodeInWorktree,
-              onRunSetupCommand: handleRunSetupCommand
+              onRunSetupCommand: handleRunSetupCommand,
+              onOpenDiff: handleOpenDiff
             },
             style: { ...DEFAULT_WORKTREE_SIZE }
           }
         ])
         setWorktreeDraft(null)
       })
-  }, [handleCreateNodeInWorktree, handleRemoveWorktree, handleRunSetupCommand, projects, setNodes, worktreeDraft])
+  }, [
+    handleCreateNodeInWorktree,
+    handleOpenDiff,
+    handleRemoveWorktree,
+    handleRunSetupCommand,
+    projects,
+    setNodes,
+    worktreeDraft
+  ])
 
   const saveSetupCommand = useCallback((projectId: string, command: string): void => {
     setProjects((current) =>
@@ -1760,6 +1847,7 @@ function Canvas(): JSX.Element {
           // union, and TypeScript only keeps the discriminant when each member is built separately.
           if (isTerminalCanvasNode(node)) return { ...node, data: { ...node.data, projectColor: color } }
           if (isWorktreeCanvasNode(node)) return { ...node, data: { ...node.data, projectColor: color } }
+          if (isFileCanvasNode(node)) return { ...node, data: { ...node.data, projectColor: color } }
           return { ...node, data: { ...node.data, projectColor: color } }
         })
       )
@@ -2543,6 +2631,16 @@ function Canvas(): JSX.Element {
                   <small>Read a project file on the canvas</small>
                 </span>
                 <kbd>{NODE_SHORTCUT_LABELS['open-file']}</kbd>
+              </button>
+              <button type="button" role="menuitem" onClick={() => runCreateActionFromMenu('open-diff')}>
+                <span className="menu-icon diff-icon">
+                  <GitCompare aria-hidden="true" />
+                </span>
+                <span>
+                  <strong>Diff</strong>
+                  <small>Review the checkout's changes against HEAD</small>
+                </span>
+                <kbd>{NODE_SHORTCUT_LABELS['open-diff']}</kbd>
               </button>
             </div>
           )}

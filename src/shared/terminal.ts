@@ -1,6 +1,7 @@
 import type { AgentProvider, AgentTurnOutcome } from './agent'
 import type { AttentionItem } from './attention'
 import type { WorkspaceFileNode } from './file-view'
+import type { WorkspaceDiffNode } from './git-diff'
 import type { WorkspaceWorktree } from './worktree'
 import type { ConversationTitleSource } from './conversation-title'
 
@@ -202,6 +203,8 @@ export interface WorkspaceState {
    * only when there is at least one, so a workspace without them keeps its old snapshot shape.
    */
   files?: WorkspaceFileNode[]
+  /** Diff nodes on the canvas, optional and written only when present for the same reason as `files`. */
+  diffs?: WorkspaceDiffNode[]
   /** Absent in every snapshot written before the library existed; the panel starts closed there. */
   brainDumpPanel?: BrainDumpPanelState
   /** Absent in every snapshot written before the board existed; the panel starts closed there. */

@@ -23,6 +23,8 @@ import {
   parseWorktreeList
 } from '../shared/worktree'
 import { errorMessage } from '../shared/text'
+import type { GitDiffRequest, GitDiffSummary, GitFileDiff, GitFileDiffRequest } from '../shared/git-diff'
+import { changedFilesFromGit, parseUnifiedDiff } from '../shared/git-diff'
 
 /**
  * Claims are a hint written by an agent, so every failure mode - missing file, malformed
@@ -85,6 +87,13 @@ export interface WorktreeManager {
    * way of asking would eventually answer differently.
    */
   isRepository(path: string): Promise<boolean>
+  /**
+   * What a checkout has changed against its base: the file list only, with counts. Hunks are
+   * read per file through `diffFile`, never for the whole tree at once, so a large review costs
+   * one bounded git run per file the reader actually opens.
+   */
+  diff(request: GitDiffRequest): Promise<GitDiffSummary>
+  diffFile(request: GitFileDiffRequest): Promise<GitFileDiff>
 }
 
 const GIT_MAX_BUFFER = 8 * 1024 * 1024
@@ -335,6 +344,55 @@ export function createWorktreeManager(options: WorktreeManagerOptions = {}): Wor
         }
       } catch (error) {
         return { worktrees: [], claims: [], message: errorMessage(error) }
+      }
+    },
+
+    async diff(request): Promise<GitDiffSummary> {
+      try {
+        if (!pathExists(request.path)) {
+          return { ok: false, reason: 'missing', message: `${request.path} is not on disk` }
+        }
+        if ((await readCommonDir(request.path)) === null) {
+          return { ok: false, reason: 'not-a-repository', message: `${request.path} is not a git repository` }
+        }
+        const [nameStatus, numstat, status, symbolic] = await Promise.all([
+          runGit(['diff', '-z', '-M', '--name-status', request.baseRef], request.path),
+          runGit(['diff', '-z', '-M', '--numstat', request.baseRef], request.path),
+          runGit(['status', '--porcelain=v1', '-z', '--untracked-files=all'], request.path),
+          runGit(['symbolic-ref', '--quiet', '--short', 'HEAD'], request.path)
+        ])
+        const failure = [nameStatus, numstat, status].find((result) => result.code !== 0)
+        if (failure) {
+          return { ok: false, reason: 'failed', message: failure.stderr.trim() || 'git diff failed' }
+        }
+        const branch = symbolic.code === 0 ? symbolic.stdout.trim() || undefined : undefined
+        return {
+          ok: true,
+          ...(branch ? { branch } : {}),
+          files: changedFilesFromGit({ nameStatus: nameStatus.stdout, numstat: numstat.stdout, status: status.stdout })
+        }
+      } catch (error) {
+        return { ok: false, reason: 'failed', message: errorMessage(error) }
+      }
+    },
+
+    async diffFile(request): Promise<GitFileDiff> {
+      const { file } = request
+      try {
+        // An untracked file has nothing in the base to compare with, so it is shown whole against
+        // nothing; `--no-index` exits 1 whenever the two sides differ, which here is always.
+        const result =
+          file.status === 'untracked'
+            ? await runGit(['diff', '--no-index', '--', '/dev/null', file.path], request.path)
+            : await runGit(
+                ['diff', '-M', request.baseRef, '--', ...(file.oldPath ? [file.oldPath] : []), file.path],
+                request.path
+              )
+        const accepted = result.code === 0 || (file.status === 'untracked' && result.code === 1)
+        if (!accepted) return { ok: false, message: result.stderr.trim() || 'git diff failed' }
+        return { ok: true, ...parseUnifiedDiff(result.stdout) }
+      } catch (error) {
+        return { ok: false, message: errorMessage(error) }
       }
     },
 

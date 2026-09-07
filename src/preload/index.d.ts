@@ -28,6 +28,7 @@ import type {
   WorktreeRemoveResult,
   WorktreeStatus
 } from '../shared/worktree'
+import type { GitDiffRequest, GitDiffSummary, GitFileDiff, GitFileDiffRequest } from '../shared/git-diff'
 import type { ConversationListPage, ConversationListRequest } from '../shared/conversation'
 import type { WorkspaceFileIndex } from '../shared/workspace-files'
 import type { RemoteAccessSettings, RemoteAccessState, RemoteWorkspaceProjection } from '../shared/remote-access'
@@ -105,6 +106,9 @@ export interface WorktreeApi {
   remove(request: WorktreeRemoveRequest): Promise<WorktreeRemoveResult>
   /** Worktrees git knows about that the workspace has no record of yet. */
   discover(request: WorktreeDiscoverRequest): Promise<WorktreeDiscoverResult>
+  /** The changed-file list of a checkout against its base; hunks come one file at a time. */
+  diff(request: GitDiffRequest): Promise<GitDiffSummary>
+  diffFile(request: GitFileDiffRequest): Promise<GitFileDiff>
 }
 
 export interface ConversationApi {

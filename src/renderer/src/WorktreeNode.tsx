@@ -73,6 +73,15 @@ export default function WorktreeNode({ id, data, selected }: NodeProps<WorktreeC
           {data.projectName}
         </span>
         <span className="node-status">{data.attachedNodeCount} attached</span>
+        <button
+          type="button"
+          className="worktree-diff nodrag"
+          title={`Review this worktree's changes against ${baseRef}`}
+          onMouseDown={(event) => event.stopPropagation()}
+          onClick={() => data.onOpenDiff(data.worktreeId)}
+        >
+          Diff
+        </button>
         <NodeFitAction nodeId={id} fitted={data.fittedToCanvas ?? false} />
       </header>
 

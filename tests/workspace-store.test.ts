@@ -721,3 +721,34 @@ test('file nodes round-trip through the snapshot and malformed ones are refused'
     rmSync(directory, { recursive: true, force: true })
   }
 })
+
+test('diff nodes round-trip through the snapshot and malformed ones are refused', async () => {
+  const base = makeState('Toucan')
+  const diff = {
+    id: 'diff-1',
+    projectId: 'project-1',
+    worktreeId: 'worktree-1',
+    position: { x: 40, y: 60 },
+    width: 760,
+    height: 560,
+    selectedPath: 'src/a.ts'
+  }
+  const primary = { id: 'diff-2', projectId: 'project-1', position: { x: 0, y: 0 }, width: 700, height: 400 }
+
+  // A snapshot written before diff nodes existed carries no `diffs` and still loads.
+  assert.ok(parseWorkspaceState(base))
+  assert.deepEqual(parseWorkspaceState({ ...base, diffs: [diff, primary] })?.diffs, [diff, primary])
+  assert.equal(parseWorkspaceState({ ...base, diffs: [{ ...diff, worktreeId: 7 }] }), null)
+  assert.equal(parseWorkspaceState({ ...base, diffs: [{ ...diff, selectedPath: [] }] }), null)
+  assert.equal(parseWorkspaceState({ ...base, diffs: [{ ...diff, width: 'wide' }] }), null)
+  assert.equal(parseWorkspaceState({ ...base, diffs: 'nope' }), null)
+
+  const directory = mkdtempSync(join(tmpdir(), 'toucan-workspace-diffs-'))
+  try {
+    const store = createWorkspaceStore(join(directory, 'workspace.json'))
+    assert.deepEqual(await store.save({ ...base, diffs: [diff, primary] }), { ok: true })
+    assert.deepEqual((await store.load()).state?.diffs, [diff, primary])
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})

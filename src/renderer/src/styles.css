@@ -6696,3 +6696,210 @@ button {
   width: 12px;
   height: 12px;
 }
+
+/* Diff node: one checkout's changes against its base, a rail of files beside the open file's
+   hunks. The hunks reuse the transcript's file-operation blocks, sized up a step for a node whose
+   whole purpose is reading them. */
+.diff-icon {
+  color: #f0b46a;
+  background: rgba(240, 180, 106, 0.12);
+}
+
+.diff-node {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid #4a4034;
+  border-radius: 11px;
+  background: #14110e;
+  box-shadow:
+    0 18px 55px rgba(0, 0, 0, 0.4),
+    0 0 16px rgba(240, 180, 106, 0.1);
+}
+
+.diff-node.selected {
+  box-shadow:
+    0 0 0 2px rgba(240, 180, 106, 0.3),
+    0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.diff-node-header {
+  background: #1c1813;
+  border-bottom-color: #33291f;
+}
+
+.diff-node-header strong {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.diff-node-glyph {
+  display: grid;
+  place-items: center;
+  color: #f0b46a;
+}
+
+.diff-node-glyph svg {
+  width: 16px;
+  height: 16px;
+}
+
+.diff-node-refresh,
+.worktree-diff {
+  flex: 0 0 auto;
+  padding: 3px 8px;
+  border: 1px solid #3d3428;
+  border-radius: 6px;
+  background: transparent;
+  color: #b9c0cb;
+  font-family: Consolas, monospace;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.worktree-diff {
+  border-color: #3b3048;
+}
+
+.diff-node-refresh {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+}
+
+.diff-node-refresh svg {
+  width: 14px;
+  height: 14px;
+}
+
+.diff-node-refresh:hover,
+.worktree-diff:hover {
+  border-color: #f0b46a;
+  color: #f4ece2;
+}
+
+.diff-node-refresh:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.diff-node-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(180px, 32%) minmax(0, 1fr);
+}
+
+.diff-node-body > .diff-node-notice:only-child {
+  grid-column: 1 / -1;
+}
+
+.diff-node-notice {
+  margin: 0;
+  padding: 12px 16px;
+  color: #9aa3b0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.diff-node-notice[data-reason='missing'],
+.diff-node-notice[data-reason='not-a-repository'],
+.diff-node-notice[data-reason='failed'] {
+  color: #df737a;
+}
+
+.diff-node-rail {
+  min-height: 0;
+  overflow: auto;
+  padding: 6px 0;
+  border-right: 1px solid #2a2219;
+}
+
+.diff-node-file {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: baseline;
+  padding: 5px 12px;
+  border: 0;
+  background: transparent;
+  color: #b9c0cb;
+  font-family: Consolas, monospace;
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.diff-node-file:hover {
+  background: rgba(240, 180, 106, 0.08);
+}
+
+.diff-node-file[aria-selected='true'] {
+  background: rgba(240, 180, 106, 0.16);
+  color: #f4ece2;
+}
+
+.diff-node-file-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+
+.diff-node-status {
+  font-weight: 800;
+  text-align: center;
+  color: #8f9aa8;
+}
+
+.diff-node-status[data-status='added'],
+.diff-node-status[data-status='untracked'] {
+  color: #86c99a;
+}
+
+.diff-node-status[data-status='modified'],
+.diff-node-status[data-status='renamed'],
+.diff-node-status[data-status='copied'],
+.diff-node-status[data-status='type-changed'] {
+  color: #f0b46a;
+}
+
+.diff-node-status[data-status='deleted'],
+.diff-node-status[data-status='unmerged'] {
+  color: #d98088;
+}
+
+.diff-node-counts {
+  color: #6f7a89;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.diff-node-pane {
+  min-height: 0;
+  overflow: auto;
+  padding: 6px 12px 24px;
+}
+
+.diff-node-pane .file-op-lines {
+  font-size: 12px;
+}
+
+.diff-node-pane .file-op-hunk .file-op-line {
+  grid-template-columns: 36px 36px 12px minmax(0, 1fr);
+}
+
+.diff-node-pane .file-op-path code,
+.diff-node-pane .file-op-block-label {
+  font-size: 11px;
+}
