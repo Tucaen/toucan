@@ -6295,7 +6295,8 @@ button {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex: 1 1 auto;
+  /* Shrink to content so the empty header space stays a drag handle, not a file-picker target. */
+  flex: 0 1 auto;
   min-width: 0;
   padding: 0;
   border: 0;
@@ -6327,7 +6328,7 @@ button {
 }
 
 .file-node-path {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   color: #687280;
@@ -6335,6 +6336,11 @@ button {
   font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.file-node-header-spacer {
+  flex: 1 1 0;
+  align-self: stretch;
 }
 
 .file-node-actions {

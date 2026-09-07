@@ -300,6 +300,7 @@ export default function FileNode({ id, data, selected }: NodeProps<FileCanvasNod
             {shortenFilePath(path, [data.projectPath])}
           </span>
         </button>
+        <span className="file-node-header-spacer" aria-hidden="true" />
         <span className="file-node-actions nodrag">
           {dirty && (
             <>
