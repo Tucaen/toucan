@@ -29,7 +29,7 @@ export interface AppUpdaterPort {
   autoInstallOnAppQuit: boolean
   on(event: string, listener: (payload?: unknown) => void): void
   checkForUpdates(): Promise<unknown>
-  quitAndInstall(): void
+  quitAndInstall(isSilent?: boolean, isForceRunAfter?: boolean): void
 }
 
 export interface AppUpdater {
@@ -118,7 +118,11 @@ export function createAppUpdater(options: {
     check,
     quitAndInstall: () => {
       if (status.phase !== 'downloaded') return false
-      updater.quitAndInstall()
+      // Silent (`/S`) so the assisted installer skips its wizard and reuses the recorded install
+      // directory, and force-run because a silent assisted install relaunches the app only when
+      // told to. Together an update is what the user expects: the window closes, the new version
+      // opens. Without both, every update replays the first-install wizard.
+      updater.quitAndInstall(true, true)
       return true
     },
     onChange: (listener) => {

@@ -12,6 +12,7 @@ interface FakeUpdater extends AppUpdaterPort {
   emit(event: string, payload?: unknown): void
   checks: number
   installs: number
+  installArgs: [isSilent: boolean | undefined, isForceRunAfter: boolean | undefined][]
   rejectWith?: Error
 }
 
@@ -22,6 +23,7 @@ function fakeUpdater(): FakeUpdater {
     autoInstallOnAppQuit: true,
     checks: 0,
     installs: 0,
+    installArgs: [],
     on(event, listener) {
       listeners.set(event, [...(listeners.get(event) ?? []), listener as (payload?: unknown) => void])
     },
@@ -30,8 +32,9 @@ function fakeUpdater(): FakeUpdater {
       if (updater.rejectWith !== undefined) throw updater.rejectWith
       return null
     },
-    quitAndInstall() {
+    quitAndInstall(isSilent?: boolean, isForceRunAfter?: boolean) {
       updater.installs += 1
+      updater.installArgs.push([isSilent, isForceRunAfter])
     },
     emit(event, payload) {
       for (const listener of listeners.get(event) ?? []) listener(payload)
@@ -133,6 +136,18 @@ test('restarting into the update is refused until there is a package to restart 
   updater.emit('update-downloaded', { version: '0.3.0' })
   assert.equal(app.quitAndInstall(), true)
   assert.equal(updater.installs, 1)
+})
+
+test('the restart installs silently and relaunches, so an update never replays the install wizard', async () => {
+  const updater = fakeUpdater()
+  const { app } = installedUpdater(updater)
+  await app.check()
+  updater.emit('update-downloaded', { version: '0.3.0' })
+
+  app.quitAndInstall()
+  // isSilent runs the assisted NSIS installer with `/S` into the recorded install directory;
+  // isForceRunAfter is the only thing that makes a silent assisted install start the app again.
+  assert.deepEqual(updater.installArgs, [[true, true]])
 })
 
 test('quitting never installs behind the user; only the explicit restart does', async () => {
