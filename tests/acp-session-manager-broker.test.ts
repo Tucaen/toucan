@@ -213,17 +213,18 @@ test('killing a session closes its broker channel so a later incarnation starts 
   }
 })
 
-test("a killed adapter's straggling stderr cannot resurrect the closed broker channel", async () => {
-  const appPath = mkdtempSync(join(tmpdir(), 'toucan-broker-straggler-'))
-  promptingAdapter(appPath, {})
-  const broker = createAgentEventBroker()
-  const owner = { isDestroyed: () => false, send: () => {} } as unknown as WebContents
+/**
+ * An in-process adapter that completes the handshake (so a session is fully established without a
+ * child process) and whose stderr the test drives. Optionally logs a diagnostic line while still
+ * answering `initialize`, the way a real adapter reports progress during its handshake.
+ */
+function stderrControlledAdapter(behaviour: { handshakeDiagnostic?: string }): {
+  spawnAgent: () => ChildProcessWithoutNullStreams
+  stderr: () => PassThrough | undefined
+} {
   let stderr: PassThrough | undefined
-  const manager = createAcpSessionManager({
-    appPath,
-    broker,
-    // An in-process adapter that completes the handshake, so the session is fully established
-    // before the kill: the leak this locks down needs no pending create to sweep up after it.
+  return {
+    stderr: () => stderr,
     spawnAgent: () => {
       const child = new PassThrough() as unknown as ChildProcessWithoutNullStreams & { kill(): boolean }
       const stdin = new PassThrough()
@@ -233,6 +234,9 @@ test("a killed adapter's straggling stderr cannot resurrect the closed broker ch
       stdin.on('data', (data: string) => {
         for (const line of data.split('\n').filter(Boolean)) {
           const request = JSON.parse(line) as { id?: number; method?: string }
+          if (request.method === 'initialize' && behaviour.handshakeDiagnostic) {
+            stderr?.write(`${behaviour.handshakeDiagnostic}\n`)
+          }
           const result =
             request.method === 'initialize'
               ? { protocolVersion: 1, agentCapabilities: {}, authMethods: [] }
@@ -245,15 +249,26 @@ test("a killed adapter's straggling stderr cannot resurrect the closed broker ch
       Object.assign(child, { stdin, stdout, stderr, kill: () => true })
       return child
     }
-  })
+  }
+}
+
+test("a killed adapter's straggling stderr cannot resurrect the closed broker channel", async () => {
+  const appPath = mkdtempSync(join(tmpdir(), 'toucan-broker-straggler-'))
+  promptingAdapter(appPath, {})
+  const broker = createAgentEventBroker()
+  const owner = { isDestroyed: () => false, send: () => {} } as unknown as WebContents
+  // The session is fully established before the kill: the leak this locks down needs no pending
+  // create to sweep up after it.
+  const adapter = stderrControlledAdapter({})
+  const manager = createAcpSessionManager({ appPath, broker, spawnAgent: adapter.spawnAgent })
 
   const result = await manager.create({ id: 'node-1', provider: 'claude', cwd: appPath }, owner)
   assert.equal(result.status, 'ready')
   manager.kill('node-1')
 
   // Await actual delivery: the manager's own 'data' listener runs first (it was attached first).
-  const delivered = new Promise((resolve) => stderr?.once('data', resolve))
-  stderr?.write('late diagnostic after kill\n')
+  const delivered = new Promise((resolve) => adapter.stderr()?.once('data', resolve))
+  adapter.stderr()?.write('late diagnostic after kill\n')
   await delivered
 
   assert.equal(broker.snapshot('node-1'), null)
@@ -487,4 +502,66 @@ test('answering a request on a session that is not running is refused rather tha
   const manager = createAcpSessionManager({ appPath: mkdtempSync(join(tmpdir(), 'toucan-broker-absent-')) })
   assert.match(manager.resolveApproval('nope', 'approval-1', 'allow').message ?? '', /not running/)
   assert.match(manager.resolveElicitation('nope', 'request-1').message ?? '', /not running/)
+})
+
+test('adapter stderr arriving after the session is ready cannot regress its status to starting (#158)', async () => {
+  const appPath = mkdtempSync(join(tmpdir(), 'toucan-broker-late-stderr-'))
+  promptingAdapter(appPath, {})
+  const broker = createAgentEventBroker()
+  const delivered: AgentEvent[] = []
+  const owner = {
+    isDestroyed: () => false,
+    send: (_channel: string, envelope: AgentEventEnvelope) => delivered.push(envelope.event)
+  } as unknown as WebContents
+  const adapter = stderrControlledAdapter({})
+  const manager = createAcpSessionManager({ appPath, broker, spawnAgent: adapter.spawnAgent })
+
+  try {
+    const result = await manager.create({ id: 'node-1', provider: 'claude', cwd: appPath }, owner)
+    assert.equal(result.status, 'ready')
+    const before = delivered.length
+
+    // stderr and stdout are separate pipes: the adapter's `[session/load]` timing log routinely
+    // lands after the `session/load` response that made the session ready.
+    const received = new Promise((resolve) => adapter.stderr()?.once('data', resolve))
+    adapter.stderr()?.write('[session/load] sessionId=abc phase=replay durationMs=1596 totalMs=1596\n')
+    await received
+
+    assert.equal(broker.snapshot('node-1')?.status, 'ready')
+    assert.deepEqual(
+      delivered.slice(before).filter((event) => event.type === 'status'),
+      [],
+      'a late diagnostic must not be published as a status change'
+    )
+  } finally {
+    manager.killAll()
+  }
+})
+
+test('adapter stderr during the handshake still surfaces as starting progress', async () => {
+  const appPath = mkdtempSync(join(tmpdir(), 'toucan-broker-handshake-stderr-'))
+  promptingAdapter(appPath, {})
+  const broker = createAgentEventBroker()
+  const delivered: AgentEvent[] = []
+  const owner = {
+    isDestroyed: () => false,
+    send: (_channel: string, envelope: AgentEventEnvelope) => delivered.push(envelope.event)
+  } as unknown as WebContents
+  const adapter = stderrControlledAdapter({ handshakeDiagnostic: 'Loading provider credentials...' })
+  const manager = createAcpSessionManager({ appPath, broker, spawnAgent: adapter.spawnAgent })
+
+  try {
+    const result = await manager.create({ id: 'node-1', provider: 'claude', cwd: appPath }, owner)
+    assert.equal(result.status, 'ready')
+    assert.ok(
+      delivered.some(
+        (event) =>
+          event.type === 'status' && event.status === 'starting' && event.message === 'Loading provider credentials...'
+      ),
+      'handshake diagnostics are the only progress a user sees while the session opens'
+    )
+    assert.equal(broker.snapshot('node-1')?.status, 'ready')
+  } finally {
+    manager.killAll()
+  }
 })

@@ -215,6 +215,14 @@ interface RunningAgent {
    * to read or click.
    */
   authRequired: boolean
+  /**
+   * True from launch until `openSession` settles (and again for each reopen). Adapter
+   * stderr is surfaced as `starting` progress only while this holds: stderr and stdout are separate
+   * pipes, so a diagnostic logged during `session/load` (claude-agent-acp's `[session/load]` timing
+   * line, say) routinely lands *after* the response that made the session ready. Publishing it as
+   * `starting` then would pin the renderer's composer disabled forever (GitHub issue #158).
+   */
+  opening: boolean
   wakeGate?: PromptWakeGate<AgentPromptContent>
 }
 
@@ -646,9 +654,14 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
 
   /** Every create result also lands in the broker snapshot, mirroring the renderer's own fold. */
   const openSession = async (running: RunningAgent): Promise<AgentCreateResult> => {
-    const result = await openProviderSession(running)
-    broker.applyCreateResult(running.request.id, result)
-    return result
+    running.opening = true
+    try {
+      const result = await openProviderSession(running)
+      broker.applyCreateResult(running.request.id, result)
+      return result
+    } finally {
+      running.opening = false
+    }
   }
 
   const openProviderSession = async (running: RunningAgent): Promise<AgentCreateResult> => {
@@ -1031,6 +1044,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         busy: false,
         stopping: false,
         authRequired: false,
+        opening: true,
         imageSupport: false,
         steeringSupport: false
       }
@@ -1041,6 +1055,8 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
 
       child.stderr.setEncoding('utf8')
       child.stderr.on('data', (data: string) => {
+        // Only the opening phase reports stderr as progress; see `RunningAgent.opening`.
+        if (!running.opening) return
         const message = data.trim()
         if (message) send(running, { type: 'status', status: 'starting', message })
       })
