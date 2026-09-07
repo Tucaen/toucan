@@ -68,17 +68,19 @@ describe('composer wheel', () => {
     document.body.removeEventListener('wheel', canvas)
   })
 
-  test('a composer scrolled to its end releases only the direction that has run out', async () => {
+  // Releasing the gesture once the composer runs out of travel let d3-zoom pick up the tail of a
+  // real scroll and zoom the canvas out from under a long draft, so a scrollable composer holds the
+  // wheel at both ends of its travel.
+  test('a composer scrolled to its end keeps the wheel in both directions', async () => {
     const textarea = await renderComposer('wheel-at-end')
     giveScrollGeometry(textarea, { scrollTop: 232, scrollHeight: 400, clientHeight: 168 })
     const canvas = vi.fn()
     document.body.addEventListener('wheel', canvas)
 
     fireEvent.wheel(textarea, { deltaY: 30, bubbles: true })
-    expect(canvas).toHaveBeenCalledTimes(1)
-
     fireEvent.wheel(textarea, { deltaY: -30, bubbles: true })
-    expect(canvas).toHaveBeenCalledTimes(1)
+
+    expect(canvas).not.toHaveBeenCalled()
     document.body.removeEventListener('wheel', canvas)
   })
 })
