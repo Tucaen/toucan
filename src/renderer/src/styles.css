@@ -3846,6 +3846,38 @@ button {
   background: rgba(12, 14, 18, 0.72);
 }
 
+.worktree-dialog.adapter-management-dialog {
+  width: min(640px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+}
+
+.adapter-choice {
+  min-width: 0;
+  margin: 16px 0;
+  padding: 12px;
+  border: 1px solid #3b4553;
+  border-radius: 8px;
+}
+
+.adapter-choice legend {
+  padding: 0 6px;
+  font-weight: 600;
+}
+
+.adapter-choice select {
+  width: 100%;
+  padding: 8px;
+  color: inherit;
+  background: #171d26;
+  border: 1px solid #3b4553;
+  border-radius: 6px;
+}
+
+.adapter-choice .worktree-dialog-actions {
+  flex-wrap: wrap;
+}
+
 .worktree-dialog {
   display: flex;
   flex-direction: column;

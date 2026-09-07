@@ -139,6 +139,12 @@ shared code. They are compilation partitions, not permission to bypass the rules
 
 ## Important seams and deep modules
 
+- **AdapterManager** (`src/main/adapter-manager.ts`) owns downloaded ACP installations and
+  durable per-provider selection. Its resolver is injected into session creation, so running
+  processes retain their original adapter. `adapter-installer.ts` supplies the controlled npm
+  install and ACP probe; the renderer uses only the shared adapter-management IPC contract.
+  See [adapter management](adapter-management.md) for storage, rollback and compatibility limits.
+
 - **Preload interfaces** are the privilege seam. A transport change should be possible
   behind `window.terminalApi`, `window.agentApi`, `window.usageApi`,
   `window.worktreeApi`, and `window.conversationApi` without changing canvas behavior.

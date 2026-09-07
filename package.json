@@ -48,6 +48,7 @@
       ".agents/skills/**/*"
     ],
     "asarUnpack": [
+      "node_modules/npm/**/*",
       ".agents/skills/**/*",
       "node_modules/node-pty/**/*",
       "node_modules/@openai/codex-win32-x64/**/*",
@@ -107,6 +108,7 @@
     "lowlight": "^3.3.0",
     "lucide-react": "^1.38.0",
     "node-pty": "^1.1.0",
+    "npm": "11.19.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-markdown": "10.1.0",

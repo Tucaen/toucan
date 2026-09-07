@@ -38,6 +38,7 @@ import type { TicketFilesApi, TicketGithubApi } from '../shared/ticket-source'
 import type { AppUpdateApi } from '../shared/app-update'
 import type { VoiceModelApi } from '../shared/voice-model'
 import type { FileViewApi } from '../shared/file-view'
+import type { AdapterManagementApi } from '../shared/adapter-management'
 
 export interface AgentApi {
   create(request: AgentCreateRequest): Promise<AgentCreateResult>
@@ -135,6 +136,7 @@ export interface RemoteApi {
 
 declare global {
   interface Window {
+    adapterManagementApi: AdapterManagementApi
     terminalApi: TerminalApi
     agentApi: AgentApi
     workspaceFilesApi: WorkspaceFilesApi

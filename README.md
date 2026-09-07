@@ -47,6 +47,27 @@ workspace state is stored locally and the Windows x64 builds are not yet signed.
 Live shell processes still end when Toucan exits, and live PTY process restoration is not
 implemented.
 
+## Agent adapter versions
+
+Open **Agent adapters** using the gear button in the top bar to update Claude or Codex
+without updating Toucan. **Bundled with Toucan** is the factory choice and follows the
+version shipped with each application release. **Check for updates** lists published
+versions, including labelled prereleases; choose one and click **Install and use**.
+Downloaded versions remain pinned across Toucan updates. **Use bundled** restores the
+factory choice without a download, and previously installed versions can be selected offline.
+
+Running conversations keep their existing adapter process. Start a new session or restart
+a session to use the selected version. Installation and an initial ACP compatibility check
+must succeed before the selection changes; a failed update leaves the previous selection
+in place. A successful check does not guarantee every model or history-resume feature works
+with every version. The bundled version remains available if an update causes problems.
+
+Toucan stores downloaded adapters and their dependency lockfiles in its application-data
+directory, separately from the app and your projects. It includes its own npm installer;
+installed users do not need to install Node or npm. Updates are manual and require access
+to the public npm registry. See [adapter management](docs/adapter-management.md) for the
+implementation and compatibility limits.
+
 ## Set up and run
 
 Development currently targets Windows with a current Node.js LTS release, npm, and Git.

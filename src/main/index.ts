@@ -46,6 +46,9 @@ import { createRemoteVoiceTranscriber } from './remote/voice-transcription'
 import { loadMoonshineEngine } from './remote/voice-engine'
 import { VOICE_MODEL_ASSET_DIRECTORY } from '../shared/remote-voice'
 import { createSessionProviders, type SessionProviders } from './session-providers'
+import { createAdapterManager } from './adapter-manager'
+import { createAdapterInstaller } from './adapter-installer'
+import { registerAdapterManagementIpc } from './adapter-management-ipc'
 import { createTerminalLivenessStore, type TerminalLivenessStore } from './terminal-liveness-store'
 import { createTerminalManager, type TerminalManager } from './terminal-manager'
 import { createTerminalScrollbackStore, type TerminalScrollbackStore } from './terminal-scrollback-store'
@@ -396,8 +399,21 @@ void app.whenReady().then(async () => {
   // Sessions publish their events here; the renderer subscribes per session at create, and the
   // remote server will subscribe the same way. Created at the composition root so both can share it.
   const agentEvents = createAgentEventBroker()
+  const adapterDirectory = join(app.getPath('userData'), 'adapters')
+  const adapters = await createAdapterManager({
+    appPath: app.getAppPath(),
+    directory: adapterDirectory,
+    installer: createAdapterInstaller({ directory: join(adapterDirectory, 'installer') })
+  })
+  registerAdapterManagementIpc(ipcMain, adapters)
+  adapters.onChange((snapshot) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.webContents.isDestroyed()) window.webContents.send('adapters:changed', snapshot)
+    }
+  })
   const agentManager = createAcpSessionManager({
     appPath: app.getAppPath(),
+    resolveAdapter: adapters.resolve,
     codexHome,
     environment: agentEnvironment,
     broker: agentEvents

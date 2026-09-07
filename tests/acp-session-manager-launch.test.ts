@@ -63,3 +63,29 @@ test('the adapter process itself is launched with the node id, not only the reco
   assert.equal(launches[0]?.options.cwd, '/project')
   manager.killAll()
 })
+
+test('new sessions resolve the selected adapter while existing sessions retain their process', () => {
+  const appPath = appWithAdapter()
+  const original = join(appPath, 'node_modules/@agentclientprotocol/codex-acp/dist/index.js')
+  const updated = join(appPath, 'updated.js')
+  writeFileSync(updated, '')
+  let selected = original
+  const launches: AgentProcessLaunch[] = []
+  const manager = createAcpSessionManager({
+    appPath,
+    resolveAdapter: () => selected,
+    spawnAgent: (launch) => {
+      launches.push(launch)
+      return stubChild()
+    }
+  })
+  const owner = { isDestroyed: () => false, send: () => {} } as unknown as WebContents
+  void manager.create({ id: 'before', provider: 'codex', cwd: appPath }, owner)
+  selected = updated
+  void manager.create({ id: 'after', provider: 'codex', cwd: appPath }, owner)
+  assert.deepEqual(
+    launches.map((launch) => launch.args[0]),
+    [original, updated]
+  )
+  manager.killAll()
+})

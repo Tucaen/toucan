@@ -30,6 +30,11 @@ interface PackageManifest {
 
 const manifest = JSON.parse(readFileSync(join(process.cwd(), 'package.json'), 'utf8')) as PackageManifest
 
+test('the controlled adapter installer ships pinned and unpacked with Toucan', () => {
+  assert.match(manifest.dependencies?.npm ?? '', /^\d+\.\d+\.\d+$/)
+  assert.ok(manifest.build?.asarUnpack?.includes('node_modules/npm/**/*'))
+})
+
 test('keeps native agent runtimes outside app.asar so chat providers can spawn them', () => {
   const unpackedPaths = manifest.build?.asarUnpack ?? []
 

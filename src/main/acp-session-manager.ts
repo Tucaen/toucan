@@ -457,6 +457,8 @@ function simplifyModes(
 
 export interface AcpSessionManagerOptions {
   appPath: string
+  /** Chosen once per process; running sessions and their auth launches keep that installation. */
+  resolveAdapter?: (provider: AgentCreateRequest['provider']) => string
   codexHome?: string
   /** Environment inherited by both adapters and the provider processes they launch. */
   environment?: NodeJS.ProcessEnv
@@ -864,7 +866,12 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       const existing = agents.get(request.id)
       if (existing) return openSession(existing)
 
-      const path = adapterPath(request.provider)
+      let path: string
+      try {
+        path = options.resolveAdapter?.(request.provider) ?? adapterPath(request.provider)
+      } catch (error) {
+        return { ok: false, status: 'error', message: error instanceof Error ? error.message : String(error) }
+      }
       if (!existsSync(path)) {
         return { ok: false, status: 'error', message: `The ${request.provider} ACP adapter is not installed.` }
       }

@@ -45,6 +45,21 @@ import type { TicketFilesApi, TicketGithubApi } from '../shared/ticket-source'
 import type { FileViewApi, FileWriteRequest } from '../shared/file-view'
 import type { AppUpdateApi, AppUpdateSnapshot } from '../shared/app-update'
 import type { VoiceModelApi, VoiceModelStatus } from '../shared/voice-model'
+import type { AdapterManagementApi, AdapterSnapshot } from '../shared/adapter-management'
+
+const adapterManagementApi: AdapterManagementApi = {
+  state: () => ipcRenderer.invoke('adapters:state'),
+  check: (provider) => ipcRenderer.invoke('adapters:check', provider),
+  select: (provider, version) => ipcRenderer.invoke('adapters:select', provider, version),
+  onChange: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, snapshot: AdapterSnapshot): void => callback(snapshot)
+    ipcRenderer.on('adapters:changed', listener)
+    return () => {
+      ipcRenderer.removeListener('adapters:changed', listener)
+    }
+  }
+}
+contextBridge.exposeInMainWorld('adapterManagementApi', adapterManagementApi)
 
 const terminalApi = {
   getInitialProject: (): Promise<ProjectDirectory> => ipcRenderer.invoke('project:initial'),

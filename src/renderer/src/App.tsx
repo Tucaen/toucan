@@ -99,6 +99,7 @@ import { ComposerSendKeyContext } from './composer-send-key-context'
 import { AppUpdateChip } from './AppUpdateChip'
 import { useAppUpdate } from './use-app-update'
 import { RemoteAccessDialog } from './RemoteAccessDialog'
+import { AdapterManagementDialog } from './AdapterManagementDialog'
 import { useRemoteAccess } from './use-remote-access'
 import type { RemoteChatSpawnRequest, RemoteChatSpawnResult } from '../../shared/remote-spawn'
 import ConversationHistoryDialog from './ConversationHistoryDialog'
@@ -1169,6 +1170,7 @@ function Canvas(): JSX.Element {
   )
 
   const [remoteAccessOpen, setRemoteAccessOpen] = useState(false)
+  const [adapterManagementOpen, setAdapterManagementOpen] = useState(false)
 
   /**
    * A chat a phone asked for, created through the canvas's own add-node path so the result is
@@ -1438,7 +1440,14 @@ function Canvas(): JSX.Element {
 
   // While a picker, draft or dialog is open the create shortcuts do nothing, so a node cannot
   // appear behind it. The panels are fine: they dock beside the canvas rather than cover it.
-  const dialogOpen = !!(filePickerDrop || historyDrop || worktreeDraft || removalPrompt || remoteAccessOpen)
+  const dialogOpen = !!(
+    filePickerDrop ||
+    historyDrop ||
+    worktreeDraft ||
+    removalPrompt ||
+    remoteAccessOpen ||
+    adapterManagementOpen
+  )
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent): void => {
@@ -1867,6 +1876,19 @@ function Canvas(): JSX.Element {
                 onCheck={appUpdate.check}
                 onRestart={appUpdate.restart}
               />
+              <button
+                type="button"
+                className="header-remote-access"
+                title="Agent adapters"
+                aria-label="Agent adapters"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  setMenu(null)
+                  setAdapterManagementOpen(true)
+                }}
+              >
+                <Settings aria-hidden="true" />
+              </button>
               <button
                 type="button"
                 className="header-remote-access"
@@ -2454,6 +2476,8 @@ function Canvas(): JSX.Element {
               onClose={() => setRemoteAccessOpen(false)}
             />
           )}
+
+          {adapterManagementOpen && <AdapterManagementDialog onClose={() => setAdapterManagementOpen(false)} />}
 
           {removalPrompt && (
             <WorktreeRemoveDialog
