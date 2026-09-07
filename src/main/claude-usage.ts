@@ -1,3 +1,4 @@
+import { pathToFileURL } from 'node:url'
 import type { AgentRateLimitStatus, AgentRateLimitWindow } from '../shared/agent'
 
 /**
@@ -16,6 +17,19 @@ import type { AgentRateLimitStatus, AgentRateLimitWindow } from '../shared/agent
  * import through `Function` keeps it opaque to the bundler so it survives as a real dynamic import.
  */
 const importEsm = new Function('specifier', 'return import(specifier)') as (specifier: string) => Promise<unknown>
+
+const SDK_PACKAGE = '@anthropic-ai/claude-agent-sdk'
+
+/**
+ * Code built through `Function` has no module referrer, so Node resolves a bare specifier against
+ * the process cwd: the repo root under `npm run dev`, but whatever directory the installed app was
+ * launched from - where no `node_modules` exists and the import fails. This module is CommonJS, so
+ * `require.resolve` walks up from `out/main/index.js` and lands in `app.asar/node_modules`; the
+ * package's `default` export condition names the ESM entry without executing it.
+ */
+export function resolveClaudeSdkSpecifier(): string {
+  return pathToFileURL(require.resolve(SDK_PACKAGE)).href
+}
 
 /** Booting the CLI dominates this call, so the bound is generous relative to a local round trip. */
 const READ_TIMEOUT_MS = 30_000
@@ -68,6 +82,8 @@ export interface ClaudeUsageReaderOptions {
   cwd: string
   /** Injected in tests so no CLI is spawned. */
   requestUsage?(cwd: string): Promise<SdkUsageResponse | null>
+  /** Receives the reason a read failed, so a blank header is never silent. */
+  log(message: string): void
 }
 
 export interface ClaudeUsageReader {
@@ -75,7 +91,7 @@ export interface ClaudeUsageReader {
 }
 
 async function requestUsageViaSdk(cwd: string): Promise<SdkUsageResponse | null> {
-  const sdk = (await importEsm('@anthropic-ai/claude-agent-sdk')) as {
+  const sdk = (await importEsm(resolveClaudeSdkSpecifier())) as {
     query?: (params: { prompt: AsyncIterable<never>; options?: { cwd?: string } }) => SdkQuery
   }
   if (typeof sdk.query !== 'function') return null
@@ -113,8 +129,10 @@ export function createClaudeUsageReader(options: ClaudeUsageReaderOptions): Clau
     async read(): Promise<AgentRateLimitStatus | null> {
       try {
         return claudeRateLimitsFromUsage(await requestUsage(options.cwd))
-      } catch {
-        // An unauthenticated, missing, or changed CLI must leave the header blank, not crash it.
+      } catch (error) {
+        // An unauthenticated, missing, or changed CLI must leave the header blank, not crash it -
+        // but a blank header with no trace is how a resolution bug shipped unnoticed (#157).
+        options.log(`usage read failed: ${error instanceof Error ? error.message : String(error)}`)
         return null
       }
     }

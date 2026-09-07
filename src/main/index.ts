@@ -525,7 +525,10 @@ void app.whenReady().then(async () => {
   registerUsageIpc(
     createProviderUsage({
       readers: {
-        claude: createClaudeUsageReader({ cwd: app.getPath('home') }),
+        claude: createClaudeUsageReader({
+          cwd: app.getPath('home'),
+          log: (message) => console.warn(`[claude usage] ${message}`)
+        }),
         codex: createCodexRateLimitReader({
           homeDirectory: app.getPath('home'),
           environment: process.env,
