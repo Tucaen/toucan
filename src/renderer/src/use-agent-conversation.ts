@@ -377,7 +377,14 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
         return
       }
       setDetail(result.message)
-      if (!intoRunningTurn) setStatus('ready')
+      // Main's status events (`promptFailure` in acp-session-manager.ts, folded by `foldAgentEvent`)
+      // stay authoritative for a prompt that crossed the agent boundary: they already arrived before
+      // this promise settled, and forcing `ready` here would hide the sign-in panel an OAuth failure
+      // just raised (GitHub issue #156). Only a failure that left no status event behind - a local
+      // composition error or a pre-turn refusal - still has the optimistic `working` to undo.
+      if (!intoRunningTurn) {
+        setChat((current) => (current.status === 'working' ? { ...current, status: 'ready' } : current))
+      }
       markSendFailed(id, Boolean(result.prompt))
     })
   }

@@ -1,9 +1,9 @@
 import { act, render, renderHook, screen, waitFor } from '@testing-library/react'
-import type { FormEvent } from 'react'
 import { describe, expect, test, vi } from 'vitest'
 import { TestChatView as ChatView, type TestChatViewProps as ChatViewProps } from './dom/chat-view-fixture'
 import { useAgentConversation } from '../src/renderer/src/use-agent-conversation'
 import { createMockAgentApi } from './dom/agent-api-mock'
+import { fakeSubmitEvent } from './dom/form-event'
 
 // Real-DOM companion to composer-queue-while-busy.test.ts: exercises the Composer's rendered
 // disabled/queued-badge state and the useAgentConversation hook's queuing behavior by actually
@@ -106,10 +106,6 @@ test('a failed message renders a distinct failed-badge, never the queued-badge',
   expect(failedArticle?.querySelector('.failed-badge')).not.toBeNull()
   expect(screen.getByText('Not sent — delivery was rejected')).toBeInTheDocument()
 })
-
-function fakeSubmitEvent(): FormEvent {
-  return { preventDefault: () => {} } as unknown as FormEvent
-}
 
 test('submit() delivers directly while ready, and holds the next one locally once working', async () => {
   const { api, emit } = createMockAgentApi()
