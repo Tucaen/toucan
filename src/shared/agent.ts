@@ -9,6 +9,12 @@ export interface AgentCreateRequest {
   permissionMode?: string
   modelId?: string
   effortId?: string
+  /**
+   * Directories outside `cwd` the session may read and write as if they were the workspace. A
+   * background job that files into an app-owned library declares it here, so the provider's sandbox
+   * does not turn every write into a permission request nobody is watching for.
+   */
+  additionalDirectories?: string[]
 }
 
 export interface AgentAuthMethod {

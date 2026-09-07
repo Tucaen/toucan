@@ -98,6 +98,17 @@ test('assigned capture validates case-insensitively and starts the requested pro
   assert.equal(agent.creates[0].effortId, undefined)
 })
 
+test('the capture session declares the brain-dump library as a writable directory', async () => {
+  const agent = new FakeAgent()
+  const library = 'C:\\Users\\Ada\\AppData\\Roaming\\toucan\\brain-dumps'
+  await manager(agent, [], { libraryDirectory: library }).start({
+    content: 'Reviewed idea',
+    provider: 'codex',
+    projectPath: 'D:\\Development\\Toucan'
+  })
+  assert.deepEqual(agent.creates[0].additionalDirectories, [library])
+})
+
 test('unassigned capture uses home and rejects empty content or an unregistered project', async () => {
   const agent = new FakeAgent()
   const capture = manager(agent)

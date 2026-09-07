@@ -437,6 +437,7 @@ void app.whenReady().then(async () => {
       kill: (id) => agentManager.kill(id)
     },
     homeDirectory: app.getPath('home'),
+    libraryDirectory: brainDumpDirectory,
     registeredProjectPaths: async () => (await workspace.load()).state?.projects.map(({ path }) => path) ?? [],
     initialState: await captureStore.load(),
     publish: (state) => void captureStore.save(state).catch(() => {})

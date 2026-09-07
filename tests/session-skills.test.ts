@@ -1,6 +1,10 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
-import { resolveToucanSkillsRoot, sessionSkillsConfiguration } from '../src/main/acp-session-manager'
+import {
+  resolveToucanSkillsRoot,
+  sessionSkillsConfiguration,
+  withAdditionalDirectories
+} from '../src/main/acp-session-manager'
 
 test('Toucan skills remain available when a Codex node works in another project', () => {
   const toucanRoot = 'D:\\Development\\ADE'
@@ -28,6 +32,17 @@ test('Claude loads both project-local and Toucan-owned skills for another projec
       }
     }
   )
+})
+
+test("a request's own directories join the skills root without duplicates", () => {
+  const toucanRoot = 'D:\\Development\\ADE'
+  const library = 'C:\\Users\\Ada\\AppData\\Roaming\\toucan\\brain-dumps'
+  assert.deepEqual(withAdditionalDirectories({ additionalDirectories: [toucanRoot] }, [library, toucanRoot]), {
+    additionalDirectories: [toucanRoot, library]
+  })
+  const claude = { _meta: { claudeCode: { options: { plugins: [] } } } }
+  assert.deepEqual(withAdditionalDirectories(claude, [library]), { ...claude, additionalDirectories: [library] })
+  assert.deepEqual(withAdditionalDirectories({}, undefined), {})
 })
 
 test('packaged Toucan skills resolve from app.asar.unpacked for native providers', () => {

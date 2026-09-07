@@ -166,6 +166,15 @@ export function sessionSkillsConfiguration(
   return plugins.length > 0 ? { _meta: { claudeCode: { options: { plugins } } } } : {}
 }
 
+/** Adds a request's own additional directories to the skills configuration, deduplicated and in order. */
+export function withAdditionalDirectories(
+  configuration: SessionSkillsConfiguration,
+  directories: readonly string[] | undefined
+): SessionSkillsConfiguration {
+  const merged = [...new Set([...(configuration.additionalDirectories ?? []), ...(directories ?? [])])]
+  return merged.length > 0 ? { ...configuration, additionalDirectories: merged } : configuration
+}
+
 interface RunningAgent {
   request: AgentCreateRequest
   owner: WebContents
@@ -707,10 +716,9 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         modes = simplifyModes(response.modes)
         configureOptions(response.configOptions)
       }
-      const skillsConfiguration = sessionSkillsConfiguration(
-        running.request.provider,
-        running.request.cwd,
-        toucanSkillsRoot
+      const skillsConfiguration = withAdditionalDirectories(
+        sessionSkillsConfiguration(running.request.provider, running.request.cwd, toucanSkillsRoot),
+        running.request.additionalDirectories
       )
       let resumed = false
       let replay: AgentEvent[] | undefined

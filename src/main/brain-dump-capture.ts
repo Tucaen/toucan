@@ -40,6 +40,12 @@ export interface BrainDumpCaptureManager {
 export interface BrainDumpCaptureManagerOptions {
   agent: BrainDumpCaptureAgent
   homeDirectory: string
+  /**
+   * The brain-dump library root. Declared as an additional directory of the capture session, so
+   * the skill can write topic files there directly: without it, Codex's workspace-write sandbox
+   * escalates every write outside `cwd` into a permission request, and the capture crawls or stalls.
+   */
+  libraryDirectory?: string
   registeredProjectPaths(): readonly string[] | Promise<readonly string[]>
   createJobId?: () => string
   /** Debounces streamed final-answer chunks before treating the capture as complete. */
@@ -188,7 +194,15 @@ export function createBrainDumpCaptureManager(options: BrainDumpCaptureManagerOp
     starting = false
     let created: AgentCreateResult
     try {
-      created = await options.agent.create({ id: jobId, provider: request.provider, cwd }, agentOwner)
+      created = await options.agent.create(
+        {
+          id: jobId,
+          provider: request.provider,
+          cwd,
+          ...(options.libraryDirectory ? { additionalDirectories: [options.libraryDirectory] } : {})
+        },
+        agentOwner
+      )
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       setState({ status: 'failed', jobId, code: 'startup', message })
