@@ -213,6 +213,47 @@ test('a link inside the checkout that points outside it is refused, whatever the
   })
 })
 
+test('a missing file under a root reached through a link is not-found, not a refusal', async () => {
+  await withRoot(async (root) => {
+    const real = join(root, 'real')
+    await mkdir(join(real, 'docs'), { recursive: true })
+    const link = join(root, 'link')
+    await symlink(real, link, 'junction')
+    const view = createFileView({ roots: async () => [link] })
+
+    // The root exists, so it canonicalizes to `real`; the missing file cannot be canonicalized at
+    // all. Comparing one against the other is what used to read as climbing out of the workspace,
+    // which turned "this file is gone" into a refusal on every junctioned or short-path project.
+    const missing = await view.read(join(link, 'docs', 'gone.md'))
+    assert.equal(!missing.ok && missing.reason, 'not-found')
+
+    const save = await view.write({ path: join(link, 'docs', 'gone.md'), content: 'x', baseMtime: 'whatever' })
+    assert.equal(!save.ok && save.reason, 'not-found')
+  })
+})
+
+test('a write to a name that does not exist yet cannot escape through a link either', async () => {
+  await withRoot(async (root) => {
+    const project = join(root, 'project')
+    const elsewhere = join(root, 'elsewhere')
+    await mkdir(project, { recursive: true })
+    await mkdir(elsewhere, { recursive: true })
+    await symlink(elsewhere, join(project, 'linked'), 'junction')
+    const view = createFileView({ roots: async () => [project] })
+
+    // The link is inside the project and the final segment is new, so nothing on this path fails
+    // to resolve except the file name itself - which is exactly the case that must still be
+    // judged by where the link actually lands, not by how the path reads.
+    const escaping = await view.write({
+      path: join(project, 'linked', 'planted.txt'),
+      content: 'x',
+      baseMtime: 'whatever'
+    })
+    assert.equal(!escaping.ok && escaping.reason, 'outside-workspace')
+    assert.deepEqual(await readdir(elsewhere), [])
+  })
+})
+
 test('two nodes on the same file in one window keep the watch until the last one closes', async () => {
   await withRoot(async (root) => {
     const closed: string[] = []

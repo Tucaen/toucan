@@ -87,8 +87,32 @@ export function createFileView(options: FileViewOptions): FileView {
 
   const comparable = (path: string): string => (caseInsensitive ? path.toLowerCase() : path)
 
-  /** The path as the filesystem knows it, so a link inside a checkout cannot point a read outside. */
-  const realPathOf = (path: string): Promise<string> => realpath(path).catch(() => resolve(path))
+  /**
+   * The path as the filesystem knows it, so a link inside a checkout cannot point a read outside.
+   *
+   * `realpath` only answers for a path that already exists, and the paths that matter most here
+   * often do not: a file that was deleted under the node, or a name a save is about to create. So
+   * the deepest ancestor that *does* exist is canonicalized and the rest re-attached, which keeps
+   * both sides of the containment check in the same form. Comparing a canonical root against a
+   * literal target reads as climbing out of the workspace whenever a project is reached through a
+   * junction, a symlink or an 8.3 short path - and, the other way round, it used to let a write to
+   * a not-yet-existing name through a link that leaves the workspace entirely.
+   */
+  const realPathOf = async (path: string): Promise<string> => {
+    let head = resolve(path)
+    const tail: string[] = []
+    for (;;) {
+      try {
+        return join(await realpath(head), ...tail)
+      } catch {
+        const parent = dirname(head)
+        // A filesystem root that does not resolve leaves nothing above it to ask about.
+        if (parent === head) return resolve(path)
+        tail.unshift(basename(head))
+        head = parent
+      }
+    }
+  }
 
   const insideWorkspace = async (path: string): Promise<boolean> => {
     const target = comparable(await realPathOf(resolve(path)))
