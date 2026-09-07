@@ -12,6 +12,7 @@ import { createAcpSessionManager, type AcpSessionManager } from './acp-session-m
 import { createAppUpdater, type AppUpdater } from './app-update'
 import { forwardAppUpdateChanges, registerAppUpdateIpc } from './app-update-ipc'
 import { createVoiceModelStore, type VoiceModelStore } from './voice-model-store'
+import { createMainLog } from './main-log'
 import { createVoiceModelPort } from './voice-model-download'
 import { forwardVoiceModelChanges, registerVoiceModelIpc } from './voice-model-ipc'
 import { voiceModelRequestFile } from './voice-model-protocol'
@@ -367,6 +368,8 @@ function registerVoiceModelProtocol(store: VoiceModelStore, rendererRoot: string
 }
 
 void app.whenReady().then(async () => {
+  // Diagnostics land in a file as well as the console: an installed Toucan.exe has no console.
+  const mainLog = createMainLog({ file: join(app.getPath('logs'), 'main.log') })
   registerVoicePermissions()
   registerVoiceCrossOriginIsolation()
   const codexHome = process.env.CODEX_HOME ?? join(app.getPath('home'), '.codex')
@@ -464,7 +467,7 @@ void app.whenReady().then(async () => {
     preparedDirectories: [join(app.getAppPath(), 'src', 'renderer', 'public', VOICE_MODEL_ASSET_DIRECTORY)],
     downloadDirectory: join(app.getPath('userData'), VOICE_MODEL_ASSET_DIRECTORY),
     port: createVoiceModelPort(),
-    log: (message) => console.warn(`[voice model] ${message}`)
+    log: mainLog('voice model')
   })
   registerVoiceModelIpc(ipcMain as unknown as Parameters<typeof registerVoiceModelIpc>[0], voiceModel)
   registerVoiceModelProtocol(voiceModel, join(__dirname, '..', 'renderer'))
@@ -543,7 +546,7 @@ void app.whenReady().then(async () => {
       readers: {
         claude: createClaudeUsageReader({
           cwd: app.getPath('home'),
-          log: (message) => console.warn(`[claude usage] ${message}`)
+          log: mainLog('claude usage')
         }),
         codex: createCodexRateLimitReader({
           homeDirectory: app.getPath('home'),
@@ -563,7 +566,7 @@ void app.whenReady().then(async () => {
     currentVersion: app.getVersion(),
     packaged: app.isPackaged,
     environment: process.env,
-    log: (message) => console.warn(`[update] ${message}`)
+    log: mainLog('update')
   })
   registerAppUpdateIpc(ipcMain as unknown as Parameters<typeof registerAppUpdateIpc>[0], appUpdater)
   createWindow(

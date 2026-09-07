@@ -1,5 +1,8 @@
+import { existsSync } from 'node:fs'
+import { dirname } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type { AgentModelRateLimitWindow, AgentRateLimitStatus, AgentRateLimitWindow } from '../shared/agent'
+import { resolveUnpackedExecutable } from './agent-process'
 
 /**
  * Claude publishes plan usage nowhere on disk - its transcripts carry a `rateLimits` field that is
@@ -29,6 +32,55 @@ const SDK_PACKAGE = '@anthropic-ai/claude-agent-sdk'
  */
 export function resolveClaudeSdkSpecifier(): string {
   return pathToFileURL(require.resolve(SDK_PACKAGE)).href
+}
+
+export interface ClaudeExecutableLookup {
+  /** The directory holding the SDK's own module; the platform package is looked up from there. */
+  sdkDir: string
+  platform: NodeJS.Platform
+  arch: string
+  /** Resolves a package subpath the way `require.resolve` does from `fromDir`; throws when absent. */
+  resolve(specifier: string, fromDir: string): string
+  exists(path: string): boolean
+}
+
+/** The platform packages the SDK itself tries, in its order (glibc before musl, since Toucan cannot tell). */
+function claudePlatformPackages(platform: NodeJS.Platform, arch: string): string[] {
+  const base = `${SDK_PACKAGE}-${platform}-${arch}`
+  return platform === 'linux' ? [base, `${base}-musl`] : [base]
+}
+
+/**
+ * The SDK finds `claude.exe` relative to its own module - the copy nested under its own
+ * `node_modules` first, the hoisted one otherwise - and hands that path straight to `spawn`. In the
+ * installed app that path is inside `app.asar`, and Electron does not remap `child_process` the way
+ * it remaps `fs`, so the spawn fails with the SDK's misleading libc message (#157). The ACP adapter
+ * never hit this because it runs in a child whose preload rewrites every spawn; the usage reader
+ * runs the SDK in the main process, so it must perform the same rewrite up front and pass the result
+ * as `pathToClaudeCodeExecutable`. Returns undefined when the SDK is installed without a platform
+ * package, in which case the SDK's own lookup (and its own error) is the right outcome.
+ */
+export function resolveClaudeExecutable(
+  lookup: ClaudeExecutableLookup = {
+    sdkDir: dirname(require.resolve(SDK_PACKAGE)),
+    platform: process.platform,
+    arch: process.arch,
+    resolve: (specifier, fromDir) => require.resolve(specifier, { paths: [fromDir] }),
+    exists: existsSync
+  }
+): string | undefined {
+  const binary = lookup.platform === 'win32' ? 'claude.exe' : 'claude'
+  for (const pkg of claudePlatformPackages(lookup.platform, lookup.arch)) {
+    let resolved: string
+    try {
+      resolved = lookup.resolve(`${pkg}/${binary}`, lookup.sdkDir)
+    } catch {
+      continue
+    }
+    const executable = resolveUnpackedExecutable(resolved, lookup.exists)
+    if (lookup.exists(executable)) return executable
+  }
+  return undefined
 }
 
 /** Booting the CLI dominates this call, so the bound is generous relative to a local round trip. */
@@ -110,18 +162,43 @@ export interface ClaudeUsageReader {
   read(): Promise<AgentRateLimitStatus | null>
 }
 
-async function requestUsageViaSdk(cwd: string): Promise<SdkUsageResponse | null> {
-  const sdk = (await importEsm(resolveClaudeSdkSpecifier())) as {
-    query?: (params: { prompt: AsyncIterable<never>; options?: { cwd?: string } }) => SdkQuery
-  }
+interface SdkQueryOptions {
+  cwd?: string
+  pathToClaudeCodeExecutable?: string
+}
+
+interface ClaudeSdkModule {
+  query?: (params: { prompt: AsyncIterable<never>; options?: SdkQueryOptions }) => SdkQuery
+}
+
+export interface SdkRequestDependencies {
+  loadSdk(): Promise<ClaudeSdkModule>
+  locateExecutable(): string | undefined
+}
+
+const liveDependencies: SdkRequestDependencies = {
+  loadSdk: () => importEsm(resolveClaudeSdkSpecifier()) as Promise<ClaudeSdkModule>,
+  locateExecutable: () => resolveClaudeExecutable()
+}
+
+/** Exported for tests, which substitute the SDK so no CLI is spawned. */
+export async function requestUsageViaSdk(
+  cwd: string,
+  dependencies: SdkRequestDependencies = liveDependencies
+): Promise<SdkUsageResponse | null> {
+  const sdk = await dependencies.loadSdk()
   if (typeof sdk.query !== 'function') return null
+  const executable = dependencies.locateExecutable()
 
   // Never yields: the CLI reaches an idle, answerable state without a turn ever starting.
   const idlePrompt = (async function* (): AsyncGenerator<never, void> {
     await new Promise<never>(() => {})
   })()
 
-  const query = sdk.query({ prompt: idlePrompt, options: { cwd } })
+  const query = sdk.query({
+    prompt: idlePrompt,
+    options: { cwd, ...(executable ? { pathToClaudeCodeExecutable: executable } : {}) }
+  })
   const readUsage = query[USAGE_METHOD]
   if (typeof readUsage !== 'function') {
     await query.return?.(undefined).catch(() => undefined)

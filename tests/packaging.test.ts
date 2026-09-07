@@ -42,9 +42,11 @@ test('keeps native agent runtimes outside app.asar so chat providers can spawn t
     unpackedPaths.includes('node_modules/@openai/codex-win32-x64/**/*'),
     'The bundled Codex executable must be unpacked before child_process can spawn it.'
   )
+  // npm may leave the platform package nested under the SDK rather than hoisted, and the SDK looks
+  // there first; a root-only pattern leaves that copy packed and unspawnable (#157).
   assert.ok(
-    unpackedPaths.includes('node_modules/@anthropic-ai/claude-agent-sdk-win32-x64/**/*'),
-    'The bundled Claude executable must be unpacked before the Claude SDK can spawn it.'
+    unpackedPaths.includes('**/node_modules/@anthropic-ai/claude-agent-sdk-win32-x64/**/*'),
+    'Every copy of the bundled Claude executable must be unpacked before the Claude SDK can spawn it.'
   )
 })
 

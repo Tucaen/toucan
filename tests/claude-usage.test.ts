@@ -6,7 +6,14 @@ import { join, sep } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { hiddenProcessOptions } from '../src/main/background-process'
-import { claudeRateLimitsFromUsage, createClaudeUsageReader, resolveClaudeSdkSpecifier } from '../src/main/claude-usage'
+import {
+  claudeRateLimitsFromUsage,
+  createClaudeUsageReader,
+  requestUsageViaSdk,
+  resolveClaudeExecutable,
+  resolveClaudeSdkSpecifier,
+  type SdkRequestDependencies
+} from '../src/main/claude-usage'
 
 test('maps both plan windows, converting the ISO reset into epoch milliseconds', () => {
   const status = claudeRateLimitsFromUsage({
@@ -150,4 +157,108 @@ test('reads through the injected request without spawning a CLI', async () => {
 
   assert.deepEqual(await reader.read(), { weekly: { usedPercent: 80 } })
   assert.deepEqual(seen, ['C:\\projects\\toucan'])
+})
+
+/**
+ * The SDK locates `claude.exe` relative to its own module and hands that path to `spawn`. Inside
+ * the installed app that path is in `app.asar`, which Windows cannot execute and which Electron does
+ * not remap for `child_process`, so the reader must hand the SDK the `app.asar.unpacked` copy (#157).
+ */
+test('the Claude executable is resolved from the SDK directory, mirroring the SDK lookup', () => {
+  const sdkDir = 'C:\\dev\\toucan\\node_modules\\@anthropic-ai\\claude-agent-sdk'
+  const seen: Array<[string, string]> = []
+  const executable = resolveClaudeExecutable({
+    sdkDir,
+    platform: 'win32',
+    arch: 'x64',
+    resolve: (specifier, fromDir) => {
+      seen.push([specifier, fromDir])
+      return join(fromDir, 'node_modules', specifier)
+    },
+    exists: () => true
+  })
+
+  assert.deepEqual(seen, [['@anthropic-ai/claude-agent-sdk-win32-x64/claude.exe', sdkDir]])
+  assert.equal(executable, join(sdkDir, 'node_modules', '@anthropic-ai', 'claude-agent-sdk-win32-x64', 'claude.exe'))
+})
+
+test('a packed executable is handed over as its app.asar.unpacked twin', () => {
+  const packed = 'C:\\app\\resources\\app.asar\\node_modules\\@anthropic-ai\\claude-agent-sdk-win32-x64\\claude.exe'
+  const unpacked =
+    'C:\\app\\resources\\app.asar.unpacked\\node_modules\\@anthropic-ai\\claude-agent-sdk-win32-x64\\claude.exe'
+  const executable = resolveClaudeExecutable({
+    sdkDir: 'C:\\app\\resources\\app.asar\\node_modules\\@anthropic-ai\\claude-agent-sdk',
+    platform: 'win32',
+    arch: 'x64',
+    resolve: () => packed,
+    exists: (path) => path === unpacked
+  })
+
+  assert.equal(executable, unpacked)
+})
+
+test('linux tries the glibc package before the musl one, and a missing binary leaves the SDK to its own lookup', () => {
+  const tried: string[] = []
+  const executable = resolveClaudeExecutable({
+    sdkDir: '/opt/app/node_modules/@anthropic-ai/claude-agent-sdk',
+    platform: 'linux',
+    arch: 'arm64',
+    resolve: (specifier) => {
+      tried.push(specifier)
+      throw new Error('not found')
+    },
+    exists: () => false
+  })
+
+  assert.equal(executable, undefined)
+  assert.deepEqual(tried, [
+    '@anthropic-ai/claude-agent-sdk-linux-arm64/claude',
+    '@anthropic-ai/claude-agent-sdk-linux-arm64-musl/claude'
+  ])
+})
+
+test('the real SDK install resolves to an existing claude executable beside the SDK', () => {
+  const executable = resolveClaudeExecutable()
+
+  assert.ok(executable, 'the platform package should be installed')
+  assert.ok(existsSync(executable), executable)
+  assert.ok(executable.includes(join(sep, 'node_modules', '@anthropic-ai', 'claude-agent-sdk-')), executable)
+})
+
+/** An SDK stand-in whose `query` records the options it was handed and answers usage with `response`. */
+function fakeSdk(response: object, seen: unknown[]): SdkRequestDependencies['loadSdk'] {
+  const idle = (async function* (): AsyncGenerator<never, void> {})()
+  const query = Object.assign(idle, {
+    usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET: () => Promise.resolve(response)
+  })
+  return () =>
+    Promise.resolve({
+      query: (params: { options?: unknown }) => {
+        seen.push(params.options)
+        return query
+      }
+    })
+}
+
+test('the usage request names the resolved executable so the SDK never spawns from app.asar', async () => {
+  const seen: unknown[] = []
+  const response = await requestUsageViaSdk('C:\\home', {
+    loadSdk: fakeSdk({ rate_limits_available: true, rate_limits: { five_hour: { utilization: 3 } } }, seen),
+    locateExecutable: () => 'C:\\app\\resources\\app.asar.unpacked\\claude.exe'
+  })
+
+  assert.deepEqual(response, { rate_limits_available: true, rate_limits: { five_hour: { utilization: 3 } } })
+  assert.deepEqual(seen, [
+    { cwd: 'C:\\home', pathToClaudeCodeExecutable: 'C:\\app\\resources\\app.asar.unpacked\\claude.exe' }
+  ])
+})
+
+test('without a resolvable executable the request leaves the SDK to its own lookup', async () => {
+  const seen: unknown[] = []
+  await requestUsageViaSdk('C:\\home', {
+    loadSdk: fakeSdk({ rate_limits_available: false }, seen),
+    locateExecutable: () => undefined
+  })
+
+  assert.deepEqual(seen, [{ cwd: 'C:\\home' }])
 })
