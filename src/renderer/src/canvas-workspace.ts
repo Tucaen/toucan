@@ -131,6 +131,10 @@ export interface WorktreeNodeData extends Record<string, unknown>, WorktreeNodeC
 export interface FileNodeCallbacks {
   /** The reader switched between rendered Markdown and raw text; the choice persists with the node. */
   onViewModeChange(nodeId: string, view: FileViewMode): void
+  /** Opens the workspace picker and returns the selected absolute path, or null when cancelled. */
+  onRequestFilePath(nodeId: string): Promise<string | null>
+  /** The reader chose another file for this existing canvas node. */
+  onPathChange(nodeId: string, path: string): void
 }
 
 export interface FileNodeData extends Record<string, unknown>, FileNodeCallbacks, CanvasNodePresentation {
@@ -442,6 +446,15 @@ export function serializeFileNode(node: FileCanvasNode): WorkspaceFileNode {
   }
 }
 
+/** Repoints one file node without rebuilding the canvas object that owns its layout. */
+export function changeFileCanvasNodePath(nodes: CanvasNode[], nodeId: string, path: string): CanvasNode[] {
+  const target = nodes.find((node) => isFileCanvasNode(node) && node.id === nodeId)
+  if (!target || target.data.path === path) return nodes
+  return nodes.map((node) =>
+    isFileCanvasNode(node) && node.id === nodeId ? { ...node, data: { ...node.data, path } } : node
+  )
+}
+
 export interface FileNodeSeed {
   id: string
   path: string
@@ -474,7 +487,9 @@ export function createFileCanvasNode(
       projectName: project.name,
       projectPath: project.path,
       projectColor: project.color,
-      onViewModeChange: callbacks.onViewModeChange
+      onViewModeChange: callbacks.onViewModeChange,
+      onRequestFilePath: callbacks.onRequestFilePath,
+      onPathChange: callbacks.onPathChange
     },
     style: { width: seed.width ?? DEFAULT_FILE_NODE_SIZE.width, height: seed.height ?? DEFAULT_FILE_NODE_SIZE.height }
   }

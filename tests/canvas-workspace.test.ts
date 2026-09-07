@@ -14,6 +14,7 @@ import {
   serializeCanvasNode,
   serializeWorktreeNode,
   cascadedNodePosition,
+  changeFileCanvasNodePath,
   createFileCanvasNode,
   DEFAULT_FILE_NODE_SIZE,
   isFileCanvasNode,
@@ -38,7 +39,9 @@ const callbacks = {
   onRemoveWorktree: () => undefined,
   onCreateNodeInWorktree: () => undefined,
   onRunSetupCommand: () => undefined,
-  onViewModeChange: () => undefined
+  onViewModeChange: () => undefined,
+  onRequestFilePath: async () => null,
+  onPathChange: () => undefined
 }
 
 function terminalNodes(nodes: CanvasNode[]): TerminalCanvasNode[] {
@@ -544,4 +547,35 @@ test('a new file node opens Markdown rendered and everything else raw', () => {
   assert.equal(markdown.data.projectId, project.id)
   assert.deepEqual(markdown.style, { width: DEFAULT_FILE_NODE_SIZE.width, height: DEFAULT_FILE_NODE_SIZE.height })
   assert.equal(serializeFileNode(markdown).width, DEFAULT_FILE_NODE_SIZE.width)
+})
+
+test('changing a file node path preserves its canvas identity, geometry and view choice', () => {
+  const project = worktreeState().projects[0]
+  const original = createFileCanvasNode(
+    {
+      id: 'file-1',
+      path: 'D:\\Development\\Toucan\\README.md',
+      position: { x: 41, y: 82 },
+      view: 'raw',
+      width: 612,
+      height: 478
+    },
+    project,
+    callbacks
+  )
+
+  const nodes: CanvasNode[] = [original]
+  assert.equal(changeFileCanvasNodePath(nodes, 'file-1', original.data.path), nodes)
+  assert.equal(changeFileCanvasNodePath(nodes, 'missing', 'D:\\Development\\Toucan\\docs\\next.md'), nodes)
+
+  const changed = changeFileCanvasNodePath(nodes, 'file-1', 'D:\\Development\\Toucan\\docs\\next.md')[0]
+  assert.equal(isFileCanvasNode(changed), true)
+  assert.equal(changed.id, 'file-1')
+  assert.deepEqual(changed.position, { x: 41, y: 82 })
+  assert.deepEqual(changed.style, { width: 612, height: 478 })
+  assert.equal(changed.data.path, 'D:\\Development\\Toucan\\docs\\next.md')
+  assert.equal(changed.data.view, 'raw')
+  assert.equal(changed.data.onRequestFilePath, callbacks.onRequestFilePath)
+  assert.equal(changed.data.onPathChange, callbacks.onPathChange)
+  assert.equal(serializeFileNode(changed as FileCanvasNode).path, 'D:\\Development\\Toucan\\docs\\next.md')
 })
