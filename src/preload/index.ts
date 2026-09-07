@@ -44,6 +44,7 @@ import type {
 import type { TicketFilesApi, TicketGithubApi } from '../shared/ticket-source'
 import type { FileViewApi, FileWriteRequest } from '../shared/file-view'
 import type { AppUpdateApi, AppUpdateSnapshot } from '../shared/app-update'
+import type { VoiceModelApi, VoiceModelStatus } from '../shared/voice-model'
 
 const terminalApi = {
   getInitialProject: (): Promise<ProjectDirectory> => ipcRenderer.invoke('project:initial'),
@@ -254,3 +255,15 @@ const appUpdateApi: AppUpdateApi = {
 }
 
 contextBridge.exposeInMainWorld('appUpdateApi', appUpdateApi)
+
+const voiceModelApi: VoiceModelApi = {
+  state: () => ipcRenderer.invoke('voice-model:state'),
+  ensure: () => ipcRenderer.invoke('voice-model:ensure'),
+  onChange: (callback: (status: VoiceModelStatus) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, status: VoiceModelStatus): void => callback(status)
+    ipcRenderer.on('voice-model:changed', listener)
+    return () => ipcRenderer.removeListener('voice-model:changed', listener)
+  }
+}
+
+contextBridge.exposeInMainWorld('voiceModelApi', voiceModelApi)

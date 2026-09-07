@@ -13,6 +13,7 @@ import VoiceInput, { type VoiceState } from './VoiceInput'
 
 const microphoneStateLabels: Record<VoiceState, string> = {
   idle: 'Microphone ready',
+  downloading: 'Downloading the speech model (one time)',
   loading: 'Preparing the local speech model',
   listening: 'Listening — speak now',
   stopping: 'Finishing the transcript',

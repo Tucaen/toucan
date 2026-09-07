@@ -7,6 +7,13 @@ import { STREAMING_ARCHS, ensureModelFiles, manifestFiles, missingFiles, modelDi
 const MODEL = 'medium'
 const directory = modelDirectory(MODEL)
 
+// The packaged app fetches the model itself on first use and excludes out/renderer/models from the
+// installer, so a release build has no reason to spend a runner's minutes downloading it.
+if (process.env.TOUCAN_SKIP_VOICE_MODEL === '1') {
+  console.log('Skipping the voice model download (TOUCAN_SKIP_VOICE_MODEL=1).')
+  process.exit(0)
+}
+
 if (process.argv.includes('--check')) {
   const missing = await missingFiles(await manifestFiles(STREAMING_ARCHS[MODEL].arch), directory)
   if (missing.length) {

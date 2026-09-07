@@ -1,7 +1,8 @@
-import { app, BrowserWindow, dialog, ipcMain, session, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, net, protocol, session, shell } from 'electron'
 import { execFileSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { basename, extname, join, normalize } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { spawn } from 'node-pty'
 import type { AgentCreateRequest, AgentDecisionResponseContent, AgentPromptContent } from '../shared/agent'
 import type { ConversationListRequest } from '../shared/conversation'
@@ -10,6 +11,10 @@ import { autoUpdater } from 'electron-updater'
 import { createAcpSessionManager, type AcpSessionManager } from './acp-session-manager'
 import { createAppUpdater, type AppUpdater } from './app-update'
 import { forwardAppUpdateChanges, registerAppUpdateIpc } from './app-update-ipc'
+import { createVoiceModelStore, type VoiceModelStore } from './voice-model-store'
+import { createVoiceModelPort } from './voice-model-download'
+import { forwardVoiceModelChanges, registerVoiceModelIpc } from './voice-model-ipc'
+import { voiceModelRequestFile } from './voice-model-protocol'
 import { createAgentEventBroker } from './agent-event-broker'
 import { createBrainDumpLibrary } from './brain-dump-library'
 import { hiddenProcessOptions } from './background-process'
@@ -38,7 +43,7 @@ import { forwardRemoteStateChanges, registerRemoteIpc } from './remote/remote-ip
 import { createRemoteChatSpawner, type RemoteChatSpawner } from './remote/chat-spawn'
 import { createRemoteAccessServer, type RemoteAccessServer } from './remote/remote-server'
 import { createRemoteVoiceTranscriber } from './remote/voice-transcription'
-import { loadMoonshineEngine, resolveVoiceModelDirectory } from './remote/voice-engine'
+import { loadMoonshineEngine } from './remote/voice-engine'
 import { VOICE_MODEL_ASSET_DIRECTORY } from '../shared/remote-voice'
 import { createSessionProviders, type SessionProviders } from './session-providers'
 import { createTerminalLivenessStore, type TerminalLivenessStore } from './terminal-liveness-store'
@@ -249,7 +254,8 @@ function createWindow(
   fileView: FileView,
   remote: RemoteAccessServer,
   spawner: RemoteChatSpawner,
-  appUpdater: AppUpdater
+  appUpdater: AppUpdater,
+  voiceModel: VoiceModelStore
 ): void {
   const window = new BrowserWindow({
     width: 1440,
@@ -276,6 +282,8 @@ function createWindow(
   // A download finishes minutes after the window last asked, so the header subscribes for as long
   // as the window exists rather than polling the release feed.
   const stopForwardingUpdates = forwardAppUpdateChanges(appUpdater, contents)
+  // A 291 MB model download outlives any single request, so progress is pushed for the window's lifetime.
+  const stopForwardingVoiceModel = forwardVoiceModelChanges(voiceModel, contents)
   // A phone's spawn is performed by a window, so the window has to be reachable from the host -
   // and detaching on destroy is what turns "the desktop closed mid-spawn" into a refusal the
   // phone can read rather than a request that waits out its timeout.
@@ -283,6 +291,7 @@ function createWindow(
   contents.on('destroyed', () => {
     stopForwardingRemoteState()
     stopForwardingUpdates()
+    stopForwardingVoiceModel()
     detachSpawnWindow()
     terminalManager.disconnectOwner(contents)
     agentManager.killOwned(contents)
@@ -340,6 +349,17 @@ function registerVoiceCrossOriginIsolation(): void {
         'Cross-Origin-Embedder-Policy': ['require-corp']
       }
     })
+  })
+}
+
+function registerVoiceModelProtocol(store: VoiceModelStore, rendererRoot: string): void {
+  // Same origin on purpose: a custom scheme would put the model fetch on the wrong side of the
+  // cross-origin-isolation headers the WASM needs. Every other file: request passes straight through.
+  protocol.handle('file', (request) => {
+    const name = voiceModelRequestFile(request.url, rendererRoot)
+    const path = name ? store.filePath(name) : null
+    if (path) return net.fetch(pathToFileURL(path).toString(), { bypassCustomProtocolHandlers: true })
+    return net.fetch(request, { bypassCustomProtocolHandlers: true })
   })
 }
 
@@ -421,18 +441,26 @@ void app.whenReady().then(async () => {
   // Spawning is the one remote operation main cannot perform alone: the canvas owns node identity,
   // geometry and working-directory resolution, so a phone's "New chat" is a request the desktop
   // window runs through its own add-node path and reports the verdict on.
+  // The speech model is not in the installer. A dev run finds the one `prepare:voice-model` put in
+  // the renderer's public root; an installed build downloads it into userData on first use and
+  // the `file:` handler below serves it from there at the URL the renderer has always asked for.
+  const voiceModel = createVoiceModelStore({
+    preparedDirectories: [join(app.getAppPath(), 'src', 'renderer', 'public', VOICE_MODEL_ASSET_DIRECTORY)],
+    downloadDirectory: join(app.getPath('userData'), VOICE_MODEL_ASSET_DIRECTORY),
+    port: createVoiceModelPort(),
+    log: (message) => console.warn(`[voice model] ${message}`)
+  })
+  registerVoiceModelIpc(ipcMain as unknown as Parameters<typeof registerVoiceModelIpc>[0], voiceModel)
+  registerVoiceModelProtocol(voiceModel, join(__dirname, '..', 'renderer'))
   const chatSpawner = createRemoteChatSpawner()
   // A phone whose browser cannot recognize speech sends its recording here, and main transcribes
   // it with the same prepared model files the renderer dictates with - loaded lazily, because a
   // 300 MB model is not paid for by a desktop nobody dictates to from a phone.
   const voiceTranscriber = createRemoteVoiceTranscriber({
-    loadEngine: () =>
-      loadMoonshineEngine(
-        resolveVoiceModelDirectory([
-          join(app.getAppPath(), 'src', 'renderer', 'public', VOICE_MODEL_ASSET_DIRECTORY),
-          join(app.getAppPath(), 'out', 'renderer', VOICE_MODEL_ASSET_DIRECTORY)
-        ])
-      )
+    loadEngine: async () => {
+      await voiceModel.ensure()
+      return loadMoonshineEngine(voiceModel.directory())
+    }
   })
   const remote = createRemoteAccessServer({
     store: createRemoteAccessStore({ path: join(app.getPath('userData'), 'remote-access.json') }),
@@ -528,7 +556,8 @@ void app.whenReady().then(async () => {
     fileView,
     remote,
     chatSpawner,
-    appUpdater
+    appUpdater,
+    voiceModel
   )
   void appUpdater.check()
 
@@ -543,7 +572,8 @@ void app.whenReady().then(async () => {
         fileView,
         remote,
         chatSpawner,
-        appUpdater
+        appUpdater,
+        voiceModel
       )
   })
   app.on('before-quit', () => {

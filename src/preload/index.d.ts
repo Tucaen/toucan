@@ -36,6 +36,7 @@ import type { ConversationTitle, ConversationTitleSource } from '../shared/conve
 import type { BrainDumpApi } from '../shared/brain-dump'
 import type { TicketFilesApi, TicketGithubApi } from '../shared/ticket-source'
 import type { AppUpdateApi } from '../shared/app-update'
+import type { VoiceModelApi } from '../shared/voice-model'
 import type { FileViewApi } from '../shared/file-view'
 
 export interface AgentApi {
@@ -146,5 +147,6 @@ declare global {
     githubIssuesApi: TicketGithubApi
     fileViewApi: FileViewApi
     appUpdateApi: AppUpdateApi
+    voiceModelApi: VoiceModelApi
   }
 }

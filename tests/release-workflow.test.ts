@@ -6,6 +6,7 @@ import { test } from 'node:test'
 interface PackageManifest {
   scripts?: Record<string, string>
   build?: {
+    files?: string[]
     publish?: { provider?: string; owner?: string; repo?: string; releaseType?: string }
   }
 }
@@ -13,7 +14,6 @@ interface PackageManifest {
 const repositoryRoot = process.cwd()
 const manifest = JSON.parse(readFileSync(join(repositoryRoot, 'package.json'), 'utf8')) as PackageManifest
 const workflow = readFileSync(join(repositoryRoot, '.github/workflows/release.yml'), 'utf8')
-const gitignore = readFileSync(join(repositoryRoot, '.gitignore'), 'utf8')
 
 const stepIndex = (needle: string): number => {
   const index = workflow.indexOf(needle)
@@ -73,20 +73,14 @@ test('claims the release before packaging, so the two targets cannot race to cre
   assert.match(workflow, /gh release view/, 'an existing release must be reused, never recreated')
 })
 
-test('caches the voice model the build downloads rather than fetching 165 MB per release', () => {
-  const modelDirectory = 'src/renderer/public/models/moonshine-small-streaming-en'
-  // The model is downloaded, never committed, so the cached path has to be ignored - by its own
-  // entry or by an ancestor's, which is how .gitignore actually covers it today.
-  const ignored = gitignore
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line && !line.startsWith('#'))
-    .some((line) => `${modelDirectory}/`.startsWith(line.replace(/^\//, '')))
-  assert.ok(ignored, 'the cached path must be a gitignored directory')
-  assert.ok(workflow.includes(`path: ${modelDirectory}`))
+test('neither downloads nor bundles the speech model, which the app fetches on first use', () => {
+  // The model is 291 MB that never changes between releases. Shipping it made every installer
+  // and every auto-update download over twice the size and cost six minutes of NSIS compression.
+  assert.match(workflow, /TOUCAN_SKIP_VOICE_MODEL: '1'/, 'the prebuild hook would otherwise fetch it for nothing')
+  assert.doesNotMatch(workflow, /prepare:voice-model/)
   assert.ok(
-    stepIndex('actions/cache') < stepIndex('npm run prepare:voice-model'),
-    'restoring after the download would cache nothing useful'
+    manifest.build?.files?.includes('!out/renderer/models/**'),
+    'Vite copies public/ into out/renderer, so the prepared model of a dev run must be packaged out'
   )
 })
 

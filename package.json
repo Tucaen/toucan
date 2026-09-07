@@ -44,6 +44,7 @@
     },
     "files": [
       "out/**/*",
+      "!out/renderer/models/**",
       ".agents/skills/**/*"
     ],
     "asarUnpack": [

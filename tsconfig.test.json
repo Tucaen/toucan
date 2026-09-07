@@ -43,6 +43,9 @@
     "src/renderer/src/node-picker-menu-position.ts",
     "src/renderer/src/voice-transcript.ts",
     "src/main/remote/voice-transcription.ts",
+    "src/main/voice-model-store.ts",
+    "src/main/voice-model-protocol.ts",
+    "src/main/voice-model-ipc.ts",
     "src/shared/**/*.ts"
   ]
 }

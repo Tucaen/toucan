@@ -76,14 +76,35 @@ you would type into a Claude or Codex node; that is the set any future engine ha
 
 ## Model assets
 
-`npm run dev` and `npm run build` run `scripts/prepare-voice-model.mjs`, which fetches Medium
-Streaming English into the gitignored `src/renderer/public/models/moonshine-medium-streaming-en/`.
-`npm run check:voice-model` verifies it. The directory name is `VOICE_MODEL_ASSET_DIRECTORY` in
-`src/shared/remote-voice.ts`; the renderer loads it over its own origin and main reads it from disk
-(`src/renderer/public` in development, `out/renderer` in a packaged build). An older
+The model is not in the installer. It is 291 MB that never changes between releases, and
+shipping it made every installer and every auto-update download twice the size. An installed build
+downloads it on the first dictation instead, into `<userData>/models/moonshine-medium-streaming-en/`,
+and the microphone button shows the download with the host's byte counts (`downloading` state in
+`voice-transcript.ts`). The pieces:
+
+- `src/main/voice-model-store.ts` owns where the model is and the one shared download. Readiness
+  is the presence of `streaming_config.json`, which is downloaded last and only ever renamed into
+  place at its full size, so its presence proves the rest arrived. A failure is a status, and the
+  next attempt skips the files that already landed. `voice-model-download.ts` is the real CDN and
+  disk IO behind it.
+- The renderer still asks for `models/moonshine-medium-streaming-en/<file>` beside its own
+  `index.html`. `src/main/voice-model-protocol.ts` decides which `file:` requests that is, and
+  main's `file:` handler answers those from the store's directory, on the same origin, so the
+  cross-origin-isolation headers keep working. Every other `file:` request passes through.
+- `voice-model:*` IPC (`voice-model-ipc.ts`, `window.voiceModelApi`) is how the button asks for
+  the model and follows its progress. The phone path (`voice-transcription.ts`) awaits the same
+  store before loading the engine.
+
+In development, `npm run dev` still runs `scripts/prepare-voice-model.mjs`, which fetches the model
+into the gitignored `src/renderer/public/models/moonshine-medium-streaming-en/` so Vite serves it;
+the store treats that directory as already prepared and downloads nothing. `npm run build` runs the
+same hook, but `build.files` excludes `out/renderer/models/**` from the package, and the release
+workflow sets `TOUCAN_SKIP_VOICE_MODEL=1` so it never fetches the model at all. The directory name
+is `VOICE_MODEL_ASSET_DIRECTORY` in `src/shared/remote-voice.ts`. An older
 `moonshine-small-streaming-en/` directory can be deleted.
 
-Tests: `tests/voice-transcript.test.ts`, `tests/remote-voice.test.ts`,
+Tests: `tests/voice-transcript.test.ts`, `tests/voice-model-store.test.ts`,
+`tests/voice-model-protocol.test.ts`, `tests/remote-voice.test.ts`,
 `tests/remote-voice-transcription.test.ts`, the transcribe cases in `tests/remote-server.test.ts`,
 `tests/mobile-voice-input.test.ts`, `tests/mobile-voice-input.dom.test.tsx`, and the microphone
 capture path in `tests/brain-dump-capture.dom.test.tsx`.

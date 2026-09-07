@@ -4,7 +4,7 @@
  * transcript assembly, the insertion rule and the labels testable without an audio device.
  */
 
-export type VoiceState = 'idle' | 'loading' | 'listening' | 'stopping' | 'error'
+export type VoiceState = 'idle' | 'downloading' | 'loading' | 'listening' | 'stopping' | 'error'
 
 /**
  * One transcript from the lines the model finished and the tail it was still revising. The tail
@@ -31,9 +31,16 @@ export function insertAtSelection(value: string, text: string, start: number, en
 }
 
 const LOADING_LABEL = 'Preparing local speech model'
+// The model is fetched on first use rather than shipped in the installer, and a first-time speaker
+// deserves to know the wait is a 291 MB download and not a hung button.
+const DOWNLOADING_LABEL = 'Downloading speech model (one-time, 291 MB)'
+
+function progressLabel(label: string, progress: number): string {
+  return progress > 0 ? `${label} ${Math.round(progress * 100)}%` : label
+}
 
 function loadingLabel(progress: number): string {
-  return progress > 0 ? `${LOADING_LABEL} ${Math.round(progress * 100)}%` : LOADING_LABEL
+  return progressLabel(LOADING_LABEL, progress)
 }
 
 /**
@@ -43,6 +50,8 @@ function loadingLabel(progress: number): string {
  */
 export function voiceControlLabel(state: VoiceState, progress: number): string {
   switch (state) {
+    case 'downloading':
+      return progressLabel(DOWNLOADING_LABEL, progress)
     case 'loading':
       return loadingLabel(progress)
     case 'listening':
@@ -58,6 +67,8 @@ export function voiceControlLabel(state: VoiceState, progress: number): string {
 /** The floating preview beside the button, or null when there is nothing live to show. */
 export function voiceLivePreview(state: VoiceState, progress: number, partial: string): string | null {
   switch (state) {
+    case 'downloading':
+      return `${progressLabel(DOWNLOADING_LABEL, progress)}…`
     case 'loading':
       return `${loadingLabel(progress)}…`
     case 'listening':

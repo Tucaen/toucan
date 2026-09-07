@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type RefObject } from 'react'
 import { MicTranscriber, ModelArch } from '@moonshine-ai/moonshine-wasm'
 import { LoaderCircle, Mic, Square, X } from 'lucide-react'
 import { VOICE_MODEL_ASSET_DIRECTORY, VOICE_MODEL_LANGUAGE } from '../../shared/remote-voice'
+import { voiceModelProgress, type VoiceModelStatus } from '../../shared/voice-model'
 import { withStallGuard } from '../../shared/stall-guard'
 import { errorMessage } from '../../shared/text'
 import {
@@ -18,10 +19,10 @@ export type { VoiceState } from './voice-transcript'
  * The composer's dictation control: local, streaming, English.
  *
  * Speech runs entirely on this machine with Moonshine's Medium Streaming English model, the most
- * accurate streaming model it publishes, loaded from Toucan's own prepared assets rather than the
- * network. Live partial text is shown while speaking; the finished transcript is inserted at the
- * cursor position the microphone was pressed at, and it is never sent on its own - a transcript is
- * a draft.
+ * accurate streaming model it publishes. The model is not in the installer: the host downloads it
+ * once on first use (see shared/voice-model.ts) and serves it from disk at LOCAL_MODEL_URL. Live
+ * partial text is shown while speaking; the finished transcript is inserted at the cursor position
+ * the microphone was pressed at, and it is never sent on its own - a transcript is a draft.
  *
  * Accuracy on the words a general model gets wrong - identifiers, file names, product words - comes
  * from `context`: the caller hands over the text the speaker is most likely talking about, and the
@@ -46,8 +47,8 @@ interface VoiceInputProps {
 
 const LOCAL_MODEL_URL = new URL(`./${VOICE_MODEL_ASSET_DIRECTORY}/`, window.location.href).toString()
 
-// The model loads from Toucan's own local server/disk, not the network, so this only needs to
-// absorb slow hardware - not a slow internet connection. It exists so a dependency that never
+// By the time this runs the model is on disk (the host's download is awaited first), so this only
+// needs to absorb slow hardware - not a slow internet connection. It exists so a dependency that never
 // settles (see shared/stall-guard.ts) can't leave the "Preparing local speech model..." banner
 // stuck forever: a WASM worker that dies on startup never rejects its load promise.
 const VOICE_STALL_TIMEOUT_MS = 60_000
@@ -88,10 +89,27 @@ export default function VoiceInput(props: VoiceInputProps): JSX.Element {
     setPartial('')
     setError('')
     setProgress(0)
-    setState('loading')
 
     try {
       let transcriber = transcriberRef.current
+      if (!transcriber) {
+        // The model is not in the installer: the host fetches it once, into its own data directory,
+        // and serves it at LOCAL_MODEL_URL from there. Until it is on disk the button reports the
+        // download, with the host's own byte counts, rather than a "preparing" that never moves.
+        setState('downloading')
+        const unsubscribe = window.voiceModelApi.onChange((status) => setProgress(voiceModelProgress(status)))
+        let model: VoiceModelStatus
+        try {
+          model = await window.voiceModelApi.ensure()
+        } finally {
+          unsubscribe()
+        }
+        if (model.phase !== 'ready') {
+          throw new Error(model.phase === 'error' ? model.message : 'The speech model is not available.')
+        }
+        setProgress(0)
+      }
+      setState('loading')
       if (!transcriber) {
         transcriber = new MicTranscriber()
           .language(VOICE_MODEL_LANGUAGE)
@@ -171,10 +189,10 @@ export default function VoiceInput(props: VoiceInputProps): JSX.Element {
         data-state={state}
         aria-label={label}
         title={error || label}
-        disabled={props.disabled || state === 'loading' || state === 'stopping'}
+        disabled={props.disabled || state === 'downloading' || state === 'loading' || state === 'stopping'}
         onClick={() => (state === 'listening' ? void finish(true) : void begin())}
       >
-        {state === 'loading' || state === 'stopping' ? (
+        {state === 'downloading' || state === 'loading' || state === 'stopping' ? (
           <LoaderCircle aria-hidden="true" />
         ) : state === 'listening' ? (
           <Square aria-hidden="true" />

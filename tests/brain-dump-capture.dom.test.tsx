@@ -91,6 +91,12 @@ describe('the review tray', () => {
     speech.failLoad = false
     speech.transcript = 'dictated words'
     api = createMockBrainDumpApi()
+    // The host reports the speech model present, so the tray's states are the microphone's alone.
+    window.voiceModelApi = {
+      state: async () => ({ phase: 'ready' }),
+      ensure: async () => ({ phase: 'ready' }),
+      onChange: () => () => undefined
+    }
   })
 
   test('the pen opens an empty focused editor and submits nothing until asked', async () => {
@@ -117,6 +123,19 @@ describe('the review tray', () => {
     await waitFor(() => expect(panel.onPanelChange).toHaveBeenCalledWith({ draft: 'dictated words' }))
     expect(api.startCapture).not.toHaveBeenCalled()
     expect(screen.getByText('Correct any transcription mistakes before organizing.')).toBeInTheDocument()
+  })
+
+  test('a speech model the host could not download reads as the same failure, with its reason', async () => {
+    window.voiceModelApi = {
+      state: async () => ({ phase: 'missing' }),
+      ensure: async () => ({ phase: 'error', message: 'Speech model download failed: the network dropped.' }),
+      onChange: () => () => undefined
+    }
+    renderPanel(api, { draft: 'partly typed already' })
+    fireEvent.click(screen.getByRole('button', { name: 'Record a brain dump with the microphone' }))
+
+    await screen.findByText('Speech model download failed: the network dropped.')
+    expect(screen.getByLabelText('Brain dump')).toHaveValue('partly typed already')
   })
 
   test('a microphone failure keeps the draft and offers typing instead', async () => {
