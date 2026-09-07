@@ -7,7 +7,7 @@ import { createMockAgentApi } from './dom/agent-api-mock'
 // The composer sits on a React Flow canvas that zooms on every wheel event reaching it. A grown,
 // scrollable composer must keep the gesture for itself; a resting one must let it through so the
 // canvas still zooms. Asserted through real bubbling, because the whole fix is about which
-// listener sees the event. See ChatNode.tsx's Composer wheel effect and composer-autosize.ts.
+// listener sees the event. See use-prompt-editor.ts's wheel effect and composer-autosize.ts.
 
 function Harness(props: { id: string }): JSX.Element {
   const conversation = useAgentConversation({

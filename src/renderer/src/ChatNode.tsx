@@ -81,39 +81,11 @@ import { describeSessionUsage } from './session-usage'
 import { deriveConversationTitle } from '../../shared/conversation-title'
 import VoiceInput from './VoiceInput'
 import { dictationContext } from './voice-transcript'
-import { composerConsumesWheel, composerTextareaSize } from './composer-autosize'
-import {
-  acceptSlashCommand,
-  acceptedSlashCompletion,
-  dismissSlashCompletion,
-  emptySlashCompletion,
-  highlightSlashCommand,
-  hoistSlashCommand,
-  moveSlashSelection,
-  slashCompletionView
-} from './slash-command-completion'
-import {
-  acceptFileMention,
-  acceptedFileMention,
-  dismissFileMentionCompletion,
-  emptyFileMentionCompletion,
-  fileMentionCompletionView,
-  fileMentionExclusionNote,
-  fileMentionQuery,
-  highlightFileMention,
-  recentMentionPaths
-} from './file-mention-completion'
-import type { WorkspaceFileEntry, WorkspaceFileIndex } from '../../shared/workspace-files'
-import { composerKeyAction, composerSendKeyLabels, type ComposerSendKey } from './composer-keys'
+import { recentMentionPaths } from './file-mention-completion'
+import { composerSendKeyLabels, type ComposerSendKey } from './composer-keys'
 import { useComposerSendKey } from './composer-send-key-context'
-import {
-  emptyPromptHistory,
-  leaveHistory,
-  recallNext,
-  recallPrevious,
-  rememberPrompt,
-  seedPromptHistory
-} from './prompt-history'
+import { usePromptEditor, type ComposerFileMentions } from './use-prompt-editor'
+import PromptTextarea from './PromptTextarea'
 import ComposerQueue from './ComposerQueue'
 import ChatSessionControls from './ChatSessionControls'
 import SessionKindIcon from './SessionKindIcon'
@@ -126,20 +98,6 @@ import {
   type AgentChatStatus,
   type AgentTranscriptEntry
 } from './use-agent-conversation'
-
-/**
- * What the composer needs to complete a file reference. `root` is the node's resolved
- * `workingDirectory` - the worktree when the node is attached to one, never the display-only
- * `projectPath` - because that is the directory the agent will resolve the inserted reference
- * against. `read` is asked only once a mention token actually appears, so a node that never types
- * an `@` never costs a directory listing.
- */
-export interface ComposerFileMentions {
-  root: string
-  /** Root-relative paths this conversation's agent has already touched, newest first. */
-  recent: readonly string[]
-  read(root: string): Promise<WorkspaceFileIndex>
-}
 
 interface FlatChatViewProps {
   provider: 'claude' | 'codex'
@@ -192,7 +150,7 @@ interface FlatChatViewProps {
   openAuthLink(url: string): void
   resolveApproval(approvalId: string, optionId?: string): void
   resolveElicitation?(requestId: string, content?: AgentDecisionResponseContent): void
-  /** Persists the unsent draft; debounced by the Composer, so it costs one write per pause. */
+  /** Persists the unsent draft; debounced by the prompt editor, so it costs one write per pause. */
   onDraftChange?(draft: string): void
   // The agent-reported selectors, rendered as the composer's toolbar. Optional because a chat
   // view is perfectly renderable before (or without) an adapter reporting any of them.
@@ -402,93 +360,6 @@ export function SelectorPicker(props: {
   )
 }
 
-interface CompletionOption {
-  key: string
-  /** The token the option inserts, shown as the row's own name. */
-  label: string
-  /** Whatever qualifies the token: a command's argument hint, a folder marker. */
-  hint?: string
-  description?: string
-}
-
-/**
- * The composer's completion list, shared by the slash-command and `@`-mention pickers. Like
- * `SelectorPicker` it portals to `<body>` and positions itself in JS against its anchor's
- * viewport rect - `.terminal-node` clips overflow, so a CSS-anchored menu would be cut off the
- * moment the node sits near a canvas edge. It opens above the composer by preference, since the
- * composer already sits at the bottom of its node.
- */
-function CompletionMenu(props: {
-  anchorRef: RefObject<HTMLElement>
-  id: string
-  className: string
-  label: string
-  options: CompletionOption[]
-  activeIndex: number
-  optionId(index: number): string
-  accept(index: number): void
-  highlight(index: number): void
-  /** Says what the list is not showing; rendered below the rows, outside the listbox rows. */
-  note?: string | null
-}): JSX.Element | null {
-  const menuRef = useRef<HTMLDivElement>(null)
-  const position = usePortalMenuPosition(
-    props.anchorRef,
-    menuRef,
-    true,
-    { width: 320, height: 0 },
-    { align: 'start', prefer: 'above' },
-    props.options
-  )
-
-  // The active row has to stay visible while the arrows walk past the menu's scroll bounds.
-  useLayoutEffect(() => {
-    const active = menuRef.current?.querySelector('[data-active="true"]')
-    // Guarded: jsdom (and any non-layout host) has no scrollIntoView, and this is pure polish.
-    if (active instanceof HTMLElement && typeof active.scrollIntoView === 'function') {
-      active.scrollIntoView({ block: 'nearest' })
-    }
-  }, [props.activeIndex, props.options])
-
-  return createPortal(
-    <div
-      ref={menuRef}
-      id={props.id}
-      className={`node-picker-menu ${props.className}`}
-      role="listbox"
-      aria-label={props.label}
-      style={{
-        position: 'fixed',
-        top: position?.top ?? 0,
-        left: position?.left ?? 0,
-        visibility: position ? 'visible' : 'hidden'
-      }}
-      onMouseDown={(event) => event.preventDefault()}
-    >
-      {props.options.map((option, index) => (
-        <button
-          type="button"
-          role="option"
-          id={props.optionId(index)}
-          key={option.key}
-          aria-selected={index === props.activeIndex}
-          data-active={index === props.activeIndex}
-          onMouseEnter={() => props.highlight(index)}
-          onClick={() => props.accept(index)}
-        >
-          <strong>
-            <span>{option.label}</span>
-            {option.hint && <em className="slash-command-hint">{option.hint}</em>}
-          </strong>
-          {option.description && <span>{option.description}</span>}
-        </button>
-      ))}
-      {props.note && <small className="completion-menu-note">{props.note}</small>}
-    </div>,
-    document.body
-  )
-}
-
 function EmptyConversation({ provider }: Pick<FlatChatViewProps, 'provider'>): JSX.Element {
   return (
     <div className="chat-empty">
@@ -586,139 +457,36 @@ function ComposerToolbar(
   )
 }
 
-/**
- * Reads the working directory's file index, and only while the composer is actually offering a
- * mention. The listing is fetched on each transition into offering one rather than per keystroke
- * (the main-process index is cached, so that costs at most one IPC round trip per `@` typed), and
- * a listing for a directory the node has since left is discarded rather than rendered - a
- * rehomed node must never be offered the previous tree's files.
- */
-function useFileMentionIndex(source: ComposerFileMentions | undefined, offering: boolean): WorkspaceFileIndex | null {
-  const [index, setIndex] = useState<WorkspaceFileIndex | null>(null)
-  const readRef = useRef(source?.read)
-  readRef.current = source?.read
-  const root = source?.root
-  useEffect(() => {
-    if (!offering || !root) return
-    let live = true
-    void readRef.current?.(root).then(
-      (next) => {
-        if (live) setIndex(next)
-      },
-      // A directory that cannot be listed costs the completion and nothing else.
-      () => {}
-    )
-    return () => {
-      live = false
-    }
-  }, [offering, root])
-  return index?.root === root ? index : null
-}
-
-/**
- * Both completions remember two things per token - what Escape dismissed and what was just
- * accepted - and both must forget them the moment the draft stops offering that token: keeping
- * the memory would silently refuse to complete the next identical token typed in its place. The
- * highlight goes back to the top whenever the token itself changes. Sharing one hook is what
- * keeps the two pickers from drifting apart over either rule.
- */
-function useCompletionTokenMemory<State>(
-  token: { query: string; start: number } | null,
-  empty: State,
-  resetHighlight: (state: State) => State,
-  setState: (next: State | ((current: State) => State)) => void
-): void {
-  const offering = token !== null
-  useEffect(() => {
-    if (!offering) setState(empty)
-  }, [offering])
-  useEffect(() => setState(resetHighlight), [token?.query, token?.start])
-}
-
 type ComposerProps = ChatComposerProps &
   Pick<ChatTranscriptProps, 'provider' | 'messages' | 'commands'> &
   Pick<ChatSessionControlsProps, 'status' | 'detail'>
 
+/**
+ * Rendering only: the queue chips, the attachment strip, the notices and the footer around one
+ * prompt editor. Everything about the text - draft, caret, history, both completion pickers and
+ * the keys - belongs to `usePromptEditor`, and `PromptTextarea` renders it.
+ */
 export function Composer(props: ComposerProps): JSX.Element {
   const busy = props.status === 'working'
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
   const composerDisabled = isSendDisabled(props.status)
   const { sendKey } = useComposerSendKey()
-  const completionId = useId()
-  // Draft input is intentionally local to this leaf. Publishing every keystroke through the
-  // conversation hook rerenders the chat panel, including transcript Markdown,
-  // persistence, and decision parsing. None of that work owns the input value.
-  const [draft, setDraft] = useState(props.draft)
-  const [pasteBlocked, setPasteBlocked] = useState(false)
-  const [history, setHistory] = useState(emptyPromptHistory)
   // A conversation loaded from disk already shows what was asked; ArrowUp should be able to walk
   // back through it too, rather than starting blank above a full transcript.
-  useEffect(() => {
-    setHistory((current) =>
-      seedPromptHistory(
-        current,
-        props.messages.filter((message) => message.role === 'user').map((message) => message.text)
-      )
-    )
-  }, [props.messages])
-  /** The last value this composer handed upward, so the round trip back down is not mistaken
-   *  for an outside edit and does not fight what is being typed right now. */
-  const publishedDraftRef = useRef(props.draft)
-  const onDraftChangeRef = useRef(props.onDraftChange)
-  onDraftChangeRef.current = props.onDraftChange
-
-  useEffect(() => {
-    if (props.draft === publishedDraftRef.current) return
-    publishedDraftRef.current = props.draft
-    setDraft(props.draft)
-  }, [props.draft])
-
-  // Debounced, so keeping a draft alive across resize/collapse/reload costs one workspace write
-  // per typing pause rather than one per keystroke.
-  useEffect(() => {
-    if (draft === publishedDraftRef.current) return
-    const timeout = setTimeout(() => {
-      publishedDraftRef.current = draft
-      onDraftChangeRef.current?.(draft)
-    }, 300)
-    return () => clearTimeout(timeout)
-  }, [draft])
-
-  // Going away mid-debounce (the node goes dormant, the workspace closes) must not cost the last
-  // few keystrokes, so whatever the debounce still owed is flushed on the way out.
-  const draftRef = useRef(draft)
-  draftRef.current = draft
-  useEffect(
-    () => () => {
-      if (draftRef.current !== publishedDraftRef.current) onDraftChangeRef.current?.(draftRef.current)
-    },
-    []
+  const sentPrompts = useMemo(
+    () => props.messages.filter((message) => message.role === 'user').map((message) => message.text),
+    [props.messages]
   )
-
-  // The box grows with its content up to a bounded height, then scrolls. Measured against the
-  // real element because only the browser knows how the text actually wrapped.
-  useLayoutEffect(() => {
-    const element = textareaRef.current
-    if (!element) return
-    element.style.height = 'auto'
-    const { height, scrollable } = composerTextareaSize(element.scrollHeight)
-    element.style.height = `${height}px`
-    element.style.overflowY = scrollable ? 'auto' : 'hidden'
-  }, [draft, props.attachments, props.queued])
-
-  // React Flow zooms on any wheel it sees, and the composer is not covered by a static `nowheel`
-  // because it should only claim the gesture while it actually has somewhere to scroll. The
-  // listener is native and bound to the element so it runs before d3-zoom's own listener on the
-  // pane above it - React's delegated handler at the app root would fire too late to stop it.
-  useEffect(() => {
-    const element = textareaRef.current
-    if (!element) return
-    const onWheel = (event: WheelEvent): void => {
-      if (composerConsumesWheel(element)) event.stopPropagation()
-    }
-    element.addEventListener('wheel', onWheel)
-    return () => element.removeEventListener('wheel', onWheel)
-  }, [])
+  const editor = usePromptEditor({
+    draft: props.draft,
+    onDraftChange: props.onDraftChange,
+    commands: props.commands ?? [],
+    fileMentions: props.fileMentions,
+    sentPrompts,
+    sendKey,
+    disabled: composerDisabled,
+    submit: props.submit
+  })
+  const [pasteBlocked, setPasteBlocked] = useState(false)
 
   const handlePaste = (event: React.ClipboardEvent<HTMLTextAreaElement>): void => {
     const files = imageFilesFromClipboard(event.clipboardData?.items)
@@ -732,151 +500,8 @@ export function Composer(props: ComposerProps): JSX.Element {
     void props.addImages(files)
   }
 
-  const applyHistory = (next: { state: typeof history; draft: string }): void => {
-    setHistory(next.state)
-    setDraft(next.draft)
-  }
-
-  // Where the caret sits decides whether a slash token is being typed at all, so the completion
-  // tracks it rather than guessing from the draft's end - a caret parked mid-token still completes.
-  const [caret, setCaret] = useState(0)
-  const [completionState, setCompletionState] = useState(emptySlashCompletion)
-  const [mentionState, setMentionState] = useState(emptyFileMentionCompletion)
-  /**
-   * The command taken from the menu in this draft - the only one `hoistSlashCommand` will move to
-   * the front on send. Deliberately not `completionState.acceptedQuery`: that memory belongs to
-   * one token and is spent the moment the caret leaves it, which is exactly when the captain
-   * starts typing the command's arguments. This one lives as long as the draft does.
-   */
-  const [acceptedCommand, setAcceptedCommand] = useState<string | null>(null)
-  const editable = composerDisabled ? '' : draft
-  const completion = slashCompletionView(editable, caret, props.commands ?? [], completionState)
-  // The workspace listing is read only while a mention is actually being typed, so a conversation
-  // nobody points at a file never costs a directory walk.
-  const mentionIndex = useFileMentionIndex(props.fileMentions, fileMentionQuery(editable, caret) !== null)
-  const mention = fileMentionCompletionView(
-    editable,
-    caret,
-    mentionIndex,
-    props.fileMentions?.recent ?? [],
-    mentionState
-  )
-  // One word can hold both tokens (`/fo@o`), so the one starting closer to the caret is the one
-  // being typed, and it takes the menu and the keys. Only ever one of them is open.
-  const mentionActive =
-    mention.open &&
-    mention.token !== null &&
-    (!completion.open || completion.token === null || mention.token.start > completion.token.start)
-  const slashActive = completion.open && !mentionActive
-  useCompletionTokenMemory(
-    completion.token,
-    emptySlashCompletion,
-    (current) => highlightSlashCommand(current, 0),
-    setCompletionState
-  )
-  useCompletionTokenMemory(
-    mention.token,
-    emptyFileMentionCompletion,
-    (current) => highlightFileMention(current, 0),
-    setMentionState
-  )
-
-  /** Set by an acceptance so the caret can be restored once React has rendered the new draft. */
-  const pendingCaretRef = useRef<number | null>(null)
-  useLayoutEffect(() => {
-    const target = pendingCaretRef.current
-    if (target === null) return
-    pendingCaretRef.current = null
-    const element = textareaRef.current
-    if (!element) return
-    element.focus()
-    element.setSelectionRange(target, target)
-    setCaret(target)
-  }, [draft])
-
-  const acceptCompletion = (command: AgentCommand): void => {
-    if (!completion.token) return
-    const next = acceptSlashCommand(draft, caret, completion.token, command)
-    setDraft(next.draft)
-    setHistory(leaveHistory)
-    setCompletionState((current) => acceptedSlashCompletion(current, command))
-    setAcceptedCommand(command.name)
-    pendingCaretRef.current = next.caret
-  }
-
-  const acceptMention = (entry: WorkspaceFileEntry | undefined): void => {
-    if (!mention.token || !entry) return
-    const next = acceptFileMention(draft, caret, mention.token, entry)
-    setDraft(next.draft)
-    setHistory(leaveHistory)
-    setMentionState((current) => acceptedFileMention(current, entry))
-    pendingCaretRef.current = next.caret
-  }
-
-  /** Neither picker should keep hovering once the composer has lost focus. */
-  const dismissCompletion = (): void => {
-    setCompletionState((current) => dismissSlashCompletion(current, completion.token))
-    setMentionState((current) => dismissFileMentionCompletion(current, mention.token))
-  }
-
-  /** The open picker's keyboard contract, or null when neither is offering anything. */
-  const activeCompletion = mentionActive
-    ? {
-        count: mention.matches.length,
-        index: mention.activeIndex,
-        highlight: (next: number) => setMentionState((current) => highlightFileMention(current, next)),
-        dismiss: () => setMentionState((current) => dismissFileMentionCompletion(current, mention.token)),
-        accept: () => acceptMention(mention.matches[mention.activeIndex])
-      }
-    : slashActive
-      ? {
-          count: completion.matches.length,
-          index: completion.activeIndex,
-          highlight: (next: number) => setCompletionState((current) => highlightSlashCommand(current, next)),
-          dismiss: () => setCompletionState((current) => dismissSlashCompletion(current, completion.token)),
-          accept: () => acceptCompletion(completion.matches[completion.activeIndex])
-        }
-      : null
-
-  /** Returns true when the completion has claimed the key press, so the composer's own bindings stay out of it. */
-  const handleCompletionKey = (event: React.KeyboardEvent<HTMLTextAreaElement>): boolean => {
-    if (!activeCompletion || event.nativeEvent.isComposing) return false
-    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-      event.preventDefault()
-      activeCompletion.highlight(
-        moveSlashSelection(activeCompletion.index, activeCompletion.count, event.key === 'ArrowDown' ? 1 : -1)
-      )
-      return true
-    }
-    if (event.key === 'Escape') {
-      event.preventDefault()
-      activeCompletion.dismiss()
-      return true
-    }
-    // Shift/Alt+Enter still means "newline" here; only a plain accept keystroke picks an entry.
-    if (event.key === 'Tab' || (event.key === 'Enter' && !event.shiftKey && !event.altKey)) {
-      event.preventDefault()
-      activeCompletion.accept()
-      return true
-    }
-    return false
-  }
-
   return (
-    <form
-      className="chat-composer nodrag"
-      onSubmit={(event) => {
-        // A command taken from the menu only runs if it opens the prompt, so it moves to the
-        // front here - what is sent is what is remembered and echoed, hoist included. The
-        // acceptance is spent with the draft it belonged to, so the next prompt starts as prose.
-        const sent = hoistSlashCommand(draft, props.commands ?? [], acceptedCommand)
-        props.submit(event, sent, () => {
-          setDraft('')
-          setAcceptedCommand(null)
-          setHistory((current) => rememberPrompt(current, sent))
-        })
-      }}
-    >
+    <form className="chat-composer nodrag" onSubmit={editor.submit}>
       <ComposerQueue {...props} stranded={composerDisabled} />
       <AttachmentPreview attachments={props.attachments} removeAttachment={props.removeAttachment} />
       {pasteBlocked && <small className="composer-paste-blocked">This agent doesn't support image attachments.</small>}
@@ -887,91 +512,12 @@ export function Composer(props: ComposerProps): JSX.Element {
         </div>
       )}
       <div className="chat-composer-row">
-        <textarea
-          ref={textareaRef}
-          rows={1}
-          value={draft}
-          onChange={(event) => {
-            setDraft(event.target.value)
-            setCaret(event.target.selectionStart ?? event.target.value.length)
-            setHistory(leaveHistory)
-            setPasteBlocked(false)
-          }}
-          onSelect={(event) => setCaret(event.currentTarget.selectionStart ?? 0)}
-          onPaste={handlePaste}
-          onKeyDown={(event) => {
-            if (handleCompletionKey(event)) return
-            const action = composerKeyAction(
-              {
-                key: event.key,
-                shiftKey: event.shiftKey,
-                ctrlKey: event.ctrlKey,
-                metaKey: event.metaKey,
-                altKey: event.altKey,
-                isComposing: event.nativeEvent.isComposing
-              },
-              { sendKey, draft, historyActive: history.index !== null }
-            )
-            if (action === 'send') {
-              event.preventDefault()
-              event.currentTarget.form?.requestSubmit()
-            } else if (action === 'history-previous') {
-              event.preventDefault()
-              applyHistory(recallPrevious(history, draft))
-            } else if (action === 'history-next') {
-              event.preventDefault()
-              applyHistory(recallNext(history))
-            } else if (action === 'history-cancel') {
-              event.preventDefault()
-              setDraft(history.stashedDraft)
-              setHistory(leaveHistory)
-            }
-          }}
+        <PromptTextarea
+          editor={editor}
           placeholder="Message the agent..."
-          disabled={composerDisabled}
-          // The menu is a portal, so focus leaving the composer entirely (not into the menu, whose
-          // mousedown is suppressed) means the captain has moved on and it should stop hovering.
-          onBlur={dismissCompletion}
-          aria-expanded={activeCompletion !== null}
-          aria-controls={activeCompletion ? completionId : undefined}
-          aria-activedescendant={activeCompletion ? `${completionId}-${activeCompletion.index}` : undefined}
+          onPaste={handlePaste}
+          onEdit={() => setPasteBlocked(false)}
         />
-        {slashActive && (
-          <CompletionMenu
-            anchorRef={textareaRef}
-            id={completionId}
-            className="slash-command-menu"
-            label="Slash commands"
-            options={completion.matches.map((command) => ({
-              key: command.name,
-              label: `/${command.name}`,
-              hint: command.input?.hint,
-              description: command.description
-            }))}
-            activeIndex={completion.activeIndex}
-            optionId={(index) => `${completionId}-${index}`}
-            accept={(index) => acceptCompletion(completion.matches[index])}
-            highlight={(index) => setCompletionState((current) => highlightSlashCommand(current, index))}
-          />
-        )}
-        {mentionActive && (
-          <CompletionMenu
-            anchorRef={textareaRef}
-            id={completionId}
-            className="file-mention-menu"
-            label="Workspace files"
-            options={mention.matches.map((entry) => ({
-              key: entry.path,
-              label: entry.directory ? `${entry.path}/` : entry.path,
-              hint: props.fileMentions?.recent.includes(entry.path) ? 'already read' : undefined
-            }))}
-            activeIndex={mention.activeIndex}
-            optionId={(index) => `${completionId}-${index}`}
-            accept={(index) => acceptMention(mention.matches[index])}
-            highlight={(index) => setMentionState((current) => highlightFileMention(current, index))}
-            note={fileMentionExclusionNote(mentionIndex)}
-          />
-        )}
       </div>
       {/* Dictation, stop, and send sit in the footer rather than beside the textarea: stretched
           alongside a growing input they ballooned with it. */}
@@ -979,11 +525,11 @@ export function Composer(props: ComposerProps): JSX.Element {
         <ComposerToolbar {...props} />
         <div className="composer-actions">
           <VoiceInput
-            draft={draft}
+            draft={editor.draft}
             disabled={composerDisabled}
-            textareaRef={textareaRef}
-            setDraft={setDraft}
-            context={dictationContext(draft, props.messages)}
+            textareaRef={editor.textareaRef}
+            setDraft={editor.setDraft}
+            context={dictationContext(editor.draft, props.messages)}
           />
           {busy && (
             <button
@@ -1001,7 +547,7 @@ export function Composer(props: ComposerProps): JSX.Element {
             className="composer-send"
             aria-label={busy ? 'Queue' : 'Send'}
             title={composerSendKeyLabels[sendKey].description}
-            disabled={(!draft.trim() && props.attachments.length === 0) || composerDisabled}
+            disabled={(editor.blank && props.attachments.length === 0) || composerDisabled}
           >
             {busy ? <ListPlus aria-hidden="true" /> : <SendHorizontal aria-hidden="true" />}
           </button>
@@ -1010,7 +556,6 @@ export function Composer(props: ComposerProps): JSX.Element {
     </form>
   )
 }
-
 function AuthPanel(
   props: Pick<
     FlatChatViewProps,

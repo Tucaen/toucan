@@ -4,7 +4,8 @@ import type { ReactElement } from 'react'
 import { describe, expect, test, vi } from 'vitest'
 import { TestChatView as ChatView, type TestChatViewProps as ChatViewProps } from './dom/chat-view-fixture'
 import { ComposerSendKeyContext } from '../src/renderer/src/composer-send-key-context'
-import ChatNode, { type ComposerFileMentions } from '../src/renderer/src/ChatNode'
+import ChatNode from '../src/renderer/src/ChatNode'
+import type { ComposerFileMentions } from '../src/renderer/src/use-prompt-editor'
 import {
   isTerminalCanvasNode,
   restoreCanvasWorkspace,
