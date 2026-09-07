@@ -61,6 +61,18 @@ test('publishes with a token scoped to the releases repository', () => {
   )
 })
 
+test('claims the release before packaging, so the two targets cannot race to create it', () => {
+  // Each Windows target publishes on its own and will create the release if none exists. Two
+  // creates race, and the loser's 422 aborts the rest of the uploads - which once left a release
+  // holding its installers but no latest.yml, so the updater had no feed. Creating it first
+  // leaves both publishers with nothing to do but upload.
+  assert.ok(
+    stepIndex('gh release create') < stepIndex('npm run publish:win'),
+    'claiming the release after packaging would not prevent the race it exists to prevent'
+  )
+  assert.match(workflow, /gh release view/, 'an existing release must be reused, never recreated')
+})
+
 test('caches the voice model the build downloads rather than fetching 165 MB per release', () => {
   const modelDirectory = 'src/renderer/public/models/moonshine-small-streaming-en'
   // The model is downloaded, never committed, so the cached path has to be ignored - by its own

@@ -35,6 +35,21 @@ jobs:
       - name: Build
         run: npm run build
 
+      # Both Windows targets publish independently, and each will create the release if it is not
+      # there yet. Two creates race; the loser gets a 422 ("Published releases must have a valid
+      # tag") and takes the remaining uploads down with it - which is how v0.3.1 ended up holding
+      # its two installers but no latest.yml, leaving the updater with no feed to read. Claiming
+      # the release up front leaves both publishers with nothing to do but upload into it.
+      - name: Claim the release before packaging
+        run: |
+          gh release view "$env:TAG" --repo Tucaen/toucan-releases *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create "$env:TAG" --repo Tucaen/toucan-releases --title "$env:TAG" --notes "Automated release."
+          }
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_REPO_TOKEN }}
+          TAG: ${{ github.ref_name }}
+
       - name: Package and publish
         run: npm run publish:win
         env:
