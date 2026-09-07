@@ -713,7 +713,7 @@ export function Composer(props: ComposerProps): JSX.Element {
     const element = textareaRef.current
     if (!element) return
     const onWheel = (event: WheelEvent): void => {
-      if (composerConsumesWheel(element, event.deltaY)) event.stopPropagation()
+      if (composerConsumesWheel(element)) event.stopPropagation()
     }
     element.addEventListener('wheel', onWheel)
     return () => element.removeEventListener('wheel', onWheel)

@@ -25,33 +25,22 @@ test('the bound is low enough that the composer can never eat the transcript it 
   assert.ok(COMPOSER_MAX_HEIGHT < 320, 'a chat node is 340px tall at its smallest')
 })
 
-const grown = { scrollTop: 40, scrollHeight: 400, clientHeight: COMPOSER_MAX_HEIGHT }
+const grown = { scrollHeight: 400, clientHeight: COMPOSER_MAX_HEIGHT }
 
-test('a composer with room left in the wheel direction keeps the gesture to itself', () => {
-  assert.equal(composerConsumesWheel(grown, 30), true)
-  assert.equal(composerConsumesWheel(grown, -30), true)
+test('a grown composer keeps the gesture to itself in either direction', () => {
+  assert.equal(composerConsumesWheel(grown), true)
 })
 
 test('a composer with nothing to scroll leaves the wheel to the canvas', () => {
-  const resting = { scrollTop: 0, scrollHeight: COMPOSER_MIN_HEIGHT, clientHeight: COMPOSER_MIN_HEIGHT }
-  assert.equal(composerConsumesWheel(resting, 30), false)
-  assert.equal(composerConsumesWheel(resting, -30), false)
+  const resting = { scrollHeight: COMPOSER_MIN_HEIGHT, clientHeight: COMPOSER_MIN_HEIGHT }
+  assert.equal(composerConsumesWheel(resting), false)
 })
 
-test('each end of the travel releases only the direction that has run out', () => {
-  const top = { ...grown, scrollTop: 0 }
-  assert.equal(composerConsumesWheel(top, -30), false)
-  assert.equal(composerConsumesWheel(top, 30), true)
-  const bottom = { ...grown, scrollTop: grown.scrollHeight - grown.clientHeight }
-  assert.equal(composerConsumesWheel(bottom, 30), false)
-  assert.equal(composerConsumesWheel(bottom, -30), true)
+test('neither end of the travel hands the canvas a zoom mid-scroll', () => {
+  // The scroll offset plays no part: only whether there is overflow at all.
+  assert.equal(composerConsumesWheel({ ...grown, scrollHeight: grown.clientHeight + 200 }), true)
 })
 
-test('a fractional layout height still counts as the end of the travel', () => {
-  const bottom = { scrollTop: 231.6, scrollHeight: 400, clientHeight: COMPOSER_MAX_HEIGHT }
-  assert.equal(composerConsumesWheel(bottom, 30), false)
-})
-
-test('a wheel with no vertical component is not the composer to consume', () => {
-  assert.equal(composerConsumesWheel(grown, 0), false)
+test('a box that only just fits after fractional layout is not scrollable', () => {
+  assert.equal(composerConsumesWheel({ scrollHeight: 168.6, clientHeight: COMPOSER_MAX_HEIGHT }), false)
 })
