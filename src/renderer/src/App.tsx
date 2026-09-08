@@ -20,6 +20,7 @@ import {
   GitCompare,
   GripVertical,
   History,
+  LayoutGrid,
   Maximize,
   Plus,
   Settings,
@@ -48,6 +49,7 @@ import type {
   TerminalKind,
   TerminalLiveness,
   TicketBoardPanelState,
+  WorkspaceLayoutSlot,
   WorkspaceProject,
   WorkspaceState,
   WorkspaceTerminalNode
@@ -148,9 +150,21 @@ import {
 import { planWorktreeRemoval } from './worktree-removal'
 import { adoptClaimedWorktrees, applyAttachedNodeCounts, applyWorktreeClaims } from './worktree-attachment'
 import WorktreeNode from './WorktreeNode'
-import { nodeBeforeTemporaryFit } from './node-fit'
+import {
+  LAYOUT_SHORTCUT_LABELS,
+  applyLayoutSlot,
+  captureLayoutSlot,
+  layoutKeyAction,
+  matchNodeSizes,
+  nextTileMode,
+  pruneLayoutSlots,
+  tileNodes,
+  type LayoutKeyAction,
+  type TileMode
+} from './canvas-layout'
+import { NODE_FIT_INSET, canvasRegion, nodeBeforeTemporaryFit } from './node-snap'
 import { NodeFitContext } from './node-fit-context'
-import { useNodeFit } from './use-node-fit'
+import { useNodeSnap } from './use-node-snap'
 
 type Project = WorkspaceProject
 
@@ -626,12 +640,69 @@ function Canvas(): JSX.Element {
   }, [])
 
   const getCanvasNodes = useCallback((): CanvasNode[] => nodesRef.current, [])
-  const nodeFit = useNodeFit<CanvasNode>({
+  const nodeFit = useNodeSnap<CanvasNode>({
     canvasRef: canvasRegionRef,
     getNodes: getCanvasNodes,
     getViewport,
     setNodes
   })
+  // Which layout the next tile produces. Session-local: it is a cycle position, not a preference.
+  const [tileMode, setTileMode] = useState<TileMode>('grid')
+  const [layoutSlots, setLayoutSlots] = useState<Record<string, WorkspaceLayoutSlot>>({})
+
+  /** The visible canvas in flow coordinates, or null before the region has laid out. */
+  const visibleCanvasRegion = useCallback(() => {
+    const canvas = canvasRegionRef.current?.getBoundingClientRect()
+    return canvas ? canvasRegion(canvas, getViewport(), NODE_FIT_INSET) : null
+  }, [getViewport])
+
+  /**
+   * Lays every node - or the selection, when two or more are selected - into the visible canvas,
+   * then advances the cycle so the next press gives the next layout. Tiling places nodes itself,
+   * so their snaps are released first rather than left pointing at geometry that is gone.
+   */
+  const tileCanvas = useCallback((): void => {
+    const region = visibleCanvasRegion()
+    if (!region) return
+    const current = getCanvasNodes()
+    const selected = current.filter((node) => node.selected).map((node) => node.id)
+    const ids = selected.length >= 2 ? selected : current.map((node) => node.id)
+    nodeFit.release(ids)
+    setNodes(tileNodes(getCanvasNodes(), ids, tileMode, region, NODE_FIT_INSET))
+    setTileMode(nextTileMode(tileMode))
+  }, [getCanvasNodes, nodeFit, setNodes, tileMode, visibleCanvasRegion])
+
+  const runLayoutAction = useCallback(
+    (action: LayoutKeyAction): void => {
+      const current = getCanvasNodes()
+      const selected = current.filter((node) => node.selected).map((node) => node.id)
+      switch (action.kind) {
+        case 'snap':
+          nodeFit.snap(selected, action.arrow)
+          return
+        case 'match-size':
+          setNodes(matchNodeSizes(current, selected))
+          return
+        case 'tile':
+          tileCanvas()
+          return
+        case 'slot-save':
+          setLayoutSlots((slots) => ({ ...slots, [action.slot]: captureLayoutSlot(current) }))
+          return
+        case 'slot-restore': {
+          const slot = layoutSlots[action.slot]
+          if (!slot) return
+          // A restored arrangement places nodes itself, like tiling.
+          nodeFit.release()
+          setNodes(applyLayoutSlot(getCanvasNodes(), slot))
+          return
+        }
+        case 'none':
+          return
+      }
+    },
+    [getCanvasNodes, layoutSlots, nodeFit, setNodes, tileCanvas]
+  )
 
   const clearRecentlyClosedNodes = useCallback((): void => {
     recentlyClosedNodesRef.current = []
@@ -1227,6 +1298,7 @@ function Canvas(): JSX.Element {
       setAgentPermissionModes(saved.agentPermissionModes ?? {})
       setComposerSendKey(saved.composerSendKey ?? COMPOSER_SEND_KEY_DEFAULT)
       setRecentlyClosedNodes(saved.recentlyClosedNodes ?? [])
+      setLayoutSlots(pruneLayoutSlots(saved.layoutSlots ?? {}, new Set(restored.nodes.map((node) => node.id))))
       restoreAttention(
         saved.attention ?? [],
         restored.nodes.map((node) => node.id)
@@ -1258,9 +1330,9 @@ function Canvas(): JSX.Element {
     ]
   )
 
-  // Fit state is read through a ref rather than listed as a dependency: every fit, restore, reflow
-  // and exit also rewrites `nodes`, so the snapshot is already recomputed whenever it can differ -
-  // and a fitted node must never be persisted filling the canvas.
+  // Snap state is read through a ref rather than listed as a dependency: every snap, restore,
+  // reflow and release also rewrites `nodes`, so the snapshot is already recomputed whenever it
+  // can differ - and a maximised node must never be persisted filling the canvas.
   const workspaceSnapshot = useMemo<WorkspaceState>(
     () => ({
       version: 3,
@@ -1280,6 +1352,9 @@ function Canvas(): JSX.Element {
       worktrees: nodes.filter(isWorktreeCanvasNode).map((node) => {
         return serializeWorktreeNode(nodeBeforeTemporaryFit(node, nodeFit.state()))
       }),
+      // Absent rather than empty, like `projectGroups`, so a workspace that never saved a slot keeps
+      // its snapshot shape.
+      ...(Object.keys(layoutSlots).length > 0 ? { layoutSlots } : {}),
       // Absent rather than empty, like `projectGroups`, so a canvas that never opened a file keeps
       // writing the snapshot shape it always did.
       ...(nodes.some(isFileCanvasNode)
@@ -1632,6 +1707,13 @@ function Canvas(): JSX.Element {
         if (reopenLastClosedSession()) event.preventDefault()
         return
       }
+      const layoutAction = layoutKeyAction(event, { editingText })
+      if (layoutAction.kind !== 'none') {
+        if (dialogOpen) return
+        event.preventDefault()
+        runLayoutAction(layoutAction)
+        return
+      }
       const editingTerminal = !!target?.closest('.terminal-host')
       const action = createNodeKeyAction(event, { editingTerminal })
       if (action === 'none' || dialogOpen) return
@@ -1645,6 +1727,7 @@ function Canvas(): JSX.Element {
     dialogOpen,
     reopenLastClosedSession,
     runCreateAction,
+    runLayoutAction,
     toggleBrainDumpPanel,
     toggleTicketBoardPanel,
     viewportCentreDropPosition
@@ -2524,6 +2607,15 @@ function Canvas(): JSX.Element {
                     onClick={() => void fitView()}
                   >
                     <Maximize aria-hidden="true" />
+                  </button>
+                  <button
+                    type="button"
+                    className="canvas-zoom-button"
+                    title={`Tile nodes as ${tileMode} (${LAYOUT_SHORTCUT_LABELS.tile})`}
+                    aria-label="Tile nodes"
+                    onClick={tileCanvas}
+                  >
+                    <LayoutGrid aria-hidden="true" />
                   </button>
                 </div>
               </div>

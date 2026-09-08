@@ -181,6 +181,21 @@ function isTicketBoardPanelState(value: unknown): boolean {
   )
 }
 
+function isLayoutSlots(value: unknown): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  return Object.entries(value as Record<string, unknown>).every(
+    ([number, slot]) =>
+      /^[1-9]$/.test(number) &&
+      !!slot &&
+      typeof slot === 'object' &&
+      Object.values(slot as Record<string, unknown>).every((geometry) => {
+        if (!geometry || typeof geometry !== 'object') return false
+        const { x, y, width, height } = geometry as Record<string, unknown>
+        return [x, y, width, height].every((n) => typeof n === 'number' && Number.isFinite(n))
+      })
+  )
+}
+
 export function isWorkspaceState(value: unknown): value is WorkspaceState {
   if (!hasValidProjects(value)) return false
   const state = value as Partial<WorkspaceState>
@@ -206,6 +221,7 @@ export function isWorkspaceState(value: unknown): value is WorkspaceState {
   if (state.composerSendKey !== undefined && !isComposerSendKey(state.composerSendKey)) return false
   if (state.brainDumpPanel !== undefined && !isBrainDumpPanelState(state.brainDumpPanel)) return false
   if (state.ticketBoardPanel !== undefined && !isTicketBoardPanelState(state.ticketBoardPanel)) return false
+  if (state.layoutSlots !== undefined && !isLayoutSlots(state.layoutSlots)) return false
   if (state.attention !== undefined && (!Array.isArray(state.attention) || !state.attention.every(isAttentionItem)))
     return false
   if (!state.nodes.every(isWorkspaceTerminalNode)) return false

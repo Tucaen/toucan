@@ -209,7 +209,15 @@ export interface WorkspaceState {
   brainDumpPanel?: BrainDumpPanelState
   /** Absent in every snapshot written before the board existed; the panel starts closed there. */
   ticketBoardPanel?: TicketBoardPanelState
+  /**
+   * Remembered canvas arrangements by slot number ('1'..'9'), written only when at least one is
+   * saved. A slot names nodes by id; ids that no longer exist are skipped when it is restored.
+   */
+  layoutSlots?: Record<string, WorkspaceLayoutSlot>
 }
+
+/** One remembered arrangement: where each node was, in flow coordinates, keyed by node id. */
+export type WorkspaceLayoutSlot = Record<string, { x: number; y: number; width: number; height: number }>
 
 export interface WorkspaceSaveResult {
   ok: boolean
