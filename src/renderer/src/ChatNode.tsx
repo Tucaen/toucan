@@ -1812,7 +1812,6 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
         {/* Model, effort and permission pickers live in the composer's toolbar - see
             ComposerToolbar - so the whole picker row reads as one set and the header keeps its
             room for the node's identity. */}
-        <span className="chat-provider-badge">ACP</span>
         <UnreadToggle
           unread={unread}
           onToggle={(next) => {

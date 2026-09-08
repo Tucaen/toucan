@@ -1633,16 +1633,6 @@ button {
   font-size: 14px;
 }
 
-.chat-provider-badge {
-  padding: 2px 5px;
-  border: 1px solid color-mix(in srgb, var(--node-accent) 38%, #323a46);
-  border-radius: 4px;
-  color: var(--node-accent);
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-}
-
 .node-picker {
   position: relative;
   flex: none;
