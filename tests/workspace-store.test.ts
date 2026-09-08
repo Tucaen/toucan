@@ -676,6 +676,26 @@ test('the ticket board panel round-trips, and a malformed one is refused rather 
   }
 })
 
+test('layout slots round-trip, and a malformed slot is refused rather than repaired', () => {
+  const base = makeState('Toucan')
+  const slots = { '1': { 'node-1': { x: 16, y: 16, width: 476, height: 668 } }, '9': {} }
+
+  assert.deepEqual(parseWorkspaceState({ ...base, layoutSlots: slots })?.layoutSlots, slots)
+  // A snapshot written before slots existed simply has none; it must still load.
+  assert.equal(parseWorkspaceState(base)?.layoutSlots, undefined)
+
+  for (const malformed of [
+    { '0': {} },
+    { '1': null },
+    { '1': { 'node-1': { x: 16, y: 16, width: 476 } } },
+    { '1': { 'node-1': { x: Number.NaN, y: 16, width: 476, height: 668 } } },
+    { '1': { 'node-1': { x: '16', y: 16, width: 476, height: 668 } } },
+    []
+  ]) {
+    assert.equal(parseWorkspaceState({ ...base, layoutSlots: malformed }), null, JSON.stringify(malformed))
+  }
+})
+
 test("a project's GitHub in-progress label round-trips, and a non-string one is refused", () => {
   const base = makeState('Toucan')
   const withLabel = { ...base, projects: [{ ...base.projects[0], githubInProgressLabel: 'doing' }] }

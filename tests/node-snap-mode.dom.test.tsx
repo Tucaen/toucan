@@ -2,8 +2,8 @@ import { act, render } from '@testing-library/react'
 import type { Node, Viewport } from '@xyflow/react'
 import { useRef, useState } from 'react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-import { NODE_FIT_INSET } from '../src/renderer/src/node-fit'
-import { useNodeFit, type NodeFitController } from '../src/renderer/src/use-node-fit'
+import { NODE_FIT_INSET } from '../src/renderer/src/node-snap'
+import { useNodeSnap, type NodeSnapController } from '../src/renderer/src/use-node-snap'
 
 type TestNode = Node<{ fittedToCanvas?: boolean }>
 
@@ -37,17 +37,17 @@ function geometryOf(node: TestNode | undefined): unknown {
   return { position: node?.position, style: node?.style, fitted: node?.data.fittedToCanvas }
 }
 
-describe('canvas fit mode', () => {
+describe('canvas snap mode', () => {
   let rect: { current: DOMRect }
   let viewport: Viewport
-  let controller: NodeFitController<TestNode>
+  let controller: NodeSnapController<TestNode>
   let nodes: TestNode[]
 
   function Harness(): JSX.Element {
     const [current, setCurrent] = useState<TestNode[]>(initialNodes)
     const canvasRef = useRef<HTMLElement>(null)
     nodes = current
-    controller = useNodeFit<TestNode>({
+    controller = useNodeSnap<TestNode>({
       canvasRef,
       getNodes: () => current,
       getViewport: () => viewport,
@@ -120,8 +120,8 @@ describe('canvas fit mode', () => {
     fit('a')
     act(() => controller.observeChanges([{ id: 'a', type: 'position', dragging: true }]))
 
-    expect(controller.state()).toBeNull()
-    // The drag itself is React Flow's to apply; fit mode must not undo it.
+    expect(controller.state()).toEqual({})
+    // The drag itself is React Flow's to apply; snap mode must not undo it.
     expect(nodes[0].position).toEqual({ x: 16, y: 16 })
     expect(nodes[0].data.fittedToCanvas).toBe(false)
 
@@ -133,12 +133,12 @@ describe('canvas fit mode', () => {
     fit('a')
     act(() => controller.observeChanges([{ id: 'a', type: 'dimensions', resizing: true }]))
 
-    expect(controller.state()).toBeNull()
+    expect(controller.state()).toEqual({})
     expect(nodes[0].style).toEqual({ width: 968, height: 668 })
 
     // Fitting again saves the geometry the user produced, not the pre-fit geometry it replaced.
     fit('a')
-    expect(controller.state()?.restoreGeometry).toEqual({
+    expect(controller.state().a.restoreGeometry).toEqual({
       position: { x: 16, y: 16 },
       width: 968,
       height: 668
@@ -149,7 +149,7 @@ describe('canvas fit mode', () => {
     fit('a')
     act(() => controller.observeChanges([{ id: 'a', type: 'dimensions', dimensions: { width: 968, height: 668 } }]))
 
-    expect(controller.state()?.nodeId).toBe('a')
+    expect(Object.keys(controller.state())).toEqual(['a'])
     expect(nodes[0].data.fittedToCanvas).toBe(true)
   })
 
@@ -157,7 +157,7 @@ describe('canvas fit mode', () => {
     fit('a')
     fit('b')
 
-    expect(controller.state()?.nodeId).toBe('b')
+    expect(Object.keys(controller.state())).toEqual(['b'])
     expect(geometryOf(nodes[0])).toEqual({
       position: { x: 40, y: 60 },
       style: { width: 300, height: 200 },
@@ -174,12 +174,56 @@ describe('canvas fit mode', () => {
     fit('a')
     act(() => controller.observeChanges([{ id: 'a', type: 'remove' }]))
 
-    expect(controller.state()).toBeNull()
+    expect(controller.state()).toEqual({})
 
     fit('b')
     expect(controller.state()).toEqual({
-      nodeId: 'b',
-      restoreGeometry: { position: { x: 700, y: 90 }, width: 500, height: 400 }
+      b: { h: 'full', v: 'full', restoreGeometry: { position: { x: 700, y: 90 }, width: 500, height: 400 } }
     })
+  })
+
+  test('two selected nodes go side by side with one Alt+Arrow and both follow a resize', () => {
+    act(() => controller.snap(['a', 'b'], 'left'))
+    expect(nodes[0].position).toEqual({ x: 16, y: 16 })
+    expect(nodes[0].style).toEqual({ width: 476, height: 668 })
+    expect(nodes[1].position).toEqual({ x: 16 + 476 + 16, y: 16 })
+    // Neither is maximised, so neither header shows Restore.
+    expect(nodes.map((node) => node.data.fittedToCanvas)).toEqual([false, false])
+
+    resizeCanvas({ width: 800, height: 500 }, rect)
+    expect(nodes[0].style).toEqual({ width: 376, height: 468 })
+    expect(nodes[1].position).toEqual({ x: 16 + 376 + 16, y: 16 })
+  })
+
+  test('the header toggle and Alt+Up are the same maximise, and Alt+Down restores it', () => {
+    act(() => controller.snap(['a'], 'up'))
+    expect(nodes[0].data.fittedToCanvas).toBe(true)
+    expect(nodes[0].style).toEqual({ width: 968, height: 668 })
+
+    fit('a')
+    expect(geometryOf(nodes[0])).toEqual({
+      position: { x: 40, y: 60 },
+      style: { width: 300, height: 200 },
+      fitted: false
+    })
+
+    fit('a')
+    act(() => controller.snap(['a'], 'down'))
+    expect(geometryOf(nodes[0])).toEqual({
+      position: { x: 40, y: 60 },
+      style: { width: 300, height: 200 },
+      fitted: false
+    })
+    expect(controller.state()).toEqual({})
+  })
+
+  test('release forgets snaps without moving anything, so tiling can take over', () => {
+    act(() => controller.snap(['a', 'b'], 'left'))
+    act(() => controller.release())
+    expect(controller.state()).toEqual({})
+    expect(nodes[0].position).toEqual({ x: 16, y: 16 })
+
+    resizeCanvas({ width: 600, height: 400 }, rect)
+    expect(nodes[0].style).toEqual({ width: 476, height: 668 })
   })
 })
