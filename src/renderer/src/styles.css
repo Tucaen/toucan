@@ -3396,19 +3396,19 @@ button {
   cursor: default;
 }
 
-.chat-composer .stop-agent {
+.chat-composer button.stop-agent {
   border-color: #b3383d;
   color: #ffe8e9;
   background: #b3383d;
 }
 
-.chat-composer .stop-agent:hover {
+.chat-composer button.stop-agent:hover {
   border-color: #c9454a;
   background: #c9454a;
 }
 
 /* Lucide icons are stroke-only; fill the square so it reads as a solid stop glyph. */
-.chat-composer .stop-agent > .lucide {
+.chat-composer button.stop-agent > .lucide {
   fill: currentColor;
 }
 

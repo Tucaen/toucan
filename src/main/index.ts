@@ -279,7 +279,12 @@ function createWindow(
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: false,
+      // Chromium's spellchecker loads one dictionary, picked from the OS locale - so a German
+      // install underlines every English word in a prompt, and an English install does the same to
+      // German. Prompts are written in both languages, often mixed inside one sentence, so there is
+      // no single dictionary that is right here. Off app-wide rather than per-textarea.
+      spellcheck: false
     }
   })
 
