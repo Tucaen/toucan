@@ -256,6 +256,11 @@ export function isTerminalCanvasNode(node: CanvasNode): node is TerminalCanvasNo
   return node.type === 'terminalNode'
 }
 
+/** A session node whose surface is the AI-chat transcript rather than an xterm terminal. */
+export function isChatCanvasNode(node: CanvasNode): node is TerminalCanvasNode {
+  return isTerminalCanvasNode(node) && node.data.kind !== 'terminal'
+}
+
 export function isWorktreeCanvasNode(node: CanvasNode): node is WorktreeCanvasNode {
   return node.type === 'worktreeNode'
 }

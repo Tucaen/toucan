@@ -21,6 +21,7 @@ import {
   DEFAULT_DIFF_NODE_SIZE,
   DEFAULT_FILE_NODE_SIZE,
   DEFAULT_WORKTREE_SIZE,
+  isChatCanvasNode,
   isDiffCanvasNode,
   isFileCanvasNode,
   isLayoutCanvasNode,
@@ -730,4 +731,54 @@ test('a create action is centred by the size its node is actually built with', (
   assert.equal(NEW_NODE_SIZE['create-worktree'], DEFAULT_WORKTREE_SIZE)
   assert.equal(NEW_NODE_SIZE['open-file'], DEFAULT_FILE_NODE_SIZE)
   assert.equal(NEW_NODE_SIZE['open-diff'], DEFAULT_DIFF_NODE_SIZE)
+})
+
+test('a chat node is a session node whose surface is a transcript, never an xterm terminal', () => {
+  const project = { id: 'project-1', name: 'Toucan', path: 'D:\\Development\\Toucan', color: '#71a9ff' }
+  const state: WorkspaceState = {
+    version: 3,
+    projects: [project],
+    activeProjectId: 'project-1',
+    sidebarCollapsed: false,
+    nodes: [
+      {
+        id: 'chat-1',
+        kind: 'claude',
+        label: 'Claude 1',
+        projectId: 'project-1',
+        position: { x: 0, y: 0 },
+        width: 540,
+        height: 360
+      },
+      {
+        id: 'chat-2',
+        kind: 'codex',
+        label: 'Codex 1',
+        projectId: 'project-1',
+        position: { x: 0, y: 0 },
+        width: 540,
+        height: 360
+      },
+      {
+        id: 'term-1',
+        kind: 'terminal',
+        label: 'Terminal 1',
+        projectId: 'project-1',
+        position: { x: 0, y: 0 },
+        width: 520,
+        height: 340
+      }
+    ],
+    worktrees: []
+  }
+  const nodes = restoreCanvasWorkspace(state, callbacks).nodes
+  const chatIds = nodes.filter(isChatCanvasNode).map((node) => node.id)
+  assert.deepEqual(chatIds.sort(), ['chat-1', 'chat-2'])
+
+  const file = createFileCanvasNode(
+    { id: 'file-1', position: { x: 0, y: 0 }, path: 'D:\\notes.md' },
+    project,
+    callbacks
+  )
+  assert.equal(isChatCanvasNode(file), false)
 })

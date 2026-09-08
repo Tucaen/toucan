@@ -88,6 +88,7 @@ import {
   NEW_SESSION_NODE_SIZE,
   centredNodePosition,
   isDiffCanvasNode,
+  isChatCanvasNode,
   isFileCanvasNode,
   isLayoutCanvasNode,
   isTerminalCanvasNode,
@@ -739,9 +740,10 @@ function Canvas(): JSX.Element {
    */
   const searchTargetNodeId = useCallback(
     (target: HTMLElement | null): string | null => {
+      // A dormant chat node shows a resume panel, not its transcript, so it has nothing to search.
       const searchable = new Set(
         getCanvasNodes()
-          .filter(isFileCanvasNode)
+          .filter((node) => isFileCanvasNode(node) || (isChatCanvasNode(node) && !node.data.dormant))
           .map((node) => node.id)
       )
       const under = target?.closest('.react-flow__node')?.getAttribute('data-id')

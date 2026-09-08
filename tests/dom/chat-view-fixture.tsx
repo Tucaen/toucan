@@ -2,6 +2,7 @@ import {
   ChatView,
   type ChatComposerProps,
   type ChatPendingProps,
+  type ChatSearchProps,
   type ChatSessionControlsProps,
   type ChatTranscriptProps
 } from '../../src/renderer/src/ChatNode'
@@ -12,6 +13,7 @@ export type TestChatViewProps = ChatTranscriptProps &
   Omit<ChatSessionControlsProps, 'status' | 'detail'> & {
     setDraft(value: string): void
     sendMessage(text: string): void
+    search?: ChatSearchProps
   }
 
 /** Keeps behavior-oriented tests concise while production callers use the cohesive contracts. */
@@ -75,6 +77,7 @@ export function TestChatView(props: TestChatViewProps): JSX.Element {
         completedTaskIds,
         closedDecisionIds
       }}
+      search={props.search}
     />
   )
 }

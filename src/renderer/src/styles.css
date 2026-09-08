@@ -3534,6 +3534,19 @@ button {
   grid-row: 2;
 }
 
+/* Floats over the transcript, below the focus toggle, instead of taking a grid row: a bar that
+   reflowed the scroll area would shift the text under the reader every time it opened. */
+.agent-chat .node-find-bar {
+  position: absolute;
+  z-index: 2;
+  top: 40px;
+  right: 12px;
+  width: min(380px, calc(100% - 24px));
+  border: 1px solid #2f3644;
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+}
+
 .agent-chat.has-status-bar {
   grid-template-rows: minmax(0, 1fr) auto auto;
 }

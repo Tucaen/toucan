@@ -1,4 +1,4 @@
-import { useCallback, useContext, useEffect, useId, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { NodeProps } from '@xyflow/react'
 import { FileText } from 'lucide-react'
@@ -32,7 +32,7 @@ import FindBar from './FindBar'
 import { markdownBlockComponents, remarkPlugins } from './MarkdownMessage'
 import NodeBorderResizer from './NodeBorderResizer'
 import NodeFitAction from './NodeFitAction'
-import { NodeSearchContext } from './node-search-context'
+import { useNodeSearchRequest } from './node-search-context'
 
 /**
  * Only web links leave the node; a relative link to another file or an anchor inside the document
@@ -97,22 +97,19 @@ export default function FileNode({ id, data, selected }: NodeProps<FileCanvasNod
   const mode: FileViewMode = markdown ? view : 'raw'
   const editability = fileEditability(result)
   const dirty = isDirty(edit)
-  const searchRequest = useContext(NodeSearchContext)
   const [findBar, setFindBar] = useState<{ open: boolean; signal: number }>({ open: false, signal: 0 })
   const [editorSearchSignal, setEditorSearchSignal] = useState(0)
-  // Whatever the canvas last asked of some node is already spent by the time this one mounts, and
-  // the request also has to survive a re-run of the effect that a view-mode change causes.
-  const handledSearchNonce = useRef(searchRequest.nonce)
 
-  useEffect(() => {
-    if (searchRequest.nodeId !== id || searchRequest.nonce === handledSearchNonce.current) return
-    handledSearchNonce.current = searchRequest.nonce
-    // The node's own unsaved-changes dialog is modal over this node but invisible to the canvas's
-    // `dialogOpen`, so opening a search behind it is this node's to refuse.
-    if (pendingPath) return
-    if (mode === 'rendered') setFindBar((current) => ({ open: true, signal: current.signal + 1 }))
-    else setEditorSearchSignal((current) => current + 1)
-  }, [id, mode, pendingPath, searchRequest])
+  useNodeSearchRequest(
+    id,
+    useCallback(() => {
+      // The node's own unsaved-changes dialog is modal over this node but invisible to the canvas's
+      // `dialogOpen`, so opening a search behind it is this node's to refuse.
+      if (pendingPath) return
+      if (mode === 'rendered') setFindBar((current) => ({ open: true, signal: current.signal + 1 }))
+      else setEditorSearchSignal((current) => current + 1)
+    }, [mode, pendingPath])
+  )
 
   const closeFindBar = useCallback((): void => setFindBar((current) => ({ ...current, open: false })), [])
 
