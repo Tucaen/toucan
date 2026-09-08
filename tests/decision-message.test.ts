@@ -192,6 +192,20 @@ test('a long technical explanation with emphasized sections and a trailing quest
   assert.deepEqual(extractDecisionOptions(text), [])
 })
 
+test('numbered discussion points followed by a closing paragraph ending on a question are not a decision', () => {
+  const text = [
+    'Two things to decide:',
+    '',
+    '1. **Collapsed sidebar** — `creation-target` only renders when `!sidebarCollapsed`. The controls should probably stay visible when collapsed (icon-only, like the Tickets button), otherwise you lose zoom controls entirely in collapsed mode.',
+    '2. **Discoverability trade-off** — zoom controls next to the canvas is the convention users know. Sidebar placement is fine for a power-user tool like this, but it is slightly less discoverable.',
+    '',
+    'The lazier alternative — keeping `<Controls>` but passing `fitViewOptions={{ padding: ... }}` so fit-view leaves room — only hides the symptom; nodes still slide under the controls when you pan. I would do the sidebar move. Want me to implement it?'
+  ].join('\n')
+
+  assert.equal(classifyAssistantMessage(text), 'normal')
+  assert.deepEqual(extractDecisionOptions(text), [])
+})
+
 test('a long or multi-paragraph message never classifies as noise even with a routine lead-in', () => {
   const text =
     'Spawning worker for task fm-142.\n\nIt will validate the migration against the staging ' +

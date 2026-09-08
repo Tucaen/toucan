@@ -4,7 +4,7 @@
  * `{ type: 'message', role: 'assistant', text }` event. This module is a conservative,
  * text-shape heuristic that drives styling/interaction from that plain text alone.
  *
- * Decision shape: either a trailing question immediately preceded by one compact block of two or
+ * Decision shape: either a trailing single-sentence question immediately preceded by one compact block of two or
  * more "option lines" (see OPTION_LINE_PATTERNS), or enumerated proposal content followed by a
  * compact confirmation-question block. The latter offers one synthetic Agree action: proposal
  * items are content to approve, not choices to extract.
@@ -99,11 +99,23 @@ function extractOptionLines(text: string): string[] {
   return nonEmptyLines(text).filter(isOptionLine).map(cleanMarkdownLine)
 }
 
+/**
+ * A choice decision closes on a question line ("Which would you like?"), not a closing paragraph
+ * that happens to end on a question mark ("...I'd do the sidebar move. Want me to implement it?").
+ * Prose before the question means the preceding list is discussion, not options to pick from, so
+ * an interior sentence boundary disqualifies the line.
+ */
+function isSingleSentenceQuestion(line: string): boolean {
+  const question = cleanMarkdownLine(line)
+  if (!question.endsWith('?')) return false
+  return !/[.!?]\s/.test(question.slice(0, -1))
+}
+
 function extractDecisionOptionLines(text: string): string[] {
   const lines = text.split('\n').map((line) => line.trim())
   while (lines.at(-1) === '') lines.pop()
   const question = lines.pop() ?? ''
-  if (!question.endsWith('?')) return []
+  if (!isSingleSentenceQuestion(question)) return []
 
   // Markdown commonly leaves one or more blank lines between the list and its question.
   while (lines.at(-1) === '') lines.pop()
