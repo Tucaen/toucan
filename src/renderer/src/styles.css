@@ -6643,6 +6643,116 @@ button {
   color: #df737a;
 }
 
+/* CodeMirror's own search panel, themed like the rest of the editor rather than its light default. */
+.code-editor .cm-panels {
+  border: 0;
+  background: #222835;
+  color: #c3cad5;
+}
+
+.code-editor .cm-panels.cm-panels-top {
+  border-bottom: 1px solid #2f3644;
+}
+
+.code-editor .cm-panel.cm-search {
+  padding: 6px 8px;
+  font: inherit;
+}
+
+.code-editor .cm-panel.cm-search input,
+.code-editor .cm-panel.cm-search button,
+.code-editor .cm-panel.cm-search label {
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 1.6;
+  color: #c3cad5;
+}
+
+.code-editor .cm-panel.cm-search input[type='text'] {
+  padding: 2px 6px;
+  border: 1px solid #39414f;
+  border-radius: 4px;
+  background: #1a1f29;
+}
+
+.code-editor .cm-panel.cm-search button {
+  padding: 2px 8px;
+  border: 1px solid #39414f;
+  border-radius: 4px;
+  background: #2a3240;
+  background-image: none;
+}
+
+.code-editor .cm-searchMatch {
+  background: rgba(116, 216, 162, 0.22);
+}
+
+.code-editor .cm-searchMatch.cm-searchMatch-selected {
+  background: rgba(255, 196, 87, 0.42);
+}
+
+/* ---- In-node find bar -------------------------------------------------- */
+
+/*
+ * Rendered prose is searched without touching the DOM: matches are painted through the CSS Custom
+ * Highlight API (see `node-search-dom.ts`), which is why these are `::highlight()` rules and not a
+ * class on a wrapper element.
+ */
+::highlight(toucan-find-match) {
+  background-color: rgba(116, 216, 162, 0.24);
+  color: inherit;
+}
+
+::highlight(toucan-find-current) {
+  background-color: rgba(255, 196, 87, 0.45);
+  color: inherit;
+}
+
+.node-find-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-bottom: 1px solid #2f3644;
+  background: #222835;
+}
+
+.node-find-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 3px 8px;
+  border: 1px solid #39414f;
+  border-radius: 4px;
+  background: #1a1f29;
+  color: #dbe2ea;
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.node-find-input:focus {
+  outline: none;
+  border-color: var(--project-color, #74d8a2);
+}
+
+.node-find-count {
+  flex: 0 0 auto;
+  color: #8b95a5;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.node-find-bar button {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+}
+
+.node-find-bar button svg {
+  width: 14px;
+  height: 14px;
+}
+
 .file-node-inert-link {
   color: #a9b3c1;
   text-decoration: underline dotted;

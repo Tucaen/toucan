@@ -167,6 +167,8 @@ import {
 } from './canvas-layout'
 import { NODE_FIT_INSET, canvasRegion, nodeBeforeTemporaryFit } from './node-snap'
 import { NodeFitContext } from './node-fit-context'
+import { nodeSearchKeyAction } from './node-search'
+import { NodeSearchContext, NO_NODE_SEARCH_REQUEST, type NodeSearchRequest } from './node-search-context'
 import { useNodeSnap } from './use-node-snap'
 
 type Project = WorkspaceProject
@@ -652,6 +654,7 @@ function Canvas(): JSX.Element {
   // Which layout the next tile produces. Session-local: it is a cycle position, not a preference.
   const [tileMode, setTileMode] = useState<TileMode>('grid')
   const [layoutSlots, setLayoutSlots] = useState<Record<string, WorkspaceLayoutSlot>>({})
+  const [nodeSearchRequest, setNodeSearchRequest] = useState<NodeSearchRequest>(NO_NODE_SEARCH_REQUEST)
 
   /** The visible canvas in flow coordinates, or null before the region has laid out. */
   const visibleCanvasRegion = useCallback(() => {
@@ -726,6 +729,27 @@ function Canvas(): JSX.Element {
       }
     },
     [getCanvasNodes, layoutSlots, nodeFit, setNodes, tileCanvas]
+  )
+
+  /**
+   * Which node Ctrl+F searches. The node the key came from wins - a reader pressing it inside a
+   * node means that one, whatever the selection says - and a lone selected node is the fallback.
+   * Two selected nodes name no single surface, and only nodes that can search are offered, so the
+   * key is left to the browser everywhere else rather than swallowed to no effect.
+   */
+  const searchTargetNodeId = useCallback(
+    (target: HTMLElement | null): string | null => {
+      const searchable = new Set(
+        getCanvasNodes()
+          .filter(isFileCanvasNode)
+          .map((node) => node.id)
+      )
+      const under = target?.closest('.react-flow__node')?.getAttribute('data-id')
+      if (under && searchable.has(under)) return under
+      const selected = getCanvasNodes().filter((node) => node.selected)
+      return selected.length === 1 && searchable.has(selected[0].id) ? selected[0].id : null
+    },
+    [getCanvasNodes]
   )
 
   const clearRecentlyClosedNodes = useCallback((): void => {
@@ -1720,6 +1744,14 @@ function Canvas(): JSX.Element {
         if (reopenLastClosedSession()) event.preventDefault()
         return
       }
+      if (nodeSearchKeyAction(event, { editingText, dialogOpen }) === 'open') {
+        const nodeId = searchTargetNodeId(target)
+        if (nodeId) {
+          event.preventDefault()
+          setNodeSearchRequest((current) => ({ nodeId, nonce: current.nonce + 1 }))
+          return
+        }
+      }
       const layoutAction = layoutKeyAction(event, { editingText })
       if (layoutAction.kind !== 'none') {
         if (dialogOpen) return
@@ -1741,6 +1773,7 @@ function Canvas(): JSX.Element {
     reopenLastClosedSession,
     runCreateAction,
     runLayoutAction,
+    searchTargetNodeId,
     toggleBrainDumpPanel,
     toggleTicketBoardPanel,
     centredDropPosition
@@ -2635,22 +2668,24 @@ function Canvas(): JSX.Element {
 
             <section ref={canvasRegionRef} className="canvas-region">
               <NodeFitContext.Provider value={nodeFit.toggle}>
-                <OpenFileContext.Provider value={openFileFromCard}>
-                  <ReactFlow
-                    nodes={nodes}
-                    nodeTypes={nodeTypes}
-                    onNodesChange={handleNodesChange}
-                    onPaneContextMenu={openContextMenu}
-                    onPaneClick={() => setMenu(null)}
-                    minZoom={0.25}
-                    maxZoom={2}
-                    defaultViewport={{ x: 0, y: 0, zoom: 1 }}
-                    colorMode="dark"
-                    deleteKeyCode={['Backspace', 'Delete']}
-                  >
-                    <Background variant={BackgroundVariant.Dots} gap={24} size={1.2} color="#303744" />
-                  </ReactFlow>
-                </OpenFileContext.Provider>
+                <NodeSearchContext.Provider value={nodeSearchRequest}>
+                  <OpenFileContext.Provider value={openFileFromCard}>
+                    <ReactFlow
+                      nodes={nodes}
+                      nodeTypes={nodeTypes}
+                      onNodesChange={handleNodesChange}
+                      onPaneContextMenu={openContextMenu}
+                      onPaneClick={() => setMenu(null)}
+                      minZoom={0.25}
+                      maxZoom={2}
+                      defaultViewport={{ x: 0, y: 0, zoom: 1 }}
+                      colorMode="dark"
+                      deleteKeyCode={['Backspace', 'Delete']}
+                    >
+                      <Background variant={BackgroundVariant.Dots} gap={24} size={1.2} color="#303744" />
+                    </ReactFlow>
+                  </OpenFileContext.Provider>
+                </NodeSearchContext.Provider>
               </NodeFitContext.Provider>
             </section>
 

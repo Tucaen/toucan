@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import { useCallback, useContext, useEffect, useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { NodeProps } from '@xyflow/react'
 import { FileText } from 'lucide-react'
@@ -28,9 +28,11 @@ import {
   type FileEditState
 } from './file-node'
 import { byteLength, formatByteSize, shortenFilePath } from './file-operation'
+import FindBar from './FindBar'
 import { markdownBlockComponents, remarkPlugins } from './MarkdownMessage'
 import NodeBorderResizer from './NodeBorderResizer'
 import NodeFitAction from './NodeFitAction'
+import { NodeSearchContext } from './node-search-context'
 
 /**
  * Only web links leave the node; a relative link to another file or an anchor inside the document
@@ -87,6 +89,7 @@ export default function FileNode({ id, data, selected }: NodeProps<FileCanvasNod
   const resultRef = useRef(result)
   resultRef.current = result
   const fileIdentityRef = useRef<HTMLButtonElement>(null)
+  const proseRef = useRef<HTMLDivElement>(null)
   const pendingDialogRef = useRef<HTMLDivElement>(null)
   const hadPendingPathRef = useRef(false)
   const pendingFileChangeTitleId = useId()
@@ -94,6 +97,30 @@ export default function FileNode({ id, data, selected }: NodeProps<FileCanvasNod
   const mode: FileViewMode = markdown ? view : 'raw'
   const editability = fileEditability(result)
   const dirty = isDirty(edit)
+  const searchRequest = useContext(NodeSearchContext)
+  const [findBar, setFindBar] = useState<{ open: boolean; signal: number }>({ open: false, signal: 0 })
+  const [editorSearchSignal, setEditorSearchSignal] = useState(0)
+  // Whatever the canvas last asked of some node is already spent by the time this one mounts, and
+  // the request also has to survive a re-run of the effect that a view-mode change causes.
+  const handledSearchNonce = useRef(searchRequest.nonce)
+
+  useEffect(() => {
+    if (searchRequest.nodeId !== id || searchRequest.nonce === handledSearchNonce.current) return
+    handledSearchNonce.current = searchRequest.nonce
+    // The node's own unsaved-changes dialog is modal over this node but invisible to the canvas's
+    // `dialogOpen`, so opening a search behind it is this node's to refuse.
+    if (pendingPath) return
+    if (mode === 'rendered') setFindBar((current) => ({ open: true, signal: current.signal + 1 }))
+    else setEditorSearchSignal((current) => current + 1)
+  }, [id, mode, pendingPath, searchRequest])
+
+  const closeFindBar = useCallback((): void => setFindBar((current) => ({ ...current, open: false })), [])
+
+  // The two views search differently, so a find bar left over from the rendered view would count
+  // matches in prose that is no longer on screen.
+  useEffect(() => {
+    if (mode !== 'rendered') closeFindBar()
+  }, [closeFindBar, mode])
 
   const read = useCallback(async (): Promise<void> => {
     const generation = ++readGenerationRef.current
@@ -353,6 +380,16 @@ export default function FileNode({ id, data, selected }: NodeProps<FileCanvasNod
         <NodeFitAction nodeId={id} fitted={data.fittedToCanvas ?? false} />
       </header>
 
+      {findBar.open && mode === 'rendered' && (
+        <FindBar
+          containerRef={proseRef}
+          contentKey={shownContent}
+          openSignal={findBar.signal}
+          label={`Find in ${fileNodeName(path)}`}
+          onClose={closeFindBar}
+        />
+      )}
+
       <div className="file-node-body nodrag nowheel" data-view={mode}>
         {result === null && <p className="file-node-notice">Reading…</p>}
         {result && !result.ok && !dirty && (
@@ -404,7 +441,7 @@ export default function FileNode({ id, data, selected }: NodeProps<FileCanvasNod
               </p>
             )}
             {mode === 'rendered' ? (
-              <div className="markdown-body file-node-prose">
+              <div className="markdown-body file-node-prose" ref={proseRef}>
                 {frontmatter && frontmatter.fields.length > 0 && (
                   <div className="markdown-table-scroll markdown-frontmatter">
                     <table>
@@ -430,6 +467,7 @@ export default function FileNode({ id, data, selected }: NodeProps<FileCanvasNod
                 readOnly={!editability.editable && !dirty}
                 onChange={onEdit}
                 onSave={() => void save()}
+                searchSignal={editorSearchSignal}
               />
             )}
           </>

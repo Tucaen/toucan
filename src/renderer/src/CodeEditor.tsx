@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { indentWithTab, defaultKeymap, history, historyKeymap } from '@codemirror/commands'
 import { bracketMatching, LanguageDescription, syntaxHighlighting } from '@codemirror/language'
 import { languages } from '@codemirror/language-data'
+import { openSearchPanel, search, searchKeymap } from '@codemirror/search'
 import { Compartment, EditorState, type Extension } from '@codemirror/state'
 import { drawSelection, EditorView, highlightSpecialChars, keymap, lineNumbers } from '@codemirror/view'
 import { classHighlighter } from '@lezer/highlight'
@@ -16,6 +17,12 @@ export interface CodeEditorProps {
   onChange: (text: string) => void
   /** Ctrl+S inside the editor. */
   onSave: () => void
+  /**
+   * Bumped when the canvas asks this node to search. Ctrl+F inside the editor is CodeMirror's own,
+   * so this is only the way in from outside - the node is selected but the editor is not focused.
+   * Only a change opens the panel; whatever value an editor mounts with is already answered.
+   */
+  searchSignal: number
 }
 
 /**
@@ -33,8 +40,21 @@ export function languageDescriptionForPath(path: string): LanguageDescription | 
  * Highlighting uses `classHighlighter`, whose stable `tok-*` classes are themed in `styles.css`
  * beside the transcript's highlight.js palette rather than through CodeMirror's generated ones.
  * Callbacks are read through refs so a re-render never has to rebuild the view.
+ *
+ * Search is `@codemirror/search` rather than the find bar the node's rendered view uses: the editor
+ * only keeps the visible part of the document in the DOM, so a DOM search would find matches in a
+ * few screens' worth of a file and miss the rest. Its panel comes with replace, which is not a
+ * separate way to write files: a replacement is an ordinary edit, so it lands in the node's draft
+ * and still needs an explicit Save, exactly like typing.
  */
-export default function CodeEditor({ value, path, readOnly, onChange, onSave }: CodeEditorProps): JSX.Element {
+export default function CodeEditor({
+  value,
+  path,
+  readOnly,
+  onChange,
+  onSave,
+  searchSignal
+}: CodeEditorProps): JSX.Element {
   const host = useRef<HTMLDivElement>(null)
   const view = useRef<EditorView | null>(null)
   const language = useRef(new Compartment())
@@ -55,8 +75,10 @@ export default function CodeEditor({ value, path, readOnly, onChange, onSave }: 
       drawSelection(),
       bracketMatching(),
       syntaxHighlighting(classHighlighter),
+      search({ top: true }),
       keymap.of([
         { key: 'Mod-s', run: () => (onSaveRef.current(), true) },
+        ...searchKeymap,
         ...defaultKeymap,
         ...historyKeymap,
         indentWithTab
@@ -104,6 +126,21 @@ export default function CodeEditor({ value, path, readOnly, onChange, onSave }: 
   useEffect(() => {
     view.current?.dispatch({ effects: editable.current.reconfigure(readOnlyExtension(readOnly)) })
   }, [readOnly])
+
+  // The signal outlives this component: the editor unmounts on every switch to the rendered view,
+  // and a remount must not replay the last request by opening a panel nobody asked for.
+  const handledSearchSignal = useRef(searchSignal)
+
+  useEffect(() => {
+    if (searchSignal === handledSearchSignal.current) return
+    handledSearchSignal.current = searchSignal
+    const editor = view.current
+    if (!editor) return
+    // Focus first: the panel's own field takes focus on open, and Escape has to return to a view
+    // that was actually focused rather than leaving the node without a caret.
+    editor.focus()
+    openSearchPanel(editor)
+  }, [searchSignal])
 
   return <div className="code-editor" ref={host} />
 }

@@ -5,6 +5,11 @@ import { afterEach, expect, test, vi } from 'vitest'
 import type { FileReadResult, FileWriteRequest, FileWriteResult } from '../src/shared/file-view'
 import type { FileCanvasNode } from '../src/renderer/src/canvas-workspace'
 import FileNode from '../src/renderer/src/FileNode'
+import {
+  NodeSearchContext,
+  NO_NODE_SEARCH_REQUEST,
+  type NodeSearchRequest
+} from '../src/renderer/src/node-search-context'
 
 /*
  * The file node (issues #143 and #148): one project file on the canvas, Markdown rendered by default
@@ -78,53 +83,60 @@ const node = (
   data: Partial<FileCanvasNode['data']>,
   onViewModeChange: ReturnType<typeof vi.fn>,
   onRequestFilePath: ReturnType<typeof vi.fn>,
-  onPathChange: ReturnType<typeof vi.fn>
+  onPathChange: ReturnType<typeof vi.fn>,
+  searchRequest: NodeSearchRequest = NO_NODE_SEARCH_REQUEST
 ): JSX.Element => (
   <ReactFlowProvider>
-    <FileNode
-      id="file-1"
-      type="fileNode"
-      selected={false}
-      dragging={false}
-      zIndex={0}
-      isConnectable={false}
-      positionAbsoluteX={0}
-      positionAbsoluteY={0}
-      data={
-        {
-          path: PATH,
-          view: 'rendered',
-          projectId: 'project',
-          projectName: 'Toucan',
-          projectPath: 'D:\\Development\\Toucan',
-          projectColor: '#71a9ff',
-          onViewModeChange,
-          onRequestFilePath,
-          onPathChange,
-          ...data
-        } as FileCanvasNode['data']
-      }
-    />
+    <NodeSearchContext.Provider value={searchRequest}>
+      <FileNode
+        id="file-1"
+        type="fileNode"
+        selected={false}
+        dragging={false}
+        zIndex={0}
+        isConnectable={false}
+        positionAbsoluteX={0}
+        positionAbsoluteY={0}
+        data={
+          {
+            path: PATH,
+            view: 'rendered',
+            projectId: 'project',
+            projectName: 'Toucan',
+            projectPath: 'D:\\Development\\Toucan',
+            projectColor: '#71a9ff',
+            onViewModeChange,
+            onRequestFilePath,
+            onPathChange,
+            ...data
+          } as FileCanvasNode['data']
+        }
+      />
+    </NodeSearchContext.Provider>
   </ReactFlowProvider>
 )
 
-function renderNode(data: Partial<FileCanvasNode['data']> = {}): {
+function renderNode(
+  data: Partial<FileCanvasNode['data']> = {},
+  searchRequest: NodeSearchRequest = NO_NODE_SEARCH_REQUEST
+): {
   onViewModeChange: ReturnType<typeof vi.fn>
   onRequestFilePath: ReturnType<typeof vi.fn>
   onPathChange: ReturnType<typeof vi.fn>
   unmount: () => void
-  rerender: (data: Partial<FileCanvasNode['data']>) => void
+  rerender: (data: Partial<FileCanvasNode['data']>, searchRequest?: NodeSearchRequest) => void
 } {
   const onViewModeChange = vi.fn()
   const onRequestFilePath = vi.fn(async () => null)
   const onPathChange = vi.fn()
-  const { unmount, rerender } = render(node(data, onViewModeChange, onRequestFilePath, onPathChange))
+  const { unmount, rerender } = render(node(data, onViewModeChange, onRequestFilePath, onPathChange, searchRequest))
   return {
     onViewModeChange,
     onRequestFilePath,
     onPathChange,
     unmount,
-    rerender: (next) => rerender(node(next, onViewModeChange, onRequestFilePath, onPathChange))
+    rerender: (next, nextSearch = searchRequest) =>
+      rerender(node(next, onViewModeChange, onRequestFilePath, onPathChange, nextSearch))
   }
 }
 
@@ -625,4 +637,66 @@ test('the rendered view lifts frontmatter into a metadata table instead of runni
   ])
   // The delimiters and the fields are gone from the prose; only the body is Markdown.
   expect(heading.closest('.file-node-prose')?.textContent).not.toContain('description:')
+})
+
+/*
+ * In-node search (issue #170). The canvas owns the shortcut and names the node through
+ * `NodeSearchContext`; what the node does with it depends on which view is showing.
+ */
+
+test('a search request opens the find bar over the rendered view, and Escape closes it', async () => {
+  stubApis(ok('# Plan\n\nalpha beta\n\nAlpha gamma\n'))
+  const { rerender } = renderNode()
+  await screen.findByRole('heading', { level: 1, name: 'Plan' })
+  expect(screen.queryByRole('search')).not.toBeInTheDocument()
+
+  rerender({}, { nodeId: 'file-1', nonce: 1 })
+  const input = await screen.findByLabelText('Find in plan.md')
+  fireEvent.change(input, { target: { value: 'alpha' } })
+  expect(screen.getByRole('status').textContent).toBe('1 of 2')
+
+  fireEvent.keyDown(input, { key: 'Escape' })
+  expect(screen.queryByRole('search')).not.toBeInTheDocument()
+})
+
+test('a request naming another node is not this node’s to answer', async () => {
+  stubApis(ok('# Plan\n'))
+  const { rerender } = renderNode()
+  await screen.findByRole('heading', { level: 1, name: 'Plan' })
+  rerender({}, { nodeId: 'file-2', nonce: 1 })
+  expect(screen.queryByRole('search')).not.toBeInTheDocument()
+})
+
+test('in the raw view the request opens CodeMirror’s own panel instead of the find bar', async () => {
+  stubApis(ok('alpha beta\n'))
+  const { rerender } = renderNode({ path: TEXT_PATH })
+  await editor()
+  rerender({ path: TEXT_PATH }, { nodeId: 'file-1', nonce: 1 })
+  await waitFor(() => expect(document.querySelector('.cm-panel.cm-search')).toBeInTheDocument())
+  expect(screen.queryByRole('search')).not.toBeInTheDocument()
+})
+
+test('switching to the raw view closes a find bar that was counting prose', async () => {
+  stubApis(ok('# Plan\n\nalpha\n'))
+  const { rerender } = renderNode({ view: 'rendered' })
+  rerender({ view: 'rendered' }, { nodeId: 'file-1', nonce: 1 })
+  await screen.findByLabelText('Find in plan.md')
+  rerender({ view: 'raw' }, { nodeId: 'file-1', nonce: 1 })
+  await editor()
+  expect(screen.queryByRole('search')).not.toBeInTheDocument()
+})
+
+test('returning to the raw view does not replay the last search request', async () => {
+  stubApis(ok('# Plan\n\nalpha\n'))
+  const { rerender } = renderNode({ view: 'raw' })
+  await editor()
+  rerender({ view: 'raw' }, { nodeId: 'file-1', nonce: 1 })
+  await waitFor(() => expect(document.querySelector('.cm-panel.cm-search')).toBeInTheDocument())
+
+  // The editor unmounts with the rendered view and mounts again carrying the same signal.
+  rerender({ view: 'rendered' }, { nodeId: 'file-1', nonce: 1 })
+  await screen.findByRole('heading', { level: 1, name: 'Plan' })
+  rerender({ view: 'raw' }, { nodeId: 'file-1', nonce: 1 })
+  await editor()
+  expect(document.querySelector('.cm-panel.cm-search')).not.toBeInTheDocument()
 })
