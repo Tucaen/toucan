@@ -933,10 +933,59 @@ button {
   cursor: pointer;
 }
 
+/* Sidebar footer: creation-target card on the left, the zoom column hugging its right edge.
+   The footer always renders (the zoom column survives a collapsed sidebar), so it is what
+   carries the margin-top: auto that pins everything to the bottom. */
+.sidebar-footer {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  margin-top: auto;
+}
+
+/* One segmented group, not three loose buttons: all three steer the canvas, so they share a
+   single border and are divided by hairlines, like the stock React Flow controls. */
+.canvas-zoom-row {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid #303946;
+  border-radius: 8px;
+  background: #15191f;
+}
+
+.canvas-zoom-button {
+  display: inline-flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  min-height: 30px;
+  border: 0;
+  color: #b6bfcc;
+  background: transparent;
+  cursor: pointer;
+}
+
+.canvas-zoom-button + .canvas-zoom-button {
+  border-top: 1px solid #282f39;
+}
+
+.canvas-zoom-button:hover {
+  color: #dce2ea;
+  background: #171c23;
+}
+
+.canvas-zoom-button .lucide {
+  width: 15px;
+  height: 15px;
+}
+
 .creation-target {
+  min-width: 0;
+  flex: 1;
   display: grid;
   gap: 3px;
-  margin-top: auto;
   padding: 10px 11px;
   overflow: hidden;
   border: 1px solid #282f39;

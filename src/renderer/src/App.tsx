@@ -1,7 +1,6 @@
 import {
   Background,
   BackgroundVariant,
-  Controls,
   ReactFlow,
   ReactFlowProvider,
   useNodesState,
@@ -21,10 +20,13 @@ import {
   GitCompare,
   GripVertical,
   History,
+  Maximize,
   Plus,
   Settings,
   Smartphone,
-  X
+  X,
+  ZoomIn,
+  ZoomOut
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import {
@@ -341,7 +343,7 @@ function Canvas(): JSX.Element {
     []
   )
   const [workspaceWidth, setWorkspaceWidth] = useState(() => window.innerWidth)
-  const { fitView, getViewport, screenToFlowPosition } = useReactFlow()
+  const { fitView, getViewport, screenToFlowPosition, zoomIn, zoomOut } = useReactFlow()
   const canvasRegionRef = useRef<HTMLElement>(null)
   const nextSessionNumber = useRef(1)
 
@@ -2474,26 +2476,57 @@ function Canvas(): JSX.Element {
                 </button>
               </div>
 
-              {!sidebarCollapsed && activeProject && (
-                <div className="creation-target">
-                  <small>New nodes open in</small>
-                  <strong>{activeProject.name}</strong>
-                  <span className="save-state" data-status={saveStatus}>
-                    <span />
-                    {saveStatus === 'saving' ? 'Saving…' : saveStatus === 'saved' ? 'Saved locally' : 'Save failed'}
-                  </span>
-                  {workspaceRecovered && (
-                    <span
-                      className="save-state"
-                      data-status="recovered"
-                      title="The saved workspace was damaged or incomplete, so this canvas was restored from the last known-good backup."
-                    >
+              <div className="sidebar-footer">
+                {!sidebarCollapsed && activeProject && (
+                  <div className="creation-target">
+                    <small>New nodes open in</small>
+                    <strong>{activeProject.name}</strong>
+                    <span className="save-state" data-status={saveStatus}>
                       <span />
-                      Recovered from backup
+                      {saveStatus === 'saving' ? 'Saving…' : saveStatus === 'saved' ? 'Saved locally' : 'Save failed'}
                     </span>
-                  )}
+                    {workspaceRecovered && (
+                      <span
+                        className="save-state"
+                        data-status="recovered"
+                        title="The saved workspace was damaged or incomplete, so this canvas was restored from the last known-good backup."
+                      >
+                        <span />
+                        Recovered from backup
+                      </span>
+                    )}
+                  </div>
+                )}
+                <div className="canvas-zoom-row" role="group" aria-label="Canvas zoom">
+                  <button
+                    type="button"
+                    className="canvas-zoom-button"
+                    title="Zoom in"
+                    aria-label="Zoom in"
+                    onClick={() => void zoomIn()}
+                  >
+                    <ZoomIn aria-hidden="true" />
+                  </button>
+                  <button
+                    type="button"
+                    className="canvas-zoom-button"
+                    title="Zoom out"
+                    aria-label="Zoom out"
+                    onClick={() => void zoomOut()}
+                  >
+                    <ZoomOut aria-hidden="true" />
+                  </button>
+                  <button
+                    type="button"
+                    className="canvas-zoom-button"
+                    title="Fit view"
+                    aria-label="Fit view"
+                    onClick={() => void fitView()}
+                  >
+                    <Maximize aria-hidden="true" />
+                  </button>
                 </div>
-              )}
+              </div>
             </aside>
 
             <section ref={canvasRegionRef} className="canvas-region">
@@ -2512,7 +2545,6 @@ function Canvas(): JSX.Element {
                     deleteKeyCode={['Backspace', 'Delete']}
                   >
                     <Background variant={BackgroundVariant.Dots} gap={24} size={1.2} color="#303744" />
-                    <Controls showInteractive={false} position="bottom-left" />
                   </ReactFlow>
                 </OpenFileContext.Provider>
               </NodeFitContext.Provider>
