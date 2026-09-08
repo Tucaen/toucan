@@ -6,12 +6,16 @@ import {
   applyAgentCreateResult,
   foldAgentEvent,
   initialAgentTranscriptState,
-  type AgentTranscriptState
+  type AgentTranscriptState,
+  type LocalAgentEvent
 } from '../src/shared/agent-transcript'
 
 const NOW = 1_700_000_000_000
 
-function fold(events: readonly AgentEvent[], from = initialAgentTranscriptState()): AgentTranscriptState {
+function fold(
+  events: readonly (AgentEvent | LocalAgentEvent)[],
+  from = initialAgentTranscriptState()
+): AgentTranscriptState {
   return events.reduce((state, event, index) => foldAgentEvent(state, event, NOW + index), from)
 }
 
@@ -277,4 +281,195 @@ test('a stale approval_resolved does not clear a newer pending approval', () => 
     { type: 'approval_resolved', approvalId: 'ap-1' }
   ])
   assert.equal(state.approval?.id, 'ap-2')
+})
+
+// The local events below are this client's own optimism folded through the same reducer, so the
+// precedence rule has one home: main wins for anything that crossed the seam.
+
+test('an optimistic prompt start is undone by its own failure when no main status event landed', () => {
+  const started = fold([{ type: 'status', status: 'idle' }, { type: 'local_prompt_started' }])
+  assert.equal(started.status, 'working')
+
+  const failed = fold([{ type: 'local_prompt_failed', message: 'Could not read the workspace context.' }], started)
+  assert.equal(failed.status, 'ready')
+  assert.equal(failed.detail, 'Could not read the workspace context.')
+})
+
+test('main status events outrank the optimistic working when the prompt failure settles (issue #156)', () => {
+  const methods = [{ id: 'claude-ai-login', name: 'Claude Subscription', type: 'terminal' as const }]
+  const authRequired = fold([
+    { type: 'status', status: 'idle' },
+    { type: 'local_prompt_started' },
+    { type: 'auth', methods },
+    { type: 'status', status: 'auth_required', message: 'OAuth session expired' },
+    { type: 'local_prompt_failed', message: 'OAuth session expired' }
+  ])
+  assert.equal(authRequired.status, 'auth_required')
+  assert.equal(authRequired.detail, 'OAuth session expired')
+  assert.equal(authRequired.authMethods.length, 1)
+
+  // Main can even re-report 'working' (the turn genuinely started); a late local failure verdict
+  // must not undo a status main owns.
+  const mainWorking = fold([
+    { type: 'status', status: 'idle' },
+    { type: 'local_prompt_started' },
+    { type: 'status', status: 'working' },
+    { type: 'local_prompt_failed', message: 'turn failed late' }
+  ])
+  assert.equal(mainWorking.status, 'working')
+  assert.equal(mainWorking.detail, 'turn failed late')
+})
+
+test('an optimistic working then a main ready lands ready and stays there through the failure fold', () => {
+  const state = fold([
+    { type: 'status', status: 'idle' },
+    { type: 'local_prompt_started' },
+    { type: 'turn_failed', turnId: 'turn-1', message: 'The provider rejected the turn.' },
+    { type: 'status', status: 'idle' },
+    { type: 'local_prompt_failed', message: 'The provider rejected the turn.' }
+  ])
+  assert.equal(state.status, 'ready')
+  assert.equal(state.detail, 'The provider rejected the turn.')
+})
+
+test('a local selection anticipates main; the next main selection event wins', () => {
+  const models = {
+    currentModelId: 'a',
+    availableModels: [
+      { id: 'a', name: 'A' },
+      { id: 'b', name: 'B' }
+    ]
+  }
+  let state = fold([
+    { type: 'models', models },
+    { type: 'local_model_selected', modelId: 'b' }
+  ])
+  assert.equal(state.models?.currentModelId, 'b')
+
+  state = fold([{ type: 'models', models }], state)
+  assert.equal(state.models?.currentModelId, 'a')
+
+  // A selection folded before any list is known has nothing to patch and must not invent one.
+  assert.equal(fold([{ type: 'local_model_selected', modelId: 'b' }]).models, null)
+})
+
+test('local mode and effort selections patch their current ids in place', () => {
+  const state = fold([
+    { type: 'modes', modes: { currentModeId: 'ask', availableModes: [{ id: 'ask', name: 'Ask' }] } },
+    { type: 'efforts', efforts: { currentEffortId: 'low', availableEfforts: [{ id: 'low', name: 'Low' }] } },
+    { type: 'local_mode_selected', modeId: 'code' },
+    { type: 'local_effort_selected', effortId: 'high' }
+  ])
+  assert.equal(state.modes?.currentModeId, 'code')
+  assert.equal(state.efforts?.currentEffortId, 'high')
+})
+
+test('a local approval answer clears the card once; the late broadcast resolution is a no-op', () => {
+  const approval: AgentEvent = {
+    type: 'approval',
+    approvalId: 'ap-1',
+    title: 'Run npm test',
+    options: [{ id: 'allow', label: 'Allow', kind: 'allow_once' }]
+  }
+  const resolved = fold([approval, { type: 'local_approval_resolved', approvalId: 'ap-1' }])
+  assert.equal(resolved.approval, null)
+  assert.equal(fold([{ type: 'approval_resolved', approvalId: 'ap-1' }], resolved).approval, null)
+
+  // A stale local resolve (an already-superseded approval) must not clear a newer request.
+  const superseded = fold(
+    [
+      { ...approval, approvalId: 'ap-2', title: 'Edit file' },
+      { type: 'local_approval_resolved', approvalId: 'ap-1' }
+    ],
+    resolved
+  )
+  assert.equal(superseded.approval?.id, 'ap-2')
+})
+
+test('a local decision answer retires the request ahead of the broadcast', () => {
+  const request = (id: string): AgentEvent => ({
+    type: 'decision_request',
+    request: { id, message: '?', questions: [] }
+  })
+  let state = fold([request('d1'), request('d2'), { type: 'local_decision_resolved', requestId: 'd1' }])
+  assert.deepEqual(
+    state.decisionRequests.map((entry) => entry.id),
+    ['d2']
+  )
+  state = fold([{ type: 'decision_resolved', requestId: 'd1' }], state)
+  assert.deepEqual(
+    state.decisionRequests.map((entry) => entry.id),
+    ['d2']
+  )
+})
+
+test('the local auth cycle keeps methods and link visible while starting, and a ready verdict clears them', () => {
+  const methods = [{ id: 'claude-ai-login', name: 'Claude Subscription', type: 'terminal' as const }]
+  const waiting = fold([
+    { type: 'auth', methods },
+    { type: 'status', status: 'auth_required' },
+    { type: 'local_auth_started' },
+    { type: 'auth_link', url: 'https://claude.ai/oauth/authorize?client_id=abc' }
+  ])
+  assert.equal(waiting.status, 'starting')
+  assert.equal(waiting.authMethods.length, 1)
+  assert.equal(waiting.authLink, 'https://claude.ai/oauth/authorize?client_id=abc')
+
+  const ready = fold([{ type: 'local_auth_settled', status: 'ready' }], waiting)
+  assert.equal(ready.status, 'ready')
+  assert.deepEqual(ready.authMethods, [])
+  assert.equal(ready.authLink, null)
+
+  const stillRequired = fold(
+    [{ type: 'local_auth_settled', status: 'auth_required', message: 'Still waiting' }],
+    waiting
+  )
+  assert.equal(stillRequired.status, 'auth_required')
+  assert.equal(stillRequired.detail, 'Still waiting')
+
+  const failed = fold([{ type: 'local_auth_settled', status: 'error', message: 'adapter crashed' }], waiting)
+  assert.equal(failed.status, 'exited')
+  assert.equal(failed.detail, 'adapter crashed')
+})
+
+test('a main status reporting the session past auth clears stale methods and link', () => {
+  const methods = [{ id: 'claude-ai-login', name: 'Claude Subscription', type: 'terminal' as const }]
+  const waiting = fold([
+    { type: 'auth', methods },
+    { type: 'status', status: 'auth_required' },
+    { type: 'auth_link', url: 'https://claude.ai/oauth/authorize?client_id=abc' }
+  ])
+  // Neither auth_required nor starting ends the cycle: mid-reauth the link must stay actionable.
+  const stillWaiting = fold([{ type: 'status', status: 'starting' }], waiting)
+  assert.equal(stillWaiting.authMethods.length, 1)
+  assert.equal(stillWaiting.authLink, 'https://claude.ai/oauth/authorize?client_id=abc')
+
+  const recovered = fold([{ type: 'status', status: 'idle' }], waiting)
+  assert.deepEqual(recovered.authMethods, [])
+  assert.equal(recovered.authLink, null)
+})
+
+test('local delivery bookkeeping: an acknowledged send sheds its flags, a dropped one reads failed', () => {
+  const sent = fold([
+    {
+      type: 'local_user_message',
+      message: { id: 'm1', role: 'user', text: 'hello', queued: true, deliveryPending: true }
+    }
+  ])
+  assert.deepEqual(sent.transcript, [{ type: 'message', id: 'm1', role: 'user' }])
+
+  const delivered = fold([{ type: 'local_message_delivered', messageId: 'm1' }], sent)
+  assert.deepEqual(delivered.messages, [{ id: 'm1', role: 'user', text: 'hello', queued: false }])
+
+  const dropped = fold([{ type: 'local_send_failed', messageId: 'm1' }], sent)
+  assert.equal(dropped.messages[0].failed, true)
+  assert.equal(dropped.messages[0].queued, false)
+  assert.equal(dropped.messages[0].deliveryPending, false)
+})
+
+test('local_detail sets the transient detail without touching anything else', () => {
+  const before = fold([{ type: 'status', status: 'working' }])
+  const state = fold([{ type: 'local_detail', message: 'Could not read the pasted image.' }], before)
+  assert.equal(state.detail, 'Could not read the pasted image.')
+  assert.equal(state.status, 'working')
 })

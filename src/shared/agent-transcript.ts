@@ -27,10 +27,12 @@ import { mergeSessionUsage, type SessionUsageInput } from './session-usage'
  * Every host that observes a session - the renderer's chat node today, the main process or a
  * remote server tomorrow - derives an identical transcript by running the same `foldAgentEvent`
  * over the same events, so nothing here may touch React, Electron, the DOM, or wall clocks
- * (callers pass `now`). Renderer-only concerns stay out: optimistic send bookkeeping, queued
- * badges, and delivery flags are the hook's business and reach this state only as plain message
- * patches. Presentation derivations (reasoning blocks, prose pending decisions, attention) remain
- * selectors over this state in their own pure modules.
+ * (callers pass `now`). A client's own inputs - the optimistic prompt start, a selector click,
+ * answering an approval, delivery bookkeeping for a locally rendered send - fold through the same
+ * reducer as `LocalAgentEvent`s, so this module is the single writer of conversation state and the
+ * precedence rule lives here once: main wins for anything that crossed the seam. Presentation
+ * derivations (reasoning blocks, prose pending decisions, attention) remain selectors over this
+ * state in their own pure modules.
  */
 
 /** One image the captain attached to a message; base64 bytes without the `data:` URL prefix. */
@@ -85,6 +87,37 @@ export interface AgentApprovalState {
 
 export type AgentChatStatus = 'starting' | 'ready' | 'working' | 'auth_required' | 'exited'
 
+/**
+ * Inputs that originate on the observing client rather than in main's event stream, folded through
+ * the same `foldAgentEvent` so no host writes conversation state anywhere else. A local fold only
+ * ever anticipates main's answer: anything main later reports about the same fact lands on top of
+ * it (`statusOrigin` is how the status fold enforces that).
+ */
+export type LocalAgentEvent =
+  /** An optimistically rendered send taking its transcript slot ahead of the provider's echo. */
+  | { type: 'local_user_message'; message: AgentChatMessage }
+  /** Transport accepted (or the echo arrived for) a locally rendered send: shed its delivery flags. */
+  | { type: 'local_message_delivered'; messageId: string }
+  /** Delivery genuinely failed or expired; never rendered identically to a delivered message. */
+  | { type: 'local_send_failed'; messageId: string }
+  /** A prompt left this client while the session was idle: show `working` before main confirms it. */
+  | { type: 'local_prompt_started' }
+  /** That prompt's transport settled `ok: false`; undoes the optimism iff main never spoke. */
+  | { type: 'local_prompt_failed'; message?: string }
+  /** A renderer-local notice (composition failure, refused selection) for the transient detail line. */
+  | { type: 'local_detail'; message?: string }
+  /** An `authenticate()` call is underway; the session is transiently `starting`. */
+  | { type: 'local_auth_started' }
+  /** The `authenticate()` RPC verdict - main's answer delivered as a return value, not an event. */
+  | { type: 'local_auth_settled'; status: AgentCreateResult['status']; message?: string }
+  /** This client answered the approval; the broker's `approval_resolved` follows for everyone. */
+  | { type: 'local_approval_resolved'; approvalId: string }
+  /** This client answered the question; the broker's `decision_resolved` follows for everyone. */
+  | { type: 'local_decision_resolved'; requestId: string }
+  | { type: 'local_mode_selected'; modeId: string }
+  | { type: 'local_model_selected'; modelId: string }
+  | { type: 'local_effort_selected'; effortId: string }
+
 export interface AgentTranscriptState {
   /** The provider session identity, once the stream or create result reported one. */
   sessionId: string | null
@@ -108,6 +141,12 @@ export interface AgentTranscriptState {
   /** Slash commands and skills this session advertises. */
   commands: AgentCommand[]
   status: AgentChatStatus
+  /**
+   * Who last set `status`: `main` for anything that crossed the seam (a status event, a create or
+   * auth verdict), `local` for this client's optimistic anticipation. A local fold may only undo
+   * a status it set itself - once main has spoken, main wins.
+   */
+  statusOrigin: 'main' | 'local'
   usage: SessionUsageInput | null
   detail?: string
   /** The last reported failure, kept apart from `detail` (which any status message overwrites). */
@@ -133,6 +172,7 @@ export function initialAgentTranscriptState(): AgentTranscriptState {
     efforts: null,
     commands: [],
     status: 'starting',
+    statusOrigin: 'main',
     usage: null,
     detail: undefined,
     failure: null,
@@ -157,6 +197,18 @@ function withTranscriptEntry(state: AgentTranscriptState, entry: AgentTranscript
 function hasTranscriptEntry(state: AgentTranscriptState, entry: AgentTranscriptEntry): boolean {
   const key = agentTranscriptEntryKey(entry)
   return state.transcript.some((existing) => agentTranscriptEntryKey(existing) === key)
+}
+
+/** Applies a delivery-flag patch to one locally rendered message, leaving every other untouched. */
+function patchMessage(
+  state: AgentTranscriptState,
+  messageId: string,
+  patch: (message: AgentChatMessage) => AgentChatMessage
+): AgentTranscriptState {
+  return {
+    ...state,
+    messages: state.messages.map((message) => (message.id === messageId ? patch(message) : message))
+  }
 }
 
 function foldMessage(
@@ -216,13 +268,29 @@ function foldTurnOutcome(
 }
 
 /**
- * Folds one live or replayed `AgentEvent` into the transcript. `now` stamps first-seen activity
- * timing (ACP reports none), passed in so replays and tests stay deterministic.
+ * Folds one live, replayed, or locally originated event into the transcript. `now` stamps
+ * first-seen activity timing (ACP reports none), passed in so replays and tests stay deterministic.
  */
-export function foldAgentEvent(state: AgentTranscriptState, event: AgentEvent, now: number): AgentTranscriptState {
+export function foldAgentEvent(
+  state: AgentTranscriptState,
+  event: AgentEvent | LocalAgentEvent,
+  now: number
+): AgentTranscriptState {
   switch (event.type) {
-    case 'status':
-      return { ...state, status: event.status === 'idle' ? 'ready' : event.status, detail: event.message }
+    case 'status': {
+      const status = event.status === 'idle' ? 'ready' : event.status
+      // A session main reports past auth ('ready'/'working') has no live sign-in cycle left; clear
+      // its methods and link so no reader shows a stale panel. 'starting' must not clear them: it
+      // is also the transient state mid-reauth, while the sign-in link has to stay actionable.
+      const authOver = status === 'ready' || status === 'working'
+      return {
+        ...state,
+        status,
+        statusOrigin: 'main',
+        detail: event.message,
+        ...(authOver ? { authMethods: [], authLink: null } : {})
+      }
+    }
     case 'session':
       return { ...state, sessionId: event.sessionId }
     case 'message':
@@ -273,6 +341,7 @@ export function foldAgentEvent(state: AgentTranscriptState, event: AgentEvent, n
         }
       }
     case 'approval_resolved':
+    case 'local_approval_resolved':
       // A stale resolution (an already-superseded approval) must not clear a newer request.
       return state.approval?.id === event.approvalId ? { ...state, approval: null } : state
     case 'decision_request': {
@@ -286,6 +355,7 @@ export function foldAgentEvent(state: AgentTranscriptState, event: AgentEvent, n
       }
     }
     case 'decision_resolved':
+    case 'local_decision_resolved':
       return {
         ...state,
         decisionRequests: state.decisionRequests.filter((request) => request.id !== event.requestId)
@@ -303,6 +373,63 @@ export function foldAgentEvent(state: AgentTranscriptState, event: AgentEvent, n
       }
     case 'error':
       return { ...state, detail: event.message, failure: event.message, failureKey: null }
+    case 'local_user_message':
+      return appendLocalUserMessage(state, event.message)
+    case 'local_message_delivered':
+      return patchMessage(state, event.messageId, (message) => {
+        const { failed: _failed, deliveryPending: _deliveryPending, ...rest } = message
+        return { ...rest, queued: false }
+      })
+    case 'local_send_failed':
+      return patchMessage(state, event.messageId, (message) => ({
+        ...message,
+        queued: false,
+        failed: true,
+        deliveryPending: false
+      }))
+    case 'local_prompt_started':
+      return { ...state, status: 'working', statusOrigin: 'local' }
+    case 'local_prompt_failed':
+      // Main's status events (`promptFailure` in acp-session-manager.ts) stay authoritative for a
+      // prompt that crossed the agent boundary: they arrive before the prompt promise settles, and
+      // forcing `ready` over them would hide the sign-in panel an OAuth failure just raised
+      // (GitHub issue #156). Only a failure that left the local optimistic `working` untouched -
+      // a composition error or a pre-turn refusal - still has it to undo.
+      return {
+        ...state,
+        detail: event.message,
+        ...(state.status === 'working' && state.statusOrigin === 'local' ? { status: 'ready' as const } : {})
+      }
+    case 'local_detail':
+      return { ...state, detail: event.message }
+    case 'local_auth_started':
+      return { ...state, status: 'starting', statusOrigin: 'local' }
+    case 'local_auth_settled':
+      // The RPC verdict is main's answer, delivered as a return value rather than an event.
+      if (event.status === 'ready') {
+        return { ...state, status: 'ready', statusOrigin: 'main', authMethods: [], authLink: null }
+      }
+      return {
+        ...state,
+        status: event.status === 'auth_required' ? 'auth_required' : 'exited',
+        statusOrigin: 'main',
+        detail: event.message
+      }
+    case 'local_mode_selected':
+      return {
+        ...state,
+        modes: state.modes ? { ...state.modes, currentModeId: event.modeId } : state.modes
+      }
+    case 'local_model_selected':
+      return {
+        ...state,
+        models: state.models ? { ...state.models, currentModelId: event.modelId } : state.models
+      }
+    case 'local_effort_selected':
+      return {
+        ...state,
+        efforts: state.efforts ? { ...state.efforts, currentEffortId: event.effortId } : state.efforts
+      }
   }
 }
 
@@ -320,7 +447,8 @@ export function applyAgentCreateResult(state: AgentTranscriptState, result: Agen
     ...(result.modes ? { modes: result.modes } : {}),
     ...(result.models ? { models: result.models } : {}),
     ...(result.efforts ? { efforts: result.efforts } : {}),
-    ...(result.commands ? { commands: result.commands } : {})
+    ...(result.commands ? { commands: result.commands } : {}),
+    statusOrigin: 'main'
   }
   if (result.status === 'ready') {
     return { ...next, messages: settleReplayedAssistantTurns(next.messages), status: 'ready' }

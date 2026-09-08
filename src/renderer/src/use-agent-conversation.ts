@@ -15,7 +15,6 @@ import type {
   AgentTurnOutcome
 } from '../../shared/agent'
 import {
-  appendLocalUserMessage,
   applyAgentCreateResult,
   foldAgentEvent,
   initialAgentTranscriptState,
@@ -23,7 +22,8 @@ import {
   type AgentChatMessage,
   type AgentChatStatus,
   type AgentTranscriptEntry,
-  type AgentTranscriptState
+  type AgentTranscriptState,
+  type LocalAgentEvent
 } from '../../shared/agent-transcript'
 import type { SessionUsageInput } from './session-usage'
 import { chooseAgentPromptApi, createDispatchOrderGate, deliverAgentPrompt } from './agent-prompt-delivery'
@@ -156,9 +156,11 @@ export interface AgentConversationController {
 
 /**
  * Thin React wrapper over the shared transcript reducer (`src/shared/agent-transcript.ts`): every
- * `AgentEvent` - live or replayed - folds through `foldAgentEvent`, so this hook owns only what is
- * genuinely renderer-local (the composer draft and attachments, the prompt outbox, optimistic send
- * bookkeeping, and the IPC calls themselves).
+ * write to conversation state - main's `AgentEvent`s, live or replayed, and this renderer's own
+ * `LocalAgentEvent`s (optimistic prompt start, selections, answered requests, delivery flags) -
+ * folds through `foldAgentEvent`, so this hook owns only what is genuinely renderer-local (the
+ * composer draft and attachments, the prompt outbox, echo bookkeeping, and the IPC calls
+ * themselves).
  */
 export function useAgentConversation(options: AgentConversationOptions): AgentConversationController {
   const [chat, setChat] = useState<AgentTranscriptState>(initialAgentTranscriptState)
@@ -168,8 +170,8 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
   const [attachments, setAttachments] = useState<AgentImageAttachment[]>([])
   const [queued, setQueued] = useState<QueuedPrompt[]>([])
   const { status } = chat
-  const setDetail = (detail?: string): void => setChat((current) => ({ ...current, detail }))
-  const setStatus = (nextStatus: AgentChatStatus): void => setChat((current) => ({ ...current, status: nextStatus }))
+  const fold = (event: AgentEvent | LocalAgentEvent): void =>
+    setChat((current) => foldAgentEvent(current, event, Date.now()))
   /**
    * The outbox's authoritative copy. Every mutation goes through `updateQueued` so a claim can
    * be made and observed in the same tick; `queued` is the render mirror of it.
@@ -190,17 +192,8 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
    * behind another turn, clearing its badge before its real echo arrives and duplicating it.
    */
   const pendingSentRef = useRef<Array<{ id: string; text: string; timer?: ReturnType<typeof setTimeout> }>>([])
-  const patchMessage = (id: string, patch: (message: AgentChatMessage) => AgentChatMessage): void => {
-    setChat((current) => ({
-      ...current,
-      messages: current.messages.map((message) => (message.id === id ? patch(message) : message))
-    }))
-  }
   const acknowledgePendingSent = (id: string): void => {
-    patchMessage(id, (message) => {
-      const { failed: _failed, deliveryPending: _deliveryPending, ...rest } = message
-      return { ...rest, queued: false }
-    })
+    fold({ type: 'local_message_delivered', messageId: id })
   }
   const clearPendingSent = (id: string): void => {
     const index = pendingSentRef.current.findIndex((entry) => entry.id === id)
@@ -224,7 +217,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     if (index >= 0) {
       clearTimeout(pendingSentRef.current[index].timer)
     }
-    patchMessage(id, (message) => ({ ...message, queued: false, failed: true, deliveryPending: false }))
+    fold({ type: 'local_send_failed', messageId: id })
   }
   /**
    * Serializes the actual cross-process deliver call in submission order, even when an earlier
@@ -271,7 +264,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
       }
       if (event.type === 'session') onSessionId.current(event.sessionId)
       if (event.type === 'efforts') onEffort.current?.(event.efforts?.currentEffortId)
-      setChat((current) => foldAgentEvent(current, event, Date.now()))
+      fold(event)
     }
     const removeListener = window.agentApi.onEvent(options.id, handleEvent)
     void window.agentApi
@@ -314,7 +307,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     if ((!text && images.length === 0) || (status !== 'ready' && status !== 'working')) return
     const intoRunningTurn = status === 'working'
     const compose = options.composePrompt
-    if (!intoRunningTurn) setStatus('working')
+    if (!intoRunningTurn) fold({ type: 'local_prompt_started' })
     const deliverPrompt = chooseAgentPromptApi(status, window.agentApi)
     const id = crypto.randomUUID()
 
@@ -339,8 +332,9 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
         return result
       },
       () => {
-        setChat((current) =>
-          appendLocalUserMessage(current, {
+        fold({
+          type: 'local_user_message',
+          message: {
             id,
             role: 'user',
             // The images themselves are the message's visible body when no text was typed, so
@@ -350,8 +344,8 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
             queued: intoRunningTurn,
             decisionReplyTo,
             deliveryPending: decisionReplyTo !== undefined
-          })
-        )
+          }
+        })
         onSent()
       }
     ).then((result) => {
@@ -360,12 +354,9 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
         // The transport result is the durable acknowledgement. Keep the text matcher briefly so
         // a later ACP echo is deduplicated, but the UI no longer calls an accepted message queued.
         acknowledgePendingSent(id)
-        // A pure-image send has no echoed text chunk to clear the queued flag with (see the
-        // `message` event branch above), so resolve it here once delivery itself has settled.
-        if (images.length > 0 && !text) {
-          patchMessage(id, (message) => ({ ...message, queued: false }))
-          return
-        }
+        // A pure-image send has no echoed text chunk to wait on (see the `message` event branch
+        // above): the transport result above already resolved its queued flag, so skip the timer.
+        if (images.length > 0 && !text) return
         // Only now that delivery has actually been attempted (a queued send's promise doesn't
         // resolve until the wake gate genuinely dispatches it) is it safe to start the bounded
         // wait for this message's own echo - arming it any earlier would fire while the message
@@ -376,15 +367,14 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
         }
         return
       }
-      setDetail(result.message)
-      // Main's status events (`promptFailure` in acp-session-manager.ts, folded by `foldAgentEvent`)
-      // stay authoritative for a prompt that crossed the agent boundary: they already arrived before
-      // this promise settled, and forcing `ready` here would hide the sign-in panel an OAuth failure
-      // just raised (GitHub issue #156). Only a failure that left no status event behind - a local
-      // composition error or a pre-turn refusal - still has the optimistic `working` to undo.
-      if (!intoRunningTurn) {
-        setChat((current) => (current.status === 'working' ? { ...current, status: 'ready' } : current))
-      }
+      // The reducer owns the precedence between this verdict and main's own status events (issue
+      // #156). A send steered into a running turn never started the optimistic `working`, so its
+      // failure is only a notice.
+      fold(
+        intoRunningTurn
+          ? { type: 'local_detail', message: result.message }
+          : { type: 'local_prompt_failed', message: result.message }
+      )
       markSendFailed(id, Boolean(result.prompt))
     })
   }
@@ -457,7 +447,10 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
           const { data, mimeType } = await readImageAsBase64(file)
           return { id: crypto.randomUUID(), data, mimeType }
         } catch (error) {
-          setDetail(error instanceof Error ? error.message : 'Could not read the pasted image.')
+          fold({
+            type: 'local_detail',
+            message: error instanceof Error ? error.message : 'Could not read the pasted image.'
+          })
           return null
         }
       })
@@ -471,18 +464,10 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
   }
 
   const authenticate = (methodId: string): void => {
-    setStatus('starting')
+    fold({ type: 'local_auth_started' })
     setReauthenticating(true)
     void window.agentApi.authenticate(options.id, methodId).then((result) => {
-      if (result.status === 'ready') {
-        setChat((current) => ({ ...current, status: 'ready', authMethods: [], authLink: null }))
-      } else {
-        setChat((current) => ({
-          ...current,
-          status: result.status === 'auth_required' ? 'auth_required' : 'exited',
-          detail: result.message
-        }))
-      }
+      fold({ type: 'local_auth_settled', status: result.status, message: result.message })
       setReauthenticating(false)
     })
   }
@@ -493,35 +478,29 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
 
   const submitAuthCode = async (code: string): Promise<boolean> => {
     const result = await window.agentApi.submitAuthCode(options.id, code)
-    if (!result.ok) setDetail(result.message)
+    if (!result.ok) fold({ type: 'local_detail', message: result.message })
     return result.ok
   }
 
   const resolveApproval = (approvalId: string, optionId?: string): void => {
     window.agentApi.resolveApproval(options.id, approvalId, optionId)
-    setChat((current) => ({ ...current, approval: null }))
+    fold({ type: 'local_approval_resolved', approvalId })
   }
 
   const resolveElicitation = (requestId: string, content?: AgentDecisionResponseContent): void => {
     window.agentApi.resolveElicitation(options.id, requestId, content)
-    setChat((current) => ({
-      ...current,
-      decisionRequests: current.decisionRequests.filter((request) => request.id !== requestId)
-    }))
+    fold({ type: 'local_decision_resolved', requestId })
   }
 
   const selectMode = async (modeId: string): Promise<boolean> => {
     if (modeId === chat.modes?.currentModeId) return true
     const result = await window.agentApi.setMode(options.id, modeId)
     if (result.ok) {
-      setChat((current) => ({
-        ...current,
-        modes: current.modes ? { ...current.modes, currentModeId: modeId } : current.modes
-      }))
+      fold({ type: 'local_mode_selected', modeId })
       onPermissionMode.current(modeId)
       return true
     }
-    setDetail(result.message)
+    fold({ type: 'local_detail', message: result.message })
     return false
   }
 
@@ -529,13 +508,10 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     if (modelId === chat.models?.currentModelId) return
     void window.agentApi.setModel(options.id, modelId).then((result) => {
       if (result.ok) {
-        setChat((current) => ({
-          ...current,
-          models: current.models ? { ...current.models, currentModelId: modelId } : current.models
-        }))
+        fold({ type: 'local_model_selected', modelId })
         onModel.current(modelId)
       } else {
-        setDetail(result.message)
+        fold({ type: 'local_detail', message: result.message })
       }
     })
   }
@@ -544,13 +520,10 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     if (effortId === chat.efforts?.currentEffortId) return
     void window.agentApi.setEffort(options.id, effortId).then((result) => {
       if (result.ok) {
-        setChat((current) => ({
-          ...current,
-          efforts: current.efforts ? { ...current.efforts, currentEffortId: effortId } : current.efforts
-        }))
+        fold({ type: 'local_effort_selected', effortId })
         onEffort.current?.(effortId)
       } else {
-        setDetail(result.message)
+        fold({ type: 'local_detail', message: result.message })
       }
     })
   }
@@ -563,8 +536,8 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     plan: chat.plan,
     approval: chat.approval,
     decisionRequest: chat.decisionRequests[0] ?? null,
-    authMethods: status === 'auth_required' || reauthenticating ? chat.authMethods : [],
-    authLink: status === 'auth_required' || reauthenticating ? chat.authLink : null,
+    authMethods: chat.authMethods,
+    authLink: chat.authLink,
     reauthenticating,
     modes: chat.modes,
     models: chat.models,
