@@ -1049,7 +1049,9 @@ function ChatMessageCard(props: { message: AgentChatMessage }): JSX.Element {
         {/* An image-only message is the one case that renders no markdown body: `.markdown-body`
             is emitted even for empty text, and an empty one would sit above the thumbnails as
             dead space. Every other message keeps its body, so nothing else's layout moves. */}
-        {!(images.length > 0 && !message.text) && <MarkdownMessage text={message.text} />}
+        {!(images.length > 0 && !message.text) && (
+          <MarkdownMessage text={message.text} authored={message.role === 'user'} />
+        )}
         <ImageAttachments images={images} />
         {message.failed ? (
           <small className="failed-badge">Not sent — delivery was rejected</small>

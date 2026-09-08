@@ -1,6 +1,7 @@
 import { memo, useEffect, useRef, useState } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { remarkHardBreaks } from '../../shared/markdown-hard-breaks'
 import type { Element as HastElement, Nodes as HastNodes, RootContent } from 'hast'
 import { highlightedCode } from './syntax-highlight'
 
@@ -110,6 +111,9 @@ export const markdownBlockComponents: Components = {
 
 export const remarkPlugins = [remarkGfm]
 
+/** For text a person typed by hand; markdown-hard-breaks.ts says why agent output is left out. */
+export const authoredRemarkPlugins = [remarkGfm, remarkHardBreaks]
+
 const components: Components = {
   ...markdownBlockComponents,
   /* GFM autolinks turn bare URLs into anchors; a plain <a> would navigate the app window away. */
@@ -129,10 +133,10 @@ const components: Components = {
   }
 }
 
-function MarkdownMessage({ text }: { text: string }): JSX.Element {
+function MarkdownMessage({ text, authored }: { text: string; authored?: boolean }): JSX.Element {
   return (
     <div className="markdown-body">
-      <ReactMarkdown remarkPlugins={remarkPlugins} components={components}>
+      <ReactMarkdown remarkPlugins={authored ? authoredRemarkPlugins : remarkPlugins} components={components}>
         {text}
       </ReactMarkdown>
     </div>

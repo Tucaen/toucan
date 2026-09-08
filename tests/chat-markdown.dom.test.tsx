@@ -110,3 +110,24 @@ describe('markdown transcript rendering', () => {
     expect(container.querySelector('.code-block pre')).toBe(stableBlock)
   })
 })
+
+describe('hand-typed message rendering', () => {
+  test('keeps the newlines a person typed as line breaks', () => {
+    const { container } = render(<MarkdownMessage authored text={'first line\nsecond line\n\nnew paragraph'} />)
+
+    const paragraphs = container.querySelectorAll('.markdown-body > p')
+    expect(paragraphs).toHaveLength(2)
+    expect(paragraphs[0].querySelectorAll('br')).toHaveLength(1)
+    expect(paragraphs[0].textContent).toBe('first line\nsecond line')
+    expect(paragraphs[1].querySelectorAll('br')).toHaveLength(0)
+  })
+
+  test('leaves agent replies reflowed, and never breaks up a fence', () => {
+    const { container } = render(<MarkdownMessage text={'first line\nsecond line'} />)
+    expect(container.querySelectorAll('br')).toHaveLength(0)
+
+    const authored = render(<MarkdownMessage authored text={'```\na\nb\n```'} />)
+    expect(authored.container.querySelectorAll('br')).toHaveLength(0)
+    expect(authored.container.querySelector('.code-block pre')?.textContent).toBe('a\nb')
+  })
+})

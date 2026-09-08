@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { remarkHardBreaks } from '../../src/shared/markdown-hard-breaks'
 import type { AgentDecisionQuestion, AgentDecisionResponseContent } from '../../src/shared/agent'
 import type { RemoteChatSummary } from '../../src/shared/remote-access'
 import {
@@ -446,7 +447,7 @@ function TranscriptItem({ item }: { item: ChatViewItem }): JSX.Element {
   if (item.role === 'user') {
     return (
       <div className="bubble user">
-        <Markdown remarkPlugins={[remarkGfm]}>{item.text}</Markdown>
+        <Markdown remarkPlugins={[remarkGfm, remarkHardBreaks]}>{item.text}</Markdown>
       </div>
     )
   }
