@@ -27,6 +27,24 @@ export interface FindBarProps {
 const stopDrag = (event: React.MouseEvent): void => event.stopPropagation()
 
 /**
+ * A `contentKey` for surfaces that change in more ways than their props reveal - a chat transcript
+ * streaming chunks and folding cards, a diff pane whose hunks refresh on a poll. The searched
+ * element is observed at the DOM, where every one of those changes ends up. Highlighting never
+ * trips it: the CSS Custom Highlight API and `scrollTop` writes are not mutations. Observing only
+ * while a bar is open keeps an unsearched surface free of it.
+ */
+export function useMutationContentKey(ref: React.RefObject<HTMLElement | null>, active: boolean): string {
+  const [version, setVersion] = useState(0)
+  useEffect(() => {
+    if (!active || !ref.current) return
+    const observer = new MutationObserver(() => setVersion((current) => current + 1))
+    observer.observe(ref.current, { childList: true, characterData: true, subtree: true })
+    return () => observer.disconnect()
+  }, [active, ref])
+  return String(version)
+}
+
+/**
  * The find bar for surfaces that render their text as plain DOM: the file node's rendered Markdown
  * today, AI-chat and diff nodes next. It owns the query, the match run and which match is current;
  * the counting is pure (`node-search.ts`) and the DOM work - flattening, ranges, scrolling and

@@ -14,8 +14,10 @@ import {
 } from './diff-node'
 import { joinWorkspacePath } from './file-node'
 import { FileOperationBlockView } from './FileOperationCard'
+import FindBar, { useMutationContentKey } from './FindBar'
 import NodeBorderResizer from './NodeBorderResizer'
 import NodeFitAction from './NodeFitAction'
+import { useNodeSearchRequest } from './node-search-context'
 
 /** The same tick the worktree node's status badge polls on, so the two never disagree for long. */
 const REFRESH_POLL_MS = 10_000
@@ -69,6 +71,16 @@ export default function DiffNode({ id, data, selected }: NodeProps<DiffCanvasNod
   const fileGeneration = useRef(0)
   const selectedRef = useRef(selectedPath)
   selectedRef.current = selectedPath
+  const paneRef = useRef<HTMLDivElement>(null)
+  const [findBar, setFindBar] = useState<{ open: boolean; signal: number }>({ open: false, signal: 0 })
+  useNodeSearchRequest(
+    id,
+    useCallback(() => setFindBar((current) => ({ open: true, signal: current.signal + 1 })), [])
+  )
+  const closeFindBar = useCallback((): void => setFindBar((current) => ({ ...current, open: false })), [])
+  // The pane's hunks change under an open bar without any prop saying so: the poll re-reads the
+  // open file every tick, and picking another file swaps the content wholesale.
+  const searchContentKey = useMutationContentKey(paneRef, findBar.open)
 
   const loadFile = useCallback(
     async (file: GitChangedFile): Promise<void> => {
@@ -159,6 +171,16 @@ export default function DiffNode({ id, data, selected }: NodeProps<DiffCanvasNod
         <NodeFitAction nodeId={id} fitted={data.fittedToCanvas ?? false} />
       </header>
 
+      {findBar.open && (
+        <FindBar
+          containerRef={paneRef}
+          contentKey={`${selectedPath ?? ''}:${searchContentKey}`}
+          openSignal={findBar.signal}
+          label={`Find in ${data.label}`}
+          onClose={closeFindBar}
+        />
+      )}
+
       <div className="diff-node-body nodrag nowheel">
         {summary === null && <p className="diff-node-notice">Reading changes…</p>}
         {summary && !summary.ok && (
@@ -200,7 +222,7 @@ export default function DiffNode({ id, data, selected }: NodeProps<DiffCanvasNod
                 )
               })}
             </div>
-            <div className="diff-node-pane">
+            <div className="diff-node-pane" ref={paneRef}>
               {!selectedFile && <p className="diff-node-notice">Select a file to see its changes.</p>}
               {selectedFile && fileDiff === null && <p className="diff-node-notice">Loading {selectedFile.path}…</p>}
               {selectedFile && fileDiff && !fileDiff.ok && (

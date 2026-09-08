@@ -743,7 +743,9 @@ function Canvas(): JSX.Element {
       // A dormant chat node shows a resume panel, not its transcript, so it has nothing to search.
       const searchable = new Set(
         getCanvasNodes()
-          .filter((node) => isFileCanvasNode(node) || (isChatCanvasNode(node) && !node.data.dormant))
+          .filter(
+            (node) => isFileCanvasNode(node) || isDiffCanvasNode(node) || (isChatCanvasNode(node) && !node.data.dormant)
+          )
           .map((node) => node.id)
       )
       const under = target?.closest('.react-flow__node')?.getAttribute('data-id')

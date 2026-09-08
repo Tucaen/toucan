@@ -47,7 +47,7 @@ import {
   type AgentTurnOutcome
 } from '../../shared/agent'
 import { isNearScrollBottom } from './chat-scroll-follow'
-import FindBar from './FindBar'
+import FindBar, { useMutationContentKey } from './FindBar'
 import { useNodeSearchRequest } from './node-search-context'
 import {
   formatToolDuration,
@@ -1258,25 +1258,6 @@ function useStickToBottom(followDeps: readonly unknown[]): {
   }
 }
 
-/**
- * A key that changes whenever the rendered transcript's text does, for the find bar's `contentKey`.
- * The transcript mutates in more ways than its props reveal - a streaming chunk, a tool card
- * expanded or collapsed, a reasoning block unfolded - so it is observed at the DOM rather than
- * reconstructed from data. Highlighting itself never trips it: the CSS Custom Highlight API and
- * `scrollTop` writes are not mutations. Observing only while a bar is open keeps an unsearched
- * transcript free of it.
- */
-function useTranscriptContentKey(ref: RefObject<HTMLElement>, active: boolean): string {
-  const [version, setVersion] = useState(0)
-  useEffect(() => {
-    if (!active || !ref.current) return
-    const observer = new MutationObserver(() => setVersion((current) => current + 1))
-    observer.observe(ref.current, { childList: true, characterData: true, subtree: true })
-    return () => observer.disconnect()
-  }, [active, ref])
-  return String(version)
-}
-
 export function ChatView(groups: ChatViewProps): JSX.Element {
   const { transcript, composer, pending, session, search } = groups
   // A subagent's tool calls arrive in the same flat feed as the parent's own; these two say
@@ -1307,7 +1288,7 @@ export function ChatView(groups: ChatViewProps): JSX.Element {
   // change it, so it is recomputed only when the activity list itself does.
   const shellLaunches = useMemo(() => indexShellLaunches(transcript.activities), [transcript.activities])
   const rootRef = useRef<HTMLDivElement>(null)
-  const searchContentKey = useTranscriptContentKey(scrollRef, search?.open ?? false)
+  const searchContentKey = useMutationContentKey(scrollRef, search?.open ?? false)
   const transcriptEntries = useMemo(() => {
     const entries = [
       ...transcript.messages.map((message) => ({

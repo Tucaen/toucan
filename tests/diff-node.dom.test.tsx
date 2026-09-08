@@ -4,6 +4,11 @@ import { afterEach, expect, test, vi } from 'vitest'
 import type { GitDiffSummary, GitFileDiff, GitFileDiffRequest } from '../src/shared/git-diff'
 import type { DiffCanvasNode } from '../src/renderer/src/canvas-workspace'
 import DiffNode from '../src/renderer/src/DiffNode'
+import {
+  NodeSearchContext,
+  NO_NODE_SEARCH_REQUEST,
+  type NodeSearchRequest
+} from '../src/renderer/src/node-search-context'
 import { OpenFileContext } from '../src/renderer/src/open-file-context'
 import WorktreeNode from '../src/renderer/src/WorktreeNode'
 
@@ -65,41 +70,58 @@ afterEach(() => {
 function renderNode(data: Partial<DiffCanvasNode['data']> = {}): {
   onSelectDiffPath: ReturnType<typeof vi.fn>
   rerender: (data: Partial<DiffCanvasNode['data']>) => void
+  requestSearch: () => void
 } {
   const onSelectDiffPath = vi.fn()
+  // A request that is already standing when a node mounts is deliberately spent, so opening the
+  // bar in a test means re-rendering with a fresh nonce, exactly as the canvas shortcut does.
+  let searchRequest: NodeSearchRequest = NO_NODE_SEARCH_REQUEST
   const element = (extra: Partial<DiffCanvasNode['data']>): JSX.Element => (
     <ReactFlowProvider>
-      <OpenFileContext.Provider value={vi.fn()}>
-        <DiffNode
-          id="diff-1"
-          type="diffNode"
-          selected={false}
-          dragging={false}
-          zIndex={0}
-          isConnectable={false}
-          positionAbsoluteX={0}
-          positionAbsoluteY={0}
-          data={
-            {
-              projectId: 'project',
-              projectName: 'Toucan',
-              projectPath: 'D:\\Development\\Toucan',
-              projectColor: '#71a9ff',
-              worktreeId: 'worktree-1',
-              label: 'feature/login',
-              path: WORKTREE,
-              baseRef: 'main',
-              onSelectDiffPath,
-              ...data,
-              ...extra
-            } as DiffCanvasNode['data']
-          }
-        />
-      </OpenFileContext.Provider>
+      <NodeSearchContext.Provider value={searchRequest}>
+        <OpenFileContext.Provider value={vi.fn()}>
+          <DiffNode
+            id="diff-1"
+            type="diffNode"
+            selected={false}
+            dragging={false}
+            zIndex={0}
+            isConnectable={false}
+            positionAbsoluteX={0}
+            positionAbsoluteY={0}
+            data={
+              {
+                projectId: 'project',
+                projectName: 'Toucan',
+                projectPath: 'D:\\Development\\Toucan',
+                projectColor: '#71a9ff',
+                worktreeId: 'worktree-1',
+                label: 'feature/login',
+                path: WORKTREE,
+                baseRef: 'main',
+                onSelectDiffPath,
+                ...data,
+                ...extra
+              } as DiffCanvasNode['data']
+            }
+          />
+        </OpenFileContext.Provider>
+      </NodeSearchContext.Provider>
     </ReactFlowProvider>
   )
   const { rerender } = render(element({}))
-  return { onSelectDiffPath, rerender: (extra) => rerender(element(extra)) }
+  let lastExtra: Partial<DiffCanvasNode['data']> = {}
+  return {
+    onSelectDiffPath,
+    rerender: (extra) => {
+      lastExtra = extra
+      rerender(element(extra))
+    },
+    requestSearch: () => {
+      searchRequest = { nodeId: 'diff-1', nonce: searchRequest.nonce + 1 }
+      rerender(element(lastExtra))
+    }
+  }
 }
 
 test('lists the changed files with status and counts, and names the branch and base', async () => {
@@ -205,6 +227,53 @@ test('a directory that is not a repository, or no changes at all, is reported in
   })
   rerender({ path: 'D:\\Development\\Toucan', baseRef: 'HEAD', label: 'Toucan', worktreeId: undefined })
   await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('No changes against HEAD.'))
+})
+
+test('a search request opens the find bar over the open diff and Escape hands it back (issue #172)', async () => {
+  stubApi(summary)
+  const { requestSearch } = renderNode({ selectedPath: 'src/a.ts' })
+  await waitFor(() => expect(screen.getByText('@@ -1,2 +1,2 @@')).toBeInTheDocument())
+  requestSearch()
+
+  const input = screen.getByLabelText('Find in feature/login')
+  fireEvent.change(input, { target: { value: 'const b' } })
+  // 'const b = 2' on the removed side and 'const b = 3' on the added side; the count is scoped to
+  // the pane, so the file rail's names are never matched.
+  expect(screen.getByRole('status')).toHaveTextContent('1 of 2')
+  fireEvent.keyDown(input, { key: 'Enter' })
+  expect(screen.getByRole('status')).toHaveTextContent('2 of 2')
+
+  fireEvent.keyDown(input, { key: 'Escape' })
+  expect(screen.queryByRole('search')).toBeNull()
+})
+
+test('hunks refreshed by the poll under an open find bar are recounted', async () => {
+  const api = stubApi(summary)
+  const { requestSearch } = renderNode({ selectedPath: 'src/a.ts' })
+  await waitFor(() => expect(screen.getByText('@@ -1,2 +1,2 @@')).toBeInTheDocument())
+  requestSearch()
+  fireEvent.change(screen.getByLabelText('Find in feature/login'), { target: { value: 'const b' } })
+  expect(screen.getByRole('status')).toHaveTextContent('1 of 2')
+
+  const grown: GitFileDiff = {
+    ok: true,
+    binary: false,
+    hunks: [
+      {
+        ...(hunks.ok && !hunks.binary ? hunks.hunks[0] : (undefined as never)),
+        lines: [
+          { kind: 'context', text: 'const a = 1' },
+          { kind: 'removed', text: 'const b = 2' },
+          { kind: 'added', text: 'const b = 3' },
+          { kind: 'added', text: 'const b2 = 4' }
+        ]
+      }
+    ]
+  }
+  api.diffFile.mockResolvedValue(grown)
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+  // The recount rides on a MutationObserver over the pane, not on any prop reaching the bar.
+  await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('1 of 3'))
 })
 
 test('the worktree node header offers Diff, which asks the canvas for a review of that worktree', () => {
