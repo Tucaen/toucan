@@ -612,3 +612,17 @@ test('with unsaved edits the rendered view previews the draft and still offers S
   expect(saveButton()).toBeEnabled()
   expect(screen.getByLabelText('Unsaved changes')).toBeInTheDocument()
 })
+
+test('the rendered view lifts frontmatter into a metadata table instead of running it into the prose', async () => {
+  stubApis(ok('---\nname: jira-ticket\ndescription: Create a ticket.\n---\n\n# Jira ticket\n\nTurn a request.\n'))
+  renderNode()
+
+  const heading = await screen.findByRole('heading', { level: 1, name: 'Jira ticket' })
+  const rows = document.querySelectorAll('.markdown-frontmatter tr')
+  expect([...rows].map((row) => [...row.children].map((cell) => cell.textContent))).toEqual([
+    ['name', 'jira-ticket'],
+    ['description', 'Create a ticket.']
+  ])
+  // The delimiters and the fields are gone from the prose; only the body is Markdown.
+  expect(heading.closest('.file-node-prose')?.textContent).not.toContain('description:')
+})

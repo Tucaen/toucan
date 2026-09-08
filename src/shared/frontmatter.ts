@@ -1,6 +1,7 @@
 /**
  * The one frontmatter reader and writer for Toucan's one-file-per-record Markdown collections
- * (brain-dump topics, tickets). Deliberately not YAML: a flat `key: value` block, one field per
+ * (brain-dump topics, tickets), and the reader behind showing any document's frontmatter to a
+ * human. Deliberately not YAML: a flat `key: value` block, one field per
  * line, no nesting, no quoting rules of its own. Callers that need a richer value (a quoted
  * Windows path, a comma separated list) decode the raw string themselves, so this module stays
  * pure and dependency-free.
@@ -26,11 +27,27 @@ interface Block {
   closing: number
 }
 
+interface Delimited {
+  lines: string[]
+  /** Index of the closing `---`; the block is the lines between it and line 0. */
+  closing: number
+}
+
+/** The delimiters alone, with no opinion about what is written between them. */
+function findBlock(lines: string[]): Delimited | undefined {
+  if (lines[0] !== '---') return undefined
+  const closing = lines.indexOf('---', 1)
+  return closing < 0 ? undefined : { lines, closing }
+}
+
 function readBlock(markdown: string, label: string): Block | { message: string } {
   const lines = markdown.split('\n')
-  if (lines[0] !== '---') return { message: `${label} must start with YAML frontmatter.` }
-  const closing = lines.indexOf('---', 1)
-  if (closing < 0) return { message: `${label} frontmatter must have a closing --- delimiter.` }
+  const delimited = findBlock(lines)
+  if (!delimited) {
+    if (lines[0] !== '---') return { message: `${label} must start with YAML frontmatter.` }
+    return { message: `${label} frontmatter must have a closing --- delimiter.` }
+  }
+  const closing = delimited.closing
   const fields = new Map<string, string>()
   for (let index = 1; index < closing; index += 1) {
     const match = FIELD.exec(lines[index])
@@ -78,4 +95,45 @@ export function rewriteFrontmatter(markdown: string, updates: Record<string, str
   for (const [key, value] of remaining) if (value !== undefined) output.push(`${key}: ${value}`)
   output.push(...block.lines.slice(block.closing))
   return output.join('\n')
+}
+
+export interface FrontmatterField {
+  key: string
+  /** Continuation lines are joined by newlines, so a nested list keeps the shape it was written in. */
+  value: string
+}
+
+export interface DisplayedFrontmatter {
+  /** Ordered as written, so the block reads the way it does on disk. */
+  fields: FrontmatterField[]
+  /** Everything after the closing delimiter line, verbatim. */
+  body: string
+}
+
+/**
+ * The frontmatter block as a reader should see it, plus the body it sits above. Unlike
+ * `parseFrontmatter` this never fails on shape: to a viewer a nested, repeated or unparseable line
+ * is content to show, not a record to reject, so every document renders. A line that is not
+ * `key: value` continues the field above it, which is how a nested list stays attached to its key.
+ * `undefined` means there is no closed block to lift out, and the whole document is body.
+ */
+export function frontmatterForDisplay(markdown: string): DisplayedFrontmatter | undefined {
+  const delimited = findBlock(markdown.split('\n'))
+  if (!delimited) return undefined
+  const { lines, closing } = delimited
+  const fields: FrontmatterField[] = []
+  for (let index = 1; index < closing; index += 1) {
+    const line = lines[index]
+    const match = FIELD.exec(line)
+    if (match) {
+      fields.push({ key: match[1], value: match[2] })
+      continue
+    }
+    const content = line.trim()
+    if (!content || content.startsWith('#')) continue
+    const previous = fields[fields.length - 1]
+    if (!previous) continue
+    previous.value = previous.value ? `${previous.value}\n${content}` : content
+  }
+  return { fields, body: lines.slice(closing + 1).join('\n') }
 }

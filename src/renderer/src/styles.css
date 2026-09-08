@@ -4173,6 +4173,20 @@ button {
   border-bottom: 0;
 }
 
+/*
+ * A document's frontmatter, above its body: keys stay on one line as a narrow leading column, and
+ * the values wrap, because a description or a nested list is long and must stay readable.
+ */
+.markdown-frontmatter th[scope='row'] {
+  width: 1%;
+  vertical-align: top;
+}
+
+.markdown-frontmatter td {
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
 .code-block {
   max-width: 100%;
   margin: 0 0 9px;

@@ -1,6 +1,6 @@
 import { deepEqual, equal, throws } from 'node:assert/strict'
 import { test } from 'node:test'
-import { parseFrontmatter, rewriteFrontmatter } from '../src/shared/frontmatter'
+import { frontmatterForDisplay, parseFrontmatter, rewriteFrontmatter } from '../src/shared/frontmatter'
 
 // The one frontmatter reader and writer behind every one-file-per-record collection: brain-dump
 // topics and tickets. Fields are flat `key: value` lines; the body is whatever follows and is
@@ -90,4 +90,35 @@ test('the label defaults to a neutral word, so a caller need not supply one', ()
   equal(result.ok, false)
   if (result.ok) return
   equal(result.message, 'Document must start with YAML frontmatter.')
+})
+
+// The viewer's reader: every document renders, whatever its block contains.
+
+test('a document displays its frontmatter as ordered fields and the body below it', () => {
+  const shown = frontmatterForDisplay('---\nname: jira-ticket\ndescription: Create a ticket.\n---\n\n# Jira ticket\n')
+  deepEqual(shown?.fields, [
+    { key: 'name', value: 'jira-ticket' },
+    { key: 'description', value: 'Create a ticket.' }
+  ])
+  equal(shown?.body, '\n# Jira ticket\n')
+})
+
+test('a nested or wrapped line continues the field above it instead of failing the document', () => {
+  const shown = frontmatterForDisplay('---\nallowed-tools:\n  - Read\n  - Edit\nname: a\n---\n')
+  deepEqual(shown?.fields, [
+    { key: 'allowed-tools', value: '- Read\n- Edit' },
+    { key: 'name', value: 'a' }
+  ])
+})
+
+test('a repeated field is shown twice rather than rejected, because disk says so', () => {
+  deepEqual(frontmatterForDisplay('---\nname: a\nname: b\n---\n')?.fields, [
+    { key: 'name', value: 'a' },
+    { key: 'name', value: 'b' }
+  ])
+})
+
+test('a document with no closed frontmatter block has nothing to lift out', () => {
+  equal(frontmatterForDisplay('# Plan\n\nBody.\n'), undefined)
+  equal(frontmatterForDisplay('---\nname: a\n'), undefined)
 })

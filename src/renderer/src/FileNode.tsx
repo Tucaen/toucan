@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import type { NodeProps } from '@xyflow/react'
 import { FileText } from 'lucide-react'
 import ReactMarkdown, { type Components } from 'react-markdown'
+import { frontmatterForDisplay } from '../../shared/frontmatter'
 import {
   fileViewPathIdentity,
   isMarkdownPath,
@@ -214,6 +215,12 @@ export default function FileNode({ id, data, selected }: NodeProps<FileCanvasNod
   // The draft outranks disk, including a disk that has nothing to show any more.
   const shownContent = edit.draft ?? (result?.ok ? result.content : '')
   const canSave = dirty && !edit.conflict && !saving && editability.editable
+  /*
+   * Markdown parsers read a frontmatter block as prose, which collapses the whole record into one
+   * run-on paragraph. The rendered view lifts it out and shows it as the metadata table a reader
+   * expects, leaving only the body to the Markdown pipeline.
+   */
+  const frontmatter = mode === 'rendered' ? frontmatterForDisplay(shownContent) : undefined
 
   const requestFilePath = useCallback(async (): Promise<void> => {
     const nextPath = await data.onRequestFilePath(id)
@@ -398,8 +405,22 @@ export default function FileNode({ id, data, selected }: NodeProps<FileCanvasNod
             )}
             {mode === 'rendered' ? (
               <div className="markdown-body file-node-prose">
+                {frontmatter && frontmatter.fields.length > 0 && (
+                  <div className="markdown-table-scroll markdown-frontmatter">
+                    <table>
+                      <tbody>
+                        {frontmatter.fields.map((field, index) => (
+                          <tr key={`${field.key}-${index}`}>
+                            <th scope="row">{field.key}</th>
+                            <td>{field.value}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
                 <ReactMarkdown remarkPlugins={remarkPlugins} components={components}>
-                  {shownContent}
+                  {frontmatter ? frontmatter.body : shownContent}
                 </ReactMarkdown>
               </div>
             ) : (
