@@ -3407,9 +3407,19 @@ button {
 }
 
 .chat-composer .stop-agent {
-  border-color: #754648;
-  color: #efb0b3;
-  background: #321f22;
+  border-color: #b3383d;
+  color: #ffe8e9;
+  background: #b3383d;
+}
+
+.chat-composer .stop-agent:hover {
+  border-color: #c9454a;
+  background: #c9454a;
+}
+
+/* Lucide icons are stroke-only; fill the square so it reads as a solid stop glyph. */
+.chat-composer .stop-agent > .lucide {
+  fill: currentColor;
 }
 
 .voice-input {
