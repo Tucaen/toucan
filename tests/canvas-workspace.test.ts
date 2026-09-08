@@ -14,14 +14,18 @@ import {
   serializeCanvasNode,
   serializeWorktreeNode,
   cascadedNodePosition,
+  centredNodePosition,
   changeFileCanvasNodePath,
   createFileCanvasNode,
   createDiffCanvasNode,
   DEFAULT_DIFF_NODE_SIZE,
   DEFAULT_FILE_NODE_SIZE,
+  DEFAULT_WORKTREE_SIZE,
   isDiffCanvasNode,
   isFileCanvasNode,
   isLayoutCanvasNode,
+  NEW_NODE_SIZE,
+  NEW_SESSION_NODE_SIZE,
   selectDiffCanvasNodePath,
   serializeDiffNode,
   serializeFileNode,
@@ -677,4 +681,53 @@ test('removing a worktree removes its diff nodes and nothing else', () => {
   // A diff node is not attached to the worktree: it runs nothing there, so it never blocks removal.
   const worktree = worktreeNodes(nodes)[0]
   assert.equal(worktree.data.attachedNodeCount, 2)
+})
+
+/**
+ * The bug this replaced: the drop position was the centre of the viewport, but React Flow reads a
+ * node's position as its top-left corner, so a new node hung down and to the right of the centre
+ * and half of it was off screen. Centring has to account for the node's own size.
+ */
+test('a centred drop puts the middle of the node in the middle of the region', () => {
+  const region = { position: { x: 0, y: 0 }, width: 1000, height: 800 }
+  const size = { width: 400, height: 200 }
+
+  const position = centredNodePosition(region, size)
+
+  assert.deepEqual(position, { x: 300, y: 300 })
+  // Stated as the property that actually matters, so the arithmetic above cannot drift from intent.
+  assert.equal(position.x + size.width / 2, region.position.x + region.width / 2)
+  assert.equal(position.y + size.height / 2, region.position.y + region.height / 2)
+})
+
+test('a centred drop is relative to the region, not the canvas origin', () => {
+  // The visible region is in flow coordinates and moves with pan and zoom; a node centred in it
+  // must follow, or a panned canvas drops nodes back at the old spot.
+  const region = { position: { x: -500, y: 250 }, width: 600, height: 600 }
+
+  assert.deepEqual(centredNodePosition(region, { width: 200, height: 100 }), { x: -300, y: 500 })
+})
+
+test('a node too large for the region keeps its top-left corner inside it', () => {
+  // Zoomed in far enough, the region is smaller in flow units than a diff node. Centring such a
+  // node would push its header above the visible top, where the title and close button cannot be
+  // reached; overhanging only to the right and bottom keeps them.
+  const region = { position: { x: 40, y: 60 }, width: 300, height: 200 }
+
+  const position = centredNodePosition(region, DEFAULT_DIFF_NODE_SIZE)
+
+  assert.deepEqual(position, region.position)
+})
+
+test('a create action is centred by the size its node is actually built with', () => {
+  // The key type already makes a missing entry a compile error. What it cannot catch is an entry
+  // that holds a size of its own instead of the one the construction site reads - then the node is
+  // centred by a number nothing else uses, which is the off-centre bug again for that one action.
+  assert.equal(NEW_NODE_SIZE['create-terminal'], NEW_SESSION_NODE_SIZE)
+  assert.equal(NEW_NODE_SIZE['create-claude'], NEW_SESSION_NODE_SIZE)
+  assert.equal(NEW_NODE_SIZE['create-codex'], NEW_SESSION_NODE_SIZE)
+  assert.equal(NEW_NODE_SIZE['open-history'], NEW_SESSION_NODE_SIZE)
+  assert.equal(NEW_NODE_SIZE['create-worktree'], DEFAULT_WORKTREE_SIZE)
+  assert.equal(NEW_NODE_SIZE['open-file'], DEFAULT_FILE_NODE_SIZE)
+  assert.equal(NEW_NODE_SIZE['open-diff'], DEFAULT_DIFF_NODE_SIZE)
 })

@@ -17,6 +17,7 @@ import type { WorkspaceWorktree } from '../../shared/worktree'
 import type { WorktreeHandoffPlan } from '../../shared/worktree-handoff'
 import type { ConversationTitleSource } from '../../shared/conversation-title'
 import type { TicketActivityReport } from './ticket-activity'
+import type { NodeGeometry } from './node-snap'
 
 /** Re-exported so canvas modules keep one import site; the union itself is a shared contract. */
 export type { TerminalNodeStatus }
@@ -283,6 +284,12 @@ export interface RestoredCanvasWorkspace {
 }
 
 const DEFAULT_TERMINAL_SIZE = { width: 520, height: 340 }
+/**
+ * What a freshly created session node is sized to. Larger than `DEFAULT_TERMINAL_SIZE`, which is
+ * only the fallback for restoring a node whose measurement was never persisted: a new session is
+ * opened to be worked in, an unmeasured one is being reconstructed.
+ */
+export const NEW_SESSION_NODE_SIZE = { width: 750, height: 660 }
 export const DEFAULT_WORKTREE_SIZE = { width: 360, height: 232 }
 /** Taller than wide: a file node is for reading a document, and prose is read downward. */
 export const DEFAULT_FILE_NODE_SIZE = { width: 480, height: 560 }
@@ -322,6 +329,42 @@ export function cascadedNodePosition(
     }
   }
   return candidate
+}
+
+/**
+ * How large the node each create action produces will be, so a drop position can be worked out
+ * before the node exists. Keyed by action rather than by node type because the caller placing the
+ * node has the action in hand and some actions (a worktree draft, a file picker) put a dialog
+ * between the two.
+ */
+export const NEW_NODE_SIZE: Record<Exclude<CreateNodeKeyAction, 'none'>, { width: number; height: number }> = {
+  'create-terminal': NEW_SESSION_NODE_SIZE,
+  'create-claude': NEW_SESSION_NODE_SIZE,
+  'create-codex': NEW_SESSION_NODE_SIZE,
+  'create-worktree': DEFAULT_WORKTREE_SIZE,
+  'open-history': NEW_SESSION_NODE_SIZE,
+  'open-file': DEFAULT_FILE_NODE_SIZE,
+  'open-diff': DEFAULT_DIFF_NODE_SIZE
+}
+
+/**
+ * The top-left corner that leaves a node of `size` in the middle of `region`, both in flow
+ * coordinates. React Flow positions a node by its corner, so a node handed the centre of the
+ * region hangs down and to the right of it with half of itself off screen; centring means
+ * offsetting by half the node.
+ *
+ * A node larger than the region keeps its corner at the region's corner, overhanging right and
+ * bottom only. Centring it would push its header out of sight, and the header is where the title, the
+ * drag handle and the close button are.
+ */
+export function centredNodePosition(
+  region: NodeGeometry,
+  size: { width: number; height: number }
+): { x: number; y: number } {
+  return {
+    x: region.position.x + Math.max(0, (region.width - size.width) / 2),
+    y: region.position.y + Math.max(0, (region.height - size.height) / 2)
+  }
 }
 
 type SessionRestoreWorkspace = Pick<WorkspaceState, 'projects' | 'worktrees' | 'agentPermissionModes'>

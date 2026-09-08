@@ -84,6 +84,9 @@ import {
   createDiffCanvasNode,
   createFileCanvasNode,
   DEFAULT_WORKTREE_SIZE,
+  NEW_NODE_SIZE,
+  NEW_SESSION_NODE_SIZE,
+  centredNodePosition,
   isDiffCanvasNode,
   isFileCanvasNode,
   isLayoutCanvasNode,
@@ -657,6 +660,27 @@ function Canvas(): JSX.Element {
   }, [getViewport])
 
   /**
+   * Where a node lands when nothing pointed at a spot for it - a keyboard shortcut, a phone
+   * spawning a chat, an "Open" on a transcript card. It is centred in the visible canvas and then
+   * cascaded clear of whatever is already there, so a run of spawns fans out instead of stacking.
+   *
+   * The canvas region rather than the window is what the node has to fit into: the sidebar, the
+   * header and the docked panels all take room a window measurement would count as canvas, and
+   * measuring the window put new nodes off centre by half of that chrome.
+   */
+  const centredDropPosition = useCallback(
+    (size: { width: number; height: number }): { x: number; y: number } => {
+      // Window size is deliberately not a stand-in for a region that has not laid out: the usable
+      // canvas is observed, never derived. Nothing reaches this before the canvas is on screen, and
+      // a node with no measurable region lands at the top-left of the flow area - where an
+      // unmeasurably small region would put it too.
+      const region = visibleCanvasRegion() ?? { position: screenToFlowPosition({ x: 0, y: 0 }), width: 0, height: 0 }
+      return cascadedNodePosition(nodesRef.current, centredNodePosition(region, size))
+    },
+    [screenToFlowPosition, visibleCanvasRegion]
+  )
+
+  /**
    * Lays every node - or the selection, when two or more are selected - into the visible canvas,
    * then advances the cycle so the next press gives the next layout. Tiling places nodes itself,
    * so their snaps are released first rather than left pointing at geometry that is gone.
@@ -911,7 +935,7 @@ function Canvas(): JSX.Element {
             onTerminalLiveness: handleTerminalLiveness,
             onWorktreeHandoff: dispatchWorktreeHandoff
           },
-          style: { width: 750, height: 660 }
+          style: { ...NEW_SESSION_NODE_SIZE }
         }
       ])
       setNodeStatuses((current) => ({ ...current, [id]: 'starting' }))
@@ -1403,18 +1427,17 @@ function Canvas(): JSX.Element {
     (request: RemoteChatSpawnRequest): RemoteChatSpawnResult => {
       const project = projectsRef.current.find((candidate) => candidate.id === request.projectId)
       if (!project) return { ok: false, message: 'That project is no longer open on the desktop.' }
-      const origin = screenToFlowPosition({ x: window.innerWidth / 2, y: window.innerHeight / 2 })
       return {
         ok: true,
         chatId: addSessionNode({
           kind: request.kind,
           project,
-          position: cascadedNodePosition(nodesRef.current, origin),
+          position: centredDropPosition(NEW_SESSION_NODE_SIZE),
           initialInput: request.input
         })
       }
     },
-    [addSessionNode, screenToFlowPosition]
+    [addSessionNode, centredDropPosition]
   )
 
   // One owner for the host's remote-access state, for the canvas projection a paired phone
@@ -1665,16 +1688,6 @@ function Canvas(): JSX.Element {
     [menu, runCreateAction]
   )
 
-  /** A shortcut has no click position, so its node lands at the viewport centre and cascades clear. */
-  const viewportCentreDropPosition = useCallback(
-    (): { x: number; y: number } =>
-      cascadedNodePosition(
-        nodesRef.current,
-        screenToFlowPosition({ x: window.innerWidth / 2, y: window.innerHeight / 2 })
-      ),
-    [screenToFlowPosition]
-  )
-
   // While a picker, draft or dialog is open the create shortcuts do nothing, so a node cannot
   // appear behind it. The panels are fine: they dock beside the canvas rather than cover it.
   const dialogOpen = !!(
@@ -1719,7 +1732,7 @@ function Canvas(): JSX.Element {
       if (action === 'none' || dialogOpen) return
       event.preventDefault()
       setMenu(null)
-      runCreateAction(action, viewportCentreDropPosition())
+      runCreateAction(action, centredDropPosition(NEW_NODE_SIZE[action]))
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
@@ -1730,7 +1743,7 @@ function Canvas(): JSX.Element {
     runLayoutAction,
     toggleBrainDumpPanel,
     toggleTicketBoardPanel,
-    viewportCentreDropPosition
+    centredDropPosition
   ])
 
   /** Puts one file on the canvas as a node; the node reads and watches the file itself. */
@@ -1791,10 +1804,9 @@ function Canvas(): JSX.Element {
         projectsRef.current.find((project) => project.id === activeProjectId) ??
         projectsRef.current[0]
       if (!owner) return
-      const centre = screenToFlowPosition({ x: window.innerWidth / 2, y: window.innerHeight / 2 })
-      addFileNode(path, owner, cascadedNodePosition(nodesRef.current, centre))
+      addFileNode(path, owner, centredDropPosition(NEW_NODE_SIZE['open-file']))
     },
-    [activeProjectId, addFileNode, screenToFlowPosition]
+    [activeProjectId, addFileNode, centredDropPosition]
   )
 
   /**
@@ -1840,12 +1852,12 @@ function Canvas(): JSX.Element {
       addSessionNode({
         kind: conversation.provider,
         project,
-        position: screenToFlowPosition({ x: window.innerWidth / 2, y: window.innerHeight / 2 }),
+        position: centredDropPosition(NEW_SESSION_NODE_SIZE),
         label: 'Brain dump capture',
         resumeConversationId: conversation.conversationId
       })
     },
-    [activeProjectId, addSessionNode, screenToFlowPosition]
+    [activeProjectId, addSessionNode, centredDropPosition]
   )
 
   const confirmWorktreeDraft = useCallback((): void => {
