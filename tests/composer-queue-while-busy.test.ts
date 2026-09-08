@@ -1,6 +1,4 @@
 import { strict as assert } from 'node:assert'
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { test } from 'node:test'
 import {
   chooseAgentPromptApi,
@@ -12,10 +10,11 @@ import {
 // queuing behavior (chooseAgentPromptApi routing, per-message queued flag, FIFO clearing) are
 // exercised by actually rendering/running them in composer-queue-while-busy.dom.test.tsx (Vitest
 // + jsdom + React Testing Library). What's left here is: the decision logic extracted into a
-// pure, dependency-free function (exercised directly below); the underlying queuing engine
-// (PromptWakeGate), which already has full behavioral coverage in
-// prompt-wake-gate tests; and the cross-process preload/main/acp-session-manager IPC
-// wiring, which jsdom cannot exercise and so remains a documented source-text assertion.
+// pure, dependency-free function (exercised directly below), plus the underlying queuing engine
+// (PromptWakeGate), which already has full behavioral coverage in prompt-wake-gate tests. The
+// preload/main wiring needs no source-text assertion anymore: preload implements the shared
+// AgentApi contract and both sides name the channel through AGENT_CHANNELS, so an omission is a
+// compile error.
 
 test('chooseAgentPromptApi routes to promptWhenIdle while working and to prompt while ready', async () => {
   const calls: string[] = []
@@ -69,34 +68,5 @@ test('createDispatchOrderGate keeps dispatch in submission order even when an ea
     dispatchOrder,
     ['first message', 'second message'],
     'the first-submitted message must still dispatch before the second even though its composePrompt resolves later'
-  )
-})
-
-test('promptWhenIdle is exposed to the renderer the same way prompt is, backed by the generic session manager method', () => {
-  const preload = readFileSync(join(process.cwd(), 'src/preload/index.ts'), 'utf8')
-  const preloadTypes = readFileSync(join(process.cwd(), 'src/preload/index.d.ts'), 'utf8')
-  const main = readFileSync(join(process.cwd(), 'src/main/index.ts'), 'utf8')
-  const manager = readFileSync(join(process.cwd(), 'src/main/acp-session-manager.ts'), 'utf8')
-
-  assert.match(
-    preload,
-    /promptWhenIdle: \(id: string, content: AgentPromptContent\).*=>\s*\(?\s*ipcRenderer\.invoke\('agent:prompt-when-idle', id, content\)/s,
-    'preload should expose promptWhenIdle alongside prompt'
-  )
-  assert.match(preloadTypes, /promptWhenIdle\(id: string, content: AgentPromptContent\): Promise<AgentPromptResult>/)
-  assert.match(
-    main,
-    /ipcMain\.handle\('agent:prompt-when-idle', \(_event, id: string, content: AgentPromptContent\) =>\s*manager\.promptWhenIdle\(id, content\)\s*\)/,
-    'main should register an IPC handler backed by the already-generic promptWhenIdle'
-  )
-  assert.doesNotMatch(
-    manager,
-    /if \(request\.scope === 'firstmate'\) \{\s*running\.wakeGate = createPromptWakeGate/,
-    'the wake gate must no longer be limited to firstmate-scoped sessions for the human composer to be able to queue too'
-  )
-  assert.match(
-    manager,
-    /running\.wakeGate = createPromptWakeGate<AgentPromptContent>\(\{/,
-    'every session should get a wake gate so promptWhenIdle can queue regardless of scope'
   )
 })

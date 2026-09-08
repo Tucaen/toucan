@@ -1,6 +1,7 @@
 import { watch } from 'node:fs'
 import { open, realpath, rename, stat, unlink } from 'node:fs/promises'
 import { basename, dirname, join, relative, resolve, isAbsolute } from 'node:path'
+import { FILE_VIEW_CHANNELS } from '../shared/ipc-channels'
 import {
   FILE_VIEW_MAX_BYTES,
   type FileReadResult,
@@ -249,7 +250,7 @@ export function createFileView(options: FileViewOptions): FileView {
     entry.timer = undefined
     for (const owner of [...(holders.get(key)?.keys() ?? [])]) {
       if (owner.isDestroyed()) holders.get(key)?.delete(owner)
-      else owner.send('file-view:changed', entry.path)
+      else owner.send(FILE_VIEW_CHANNELS.changed, entry.path)
     }
     if (!holders.get(key)?.size) {
       holders.delete(key)

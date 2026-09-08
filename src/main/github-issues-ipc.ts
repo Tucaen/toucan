@@ -2,6 +2,7 @@ import type { TicketGithubListResult, TicketSourceAvailability } from '../shared
 import { errorMessage } from '../shared/text'
 import type { GithubIssueReader } from './github-issues'
 import type { IpcRegistrar } from './ipc-registrar'
+import { GITHUB_ISSUES_CHANNELS } from '../shared/ipc-channels'
 
 const NO_PROJECT = { available: false as const, reason: 'No project is selected.' }
 
@@ -12,11 +13,13 @@ const NO_PROJECT = { available: false as const, reason: 'No project is selected.
  * because nothing is shared but the seam - GitHub has no folder to watch and nothing to write.
  */
 export function registerGithubIssuesIpc(ipc: IpcRegistrar, reader: GithubIssueReader): void {
-  ipc.handle('github-issues:availability', async (_event, projectPath: unknown): Promise<TicketSourceAvailability> =>
-    typeof projectPath === 'string' && projectPath ? reader.availability(projectPath) : NO_PROJECT
+  ipc.handle(
+    GITHUB_ISSUES_CHANNELS.availability,
+    async (_event, projectPath: unknown): Promise<TicketSourceAvailability> =>
+      typeof projectPath === 'string' && projectPath ? reader.availability(projectPath) : NO_PROJECT
   )
 
-  ipc.handle('github-issues:list', async (_event, projectPath: unknown): Promise<TicketGithubListResult> => {
+  ipc.handle(GITHUB_ISSUES_CHANNELS.list, async (_event, projectPath: unknown): Promise<TicketGithubListResult> => {
     if (typeof projectPath !== 'string' || !projectPath) return NO_PROJECT
     try {
       return await reader.list(projectPath)

@@ -1,6 +1,7 @@
 import { strict as assert } from 'node:assert'
 import { describe, test } from 'node:test'
-import { createRemoteChatSpawner, SPAWN_CHAT_CHANNEL, type SpawnWindow } from '../src/main/remote/chat-spawn'
+import { createRemoteChatSpawner, type SpawnWindow } from '../src/main/remote/chat-spawn'
+import { REMOTE_CHANNELS } from '../src/shared/ipc-channels'
 import type { RemoteChatSpawnRequest } from '../src/shared/remote-spawn'
 
 /**
@@ -56,7 +57,7 @@ describe('spawning a chat through the desktop renderer', () => {
     spawner.attach(window)
 
     const pending = spawner.spawn(request)
-    assert.deepEqual(window.sent, [{ channel: SPAWN_CHAT_CHANNEL, args: ['req-1', request] }])
+    assert.deepEqual(window.sent, [{ channel: REMOTE_CHANNELS.spawnChat, args: ['req-1', request] }])
 
     spawner.complete('req-1', { ok: true, chatId: 'node-9' })
     assert.deepEqual(await pending, { ok: true, chatId: 'node-9' })

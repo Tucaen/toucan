@@ -11,7 +11,8 @@ import type {
   WorktreeRemovalBlocker,
   WorktreeRemoveRequest,
   WorktreeRemoveResult,
-  WorktreeStatus
+  WorktreeStatus,
+  WorktreeStatusRequest
 } from '../shared/worktree'
 import {
   WORKTREE_CLAIMS_FILE,
@@ -58,12 +59,6 @@ export type GitRunner = (args: string[], cwd: string) => Promise<GitResult>
 export interface WorktreeManagerOptions {
   runGit?: GitRunner
   pathExists?(path: string): boolean
-}
-
-export interface WorktreeStatusRequest {
-  path: string
-  branch: string
-  baseRef: string
 }
 
 export interface WorktreeManager {

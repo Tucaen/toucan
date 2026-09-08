@@ -2,6 +2,7 @@ import type { BrainDumpCollection, BrainDumpLibraryApi, BrainDumpOutcome } from 
 import type { BrainDumpCaptureManager, BrainDumpCaptureOwner } from './brain-dump-capture'
 import type { BrainDumpChangeWatcher } from './brain-dump-watcher'
 import type { IpcRegistrar } from './ipc-registrar'
+import { BRAIN_DUMP_CHANNELS } from '../shared/ipc-channels'
 
 function captureRequest(
   value: unknown
@@ -21,32 +22,32 @@ export function registerBrainDumpIpc(
   capture: BrainDumpCaptureManager,
   changes: BrainDumpChangeWatcher
 ): void {
-  ipc.handle('brain-dump:list', (event, collection: unknown) => {
+  ipc.handle(BRAIN_DUMP_CHANNELS.list, (event, collection: unknown) => {
     changes.subscribe(event.sender)
     return collection === 'active' || collection === 'archived'
       ? library.list(collection as BrainDumpCollection)
       : { topics: [], diagnostics: [{ path: '', code: 'invalid-collection', message: 'Collection is invalid.' }] }
   })
-  ipc.handle('brain-dump:resolve', (_event, slug: unknown) =>
+  ipc.handle(BRAIN_DUMP_CHANNELS.resolve, (_event, slug: unknown) =>
     typeof slug === 'string' ? library.resolve(slug) : { status: 'invalid', slug: '' }
   )
-  ipc.handle('brain-dump:archive', (_event, slug: unknown, outcome: unknown) =>
+  ipc.handle(BRAIN_DUMP_CHANNELS.archive, (_event, slug: unknown, outcome: unknown) =>
     typeof slug === 'string' && typeof outcome === 'string'
       ? library.archive(slug, outcome as BrainDumpOutcome)
       : { ok: false, code: 'invalid-request', message: 'Slug and outcome are required.' }
   )
-  ipc.handle('brain-dump:assign-project', (_event, slug: unknown, projectPath: unknown) =>
+  ipc.handle(BRAIN_DUMP_CHANNELS.assignProject, (_event, slug: unknown, projectPath: unknown) =>
     typeof slug === 'string' && (projectPath === undefined || projectPath === null || typeof projectPath === 'string')
       ? library.assignProject(slug, typeof projectPath === 'string' ? projectPath : undefined)
       : { ok: false, code: 'invalid-request', message: 'Slug is required and the project must be a path.' }
   )
-  ipc.handle('brain-dump:capture-start', (event, request: unknown) =>
+  ipc.handle(BRAIN_DUMP_CHANNELS.captureStart, (event, request: unknown) =>
     captureRequest(request)
       ? capture.start(request, event.sender)
       : { ok: false, code: 'invalid-content', message: 'Capture request is invalid.' }
   )
-  ipc.handle('brain-dump:capture-current', () => capture.current())
-  ipc.handle('brain-dump:capture-approval', (_event, jobId: unknown, approvalId: unknown, optionId: unknown) => {
+  ipc.handle(BRAIN_DUMP_CHANNELS.captureCurrent, () => capture.current())
+  ipc.handle(BRAIN_DUMP_CHANNELS.captureApproval, (_event, jobId: unknown, approvalId: unknown, optionId: unknown) => {
     if (
       typeof jobId === 'string' &&
       typeof approvalId === 'string' &&
@@ -54,7 +55,7 @@ export function registerBrainDumpIpc(
     )
       capture.resolveApproval(jobId, approvalId, typeof optionId === 'string' ? optionId : undefined)
   })
-  ipc.handle('brain-dump:capture-cancel', (_event, jobId: unknown) => {
+  ipc.handle(BRAIN_DUMP_CHANNELS.captureCancel, (_event, jobId: unknown) => {
     if (typeof jobId === 'string') capture.cancel(jobId)
   })
 }

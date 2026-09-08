@@ -274,3 +274,30 @@ export interface TerminalLivenessEvent {
   incarnationId: string
   liveness: TerminalLiveness
 }
+
+/**
+ * Terminals, the workspace snapshot, and the clipboard/shell affordances the canvas offers,
+ * seen from the renderer. Preload implements it; main answers the channels behind it.
+ */
+export interface TerminalApi {
+  getInitialProject(): Promise<ProjectDirectory>
+  pickProject(): Promise<ProjectDirectory | null>
+  loadWorkspace(): Promise<WorkspaceLoadResult>
+  saveWorkspace(state: WorkspaceState): Promise<WorkspaceSaveResult>
+  getConversationPreview(kind: 'claude' | 'codex', conversationId: string): Promise<ConversationPreview | null>
+  create(request: TerminalCreateRequest): Promise<TerminalCreateResult>
+  write(sessionId: string, incarnationId: string, data: string): void
+  resize(sessionId: string, incarnationId: string, cols: number, rows: number): void
+  kill(sessionId: string, incarnationId: string, attachmentId: string): void
+  /** Historical display data only; never proof that a process is alive or safe to write to. */
+  scrollback(sessionId: string): Promise<TerminalScrollbackSnapshot | null>
+  /** False means the retained files could not be completely removed. */
+  removeScrollback(sessionId: string): Promise<boolean>
+  copyText(text: string): void
+  openExternal(url: string): Promise<void>
+  /** Selects a file in the OS file manager; never opens or executes it. */
+  showItemInFolder(path: string): Promise<void>
+  readClipboardText(): string
+  onData(sessionId: string, attachmentId: string, callback: (output: TerminalOutput) => void): () => void
+  onExit(sessionId: string, attachmentId: string, callback: (result: TerminalExit) => void): () => void
+}

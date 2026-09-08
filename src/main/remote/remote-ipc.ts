@@ -5,8 +5,9 @@ import {
   type RemoteWorkspaceProjection
 } from '../../shared/remote-access'
 import type { RemoteChatSpawnResult } from '../../shared/remote-spawn'
-import { SPAWN_CHAT_RESULT_CHANNEL, type RemoteChatSpawner } from './chat-spawn'
+import { type RemoteChatSpawner } from './chat-spawn'
 import type { RemoteAccessServer } from './remote-server'
+import { REMOTE_CHANNELS } from '../../shared/ipc-channels'
 
 /**
  * The privilege seam for remote access. Two directions cross it: the settings dialog drives the
@@ -18,18 +19,18 @@ import type { RemoteAccessServer } from './remote-server'
  * a malformed message cannot replace a good projection with something unserializable.
  */
 export function registerRemoteIpc(ipc: IpcMain, server: RemoteAccessServer, spawner: RemoteChatSpawner): void {
-  ipc.handle('remote:state', () => server.state())
-  ipc.handle('remote:apply-settings', (_event, settings: unknown) =>
+  ipc.handle(REMOTE_CHANNELS.state, () => server.state())
+  ipc.handle(REMOTE_CHANNELS.applySettings, (_event, settings: unknown) =>
     isRemoteAccessSettings(settings) ? server.applySettings(settings) : server.state()
   )
-  ipc.handle('remote:regenerate-token', () => server.regenerateToken())
-  ipc.on('remote:publish-workspace', (_event, projection: unknown) => {
+  ipc.handle(REMOTE_CHANNELS.regenerateToken, () => server.regenerateToken())
+  ipc.on(REMOTE_CHANNELS.publishWorkspace, (_event, projection: unknown) => {
     if (isPublishableProjection(projection)) server.publishWorkspace(projection)
   })
   // The renderer's verdict on a spawn main asked it to perform. An unrecognizable answer is
   // dropped rather than settled as a failure: the spawner's own timeout is the honest fallback,
   // and inventing a refusal here could retire a request whose node is on its way up.
-  ipc.on(SPAWN_CHAT_RESULT_CHANNEL, (_event, requestId: unknown, result: unknown) => {
+  ipc.on(REMOTE_CHANNELS.spawnChatResult, (_event, requestId: unknown, result: unknown) => {
     if (typeof requestId === 'string' && isSpawnResult(result)) spawner.complete(requestId, result)
   })
 }
@@ -41,7 +42,7 @@ export function registerRemoteIpc(ipc: IpcMain, server: RemoteAccessServer, spaw
  */
 export function forwardRemoteStateChanges(server: RemoteAccessServer, contents: WebContents): () => void {
   return server.onChange((state: RemoteAccessState) => {
-    if (!contents.isDestroyed()) contents.send('remote:state-changed', state)
+    if (!contents.isDestroyed()) contents.send(REMOTE_CHANNELS.stateChanged, state)
   })
 }
 

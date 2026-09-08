@@ -1,5 +1,5 @@
 import { vi } from 'vitest'
-import type { AgentApi } from '../../src/preload/index.d'
+import type { AgentApi } from '../../src/shared/agent'
 import type { AgentEvent } from '../../src/shared/agent'
 
 export interface MockAgentApi {

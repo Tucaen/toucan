@@ -2,6 +2,7 @@ import { watch } from 'node:fs'
 import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { BrainDumpCollection } from '../shared/brain-dump'
+import { BRAIN_DUMP_CHANNELS } from '../shared/ipc-channels'
 
 const COLLECTIONS: readonly BrainDumpCollection[] = ['active', 'archived']
 const DEFAULT_DEBOUNCE_MS = 100
@@ -51,7 +52,7 @@ export async function createBrainDumpChangeWatcher(
     timers.delete(collection)
     for (const owner of owners) {
       if (owner.isDestroyed()) owners.delete(owner)
-      else owner.send('brain-dump:library-change', collection)
+      else owner.send(BRAIN_DUMP_CHANNELS.libraryChange, collection)
     }
   }
 

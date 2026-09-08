@@ -36,3 +36,12 @@ export const emptyWorkspaceFileIndex = (root: string): WorkspaceFileIndex => ({
   truncated: false,
   gitignored: false
 })
+
+export interface WorkspaceFilesApi {
+  /**
+   * A bounded, cached listing of one working directory for the composer's `@` picker. Always the
+   * node's resolved `workingDirectory` - a worktree session must never be offered the checkout's
+   * files, since the reference it inserts would point at the wrong tree.
+   */
+  index(root: string): Promise<WorkspaceFileIndex>
+}

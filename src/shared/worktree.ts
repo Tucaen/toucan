@@ -5,6 +5,8 @@
  * vocabulary and the pure path/branch rules that both processes agree on.
  */
 
+import type { GitDiffRequest, GitDiffSummary, GitFileDiff, GitFileDiffRequest } from './git-diff'
+
 export interface WorkspaceWorktree {
   id: string
   projectId: string
@@ -31,6 +33,12 @@ export interface WorktreeCreateResult {
   ok: boolean
   message?: string
   worktree?: { path: string; branch: string; baseRef: string }
+}
+
+export interface WorktreeStatusRequest {
+  path: string
+  branch: string
+  baseRef: string
 }
 
 export interface WorktreeStatus {
@@ -311,3 +319,15 @@ export interface WorktreeDiscoverResult {
  * repository reads and writes one file, and nothing lands in the user's global config.
  */
 export const WORKTREE_CLAIMS_FILE = 'toucan-worktree-claims.json'
+
+export interface WorktreeApi {
+  create(request: WorktreeCreateRequest): Promise<WorktreeCreateResult>
+  status(request: WorktreeStatusRequest): Promise<WorktreeStatus>
+  /** Refuses with blockers unless the worktree is provably free of unique work, or force is set. */
+  remove(request: WorktreeRemoveRequest): Promise<WorktreeRemoveResult>
+  /** Worktrees git knows about that the workspace has no record of yet. */
+  discover(request: WorktreeDiscoverRequest): Promise<WorktreeDiscoverResult>
+  /** The changed-file list of a checkout against its base; hunks come one file at a time. */
+  diff(request: GitDiffRequest): Promise<GitDiffSummary>
+  diffFile(request: GitFileDiffRequest): Promise<GitFileDiff>
+}

@@ -1,4 +1,5 @@
 import { watch } from 'node:fs'
+import { TICKET_CHANNELS } from '../shared/ipc-channels'
 
 const DEFAULT_DEBOUNCE_MS = 100
 
@@ -65,7 +66,7 @@ export function createTicketChangeWatcher(options: TicketChangeWatcherOptions): 
     timers.delete(projectPath)
     for (const owner of owners) {
       if (owner.isDestroyed()) owners.delete(owner)
-      else owner.send('tickets:changed', projectPath)
+      else owner.send(TICKET_CHANNELS.changed, projectPath)
     }
   }
 

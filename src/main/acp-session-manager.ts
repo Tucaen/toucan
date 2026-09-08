@@ -43,6 +43,7 @@ import { createAgentEventBroker, type AgentEventBroker } from './agent-event-bro
 import { buildAgentProcessLaunch, spawnAgentProcess, type AgentProcessLaunch } from './agent-process'
 import { readCachedCodexModels } from './codex-model-cache'
 import { createPromptWakeGate, type PromptWakeGate } from './prompt-wake-gate'
+import { AGENT_CHANNELS } from '../shared/ipc-channels'
 
 interface PendingApproval {
   resolve(response: RequestPermissionResponse): void
@@ -922,7 +923,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       // Subscriber #1: the creating renderer, receiving the same fanned-out stream any other
       // client would. Retired with the session by `stop`'s broker.close.
       broker.subscribe(request.id, (event) => {
-        if (!owner.isDestroyed()) owner.send('agent:event', { id: request.id, event })
+        if (!owner.isDestroyed()) owner.send(AGENT_CHANNELS.event, { id: request.id, event })
       })
 
       const agentEnvironment = agentProcessEnvironment(environment, request.id)

@@ -29,8 +29,10 @@ any other client would.
 [`src/main/index.ts`](../src/main/index.ts) is the composition root. It creates the
 main-process modules, registers IPC handlers, owns the `BrowserWindow`, and shuts down
 owned processes. [`src/preload/index.ts`](../src/preload/index.ts) translates those IPC
-channels into the small `window.*Api` interfaces declared by
-[`src/preload/index.d.ts`](../src/preload/index.d.ts). The renderer starts at
+channels into the small `window.*Api` interfaces. Each interface is a shared contract in
+`src/shared` that the preload object is typed against, every channel name comes from
+[`src/shared/ipc-channels.ts`](../src/shared/ipc-channels.ts), and
+[`src/preload/index.d.ts`](../src/preload/index.d.ts) only augments `Window`. The renderer starts at
 [`src/renderer/src/main.tsx`](../src/renderer/src/main.tsx), with
 [`App.tsx`](../src/renderer/src/App.tsx) owning workspace-level orchestration.
 
@@ -146,9 +148,11 @@ shared code. They are compilation partitions, not permission to bypass the rules
   install and ACP probe; the renderer uses only the shared adapter-management IPC contract.
   See [adapter management](adapter-management.md) for storage, rollback and compatibility limits.
 
-- **Preload interfaces** are the privilege seam. A transport change should be possible
-  behind `window.terminalApi`, `window.agentApi`, `window.usageApi`,
-  `window.worktreeApi`, and `window.conversationApi` without changing canvas behavior.
+- **Preload interfaces** are the privilege seam. Each `window.*Api` contract lives in
+  `src/shared` and preload implements it, so the seam has one copy of every signature. A
+  transport change should be possible behind `window.terminalApi`, `window.agentApi`,
+  `window.usageApi`, `window.worktreeApi`, and `window.conversationApi` without changing
+  canvas behavior.
 - **WorkspaceStore**, **TerminalManager**, **AcpSessionManager**, **WorktreeManager**, and
   **ConversationHistory** are deep modules: each concentrates filesystem, subprocess,
   protocol, recovery, or lifecycle complexity behind a small interface used by the

@@ -7,6 +7,7 @@ import { sendTerminalEvent, type TerminalEventOwner } from './terminal-events'
 import { errorMessage } from '../shared/text'
 import type { TerminalScrollbackStore } from './terminal-scrollback-store'
 import type { TerminalLivenessStore } from './terminal-liveness-store'
+import { TERMINAL_CHANNELS } from '../shared/ipc-channels'
 
 export interface TerminalProcess {
   onData(listener: (data: string) => void): unknown
@@ -128,7 +129,7 @@ export function createTerminalManager(options: TerminalManagerOptions): Terminal
             options.scrollback?.append(sessionId, incarnationId, data)
           }
           if (terminals.get(sessionId) === running && running.owner) {
-            sendTerminalEvent(running.owner, 'terminal:data', {
+            sendTerminalEvent(running.owner, TERMINAL_CHANNELS.data, {
               sessionId,
               incarnationId,
               attachmentId: running.attachmentId,
@@ -143,7 +144,7 @@ export function createTerminalManager(options: TerminalManagerOptions): Terminal
           if (lastStates.get(sessionId)?.incarnationId !== incarnationId) return
           remember(sessionId, incarnationId, 'exited')
           if (running.owner)
-            sendTerminalEvent(running.owner, 'terminal:exit', {
+            sendTerminalEvent(running.owner, TERMINAL_CHANNELS.exit, {
               sessionId,
               incarnationId,
               attachmentId: running.attachmentId,

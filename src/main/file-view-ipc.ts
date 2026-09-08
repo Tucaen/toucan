@@ -1,9 +1,7 @@
 import type { FileReadResult, FileWriteRequest, FileWriteResult } from '../shared/file-view'
+import { FILE_VIEW_CHANNELS } from '../shared/ipc-channels'
+import type { IpcRegistrar } from './ipc-registrar'
 import type { FileView, FileViewOwner } from './file-view'
-
-interface FileViewIpcRegistrar {
-  handle(channel: string, listener: (event: { sender: FileViewOwner }, ...args: unknown[]) => unknown): void
-}
 
 const NO_PATH: FileReadResult = { ok: false, reason: 'unreadable', message: 'A file path is required.' }
 const BAD_WRITE: FileWriteResult = {
@@ -23,18 +21,18 @@ function isWriteRequest(value: unknown): value is FileWriteRequest {
  * view behind it only ever sees a path string; whether that path may be read is the view's own
  * decision. Electron-free, like `ticket-ipc.ts`, so the wiring is testable without a window.
  */
-export function registerFileViewIpc(ipc: FileViewIpcRegistrar, view: FileView): void {
-  ipc.handle('file-view:read', (_event, path: unknown) =>
+export function registerFileViewIpc(ipc: IpcRegistrar<FileViewOwner>, view: FileView): void {
+  ipc.handle(FILE_VIEW_CHANNELS.read, (_event, path: unknown) =>
     typeof path === 'string' && path ? view.read(path) : NO_PATH
   )
-  ipc.handle('file-view:write', (_event, request: unknown) =>
+  ipc.handle(FILE_VIEW_CHANNELS.write, (_event, request: unknown) =>
     isWriteRequest(request) ? view.write(request) : BAD_WRITE
   )
-  ipc.handle('file-view:watch', (event, path: unknown) => {
+  ipc.handle(FILE_VIEW_CHANNELS.watch, (event, path: unknown) => {
     if (typeof path === 'string' && path) return view.watch(path, event.sender)
     return undefined
   })
-  ipc.handle('file-view:unwatch', (event, path: unknown) => {
+  ipc.handle(FILE_VIEW_CHANNELS.unwatch, (event, path: unknown) => {
     if (typeof path === 'string' && path) return view.unwatch(path, event.sender)
     return undefined
   })

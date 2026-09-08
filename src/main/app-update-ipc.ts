@@ -2,6 +2,7 @@ import type { WebContents } from 'electron'
 import type { AppUpdateSnapshot } from '../shared/app-update'
 import type { AppUpdater } from './app-update'
 import type { IpcRegistrar } from './ipc-registrar'
+import { APP_UPDATE_CHANNELS } from '../shared/ipc-channels'
 
 /**
  * The update seam, seen from the renderer: ask for the snapshot, ask for a check, ask to restart.
@@ -9,9 +10,9 @@ import type { IpcRegistrar } from './ipc-registrar'
  * cannot restart into one that does not.
  */
 export function registerAppUpdateIpc(ipc: IpcRegistrar, updater: AppUpdater): void {
-  ipc.handle('app-update:state', () => updater.snapshot())
-  ipc.handle('app-update:check', () => updater.check())
-  ipc.handle('app-update:restart', () => updater.quitAndInstall())
+  ipc.handle(APP_UPDATE_CHANNELS.state, () => updater.snapshot())
+  ipc.handle(APP_UPDATE_CHANNELS.check, () => updater.check())
+  ipc.handle(APP_UPDATE_CHANNELS.restart, () => updater.quitAndInstall())
 }
 
 /**
@@ -20,6 +21,6 @@ export function registerAppUpdateIpc(ipc: IpcRegistrar, updater: AppUpdater): vo
  */
 export function forwardAppUpdateChanges(updater: AppUpdater, contents: WebContents): () => void {
   return updater.onChange((snapshot: AppUpdateSnapshot) => {
-    if (!contents.isDestroyed()) contents.send('app-update:changed', snapshot)
+    if (!contents.isDestroyed()) contents.send(APP_UPDATE_CHANNELS.changed, snapshot)
   })
 }

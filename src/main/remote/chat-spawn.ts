@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { REMOTE_CHANNELS } from '../../shared/ipc-channels'
 import type { RemoteChatSpawnRequest, RemoteChatSpawnResult } from '../../shared/remote-spawn'
 
 /**
@@ -44,10 +45,6 @@ export interface RemoteChatSpawnerOptions {
   /** Injectable so tests do not wait in real time. */
   schedule?: (run: () => void, delayMs: number) => { cancel(): void }
 }
-
-/** The channel main asks a spawn on. The renderer answers on `remote:spawn-chat-result`. */
-export const SPAWN_CHAT_CHANNEL = 'remote:spawn-chat'
-export const SPAWN_CHAT_RESULT_CHANNEL = 'remote:spawn-chat-result'
 
 const DEFAULT_TIMEOUT_MS = 45_000
 
@@ -111,7 +108,7 @@ export function createRemoteChatSpawner(options: RemoteChatSpawnerOptions = {}):
             resolve(result)
           }
         })
-        window.send(SPAWN_CHAT_CHANNEL, requestId, request)
+        window.send(REMOTE_CHANNELS.spawnChat, requestId, request)
       })
     },
     attach(window): () => void {

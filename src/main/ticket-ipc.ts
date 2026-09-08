@@ -3,6 +3,7 @@ import { errorMessage } from '../shared/text'
 import type { IpcRegistrar } from './ipc-registrar'
 import type { TicketLibrary } from './ticket-library'
 import type { TicketChangeOwner, TicketChangeWatcher } from './ticket-watcher'
+import { TICKET_CHANNELS } from '../shared/ipc-channels'
 
 /**
  * Everything the ticket channels are wired to. `reveal` and `isGitRepository` are injected rather
@@ -24,7 +25,7 @@ export interface TicketIpcDependencies {
 export function registerTicketIpc(ipc: IpcRegistrar<TicketChangeOwner>, deps: TicketIpcDependencies): void {
   const { library, changes, reveal, isGitRepository } = deps
 
-  ipc.handle('tickets:list', async (event, projectPath: unknown) => {
+  ipc.handle(TICKET_CHANNELS.list, async (event, projectPath: unknown) => {
     if (typeof projectPath !== 'string' || !projectPath) return EMPTY_TICKET_LISTING
     changes.subscribe(event.sender)
     void changes.watchProject(projectPath)
@@ -39,13 +40,13 @@ export function registerTicketIpc(ipc: IpcRegistrar<TicketChangeOwner>, deps: Ti
     }
   })
 
-  ipc.handle('tickets:set-status', (_event, projectPath: unknown, slug: unknown, status: unknown) =>
+  ipc.handle(TICKET_CHANNELS.setStatus, (_event, projectPath: unknown, slug: unknown, status: unknown) =>
     typeof projectPath === 'string' && typeof slug === 'string' && typeof status === 'string'
       ? library.setStatus(projectPath, slug, status)
       : { ok: false, code: 'invalid-request', message: 'Project, ticket and status are required.' }
   )
 
-  ipc.handle('tickets:remove', (_event, projectPath: unknown, slug: unknown) =>
+  ipc.handle(TICKET_CHANNELS.remove, (_event, projectPath: unknown, slug: unknown) =>
     typeof projectPath === 'string' && projectPath && typeof slug === 'string'
       ? library.remove(projectPath, slug)
       : { ok: false, code: 'invalid-request', message: 'Project and ticket are required.' }
@@ -53,11 +54,11 @@ export function registerTicketIpc(ipc: IpcRegistrar<TicketChangeOwner>, deps: Ti
 
   // The cautious answer for anything that cannot be probed: a confirmation must never promise that
   // history keeps a file it has no evidence is in a repository at all.
-  ipc.handle('tickets:is-git-repository', async (_event, projectPath: unknown) =>
+  ipc.handle(TICKET_CHANNELS.isGitRepository, async (_event, projectPath: unknown) =>
     typeof projectPath === 'string' && projectPath ? isGitRepository(projectPath).catch(() => false) : false
   )
 
-  ipc.handle('tickets:reveal', async (_event, projectPath: unknown, slug: unknown) => {
+  ipc.handle(TICKET_CHANNELS.reveal, async (_event, projectPath: unknown, slug: unknown) => {
     if (typeof projectPath !== 'string' || typeof slug !== 'string') return
     const path = await library.pathFor(projectPath, slug)
     if (path) reveal(path)

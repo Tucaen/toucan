@@ -1,4 +1,4 @@
-import type { ConversationTitleSource } from './conversation-title'
+import type { ConversationTitle, ConversationTitleSource } from './conversation-title'
 
 export type ConversationProvider = 'claude' | 'codex'
 
@@ -36,4 +36,20 @@ export interface ConversationListPage {
   /** Candidate transcripts matching the request, including the ones this page did not read. */
   total: number
   hasMore: boolean
+}
+
+/** What an unanswerable listing request gets: a page shaped like every other, holding nothing. */
+export const EMPTY_CONVERSATION_PAGE: ConversationListPage = { entries: [], total: 0, hasMore: false }
+
+export interface ConversationApi {
+  /** Past conversations for the given directories, newest first and read one page at a time. */
+  list(request: ConversationListRequest): Promise<ConversationListPage>
+  /** Whether a listed transcript is still on disk. */
+  exists(path: string): Promise<boolean>
+  setTitle(
+    provider: ConversationProvider,
+    conversationId: string,
+    title: string,
+    source: ConversationTitleSource
+  ): Promise<ConversationTitle | null>
 }

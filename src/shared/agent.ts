@@ -311,3 +311,30 @@ export interface AgentEventEnvelope {
   id: string
   event: AgentEvent
 }
+
+/** The agent capability, seen from the renderer. Preload implements it; main answers it. */
+export interface AgentApi {
+  create(request: AgentCreateRequest): Promise<AgentCreateResult>
+  prompt(id: string, content: AgentPromptContent): Promise<AgentPromptResult>
+  promptWhenIdle(id: string, content: AgentPromptContent): Promise<AgentPromptResult>
+  setMode(id: string, modeId: string): Promise<AgentPromptResult>
+  setModel(id: string, modelId: string): Promise<AgentPromptResult>
+  setEffort(id: string, effortId: string): Promise<AgentPromptResult>
+  authenticate(id: string, methodId: string): Promise<AgentCreateResult>
+  submitAuthCode(id: string, code: string): Promise<AgentPromptResult>
+  openAuthLink(url: string): Promise<void>
+  resolveApproval(id: string, approvalId: string, optionId?: string): void
+  resolveElicitation(id: string, requestId: string, content?: AgentDecisionResponseContent): void
+  cancel(id: string): void
+  kill(id: string): void
+  onEvent(id: string, callback: (event: AgentEvent) => void): () => void
+}
+
+export interface UsageApi {
+  /**
+   * Account-wide plan usage windows per provider; omits a provider with nothing to report. Reads
+   * are served from the host's cache unless `force` is set, which is what a user-initiated
+   * refresh passes.
+   */
+  rateLimits(options?: { force?: boolean }): Promise<ProviderRateLimits>
+}

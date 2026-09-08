@@ -4,6 +4,7 @@
     "composite": false,
     "types": ["node", "vite/client"]
   },
+  "files": ["src/preload/index.d.ts"],
   "include": [
     "electron.vite.config.ts",
     "vitest.config.ts",

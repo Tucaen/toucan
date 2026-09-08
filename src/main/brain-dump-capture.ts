@@ -7,6 +7,7 @@ import type {
   AgentPromptContent,
   AgentPromptResult
 } from '../shared/agent'
+import { AGENT_CHANNELS, BRAIN_DUMP_CHANNELS } from '../shared/ipc-channels'
 import type {
   BrainDumpCaptureConversation,
   BrainDumpCaptureFailureCode,
@@ -100,7 +101,7 @@ export function createBrainDumpCaptureManager(options: BrainDumpCaptureManagerOp
   const setState = (next: BrainDumpCaptureState): void => {
     state = next
     options.publish?.(next)
-    for (const owner of owners) if (!owner.isDestroyed()) owner.send('brain-dump:capture-event', next)
+    for (const owner of owners) if (!owner.isDestroyed()) owner.send(BRAIN_DUMP_CHANNELS.captureEvent, next)
   }
 
   const clearFinalAnswerTimer = (): void => {
@@ -126,7 +127,7 @@ export function createBrainDumpCaptureManager(options: BrainDumpCaptureManagerOp
     isDestroyed: () => false,
     send: (channel, value) => {
       const envelope = value as { id?: string; event?: AgentEvent }
-      if (channel !== 'agent:event' || envelope.id !== activeId || !envelope.event) return
+      if (channel !== AGENT_CHANNELS.event || envelope.id !== activeId || !envelope.event) return
       const event = envelope.event as AgentEvent
       if (event.type === 'session' && conversation) conversation = { ...conversation, conversationId: event.sessionId }
       if (event.type === 'approval' && state?.status === 'working') {

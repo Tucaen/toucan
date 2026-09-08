@@ -1,288 +1,217 @@
 import { clipboard, contextBridge, ipcRenderer } from 'electron'
-import type {
-  AgentCreateRequest,
-  AgentDecisionResponseContent,
-  AgentCreateResult,
-  AgentEventEnvelope,
-  AgentPromptContent,
-  AgentPromptResult,
-  ProviderRateLimits
-} from '../shared/agent'
-import type {
-  ConversationPreview,
-  ProjectDirectory,
-  TerminalCreateRequest,
-  TerminalCreateResult,
-  TerminalExit,
-  TerminalOutput,
-  TerminalScrollbackSnapshot,
-  WorkspaceLoadResult,
-  WorkspaceSaveResult,
-  WorkspaceState
-} from '../shared/terminal'
-import type {
-  WorktreeCreateRequest,
-  WorktreeCreateResult,
-  WorktreeDiscoverRequest,
-  WorktreeDiscoverResult,
-  WorktreeRemoveRequest,
-  WorktreeRemoveResult,
-  WorktreeStatus
-} from '../shared/worktree'
-import type { GitDiffRequest, GitDiffSummary, GitFileDiff, GitFileDiffRequest } from '../shared/git-diff'
-import type { ConversationListPage, ConversationListRequest } from '../shared/conversation'
-import type { WorkspaceFileIndex } from '../shared/workspace-files'
-import type { RemoteAccessSettings, RemoteAccessState, RemoteWorkspaceProjection } from '../shared/remote-access'
-import type { RemoteChatSpawnRequest, RemoteChatSpawnResult } from '../shared/remote-spawn'
-import type { ConversationTitleSource } from '../shared/conversation-title'
-import type {
-  BrainDumpApi,
-  BrainDumpCaptureRequest,
-  BrainDumpCaptureState,
-  BrainDumpCollection,
-  BrainDumpOutcome
-} from '../shared/brain-dump'
+import type { AgentApi, AgentEventEnvelope, UsageApi } from '../shared/agent'
+import type { TerminalApi, TerminalExit, TerminalOutput } from '../shared/terminal'
+import type { WorktreeApi } from '../shared/worktree'
+import type { ConversationApi } from '../shared/conversation'
+import type { WorkspaceFilesApi } from '../shared/workspace-files'
+import type { RemoteAccessState } from '../shared/remote-access'
+import type { RemoteApi } from '../shared/remote-api'
+import type { RemoteChatSpawnRequest } from '../shared/remote-spawn'
+import type { BrainDumpApi, BrainDumpCaptureState, BrainDumpCollection } from '../shared/brain-dump'
 import type { TicketFilesApi, TicketGithubApi } from '../shared/ticket-source'
-import type { FileViewApi, FileWriteRequest } from '../shared/file-view'
+import type { FileViewApi } from '../shared/file-view'
 import type { AppUpdateApi, AppUpdateSnapshot } from '../shared/app-update'
 import type { VoiceModelApi, VoiceModelStatus } from '../shared/voice-model'
 import type { AdapterManagementApi, AdapterSnapshot } from '../shared/adapter-management'
+import {
+  ADAPTER_CHANNELS,
+  AGENT_CHANNELS,
+  APP_UPDATE_CHANNELS,
+  BRAIN_DUMP_CHANNELS,
+  CONVERSATION_CHANNELS,
+  FILE_VIEW_CHANNELS,
+  GITHUB_ISSUES_CHANNELS,
+  PROJECT_CHANNELS,
+  REMOTE_CHANNELS,
+  SHELL_CHANNELS,
+  TERMINAL_CHANNELS,
+  TICKET_CHANNELS,
+  USAGE_CHANNELS,
+  VOICE_MODEL_CHANNELS,
+  WORKSPACE_CHANNELS,
+  WORKTREE_CHANNELS
+} from '../shared/ipc-channels'
+
+/**
+ * One `ipcRenderer.on` subscription behind a disposer, so every `on*` member reads the same way
+ * and none can forget to remove its listener.
+ */
+function subscribe<Args extends unknown[]>(channel: string, listener: (...args: Args) => void): () => void {
+  const wrapped = (_event: Electron.IpcRendererEvent, ...args: Args): void => listener(...args)
+  ipcRenderer.on(channel, wrapped as (event: Electron.IpcRendererEvent, ...args: unknown[]) => void)
+  return () => {
+    ipcRenderer.removeListener(channel, wrapped as (event: Electron.IpcRendererEvent, ...args: unknown[]) => void)
+  }
+}
 
 const adapterManagementApi: AdapterManagementApi = {
-  state: () => ipcRenderer.invoke('adapters:state'),
-  check: (provider) => ipcRenderer.invoke('adapters:check', provider),
-  select: (provider, version) => ipcRenderer.invoke('adapters:select', provider, version),
-  onChange: (callback) => {
-    const listener = (_event: Electron.IpcRendererEvent, snapshot: AdapterSnapshot): void => callback(snapshot)
-    ipcRenderer.on('adapters:changed', listener)
-    return () => {
-      ipcRenderer.removeListener('adapters:changed', listener)
-    }
-  }
+  state: () => ipcRenderer.invoke(ADAPTER_CHANNELS.state),
+  check: (provider) => ipcRenderer.invoke(ADAPTER_CHANNELS.check, provider),
+  select: (provider, version) => ipcRenderer.invoke(ADAPTER_CHANNELS.select, provider, version),
+  onChange: (callback) => subscribe(ADAPTER_CHANNELS.changed, (snapshot: AdapterSnapshot) => callback(snapshot))
 }
 contextBridge.exposeInMainWorld('adapterManagementApi', adapterManagementApi)
 
-const terminalApi = {
-  getInitialProject: (): Promise<ProjectDirectory> => ipcRenderer.invoke('project:initial'),
-  pickProject: (): Promise<ProjectDirectory | null> => ipcRenderer.invoke('project:pick'),
-  loadWorkspace: (): Promise<WorkspaceLoadResult> => ipcRenderer.invoke('workspace:load'),
-  saveWorkspace: (state: WorkspaceState): Promise<WorkspaceSaveResult> => ipcRenderer.invoke('workspace:save', state),
-  getConversationPreview: (kind: 'claude' | 'codex', conversationId: string): Promise<ConversationPreview | null> =>
-    ipcRenderer.invoke('terminal:preview', kind, conversationId),
-  create: (request: TerminalCreateRequest): Promise<TerminalCreateResult> =>
-    ipcRenderer.invoke('terminal:create', request),
-  write: (sessionId: string, incarnationId: string, data: string): void =>
-    ipcRenderer.send('terminal:write', sessionId, incarnationId, data),
-  resize: (sessionId: string, incarnationId: string, cols: number, rows: number): void =>
-    ipcRenderer.send('terminal:resize', sessionId, incarnationId, cols, rows),
-  kill: (sessionId: string, incarnationId: string, attachmentId: string): void =>
-    ipcRenderer.send('terminal:kill', sessionId, incarnationId, attachmentId),
-  scrollback: (sessionId: string): Promise<TerminalScrollbackSnapshot | null> =>
-    ipcRenderer.invoke('terminal:scrollback', sessionId),
-  removeScrollback: (sessionId: string): Promise<boolean> =>
-    ipcRenderer.invoke('terminal:scrollback-remove', sessionId),
-  copyText: (text: string): void => clipboard.writeText(text),
-  openExternal: (url: string): Promise<void> => ipcRenderer.invoke('shell:open-external', url),
-  showItemInFolder: (path: string): Promise<void> => ipcRenderer.invoke('shell:show-item-in-folder', path),
-  readClipboardText: (): string => clipboard.readText(),
-  onData: (sessionId: string, attachmentId: string, callback: (output: TerminalOutput) => void): (() => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, output: TerminalOutput): void => {
+const terminalApi: TerminalApi = {
+  getInitialProject: () => ipcRenderer.invoke(PROJECT_CHANNELS.initial),
+  pickProject: () => ipcRenderer.invoke(PROJECT_CHANNELS.pick),
+  loadWorkspace: () => ipcRenderer.invoke(WORKSPACE_CHANNELS.load),
+  saveWorkspace: (state) => ipcRenderer.invoke(WORKSPACE_CHANNELS.save, state),
+  getConversationPreview: (kind, conversationId) => ipcRenderer.invoke(TERMINAL_CHANNELS.preview, kind, conversationId),
+  create: (request) => ipcRenderer.invoke(TERMINAL_CHANNELS.create, request),
+  write: (sessionId, incarnationId, data) => ipcRenderer.send(TERMINAL_CHANNELS.write, sessionId, incarnationId, data),
+  resize: (sessionId, incarnationId, cols, rows) =>
+    ipcRenderer.send(TERMINAL_CHANNELS.resize, sessionId, incarnationId, cols, rows),
+  kill: (sessionId, incarnationId, attachmentId) =>
+    ipcRenderer.send(TERMINAL_CHANNELS.kill, sessionId, incarnationId, attachmentId),
+  scrollback: (sessionId) => ipcRenderer.invoke(TERMINAL_CHANNELS.scrollback, sessionId),
+  removeScrollback: (sessionId) => ipcRenderer.invoke(TERMINAL_CHANNELS.scrollbackRemove, sessionId),
+  copyText: (text) => clipboard.writeText(text),
+  openExternal: (url) => ipcRenderer.invoke(SHELL_CHANNELS.openExternal, url),
+  showItemInFolder: (path) => ipcRenderer.invoke(SHELL_CHANNELS.showItemInFolder, path),
+  readClipboardText: () => clipboard.readText(),
+  onData: (sessionId, attachmentId, callback) =>
+    subscribe(TERMINAL_CHANNELS.data, (output: TerminalOutput) => {
       if (output.sessionId === sessionId && output.attachmentId === attachmentId) callback(output)
-    }
-    ipcRenderer.on('terminal:data', listener)
-    return () => ipcRenderer.removeListener('terminal:data', listener)
-  },
-  onExit: (sessionId: string, attachmentId: string, callback: (result: TerminalExit) => void): (() => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, result: TerminalExit): void => {
+    }),
+  onExit: (sessionId, attachmentId, callback) =>
+    subscribe(TERMINAL_CHANNELS.exit, (result: TerminalExit) => {
       if (result.sessionId === sessionId && result.attachmentId === attachmentId) callback(result)
-    }
-    ipcRenderer.on('terminal:exit', listener)
-    return () => ipcRenderer.removeListener('terminal:exit', listener)
-  }
+    })
 }
 
 contextBridge.exposeInMainWorld('terminalApi', terminalApi)
 
-const agentApi = {
-  create: (request: AgentCreateRequest): Promise<AgentCreateResult> => ipcRenderer.invoke('agent:create', request),
-  prompt: (id: string, content: AgentPromptContent): Promise<AgentPromptResult> =>
-    ipcRenderer.invoke('agent:prompt', id, content),
-  promptWhenIdle: (id: string, content: AgentPromptContent): Promise<AgentPromptResult> =>
-    ipcRenderer.invoke('agent:prompt-when-idle', id, content),
-  setMode: (id: string, modeId: string): Promise<AgentPromptResult> => ipcRenderer.invoke('agent:set-mode', id, modeId),
-  setModel: (id: string, modelId: string): Promise<AgentPromptResult> =>
-    ipcRenderer.invoke('agent:set-model', id, modelId),
-  setEffort: (id: string, effortId: string): Promise<AgentPromptResult> =>
-    ipcRenderer.invoke('agent:set-effort', id, effortId),
-  authenticate: (id: string, methodId: string): Promise<AgentCreateResult> =>
-    ipcRenderer.invoke('agent:authenticate', id, methodId),
-  submitAuthCode: (id: string, code: string): Promise<AgentPromptResult> =>
-    ipcRenderer.invoke('agent:submit-auth-code', id, code),
-  openAuthLink: (url: string): Promise<void> => ipcRenderer.invoke('agent:open-auth-link', url),
-  resolveApproval: (id: string, approvalId: string, optionId?: string): void =>
-    ipcRenderer.send('agent:approval', id, approvalId, optionId),
-  resolveElicitation: (id: string, requestId: string, content?: AgentDecisionResponseContent): void =>
-    ipcRenderer.send('agent:elicitation', id, requestId, content),
-  cancel: (id: string): void => ipcRenderer.send('agent:cancel', id),
-  kill: (id: string): void => ipcRenderer.send('agent:kill', id),
-  onEvent: (id: string, callback: (event: AgentEventEnvelope['event']) => void): (() => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, envelope: AgentEventEnvelope): void => {
+const agentApi: AgentApi = {
+  create: (request) => ipcRenderer.invoke(AGENT_CHANNELS.create, request),
+  prompt: (id, content) => ipcRenderer.invoke(AGENT_CHANNELS.prompt, id, content),
+  promptWhenIdle: (id, content) => ipcRenderer.invoke(AGENT_CHANNELS.promptWhenIdle, id, content),
+  setMode: (id, modeId) => ipcRenderer.invoke(AGENT_CHANNELS.setMode, id, modeId),
+  setModel: (id, modelId) => ipcRenderer.invoke(AGENT_CHANNELS.setModel, id, modelId),
+  setEffort: (id, effortId) => ipcRenderer.invoke(AGENT_CHANNELS.setEffort, id, effortId),
+  authenticate: (id, methodId) => ipcRenderer.invoke(AGENT_CHANNELS.authenticate, id, methodId),
+  submitAuthCode: (id, code) => ipcRenderer.invoke(AGENT_CHANNELS.submitAuthCode, id, code),
+  openAuthLink: (url) => ipcRenderer.invoke(AGENT_CHANNELS.openAuthLink, url),
+  resolveApproval: (id, approvalId, optionId) => ipcRenderer.send(AGENT_CHANNELS.approval, id, approvalId, optionId),
+  resolveElicitation: (id, requestId, content) => ipcRenderer.send(AGENT_CHANNELS.elicitation, id, requestId, content),
+  cancel: (id) => ipcRenderer.send(AGENT_CHANNELS.cancel, id),
+  kill: (id) => ipcRenderer.send(AGENT_CHANNELS.kill, id),
+  onEvent: (id, callback) =>
+    subscribe(AGENT_CHANNELS.event, (envelope: AgentEventEnvelope) => {
       if (envelope.id === id) callback(envelope.event)
-    }
-    ipcRenderer.on('agent:event', listener)
-    return () => ipcRenderer.removeListener('agent:event', listener)
-  }
+    })
 }
 
 contextBridge.exposeInMainWorld('agentApi', agentApi)
 
-const workspaceFilesApi = {
-  index: (root: string): Promise<WorkspaceFileIndex> => ipcRenderer.invoke('workspace:file-index', root)
+const workspaceFilesApi: WorkspaceFilesApi = {
+  index: (root) => ipcRenderer.invoke(WORKSPACE_CHANNELS.fileIndex, root)
 }
 
 contextBridge.exposeInMainWorld('workspaceFilesApi', workspaceFilesApi)
 
-const usageApi = {
-  rateLimits: (options?: { force?: boolean }): Promise<ProviderRateLimits> =>
-    ipcRenderer.invoke('usage:rate-limits', options)
+const usageApi: UsageApi = {
+  rateLimits: (options) => ipcRenderer.invoke(USAGE_CHANNELS.rateLimits, options)
 }
 
 contextBridge.exposeInMainWorld('usageApi', usageApi)
 
-const worktreeApi = {
-  create: (request: WorktreeCreateRequest): Promise<WorktreeCreateResult> =>
-    ipcRenderer.invoke('worktree:create', request),
-  status: (request: { path: string; branch: string; baseRef: string }): Promise<WorktreeStatus> =>
-    ipcRenderer.invoke('worktree:status', request),
-  remove: (request: WorktreeRemoveRequest): Promise<WorktreeRemoveResult> =>
-    ipcRenderer.invoke('worktree:remove', request),
-  discover: (request: WorktreeDiscoverRequest): Promise<WorktreeDiscoverResult> =>
-    ipcRenderer.invoke('worktree:discover', request),
-  diff: (request: GitDiffRequest): Promise<GitDiffSummary> => ipcRenderer.invoke('worktree:diff', request),
-  diffFile: (request: GitFileDiffRequest): Promise<GitFileDiff> => ipcRenderer.invoke('worktree:diff-file', request)
+const worktreeApi: WorktreeApi = {
+  create: (request) => ipcRenderer.invoke(WORKTREE_CHANNELS.create, request),
+  status: (request) => ipcRenderer.invoke(WORKTREE_CHANNELS.status, request),
+  remove: (request) => ipcRenderer.invoke(WORKTREE_CHANNELS.remove, request),
+  discover: (request) => ipcRenderer.invoke(WORKTREE_CHANNELS.discover, request),
+  diff: (request) => ipcRenderer.invoke(WORKTREE_CHANNELS.diff, request),
+  diffFile: (request) => ipcRenderer.invoke(WORKTREE_CHANNELS.diffFile, request)
 }
 
 contextBridge.exposeInMainWorld('worktreeApi', worktreeApi)
 
-const conversationApi = {
-  list: (request: ConversationListRequest): Promise<ConversationListPage> =>
-    ipcRenderer.invoke('conversation:list', request),
-  exists: (path: string): Promise<boolean> => ipcRenderer.invoke('conversation:exists', path),
-  setTitle: (provider: 'claude' | 'codex', conversationId: string, title: string, source: ConversationTitleSource) =>
-    ipcRenderer.invoke('conversation:set-title', provider, conversationId, title, source)
+const conversationApi: ConversationApi = {
+  list: (request) => ipcRenderer.invoke(CONVERSATION_CHANNELS.list, request),
+  exists: (path) => ipcRenderer.invoke(CONVERSATION_CHANNELS.exists, path),
+  setTitle: (provider, conversationId, title, source) =>
+    ipcRenderer.invoke(CONVERSATION_CHANNELS.setTitle, provider, conversationId, title, source)
 }
 
 contextBridge.exposeInMainWorld('conversationApi', conversationApi)
 
-const remoteApi = {
-  state: (): Promise<RemoteAccessState> => ipcRenderer.invoke('remote:state'),
-  applySettings: (settings: RemoteAccessSettings): Promise<RemoteAccessState> =>
-    ipcRenderer.invoke('remote:apply-settings', settings),
-  regenerateToken: (): Promise<RemoteAccessState> => ipcRenderer.invoke('remote:regenerate-token'),
-  publishWorkspace: (projection: RemoteWorkspaceProjection): void =>
-    ipcRenderer.send('remote:publish-workspace', projection),
-  onStateChange: (callback: (state: RemoteAccessState) => void): (() => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, state: RemoteAccessState): void => callback(state)
-    ipcRenderer.on('remote:state-changed', listener)
-    return () => ipcRenderer.removeListener('remote:state-changed', listener)
-  },
-  onSpawnChat: (callback: (requestId: string, request: RemoteChatSpawnRequest) => void): (() => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, requestId: string, request: RemoteChatSpawnRequest): void =>
+const remoteApi: RemoteApi = {
+  state: () => ipcRenderer.invoke(REMOTE_CHANNELS.state),
+  applySettings: (settings) => ipcRenderer.invoke(REMOTE_CHANNELS.applySettings, settings),
+  regenerateToken: () => ipcRenderer.invoke(REMOTE_CHANNELS.regenerateToken),
+  publishWorkspace: (projection) => ipcRenderer.send(REMOTE_CHANNELS.publishWorkspace, projection),
+  onStateChange: (callback) => subscribe(REMOTE_CHANNELS.stateChanged, (state: RemoteAccessState) => callback(state)),
+  onSpawnChat: (callback) =>
+    subscribe(REMOTE_CHANNELS.spawnChat, (requestId: string, request: RemoteChatSpawnRequest) =>
       callback(requestId, request)
-    ipcRenderer.on('remote:spawn-chat', listener)
-    return () => ipcRenderer.removeListener('remote:spawn-chat', listener)
-  },
-  completeSpawn: (requestId: string, result: RemoteChatSpawnResult): void =>
-    ipcRenderer.send('remote:spawn-chat-result', requestId, result)
+    ),
+  completeSpawn: (requestId, result) => ipcRenderer.send(REMOTE_CHANNELS.spawnChatResult, requestId, result)
 }
 
 contextBridge.exposeInMainWorld('remoteApi', remoteApi)
 
 const brainDumpApi: BrainDumpApi = {
-  list: (collection: BrainDumpCollection) => ipcRenderer.invoke('brain-dump:list', collection),
-  resolve: (slug: string) => ipcRenderer.invoke('brain-dump:resolve', slug),
-  archive: (slug: string, outcome: BrainDumpOutcome) => ipcRenderer.invoke('brain-dump:archive', slug, outcome),
-  assignProject: (slug: string, projectPath: string | undefined) =>
-    ipcRenderer.invoke('brain-dump:assign-project', slug, projectPath),
-  startCapture: (request: BrainDumpCaptureRequest) => ipcRenderer.invoke('brain-dump:capture-start', request),
-  currentCapture: () => ipcRenderer.invoke('brain-dump:capture-current'),
-  resolveCaptureApproval: (jobId: string, approvalId: string, optionId?: string) =>
-    ipcRenderer.invoke('brain-dump:capture-approval', jobId, approvalId, optionId),
-  cancelCapture: (jobId: string) => ipcRenderer.invoke('brain-dump:capture-cancel', jobId),
-  onCapture: (callback: (state: BrainDumpCaptureState) => void): (() => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, state: BrainDumpCaptureState): void => callback(state)
-    ipcRenderer.on('brain-dump:capture-event', listener)
-    return () => ipcRenderer.removeListener('brain-dump:capture-event', listener)
-  },
-  onLibraryChange: (callback: (collection: BrainDumpCollection) => void): (() => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, collection: BrainDumpCollection): void => callback(collection)
-    ipcRenderer.on('brain-dump:library-change', listener)
-    return () => ipcRenderer.removeListener('brain-dump:library-change', listener)
-  }
+  list: (collection) => ipcRenderer.invoke(BRAIN_DUMP_CHANNELS.list, collection),
+  resolve: (slug) => ipcRenderer.invoke(BRAIN_DUMP_CHANNELS.resolve, slug),
+  archive: (slug, outcome) => ipcRenderer.invoke(BRAIN_DUMP_CHANNELS.archive, slug, outcome),
+  assignProject: (slug, projectPath) => ipcRenderer.invoke(BRAIN_DUMP_CHANNELS.assignProject, slug, projectPath),
+  startCapture: (request) => ipcRenderer.invoke(BRAIN_DUMP_CHANNELS.captureStart, request),
+  currentCapture: () => ipcRenderer.invoke(BRAIN_DUMP_CHANNELS.captureCurrent),
+  resolveCaptureApproval: (jobId, approvalId, optionId) =>
+    ipcRenderer.invoke(BRAIN_DUMP_CHANNELS.captureApproval, jobId, approvalId, optionId),
+  cancelCapture: (jobId) => ipcRenderer.invoke(BRAIN_DUMP_CHANNELS.captureCancel, jobId),
+  onCapture: (callback) =>
+    subscribe(BRAIN_DUMP_CHANNELS.captureEvent, (state: BrainDumpCaptureState) => callback(state)),
+  onLibraryChange: (callback) =>
+    subscribe(BRAIN_DUMP_CHANNELS.libraryChange, (collection: BrainDumpCollection) => callback(collection))
 }
 
 contextBridge.exposeInMainWorld('brainDumpApi', brainDumpApi)
 
 /** The files ticket source, seen from the renderer. Other sources reach the board differently. */
 const ticketsApi: TicketFilesApi = {
-  list: (projectPath: string) => ipcRenderer.invoke('tickets:list', projectPath),
-  setStatus: (projectPath: string, slug: string, status: string) =>
-    ipcRenderer.invoke('tickets:set-status', projectPath, slug, status),
-  remove: (projectPath: string, slug: string) => ipcRenderer.invoke('tickets:remove', projectPath, slug),
-  isGitRepository: (projectPath: string) => ipcRenderer.invoke('tickets:is-git-repository', projectPath),
-  revealInFolder: (projectPath: string, slug: string) => void ipcRenderer.invoke('tickets:reveal', projectPath, slug),
-  onChange: (callback: (projectPath: string) => void): (() => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, projectPath: string): void => callback(projectPath)
-    ipcRenderer.on('tickets:changed', listener)
-    return () => ipcRenderer.removeListener('tickets:changed', listener)
-  }
+  list: (projectPath) => ipcRenderer.invoke(TICKET_CHANNELS.list, projectPath),
+  setStatus: (projectPath, slug, status) => ipcRenderer.invoke(TICKET_CHANNELS.setStatus, projectPath, slug, status),
+  remove: (projectPath, slug) => ipcRenderer.invoke(TICKET_CHANNELS.remove, projectPath, slug),
+  isGitRepository: (projectPath) => ipcRenderer.invoke(TICKET_CHANNELS.isGitRepository, projectPath),
+  revealInFolder: (projectPath, slug) => void ipcRenderer.invoke(TICKET_CHANNELS.reveal, projectPath, slug),
+  onChange: (callback) => subscribe(TICKET_CHANNELS.changed, (projectPath: string) => callback(projectPath))
 }
 
 contextBridge.exposeInMainWorld('ticketsApi', ticketsApi)
 
 const githubIssuesApi: TicketGithubApi = {
-  availability: (projectPath: string) => ipcRenderer.invoke('github-issues:availability', projectPath),
-  list: (projectPath: string) => ipcRenderer.invoke('github-issues:list', projectPath)
+  availability: (projectPath) => ipcRenderer.invoke(GITHUB_ISSUES_CHANNELS.availability, projectPath),
+  list: (projectPath) => ipcRenderer.invoke(GITHUB_ISSUES_CHANNELS.list, projectPath)
 }
 
 contextBridge.exposeInMainWorld('githubIssuesApi', githubIssuesApi)
 
 /** One project file for the canvas's file node; main decides what is readable and writable. */
 const fileViewApi: FileViewApi = {
-  read: (path: string) => ipcRenderer.invoke('file-view:read', path),
-  write: (request: FileWriteRequest) => ipcRenderer.invoke('file-view:write', request),
-  watch: (path: string) => ipcRenderer.invoke('file-view:watch', path),
-  unwatch: (path: string) => ipcRenderer.invoke('file-view:unwatch', path),
-  onChange: (callback: (path: string) => void): (() => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, path: string): void => callback(path)
-    ipcRenderer.on('file-view:changed', listener)
-    return () => ipcRenderer.removeListener('file-view:changed', listener)
-  }
+  read: (path) => ipcRenderer.invoke(FILE_VIEW_CHANNELS.read, path),
+  write: (request) => ipcRenderer.invoke(FILE_VIEW_CHANNELS.write, request),
+  watch: (path) => ipcRenderer.invoke(FILE_VIEW_CHANNELS.watch, path),
+  unwatch: (path) => ipcRenderer.invoke(FILE_VIEW_CHANNELS.unwatch, path),
+  onChange: (callback) => subscribe(FILE_VIEW_CHANNELS.changed, (path: string) => callback(path))
 }
 
 contextBridge.exposeInMainWorld('fileViewApi', fileViewApi)
 
 const appUpdateApi: AppUpdateApi = {
-  state: () => ipcRenderer.invoke('app-update:state'),
-  check: () => ipcRenderer.invoke('app-update:check'),
-  restart: () => ipcRenderer.invoke('app-update:restart'),
-  onChange: (callback: (snapshot: AppUpdateSnapshot) => void): (() => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, snapshot: AppUpdateSnapshot): void => callback(snapshot)
-    ipcRenderer.on('app-update:changed', listener)
-    return () => ipcRenderer.removeListener('app-update:changed', listener)
-  }
+  state: () => ipcRenderer.invoke(APP_UPDATE_CHANNELS.state),
+  check: () => ipcRenderer.invoke(APP_UPDATE_CHANNELS.check),
+  restart: () => ipcRenderer.invoke(APP_UPDATE_CHANNELS.restart),
+  onChange: (callback) => subscribe(APP_UPDATE_CHANNELS.changed, (snapshot: AppUpdateSnapshot) => callback(snapshot))
 }
 
 contextBridge.exposeInMainWorld('appUpdateApi', appUpdateApi)
 
 const voiceModelApi: VoiceModelApi = {
-  state: () => ipcRenderer.invoke('voice-model:state'),
-  ensure: () => ipcRenderer.invoke('voice-model:ensure'),
-  onChange: (callback: (status: VoiceModelStatus) => void): (() => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, status: VoiceModelStatus): void => callback(status)
-    ipcRenderer.on('voice-model:changed', listener)
-    return () => ipcRenderer.removeListener('voice-model:changed', listener)
-  }
+  state: () => ipcRenderer.invoke(VOICE_MODEL_CHANNELS.state),
+  ensure: () => ipcRenderer.invoke(VOICE_MODEL_CHANNELS.ensure),
+  onChange: (callback) => subscribe(VOICE_MODEL_CHANNELS.changed, (status: VoiceModelStatus) => callback(status))
 }
 
 contextBridge.exposeInMainWorld('voiceModelApi', voiceModelApi)
