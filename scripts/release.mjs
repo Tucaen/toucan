@@ -78,7 +78,9 @@ execFileSync('npm', ['version', version, '--no-git-tag-version'], {
 git('add', 'package.json', 'package-lock.json')
 git('commit', '--quiet', '-m', version)
 // The annotation body is the release notes: the workflow reads it into `gh release create`.
-git('tag', '-a', tag, '-m', `Toucan ${tag}`, '-m', notes)
+// --cleanup=verbatim, because git's default strips every line that starts with `#` as a comment -
+// which silently ate the `## Changes since` and `### Fixes` headings out of the published notes.
+git('tag', '-a', '--cleanup=verbatim', tag, '-m', `Toucan ${tag}`, '-m', notes)
 git('push', '--follow-tags', 'origin', 'main')
 
 console.log(`\nPushed ${tag}. The release workflow is running: ${ACTIONS_URL}`)

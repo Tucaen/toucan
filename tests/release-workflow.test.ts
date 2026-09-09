@@ -1,5 +1,7 @@
 import { strict as assert } from 'node:assert'
-import { readFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
@@ -97,4 +99,57 @@ test('release notes come from the tag annotation that npm run release writes', (
     'checkout flattens the annotated tag, so it must be re-fetched'
   )
   assert.match(workflow, /--notes-file release-notes\.md/)
+})
+
+test('reads the tag through ${env:TAG}, which PowerShell cannot fold a following colon into', () => {
+  // `"refs/tags/$env:TAG:refs/tags/$env:TAG"` parses the second colon as part of the variable
+  // path, so the refspec came out as `refs/tags//tags/v0.8.3` and the fetch failed. Nothing
+  // checked it, the flattened tag had no annotation body, and the notes fell back to
+  // "Automated release." on every release from v0.3.2 to v0.8.3.
+  assert.doesNotMatch(workflow, /\$env:TAG:/, 'a bare $env:TAG must never be followed by a colon')
+  assert.match(workflow, /git fetch --force --quiet origin "refs\/tags\/\$\{env:TAG\}:refs\/tags\/\$\{env:TAG\}"/)
+  assert.match(
+    workflow,
+    /git fetch[^\n]*\n\s*if \(\$LASTEXITCODE -ne 0\) \{ throw/,
+    'a fetch that fails must fail the step rather than quietly publish the fallback'
+  )
+})
+
+test('writes the notes into a release a previous attempt already claimed', () => {
+  assert.match(workflow, /gh release edit "\$\{env:TAG\}"[^\n]*--notes-file release-notes\.md/)
+})
+
+test('annotates the tag verbatim, so git does not strip the Markdown headings as comments', () => {
+  // git's default cleanup drops every line starting with `#`, which is exactly what `## Changes
+  // since` and `### Fixes` start with.
+  const script = readFileSync(join(repositoryRoot, 'scripts/release.mjs'), 'utf8')
+  assert.match(script, /git\('tag', '-a', '--cleanup=verbatim'/)
+
+  const repository = mkdtempSync(join(tmpdir(), 'toucan-tag-'))
+  try {
+    const run = (...args: string[]): string =>
+      execFileSync('git', ['-C', repository, ...args], { encoding: 'utf8' }).trimEnd()
+    run('init', '--quiet', '-b', 'main')
+    run('-c', 'user.email=t@example.com', '-c', 'user.name=T', 'commit', '--quiet', '--allow-empty', '-m', 'root')
+    const notes = '## Changes since v1.0.0\n\n### Fixes\n- **scope:** a fix\n'
+    run(
+      '-c',
+      'user.email=t@example.com',
+      '-c',
+      'user.name=T',
+      'tag',
+      '-a',
+      '--cleanup=verbatim',
+      'v1.0.1',
+      '-m',
+      'Toucan v1.0.1',
+      '-m',
+      notes
+    )
+    const body = run('tag', '-l', '--format=%(contents:body)', 'v1.0.1')
+    assert.match(body, /### Fixes/, 'the workflow reads exactly this body into the release notes')
+    assert.match(body, /## Changes since v1\.0\.0/)
+  } finally {
+    rmSync(repository, { recursive: true, force: true })
+  }
 })

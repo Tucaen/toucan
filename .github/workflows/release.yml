@@ -39,13 +39,21 @@ jobs:
       # tag as a plain pointer to the commit, so the annotated object is fetched again first.
       - name: Claim the release before packaging
         run: |
-          git fetch --force --quiet origin "refs/tags/$env:TAG:refs/tags/$env:TAG"
-          $notes = (git tag -l --format='%(contents:body)' "$env:TAG" | Out-String).Trim()
+          # The braces around env:TAG are load-bearing. Unbraced, a following colon is swallowed
+          # into the variable path, which built the refspec 'refs/tags//tags/v0.8.3'. The
+          # fetch then failed without failing the step, the flattened tag carried no body, and the
+          # releases published the "Automated release." fallback instead of the notes.
+          git fetch --force --quiet origin "refs/tags/${env:TAG}:refs/tags/${env:TAG}"
+          if ($LASTEXITCODE -ne 0) { throw "could not fetch the annotated tag ${env:TAG}" }
+          $notes = (git tag -l --format='%(contents:body)' "${env:TAG}" | Out-String).Trim()
           if (-not $notes) { $notes = "Automated release." }
           Set-Content -Path release-notes.md -Value $notes -Encoding utf8
-          gh release view "$env:TAG" --repo Tucaen/toucan-releases *> $null
+          gh release view "${env:TAG}" --repo Tucaen/toucan-releases *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create "$env:TAG" --repo Tucaen/toucan-releases --title "Toucan $env:TAG" --notes-file release-notes.md
+            gh release create "${env:TAG}" --repo Tucaen/toucan-releases --title "Toucan ${env:TAG}" --notes-file release-notes.md
+          } else {
+            # A re-run meets the release its first attempt claimed; the notes are still ours to write.
+            gh release edit "${env:TAG}" --repo Tucaen/toucan-releases --notes-file release-notes.md
           }
         env:
           GH_TOKEN: ${{ secrets.RELEASES_REPO_TOKEN }}
