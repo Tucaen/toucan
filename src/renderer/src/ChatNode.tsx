@@ -34,7 +34,6 @@ import MarkdownMessage from './MarkdownMessage'
 import { ImageAttachments } from './ImageAttachments'
 import WorktreeBadge from './WorktreeBadge'
 import {
-  isFinalAssistantMessage,
   type AgentActivity,
   type AgentAuthMethod,
   type AgentCommand,
@@ -64,13 +63,11 @@ import { indexShellLaunches } from './shell-execution'
 import { SessionCommandsContext } from './skill-invocation'
 import { SubagentActivitiesContext, indexSubagentActivities } from './subagent-task'
 import { worklogActivities } from './worklog-activities'
-import { recentlyWrittenPaths } from './ticket-activity'
 import { formatReasoningSize, mergeReasoningEntries, reasoningTailLine, type ReasoningBlock } from './reasoning-blocks'
 import { WorkspaceRootsContext } from './workspace-root'
 import { buildHandoffPrompt, planWorktreeHandoff } from '../../shared/worktree-handoff'
-import type { TerminalCanvasNode, TerminalNodeStatus } from './canvas-workspace'
+import type { TerminalCanvasNode } from './canvas-workspace'
 import NodeFitAction from './NodeFitAction'
-import { attentionTextKey, READ_ON_VIEW_KINDS, type AttentionKind } from '../../shared/attention'
 import { imageAttachmentSource, imageFilesFromClipboard, type AgentImageAttachment } from './image-attachment'
 import { classifyAssistantMessage, decisionQuestions, type DecisionOption } from './decision-message'
 import { pendingDecisionsFromMessages, type PendingDecision } from './pending-decisions'
@@ -80,7 +77,6 @@ import UnreadToggle from './UnreadToggle'
 import SessionUsageBar from './SessionUsageBar'
 import { ProviderRateLimitsContext } from './provider-rate-limits'
 import { describeSessionUsage } from './session-usage'
-import { deriveConversationTitle } from '../../shared/conversation-title'
 import VoiceInput from './VoiceInput'
 import { dictationContext } from './voice-transcript'
 import { recentMentionPaths } from './file-mention-completion'
@@ -90,6 +86,8 @@ import { usePromptEditor, type ComposerFileMentions } from './use-prompt-editor'
 import PromptTextarea from './PromptTextarea'
 import ComposerQueue from './ComposerQueue'
 import ChatSessionControls from './ChatSessionControls'
+import StructuredDecisionPanel from './StructuredDecisionPanel'
+import { useConversationReporting } from './use-conversation-reporting'
 import SessionKindIcon from './SessionKindIcon'
 import type { QueuedPrompt } from './prompt-outbox'
 import {
@@ -97,7 +95,6 @@ import {
   useAgentConversation,
   type AgentApprovalState,
   type AgentChatMessage,
-  type AgentChatStatus,
   type AgentTranscriptEntry
 } from './use-agent-conversation'
 
@@ -246,12 +243,6 @@ const providerNames = { claude: 'Claude', codex: 'Codex' } as const
 function isSendDisabled(status: FlatChatViewProps['status']): boolean {
   return status === 'starting' || status === 'auth_required' || status === 'exited'
 }
-
-// A 'working' session with no new message/activity/plan event for this long is flagged
-// as stalled. Long enough that a slow tool call (build, long shell command) doesn't
-// false-positive, short enough to catch a genuinely wedged agent.
-const STALL_THRESHOLD_MS = 5 * 60 * 1000
-const STALL_CHECK_INTERVAL_MS = 15 * 1000
 
 interface PickerOption {
   id: string
@@ -779,261 +770,6 @@ function DecisionOptions(props: {
   )
 }
 
-function StructuredDecisionPanel(
-  props: Pick<FlatChatViewProps, 'decisionRequest' | 'resolveElicitation'>
-): JSX.Element | null {
-  const request = props.decisionRequest
-  const [active, setActive] = useState(0)
-  const [answers, setAnswers] = useState<AgentDecisionResponseContent>({})
-  const [resolving, setResolving] = useState(false)
-  const resolutionStarted = useRef(false)
-  const headingId = useId()
-  const questionTabs = useRef<Array<HTMLButtonElement | null>>([])
-  const pendingQuestionFocus = useRef<number | null>(null)
-  useLayoutEffect(() => {
-    if (pendingQuestionFocus.current !== active) return
-    questionTabs.current[active]?.focus()
-    pendingQuestionFocus.current = null
-  }, [active])
-  if (!request || !props.resolveElicitation) return null
-  const question = request.questions[active]
-  if (!question) return null
-  const currentAnswer = answers[question.id]
-  const answered = (item: AgentDecisionRequest['questions'][number]): boolean => {
-    const custom = item.customAnswerId ? answers[item.customAnswerId] : undefined
-    const selected = answers[item.id]
-    return (
-      (typeof custom === 'string' && custom.trim() !== '') ||
-      (typeof selected === 'string'
-        ? selected !== ''
-        : Array.isArray(selected)
-          ? selected.length > 0
-          : selected !== undefined)
-    )
-  }
-  const requiredComplete = request.questions.every((item) => !item.required || answered(item))
-  const requiredRemaining = request.questions.filter((item) => item.required && !answered(item)).length
-  const questionLabel = (item: AgentDecisionRequest['questions'][number], index: number): string =>
-    `Question ${index + 1}: ${item.title ?? item.question}${answered(item) ? ', answered' : ''}`
-  const activateTab = (index: number, tabList: HTMLElement): void => {
-    setActive(index)
-    const tabs = tabList.querySelectorAll<HTMLButtonElement>('[role="tab"]')
-    tabs[index]?.focus()
-  }
-  const advanceTo = (index: number): void => {
-    pendingQuestionFocus.current = index
-    setActive(index)
-  }
-  const resolveOnce = (content?: AgentDecisionResponseContent): void => {
-    if (resolutionStarted.current) return
-    resolutionStarted.current = true
-    setResolving(true)
-    props.resolveElicitation!(request.id, content)
-  }
-  const choose = (value: string): void => {
-    setAnswers((current) => {
-      const next = { ...current }
-      if (question.customAnswerId) delete next[question.customAnswerId]
-      if (!question.multiSelect) return { ...next, [question.id]: value }
-      const selected = Array.isArray(current[question.id]) ? (current[question.id] as string[]) : []
-      return {
-        ...next,
-        [question.id]: selected.includes(value) ? selected.filter((item) => item !== value) : [...selected, value]
-      }
-    })
-    if (!question.multiSelect && active < request.questions.length - 1) advanceTo(active + 1)
-  }
-  return (
-    <section className="structured-decision" aria-labelledby={headingId} aria-describedby={`${headingId}-context`}>
-      <header className="structured-decision-header">
-        <div className="structured-decision-heading">
-          <span className="structured-decision-icon" aria-hidden="true">
-            <ListChecks />
-          </span>
-          <div>
-            <strong id={headingId}>Decision questions</strong>
-            <p id={`${headingId}-context`}>{request.message}</p>
-          </div>
-        </div>
-        <span className="structured-decision-count">
-          {request.questions.filter(answered).length}/{request.questions.length} answered
-        </span>
-      </header>
-      {request.questions.length > 1 && (
-        <div className="structured-decision-tabs" role="tablist" aria-label="Questions">
-          {request.questions.map((item, index) => (
-            <button
-              type="button"
-              role="tab"
-              aria-selected={index === active}
-              aria-label={questionLabel(item, index)}
-              aria-controls={`${headingId}-panel`}
-              id={`${headingId}-tab-${index}`}
-              ref={(element) => {
-                questionTabs.current[index] = element
-              }}
-              tabIndex={index === active ? 0 : -1}
-              data-answered={answered(item)}
-              key={item.id}
-              onClick={() => setActive(index)}
-              onKeyDown={(event) => {
-                const last = request.questions.length - 1
-                const next =
-                  event.key === 'ArrowRight'
-                    ? index === last
-                      ? 0
-                      : index + 1
-                    : event.key === 'ArrowLeft'
-                      ? index === 0
-                        ? last
-                        : index - 1
-                      : event.key === 'Home'
-                        ? 0
-                        : event.key === 'End'
-                          ? last
-                          : null
-                if (next === null) return
-                event.preventDefault()
-                activateTab(next, event.currentTarget.parentElement!)
-              }}
-            >
-              <span>{answered(item) ? <Check aria-hidden="true" /> : index + 1}</span>
-              <small>{item.title ?? `Question ${index + 1}`}</small>
-            </button>
-          ))}
-        </div>
-      )}
-      <article
-        className="structured-decision-question"
-        id={`${headingId}-panel`}
-        data-scroll-region="question"
-        role={request.questions.length > 1 ? 'tabpanel' : undefined}
-        aria-labelledby={request.questions.length > 1 ? `${headingId}-tab-${active}` : `${headingId}-question`}
-      >
-        <div className="structured-decision-progress">
-          <span>
-            Question {active + 1} of {request.questions.length}
-          </span>
-          {question.required && <span className="structured-decision-required">Required</span>}
-        </div>
-        {question.title && <strong>{question.title}</strong>}
-        <p id={`${headingId}-question`}>{question.question}</p>
-        {question.input === 'select' && (
-          <div className="structured-decision-options" role="group" aria-labelledby={`${headingId}-question`}>
-            {question.options.map((option) => {
-              const value = answers[question.id]
-              const selected = Array.isArray(value) ? value.includes(option.value) : value === option.value
-              return (
-                <button type="button" aria-pressed={selected} key={option.value} onClick={() => choose(option.value)}>
-                  <span>{option.label}</span>
-                  {option.description && <small>{option.description}</small>}
-                </button>
-              )
-            })}
-          </div>
-        )}
-        {question.input === 'boolean' && (
-          <div className="structured-decision-options" role="group" aria-labelledby={`${headingId}-question`}>
-            {(['Yes', 'No'] as const).map((label) => {
-              const value = label === 'Yes'
-              return (
-                <button
-                  type="button"
-                  aria-pressed={answers[question.id] === value}
-                  key={label}
-                  onClick={() => {
-                    setAnswers((current) => ({ ...current, [question.id]: value }))
-                    if (active < request.questions.length - 1) advanceTo(active + 1)
-                  }}
-                >
-                  <span>{label}</span>
-                </button>
-              )
-            })}
-          </div>
-        )}
-        {question.input === 'text' && (
-          <input
-            className="structured-decision-value"
-            type="text"
-            aria-label={question.question}
-            value={typeof currentAnswer === 'string' ? currentAnswer : ''}
-            onChange={(event) => setAnswers((current) => ({ ...current, [question.id]: event.target.value }))}
-          />
-        )}
-        {question.input === 'number' && (
-          <input
-            className="structured-decision-value"
-            type="number"
-            aria-label={question.question}
-            value={typeof currentAnswer === 'number' ? currentAnswer : ''}
-            onChange={(event) => {
-              const value = event.target.value
-              setAnswers((current) => {
-                const next = { ...current }
-                if (value === '') delete next[question.id]
-                else next[question.id] = Number(value)
-                return next
-              })
-            }}
-          />
-        )}
-        {question.customAnswerId && (
-          <label className="structured-decision-other">
-            <span>Other answer</span>
-            <input
-              type="text"
-              value={
-                typeof answers[question.customAnswerId] === 'string' ? (answers[question.customAnswerId] as string) : ''
-              }
-              onChange={(event) => {
-                const value = event.target.value
-                setAnswers((current) => {
-                  const next = { ...current }
-                  if (value.trim()) {
-                    delete next[question.id]
-                    next[question.customAnswerId!] = value
-                  } else {
-                    delete next[question.customAnswerId!]
-                  }
-                  return next
-                })
-              }}
-            />
-          </label>
-        )}
-      </article>
-      <nav className="structured-decision-navigation" aria-label="Question navigation">
-        <button type="button" disabled={active === 0} onClick={() => setActive((value) => value - 1)}>
-          Previous question
-        </button>
-        <button
-          type="button"
-          disabled={active === request.questions.length - 1}
-          onClick={() => setActive((value) => value + 1)}
-        >
-          Next question
-        </button>
-      </nav>
-      <footer>
-        <span role="status" aria-live="polite">
-          {requiredRemaining === 0
-            ? 'Ready to submit'
-            : `${requiredRemaining} required answer${requiredRemaining === 1 ? '' : 's'} remaining`}
-        </span>
-        <button className="structured-decision-skip" type="button" disabled={resolving} onClick={() => resolveOnce()}>
-          Skip
-        </button>
-        {active === request.questions.length - 1 && (
-          <button type="button" disabled={!requiredComplete || resolving} onClick={() => resolveOnce(answers)}>
-            Submit answers
-          </button>
-        )}
-      </footer>
-    </section>
-  )
-}
-
 /** Wording comes from decisionQuestions (see decision-message.ts). */
 function DecisionQuestions(props: { text: string }): JSX.Element {
   const questions = decisionQuestions(props.text)
@@ -1442,27 +1178,7 @@ export function ChatView(groups: ChatViewProps): JSX.Element {
   )
 }
 
-/** The sidebar only cares whether the agent is busy, blocked, waiting on us, or stuck. */
-function sidebarStatus(
-  status: AgentChatStatus,
-  awaitingApproval: boolean,
-  unreadKind: AttentionKind | undefined,
-  stalled: boolean
-): TerminalNodeStatus {
-  if (status === 'exited') return 'exited'
-  if (status === 'auth_required' || awaitingApproval) return 'attention'
-  if (status === 'starting') return 'starting'
-  if (status === 'working') return stalled ? 'stalled' : 'working'
-  // A dormant node has no live approval or auth state left, so the record is the only thing that
-  // still knows the session was blocked - reading it back as a mere 'result' would understate it.
-  if (unreadKind === 'approval' || unreadKind === 'auth' || unreadKind === 'failure') return 'attention'
-  return unreadKind ? 'result' : 'idle'
-}
-
 export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanvasNode>): JSX.Element {
-  const previousStatusRef = useRef<AgentChatStatus>('starting')
-  const previousFinalAnswerCountRef = useRef(0)
-  const turnStartFinalAnswerCountRef = useRef(0)
   const provider = data.kind === 'claude' ? 'claude' : 'codex'
   const conversation = useAgentConversation({
     id,
@@ -1476,37 +1192,40 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
     onPermissionMode: (modeId) => data.onPermissionModeChange(provider, modeId),
     onModel: (modelId) => data.onModelChange(id, modelId)
   })
-  const { status, approval, decisionRequest, detail, failure, failureKey, messages, activities, plan, usage } =
-    conversation
+  const { status, messages, usage } = conversation
   const [renaming, setRenaming] = useState(false)
   const [titleDraft, setTitleDraft] = useState(data.label)
   const [titleError, setTitleError] = useState(false)
-  const persistedOutcomeIdsRef = useRef(new Set((data.turnOutcomes ?? []).map((outcome) => outcome.id)))
-  useEffect(() => {
-    for (const outcome of conversation.outcomes) {
-      if (persistedOutcomeIdsRef.current.has(outcome.id)) continue
-      persistedOutcomeIdsRef.current.add(outcome.id)
-      data.onTurnOutcome?.(id, outcome)
-    }
-  }, [conversation.outcomes, data.onTurnOutcome, id])
   const outcomes = useMemo(() => {
     const byId = new Map((data.turnOutcomes ?? []).map((outcome) => [outcome.id, outcome]))
     for (const outcome of conversation.outcomes) byId.set(outcome.id, outcome)
     return [...byId.values()]
   }, [conversation.outcomes, data.turnOutcomes])
 
-  useEffect(() => {
-    if (data.titleSource || !data.conversationId || status !== 'ready') return
-    const title = deriveConversationTitle(
-      messages
-        .filter(
-          (message): message is AgentChatMessage & { role: 'user' | 'assistant' } =>
-            message.role === 'user' || isFinalAssistantMessage(message)
-        )
-        .map(({ role, text, presentation }) => ({ role, text, presentation }))
-    )
-    if (title) void data.onTitleChange(id, title, 'generated').then((saved) => setTitleError(!saved))
-  }, [data, data.conversationId, data.titleSource, id, messages, status])
+  // Everything this node reports upward - attention records, sidebar status, the stall verdict,
+  // the generated title, persisted outcomes, ticket activity - lives in the reporting hook; the
+  // rules themselves are pure functions in conversation-reporting.ts.
+  const reporting = useConversationReporting({
+    id,
+    label: data.label,
+    selected: selected ?? false,
+    dormant: data.dormant,
+    unread: data.unread ?? 0,
+    unreadKind: data.unreadKind,
+    // The ACP conversation once there is one; until then the node's durable session id, so an
+    // early approval or failure is never persisted without any source identity at all.
+    sourceId: data.conversationId ?? data.sessionId,
+    conversationId: data.conversationId,
+    titleSource: data.titleSource,
+    persistedOutcomes: data.turnOutcomes,
+    conversation,
+    onAttention: data.onAttention,
+    onStatusChange: data.onStatusChange,
+    onTicketActivity: data.onTicketActivity,
+    onTurnOutcome: data.onTurnOutcome,
+    onTitleChange: data.onTitleChange
+  })
+  const stalled = reporting.stalled
 
   const commitTitle = (): void => {
     const title = titleDraft.trim()
@@ -1520,178 +1239,6 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
   const rateLimits = useContext(ProviderRateLimitsContext)[provider] ?? null
   // Recomputed only when a turn reports new usage or the account poll returns, never per chunk.
   const usageReadout = useMemo(() => describeSessionUsage({ usage, rateLimits }), [usage, rateLimits])
-  const [stalled, setStalled] = useState(false)
-  const lastProgressAtRef = useRef(Date.now())
-
-  // Attention is a durable record owned by the workspace, not a flag this node recomputes: the
-  // node only reports the condition and the key that identifies it. Every key below is stable
-  // across ACP session replay, which is what keeps a restored conversation from re-raising
-  // something the user already dealt with (see shared/attention.ts).
-  const unread = data.unread ?? 0
-  const reportAttention = data.onAttention
-  // The ACP conversation once there is one; until then the node's durable session id, so an
-  // early approval or failure is never persisted without any source identity at all.
-  const attentionSource = data.conversationId ?? data.sessionId
-
-  // A turn that finished while the user was looking elsewhere is a result they have not read.
-  // Keyed by the answer itself, so a replayed transcript lands on the record it already made.
-  useEffect(() => {
-    const finalAnswers = messages.filter(isFinalAssistantMessage)
-    const previousStatus = previousStatusRef.current
-    if (previousStatus !== 'working' && status === 'working') {
-      turnStartFinalAnswerCountRef.current = previousFinalAnswerCountRef.current
-    }
-    const finishedTurn = previousStatus === 'working' && status === 'ready'
-    previousStatusRef.current = status
-    previousFinalAnswerCountRef.current = finalAnswers.length
-    if (!finishedTurn || selected) return
-    const answer = finalAnswers.slice(turnStartFinalAnswerCountRef.current).at(-1)
-    if (!answer) return
-    reportAttention?.({
-      type: 'raise',
-      signal: {
-        nodeId: id,
-        kind: 'result',
-        key: attentionTextKey(`${answer.id}:${answer.text}`),
-        sourceId: attentionSource,
-        summary: `${data.label} finished a turn`
-      }
-    })
-  }, [attentionSource, data.label, id, messages, reportAttention, selected, status])
-
-  // A request the session is parked on is its own condition: the ACP request id is the key, so the
-  // same request seen twice is one record, and answering it retires that record rather than
-  // marking it read. A tool permission and a structured question set are one condition here, not
-  // two - both are the agent waiting on an answer, and a chat stalled on either has to be findable
-  // from a list (the phone's "needs approval" badge reads exactly this record).
-  const requestId = approval?.id ?? decisionRequest?.id ?? null
-  const requestTitle = approval?.title ?? decisionRequest?.message
-  const previousRequestRef = useRef<string | null>(null)
-  useEffect(() => {
-    const previous = previousRequestRef.current
-    previousRequestRef.current = requestId
-    if (previous && previous !== requestId) {
-      reportAttention?.({ type: 'resolve', nodeId: id, kind: 'approval', key: previous })
-    }
-    if (!requestId) return
-    reportAttention?.({
-      type: 'raise',
-      signal: {
-        nodeId: id,
-        kind: 'approval',
-        key: requestId,
-        sourceId: attentionSource,
-        summary: requestTitle ?? `${data.label} needs approval`
-      }
-    })
-  }, [attentionSource, data.label, id, reportAttention, requestId, requestTitle])
-
-  // Sign-in is a standing condition rather than an event, so it is raised while it holds and
-  // retired the moment the session gets past it.
-  const authRequired = status === 'auth_required'
-  useEffect(() => {
-    if (!authRequired) {
-      reportAttention?.({ type: 'resolve', nodeId: id, kind: 'auth' })
-      return
-    }
-    reportAttention?.({
-      type: 'raise',
-      signal: {
-        nodeId: id,
-        kind: 'auth',
-        key: 'auth',
-        sourceId: attentionSource,
-        summary: `${data.label} needs you to sign in`
-      }
-    })
-  }, [attentionSource, authRequired, data.label, id, reportAttention])
-
-  // Failures are keyed by their text: the same error reported again - live or replayed - is the
-  // same condition, while a different one is worth its own record.
-  useEffect(() => {
-    if (!failure) return
-    reportAttention?.({
-      type: 'raise',
-      signal: {
-        nodeId: id,
-        kind: 'failure',
-        key: failureKey ?? attentionTextKey(failure),
-        sourceId: attentionSource,
-        summary: failure
-      }
-    })
-  }, [attentionSource, failure, failureKey, id, reportAttention])
-
-  /**
-   * Having the node open is the user reaching its content, so anything raised while it is
-   * selected clears too - but only the kinds reading actually settles. A pending approval or
-   * sign-in request stays unread until it is answered (READ_ON_VIEW_KINDS), because glancing at
-   * a blocked turn is not unblocking it. Marking unread on a node you are looking at would
-   * otherwise be undone by this effect on the very next render, so that hold survives until the
-   * node is left and re-entered.
-   */
-  const unreadHoldRef = useRef(false)
-  useEffect(() => {
-    if (!selected) unreadHoldRef.current = false
-    if (!selected || data.dormant || unread === 0 || unreadHoldRef.current) return
-    reportAttention?.({ type: 'read', nodeId: id, kinds: READ_ON_VIEW_KINDS })
-  }, [data.dormant, id, reportAttention, selected, unread])
-
-  // Any new message text, tool activity, or plan update counts as progress and resets the stall clock.
-  useEffect(() => {
-    lastProgressAtRef.current = Date.now()
-  }, [messages, activities, plan, detail])
-
-  // While working, periodically check whether progress has gone quiet for too long.
-  useEffect(() => {
-    if (status !== 'working') {
-      setStalled(false)
-      return
-    }
-    lastProgressAtRef.current = Date.now()
-    setStalled(false)
-    const interval = setInterval(() => {
-      setStalled(Date.now() - lastProgressAtRef.current > STALL_THRESHOLD_MS)
-    }, STALL_CHECK_INTERVAL_MS)
-    return () => clearInterval(interval)
-  }, [status])
-
-  useEffect(() => {
-    if (data.dormant) return
-    // Either kind of pending request is the same thing to a list: the agent is waiting on you.
-    const waiting = approval !== null || decisionRequest !== null
-    data.onStatusChange(id, sidebarStatus(status, waiting, data.unreadKind, stalled))
-  }, [approval, data.dormant, data.onStatusChange, data.unreadKind, decisionRequest, id, status, stalled])
-
-  /**
-   * What this session has been writing, for the ticket board's live card. Paths go up, not
-   * tickets: which of them is a ticket depends on the project's tickets folder, which the
-   * workspace knows and a node does not (`ticket-activity.ts`). Where the running turn began is
-   * observed here because this is the only place that sees the status change - a steer sent
-   * mid-turn is another message from the captain, and the transcript alone cannot tell the two
-   * apart. The report fires on a change of *contents*, not on every streamed event.
-   */
-  const reportTicketActivity = data.onTicketActivity
-  const turnStartedAtRef = useRef<number | undefined>(undefined)
-  const turnWasRunningRef = useRef(false)
-  const reportedTurnRef = useRef<string | undefined>(undefined)
-  useEffect(() => {
-    const working = status === 'working'
-    // The turn's own start, taken when it begins and kept once it ends: between turns the turn
-    // that just finished *is* the last completed one, and its writes are what the card shows.
-    if (working && !turnWasRunningRef.current) turnStartedAtRef.current = conversation.transcript.length
-    turnWasRunningRef.current = working
-    const paths = recentlyWrittenPaths(conversation.transcript, activities, {
-      working,
-      startedAt: turnStartedAtRef.current
-    })
-    // Reported on a change of contents, not on every streamed event of a turn.
-    const reported = `${working}\n${paths.join('\n')}`
-    if (reported === reportedTurnRef.current) return
-    reportedTurnRef.current = reported
-    reportTicketActivity?.(id, { paths, working })
-  }, [activities, conversation.transcript, id, reportTicketActivity, status])
-
   /**
    * A prompt asking for its own worktree never runs here. It goes up to the workspace, which
    * starts a session whose working directory is the worktree from its first turn - the only
@@ -1837,7 +1384,7 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
         >
           <Pencil aria-hidden="true" />
         </button>
-        {titleError && (
+        {(titleError || reporting.generatedTitleError) && (
           <CircleAlert
             className="node-title-error"
             role="alert"
@@ -1852,17 +1399,7 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
         {/* Model, effort and permission pickers live in the composer's toolbar - see
             ComposerToolbar - so the whole picker row reads as one set and the header keeps its
             room for the node's identity. */}
-        <UnreadToggle
-          unread={unread}
-          onToggle={(next) => {
-            unreadHoldRef.current = next === 'unread'
-            reportAttention?.(
-              next === 'unread'
-                ? { type: 'unread', nodeId: id }
-                : { type: 'read', nodeId: id, kinds: READ_ON_VIEW_KINDS }
-            )
-          }}
-        />
+        <UnreadToggle unread={data.unread ?? 0} onToggle={reporting.toggleUnread} />
         <span className="node-status">{status.replace('_', ' ')}</span>
         <NodeFitAction nodeId={id} fitted={data.fittedToCanvas ?? false} />
       </header>
