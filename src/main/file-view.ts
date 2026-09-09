@@ -1,5 +1,5 @@
-import { open, realpath, rename, stat, unlink } from 'node:fs/promises'
-import { basename, dirname, join, relative, resolve, isAbsolute } from 'node:path'
+import { open, rename, stat, unlink } from 'node:fs/promises'
+import { basename, dirname, join, resolve } from 'node:path'
 import { FILE_VIEW_CHANNELS } from '../shared/ipc-channels'
 import {
   FILE_VIEW_MAX_BYTES,
@@ -8,6 +8,7 @@ import {
   type FileWriteResult
 } from '../shared/file-view'
 import { createWatchedDirectories, type WatchDirectory } from './watched-directories'
+import { createWorkspaceContainment, type WorkspaceContainmentOptions } from './workspace-containment'
 
 /** How many leading bytes decide whether a file is text: a NUL in them means it is not. */
 const BINARY_PROBE_BYTES = 8 * 1024
@@ -26,25 +27,24 @@ export interface FileView {
   shutdown(): void
 }
 
-export interface FileViewOptions {
-  /**
-   * The directories a file may be read from: every registered project checkout and every
-   * worktree. Read per call rather than cached, so a project added a moment ago is readable.
-   */
-  roots(): readonly string[] | Promise<readonly string[]>
+/**
+ * `roots` and the case rule come from `WorkspaceContainmentOptions`: what a file node may read is
+ * the workspace containment question, and this module only adds how much it reads and how it
+ * watches.
+ */
+export interface FileViewOptions extends WorkspaceContainmentOptions {
   maxBytes?: number
   debounceMs?: number
-  /** Windows compares paths case-insensitively; the default follows the platform. */
-  caseInsensitivePaths?: boolean
   watchDirectory?: WatchDirectory
 }
 
 /**
- * The renderer's only way to read a file's bytes, and it fails closed: a path is readable only when
- * it resolves inside a registered project or worktree, so a hand-edited snapshot or a stray link
- * cannot turn a canvas node into a reader of arbitrary files. Reads are capped rather than
- * refused past the cap, because a truncated view of a huge log is still useful; a binary file is
- * reported as such instead of being decoded into noise.
+ * The renderer's only way to read a file's bytes, and it fails closed through the shared
+ * `workspace-containment` rule: a path is readable only when it resolves inside a registered
+ * project or worktree, so a hand-edited snapshot or a stray link cannot turn a canvas node into a
+ * reader of arbitrary files. Reads are capped rather than refused past the cap, because a
+ * truncated view of a huge log is still useful; a binary file is reported as such instead of
+ * being decoded into noise.
  *
  * Writes go through the same guard and replace the file atomically - a temporary beside it,
  * fsynced, renamed over - so a crash mid-save leaves the old file rather than a torn one. A save
@@ -59,7 +59,7 @@ export interface FileViewOptions {
  */
 export function createFileView(options: FileViewOptions): FileView {
   const maxBytes = options.maxBytes ?? FILE_VIEW_MAX_BYTES
-  const caseInsensitive = options.caseInsensitivePaths ?? process.platform === 'win32'
+  const { comparable, realPathOf, contains: insideWorkspace } = createWorkspaceContainment(options)
   /**
    * Holds are counted per window: one window may show the same file in two nodes, and closing one
    * must not blind the other. A hold is recorded synchronously at `watch()` so an `unwatch()` that
@@ -73,44 +73,6 @@ export function createFileView(options: FileViewOptions): FileView {
     onUnheld: (key) => watches.close(key)
   })
   let stopped = false
-
-  const comparable = (path: string): string => (caseInsensitive ? path.toLowerCase() : path)
-
-  /**
-   * The path as the filesystem knows it, so a link inside a checkout cannot point a read outside.
-   *
-   * `realpath` only answers for a path that already exists, and the paths that matter most here
-   * often do not: a file that was deleted under the node, or a name a save is about to create. So
-   * the deepest ancestor that *does* exist is canonicalized and the rest re-attached, which keeps
-   * both sides of the containment check in the same form. Comparing a canonical root against a
-   * literal target reads as climbing out of the workspace whenever a project is reached through a
-   * junction, a symlink or an 8.3 short path - and, the other way round, it used to let a write to
-   * a not-yet-existing name through a link that leaves the workspace entirely.
-   */
-  const realPathOf = async (path: string): Promise<string> => {
-    let head = resolve(path)
-    const tail: string[] = []
-    for (;;) {
-      try {
-        return join(await realpath(head), ...tail)
-      } catch {
-        const parent = dirname(head)
-        // A filesystem root that does not resolve leaves nothing above it to ask about.
-        if (parent === head) return resolve(path)
-        tail.unshift(basename(head))
-        head = parent
-      }
-    }
-  }
-
-  const insideWorkspace = async (path: string): Promise<boolean> => {
-    const target = comparable(await realPathOf(resolve(path)))
-    for (const root of await options.roots()) {
-      const between = relative(comparable(await realPathOf(resolve(root))), target)
-      if (between && !between.startsWith('..') && !isAbsolute(between)) return true
-    }
-    return false
-  }
 
   const watchKey = (path: string): string => comparable(resolve(path))
 

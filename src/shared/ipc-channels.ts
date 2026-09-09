@@ -19,7 +19,8 @@ export const PROJECT_CHANNELS = {
 
 export const SHELL_CHANNELS = {
   openExternal: 'shell:open-external',
-  showItemInFolder: 'shell:show-item-in-folder'
+  showItemInFolder: 'shell:show-item-in-folder',
+  openLocalFile: 'shell:open-local-file'
 } as const
 
 export const WORKSPACE_CHANNELS = {

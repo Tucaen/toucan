@@ -4203,6 +4203,18 @@ button {
   overflow-wrap: anywhere;
 }
 
+/* A link nothing can be done with keeps its text but loses every affordance of a link. */
+.markdown-inert-link {
+  color: #8a94a2;
+}
+
+/* Why a local link did not open, beside the link that failed rather than somewhere else. */
+.markdown-link-error {
+  margin-left: 6px;
+  color: #f0a58a;
+  font-size: 0.9em;
+}
+
 /* The node is narrow; a wide table scrolls itself instead of forcing the message to grow. */
 .markdown-table-scroll {
   max-width: 100%;

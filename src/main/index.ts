@@ -33,6 +33,8 @@ import { createBrainDumpCaptureStore } from './brain-dump-capture-store'
 import { registerBrainDumpIpc } from './brain-dump-ipc'
 import { createBrainDumpChangeWatcher, type BrainDumpChangeWatcher } from './brain-dump-watcher'
 import { createFileView, type FileView } from './file-view'
+import { createLocalFileOpener } from './local-file-open'
+import { createWorkspaceContainment } from './workspace-containment'
 import { registerFileViewIpc } from './file-view-ipc'
 import { createGithubIssueReader } from './github-issues'
 import { registerGithubIssuesIpc } from './github-issues-ipc'
@@ -385,11 +387,16 @@ void app.whenReady().then(async () => {
   // A file node may read anywhere inside a registered project or one of its worktrees and nowhere
   // else. The roots come from the snapshot per call, so a project added a moment ago is readable
   // and one removed a moment ago is not - fail closed, like brain-dump project assignment.
-  const fileView = createFileView({
-    roots: async () => {
-      const state = (await workspace.load()).state
-      return [...(state?.projects.map(({ path }) => path) ?? []), ...(state?.worktrees.map(({ path }) => path) ?? [])]
-    }
+  const workspaceRoots = async (): Promise<string[]> => {
+    const state = (await workspace.load()).state
+    return [...(state?.projects.map(({ path }) => path) ?? []), ...(state?.worktrees.map(({ path }) => path) ?? [])]
+  }
+  const fileView = createFileView({ roots: workspaceRoots })
+  // Opening an artifact with its associated application answers to the same roots, through the
+  // same containment rule - it is the one path action that can run something.
+  const openLocalFile = createLocalFileOpener({
+    contains: createWorkspaceContainment({ roots: workspaceRoots }).contains,
+    openPath: (path) => shell.openPath(path)
   })
   // Spawning is the one remote operation main cannot perform alone: the canvas owns node identity,
   // geometry and working-directory resolution, so a phone's "New chat" is a request the desktop
@@ -505,7 +512,8 @@ void app.whenReady().then(async () => {
       return result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0]
     },
     openExternal: (url) => shell.openExternal(url),
-    showItemInFolder: (path) => shell.showItemInFolder(path)
+    showItemInFolder: (path) => shell.showItemInFolder(path),
+    openLocalFile
   })
   registerRemoteIpc(ipcMain, remote, chatSpawner)
   // Self-updating from the public releases repo. Constructed before the window so the header is

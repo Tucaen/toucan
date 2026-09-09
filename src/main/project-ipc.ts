@@ -1,5 +1,6 @@
 import { basename, normalize } from 'node:path'
 import { PROJECT_CHANNELS, SHELL_CHANNELS, WORKSPACE_CHANNELS } from '../shared/ipc-channels'
+import type { LocalFileOpenResult } from '../shared/local-file-link'
 import type { ProjectDirectory, WorkspaceLoadResult, WorkspaceSaveResult, WorkspaceState } from '../shared/terminal'
 import type { IpcRegistrar } from './ipc-registrar'
 
@@ -20,6 +21,8 @@ export interface ProjectIpcDependencies {
   openExternal(url: string): Promise<void>
   /** Selects a path in the OS file manager; never opens or executes it. */
   showItemInFolder(path: string): void
+  /** Opens one local artifact with its associated application; decides for itself whether it may. */
+  openLocalFile(path: string): Promise<LocalFileOpenResult>
 }
 
 /** A directory as the sidebar displays it: its base name over its absolute path. */
@@ -35,7 +38,8 @@ export function registerProjectIpc(ipc: IpcRegistrar, deps: ProjectIpcDependenci
   })
   // Markdown links in agent replies must open in the user's browser; loading one in the
   // renderer would navigate the app window away. Only web URLs are forwarded - never file:,
-  // and never a shell-interpreted scheme.
+  // and never a shell-interpreted scheme. A local path is the separate `openLocalFile` below,
+  // which is narrow about what it will hand to the OS.
   ipc.handle(SHELL_CHANNELS.openExternal, async (_event, url: unknown) => {
     if (typeof url !== 'string') return
     let parsed: URL
@@ -53,6 +57,14 @@ export function registerProjectIpc(ipc: IpcRegistrar, deps: ProjectIpcDependenci
     if (typeof path !== 'string' || !path.trim()) return
     deps.showItemInFolder(normalize(path))
   })
+  // A Markdown link to an artifact the app has no view for - a generated image, an exported PDF -
+  // opens it with the application the OS associates with it. The verdict is returned rather than
+  // dropped, so a link to something missing says so instead of appearing to do nothing (#175).
+  // Anything that is not a path is handed over as the empty one, so the opener stays the single
+  // author of every refusal rather than this handler minting a second wording of the same one.
+  ipc.handle(SHELL_CHANNELS.openLocalFile, (_event, path: unknown) =>
+    deps.openLocalFile(typeof path === 'string' ? path : '')
+  )
   ipc.handle(WORKSPACE_CHANNELS.load, () => deps.workspace.load())
   ipc.handle(WORKSPACE_CHANNELS.save, (_event, state) => deps.workspace.save(state as WorkspaceState))
 }

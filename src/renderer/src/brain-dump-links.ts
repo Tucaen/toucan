@@ -1,5 +1,6 @@
 import type { BrainDumpCollection } from '../../shared/brain-dump'
 import { isBrainDumpSlug } from '../../shared/brain-dump'
+import { classifyMarkdownLink } from '../../shared/local-file-link'
 
 /**
  * `[[slug]]` is the brain-dump library's own cross-reference syntax; Markdown knows nothing about
@@ -80,9 +81,11 @@ export function linkifyBrainDumpReferences(markdown: string): string {
 }
 
 /**
- * What an href in a rendered topic actually is. Only `http`/`https` may reach the external
- * handler; an absolute `file:` URL is a local path for an explicit reveal action, and everything
- * else - including relative links and `javascript:` - is inert.
+ * What an href in a rendered topic actually is. The topic scheme is this module's own; everything
+ * else is the same question every Markdown surface asks, so it is answered by the one shared
+ * classifier - only `http`/`https` may reach the external handler, an absolute local path is a
+ * target for an explicit reveal action, and everything else - including relative links and
+ * `javascript:` - is inert.
  */
 export function classifyBrainDumpLink(href: string | undefined): BrainDumpLinkKind {
   if (!href) return { kind: 'unsupported' }
@@ -90,18 +93,7 @@ export function classifyBrainDumpLink(href: string | undefined): BrainDumpLinkKi
     const slug = href.slice(BRAIN_DUMP_TOPIC_SCHEME.length)
     return isBrainDumpSlug(slug) ? { kind: 'topic', slug } : { kind: 'unsupported' }
   }
-  let url: URL
-  try {
-    url = new URL(href)
-  } catch {
-    return { kind: 'unsupported' }
-  }
-  if (url.protocol === 'http:' || url.protocol === 'https:') return { kind: 'external', url: url.toString() }
-  if (url.protocol !== 'file:') return { kind: 'unsupported' }
-  const path = decodeURIComponent(url.pathname)
-  // file:///D:/notes.md yields "/D:/notes.md"; the drive letter is the real start of the path.
-  const local = /^\/[A-Za-z]:/.test(path) ? path.slice(1).replace(/\//g, '\\') : path
-  return local ? { kind: 'file', path: local } : { kind: 'unsupported' }
+  return classifyMarkdownLink(href)
 }
 
 /** Where a `[[slug]]` reference points, given the slugs each collection currently holds. */

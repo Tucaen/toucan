@@ -1,8 +1,10 @@
-import { memo, useEffect, useRef, useState } from 'react'
+import { memo, useContext, useEffect, useRef, useState } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { remarkHardBreaks } from '../../shared/markdown-hard-breaks'
 import type { Element as HastElement, Nodes as HastNodes, RootContent } from 'hast'
+import { markdownLinkAction } from './markdown-link-action'
+import { OpenFileContext } from './open-file-context'
 import { highlightedCode } from './syntax-highlight'
 
 /*
@@ -109,34 +111,108 @@ export const markdownBlockComponents: Components = {
   }
 }
 
+/**
+ * react-markdown's default URL sanitizer keeps a handful of web schemes and blanks everything
+ * else, including `file:` and any bare Windows path (`D:/x` reads as scheme `d:`), which is
+ * exactly the local artifact link this pipeline exists to open. Safety is enforced afterwards
+ * instead: `classifyMarkdownLink` decides what an href is, and anything it does not recognize
+ * renders as inert text with no `href` at all.
+ */
+export const keepHref = (url: string): string => url
+
 export const remarkPlugins = [remarkGfm]
 
 /** For text a person typed by hand; markdown-hard-breaks.ts says why agent output is left out. */
 export const authoredRemarkPlugins = [remarkGfm, remarkHardBreaks]
 
-const components: Components = {
-  ...markdownBlockComponents,
-  /* GFM autolinks turn bare URLs into anchors; a plain <a> would navigate the app window away. */
-  a(props) {
-    const href = typeof props.href === 'string' ? props.href : undefined
-    return (
+/**
+ * One link in agent prose, rendering whatever `markdownLinkAction` decided it does - the component
+ * makes no such decision of its own. Two details are load-bearing. A refusal is shown beside the
+ * link rather than swallowed, because a link that silently does nothing is indistinguishable from
+ * a broken app, which is what issue #175 was. And only a web link carries a real `href`: a click
+ * is intercepted, but a middle-click or a link-drag is not, and neither may hand the app window a
+ * local path to navigate to.
+ */
+function MarkdownLink(props: { href?: string; children?: React.ReactNode }): JSX.Element {
+  const openFileNode = useContext(OpenFileContext)
+  const action = markdownLinkAction(props.href, openFileNode !== null)
+  const [problem, setProblem] = useState<string>()
+
+  if (action.kind === 'none') return <span className="markdown-inert-link">{props.children}</span>
+
+  const bridge = window.terminalApi
+  const open = (): void => {
+    setProblem(undefined)
+    if (action.kind === 'browser') {
+      void bridge?.openExternal?.(action.url)
+      return
+    }
+    if (action.kind === 'file-node') {
+      openFileNode?.(action.path)
+      return
+    }
+    if (action.kind === 'reveal') {
+      void bridge?.showItemInFolder?.(action.path)
+      return
+    }
+    const opening = bridge?.openLocalFile?.(action.path)
+    if (opening === undefined) {
+      setProblem('This build cannot open local files.')
+      return
+    }
+    void opening
+      .then((result) => {
+        if (!result.ok) setProblem(result.message)
+      })
+      .catch((error: Error) => setProblem(error.message))
+  }
+
+  return (
+    <>
       <a
-        href={href}
+        href={action.kind === 'browser' ? action.url : undefined}
+        // Without an href an anchor is not a link to the keyboard or a screen reader; a local
+        // artifact link is still a link, so it says so explicitly instead.
+        role={action.kind === 'browser' ? undefined : 'link'}
+        tabIndex={action.kind === 'browser' ? undefined : 0}
+        title={action.title}
+        data-link-kind={action.kind}
         onClick={(event) => {
           event.preventDefault()
-          if (href) void window.terminalApi?.openExternal?.(href)
+          open()
+        }}
+        onKeyDown={(event) => {
+          if (event.key !== 'Enter' && event.key !== ' ') return
+          event.preventDefault()
+          open()
         }}
       >
         {props.children}
       </a>
-    )
+      {problem && (
+        <span className="markdown-link-error" role="note">
+          {problem}
+        </span>
+      )}
+    </>
+  )
+}
+
+const components: Components = {
+  ...markdownBlockComponents,
+  a(props) {
+    return <MarkdownLink href={typeof props.href === 'string' ? props.href : undefined}>{props.children}</MarkdownLink>
   }
 }
 
 function MarkdownMessage({ text, authored }: { text: string; authored?: boolean }): JSX.Element {
   return (
     <div className="markdown-body">
-      <ReactMarkdown remarkPlugins={authored ? authoredRemarkPlugins : remarkPlugins} components={components}>
+      <ReactMarkdown
+        remarkPlugins={authored ? authoredRemarkPlugins : remarkPlugins}
+        components={components}
+        urlTransform={keepHref}
+      >
         {text}
       </ReactMarkdown>
     </div>

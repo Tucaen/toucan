@@ -8,6 +8,7 @@ interface Harness {
   handlers: Map<string, (...args: unknown[]) => unknown>
   opened: string[]
   revealed: string[]
+  openedLocally: string[]
   saved: WorkspaceState[]
 }
 
@@ -15,6 +16,7 @@ function harness(overrides: Partial<ProjectIpcDependencies> = {}): Harness {
   const handlers = new Map<string, (...args: unknown[]) => unknown>()
   const opened: string[] = []
   const revealed: string[] = []
+  const openedLocally: string[] = []
   const saved: WorkspaceState[] = []
   registerProjectIpc(
     { handle: (channel, listener) => void handlers.set(channel, listener as (...args: unknown[]) => unknown) },
@@ -30,10 +32,14 @@ function harness(overrides: Partial<ProjectIpcDependencies> = {}): Harness {
       pickProjectDirectory: async () => 'D:\\projects/other',
       openExternal: async (url) => void opened.push(url),
       showItemInFolder: (path) => void revealed.push(path),
+      openLocalFile: async (path) => {
+        openedLocally.push(path)
+        return { ok: true }
+      },
       ...overrides
     }
   )
-  return { handlers, opened, revealed, saved }
+  return { handlers, opened, revealed, openedLocally, saved }
 }
 
 const event = { sender: {} }
@@ -77,6 +83,18 @@ test('shell:show-item-in-folder normalizes the path and ignores anything blank o
   await reveal(event, '   ')
   await reveal(event, undefined)
   assert.deepEqual(revealed, ['D:\\projects\\toucan\\README.md'])
+})
+
+test('shell:open-local-file hands the path to the opener and returns its verdict', async () => {
+  const { handlers, openedLocally } = harness()
+  const open = handlers.get(SHELL_CHANNELS.openLocalFile)!
+  assert.deepEqual(await open(event, 'D:\\Projects\\My Game\\docs\\studies.png'), { ok: true })
+  assert.deepEqual(openedLocally, ['D:\\Projects\\My Game\\docs\\studies.png'])
+
+  // A non-string cannot be a path, and it is still answered: the opener refuses the empty path in
+  // its own words, so there is never a second wording of the same refusal here.
+  await open(event, 42)
+  assert.deepEqual(openedLocally, ['D:\\Projects\\My Game\\docs\\studies.png', ''])
 })
 
 test('workspace load and save go to the injected store', async () => {

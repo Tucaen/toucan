@@ -69,6 +69,7 @@ const terminalApi: TerminalApi = {
   copyText: (text) => clipboard.writeText(text),
   openExternal: (url) => ipcRenderer.invoke(SHELL_CHANNELS.openExternal, url),
   showItemInFolder: (path) => ipcRenderer.invoke(SHELL_CHANNELS.showItemInFolder, path),
+  openLocalFile: (path) => ipcRenderer.invoke(SHELL_CHANNELS.openLocalFile, path),
   readClipboardText: () => clipboard.readText(),
   onData: (sessionId, attachmentId, callback) =>
     subscribe(TERMINAL_CHANNELS.data, (output: TerminalOutput) => {

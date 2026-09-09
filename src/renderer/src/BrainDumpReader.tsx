@@ -7,7 +7,7 @@ import { classifyBrainDumpLink, linkifyBrainDumpReferences, parseBrainDumpRefere
 import { describeBrainDumpDate, resolveBrainDumpProject } from './brain-dump-topics'
 import { BrainDumpProjectChip } from './BrainDumpProjectChip'
 import BrainDumpProjectPicker from './BrainDumpProjectPicker'
-import { markdownBlockComponents, remarkPlugins } from './MarkdownMessage'
+import { keepHref, markdownBlockComponents, remarkPlugins } from './MarkdownMessage'
 
 /**
  * The reader column. Topic prose is ordinary Markdown, so it reuses the transcript's GFM pipeline
@@ -16,14 +16,6 @@ import { markdownBlockComponents, remarkPlugins } from './MarkdownMessage'
  * action. Every reference in the open topic is resolved against the library up front, so a link to
  * something that was never written reads as missing instead of failing on click.
  */
-
-/**
- * react-markdown's default URL sanitizer drops `file:` and any private scheme, which would erase
- * exactly the two link kinds this reader exists to handle. Safety is enforced afterwards instead:
- * `classifyBrainDumpLink` decides what an href is, and anything it does not recognize is rendered
- * as inert text with no `href` at all, so nothing unclassified ever becomes clickable.
- */
-const keepHref = (url: string): string => url
 
 export interface BrainDumpReaderProps {
   topic: BrainDumpTopic

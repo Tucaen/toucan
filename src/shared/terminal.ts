@@ -1,6 +1,7 @@
 import type { AgentProvider, AgentTurnOutcome } from './agent'
 import type { AttentionItem } from './attention'
 import type { WorkspaceFileNode } from './file-view'
+import type { LocalFileOpenResult } from './local-file-link'
 import type { WorkspaceDiffNode } from './git-diff'
 import type { WorkspaceWorktree } from './worktree'
 import type { ConversationTitleSource } from './conversation-title'
@@ -315,6 +316,11 @@ export interface TerminalApi {
   openExternal(url: string): Promise<void>
   /** Selects a file in the OS file manager; never opens or executes it. */
   showItemInFolder(path: string): Promise<void>
+  /**
+   * Opens a local artifact - an image, a document, a media file - with the application the OS
+   * associates with it. Main decides whether the path may be opened at all and says why not.
+   */
+  openLocalFile(path: string): Promise<LocalFileOpenResult>
   readClipboardText(): string
   onData(sessionId: string, attachmentId: string, callback: (output: TerminalOutput) => void): () => void
   onExit(sessionId: string, attachmentId: string, callback: (result: TerminalExit) => void): () => void
