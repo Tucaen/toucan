@@ -3,6 +3,7 @@ import type { AttentionAction, AttentionKind } from '../../shared/attention'
 import type { AgentTurnOutcome } from '../../shared/agent'
 import type {
   AgentPermissionModes,
+  CanvasNodeStateField,
   ConversationPreview,
   TerminalLiveness,
   TerminalKind,
@@ -10,7 +11,7 @@ import type {
   WorkspaceState,
   WorkspaceTerminalNode
 } from '../../shared/terminal'
-import { RECENTLY_CLOSED_SESSION_LIMIT, type WorkspaceProject } from '../../shared/terminal'
+import { nodeFocusMode, RECENTLY_CLOSED_SESSION_LIMIT, type WorkspaceProject } from '../../shared/terminal'
 import { defaultFileViewMode, type FileViewMode, type WorkspaceFileNode } from '../../shared/file-view'
 import type { WorkspaceDiffNode } from '../../shared/git-diff'
 import type { WorkspaceWorktree } from '../../shared/worktree'
@@ -64,16 +65,25 @@ interface CanvasNodePresentation {
   fittedToCanvas?: boolean
 }
 
-export interface TerminalNodeData extends Record<string, unknown>, TerminalNodeCallbacks, CanvasNodePresentation {
+/**
+ * What every canvas node carries about the project it belongs to. The four fields are
+ * denormalised onto the node so a header, a badge or a path row never has to look a project up,
+ * which is also why a colour change has to fan out across the canvas (`withProjectColor`).
+ */
+interface ProjectNodeData {
+  projectId: string
+  projectName: string
+  projectPath: string
+  projectColor: string
+}
+
+export interface TerminalNodeData
+  extends Record<string, unknown>, ProjectNodeData, TerminalNodeCallbacks, CanvasNodePresentation {
   kind: TerminalKind
   sessionId: string
   terminalLiveness: TerminalLiveness
   label: string
   titleSource?: ConversationTitleSource
-  projectId: string
-  projectName: string
-  projectPath: string
-  projectColor: string
   /** The worktree this node is attached to, if any. Attachment is fixed for the node's life. */
   worktreeId?: string
   /** Shown on the node so it is always obvious which branch a session is editing. */
@@ -117,16 +127,13 @@ export interface WorktreeNodeCallbacks {
   onOpenDiff(worktreeId: string): void
 }
 
-export interface WorktreeNodeData extends Record<string, unknown>, WorktreeNodeCallbacks, CanvasNodePresentation {
+export interface WorktreeNodeData
+  extends Record<string, unknown>, ProjectNodeData, WorktreeNodeCallbacks, CanvasNodePresentation {
   worktreeId: string
   branch: string
   path: string
   baseRef: string
   createdAt: string
-  projectId: string
-  projectName: string
-  projectPath: string
-  projectColor: string
   setupCommand?: string
   /** How many canvas nodes currently run in this worktree; teardown is refused while non-zero. */
   attachedNodeCount: number
@@ -141,14 +148,11 @@ export interface FileNodeCallbacks {
   onPathChange(nodeId: string, path: string): void
 }
 
-export interface FileNodeData extends Record<string, unknown>, FileNodeCallbacks, CanvasNodePresentation {
+export interface FileNodeData
+  extends Record<string, unknown>, ProjectNodeData, FileNodeCallbacks, CanvasNodePresentation {
   /** Absolute path of the file shown. Kept even when the file is gone so the layout survives. */
   path: string
   view: FileViewMode
-  projectId: string
-  projectName: string
-  projectPath: string
-  projectColor: string
 }
 
 export interface DiffNodeCallbacks {
@@ -156,11 +160,8 @@ export interface DiffNodeCallbacks {
   onSelectDiffPath(nodeId: string, path: string | undefined): void
 }
 
-export interface DiffNodeData extends Record<string, unknown>, DiffNodeCallbacks, CanvasNodePresentation {
-  projectId: string
-  projectName: string
-  projectPath: string
-  projectColor: string
+export interface DiffNodeData
+  extends Record<string, unknown>, ProjectNodeData, DiffNodeCallbacks, CanvasNodePresentation {
   /** The worktree under review; absent for the project's primary checkout. */
   worktreeId?: string
   /** Shown as the node's identity: the worktree branch, or the project name for the primary checkout. */
@@ -179,8 +180,28 @@ export type DiffCanvasNode = Node<DiffNodeData, 'diffNode'>
 export type CanvasNode = TerminalCanvasNode | WorktreeCanvasNode | FileCanvasNode | DiffCanvasNode
 export const NODE_DRAG_HANDLE = '.node-header'
 
+/** Every callback bag a canvas node kind may need handed to it when it is built or restored. */
+export type CanvasNodeCallbacks = TerminalNodeCallbacks & WorktreeNodeCallbacks & FileNodeCallbacks & DiffNodeCallbacks
+
 /** Enough accidental closes to be useful without letting a workspace snapshot grow forever. */
 export const CLOSED_SESSION_STACK_LIMIT = RECENTLY_CLOSED_SESSION_LIMIT
+
+/**
+ * What a node of each kind is restored at when its measurement was never persisted, and - for
+ * every kind but the session node - what a freshly created one is sized to.
+ */
+const DEFAULT_TERMINAL_SIZE = { width: 520, height: 340 }
+/**
+ * What a freshly created session node is sized to. Larger than `DEFAULT_TERMINAL_SIZE`, which is
+ * only the fallback for restoring a node whose measurement was never persisted: a new session is
+ * opened to be worked in, an unmeasured one is being reconstructed.
+ */
+export const NEW_SESSION_NODE_SIZE = { width: 750, height: 660 }
+export const DEFAULT_WORKTREE_SIZE = { width: 360, height: 232 }
+/** Taller than wide: a file node is for reading a document, and prose is read downward. */
+export const DEFAULT_FILE_NODE_SIZE = { width: 480, height: 560 }
+/** Wide enough for a file rail beside hunks that keep their line numbers readable. */
+export const DEFAULT_DIFF_NODE_SIZE = { width: 760, height: 560 }
 
 /** The subset of `KeyboardEvent` the canvas shortcuts read, so callers can test without a DOM. */
 export interface ShortcutKey {
@@ -216,25 +237,118 @@ export type CreateNodeKeyAction =
   | 'none'
 
 /**
+ * One way to put something on the canvas: its shortcut, the size the node it produces will be,
+ * and how the context menu names it.
+ *
+ * Deliberately a separate table from `CANVAS_NODE_KINDS` rather than a field on it, because the
+ * two are not one-to-one: three actions and the history browser all produce a session node, and
+ * the worktree and file actions put a dialog between the click and the node.
+ */
+export interface CreateNodeAction {
+  action: Exclude<CreateNodeKeyAction, 'none'>
+  /** Pressed with Ctrl, and with Shift where `shift` says so. */
+  key: string
+  shift: boolean
+  /**
+   * How large the node this action produces will be, so a drop position can be worked out before
+   * the node exists. It must be the same object the construction site sizes the node with, or the
+   * node is centred by a number nothing else uses.
+   */
+  size: { width: number; height: number }
+  title: string
+  description: string
+}
+
+/**
  * Ctrl+P mirrors VS Code's quick-open for the file node; the others follow the same "Ctrl plus the
  * node's initial" idea, with Shift for the secondary agent and for the worktree (Ctrl+Shift+G is
  * VS Code's source-control view). Ctrl+Alt is deliberately unused: on German layouts it is AltGr
  * and types characters. Ctrl+Shift+T is taken by `closedSessionKeyAction`.
+ *
+ * Order is menu order: the shortcut handler, the hints and the menu itself all read this list.
  */
-const NODE_SHORTCUTS: readonly { action: Exclude<CreateNodeKeyAction, 'none'>; key: string; shift: boolean }[] = [
-  { action: 'create-terminal', key: 't', shift: false },
-  { action: 'create-claude', key: 'n', shift: false },
-  { action: 'create-codex', key: 'n', shift: true },
-  { action: 'create-worktree', key: 'g', shift: true },
-  { action: 'open-history', key: 'h', shift: false },
-  { action: 'open-file', key: 'p', shift: false },
-  { action: 'open-diff', key: 'd', shift: false }
-]
+export const CREATE_NODE_ACTIONS = [
+  {
+    action: 'create-terminal',
+    key: 't',
+    shift: false,
+    size: NEW_SESSION_NODE_SIZE,
+    title: 'Terminal',
+    description: 'Windows shell'
+  },
+  {
+    action: 'create-claude',
+    key: 'n',
+    shift: false,
+    size: NEW_SESSION_NODE_SIZE,
+    title: 'Claude',
+    description: 'Unified ACP chat'
+  },
+  {
+    action: 'create-codex',
+    key: 'n',
+    shift: true,
+    size: NEW_SESSION_NODE_SIZE,
+    title: 'Codex',
+    description: 'Unified ACP chat'
+  },
+  {
+    action: 'create-worktree',
+    key: 'g',
+    shift: true,
+    size: DEFAULT_WORKTREE_SIZE,
+    title: 'Worktree',
+    description: 'Isolated branch for parallel work'
+  },
+  {
+    action: 'open-history',
+    key: 'h',
+    shift: false,
+    size: NEW_SESSION_NODE_SIZE,
+    title: 'History',
+    description: 'Resume a past conversation'
+  },
+  {
+    action: 'open-file',
+    key: 'p',
+    shift: false,
+    size: DEFAULT_FILE_NODE_SIZE,
+    title: 'File…',
+    description: 'Read a project file on the canvas'
+  },
+  {
+    action: 'open-diff',
+    key: 'd',
+    shift: false,
+    size: DEFAULT_DIFF_NODE_SIZE,
+    title: 'Diff',
+    description: "Review the checkout's changes against HEAD"
+  }
+] satisfies readonly CreateNodeAction[]
+
+/**
+ * Compile-time proof that every action has a row. An action missing one would have no shortcut, no
+ * menu entry and an `undefined` drop size, so it must not be possible to add one to the union and
+ * forget the table - which the derived records below cannot catch, being keyed maps.
+ */
+type UnlistedCreateAction = Exclude<
+  Exclude<CreateNodeKeyAction, 'none'>,
+  (typeof CREATE_NODE_ACTIONS)[number]['action']
+>
+const _CREATE_NODE_ACTIONS_ARE_EXHAUSTIVE: [UnlistedCreateAction] extends [never] ? true : false = true
 
 /** Shown beside each menu entry so the shortcuts are discoverable where the mouse already is. */
 export const NODE_SHORTCUT_LABELS = Object.fromEntries(
-  NODE_SHORTCUTS.map(({ action, key, shift }) => [action, `Ctrl+${shift ? 'Shift+' : ''}${key.toLocaleUpperCase()}`])
+  CREATE_NODE_ACTIONS.map(({ action, key, shift }) => [
+    action,
+    `Ctrl+${shift ? 'Shift+' : ''}${key.toLocaleUpperCase()}`
+  ])
 ) as Record<Exclude<CreateNodeKeyAction, 'none'>, string>
+
+/** The size each action's node is built at, keyed for the caller placing it. */
+export const NEW_NODE_SIZE = Object.fromEntries(
+  CREATE_NODE_ACTIONS.map(({ action, size }) => [action, size])
+) as Record<Exclude<CreateNodeKeyAction, 'none'>, { width: number; height: number }>
 
 export interface CreateNodeKeyContext {
   /** Whether the key went to a terminal, where Ctrl+P/N/H/T are readline keys the shell must keep. */
@@ -249,7 +363,9 @@ export interface CreateNodeKeyContext {
 export function createNodeKeyAction(event: ShortcutKey, context: CreateNodeKeyContext): CreateNodeKeyAction {
   if (context.editingTerminal || event.repeat || !event.ctrlKey || event.altKey || event.metaKey) return 'none'
   const key = event.key.toLocaleLowerCase()
-  return NODE_SHORTCUTS.find((binding) => binding.key === key && binding.shift === event.shiftKey)?.action ?? 'none'
+  return (
+    CREATE_NODE_ACTIONS.find((binding) => binding.key === key && binding.shift === event.shiftKey)?.action ?? 'none'
+  )
 }
 
 export function isTerminalCanvasNode(node: CanvasNode): node is TerminalCanvasNode {
@@ -275,10 +391,43 @@ export function isDiffCanvasNode(node: CanvasNode): node is DiffCanvasNode {
 
 /**
  * Nodes that are layout rather than sessions: closing one is not an accidental close worth
- * undoing, so they never enter the recently-closed stack - and never wipe it either.
+ * undoing, so they never enter the recently-closed stack - and never wipe it either. That rule is
+ * enforced in exactly one place, `rememberClosedSessionNodes`; a caller must never pre-filter
+ * removed nodes on its own, or the two halves can disagree about what a close means.
  */
 export function isLayoutCanvasNode(node: CanvasNode): node is FileCanvasNode | DiffCanvasNode {
   return isFileCanvasNode(node) || isDiffCanvasNode(node)
+}
+
+/**
+ * What a session node's status is. A node that has not reported one yet is read from the node
+ * itself - dormant means saved, anything else is starting - so the workspace, the sidebar, the
+ * worktree adoption gate and a just-reopened node cannot each pick a different default.
+ */
+export function sessionNodeStatus(
+  node: { id: string; data: { dormant: boolean } },
+  statuses: Readonly<Record<string, TerminalNodeStatus>> = {}
+): TerminalNodeStatus {
+  return statuses[node.id] ?? (node.data.dormant ? 'dormant' : 'starting')
+}
+
+/**
+ * A project's colour is denormalised onto every node it owns at node creation, so changing it has
+ * to fan out across the canvas in the same update - otherwise the sidebar and the header chip
+ * retint immediately while the nodes keep the old colour until the next restore.
+ *
+ * Every kind carries `projectColor`, so this is one patch. The cast is what that costs:
+ * TypeScript keeps a union's discriminant only when each member is rebuilt separately, and doing
+ * that here would be one identical branch per kind.
+ */
+export function withProjectColor(nodes: CanvasNode[], projectId: string, projectColor: string): CanvasNode[] {
+  let changed = false
+  const next = nodes.map((node) => {
+    if (node.data.projectId !== projectId || node.data.projectColor === projectColor) return node
+    changed = true
+    return { ...node, data: { ...node.data, projectColor } } as CanvasNode
+  })
+  return changed ? next : nodes
 }
 
 export interface RestoredCanvasWorkspace {
@@ -287,19 +436,6 @@ export interface RestoredCanvasWorkspace {
   nextSessionNumber: number
   activeProjectId: string
 }
-
-const DEFAULT_TERMINAL_SIZE = { width: 520, height: 340 }
-/**
- * What a freshly created session node is sized to. Larger than `DEFAULT_TERMINAL_SIZE`, which is
- * only the fallback for restoring a node whose measurement was never persisted: a new session is
- * opened to be worked in, an unmeasured one is being reconstructed.
- */
-export const NEW_SESSION_NODE_SIZE = { width: 750, height: 660 }
-export const DEFAULT_WORKTREE_SIZE = { width: 360, height: 232 }
-/** Taller than wide: a file node is for reading a document, and prose is read downward. */
-export const DEFAULT_FILE_NODE_SIZE = { width: 480, height: 560 }
-/** Wide enough for a file rail beside hunks that keep their line numbers readable. */
-export const DEFAULT_DIFF_NODE_SIZE = { width: 760, height: 560 }
 
 /** How far each retry of `cascadedNodePosition` steps, and how many times it may step. */
 const CASCADE_STEP = 48
@@ -337,22 +473,6 @@ export function cascadedNodePosition(
 }
 
 /**
- * How large the node each create action produces will be, so a drop position can be worked out
- * before the node exists. Keyed by action rather than by node type because the caller placing the
- * node has the action in hand and some actions (a worktree draft, a file picker) put a dialog
- * between the two.
- */
-export const NEW_NODE_SIZE: Record<Exclude<CreateNodeKeyAction, 'none'>, { width: number; height: number }> = {
-  'create-terminal': NEW_SESSION_NODE_SIZE,
-  'create-claude': NEW_SESSION_NODE_SIZE,
-  'create-codex': NEW_SESSION_NODE_SIZE,
-  'create-worktree': DEFAULT_WORKTREE_SIZE,
-  'open-history': NEW_SESSION_NODE_SIZE,
-  'open-file': DEFAULT_FILE_NODE_SIZE,
-  'open-diff': DEFAULT_DIFF_NODE_SIZE
-}
-
-/**
  * The top-left corner that leaves a node of `size` in the middle of `region`, both in flow
  * coordinates. React Flow positions a node by its corner, so a node handed the centre of the
  * region hangs down and to the right of it with half of itself off screen; centring means
@@ -375,6 +495,35 @@ export function centredNodePosition(
 type SessionRestoreWorkspace = Pick<WorkspaceState, 'projects' | 'worktrees' | 'agentPermissionModes'>
 type SessionRestoreMode = 'hydrate' | 'reopen'
 
+/**
+ * What a kind's restore may read about the workspace a record is coming back into, beyond its own
+ * project. Worktrees are reached through the lookup rather than as a list, because the only
+ * worktrees a record may resolve are the ones that survived their own pruning.
+ */
+export interface CanvasRestoreContext {
+  worktreeById(worktreeId: string): WorkspaceWorktree | undefined
+  attachedNodeCount(worktreeId: string): number
+  agentPermissionModes?: AgentPermissionModes
+}
+
+function canvasRestoreContext(
+  worktrees: readonly WorkspaceWorktree[],
+  attachedNodeCount: (worktreeId: string) => number,
+  agentPermissionModes?: AgentPermissionModes
+): CanvasRestoreContext {
+  const byId = new Map(worktrees.map((worktree) => [worktree.id, worktree]))
+  return {
+    worktreeById: (worktreeId) => byId.get(worktreeId),
+    attachedNodeCount,
+    agentPermissionModes
+  }
+}
+
+/**
+ * The persisted size of a node: what it measures on screen, else what its style carries, else the
+ * `fallback` its own serializer names. A node with no measurement is being reconstructed, not
+ * opened, which is why the fallback is a restore size rather than the size a new node opens at.
+ */
 function measured(node: CanvasNode, fallback: { width: number; height: number }): { width: number; height: number } {
   const styleWidth = typeof node.style?.width === 'number' ? node.style.width : fallback.width
   const styleHeight = typeof node.style?.height === 'number' ? node.style.height : fallback.height
@@ -408,15 +557,24 @@ export function serializeCanvasNode(node: TerminalCanvasNode): WorkspaceTerminal
   }
 }
 
-/** Store only durable session data; React callbacks are rebuilt when the node is reopened. */
+/**
+ * Store only durable session data; React callbacks are rebuilt when the node is reopened.
+ *
+ * This is the *one* enforcement site of "a layout node is not a session": a closed file or diff
+ * node is neither a reopen target nor a reason to wipe the stack, while closing a worktree node
+ * (or a chat that cannot be resumed) still clears it, because what comes back could otherwise be
+ * pointing at a checkout that has gone. Callers hand over everything that was removed.
+ */
 export function rememberClosedSessionNodes(
   current: WorkspaceTerminalNode[],
   removedNodes: CanvasNode[]
 ): WorkspaceTerminalNode[] {
   if (removedNodes.length === 0) return current
-  const sessionNodes = removedNodes.filter(isTerminalCanvasNode)
+  const closable = removedNodes.filter((node) => !isLayoutCanvasNode(node))
+  if (closable.length === 0) return current
+  const sessionNodes = closable.filter(isTerminalCanvasNode)
   if (
-    sessionNodes.length !== removedNodes.length ||
+    sessionNodes.length !== closable.length ||
     sessionNodes.some((node) => node.data.kind !== 'terminal' && !node.data.conversationId)
   )
     return []
@@ -426,15 +584,12 @@ export function rememberClosedSessionNodes(
 
 function restoreTerminalCanvasNode(
   savedNode: WorkspaceTerminalNode,
-  workspace: SessionRestoreWorkspace,
+  project: WorkspaceProject,
+  context: CanvasRestoreContext,
   callbacks: TerminalNodeCallbacks,
   mode: SessionRestoreMode
-): TerminalCanvasNode | null {
-  const project = workspace.projects.find((candidate) => candidate.id === savedNode.projectId)
-  if (!project) return null
-  const worktree = savedNode.worktreeId
-    ? workspace.worktrees.find((candidate) => candidate.id === savedNode.worktreeId)
-    : undefined
+): TerminalCanvasNode {
+  const worktree = savedNode.worktreeId ? context.worktreeById(savedNode.worktreeId) : undefined
   // A node whose worktree record vanished must never quietly fall back to the project
   // checkout and start writing there, so it restores detached and dormant instead.
   const detachedFromWorktree = Boolean(savedNode.worktreeId) && !worktree
@@ -463,16 +618,16 @@ function restoreTerminalCanvasNode(
       worktreeBranch: worktree?.branch,
       activeWorktreeId: savedNode.activeWorktreeId,
       activeWorktreeBranch: savedNode.activeWorktreeId
-        ? workspace.worktrees.find((candidate) => candidate.id === savedNode.activeWorktreeId)?.branch
+        ? context.worktreeById(savedNode.activeWorktreeId)?.branch
         : undefined,
       workingDirectory: worktree?.path ?? project.path,
       detachedFromWorktree,
       conversationId: savedNode.conversationId,
       preview: savedNode.preview,
-      focusMode: savedNode.focusMode ?? savedNode.worklogCollapsed ?? false,
+      focusMode: nodeFocusMode(savedNode),
       draft: savedNode.draft,
       preferredPermissionMode:
-        savedNode.kind === 'terminal' ? undefined : workspace.agentPermissionModes?.[savedNode.kind],
+        savedNode.kind === 'terminal' ? undefined : context.agentPermissionModes?.[savedNode.kind],
       modelId: savedNode.kind === 'terminal' ? undefined : savedNode.modelId,
       turnOutcomes: savedNode.kind === 'terminal' ? undefined : savedNode.turnOutcomes,
       dormant,
@@ -502,13 +657,21 @@ export function reopenClosedSession(
   callbacks: TerminalNodeCallbacks
 ): { node: TerminalCanvasNode | null; recentlyClosedNodes: WorkspaceTerminalNode[] } {
   const remaining = [...recentlyClosedNodes]
+  // Nothing is attached yet at the moment a node is reopened, and the count a worktree node shows
+  // is recomputed from the canvas straight afterwards (`applyAttachedNodeCounts`).
+  const context = canvasRestoreContext(workspace.worktrees ?? [], () => 0, workspace.agentPermissionModes)
   while (remaining.length > 0) {
     const savedNode = remaining.pop()!
     if (savedNode.kind !== 'terminal' && !savedNode.conversationId) {
       return { node: null, recentlyClosedNodes: [] }
     }
-    const node = restoreTerminalCanvasNode(savedNode, workspace, callbacks, 'reopen')
-    if (node) return { node, recentlyClosedNodes: remaining }
+    const project = workspace.projects.find((candidate) => candidate.id === savedNode.projectId)
+    if (project) {
+      return {
+        node: restoreTerminalCanvasNode(savedNode, project, context, callbacks, 'reopen'),
+        recentlyClosedNodes: remaining
+      }
+    }
   }
   return { node: null, recentlyClosedNodes: remaining }
 }
@@ -525,6 +688,66 @@ export function serializeWorktreeNode(node: WorktreeCanvasNode): WorkspaceWorktr
     position: node.position,
     width: size.width,
     height: size.height
+  }
+}
+
+export interface WorktreeNodeSeed {
+  /** The workspace's own id for the worktree; the canvas node's id is derived from it. */
+  worktreeId: string
+  branch: string
+  path: string
+  baseRef: string
+  createdAt: string
+  position: { x: number; y: number }
+  width?: number
+  height?: number
+  /** How many nodes already run here; a worktree that was just created carries none. */
+  attachedNodeCount?: number
+  /** Selected when the user asked for this worktree themselves; a swept one appears quietly. */
+  selected?: boolean
+}
+
+/**
+ * The one place a worktree node is built, whether it was created from the dialog, handed off to by
+ * a prompt that asked for its own worktree, discovered by the sweep, or restored from a snapshot.
+ * Every path therefore lands with the same drag handle, size rules, denormalised project - and
+ * with `deletable: false`, which is the load-bearing one.
+ */
+export function createWorktreeCanvasNode(
+  seed: WorktreeNodeSeed,
+  project: WorkspaceProject,
+  callbacks: WorktreeNodeCallbacks
+): WorktreeCanvasNode {
+  return {
+    id: `worktree:${seed.worktreeId}`,
+    type: 'worktreeNode',
+    dragHandle: NODE_DRAG_HANDLE,
+    // Teardown is a deliberate, evidence-gated act; the Delete key must never be able to
+    // drop the record and orphan a directory git still knows about.
+    deletable: false,
+    ...(seed.selected ? { selected: true } : {}),
+    position: seed.position,
+    data: {
+      worktreeId: seed.worktreeId,
+      branch: seed.branch,
+      path: seed.path,
+      baseRef: seed.baseRef,
+      createdAt: seed.createdAt,
+      projectId: project.id,
+      projectName: project.name,
+      projectPath: project.path,
+      projectColor: project.color,
+      setupCommand: project.setupCommand,
+      attachedNodeCount: seed.attachedNodeCount ?? 0,
+      onRemoveWorktree: callbacks.onRemoveWorktree,
+      onCreateNodeInWorktree: callbacks.onCreateNodeInWorktree,
+      onRunSetupCommand: callbacks.onRunSetupCommand,
+      onOpenDiff: callbacks.onOpenDiff
+    },
+    style: {
+      width: seed.width ?? DEFAULT_WORKTREE_SIZE.width,
+      height: seed.height ?? DEFAULT_WORKTREE_SIZE.height
+    }
   }
 }
 
@@ -662,84 +885,187 @@ export function withoutWorktree(nodes: CanvasNode[], worktreeId: string): Canvas
   )
 }
 
+/**
+ * The mechanical concerns of one canvas node kind, so adding or changing a kind is one table entry
+ * and one `WorkspaceState` field rather than an edit to every loop that walks the canvas.
+ *
+ * Deliberately only the mechanical ones: serialize (which owns the size it falls back to) and
+ * restore-and-prune. A kind's behaviour - its callback bag, its status, its scrollback, what a
+ * phone may see of it - stays where it already lives, because describing those here would turn
+ * every entry into optional hooks one kind uses and move the branching into `if (kind.supportsX)`.
+ */
+export interface CanvasNodeKind<Saved extends { projectId: string }, N extends CanvasNode> {
+  field: CanvasNodeStateField
+  /**
+   * Written to the snapshot even when empty. True only for the two fields version 3 has always
+   * had; a kind added later stays absent when there is none, so a workspace that never opened one
+   * keeps writing the snapshot shape it always did.
+   */
+  alwaysPersisted: boolean
+  is(node: CanvasNode): node is N
+  serialize(node: N): Saved
+  /**
+   * Rebuilds one saved record. Returning `null` prunes it: the record describes something the
+   * workspace no longer has. A record whose *project* is gone is pruned by the caller, for every
+   * kind at once, so no entry has to write that rule again.
+   */
+  restore(
+    saved: Saved,
+    project: WorkspaceProject,
+    context: CanvasRestoreContext,
+    callbacks: CanvasNodeCallbacks
+  ): N | null
+}
+
+/**
+ * One table entry with its `Saved` and node types erased, so the four can live in one list. The
+ * two casts are the whole price of that erasure and are contained here: `canvasNodeKind` is only
+ * ever handed a matching pair, and every caller guards `serialize` with `is`.
+ */
+export interface CanvasNodeKindEntry {
+  field: CanvasNodeStateField
+  alwaysPersisted: boolean
+  is(node: CanvasNode): boolean
+  serialize(node: CanvasNode): unknown
+  restore(
+    saved: { projectId: string },
+    project: WorkspaceProject,
+    context: CanvasRestoreContext,
+    callbacks: CanvasNodeCallbacks
+  ): CanvasNode | null
+}
+
+export function canvasNodeKind<Saved extends { projectId: string }, N extends CanvasNode>(
+  kind: CanvasNodeKind<Saved, N>
+): CanvasNodeKindEntry {
+  return {
+    field: kind.field,
+    alwaysPersisted: kind.alwaysPersisted,
+    is: kind.is,
+    serialize: (node) => kind.serialize(node as N),
+    restore: (saved, project, context, callbacks) => kind.restore(saved as Saved, project, context, callbacks)
+  }
+}
+
+/**
+ * Every canvas node kind, in the order they are laid on the canvas: worktrees first, so a session
+ * node sits above the worktree it runs in, then sessions, then the layout kinds.
+ */
+export const CANVAS_NODE_KINDS: readonly CanvasNodeKindEntry[] = [
+  canvasNodeKind<WorkspaceWorktree, WorktreeCanvasNode>({
+    field: 'worktrees',
+    alwaysPersisted: true,
+    is: isWorktreeCanvasNode,
+    serialize: serializeWorktreeNode,
+    restore: (saved, project, context, callbacks) =>
+      createWorktreeCanvasNode(
+        { ...saved, worktreeId: saved.id, attachedNodeCount: context.attachedNodeCount(saved.id) },
+        project,
+        callbacks
+      )
+  }),
+  canvasNodeKind<WorkspaceTerminalNode, TerminalCanvasNode>({
+    field: 'nodes',
+    alwaysPersisted: true,
+    is: isTerminalCanvasNode,
+    serialize: serializeCanvasNode,
+    restore: (saved, project, context, callbacks) =>
+      restoreTerminalCanvasNode(saved, project, context, callbacks, 'hydrate')
+  }),
+  canvasNodeKind<WorkspaceFileNode, FileCanvasNode>({
+    field: 'files',
+    alwaysPersisted: false,
+    is: isFileCanvasNode,
+    serialize: serializeFileNode,
+    // A file whose project is gone has no root to be read under, so it goes with the project; a
+    // file that is merely missing from disk keeps its node, which reports that itself.
+    restore: (saved, project, _context, callbacks) => createFileCanvasNode(saved, project, callbacks)
+  }),
+  canvasNodeKind<WorkspaceDiffNode, DiffCanvasNode>({
+    field: 'diffs',
+    alwaysPersisted: false,
+    is: isDiffCanvasNode,
+    serialize: serializeDiffNode,
+    // A review goes with its worktree record the way `withoutWorktree` removes it when the
+    // worktree is torn down; a checkout that is merely dirty or gone from disk keeps its node.
+    restore: (saved, project, context, callbacks) => {
+      const worktree = saved.worktreeId ? context.worktreeById(saved.worktreeId) : undefined
+      if (saved.worktreeId && !worktree) return null
+      return createDiffCanvasNode(saved, project, worktree, callbacks)
+    }
+  })
+]
+
+/**
+ * The persisted half of every canvas node, one array per kind, in one pass over the canvas.
+ *
+ * `beforeSave` runs first on each node, which is how a node maximised into fit mode is persisted
+ * at the geometry it will return to rather than filling the canvas.
+ */
+export function serializeCanvasNodes(
+  nodes: readonly CanvasNode[],
+  beforeSave: (node: CanvasNode) => CanvasNode = (node) => node,
+  kinds: readonly CanvasNodeKindEntry[] = CANVAS_NODE_KINDS
+): Pick<WorkspaceState, 'nodes' | 'worktrees' | 'files' | 'diffs'> {
+  // Seeded from the standard table's `alwaysPersisted` entries, so the two fields version 3 has
+  // always had are written even when the canvas has none of them - and so the return type stays
+  // true whichever `kinds` list is handed in. Everything else is absent until there is one.
+  const snapshot: Record<string, unknown[]> = Object.fromEntries(
+    CANVAS_NODE_KINDS.filter((kind) => kind.alwaysPersisted).map((kind) => [kind.field, []])
+  )
+  for (const kind of kinds) {
+    const records = nodes.filter((node) => kind.is(node)).map((node) => kind.serialize(beforeSave(node)))
+    if (records.length > 0 || kind.alwaysPersisted) snapshot[kind.field] = records
+  }
+  // Sound by the seeding above; the erasure is what costs the cast, not the shape.
+  return snapshot as unknown as Pick<WorkspaceState, 'nodes' | 'worktrees' | 'files' | 'diffs'>
+}
+
+function savedRecords(state: WorkspaceState, field: CanvasNodeStateField): readonly { projectId: string }[] {
+  return state[field] ?? []
+}
+
 export function restoreCanvasWorkspace(
   state: WorkspaceState,
-  callbacks: TerminalNodeCallbacks & WorktreeNodeCallbacks & FileNodeCallbacks & DiffNodeCallbacks
+  callbacks: CanvasNodeCallbacks,
+  kinds: readonly CanvasNodeKindEntry[] = CANVAS_NODE_KINDS
 ): RestoredCanvasWorkspace {
   const projectsById = new Map(state.projects.map((project) => [project.id, project]))
+  // The same "its project is gone, so it goes too" rule the loop below applies to every kind,
+  // applied to the worktree records up front: the session and diff kinds resolve their worktree
+  // through this set, and a record naming a deleted project must not be resolvable for them.
   const worktrees = (state.worktrees ?? []).filter((worktree) => projectsById.has(worktree.projectId))
-  const worktreesById = new Map(worktrees.map((worktree) => [worktree.id, worktree]))
+  const worktreeIds = new Set(worktrees.map((worktree) => worktree.id))
   const attachedCounts = new Map<string, number>()
   for (const node of state.nodes) {
-    if (node.worktreeId && worktreesById.has(node.worktreeId)) {
+    if (node.worktreeId && worktreeIds.has(node.worktreeId)) {
       attachedCounts.set(node.worktreeId, (attachedCounts.get(node.worktreeId) ?? 0) + 1)
     }
   }
+  const context = canvasRestoreContext(
+    worktrees,
+    (worktreeId) => attachedCounts.get(worktreeId) ?? 0,
+    state.agentPermissionModes
+  )
 
-  const worktreeNodes = worktrees.map<WorktreeCanvasNode>((worktree) => {
-    const project = projectsById.get(worktree.projectId)!
-    return {
-      id: `worktree:${worktree.id}`,
-      type: 'worktreeNode',
-      dragHandle: NODE_DRAG_HANDLE,
-      // Teardown is a deliberate, evidence-gated act; the Delete key must never be able to
-      // drop the record and orphan a directory git still knows about.
-      deletable: false,
-      position: worktree.position,
-      data: {
-        worktreeId: worktree.id,
-        branch: worktree.branch,
-        path: worktree.path,
-        baseRef: worktree.baseRef,
-        createdAt: worktree.createdAt,
-        projectId: project.id,
-        projectName: project.name,
-        projectPath: project.path,
-        projectColor: project.color,
-        setupCommand: project.setupCommand,
-        attachedNodeCount: attachedCounts.get(worktree.id) ?? 0,
-        onRemoveWorktree: callbacks.onRemoveWorktree,
-        onCreateNodeInWorktree: callbacks.onCreateNodeInWorktree,
-        onRunSetupCommand: callbacks.onRunSetupCommand,
-        onOpenDiff: callbacks.onOpenDiff
-      },
-      style: { width: worktree.width, height: worktree.height }
-    }
-  })
+  const nodes = kinds.flatMap((kind) =>
+    savedRecords(state, kind.field).flatMap((saved) => {
+      const project = projectsById.get(saved.projectId)
+      if (!project) return []
+      const node = kind.restore(saved, project, context, callbacks)
+      return node ? [node] : []
+    })
+  )
 
-  const terminalNodes = state.nodes.flatMap<TerminalCanvasNode>((savedNode) => {
-    const restored = restoreTerminalCanvasNode(savedNode, { ...state, worktrees }, callbacks, 'hydrate')
-    return restored ? [restored] : []
-  })
-
-  const highestSessionNumber = terminalNodes.reduce((highest, node) => {
+  const sessionNodes = nodes.filter(isTerminalCanvasNode)
+  const highestSessionNumber = sessionNodes.reduce((highest, node) => {
     const match = node.data.label.match(/ (\d+)$/)
     return Math.max(highest, match ? Number(match[1]) : 0)
   }, 0)
 
-  // A file whose project is gone has no root to be read under, so it goes with the project; a
-  // file that is merely missing from disk keeps its node, which reports that itself.
-  const fileNodes = (state.files ?? []).flatMap<FileCanvasNode>((file) => {
-    const project = projectsById.get(file.projectId)
-    return project ? [createFileCanvasNode(file, project, callbacks)] : []
-  })
-
-  // A diff node reviews a checkout, so it goes with its worktree record (or its project) the
-  // way a worktree's teardown removes it; a checkout that is merely dirty or gone from disk keeps
-  // its node, which reports that itself.
-  const diffNodes = (state.diffs ?? []).flatMap<DiffCanvasNode>((diff) => {
-    const project = projectsById.get(diff.projectId)
-    if (!project) return []
-    const worktree = diff.worktreeId ? worktreesById.get(diff.worktreeId) : undefined
-    if (diff.worktreeId && !worktree) return []
-    return [createDiffCanvasNode(diff, project, worktree, callbacks)]
-  })
-
   return {
-    nodes: [...worktreeNodes, ...terminalNodes, ...fileNodes, ...diffNodes],
-    statuses: Object.fromEntries(
-      terminalNodes.map((node) => [node.id, node.data.dormant ? ('dormant' as const) : ('starting' as const)])
-    ),
+    nodes,
+    statuses: Object.fromEntries(sessionNodes.map((node) => [node.id, sessionNodeStatus(node)])),
     nextSessionNumber: highestSessionNumber + 1,
     activeProjectId: state.projects.some((project) => project.id === state.activeProjectId)
       ? state.activeProjectId!

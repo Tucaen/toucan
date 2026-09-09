@@ -3,7 +3,13 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { createWorkspaceStore, parseWorkspaceState } from '../src/main/workspace-store'
+import {
+  CANVAS_NODE_VALIDATORS,
+  createWorkspaceStore,
+  isWorkspaceState,
+  parseWorkspaceState
+} from '../src/main/workspace-store'
+import { CANVAS_NODE_KINDS } from '../src/renderer/src/canvas-workspace'
 import { AGENT_TURN_OUTCOME_LIMIT } from '../src/shared/agent'
 import type { WorkspaceState } from '../src/shared/terminal'
 
@@ -771,4 +777,37 @@ test('diff nodes round-trip through the snapshot and malformed ones are refused'
   } finally {
     rmSync(directory, { recursive: true, force: true })
   }
+})
+
+/**
+ * Issue #165: which array each canvas node kind persists into, and whether it may be absent, is
+ * one table (`CANVAS_NODE_VALIDATORS`) rather than an `if` per kind. The two fields version 3 has
+ * always had are required; a kind added later is absent from older snapshots and must stay optional.
+ */
+test('every canvas node kind is validated by its own entry, required fields included', () => {
+  const base = makeState('Toucan')
+  const { nodes: _nodes, ...withoutNodes } = base
+  const { worktrees: _worktrees, ...withoutWorktrees } = base
+
+  assert.equal(isWorkspaceState(withoutNodes), false)
+  assert.equal(isWorkspaceState(withoutWorktrees), false)
+  assert.equal(isWorkspaceState({ ...base, nodes: {} }), false)
+  assert.equal(isWorkspaceState({ ...base, worktrees: [{ id: 'no-geometry' }] }), false)
+  // The optional kinds are absent in every snapshot written before they existed.
+  assert.equal(isWorkspaceState(base), true)
+  assert.equal(isWorkspaceState({ ...base, files: [], diffs: [] }), true)
+})
+
+/**
+ * The two tables sit on either side of the privilege seam, so nothing but this holds them
+ * together: a kind persisted by the renderer with no validator entry would be written and never
+ * checked, and one validated with no renderer entry would never be written at all.
+ */
+test('the validator table names the same fields, on the same terms, as the canvas node table', () => {
+  // Compared as sets: the canvas table's order is the order nodes are laid on the canvas, which
+  // means nothing to validation.
+  const terms = (kinds: readonly { field: string; alwaysPersisted: boolean }[]): string[] =>
+    kinds.map((kind) => `${kind.field}:${kind.alwaysPersisted}`).sort()
+
+  assert.deepEqual(terms(CANVAS_NODE_VALIDATORS), terms(CANVAS_NODE_KINDS))
 })

@@ -8,7 +8,9 @@ import type { WorkspaceDiffNode } from '../shared/git-diff'
 import { isProjectColor, paletteColorAt } from '../shared/project-colors'
 import {
   isComposerSendKey,
+  nodeFocusMode,
   RECENTLY_CLOSED_SESSION_LIMIT,
+  type CanvasNodeStateField,
   type ProjectGroup,
   type WorkspaceLoadResult,
   type WorkspaceProject,
@@ -196,15 +198,38 @@ function isLayoutSlots(value: unknown): boolean {
   )
 }
 
+/**
+ * One entry per canvas node kind: which `WorkspaceState` array it persists into and what a valid
+ * record in it looks like. The mirror, on this side of the privilege seam, of `CANVAS_NODE_KINDS`
+ * in `renderer/src/canvas-workspace.ts` - a new kind is one entry here rather than another `if` in
+ * `isWorkspaceState`, and `tests/workspace-store.test.ts` holds the two tables to the same fields
+ * so a kind cannot be persisted without being validated. `alwaysPersisted` means the same thing it
+ * does there: false for every kind added after version 3 was set, whose field is simply absent
+ * from the snapshots written before it existed.
+ */
+export const CANVAS_NODE_VALIDATORS: readonly {
+  field: CanvasNodeStateField
+  alwaysPersisted: boolean
+  isRecord(value: unknown): boolean
+}[] = [
+  { field: 'nodes', alwaysPersisted: true, isRecord: isWorkspaceTerminalNode },
+  { field: 'worktrees', alwaysPersisted: true, isRecord: isWorkspaceWorktree },
+  { field: 'files', alwaysPersisted: false, isRecord: isWorkspaceFileNode },
+  { field: 'diffs', alwaysPersisted: false, isRecord: isWorkspaceDiffNode }
+]
+
 export function isWorkspaceState(value: unknown): value is WorkspaceState {
   if (!hasValidProjects(value)) return false
   const state = value as Partial<WorkspaceState>
-  if (state.version !== 3 || !Array.isArray(state.nodes)) return false
-  if (!Array.isArray(state.worktrees) || !state.worktrees.every(isWorkspaceWorktree)) return false
-  if (state.files !== undefined && (!Array.isArray(state.files) || !state.files.every(isWorkspaceFileNode)))
-    return false
-  if (state.diffs !== undefined && (!Array.isArray(state.diffs) || !state.diffs.every(isWorkspaceDiffNode)))
-    return false
+  if (state.version !== 3) return false
+  for (const kind of CANVAS_NODE_VALIDATORS) {
+    const records: unknown = state[kind.field]
+    if (records === undefined) {
+      if (kind.alwaysPersisted) return false
+      continue
+    }
+    if (!Array.isArray(records) || !records.every(kind.isRecord)) return false
+  }
   if (
     state.projectGroups !== undefined &&
     (!Array.isArray(state.projectGroups) || !state.projectGroups.every(isProjectGroup))
@@ -224,7 +249,6 @@ export function isWorkspaceState(value: unknown): value is WorkspaceState {
   if (state.layoutSlots !== undefined && !isLayoutSlots(state.layoutSlots)) return false
   if (state.attention !== undefined && (!Array.isArray(state.attention) || !state.attention.every(isAttentionItem)))
     return false
-  if (!state.nodes.every(isWorkspaceTerminalNode)) return false
   return (
     state.recentlyClosedNodes === undefined ||
     (Array.isArray(state.recentlyClosedNodes) && state.recentlyClosedNodes.every(isWorkspaceTerminalNode))
@@ -286,10 +310,10 @@ export function parseWorkspaceState(candidate: unknown): WorkspaceState | null {
         ? { recentlyClosedNodes: state.recentlyClosedNodes.slice(-RECENTLY_CLOSED_SESSION_LIMIT) }
         : {}),
       nodes: state.nodes.map((node) => {
-        const { worklogCollapsed, ...current } = node
+        const { worklogCollapsed: _legacy, ...current } = node
         return {
           ...current,
-          ...(node.kind === 'terminal' ? {} : { focusMode: node.focusMode ?? worklogCollapsed ?? false }),
+          ...(node.kind === 'terminal' ? {} : { focusMode: nodeFocusMode(node) }),
           ...(node.turnOutcomes ? { turnOutcomes: node.turnOutcomes.slice(-AGENT_TURN_OUTCOME_LIMIT) } : {}),
           ...(node.preview
             ? {

@@ -1,10 +1,18 @@
 import { strict as assert } from 'node:assert'
+import { readFileSync, readdirSync } from 'node:fs'
+import { join } from 'node:path'
 import { test } from 'node:test'
 import {
+  CANVAS_NODE_KINDS,
+  canvasNodeKind,
   CLOSED_SESSION_STACK_LIMIT,
   closedSessionKeyAction,
   createNodeKeyAction,
+  createWorktreeCanvasNode,
   NODE_SHORTCUT_LABELS,
+  serializeCanvasNodes,
+  sessionNodeStatus,
+  withProjectColor,
   type ShortcutKey,
   isTerminalCanvasNode,
   isWorktreeCanvasNode,
@@ -37,7 +45,7 @@ import {
   type TerminalCanvasNode,
   type WorktreeCanvasNode
 } from '../src/renderer/src/canvas-workspace'
-import type { WorkspaceState } from '../src/shared/terminal'
+import type { CanvasNodeStateField, WorkspaceState } from '../src/shared/terminal'
 
 const callbacks = {
   onStatusChange: () => undefined,
@@ -330,6 +338,34 @@ test('remembering closed session nodes keeps the most recent bounded stack', () 
   assert.deepEqual(stack.at(-1), state.nodes.at(-1))
 })
 
+/**
+ * Issue #165: the layout-vs-session rule used to be written twice - the caller filtered layout
+ * nodes out of the removal and the callee wiped the stack for anything that was not a session -
+ * so deleting the filter silently wiped the reopen stack on every closed file node. It now lives
+ * here alone, which is why closing a file node together with a session still remembers the
+ * session rather than either dropping it or clearing everything.
+ */
+test('closing a layout node keeps the reopen stack, whatever it is closed alongside', () => {
+  const state = worktreeState()
+  const restored = restoreCanvasWorkspace(state, callbacks).nodes
+  const stack = [state.nodes[0]]
+  const file = createFileCanvasNode(
+    { id: 'file-1', path: 'D:\\Development\\Toucan\\README.md', position: { x: 0, y: 0 } },
+    state.projects[0],
+    callbacks
+  )
+  const diff = createDiffCanvasNode({ id: 'diff-1', position: { x: 0, y: 0 } }, state.projects[0], undefined, callbacks)
+  const session = terminalNodes(restored).find((node) => node.data.kind === 'terminal')!
+
+  assert.deepEqual(rememberClosedSessionNodes(stack, [file, diff]), stack)
+  assert.deepEqual(
+    rememberClosedSessionNodes(stack, [file, session]).map((node) => node.id),
+    ['node-1', 'node-2']
+  )
+  // A worktree close still wipes it: what comes back could be pointing at a checkout that is gone.
+  assert.deepEqual(rememberClosedSessionNodes(stack, [file, worktreeNodes(restored)[0]]), [])
+})
+
 test('a non-session close or an unresumable chat clears the shortcut target', () => {
   const state = worktreeState()
   const restored = restoreCanvasWorkspace(state, callbacks).nodes
@@ -542,8 +578,9 @@ test('a file node survives save, load and restore with its position and view mod
   assert.equal(files[0].data.projectColor, '#71a9ff')
   assert.equal(files[0].data.onViewModeChange, callbacks.onViewModeChange)
   assert.deepEqual(serializeFileNode(files[0]), state.files[0])
-  // The file's identity is not a session, so a closed file node never becomes a reopen target.
-  assert.deepEqual(rememberClosedSessionNodes([state.nodes[0]], [files[0]]), [])
+  // The file's identity is not a session, so a closed file node is not a reopen target - and,
+  // being layout rather than a session, it must not wipe the stack either.
+  assert.deepEqual(rememberClosedSessionNodes([state.nodes[0]], [files[0]]), [state.nodes[0]])
 })
 
 test('a new file node opens Markdown rendered and everything else raw', () => {
@@ -647,9 +684,9 @@ test('a diff node survives save, load and restore, and goes with its worktree or
   assert.equal(primary.data.worktreeId, undefined)
   assert.deepEqual(serializeDiffNode(primary), state.diffs[1])
 
-  // Like a file node, a review is not a session: closing one never becomes a reopen target.
+  // Like a file node, a review is layout: closing one is neither a reopen target nor a wipe.
   assert.equal(isLayoutCanvasNode(review), true)
-  assert.deepEqual(rememberClosedSessionNodes([state.nodes[0]], [review]), [])
+  assert.deepEqual(rememberClosedSessionNodes([state.nodes[0]], [review]), [state.nodes[0]])
 })
 
 test('a fresh diff node takes the default size and remembers the file the reader opens', () => {
@@ -721,9 +758,10 @@ test('a node too large for the region keeps its top-left corner inside it', () =
 })
 
 test('a create action is centred by the size its node is actually built with', () => {
-  // The key type already makes a missing entry a compile error. What it cannot catch is an entry
-  // that holds a size of its own instead of the one the construction site reads - then the node is
-  // centred by a number nothing else uses, which is the off-centre bug again for that one action.
+  // An action with no row in `CREATE_NODE_ACTIONS` is already a compile error
+  // (`UnlistedCreateAction`). What that cannot catch is a row holding a size of its own instead of
+  // the one the construction site reads - then the node is centred by a number nothing else uses,
+  // which is the off-centre bug again for that one action.
   assert.equal(NEW_NODE_SIZE['create-terminal'], NEW_SESSION_NODE_SIZE)
   assert.equal(NEW_NODE_SIZE['create-claude'], NEW_SESSION_NODE_SIZE)
   assert.equal(NEW_NODE_SIZE['create-codex'], NEW_SESSION_NODE_SIZE)
@@ -781,4 +819,229 @@ test('a chat node is a session node whose surface is a transcript, never an xter
     callbacks
   )
   assert.equal(isChatCanvasNode(file), false)
+})
+
+/**
+ * Issue #165: the worktree node used to be constructed at four sites, each repeating the drag
+ * handle, the four project fields, the callbacks and - the load-bearing one - `deletable: false`,
+ * which is what stops the Delete key from dropping the record and orphaning a directory git still
+ * knows about. One factory means a new construction site cannot forget any of it.
+ */
+test('every worktree node is built by one factory, with teardown off the Delete key', () => {
+  const project = worktreeState().projects[0]
+  const created = createWorktreeCanvasNode(
+    {
+      worktreeId: 'worktree-9',
+      branch: 'feature/login',
+      path: 'D:\\Development\\Toucan-worktrees\\feature-login',
+      baseRef: 'main',
+      createdAt: '2026-09-09T09:00:00.000Z',
+      position: { x: 24, y: 48 },
+      selected: true
+    },
+    project,
+    callbacks
+  )
+
+  assert.equal(created.id, 'worktree:worktree-9')
+  assert.equal(created.type, 'worktreeNode')
+  assert.equal(created.dragHandle, '.node-header')
+  assert.equal(created.deletable, false)
+  assert.equal(created.selected, true)
+  assert.deepEqual(created.style, DEFAULT_WORKTREE_SIZE)
+  assert.equal(created.data.attachedNodeCount, 0)
+  assert.equal(created.data.setupCommand, 'npm install')
+  assert.equal(created.data.projectPath, project.path)
+  assert.equal(created.data.projectColor, project.color)
+  assert.equal(created.data.onOpenDiff, callbacks.onOpenDiff)
+
+  // A swept or handed-off worktree appears without stealing the selection.
+  const quiet = createWorktreeCanvasNode(
+    { ...created.data, position: { x: 0, y: 0 }, width: 400, height: 300 },
+    project,
+    callbacks
+  )
+  assert.equal(quiet.selected, undefined)
+  assert.deepEqual(quiet.style, { width: 400, height: 300 })
+
+  // The restore path is the same factory, so a restored node is indistinguishable from a fresh one.
+  const restored = worktreeNodes(restoreCanvasWorkspace(worktreeState(), callbacks).nodes)[0]
+  assert.equal(restored.deletable, false)
+  assert.equal(restored.dragHandle, '.node-header')
+})
+
+test('the worktree node is constructed nowhere but its factory', () => {
+  const sources = (directory: string): string[] =>
+    readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+      const path = join(directory, entry.name)
+      if (entry.isDirectory()) return sources(path)
+      return /\.tsx?$/.test(entry.name) ? [path] : []
+    })
+
+  const constructing = sources(join(process.cwd(), 'src'))
+    .filter((path) => /type: 'worktreeNode'/.test(readFileSync(path, 'utf8')))
+    .map((path) => path.slice(join(process.cwd(), 'src').length + 1).replace(/\\/g, '/'))
+
+  assert.deepEqual(constructing, ['renderer/src/canvas-workspace.ts'])
+})
+
+/**
+ * One pass over the canvas produces one array per kind, including the rule that a kind added after
+ * version 3 was set stays absent rather than being written as an empty array - a workspace that
+ * never opened a file or a diff keeps writing exactly the snapshot shape it always did.
+ */
+test('serializing the canvas writes one array per kind and omits the kinds with nothing in them', () => {
+  const state = worktreeState()
+  state.files = [
+    {
+      id: 'file-1',
+      projectId: 'project-1',
+      path: 'D:\\Development\\Toucan\\docs\\plan.md',
+      view: 'raw',
+      position: { x: 900, y: 40 },
+      width: 480,
+      height: 560
+    }
+  ]
+  const nodes = restoreCanvasWorkspace(state, callbacks).nodes
+
+  const serialized = serializeCanvasNodes(nodes)
+  assert.deepEqual(serialized.nodes, nodes.filter(isTerminalCanvasNode).map(serializeCanvasNode))
+  assert.deepEqual(serialized.worktrees, state.worktrees)
+  assert.deepEqual(serialized.files, state.files)
+  assert.equal('diffs' in serialized, false)
+  // The two fields version 3 has always had are written even when the canvas has none of them.
+  const empty = serializeCanvasNodes([])
+  assert.deepEqual(empty, { nodes: [], worktrees: [] })
+
+  // `beforeSave` is how a node maximised into fit mode is persisted at the geometry it returns to.
+  const shrunk = serializeCanvasNodes(nodes, (node) => ({ ...node, style: { width: 10, height: 20 } }))
+  assert.equal(shrunk.nodes[0].width, 10)
+  assert.equal(shrunk.worktrees[0].height, 20)
+})
+
+/**
+ * The acceptance issue #165 was written for: a kind's mechanical concerns are one table entry, so
+ * a fifth kind costs that entry and one `WorkspaceState` field instead of an edit to every loop
+ * that walks the canvas. The casts stand in for the two things a real kind also brings and a test
+ * cannot: a member of the `CanvasNode` union and a declared field on `WorkspaceState`.
+ */
+test('a fifth node kind is one table entry and one workspace field', () => {
+  interface SavedNote {
+    id: string
+    projectId: string
+    text: string
+    position: { x: number; y: number }
+    width: number
+    height: number
+  }
+
+  const noteKind = canvasNodeKind<SavedNote, CanvasNode>({
+    field: 'notes' as CanvasNodeStateField,
+    alwaysPersisted: false,
+    is: (node): node is CanvasNode => node.type === ('noteNode' as CanvasNode['type']),
+    serialize: (node) => ({
+      id: node.id,
+      projectId: node.data.projectId,
+      text: String(node.data.text),
+      position: node.position,
+      width: 200,
+      height: 120
+    }),
+    restore: (saved, project) =>
+      ({
+        id: saved.id,
+        type: 'noteNode',
+        dragHandle: '.node-header',
+        position: saved.position,
+        data: {
+          text: saved.text,
+          projectId: project.id,
+          projectName: project.name,
+          projectPath: project.path,
+          projectColor: project.color
+        }
+      }) as unknown as CanvasNode
+  })
+
+  const kinds = [...CANVAS_NODE_KINDS, noteKind]
+  const notes: SavedNote[] = [
+    { id: 'note-1', projectId: 'project-1', text: 'ship it', position: { x: 12, y: 34 }, width: 200, height: 120 },
+    { id: 'note-orphan', projectId: 'deleted', text: 'gone', position: { x: 0, y: 0 }, width: 200, height: 120 }
+  ]
+  const state = { ...worktreeState(), notes } as unknown as WorkspaceState
+
+  const restored = restoreCanvasWorkspace(state, callbacks, kinds)
+  const restoredNotes = restored.nodes.filter((node) => noteKind.is(node))
+
+  // Pruning a record whose project is gone is the loop's one rule, so the entry never wrote it.
+  assert.deepEqual(
+    restoredNotes.map((node) => node.id),
+    ['note-1']
+  )
+  assert.equal(restoredNotes[0].data.projectColor, '#71a9ff')
+  // The kinds that were already there are untouched by the new entry.
+  assert.deepEqual(
+    terminalNodes(restored.nodes).map((node) => node.id),
+    ['node-1', 'node-2']
+  )
+
+  const serialized = serializeCanvasNodes(restored.nodes, undefined, kinds)
+  assert.deepEqual((serialized as unknown as { notes: SavedNote[] }).notes, [notes[0]])
+  assert.deepEqual(serialized.worktrees, state.worktrees)
+})
+
+/**
+ * A project's colour is denormalised onto every node it owns, so a change has to reach all of
+ * them in the same update or the sidebar retints while the canvas keeps the old tint.
+ */
+test('recolouring a project reaches every kind of node it owns and nothing else', () => {
+  const state = worktreeState()
+  state.projects.push({ id: 'project-2', name: 'Other', path: 'D:\\Other', color: '#f0a5c3' })
+  state.files = [
+    {
+      id: 'file-1',
+      projectId: 'project-1',
+      path: 'D:\\Development\\Toucan\\README.md',
+      view: 'rendered',
+      position: { x: 0, y: 0 },
+      width: 480,
+      height: 560
+    }
+  ]
+  state.diffs = [{ id: 'diff-1', projectId: 'project-2', position: { x: 0, y: 0 }, width: 760, height: 560 }]
+  const nodes = restoreCanvasWorkspace(state, callbacks).nodes
+
+  const recoloured = withProjectColor(nodes, 'project-1', '#b6e3a5')
+
+  for (const node of recoloured) {
+    assert.equal(node.data.projectColor, node.data.projectId === 'project-1' ? '#b6e3a5' : '#f0a5c3')
+  }
+  assert.equal(
+    recoloured.every((node) => node.type === nodes.find((original) => original.id === node.id)?.type),
+    true
+  )
+  // The same colour is not a change, so the canvas is not re-rendered for it.
+  assert.equal(withProjectColor(recoloured, 'project-1', '#b6e3a5'), recoloured)
+  assert.equal(withProjectColor(nodes, 'missing-project', '#b6e3a5'), nodes)
+})
+
+/**
+ * A node that has not reported a status yet is read from the node itself, in one place: the
+ * sidebar row, the restored workspace, a just-reopened node and the worktree adoption gate all
+ * used to default it separately, and a gate reading `starting` where a row read `dormant` is a
+ * node that can never be adopted.
+ */
+test('a session node with no reported status is read from the node, not defaulted per caller', () => {
+  const state = worktreeState()
+  const restored = restoreCanvasWorkspace(state, callbacks)
+  const chat = terminalNodes(restored.nodes).find((node) => node.data.kind === 'claude')!
+  const terminal = terminalNodes(restored.nodes).find((node) => node.data.kind === 'terminal')!
+
+  assert.equal(sessionNodeStatus(chat), 'starting')
+  assert.equal(sessionNodeStatus(terminal), 'dormant')
+  assert.equal(sessionNodeStatus(chat, restored.statuses), 'starting')
+  assert.equal(sessionNodeStatus(chat, { [chat.id]: 'working' }), 'working')
+  // What the restored workspace reports is the same function, so the two cannot drift.
+  assert.deepEqual(restored.statuses, { 'node-1': 'starting', 'node-2': 'dormant' })
 })

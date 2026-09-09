@@ -138,6 +138,16 @@ export interface WorkspaceTerminalNode {
 }
 
 /**
+ * Whether a saved node hides its inline activity, reading the legacy field for a snapshot written
+ * before the choice was renamed. One function so the store's migration and the canvas's restore
+ * cannot disagree about what an older snapshot meant - the store rewrites the field on load, but a
+ * recently-closed record is stored as it was and still comes back through the canvas.
+ */
+export function nodeFocusMode(node: Pick<WorkspaceTerminalNode, 'focusMode' | 'worklogCollapsed'>): boolean {
+  return node.focusMode ?? node.worklogCollapsed ?? false
+}
+
+/**
  * The docked brain-dump library's persisted shape. Everything here outlives a restart for the same
  * reason a node's composer draft does: the user typed it, or sized it, and losing it would be a
  * silent discard. Width is stored raw and clamped against the current window on load, so shrinking
@@ -215,6 +225,14 @@ export interface WorkspaceState {
    */
   layoutSlots?: Record<string, WorkspaceLayoutSlot>
 }
+
+/**
+ * The `WorkspaceState` arrays that hold canvas nodes, one per node kind. Shared so the renderer's
+ * `CANVAS_NODE_KINDS` and the store's `CANVAS_NODE_VALIDATORS` name the same set of fields: a kind
+ * whose field is missing from one of those tables would be persisted without being validated, or
+ * validated without ever being written.
+ */
+export type CanvasNodeStateField = 'nodes' | 'worktrees' | 'files' | 'diffs'
 
 /** One remembered arrangement: where each node was, in flow coordinates, keyed by node id. */
 export type WorkspaceLayoutSlot = Record<string, { x: number; y: number; width: number; height: number }>

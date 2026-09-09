@@ -79,10 +79,12 @@ import {
   closedSessionKeyAction,
   createNodeKeyAction,
   type CreateNodeKeyAction,
+  CREATE_NODE_ACTIONS,
   NODE_SHORTCUT_LABELS,
   changeFileCanvasNodePath,
   createDiffCanvasNode,
   createFileCanvasNode,
+  createWorktreeCanvasNode,
   DEFAULT_WORKTREE_SIZE,
   NEW_NODE_SIZE,
   NEW_SESSION_NODE_SIZE,
@@ -90,7 +92,6 @@ import {
   isDiffCanvasNode,
   isChatCanvasNode,
   isFileCanvasNode,
-  isLayoutCanvasNode,
   isTerminalCanvasNode,
   isWorktreeCanvasNode,
   NODE_DRAG_HANDLE,
@@ -98,17 +99,18 @@ import {
   reopenClosedSession,
   restoreCanvasWorkspace,
   selectDiffCanvasNodePath,
-  serializeCanvasNode,
-  serializeDiffNode,
-  serializeFileNode,
+  serializeCanvasNodes,
   serializeWorktreeNode,
+  sessionNodeStatus,
   withoutWorktree,
+  withProjectColor,
   cascadedNodePosition,
   type CanvasNode,
   type TerminalCanvasNode,
   type TerminalNodeCallbacks,
   type TerminalNodeStatus,
-  type WorktreeCanvasNode
+  type WorktreeCanvasNode,
+  type WorktreeNodeCallbacks
 } from './canvas-workspace'
 import { COMPOSER_SEND_KEY_DEFAULT } from './composer-keys'
 import { ComposerSendKeyContext } from './composer-send-key-context'
@@ -210,6 +212,21 @@ const SESSION_KIND_BY_ACTION = {
   'create-claude': 'claude',
   'create-codex': 'codex'
 } as const
+
+/**
+ * How the context menu draws each create action. Kept beside the menu rather than in
+ * `CREATE_NODE_ACTIONS` because that table has to stay a pure module the non-DOM test runner can
+ * import; everything else about an action - its shortcut, its wording, its size - lives there.
+ */
+const CREATE_ACTION_ICONS: Record<Exclude<CreateNodeKeyAction, 'none'>, { className: string; icon: JSX.Element }> = {
+  'create-terminal': { className: 'terminal-icon', icon: <SessionKindIcon kind="terminal" /> },
+  'create-claude': { className: 'claude-icon', icon: <SessionKindIcon kind="claude" /> },
+  'create-codex': { className: 'codex-icon', icon: <SessionKindIcon kind="codex" /> },
+  'create-worktree': { className: 'worktree-icon', icon: <GitBranch aria-hidden="true" /> },
+  'open-history': { className: 'history-icon', icon: <History aria-hidden="true" /> },
+  'open-file': { className: 'file-icon', icon: <FileText aria-hidden="true" /> },
+  'open-diff': { className: 'diff-icon', icon: <GitCompare aria-hidden="true" /> }
+}
 
 const labels: Record<TerminalKind, string> = {
   terminal: 'Terminal',
@@ -786,12 +803,9 @@ function Canvas(): JSX.Element {
               })
           }
         }
-        // A file node is layout, not a session: closing one is not an accidental close worth
-        // undoing, and it must not wipe the reopen stack the way closing a worktree node does.
-        const next = rememberClosedSessionNodes(
-          recentlyClosedNodesRef.current,
-          removedNodes.filter((node) => !isLayoutCanvasNode(node))
-        )
+        // Everything that was removed, unfiltered: what a close means for each kind - a reopen
+        // target, a stack wipe, or neither - is decided in one place inside that function.
+        const next = rememberClosedSessionNodes(recentlyClosedNodesRef.current, removedNodes)
         recentlyClosedNodesRef.current = next
         setRecentlyClosedNodes(next)
         setNodeStatuses((current) =>
@@ -844,10 +858,7 @@ function Canvas(): JSX.Element {
 
     const reopened = result.node
     setNodes((current) => [...current.map((node) => ({ ...node, selected: false })), reopened])
-    setNodeStatuses((current) => ({
-      ...current,
-      [reopened.id]: reopened.data.dormant ? 'dormant' : 'starting'
-    }))
+    setNodeStatuses((current) => ({ ...current, [reopened.id]: sessionNodeStatus(reopened) }))
     return true
   }, [
     dispatchWorktreeHandoff,
@@ -1144,6 +1155,20 @@ function Canvas(): JSX.Element {
   )
 
   /**
+   * The worktree node's callbacks in one bag, so every site that builds one - the dialog, a
+   * handoff, the discovery sweep, a restore - hands `createWorktreeCanvasNode` the same set.
+   */
+  const worktreeCallbacks = useMemo<WorktreeNodeCallbacks>(
+    () => ({
+      onRemoveWorktree: handleRemoveWorktree,
+      onCreateNodeInWorktree: handleCreateNodeInWorktree,
+      onRunSetupCommand: handleRunSetupCommand,
+      onOpenDiff: handleOpenDiff
+    }),
+    [handleCreateNodeInWorktree, handleOpenDiff, handleRemoveWorktree, handleRunSetupCommand]
+  )
+
+  /**
    * A prompt that asked for its own worktree. The worktree is made first and the session is
    * started inside it, so the agent's working directory is the worktree from its first turn -
    * the only arrangement in which the worktree is a writable root rather than a permission
@@ -1176,35 +1201,19 @@ function Canvas(): JSX.Element {
           }
           const worktreeId = crypto.randomUUID()
           const created = result.worktree
-          setNodes((current) => [
-            ...current.map((candidate) => ({ ...candidate, selected: false })),
+          const worktreeNode = createWorktreeCanvasNode(
             {
-              id: `worktree:${worktreeId}`,
-              type: 'worktreeNode',
-              dragHandle: NODE_DRAG_HANDLE,
-              selected: false,
-              deletable: false,
-              position: { x: node.position.x, y: node.position.y + (node.height ?? 340) + 64 },
-              data: {
-                worktreeId,
-                branch: created.branch,
-                path: created.path,
-                baseRef: created.baseRef,
-                createdAt: new Date().toISOString(),
-                projectId: project.id,
-                projectName: project.name,
-                projectPath: project.path,
-                projectColor: project.color,
-                setupCommand: project.setupCommand,
-                attachedNodeCount: 0,
-                onRemoveWorktree: handleRemoveWorktree,
-                onCreateNodeInWorktree: handleCreateNodeInWorktree,
-                onRunSetupCommand: handleRunSetupCommand,
-                onOpenDiff: handleOpenDiff
-              },
-              style: { ...DEFAULT_WORKTREE_SIZE }
-            }
-          ])
+              worktreeId,
+              branch: created.branch,
+              path: created.path,
+              baseRef: created.baseRef,
+              createdAt: new Date().toISOString(),
+              position: { x: node.position.x, y: node.position.y + (node.height ?? 340) + 64 }
+            },
+            project,
+            worktreeCallbacks
+          )
+          setNodes((current) => [...current.map((candidate) => ({ ...candidate, selected: false })), worktreeNode])
 
           if (request.mode !== 'rehome') {
             openInWorktree(worktreeId, node.data.kind, request.prompt)
@@ -1235,15 +1244,7 @@ function Canvas(): JSX.Element {
           )
         })
     },
-    [
-      handleCreateNodeInWorktree,
-      handleDraftChange,
-      handleRemoveWorktree,
-      handleRunSetupCommand,
-      handleOpenDiff,
-      openInWorktree,
-      setNodes
-    ]
+    [handleDraftChange, openInWorktree, setNodes, worktreeCallbacks]
   )
   handleWorktreeHandoffRef.current = handleWorktreeHandoff
 
@@ -1312,10 +1313,7 @@ function Canvas(): JSX.Element {
         onResume: resumeNode,
         onTerminalLiveness: handleTerminalLiveness,
         onWorktreeHandoff: dispatchWorktreeHandoff,
-        onRemoveWorktree: handleRemoveWorktree,
-        onCreateNodeInWorktree: handleCreateNodeInWorktree,
-        onRunSetupCommand: handleRunSetupCommand,
-        onOpenDiff: handleOpenDiff,
+        ...worktreeCallbacks,
         onViewModeChange: handleFileViewModeChange,
         onRequestFilePath: handleRequestFilePath,
         onPathChange: handleFilePathChange,
@@ -1358,7 +1356,6 @@ function Canvas(): JSX.Element {
     },
     [
       handleConversationId,
-      handleCreateNodeInWorktree,
       handleDraftChange,
       handleFilePathChange,
       handleRequestFilePath,
@@ -1368,17 +1365,15 @@ function Canvas(): JSX.Element {
       handleTurnOutcome,
       handlePermissionModeChange,
       handlePreview,
-      handleRemoveWorktree,
       handleSelectDiffPath,
-      handleRunSetupCommand,
-      handleOpenDiff,
       handleStatusChange,
       handleTicketActivity,
       handleTerminalLiveness,
       handleTitleChange,
       resumeNode,
       restoreAttention,
-      setNodes
+      setNodes,
+      worktreeCallbacks
     ]
   )
 
@@ -1396,33 +1391,14 @@ function Canvas(): JSX.Element {
       sidebarCollapsed,
       agentPermissionModes,
       composerSendKey,
-      nodes: nodes.filter(isTerminalCanvasNode).map((node) => {
-        return serializeCanvasNode(nodeBeforeTemporaryFit(node, nodeFit.state()))
-      }),
+      // One array per node kind, from the one table that knows how each is persisted - including
+      // which of them stay absent from the snapshot rather than being written empty.
+      ...serializeCanvasNodes(nodes, (node) => nodeBeforeTemporaryFit(node, nodeFit.state())),
       recentlyClosedNodes,
       attention: [...attention],
-      worktrees: nodes.filter(isWorktreeCanvasNode).map((node) => {
-        return serializeWorktreeNode(nodeBeforeTemporaryFit(node, nodeFit.state()))
-      }),
       // Absent rather than empty, like `projectGroups`, so a workspace that never saved a slot keeps
       // its snapshot shape.
       ...(Object.keys(layoutSlots).length > 0 ? { layoutSlots } : {}),
-      // Absent rather than empty, like `projectGroups`, so a canvas that never opened a file keeps
-      // writing the snapshot shape it always did.
-      ...(nodes.some(isFileCanvasNode)
-        ? {
-            files: nodes
-              .filter(isFileCanvasNode)
-              .map((node) => serializeFileNode(nodeBeforeTemporaryFit(node, nodeFit.state())))
-          }
-        : {}),
-      ...(nodes.some(isDiffCanvasNode)
-        ? {
-            diffs: nodes
-              .filter(isDiffCanvasNode)
-              .map((node) => serializeDiffNode(nodeBeforeTemporaryFit(node, nodeFit.state())))
-          }
-        : {}),
       brainDumpPanel,
       ticketBoardPanel
     }),
@@ -1522,34 +1498,20 @@ function Canvas(): JSX.Element {
           const recorded = new Set(current.filter(isWorktreeCanvasNode).map((node) => node.data.path.toLowerCase()))
           const fresh = result.worktrees.filter((worktree) => !recorded.has(worktree.path.toLowerCase()))
 
-          const added = fresh.map((worktree, index) => {
-            const worktreeId = crypto.randomUUID()
-            return {
-              id: `worktree:${worktreeId}`,
-              type: 'worktreeNode' as const,
-              dragHandle: NODE_DRAG_HANDLE,
-              deletable: false,
-              position: { x: 80, y: 80 + (recorded.size + index) * (DEFAULT_WORKTREE_SIZE.height + 48) },
-              data: {
-                worktreeId,
+          const added = fresh.map((worktree, index) =>
+            createWorktreeCanvasNode(
+              {
+                worktreeId: crypto.randomUUID(),
                 branch: worktree.branch,
                 path: worktree.path,
                 baseRef: worktree.baseRef,
                 createdAt: new Date().toISOString(),
-                projectId: project.id,
-                projectName: project.name,
-                projectPath: project.path,
-                projectColor: project.color,
-                setupCommand: project.setupCommand,
-                attachedNodeCount: 0,
-                onRemoveWorktree: handleRemoveWorktree,
-                onCreateNodeInWorktree: handleCreateNodeInWorktree,
-                onRunSetupCommand: handleRunSetupCommand,
-                onOpenDiff: handleOpenDiff
+                position: { x: 80, y: 80 + (recorded.size + index) * (DEFAULT_WORKTREE_SIZE.height + 48) }
               },
-              style: { ...DEFAULT_WORKTREE_SIZE }
-            }
-          })
+              project,
+              worktreeCallbacks
+            )
+          )
 
           // Claims are applied against every worktree on the canvas, not just the ones this
           // sweep added: the agent writes its claim after the worktree exists and its setup
@@ -1565,14 +1527,7 @@ function Canvas(): JSX.Element {
       cancelled = true
       clearInterval(timer)
     }
-  }, [
-    handleCreateNodeInWorktree,
-    handleOpenDiff,
-    handleRemoveWorktree,
-    handleRunSetupCommand,
-    setNodes,
-    workspaceReady
-  ])
+  }, [setNodes, workspaceReady, worktreeCallbacks])
 
   const addProject = useCallback(async (): Promise<void> => {
     const directory = await window.terminalApi.pickProject()
@@ -1910,50 +1865,24 @@ function Canvas(): JSX.Element {
           setWorktreeDraft({ ...draft, busy: false, error: result.message ?? 'The worktree could not be created.' })
           return
         }
-        const worktreeId = crypto.randomUUID()
         const created = result.worktree
-        setNodes((current) => [
-          ...current.map((node) => ({ ...node, selected: false })),
+        const worktreeNode = createWorktreeCanvasNode(
           {
-            id: `worktree:${worktreeId}`,
-            type: 'worktreeNode',
-            dragHandle: NODE_DRAG_HANDLE,
-            selected: true,
-            // Teardown is a deliberate, evidence-gated act; the Delete key must never be able
-            // to drop the record and orphan the directory git still knows about.
-            deletable: false,
+            worktreeId: crypto.randomUUID(),
+            branch: created.branch,
+            path: created.path,
+            baseRef: created.baseRef,
+            createdAt: new Date().toISOString(),
             position: draft.position,
-            data: {
-              worktreeId,
-              branch: created.branch,
-              path: created.path,
-              baseRef: created.baseRef,
-              createdAt: new Date().toISOString(),
-              projectId: project.id,
-              projectName: project.name,
-              projectPath: project.path,
-              projectColor: project.color,
-              setupCommand: project.setupCommand,
-              attachedNodeCount: 0,
-              onRemoveWorktree: handleRemoveWorktree,
-              onCreateNodeInWorktree: handleCreateNodeInWorktree,
-              onRunSetupCommand: handleRunSetupCommand,
-              onOpenDiff: handleOpenDiff
-            },
-            style: { ...DEFAULT_WORKTREE_SIZE }
-          }
-        ])
+            selected: true
+          },
+          project,
+          worktreeCallbacks
+        )
+        setNodes((current) => [...current.map((node) => ({ ...node, selected: false })), worktreeNode])
         setWorktreeDraft(null)
       })
-  }, [
-    handleCreateNodeInWorktree,
-    handleOpenDiff,
-    handleRemoveWorktree,
-    handleRunSetupCommand,
-    projects,
-    setNodes,
-    worktreeDraft
-  ])
+  }, [projects, setNodes, worktreeDraft, worktreeCallbacks])
 
   const saveSetupCommand = useCallback((projectId: string, command: string): void => {
     setProjects((current) =>
@@ -1966,25 +1895,11 @@ function Canvas(): JSX.Element {
     setSetupProjectId(null)
   }, [])
 
-  /**
-   * A project's colour is denormalised onto every node it owns at node creation, so changing it
-   * has to fan out across the canvas in the same update - otherwise the sidebar and the header
-   * chip retint immediately while the nodes keep the old colour until the next restore.
-   */
+  /** The colour a project is shown in; `withProjectColor` fans it out across the nodes it owns. */
   const setProjectColor = useCallback(
     (projectId: string, color: string): void => {
       setProjects((current) => current.map((project) => (project.id === projectId ? { ...project, color } : project)))
-      setNodes((current) =>
-        current.map((node) => {
-          if (node.data.projectId !== projectId) return node
-          // `projectColor` is on every node kind, so this is one patch - but the node type is a
-          // union, and TypeScript only keeps the discriminant when each member is built separately.
-          if (isTerminalCanvasNode(node)) return { ...node, data: { ...node.data, projectColor: color } }
-          if (isWorktreeCanvasNode(node)) return { ...node, data: { ...node.data, projectColor: color } }
-          if (isFileCanvasNode(node)) return { ...node, data: { ...node.data, projectColor: color } }
-          return { ...node, data: { ...node.data, projectColor: color } }
-        })
-      )
+      setNodes((current) => withProjectColor(current, projectId, color))
     },
     [setNodes]
   )
@@ -2488,7 +2403,7 @@ function Canvas(): JSX.Element {
                               {!sidebarCollapsed && projectNodes.length > 0 && (
                                 <div className="project-node-list">
                                   {projectNodes.map((node) => {
-                                    const status = nodeStatuses[node.id] ?? (node.data.dormant ? 'dormant' : 'starting')
+                                    const status = sessionNodeStatus(node, nodeStatuses)
                                     const nodeUnread = unreadByNode[node.id] ?? 0
                                     return (
                                       <button
@@ -2747,76 +2662,23 @@ function Canvas(): JSX.Element {
               onClick={(event) => event.stopPropagation()}
             >
               <p>Create in {activeProject.name}</p>
-              <button type="button" role="menuitem" onClick={() => runCreateActionFromMenu('create-terminal')}>
-                <span className="menu-icon terminal-icon">
-                  <SessionKindIcon kind="terminal" />
-                </span>
-                <span>
-                  <strong>Terminal</strong>
-                  <small>Windows shell</small>
-                </span>
-                <kbd>{NODE_SHORTCUT_LABELS['create-terminal']}</kbd>
-              </button>
-              <button type="button" role="menuitem" onClick={() => runCreateActionFromMenu('create-claude')}>
-                <span className="menu-icon claude-icon">
-                  <SessionKindIcon kind="claude" />
-                </span>
-                <span>
-                  <strong>Claude</strong>
-                  <small>Unified ACP chat</small>
-                </span>
-                <kbd>{NODE_SHORTCUT_LABELS['create-claude']}</kbd>
-              </button>
-              <button type="button" role="menuitem" onClick={() => runCreateActionFromMenu('create-codex')}>
-                <span className="menu-icon codex-icon">
-                  <SessionKindIcon kind="codex" />
-                </span>
-                <span>
-                  <strong>Codex</strong>
-                  <small>Unified ACP chat</small>
-                </span>
-                <kbd>{NODE_SHORTCUT_LABELS['create-codex']}</kbd>
-              </button>
-              <button type="button" role="menuitem" onClick={() => runCreateActionFromMenu('create-worktree')}>
-                <span className="menu-icon worktree-icon">
-                  <GitBranch aria-hidden="true" />
-                </span>
-                <span>
-                  <strong>Worktree</strong>
-                  <small>Isolated branch for parallel work</small>
-                </span>
-                <kbd>{NODE_SHORTCUT_LABELS['create-worktree']}</kbd>
-              </button>
-              <button type="button" role="menuitem" onClick={() => runCreateActionFromMenu('open-history')}>
-                <span className="menu-icon history-icon">
-                  <History aria-hidden="true" />
-                </span>
-                <span>
-                  <strong>History</strong>
-                  <small>Resume a past conversation</small>
-                </span>
-                <kbd>{NODE_SHORTCUT_LABELS['open-history']}</kbd>
-              </button>
-              <button type="button" role="menuitem" onClick={() => runCreateActionFromMenu('open-file')}>
-                <span className="menu-icon file-icon">
-                  <FileText aria-hidden="true" />
-                </span>
-                <span>
-                  <strong>File…</strong>
-                  <small>Read a project file on the canvas</small>
-                </span>
-                <kbd>{NODE_SHORTCUT_LABELS['open-file']}</kbd>
-              </button>
-              <button type="button" role="menuitem" onClick={() => runCreateActionFromMenu('open-diff')}>
-                <span className="menu-icon diff-icon">
-                  <GitCompare aria-hidden="true" />
-                </span>
-                <span>
-                  <strong>Diff</strong>
-                  <small>Review the checkout's changes against HEAD</small>
-                </span>
-                <kbd>{NODE_SHORTCUT_LABELS['open-diff']}</kbd>
-              </button>
+              {CREATE_NODE_ACTIONS.map((entry) => (
+                <button
+                  key={entry.action}
+                  type="button"
+                  role="menuitem"
+                  onClick={() => runCreateActionFromMenu(entry.action)}
+                >
+                  <span className={`menu-icon ${CREATE_ACTION_ICONS[entry.action].className}`}>
+                    {CREATE_ACTION_ICONS[entry.action].icon}
+                  </span>
+                  <span>
+                    <strong>{entry.title}</strong>
+                    <small>{entry.description}</small>
+                  </span>
+                  <kbd>{NODE_SHORTCUT_LABELS[entry.action]}</kbd>
+                </button>
+              ))}
             </div>
           )}
 

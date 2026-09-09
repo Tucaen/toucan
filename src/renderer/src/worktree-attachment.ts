@@ -1,7 +1,7 @@
 import type { WorkspaceProject } from '../../shared/terminal'
 import type { WorktreeClaimMatch } from '../../shared/worktree'
 import type { CanvasNode, TerminalNodeStatus } from './canvas-workspace'
-import { isTerminalCanvasNode, isWorktreeCanvasNode } from './canvas-workspace'
+import { isTerminalCanvasNode, isWorktreeCanvasNode, sessionNodeStatus } from './canvas-workspace'
 
 /**
  * What it takes for a node to be *in* a worktree rather than merely linked to one.
@@ -75,14 +75,13 @@ export function planWorktreeAdoptions(
   const worktrees = new Map(nodes.filter(isWorktreeCanvasNode).map((node) => [node.data.worktreeId, node.data]))
 
   return nodes.filter(isTerminalCanvasNode).flatMap((node) => {
-    const { activeWorktreeId, worktreeId, kind, dormant, detachedFromWorktree } = node.data
+    const { activeWorktreeId, worktreeId, kind, detachedFromWorktree } = node.data
     if (!activeWorktreeId || worktreeId || detachedFromWorktree || kind !== 'codex') return []
     const worktree = worktrees.get(activeWorktreeId)
     // A claim is a file any agent may append to, so a node is only ever moved into a worktree
     // of the project it already belongs to - a stale entry cannot relocate it across projects.
     if (!worktree || worktree.projectId !== node.data.projectId) return []
-    const status = statuses[node.id] ?? (dormant ? 'dormant' : 'starting')
-    if (!ADOPTION_BOUNDARY.includes(status)) return []
+    if (!ADOPTION_BOUNDARY.includes(sessionNodeStatus(node, statuses))) return []
     return [{ nodeId: node.id, worktreeId: activeWorktreeId, branch: worktree.branch, path: worktree.path }]
   })
 }
