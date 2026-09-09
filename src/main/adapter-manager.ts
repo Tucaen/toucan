@@ -77,11 +77,12 @@ export async function createAdapterManager(options: AdapterManagerOptions): Prom
     return adapter.entry
   }
   const selectionPath = join(options.directory, 'selection.json')
-  const selectionStore = createDurableJsonStore<Record<string, unknown>>({
+  // Null is the fallback so a damaged file stays distinguishable from a missing one below.
+  const selectionStore = createDurableJsonStore<Record<string, unknown> | null>({
     path: selectionPath,
     parse: (value) =>
       value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null,
-    fallback: () => ({})
+    fallback: () => null
   })
   await mkdir(options.directory, { recursive: true })
   for (const provider of providers) {
@@ -97,11 +98,14 @@ export async function createAdapterManager(options: AdapterManagerOptions): Prom
     }
   }
   if (existsSync(selectionPath)) {
-    try {
-      const saved = JSON.parse(readFileSync(selectionPath, 'utf8')) as Record<string, unknown> | null
+    const saved = await selectionStore.load()
+    if (saved === null) {
+      for (const provider of providers)
+        state[provider].error = 'Could not read adapter settings. Using bundled adapters.'
+    } else {
       for (const provider of providers) {
-        const version: unknown = saved?.[provider]
-        if (version === null) continue
+        const version: unknown = saved[provider]
+        if (version === null || version === undefined) continue
         try {
           if (!isAdapterVersion(version)) throw new Error('Invalid stored adapter version.')
           installedEntry(provider, version)
@@ -111,9 +115,6 @@ export async function createAdapterManager(options: AdapterManagerOptions): Prom
             'The saved adapter is unavailable. Using the bundled version; select a version to repair it.'
         }
       }
-    } catch {
-      for (const provider of providers)
-        state[provider].error = 'Could not read adapter settings. Using bundled adapters.'
     }
   }
 
