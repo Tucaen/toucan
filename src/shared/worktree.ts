@@ -5,6 +5,7 @@
  * vocabulary and the pure path/branch rules that both processes agree on.
  */
 
+import type { GitBranchState } from './git-branch'
 import type { GitDiffRequest, GitDiffSummary, GitFileDiff, GitFileDiffRequest } from './git-diff'
 
 export interface WorkspaceWorktree {
@@ -330,4 +331,6 @@ export interface WorktreeApi {
   /** The changed-file list of a checkout against its base; hunks come one file at a time. */
   diff(request: GitDiffRequest): Promise<GitDiffSummary>
   diffFile(request: GitFileDiffRequest): Promise<GitFileDiff>
+  /** Which branch a checkout is on; `isRepository: false` for anything git cannot inspect. */
+  currentBranch(path: string): Promise<GitBranchState>
 }

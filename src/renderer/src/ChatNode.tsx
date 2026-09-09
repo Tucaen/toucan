@@ -75,6 +75,9 @@ import { usePortalMenuPosition } from './use-portal-menu-position'
 import NodeBorderResizer from './NodeBorderResizer'
 import UnreadToggle from './UnreadToggle'
 import SessionUsageBar from './SessionUsageBar'
+import CheckoutBranchChip from './CheckoutBranchChip'
+import { useCheckoutBranch } from './use-checkout-branch'
+import { describeGitBranch } from '../../shared/git-branch'
 import { ProviderRateLimitsContext } from './provider-rate-limits'
 import { describeSessionUsage } from './session-usage'
 import VoiceInput from './VoiceInput'
@@ -1243,6 +1246,19 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
   const rateLimits = useContext(ProviderRateLimitsContext)[provider] ?? null
   // Recomputed only when a turn reports new usage or the account poll returns, never per chunk.
   const usageReadout = useMemo(() => describeSessionUsage({ usage, rateLimits }), [usage, rateLimits])
+  // The branch of the checkout this node actually runs in - the project's, or its worktree's if
+  // it has one. Polled here rather than carried on the node's data: it changes from outside
+  // Toucan, and only the node that shows it needs to know.
+  const checkoutBranch = useCheckoutBranch(data.workingDirectory)
+  // One status row is shared by the usage readout and the branch, so it is reserved only when at
+  // least one of them has something to say - an empty row would otherwise steal a grid track.
+  const statusBar =
+    usageReadout.empty && !describeGitBranch(checkoutBranch, data.workingDirectory) ? undefined : (
+      <>
+        <SessionUsageBar readout={usageReadout} />
+        <CheckoutBranchChip state={checkoutBranch} directory={data.workingDirectory} />
+      </>
+    )
   /**
    * A prompt asking for its own worktree never runs here. It goes up to the workspace, which
    * starts a session whose working directory is the worktree from its first turn - the only
@@ -1444,7 +1460,7 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
               focusMode: data.focusMode,
               setFocusMode: (enabled) => data.onFocusModeChange(id, enabled),
               focusShortcutEnabled: selected,
-              statusBar: usageReadout.empty ? undefined : <SessionUsageBar readout={usageReadout} />
+              statusBar
             }}
             search={{
               open: findBar.open,

@@ -3643,6 +3643,34 @@ button {
   color: var(--usage-critical);
 }
 
+/* The branch of the checkout the node runs in closes the status row. `margin-left: auto` rather than an order property
+   because it must sit at the right end whether or not the usage gauges rendered at all. */
+.session-checkout-branch {
+  margin-left: auto;
+  gap: 4px;
+  flex: 0 0 auto;
+  max-width: 180px;
+  padding: 1px 7px;
+  overflow: hidden;
+  border: 1px solid rgba(201, 146, 255, 0.35);
+  border-radius: 999px;
+  color: #cbb0f0;
+  background: rgba(201, 146, 255, 0.08);
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-checkout-branch .worktree-glyph {
+  font-size: 11px;
+}
+
+.session-checkout-branch[data-detached='true'] {
+  border-color: rgba(241, 199, 91, 0.45);
+  color: #f1c75b;
+  background: rgba(241, 199, 91, 0.08);
+}
+
 .plan-list {
   display: grid;
   gap: 5px;

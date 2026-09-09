@@ -126,6 +126,7 @@ function registerWorktreeIpc(worktrees: WorktreeManager): void {
   ipcMain.handle(WORKTREE_CHANNELS.discover, (_event, request: WorktreeDiscoverRequest) => worktrees.discover(request))
   ipcMain.handle(WORKTREE_CHANNELS.diff, (_event, request: GitDiffRequest) => worktrees.diff(request))
   ipcMain.handle(WORKTREE_CHANNELS.diffFile, (_event, request: GitFileDiffRequest) => worktrees.diffFile(request))
+  ipcMain.handle(WORKTREE_CHANNELS.currentBranch, (_event, path: string) => worktrees.currentBranch(path))
 }
 
 /**

@@ -409,3 +409,36 @@ test('diff reports a missing directory, a non-repository and a failed git run as
   })
   assert.deepEqual(fileFailure, { ok: false, message: 'fatal: bad revision' })
 })
+
+test('the current branch is read from HEAD and falls back to a detached commit', async () => {
+  const onBranch = createWorktreeManager({ runGit: gitStub([]), pathExists: () => true })
+  assert.deepEqual(await onBranch.currentBranch(PROJECT), { isRepository: true, branch: 'main' })
+
+  const detached = createWorktreeManager({
+    runGit: gitStub([
+      (args) => (args[0] === 'symbolic-ref' ? fail('', 1) : undefined),
+      (args) => (args[0] === 'rev-parse' && args[1] === '--short' ? ok('9f1c2ab\n') : undefined)
+    ]),
+    pathExists: () => true
+  })
+  assert.deepEqual(await detached.currentBranch(PROJECT), { isRepository: true, detachedHead: '9f1c2ab' })
+
+  // A repository with no commits has neither a symbolic ref nor a resolvable HEAD, and must not
+  // be reported as "not a repository" - the row simply has no branch to name.
+  const empty = createWorktreeManager({
+    runGit: gitStub([(args) => (args[0] === 'symbolic-ref' || args[0] === 'rev-parse' ? fail('', 128) : undefined)]),
+    pathExists: () => true
+  })
+  assert.deepEqual(await empty.currentBranch(PROJECT), { isRepository: false })
+})
+
+test('the current branch reports no repository for a missing path or a non-repository', async () => {
+  const missing = createWorktreeManager({ runGit: gitStub([]), pathExists: () => false })
+  assert.deepEqual(await missing.currentBranch(PROJECT), { isRepository: false })
+
+  const notARepository = createWorktreeManager({
+    runGit: gitStub([(args) => (args.includes('--git-common-dir') ? fail('not a git repository', 128) : undefined)]),
+    pathExists: () => true
+  })
+  assert.deepEqual(await notARepository.currentBranch(PROJECT), { isRepository: false })
+})

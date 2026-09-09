@@ -124,7 +124,8 @@ const worktreeApi: WorktreeApi = {
   remove: (request) => ipcRenderer.invoke(WORKTREE_CHANNELS.remove, request),
   discover: (request) => ipcRenderer.invoke(WORKTREE_CHANNELS.discover, request),
   diff: (request) => ipcRenderer.invoke(WORKTREE_CHANNELS.diff, request),
-  diffFile: (request) => ipcRenderer.invoke(WORKTREE_CHANNELS.diffFile, request)
+  diffFile: (request) => ipcRenderer.invoke(WORKTREE_CHANNELS.diffFile, request),
+  currentBranch: (path) => ipcRenderer.invoke(WORKTREE_CHANNELS.currentBranch, path)
 }
 
 contextBridge.exposeInMainWorld('worktreeApi', worktreeApi)

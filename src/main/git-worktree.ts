@@ -24,6 +24,7 @@ import {
   parseWorktreeList
 } from '../shared/worktree'
 import { errorMessage } from '../shared/text'
+import type { GitBranchState } from '../shared/git-branch'
 import type { GitDiffRequest, GitDiffSummary, GitFileDiff, GitFileDiffRequest } from '../shared/git-diff'
 import { changedFilesFromGit, parseUnifiedDiff } from '../shared/git-diff'
 
@@ -82,6 +83,12 @@ export interface WorktreeManager {
    * way of asking would eventually answer differently.
    */
   isRepository(path: string): Promise<boolean>
+  /**
+   * Which branch a checkout is on right now. Read-only and best-effort like `isRepository`,
+   * which it deliberately answers as part of its result: a caller that only wants to show a
+   * branch would otherwise have to ask git the same question twice.
+   */
+  currentBranch(path: string): Promise<GitBranchState>
   /**
    * What a checkout has changed against its base: the file list only, with counts. Hunks are
    * read per file through `diffFile`, never for the whole tree at once, so a large review costs
@@ -388,6 +395,21 @@ export function createWorktreeManager(options: WorktreeManagerOptions = {}): Wor
         return { ok: true, ...parseUnifiedDiff(result.stdout) }
       } catch (error) {
         return { ok: false, message: errorMessage(error) }
+      }
+    },
+
+    async currentBranch(path): Promise<GitBranchState> {
+      try {
+        if (!pathExists(path) || (await readCommonDir(path)) === null) return { isRepository: false }
+        const symbolic = await runGit(['symbolic-ref', '--quiet', '--short', 'HEAD'], path)
+        if (symbolic.code === 0 && symbolic.stdout.trim()) return { isRepository: true, branch: symbolic.stdout.trim() }
+        // No symbolic ref means a detached HEAD - or a repository with no commits yet, where
+        // `rev-parse` fails too and the branch is simply unnameable.
+        const head = await runGit(['rev-parse', '--short', 'HEAD'], path)
+        const detachedHead = head.code === 0 ? head.stdout.trim() : ''
+        return { isRepository: true, ...(detachedHead ? { detachedHead } : {}) }
+      } catch {
+        return { isRepository: false }
       }
     },
 

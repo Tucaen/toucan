@@ -69,7 +69,8 @@ export const WORKTREE_CHANNELS = {
   remove: 'worktree:remove',
   discover: 'worktree:discover',
   diff: 'worktree:diff',
-  diffFile: 'worktree:diff-file'
+  diffFile: 'worktree:diff-file',
+  currentBranch: 'worktree:current-branch'
 } as const
 
 export const CONVERSATION_CHANNELS = {
