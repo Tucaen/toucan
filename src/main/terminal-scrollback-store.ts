@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { TerminalScrollbackSnapshot } from '../shared/terminal'
+import { writeSnapshotAtomicallySync } from './durable-file'
 
 export const TERMINAL_SCROLLBACK_MAX_BYTES = 512 * 1024
 export const TERMINAL_SCROLLBACK_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
@@ -61,7 +62,6 @@ export function createTerminalScrollbackStore(options: TerminalScrollbackStoreOp
 
   const persist = (snapshot: StoredSnapshot): boolean => {
     const path = pathFor(snapshot.sessionId)
-    const temporary = `${path}.tmp`
     const pendingPath = pendingPathFor(snapshot.sessionId)
     try {
       // This marker is written first. If promotion fails or Toucan stops between writes, the next
@@ -74,16 +74,11 @@ export function createTerminalScrollbackStore(options: TerminalScrollbackStoreOp
         }),
         'utf8'
       )
-      writeFileSync(temporary, JSON.stringify(snapshot), 'utf8')
-      renameSync(temporary, path)
+      // Not durable: this runs per output chunk, and an fsync here would tax terminal throughput.
+      writeSnapshotAtomicallySync(path, JSON.stringify(snapshot), { durable: false })
       unlinkSync(pendingPath)
       return true
     } catch {
-      try {
-        unlinkSync(temporary)
-      } catch {
-        /* Nothing temporary survived. */
-      }
       return false
     }
   }

@@ -1,21 +1,10 @@
 import {
-  closeSync,
-  existsSync,
-  fsyncSync,
-  mkdirSync,
-  openSync,
-  readFileSync,
-  renameSync,
-  unlinkSync,
-  writeSync
-} from 'node:fs'
-import { dirname } from 'node:path'
-import {
   REMOTE_ACCESS_DEFAULT_SETTINGS,
   isRemoteAccessSettings,
   remoteAccessPortProblem,
   type RemoteAccessSettings
 } from '../../shared/remote-access'
+import { createDurableJsonStoreSync } from '../durable-json-store'
 import { createPairingToken } from './pairing'
 
 /**
@@ -51,37 +40,41 @@ export interface RemoteAccessStoreOptions {
   createToken?: () => string
 }
 
+function parseStoredRecord(value: unknown, now: () => number): StoredRecord | null {
+  if (!value || typeof value !== 'object' || (value as StoredRecord).version !== 1) return null
+  const stored = value as StoredRecord
+  if (!isRemoteAccessSettings(stored.settings) || remoteAccessPortProblem(stored.settings.port)) return null
+  if (typeof stored.token !== 'string' || stored.token.length < 16) return null
+  return {
+    version: 1,
+    settings: { enabled: stored.settings.enabled, port: stored.settings.port },
+    token: stored.token,
+    tokenUpdatedAt: typeof stored.tokenUpdatedAt === 'number' ? stored.tokenUpdatedAt : now()
+  }
+}
+
 export function createRemoteAccessStore(options: RemoteAccessStoreOptions): RemoteAccessStore {
   const now = options.now ?? Date.now
   const mintToken = options.createToken ?? createPairingToken
-  let record = load(options.path, now, mintToken)
+  // Synchronous and fsynced by the store: the record is read before any window exists, so it
+  // cannot await, and a pairing token that reached only the page cache would be lost by the crash
+  // that took the app down - leaving a paired phone holding a token the host no longer knows.
+  const store = createDurableJsonStoreSync<StoredRecord>({
+    path: options.path,
+    parse: (value) => parseStoredRecord(value, now),
+    fallback: () => ({
+      version: 1,
+      settings: { ...REMOTE_ACCESS_DEFAULT_SETTINGS },
+      token: mintToken(),
+      tokenUpdatedAt: now()
+    })
+  })
+  const { version: _version, ...initial } = store.read()
+  let record: RemoteAccessRecord = initial
 
   const persist = (next: RemoteAccessRecord): RemoteAccessRecord => {
     record = next
-    const stored: StoredRecord = { version: 1, ...next }
-    const temporary = `${options.path}.tmp`
-    try {
-      mkdirSync(dirname(options.path), { recursive: true })
-      // Synchronous and fsynced: the record is read before any window exists, so it cannot await,
-      // and a pairing token that reached only the page cache would be lost by the crash that took
-      // the app down - leaving a paired phone holding a token the host no longer knows.
-      const handle = openSync(temporary, 'w')
-      try {
-        writeSync(handle, JSON.stringify(stored), null, 'utf8')
-        fsyncSync(handle)
-      } finally {
-        closeSync(handle)
-      }
-      renameSync(temporary, options.path)
-    } catch {
-      if (existsSync(temporary)) {
-        try {
-          unlinkSync(temporary)
-        } catch {
-          /* Best-effort cleanup; the in-memory record below is still the one in force. */
-        }
-      }
-    }
+    store.save({ version: 1, ...next })
     return record
   }
 
@@ -94,27 +87,5 @@ export function createRemoteAccessStore(options: RemoteAccessStoreOptions): Remo
     regenerateToken(): RemoteAccessRecord {
       return persist({ ...record, token: mintToken(), tokenUpdatedAt: now() })
     }
-  }
-}
-
-function load(path: string, now: () => number, mintToken: () => string): RemoteAccessRecord {
-  const fresh = (): RemoteAccessRecord => ({
-    settings: { ...REMOTE_ACCESS_DEFAULT_SETTINGS },
-    token: mintToken(),
-    tokenUpdatedAt: now()
-  })
-  try {
-    const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'))
-    if (!parsed || typeof parsed !== 'object' || (parsed as StoredRecord).version !== 1) return fresh()
-    const stored = parsed as StoredRecord
-    if (!isRemoteAccessSettings(stored.settings) || remoteAccessPortProblem(stored.settings.port)) return fresh()
-    if (typeof stored.token !== 'string' || stored.token.length < 16) return fresh()
-    return {
-      settings: { enabled: stored.settings.enabled, port: stored.settings.port },
-      token: stored.token,
-      tokenUpdatedAt: typeof stored.tokenUpdatedAt === 'number' ? stored.tokenUpdatedAt : now()
-    }
-  } catch {
-    return fresh()
   }
 }

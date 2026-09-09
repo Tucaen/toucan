@@ -1,6 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
-import { dirname } from 'node:path'
 import type { TerminalLiveness, WorkspaceState, WorkspaceTerminalNode } from '../shared/terminal'
+import { createDurableJsonStoreSync } from './durable-json-store'
 
 export const TERMINAL_LIVENESS_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
 
@@ -49,46 +48,32 @@ function isRecord(value: unknown): value is TerminalLivenessRecord {
   )
 }
 
-function readJournal(path: string): Map<string, TerminalLivenessRecord> {
-  const sessions = new Map<string, TerminalLivenessRecord>()
-  try {
-    const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'))
-    if (!parsed || typeof parsed !== 'object' || (parsed as StoredJournal).version !== 1) return sessions
-    const stored = (parsed as StoredJournal).sessions
-    if (!stored || typeof stored !== 'object') return sessions
-    for (const [sessionId, record] of Object.entries(stored)) {
-      if (isRecord(record)) sessions.set(sessionId, record)
-    }
-  } catch {
-    // A missing or unreadable journal means no verdict, never a failed launch. The next
-    // recorded transition rewrites the file from scratch.
+function parseJournal(value: unknown): StoredJournal | null {
+  // A missing or unreadable journal means no verdict, never a failed launch; a damaged entry is
+  // dropped alone rather than taking the readable ones with it.
+  if (!value || typeof value !== 'object' || (value as StoredJournal).version !== 1) return null
+  const stored = (value as StoredJournal).sessions
+  if (!stored || typeof stored !== 'object') return null
+  return {
+    version: 1,
+    sessions: Object.fromEntries(Object.entries(stored).filter(([, record]) => isRecord(record)))
   }
-  return sessions
 }
 
 export function createTerminalLivenessStore(options: TerminalLivenessStoreOptions): TerminalLivenessStore {
   const maxAgeMs = Math.max(0, options.maxAgeMs ?? TERMINAL_LIVENESS_MAX_AGE_MS)
   const now = options.now ?? Date.now
-  const sessions = readJournal(options.path)
+  // Synchronous by design: `before-quit` cannot await a promise, so the verdict has to be
+  // on disk before `record` returns or shutdown would race it away.
+  const store = createDurableJsonStoreSync<StoredJournal>({
+    path: options.path,
+    parse: parseJournal,
+    fallback: () => ({ version: 1, sessions: {} })
+  })
+  const sessions = new Map(Object.entries(store.read().sessions))
 
   const persist = (): void => {
-    const journal: StoredJournal = { version: 1, sessions: Object.fromEntries(sessions) }
-    const temporary = `${options.path}.tmp`
-    try {
-      mkdirSync(dirname(options.path), { recursive: true })
-      // Synchronous by design: `before-quit` cannot await a promise, so the verdict has to be
-      // on disk before this call returns or shutdown would race it away.
-      writeFileSync(temporary, JSON.stringify(journal), 'utf8')
-      renameSync(temporary, options.path)
-    } catch {
-      if (existsSync(temporary)) {
-        try {
-          unlinkSync(temporary)
-        } catch {
-          /* Best-effort cleanup; the in-memory verdict below is still correct. */
-        }
-      }
-    }
+    store.save({ version: 1, sessions: Object.fromEntries(sessions) })
   }
 
   return {

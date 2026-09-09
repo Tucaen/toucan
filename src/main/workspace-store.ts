@@ -1,6 +1,7 @@
-import { existsSync, readFileSync, renameSync, unlinkSync } from 'node:fs'
-import { open } from 'node:fs/promises'
+import { existsSync, readFileSync, renameSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
+import { discardTempFileSync, writeFileDurably, writeSnapshotAtomically } from './durable-file'
+import { createSerialQueue } from './serial-queue'
 import { AGENT_TURN_OUTCOME_LIMIT } from '../shared/agent'
 import { isAttentionItem } from '../shared/attention'
 import { isFileViewMode, type WorkspaceFileNode } from '../shared/file-view'
@@ -362,46 +363,6 @@ function readValidatedSnapshot(path: string): WorkspaceState | null {
   }
 }
 
-/** Writes `contents` fully and durably to `tempPath`, unlinking it again on any failure. */
-export async function writeFileDurably(tempPath: string, contents: string): Promise<void> {
-  try {
-    const handle = await open(tempPath, 'w')
-    try {
-      await handle.writeFile(contents, 'utf8')
-      await handle.sync()
-    } finally {
-      await handle.close()
-    }
-  } catch (error) {
-    if (existsSync(tempPath)) {
-      try {
-        unlinkSync(tempPath)
-      } catch {
-        // Best-effort cleanup; the original error below is what matters.
-      }
-    }
-    throw error
-  }
-}
-
-/** Writes `contents` fully and durably to a temp file, then atomically renames it onto `targetPath`. */
-export async function writeSnapshotAtomically(targetPath: string, contents: string): Promise<void> {
-  const tempPath = `${targetPath}.tmp-${randomUUID()}`
-  await writeFileDurably(tempPath, contents)
-  try {
-    renameSync(tempPath, targetPath)
-  } catch (error) {
-    if (existsSync(tempPath)) {
-      try {
-        unlinkSync(tempPath)
-      } catch {
-        // Best-effort cleanup; the original error below is what matters.
-      }
-    }
-    throw error
-  }
-}
-
 /**
  * A file-backed workspace store that never lets a crash or interrupted write destroy the last
  * usable canvas: saves are serialized, validated fully before they replace the primary snapshot,
@@ -409,17 +370,8 @@ export async function writeSnapshotAtomically(targetPath: string, contents: stri
  */
 export function createWorkspaceStore(path: string): WorkspaceStore {
   const backupPath = `${path}.backup`
-  // A single promise chain serializes load/save so concurrent IPC calls cannot interleave file writes.
-  let queue: Promise<unknown> = Promise.resolve()
-
-  function enqueue<T>(task: () => Promise<T>): Promise<T> {
-    const run = queue.then(task, task)
-    queue = run.then(
-      () => undefined,
-      () => undefined
-    )
-    return run
-  }
+  // A single serial queue serializes load/save so concurrent IPC calls cannot interleave file writes.
+  const enqueue = createSerialQueue()
 
   return {
     load(): Promise<WorkspaceLoadResult> {
@@ -462,13 +414,7 @@ export function createWorkspaceStore(path: string): WorkspaceStore {
             }
             renameSync(tempPath, path)
           } catch (error) {
-            if (existsSync(tempPath)) {
-              try {
-                unlinkSync(tempPath)
-              } catch {
-                // Best-effort cleanup; the original error below is what matters.
-              }
-            }
+            discardTempFileSync(tempPath)
             throw error
           }
           return { ok: true }

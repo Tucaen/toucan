@@ -1,11 +1,10 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
-import { dirname } from 'node:path'
 import type { ConversationProvider } from '../shared/conversation'
 import {
   normalizeConversationTitle,
   type ConversationTitle,
   type ConversationTitleSource
 } from '../shared/conversation-title'
+import { createDurableJsonStore } from './durable-json-store'
 
 export interface ConversationTitleStore {
   get(provider: ConversationProvider, conversationId: string): Promise<ConversationTitle | null>
@@ -29,53 +28,28 @@ function isConversationTitle(value: unknown): value is ConversationTitle {
   return typeof title.title === 'string' && (title.source === 'generated' || title.source === 'manual')
 }
 
+function parseTitles(value: unknown): StoredTitles | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  return Object.fromEntries(Object.entries(value).filter(([, title]) => isConversationTitle(title)))
+}
+
 export function createConversationTitleStore(path: string): ConversationTitleStore {
-  let loaded: Promise<StoredTitles> | undefined
-  let writes = Promise.resolve()
-
-  const load = (): Promise<StoredTitles> => {
-    loaded ??= readFile(path, 'utf8')
-      .then((content) => JSON.parse(content) as unknown)
-      .then((value) => {
-        if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
-        return Object.fromEntries(Object.entries(value).filter(([, title]) => isConversationTitle(title)))
-      })
-      .catch(() => ({}))
-    return loaded
-  }
-
-  const persist = async (titles: StoredTitles): Promise<void> => {
-    await mkdir(dirname(path), { recursive: true })
-    const temporary = `${path}.tmp`
-    await writeFile(temporary, JSON.stringify(titles, null, 2), 'utf8')
-    await rename(temporary, path)
-  }
+  const store = createDurableJsonStore<StoredTitles>({ path, parse: parseTitles, fallback: () => ({}) })
 
   return {
     async get(provider, conversationId) {
-      return (await load())[key(provider, conversationId)] ?? null
+      return (await store.load())[key(provider, conversationId)] ?? null
     },
     async set(provider, conversationId, title, source) {
       const normalized = normalizeConversationTitle(title)
       if (!normalized) return null
-      let result: ConversationTitle | null = null
-      // A failed disk write rejects its caller, but must not poison every later attempt for the
-      // rest of the app process. The next write starts again from the last readable state.
-      writes = writes
-        .catch(() => undefined)
-        .then(async () => {
-          const titles = await load()
-          const existing = titles[key(provider, conversationId)]
-          if (existing && source === 'generated') {
-            result = existing
-            return
-          }
-          result = { title: normalized, source }
-          titles[key(provider, conversationId)] = result
-          await persist(titles)
-        })
-      await writes
-      return result
+      return store.update((titles) => {
+        const existing = titles[key(provider, conversationId)]
+        // Generated titles are first-write-wins; only a manual rename may replace anything.
+        if (existing && source === 'generated') return { value: titles, result: existing }
+        const result: ConversationTitle = { title: normalized, source }
+        return { value: { ...titles, [key(provider, conversationId)]: result }, result }
+      })
     }
   }
 }

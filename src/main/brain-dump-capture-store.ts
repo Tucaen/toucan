@@ -1,6 +1,5 @@
-import { readFile } from 'node:fs/promises'
 import type { BrainDumpCaptureState } from '../shared/brain-dump'
-import { writeSnapshotAtomically } from './workspace-store'
+import { createDurableJsonStore } from './durable-json-store'
 
 function isState(value: unknown): value is BrainDumpCaptureState {
   if (!value || typeof value !== 'object') return false
@@ -9,20 +8,13 @@ function isState(value: unknown): value is BrainDumpCaptureState {
 }
 
 export function createBrainDumpCaptureStore(path: string) {
-  let saves = Promise.resolve()
+  const store = createDurableJsonStore<BrainDumpCaptureState | null>({
+    path,
+    parse: (value) => (isState(value) ? value : null),
+    fallback: () => null
+  })
   return {
-    async load(): Promise<BrainDumpCaptureState | null> {
-      try {
-        const value: unknown = JSON.parse(await readFile(path, 'utf8'))
-        return isState(value) ? value : null
-      } catch {
-        return null
-      }
-    },
-    save(state: BrainDumpCaptureState): Promise<void> {
-      const result = saves.then(() => writeSnapshotAtomically(path, `${JSON.stringify(state)}\n`))
-      saves = result.catch(() => {})
-      return result
-    }
+    load: (): Promise<BrainDumpCaptureState | null> => store.load(),
+    save: (state: BrainDumpCaptureState): Promise<void> => store.save(state)
   }
 }

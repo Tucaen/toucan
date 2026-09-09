@@ -10,6 +10,7 @@ import {
   type AdapterSnapshot
 } from '../shared/adapter-management'
 import { writeNewFileDurably } from './durable-file'
+import { createDurableJsonStore } from './durable-json-store'
 
 export interface AdapterInstaller {
   catalog(provider: AgentProvider): Promise<AdapterCatalog>
@@ -76,6 +77,12 @@ export async function createAdapterManager(options: AdapterManagerOptions): Prom
     return adapter.entry
   }
   const selectionPath = join(options.directory, 'selection.json')
+  const selectionStore = createDurableJsonStore<Record<string, unknown>>({
+    path: selectionPath,
+    parse: (value) =>
+      value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null,
+    fallback: () => ({})
+  })
   await mkdir(options.directory, { recursive: true })
   for (const provider of providers) {
     await mkdir(join(options.directory, provider), { recursive: true })
@@ -110,23 +117,18 @@ export async function createAdapterManager(options: AdapterManagerOptions): Prom
     }
   }
 
-  // Installs may overlap between providers; selection writes must not lose each other's changes.
-  let writes = Promise.resolve()
-  const persist = (provider: AgentProvider, version: string | null): Promise<void> => {
-    const next = writes.then(async () => {
-      const selected = { claude: state.claude.selectedVersion, codex: state.codex.selectedVersion, [provider]: version }
-      const temp = join(options.directory, `.selection-${randomUUID()}`)
-      try {
-        await writeNewFileDurably(temp, JSON.stringify(selected))
-        await rename(temp, selectionPath)
+  // Installs may overlap between providers; the store's queue keeps selection writes from losing
+  // each other's changes, and the mutate callback reads the other provider's selection only once
+  // every earlier write has landed in `state`.
+  const persist = (provider: AgentProvider, version: string | null): Promise<void> =>
+    selectionStore
+      .update(() => ({
+        value: { claude: state.claude.selectedVersion, codex: state.codex.selectedVersion, [provider]: version },
+        result: undefined
+      }))
+      .then(() => {
         state[provider].selectedVersion = version
-      } finally {
-        await rm(temp, { force: true })
-      }
-    })
-    writes = next.catch(() => {})
-    return next
-  }
+      })
   const operate = async (
     provider: AgentProvider,
     phase: 'checking' | 'installing',
