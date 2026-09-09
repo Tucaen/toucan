@@ -1,6 +1,7 @@
 import type { AgentProvider, AgentTurnOutcome } from './agent'
 import type { AttentionItem } from './attention'
 import type { WorkspaceFileNode } from './file-view'
+import type { ImageArtifactSaveRequest, ImageArtifactSaveResult } from './image-artifact'
 import type { LocalFileOpenResult } from './local-file-link'
 import type { WorkspaceDiffNode } from './git-diff'
 import type { WorkspaceWorktree } from './worktree'
@@ -321,6 +322,12 @@ export interface TerminalApi {
    * associates with it. Main decides whether the path may be opened at all and says why not.
    */
   openLocalFile(path: string): Promise<LocalFileOpenResult>
+  /**
+   * Writes one image out of the transcript to a file the user picks. The bytes travel from the
+   * transcript rather than from any path the agent mentioned, which is what makes a generated
+   * image the reader's to keep at all (`shared/image-artifact.ts`).
+   */
+  saveImage(request: ImageArtifactSaveRequest): Promise<ImageArtifactSaveResult>
   readClipboardText(): string
   onData(sessionId: string, attachmentId: string, callback: (output: TerminalOutput) => void): () => void
   onExit(sessionId: string, attachmentId: string, callback: (result: TerminalExit) => void): () => void

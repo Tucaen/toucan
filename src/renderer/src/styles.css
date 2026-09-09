@@ -5432,6 +5432,37 @@ button {
   object-fit: contain;
 }
 
+/* An image that cannot be painted - no bytes, or a type the browser can't decode - says so in
+   place of the thumbnail. A broken frame would be the same silence, one step further along. */
+.message-attachment-unavailable {
+  display: flex;
+  flex: 1 1 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: #8995a4;
+  font:
+    11px/1.5 Inter,
+    system-ui,
+    sans-serif;
+}
+
+.message-attachment-unavailable button.image-save {
+  padding: 3px 10px;
+  border: 1px solid #3a4350;
+  border-radius: 7px;
+  background: #1e242d;
+  color: #c3ccd7;
+  font: inherit;
+}
+
+/* A tool's own images sit outside the collapsible body, so they line up with it rather than with
+   the header's icon. */
+.activity-card > .message-attachments {
+  margin: 0 8px 8px 40px;
+}
+
 /* Portal-rendered into <body> so an `overflow: hidden` chat node can't clip it. */
 .image-viewer-backdrop {
   position: fixed;
@@ -5482,6 +5513,25 @@ button {
   color: #c3ccd7;
 }
 
+/* Save carries a word, so it opts out of the header's square icon-button box. Its verdict sits
+   beside it wherever it is offered - in the viewer's header, or under an unavailable image. */
+.image-viewer header .image-viewer-save {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.image-viewer header button.image-save {
+  width: auto;
+  height: auto;
+  padding: 4px 12px;
+}
+
+.image-save-note {
+  color: #8995a4;
+  overflow-wrap: anywhere;
+}
+
 .image-viewer header button .lucide {
   width: 13px;
   height: 13px;
@@ -5510,6 +5560,8 @@ button {
 }
 
 .image-viewer-count,
+.image-save-note,
+.image-viewer header button.image-save,
 .image-viewer footer button {
   font:
     11px/1.4 Inter,

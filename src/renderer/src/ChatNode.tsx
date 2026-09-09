@@ -866,6 +866,10 @@ function ActivityCard({ activity }: { activity: AgentActivity }): JSX.Element {
         {duration && <small className="activity-duration">{duration}</small>}
         <span className="activity-state">{toolCardStatusLabel(activity.status)}</span>
       </button>
+      {/* Outside the collapsible body on purpose: a settled card collapses itself, and an image
+          the tool produced is the output, not a detail behind a disclosure. Outside the family
+          too - any tool may return an image, so the shell owns it rather than each family. */}
+      {activity.images && <ImageAttachments images={activity.images} label="Generated image" />}
       {body && (
         <div className="activity-body">
           {body.content}

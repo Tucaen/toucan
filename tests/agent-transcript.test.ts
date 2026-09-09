@@ -473,3 +473,62 @@ test('local_detail sets the transient detail without touching anything else', ()
   assert.equal(state.detail, 'Could not read the pasted image.')
   assert.equal(state.status, 'working')
 })
+
+test('an image chunk lands on the message its prose belongs to, keyed by the slot it occupies', () => {
+  const state = fold([
+    { type: 'message', role: 'assistant', messageId: 'answer-1', text: 'Here is the comparison.' },
+    {
+      type: 'message',
+      role: 'assistant',
+      messageId: 'answer-1',
+      text: '',
+      images: [{ data: 'b25l', mimeType: 'image/png' }]
+    },
+    {
+      type: 'message',
+      role: 'assistant',
+      messageId: 'answer-1',
+      text: '',
+      images: [{ data: 'dHdv', mimeType: 'image/png' }]
+    }
+  ])
+
+  assert.equal(state.messages.length, 1)
+  assert.equal(state.messages[0]?.text, 'Here is the comparison.')
+  assert.deepEqual(state.messages[0]?.images, [
+    { id: 'answer-1#0', data: 'b25l', mimeType: 'image/png' },
+    { id: 'answer-1#1', data: 'dHdv', mimeType: 'image/png' }
+  ])
+})
+
+test('an image-first message keeps its images when the prose chunk arrives after them', () => {
+  const state = fold([
+    {
+      type: 'message',
+      role: 'assistant',
+      messageId: 'answer-2',
+      text: '',
+      images: [{ data: 'b25l', mimeType: 'image/png' }]
+    },
+    { type: 'message', role: 'assistant', messageId: 'answer-2', text: 'And here it is.' }
+  ])
+
+  assert.equal(state.messages[0]?.text, 'And here it is.')
+  assert.deepEqual(state.messages[0]?.images, [{ id: 'answer-2#0', data: 'b25l', mimeType: 'image/png' }])
+})
+
+test('a tool call keeps the images it returned across the patches that follow it', () => {
+  const state = fold([
+    {
+      type: 'activity',
+      activity: {
+        id: 'image-1',
+        status: 'completed',
+        images: [{ id: 'image-1#0', data: 'b25l', mimeType: 'image/png' }]
+      }
+    },
+    { type: 'activity', activity: { id: 'image-1', status: 'completed' } }
+  ])
+
+  assert.deepEqual(state.activities['image-1']?.images, [{ id: 'image-1#0', data: 'b25l', mimeType: 'image/png' }])
+})

@@ -1,5 +1,5 @@
 import type { ToolCallContent, ToolCallUpdate } from '@agentclientprotocol/sdk'
-import type { AgentActivity, AgentFileDiff } from './agent'
+import type { AgentActivity, AgentFileDiff, AgentImageAttachment, AgentImageContent } from './agent'
 
 type ToolCallSessionUpdate = ToolCallUpdate & { sessionUpdate?: 'tool_call' | 'tool_call_update' }
 
@@ -12,6 +12,48 @@ function toolContentText(content: ToolCallContent[] | null | undefined): string 
     return []
   })
   return lines.length > 0 ? lines.join('\n') : undefined
+}
+
+/**
+ * One ACP `image` block as a transcript image. Every block is carried, including one the adapter
+ * sent neither bytes nor a URI for: an image the agent produced and Toucan cannot show is exactly
+ * the case issue #174 was reported for, and dropping it here would reproduce the bug rather than
+ * fix it - a completed card with no output and nothing said about why. What a reader is told
+ * instead is `unavailableImageNote`'s job, and it needs the image to exist to say it.
+ *
+ * Both places an image reaches Toucan run this: tool call content below, and the assistant's own
+ * `agent_message_chunk` in `acp-session-manager.ts`. The identity is minted by whoever folds the
+ * image in, because an ACP image block has none of its own.
+ */
+export function imageContentFrom(content: {
+  data?: string | null
+  mimeType?: string | null
+  uri?: string | null
+}): AgentImageContent {
+  const uri = content.uri ?? ''
+  return { data: content.data ?? '', mimeType: content.mimeType ?? '', ...(uri ? { uri } : {}) }
+}
+
+/**
+ * The images a tool call returned. An image is ordinary ACP content, so a reader that only
+ * flattens content to text drops it silently: an image generation then presents as a completed
+ * card with a revised prompt and no output whatsoever (issue #174).
+ *
+ * Ids are positional - the call id plus the image's index within this content array - because
+ * ACP gives an image block no identity of its own, and both adapters deliver a tool result's
+ * content once, whole. That makes a re-merge of the same update idempotent instead of doubling
+ * the set, and keeps ordering the order the agent produced them in.
+ */
+function toolContentImages(
+  toolCallId: string,
+  content: ToolCallContent[] | null | undefined
+): AgentImageAttachment[] | undefined {
+  const images = content?.flatMap((item, index) =>
+    item.type === 'content' && item.content.type === 'image'
+      ? [{ id: `${toolCallId}#${index}`, ...imageContentFrom(item.content) }]
+      : []
+  )
+  return images?.length ? images : undefined
 }
 
 function toolContentDiffs(content: ToolCallContent[] | null | undefined): AgentFileDiff[] | undefined {
@@ -106,6 +148,7 @@ function exitStatusOf(update: ToolCallSessionUpdate): { exitCode?: number; exitS
 export function activityFromUpdate(update: ToolCallSessionUpdate): AgentActivity {
   const content = toolContentText(update.content)
   const diffs = toolContentDiffs(update.content)
+  const images = toolContentImages(update.toolCallId, update.content)
   const toolName = toolNameFromUpdate(update)
   const terminalChunk = terminalChunkOf(update)
   const terminalCwd = terminalMetaOf(update).terminal_info?.cwd
@@ -125,7 +168,8 @@ export function activityFromUpdate(update: ToolCallSessionUpdate): AgentActivity
     ...(toolName ? { toolName } : {}),
     ...(update.rawInput !== undefined && update.rawInput !== null ? { rawInput: update.rawInput } : {}),
     ...(update.rawOutput !== undefined && update.rawOutput !== null ? { rawOutput: update.rawOutput } : {}),
-    ...(diffs ? { diffs } : {})
+    ...(diffs ? { diffs } : {}),
+    ...(images ? { images } : {})
   }
 }
 

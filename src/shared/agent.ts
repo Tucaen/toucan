@@ -65,6 +65,33 @@ export interface AgentPromptImageBlock {
 
 export type AgentPromptBlock = AgentPromptTextBlock | AgentPromptImageBlock
 
+/**
+ * One image in the conversation, whichever direction it travelled: pasted by the captain into a
+ * prompt, returned by a tool call, or sent as an assistant content block. `id` is minted by
+ * whoever folds it in and stays stable for the life of that message or tool call, so a thumbnail
+ * keeps its React key while later patches arrive.
+ *
+ * `data` may be empty. ACP lets an adapter name an image it did not send bytes for - a URL-sourced
+ * image reaches `agent_message_chunk` as `{ data: '', uri }` - so having bytes is a question every
+ * reader has to ask rather than assume (`unavailableImageNote` in `image-attachment.ts` is where
+ * that question is answered once, for every surface).
+ */
+export interface AgentImageAttachment {
+  id: string
+  /** Base64-encoded image bytes, without the `data:` URL prefix; empty when only a reference came. */
+  data: string
+  mimeType: string
+  /** Where the image lives, when the adapter named one instead of sending its bytes. */
+  uri?: string
+}
+
+/**
+ * An image as ACP delivered it, before anything gave it the identity a thumbnail is keyed on. A
+ * message's images arrive one chunk at a time and their only identity is the position they end up
+ * in, which the chunk itself cannot know - so minting the id belongs to the fold, not the wire.
+ */
+export type AgentImageContent = Omit<AgentImageAttachment, 'id'>
+
 /** What a prompt submission can carry: plain text (the common case) or content blocks mixing text and images. */
 export type AgentPromptContent = string | AgentPromptBlock[]
 
@@ -182,6 +209,14 @@ export interface AgentActivity {
   /** Before/after pairs from ACP `diff` content, when the adapter sends them. */
   diffs?: AgentFileDiff[]
   /**
+   * Images this tool call returned, in the order ACP sent them. A generated image is ordinary
+   * `image` content on the tool call, and a card that only reads `content` throws it away
+   * entirely - which is how a finished image generation could present as a DONE card with no
+   * output at all (issue #174). Replaced wholesale by a later patch that carries content, the
+   * same way `content` is, because both adapters send a tool result's content once and complete.
+   */
+  images?: AgentImageAttachment[]
+  /**
    * The tool call this one was made *inside* - set only on calls a subagent made, and naming the
    * `Task`/`Agent` call that spawned it. Both adapters forward a subagent's tool calls into the
    * same flat feed as the parent session's own, so without this every delegated Read and Grep
@@ -280,6 +315,12 @@ export type AgentEvent =
       role: 'user' | 'assistant' | 'thought'
       messageId: string
       text: string
+      /**
+       * Images this chunk carried. ACP delivers an assistant's own image as a message chunk whose
+       * content is an `image` block rather than a `text` one, so a chunk may have images and no
+       * text at all; `foldMessage` appends them to the message the chunk belongs to.
+       */
+      images?: AgentImageContent[]
       presentation?: AgentMessagePresentation
     }
   | { type: 'activity'; activity: AgentActivity }

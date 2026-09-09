@@ -7,6 +7,7 @@ import {
   type AgentDecisionRequest,
   type AgentEffortState,
   type AgentEvent,
+  type AgentImageAttachment,
   type AgentMessagePresentation,
   type AgentModeState,
   type AgentModelState,
@@ -35,21 +36,15 @@ import { mergeSessionUsage, type SessionUsageInput } from './session-usage'
  * state in their own pure modules.
  */
 
-/** One image the captain attached to a message; base64 bytes without the `data:` URL prefix. */
-export interface AgentImageAttachment {
-  id: string
-  data: string
-  mimeType: string
-}
-
 export interface AgentChatMessage {
   id: string
   role: 'user' | 'assistant' | 'thought'
   text: string
   /**
-   * Images the captain attached to this message. They stay on the message so a pasted screenshot
-   * remains visible in the transcript instead of collapsing into a text summary of itself.
-   * Render state only: provider replay of a resumed conversation does not return them.
+   * Images this message carries - pasted by the captain, or sent by the agent as an `image`
+   * content chunk. A captain's attachments are render state only: provider replay of a resumed
+   * conversation does not return them. Either way they stay on the message so the picture itself
+   * remains in the transcript instead of collapsing into a text summary of itself.
    */
   images?: AgentImageAttachment[]
   /** True until the agent actually starts processing this message (only possible for messages sent while busy). */
@@ -211,6 +206,20 @@ function patchMessage(
   }
 }
 
+/**
+ * The images a chunk contributes, stamped with ids that are stable for the message they land on.
+ * ACP sends an assistant's images as their own chunks of the same message, so the position an
+ * image already occupies is the only identity available - `already` is what the message holds so
+ * far, which makes the id deterministic under replay rather than a fresh random per fold.
+ */
+function messageImages(
+  event: Extract<AgentEvent, { type: 'message' }>,
+  already: AgentImageAttachment[]
+): AgentImageAttachment[] | undefined {
+  if (!event.images?.length) return undefined
+  return event.images.map((image, index) => ({ id: `${event.messageId}#${already.length + index}`, ...image }))
+}
+
 function foldMessage(
   state: AgentTranscriptState,
   event: Extract<AgentEvent, { type: 'message' }>
@@ -218,6 +227,7 @@ function foldMessage(
   const existing = state.messages.findIndex((message) => message.id === event.messageId && message.role === event.role)
   if (existing < 0) {
     const next = withTranscriptEntry(state, { type: 'message', id: event.messageId, role: event.role })
+    const images = messageImages(event, [])
     return {
       ...next,
       messages: [
@@ -226,6 +236,7 @@ function foldMessage(
           id: event.messageId,
           role: event.role,
           text: event.text,
+          ...(images ? { images } : {}),
           complete: event.role === 'assistant' ? false : undefined,
           ...(event.role === 'assistant' ? initialAssistantPresentation(event.presentation) : {})
         }
@@ -234,17 +245,16 @@ function foldMessage(
   }
   return {
     ...state,
-    messages: state.messages.map((message, index) =>
-      index === existing
-        ? {
-            ...message,
-            text: message.text + event.text,
-            ...(event.role === 'assistant' && event.presentation
-              ? initialAssistantPresentation(event.presentation)
-              : {})
-          }
-        : message
-    )
+    messages: state.messages.map((message, index) => {
+      if (index !== existing) return message
+      const images = messageImages(event, message.images ?? [])
+      return {
+        ...message,
+        text: message.text + event.text,
+        ...(images ? { images: [...(message.images ?? []), ...images] } : {}),
+        ...(event.role === 'assistant' && event.presentation ? initialAssistantPresentation(event.presentation) : {})
+      }
+    })
   }
 }
 

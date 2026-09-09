@@ -1,5 +1,6 @@
 import { basename, normalize } from 'node:path'
 import { PROJECT_CHANNELS, SHELL_CHANNELS, WORKSPACE_CHANNELS } from '../shared/ipc-channels'
+import type { ImageArtifactSaveRequest, ImageArtifactSaveResult } from '../shared/image-artifact'
 import type { LocalFileOpenResult } from '../shared/local-file-link'
 import type { ProjectDirectory, WorkspaceLoadResult, WorkspaceSaveResult, WorkspaceState } from '../shared/terminal'
 import type { IpcRegistrar } from './ipc-registrar'
@@ -23,6 +24,22 @@ export interface ProjectIpcDependencies {
   showItemInFolder(path: string): void
   /** Opens one local artifact with its associated application; decides for itself whether it may. */
   openLocalFile(path: string): Promise<LocalFileOpenResult>
+  /** Writes one transcript image to a file the user picks; see `image-artifact.ts`. */
+  saveImage(sender: unknown, request: ImageArtifactSaveRequest): Promise<ImageArtifactSaveResult>
+}
+
+/**
+ * The save request as it arrives from the renderer - which is to say, unvalidated. Every field is
+ * narrowed to the string it claims to be before it reaches the saver, which then decides on the
+ * merits (see `imageArtifactBytes`) rather than trusting a shape.
+ */
+function imageSaveRequest(payload: unknown): ImageArtifactSaveRequest {
+  const request = (payload ?? {}) as Partial<Record<keyof ImageArtifactSaveRequest, unknown>>
+  return {
+    data: typeof request.data === 'string' ? request.data : '',
+    mimeType: typeof request.mimeType === 'string' ? request.mimeType : '',
+    suggestedName: typeof request.suggestedName === 'string' ? request.suggestedName : 'image'
+  }
 }
 
 /** A directory as the sidebar displays it: its base name over its absolute path. */
@@ -64,6 +81,12 @@ export function registerProjectIpc(ipc: IpcRegistrar, deps: ProjectIpcDependenci
   // author of every refusal rather than this handler minting a second wording of the same one.
   ipc.handle(SHELL_CHANNELS.openLocalFile, (_event, path: unknown) =>
     deps.openLocalFile(typeof path === 'string' ? path : '')
+  )
+  // An image the agent produced lives in the transcript as bytes, and where the provider put its
+  // own copy is provider-private. Saving one from those bytes is what makes it the reader's
+  // regardless of whether the agent happened to mention a path (#174).
+  ipc.handle(SHELL_CHANNELS.saveImage, (event, request: unknown) =>
+    deps.saveImage(event.sender, imageSaveRequest(request))
   )
   ipc.handle(WORKSPACE_CHANNELS.load, () => deps.workspace.load())
   ipc.handle(WORKSPACE_CHANNELS.save, (_event, state) => deps.workspace.save(state as WorkspaceState))

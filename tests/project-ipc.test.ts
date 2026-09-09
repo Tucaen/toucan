@@ -2,6 +2,7 @@ import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
 import { PROJECT_CHANNELS, SHELL_CHANNELS, WORKSPACE_CHANNELS } from '../src/shared/ipc-channels'
 import { registerProjectIpc, type ProjectIpcDependencies } from '../src/main/project-ipc'
+import type { ImageArtifactSaveRequest } from '../src/shared/image-artifact'
 import type { WorkspaceState } from '../src/shared/terminal'
 
 interface Harness {
@@ -9,6 +10,7 @@ interface Harness {
   opened: string[]
   revealed: string[]
   openedLocally: string[]
+  imageSaves: ImageArtifactSaveRequest[]
   saved: WorkspaceState[]
 }
 
@@ -17,6 +19,7 @@ function harness(overrides: Partial<ProjectIpcDependencies> = {}): Harness {
   const opened: string[] = []
   const revealed: string[] = []
   const openedLocally: string[] = []
+  const imageSaves: ImageArtifactSaveRequest[] = []
   const saved: WorkspaceState[] = []
   registerProjectIpc(
     { handle: (channel, listener) => void handlers.set(channel, listener as (...args: unknown[]) => unknown) },
@@ -36,10 +39,14 @@ function harness(overrides: Partial<ProjectIpcDependencies> = {}): Harness {
         openedLocally.push(path)
         return { ok: true }
       },
+      saveImage: async (_sender, request) => {
+        imageSaves.push(request)
+        return { status: 'saved', path: 'D:\\pictures\\keep.png' }
+      },
       ...overrides
     }
   )
-  return { handlers, opened, revealed, openedLocally, saved }
+  return { handlers, opened, revealed, openedLocally, imageSaves, saved }
 }
 
 const event = { sender: {} }
@@ -107,4 +114,22 @@ test('workspace load and save go to the injected store', async () => {
   const state = { projects: [] } as unknown as WorkspaceState
   assert.deepEqual(await handlers.get(WORKSPACE_CHANNELS.save)!(event, state), { ok: true })
   assert.equal(saved[0], state)
+})
+
+test('shell:save-image narrows every field before the saver sees it, and never invents a name', async () => {
+  const { handlers, imageSaves } = harness()
+  const saveImage = handlers.get(SHELL_CHANNELS.saveImage)!
+
+  assert.deepEqual(await saveImage(event, { data: 'Zmlyc3Q=', mimeType: 'image/png', suggestedName: 'shot' }), {
+    status: 'saved',
+    path: 'D:\\pictures\\keep.png'
+  })
+  await saveImage(event, { data: 42, mimeType: null, suggestedName: { evil: true } })
+  await saveImage(event, undefined)
+
+  assert.deepEqual(imageSaves, [
+    { data: 'Zmlyc3Q=', mimeType: 'image/png', suggestedName: 'shot' },
+    { data: '', mimeType: '', suggestedName: 'image' },
+    { data: '', mimeType: '', suggestedName: 'image' }
+  ])
 })

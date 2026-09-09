@@ -70,6 +70,7 @@ const terminalApi: TerminalApi = {
   openExternal: (url) => ipcRenderer.invoke(SHELL_CHANNELS.openExternal, url),
   showItemInFolder: (path) => ipcRenderer.invoke(SHELL_CHANNELS.showItemInFolder, path),
   openLocalFile: (path) => ipcRenderer.invoke(SHELL_CHANNELS.openLocalFile, path),
+  saveImage: (request) => ipcRenderer.invoke(SHELL_CHANNELS.saveImage, request),
   readClipboardText: () => clipboard.readText(),
   onData: (sessionId, attachmentId, callback) =>
     subscribe(TERMINAL_CHANNELS.data, (output: TerminalOutput) => {

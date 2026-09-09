@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, net, protocol, session, shell } from 'electron'
 import { execFileSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
+import { writeFile } from 'node:fs/promises'
 import { extname, join, normalize } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { spawn } from 'node-pty'
@@ -33,6 +34,7 @@ import { createBrainDumpCaptureStore } from './brain-dump-capture-store'
 import { registerBrainDumpIpc } from './brain-dump-ipc'
 import { createBrainDumpChangeWatcher, type BrainDumpChangeWatcher } from './brain-dump-watcher'
 import { createFileView, type FileView } from './file-view'
+import { createImageArtifactSaver } from './image-save'
 import { createLocalFileOpener } from './local-file-open'
 import { createWorkspaceContainment } from './workspace-containment'
 import { registerFileViewIpc } from './file-view-ipc'
@@ -513,7 +515,19 @@ void app.whenReady().then(async () => {
     },
     openExternal: (url) => shell.openExternal(url),
     showItemInFolder: (path) => shell.showItemInFolder(path),
-    openLocalFile
+    openLocalFile,
+    // Saving an image out of the transcript answers to the user's own pick, not to the workspace
+    // roots: the bytes are already in the renderer's hands, and where a copy of them may be put
+    // is exactly what the save dialog is for.
+    saveImage: createImageArtifactSaver({
+      showSaveDialog: async (sender, defaultName) => {
+        const owner = BrowserWindow.fromWebContents(sender as Electron.WebContents)
+        const options: Electron.SaveDialogOptions = { title: 'Save image', defaultPath: defaultName }
+        const result = owner ? await dialog.showSaveDialog(owner, options) : await dialog.showSaveDialog(options)
+        return result.canceled || !result.filePath ? null : result.filePath
+      },
+      writeFile: (path, bytes) => writeFile(path, bytes)
+    })
   })
   registerRemoteIpc(ipcMain, remote, chatSpawner)
   // Self-updating from the public releases repo. Constructed before the window so the header is

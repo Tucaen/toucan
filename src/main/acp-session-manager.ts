@@ -35,7 +35,7 @@ import type {
   AgentPromptContent,
   AgentPromptResult
 } from '../shared/agent'
-import { activityFromUpdate } from '../shared/agent-activity'
+import { activityFromUpdate, imageContentFrom } from '../shared/agent-activity'
 import { agentPermissionTitle } from '../shared/agent-permission'
 import { effortSelectorFromConfigOptions } from '../shared/agent-effort'
 import { modelSelectorFromConfigOptions } from '../shared/agent-models'
@@ -963,6 +963,19 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
               role: 'assistant',
               messageId: messageIdForUpdate(running, update.messageId, 'assistant', presentation),
               text: update.content.text,
+              ...(presentation ? { presentation } : {})
+            })
+          } else if (update.sessionUpdate === 'agent_message_chunk' && update.content.type === 'image') {
+            // An assistant's own picture arrives as a chunk of the same message its prose does,
+            // just with `image` content - so it folds onto that message rather than becoming one
+            // of its own, and contributes no text (issue #174).
+            const presentation = assistantPresentationFromMeta(update._meta)
+            send(running, {
+              type: 'message',
+              role: 'assistant',
+              messageId: messageIdForUpdate(running, update.messageId, 'assistant', presentation),
+              text: '',
+              images: [imageContentFrom(update.content)],
               ...(presentation ? { presentation } : {})
             })
           } else if (update.sessionUpdate === 'agent_thought_chunk' && update.content.type === 'text') {

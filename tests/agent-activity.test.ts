@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
-import { activityFromUpdate, activityTitle, mergeActivity } from '../src/shared/agent-activity'
+import { activityFromUpdate, activityTitle, imageContentFrom, mergeActivity } from '../src/shared/agent-activity'
 
 test('tool completion patches preserve the descriptive title from the initial event', () => {
   const started = activityFromUpdate({
@@ -241,4 +241,87 @@ test('an update with no delegation meta neither sets nor blanks what an earlier 
 
   assert.equal(Object.hasOwn(completed, 'subagent'), false)
   assert.equal(mergeActivity(started, completed, 100).subagent, true)
+})
+
+// A generated image is ordinary `image` content on the tool call. Dropping it is what left issue
+// #174 with a completed image-generation card that showed a revised prompt and no picture.
+test('image content on a tool call is carried as activity images, in the order it arrived', () => {
+  const activity = activityFromUpdate({
+    sessionUpdate: 'tool_call_update',
+    toolCallId: 'image-1',
+    status: 'completed',
+    content: [
+      { type: 'content', content: { type: 'text', text: 'Generated two variants.' } },
+      { type: 'content', content: { type: 'image', data: 'Zmlyc3Q=', mimeType: 'image/png' } },
+      { type: 'content', content: { type: 'image', data: 'c2Vjb25k', mimeType: 'image/png' } }
+    ]
+  })
+
+  assert.equal(activity.content, 'Generated two variants.')
+  assert.deepEqual(activity.images, [
+    { id: 'image-1#1', data: 'Zmlyc3Q=', mimeType: 'image/png' },
+    { id: 'image-1#2', data: 'c2Vjb25k', mimeType: 'image/png' }
+  ])
+})
+
+test('an image carrying only a URI is kept, so the card can say where the picture lives', () => {
+  const activity = activityFromUpdate({
+    sessionUpdate: 'tool_call_update',
+    toolCallId: 'image-2',
+    status: 'completed',
+    content: [
+      { type: 'content', content: { type: 'image', data: '', mimeType: '', uri: 'https://example.test/a.png' } }
+    ]
+  })
+
+  assert.deepEqual(activity.images, [{ id: 'image-2#0', data: '', mimeType: '', uri: 'https://example.test/a.png' }])
+})
+
+// A tool that reported an image Toucan cannot show still reported an image. Dropping it here is
+// precisely the DONE-card-with-no-output of issue #174, so it is carried and explained instead.
+test('an image block with neither bytes nor a URI is still carried, so the card can explain it', () => {
+  const activity = activityFromUpdate({
+    sessionUpdate: 'tool_call_update',
+    toolCallId: 'image-3',
+    status: 'completed',
+    content: [{ type: 'content', content: { type: 'image', data: '', mimeType: 'image/png' } }]
+  })
+
+  assert.deepEqual(activity.images, [{ id: 'image-3#0', data: '', mimeType: 'image/png' }])
+})
+
+test('re-merging the same image-bearing update neither duplicates nor blanks the images', () => {
+  const completed = activityFromUpdate({
+    sessionUpdate: 'tool_call_update',
+    toolCallId: 'image-4',
+    status: 'completed',
+    content: [{ type: 'content', content: { type: 'image', data: 'Zmlyc3Q=', mimeType: 'image/png' } }]
+  })
+  const later = activityFromUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 'image-4', status: 'completed' })
+
+  const once = mergeActivity(undefined, completed, 10)
+  assert.deepEqual(mergeActivity(once, completed, 20).images, once.images)
+  assert.deepEqual(mergeActivity(once, later, 30).images, once.images)
+})
+
+test('imageContentFrom keeps an image the adapter sent bytes for', () => {
+  assert.deepEqual(imageContentFrom({ data: 'aGVsbG8=', mimeType: 'image/png' }), {
+    data: 'aGVsbG8=',
+    mimeType: 'image/png'
+  })
+})
+
+test('imageContentFrom keeps a URL-sourced image, which claude-agent-acp sends with no bytes', () => {
+  assert.deepEqual(imageContentFrom({ data: '', mimeType: '', uri: 'https://example.test/a.png' }), {
+    data: '',
+    mimeType: '',
+    uri: 'https://example.test/a.png'
+  })
+})
+
+// Dropping this block would reproduce issue #174 rather than fix it: a completed card with no
+// output and nothing said about why. It is carried so `unavailableImageNote` can explain it.
+test('imageContentFrom keeps a block with neither bytes nor a URI, so a reader can be told about it', () => {
+  assert.deepEqual(imageContentFrom({ data: '', mimeType: 'image/png' }), { data: '', mimeType: 'image/png' })
+  assert.deepEqual(imageContentFrom({}), { data: '', mimeType: '' })
 })
