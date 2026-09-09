@@ -1,26 +1,15 @@
-import { watch } from 'node:fs'
 import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { BrainDumpCollection } from '../shared/brain-dump'
 import { BRAIN_DUMP_CHANNELS } from '../shared/ipc-channels'
+import { createWatchedDirectories, type WatchDirectory } from './watched-directories'
 
 const COLLECTIONS: readonly BrainDumpCollection[] = ['active', 'archived']
-const DEFAULT_DEBOUNCE_MS = 100
 
 export interface BrainDumpChangeOwner {
   isDestroyed(): boolean
   send(channel: string, collection: BrainDumpCollection): void
 }
-
-interface DirectoryWatcher {
-  close(): void
-  on?(event: 'error', listener: (error: Error) => void): unknown
-}
-
-type WatchDirectory = (
-  path: string,
-  listener: (eventType: string, filename: string | Buffer | null) => void
-) => DirectoryWatcher
 
 export interface BrainDumpChangeWatcher {
   subscribe(owner: BrainDumpChangeOwner): void
@@ -36,54 +25,31 @@ export interface BrainDumpChangeWatcherOptions {
 
 /**
  * Watches the two disk-backed collections and publishes one coalesced event per changed
- * collection. Skills and editors may write with several rename/link operations, so raw fs.watch
- * events are deliberately not exposed to the renderer.
+ * collection; the debounce and owner bookkeeping live in the shared `watched-directories`
+ * mechanism. This policy's own decisions: the fixed collection set, directories created before
+ * watching, only Markdown topics matter, and watchers are held for the life of the process.
  */
 export async function createBrainDumpChangeWatcher(
   options: BrainDumpChangeWatcherOptions
 ): Promise<BrainDumpChangeWatcher> {
-  const owners = new Set<BrainDumpChangeOwner>()
-  const timers = new Map<BrainDumpCollection, NodeJS.Timeout>()
-  const watchDirectory: WatchDirectory = options.watchDirectory ?? ((path, listener) => watch(path, listener))
+  const watches = createWatchedDirectories({
+    channel: BRAIN_DUMP_CHANNELS.libraryChange,
+    debounceMs: options.debounceMs,
+    watchDirectory: options.watchDirectory
+  })
   const directories = COLLECTIONS.map((collection) => join(options.rootDirectory, collection))
   await Promise.all(directories.map((directory) => mkdir(directory, { recursive: true })))
-
-  const publish = (collection: BrainDumpCollection): void => {
-    timers.delete(collection)
-    for (const owner of owners) {
-      if (owner.isDestroyed()) owners.delete(owner)
-      else owner.send(BRAIN_DUMP_CHANNELS.libraryChange, collection)
-    }
-  }
-
-  const schedule = (collection: BrainDumpCollection): void => {
-    const pending = timers.get(collection)
-    if (pending) clearTimeout(pending)
-    const timer = setTimeout(() => publish(collection), options.debounceMs ?? DEFAULT_DEBOUNCE_MS)
-    timer.unref()
-    timers.set(collection, timer)
-  }
-
-  const watchers = COLLECTIONS.map((collection, index) => {
-    const watcher = watchDirectory(directories[index], (_eventType, filename) => {
-      // A missing filename means the platform cannot identify the entry, so conservatively refresh.
-      // Otherwise only Markdown topics matter; durable-write temporary files are ignored.
-      if (filename === null || filename.toString().toLowerCase().endsWith('.md')) schedule(collection)
+  COLLECTIONS.forEach((collection, index) => {
+    watches.open(collection, {
+      directory: directories[index],
+      // Durable-write temporary files are not Markdown, so they never publish.
+      matches: (filename) => filename.toLowerCase().endsWith('.md')
     })
-    // Avoid an unhandled EventEmitter error taking down Toucan. The directories are created before
-    // watching; a later failure simply stops that OS watcher until Toucan restarts.
-    watcher.on?.('error', () => {})
-    return watcher
   })
 
   return {
-    subscribe: (owner) => owners.add(owner),
-    disconnectOwner: (owner) => owners.delete(owner),
-    shutdown: () => {
-      for (const timer of timers.values()) clearTimeout(timer)
-      timers.clear()
-      for (const watcher of watchers) watcher.close()
-      owners.clear()
-    }
+    subscribe: (owner) => watches.subscribe(owner),
+    disconnectOwner: (owner) => watches.disconnectOwner(owner),
+    shutdown: () => watches.shutdown()
   }
 }

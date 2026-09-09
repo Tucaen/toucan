@@ -1,4 +1,3 @@
-import { watch } from 'node:fs'
 import { open, realpath, rename, stat, unlink } from 'node:fs/promises'
 import { basename, dirname, join, relative, resolve, isAbsolute } from 'node:path'
 import { FILE_VIEW_CHANNELS } from '../shared/ipc-channels'
@@ -8,8 +7,7 @@ import {
   type FileWriteRequest,
   type FileWriteResult
 } from '../shared/file-view'
-
-const DEFAULT_DEBOUNCE_MS = 100
+import { createWatchedDirectories, type WatchDirectory } from './watched-directories'
 
 /** How many leading bytes decide whether a file is text: a NUL in them means it is not. */
 const BINARY_PROBE_BYTES = 8 * 1024
@@ -18,16 +16,6 @@ export interface FileViewOwner {
   isDestroyed(): boolean
   send(channel: string, path: string): void
 }
-
-interface DirectoryWatcher {
-  close(): void
-  on?(event: 'error', listener: (error: Error) => void): unknown
-}
-
-type WatchDirectory = (
-  path: string,
-  listener: (eventType: string, filename: string | Buffer | null) => void
-) => DirectoryWatcher
 
 export interface FileView {
   read(path: string): Promise<FileReadResult>
@@ -51,12 +39,6 @@ export interface FileViewOptions {
   watchDirectory?: WatchDirectory
 }
 
-interface FileWatch {
-  path: string
-  watcher: DirectoryWatcher
-  timer?: NodeJS.Timeout
-}
-
 /**
  * The renderer's only way to read a file's bytes, and it fails closed: a path is readable only when
  * it resolves inside a registered project or worktree, so a hand-edited snapshot or a stray link
@@ -71,19 +53,25 @@ interface FileWatch {
  *
  * Changes are watched through the file's directory, not the file itself: editors and agents
  * replace a file by writing a temporary and renaming it over, which a watch on the old inode
- * would miss. Events are coalesced per file, since one save is several raw events.
+ * would miss. The debounce and holder bookkeeping live in the shared `watched-directories`
+ * mechanism; this module keeps the policy - what counts as the watched file's own change, and
+ * that a file nobody holds any more is released.
  */
 export function createFileView(options: FileViewOptions): FileView {
   const maxBytes = options.maxBytes ?? FILE_VIEW_MAX_BYTES
   const caseInsensitive = options.caseInsensitivePaths ?? process.platform === 'win32'
-  const watchDirectory: WatchDirectory = options.watchDirectory ?? ((path, listener) => watch(path, listener))
-  const watches = new Map<string, FileWatch>()
   /**
-   * Who wants each file watched, counted per window: one window may show the same file in two
-   * nodes, and closing one must not blind the other. Recorded synchronously at `watch()` so an
-   * `unwatch()` that lands while the roots are still being checked is not lost.
+   * Holds are counted per window: one window may show the same file in two nodes, and closing one
+   * must not blind the other. A hold is recorded synchronously at `watch()` so an `unwatch()` that
+   * lands while the roots are still being checked is not lost, and a key's last holder leaving -
+   * however it leaves - closes the OS watch handle.
    */
-  const holders = new Map<string, Map<FileViewOwner, number>>()
+  const watches = createWatchedDirectories({
+    channel: FILE_VIEW_CHANNELS.changed,
+    debounceMs: options.debounceMs,
+    watchDirectory: options.watchDirectory,
+    onUnheld: (key) => watches.close(key)
+  })
   let stopped = false
 
   const comparable = (path: string): string => (caseInsensitive ? path.toLowerCase() : path)
@@ -125,15 +113,6 @@ export function createFileView(options: FileViewOptions): FileView {
   }
 
   const watchKey = (path: string): string => comparable(resolve(path))
-
-  const hold = (key: string, owner: FileViewOwner, delta: 1 | -1): void => {
-    const byOwner = holders.get(key) ?? new Map<FileViewOwner, number>()
-    const count = (byOwner.get(owner) ?? 0) + delta
-    if (count > 0) byOwner.set(owner, count)
-    else byOwner.delete(owner)
-    if (byOwner.size > 0) holders.set(key, byOwner)
-    else holders.delete(key)
-  }
 
   const read = async (path: string): Promise<FileReadResult> => {
     if (!(await insideWorkspace(path))) {
@@ -236,37 +215,6 @@ export function createFileView(options: FileViewOptions): FileView {
     return { ok: true, mtime: written.mtime.toISOString(), size: written.size }
   }
 
-  const release = (key: string): void => {
-    const entry = watches.get(key)
-    if (!entry) return
-    if (entry.timer) clearTimeout(entry.timer)
-    entry.watcher.close()
-    watches.delete(key)
-  }
-
-  const publish = (key: string): void => {
-    const entry = watches.get(key)
-    if (!entry) return
-    entry.timer = undefined
-    for (const owner of [...(holders.get(key)?.keys() ?? [])]) {
-      if (owner.isDestroyed()) holders.get(key)?.delete(owner)
-      else owner.send(FILE_VIEW_CHANNELS.changed, entry.path)
-    }
-    if (!holders.get(key)?.size) {
-      holders.delete(key)
-      release(key)
-    }
-  }
-
-  const schedule = (key: string): void => {
-    const entry = watches.get(key)
-    if (!entry) return
-    if (entry.timer) clearTimeout(entry.timer)
-    const timer = setTimeout(() => publish(key), options.debounceMs ?? DEFAULT_DEBOUNCE_MS)
-    timer.unref()
-    entry.timer = timer
-  }
-
   return {
     read,
     write,
@@ -274,47 +222,30 @@ export function createFileView(options: FileViewOptions): FileView {
       if (stopped) return
       const resolved = resolve(path)
       const key = watchKey(resolved)
-      hold(key, owner, 1)
+      watches.hold(key, owner)
       if (!(await insideWorkspace(resolved))) {
-        hold(key, owner, -1)
+        watches.unhold(key, owner)
         return
       }
       // Released while the roots were being read, or shut down: nothing left to watch for.
-      if (stopped || !holders.get(key)?.has(owner) || watches.has(key)) return
+      if (stopped || !watches.isHeldBy(key, owner) || watches.has(key)) return
       const name = basename(resolved)
-      const sameName = (candidate: string): boolean => comparable(candidate) === comparable(name)
       try {
-        const watcher = watchDirectory(dirname(resolved), (_eventType, filename) => {
-          // A missing filename means the platform cannot say which entry changed, so refresh anyway.
-          const changed = filename?.toString()
-          if (changed === undefined || sameName(changed)) schedule(key)
+        watches.open(key, {
+          directory: dirname(resolved),
+          payload: resolved,
+          matches: (candidate) => comparable(candidate) === comparable(name)
         })
-        // A folder deleted under a live watcher stops reporting; that must not take Toucan down.
-        watcher.on?.('error', () => {})
-        watches.set(key, { path: resolved, watcher })
       } catch {
         // The directory is gone or unwatchable: the node still shows its not-found body on read.
-        hold(key, owner, -1)
+        watches.unhold(key, owner)
       }
     },
-    unwatch: (path, owner) => {
-      const key = watchKey(path)
-      hold(key, owner, -1)
-      if (!holders.has(key)) release(key)
-    },
-    disconnectOwner: (owner) => {
-      for (const [key, byOwner] of holders) {
-        byOwner.delete(owner)
-        if (byOwner.size === 0) {
-          holders.delete(key)
-          release(key)
-        }
-      }
-    },
+    unwatch: (path, owner) => watches.unhold(watchKey(path), owner),
+    disconnectOwner: (owner) => watches.disconnectOwner(owner),
     shutdown: () => {
       stopped = true
-      holders.clear()
-      for (const key of [...watches.keys()]) release(key)
+      watches.shutdown()
     }
   }
 }
