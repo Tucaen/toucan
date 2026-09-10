@@ -1,5 +1,6 @@
 import type { AgentProvider } from '../../shared/agent'
 import {
+  ROUTINE_WORK_SUMMARY,
   WORKER_MODELS,
   workerFromPreference,
   type AgentRoutineDelegation,
@@ -36,7 +37,7 @@ export function describeRoutineDelegation(
     ...WORKER_MODELS[provider].map((model) => ({
       id: model.id,
       name: model.name,
-      description: `Bounded searches, extraction and prescribed checks may run on ${model.name}${
+      description: `Bounded searches, extraction, prescribed checks and recipe-driven mechanical edits may run on ${model.name}${
         model.effortId ? ` (${model.effortId} reasoning)` : ''
       }; planning, diagnosis and review stay on the main model`
     }))

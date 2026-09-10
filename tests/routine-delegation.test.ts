@@ -19,6 +19,9 @@ import {
 // Toucan session through CODEX_CONFIG, without touching the user's global provider configuration.
 // Issue #179: the same preference carries a named routine worker into Claude sessions through the
 // adapter's session-scoped SDK options, again without touching user-wide settings.
+// Issue #180: workers may additionally apply mechanical edits, but only from an explicit recipe
+// the main model supplies (exact transformation, permitted files, constraints, expected result,
+// verification commands), with disjoint file ownership and main reviewing the result.
 
 test('the preference validator accepts what the workspace may store and nothing looser', () => {
   assert.equal(isRoutineDelegationPreference({ enabled: true }), true)
@@ -104,11 +107,37 @@ test('the Codex config carries native limits and a developer-priority instructio
   assert.match(instruction, /Omit the model parameter/)
   assert.match(instruction, /fresh, self-contained brief/)
   assert.match(instruction, /stop conditions/)
-  assert.match(instruction, /do not assign code edits/)
   assert.match(instruction, /no autonomous retry loops/)
   assert.match(instruction, /never silently reassign the task to a more expensive worker/)
   assert.match(instruction, /at most two routine workers/)
+  assertMechanicalEditRules(instruction)
 })
+
+// Issue #180: the shared instruction gates delegated edits on a complete recipe and keeps
+// ownership, review and failure handling with the main model. Both providers carry the same body,
+// so the rules are asserted once for each.
+function assertMechanicalEditRules(instruction: string): void {
+  // The recipe: exact transformation, permitted files, constraints, expected result, verification.
+  assert.match(instruction, /exact transformation or pattern/)
+  assert.match(instruction, /files the worker may change/)
+  assert.match(instruction, /verification commands/)
+  // Classification is by remaining decisions, never by diff size.
+  assert.match(instruction, /small diff is not evidence/)
+  // The exclusions stay with main even when the diff would be mechanical.
+  assert.match(instruction, /security-sensitive/)
+  assert.match(instruction, /destructive data operations/)
+  assert.match(instruction, /architecture changes/)
+  assert.match(instruction, /bugs you have not yet diagnosed/)
+  // Preservation of existing user changes is a required part of every edit brief - the only
+  // conduit to a Codex worker is this instruction, so it cannot live in a worker prompt alone.
+  assert.match(instruction, /preserve existing modifications in the files it touches/)
+  // Concurrent writers own disjoint files and no worker is assumed to have a private checkout.
+  assert.match(instruction, /neither you nor another worker may edit them/)
+  assert.match(instruction, /never assume a worker has a private checkout/)
+  // Main reviews evidence before completion; cancellation keeps partial changes inspectable.
+  assert.match(instruction, /Review each worker's reported changes and evidence/)
+  assert.match(instruction, /partial changes in place/)
+}
 
 test('the Claude session meta names one routine worker and appends the routing instruction', () => {
   const meta = claudeDelegationSessionMeta({ workerModelId: 'haiku' })
@@ -118,10 +147,22 @@ test('the Claude session meta names one routine worker and appends the routing i
   assert.deepEqual(Object.keys(agents), [CLAUDE_ROUTINE_WORKER_NAME])
   // The pin rides on the named definition (the module header explains why no environment variable).
   assert.equal(worker.model, 'haiku')
-  // Native recursion bar: the worker has no Agent tool; native edit bar: no Edit/Write tools.
+  // Native recursion bar: the worker has no Agent tool. Edit/Write are granted for recipe-driven
+  // mechanical edits (issue #180); the recipe scope itself is prompt-enforced.
   assert.ok(!worker.tools.includes('Agent') && !worker.tools.includes('Task'))
-  assert.ok(!worker.tools.includes('Edit') && !worker.tools.includes('Write'))
-  assert.match(worker.prompt, /never edit files/i)
+  assert.ok(worker.tools.includes('Edit') && worker.tools.includes('Write'))
+  // The worker edits only from an explicit recipe, preserves what it did not prescribe, stops on
+  // discoveries instead of expanding scope, and reports changes with checks run.
+  assert.match(worker.prompt, /explicit recipe/)
+  assert.match(worker.prompt, /Never change a file the brief does not name/)
+  assert.match(worker.prompt, /preserve existing modifications/i)
+  assert.match(worker.prompt, /unexpected dependency or design question/)
+  // A verification the worker could not run is blocked, never passed - the live smoke caught a
+  // worker substituting file inspection for a permission-blocked check and claiming PASS.
+  assert.match(worker.prompt, /Never substitute a different check/)
+  assert.match(worker.prompt, /reported as blocked, never as passed/)
+  assert.match(worker.prompt, /files you changed/)
+  assert.match(worker.prompt, /checks you ran/)
   assert.match(worker.prompt, /stop/i)
   // The parent's instruction is a system-prompt append, so no worker text lands in the transcript.
   assert.equal(meta.systemPrompt.type, 'preset')
@@ -130,9 +171,9 @@ test('the Claude session meta names one routine worker and appends the routing i
   assert.match(instruction, new RegExp(`subagent_type "${CLAUDE_ROUTINE_WORKER_NAME}"`))
   assert.match(instruction, /Omit the model parameter/)
   assert.match(instruction, /fresh, self-contained brief/)
-  assert.match(instruction, /do not assign code edits/)
   assert.match(instruction, /at most two routine workers/)
   assert.match(instruction, /never silently reassign the task to a more expensive worker/)
+  assertMechanicalEditRules(instruction)
 })
 
 test('CODEX_CONFIG is layered, never clobbered: unrelated keys and user instructions survive', () => {

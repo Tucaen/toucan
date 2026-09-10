@@ -1,8 +1,9 @@
 /**
  * The "Delegate routine work cheaply" policy: one workspace preference, and the provider-native
  * configuration that carries it into a session. The main model keeps planning, diagnosis and
- * review; qualifying bounded searches, extraction and prescribed checks may be spawned onto an
- * economical worker model. Plan: `docs/plans/cheap-routine-delegation.md`.
+ * review; qualifying bounded searches, extraction, prescribed checks and recipe-driven mechanical
+ * edits may be spawned onto an economical worker model. Plan:
+ * `docs/plans/cheap-routine-delegation.md`.
  *
  * Codex is configured per Toucan session through the `CODEX_CONFIG` environment variable: the
  * codex-acp adapter (verified on 1.10.0, Codex 0.153.4) parses it once at process start and
@@ -27,12 +28,18 @@
  * can override it - and that case is withheld visibly rather than left to run on whatever the
  * environment dictates.
  *
- * Instruction-only limitations, documented deliberately: for Codex, the read-only worker scope
- * and the brief format live in the developer instruction (the native worker-side channel belongs
- * to the still-disabled multi_agent_v2 feature). For Claude, the worker's tool list is native
- * (no Agent tool - the recursion bar; no Edit/Write - the code-edit bar), but Bash could edit
- * through a shell and there is no native concurrency cap, so "prescribed checks only" and "at
- * most two workers" are prompt guidance there.
+ * Workers may also apply *mechanical edits*, but only from an explicit recipe the main model
+ * supplies (issue #180): the exact transformation or pattern, the files the worker may change,
+ * constraints, the expected result and the verification commands. Design decisions, review and
+ * the listed exclusions (security-sensitive behavior, destructive data operations, architecture
+ * changes, unfamiliar bug diagnosis) stay with main, concurrent writers own disjoint files, and a
+ * failed verification returns to main rather than looping in the worker.
+ *
+ * Instruction-only limitations, documented deliberately: for Codex, the worker scope and the
+ * brief format live in the developer instruction (the native worker-side channel belongs to the
+ * still-disabled multi_agent_v2 feature). For Claude, the recursion bar is native (no Agent
+ * tool), but the worker now carries Edit/Write for recipe-driven edits, so the recipe scope,
+ * file ownership, "prescribed checks only" and "at most two workers" are prompt guidance there.
  */
 
 import type { AgentProvider } from './agent-provider'
@@ -44,6 +51,9 @@ export interface RoutineDelegationPreference {
   /** Absent falls back to the Claude default worker; only ids from `CLAUDE_WORKER_MODELS` are valid. */
   claudeWorkerModelId?: string
 }
+
+/** What routine work is, in one phrase every surface describing a worker builds on. */
+export const ROUTINE_WORK_SUMMARY = 'bounded searches, extraction, prescribed checks and recipe-driven mechanical edits'
 
 export interface WorkerModel {
   id: string
@@ -64,7 +74,7 @@ export const CODEX_WORKER_MODELS: readonly WorkerModel[] = [
   {
     id: 'gpt-5.6-luna',
     name: 'GPT-5.6 Luna',
-    description: 'Economical worker for bounded searches, extraction and prescribed checks',
+    description: `Economical worker for ${ROUTINE_WORK_SUMMARY}`,
     effortId: 'low'
   }
 ]
@@ -78,7 +88,7 @@ export const CLAUDE_WORKER_MODELS: readonly WorkerModel[] = [
   {
     id: 'haiku',
     name: 'Haiku',
-    description: 'Economical worker for bounded searches, extraction and prescribed checks'
+    description: `Economical worker for ${ROUTINE_WORK_SUMMARY}`
   }
 ]
 
@@ -210,11 +220,13 @@ function routineDelegationInstruction(spawn: string): string {
     '',
     spawn,
     '',
-    'Routine work has explicit instructions, bounded scope and a checkable result: substantial file or call-site searches, extraction from specified sources, running prescribed checks and summarizing their output. Keep for yourself: ambiguous research, architecture, root-cause diagnosis, security or data-loss decisions, high-impact choices, and final review. Run trivial single-command tasks (one grep, one formatter, one command) directly - delegation overhead would dominate.',
+    'Routine work has explicit instructions, bounded scope and a checkable result: substantial file or call-site searches, extraction from specified sources, running prescribed checks and summarizing their output, and mechanical edits you have fully prescribed. Keep for yourself: ambiguous research, architecture, root-cause diagnosis, security or data-loss decisions, high-impact choices, and final review. Run trivial single-command tasks (one grep, one formatter, one command) directly - delegation overhead would dominate.',
     '',
-    'Give each worker a fresh, self-contained brief - never fork or inherit conversation history: state the objective, the relevant paths, constraints, the expected output format, how the result will be checked, and stop conditions. Workers only read and run prescribed checks in this workspace; do not assign code edits.',
+    'Give each worker a fresh, self-contained brief - never fork or inherit conversation history: state the objective, the relevant paths, constraints, the expected output format, how the result will be checked, and stop conditions.',
     '',
-    'Run at most two routine workers at a time, and workers must not delegate further. If a worker fails its check, lacks input, or needs a design decision, it must return concise evidence to you and stop: no autonomous retry loops, and never silently reassign the task to a more expensive worker.'
+    'A mechanical edit may be delegated only after you have already made every decision: the brief must spell out the exact transformation or pattern to apply, the files the worker may change, the constraints that apply, the expected result, and the verification commands to run - and it must require the worker to preserve existing modifications in the files it touches, applying the prescribed transformation and nothing else. A small diff is not evidence a task is routine - what matters is whether any design decision remains, and edits touching security-sensitive behavior, destructive data operations, or architecture changes, and fixes for bugs you have not yet diagnosed, are never delegated. Workers edit this same checkout: while a worker owns its assigned files, neither you nor another worker may edit them, and overlapping assignments must run one after the other unless an explicit existing worktree isolates them - never assume a worker has a private checkout.',
+    '',
+    "Review each worker's reported changes and evidence yourself before treating a task as complete. If a worker fails its verification, lacks input, hits an unexpected dependency, or needs a design decision, it must return concise evidence to you and stop: no autonomous retry loops, and never silently reassign the task to a more expensive worker. A cancelled or failed worker leaves its partial changes in place for you to inspect. Run at most two routine workers at a time, and workers must not delegate further."
   ].join('\n')
 }
 
@@ -266,10 +278,11 @@ export function claudeDelegationInstruction(worker: RoutineDelegationRequest): s
 }
 
 /**
- * The worker's own compact instructions, at its system-prompt priority. The tool list is the
- * native part of the boundary: no Agent tool, so it cannot delegate further; no Edit/Write tools,
- * so it cannot edit files through them. Bash remains for prescribed checks, which is why the
- * prompt restates the read-only scope.
+ * The worker's own compact instructions, at its system-prompt priority. The native part of the
+ * boundary is the missing Agent tool, so it cannot delegate further. Edit/Write are granted for
+ * recipe-driven mechanical edits (issue #180); the recipe scope - named files only, prescribed
+ * transformation only, preserve everything else - is prompt-enforced, which is why the prompt
+ * spells it out.
  */
 export function claudeDelegationSessionMeta(worker: RoutineDelegationRequest): ClaudeDelegationSessionMeta {
   return {
@@ -278,14 +291,14 @@ export function claudeDelegationSessionMeta(worker: RoutineDelegationRequest): C
         agents: {
           [CLAUDE_ROUTINE_WORKER_NAME]: {
             description:
-              'Economical routine worker for bounded searches, extraction and prescribed checks with a checkable result. Not for design, diagnosis, review or code edits.',
+              'Economical routine worker for bounded searches, extraction, prescribed checks and mechanical edits from an explicit recipe. Not for design, diagnosis, review or unprescribed changes.',
             prompt: [
               'You are a routine worker given one bounded brief. Do exactly what the brief asks, nothing beyond it.',
-              'You only read files and run the checks the brief prescribes; never edit files, create files, or start other agents.',
-              'Report referenced evidence: file paths with line numbers, and the exact command output an assertion rests on. Keep the report compact.',
-              'If the brief is ambiguous, an input is missing, or a prescribed check fails, stop and report the concise evidence instead of retrying or improvising.'
+              'You may read files and run the checks the brief prescribes. Edit only when the brief supplies an explicit recipe: the exact transformation to apply, the files you may change, and the verification commands. Never change a file the brief does not name, and preserve existing modifications in the files you touch - apply only the prescribed transformation.',
+              'If the brief is ambiguous, an input is missing, a prescribed verification fails or cannot be run, or you discover an unexpected dependency or design question, stop and report concise evidence instead of retrying, improvising or expanding scope. Never substitute a different check for a prescribed verification: a verification you could not run is reported as blocked, never as passed.',
+              'Never start other agents. Report a compact summary: the files you changed and how, the checks you ran with their results, and anything unresolved - with file paths, line numbers, and the exact command output an assertion rests on.'
             ].join('\n'),
-            tools: ['Read', 'Grep', 'Glob', 'Bash'],
+            tools: ['Read', 'Grep', 'Glob', 'Bash', 'Edit', 'Write'],
             model: worker.workerModelId
           }
         }
