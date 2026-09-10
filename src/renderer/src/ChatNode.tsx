@@ -1337,6 +1337,28 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
   )
   const closeFindBar = useCallback((): void => setFindBar((current) => ({ ...current, open: false })), [])
 
+  /**
+   * A node the captain just opened - created, reopened from the closed list, or resumed from its
+   * saved panel - starts with the caret in its composer, so a conversation can be typed without a
+   * click. Two things decide when that can happen:
+   *
+   * - The composer stays disabled until the session leaves `starting`, and a disabled textarea
+   *   cannot take focus, so the caret waits for the session rather than landing on the mount.
+   * - Only a selected node claims the focus. An open acts on one node and selects it, while
+   *   workspace hydration mounts every saved conversation and selects none, so keying on the
+   *   mount alone would have them all race for the caret on startup.
+   */
+  const nodeRef = useRef<HTMLElement>(null)
+  const wasDormant = useRef(dormant)
+  const composerFocusPending = useRef(selected && !dormant)
+  useEffect(() => {
+    if (wasDormant.current && !dormant && selected) composerFocusPending.current = true
+    wasDormant.current = dormant
+    if (!composerFocusPending.current || dormant || isSendDisabled(status)) return
+    composerFocusPending.current = false
+    nodeRef.current?.querySelector<HTMLTextAreaElement>('.chat-composer-row textarea')?.focus()
+  }, [dormant, selected, status])
+
   const flatProps: FlatChatViewProps = {
     provider,
     fileMentions,
@@ -1355,6 +1377,7 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
 
   return (
     <article
+      ref={nodeRef}
       className={`terminal-node chat-node ${selected ? 'selected' : ''}`}
       style={
         {
