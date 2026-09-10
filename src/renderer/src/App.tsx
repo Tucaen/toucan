@@ -175,7 +175,7 @@ import {
   type LayoutKeyAction,
   type TileMode
 } from './canvas-layout'
-import { NODE_FIT_INSET, canvasRegion, nodeBeforeTemporaryFit } from './node-snap'
+import { NODE_FIT_INSET, canvasRegion, nodeBeforeTemporaryFit, viewportShowingNode } from './node-snap'
 import { NodeFitContext } from './node-fit-context'
 import { nodeSearchKeyAction } from './node-search'
 import { NodeSearchContext, NO_NODE_SEARCH_REQUEST, type NodeSearchRequest } from './node-search-context'
@@ -387,7 +387,7 @@ function Canvas(): JSX.Element {
     []
   )
   const [workspaceWidth, setWorkspaceWidth] = useState(() => window.innerWidth)
-  const { fitView, getViewport, screenToFlowPosition, zoomIn, zoomOut } = useReactFlow()
+  const { fitView, getViewport, screenToFlowPosition, setViewport, zoomIn, zoomOut } = useReactFlow()
   const canvasRegionRef = useRef<HTMLElement>(null)
   const nextSessionNumber = useRef(1)
 
@@ -1639,9 +1639,12 @@ function Canvas(): JSX.Element {
       // Selecting a node is enough: each node reports its own status once it sees the focus.
       setNodes((current) => current.map((node) => ({ ...node, selected: node.id === nodeId })))
       setMenu(null)
-      void fitView({ nodes: [target], padding: 0.32, duration: 350, maxZoom: 1.15 })
+      // Pan only: the user's zoom is theirs, and a snapped node goes back to the side it was snapped to.
+      const canvas = canvasRegionRef.current?.getBoundingClientRect()
+      const next = canvas && viewportShowingNode(target, nodeFit.state()[nodeId], canvas, getViewport(), NODE_FIT_INSET)
+      if (next) void setViewport(next, { duration: 350 })
     },
-    [fitView, nodes, setNodes]
+    [getViewport, nodeFit, nodes, setNodes, setViewport]
   )
 
   /** The board's live session cards; which report becomes which chip is `ticket-activity.ts`. */

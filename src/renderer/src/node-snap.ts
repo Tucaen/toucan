@@ -296,3 +296,35 @@ export function releaseSnaps<T extends Node>(nodes: T[], snaps: SnapStates, ids:
   for (const id of ids) rest = withoutSnap(rest, id)
   return { nodes: nodes.map((node) => (releasing.has(node.id) ? nodeWithFitFlag(node, false) : node)), snaps: rest }
 }
+
+/**
+ * The viewport that brings a node into view without changing zoom - the sidebar click. An
+ * unsnapped node is centred. A snapped node is put back into its slice: a right half sits against
+ * the right edge again, a bottom quarter against the bottom, a maximised or left/top node against
+ * the inset. Edges rather than the slice rectangle are aligned so a node snapped at another zoom
+ * still lands on the side it belongs to. Null when the node has no geometry to show.
+ */
+export function viewportShowingNode(
+  node: Node,
+  slice: SnapSlice | undefined,
+  canvas: CanvasSize,
+  viewport: Viewport,
+  inset: number
+): Viewport | null {
+  const geometry = renderedNodeGeometry(node)
+  if (!geometry) return null
+  const { zoom } = viewport
+  const screenWidth = geometry.width * zoom
+  const screenHeight = geometry.height * zoom
+  const left = slice
+    ? slice.h === 'right'
+      ? canvas.width - inset - screenWidth
+      : inset
+    : (canvas.width - screenWidth) / 2
+  const top = slice
+    ? slice.v === 'bottom'
+      ? canvas.height - inset - screenHeight
+      : inset
+    : (canvas.height - screenHeight) / 2
+  return { x: left - geometry.position.x * zoom, y: top - geometry.position.y * zoom, zoom }
+}

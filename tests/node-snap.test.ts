@@ -12,6 +12,7 @@ import {
   snapNodePair,
   snapsReleasedByChanges,
   toggleNodeFit,
+  viewportShowingNode,
   type SnapSlice,
   type SnapStates
 } from '../src/renderer/src/node-snap'
@@ -213,4 +214,33 @@ test('releasing forgets the snap and the flag but leaves the geometry where it i
   equal(released.nodes[0].data.fittedToCanvas, false)
   deepEqual(released.nodes[0].position, { x: 16, y: 16 })
   equal(released.nodes[1], maximised.nodes[1])
+})
+
+test('showing a node keeps the zoom and centres an unsnapped node', () => {
+  const node = { id: 'a', position: { x: 100, y: 50 }, data: {}, style: { width: 300, height: 200 } }
+  deepEqual(viewportShowingNode(node, undefined, canvas, { x: -900, y: 400, zoom: 0.5 }, 16), {
+    x: (1000 - 150) / 2 - 50,
+    y: (700 - 100) / 2 - 25,
+    zoom: 0.5
+  })
+})
+
+test('showing a snapped node puts it back on the side it was snapped to', () => {
+  const [a, b] = nodes()
+  const right = snapNode([a, b], {}, 'a', 'right', region, 16)
+  const snapped = right.nodes.find((node) => node.id === 'a')!
+  const shown = viewportShowingNode(snapped, right.snaps.a, canvas, { x: 300, y: -200, zoom: 1 }, 16)!
+  // Right edge on the inset, top on the inset: the node's screen rectangle is its slice again.
+  equal(snapped.position.x * shown.zoom + shown.x + snapped.style.width, canvas.width - 16)
+  equal(snapped.position.y * shown.zoom + shown.y, 16)
+
+  const bottom = snapNode(right.nodes, right.snaps, 'a', 'down', region, 16)
+  const quarter = bottom.nodes.find((node) => node.id === 'a')!
+  const shownQuarter = viewportShowingNode(quarter, bottom.snaps.a, canvas, { x: 0, y: 0, zoom: 2 }, 16)!
+  equal(quarter.position.y * 2 + shownQuarter.y + quarter.style.height * 2, canvas.height - 16)
+  equal(shownQuarter.zoom, 2)
+})
+
+test('a node without geometry has nothing to show', () => {
+  equal(viewportShowingNode({ id: 'x', position: { x: 0, y: 0 }, data: {} }, undefined, canvas, viewport, 16), null)
 })
