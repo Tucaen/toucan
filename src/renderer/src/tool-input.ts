@@ -34,18 +34,4 @@ export function asText(value: unknown): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined
 }
 
-/**
- * A tool name flattened to its bare identity, so `BashOutput`, `bash_output` and a namespaced
- * `shell.bash` all agree. Namespace separators are dropped along with the namespace, which is why
- * a card that must *not* claim a third-party tool of the same bare name (an MCP `mcp__x__grep`)
- * has to check the qualified name first - see the family ordering in `tool-card-families.tsx`.
- */
-export function normalizeToolName(name: string | undefined): string | undefined {
-  if (!name) return undefined
-  const bare =
-    name
-      .split(/[.:]|__/)
-      .filter(Boolean)
-      .at(-1) ?? name
-  return bare.toLowerCase().replace(/[^a-z]/g, '')
-}
+export { normalizeToolName } from '../../shared/tool-identity'

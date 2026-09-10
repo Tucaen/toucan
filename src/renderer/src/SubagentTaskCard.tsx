@@ -1,6 +1,7 @@
 import { useContext } from 'react'
 import type { JSX, ReactNode } from 'react'
 import type { AgentActivity } from '../../shared/agent'
+import { delegationEvidenceRows } from '../../shared/delegation-evidence'
 import {
   SubagentActivitiesContext,
   subagentProgress,
@@ -46,9 +47,14 @@ export function SubagentTaskBody({
   const children = useContext(SubagentActivitiesContext).get(activity.id) ?? []
   return (
     <div className="subagent-body">
-      {/* What the caller *asked for* - neither adapter echoes back the model the provider actually
-          ran, so this is worded as a request rather than presented as a confirmed fact. */}
-      {task.model && <small className="subagent-model">Model requested: {task.model}</small>}
+      <dl className="subagent-evidence" aria-label="Delegation evidence">
+        {delegationEvidenceRows(activity, children).map((row) => (
+          <div key={row.label}>
+            <dt>{row.label}:</dt>
+            <dd>{row.value}</dd>
+          </div>
+        ))}
+      </dl>
       {task.prompt && <pre className="subagent-prompt">{task.prompt}</pre>}
       {children.length > 0 && <div className="subagent-steps">{children.map((step) => renderStep(step))}</div>}
       {children.length === 0 && activity.status === 'in_progress' && (

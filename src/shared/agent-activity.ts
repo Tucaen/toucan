@@ -1,5 +1,6 @@
 import type { ToolCallContent, ToolCallUpdate } from '@agentclientprotocol/sdk'
 import type { AgentActivity, AgentFileDiff, AgentImageAttachment, AgentImageContent } from './agent'
+import { delegationEvidenceFrom } from './delegation-evidence'
 
 type ToolCallSessionUpdate = ToolCallUpdate & { sessionUpdate?: 'tool_call' | 'tool_call_update' }
 
@@ -222,12 +223,27 @@ export function mergeActivity(
   now: number
 ): AgentActivity {
   const merged = { ...existing, ...incoming }
+  const evidence = delegationEvidenceFrom(merged)
   const settled = isSettledActivity(merged.status)
   const terminalOutput = incoming.terminalChunk
     ? `${existing?.terminalOutput ?? ''}${incoming.terminalChunk}`
     : existing?.terminalOutput
   return {
     ...merged,
+    ...(Object.keys(evidence).length
+      ? {
+          delegationEvidence: {
+            ...existing?.delegationEvidence,
+            ...evidence,
+            observedStatuses: [
+              ...new Set([
+                ...(existing?.delegationEvidence?.observedStatuses ?? []),
+                ...(evidence.observedStatuses ?? [])
+              ])
+            ]
+          }
+        }
+      : {}),
     terminalChunk: undefined,
     ...(terminalOutput !== undefined ? { terminalOutput } : {}),
     startedAt: existing?.startedAt ?? now,

@@ -1,5 +1,7 @@
 # Cheap routine-work delegation
 
+Usage visibility (#181): [transcript evidence, transport limits and measured workload comparison](delegation-evidence.md).
+
 Plan: [issue #177](https://github.com/Tucaen/ade/issues/177). First slice: [issue #178](https://github.com/Tucaen/ade/issues/178) (Codex provider). Second slice: [issue #179](https://github.com/Tucaen/ade/issues/179) (Claude provider). Third slice: [issue #180](https://github.com/Tucaen/ade/issues/180) (recipe-gated mechanical edits).
 
 A workspace preference, "Delegate routine work cheaply", lets a conversation spawn bounded routine

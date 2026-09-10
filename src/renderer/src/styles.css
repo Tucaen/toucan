@@ -2965,7 +2965,28 @@ button {
   font-size: 10px;
 }
 
-.subagent-model,
+.subagent-evidence {
+  margin: 8px 0;
+  color: #aab5c5;
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.subagent-evidence > div {
+  margin-top: 4px;
+}
+
+.subagent-evidence dt {
+  display: inline;
+  font-weight: 600;
+}
+
+.subagent-evidence dd {
+  display: inline;
+  margin-left: 4px;
+}
+
 .mcp-origin,
 .skill-reason {
   display: block;

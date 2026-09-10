@@ -194,6 +194,26 @@ export interface AgentFileDiff {
   newText: string
 }
 
+export interface DelegationUsage {
+  /** A worker invocation total, never a parent-session or per-message increment. */
+  scope: 'worker-invocation'
+  source: 'agent-result' | 'agent-result-trailer'
+  total?: number
+  input?: number
+  output?: number
+  cacheRead?: number
+  cacheWrite?: number
+  reasoning?: number
+}
+
+export interface DelegationEvidence {
+  requestedModel?: string
+  confirmedModels?: string[]
+  usage?: DelegationUsage
+  /** Set of observed tool statuses, not an inferred retry count. */
+  observedStatuses?: NonNullable<AgentActivity['status']>[]
+}
+
 export interface AgentActivity {
   id: string
   /** Omitted by patch-style ACP updates when the existing title is unchanged. */
@@ -240,6 +260,8 @@ export interface AgentActivity {
   parentToolCallId?: string
   /** This call *is* a delegation: the adapter marked it as spawning a subagent. */
   subagent?: boolean
+  /** Provider evidence folded with the activity, shared by live and replayed transcripts. */
+  delegationEvidence?: DelegationEvidence
   /**
    * One chunk of terminal output as the adapter just sent it - never the accumulated text. Both
    * adapters stream a command's output through the `terminal_output`/`terminal_output_delta`

@@ -48,6 +48,28 @@ function renderCard(activity: AgentActivity): HTMLElement {
 }
 
 describe('task, plan, skill and MCP tool cards', () => {
+  test('delegation details distinguish requested and confirmed models and keep missing usage explicit', () => {
+    const card = renderCard({
+      id: 'evidence',
+      toolName: 'Agent',
+      subagent: true,
+      status: 'in_progress',
+      rawInput: { model: 'haiku' },
+      delegationEvidence: {
+        requestedModel: 'haiku',
+        confirmedModels: ['claude-sonnet-4'],
+        usage: { scope: 'worker-invocation', source: 'agent-result', input: 123 }
+      }
+    })
+    expect(within(card).getByLabelText('Delegation evidence')).toBeVisible()
+    expect(card).toHaveTextContent('Model requested:haiku')
+    expect(card).toHaveTextContent('Model confirmed:claude-sonnet-4')
+    expect(card).toHaveTextContent('input: 123')
+    expect(card).toHaveTextContent('output: unavailable')
+    expect(card).toHaveTextContent('Orchestration overhead cannot be isolated')
+    expect(card).not.toHaveTextContent('$')
+  })
+
   test("a running delegation shows the subagent's own steps progressing, not one opaque entry", () => {
     const transcript = renderTranscript([
       {

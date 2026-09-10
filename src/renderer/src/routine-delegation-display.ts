@@ -1,6 +1,5 @@
 import type { AgentProvider } from '../../shared/agent'
 import {
-  ROUTINE_WORK_SUMMARY,
   WORKER_MODELS,
   workerFromPreference,
   type AgentRoutineDelegation,

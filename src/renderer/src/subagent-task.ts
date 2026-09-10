@@ -1,8 +1,8 @@
 import { createContext } from 'react'
 import type { AgentActivity } from '../../shared/agent'
 import { activityTitle, isSettledActivity } from '../../shared/agent-activity'
-import { mcpToolCallFor } from './mcp-tool-call'
-import { asRecord, asText, memoizePerActivity, normalizeToolName } from './tool-input'
+import { isDelegationActivity } from '../../shared/tool-identity'
+import { asRecord, asText, memoizePerActivity } from './tool-input'
 
 /**
  * A turn handed to a subagent. Two things make it worth its own card: it is the one tool call
@@ -38,8 +38,6 @@ const CODEX_ACTIVITY_VERBS: Record<string, string> = {
   interrupted: 'Interrupted'
 }
 
-const DELEGATION_TOOLS = new Set(['task', 'agent'])
-
 /**
  * Recognizes a delegation from the adapter's own marker first (`_meta.claudeCode.subagent`,
  * `_meta.codex.subagent`) and the tool name second. The name check is deliberately last and
@@ -47,9 +45,7 @@ const DELEGATION_TOOLS = new Set(['task', 'agent'])
  * `task`, and claiming it here would show somebody's issue tracker as a spawned agent.
  */
 export function parseSubagentTask(activity: AgentActivity): SubagentTask | null {
-  const name = normalizeToolName(activity.toolName)
-  const named = name !== undefined && DELEGATION_TOOLS.has(name) && mcpToolCallFor(activity) === null
-  if (!activity.subagent && !named) return null
+  if (!isDelegationActivity(activity)) return null
 
   const input = asRecord(activity.rawInput) ?? {}
   const agentPath = asText(input.agentPath)
