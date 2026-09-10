@@ -497,6 +497,37 @@ test('rejects a workspace whose draft or send-key preference is the wrong shape'
   assert.ok(parseWorkspaceState({ ...base, composerSendKey: 'enter' }))
 })
 
+test('the routine-delegation preference survives a restart, and absent means off (issue #178)', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'toucan-workspace-test-'))
+  const store = createWorkspaceStore(join(directory, 'workspace.json'))
+  const state = makeState('delegation')
+  state.routineDelegation = { enabled: true, codexWorkerModelId: 'gpt-5.6-luna' }
+
+  assert.equal((await store.save(state)).ok, true)
+  const loaded = await store.load()
+  assert.deepEqual(loaded.state?.routineDelegation, { enabled: true, codexWorkerModelId: 'gpt-5.6-luna' })
+
+  // A snapshot written before the preference existed simply has no field: existing workspaces
+  // migrate with delegation off, and the loaded shape stays exactly what was saved.
+  const before = makeState('pre-delegation')
+  assert.equal((await store.save(before)).ok, true)
+  assert.equal((await store.load()).state?.routineDelegation, undefined)
+})
+
+test('rejects a routine-delegation preference of the wrong shape', () => {
+  const base = {
+    version: 3,
+    projects: [{ id: 'project-1', name: 'Toucan', path: 'D:\Development\Toucan', color: '#71a9ff' }],
+    activeProjectId: 'project-1',
+    sidebarCollapsed: false,
+    nodes: [],
+    worktrees: []
+  }
+  assert.equal(parseWorkspaceState({ ...base, routineDelegation: { enabled: 'yes' } }), null)
+  assert.equal(parseWorkspaceState({ ...base, routineDelegation: 'on' }), null)
+  assert.ok(parseWorkspaceState({ ...base, routineDelegation: { enabled: false } }))
+})
+
 test('unread attention records survive a restart, and stale ones are pruned on the way back in', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'toucan-workspace-test-'))
   const store = createWorkspaceStore(join(directory, 'workspace.json'))

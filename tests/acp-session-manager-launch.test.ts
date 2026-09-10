@@ -64,6 +64,77 @@ test('the adapter process itself is launched with the node id, not only the reco
   manager.killAll()
 })
 
+test('routine delegation configures the Codex launch environment, and only when requested', () => {
+  const appPath = appWithAdapter()
+  // The claude adapter must exist too: delegation isolation is proven by launching both providers.
+  const claudeDist = join(appPath, 'node_modules', '@agentclientprotocol', 'claude-agent-acp', 'dist')
+  mkdirSync(claudeDist, { recursive: true })
+  writeFileSync(join(claudeDist, 'index.js'), '')
+  const launches: AgentProcessLaunch[] = []
+  const manager = createAcpSessionManager({
+    appPath,
+    environment: { PATH: '/usr/bin' },
+    spawnAgent: (launch) => {
+      launches.push(launch)
+      return stubChild()
+    }
+  })
+  const owner = { isDestroyed: () => false, send: () => {} } as unknown as WebContents
+  const routineDelegation = { workerModelId: 'gpt-5.6-luna', workerEffortId: 'low' }
+
+  void manager.create({ id: 'delegating', provider: 'codex', cwd: '/project', routineDelegation }, owner)
+  void manager.create({ id: 'plain', provider: 'codex', cwd: '/project' }, owner)
+  void manager.create({ id: 'claude', provider: 'claude', cwd: '/project', routineDelegation }, owner)
+
+  const configured = JSON.parse(launches[0]?.options.env?.CODEX_CONFIG ?? 'null') as {
+    agents: Record<string, unknown>
+    developer_instructions: string
+  }
+  assert.equal(configured.agents.default_subagent_model, 'gpt-5.6-luna')
+  assert.equal(configured.agents.default_subagent_reasoning_effort, 'low')
+  assert.equal(configured.agents.max_concurrent_threads_per_session, 2)
+  assert.equal(configured.agents.max_depth, 1)
+  assert.match(configured.developer_instructions, /Delegate routine work cheaply/)
+  // The preference never leaks into a session that did not request it, nor into another provider:
+  // enabling delegation must not edit global provider configuration or touch Claude sessions.
+  assert.equal(launches[1]?.options.env?.CODEX_CONFIG, undefined)
+  assert.equal(launches[2]?.options.env?.CODEX_CONFIG, undefined)
+  manager.killAll()
+})
+
+test('a worker missing from the account model cache withholds the configuration', () => {
+  const appPath = appWithAdapter()
+  const codexHome = mkdtempSync(join(tmpdir(), 'toucan-codex-home-'))
+  writeFileSync(
+    join(codexHome, 'models_cache.json'),
+    JSON.stringify({ models: [{ slug: 'gpt-6-astra', display_name: 'GPT-6-Astra', visibility: 'list' }] })
+  )
+  const launches: AgentProcessLaunch[] = []
+  const manager = createAcpSessionManager({
+    appPath,
+    codexHome,
+    environment: {},
+    spawnAgent: (launch) => {
+      launches.push(launch)
+      return stubChild()
+    }
+  })
+  const owner = { isDestroyed: () => false, send: () => {} } as unknown as WebContents
+  void manager.create(
+    {
+      id: 'delegating',
+      provider: 'codex',
+      cwd: '/project',
+      routineDelegation: { workerModelId: 'gpt-5.6-luna', workerEffortId: 'low' }
+    },
+    owner
+  )
+  // Never claim the cheap policy without evidence the model can exist here: the session launches,
+  // but unconfigured, and the create result will report `unavailable` instead.
+  assert.equal(launches[0]?.options.env?.CODEX_CONFIG, undefined)
+  manager.killAll()
+})
+
 test('new sessions resolve the selected adapter while existing sessions retain their process', () => {
   const appPath = appWithAdapter()
   const original = join(appPath, 'node_modules/@agentclientprotocol/codex-acp/dist/index.js')

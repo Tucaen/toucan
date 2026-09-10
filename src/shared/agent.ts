@@ -1,3 +1,5 @@
+import type { AgentRoutineDelegation, RoutineDelegationRequest } from './routine-delegation'
+
 export type AgentProvider = 'claude' | 'codex'
 
 export interface AgentCreateRequest {
@@ -15,6 +17,12 @@ export interface AgentCreateRequest {
    * does not turn every write into a permission request nobody is watching for.
    */
   additionalDirectories?: string[]
+  /**
+   * The "Delegate routine work cheaply" policy for this session, present only when the preference
+   * is enabled and the provider supports it (Codex today). Applied at adapter launch, so a change
+   * takes effect on the next session creation or resume - never mid-turn.
+   */
+  routineDelegation?: RoutineDelegationRequest
 }
 
 export interface AgentAuthMethod {
@@ -43,6 +51,12 @@ export interface AgentCreateResult {
   authMethods?: AgentAuthMethod[]
   /** Whether the agent's `initialize` handshake advertised `promptCapabilities.image`. */
   imageSupport?: boolean
+  /**
+   * The routine-delegation policy the session's adapter actually launched with (see
+   * `shared/routine-delegation.ts`) - the launch-time truth, which a preference changed since
+   * launch does not alter. Absent when the request carried no policy.
+   */
+  routineDelegation?: AgentRoutineDelegation
   message?: string
 }
 

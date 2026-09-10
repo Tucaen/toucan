@@ -28,6 +28,7 @@ import {
   SendHorizontal,
   ShieldCheck,
   Square,
+  UsersRound,
   X
 } from 'lucide-react'
 import MarkdownMessage from './MarkdownMessage'
@@ -85,6 +86,9 @@ import { dictationContext } from './voice-transcript'
 import { recentMentionPaths } from './file-mention-completion'
 import { composerSendKeyLabels, type ComposerSendKey } from './composer-keys'
 import { useComposerSendKey } from './composer-send-key-context'
+import { useRoutineDelegation } from './routine-delegation-context'
+import { DELEGATION_OFF_OPTION, describeRoutineDelegation } from './routine-delegation-display'
+import { routineDelegationRequest, type AgentRoutineDelegation } from '../../shared/routine-delegation'
 import { usePromptEditor, type ComposerFileMentions } from './use-prompt-editor'
 import PromptTextarea from './PromptTextarea'
 import ComposerQueue from './ComposerQueue'
@@ -159,6 +163,8 @@ interface FlatChatViewProps {
   modes?: AgentModeState | null
   models?: AgentModelState | null
   efforts?: AgentEffortState | null
+  /** What the running session's adapter actually launched with; the preference is only a request. */
+  routineDelegation?: AgentRoutineDelegation | null
   selectorsDisabled?: boolean
   selectMode?(modeId: string): unknown
   selectModel?(modelId: string): void
@@ -188,6 +194,7 @@ export type ChatComposerProps = Pick<
   | 'modes'
   | 'models'
   | 'efforts'
+  | 'routineDelegation'
   | 'selectorsDisabled'
   | 'selectMode'
   | 'selectModel'
@@ -268,7 +275,13 @@ const pickerCopy = {
     idle: 'Effort',
     hint: 'Set the thinking effort for this conversation'
   },
-  sendKey: { icon: Keyboard, heading: 'Send with', idle: 'Send key', hint: 'Choose which key sends a message' }
+  sendKey: { icon: Keyboard, heading: 'Send with', idle: 'Send key', hint: 'Choose which key sends a message' },
+  delegation: {
+    icon: UsersRound,
+    heading: 'Routine work',
+    idle: 'Delegation',
+    hint: 'Delegate routine work to an economical worker model'
+  }
 } as const
 
 /** One dropdown shape for every agent-reported selector, so modes and models stay consistent. */
@@ -413,10 +426,21 @@ function AttachmentPreview(props: {
 function ComposerToolbar(
   props: Pick<
     FlatChatViewProps,
-    'provider' | 'modes' | 'models' | 'efforts' | 'selectorsDisabled' | 'selectMode' | 'selectModel' | 'selectEffort'
+    | 'provider'
+    | 'modes'
+    | 'models'
+    | 'efforts'
+    | 'routineDelegation'
+    | 'selectorsDisabled'
+    | 'selectMode'
+    | 'selectModel'
+    | 'selectEffort'
   >
 ): JSX.Element {
   const { sendKey, setSendKey } = useComposerSendKey()
+  const routineDelegation = useRoutineDelegation()
+  const delegation =
+    props.provider === 'codex' ? describeRoutineDelegation(routineDelegation.preference, props.routineDelegation) : null
   const disabled = props.selectorsDisabled ?? false
   const ProviderPickerIcon = pickerCopy.provider.icon
   return (
@@ -451,6 +475,24 @@ function ComposerToolbar(
           disabled={disabled}
           select={props.selectMode}
         />
+      )}
+      {delegation && (
+        <>
+          <SelectorPicker
+            kind="delegation"
+            options={delegation.options}
+            selectedId={delegation.selectedId}
+            disabled={false}
+            select={(id) =>
+              routineDelegation.setPreference(
+                id === DELEGATION_OFF_OPTION.id
+                  ? { ...routineDelegation.preference, enabled: false }
+                  : { enabled: true, codexWorkerModelId: id }
+              )
+            }
+          />
+          {delegation.note && <span className="composer-toolbar-note">{delegation.note}</span>}
+        </>
       )}
       <SelectorPicker
         kind="sendKey"
@@ -1187,6 +1229,7 @@ export function ChatView(groups: ChatViewProps): JSX.Element {
 
 export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanvasNode>): JSX.Element {
   const provider = data.kind === 'claude' ? 'claude' : 'codex'
+  const routineDelegationPreference = useRoutineDelegation().preference
   const conversation = useAgentConversation({
     id,
     provider,
@@ -1194,6 +1237,9 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
     sessionId: data.launchMode === 'resume' ? data.conversationId : undefined,
     permissionMode: data.preferredPermissionMode,
     modelId: data.modelId,
+    // Codex-only in this slice; read at session creation, so a change applies on the next safe
+    // creation or resume and never cancels a turn already running under the old policy.
+    routineDelegation: provider === 'codex' ? routineDelegationRequest(routineDelegationPreference) : undefined,
     enabled: !data.dormant,
     onSessionId: (sessionId) => data.onConversationId(id, sessionId),
     onPermissionMode: (modeId) => data.onPermissionModeChange(provider, modeId),

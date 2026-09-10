@@ -14,6 +14,7 @@ import type {
   AgentPromptContent,
   AgentTurnOutcome
 } from '../../shared/agent'
+import type { AgentRoutineDelegation, RoutineDelegationRequest } from '../../shared/routine-delegation'
 import {
   applyAgentCreateResult,
   foldAgentEvent,
@@ -70,6 +71,8 @@ export interface AgentConversationOptions {
   permissionMode?: string
   modelId?: string
   effortId?: string
+  /** The routine-delegation policy to launch with; read at create time, never a restart trigger. */
+  routineDelegation?: RoutineDelegationRequest
   restartKey?: number
   composePrompt?(text: string): string | Promise<string>
   enabled: boolean
@@ -107,6 +110,8 @@ export interface AgentConversationController {
   modes: AgentModeState | null
   models: AgentModelState | null
   efforts: AgentEffortState | null
+  /** The routine-delegation policy the session's adapter launched with; null before it reports. */
+  routineDelegation: AgentRoutineDelegation | null
   /** Slash commands and skills this session advertises, for the composer's completion. */
   commands: AgentCommand[]
   status: AgentChatStatus
@@ -276,7 +281,8 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
         sessionId: options.sessionId,
         permissionMode: options.permissionMode,
         modelId: options.modelId,
-        effortId: options.effortId
+        effortId: options.effortId,
+        routineDelegation: options.routineDelegation
       })
       .then((result) => {
         if (!active) return
@@ -542,6 +548,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     modes: chat.modes,
     models: chat.models,
     efforts: chat.efforts,
+    routineDelegation: chat.routineDelegation,
     commands: chat.commands,
     status,
     usage: chat.usage,

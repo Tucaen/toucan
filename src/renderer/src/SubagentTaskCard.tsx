@@ -46,7 +46,9 @@ export function SubagentTaskBody({
   const children = useContext(SubagentActivitiesContext).get(activity.id) ?? []
   return (
     <div className="subagent-body">
-      {task.model && <small className="subagent-model">Model: {task.model}</small>}
+      {/* What the caller *asked for* - neither adapter echoes back the model the provider actually
+          ran, so this is worded as a request rather than presented as a confirmed fact. */}
+      {task.model && <small className="subagent-model">Model requested: {task.model}</small>}
       {task.prompt && <pre className="subagent-prompt">{task.prompt}</pre>}
       {children.length > 0 && <div className="subagent-steps">{children.map((step) => renderStep(step))}</div>}
       {children.length === 0 && activity.status === 'in_progress' && (

@@ -115,6 +115,8 @@ import {
 } from './canvas-workspace'
 import { COMPOSER_SEND_KEY_DEFAULT } from './composer-keys'
 import { ComposerSendKeyContext } from './composer-send-key-context'
+import { RoutineDelegationContext } from './routine-delegation-context'
+import type { RoutineDelegationPreference } from '../../shared/routine-delegation'
 import { AppUpdateChip } from './AppUpdateChip'
 import { useAppUpdate } from './use-app-update'
 import { RemoteAccessDialog } from './RemoteAccessDialog'
@@ -349,6 +351,7 @@ function Canvas(): JSX.Element {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [agentPermissionModes, setAgentPermissionModes] = useState<AgentPermissionModes>({})
   const [composerSendKey, setComposerSendKey] = useState<ComposerSendKey>(COMPOSER_SEND_KEY_DEFAULT)
+  const [routineDelegation, setRoutineDelegation] = useState<RoutineDelegationPreference>({ enabled: false })
   const [recentlyClosedNodes, setRecentlyClosedNodes] = useState<WorkspaceTerminalNode[]>([])
   const [menu, setMenu] = useState<ContextMenuState | null>(null)
   const [worktreeDraft, setWorktreeDraft] = useState<WorktreeDraft | null>(null)
@@ -1384,6 +1387,8 @@ function Canvas(): JSX.Element {
       }
       setAgentPermissionModes(saved.agentPermissionModes ?? {})
       setComposerSendKey(saved.composerSendKey ?? COMPOSER_SEND_KEY_DEFAULT)
+      // Absent in older snapshots means off: existing workspaces migrate with delegation disabled.
+      setRoutineDelegation(saved.routineDelegation ?? { enabled: false })
       setRecentlyClosedNodes(saved.recentlyClosedNodes ?? [])
       setLayoutSlots(pruneLayoutSlots(saved.layoutSlots ?? {}, new Set(restored.nodes.map((node) => node.id))))
       restoreAttention(
@@ -1428,6 +1433,8 @@ function Canvas(): JSX.Element {
       sidebarCollapsed,
       agentPermissionModes,
       composerSendKey,
+      // Absent until the user first touches the preference, so older workspaces keep their shape.
+      ...(routineDelegation.enabled || routineDelegation.codexWorkerModelId ? { routineDelegation } : {}),
       // One array per node kind, from the one table that knows how each is persisted - including
       // which of them stay absent from the snapshot rather than being written empty.
       ...serializeCanvasNodes(nodes, (node) => nodeBeforeTemporaryFit(node, nodeFit.state())),
@@ -1449,6 +1456,7 @@ function Canvas(): JSX.Element {
       projectGroups,
       projects,
       recentlyClosedNodes,
+      routineDelegation,
       sidebarCollapsed,
       ticketBoardPanel
     ]
@@ -2107,711 +2115,720 @@ function Canvas(): JSX.Element {
     [composerSendKey]
   )
 
+  const routineDelegationSetting = useMemo(
+    () => ({ preference: routineDelegation, setPreference: setRoutineDelegation }),
+    [routineDelegation]
+  )
+
   return (
     <ComposerSendKeyContext.Provider value={sendKeyPreference}>
-      {/* One poll, every node: account usage is per provider, so a chat node reads it from here
+      <RoutineDelegationContext.Provider value={routineDelegationSetting}>
+        {/* One poll, every node: account usage is per provider, so a chat node reads it from here
         instead of asking for it itself. */}
-      <ProviderRateLimitsContext.Provider value={providerRateLimits.limits}>
-        <main className="app-shell" onClick={() => setMenu(null)}>
-          {workspaceUnrecoverable && (
-            <div
-              className="unrecoverable-workspace-overlay"
-              role="alertdialog"
-              aria-modal="true"
-              aria-labelledby="unrecoverable-workspace-title"
-            >
-              <div className="unrecoverable-workspace-dialog">
-                <strong id="unrecoverable-workspace-title">Your saved workspace could not be recovered</strong>
-                <p>
-                  The saved canvas and its backup were both damaged, likely by a crash or an interrupted write. Nothing
-                  has been overwritten yet.
-                </p>
-                <button type="button" onClick={() => void acknowledgeUnrecoverableWorkspace()}>
-                  Start a new workspace
-                </button>
+        <ProviderRateLimitsContext.Provider value={providerRateLimits.limits}>
+          <main className="app-shell" onClick={() => setMenu(null)}>
+            {workspaceUnrecoverable && (
+              <div
+                className="unrecoverable-workspace-overlay"
+                role="alertdialog"
+                aria-modal="true"
+                aria-labelledby="unrecoverable-workspace-title"
+              >
+                <div className="unrecoverable-workspace-dialog">
+                  <strong id="unrecoverable-workspace-title">Your saved workspace could not be recovered</strong>
+                  <p>
+                    The saved canvas and its backup were both damaged, likely by a crash or an interrupted write.
+                    Nothing has been overwritten yet.
+                  </p>
+                  <button type="button" onClick={() => void acknowledgeUnrecoverableWorkspace()}>
+                    Start a new workspace
+                  </button>
+                </div>
               </div>
-            </div>
-          )}
-          <header className="app-header">
-            <div>
-              <img className="brand-mark" src={toucanLogo} alt="" aria-hidden="true" />
-              <strong>Toucan</strong>
-              <span className="prototype-label">Agentic Development Environment</span>
-            </div>
-            <div className="header-target">
-              {(statusSummary.working > 0 || statusSummary.stalled > 0 || unreadTotal > 0) && (
-                <div className="global-status-summary" role="status">
-                  {statusSummary.working > 0 && (
-                    <span className="global-status-chip" data-kind="working">
-                      <span className="global-status-dot" />
-                      {statusSummary.working} working
-                    </span>
-                  )}
-                  {statusSummary.stalled > 0 && (
-                    <span
-                      className="global-status-chip"
-                      data-kind="stalled"
-                      title="No progress for a while - these sessions may be stuck"
-                    >
-                      <span className="global-status-dot" />
-                      {statusSummary.stalled} may be stuck
-                    </span>
-                  )}
-                  {/* Not recomputed from node status: this is the same durable record set the
+            )}
+            <header className="app-header">
+              <div>
+                <img className="brand-mark" src={toucanLogo} alt="" aria-hidden="true" />
+                <strong>Toucan</strong>
+                <span className="prototype-label">Agentic Development Environment</span>
+              </div>
+              <div className="header-target">
+                {(statusSummary.working > 0 || statusSummary.stalled > 0 || unreadTotal > 0) && (
+                  <div className="global-status-summary" role="status">
+                    {statusSummary.working > 0 && (
+                      <span className="global-status-chip" data-kind="working">
+                        <span className="global-status-dot" />
+                        {statusSummary.working} working
+                      </span>
+                    )}
+                    {statusSummary.stalled > 0 && (
+                      <span
+                        className="global-status-chip"
+                        data-kind="stalled"
+                        title="No progress for a while - these sessions may be stuck"
+                      >
+                        <span className="global-status-dot" />
+                        {statusSummary.stalled} may be stuck
+                      </span>
+                    )}
+                    {/* Not recomputed from node status: this is the same durable record set the
                   project rows and the nodes themselves count, so the numbers agree. */}
-                  {unreadTotal > 0 && (
-                    <span className="global-status-chip" data-kind="attention" title={describeUnread()}>
-                      <span className="global-status-dot" />
-                      {unreadTotal} unread
-                    </span>
-                  )}
-                </div>
-              )}
-              {(providerRateLimits.limits.claude || providerRateLimits.limits.codex) && (
-                <div className="global-usage-summary">
-                  {providerRateLimits.limits.claude && (
-                    <ProviderUsageChip
-                      provider="Claude"
-                      status={providerRateLimits.limits.claude}
-                      refreshing={providerRateLimits.refreshing}
-                      onRefresh={providerRateLimits.refresh}
-                    />
-                  )}
-                  {providerRateLimits.limits.codex && (
-                    <ProviderUsageChip
-                      provider="Codex"
-                      status={providerRateLimits.limits.codex}
-                      refreshing={providerRateLimits.refreshing}
-                      onRefresh={providerRateLimits.refresh}
-                    />
-                  )}
-                </div>
-              )}
-              <AppUpdateChip
-                snapshot={appUpdate.snapshot}
-                announceError={appUpdate.announceError}
-                busy={appUpdate.busy}
-                onCheck={appUpdate.check}
-                onRestart={appUpdate.restart}
-              />
-              <button
-                type="button"
-                className="header-remote-access"
-                title="Agent adapters"
-                aria-label="Agent adapters"
-                onClick={(event) => {
-                  event.stopPropagation()
-                  setMenu(null)
-                  setAdapterManagementOpen(true)
-                }}
-              >
-                <Settings aria-hidden="true" />
-              </button>
-              <button
-                type="button"
-                className="header-remote-access"
-                title={
-                  remoteAccess.state?.listening
-                    ? `Remote access is on (port ${remoteAccess.state.boundPort ?? remoteAccess.state.settings.port})`
-                    : 'Remote access is off - open to serve the mobile companion'
-                }
-                data-listening={remoteAccess.state?.listening ? 'true' : undefined}
-                onClick={(event) => {
-                  event.stopPropagation()
-                  setMenu(null)
-                  setRemoteAccessOpen(true)
-                }}
-              >
-                <Smartphone aria-hidden="true" />
-              </button>
-              {activeProject && (
-                <span className="target-chip" title={activeProject.path}>
-                  <span style={{ background: activeProject.color }} />
-                  {activeProject.name}
-                </span>
-              )}
-            </div>
-          </header>
-
-          <div className="workspace-shell">
-            <aside ref={sidebarRef} className={`project-sidebar ${sidebarCollapsed ? 'collapsed' : ''}`}>
-              <div className="sidebar-heading">
-                {!sidebarCollapsed && <span>Projects</span>}
+                    {unreadTotal > 0 && (
+                      <span className="global-status-chip" data-kind="attention" title={describeUnread()}>
+                        <span className="global-status-dot" />
+                        {unreadTotal} unread
+                      </span>
+                    )}
+                  </div>
+                )}
+                {(providerRateLimits.limits.claude || providerRateLimits.limits.codex) && (
+                  <div className="global-usage-summary">
+                    {providerRateLimits.limits.claude && (
+                      <ProviderUsageChip
+                        provider="Claude"
+                        status={providerRateLimits.limits.claude}
+                        refreshing={providerRateLimits.refreshing}
+                        onRefresh={providerRateLimits.refresh}
+                      />
+                    )}
+                    {providerRateLimits.limits.codex && (
+                      <ProviderUsageChip
+                        provider="Codex"
+                        status={providerRateLimits.limits.codex}
+                        refreshing={providerRateLimits.refreshing}
+                        onRefresh={providerRateLimits.refresh}
+                      />
+                    )}
+                  </div>
+                )}
+                <AppUpdateChip
+                  snapshot={appUpdate.snapshot}
+                  announceError={appUpdate.announceError}
+                  busy={appUpdate.busy}
+                  onCheck={appUpdate.check}
+                  onRestart={appUpdate.restart}
+                />
                 <button
                   type="button"
-                  className="sidebar-toggle"
-                  title={sidebarCollapsed ? 'Expand projects' : 'Collapse projects'}
+                  className="header-remote-access"
+                  title="Agent adapters"
+                  aria-label="Agent adapters"
                   onClick={(event) => {
                     event.stopPropagation()
                     setMenu(null)
-                    setSidebarCollapsed((current) => !current)
+                    setAdapterManagementOpen(true)
                   }}
                 >
-                  {sidebarCollapsed ? <ChevronRight aria-hidden="true" /> : <ChevronLeft aria-hidden="true" />}
+                  <Settings aria-hidden="true" />
                 </button>
+                <button
+                  type="button"
+                  className="header-remote-access"
+                  title={
+                    remoteAccess.state?.listening
+                      ? `Remote access is on (port ${remoteAccess.state.boundPort ?? remoteAccess.state.settings.port})`
+                      : 'Remote access is off - open to serve the mobile companion'
+                  }
+                  data-listening={remoteAccess.state?.listening ? 'true' : undefined}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    setMenu(null)
+                    setRemoteAccessOpen(true)
+                  }}
+                >
+                  <Smartphone aria-hidden="true" />
+                </button>
+                {activeProject && (
+                  <span className="target-chip" title={activeProject.path}>
+                    <span style={{ background: activeProject.color }} />
+                    {activeProject.name}
+                  </span>
+                )}
               </div>
+            </header>
 
-              <div className="project-list" data-dragging={sidebarDrag ? 'true' : undefined}>
-                {sidebarRegions(projects, projectGroups).map((region) => {
-                  const group = region.group
-                  return (
-                    <div className="project-region" key={group?.id ?? 'ungrouped'} data-group={group?.id}>
-                      {group && (
-                        <div
-                          className="project-group-header"
-                          ref={(element) => registerSidebarRow(`group-header:${group.id}`, element)}
-                          data-expanded={group.collapsed ? undefined : 'true'}
-                          data-dragging={
-                            sidebarDrag?.kind === 'group' && sidebarDrag.id === group.id ? 'true' : undefined
-                          }
-                          onContextMenu={(event) => {
-                            event.preventDefault()
-                            setMenu(null)
-                            setProjectMenu({ x: event.clientX, y: event.clientY, target: { kind: 'group', group } })
-                          }}
-                        >
-                          <span
-                            className="project-drag-handle"
-                            title={`Drag to re-order ${group.name}`}
-                            onPointerDown={(event) => startSidebarDrag('group', group.id, event)}
+            <div className="workspace-shell">
+              <aside ref={sidebarRef} className={`project-sidebar ${sidebarCollapsed ? 'collapsed' : ''}`}>
+                <div className="sidebar-heading">
+                  {!sidebarCollapsed && <span>Projects</span>}
+                  <button
+                    type="button"
+                    className="sidebar-toggle"
+                    title={sidebarCollapsed ? 'Expand projects' : 'Collapse projects'}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      setMenu(null)
+                      setSidebarCollapsed((current) => !current)
+                    }}
+                  >
+                    {sidebarCollapsed ? <ChevronRight aria-hidden="true" /> : <ChevronLeft aria-hidden="true" />}
+                  </button>
+                </div>
+
+                <div className="project-list" data-dragging={sidebarDrag ? 'true' : undefined}>
+                  {sidebarRegions(projects, projectGroups).map((region) => {
+                    const group = region.group
+                    return (
+                      <div className="project-region" key={group?.id ?? 'ungrouped'} data-group={group?.id}>
+                        {group && (
+                          <div
+                            className="project-group-header"
+                            ref={(element) => registerSidebarRow(`group-header:${group.id}`, element)}
+                            data-expanded={group.collapsed ? undefined : 'true'}
+                            data-dragging={
+                              sidebarDrag?.kind === 'group' && sidebarDrag.id === group.id ? 'true' : undefined
+                            }
+                            onContextMenu={(event) => {
+                              event.preventDefault()
+                              setMenu(null)
+                              setProjectMenu({ x: event.clientX, y: event.clientY, target: { kind: 'group', group } })
+                            }}
                           >
-                            <GripVertical aria-hidden="true" />
-                          </span>
-                          {renamingGroupId === group.id ? (
-                            <input
-                              className="project-group-rename"
-                              autoFocus
-                              defaultValue={group.name}
-                              aria-label={`Rename ${group.name}`}
-                              onKeyDown={(event) => {
-                                if (event.key === 'Enter') renameProjectGroup(group.id, event.currentTarget.value)
-                                if (event.key === 'Escape') {
-                                  event.stopPropagation()
-                                  setRenamingGroupId(null)
-                                }
-                              }}
-                              onBlur={(event) => renameProjectGroup(group.id, event.currentTarget.value)}
-                            />
-                          ) : (
-                            <button
-                              type="button"
-                              className="project-group-toggle"
-                              aria-expanded={!group.collapsed}
-                              title={`${group.name} · ${region.projects.length} project${
-                                region.projects.length === 1 ? '' : 's'
-                              }`}
-                              onClick={(event) => {
-                                event.stopPropagation()
-                                toggleProjectGroup(group.id)
-                              }}
+                            <span
+                              className="project-drag-handle"
+                              title={`Drag to re-order ${group.name}`}
+                              onPointerDown={(event) => startSidebarDrag('group', group.id, event)}
                             >
-                              <span className="project-group-chevron" aria-hidden="true">
-                                <ChevronDown />
-                              </span>
-                              {sidebarCollapsed ? (
-                                <span className="project-avatar project-group-avatar">
-                                  {group.name.slice(0, 1).toUpperCase()}
-                                </span>
-                              ) : (
-                                <>
-                                  <strong>{group.name}</strong>
-                                  <span className="project-group-count">{region.projects.length}</span>
-                                </>
-                              )}
-                            </button>
-                          )}
-                        </div>
-                      )}
-                      {!group?.collapsed &&
-                        region.projects.map((project) => {
-                          const projectNodes = nodes
-                            .filter(isTerminalCanvasNode)
-                            .filter((node) => node.data.projectId === project.id)
-                          const projectWorktrees = nodes
-                            .filter(isWorktreeCanvasNode)
-                            .filter((node) => node.data.projectId === project.id)
-                          const nodeCount = projectNodes.length + projectWorktrees.length
-                          // Summed from the same records as the header chip and the nodes, never re-derived.
-                          const projectNodeIds = projectNodes.map((node) => node.id)
-                          const projectUnread = countUnread(projectNodeIds)
-                          const selected = project.id === activeProject?.id
-                          return (
-                            <div className="project-section" key={project.id}>
-                              <div
-                                className={`project-row ${selected ? 'active' : ''}`}
-                                ref={(element) => registerSidebarRow(`project:${project.id}`, element)}
-                                data-dragging={
-                                  sidebarDrag?.kind === 'project' && sidebarDrag.id === project.id ? 'true' : undefined
-                                }
-                                onContextMenu={(event) => {
-                                  event.preventDefault()
-                                  setMenu(null)
-                                  setProjectMenu({
-                                    x: event.clientX,
-                                    y: event.clientY,
-                                    target: { kind: 'project', project }
-                                  })
+                              <GripVertical aria-hidden="true" />
+                            </span>
+                            {renamingGroupId === group.id ? (
+                              <input
+                                className="project-group-rename"
+                                autoFocus
+                                defaultValue={group.name}
+                                aria-label={`Rename ${group.name}`}
+                                onKeyDown={(event) => {
+                                  if (event.key === 'Enter') renameProjectGroup(group.id, event.currentTarget.value)
+                                  if (event.key === 'Escape') {
+                                    event.stopPropagation()
+                                    setRenamingGroupId(null)
+                                  }
+                                }}
+                                onBlur={(event) => renameProjectGroup(group.id, event.currentTarget.value)}
+                              />
+                            ) : (
+                              <button
+                                type="button"
+                                className="project-group-toggle"
+                                aria-expanded={!group.collapsed}
+                                title={`${group.name} · ${region.projects.length} project${
+                                  region.projects.length === 1 ? '' : 's'
+                                }`}
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  toggleProjectGroup(group.id)
                                 }}
                               >
-                                <span
-                                  className="project-drag-handle"
-                                  title={`Drag to re-order ${project.name}`}
-                                  onPointerDown={(event) => startSidebarDrag('project', project.id, event)}
-                                >
-                                  <GripVertical aria-hidden="true" />
+                                <span className="project-group-chevron" aria-hidden="true">
+                                  <ChevronDown />
                                 </span>
-                                <button
-                                  type="button"
-                                  className="project-select"
-                                  title={sidebarCollapsed ? `${project.name}\n${project.path}` : project.path}
-                                  onClick={(event) => {
-                                    event.stopPropagation()
-                                    setActiveProjectId(project.id)
+                                {sidebarCollapsed ? (
+                                  <span className="project-avatar project-group-avatar">
+                                    {group.name.slice(0, 1).toUpperCase()}
+                                  </span>
+                                ) : (
+                                  <>
+                                    <strong>{group.name}</strong>
+                                    <span className="project-group-count">{region.projects.length}</span>
+                                  </>
+                                )}
+                              </button>
+                            )}
+                          </div>
+                        )}
+                        {!group?.collapsed &&
+                          region.projects.map((project) => {
+                            const projectNodes = nodes
+                              .filter(isTerminalCanvasNode)
+                              .filter((node) => node.data.projectId === project.id)
+                            const projectWorktrees = nodes
+                              .filter(isWorktreeCanvasNode)
+                              .filter((node) => node.data.projectId === project.id)
+                            const nodeCount = projectNodes.length + projectWorktrees.length
+                            // Summed from the same records as the header chip and the nodes, never re-derived.
+                            const projectNodeIds = projectNodes.map((node) => node.id)
+                            const projectUnread = countUnread(projectNodeIds)
+                            const selected = project.id === activeProject?.id
+                            return (
+                              <div className="project-section" key={project.id}>
+                                <div
+                                  className={`project-row ${selected ? 'active' : ''}`}
+                                  ref={(element) => registerSidebarRow(`project:${project.id}`, element)}
+                                  data-dragging={
+                                    sidebarDrag?.kind === 'project' && sidebarDrag.id === project.id
+                                      ? 'true'
+                                      : undefined
+                                  }
+                                  onContextMenu={(event) => {
+                                    event.preventDefault()
                                     setMenu(null)
+                                    setProjectMenu({
+                                      x: event.clientX,
+                                      y: event.clientY,
+                                      target: { kind: 'project', project }
+                                    })
                                   }}
                                 >
                                   <span
-                                    className="project-avatar"
-                                    style={{ '--project-color': project.color } as React.CSSProperties}
+                                    className="project-drag-handle"
+                                    title={`Drag to re-order ${project.name}`}
+                                    onPointerDown={(event) => startSidebarDrag('project', project.id, event)}
                                   >
-                                    {project.name.slice(0, 1).toUpperCase()}
-                                    {projectUnread > 0 && (
-                                      <span
-                                        className="unread-badge project-unread"
-                                        title={describeUnread(projectNodeIds)}
-                                      >
-                                        {projectUnread}
+                                    <GripVertical aria-hidden="true" />
+                                  </span>
+                                  <button
+                                    type="button"
+                                    className="project-select"
+                                    title={sidebarCollapsed ? `${project.name}\n${project.path}` : project.path}
+                                    onClick={(event) => {
+                                      event.stopPropagation()
+                                      setActiveProjectId(project.id)
+                                      setMenu(null)
+                                    }}
+                                  >
+                                    <span
+                                      className="project-avatar"
+                                      style={{ '--project-color': project.color } as React.CSSProperties}
+                                    >
+                                      {project.name.slice(0, 1).toUpperCase()}
+                                      {projectUnread > 0 && (
+                                        <span
+                                          className="unread-badge project-unread"
+                                          title={describeUnread(projectNodeIds)}
+                                        >
+                                          {projectUnread}
+                                        </span>
+                                      )}
+                                    </span>
+                                    {!sidebarCollapsed && (
+                                      <span className="project-copy">
+                                        <strong>{project.name}</strong>
+                                        <small>{project.path}</small>
                                       </span>
                                     )}
-                                  </span>
+                                  </button>
                                   {!sidebarCollapsed && (
-                                    <span className="project-copy">
-                                      <strong>{project.name}</strong>
-                                      <small>{project.path}</small>
-                                    </span>
+                                    <div className="project-actions">
+                                      <button
+                                        type="button"
+                                        className="project-setup"
+                                        title={
+                                          project.setupCommand
+                                            ? `Worktree setup command: ${project.setupCommand}`
+                                            : 'Set a command that prepares a new worktree'
+                                        }
+                                        data-configured={project.setupCommand ? 'true' : undefined}
+                                        onClick={(event) => {
+                                          event.stopPropagation()
+                                          setSetupProjectId(project.id)
+                                          setMenu(null)
+                                        }}
+                                      >
+                                        <Settings aria-hidden="true" />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="project-locate"
+                                        title={
+                                          nodeCount > 0 ? `Show ${project.name} nodes` : 'No nodes on the canvas yet'
+                                        }
+                                        disabled={nodeCount === 0}
+                                        onClick={(event) => {
+                                          event.stopPropagation()
+                                          locateProject(project.id)
+                                        }}
+                                      >
+                                        {nodeCount}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="project-remove"
+                                        title={
+                                          nodeCount > 0
+                                            ? 'Delete this project’s nodes first'
+                                            : projects.length === 1
+                                              ? 'Toucan needs at least one project'
+                                              : `Remove ${project.name}`
+                                        }
+                                        disabled={nodeCount > 0 || projects.length === 1}
+                                        onClick={(event) => {
+                                          event.stopPropagation()
+                                          removeProject(project.id)
+                                        }}
+                                      >
+                                        <X aria-hidden="true" />
+                                      </button>
+                                    </div>
                                   )}
-                                </button>
-                                {!sidebarCollapsed && (
-                                  <div className="project-actions">
-                                    <button
-                                      type="button"
-                                      className="project-setup"
-                                      title={
-                                        project.setupCommand
-                                          ? `Worktree setup command: ${project.setupCommand}`
-                                          : 'Set a command that prepares a new worktree'
-                                      }
-                                      data-configured={project.setupCommand ? 'true' : undefined}
-                                      onClick={(event) => {
-                                        event.stopPropagation()
-                                        setSetupProjectId(project.id)
-                                        setMenu(null)
-                                      }}
-                                    >
-                                      <Settings aria-hidden="true" />
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className="project-locate"
-                                      title={
-                                        nodeCount > 0 ? `Show ${project.name} nodes` : 'No nodes on the canvas yet'
-                                      }
-                                      disabled={nodeCount === 0}
-                                      onClick={(event) => {
-                                        event.stopPropagation()
-                                        locateProject(project.id)
-                                      }}
-                                    >
-                                      {nodeCount}
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className="project-remove"
-                                      title={
-                                        nodeCount > 0
-                                          ? 'Delete this project’s nodes first'
-                                          : projects.length === 1
-                                            ? 'Toucan needs at least one project'
-                                            : `Remove ${project.name}`
-                                      }
-                                      disabled={nodeCount > 0 || projects.length === 1}
-                                      onClick={(event) => {
-                                        event.stopPropagation()
-                                        removeProject(project.id)
-                                      }}
-                                    >
-                                      <X aria-hidden="true" />
-                                    </button>
-                                  </div>
-                                )}
-                              </div>
-
-                              {!sidebarCollapsed && projectWorktrees.length > 0 && (
-                                <div className="project-node-list project-worktree-list">
-                                  {projectWorktrees.map((node) => (
-                                    <button
-                                      type="button"
-                                      className={`project-node-row ${node.selected ? 'selected' : ''}`}
-                                      key={node.id}
-                                      title={`Focus worktree ${node.data.branch}\n${node.data.path}`}
-                                      onClick={(event) => {
-                                        event.stopPropagation()
-                                        focusNode(node.id)
-                                      }}
-                                    >
-                                      <span className="project-node-kind">
-                                        <GitBranch aria-hidden="true" />
-                                      </span>
-                                      <span className="project-node-name">{node.data.branch}</span>
-                                      <span className="project-node-state" data-status="worktree">
-                                        {node.data.attachedNodeCount}
-                                      </span>
-                                    </button>
-                                  ))}
                                 </div>
-                              )}
 
-                              {!sidebarCollapsed && projectNodes.length > 0 && (
-                                <div className="project-node-list">
-                                  {projectNodes.map((node) => {
-                                    const status = sessionNodeStatus(node, nodeStatuses)
-                                    const nodeUnread = unreadByNode[node.id] ?? 0
-                                    return (
+                                {!sidebarCollapsed && projectWorktrees.length > 0 && (
+                                  <div className="project-node-list project-worktree-list">
+                                    {projectWorktrees.map((node) => (
                                       <button
                                         type="button"
                                         className={`project-node-row ${node.selected ? 'selected' : ''}`}
                                         key={node.id}
-                                        data-unread={nodeUnread > 0 ? 'true' : undefined}
-                                        title={[
-                                          `Focus ${node.data.label} · ${statusLabels[status]}`,
-                                          nodeUnread > 0 ? describeUnread([node.id]) : null
-                                        ]
-                                          .filter(Boolean)
-                                          .join('\n')}
+                                        title={`Focus worktree ${node.data.branch}\n${node.data.path}`}
                                         onClick={(event) => {
                                           event.stopPropagation()
                                           focusNode(node.id)
                                         }}
                                       >
                                         <span className="project-node-kind">
-                                          <SessionKindIcon kind={node.data.kind} />
+                                          <GitBranch aria-hidden="true" />
                                         </span>
-                                        <span className="project-node-name">{node.data.label}</span>
-                                        {nodeUnread > 0 && <span className="unread-badge">{nodeUnread}</span>}
-                                        {node.data.kind === 'terminal' && (
-                                          <SidebarTerminalLiveness liveness={node.data.terminalLiveness} />
-                                        )}
-                                        <span className="project-node-state" data-status={status}>
-                                          <span className="node-status-indicator" />
-                                          {statusLabels[status]}
+                                        <span className="project-node-name">{node.data.branch}</span>
+                                        <span className="project-node-state" data-status="worktree">
+                                          {node.data.attachedNodeCount}
                                         </span>
                                       </button>
-                                    )
-                                  })}
-                                </div>
-                              )}
-                            </div>
-                          )
-                        })}
-                    </div>
-                  )
-                })}
-              </div>
+                                    ))}
+                                  </div>
+                                )}
 
-              {sidebarDrag?.indicator && (
-                <div
-                  className="project-drop-indicator"
-                  aria-hidden="true"
-                  style={{
-                    position: 'fixed',
-                    top: sidebarDrag.indicator.top,
-                    left: sidebarDrag.indicator.left,
-                    width: sidebarDrag.indicator.width
+                                {!sidebarCollapsed && projectNodes.length > 0 && (
+                                  <div className="project-node-list">
+                                    {projectNodes.map((node) => {
+                                      const status = sessionNodeStatus(node, nodeStatuses)
+                                      const nodeUnread = unreadByNode[node.id] ?? 0
+                                      return (
+                                        <button
+                                          type="button"
+                                          className={`project-node-row ${node.selected ? 'selected' : ''}`}
+                                          key={node.id}
+                                          data-unread={nodeUnread > 0 ? 'true' : undefined}
+                                          title={[
+                                            `Focus ${node.data.label} · ${statusLabels[status]}`,
+                                            nodeUnread > 0 ? describeUnread([node.id]) : null
+                                          ]
+                                            .filter(Boolean)
+                                            .join('\n')}
+                                          onClick={(event) => {
+                                            event.stopPropagation()
+                                            focusNode(node.id)
+                                          }}
+                                        >
+                                          <span className="project-node-kind">
+                                            <SessionKindIcon kind={node.data.kind} />
+                                          </span>
+                                          <span className="project-node-name">{node.data.label}</span>
+                                          {nodeUnread > 0 && <span className="unread-badge">{nodeUnread}</span>}
+                                          {node.data.kind === 'terminal' && (
+                                            <SidebarTerminalLiveness liveness={node.data.terminalLiveness} />
+                                          )}
+                                          <span className="project-node-state" data-status={status}>
+                                            <span className="node-status-indicator" />
+                                            {statusLabels[status]}
+                                          </span>
+                                        </button>
+                                      )
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          })}
+                      </div>
+                    )
+                  })}
+                </div>
+
+                {sidebarDrag?.indicator && (
+                  <div
+                    className="project-drop-indicator"
+                    aria-hidden="true"
+                    style={{
+                      position: 'fixed',
+                      top: sidebarDrag.indicator.top,
+                      left: sidebarDrag.indicator.left,
+                      width: sidebarDrag.indicator.width
+                    }}
+                  />
+                )}
+
+                {/* Separated from the project rows on purpose: the library is global Toucan
+                  functionality, not something the active project owns. */}
+                <button
+                  type="button"
+                  className="sidebar-global-entry"
+                  aria-pressed={brainDumpPanel.open}
+                  title={sidebarCollapsed ? 'Open brain-dump library' : 'Brain dumps (Ctrl+Shift+B)'}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    toggleBrainDumpPanel()
                   }}
+                >
+                  <span className="sidebar-global-icon" aria-hidden="true">
+                    <BookOpen />
+                  </span>
+                  {!sidebarCollapsed && <span>Brain dumps</span>}
+                  {sidebarCollapsed && <span className="visually-hidden">Open brain-dump library</span>}
+                </button>
+
+                <button
+                  type="button"
+                  className="sidebar-global-entry"
+                  aria-pressed={ticketBoardPanel.open}
+                  title={sidebarCollapsed ? 'Open the ticket board' : 'Tickets (Ctrl+Shift+K)'}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    toggleTicketBoardPanel()
+                  }}
+                >
+                  <span className="sidebar-global-icon" aria-hidden="true">
+                    <ClipboardList />
+                  </span>
+                  {!sidebarCollapsed && <span>Tickets</span>}
+                  {sidebarCollapsed && <span className="visually-hidden">Open the ticket board</span>}
+                </button>
+
+                <div className="sidebar-add-row">
+                  <button
+                    type="button"
+                    className="add-project"
+                    title="Add project folder"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      void addProject()
+                    }}
+                  >
+                    <Plus aria-hidden="true" />
+                    {!sidebarCollapsed && 'Add project'}
+                  </button>
+                  <button
+                    type="button"
+                    className="add-project add-project-group"
+                    title="New group"
+                    aria-label="New group"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      addProjectGroup()
+                    }}
+                  >
+                    <FolderPlus aria-hidden="true" />
+                  </button>
+                </div>
+
+                <div className="sidebar-footer">
+                  {!sidebarCollapsed && activeProject && (
+                    <div className="creation-target">
+                      <small>New nodes open in</small>
+                      <strong>{activeProject.name}</strong>
+                      <span className="save-state" data-status={saveStatus}>
+                        <span />
+                        {saveStatus === 'saving' ? 'Saving…' : saveStatus === 'saved' ? 'Saved locally' : 'Save failed'}
+                      </span>
+                      {workspaceRecovered && (
+                        <span
+                          className="save-state"
+                          data-status="recovered"
+                          title="The saved workspace was damaged or incomplete, so this canvas was restored from the last known-good backup."
+                        >
+                          <span />
+                          Recovered from backup
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  <div className="canvas-zoom-row" role="group" aria-label="Canvas zoom">
+                    <button
+                      type="button"
+                      className="canvas-zoom-button"
+                      title="Zoom in"
+                      aria-label="Zoom in"
+                      onClick={() => void zoomIn()}
+                    >
+                      <ZoomIn aria-hidden="true" />
+                    </button>
+                    <button
+                      type="button"
+                      className="canvas-zoom-button"
+                      title="Zoom out"
+                      aria-label="Zoom out"
+                      onClick={() => void zoomOut()}
+                    >
+                      <ZoomOut aria-hidden="true" />
+                    </button>
+                    <button
+                      type="button"
+                      className="canvas-zoom-button"
+                      title="Fit view"
+                      aria-label="Fit view"
+                      onClick={() => void fitView()}
+                    >
+                      <Maximize aria-hidden="true" />
+                    </button>
+                    <button
+                      type="button"
+                      className="canvas-zoom-button"
+                      title={`Tile nodes as ${tileMode} (${LAYOUT_SHORTCUT_LABELS.tile})`}
+                      aria-label="Tile nodes"
+                      onClick={tileCanvas}
+                    >
+                      <LayoutGrid aria-hidden="true" />
+                    </button>
+                  </div>
+                </div>
+              </aside>
+
+              <section ref={canvasRegionRef} className="canvas-region">
+                <NodeFitContext.Provider value={nodeFit.toggle}>
+                  <NodeSearchContext.Provider value={nodeSearchRequest}>
+                    <OpenFileContext.Provider value={openFileFromCard}>
+                      <ReactFlow
+                        nodes={nodes}
+                        nodeTypes={nodeTypes}
+                        onNodesChange={handleNodesChange}
+                        onPaneContextMenu={openContextMenu}
+                        onPaneClick={() => setMenu(null)}
+                        minZoom={0.25}
+                        maxZoom={2}
+                        defaultViewport={{ x: 0, y: 0, zoom: 1 }}
+                        colorMode="dark"
+                        deleteKeyCode={['Backspace', 'Delete']}
+                      >
+                        <Background variant={BackgroundVariant.Dots} gap={24} size={1.2} color="#303744" />
+                      </ReactFlow>
+                    </OpenFileContext.Provider>
+                  </NodeSearchContext.Provider>
+                </NodeFitContext.Provider>
+              </section>
+
+              {/* Docked, never overlaid: the panel is a sibling of the canvas region, so opening it
+                only narrows React Flow's box. Once mounted it stays mounted and merely hides, which
+                is what preserves selection, search, scroll, and an unsent draft across a close. */}
+              {brainDumpMounted && (
+                <BrainDumpLibraryPanel
+                  panel={brainDumpPanel}
+                  workspaceWidth={workspaceWidth}
+                  projects={projects}
+                  activeProjectPath={activeProject?.path}
+                  api={window.brainDumpApi}
+                  today={localCalendarDate()}
+                  onPanelChange={(patch) => setBrainDumpPanel((current) => ({ ...current, ...patch }))}
+                  onOpenSessionOnCanvas={openBrainDumpSession}
                 />
               )}
 
-              {/* Separated from the project rows on purpose: the library is global Toucan
-                  functionality, not something the active project owns. */}
-              <button
-                type="button"
-                className="sidebar-global-entry"
-                aria-pressed={brainDumpPanel.open}
-                title={sidebarCollapsed ? 'Open brain-dump library' : 'Brain dumps (Ctrl+Shift+B)'}
-                onClick={(event) => {
-                  event.stopPropagation()
-                  toggleBrainDumpPanel()
-                }}
-              >
-                <span className="sidebar-global-icon" aria-hidden="true">
-                  <BookOpen />
-                </span>
-                {!sidebarCollapsed && <span>Brain dumps</span>}
-                {sidebarCollapsed && <span className="visually-hidden">Open brain-dump library</span>}
-              </button>
-
-              <button
-                type="button"
-                className="sidebar-global-entry"
-                aria-pressed={ticketBoardPanel.open}
-                title={sidebarCollapsed ? 'Open the ticket board' : 'Tickets (Ctrl+Shift+K)'}
-                onClick={(event) => {
-                  event.stopPropagation()
-                  toggleTicketBoardPanel()
-                }}
-              >
-                <span className="sidebar-global-icon" aria-hidden="true">
-                  <ClipboardList />
-                </span>
-                {!sidebarCollapsed && <span>Tickets</span>}
-                {sidebarCollapsed && <span className="visually-hidden">Open the ticket board</span>}
-              </button>
-
-              <div className="sidebar-add-row">
-                <button
-                  type="button"
-                  className="add-project"
-                  title="Add project folder"
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    void addProject()
-                  }}
-                >
-                  <Plus aria-hidden="true" />
-                  {!sidebarCollapsed && 'Add project'}
-                </button>
-                <button
-                  type="button"
-                  className="add-project add-project-group"
-                  title="New group"
-                  aria-label="New group"
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    addProjectGroup()
-                  }}
-                >
-                  <FolderPlus aria-hidden="true" />
-                </button>
-              </div>
-
-              <div className="sidebar-footer">
-                {!sidebarCollapsed && activeProject && (
-                  <div className="creation-target">
-                    <small>New nodes open in</small>
-                    <strong>{activeProject.name}</strong>
-                    <span className="save-state" data-status={saveStatus}>
-                      <span />
-                      {saveStatus === 'saving' ? 'Saving…' : saveStatus === 'saved' ? 'Saved locally' : 'Save failed'}
-                    </span>
-                    {workspaceRecovered && (
-                      <span
-                        className="save-state"
-                        data-status="recovered"
-                        title="The saved workspace was damaged or incomplete, so this canvas was restored from the last known-good backup."
-                      >
-                        <span />
-                        Recovered from backup
-                      </span>
-                    )}
-                  </div>
-                )}
-                <div className="canvas-zoom-row" role="group" aria-label="Canvas zoom">
-                  <button
-                    type="button"
-                    className="canvas-zoom-button"
-                    title="Zoom in"
-                    aria-label="Zoom in"
-                    onClick={() => void zoomIn()}
-                  >
-                    <ZoomIn aria-hidden="true" />
-                  </button>
-                  <button
-                    type="button"
-                    className="canvas-zoom-button"
-                    title="Zoom out"
-                    aria-label="Zoom out"
-                    onClick={() => void zoomOut()}
-                  >
-                    <ZoomOut aria-hidden="true" />
-                  </button>
-                  <button
-                    type="button"
-                    className="canvas-zoom-button"
-                    title="Fit view"
-                    aria-label="Fit view"
-                    onClick={() => void fitView()}
-                  >
-                    <Maximize aria-hidden="true" />
-                  </button>
-                  <button
-                    type="button"
-                    className="canvas-zoom-button"
-                    title={`Tile nodes as ${tileMode} (${LAYOUT_SHORTCUT_LABELS.tile})`}
-                    aria-label="Tile nodes"
-                    onClick={tileCanvas}
-                  >
-                    <LayoutGrid aria-hidden="true" />
-                  </button>
-                </div>
-              </div>
-            </aside>
-
-            <section ref={canvasRegionRef} className="canvas-region">
-              <NodeFitContext.Provider value={nodeFit.toggle}>
-                <NodeSearchContext.Provider value={nodeSearchRequest}>
-                  <OpenFileContext.Provider value={openFileFromCard}>
-                    <ReactFlow
-                      nodes={nodes}
-                      nodeTypes={nodeTypes}
-                      onNodesChange={handleNodesChange}
-                      onPaneContextMenu={openContextMenu}
-                      onPaneClick={() => setMenu(null)}
-                      minZoom={0.25}
-                      maxZoom={2}
-                      defaultViewport={{ x: 0, y: 0, zoom: 1 }}
-                      colorMode="dark"
-                      deleteKeyCode={['Backspace', 'Delete']}
-                    >
-                      <Background variant={BackgroundVariant.Dots} gap={24} size={1.2} color="#303744" />
-                    </ReactFlow>
-                  </OpenFileContext.Provider>
-                </NodeSearchContext.Provider>
-              </NodeFitContext.Provider>
-            </section>
-
-            {/* Docked, never overlaid: the panel is a sibling of the canvas region, so opening it
-                only narrows React Flow's box. Once mounted it stays mounted and merely hides, which
-                is what preserves selection, search, scroll, and an unsent draft across a close. */}
-            {brainDumpMounted && (
-              <BrainDumpLibraryPanel
-                panel={brainDumpPanel}
-                workspaceWidth={workspaceWidth}
-                projects={projects}
-                activeProjectPath={activeProject?.path}
-                api={window.brainDumpApi}
-                today={localCalendarDate()}
-                onPanelChange={(patch) => setBrainDumpPanel((current) => ({ ...current, ...patch }))}
-                onOpenSessionOnCanvas={openBrainDumpSession}
-              />
-            )}
-
-            {ticketBoardMounted && (
-              <TicketBoardPanel
-                panel={ticketBoardPanel}
-                workspaceWidth={workspaceWidth}
-                projectPath={activeProject?.path}
-                projectName={activeProject?.name}
-                sources={ticketSources}
-                today={localCalendarDate()}
-                sessions={ticketSessions}
-                onFocusSession={focusNode}
-                onPanelChange={(patch) => setTicketBoardPanel((current) => ({ ...current, ...patch }))}
-              />
-            )}
-          </div>
-
-          {projectMenu && (
-            <ProjectRowMenu
-              x={projectMenu.x}
-              y={projectMenu.y}
-              target={projectMenu.target}
-              groups={projectGroups}
-              onClose={() => setProjectMenu(null)}
-              onColorChange={setProjectColor}
-              onMoveToGroup={moveProjectToGroup}
-              onCreateGroup={createProjectGroup}
-              onRenameGroup={setRenamingGroupId}
-              onDeleteGroup={deleteProjectGroup}
-            />
-          )}
-
-          {menu && activeProject && (
-            <div
-              className="context-menu"
-              style={{ left: menu.clientX, top: menu.clientY }}
-              role="menu"
-              onClick={(event) => event.stopPropagation()}
-            >
-              <p>Create in {activeProject.name}</p>
-              {CREATE_NODE_ACTIONS.map((entry) => (
-                <button
-                  key={entry.action}
-                  type="button"
-                  role="menuitem"
-                  onClick={() => runCreateActionFromMenu(entry.action)}
-                >
-                  <span className={`menu-icon ${CREATE_ACTION_ICONS[entry.action].className}`}>
-                    {CREATE_ACTION_ICONS[entry.action].icon}
-                  </span>
-                  <span>
-                    <strong>{entry.title}</strong>
-                    <small>{entry.description}</small>
-                  </span>
-                  <kbd>{NODE_SHORTCUT_LABELS[entry.action]}</kbd>
-                </button>
-              ))}
+              {ticketBoardMounted && (
+                <TicketBoardPanel
+                  panel={ticketBoardPanel}
+                  workspaceWidth={workspaceWidth}
+                  projectPath={activeProject?.path}
+                  projectName={activeProject?.name}
+                  sources={ticketSources}
+                  today={localCalendarDate()}
+                  sessions={ticketSessions}
+                  onFocusSession={focusNode}
+                  onPanelChange={(patch) => setTicketBoardPanel((current) => ({ ...current, ...patch }))}
+                />
+              )}
             </div>
-          )}
 
-          {filePickerRequest && (
-            <FilePickerDialog
-              projectName={filePickerRequest.projectName}
-              root={filePickerRequest.root}
-              onCancel={cancelFilePicker}
-              onOpen={openPickedFile}
-            />
-          )}
+            {projectMenu && (
+              <ProjectRowMenu
+                x={projectMenu.x}
+                y={projectMenu.y}
+                target={projectMenu.target}
+                groups={projectGroups}
+                onClose={() => setProjectMenu(null)}
+                onColorChange={setProjectColor}
+                onMoveToGroup={moveProjectToGroup}
+                onCreateGroup={createProjectGroup}
+                onRenameGroup={setRenamingGroupId}
+                onDeleteGroup={deleteProjectGroup}
+              />
+            )}
 
-          {historyDrop && activeProject && (
-            <ConversationHistoryDialog
-              projectName={activeProject.name}
-              directories={historyDirectories}
-              directoryLabels={historyDirectoryLabels}
-              onCancel={() => setHistoryDrop(null)}
-              onOpen={openHistoryConversation}
-            />
-          )}
+            {menu && activeProject && (
+              <div
+                className="context-menu"
+                style={{ left: menu.clientX, top: menu.clientY }}
+                role="menu"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <p>Create in {activeProject.name}</p>
+                {CREATE_NODE_ACTIONS.map((entry) => (
+                  <button
+                    key={entry.action}
+                    type="button"
+                    role="menuitem"
+                    onClick={() => runCreateActionFromMenu(entry.action)}
+                  >
+                    <span className={`menu-icon ${CREATE_ACTION_ICONS[entry.action].className}`}>
+                      {CREATE_ACTION_ICONS[entry.action].icon}
+                    </span>
+                    <span>
+                      <strong>{entry.title}</strong>
+                      <small>{entry.description}</small>
+                    </span>
+                    <kbd>{NODE_SHORTCUT_LABELS[entry.action]}</kbd>
+                  </button>
+                ))}
+              </div>
+            )}
 
-          {worktreeDraft && activeWorktreeDraftProject && (
-            <WorktreeCreateDialog
-              draft={worktreeDraft}
-              project={activeWorktreeDraftProject}
-              onChange={(patch) => setWorktreeDraft((current) => (current ? { ...current, ...patch } : current))}
-              onCancel={() => setWorktreeDraft(null)}
-              onConfirm={confirmWorktreeDraft}
-            />
-          )}
+            {filePickerRequest && (
+              <FilePickerDialog
+                projectName={filePickerRequest.projectName}
+                root={filePickerRequest.root}
+                onCancel={cancelFilePicker}
+                onOpen={openPickedFile}
+              />
+            )}
 
-          {remoteAccessOpen && (
-            <RemoteAccessDialog
-              state={remoteAccess.state}
-              busy={remoteAccess.busy}
-              onApply={(settings) => void remoteAccess.applySettings(settings)}
-              onRegenerate={() => void remoteAccess.regenerateToken()}
-              onCopyToken={(token) => window.terminalApi.copyText(token)}
-              onClose={() => setRemoteAccessOpen(false)}
-            />
-          )}
+            {historyDrop && activeProject && (
+              <ConversationHistoryDialog
+                projectName={activeProject.name}
+                directories={historyDirectories}
+                directoryLabels={historyDirectoryLabels}
+                onCancel={() => setHistoryDrop(null)}
+                onOpen={openHistoryConversation}
+              />
+            )}
 
-          {adapterManagementOpen && <AdapterManagementDialog onClose={() => setAdapterManagementOpen(false)} />}
+            {worktreeDraft && activeWorktreeDraftProject && (
+              <WorktreeCreateDialog
+                draft={worktreeDraft}
+                project={activeWorktreeDraftProject}
+                onChange={(patch) => setWorktreeDraft((current) => (current ? { ...current, ...patch } : current))}
+                onCancel={() => setWorktreeDraft(null)}
+                onConfirm={confirmWorktreeDraft}
+              />
+            )}
 
-          {removalPrompt && (
-            <WorktreeRemoveDialog
-              prompt={removalPrompt}
-              onCancel={() => setRemovalPrompt(null)}
-              onConfirm={confirmWorktreeRemoval}
-            />
-          )}
+            {remoteAccessOpen && (
+              <RemoteAccessDialog
+                state={remoteAccess.state}
+                busy={remoteAccess.busy}
+                onApply={(settings) => void remoteAccess.applySettings(settings)}
+                onRegenerate={() => void remoteAccess.regenerateToken()}
+                onCopyToken={(token) => window.terminalApi.copyText(token)}
+                onClose={() => setRemoteAccessOpen(false)}
+              />
+            )}
 
-          {setupProject && (
-            <SetupCommandDialog
-              project={setupProject}
-              onCancel={() => setSetupProjectId(null)}
-              onSave={(command) => saveSetupCommand(setupProject.id, command)}
-            />
-          )}
-        </main>
-      </ProviderRateLimitsContext.Provider>
+            {adapterManagementOpen && <AdapterManagementDialog onClose={() => setAdapterManagementOpen(false)} />}
+
+            {removalPrompt && (
+              <WorktreeRemoveDialog
+                prompt={removalPrompt}
+                onCancel={() => setRemovalPrompt(null)}
+                onConfirm={confirmWorktreeRemoval}
+              />
+            )}
+
+            {setupProject && (
+              <SetupCommandDialog
+                project={setupProject}
+                onCancel={() => setSetupProjectId(null)}
+                onSave={(command) => saveSetupCommand(setupProject.id, command)}
+              />
+            )}
+          </main>
+        </ProviderRateLimitsContext.Provider>
+      </RoutineDelegationContext.Provider>
     </ComposerSendKeyContext.Provider>
   )
 }

@@ -39,6 +39,11 @@ import { activityFromUpdate, imageContentFrom } from '../shared/agent-activity'
 import { agentPermissionTitle } from '../shared/agent-permission'
 import { effortSelectorFromConfigOptions } from '../shared/agent-effort'
 import { modelSelectorFromConfigOptions } from '../shared/agent-models'
+import {
+  appliedCodexDelegation,
+  withCodexDelegationEnvironment,
+  type AgentRoutineDelegation
+} from '../shared/routine-delegation'
 import { createAgentEventBroker, type AgentEventBroker } from './agent-event-broker'
 import { buildAgentProcessLaunch, spawnAgentProcess, type AgentProcessLaunch } from './agent-process'
 import { readCachedCodexModels } from './codex-model-cache'
@@ -190,6 +195,12 @@ interface RunningAgent {
   authInput?: Writable
   authMethods: AgentAuthMethod[]
   environment: NodeJS.ProcessEnv
+  /**
+   * The routine-delegation policy this adapter process launched with. The launch environment is
+   * the only carrier (`CODEX_CONFIG`), so a preference changed after launch cannot alter it -
+   * every open of this agent reports this record, never the current preference.
+   */
+  routineDelegation?: AgentRoutineDelegation
   cachedModels?: AgentModelState
   /** Whether the agent's `initialize` handshake advertised `promptCapabilities.image`. */
   imageSupport: boolean
@@ -790,6 +801,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         ...(models ? { models } : {}),
         ...(efforts ? { efforts } : {}),
         ...(running.cachedCommands?.length ? { commands: running.cachedCommands } : {}),
+        ...(running.routineDelegation ? { routineDelegation: running.routineDelegation } : {}),
         ...(replay?.length ? { replay } : {})
       }
     } catch (error) {
@@ -807,7 +819,8 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
           authMethods: running.authMethods,
           imageSupport: running.imageSupport,
           ...(models ? { models } : {}),
-          ...(efforts ? { efforts } : {})
+          ...(efforts ? { efforts } : {}),
+          ...(running.routineDelegation ? { routineDelegation: running.routineDelegation } : {})
         }
       }
       const message = errorMessage(error)
@@ -926,7 +939,24 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         if (!owner.isDestroyed()) owner.send(AGENT_CHANNELS.event, { id: request.id, event })
       })
 
-      const agentEnvironment = agentProcessEnvironment(environment, request.id)
+      // Read before launch: the delegation policy consults the same account model cache the
+      // pre-auth model list is seeded from, and the policy travels only in the launch environment.
+      const cachedModels =
+        request.provider === 'codex' && options.codexHome
+          ? readCachedCodexModels(options.codexHome, request.modelId)
+          : undefined
+      const delegation =
+        request.provider === 'codex' && request.routineDelegation
+          ? appliedCodexDelegation(
+              request.routineDelegation,
+              cachedModels?.availableModels.map((model) => model.id)
+            )
+          : undefined
+      const baseEnvironment = agentProcessEnvironment(environment, request.id)
+      const agentEnvironment =
+        delegation?.status === 'configured'
+          ? withCodexDelegationEnvironment(baseEnvironment, delegation)
+          : baseEnvironment
       const launch = buildAgentProcessLaunch(process.execPath, path, request.cwd, agentEnvironment)
       const child = (options.spawnAgent ?? spawnAgentProcess)(launch)
       const pendingApprovals = new Map<string, PendingApproval>()
@@ -1079,10 +1109,8 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         // The very environment the adapter was launched with, so a terminal sign-in re-launch
         // and the running adapter cannot disagree about who this node is.
         environment: agentEnvironment,
-        cachedModels:
-          request.provider === 'codex' && options.codexHome
-            ? readCachedCodexModels(options.codexHome, request.modelId)
-            : undefined,
+        ...(delegation ? { routineDelegation: delegation } : {}),
+        cachedModels,
         pendingApprovals,
         pendingElicitations,
         busy: false,

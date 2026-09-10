@@ -7,6 +7,7 @@ import { isAttentionItem } from '../shared/attention'
 import { isFileViewMode, type WorkspaceFileNode } from '../shared/file-view'
 import type { WorkspaceDiffNode } from '../shared/git-diff'
 import { isProjectColor, paletteColorAt } from '../shared/project-colors'
+import { isRoutineDelegationPreference } from '../shared/routine-delegation'
 import {
   isComposerSendKey,
   nodeFocusMode,
@@ -247,6 +248,7 @@ export function isWorkspaceState(value: unknown): value is WorkspaceState {
   )
     return false
   if (state.composerSendKey !== undefined && !isComposerSendKey(state.composerSendKey)) return false
+  if (state.routineDelegation !== undefined && !isRoutineDelegationPreference(state.routineDelegation)) return false
   if (state.brainDumpPanel !== undefined && !isBrainDumpPanelState(state.brainDumpPanel)) return false
   if (state.ticketBoardPanel !== undefined && !isTicketBoardPanelState(state.ticketBoardPanel)) return false
   if (state.layoutSlots !== undefined && !isLayoutSlots(state.layoutSlots)) return false

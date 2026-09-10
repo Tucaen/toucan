@@ -6,6 +6,7 @@ import type { LocalFileOpenResult } from './local-file-link'
 import type { WorkspaceDiffNode } from './git-diff'
 import type { WorkspaceWorktree } from './worktree'
 import type { ConversationTitleSource } from './conversation-title'
+import type { RoutineDelegationPreference } from './routine-delegation'
 
 export type TerminalKind = 'terminal' | 'claude' | 'codex'
 export type TerminalLiveness = 'live' | 'unverifiable' | 'exited'
@@ -200,6 +201,12 @@ export interface WorkspaceState {
   sidebarCollapsed: boolean
   agentPermissionModes?: AgentPermissionModes
   composerSendKey?: ComposerSendKey
+  /**
+   * The "Delegate routine work cheaply" preference (see `shared/routine-delegation.ts`). Absent in
+   * every snapshot written before it existed, which is also the off state - so existing workspaces
+   * migrate by doing nothing and keep their sessions' behavior unchanged.
+   */
+  routineDelegation?: RoutineDelegationPreference
   nodes: WorkspaceTerminalNode[]
   /** Bounded LIFO history used by Ctrl+Shift+T; callbacks are rebuilt when an entry is reopened. */
   recentlyClosedNodes?: WorkspaceTerminalNode[]

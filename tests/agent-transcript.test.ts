@@ -89,6 +89,8 @@ test('a resumed-session replay reconstructs turn boundaries from user messages',
   const state = applyAgentCreateResult(fold(replay), result)
 
   assert.equal(state.sessionId, 'sess-1')
+  // No delegation policy on the request means none reported - and none invented.
+  assert.equal(state.routineDelegation, null)
   assert.equal(state.status, 'ready')
   // No turn_complete arrives during session/load replay; each user message closes the turn
   // before it, so only the last assistant message of each replayed turn reads as final.
@@ -102,6 +104,23 @@ test('a resumed-session replay reconstructs turn boundaries from user messages',
       { id: 'a3', presentation: 'final', complete: true }
     ]
   )
+})
+
+test('the create result carries the launch-time delegation policy into the transcript state', () => {
+  // Issue #178: what a session actually launched with is main's report, folded like every other
+  // create-result field - the renderer's preference is only ever the request.
+  const result: AgentCreateResult = {
+    ok: true,
+    status: 'ready',
+    sessionId: 'sess-1',
+    routineDelegation: { workerModelId: 'gpt-5.6-luna', workerEffortId: 'low', status: 'configured' }
+  }
+  const state = applyAgentCreateResult(initialAgentTranscriptState(), result)
+  assert.deepEqual(state.routineDelegation, {
+    workerModelId: 'gpt-5.6-luna',
+    workerEffortId: 'low',
+    status: 'configured'
+  })
 })
 
 test('a live turn after a settled replay settles independently of the replayed messages', () => {

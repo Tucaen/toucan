@@ -22,6 +22,7 @@ import {
   settleReplayedAssistantTurns
 } from './assistant-presentation'
 import { mergeSessionUsage, type SessionUsageInput } from './session-usage'
+import type { AgentRoutineDelegation } from './routine-delegation'
 
 /**
  * The transcript a session's `AgentEvent` stream folds into, and the pure reducer that folds it.
@@ -135,6 +136,8 @@ export interface AgentTranscriptState {
   efforts: AgentEffortState | null
   /** Slash commands and skills this session advertises. */
   commands: AgentCommand[]
+  /** The routine-delegation policy this session's adapter launched with, from the create result. */
+  routineDelegation: AgentRoutineDelegation | null
   status: AgentChatStatus
   /**
    * Who last set `status`: `main` for anything that crossed the seam (a status event, a create or
@@ -166,6 +169,7 @@ export function initialAgentTranscriptState(): AgentTranscriptState {
     models: null,
     efforts: null,
     commands: [],
+    routineDelegation: null,
     status: 'starting',
     statusOrigin: 'main',
     usage: null,
@@ -458,6 +462,7 @@ export function applyAgentCreateResult(state: AgentTranscriptState, result: Agen
     ...(result.models ? { models: result.models } : {}),
     ...(result.efforts ? { efforts: result.efforts } : {}),
     ...(result.commands ? { commands: result.commands } : {}),
+    ...(result.routineDelegation ? { routineDelegation: result.routineDelegation } : {}),
     statusOrigin: 'main'
   }
   if (result.status === 'ready') {
