@@ -66,7 +66,11 @@ export default function StructuredDecisionPanel(props: StructuredDecisionPanelPr
     if (!question.multiSelect && active < request.questions.length - 1) advanceTo(active + 1)
   }
   return (
-    <section className="structured-decision" aria-labelledby={headingId} aria-describedby={`${headingId}-context`}>
+    <section
+      className="structured-decision nodrag nopan nowheel"
+      aria-labelledby={headingId}
+      aria-describedby={`${headingId}-context`}
+    >
       <header className="structured-decision-header">
         <div className="structured-decision-heading">
           <span className="structured-decision-icon" aria-hidden="true">

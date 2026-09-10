@@ -1147,7 +1147,7 @@ export function ChatView(groups: ChatViewProps): JSX.Element {
         </ShellLaunchesContext.Provider>
       </WorkspaceRootsContext.Provider>
       {pendingDecisions.length > 0 && (
-        <section className="pending-decisions" aria-label="Pending decisions">
+        <section className="pending-decisions nodrag nopan nowheel" aria-label="Pending decisions">
           {pendingDecisions.map((decision: PendingDecision) => (
             <article key={decision.id} data-state={decision.state}>
               <header>
