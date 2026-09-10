@@ -53,7 +53,7 @@ export const CODEX_WORKER_MODELS: readonly CodexWorkerModel[] = [
 export const DEFAULT_CODEX_WORKER_MODEL_ID = CODEX_WORKER_MODELS[0].id
 
 export function isRoutineDelegationPreference(value: unknown): value is RoutineDelegationPreference {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  if (!isRecord(value)) return false
   const preference = value as Partial<RoutineDelegationPreference>
   if (typeof preference.enabled !== 'boolean') return false
   return preference.codexWorkerModelId === undefined || typeof preference.codexWorkerModelId === 'string'

@@ -482,6 +482,8 @@ function ComposerToolbar(
             kind="delegation"
             options={delegation.options}
             selectedId={delegation.selectedId}
+            // Never disabled, unlike the session-bound pickers: the preference is workspace-wide
+            // and only applies at the next safe session creation/resume anyway.
             disabled={false}
             select={(id) =>
               routineDelegation.setPreference(

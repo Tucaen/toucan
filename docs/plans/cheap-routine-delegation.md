@@ -53,3 +53,11 @@ delegate via spawn_agent"). Result:
   `model=gpt-5.6-luna`, `effort=low`, read-only sandbox.
 - The worker received a fresh thread (compact context, no conversation fork) and the parent
   reported the correct answer verbatim.
+
+Transport gap, recorded deliberately: the live test drove the Codex CLI directly with the same
+config values as `-c` overrides; it did not go through the codex-acp ACP transport. The
+`CODEX_CONFIG` half of the chain (env var → `createSessionConfig` merge into every
+`thread/start`/`thread/resume`) was verified by inspecting the installed adapter's code
+(codex-acp 1.10.0 dist) and is covered by launch-environment tests, but no end-to-end spawn
+through the adapter was exercised live. codex-acp is a pinned dependency, so the inspected code
+is the code that ships.
