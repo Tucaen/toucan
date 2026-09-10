@@ -88,7 +88,11 @@ import { composerSendKeyLabels, type ComposerSendKey } from './composer-keys'
 import { useComposerSendKey } from './composer-send-key-context'
 import { useRoutineDelegation } from './routine-delegation-context'
 import { DELEGATION_OFF_OPTION, describeRoutineDelegation } from './routine-delegation-display'
-import { routineDelegationRequest, type AgentRoutineDelegation } from '../../shared/routine-delegation'
+import {
+  routineDelegationRequest,
+  withWorkerSelection,
+  type AgentRoutineDelegation
+} from '../../shared/routine-delegation'
 import { usePromptEditor, type ComposerFileMentions } from './use-prompt-editor'
 import PromptTextarea from './PromptTextarea'
 import ComposerQueue from './ComposerQueue'
@@ -439,8 +443,7 @@ function ComposerToolbar(
 ): JSX.Element {
   const { sendKey, setSendKey } = useComposerSendKey()
   const routineDelegation = useRoutineDelegation()
-  const delegation =
-    props.provider === 'codex' ? describeRoutineDelegation(routineDelegation.preference, props.routineDelegation) : null
+  const delegation = describeRoutineDelegation(props.provider, routineDelegation.preference, props.routineDelegation)
   const disabled = props.selectorsDisabled ?? false
   const ProviderPickerIcon = pickerCopy.provider.icon
   return (
@@ -476,26 +479,24 @@ function ComposerToolbar(
           select={props.selectMode}
         />
       )}
-      {delegation && (
-        <>
-          <SelectorPicker
-            kind="delegation"
-            options={delegation.options}
-            selectedId={delegation.selectedId}
-            // Never disabled, unlike the session-bound pickers: the preference is workspace-wide
-            // and only applies at the next safe session creation/resume anyway.
-            disabled={false}
-            select={(id) =>
-              routineDelegation.setPreference(
-                id === DELEGATION_OFF_OPTION.id
-                  ? { ...routineDelegation.preference, enabled: false }
-                  : { enabled: true, codexWorkerModelId: id }
-              )
-            }
-          />
-          {delegation.note && <span className="composer-toolbar-note">{delegation.note}</span>}
-        </>
-      )}
+      <SelectorPicker
+        kind="delegation"
+        options={delegation.options}
+        selectedId={delegation.selectedId}
+        // Never disabled, unlike the session-bound pickers: the preference is workspace-wide
+        // and only applies at the next safe session creation/resume anyway.
+        disabled={false}
+        select={(id) =>
+          routineDelegation.setPreference(
+            withWorkerSelection(
+              routineDelegation.preference,
+              props.provider,
+              id === DELEGATION_OFF_OPTION.id ? undefined : id
+            )
+          )
+        }
+      />
+      {delegation.note && <span className="composer-toolbar-note">{delegation.note}</span>}
       <SelectorPicker
         kind="sendKey"
         options={(Object.keys(composerSendKeyLabels) as ComposerSendKey[]).map((id) => ({
@@ -1239,9 +1240,9 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
     sessionId: data.launchMode === 'resume' ? data.conversationId : undefined,
     permissionMode: data.preferredPermissionMode,
     modelId: data.modelId,
-    // Codex-only in this slice; read at session creation, so a change applies on the next safe
-    // creation or resume and never cancels a turn already running under the old policy.
-    routineDelegation: provider === 'codex' ? routineDelegationRequest(routineDelegationPreference) : undefined,
+    // Read at session creation, so a change applies on the next safe creation or resume and
+    // never cancels a turn already running under the old policy.
+    routineDelegation: routineDelegationRequest(provider, routineDelegationPreference),
     enabled: !data.dormant,
     onSessionId: (sessionId) => data.onConversationId(id, sessionId),
     onPermissionMode: (modeId) => data.onPermissionModeChange(provider, modeId),

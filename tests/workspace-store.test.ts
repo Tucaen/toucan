@@ -501,11 +501,17 @@ test('the routine-delegation preference survives a restart, and absent means off
   const directory = mkdtempSync(join(tmpdir(), 'toucan-workspace-test-'))
   const store = createWorkspaceStore(join(directory, 'workspace.json'))
   const state = makeState('delegation')
-  state.routineDelegation = { enabled: true, codexWorkerModelId: 'gpt-5.6-luna' }
+  // Both providers' worker choices persist side by side (issue #179), so switching provider or
+  // re-enabling finds what was picked before.
+  state.routineDelegation = { enabled: true, codexWorkerModelId: 'gpt-5.6-luna', claudeWorkerModelId: 'haiku' }
 
   assert.equal((await store.save(state)).ok, true)
   const loaded = await store.load()
-  assert.deepEqual(loaded.state?.routineDelegation, { enabled: true, codexWorkerModelId: 'gpt-5.6-luna' })
+  assert.deepEqual(loaded.state?.routineDelegation, {
+    enabled: true,
+    codexWorkerModelId: 'gpt-5.6-luna',
+    claudeWorkerModelId: 'haiku'
+  })
 
   // A snapshot written before the preference existed simply has no field: existing workspaces
   // migrate with delegation off, and the loaded shape stays exactly what was saved.
@@ -525,6 +531,7 @@ test('rejects a routine-delegation preference of the wrong shape', () => {
   }
   assert.equal(parseWorkspaceState({ ...base, routineDelegation: { enabled: 'yes' } }), null)
   assert.equal(parseWorkspaceState({ ...base, routineDelegation: 'on' }), null)
+  assert.equal(parseWorkspaceState({ ...base, routineDelegation: { enabled: true, claudeWorkerModelId: 1 } }), null)
   assert.ok(parseWorkspaceState({ ...base, routineDelegation: { enabled: false } }))
 })
 

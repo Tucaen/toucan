@@ -40,9 +40,13 @@ import { agentPermissionTitle } from '../shared/agent-permission'
 import { effortSelectorFromConfigOptions } from '../shared/agent-effort'
 import { modelSelectorFromConfigOptions } from '../shared/agent-models'
 import {
+  appliedClaudeDelegation,
   appliedCodexDelegation,
+  claudeDelegationSessionMeta,
   withCodexDelegationEnvironment,
-  type AgentRoutineDelegation
+  type AgentRoutineDelegation,
+  type ClaudeDelegationSessionMeta,
+  type RoutineDelegationRequest
 } from '../shared/routine-delegation'
 import { createAgentEventBroker, type AgentEventBroker } from './agent-event-broker'
 import { buildAgentProcessLaunch, spawnAgentProcess, type AgentProcessLaunch } from './agent-process'
@@ -142,7 +146,15 @@ const PROJECT_SKILLS_DIRECTORY = '.agents'
 
 interface SessionSkillsConfiguration {
   additionalDirectories?: string[]
-  _meta?: { claudeCode: { options: { plugins: Array<{ type: 'local'; path: string }> } } }
+  _meta?: {
+    claudeCode: {
+      options: {
+        plugins?: Array<{ type: 'local'; path: string }>
+        agents?: ClaudeDelegationSessionMeta['claudeCode']['options']['agents']
+      }
+    }
+    systemPrompt?: ClaudeDelegationSessionMeta['systemPrompt']
+  }
 }
 
 /** Resolves unpacked application skills so native provider processes can read packaged builds. */
@@ -172,6 +184,25 @@ export function sessionSkillsConfiguration(
   return plugins.length > 0 ? { _meta: { claudeCode: { options: { plugins } } } } : {}
 }
 
+/**
+ * Layers the routine worker into a Claude session's `_meta`, beside the skills plugins. The SDK
+ * options object is one bag, so a delegating session's `agents` and the skills' `plugins` travel
+ * in the same `claudeCode.options`; the routing instruction is a `claude_code` preset append.
+ */
+export function withClaudeDelegation(
+  configuration: SessionSkillsConfiguration,
+  worker: RoutineDelegationRequest
+): SessionSkillsConfiguration {
+  const meta = claudeDelegationSessionMeta(worker)
+  return {
+    ...configuration,
+    _meta: {
+      claudeCode: { options: { ...configuration._meta?.claudeCode.options, ...meta.claudeCode.options } },
+      systemPrompt: meta.systemPrompt
+    }
+  }
+}
+
 /** Adds a request's own additional directories to the skills configuration, deduplicated and in order. */
 export function withAdditionalDirectories(
   configuration: SessionSkillsConfiguration,
@@ -196,9 +227,10 @@ interface RunningAgent {
   authMethods: AgentAuthMethod[]
   environment: NodeJS.ProcessEnv
   /**
-   * The routine-delegation policy this adapter process launched with. The launch environment is
-   * the only carrier (`CODEX_CONFIG`), so a preference changed after launch cannot alter it -
-   * every open of this agent reports this record, never the current preference.
+   * The routine-delegation policy this agent launched with. The carrier is fixed at launch (the
+   * `CODEX_CONFIG` environment for Codex, the session `_meta` for Claude), so a preference changed
+   * after launch cannot alter it - every open of this agent reports this record, never the current
+   * preference. A Claude record can still turn `unavailable` once the session lists its models.
    */
   routineDelegation?: AgentRoutineDelegation
   cachedModels?: AgentModelState
@@ -619,6 +651,18 @@ export interface AcpSessionManager {
 export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpSessionManager {
   const environment = options.environment ?? process.env
   const agents = new Map<string, RunningAgent>()
+  /**
+   * The model list the last Claude session advertised. The Claude worker has to be named before
+   * `session/new` answers with the models, so the previous session's list is the only pre-launch
+   * evidence there is; the first Claude session of a process launches on trust and is verified
+   * against its own list once it opens.
+   */
+  /**
+   * What the most recently opened Claude session listed as models: the only evidence available
+   * before the next Claude launch. Process-wide by nature, so after an account switch it is stale
+   * until the next Claude session opens and refreshes it.
+   */
+  let lastClaudeSessionModelIds: string[] | undefined
   const broker = options.broker ?? createAgentEventBroker()
   const toucanSkillsRoot = resolveToucanSkillsRoot(options.appPath)
 
@@ -728,10 +772,14 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         modes = simplifyModes(response.modes)
         configureOptions(response.configOptions)
       }
-      const skillsConfiguration = withAdditionalDirectories(
+      const baseConfiguration = withAdditionalDirectories(
         sessionSkillsConfiguration(running.request.provider, running.request.cwd, toucanSkillsRoot),
         running.request.additionalDirectories
       )
+      const skillsConfiguration =
+        running.request.provider === 'claude' && running.routineDelegation?.status === 'configured'
+          ? withClaudeDelegation(baseConfiguration, running.routineDelegation)
+          : baseConfiguration
       let resumed = false
       let replay: AgentEvent[] | undefined
       if (running.request.sessionId) {
@@ -784,6 +832,17 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       if (efforts) efforts = await applySavedEffort(running, efforts)
       if (models) running.cachedModels = models
       if (efforts) running.cachedEfforts = efforts
+      if (running.request.provider === 'claude' && models) {
+        lastClaudeSessionModelIds = models.availableModels.map((model) => model.id)
+        // The one check that could not happen before launch: a worker the session does not list
+        // would be substituted by the CLI, so the record turns unavailable and says so.
+        if (running.routineDelegation?.status === 'configured')
+          running.routineDelegation = appliedClaudeDelegation(
+            running.routineDelegation,
+            lastClaudeSessionModelIds,
+            environment
+          )
+      }
       running.authRequired = false
       send(running, { type: 'session', sessionId })
       if (modes) send(running, { type: 'modes', modes })
@@ -945,16 +1004,17 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         request.provider === 'codex' && options.codexHome
           ? readCachedCodexModels(options.codexHome, request.modelId)
           : undefined
-      const delegation =
-        request.provider === 'codex' && request.routineDelegation
+      const delegation = !request.routineDelegation
+        ? undefined
+        : request.provider === 'codex'
           ? appliedCodexDelegation(
               request.routineDelegation,
               cachedModels?.availableModels.map((model) => model.id)
             )
-          : undefined
+          : appliedClaudeDelegation(request.routineDelegation, lastClaudeSessionModelIds, environment)
       const baseEnvironment = agentProcessEnvironment(environment, request.id)
       const agentEnvironment =
-        delegation?.status === 'configured'
+        request.provider === 'codex' && delegation?.status === 'configured'
           ? withCodexDelegationEnvironment(baseEnvironment, delegation)
           : baseEnvironment
       const launch = buildAgentProcessLaunch(process.execPath, path, request.cwd, agentEnvironment)

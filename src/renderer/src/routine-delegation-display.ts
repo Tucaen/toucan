@@ -1,6 +1,7 @@
+import type { AgentProvider } from '../../shared/agent'
 import {
-  CODEX_WORKER_MODELS,
-  codexWorkerFromPreference,
+  WORKER_MODELS,
+  workerFromPreference,
   type AgentRoutineDelegation,
   type RoutineDelegationPreference
 } from '../../shared/routine-delegation'
@@ -19,24 +20,28 @@ export interface RoutineDelegationDisplay {
 }
 
 /**
- * The delegation picker's options and status note. The preference is workspace-wide but the note
- * is per session: the policy travels in the adapter's launch environment, so a session launched
- * before the preference changed keeps its launch-time policy until it is recreated or resumed -
- * and a configured worker is only ever *requested*; nothing here may claim it is enforced.
+ * The delegation picker's options and status note for one provider's node. The preference is
+ * workspace-wide but the worker list and the note are per provider and per session: the policy is
+ * fixed at session creation or resume, so a session launched before the preference changed keeps
+ * its launch-time policy until it is recreated or resumed - and a configured worker is only ever
+ * *requested*; nothing here may claim it is enforced. Both providers share this one contract.
  */
 export function describeRoutineDelegation(
+  provider: AgentProvider,
   preference: RoutineDelegationPreference,
   applied: AgentRoutineDelegation | null | undefined
 ): RoutineDelegationDisplay {
   const options = [
     DELEGATION_OFF_OPTION,
-    ...CODEX_WORKER_MODELS.map((model) => ({
+    ...WORKER_MODELS[provider].map((model) => ({
       id: model.id,
       name: model.name,
-      description: `Bounded searches, extraction and prescribed checks may run on ${model.name} (${model.effortId} reasoning); planning, diagnosis and review stay on the main model`
+      description: `Bounded searches, extraction and prescribed checks may run on ${model.name}${
+        model.effortId ? ` (${model.effortId} reasoning)` : ''
+      }; planning, diagnosis and review stay on the main model`
     }))
   ]
-  const selectedId = preference.enabled ? codexWorkerFromPreference(preference).id : DELEGATION_OFF_OPTION.id
+  const selectedId = preference.enabled ? workerFromPreference(provider, preference).id : DELEGATION_OFF_OPTION.id
   if (applied?.status === 'unavailable') return { options, selectedId, note: applied.message }
   const appliedModelId = applied?.status === 'configured' ? applied.workerModelId : undefined
   if (preference.enabled && appliedModelId !== selectedId)

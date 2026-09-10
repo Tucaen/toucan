@@ -246,7 +246,7 @@ test('a resumed conversation can arrow back through the prompts already in its t
 })
 
 describe('the composer toolbar', () => {
-  test('gathers provider, model, effort, permissions and the send key into one row', () => {
+  test('gathers provider, model, effort, permissions, delegation and the send key into one row', () => {
     const container = renderChatView({
       models: { currentModelId: 'opus', availableModels: [{ id: 'opus', name: 'Opus' }] },
       efforts: { currentEffortId: 'high', availableEfforts: [{ id: 'high', name: 'High' }] },
@@ -259,7 +259,8 @@ describe('the composer toolbar', () => {
     const toolbar = container.querySelector('.composer-toolbar') as HTMLElement
     expect(toolbar).not.toBeNull()
     expect(toolbar).toHaveTextContent('Claude')
-    expect(toolbar.querySelectorAll('.node-picker')).toHaveLength(4)
+    // Model, effort, permissions, routine-work delegation (issue #179: Claude nodes too), send key.
+    expect(toolbar.querySelectorAll('.node-picker')).toHaveLength(5)
     // Still inside the composer, not stranded in the node header.
     expect(toolbar.closest('.chat-composer')).not.toBeNull()
   })
@@ -267,7 +268,8 @@ describe('the composer toolbar', () => {
   test('a selector the adapter has not reported simply does not take up a slot', () => {
     const container = renderChatView({})
     const toolbar = container.querySelector('.composer-toolbar') as HTMLElement
-    expect(toolbar.querySelectorAll('.node-picker')).toHaveLength(1)
+    // Only the two workspace-wide pickers remain: routine-work delegation and the send key.
+    expect(toolbar.querySelectorAll('.node-picker')).toHaveLength(2)
   })
 })
 

@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert'
 import type { ChildProcessWithoutNullStreams } from 'node:child_process'
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
@@ -8,6 +8,7 @@ import { test } from 'node:test'
 import type { WebContents } from 'electron'
 import type { AgentProcessLaunch } from '../src/main/agent-process'
 import { agentProcessEnvironment, createAcpSessionManager } from '../src/main/acp-session-manager'
+import { installAdapterStub } from './helpers/scripted-adapter'
 
 test('the node identity is part of the environment an agent process is built for', () => {
   const environment = agentProcessEnvironment({ PATH: '/usr/bin' }, 'node-42')
@@ -19,9 +20,7 @@ test('the node identity is part of the environment an agent process is built for
 /** An app directory with an installed adapter, which is all `create` checks before spawning. */
 function appWithAdapter(): string {
   const appPath = mkdtempSync(join(tmpdir(), 'toucan-acp-launch-'))
-  const dist = join(appPath, 'node_modules', '@agentclientprotocol', 'codex-acp', 'dist')
-  mkdirSync(dist, { recursive: true })
-  writeFileSync(join(dist, 'index.js'), '')
+  installAdapterStub(appPath, 'codex-acp')
   return appPath
 }
 
@@ -67,9 +66,7 @@ test('the adapter process itself is launched with the node id, not only the reco
 test('routine delegation configures the Codex launch environment, and only when requested', () => {
   const appPath = appWithAdapter()
   // The claude adapter must exist too: delegation isolation is proven by launching both providers.
-  const claudeDist = join(appPath, 'node_modules', '@agentclientprotocol', 'claude-agent-acp', 'dist')
-  mkdirSync(claudeDist, { recursive: true })
-  writeFileSync(join(claudeDist, 'index.js'), '')
+  installAdapterStub(appPath, 'claude-agent-acp')
   const launches: AgentProcessLaunch[] = []
   const manager = createAcpSessionManager({
     appPath,
@@ -95,10 +92,13 @@ test('routine delegation configures the Codex launch environment, and only when 
   assert.equal(configured.agents.max_concurrent_threads_per_session, 2)
   assert.equal(configured.agents.max_depth, 1)
   assert.match(configured.developer_instructions, /Delegate routine work cheaply/)
-  // The preference never leaks into a session that did not request it, nor into another provider:
-  // enabling delegation must not edit global provider configuration or touch Claude sessions.
+  // The preference never leaks into a session that did not request it, nor into another provider's
+  // carrier: a Claude session carries its worker in session `_meta` only (the `routine-delegation.ts`
+  // header explains why the CLI's subagent-model variables are never used).
   assert.equal(launches[1]?.options.env?.CODEX_CONFIG, undefined)
   assert.equal(launches[2]?.options.env?.CODEX_CONFIG, undefined)
+  assert.equal(launches[2]?.options.env?.CLAUDE_CODE_SUBAGENT_MODEL, undefined)
+  assert.equal(launches[2]?.options.env?.CLAUDE_CODE_SUBAGENT_MODEL_FORCE, undefined)
   manager.killAll()
 })
 

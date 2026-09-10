@@ -41,6 +41,27 @@ test('a Task call names the agent it delegated to and what it asked for', () => 
   assert.equal(subagentTaskSummary(task!, activity({ id: 'task-1' })), 'Explore — Find the plan rail')
 })
 
+test('a routine-worker delegation presents the worker by name and claims no model (issue #179)', () => {
+  // The main model spawns the routine worker by `subagent_type` and omits `model`, so the card can
+  // name the worker but has nothing to call a confirmed model: the pin lives on the definition and
+  // the adapter never echoes back what the provider ran.
+  const task = parseSubagentTask(
+    activity({
+      id: 'task-2',
+      toolName: 'Agent',
+      subagent: true,
+      rawInput: {
+        subagent_type: 'routine-worker',
+        description: 'List exported is* functions',
+        prompt: 'Objective: list every exported function whose name starts with is in src/shared/agent.ts.'
+      }
+    })
+  )
+  assert.equal(task?.agentType, 'routine-worker')
+  assert.equal(task?.model, undefined)
+  assert.equal(subagentTaskSummary(task!, activity({ id: 'task-2' })), 'routine-worker — List exported is* functions')
+})
+
 test("a codex subagent activity takes its agent name from the agent file's leaf", () => {
   const task = parseSubagentTask(
     activity({

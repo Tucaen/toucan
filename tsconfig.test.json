@@ -10,6 +10,7 @@
   },
   "include": [
     "tests/**/*.test.ts",
+    "tests/helpers/**/*.ts",
     "src/main/agent-process.ts",
     "src/main/brain-dump-library.ts",
     "src/main/brain-dump-capture.ts",

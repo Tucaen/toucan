@@ -1434,7 +1434,9 @@ function Canvas(): JSX.Element {
       agentPermissionModes,
       composerSendKey,
       // Absent until the user first touches the preference, so older workspaces keep their shape.
-      ...(routineDelegation.enabled || routineDelegation.codexWorkerModelId ? { routineDelegation } : {}),
+      ...(routineDelegation.enabled || routineDelegation.codexWorkerModelId || routineDelegation.claudeWorkerModelId
+        ? { routineDelegation }
+        : {}),
       // One array per node kind, from the one table that knows how each is persisted - including
       // which of them stay absent from the snapshot rather than being written empty.
       ...serializeCanvasNodes(nodes, (node) => nodeBeforeTemporaryFit(node, nodeFit.state())),

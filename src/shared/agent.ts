@@ -1,6 +1,7 @@
+import type { AgentProvider } from './agent-provider'
 import type { AgentRoutineDelegation, RoutineDelegationRequest } from './routine-delegation'
 
-export type AgentProvider = 'claude' | 'codex'
+export type { AgentProvider }
 
 export interface AgentCreateRequest {
   id: string
@@ -19,7 +20,7 @@ export interface AgentCreateRequest {
   additionalDirectories?: string[]
   /**
    * The "Delegate routine work cheaply" policy for this session, present only when the preference
-   * is enabled and the provider supports it (Codex today). Applied at adapter launch, so a change
+   * is enabled. Applied at adapter launch (Codex) or session creation/resume (Claude), so a change
    * takes effect on the next session creation or resume - never mid-turn.
    */
   routineDelegation?: RoutineDelegationRequest
