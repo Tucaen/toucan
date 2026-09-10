@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process'
 import { hiddenProcessOptions } from './background-process'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, lstatSync } from 'node:fs'
 import { join } from 'node:path'
 import type {
   WorktreeClaim,
@@ -21,6 +21,8 @@ import {
   discoverWorktrees,
   isForcibleBlocker,
   matchWorktreeClaims,
+  normalizeWorktreePath,
+  worktreePathKey,
   parseWorktreeList
 } from '../shared/worktree'
 import { errorMessage } from '../shared/text'
@@ -126,7 +128,7 @@ const emptyStatus = (message?: string): WorktreeStatus => ({
 
 /** Git paths come back with forward slashes even on Windows, so compare on one shape. */
 function normalizeGitPath(value: string): string {
-  return value.trim().replace(/\\/g, '/').replace(/\/+$/, '').toLocaleLowerCase()
+  return worktreePathKey(value.trim())
 }
 
 function parsePorcelainStatus(
@@ -235,7 +237,7 @@ export function createWorktreeManager(options: WorktreeManagerOptions = {}): Wor
           return { ok: false, message: `Branch "${request.branch}" already exists in this repository` }
         }
 
-        const directory = deriveWorktreeDirectory(request.projectPath, request.branch)
+        const directory = normalizeWorktreePath(deriveWorktreeDirectory(request.projectPath, request.branch))
         if (pathExists(directory)) return { ok: false, message: `${directory} already exists` }
 
         const baseRef = request.baseRef?.trim() || (await resolveBaseRef(request.projectPath))
@@ -335,8 +337,25 @@ export function createWorktreeManager(options: WorktreeManagerOptions = {}): Wor
         const claims = commonDir ? readClaims(join(commonDir, WORKTREE_CLAIMS_FILE)) : []
         const defaultBranch = await resolveBaseRef(request.projectPath)
         const entries = parseWorktreeList(listed.stdout)
+        // An empty/malformed successful response is not evidence of absence. lstat preserves
+        // broken .git links and permission failures; neither permits forgetting a checkout.
+        const registered = new Set(entries.map((entry) => worktreePathKey(entry.path)))
+        const stalePaths =
+          entries.length === 0
+            ? []
+            : request.known.filter((path) => {
+                if (registered.has(worktreePathKey(path))) return false
+                try {
+                  lstatSync(join(normalizeWorktreePath(path), '.git'))
+                  return false
+                } catch (error) {
+                  return (error as NodeJS.ErrnoException).code === 'ENOENT'
+                }
+              })
 
         return {
+          stalePaths,
+          availablePaths: entries.map((entry) => entry.path),
           worktrees: discoverWorktrees(
             entries,
             request.known.map((path) => ({ path })),

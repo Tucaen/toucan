@@ -55,7 +55,9 @@ export default function WorktreeNode({ id, data, selected }: NodeProps<WorktreeC
     // Attaching or detaching a node is the most likely moment for the tree to have changed.
   }, [data.attachedNodeCount, refresh])
 
-  const summary = describeStatus(status)
+  const summary = data.unavailable
+    ? { text: 'Worktree no longer exists. Close its attached sessions to remove this record.', kind: 'missing' }
+    : describeStatus(status)
 
   return (
     <article
@@ -108,6 +110,7 @@ export default function WorktreeNode({ id, data, selected }: NodeProps<WorktreeC
           <button
             type="button"
             title="New terminal in this worktree"
+            disabled={data.unavailable}
             onMouseDown={(event) => event.stopPropagation()}
             onClick={() => data.onCreateNodeInWorktree(data.worktreeId, 'terminal')}
           >
@@ -116,6 +119,7 @@ export default function WorktreeNode({ id, data, selected }: NodeProps<WorktreeC
           <button
             type="button"
             title="New Claude session in this worktree"
+            disabled={data.unavailable}
             onMouseDown={(event) => event.stopPropagation()}
             onClick={() => data.onCreateNodeInWorktree(data.worktreeId, 'claude')}
           >
@@ -124,6 +128,7 @@ export default function WorktreeNode({ id, data, selected }: NodeProps<WorktreeC
           <button
             type="button"
             title="New Codex session in this worktree"
+            disabled={data.unavailable}
             onMouseDown={(event) => event.stopPropagation()}
             onClick={() => data.onCreateNodeInWorktree(data.worktreeId, 'codex')}
           >
@@ -133,7 +138,7 @@ export default function WorktreeNode({ id, data, selected }: NodeProps<WorktreeC
         <button
           type="button"
           className="worktree-setup"
-          disabled={!data.setupCommand}
+          disabled={data.unavailable || !data.setupCommand}
           title={
             data.setupCommand
               ? `Run in a new terminal: ${data.setupCommand}`

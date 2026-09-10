@@ -15,6 +15,7 @@ import { nodeFocusMode, RECENTLY_CLOSED_SESSION_LIMIT, type WorkspaceProject } f
 import { defaultFileViewMode, type FileViewMode, type WorkspaceFileNode } from '../../shared/file-view'
 import type { WorkspaceDiffNode } from '../../shared/git-diff'
 import type { WorkspaceWorktree } from '../../shared/worktree'
+import { normalizeWorktreePath } from '../../shared/worktree'
 import type { WorktreeHandoffPlan } from '../../shared/worktree-handoff'
 import type { ConversationTitleSource } from '../../shared/conversation-title'
 import type { TicketActivityReport } from './ticket-activity'
@@ -130,6 +131,7 @@ export interface WorktreeNodeCallbacks {
 export interface WorktreeNodeData
   extends Record<string, unknown>, ProjectNodeData, WorktreeNodeCallbacks, CanvasNodePresentation {
   worktreeId: string
+  unavailable?: boolean
   branch: string
   path: string
   baseRef: string
@@ -589,7 +591,8 @@ function restoreTerminalCanvasNode(
   callbacks: TerminalNodeCallbacks,
   mode: SessionRestoreMode
 ): TerminalCanvasNode {
-  const worktree = savedNode.worktreeId ? context.worktreeById(savedNode.worktreeId) : undefined
+  const recordedWorktree = savedNode.worktreeId ? context.worktreeById(savedNode.worktreeId) : undefined
+  const worktree = recordedWorktree?.unavailable ? undefined : recordedWorktree
   // A node whose worktree record vanished must never quietly fall back to the project
   // checkout and start writing there, so it restores detached and dormant instead.
   const detachedFromWorktree = Boolean(savedNode.worktreeId) && !worktree
@@ -680,6 +683,7 @@ export function serializeWorktreeNode(node: WorktreeCanvasNode): WorkspaceWorktr
   const size = measured(node, DEFAULT_WORKTREE_SIZE)
   return {
     id: node.data.worktreeId,
+    ...(node.data.unavailable ? { unavailable: true } : {}),
     projectId: node.data.projectId,
     branch: node.data.branch,
     path: node.data.path,
@@ -692,6 +696,7 @@ export function serializeWorktreeNode(node: WorktreeCanvasNode): WorkspaceWorktr
 }
 
 export interface WorktreeNodeSeed {
+  unavailable?: boolean
   /** The workspace's own id for the worktree; the canvas node's id is derived from it. */
   worktreeId: string
   branch: string
@@ -729,8 +734,9 @@ export function createWorktreeCanvasNode(
     position: seed.position,
     data: {
       worktreeId: seed.worktreeId,
+      ...(seed.unavailable ? { unavailable: true } : {}),
       branch: seed.branch,
-      path: seed.path,
+      path: normalizeWorktreePath(seed.path),
       baseRef: seed.baseRef,
       createdAt: seed.createdAt,
       projectId: project.id,

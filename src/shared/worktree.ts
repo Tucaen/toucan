@@ -10,6 +10,8 @@ import type { GitDiffRequest, GitDiffSummary, GitFileDiff, GitFileDiffRequest } 
 
 export interface WorkspaceWorktree {
   id: string
+  /** Verified absent from Git and disk; retained only while sessions still reference it. */
+  unavailable?: boolean
   projectId: string
   /** The branch this worktree has checked out. Owned by the worktree for its whole life. */
   branch: string
@@ -221,8 +223,23 @@ export interface WorktreeClaimMatch {
 }
 
 /** Paths come back from git with forward slashes even on Windows, so compare on one shape. */
-function comparablePath(value: string): string {
-  return value.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+export function normalizeWorktreePath(value: string): string {
+  if (/^[a-z]:[\\/]|^[\\/]{2}/i.test(value)) {
+    return (
+      value
+        .replace(/\//g, '\\')
+        .replace(/\\+/g, (run, offset: number) => (offset === 0 ? '\\\\' : '\\'))
+        .replace(/\\+$/, '')
+        .replace(/^([a-z]):/i, (_, drive: string) => `${drive.toUpperCase()}:`) +
+      (/^[a-z]:[\\/]+$/i.test(value) ? '\\' : '')
+    )
+  }
+  return value === '/' ? value : value.replace(/\/+$/, '')
+}
+
+export function worktreePathKey(value: string): string {
+  const path = normalizeWorktreePath(value)
+  return /^[a-z]:\\|^\\\\/i.test(path) ? path.toLowerCase() : path
 }
 
 /**
@@ -237,11 +254,16 @@ export function discoverWorktrees(
   known: readonly { path: string }[],
   defaultBranch: string
 ): DiscoveredWorktree[] {
-  const recorded = new Set(known.map((worktree) => comparablePath(worktree.path)))
+  const recorded = new Set(known.map((worktree) => worktreePathKey(worktree.path)))
 
   return listed
-    .filter((entry) => !entry.isMain && entry.branch && !recorded.has(comparablePath(entry.path)))
-    .map((entry) => ({ path: entry.path, branch: entry.branch, baseRef: defaultBranch }))
+    .filter((entry) => {
+      const key = worktreePathKey(entry.path)
+      if (entry.isMain || !entry.branch || recorded.has(key)) return false
+      recorded.add(key)
+      return true
+    })
+    .map((entry) => ({ path: normalizeWorktreePath(entry.path), branch: entry.branch, baseRef: defaultBranch }))
 }
 
 /**
@@ -255,12 +277,12 @@ export function matchWorktreeClaims(
   listed: readonly WorktreeListEntry[],
   claims: readonly WorktreeClaim[]
 ): WorktreeClaimMatch[] {
-  const claimedBy = new Map(claims.map((claim) => [comparablePath(claim.path), claim.nodeId]))
+  const claimedBy = new Map(claims.map((claim) => [worktreePathKey(claim.path), claim.nodeId]))
 
   return listed
     .filter((entry) => !entry.isMain && entry.branch)
     .flatMap((entry) => {
-      const nodeId = claimedBy.get(comparablePath(entry.path))
+      const nodeId = claimedBy.get(worktreePathKey(entry.path))
       return nodeId ? [{ path: entry.path, nodeId }] : []
     })
 }
@@ -310,6 +332,10 @@ export interface WorktreeDiscoverRequest {
 
 export interface WorktreeDiscoverResult {
   worktrees: DiscoveredWorktree[]
+  /** Known paths absent from Git's registry and positively verified to have no checkout marker. */
+  stalePaths?: string[]
+  /** Registered paths, allowing a retained unavailable record to recover on a later sweep. */
+  availablePaths?: string[]
   /** Every claim git's listing backs, so one that arrives after discovery still finds its node. */
   claims: WorktreeClaimMatch[]
   message?: string

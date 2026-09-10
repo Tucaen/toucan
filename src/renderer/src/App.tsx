@@ -55,6 +55,7 @@ import type {
   WorkspaceTerminalNode
 } from '../../shared/terminal'
 import type { WorktreeRemovalBlocker } from '../../shared/worktree'
+import { worktreePathKey } from '../../shared/worktree'
 import { fileViewPathIdentity, type FileViewMode } from '../../shared/file-view'
 import toucanLogo from './assets/toucan-logo.svg'
 import { placeholderBranchName, type WorktreeHandoffPlan } from '../../shared/worktree-handoff'
@@ -154,7 +155,13 @@ import {
   type WorktreeRemovalPrompt
 } from './WorkspaceDialogs'
 import { planWorktreeRemoval } from './worktree-removal'
-import { adoptClaimedWorktrees, applyAttachedNodeCounts, applyWorktreeClaims } from './worktree-attachment'
+import {
+  adoptClaimedWorktrees,
+  applyAttachedNodeCounts,
+  applyWorktreeClaims,
+  registerWorktreeNode,
+  reconcileStaleWorktrees
+} from './worktree-attachment'
 import WorktreeNode from './WorktreeNode'
 import {
   LAYOUT_SHORTCUT_LABELS,
@@ -927,56 +934,68 @@ function Canvas(): JSX.Element {
       resumeConversationId?: string
       // Returns the canvas node id it minted, so a caller waiting on this session can find it.
     }): string => {
-      const { kind, project, worktree, position, resumeConversationId } = options
+      const { kind, project, worktree: requestedWorktree, position, resumeConversationId } = options
       const id = crypto.randomUUID()
       const label = options.label ?? `${labels[kind]} ${nextSessionNumber.current}`
       const conversationId = resumeConversationId ?? (kind === 'claude' ? crypto.randomUUID() : undefined)
       nextSessionNumber.current += 1
-      setNodes((current) => [
-        ...current.map((node) => ({ ...node, selected: false })),
-        {
-          id,
-          type: 'terminalNode',
-          dragHandle: NODE_DRAG_HANDLE,
-          selected: true,
-          position,
-          data: {
-            kind,
-            sessionId: crypto.randomUUID(),
-            terminalLiveness: 'unverifiable',
-            label,
-            titleSource: options.titleSource,
-            projectId: project.id,
-            projectName: project.name,
-            projectPath: project.path,
-            projectColor: project.color,
-            worktreeId: worktree?.worktreeId,
-            worktreeBranch: worktree?.branch,
-            workingDirectory: worktree?.path ?? project.path,
-            conversationId,
-            focusMode: false,
-            preferredPermissionMode: kind === 'terminal' ? undefined : permissionModesRef.current[kind],
-            dormant: false,
-            launchMode: resumeConversationId ? 'resume' : 'new',
-            initialInput: options.initialInput,
-            onStatusChange: handleStatusChange,
-            onAttention: handleAttention,
-            onTicketActivity: handleTicketActivity,
-            onConversationId: handleConversationId,
-            onTitleChange: handleTitleChange,
-            onPreview: handlePreview,
-            onFocusModeChange: handleFocusModeChange,
-            onDraftChange: handleDraftChange,
-            onPermissionModeChange: handlePermissionModeChange,
-            onModelChange: handleModelChange,
-            onTurnOutcome: handleTurnOutcome,
-            onResume: resumeNode,
-            onTerminalLiveness: handleTerminalLiveness,
-            onWorktreeHandoff: dispatchWorktreeHandoff
-          },
-          style: { ...NEW_SESSION_NODE_SIZE }
-        }
-      ])
+      setNodes((current) => {
+        const worktree = requestedWorktree
+          ? (current
+              .filter(isWorktreeCanvasNode)
+              .find(
+                (node) =>
+                  node.data.projectId === project.id &&
+                  worktreePathKey(node.data.path) === worktreePathKey(requestedWorktree.path)
+              )?.data ?? requestedWorktree)
+          : undefined
+        if (worktree?.unavailable) return current
+        return [
+          ...current.map((node) => ({ ...node, selected: false })),
+          {
+            id,
+            type: 'terminalNode',
+            dragHandle: NODE_DRAG_HANDLE,
+            selected: true,
+            position,
+            data: {
+              kind,
+              sessionId: crypto.randomUUID(),
+              terminalLiveness: 'unverifiable',
+              label,
+              titleSource: options.titleSource,
+              projectId: project.id,
+              projectName: project.name,
+              projectPath: project.path,
+              projectColor: project.color,
+              worktreeId: worktree?.worktreeId,
+              worktreeBranch: worktree?.branch,
+              workingDirectory: worktree?.path ?? project.path,
+              conversationId,
+              focusMode: false,
+              preferredPermissionMode: kind === 'terminal' ? undefined : permissionModesRef.current[kind],
+              dormant: false,
+              launchMode: resumeConversationId ? 'resume' : 'new',
+              initialInput: options.initialInput,
+              onStatusChange: handleStatusChange,
+              onAttention: handleAttention,
+              onTicketActivity: handleTicketActivity,
+              onConversationId: handleConversationId,
+              onTitleChange: handleTitleChange,
+              onPreview: handlePreview,
+              onFocusModeChange: handleFocusModeChange,
+              onDraftChange: handleDraftChange,
+              onPermissionModeChange: handlePermissionModeChange,
+              onModelChange: handleModelChange,
+              onTurnOutcome: handleTurnOutcome,
+              onResume: resumeNode,
+              onTerminalLiveness: handleTerminalLiveness,
+              onWorktreeHandoff: dispatchWorktreeHandoff
+            },
+            style: { ...NEW_SESSION_NODE_SIZE }
+          }
+        ]
+      })
       setNodeStatuses((current) => ({ ...current, [id]: 'starting' }))
       return id
     },
@@ -1047,7 +1066,7 @@ function Canvas(): JSX.Element {
     (worktreeId: string, kind: TerminalKind, initialInput?: string): void => {
       const worktreeNode = findWorktreeNode(worktreeId)
       const project = projectsRef.current.find((candidate) => candidate.id === worktreeNode?.data.projectId)
-      if (!worktreeNode || !project) return
+      if (!worktreeNode || worktreeNode.data.unavailable || !project) return
       const offset = worktreeNode.data.attachedNodeCount
       addSessionNode({
         kind,
@@ -1213,10 +1232,21 @@ function Canvas(): JSX.Element {
             project,
             worktreeCallbacks
           )
-          setNodes((current) => [...current.map((candidate) => ({ ...candidate, selected: false })), worktreeNode])
+          setNodes((current) =>
+            registerWorktreeNode(
+              current.map((candidate) => ({ ...candidate, selected: false })),
+              worktreeNode
+            )
+          )
 
           if (request.mode !== 'rehome') {
-            openInWorktree(worktreeId, node.data.kind, request.prompt)
+            addSessionNode({
+              kind: node.data.kind,
+              project,
+              worktree: worktreeNode.data,
+              position: node.position,
+              initialInput: request.prompt
+            })
             return
           }
 
@@ -1232,7 +1262,14 @@ function Canvas(): JSX.Element {
                     ...candidate,
                     data: {
                       ...candidate.data,
-                      worktreeId,
+                      worktreeId:
+                        current
+                          .filter(isWorktreeCanvasNode)
+                          .find(
+                            (worktree) =>
+                              worktree.data.projectId === project.id &&
+                              worktreePathKey(worktree.data.path) === worktreePathKey(created.path)
+                          )?.data.worktreeId ?? worktreeId,
                       worktreeBranch: created.branch,
                       workingDirectory: created.path,
                       launchMode: 'resume' as const,
@@ -1244,7 +1281,7 @@ function Canvas(): JSX.Element {
           )
         })
     },
-    [handleDraftChange, openInWorktree, setNodes, worktreeCallbacks]
+    [addSessionNode, handleDraftChange, setNodes, worktreeCallbacks]
   )
   handleWorktreeHandoffRef.current = handleWorktreeHandoff
 
@@ -1477,8 +1514,8 @@ function Canvas(): JSX.Element {
 
   /**
    * Worktrees can appear without Toucan creating them - an agent running the worktree skill, a
-   * plain `git worktree add` in a terminal. Discovery only ever adds records, so a worktree
-   * Toucan already knows about, or one whose directory has gone, is left to the normal flows.
+   * plain `git worktree add` in a terminal. Reconcile only records main positively identified
+   * as stale; attached sessions retain their record until closed.
    */
   useEffect(() => {
     if (!workspaceReady) return
@@ -1492,11 +1529,37 @@ function Canvas(): JSX.Element {
           .map((node) => node.data.path)
 
         const result = await window.worktreeApi.discover({ projectPath: project.path, known }).catch(() => null)
-        if (cancelled || !result || (result.worktrees.length === 0 && result.claims.length === 0)) continue
+        if (
+          cancelled ||
+          !result ||
+          (result.worktrees.length === 0 &&
+            result.claims.length === 0 &&
+            !result.stalePaths?.length &&
+            !result.availablePaths?.length)
+        )
+          continue
 
         setNodes((current) => {
-          const recorded = new Set(current.filter(isWorktreeCanvasNode).map((node) => node.data.path.toLowerCase()))
-          const fresh = result.worktrees.filter((worktree) => !recorded.has(worktree.path.toLowerCase()))
+          if (!projectsRef.current.some((candidate) => candidate.id === project.id && candidate.path === project.path))
+            return current
+          const reconciled = reconcileStaleWorktrees(
+            current,
+            project.id,
+            result.stalePaths ?? [],
+            result.availablePaths ?? []
+          )
+          const recorded = new Set(
+            reconciled
+              .filter(isWorktreeCanvasNode)
+              .filter((node) => node.data.projectId === project.id)
+              .map((node) => worktreePathKey(node.data.path))
+          )
+          const fresh = result.worktrees.filter((worktree) => {
+            const key = worktreePathKey(worktree.path)
+            if (recorded.has(key)) return false
+            recorded.add(key)
+            return true
+          })
 
           const added = fresh.map((worktree, index) =>
             createWorktreeCanvasNode(
@@ -1516,7 +1579,7 @@ function Canvas(): JSX.Element {
           // Claims are applied against every worktree on the canvas, not just the ones this
           // sweep added: the agent writes its claim after the worktree exists and its setup
           // command has run, so the sweep that records the worktree is routinely earlier.
-          return applyWorktreeClaims(added.length === 0 ? current : [...current, ...added], result.claims)
+          return applyWorktreeClaims(added.length === 0 ? reconciled : [...reconciled, ...added], result.claims)
         })
       }
     }
@@ -1879,7 +1942,12 @@ function Canvas(): JSX.Element {
           project,
           worktreeCallbacks
         )
-        setNodes((current) => [...current.map((node) => ({ ...node, selected: false })), worktreeNode])
+        setNodes((current) =>
+          registerWorktreeNode(
+            current.map((node) => ({ ...node, selected: false })),
+            worktreeNode
+          )
+        )
         setWorktreeDraft(null)
       })
   }, [projects, setNodes, worktreeDraft, worktreeCallbacks])

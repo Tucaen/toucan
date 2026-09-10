@@ -19,6 +19,7 @@ import {
   type WorkspaceState
 } from '../shared/terminal'
 import { errorMessage, repairUtf8Mojibake } from '../shared/text'
+import { normalizeWorkspaceWorktrees } from '../shared/worktree-identity'
 
 interface WorkspaceStateV1 {
   version: 1
@@ -41,6 +42,7 @@ function isWorkspaceWorktree(value: unknown): boolean {
   const worktree = value as Partial<WorkspaceState['worktrees'][number]>
   return (
     typeof worktree.id === 'string' &&
+    (worktree.unavailable === undefined || typeof worktree.unavailable === 'boolean') &&
     typeof worktree.projectId === 'string' &&
     typeof worktree.branch === 'string' &&
     typeof worktree.path === 'string' &&
@@ -300,7 +302,7 @@ export function parseWorkspaceState(candidate: unknown): WorkspaceState | null {
 
   if (version === 3) {
     if (!isWorkspaceState(value as WorkspaceState)) return null
-    const state = value as WorkspaceState
+    const state = normalizeWorkspaceWorktrees(value as WorkspaceState)
     // Attention records name canvas nodes, so a record whose node is gone can never be reached
     // or cleared; dropping it here keeps every count derived from records that still exist.
     const liveNodeIds = new Set(state.nodes.map((node) => node.id))
@@ -401,7 +403,7 @@ export function createWorkspaceStore(path: string): WorkspaceStore {
     save(state: WorkspaceState): Promise<WorkspaceSaveResult> {
       return enqueue(async () => {
         if (!isWorkspaceState(state)) return { ok: false, message: 'The workspace state is invalid.' }
-        const contents = `${JSON.stringify(state, null, 2)}\n`
+        const contents = `${JSON.stringify(normalizeWorkspaceWorktrees(state), null, 2)}\n`
         const tempPath = `${path}.tmp-${randomUUID()}`
         try {
           await writeFileDurably(tempPath, contents)

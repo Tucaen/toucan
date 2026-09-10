@@ -1,7 +1,8 @@
 import type { WorkspaceProject } from '../../shared/terminal'
 import type { WorktreeClaimMatch } from '../../shared/worktree'
-import type { CanvasNode, TerminalNodeStatus } from './canvas-workspace'
-import { isTerminalCanvasNode, isWorktreeCanvasNode, sessionNodeStatus } from './canvas-workspace'
+import { worktreePathKey } from '../../shared/worktree'
+import type { CanvasNode, TerminalNodeStatus, WorktreeCanvasNode } from './canvas-workspace'
+import { isTerminalCanvasNode, isWorktreeCanvasNode, sessionNodeStatus, withoutWorktree } from './canvas-workspace'
 
 /**
  * What it takes for a node to be *in* a worktree rather than merely linked to one.
@@ -21,9 +22,70 @@ import { isTerminalCanvasNode, isWorktreeCanvasNode, sessionNodeStatus } from '.
  */
 const ADOPTION_BOUNDARY: readonly TerminalNodeStatus[] = ['idle', 'result', 'dormant', 'exited']
 
-/** Paths reach the workspace from git and from the agent's claim in different shapes. */
-function comparablePath(value: string): string {
-  return value.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+/** Creation can finish after discovery: preserve the existing id and every reference to it. */
+export function registerWorktreeNode(nodes: CanvasNode[], incoming: WorktreeCanvasNode): CanvasNode[] {
+  const existing = nodes
+    .filter(isWorktreeCanvasNode)
+    .find(
+      (node) =>
+        node.data.projectId === incoming.data.projectId &&
+        worktreePathKey(node.data.path) === worktreePathKey(incoming.data.path)
+    )
+  if (!existing) return [...nodes, incoming]
+  return nodes.map((node) =>
+    node === existing
+      ? {
+          ...existing,
+          selected: incoming.selected,
+          data: {
+            ...existing.data,
+            branch: incoming.data.branch,
+            baseRef: incoming.data.baseRef,
+            unavailable: undefined
+          }
+        }
+      : node
+  )
+}
+
+/** Never change a running session's cwd or stop it as a side effect of background discovery. */
+export function reconcileStaleWorktrees(
+  nodes: CanvasNode[],
+  projectId: string,
+  paths: readonly string[],
+  availablePaths: readonly string[] = []
+): CanvasNode[] {
+  const stale = new Set(paths.map(worktreePathKey))
+  const available = new Set(availablePaths.map(worktreePathKey))
+  const attached = new Set(nodes.filter(isTerminalCanvasNode).map((node) => node.data.worktreeId))
+  const removed = new Set(
+    nodes
+      .filter(isWorktreeCanvasNode)
+      .filter(
+        (node) =>
+          node.data.projectId === projectId &&
+          stale.has(worktreePathKey(node.data.path)) &&
+          !attached.has(node.data.worktreeId)
+      )
+      .map((node) => node.data.worktreeId)
+  )
+  let next = nodes
+  for (const id of removed) next = withoutWorktree(next, id)
+  return next.map((node) =>
+    isWorktreeCanvasNode(node) &&
+    node.data.projectId === projectId &&
+    node.data.unavailable &&
+    available.has(worktreePathKey(node.data.path))
+      ? { ...node, data: { ...node.data, unavailable: undefined } }
+      : isWorktreeCanvasNode(node) &&
+          node.data.projectId === projectId &&
+          !node.data.unavailable &&
+          stale.has(worktreePathKey(node.data.path))
+        ? { ...node, data: { ...node.data, unavailable: true } }
+        : isTerminalCanvasNode(node) && node.data.activeWorktreeId && removed.has(node.data.activeWorktreeId)
+          ? { ...node, data: { ...node.data, activeWorktreeId: undefined, activeWorktreeBranch: undefined } }
+          : node
+  )
 }
 
 /**
@@ -36,9 +98,9 @@ function comparablePath(value: string): string {
 export function applyWorktreeClaims(nodes: CanvasNode[], claims: readonly WorktreeClaimMatch[]): CanvasNode[] {
   if (claims.length === 0) return nodes
   const worktreesByPath = new Map(
-    nodes.filter(isWorktreeCanvasNode).map((node) => [comparablePath(node.data.path), node.data])
+    nodes.filter(isWorktreeCanvasNode).map((node) => [worktreePathKey(node.data.path), node.data])
   )
-  const claimedBy = new Map(claims.map((claim) => [claim.nodeId, worktreesByPath.get(comparablePath(claim.path))]))
+  const claimedBy = new Map(claims.map((claim) => [claim.nodeId, worktreesByPath.get(worktreePathKey(claim.path))]))
 
   let changed = false
   const next = nodes.map<CanvasNode>((node) => {
@@ -80,7 +142,7 @@ export function planWorktreeAdoptions(
     const worktree = worktrees.get(activeWorktreeId)
     // A claim is a file any agent may append to, so a node is only ever moved into a worktree
     // of the project it already belongs to - a stale entry cannot relocate it across projects.
-    if (!worktree || worktree.projectId !== node.data.projectId) return []
+    if (!worktree || worktree.unavailable || worktree.projectId !== node.data.projectId) return []
     if (!ADOPTION_BOUNDARY.includes(sessionNodeStatus(node, statuses))) return []
     return [{ nodeId: node.id, worktreeId: activeWorktreeId, branch: worktree.branch, path: worktree.path }]
   })
