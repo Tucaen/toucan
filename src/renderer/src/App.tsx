@@ -30,12 +30,7 @@ import {
   ZoomOut
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
-import {
-  AGENT_TURN_OUTCOME_LIMIT,
-  type AgentRateLimitStatus,
-  type AgentRateLimitWindow,
-  type AgentTurnOutcome
-} from '../../shared/agent'
+import { AGENT_TURN_OUTCOME_LIMIT, type AgentTurnOutcome } from '../../shared/agent'
 import type { ConversationSummary } from '../../shared/conversation'
 import { normalizeConversationTitle, type ConversationTitleSource } from '../../shared/conversation-title'
 import { paletteColorAt } from '../../shared/project-colors'
@@ -142,7 +137,7 @@ import {
 } from './project-order'
 import ProjectRowMenu, { type ProjectMenuTarget } from './ProjectRowMenu'
 import { ProviderRateLimitsContext } from './provider-rate-limits'
-import { describeRateLimitWindow, describeRateLimitWindows } from './session-usage'
+import { ProviderUsageChip } from './ProviderUsageChip'
 import SessionKindIcon from './SessionKindIcon'
 import SessionNode from './SessionNode'
 import { terminalLivenessLabels } from './terminal-liveness'
@@ -256,71 +251,6 @@ const statusLabels: Record<TerminalNodeStatus, string> = {
   attention: 'Attention',
   stalled: 'Stalled',
   exited: terminalLivenessLabels.exited
-}
-
-function UsageWindow({ label, window }: { label: string; window: AgentRateLimitWindow }): JSX.Element {
-  // Thresholds, clamping and wording are shared with the per-node usage bar so one window never
-  // reads as two different states in the two places it is shown.
-  const { level, displayPercent } = describeRateLimitWindow(label, window)
-  return (
-    <span className="usage-window" data-level={level}>
-      <span className="usage-window-label">{label}</span>
-      <span className="usage-window-bar">
-        <span className="usage-window-fill" style={{ width: `${displayPercent}%` }} />
-      </span>
-      <span className="usage-window-pct">{displayPercent}%</span>
-    </span>
-  )
-}
-
-/**
- * Not every plan meters both windows - a Codex plan may report only the one it bills against - and
- * some add a per-model allowance (Claude's weekly Fable window), so a chip renders just the windows
- * its provider actually reported, plan-wide ones first.
- *
- * The chip is also the button that refreshes it. Usage is otherwise only as fresh as the poll, and
- * the moment a user actually cares about the number - right after a long turn, or after waiting out
- * a limit - is exactly the moment a minute-old reading is the wrong one to be looking at.
- */
-function ProviderUsageChip({
-  provider,
-  status,
-  refreshing,
-  onRefresh
-}: {
-  provider: string
-  status: AgentRateLimitStatus
-  refreshing: boolean
-  onRefresh(): void
-}): JSX.Element {
-  const windows = describeRateLimitWindows(status)
-  const title = [
-    `${provider} account usage`,
-    ...windows.map((window) => window.text),
-    status.rejected ? 'Limit reached' : null,
-    refreshing ? 'Refreshing…' : 'Click to refresh'
-  ]
-    .filter(Boolean)
-    .join('\n')
-
-  return (
-    <button
-      type="button"
-      className="provider-usage-chip"
-      data-rejected={status.rejected ? 'true' : undefined}
-      data-refreshing={refreshing ? 'true' : undefined}
-      title={title}
-      disabled={refreshing}
-      onClick={onRefresh}
-    >
-      <span className="provider-usage-name">{provider}</span>
-      {status.fiveHour && <UsageWindow label="5h" window={status.fiveHour} />}
-      {status.weekly && <UsageWindow label="7d" window={status.weekly} />}
-      {(status.models ?? []).map((model) => (
-        <UsageWindow key={model.label} label={model.label} window={model} />
-      ))}
-    </button>
-  )
 }
 
 function createProject(directory: ProjectDirectory, index: number): Project {
@@ -2241,21 +2171,19 @@ function Canvas(): JSX.Element {
                     )}
                   </div>
                 )}
-                {(providerRateLimits.limits.claude || providerRateLimits.limits.codex) && (
+                {(providerRateLimits.providers.claude || providerRateLimits.providers.codex) && (
                   <div className="global-usage-summary">
-                    {providerRateLimits.limits.claude && (
+                    {providerRateLimits.providers.claude && (
                       <ProviderUsageChip
-                        provider="Claude"
-                        status={providerRateLimits.limits.claude}
-                        refreshing={providerRateLimits.refreshing}
+                        provider="claude"
+                        entry={providerRateLimits.providers.claude}
                         onRefresh={providerRateLimits.refresh}
                       />
                     )}
-                    {providerRateLimits.limits.codex && (
+                    {providerRateLimits.providers.codex && (
                       <ProviderUsageChip
-                        provider="Codex"
-                        status={providerRateLimits.limits.codex}
-                        refreshing={providerRateLimits.refreshing}
+                        provider="codex"
+                        entry={providerRateLimits.providers.codex}
                         onRefresh={providerRateLimits.refresh}
                       />
                     )}

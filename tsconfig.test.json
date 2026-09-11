@@ -43,6 +43,7 @@
     "src/renderer/src/file-node.ts",
     "src/renderer/src/node-picker-menu-position.ts",
     "src/renderer/src/voice-transcript.ts",
+    "src/renderer/src/use-refresh-flash.ts",
     "src/main/remote/voice-transcription.ts",
     "src/main/voice-model-store.ts",
     "src/main/voice-model-protocol.ts",

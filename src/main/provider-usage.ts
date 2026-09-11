@@ -1,4 +1,10 @@
-import type { AgentProvider, AgentRateLimitStatus, ProviderRateLimits } from '../shared/agent'
+import {
+  keptAsStale,
+  type AgentProvider,
+  type AgentRateLimitStatus,
+  type ProviderUsageEntry,
+  type ProviderUsageReport
+} from '../shared/agent'
 
 /**
  * Reading Claude's usage boots a CLI process, so this sits between the renderer's polling and the
@@ -8,7 +14,9 @@ import type { AgentProvider, AgentRateLimitStatus, ProviderRateLimits } from '..
  *
  * A provider that fails or reports nothing keeps its last good value rather than blanking the
  * header, since a single failed read is far more likely to be a transient hiccup than a real
- * transition to "no limits apply".
+ * transition to "no limits apply". That kept value is reported as stale: keeping it is right, but
+ * letting it pass for a fresh reading is what makes a failed refresh indistinguishable from a
+ * successful one that found the same numbers.
  */
 /** Reading a local file is synchronous while reading Claude's plan usage is not, so both are allowed. */
 export interface ProviderUsageReader {
@@ -28,24 +36,30 @@ export interface ProviderUsageReadOptions {
    * not already say, so answering it from the cache would make the click look broken.
    */
   force?: boolean
+  /**
+   * Read only this provider. A click refreshes the chip it landed on, and the chip stays disabled
+   * until its own read returns - so a provider whose CLI is slow or missing must not be able to
+   * decide how long another provider's chip is unusable.
+   */
+  provider?: AgentProvider
 }
 
 export interface ProviderUsage {
-  read(options?: ProviderUsageReadOptions): Promise<ProviderRateLimits>
+  read(options?: ProviderUsageReadOptions): Promise<ProviderUsageReport>
 }
 
 export function createProviderUsage(options: ProviderUsageOptions): ProviderUsage {
   const now = options.now ?? ((): number => Date.now())
-  const cache = new Map<AgentProvider, { expiresAt: number; status: AgentRateLimitStatus | null }>()
-  const inFlight = new Map<AgentProvider, Promise<AgentRateLimitStatus | null>>()
+  const cache = new Map<AgentProvider, { expiresAt: number; entry: ProviderUsageEntry | null }>()
+  const inFlight = new Map<AgentProvider, Promise<ProviderUsageEntry | null>>()
 
   const readProvider = async (
     provider: AgentProvider,
     reader: ProviderUsageReader,
     force: boolean
-  ): Promise<AgentRateLimitStatus | null> => {
+  ): Promise<ProviderUsageEntry | null> => {
     const cached = cache.get(provider)
-    if (!force && cached && cached.expiresAt > now()) return cached.status
+    if (!force && cached && cached.expiresAt > now()) return cached.entry
 
     // A forced read still joins a request already on its way: that answer is no staler than one
     // started now, and joining keeps a burst of clicks from spawning a CLI process per click.
@@ -56,10 +70,12 @@ export function createProviderUsage(options: ProviderUsageOptions): ProviderUsag
     const request = (async () => reader.read())()
       .catch(() => null)
       .then((status) => {
-        // Keep the previous reading when this one came back empty; only a real report replaces it.
-        const resolved = status ?? cache.get(provider)?.status ?? null
-        cache.set(provider, { expiresAt: now() + options.ttlMs, status: resolved })
-        return resolved
+        // Keep the previous reading when this one came back empty, but say so: `readAt` stays at
+        // the moment the kept reading was actually obtained, which is what the header dates it by.
+        const kept = keptAsStale(cache.get(provider)?.entry ?? undefined)
+        const entry: ProviderUsageEntry | null = status ? { status, readAt: now(), stale: false } : (kept ?? null)
+        cache.set(provider, { expiresAt: now() + options.ttlMs, entry })
+        return entry
       })
       .finally(() => inFlight.delete(provider))
 
@@ -68,17 +84,20 @@ export function createProviderUsage(options: ProviderUsageOptions): ProviderUsag
   }
 
   return {
-    async read(readOptions?: ProviderUsageReadOptions): Promise<ProviderRateLimits> {
+    async read(readOptions?: ProviderUsageReadOptions): Promise<ProviderUsageReport> {
       const force = readOptions?.force ?? false
-      const entries = Object.entries(options.readers) as Array<[AgentProvider, ProviderUsageReader]>
+      const requested = readOptions?.provider
+      const entries = (Object.entries(options.readers) as Array<[AgentProvider, ProviderUsageReader]>).filter(
+        ([provider]) => !requested || provider === requested
+      )
       const results = await Promise.all(
         entries.map(async ([provider, reader]) => [provider, await readProvider(provider, reader, force)] as const)
       )
-      const limits: ProviderRateLimits = {}
-      for (const [provider, status] of results) {
-        if (status) limits[provider] = status
+      const report: ProviderUsageReport = {}
+      for (const [provider, entry] of results) {
+        if (entry) report[provider] = entry
       }
-      return limits
+      return report
     }
   }
 }

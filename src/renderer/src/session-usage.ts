@@ -133,6 +133,18 @@ export function describeRateLimitWindows(
   ].filter((window): window is RateLimitWindowReadout => window !== null)
 }
 
+/**
+ * How the header's chip dates its own reading. Plan utilization barely moves minute to minute, so a
+ * successful refresh usually re-renders the identical numbers; without a line saying when they were
+ * read, a refresh that worked and a refresh that silently failed are the same pixels.
+ */
+export function describeUsageFreshness(entry: { readAt: number; stale: boolean }): string {
+  const clock = new Date(entry.readAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+  // Worded about the reading rather than the click: the poll can fail here too, and the host backs
+  // off after a failure, so this line outlives the refresh that first raised it.
+  return entry.stale ? `Last read failed - showing the reading from ${clock}` : `Updated ${clock}`
+}
+
 export interface ContextGauge {
   used: number
   size: number

@@ -227,9 +227,40 @@ button {
   opacity: 0.7;
 }
 
+/* A refresh that failed keeps showing its last good reading, so the chip has to say so itself -
+   otherwise a stale number is indistinguishable from a current one that happens to match. */
+.provider-usage-chip[data-stale='true'] {
+  border-color: #6b5a2c;
+  border-style: dashed;
+}
+
+/* After the stale rule, so a chip that is both keeps the colour of the more serious of the two. */
 .provider-usage-chip[data-rejected='true'] {
   border-color: #6b2c31;
   background: #241619;
+}
+
+/* Plan usage rarely changes between two clicks, so this is usually the only visible answer a
+   refresh gives. It fades out on its own, and rides on the glow alone so it composes with whatever
+   border the chip is already wearing. */
+.provider-usage-chip[data-refreshed='true'] {
+  animation: provider-usage-refreshed var(--usage-refresh-flash) ease-out;
+}
+
+@keyframes provider-usage-refreshed {
+  0% {
+    box-shadow: 0 0 0 2px #4f8fe0;
+  }
+  100% {
+    box-shadow: 0 0 0 2px rgba(79, 143, 224, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .provider-usage-chip[data-refreshed='true'] {
+    animation: none;
+    box-shadow: 0 0 0 2px #4f8fe0;
+  }
 }
 
 .provider-usage-name {

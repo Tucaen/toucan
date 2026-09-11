@@ -315,6 +315,32 @@ export interface AgentRateLimitStatus {
 /** Latest known usage-limit status per provider, keyed by `AgentProvider`. */
 export type ProviderRateLimits = Partial<Record<AgentProvider, AgentRateLimitStatus>>
 
+/**
+ * One provider's usage reading plus what the header needs in order to say anything about it beyond
+ * the numbers. A reading kept after a failed refresh renders identically to a fresh one, so without
+ * `readAt` and `stale` a refresh that silently failed and a refresh that found nothing new are the
+ * same pixels - which is exactly how a working refresh comes to look broken.
+ */
+export interface ProviderUsageEntry {
+  status: AgentRateLimitStatus
+  /** When `status` came back from the provider. A read that failed leaves it where it was. */
+  readAt: number
+  /** True when the most recent read failed, so `status` is an older reading kept as a fallback. */
+  stale: boolean
+}
+
+/** Latest usage reading per provider, keyed by `AgentProvider`. */
+export type ProviderUsageReport = Partial<Record<AgentProvider, ProviderUsageEntry>>
+
+/**
+ * Demotes a reading to a kept fallback. Both the host (whose reader came back empty) and the
+ * renderer (whose request never reached the host) have to make this call, so the rule lives here
+ * rather than being written out on each side of the boundary.
+ */
+export function keptAsStale(entry: ProviderUsageEntry | undefined): ProviderUsageEntry | undefined {
+  return entry && { ...entry, stale: true }
+}
+
 /** Cumulative cost of one session, in whatever currency the provider bills it in. */
 export interface AgentSessionCost {
   amount: number
@@ -412,7 +438,8 @@ export interface UsageApi {
   /**
    * Account-wide plan usage windows per provider; omits a provider with nothing to report. Reads
    * are served from the host's cache unless `force` is set, which is what a user-initiated
-   * refresh passes.
+   * refresh passes. Naming a `provider` reads only that one, so one provider's slow CLI never
+   * decides how long another provider's chip sits disabled.
    */
-  rateLimits(options?: { force?: boolean }): Promise<ProviderRateLimits>
+  rateLimits(options?: { force?: boolean; provider?: AgentProvider }): Promise<ProviderUsageReport>
 }

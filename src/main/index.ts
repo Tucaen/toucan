@@ -140,9 +140,14 @@ function registerWorkspaceFileIpc(files: WorkspaceFileIndexReader): void {
 }
 
 function registerUsageIpc(usage: ProviderUsage): void {
-  ipcMain.handle(USAGE_CHANNELS.rateLimits, (_event, options: unknown) =>
-    usage.read({ force: Boolean((options as { force?: unknown } | undefined)?.force) })
-  )
+  ipcMain.handle(USAGE_CHANNELS.rateLimits, (_event, options: unknown) => {
+    const request = options as { force?: unknown; provider?: unknown } | undefined
+    const provider = request?.provider
+    return usage.read({
+      force: Boolean(request?.force),
+      ...(provider === 'claude' || provider === 'codex' ? { provider } : {})
+    })
+  })
 }
 
 function registerAgentIpc(manager: AcpSessionManager): void {
