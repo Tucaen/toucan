@@ -748,6 +748,32 @@ test("a project's GitHub in-progress label round-trips, and a non-string one is 
   assert.equal(parseWorkspaceState(refused), null)
 })
 
+test("a project's run commands round-trip in order, and a malformed entry is refused", () => {
+  const base = makeState('Toucan')
+  const runCommands = [
+    { id: 'api', name: 'API (watch)', command: 'dotnet watch run' },
+    { id: 'web', name: 'Web', command: 'npm run dev' }
+  ]
+
+  const restored = parseWorkspaceState({ ...base, projects: [{ ...base.projects[0], runCommands }] })
+  assert.deepEqual(restored?.projects[0].runCommands, runCommands)
+  // A snapshot written before commands existed simply has none; it must still load.
+  assert.equal(parseWorkspaceState(base)?.projects[0].runCommands, undefined)
+
+  for (const malformed of [
+    [{ id: 'api', name: 'API' }],
+    [{ id: 1, name: 'API', command: 'x' }],
+    [null],
+    'npm run dev'
+  ]) {
+    assert.equal(
+      parseWorkspaceState({ ...base, projects: [{ ...base.projects[0], runCommands: malformed }] }),
+      null,
+      JSON.stringify(malformed)
+    )
+  }
+})
+
 test('a project may name its own tickets folder, and the snapshot keeps it', () => {
   const base = makeState('Toucan')
   const withFolder = {

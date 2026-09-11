@@ -7,6 +7,7 @@ import { isAttentionItem } from '../shared/attention'
 import { isFileViewMode, type WorkspaceFileNode } from '../shared/file-view'
 import type { WorkspaceDiffNode } from '../shared/git-diff'
 import { isProjectColor, paletteColorAt } from '../shared/project-colors'
+import { isProjectRunCommand } from '../shared/project-run-commands'
 import { isRoutineDelegationPreference } from '../shared/routine-delegation'
 import {
   isComposerSendKey,
@@ -105,7 +106,9 @@ function hasValidProjects(
       (project.setupCommand === undefined || typeof project.setupCommand === 'string') &&
       (project.groupId === undefined || typeof project.groupId === 'string') &&
       (project.ticketsDirectory === undefined || typeof project.ticketsDirectory === 'string') &&
-      (project.githubInProgressLabel === undefined || typeof project.githubInProgressLabel === 'string')
+      (project.githubInProgressLabel === undefined || typeof project.githubInProgressLabel === 'string') &&
+      (project.runCommands === undefined ||
+        (Array.isArray(project.runCommands) && project.runCommands.every(isProjectRunCommand)))
   )
 }
 

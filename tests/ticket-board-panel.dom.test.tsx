@@ -745,7 +745,7 @@ describe('deleting tickets', () => {
 describe('where a project keeps its tickets', () => {
   const openSettings = async (): Promise<void> => {
     fireEvent.click(
-      screen.getByRole('button', { name: `Settings for ${project.name}: worktree setup command and tickets folder` })
+      screen.getByRole('button', { name: `Settings for ${project.name}: setup command, tickets folder and run commands` })
     )
     await screen.findByRole('dialog', { name: `Settings for ${project.name}` })
   }

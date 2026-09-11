@@ -324,3 +324,140 @@ describe('groups', () => {
     expect(document.querySelectorAll('.project-row')).toHaveLength(1)
   })
 })
+
+/**
+ * The commands that start a project are edited in the same gear dialog as the setup command and
+ * the tickets folder, and they persist with the project. Nothing here runs one - that is the
+ * project row's Run menu, which is its own ticket.
+ */
+describe('the commands that start a project', () => {
+  const SETTINGS_BUTTON = `Settings for ${alpha.name}: setup command, tickets folder and run commands`
+
+  const openSettings = async (): Promise<void> => {
+    fireEvent.click(screen.getByRole('button', { name: SETTINGS_BUTTON }))
+    await screen.findByRole('dialog', { name: `Settings for ${alpha.name}` })
+  }
+
+  const fillRow = (position: number, name: string, command: string): void => {
+    fireEvent.change(screen.getByLabelText(`Command ${position} name`), { target: { value: name } })
+    fireEvent.change(screen.getByLabelText(`Command ${position} command line`), { target: { value: command } })
+  }
+
+  const savedCommands = (): unknown => saved.at(-1)?.projects.find((entry) => entry.id === alpha.id)?.runCommands
+
+  test('any number of named commands can be added, and they reach the snapshot in the listed order', async () => {
+    await renderApp()
+    await openSettings()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add command' }))
+    fillRow(1, '  API (watch)  ', '  dotnet watch run  ')
+    fireEvent.click(screen.getByRole('button', { name: 'Add command' }))
+    fillRow(2, 'Web', 'npm run dev')
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() =>
+      expect(savedCommands()).toEqual([
+        { id: expect.any(String), name: 'API (watch)', command: 'dotnet watch run' },
+        { id: expect.any(String), name: 'Web', command: 'npm run dev' }
+      ])
+    )
+  })
+
+  test('saved commands are shown again when the dialog is reopened', async () => {
+    await renderApp(
+      savedWorkspace({
+        projects: [{ ...alpha, runCommands: [{ id: 'web', name: 'Web', command: 'npm run dev' }] }, beta]
+      })
+    )
+    await openSettings()
+
+    expect(screen.getByLabelText('Command 1 name')).toHaveValue('Web')
+    expect(screen.getByLabelText('Command 1 command line')).toHaveValue('npm run dev')
+  })
+
+  test('a row with only half of it filled in is refused rather than quietly dropped', async () => {
+    await renderApp()
+    await openSettings()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add command' }))
+    fireEvent.change(screen.getByLabelText('Command 1 name'), { target: { value: 'Web' } })
+
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+    expect(screen.getByText('Every run command needs a name and a command line.')).toBeTruthy()
+
+    fireEvent.change(screen.getByLabelText('Command 1 command line'), { target: { value: 'npm run dev' } })
+    expect(screen.getByRole('button', { name: 'Save' })).not.toBeDisabled()
+  })
+
+  test('an added row the user never filled in is scratch, so the project keeps no commands', async () => {
+    await renderApp()
+    await openSettings()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add command' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(saved.length).toBeGreaterThan(0))
+    expect(savedCommands()).toBeUndefined()
+  })
+
+  test('rows are reordered and removed, and the ends of the list are walls', async () => {
+    await renderApp(
+      savedWorkspace({
+        projects: [
+          {
+            ...alpha,
+            runCommands: [
+              { id: 'api', name: 'API', command: 'dotnet watch run' },
+              { id: 'web', name: 'Web', command: 'npm run dev' },
+              { id: 'db', name: 'DB', command: 'docker compose up' }
+            ]
+          },
+          beta
+        ]
+      })
+    )
+    await openSettings()
+
+    expect(screen.getByRole('button', { name: 'Move command 1 up' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Move command 3 down' })).toBeDisabled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Move command 3 up' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Remove command 1' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() =>
+      expect(savedCommands()).toEqual([
+        { id: 'db', name: 'DB', command: 'docker compose up' },
+        { id: 'web', name: 'Web', command: 'npm run dev' }
+      ])
+    )
+  })
+
+  test('clearing every command takes the project back to having none', async () => {
+    await renderApp(
+      savedWorkspace({
+        projects: [{ ...alpha, runCommands: [{ id: 'web', name: 'Web', command: 'npm run dev' }] }, beta]
+      })
+    )
+    await openSettings()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove command 1' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(saved.length).toBeGreaterThan(0))
+    expect(savedCommands()).toBeUndefined()
+  })
+
+  test('the gear reports a project as configured when all it holds is run commands', async () => {
+    await renderApp(
+      savedWorkspace({
+        projects: [{ ...alpha, runCommands: [{ id: 'web', name: 'Web', command: 'npm run dev' }] }, beta]
+      })
+    )
+
+    expect(screen.getByRole('button', { name: SETTINGS_BUTTON })).toHaveAttribute('data-configured', 'true')
+    expect(
+      screen.getByRole('button', { name: `Settings for ${beta.name}: setup command, tickets folder and run commands` })
+    ).not.toHaveAttribute('data-configured')
+  })
+})

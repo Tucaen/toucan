@@ -4102,6 +4102,76 @@ button {
   color: #d9a441;
 }
 
+/*
+ * The run-command list in ProjectSettingsDialog. Each row is name, command line and the three
+ * icon buttons that reorder or remove it; the name column is narrow because a label is short and
+ * the command line is what needs the room.
+ */
+.project-run-commands {
+  display: grid;
+  gap: 6px;
+}
+
+.project-run-commands-label {
+  color: #687280;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.project-run-command {
+  display: grid;
+  grid-template-columns: minmax(90px, 1fr) minmax(0, 2fr) auto auto auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.project-run-command button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid #323a46;
+  border-radius: 6px;
+  background: transparent;
+  color: #9aa3b0;
+  cursor: pointer;
+}
+
+.project-run-command button svg {
+  width: 13px;
+  height: 13px;
+}
+
+.project-run-command button:hover:not(:disabled) {
+  border-color: #5d6675;
+  color: #f0f2f5;
+}
+
+.project-run-command button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.project-run-command-add {
+  justify-self: start;
+  padding: 6px 12px;
+  border: 1px solid #3a4250;
+  border-radius: 6px;
+  background: transparent;
+  color: #cbd2dc;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.project-run-command-add:hover {
+  border-color: #5d6675;
+  color: #f0f2f5;
+}
+
 .worktree-dialog-actions {
   display: flex;
   justify-content: flex-end;

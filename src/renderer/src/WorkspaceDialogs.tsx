@@ -1,5 +1,12 @@
 import { useState } from 'react'
+import { ArrowDown, ArrowUp, X } from 'lucide-react'
 import type { WorkspaceProject } from '../../shared/terminal'
+import {
+  moveRunCommand,
+  normalizeRunCommands,
+  runCommandsIncomplete,
+  type ProjectRunCommand
+} from '../../shared/project-run-commands'
 import type { WorktreeRemovalBlocker } from '../../shared/worktree'
 import { branchNameProblem, describeWorktreeBlocker, deriveWorktreeDirectory } from '../../shared/worktree'
 import { DEFAULT_TICKETS_DIRECTORY, isTicketsDirectory } from '../../shared/tickets'
@@ -163,14 +170,16 @@ export function WorktreeRemoveDialog({
 }
 
 /**
- * A project's per-project settings, behind the gear on its sidebar row. Two settings today, both
- * of them answers about *this checkout*: what makes a fresh worktree usable, and where the
- * project keeps its ticket files.
+ * A project's per-project settings, behind the gear on its sidebar row. Three settings today, all
+ * of them answers about *this checkout*: what makes a fresh worktree usable, where the project
+ * keeps its ticket files, and the named commands that start it.
  *
  * The tickets folder is validated here against the same rule main enforces
  * (`isTicketsDirectory`), so a path that leaves the checkout is refused while the user is typing
  * it rather than silently ignored later - the one thing worse than a rejected folder is a saved
- * one the board never reads from.
+ * one the board never reads from. The run-command list is the same bargain in the other
+ * direction: the rules are `shared/project-run-commands.ts`, and a row that is only half typed
+ * blocks Save rather than being dropped on the way to disk.
  */
 export function ProjectSettingsDialog({
   project,
@@ -179,12 +188,16 @@ export function ProjectSettingsDialog({
 }: {
   project: WorkspaceProject
   onCancel(): void
-  onSave(settings: { setupCommand: string; ticketsDirectory: string }): void
+  onSave(settings: { setupCommand: string; ticketsDirectory: string; runCommands: ProjectRunCommand[] }): void
 }): JSX.Element {
   const [command, setCommand] = useState(project.setupCommand ?? '')
   const [tickets, setTickets] = useState(project.ticketsDirectory ?? '')
+  const [runCommands, setRunCommands] = useState<readonly ProjectRunCommand[]>(project.runCommands ?? [])
   const ticketsFolder = tickets.trim()
   const ticketsError = ticketsFolder && !isTicketsDirectory(ticketsFolder)
+  const runCommandsError = runCommandsIncomplete(runCommands)
+  const patchRunCommand = (id: string, patch: Partial<ProjectRunCommand>): void =>
+    setRunCommands((current) => current.map((entry) => (entry.id === id ? { ...entry, ...patch } : entry)))
   return (
     <div
       className="worktree-dialog-overlay"
@@ -197,8 +210,12 @@ export function ProjectSettingsDialog({
         className="worktree-dialog"
         onSubmit={(event) => {
           event.preventDefault()
-          if (ticketsError) return
-          onSave({ setupCommand: command.trim(), ticketsDirectory: ticketsFolder })
+          if (ticketsError || runCommandsError) return
+          onSave({
+            setupCommand: command.trim(),
+            ticketsDirectory: ticketsFolder,
+            runCommands: normalizeRunCommands(runCommands)
+          })
         }}
       >
         <strong id="project-settings-title">Settings for {project.name}</strong>
@@ -226,11 +243,69 @@ export function ProjectSettingsDialog({
           {DEFAULT_TICKETS_DIRECTORY}.
         </p>
         {ticketsError && <p className="worktree-dialog-error">The tickets folder must stay inside the checkout.</p>}
+        <div className="project-run-commands">
+          <span className="project-run-commands-label">Run commands</span>
+          {runCommands.map((entry, index) => (
+            <div className="project-run-command" key={entry.id}>
+              <input
+                aria-label={`Command ${index + 1} name`}
+                value={entry.name}
+                placeholder="Web"
+                onChange={(event) => patchRunCommand(entry.id, { name: event.target.value })}
+              />
+              <input
+                aria-label={`Command ${index + 1} command line`}
+                value={entry.command}
+                placeholder="npm run dev"
+                onChange={(event) => patchRunCommand(entry.id, { command: event.target.value })}
+              />
+              <button
+                type="button"
+                aria-label={`Move command ${index + 1} up`}
+                disabled={index === 0}
+                onClick={() => setRunCommands((current) => moveRunCommand(current, index, -1))}
+              >
+                <ArrowUp aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                aria-label={`Move command ${index + 1} down`}
+                disabled={index === runCommands.length - 1}
+                onClick={() => setRunCommands((current) => moveRunCommand(current, index, 1))}
+              >
+                <ArrowDown aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                aria-label={`Remove command ${index + 1}`}
+                onClick={() => setRunCommands((current) => current.filter((item) => item.id !== entry.id))}
+              >
+                <X aria-hidden="true" />
+              </button>
+            </div>
+          ))}
+          <button
+            type="button"
+            className="project-run-command-add"
+            onClick={() =>
+              setRunCommands((current) => [...current, { id: crypto.randomUUID(), name: '', command: '' }])
+            }
+          >
+            Add command
+          </button>
+        </div>
+        <p>
+          Named commands that start this project, run in its checkout. Order is the order they are listed in; leave the
+          list empty for none.
+        </p>
+        {runCommandsError && (
+          <p className="worktree-dialog-error">Every run command needs a name and a command line.</p>
+        )}
         <div className="worktree-dialog-actions">
           <button type="button" onClick={onCancel}>
             Cancel
           </button>
-          <button type="submit" className="primary" disabled={Boolean(ticketsError)}>
+          <button type="submit" className="primary" disabled={Boolean(ticketsError) || runCommandsError}>
             Save
           </button>
         </div>

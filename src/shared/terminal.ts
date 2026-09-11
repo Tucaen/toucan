@@ -3,6 +3,7 @@ import type { AttentionItem } from './attention'
 import type { WorkspaceFileNode } from './file-view'
 import type { ImageArtifactSaveRequest, ImageArtifactSaveResult } from './image-artifact'
 import type { LocalFileOpenResult } from './local-file-link'
+import type { ProjectRunCommand } from './project-run-commands'
 import type { WorkspaceDiffNode } from './git-diff'
 import type { WorkspaceWorktree } from './worktree'
 import type { ConversationTitleSource } from './conversation-title'
@@ -86,6 +87,12 @@ export interface WorkspaceProject extends ProjectDirectory {
    * `DEFAULT_GITHUB_STATUS_LABELS.inProgress` in `shared/github-issues.ts`.
    */
   githubInProgressLabel?: string
+  /**
+   * The named terminal commands that start this project ("API (watch)", "Web"). Array order is
+   * display order; absent or empty both mean the project configures none. See
+   * `shared/project-run-commands.ts`.
+   */
+  runCommands?: ProjectRunCommand[]
 }
 
 /**

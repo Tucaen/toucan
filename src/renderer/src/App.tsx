@@ -54,6 +54,7 @@ import type {
   WorkspaceState,
   WorkspaceTerminalNode
 } from '../../shared/terminal'
+import type { ProjectRunCommand } from '../../shared/project-run-commands'
 import type { WorktreeRemovalBlocker } from '../../shared/worktree'
 import { worktreePathKey } from '../../shared/worktree'
 import { fileViewPathIdentity, type FileViewMode } from '../../shared/file-view'
@@ -1993,14 +1994,18 @@ function Canvas(): JSX.Element {
   }, [projects, setNodes, worktreeDraft, worktreeCallbacks])
 
   const saveProjectSettings = useCallback(
-    (projectId: string, settings: { setupCommand: string; ticketsDirectory: string }): void => {
+    (
+      projectId: string,
+      settings: { setupCommand: string; ticketsDirectory: string; runCommands: ProjectRunCommand[] }
+    ): void => {
       setProjects((current) =>
         current.map((project) =>
           project.id === projectId
             ? {
                 ...project,
                 setupCommand: settings.setupCommand || undefined,
-                ticketsDirectory: settings.ticketsDirectory || undefined
+                ticketsDirectory: settings.ticketsDirectory || undefined,
+                runCommands: settings.runCommands.length ? settings.runCommands : undefined
               }
             : project
         )
@@ -2448,9 +2453,13 @@ function Canvas(): JSX.Element {
                                       <button
                                         type="button"
                                         className="project-setup"
-                                        title={`Settings for ${project.name}: worktree setup command and tickets folder`}
+                                        title={`Settings for ${project.name}: setup command, tickets folder and run commands`}
                                         data-configured={
-                                          project.setupCommand || project.ticketsDirectory ? 'true' : undefined
+                                          project.setupCommand ||
+                                          project.ticketsDirectory ||
+                                          project.runCommands?.length
+                                            ? 'true'
+                                            : undefined
                                         }
                                         onClick={(event) => {
                                           event.stopPropagation()
