@@ -170,6 +170,26 @@ export function WorktreeRemoveDialog({
 }
 
 /**
+ * Everything `ProjectSettingsDialog` hands back on Save. One type rather than three parameters,
+ * so adding a fourth setting is one edit here instead of a matching structural literal in the
+ * dialog and again in `App`'s `saveProjectSettings`.
+ */
+export interface ProjectSettingsDraft {
+  setupCommand: string
+  ticketsDirectory: string
+  runCommands: ProjectRunCommand[]
+}
+
+/**
+ * The gear's tooltip, and so also its accessible name - the only handle a test has on the button.
+ * It lives here rather than inline in `App` because it names what this dialog edits, and a
+ * settings list that grows must not cost a wording edit in every test that opens the dialog.
+ */
+export function projectSettingsTitle(project: { name: string }): string {
+  return `Settings for ${project.name}: setup command, tickets folder and run commands`
+}
+
+/**
  * A project's per-project settings, behind the gear on its sidebar row. Three settings today, all
  * of them answers about *this checkout*: what makes a fresh worktree usable, where the project
  * keeps its ticket files, and the named commands that start it.
@@ -188,7 +208,7 @@ export function ProjectSettingsDialog({
 }: {
   project: WorkspaceProject
   onCancel(): void
-  onSave(settings: { setupCommand: string; ticketsDirectory: string; runCommands: ProjectRunCommand[] }): void
+  onSave(settings: ProjectSettingsDraft): void
 }): JSX.Element {
   const [command, setCommand] = useState(project.setupCommand ?? '')
   const [tickets, setTickets] = useState(project.ticketsDirectory ?? '')

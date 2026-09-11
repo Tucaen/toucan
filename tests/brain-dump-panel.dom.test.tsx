@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import App from '../src/renderer/src/App'
+import { projectSettingsTitle } from '../src/renderer/src/WorkspaceDialogs'
 import {
   BRAIN_DUMP_PANEL_DEFAULT_WIDTH,
   BRAIN_DUMP_PANEL_MAX_WIDTH,
@@ -98,7 +99,7 @@ beforeEach(() => {
 describe('the sidebar entry', () => {
   test('centers the project settings icon within its square button', async () => {
     await renderApp()
-    const setup = screen.getByTitle(`Settings for ${project.name}: setup command, tickets folder and run commands`)
+    const setup = screen.getByTitle(projectSettingsTitle(project))
     const stylesheet = document.createElement('style')
     stylesheet.textContent = styles
     document.head.append(stylesheet)

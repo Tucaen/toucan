@@ -19,7 +19,15 @@ export interface ProjectRunCommand {
   command: string
 }
 
-/** What main accepts out of a persisted snapshot: exactly three strings and nothing inferred. */
+/**
+ * What main accepts out of a persisted snapshot: exactly three strings and nothing inferred.
+ *
+ * Deliberately looser than the dialog, which refuses a half-typed row: this guard answers "is this
+ * the right *shape* to hand back across the privilege seam", not "would the user have been allowed
+ * to type it". A hand-edited snapshot naming an empty command is therefore loaded rather than
+ * discarded - it costs nothing, and refusing it would throw away the whole workspace over one
+ * blank field.
+ */
 export function isProjectRunCommand(value: unknown): value is ProjectRunCommand {
   if (!value || typeof value !== 'object') return false
   const entry = value as Partial<ProjectRunCommand>

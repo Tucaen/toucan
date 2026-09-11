@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import App from '../src/renderer/src/App'
+import { projectSettingsTitle } from '../src/renderer/src/WorkspaceDialogs'
 import type { WorkspaceState } from '../src/shared/terminal'
 import { createMockAppUpdateApi } from './dom/app-update-api-mock'
 
@@ -331,7 +332,7 @@ describe('groups', () => {
  * project row's Run menu, which is its own ticket.
  */
 describe('the commands that start a project', () => {
-  const SETTINGS_BUTTON = `Settings for ${alpha.name}: setup command, tickets folder and run commands`
+  const SETTINGS_BUTTON = projectSettingsTitle(alpha)
 
   const openSettings = async (): Promise<void> => {
     fireEvent.click(screen.getByRole('button', { name: SETTINGS_BUTTON }))
@@ -456,8 +457,6 @@ describe('the commands that start a project', () => {
     )
 
     expect(screen.getByRole('button', { name: SETTINGS_BUTTON })).toHaveAttribute('data-configured', 'true')
-    expect(
-      screen.getByRole('button', { name: `Settings for ${beta.name}: setup command, tickets folder and run commands` })
-    ).not.toHaveAttribute('data-configured')
+    expect(screen.getByRole('button', { name: projectSettingsTitle(beta) })).not.toHaveAttribute('data-configured')
   })
 })

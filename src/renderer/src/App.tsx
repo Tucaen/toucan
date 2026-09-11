@@ -54,7 +54,6 @@ import type {
   WorkspaceState,
   WorkspaceTerminalNode
 } from '../../shared/terminal'
-import type { ProjectRunCommand } from '../../shared/project-run-commands'
 import type { WorktreeRemovalBlocker } from '../../shared/worktree'
 import { worktreePathKey } from '../../shared/worktree'
 import { fileViewPathIdentity, type FileViewMode } from '../../shared/file-view'
@@ -153,8 +152,10 @@ import { ticketsDirectoryOrDefault } from '../../shared/tickets'
 import { useWorkspacePersistence } from './workspace-persistence'
 import {
   ProjectSettingsDialog,
+  projectSettingsTitle,
   WorktreeCreateDialog,
   WorktreeRemoveDialog,
+  type ProjectSettingsDraft,
   type WorktreeDraft,
   type WorktreeRemovalPrompt
 } from './WorkspaceDialogs'
@@ -1993,27 +1994,21 @@ function Canvas(): JSX.Element {
       })
   }, [projects, setNodes, worktreeDraft, worktreeCallbacks])
 
-  const saveProjectSettings = useCallback(
-    (
-      projectId: string,
-      settings: { setupCommand: string; ticketsDirectory: string; runCommands: ProjectRunCommand[] }
-    ): void => {
-      setProjects((current) =>
-        current.map((project) =>
-          project.id === projectId
-            ? {
-                ...project,
-                setupCommand: settings.setupCommand || undefined,
-                ticketsDirectory: settings.ticketsDirectory || undefined,
-                runCommands: settings.runCommands.length ? settings.runCommands : undefined
-              }
-            : project
-        )
+  const saveProjectSettings = useCallback((projectId: string, settings: ProjectSettingsDraft): void => {
+    setProjects((current) =>
+      current.map((project) =>
+        project.id === projectId
+          ? {
+              ...project,
+              setupCommand: settings.setupCommand || undefined,
+              ticketsDirectory: settings.ticketsDirectory || undefined,
+              runCommands: settings.runCommands.length ? settings.runCommands : undefined
+            }
+          : project
       )
-      setSetupProjectId(null)
-    },
-    []
-  )
+    )
+    setSetupProjectId(null)
+  }, [])
 
   /** The colour a project is shown in; `withProjectColor` fans it out across the nodes it owns. */
   const setProjectColor = useCallback(
@@ -2453,7 +2448,7 @@ function Canvas(): JSX.Element {
                                       <button
                                         type="button"
                                         className="project-setup"
-                                        title={`Settings for ${project.name}: setup command, tickets folder and run commands`}
+                                        title={projectSettingsTitle(project)}
                                         data-configured={
                                           project.setupCommand ||
                                           project.ticketsDirectory ||

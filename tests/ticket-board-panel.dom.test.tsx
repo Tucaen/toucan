@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import App from '../src/renderer/src/App'
+import { projectSettingsTitle } from '../src/renderer/src/WorkspaceDialogs'
 import { TICKET_BOARD_DEFAULT_WIDTH, TICKET_BOARD_MAX_WIDTH } from '../src/renderer/src/ticket-board-layout'
 import { TICKET_DETAIL_DEFAULT_WIDTH } from '../src/renderer/src/ticket-board-panes'
 import type { WorkspaceState } from '../src/shared/terminal'
@@ -744,9 +745,7 @@ describe('deleting tickets', () => {
 
 describe('where a project keeps its tickets', () => {
   const openSettings = async (): Promise<void> => {
-    fireEvent.click(
-      screen.getByRole('button', { name: `Settings for ${project.name}: setup command, tickets folder and run commands` })
-    )
+    fireEvent.click(screen.getByRole('button', { name: projectSettingsTitle(project) }))
     await screen.findByRole('dialog', { name: `Settings for ${project.name}` })
   }
 
