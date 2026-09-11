@@ -892,6 +892,20 @@ button {
   color: #8993a1;
 }
 
+/* Closes the Run section without relabelling the entries the menu already had. */
+.project-menu-divider {
+  height: 1px;
+  margin: 6px 8px;
+  background: #333b48;
+}
+
+/* A command line is arbitrarily long; the menu keeps its width and elides the tail. */
+.project-menu-command {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 .project-color-picker {
   display: grid;
   gap: 8px;

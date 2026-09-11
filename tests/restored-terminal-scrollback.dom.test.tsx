@@ -2,45 +2,13 @@ import { render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, expect, test, vi } from 'vitest'
 import { ReactFlowProvider } from '@xyflow/react'
 import TerminalNode from '../src/renderer/src/TerminalNode'
+import { resetXtermMock, terminalInputs, terminalWrites } from './dom/xterm-mock'
 
-const terminalWrites: string[] = []
-const terminalInputs: Array<(data: string) => void> = []
-
-vi.mock('@xterm/xterm', () => ({
-  Terminal: class {
-    cols = 80
-    rows = 24
-    loadAddon(): void {}
-    open(): void {}
-    write(data: string): void {
-      terminalWrites.push(data)
-    }
-    onData(listener: (data: string) => void): { dispose(): void } {
-      terminalInputs.push(listener)
-      return { dispose: () => undefined }
-    }
-    onSelectionChange(): { dispose(): void } {
-      return { dispose: () => undefined }
-    }
-    attachCustomKeyEventHandler(): void {}
-    hasSelection(): boolean {
-      return false
-    }
-    getSelection(): string {
-      return ''
-    }
-    dispose(): void {}
-  }
-}))
-vi.mock('@xterm/addon-fit', () => ({
-  FitAddon: class {
-    fit(): void {}
-  }
-}))
+vi.mock('@xterm/xterm', async () => (await import('./dom/xterm-mock')).xtermModule())
+vi.mock('@xterm/addon-fit', async () => (await import('./dom/xterm-mock')).fitAddonModule())
 
 beforeEach(() => {
-  terminalWrites.length = 0
-  terminalInputs.length = 0
+  resetXtermMock()
   vi.stubGlobal(
     'ResizeObserver',
     class {

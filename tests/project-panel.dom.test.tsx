@@ -12,6 +12,10 @@ import { createMockAppUpdateApi } from './dom/app-update-api-mock'
  * the snapshot which reaches disk agrees with what the sidebar shows.
  */
 
+/** The Run menu spawns real terminal nodes; see `tests/dom/xterm-mock.ts` for why xterm is stubbed. */
+vi.mock('@xterm/xterm', async () => (await import('./dom/xterm-mock')).xtermModule())
+vi.mock('@xterm/addon-fit', async () => (await import('./dom/xterm-mock')).fitAddonModule())
+
 class ResizeObserverStub {
   observe(): void {}
   unobserve(): void {}
@@ -46,6 +50,19 @@ function installWindowApis(state: WorkspaceState): void {
       return { ok: true }
     }),
     getInitialProject: vi.fn(async () => ({ name: alpha.name, path: alpha.path })),
+    create: vi.fn(async (request: { sessionId?: string }) => ({
+      ok: true,
+      sessionId: request.sessionId,
+      incarnationId: `incarnation-${request.sessionId}`,
+      liveness: 'live'
+    })),
+    write: vi.fn(),
+    resize: vi.fn(),
+    kill: vi.fn(),
+    scrollback: vi.fn(async () => null),
+    removeScrollback: vi.fn(async () => true),
+    onData: () => () => undefined,
+    onExit: () => () => undefined,
     openExternal: vi.fn(),
     showItemInFolder: vi.fn(),
     copyText: vi.fn()
@@ -458,5 +475,105 @@ describe('the commands that start a project', () => {
 
     expect(screen.getByRole('button', { name: SETTINGS_BUTTON })).toHaveAttribute('data-configured', 'true')
     expect(screen.getByRole('button', { name: projectSettingsTitle(beta) })).not.toHaveAttribute('data-configured')
+  })
+})
+
+/**
+ * Starting a project is a many-times-a-day action, so the Run menu is the one surface that must
+ * not need the settings dialog. What is checked here is that a pick reaches a *visible* terminal
+ * node in the project checkout carrying the command line - the same pattern the worktree setup
+ * command uses - and that each pick spawns its own node rather than reusing one.
+ */
+describe('running a saved project command', () => {
+  const alphaWithCommands = {
+    ...alpha,
+    runCommands: [
+      { id: 'web', name: 'Web', command: 'npm run dev' },
+      { id: 'api', name: 'API (watch)', command: '  dotnet watch run  ' }
+    ]
+  }
+
+  type CreateRequest = { cwd: string; initialInput?: string; sessionId?: string }
+
+  const created = (): CreateRequest[] =>
+    vi.mocked(window.terminalApi.create).mock.calls.map(([request]) => request as CreateRequest)
+
+  const runFromMenu = async (project: string, command: string): Promise<void> => {
+    openRowMenu(project)
+    const menu = await screen.findByRole('menu', { name: `${project} options` })
+    fireEvent.click(within(menu).getByRole('menuitem', { name: new RegExp(`^${command} `) }))
+  }
+
+  test('a pick spawns a terminal node in the project checkout typing the command', async () => {
+    await renderApp(savedWorkspace({ projects: [alphaWithCommands, beta] }))
+
+    await runFromMenu('Alpha', 'Web')
+
+    expect(screen.queryByRole('menu', { name: 'Alpha options' })).toBeNull()
+    await waitFor(() => expect(created()).toHaveLength(1))
+    expect(created()[0].cwd).toBe(alpha.path)
+    expect(created()[0].initialInput).toBe('npm run dev\r')
+    expect(sidebar().getByText('Web')).toBeTruthy()
+    await waitFor(() =>
+      expect(
+        saved.at(-1)?.nodes.map((node) => ({ kind: node.kind, label: node.label, projectId: node.projectId }))
+      ).toEqual([{ kind: 'terminal', label: 'Web', projectId: alpha.id }])
+    )
+  })
+
+  test('each pick is its own terminal node, so a multi-part project starts in two clicks', async () => {
+    await renderApp(savedWorkspace({ projects: [alphaWithCommands, beta] }))
+
+    await runFromMenu('Alpha', 'Web')
+
+    openRowMenu('Alpha')
+    // The menu shows the line that will actually be typed, not the padding it was saved with.
+    expect(
+      within(await screen.findByRole('menu', { name: 'Alpha options' })).getByText('dotnet watch run').textContent
+    ).toBe('dotnet watch run')
+    await runFromMenu('Alpha', 'API \\(watch\\)')
+
+    await waitFor(() => expect(created()).toHaveLength(2))
+    expect(created().map((request) => request.initialInput)).toEqual(['npm run dev\r', 'dotnet watch run\r'])
+    expect(new Set(created().map((request) => request.sessionId)).size).toBe(2)
+    await waitFor(() => expect(saved.at(-1)?.nodes.map((node) => node.label)).toEqual(['Web', 'API (watch)']))
+    const positions = saved.at(-1)?.nodes.map((node) => `${node.position.x},${node.position.y}`) ?? []
+    expect(new Set(positions).size).toBe(2)
+  })
+
+  test('a project with no commands shows no Run section at all', async () => {
+    await renderApp()
+
+    openRowMenu('Alpha')
+    const menu = await screen.findByRole('menu', { name: 'Alpha options' })
+    expect(within(menu).queryByText('Run')).toBeNull()
+    expect(
+      within(menu)
+        .getAllByRole('menuitem')
+        .map((item) => item.textContent)
+    ).toEqual(['Change colour…', 'Move to group…'])
+  })
+
+  test('a stored command that could not run is not offered, so a blank one cannot empty the section', async () => {
+    await renderApp(
+      savedWorkspace({
+        projects: [
+          {
+            ...alpha,
+            runCommands: [
+              { id: 'blank', name: 'Half', command: '   ' },
+              { id: 'web', name: 'Web', command: 'npm run dev' }
+            ]
+          },
+          beta
+        ]
+      })
+    )
+
+    openRowMenu('Alpha')
+    const menu = await screen.findByRole('menu', { name: 'Alpha options' })
+    expect(within(menu).getByText('Run')).toBeTruthy()
+    expect(within(menu).queryByRole('menuitem', { name: /^Half/ })).toBeNull()
+    expect(within(menu).getByRole('menuitem', { name: /^Web npm run dev/ })).toBeTruthy()
   })
 })

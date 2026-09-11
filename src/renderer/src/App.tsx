@@ -39,6 +39,7 @@ import {
 import type { ConversationSummary } from '../../shared/conversation'
 import { normalizeConversationTitle, type ConversationTitleSource } from '../../shared/conversation-title'
 import { paletteColorAt } from '../../shared/project-colors'
+import { terminalRunInput } from '../../shared/project-run-commands'
 import type {
   AgentPermissionModes,
   BrainDumpPanelState,
@@ -1098,13 +1099,36 @@ function Canvas(): JSX.Element {
   const handleRunSetupCommand = useCallback(
     (worktreeId: string): void => {
       const worktreeNode = findWorktreeNode(worktreeId)
-      const command = worktreeNode?.data.setupCommand?.trim()
-      if (!command) return
+      const input = terminalRunInput(worktreeNode?.data.setupCommand ?? '')
+      if (!input) return
       // A visible terminal node, not a hidden background process: setup can fail, prompt, or
       // hang, and the user needs to see it and be able to interrupt it.
-      openInWorktree(worktreeId, 'terminal', `${command}\r`)
+      openInWorktree(worktreeId, 'terminal', input)
     },
     [findWorktreeNode, openInWorktree]
+  )
+
+  /**
+   * One saved run command, started from the project row's menu. It is the setup command's gesture
+   * pointed at the checkout instead of a worktree: a visible terminal the user can watch and
+   * interrupt. Every pick mints its own node - `centredDropPosition` cascades - so starting a
+   * project's web and API halves is two clicks producing two terminals, not one reused one.
+   */
+  const handleRunProjectCommand = useCallback(
+    (projectId: string, commandId: string): void => {
+      const project = projectsRef.current.find((candidate) => candidate.id === projectId)
+      const entry = project?.runCommands?.find((candidate) => candidate.id === commandId)
+      const input = terminalRunInput(entry?.command ?? '')
+      if (!project || !entry || !input) return
+      addSessionNode({
+        kind: 'terminal',
+        project,
+        position: centredDropPosition(NEW_SESSION_NODE_SIZE),
+        label: entry.name,
+        initialInput: input
+      })
+    },
+    [addSessionNode, centredDropPosition]
   )
 
   const handleRemoveWorktree = useCallback(
@@ -2775,6 +2799,7 @@ function Canvas(): JSX.Element {
                 onColorChange={setProjectColor}
                 onMoveToGroup={moveProjectToGroup}
                 onCreateGroup={createProjectGroup}
+                onRunCommand={handleRunProjectCommand}
                 onRenameGroup={setRenamingGroupId}
                 onDeleteGroup={deleteProjectGroup}
               />

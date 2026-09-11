@@ -1,8 +1,10 @@
 /**
  * Most projects are started by one or more terminal commands ("API (watch)", "Web"), so a project
- * carries a list of them as `WorkspaceProject.runCommands`. Every rule about that list lives here:
+ * carries a list of them as `WorkspaceProject.runCommands`. Every rule about that list lives here -
  * the renderer's settings dialog edits drafts through these functions and main validates stored
- * entries with the same guard, so the two sides of the privilege seam cannot drift.
+ * entries with the same guard, so the two sides of the privilege seam cannot drift - and with them
+ * `terminalRunInput`, the one rule for handing any command line to a visible terminal, which the
+ * worktree setup command shares.
  *
  * Array order is display order, exactly as it is for the sidebar's own project list - there is no
  * `order` field to keep in step, and reordering is `moveRunCommand` rewriting the array.
@@ -49,6 +51,31 @@ export function normalizeRunCommands(drafts: readonly ProjectRunCommand[]): Proj
 /** Whether a draft list still holds a row with a name but no command line, or the reverse. */
 export function runCommandsIncomplete(drafts: readonly ProjectRunCommand[]): boolean {
   return normalizeRunCommands(drafts).some((entry) => entry.name === '' || entry.command === '')
+}
+
+/**
+ * The commands a project's Run menu offers. The stored list is deliberately looser than the dialog
+ * - `isProjectRunCommand` loads a hand-edited snapshot naming an empty command rather than throwing
+ * the workspace away - so the menu filters here instead: a row with no name has nothing to show and
+ * a row with no command line has nothing to run, and either way spawning a terminal for it would
+ * only produce a shell that types a bare newline. An empty result is what "this project shows no
+ * Run section" means, so a project with no commands and a project whose only command is blank read
+ * the same way.
+ */
+export function runnableCommands(commands: readonly ProjectRunCommand[] | undefined): ProjectRunCommand[] {
+  return (commands ?? []).filter((entry) => entry.name.trim() !== '' && entry.command.trim() !== '')
+}
+
+/**
+ * What is written into a freshly started terminal to run `command`: the line, then the Enter the
+ * user would have pressed. Shared by the worktree setup command and the project's Run menu, because
+ * both are the same gesture - hand a visible terminal a command line so failures, prompts and
+ * long-running processes can be watched and interrupted. A command that is only whitespace yields
+ * `''`, so a caller can treat the empty string as "there is nothing to run".
+ */
+export function terminalRunInput(command: string): string {
+  const trimmed = command.trim()
+  return trimmed === '' ? '' : `${trimmed}\r`
 }
 
 /**

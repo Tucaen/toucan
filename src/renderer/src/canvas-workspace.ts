@@ -116,7 +116,10 @@ export interface TerminalNodeData
   /** The most blocking of those unread records, so a node's own dot can say which kind it is. */
   unreadKind?: AttentionKind
   launchMode: 'new' | 'resume'
-  /** Written into the shell on first start; carries a project's setup command. */
+  /**
+   * Written into the shell on first start: a worktree's setup command, or one of the project's
+   * saved run commands picked from its row menu. Built by `terminalRunInput`.
+   */
   initialInput?: string
 }
 

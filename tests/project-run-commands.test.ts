@@ -5,6 +5,8 @@ import {
   moveRunCommand,
   normalizeRunCommands,
   runCommandsIncomplete,
+  runnableCommands,
+  terminalRunInput,
   type ProjectRunCommand
 } from '../src/shared/project-run-commands'
 
@@ -65,4 +67,26 @@ test('what counts as a stored command is exactly three strings', () => {
   assert.equal(isProjectRunCommand({ id: 1, name: 'Web', command: 'x' }), false)
   assert.equal(isProjectRunCommand(null), false)
   assert.equal(isProjectRunCommand('npm run dev'), false)
+})
+
+test('the Run menu offers only the rows that could actually run', () => {
+  const list = [
+    entry({ id: 'a' }),
+    entry({ id: 'blank-command', command: '   ' }),
+    entry({ id: 'blank-name', name: '' }),
+    entry({ id: 'b', name: 'API', command: 'dotnet watch run' })
+  ]
+
+  assert.deepEqual(
+    runnableCommands(list).map((item) => item.id),
+    ['a', 'b']
+  )
+  assert.deepEqual(runnableCommands(undefined), [])
+  assert.deepEqual(runnableCommands([]), [])
+})
+
+test('running a command types the line and the Enter the user would have pressed', () => {
+  assert.equal(terminalRunInput('  npm run dev  '), 'npm run dev\r')
+  assert.equal(terminalRunInput('   '), '')
+  assert.equal(terminalRunInput(''), '')
 })

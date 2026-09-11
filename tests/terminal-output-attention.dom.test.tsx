@@ -6,35 +6,8 @@ import type { NodeAttentionAction } from '../src/renderer/src/canvas-workspace'
 import { applyAttentionAction, countUnreadAttention, type AttentionState } from '../src/shared/attention'
 import type { TerminalExit, TerminalOutput } from '../src/shared/terminal'
 
-vi.mock('@xterm/xterm', () => ({
-  Terminal: class {
-    cols = 80
-    rows = 24
-    loadAddon(): void {}
-    open(): void {}
-    write(): void {}
-    focus(): void {}
-    onData(): { dispose(): void } {
-      return { dispose: () => undefined }
-    }
-    onSelectionChange(): { dispose(): void } {
-      return { dispose: () => undefined }
-    }
-    attachCustomKeyEventHandler(): void {}
-    hasSelection(): boolean {
-      return false
-    }
-    getSelection(): string {
-      return ''
-    }
-    dispose(): void {}
-  }
-}))
-vi.mock('@xterm/addon-fit', () => ({
-  FitAddon: class {
-    fit(): void {}
-  }
-}))
+vi.mock('@xterm/xterm', async () => (await import('./dom/xterm-mock')).xtermModule())
+vi.mock('@xterm/addon-fit', async () => (await import('./dom/xterm-mock')).fitAddonModule())
 
 const OUTPUT_DEBOUNCE_MS = 1200
 

@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { computeNodePickerMenuPosition } from './node-picker-menu-position'
-import { FolderPlus, FolderMinus, Palette, PencilLine, Trash2, ChevronLeft } from 'lucide-react'
+import { FolderPlus, FolderMinus, Palette, PencilLine, Play, Trash2, ChevronLeft } from 'lucide-react'
+import { runnableCommands } from '../../shared/project-run-commands'
 import type { ProjectGroup, WorkspaceProject } from '../../shared/terminal'
 import ProjectColorPicker from './ProjectColorPicker'
 
@@ -26,6 +27,8 @@ export interface ProjectRowMenuProps {
   /** `undefined` takes the project back to the top level. */
   onMoveToGroup(projectId: string, groupId: string | undefined): void
   onCreateGroup(projectId: string): void
+  /** Starts one of the project's saved run commands; each call is its own terminal node. */
+  onRunCommand(projectId: string, commandId: string): void
   onRenameGroup(groupId: string): void
   onDeleteGroup(groupId: string): void
 }
@@ -200,8 +203,43 @@ export default function ProjectRowMenu(props: ProjectRowMenuProps): JSX.Element 
       )
     }
 
+    /*
+     * Starting a project is a many-times-a-day action, so its commands sit flat on the root page
+     * rather than behind a submenu page the way colours and groups do: right-click, click, running.
+     * A project with nothing runnable shows no section at all - an empty "Run" heading would only
+     * be a promise the menu cannot keep - and the rule below closes the section rather than a
+     * second heading, so the menu's existing entries read exactly as they did before.
+     */
+    const commands = project ? runnableCommands(project.runCommands) : []
+
     return (
       <>
+        {project && commands.length > 0 && (
+          <>
+            <p className="project-menu-section">Run</p>
+            {commands.map((entry) => (
+              <button
+                key={entry.id}
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  props.onRunCommand(project.id, entry.id)
+                  props.onClose()
+                }}
+              >
+                <span className="menu-icon">
+                  <Play aria-hidden="true" />
+                </span>
+                <span>
+                  <strong>{entry.name}</strong>
+                  {/* Trimmed, so the menu shows the line that will actually be typed. */}
+                  <small className="project-menu-command">{entry.command.trim()}</small>
+                </span>
+              </button>
+            ))}
+            <div className="project-menu-divider" role="separator" />
+          </>
+        )}
         <button type="button" role="menuitem" onClick={() => setPage('colour')}>
           <span className="menu-icon">
             <Palette aria-hidden="true" />

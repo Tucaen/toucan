@@ -1,6 +1,6 @@
 ---
 title: Run a saved project command from the project context menu
-status: open
+status: done
 created: 2026-09-11
 updated: 2026-09-11
 blocked_by: project-run-commands-config
