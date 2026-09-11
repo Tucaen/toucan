@@ -1763,7 +1763,6 @@ function Canvas(): JSX.Element {
     },
     [activeProject, addDiffNode, addSessionNode]
   )
-      const editingTextarea = target instanceof HTMLTextAreaElement
 
   const runCreateActionFromMenu = useCallback(
     (action: Exclude<CreateNodeKeyAction, 'none'>): void => {
