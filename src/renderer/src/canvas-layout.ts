@@ -33,8 +33,10 @@ export interface LayoutShortcutKey {
 }
 
 export interface LayoutKeyContext {
-  /** Whether the key went to an input, textarea or editable element, where Alt+Arrow moves the caret. */
+  /** Whether the key went to any input, textarea or editable element. */
   editingText: boolean
+  /** Whether that editable target is specifically a textarea, where layout arrows stay active. */
+  editingTextarea: boolean
 }
 
 const ARROWS: Readonly<Record<string, SnapArrow>> = {
@@ -55,14 +57,18 @@ export const LAYOUT_SHORTCUT_LABELS = {
  * Alt is the layout modifier: Ctrl plus a letter is taken by node creation, and Ctrl+Alt is AltGr
  * on German layouts. Alt+Arrow snaps, Alt+Shift+S matches sizes, Alt(+Shift)+digit restores
  * (saves) a slot; Ctrl+Shift+A tiles, next to Ctrl+Shift+T/B/K. A held key repeats the event and
- * would otherwise step a snap several times, so only the first press counts. Text fields keep
- * Alt+Arrow for the caret; the digit and tile keys mean nothing there and are taken anyway.
+ * would otherwise step a snap several times, so only the first press counts. Alt+Arrow remains a
+ * layout shortcut while a textarea is focused; the digit and tile keys mean nothing there and
+ * are taken anyway.
  */
 export function layoutKeyAction(event: LayoutShortcutKey, context: LayoutKeyContext): LayoutKeyAction {
   if (event.metaKey || event.repeat) return { kind: 'none' }
   if (event.altKey && !event.ctrlKey) {
     const arrow = ARROWS[event.key]
-    if (arrow) return event.shiftKey || context.editingText ? { kind: 'none' } : { kind: 'snap', arrow }
+    if (arrow)
+      return event.shiftKey || (context.editingText && !context.editingTextarea)
+        ? { kind: 'none' }
+        : { kind: 'snap', arrow }
     // `code` rather than `key`: Shift+1 is '!' on every layout, and '1' is a different key on some.
     const digit = /^Digit([1-9])$/.exec(event.code)
     if (digit) {

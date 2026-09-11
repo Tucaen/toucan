@@ -741,3 +741,62 @@ describe('deleting tickets', () => {
     expect(screen.getByText('File node')).toBeTruthy()
   })
 })
+
+describe('where a project keeps its tickets', () => {
+  const openSettings = async (): Promise<void> => {
+    fireEvent.click(
+      screen.getByRole('button', { name: `Settings for ${project.name}: worktree setup command and tickets folder` })
+    )
+    await screen.findByRole('dialog', { name: `Settings for ${project.name}` })
+  }
+
+  test('the folder is a per-project setting, saved into the workspace', async () => {
+    await openBoard()
+    await openSettings()
+
+    fireEvent.change(screen.getByLabelText('Tickets folder'), { target: { value: 'notes/tickets' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() =>
+      expect(saved.at(-1)?.projects.find((entry) => entry.id === project.id)?.ticketsDirectory).toBe('notes/tickets')
+    )
+  })
+
+  test('the board re-reads only once the new folder is on disk, because main reads the snapshot', async () => {
+    await openBoard()
+    const before = tickets.listCalls.length
+    await openSettings()
+
+    fireEvent.change(screen.getByLabelText('Tickets folder'), { target: { value: 'notes/tickets' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    // Nothing is re-read on the click itself: main would still resolve the old folder.
+    expect(tickets.listCalls.length).toBe(before)
+    await waitFor(() => expect(tickets.listCalls.length).toBe(before + 1))
+  })
+
+  test('a folder outside the checkout is refused rather than saved', async () => {
+    await openBoard()
+    await openSettings()
+
+    fireEvent.change(screen.getByLabelText('Tickets folder'), { target: { value: '../elsewhere' } })
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+    expect(screen.getByText('The tickets folder must stay inside the checkout.')).toBeTruthy()
+
+    fireEvent.change(screen.getByLabelText('Tickets folder'), { target: { value: 'notes/tickets' } })
+    expect(screen.getByRole('button', { name: 'Save' })).not.toBeDisabled()
+  })
+
+  test('clearing the folder takes the project back to the default', async () => {
+    await openBoard(savedWorkspace({ projects: [{ ...project, ticketsDirectory: 'notes/tickets' }, other] }))
+    await openSettings()
+
+    expect(screen.getByLabelText('Tickets folder')).toHaveValue('notes/tickets')
+    fireEvent.change(screen.getByLabelText('Tickets folder'), { target: { value: '' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() =>
+      expect(saved.at(-1)?.projects.find((entry) => entry.id === project.id)?.ticketsDirectory).toBeUndefined()
+    )
+  })
+})

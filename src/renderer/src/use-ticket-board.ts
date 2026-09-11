@@ -99,6 +99,12 @@ export interface TicketBoardOptions {
    * board that quietly showed someone else's issues would not be this project's board.
    */
   enabledSources?: readonly string[]
+  /**
+   * Bumped by the workspace when something the *sources* read has changed behind their backs - the
+   * project's tickets folder, which main resolves from the persisted snapshot rather than from
+   * anything the board passes. Re-listing is the only way the board can find out.
+   */
+  revision?: number
 }
 
 function errorText(cause: unknown): string {
@@ -115,7 +121,7 @@ function isOptional(source: TicketSource): boolean {
 }
 
 export function useTicketBoard(options: TicketBoardOptions): TicketBoard {
-  const { projectPath, sources: configured, today } = options
+  const { projectPath, revision, sources: configured, today } = options
   // A caller that rebuilds its array every render must not restart every read, so what the memos
   // below depend on is the *set of ids*, not the array that carried them.
   const enabledKey = (options.enabledSources ?? []).join(',')
@@ -165,7 +171,9 @@ export function useTicketBoard(options: TicketBoardOptions): TicketBoard {
         setError(errorText(cause))
       }
     },
-    [projectPath, sources]
+    // `revision` is not read in the body: it is here so a folder change re-lists, exactly as a
+    // project change does.
+    [projectPath, revision, sources]
   )
 
   // Switching projects re-lists rather than filtering: a board is one project's tickets, and the

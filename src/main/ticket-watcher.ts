@@ -29,7 +29,11 @@ export interface TicketChangeWatcherOptions {
  *
  * A project with no tickets folder is not watched, and no folder is created to make one watchable:
  * Toucan does not write into someone's checkout because they opened a board. Such a project stays
- * unclaimed and is retried on its next listing.
+ * unwatched and is retried on its next listing.
+ *
+ * The folder is resolved on every call rather than once per project, because it is a per-project
+ * setting the user can change: a board still watching the folder a project used to keep tickets in
+ * would go quiet exactly when the new one starts changing.
  */
 export function createTicketChangeWatcher(options: TicketChangeWatcherOptions): TicketChangeWatcher {
   const watches = createWatchedDirectories({
@@ -37,27 +41,38 @@ export function createTicketChangeWatcher(options: TicketChangeWatcherOptions): 
     debounceMs: options.debounceMs,
     watchDirectory: options.watchDirectory
   })
-  /** Claimed before the first await, so two concurrent lists cannot open two watchers on a folder. */
-  const claimed = new Set<string>()
+  /** The folder each project is watched on, so a resolution that did not change costs nothing. */
+  const watched = new Map<string, string>()
+  /** Held across the await, so two concurrent lists cannot open two watchers on one project. */
+  const resolving = new Set<string>()
   let stopped = false
 
   return {
     watchProject: async (projectPath) => {
-      if (stopped || claimed.has(projectPath)) return
-      claimed.add(projectPath)
+      if (stopped || resolving.has(projectPath)) return
+      resolving.add(projectPath)
       try {
         const folder = await options.directoryFor(projectPath)
-        if (stopped) return
-        watches.open(projectPath, {
-          directory: folder,
-          // Only Markdown matters; durable-write temporaries are dotfiles.
-          matches: (filename) => filename.toLowerCase().endsWith('.md') && !filename.startsWith('.')
-        })
+        if (stopped || watched.get(projectPath) === folder) return
+        try {
+          watches.open(projectPath, {
+            directory: folder,
+            // Only Markdown matters; durable-write temporaries are dotfiles.
+            matches: (filename) => filename.toLowerCase().endsWith('.md') && !filename.startsWith('.')
+          })
+          watched.set(projectPath, folder)
+        } catch {
+          // Nothing to watch yet: a project that has never filed a ticket has no folder, and Toucan
+          // does not create one in someone's checkout just to look at it. A watcher on the folder
+          // the project used to use is dropped rather than left publishing changes nobody reads,
+          // and the next listing tries again - which is what Refresh is for once it appears.
+          watches.close(projectPath)
+          watched.delete(projectPath)
+        }
       } catch {
-        // Nothing to watch yet: a project that has never filed a ticket has no folder, and Toucan
-        // does not create one in someone's checkout just to look at it. Unclaimed, so the next
-        // listing tries again - which is what the board's Refresh is for once the folder appears.
-        claimed.delete(projectPath)
+        // The folder could not even be decided; retried on this project's next listing.
+      } finally {
+        resolving.delete(projectPath)
       }
     },
     subscribe: (owner) => watches.subscribe(owner),
@@ -68,13 +83,13 @@ export function createTicketChangeWatcher(options: TicketChangeWatcherOptions): 
       // re-watches on its first listing.
       if (!watches.hasOwners()) {
         watches.closeAll()
-        claimed.clear()
+        watched.clear()
       }
     },
     shutdown: () => {
       stopped = true
       watches.shutdown()
-      claimed.clear()
+      watched.clear()
     }
   }
 }

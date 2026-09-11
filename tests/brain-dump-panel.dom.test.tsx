@@ -96,9 +96,9 @@ beforeEach(() => {
 })
 
 describe('the sidebar entry', () => {
-  test('centers the project setup icon within its square button', async () => {
+  test('centers the project settings icon within its square button', async () => {
     await renderApp()
-    const setup = screen.getByTitle('Set a command that prepares a new worktree')
+    const setup = screen.getByTitle(`Settings for ${project.name}: worktree setup command and tickets folder`)
     const stylesheet = document.createElement('style')
     stylesheet.textContent = styles
     document.head.append(stylesheet)

@@ -163,3 +163,55 @@ test('the last window leaving releases the OS watch handles', async () => {
     assert.deepEqual(closed, [root, root])
   })
 })
+
+test('a project whose tickets folder setting changed is watched on the new folder', async () => {
+  await withRoot(async (root) => {
+    const callbacks = new Map<string, WatchListener>()
+    const closed: string[] = []
+    const sent: string[] = []
+    let folder = join(root, 'docs', 'tickets')
+    const watcher = createTicketChangeWatcher({
+      directoryFor: () => folder,
+      debounceMs: 5,
+      watchDirectory: (path, listener) => {
+        callbacks.set(path, listener)
+        return { close: () => closed.push(path) }
+      }
+    })
+    watcher.subscribe({ isDestroyed: () => false, send: (_channel, path) => sent.push(path) })
+    await watcher.watchProject(root)
+
+    const moved = join(root, 'notes', 'tickets')
+    folder = moved
+    await watcher.watchProject(root)
+    // The handle on the folder the project has left is released, not leaked for the session.
+    assert.deepEqual(closed, [join(root, 'docs', 'tickets')])
+
+    callbacks.get(moved)!('change', 'ticket.md')
+    await settle()
+    assert.deepEqual(sent, [root])
+    watcher.shutdown()
+  })
+})
+
+test('a folder setting that changed to one that does not exist drops the old watcher', async () => {
+  await withRoot(async (root) => {
+    const closed: string[] = []
+    let folder = join(root, 'docs', 'tickets')
+    const watcher = createTicketChangeWatcher({
+      directoryFor: () => folder,
+      debounceMs: 5,
+      watchDirectory: (path) => {
+        if (path !== join(root, 'docs', 'tickets')) throw new Error('ENOENT: no such file or directory')
+        return { close: () => closed.push(path) }
+      }
+    })
+    watcher.subscribe({ isDestroyed: () => false, send: () => {} })
+    await watcher.watchProject(root)
+
+    folder = join(root, 'notes', 'tickets')
+    await watcher.watchProject(root)
+    assert.deepEqual(closed, [join(root, 'docs', 'tickets')])
+    watcher.shutdown()
+  })
+})

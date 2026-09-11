@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { WorkspaceProject } from '../../shared/terminal'
 import type { WorktreeRemovalBlocker } from '../../shared/worktree'
 import { branchNameProblem, describeWorktreeBlocker, deriveWorktreeDirectory } from '../../shared/worktree'
+import { DEFAULT_TICKETS_DIRECTORY, isTicketsDirectory } from '../../shared/tickets'
 import { describeForcedRemovalCost, type WorktreeRemovalPlan } from './worktree-removal'
 
 export interface WorktreeDraft {
@@ -161,42 +162,75 @@ export function WorktreeRemoveDialog({
   )
 }
 
-export function SetupCommandDialog({
+/**
+ * A project's per-project settings, behind the gear on its sidebar row. Two settings today, both
+ * of them answers about *this checkout*: what makes a fresh worktree usable, and where the
+ * project keeps its ticket files.
+ *
+ * The tickets folder is validated here against the same rule main enforces
+ * (`isTicketsDirectory`), so a path that leaves the checkout is refused while the user is typing
+ * it rather than silently ignored later - the one thing worse than a rejected folder is a saved
+ * one the board never reads from.
+ */
+export function ProjectSettingsDialog({
   project,
   onCancel,
   onSave
 }: {
   project: WorkspaceProject
   onCancel(): void
-  onSave(command: string): void
+  onSave(settings: { setupCommand: string; ticketsDirectory: string }): void
 }): JSX.Element {
-  const [value, setValue] = useState(project.setupCommand ?? '')
+  const [command, setCommand] = useState(project.setupCommand ?? '')
+  const [tickets, setTickets] = useState(project.ticketsDirectory ?? '')
+  const ticketsFolder = tickets.trim()
+  const ticketsError = ticketsFolder && !isTicketsDirectory(ticketsFolder)
   return (
     <div
       className="worktree-dialog-overlay"
       role="dialog"
       aria-modal="true"
-      aria-labelledby="setup-command-title"
+      aria-labelledby="project-settings-title"
       onClick={(event) => event.stopPropagation()}
     >
       <form
         className="worktree-dialog"
         onSubmit={(event) => {
           event.preventDefault()
-          onSave(value.trim())
+          if (ticketsError) return
+          onSave({ setupCommand: command.trim(), ticketsDirectory: ticketsFolder })
         }}
       >
-        <strong id="setup-command-title">Setup command for {project.name}</strong>
+        <strong id="project-settings-title">Settings for {project.name}</strong>
+        <label>
+          <span>Setup command</span>
+          <input
+            autoFocus
+            value={command}
+            placeholder="npm install"
+            onChange={(event) => setCommand(event.target.value)}
+          />
+        </label>
         <p>Run in a terminal node inside a new worktree to make it usable. Leave empty for none.</p>
         <label>
-          <span>Command</span>
-          <input autoFocus value={value} placeholder="npm install" onChange={(event) => setValue(event.target.value)} />
+          <span>Tickets folder</span>
+          <input
+            value={tickets}
+            placeholder={DEFAULT_TICKETS_DIRECTORY}
+            aria-invalid={ticketsError || undefined}
+            onChange={(event) => setTickets(event.target.value)}
+          />
         </label>
+        <p>
+          Where this project's ticket Markdown files live, relative to the checkout. Leave empty for{' '}
+          {DEFAULT_TICKETS_DIRECTORY}.
+        </p>
+        {ticketsError && <p className="worktree-dialog-error">The tickets folder must stay inside the checkout.</p>}
         <div className="worktree-dialog-actions">
           <button type="button" onClick={onCancel}>
             Cancel
           </button>
-          <button type="submit" className="primary">
+          <button type="submit" className="primary" disabled={Boolean(ticketsError)}>
             Save
           </button>
         </div>

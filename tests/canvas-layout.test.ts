@@ -39,12 +39,14 @@ function key(overrides: Partial<LayoutShortcutKey> = {}): LayoutShortcutKey {
   }
 }
 
-test('Alt+Arrow snaps unless a text field owns the caret; Alt+Shift+Arrow is nothing', () => {
-  const typing = { editingText: true }
-  const canvas = { editingText: false }
+test('Alt+Arrow snaps from a focused textarea but not other text fields; Alt+Shift+Arrow is nothing', () => {
+  const textarea = { editingText: true, editingTextarea: true }
+  const input = { editingText: true, editingTextarea: false }
+  const canvas = { editingText: false, editingTextarea: false }
   deepEqual(layoutKeyAction(key({ key: 'ArrowLeft' }), canvas), { kind: 'snap', arrow: 'left' })
   deepEqual(layoutKeyAction(key({ key: 'ArrowUp' }), canvas), { kind: 'snap', arrow: 'up' })
-  deepEqual(layoutKeyAction(key({ key: 'ArrowLeft' }), typing), { kind: 'none' })
+  deepEqual(layoutKeyAction(key({ key: 'ArrowLeft' }), textarea), { kind: 'snap', arrow: 'left' })
+  deepEqual(layoutKeyAction(key({ key: 'ArrowLeft' }), input), { kind: 'none' })
   deepEqual(layoutKeyAction(key({ key: 'ArrowLeft', shiftKey: true }), canvas), { kind: 'none' })
   deepEqual(layoutKeyAction(key({ key: 'ArrowLeft', repeat: true }), canvas), { kind: 'none' })
   deepEqual(layoutKeyAction(key({ key: 'ArrowLeft', ctrlKey: true }), canvas), { kind: 'none' })
@@ -52,7 +54,7 @@ test('Alt+Arrow snaps unless a text field owns the caret; Alt+Shift+Arrow is not
 })
 
 test('digits pick slots by physical key, Shift saves, and the rest of the keys', () => {
-  const canvas = { editingText: false }
+  const canvas = { editingText: false, editingTextarea: false }
   deepEqual(layoutKeyAction(key({ key: '3', code: 'Digit3' }), canvas), { kind: 'slot-restore', slot: 3 })
   // Shift+1 types '!' on every layout; the physical key still names the slot.
   deepEqual(layoutKeyAction(key({ key: '!', code: 'Digit1', shiftKey: true }), canvas), { kind: 'slot-save', slot: 1 })

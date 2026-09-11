@@ -421,7 +421,8 @@ export function usePromptEditor(options: PromptEditorOptions): PromptEditor {
   /** Returns true when the picker has claimed the key press, so the editor's own bindings stay out of it. */
   const handlePickerKey = (event: KeyboardEvent<HTMLTextAreaElement>): boolean => {
     if (!picker || event.nativeEvent.isComposing) return false
-    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    // Alt+Arrow belongs to the canvas layout even while the textarea and its picker are focused.
+    if (!event.altKey && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
       event.preventDefault()
       picker.highlight(
         moveSlashSelection(picker.activeIndex, picker.options.length, event.key === 'ArrowDown' ? 1 : -1)

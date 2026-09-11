@@ -150,8 +150,16 @@ describe('token memory', () => {
     type(textarea, '/com')
     expect(textarea.getAttribute('aria-activedescendant')).toMatch(/-0$/)
   })
-})
 
+  test('Alt+Arrow passes through to the canvas while a completion menu is open', () => {
+    const { textarea } = renderEditor()
+    type(textarea, '/co')
+    expect(textarea.getAttribute('aria-activedescendant')).toMatch(/-0$/)
+
+    expect(fireEvent.keyDown(textarea, { key: 'ArrowDown', altKey: true })).toBe(true)
+    expect(textarea.getAttribute('aria-activedescendant')).toMatch(/-0$/)
+  })
+})
 describe('caret restore', () => {
   test('accepting a completion parks the caret where the acceptance said, in a focused textarea', () => {
     const { textarea } = renderEditor()

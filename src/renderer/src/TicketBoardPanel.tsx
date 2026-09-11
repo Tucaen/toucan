@@ -59,6 +59,8 @@ export interface TicketBoardPanelProps {
   projectPath?: string
   projectName?: string
   sources: readonly TicketSource[]
+  /** Advanced when the project's tickets folder change has been persisted; see `useTicketBoard`. */
+  revision?: number
   /** Today as `YYYY-MM-DD`, so relative dates and the Done cutoff stay testable. */
   today: string
   /**
@@ -85,7 +87,7 @@ interface DeleteRequest {
 }
 
 export default function TicketBoardPanel(props: TicketBoardPanelProps): JSX.Element {
-  const { panel, projectPath, sources, today } = props
+  const { panel, projectPath, revision, sources, today } = props
   const { open, width } = panel
   const headingId = useId()
   /** The pane each state row controls; one id, because only one state is ever shown. */
@@ -96,7 +98,7 @@ export default function TicketBoardPanel(props: TicketBoardPanelProps): JSX.Elem
     () => (projectPath ? (panel.enabledSources?.[projectPath] ?? []) : []),
     [panel.enabledSources, projectPath]
   )
-  const board = useTicketBoard({ sources, projectPath, today, enabledSources })
+  const board = useTicketBoard({ sources, projectPath, today, enabledSources, revision })
   /** What the board is pointed at. Resolved against every fresh listing, never trusted raw. */
   const [selection, setSelection] = useState<TicketPaneSelection>({ status: null, cardKey: null })
   /** The card whose actions menu is open; at most one, closed by any action or by Escape. */

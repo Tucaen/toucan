@@ -148,9 +148,10 @@ import { terminalLivenessLabels } from './terminal-liveness'
 import { SidebarTerminalLiveness } from './TerminalLivenessPresentation'
 import { useProviderRateLimits } from './use-provider-rate-limits'
 import { useWorkspaceAttention } from './workspace-attention'
+import { ticketsDirectoryOrDefault } from '../../shared/tickets'
 import { useWorkspacePersistence } from './workspace-persistence'
 import {
-  SetupCommandDialog,
+  ProjectSettingsDialog,
   WorktreeCreateDialog,
   WorktreeRemoveDialog,
   type WorktreeDraft,
@@ -1506,6 +1507,31 @@ function Canvas(): JSX.Element {
     acknowledgeUnrecoverable: acknowledgeUnrecoverableWorkspace
   } = useWorkspacePersistence({ snapshot: workspaceSnapshot, restore: restoreWorkspace, seedFresh: seedFreshWorkspace })
 
+  /*
+   * Main resolves a project's tickets folder from the *persisted* snapshot, so a board re-listed
+   * the moment the setting changed would read the old folder and never hear about the new one.
+   * The revision therefore advances when the save lands, not when the user hits Save - and only
+   * for a folder change on the project already showing, so switching projects still costs the one
+   * listing the board does anyway.
+   */
+  const [ticketsFolderRevision, setTicketsFolderRevision] = useState(0)
+  const activeTicketsFolder = activeProject
+    ? `${activeProject.id}:${ticketsDirectoryOrDefault(activeProject.ticketsDirectory)}`
+    : ''
+  const savedTicketsFolder = useRef(activeTicketsFolder)
+  useEffect(() => {
+    const persisted = savedTicketsFolder.current
+    // Another project entirely: the board re-lists on the switch itself, so there is nothing to
+    // advance - only the record of what that project's folder was when it was last written.
+    if (persisted.split(':')[0] !== activeTicketsFolder.split(':')[0]) {
+      savedTicketsFolder.current = activeTicketsFolder
+      return
+    }
+    if (saveStatus !== 'saved' || persisted === activeTicketsFolder) return
+    savedTicketsFolder.current = activeTicketsFolder
+    setTicketsFolderRevision((current) => current + 1)
+  }, [activeTicketsFolder, saveStatus])
+
   // One place decides how many nodes a worktree carries, so the count the teardown gate reads
   // and the count the node shows can never drift apart.
   useEffect(() => {
@@ -1737,6 +1763,7 @@ function Canvas(): JSX.Element {
     },
     [activeProject, addDiffNode, addSessionNode]
   )
+      const editingTextarea = target instanceof HTMLTextAreaElement
 
   const runCreateActionFromMenu = useCallback(
     (action: Exclude<CreateNodeKeyAction, 'none'>): void => {
@@ -1763,6 +1790,7 @@ function Canvas(): JSX.Element {
       // Not every keydown target is an element - the document and window fire these too, and
       // neither has closest()/isContentEditable.
       const target = event.target instanceof HTMLElement ? event.target : null
+      const editingTextarea = target instanceof HTMLTextAreaElement
       const editingText =
         target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || !!target?.isContentEditable
       if (brainDumpPanelKeyAction(event, { panelOpen: brainDumpOpenRef.current, editingText }) === 'toggle-panel') {
@@ -1787,7 +1815,7 @@ function Canvas(): JSX.Element {
           return
         }
       }
-      const layoutAction = layoutKeyAction(event, { editingText })
+      const layoutAction = layoutKeyAction(event, { editingText, editingTextarea })
       if (layoutAction.kind !== 'none') {
         if (dialogOpen) return
         event.preventDefault()
@@ -1965,16 +1993,23 @@ function Canvas(): JSX.Element {
       })
   }, [projects, setNodes, worktreeDraft, worktreeCallbacks])
 
-  const saveSetupCommand = useCallback((projectId: string, command: string): void => {
-    setProjects((current) =>
-      current.map((project) =>
-        project.id === projectId
-          ? { ...project, ...(command ? { setupCommand: command } : { setupCommand: undefined }) }
-          : project
+  const saveProjectSettings = useCallback(
+    (projectId: string, settings: { setupCommand: string; ticketsDirectory: string }): void => {
+      setProjects((current) =>
+        current.map((project) =>
+          project.id === projectId
+            ? {
+                ...project,
+                setupCommand: settings.setupCommand || undefined,
+                ticketsDirectory: settings.ticketsDirectory || undefined
+              }
+            : project
+        )
       )
-    )
-    setSetupProjectId(null)
-  }, [])
+      setSetupProjectId(null)
+    },
+    []
+  )
 
   /** The colour a project is shown in; `withProjectColor` fans it out across the nodes it owns. */
   const setProjectColor = useCallback(
@@ -2414,12 +2449,10 @@ function Canvas(): JSX.Element {
                                       <button
                                         type="button"
                                         className="project-setup"
-                                        title={
-                                          project.setupCommand
-                                            ? `Worktree setup command: ${project.setupCommand}`
-                                            : 'Set a command that prepares a new worktree'
+                                        title={`Settings for ${project.name}: worktree setup command and tickets folder`}
+                                        data-configured={
+                                          project.setupCommand || project.ticketsDirectory ? 'true' : undefined
                                         }
-                                        data-configured={project.setupCommand ? 'true' : undefined}
                                         onClick={(event) => {
                                           event.stopPropagation()
                                           setSetupProjectId(project.id)
@@ -2716,6 +2749,7 @@ function Canvas(): JSX.Element {
               {ticketBoardMounted && (
                 <TicketBoardPanel
                   panel={ticketBoardPanel}
+                  revision={ticketsFolderRevision}
                   workspaceWidth={workspaceWidth}
                   projectPath={activeProject?.path}
                   projectName={activeProject?.name}
@@ -2822,10 +2856,10 @@ function Canvas(): JSX.Element {
             )}
 
             {setupProject && (
-              <SetupCommandDialog
+              <ProjectSettingsDialog
                 project={setupProject}
                 onCancel={() => setSetupProjectId(null)}
-                onSave={(command) => saveSetupCommand(setupProject.id, command)}
+                onSave={(settings) => saveProjectSettings(setupProject.id, settings)}
               />
             )}
           </main>
