@@ -85,9 +85,7 @@ const ticketReviewText = [
   '',
   'Before I publish these:',
   '',
-  '- Does the granularity feel right?',
-  '- Are the blocking edges correct?',
-  '- Should any tickets be merged or split further?'
+  'Does this proposal look good?'
 ].join('\n')
 
 describe('assistant message tone rendering', () => {
@@ -127,7 +125,7 @@ describe('assistant message tone rendering', () => {
     expect(article?.querySelector('.decision-options')).toBeNull()
   })
 
-  test('a ticket review keeps proposals as content and offers Agree plus Other', () => {
+  test('a ticket review with one confirmation keeps proposals as content and offers Agree plus Other', () => {
     renderChatView({ messages: [{ id: 'm-ticket-review', role: 'assistant', text: ticketReviewText }] })
 
     const article = screen.getByText('Persist draft metadata').closest('article')
@@ -819,23 +817,24 @@ describe('decision option interaction', () => {
   )
 })
 
-// Wiring only - the question block itself is covered in decision-message.test.ts.
-const multiQuestionText = [
-  'Two tickets, ready to write:',
-  '',
-  '1. **Charged rates**',
-  '2. **Document upload**',
-  '',
-  '1. **Screenshot 2** - which app is that? Possibly out of scope.',
-  '2. Should both tickets carry a parent reference?'
-].join('\n')
+test('independent proposal-review questions do not collapse into one Agree decision', () => {
+  const reviewQuestions = [
+    'Nine tickets, ready to publish:',
+    '',
+    '1. **Establish the resource recovery rule**',
+    '2. **Add terrain destruction**',
+    '',
+    'Before I publish them:',
+    '',
+    '- Does this granularity feel right?',
+    '- Are the blocking edges correct?',
+    '- Should any tickets be merged or split?',
+    '- Does Agree confirm the proposed 50% Recovery Rate?'
+  ].join('\n')
 
-test('the pending decision panel shows every question, not just the last one', () => {
-  renderChatView({ messages: [{ id: 'm-multi-question', role: 'assistant', text: multiQuestionText }] })
+  renderChatView({ messages: [{ id: 'm-independent-review', role: 'assistant', text: reviewQuestions }] })
 
-  const panel = screen.getByRole('region', { name: 'Pending decisions' })
-  expect(within(panel).getByText(/Screenshot 2/)).toBeInTheDocument()
-  expect(within(panel).getByText(/parent reference/)).toBeInTheDocument()
-  expect(within(panel).getByRole('button', { name: 'Agree' })).toBeInTheDocument()
-  expect(within(panel).getByPlaceholderText('Other…')).toBeInTheDocument()
+  expect(screen.queryByRole('region', { name: 'Pending decisions' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Agree' })).not.toBeInTheDocument()
+  expect(screen.getByPlaceholderText(/Message the agent/)).toBeInTheDocument()
 })

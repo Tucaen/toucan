@@ -48,7 +48,7 @@ test('Codex numbered Markdown options classify without admitting ordinary number
   )
 })
 
-test('an enumerated ticket proposal followed by confirmation questions offers Agree, not the tickets', () => {
+test('an enumerated ticket proposal followed by one confirmation question offers Agree, not the tickets', () => {
   const text = [
     'Here is the proposed breakdown:',
     '',
@@ -61,9 +61,7 @@ test('an enumerated ticket proposal followed by confirmation questions offers Ag
     '',
     'Before I publish these:',
     '',
-    '- Does the granularity feel right?',
-    '- Are the blocking edges correct?',
-    '- Should any tickets be merged or split further?'
+    'Does this proposal look good?'
   ].join('\n')
 
   assert.equal(classifyAssistantMessage(text), 'decision')
@@ -218,7 +216,7 @@ test('empty text classifies as normal', () => {
   assert.equal(classifyAssistantMessage('   '), 'normal')
 })
 
-test('every trailing question of a confirmation decision is reported, in order', () => {
+test('several trailing review questions remain prose instead of sharing one Agree answer', () => {
   const text = [
     'Six tickets, ready to write:',
     '',
@@ -232,7 +230,8 @@ test('every trailing question of a confirmation decision is reported, in order',
     '3. Should tickets 1-6 get a **parent reference to CICBP-384** in their bodies?'
   ].join('\n')
 
-  assert.equal(classifyAssistantMessage(text), 'decision')
+  assert.equal(classifyAssistantMessage(text), 'normal')
+  assert.deepEqual(extractDecisionOptions(text), [])
   assert.deepEqual(decisionQuestions(text), [
     'Screenshot 2 — which app is that? It may be out of scope here.',
     'Granularity — happy with 6, or should I merge 2 into 1 (giving 3 tickets total)?',

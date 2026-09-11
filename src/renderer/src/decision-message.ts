@@ -6,8 +6,9 @@
  *
  * Decision shape: either a trailing single-sentence question immediately preceded by one compact block of two or
  * more "option lines" (see OPTION_LINE_PATTERNS), or enumerated proposal content followed by a
- * compact confirmation-question block. The latter offers one synthetic Agree action: proposal
- * items are content to approve, not choices to extract.
+ * single confirmation question. The latter offers one synthetic Agree action: proposal items are
+ * content to approve, not choices to extract. Several questions cannot share one unambiguous
+ * answer, so they remain ordinary prose unless the provider sends a structured elicitation.
  *
  * Noise shape: the whole message is a single short paragraph, has no option lines, asks no
  * question, and opens with one of a fixed list of routine status lead-ins.
@@ -83,8 +84,10 @@ function cleanMarkdownLine(line: string): string {
 }
 
 function isOptionLine(line: string): boolean {
-  const numberedBoldLabel = /^\d+[.)]\s*\*\*(.+?)\*\*/.exec(line)?.[1]
-  if (numberedBoldLabel?.trim().endsWith('?')) return false
+  // Numbered bold question lists resemble Codex's numbered choice lists. A question mark anywhere
+  // on that shape makes it a question, not a clickable answer; genuine bullet options may still
+  // describe an action with a question and are disambiguated by their trailing choice question.
+  if (/^\d+[.)]\s*\*\*(.+?)\*\*/.test(line) && line.includes('?')) return false
   return OPTION_LINE_PATTERNS.some((pattern) => pattern.test(line))
 }
 
@@ -153,16 +156,14 @@ function hasEnumeratedProposal(lines: string[]): boolean {
   return lines.filter(isListItem).length >= 2
 }
 
-function hasTrailingConfirmationQuestions(text: string): boolean {
+function hasSingleTrailingConfirmationQuestion(text: string): boolean {
   const lines = nonEmptyLines(text)
-  let confirmationQuestions = 0
-  while (isConfirmationQuestion(lines.at(-1) ?? '')) {
-    confirmationQuestions += 1
-    lines.pop()
-  }
+  const questions: string[] = []
+  while (isQuestionLine(lines.at(-1) ?? '')) questions.unshift(lines.pop() ?? '')
   const proposalText = lines.join('\n')
   return (
-    confirmationQuestions > 0 &&
+    questions.length === 1 &&
+    isConfirmationQuestion(questions[0] ?? '') &&
     hasEnumeratedProposal(lines) &&
     PROPOSAL_CONTEXT.test(proposalText) &&
     !CHOICE_CONTEXT.test(proposalText)
@@ -170,7 +171,7 @@ function hasTrailingConfirmationQuestions(text: string): boolean {
 }
 
 function extractDecisionOptionsFromText(text: string): string[] {
-  if (hasTrailingConfirmationQuestions(text)) return [CONFIRMATION_OPTION]
+  if (hasSingleTrailingConfirmationQuestion(text)) return [CONFIRMATION_OPTION]
   return extractDecisionOptionLines(text)
 }
 
@@ -192,17 +193,16 @@ export function classifyAssistantMessage(text: string): MessageTone {
 }
 
 /**
- * Every question the message closes on, cleaned for display, in the order asked. A decision that
- * asks several questions at once must show all of them: the panel replaces the composer, so a
- * question it leaves out is a question the captain cannot see while answering.
+ * Every question the message closes on, cleaned for display, in the order asked. The legacy
+ * decision classifier only admits one confirmation question, but keeping extraction complete
+ * prevents callers from silently losing wording when examining a non-decision message.
  */
 export function decisionQuestions(text: string): string[] {
   const trimmed = text.trim()
   const lines = nonEmptyLines(trimmed)
   // A choice decision answers itself through its option lines, so only its closing question is a
-  // question — an option line that happens to end on a question mark is not one. A confirmation
-  // decision has no options to confuse, and is the shape that may ask several questions at once.
-  if (!hasTrailingConfirmationQuestions(trimmed) && extractDecisionOptionLines(trimmed).length > 0) {
+  // question — an option line that happens to end on a question mark is not one.
+  if (!hasSingleTrailingConfirmationQuestion(trimmed) && extractDecisionOptionLines(trimmed).length > 0) {
     const last = lines.at(-1) ?? ''
     return isQuestionLine(last) ? [cleanMarkdownLine(last)] : []
   }
