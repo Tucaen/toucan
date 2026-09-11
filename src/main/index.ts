@@ -42,6 +42,7 @@ import { createGithubIssueReader } from './github-issues'
 import { registerGithubIssuesIpc } from './github-issues-ipc'
 import { registerTicketIpc } from './ticket-ipc'
 import { createTicketLibrary } from './ticket-library'
+import { createTicketSteering } from './ticket-steering'
 import { createTicketChangeWatcher, type TicketChangeWatcher } from './ticket-watcher'
 import { createClaudeUsageReader } from './claude-usage'
 import { createConversationHistory } from './conversation-history'
@@ -391,7 +392,20 @@ void app.whenReady().then(async () => {
     githubStatusLabelsFor(
       projectFor(projectPath, (await workspace.load()).state?.projects ?? [])?.githubInProgressLabel
     )
-  const ticketChanges = createTicketChangeWatcher({ directoryFor: ticketsFolderFor })
+  const ticketLibrary = createTicketLibrary({ directoryFor: ticketsFolderFor, today: localCalendarDate })
+  // The board is not the only reader of a ticket-folder change: a file an agent just wrote that
+  // this listing cannot parse is fed back to that agent, through the same listing the board
+  // renders, so generation and rendering can never be held to two different schemas.
+  const ticketSteering = createTicketSteering({
+    diagnosticsFor: async (projectPath) => (await ticketLibrary.list(projectPath)).diagnostics,
+    recentWrites: () => agentManager.recentWrites(),
+    steer: (agentId, text) => agentManager.promptWhenIdle(agentId, text),
+    log: mainLog('tickets')
+  })
+  const ticketChanges = createTicketChangeWatcher({
+    directoryFor: ticketsFolderFor,
+    onChanged: (projectPath) => void ticketSteering.check(projectPath)
+  })
   // A file node may read anywhere inside a registered project or one of its worktrees and nowhere
   // else. The roots come from the snapshot per call, so a project added a moment ago is readable
   // and one removed a moment ago is not - fail closed, like brain-dump project assignment.
@@ -479,7 +493,7 @@ void app.whenReady().then(async () => {
   // does, so it asks the same object rather than shelling out on its own.
   const worktrees = createWorktreeManager()
   registerTicketIpc(ipcMain, {
-    library: createTicketLibrary({ directoryFor: ticketsFolderFor, today: localCalendarDate }),
+    library: ticketLibrary,
     changes: ticketChanges,
     reveal: (path) => shell.showItemInFolder(normalize(path)),
     isGitRepository: (projectPath) => worktrees.isRepository(projectPath)

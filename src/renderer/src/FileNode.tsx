@@ -4,13 +4,8 @@ import type { NodeProps } from '@xyflow/react'
 import { FileText } from 'lucide-react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import { frontmatterForDisplay } from '../../shared/frontmatter'
-import {
-  fileViewPathIdentity,
-  isMarkdownPath,
-  type FileReadResult,
-  type FileViewMode,
-  type FileWriteResult
-} from '../../shared/file-view'
+import { isMarkdownPath, type FileReadResult, type FileViewMode, type FileWriteResult } from '../../shared/file-view'
+import { pathIdentity } from '../../shared/paths'
 import type { FileCanvasNode } from './canvas-workspace'
 import CodeEditor from './CodeEditor'
 import {
@@ -164,9 +159,9 @@ export default function FileNode({ id, data, selected }: NodeProps<FileCanvasNod
     setPendingPath(null)
     void read()
     void api.watch(path)
-    const identity = fileViewPathIdentity(path)
+    const identity = pathIdentity(path)
     const stop = api.onChange((changed) => {
-      if (active && fileViewPathIdentity(changed) === identity) void read()
+      if (active && pathIdentity(changed) === identity) void read()
     })
     return () => {
       active = false
@@ -248,7 +243,7 @@ export default function FileNode({ id, data, selected }: NodeProps<FileCanvasNod
 
   const requestFilePath = useCallback(async (): Promise<void> => {
     const nextPath = await data.onRequestFilePath(id)
-    if (!nextPath || fileViewPathIdentity(nextPath) === fileViewPathIdentity(path)) return
+    if (!nextPath || pathIdentity(nextPath) === pathIdentity(path)) return
     if (isDirty(editRef.current)) setPendingPath(nextPath)
     else data.onPathChange(id, nextPath)
   }, [data, id, path])

@@ -215,3 +215,32 @@ test('a folder setting that changed to one that does not exist drops the old wat
     watcher.shutdown()
   })
 })
+
+test('a settled change reaches main as well as the board, once per coalesced burst', async () => {
+  await withRoot(async (root) => {
+    const callbacks = new Map<string, WatchListener>()
+    const changed: string[] = []
+    const watcher = createTicketChangeWatcher({
+      directoryFor: (projectPath) => join(projectPath, 'docs', 'tickets'),
+      debounceMs: 5,
+      onChanged: (projectPath) => changed.push(projectPath),
+      watchDirectory: (path, callback) => {
+        callbacks.set(path, callback)
+        return { close: () => {} }
+      }
+    })
+    // Deliberately no subscriber: main's own enforcement must not depend on a window listening.
+    await watcher.watchProject(root)
+
+    const folder = callbacks.get(join(root, 'docs', 'tickets'))!
+    folder('rename', 'to-tickets.md')
+    folder('change', 'to-tickets.md')
+    await settle()
+    assert.deepEqual(changed, [root])
+
+    folder('change', 'to-tickets.md')
+    await settle()
+    assert.deepEqual(changed, [root, root])
+    watcher.shutdown()
+  })
+})

@@ -94,11 +94,3 @@ export function isMarkdownPath(path: string): boolean {
 export function defaultFileViewMode(path: string): FileViewMode {
   return isMarkdownPath(path) ? 'rendered' : 'raw'
 }
-
-/**
- * Paths on either side of the IPC boundary may differ in separators and, on Windows, in case;
- * a watcher's event and a node's path must still be recognised as the same file.
- */
-export function fileViewPathIdentity(path: string): string {
-  return path.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
-}

@@ -145,6 +145,31 @@ function exitStatusOf(update: ToolCallSessionUpdate): { exitCode?: number; exitS
   }
 }
 
+/**
+ * One tool call that changed a file, attributed to the session that made it. Toucan observes every
+ * tool-call update anyway, so this is the one record of authorship it can keep for work an agent
+ * did on disk; `shared/ticket-conformance.ts` is its first reader.
+ */
+export interface AgentFileWrite {
+  /** The Toucan session (canvas node) id, which is what a message to that session is addressed to. */
+  agentId: string
+  /** Absolute, already resolved against the session's working directory. */
+  path: string
+  /** When the update reporting it arrived, on a clock that never reports two writes as one moment. */
+  at: number
+}
+
+/**
+ * Whether a tool call of this kind changed the files it reported as `locations`. Reads and
+ * searches name files too, so "this session touched the path" is not evidence it produced what is
+ * there now - the distinction matters wherever a location is read as authorship rather than as
+ * activity (`shared/ticket-conformance.ts`). An update that omits the kind says nothing: ACP's
+ * updates are patches, and only the opening `tool_call` is obliged to carry one.
+ */
+export function isFileWritingToolKind(kind: string | null | undefined): boolean {
+  return kind === 'edit' || kind === 'delete' || kind === 'move'
+}
+
 /** Convert ACP's patch-style tool updates without inventing values that overwrite earlier details. */
 export function activityFromUpdate(update: ToolCallSessionUpdate): AgentActivity {
   const content = toolContentText(update.content)

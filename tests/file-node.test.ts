@@ -17,7 +17,8 @@ import {
   UNEDITED,
   type FileEditState
 } from '../src/renderer/src/file-node'
-import { defaultFileViewMode, fileViewPathIdentity, isMarkdownPath, type FileReadResult } from '../src/shared/file-view'
+import { defaultFileViewMode, isMarkdownPath, type FileReadResult } from '../src/shared/file-view'
+import { pathIdentity } from '../src/shared/paths'
 
 test('a picked relative path joins the root in the root’s own separator', () => {
   assert.equal(
@@ -31,7 +32,7 @@ test('a picked relative path joins the root in the root’s own separator', () =
 test('the header shows the file name and the same file is recognised whatever its spelling', () => {
   assert.equal(fileNodeName('D:\\Development\\Toucan\\docs\\plan.md'), 'plan.md')
   assert.equal(fileNodeName('/home/me/notes.md'), 'notes.md')
-  assert.equal(fileViewPathIdentity('D:\\Dev\\Plan.MD'), fileViewPathIdentity('d:/dev/plan.md'))
+  assert.equal(pathIdentity('D:\\Dev\\Plan.MD'), pathIdentity('d:/dev/plan.md'))
 })
 
 test('Markdown opens rendered, everything else raw', () => {

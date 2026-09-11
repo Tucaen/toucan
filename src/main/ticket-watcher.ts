@@ -18,6 +18,12 @@ export interface TicketChangeWatcherOptions {
   directoryFor(projectPath: string): string | Promise<string>
   debounceMs?: number
   watchDirectory?: WatchDirectory
+  /**
+   * A project's tickets folder settled. The board hears about it through the renderer event
+   * beside this; main's own reader of the same change is `ticket-steering.ts`, which re-lists the
+   * folder and tells whichever session wrote a file the board cannot read as a ticket.
+   */
+  onChanged?(projectPath: string): void
 }
 
 /**
@@ -39,7 +45,8 @@ export function createTicketChangeWatcher(options: TicketChangeWatcherOptions): 
   const watches = createWatchedDirectories({
     channel: TICKET_CHANNELS.changed,
     debounceMs: options.debounceMs,
-    watchDirectory: options.watchDirectory
+    watchDirectory: options.watchDirectory,
+    ...(options.onChanged ? { onPublish: options.onChanged } : {})
   })
   /** The folder each project is watched on, so a resolution that did not change costs nothing. */
   const watched = new Map<string, string>()

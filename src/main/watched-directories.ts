@@ -41,6 +41,13 @@ export interface WatchedDirectoriesOptions {
    * watchers for the life of the process passes nothing.
    */
   onUnheld?(key: string): void
+  /**
+   * A key settled: the debounce elapsed and this change is being published. Main's own policies
+   * hang off this rather than off a synthetic subscriber, because an owner that never reports
+   * itself destroyed would pin `hasOwners()` true and keep every watch handle open for the life
+   * of the process. Runs whether or not anybody is listening.
+   */
+  onPublish?(key: string): void
 }
 
 export interface WatchedDirectories {
@@ -98,6 +105,7 @@ export function createWatchedDirectories(options: WatchedDirectoriesOptions): Wa
     const entry = watches.get(key)
     if (!entry) return
     entry.timer = undefined
+    options.onPublish?.(key)
     for (const owner of owners) {
       if (owner.isDestroyed()) owners.delete(owner)
       else owner.send(options.channel, entry.payload)

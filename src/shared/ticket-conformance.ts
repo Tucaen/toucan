@@ -1,0 +1,124 @@
+import type { AgentFileWrite } from './agent-activity'
+import { pathIdentity } from './paths'
+import type { TicketDiagnostic } from './tickets'
+
+/**
+ * Toucan's ticket board only renders files that conform to `tickets.ts`, and a file that does not
+ * shows as a diagnostic row the agent who wrote it never sees. This module decides who to tell.
+ *
+ * Enforcement is deliberately post-hoc and Toucan-side rather than a provider hook: any skill in
+ * any provider can write into the tickets folder (including through a shell redirect), so the one
+ * place that covers all of them is Toucan noticing the file afterwards. Pure: the watcher, the
+ * library and the session manager supply the inputs and `main/ticket-steering.ts` delivers.
+ */
+
+/** What one session is about to be told, and about which of its files. */
+export interface TicketConformanceSteer {
+  agentId: string
+  files: TicketDiagnostic[]
+  /** The message as the agent reads it; the caller delivers it verbatim. */
+  text: string
+}
+
+/**
+ * How long a write stays evidence of authorship. A watcher tick follows the write that caused it
+ * within a debounce, so this is generous by design - what it rules out is a session being blamed
+ * for a file it wrote an hour ago and has long since moved on from, which is exactly the hand-edit
+ * case that must steer nobody. A session that really is still working on the file rewrites it, and
+ * that write is fresh again.
+ */
+export const RECENT_WRITE_WINDOW_MS = 10 * 60_000
+
+export interface TicketConformanceInput {
+  /** This project's malformed ticket files, as the library reported them a moment ago. */
+  diagnostics: readonly TicketDiagnostic[]
+  /** Recent write locations across every live session, in no particular order. */
+  writes: readonly AgentFileWrite[]
+  /** `reportedTicketKey` -> the error that session has already been told about for that file. */
+  reported: ReadonlyMap<string, string>
+  /** Now, on the same clock the writes were stamped with. */
+  now: number
+}
+
+export interface TicketConformanceDecision {
+  steers: TicketConformanceSteer[]
+  /**
+   * The dedupe state to keep *before* delivery: entries carried over because the file is still
+   * broken in the same way the same session was already told about. A steer's own files join it
+   * only once the caller has handed them off, so a message that was refused is sent again.
+   */
+  reported: Map<string, string>
+}
+
+/**
+ * What a session has been told about which file. Keyed by session and not by file alone, because
+ * a second session rewriting a file the first was corrected about is a second agent producing the
+ * same broken output, and it has to hear about it too.
+ */
+export function reportedTicketKey(agentId: string, path: string): string {
+  return `${agentId}\n${pathIdentity(path)}`
+}
+
+/**
+ * What a conforming ticket file is, in the words an agent has to act on. Deliberately restates the
+ * shape rather than only pointing at the skill: the session being steered may never have loaded
+ * it. One of three places the convention is written down - `shared/tickets.ts` decides it and
+ * `.agents/skills/tickets/SKILL.md` teaches it; all three move together.
+ */
+const TICKET_SHAPE =
+  'A ticket is a Markdown file named `<lowercase-kebab-case>.md` directly in the tickets folder, ' +
+  'opening with frontmatter that has `title`, `status`, `created` (YYYY-MM-DD), `updated` ' +
+  '(YYYY-MM-DD) and optionally `blocked_by`. Fix the file to that shape - the `tickets` skill ' +
+  'describes it in full - or move it out of the tickets folder if it is not a ticket.'
+
+function steerText(files: readonly TicketDiagnostic[]): string {
+  const lead =
+    files.length === 1
+      ? 'A ticket file you just wrote cannot be read by Toucan’s ticket board:'
+      : 'Ticket files you just wrote cannot be read by Toucan’s ticket board:'
+  return [lead, ...files.map((file) => `- \`${file.path}\`: ${file.message}`), '', TICKET_SHAPE].join('\n')
+}
+
+/** The session that most recently wrote this file, ignoring writes too old to be evidence. */
+function lastWriterOf(identity: string, writes: readonly AgentFileWrite[], now: number): string | undefined {
+  let latest: AgentFileWrite | undefined
+  for (const write of writes) {
+    if (now - write.at > RECENT_WRITE_WINDOW_MS) continue
+    if (pathIdentity(write.path) !== identity) continue
+    if (!latest || write.at > latest.at) latest = write
+  }
+  return latest?.agentId
+}
+
+/**
+ * The steers this tick warrants, and the dedupe state to carry forward. Attribution is decided
+ * first: a file no session is recorded as having written recently tells nobody at all (a hand
+ * edit or an outside process - the board's diagnostic row is the only surface there), and a file
+ * several sessions wrote goes to the most recent writer, because that is the one whose next turn
+ * can still fix it. Only then does the dedupe apply, so the same breakage is reported once per
+ * session that produced it rather than once ever.
+ *
+ * Diagnostics are grouped per session so an agent that broke three files gets one message rather
+ * than three prompts, and the grouping keeps the caller's diagnostic order (the library sorts by
+ * path) so two identical ticks produce identical text.
+ */
+export function ticketConformanceSteers(input: TicketConformanceInput): TicketConformanceDecision {
+  const reported = new Map<string, string>()
+  const byAgent = new Map<string, TicketDiagnostic[]>()
+  for (const diagnostic of input.diagnostics) {
+    const agentId = lastWriterOf(pathIdentity(diagnostic.path), input.writes, input.now)
+    if (!agentId) continue
+    const key = reportedTicketKey(agentId, diagnostic.path)
+    if (input.reported.get(key) === diagnostic.message) {
+      reported.set(key, diagnostic.message)
+      continue
+    }
+    const held = byAgent.get(agentId)
+    if (held) held.push(diagnostic)
+    else byAgent.set(agentId, [diagnostic])
+  }
+  return {
+    steers: [...byAgent].map(([agentId, files]) => ({ agentId, files, text: steerText(files) })),
+    reported
+  }
+}

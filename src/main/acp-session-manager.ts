@@ -1,6 +1,6 @@
 import type { ChildProcessWithoutNullStreams } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { Readable, Writable } from 'node:stream'
 import { shell, type WebContents } from 'electron'
 import {
@@ -35,7 +35,12 @@ import type {
   AgentPromptContent,
   AgentPromptResult
 } from '../shared/agent'
-import { activityFromUpdate, imageContentFrom } from '../shared/agent-activity'
+import {
+  activityFromUpdate,
+  imageContentFrom,
+  isFileWritingToolKind,
+  type AgentFileWrite
+} from '../shared/agent-activity'
 import { agentPermissionTitle } from '../shared/agent-permission'
 import { effortSelectorFromConfigOptions } from '../shared/agent-effort'
 import { modelSelectorFromConfigOptions } from '../shared/agent-models'
@@ -256,6 +261,13 @@ interface RunningAgent {
   replayMessageId?: string
   pendingApprovals: Map<string, PendingApproval>
   pendingElicitations: Map<string, PendingElicitation>
+  /**
+   * The files this session's tool calls reported changing, newest last and bounded: the evidence
+   * behind "which session wrote this file", which is the only attribution Toucan has for work an
+   * agent did on disk. Paths are resolved against the session's `cwd` as they arrive, so a
+   * comparison later never has to know where the session was running.
+   */
+  recentWrites: Array<{ path: string; at: number }>
   busy: boolean
   stopping: boolean
   /**
@@ -642,10 +654,57 @@ export interface AcpSessionManager {
    */
   resolveApproval(id: string, approvalId: string, optionId?: string): AgentPromptResult
   resolveElicitation(id: string, requestId: string, content?: AgentDecisionResponseContent): AgentPromptResult
+  /**
+   * Which live session recently changed which file, newest last per session. Toucan observes every
+   * tool call anyway, so this is the one record of authorship it can keep; `ticket-steering.ts`
+   * reads it to decide whose ticket file the board could not parse.
+   */
+  recentWrites(): AgentFileWrite[]
   cancel(id: string): void
   kill(id: string): void
   killOwned(owner: WebContents): void
   killAll(): void
+}
+
+/**
+ * How many write locations one session is remembered by. Attribution only ever asks about a file
+ * the watcher saw change moments ago, so this is a ring rather than a log: it has to outlast a
+ * turn's worth of edits and nothing more, and a session editing a large tree must not grow a
+ * record of every file it has ever touched.
+ */
+const RECENT_WRITE_LIMIT = 100
+
+/**
+ * Wall clock, but never twice the same value across every session in the process. `Date.now()` has
+ * millisecond granularity and two sessions can report a write inside one of them, which would
+ * leave "who wrote it last" decided by map iteration order rather than by arrival. Still a real
+ * timestamp, because staleness is judged against it too.
+ */
+let lastWriteStamp = 0
+function nextWriteStamp(): number {
+  lastWriteStamp = Math.max(Date.now(), lastWriteStamp + 1)
+  return lastWriteStamp
+}
+
+/**
+ * Records the files one tool call changed, as evidence of who wrote them. Reads and searches
+ * report `locations` too and are deliberately excluded (`isFileWritingToolKind`): having looked at
+ * a file is not having produced it, and steering the wrong session about a file it only read is
+ * worse than steering nobody. A shell redirect is the gap this leaves - neither adapter reports
+ * `locations` for an `execute` call, so such a write is noticed but attributed to no session.
+ */
+function recordWrittenLocations(
+  running: RunningAgent,
+  update: { kind?: string | null; locations?: ReadonlyArray<{ path: string }> | null }
+): void {
+  if (!isFileWritingToolKind(update.kind) || !update.locations?.length) return
+  const at = nextWriteStamp()
+  for (const location of update.locations) {
+    running.recentWrites.push({ path: resolve(running.request.cwd, location.path), at })
+  }
+  if (running.recentWrites.length > RECENT_WRITE_LIMIT) {
+    running.recentWrites.splice(0, running.recentWrites.length - RECENT_WRITE_LIMIT)
+  }
 }
 
 export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpSessionManager {
@@ -1076,6 +1135,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
               text: update.content.text
             })
           } else if (update.sessionUpdate === 'tool_call' || update.sessionUpdate === 'tool_call_update') {
+            recordWrittenLocations(running, update)
             send(running, { type: 'activity', activity: activityFromUpdate(update) })
           } else if (update.sessionUpdate === 'plan') {
             send(running, { type: 'plan', entries: update.entries })
@@ -1173,6 +1233,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         cachedModels,
         pendingApprovals,
         pendingElicitations,
+        recentWrites: [],
         busy: false,
         stopping: false,
         authRequired: false,
@@ -1449,6 +1510,9 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       send(running, { type: 'decision_resolved', requestId })
       return { ok: true }
     },
+
+    recentWrites: () =>
+      [...agents].flatMap(([agentId, running]) => running.recentWrites.map(({ path, at }) => ({ agentId, path, at }))),
 
     cancel(id): void {
       const running = agents.get(id)
