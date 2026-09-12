@@ -7,6 +7,7 @@ import { TICKET_DETAIL_DEFAULT_WIDTH } from '../src/renderer/src/ticket-board-pa
 import type { WorkspaceState } from '../src/shared/terminal'
 import { createMockBrainDumpApi } from './dom/brain-dump-api-mock'
 import { createMockAppUpdateApi } from './dom/app-update-api-mock'
+import { createMockRemoteApi } from './dom/remote-api-mock'
 import {
   cardFixture,
   createMockGithubIssuesApi,
@@ -66,19 +67,7 @@ function installWindowApis(state: WorkspaceState): void {
   define('conversationApi', { setTitle: vi.fn(async () => null) })
   define('agentApi', { onEvent: () => () => undefined })
   define('appUpdateApi', createMockAppUpdateApi())
-  define('remoteApi', {
-    state: vi.fn(async () => ({
-      settings: { enabled: false, port: 7391 },
-      listening: false,
-      token: 'token',
-      tokenUpdatedAt: 0,
-      addresses: []
-    })),
-    publishWorkspace: vi.fn(),
-    onStateChange: () => () => undefined,
-    onSpawnChat: () => () => undefined,
-    completeSpawn: vi.fn()
-  })
+  define('remoteApi', createMockRemoteApi())
   define('brainDumpApi', createMockBrainDumpApi())
   define('ticketsApi', tickets)
   define('githubIssuesApi', github)

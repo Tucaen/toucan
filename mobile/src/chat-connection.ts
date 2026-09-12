@@ -114,6 +114,34 @@ export function applyServerFrame(state: ChatConnectionState, raw: unknown, now: 
   }
 }
 
+/**
+ * When this reader should tell the host they have read the chat, expressed as a key that changes
+ * exactly at those moments - or null while there is nothing to have read yet.
+ *
+ * The desktop's rule is "having the node open is the user reaching its content, so anything raised
+ * while it is selected clears too". A phone has the same moments and no more: the reader *arrives*
+ * (the join's snapshot), and something lands *while they are still here*. The second one is
+ * deliberately not every frame - a streaming turn would report a read per chunk - but the
+ * transitions that actually raise attention on a chat node: a turn ending, and a failure. Both are
+ * visible in the transcript the reader is looking at, which is what makes this a pure decision.
+ *
+ * Three details are load-bearing. The busy marker is not there to report a read at a turn's *start*
+ * (it does, and that is one harmless idempotent frame); it is there so that a turn's *end* is a
+ * change at all, since a settled transcript either side of it would otherwise carry one key. The
+ * failure half is `failureKey ?? failure`, not `failureKey` alone: a session error folds with a
+ * null key, and the canvas keys that condition on its text instead, so keying on the key alone
+ * would leave behind the one badge a present reader most obviously meant to clear. And the settled
+ * key counts the transcript, because a key built only from "settled, no failure" cannot tell
+ * *nothing happened* from *a whole turn came and went while the socket was down* - the count is
+ * read only when settled, so the entries a working turn appends never report a read of their own.
+ */
+export function readReportKey(state: ChatConnectionState): string | null {
+  if (state.phase !== 'live' || !state.transcript) return null
+  if (state.transcript.status === 'working' || state.transcript.status === 'starting') return 'busy'
+  const failure = state.transcript.failureKey ?? state.transcript.failure ?? ''
+  return `settled:${state.transcript.transcript.length}:${failure}`
+}
+
 /** What this connection's transcript is blocked on; the rule itself is `pendingRequestFrom`. */
 export function pendingRequest(state: ChatConnectionState): PendingRequest | null {
   return state.transcript ? pendingRequestFrom(state.transcript) : null

@@ -89,7 +89,12 @@ export const REMOTE_CHANNELS = {
   stateChanged: 'remote:state-changed',
   /** Main asks the renderer to spawn on this; the renderer answers on `spawnChatResult`. */
   spawnChat: 'remote:spawn-chat',
-  spawnChatResult: 'remote:spawn-chat-result'
+  spawnChatResult: 'remote:spawn-chat-result',
+  /**
+   * A phone reached a chat's content. One way only: the canvas applies its own read and republishes
+   * the projection, which is the answer the phone is already polling for.
+   */
+  markChatRead: 'remote:mark-chat-read'
 } as const
 
 export const BRAIN_DUMP_CHANNELS = {

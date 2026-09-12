@@ -5,6 +5,7 @@ import type { RemoteAccessState, RemoteWorkspaceProjection } from '../src/shared
 import type { RemoteChatSpawnRequest, RemoteChatSpawnResult } from '../src/shared/remote-spawn'
 import type { AgentApi } from '../src/shared/agent'
 import type { WorkspaceState } from '../src/shared/terminal'
+import { attentionItemId, type AttentionItem } from '../src/shared/attention'
 import { createMockAgentApi } from './dom/agent-api-mock'
 import { createMockBrainDumpApi } from './dom/brain-dump-api-mock'
 import { createMockAppUpdateApi } from './dom/app-update-api-mock'
@@ -66,6 +67,8 @@ let regenerated: number
 /** The host's side of a spawn: what it asked, and what the renderer eventually answered. */
 let requestSpawn: ((requestId: string, request: RemoteChatSpawnRequest) => void) | null
 let spawnResults: { requestId: string; result: RemoteChatSpawnResult; publishedByThen: number }[]
+/** The host's side of a phone reporting that it read a chat. One way: there is nothing to answer. */
+let reportRead: ((chatId: string) => void) | null
 
 function installWindowApis(
   state: WorkspaceState,
@@ -78,6 +81,7 @@ function installWindowApis(
   regenerated = 0
   requestSpawn = null
   spawnResults = []
+  reportRead = null
   const define = (name: string, value: unknown): void =>
     Object.defineProperty(window, name, { configurable: true, value })
 
@@ -116,7 +120,13 @@ function installWindowApis(
     // `publishedByThen` is recorded so a test can ask what the host had been handed at the moment
     // it was answered - the ordering the phone's very next request depends on.
     completeSpawn: (requestId: string, result: RemoteChatSpawnResult) =>
-      spawnResults.push({ requestId, result, publishedByThen: published.length })
+      spawnResults.push({ requestId, result, publishedByThen: published.length }),
+    onMarkChatRead: (callback: (chatId: string) => void) => {
+      reportRead = callback
+      return () => {
+        reportRead = null
+      }
+    }
   })
 }
 
@@ -274,5 +284,66 @@ describe('a chat a phone asked for', () => {
     await waitFor(() => expect(spawnResults).toHaveLength(1))
     expect(spawnResults[0].result.ok).toBe(false)
     expect((spawnResults[0].result as { message: string }).message).toMatch(/could not be started/)
+  })
+})
+
+/**
+ * Reading a chat on the phone. The canvas stays the authority on attention, so the phone does not
+ * clear a badge - it reports a read, and the canvas applies its own, with the same kinds a look at
+ * the node would clear. The projection the phone polls is where the result shows up, which is why
+ * the assertion is on what crossed the seam rather than on anything drawn here.
+ */
+describe('a chat read on the phone', () => {
+  const unreadRecord = (kind: 'result' | 'approval', key: string): AttentionItem => ({
+    id: attentionItemId('chat-1', kind, key),
+    nodeId: 'chat-1',
+    kind,
+    key,
+    createdAt: 1_000,
+    updatedAt: 1_000,
+    events: 1,
+    read: false
+  })
+
+  async function renderWithUnread(): Promise<void> {
+    installWindowApis({ ...savedWorkspace(), attention: [unreadRecord('result', 'r1')] }, remoteState())
+    render(<App />)
+    await screen.findByText('Add project')
+    await waitFor(() => expect(published.length).toBeGreaterThan(0))
+    expect(published[published.length - 1].chats[0].unread).toBe(1)
+  }
+
+  test('retires the unread the phone was looking at, in the next published projection', async () => {
+    await renderWithUnread()
+    await waitFor(() => expect(reportRead).not.toBeNull())
+
+    reportRead!('chat-1')
+
+    await waitFor(() => expect(published[published.length - 1].chats[0].unread).toBe(0))
+  })
+
+  test('does not retire a pending approval, because looking at one is not answering it', async () => {
+    installWindowApis(
+      { ...savedWorkspace(), attention: [unreadRecord('result', 'r1'), unreadRecord('approval', 'req-7')] },
+      remoteState()
+    )
+    render(<App />)
+    await screen.findByText('Add project')
+    await waitFor(() => expect(reportRead).not.toBeNull())
+
+    reportRead!('chat-1')
+
+    await waitFor(() => expect(published[published.length - 1].chats[0].unread).toBe(1))
+    expect(published[published.length - 1].chats[0].attention).toBe('approval')
+  })
+
+  test('a read for a chat the canvas no longer has clears nothing and breaks nothing', async () => {
+    await renderWithUnread()
+    await waitFor(() => expect(reportRead).not.toBeNull())
+
+    reportRead!('a-node-that-was-closed')
+
+    // Still exactly what it was: an unknown id matches no record, so nothing is retired.
+    await waitFor(() => expect(published[published.length - 1].chats[0].unread).toBe(1))
   })
 })

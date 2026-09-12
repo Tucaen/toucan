@@ -15,9 +15,9 @@ import type { TerminalNodeStatus } from '../../shared/terminal'
 
 /**
  * The renderer's one owner of remote access. It holds no policy - the host decides whether a
- * listener comes up and what the pairing token is - and does exactly three jobs: it keeps the
+ * listener comes up and what the pairing token is - and does exactly four jobs: it keeps the
  * settings dialog looking at the host's real state, it publishes the canvas projection a paired
- * phone lists, and it performs the spawns the host asks for.
+ * phone lists, it performs the spawns the host asks for, and it applies the reads a phone reports.
  *
  * Publishing is deduplicated on purpose. The workspace snapshot is rebuilt on every drag frame
  * and every keystroke in a composer draft, none of which changes what a phone shows, so the
@@ -48,7 +48,8 @@ export type RemoteChatSpawnStarter = (request: RemoteChatSpawnRequest) => Remote
 export function useRemoteAccess(
   source: RemoteWorkspaceSource,
   statuses: Readonly<Record<string, TerminalNodeStatus>>,
-  startSpawn?: RemoteChatSpawnStarter
+  startSpawn?: RemoteChatSpawnStarter,
+  markChatRead?: (chatId: string) => void
 ): RemoteAccessController {
   const [state, setState] = useState<RemoteAccessState | null>(null)
   const [busy, setBusy] = useState(false)
@@ -117,6 +118,18 @@ export function useRemoteAccess(
     // above reacts to, and effects run in declaration order, so by the time this one sees a new
     // projection the host has already been handed it.
   }, [projection, source.nodes, statuses])
+
+  /**
+   * A phone reporting that it read a chat. Applied through the canvas's own attention path and
+   * answered by nothing: the cleared badge reaches the phone as the next published projection,
+   * which this hook is already publishing anyway.
+   */
+  const markChatReadRef = useRef(markChatRead)
+  markChatReadRef.current = markChatRead
+
+  useEffect(() => {
+    return window.remoteApi.onMarkChatRead((chatId) => markChatReadRef.current?.(chatId))
+  }, [])
 
   const run = useCallback(async (operation: () => Promise<RemoteAccessState>): Promise<void> => {
     setBusy(true)

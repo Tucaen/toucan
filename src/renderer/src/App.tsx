@@ -145,6 +145,7 @@ import SessionNode from './SessionNode'
 import { terminalLivenessLabels } from './terminal-liveness'
 import { SidebarTerminalLiveness } from './TerminalLivenessPresentation'
 import { useProviderRateLimits } from './use-provider-rate-limits'
+import { READ_ON_VIEW_KINDS } from '../../shared/attention'
 import { useWorkspaceAttention } from './workspace-attention'
 import { ticketsDirectoryOrDefault } from '../../shared/tickets'
 import { useWorkspacePersistence } from './workspace-persistence'
@@ -1495,7 +1496,18 @@ function Canvas(): JSX.Element {
     [countWorkingCheckoutSessions]
   )
 
-  const remoteAccess = useRemoteAccess(workspaceSnapshot, nodeStatuses, startRemoteSpawn)
+  /**
+   * A phone read one of these chats. It goes through `handleAttention` like every desktop read, and
+   * with the very same kinds: `READ_ON_VIEW_KINDS` is what *reaching content* settles, so a pending
+   * approval survives being looked at on a phone exactly as it survives being looked at here. An id
+   * whose node is gone clears nothing, which is the right answer for a chat closed mid-read.
+   */
+  const markRemoteChatRead = useCallback(
+    (chatId: string) => handleAttention({ type: 'read', nodeId: chatId, kinds: READ_ON_VIEW_KINDS }),
+    [handleAttention]
+  )
+
+  const remoteAccess = useRemoteAccess(workspaceSnapshot, nodeStatuses, startRemoteSpawn, markRemoteChatRead)
   const appUpdate = useAppUpdate()
 
   const {

@@ -5,7 +5,7 @@ import {
   type RemoteWorkspaceProjection
 } from '../../shared/remote-access'
 import type { RemoteChatSpawnResult } from '../../shared/remote-spawn'
-import { type RemoteChatSpawner } from './chat-spawn'
+import { type RemoteCanvasRequests } from './canvas-requests'
 import type { RemoteAccessServer } from './remote-server'
 import { REMOTE_CHANNELS } from '../../shared/ipc-channels'
 
@@ -18,7 +18,11 @@ import { REMOTE_CHANNELS } from '../../shared/ipc-channels'
  * renderer and are only ever handed straight back out as JSON, so the check that matters is that
  * a malformed message cannot replace a good projection with something unserializable.
  */
-export function registerRemoteIpc(ipc: IpcMain, server: RemoteAccessServer, spawner: RemoteChatSpawner): void {
+export function registerRemoteIpc(
+  ipc: IpcMain,
+  server: RemoteAccessServer,
+  canvasRequests: RemoteCanvasRequests
+): void {
   ipc.handle(REMOTE_CHANNELS.state, () => server.state())
   ipc.handle(REMOTE_CHANNELS.applySettings, (_event, settings: unknown) =>
     isRemoteAccessSettings(settings) ? server.applySettings(settings) : server.state()
@@ -31,7 +35,7 @@ export function registerRemoteIpc(ipc: IpcMain, server: RemoteAccessServer, spaw
   // dropped rather than settled as a failure: the spawner's own timeout is the honest fallback,
   // and inventing a refusal here could retire a request whose node is on its way up.
   ipc.on(REMOTE_CHANNELS.spawnChatResult, (_event, requestId: unknown, result: unknown) => {
-    if (typeof requestId === 'string' && isSpawnResult(result)) spawner.complete(requestId, result)
+    if (typeof requestId === 'string' && isSpawnResult(result)) canvasRequests.complete(requestId, result)
   })
 }
 

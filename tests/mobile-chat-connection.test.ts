@@ -18,6 +18,7 @@ import {
   pendingRequest,
   plannedAnswer,
   plannedSend,
+  readReportKey,
   reconnectDelayMs,
   restoredChatConnectionState,
   sendBlockedReason,
@@ -487,4 +488,77 @@ test('a question set hides the composer exactly like an approval does', () => {
   )
   assert.equal(composerHidden(resolved), false)
   assert.equal(sendBlockedReason(draftChanged(resolved, 'hello')), null)
+})
+
+/**
+ * When this reader tells the host they have read the chat. Two moments and no more: arriving, and
+ * something landing while they are still here. A key that changed is the whole trigger, so what is
+ * asserted is which transitions move it - and, just as load-bearing, which ones do not, because a
+ * key that moved per streamed chunk would report a read per frame of a turn.
+ */
+
+test('arriving at a live chat is worth reporting, and a stream of chunks is not', () => {
+  assert.equal(readReportKey(initialChatConnectionState()), null)
+
+  const joined = live(READY)
+  const arrived = readReportKey(joined)
+  assert.ok(arrived)
+
+  const streaming = applyFrames(joined, [
+    frame({ type: 'event', event: { type: 'status', status: 'working' } }),
+    frame({ type: 'event', event: assistantChunk('a1', 'thinking ') }),
+    frame({ type: 'event', event: assistantChunk('a1', 'out loud') })
+  ])
+  const midTurn = readReportKey(streaming)
+  assert.notEqual(midTurn, arrived)
+  // Every chunk after the first leaves it exactly where the turn's start put it.
+  assert.equal(
+    readReportKey(applyFrames(streaming, [frame({ type: 'event', event: assistantChunk('a1', ' and on') })])),
+    midTurn
+  )
+
+  // The turn ending is what raises a result on the canvas, so it is what a reader present for it
+  // has to clear - and it is not the key they arrived on either, because the turn left something
+  // behind that a reader arriving now would not have seen.
+  const finished = applyFrames(streaming, [frame({ type: 'event', event: { type: 'status', status: 'idle' } })])
+  assert.notEqual(readReportKey(finished), midTurn)
+  assert.notEqual(readReportKey(finished), arrived)
+})
+
+test('a failure raised while the reader is here moves the key, and a second look does not', () => {
+  const failed = applyFrames(live(READY), [
+    frame({ type: 'event', event: { type: 'turn_failed', turnId: 't1', message: 'the adapter died' } })
+  ])
+  assert.notEqual(readReportKey(failed), readReportKey(live(READY)))
+  assert.equal(readReportKey(applyFrames(failed, [])), readReportKey(failed))
+})
+
+test('a transcript that is not live has nothing to report', () => {
+  const dropped = connectionLost(live(READY))
+  assert.equal(readReportKey(dropped), null)
+  assert.equal(readReportKey(chatGone(live(READY))), null)
+
+  // A rejoin that changed nothing reports the same key, which is what stops a flapping socket from
+  // reporting a read the reader never made twice over.
+  const rejoined = applyFrames(dropped, [frame({ type: 'snapshot', state: foldAll(READY) })])
+  assert.equal(readReportKey(rejoined), readReportKey(live(READY)))
+})
+
+test('a whole turn that ran while the socket was down is not mistaken for nothing happening', () => {
+  const dropped = connectionLost(live(READY))
+
+  // The canvas raised a result for this turn while the phone was away; the reader comes back to a
+  // settled session with no failure - indistinguishable from where they left off, but for what
+  // arrived in between.
+  const missed = foldAll(
+    [
+      { type: 'status', status: 'working' },
+      { type: 'message', role: 'assistant', messageId: 'a1', text: 'done while you were away' },
+      { type: 'turn_complete', stopReason: 'end_turn' },
+      { type: 'status', status: 'idle' }
+    ],
+    foldAll(READY)
+  )
+  const rejoined = applyFrames(dropped, [frame({ type: 'snapshot', state: missed })])
+  assert.notEqual(readReportKey(rejoined), readReportKey(live(READY)))
 })

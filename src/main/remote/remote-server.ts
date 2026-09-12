@@ -102,6 +102,13 @@ export interface RemoteAccessServerOptions {
    */
   spawn?: RemoteChatSpawn
   /**
+   * How "a phone read this chat" reaches the attention records behind its unread badge. Separate
+   * from `sessions` for the same reason `spawn` is: the record set is the canvas's, not the session
+   * manager's, so this seam round-trips through the desktop renderer. Absent, a read frame is
+   * accepted and dropped - the phone is told nothing either way, and the badge simply stays.
+   */
+  read?: RemoteChatRead
+  /**
    * Transcribes a phone's recording with the desktop's own speech model, for phones whose browser
    * has no recognizer of its own. Absent, the route says the host does not transcribe.
    */
@@ -112,6 +119,13 @@ export interface RemoteAccessServerOptions {
 
 /** Performs one spawn and reports its verdict. Never rejects; a failure is `{ ok: false }`. */
 export type RemoteChatSpawn = (request: RemoteChatSpawnRequest) => Promise<RemoteChatSpawnResult>
+
+/**
+ * Tells the canvas a paired reader reached this chat. No verdict, because there is none worth
+ * having: the read is idempotent, the canvas decides which kinds a *view* clears, and the cleared
+ * badge comes back to the phone in the next published projection.
+ */
+export type RemoteChatRead = (chatId: string) => void
 
 export interface RemoteChatSessionOperations {
   /**
@@ -332,11 +346,15 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
   })
 
   /**
-   * The inbound half of a chat socket. Three things may cross it - a prompt, an answer to a tool
-   * permission, an answer to a structured question set - and every path out of here answers the
-   * client: accepted, or refused with a reason. That is the whole no-silent-drop guarantee, and it
-   * is why the refusal text is passed through verbatim from the session manager ("The agent session
-   * is busy.", "That request was already answered.") rather than flattened.
+   * The inbound half of a chat socket. Three things *drive* a session across it - a prompt, an
+   * answer to a tool permission, an answer to a structured question set - and every path out of
+   * here answers the client: accepted, or refused with a reason. That is the whole no-silent-drop
+   * guarantee, and it is why the refusal text is passed through verbatim from the session manager
+   * ("The agent session is busy.", "That request was already answered.") rather than flattened.
+   *
+   * A `read` is the deliberate exception and the only one: it drives nothing, asks for nothing back
+   * and cannot fail in a way the reader could act on, so it is answered by the next workspace
+   * projection rather than by a frame. Everything else keeps its verdict.
    *
    * Answers are *not* a second prompt path. A pending decision closes the phone's composer, so the
    * only way to answer one is this message, keyed on the request's own id - which is also what
@@ -351,6 +369,17 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
     // Unrecognizable, so there is no request to answer. The peer is Toucan's own client, so this
     // is a version skew or a probe, not a case worth inventing a correlation id for.
     if (!message) return
+
+    /**
+     * The published projection gates what a phone may drive, exactly as it gates what it may open:
+     * a chat the desktop has since unlisted is not a prompt, an answer or a read target either.
+     */
+    const listed = (): boolean => snapshot.chats.some((chat) => chat.id === chatId)
+
+    if (message.type === 'read') {
+      if (listed()) options.read?.(chatId)
+      return
+    }
 
     // A prompt and an answer are correlated the same way but reported on their own channels, so
     // a client cannot mistake a verdict on one for a verdict on the other.
@@ -380,9 +409,7 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
       refuse(problem)
       return
     }
-    // The published projection gates what a phone may drive, exactly as it gates what it may open:
-    // a chat the desktop has since unlisted is not a prompt or an answer target either.
-    if (!snapshot.chats.some((chat) => chat.id === chatId)) {
+    if (!listed()) {
       refuse('This chat is no longer open on the desktop.')
       return
     }
@@ -553,12 +580,14 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
 /**
  * Runs one validated client message against the session operations. Split out so the frame handler
  * reads as the policy it is - gate, then perform, then answer - and so the mapping from message to
- * operation is one exhaustive switch rather than three nested branches.
+ * operation is one exhaustive switch rather than three nested branches. `read` is excluded by type
+ * rather than by a default branch: it never reaches a session, so it must not be possible to add a
+ * session operation for it here without noticing.
  */
 function perform(
   sessions: RemoteChatSessionOperations,
   chatId: string,
-  message: RemoteChatClientMessage
+  message: Exclude<RemoteChatClientMessage, { type: 'read' }>
 ): AgentPromptResult | Promise<AgentPromptResult> {
   switch (message.type) {
     case 'prompt':

@@ -10,6 +10,7 @@ import { createRemoteAccessStore, type RemoteAccessStore } from '../src/main/rem
 import {
   createRemoteAccessServer,
   type RemoteAccessServer,
+  type RemoteChatRead,
   type RemoteChatSessionOperations,
   type RemoteChatSpawn
 } from '../src/main/remote/remote-server'
@@ -82,6 +83,7 @@ function harness(
     clientFiles?: Record<string, string>
     chats?: AgentEventBroker
     sessions?: RemoteChatSessionOperations
+    read?: RemoteChatRead
     spawn?: RemoteChatSpawn
     transcriber?: { transcribe: (audio: Float32Array) => Promise<RemoteTranscriptionResult> }
   } = {}
@@ -102,6 +104,7 @@ function harness(
     addresses: () => [{ kind: 'tailscale', host: '100.1.2.3' }],
     ...(options.chats ? { chats: options.chats } : {}),
     ...(options.sessions ? { sessions: options.sessions } : {}),
+    ...(options.read ? { read: options.read } : {}),
     ...(options.spawn ? { spawn: options.spawn } : {}),
     ...(options.transcriber ? { transcriber: options.transcriber } : {})
   })
@@ -573,9 +576,14 @@ const refusingAnswers = {
 
 async function joinedChat(options: {
   sessions?: RemoteChatSessionOperations
+  read?: RemoteChatRead
 }): Promise<{ server: RemoteAccessServer; chats: AgentEventBroker; socket: ChatSocket }> {
   const chats = createAgentEventBroker()
-  const { server, store } = harness({ chats, ...(options.sessions ? { sessions: options.sessions } : {}) })
+  const { server, store } = harness({
+    chats,
+    ...(options.sessions ? { sessions: options.sessions } : {}),
+    ...(options.read ? { read: options.read } : {})
+  })
   await server.applySettings({ enabled: true, port: await freePort() })
   server.publishWorkspace(CHAT_PROJECTION)
   const socket = connectChat(server.state().boundPort!, 'chat-1', { header: store.read().token })
@@ -886,6 +894,61 @@ describe('answering a pending request over a chat socket', () => {
     )
     assert.match((await answerVerdict(socket)).message ?? '', /no longer open/)
     assert.deepEqual(sessions.approvals, [])
+    socket.close()
+  })
+})
+
+/**
+ * Reporting a read. The only client frame with no verdict, so what the tests have to pin down is
+ * that the silence is *deliberate*: the read reaches the canvas seam, the socket stays usable for
+ * the frames that do get answered, and neither an unlisted chat nor a host with no canvas attached
+ * turns it into an error the phone would have to make sense of.
+ */
+describe('reporting a chat as read over a chat socket', () => {
+  /** A prompt sent after the read, whose verdict proves the socket carried no frame in between. */
+  const proveNothingCameBack = async (socket: ChatSocket): Promise<{ ok: boolean; message?: string }> => {
+    await socket.send(JSON.stringify({ type: 'prompt', requestId: 'after-read', text: 'still here' }))
+    const answer = await verdict(socket)
+    assert.equal(answer.requestId, 'after-read')
+    return answer
+  }
+
+  test('the read reaches the canvas and the socket answers nothing', async () => {
+    const reads: string[] = []
+    const sessions = recordingSessions(() => ({ ok: true }))
+    const { socket } = await joinedChat({ sessions: sessions.operations, read: (chatId) => reads.push(chatId) })
+
+    await socket.send(JSON.stringify({ type: 'read' }))
+    assert.equal((await proveNothingCameBack(socket)).ok, true)
+    assert.deepEqual(reads, ['chat-1'])
+    socket.close()
+  })
+
+  test('a chat the desktop has unlisted is not a read target either', async () => {
+    const reads: string[] = []
+    const sessions = recordingSessions(() => ({ ok: true }))
+    const chats = createAgentEventBroker()
+    const { server, store } = harness({ chats, sessions: sessions.operations, read: (chatId) => reads.push(chatId) })
+    await server.applySettings({ enabled: true, port: await freePort() })
+    server.publishWorkspace(CHAT_PROJECTION)
+    const socket = connectChat(server.state().boundPort!, 'chat-1', { header: store.read().token })
+    assert.equal((await socket.next()).type, 'snapshot')
+
+    server.publishWorkspace({ projects: CHAT_PROJECTION.projects, chats: [] })
+    await socket.send(JSON.stringify({ type: 'read' }))
+    assert.match((await proveNothingCameBack(socket)).message ?? '', /no longer open/)
+    assert.deepEqual(reads, [])
+    socket.close()
+  })
+
+  // A host with no canvas attached has no attention records to clear, and the phone has nothing to
+  // do about that: the frame is accepted and dropped rather than refused.
+  test('a host with no canvas seam drops it without breaking the socket', async () => {
+    const sessions = recordingSessions(() => ({ ok: true }))
+    const { socket } = await joinedChat({ sessions: sessions.operations })
+
+    await socket.send(JSON.stringify({ type: 'read' }))
+    assert.equal((await proveNothingCameBack(socket)).ok, true)
     socket.close()
   })
 })

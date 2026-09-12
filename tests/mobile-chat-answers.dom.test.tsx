@@ -220,3 +220,37 @@ describe('answering a structured question set from the phone', () => {
     expect(sent.content).toBeUndefined()
   })
 })
+
+/**
+ * Reporting a read. The pure rule is `readReportKey`'s and is tested there; what only the rendered
+ * screen can show is that the rule actually reaches the wire - that arriving puts one frame on it,
+ * that a streaming turn does not put one there per chunk, and that the turn ending does.
+ */
+describe('reporting a read from the phone', () => {
+  const reads = (socket: StubSocket): unknown[] =>
+    socket.sent.map((raw) => JSON.parse(raw) as { type?: unknown }).filter((message) => message.type === 'read')
+
+  test('arriving at a live chat reports one read', () => {
+    const socket = open([{ type: 'status', status: 'idle' }])
+    expect(reads(socket)).toEqual([{ type: 'read' }])
+  })
+
+  test('a streaming turn reports no read per chunk, and its ending reports one', () => {
+    const socket = open([{ type: 'status', status: 'idle' }])
+    const onArrival = reads(socket).length
+
+    deliver(socket, { type: 'event', event: { type: 'status', status: 'working' } })
+    deliver(socket, { type: 'event', event: { type: 'message', role: 'assistant', messageId: 'a1', text: 'one ' } })
+    deliver(socket, { type: 'event', event: { type: 'message', role: 'assistant', messageId: 'a1', text: 'two ' } })
+    deliver(socket, { type: 'event', event: { type: 'message', role: 'assistant', messageId: 'a2', text: 'three' } })
+    const midTurn = reads(socket).length
+
+    deliver(socket, { type: 'event', event: { type: 'turn_complete', stopReason: 'end_turn' } })
+    deliver(socket, { type: 'event', event: { type: 'status', status: 'idle' } })
+
+    // The turn's start is worth one frame; nothing it streamed after that is.
+    expect(midTurn).toBe(onArrival + 1)
+    // And the end - the moment the canvas raises a result on the node - is worth exactly one more.
+    expect(reads(socket).length).toBe(midTurn + 1)
+  })
+})

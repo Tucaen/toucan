@@ -15,6 +15,7 @@ import {
   pendingRequest,
   plannedAnswer,
   plannedSend,
+  readReportKey,
   reconnectDelayMs,
   restoredChatConnectionState,
   sendFailed,
@@ -68,8 +69,12 @@ export function useChatConnection(host: SavedHost, chatId: string, onUnauthorize
   const stateRef = useRef(state)
   stateRef.current = state
 
+  /** The last read this connection reported, so an unchanged one is not sent twice. */
+  const reportedRead = useRef<string | null>(null)
+
   useEffect(() => {
     setState(restoredChatConnectionState(storedDraft(host.id, chatId)))
+    reportedRead.current = null
     let disposed = false
     let socket: WebSocket | null = null
     let timer: number | undefined
@@ -129,6 +134,19 @@ export function useChatConnection(host: SavedHost, chatId: string, onUnauthorize
     // Re-addressing or re-pairing the host is a different connection, so it tears this one down and
     // starts over rather than leaving a socket authorized by a token that is gone.
   }, [host.id, host.origin, host.token, chatId])
+
+  /**
+   * Reading is reported from an effect rather than from a gesture, because on a phone it *is* not a
+   * gesture: having the chat on screen is the reading, exactly as having the node selected is on the
+   * desktop. `readReportKey` names the moments worth reporting; a frame that never reached the
+   * socket is simply not recorded, so the next key change retries it. There is nothing to await -
+   * the badge it retires comes back in the host's next workspace projection.
+   */
+  const readKey = readReportKey(state)
+  useEffect(() => {
+    if (readKey === null || reportedRead.current === readKey) return
+    if (writeToSocket(live.current, { type: 'read' })) reportedRead.current = readKey
+  }, [readKey])
 
   // Retention mirrors the state rather than the keystrokes, so every path that changes the draft -
   // typing, a cleared send, a recovered refusal - is covered by one write.

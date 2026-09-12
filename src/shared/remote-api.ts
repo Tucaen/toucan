@@ -22,4 +22,11 @@ export interface RemoteApi {
    */
   onSpawnChat(callback: (requestId: string, request: RemoteChatSpawnRequest) => void): () => void
   completeSpawn(requestId: string, result: RemoteChatSpawnResult): void
+  /**
+   * A paired reader reached this chat's content on their phone. Attention records are the canvas's
+   * and "mark read" is a canvas gesture, so the phone cannot clear a badge itself - it says it
+   * read, and the canvas applies its own read through its own path. Nothing is answered: the
+   * cleared badge reaches the phone in the next published projection, like every other change.
+   */
+  onMarkChatRead(callback: (chatId: string) => void): () => void
 }

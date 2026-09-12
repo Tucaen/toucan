@@ -11,6 +11,7 @@ import {
 import type { WorkspaceState } from '../src/shared/terminal'
 import { createMockBrainDumpApi, topicFixture, type MockBrainDumpApi } from './dom/brain-dump-api-mock'
 import { createMockAppUpdateApi } from './dom/app-update-api-mock'
+import { createMockRemoteApi } from './dom/remote-api-mock'
 
 const styles = readFileSync('src/renderer/src/styles.css', 'utf8')
 
@@ -63,19 +64,7 @@ function installWindowApis(state: WorkspaceState): void {
   define('conversationApi', { setTitle: vi.fn(async () => null) })
   define('agentApi', { onEvent: () => () => undefined })
   define('appUpdateApi', createMockAppUpdateApi())
-  define('remoteApi', {
-    state: vi.fn(async () => ({
-      settings: { enabled: false, port: 7391 },
-      listening: false,
-      token: 'token',
-      tokenUpdatedAt: 0,
-      addresses: []
-    })),
-    publishWorkspace: vi.fn(),
-    onStateChange: () => () => undefined,
-    onSpawnChat: () => () => undefined,
-    completeSpawn: vi.fn()
-  })
+  define('remoteApi', createMockRemoteApi())
   define('brainDumpApi', api)
 }
 

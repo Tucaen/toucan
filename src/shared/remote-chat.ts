@@ -51,6 +51,17 @@ export type RemoteChatClientMessage =
   | { type: 'approval'; requestId: string; approvalId: string; optionId?: string }
   /** Omitted `content` skips the question set, mirroring the desktop's "Skip". */
   | { type: 'decision'; requestId: string; decisionId: string; content?: AgentDecisionResponseContent }
+  /**
+   * "I am looking at this chat." The one client frame with no `requestId` and no verdict, because
+   * it is the one that asks for nothing back: the badge it retires is republished by the canvas in
+   * the workspace projection the phone already polls, so the projection *is* the answer, and a read
+   * that never landed is reissued by the next thing the reader watches settle.
+   *
+   * It names no kinds either. What a *view* clears is the canvas's `READ_ON_VIEW_KINDS` and stays
+   * the canvas's decision - an approval must not be retired by being scrolled past, and letting a
+   * phone name the kinds would be letting it answer a request by looking at it.
+   */
+  | { type: 'read' }
 
 /**
  * How much prompt text one frame may carry. A phone composer is not where a megabyte of pasted
@@ -210,6 +221,9 @@ export function parseRemoteChatClientMessage(raw: unknown): RemoteChatClientMess
     decisionId?: unknown
     content?: unknown
   }
+  // Ahead of the correlation guard: a read is answered by nothing, so demanding a `requestId` for
+  // it would refuse the frame over the one field it has no use for.
+  if (message.type === 'read') return { type: 'read' }
   if (typeof message.requestId !== 'string' || message.requestId.length === 0) return null
   if (message.type === 'prompt') {
     if (typeof message.text !== 'string') return null

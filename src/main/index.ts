@@ -51,7 +51,7 @@ import { createCodexRateLimitReader } from './codex-rate-limits'
 import { createProviderUsage, type ProviderUsage } from './provider-usage'
 import { createRemoteAccessStore } from './remote/remote-access-store'
 import { forwardRemoteStateChanges, registerRemoteIpc } from './remote/remote-ipc'
-import { createRemoteChatSpawner, type RemoteChatSpawner } from './remote/chat-spawn'
+import { createRemoteCanvasRequests, type RemoteCanvasRequests } from './remote/canvas-requests'
 import { createRemoteAccessServer, type RemoteAccessServer } from './remote/remote-server'
 import { createRemoteVoiceTranscriber } from './remote/voice-transcription'
 import { loadMoonshineEngine } from './remote/voice-engine'
@@ -201,7 +201,7 @@ function createWindow(
   ticketChanges: TicketChangeWatcher,
   fileView: FileView,
   remote: RemoteAccessServer,
-  spawner: RemoteChatSpawner,
+  canvasRequests: RemoteCanvasRequests,
   appUpdater: AppUpdater,
   voiceModel: VoiceModelStore
 ): void {
@@ -237,15 +237,16 @@ function createWindow(
   const stopForwardingUpdates = forwardAppUpdateChanges(appUpdater, contents)
   // A 291 MB model download outlives any single request, so progress is pushed for the window's lifetime.
   const stopForwardingVoiceModel = forwardVoiceModelChanges(voiceModel, contents)
-  // A phone's spawn is performed by a window, so the window has to be reachable from the host -
-  // and detaching on destroy is what turns "the desktop closed mid-spawn" into a refusal the
-  // phone can read rather than a request that waits out its timeout.
-  const detachSpawnWindow = spawner.attach(contents)
+  // A phone's canvas requests - spawning a chat, reporting one read - are performed by a window,
+  // so the window has to be reachable from the host, and detaching on destroy is what turns "the
+  // desktop closed mid-spawn" into a refusal the phone can read rather than a request that waits
+  // out its timeout.
+  const detachCanvasWindow = canvasRequests.attach(contents)
   contents.on('destroyed', () => {
     stopForwardingRemoteState()
     stopForwardingUpdates()
     stopForwardingVoiceModel()
-    detachSpawnWindow()
+    detachCanvasWindow()
     terminalManager.disconnectOwner(contents)
     agentManager.killOwned(contents)
     brainDumpCapture.disconnectOwner(contents as unknown as BrainDumpCaptureOwner)
@@ -439,7 +440,7 @@ void app.whenReady().then(async () => {
   })
   registerVoiceModelIpc(ipcMain, voiceModel)
   registerVoiceModelProtocol(voiceModel, join(__dirname, '..', 'renderer'))
-  const chatSpawner = createRemoteChatSpawner()
+  const canvasRequests = createRemoteCanvasRequests()
   // A phone whose browser cannot recognize speech sends its recording here, and main transcribes
   // it with the same prepared model files the renderer dictates with - loaded lazily, because a
   // 300 MB model is not paid for by a desktop nobody dictates to from a phone.
@@ -469,7 +470,11 @@ void app.whenReady().then(async () => {
       approve: (id, approvalId, optionId) => agentManager.resolveApproval(id, approvalId, optionId),
       answerDecision: (id, decisionId, content) => agentManager.resolveElicitation(id, decisionId, content)
     },
-    spawn: (request) => chatSpawner.spawn(request),
+    spawn: (request) => canvasRequests.spawn(request),
+    // Reading a chat on the phone has to retire its badge everywhere, and the attention records
+    // behind that badge are the canvas's - so this is a request to the window, like spawning, and
+    // not something main applies on its own.
+    read: (chatId) => canvasRequests.markRead(chatId),
     transcriber: voiceTranscriber
   })
   // Off unless the user turned it on and the setting survived a restart; `start` only ever binds
@@ -554,7 +559,7 @@ void app.whenReady().then(async () => {
       writeFile: (path, bytes) => writeFile(path, bytes)
     })
   })
-  registerRemoteIpc(ipcMain, remote, chatSpawner)
+  registerRemoteIpc(ipcMain, remote, canvasRequests)
   // Self-updating from the public releases repo. Constructed before the window so the header is
   // subscribed to the very first check, and started after it so a slow feed never delays the UI.
   const appUpdater = createAppUpdater({
@@ -573,7 +578,7 @@ void app.whenReady().then(async () => {
     ticketChanges,
     fileView,
     remote,
-    chatSpawner,
+    canvasRequests,
     appUpdater,
     voiceModel
   )
@@ -589,7 +594,7 @@ void app.whenReady().then(async () => {
         ticketChanges,
         fileView,
         remote,
-        chatSpawner,
+        canvasRequests,
         appUpdater,
         voiceModel
       )
