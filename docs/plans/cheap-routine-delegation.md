@@ -106,8 +106,9 @@ returning to main, and out-of-scope stop were each observed live as described ab
   $1.2/M out — 10x cheaper than Terra) at low reasoning effort.
 - Launch-time honesty: if the account's model cache exists and does not list the worker, the
   configuration is withheld (`status: 'unavailable'` with reason) instead of launching sessions
-  whose spawns would fail. A configured policy is always surfaced as *requested, not
-  provider-confirmed* — neither adapter echoes back the model a spawn actually ran.
+  whose spawns would fail. Neither adapter echoes back the model a spawn actually ran, so nothing
+  claims the worker is enforced: the option reads "may run on", and the picker's note stays silent
+  when the session already runs the selected policy.
 
 ### Instruction-only limitations (documented deliberately)
 

@@ -23,8 +23,10 @@ export interface RoutineDelegationDisplay {
  * The delegation picker's options and status note for one provider's node. The preference is
  * workspace-wide but the worker list and the note are per provider and per session: the policy is
  * fixed at session creation or resume, so a session launched before the preference changed keeps
- * its launch-time policy until it is recreated or resumed - and a configured worker is only ever
- * *requested*; nothing here may claim it is enforced. Both providers share this one contract.
+ * its launch-time policy until it is recreated or resumed. The note only ever reports a
+ * disagreement - when the session already runs the selected policy there is nothing to say, and the
+ * option's own wording ("may run on") already carries that a worker is requested, never enforced.
+ * Both providers share this one contract.
  */
 export function describeRoutineDelegation(
   provider: AgentProvider,
@@ -48,6 +50,5 @@ export function describeRoutineDelegation(
     return { options, selectedId, note: 'Applies when this conversation next starts or resumes' }
   if (!preference.enabled && appliedModelId)
     return { options, selectedId, note: 'Still delegating until this conversation restarts' }
-  if (appliedModelId) return { options, selectedId, note: 'Worker model requested, not provider-confirmed' }
   return { options, selectedId }
 }

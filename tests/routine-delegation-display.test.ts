@@ -2,9 +2,10 @@ import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
 import { DELEGATION_OFF_OPTION, describeRoutineDelegation } from '../src/renderer/src/routine-delegation-display'
 
-// Issues #178/#179: the picker's note is the honesty layer - the workspace preference is a request,
-// the session's launch-time policy is the truth, and a configured worker is never claimed as
-// enforced. Both providers speak this one contract.
+// Issues #178/#179: the picker's note is the honesty layer - the workspace preference is a request
+// and the session's launch-time policy is the truth. It speaks only when the two disagree; a
+// session already running the selected policy is the steady state and gets no note. Both providers
+// speak this one contract.
 
 const configured = { workerModelId: 'gpt-5.6-luna', workerEffortId: 'low', status: 'configured' as const }
 const claudeConfigured = { workerModelId: 'haiku', status: 'configured' as const }
@@ -28,15 +29,15 @@ test('a Claude node offers the Claude workers only, and each provider reads its 
   assert.equal(claude.selectedId, 'haiku')
   // Haiku has no effort level, so the option does not pretend to one.
   assert.doesNotMatch(claude.options[1]?.description ?? '', /reasoning\)/)
-  assert.match(claude.note ?? '', /not provider-confirmed/)
+  assert.equal(claude.note, undefined)
   const codex = describeRoutineDelegation('codex', preference, configured)
   assert.equal(codex.selectedId, 'gpt-5.6-luna')
 })
 
-test('a session launched under the current preference reads as requested, never enforced', () => {
+test('a session launched under the current preference is the quiet steady state', () => {
   const display = describeRoutineDelegation('codex', { enabled: true, codexWorkerModelId: 'gpt-5.6-luna' }, configured)
   assert.equal(display.selectedId, 'gpt-5.6-luna')
-  assert.match(display.note ?? '', /not provider-confirmed/)
+  assert.equal(display.note, undefined)
 })
 
 test('a preference the session has not launched under yet says when it applies', () => {
