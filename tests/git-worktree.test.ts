@@ -442,3 +442,57 @@ test('the current branch reports no repository for a missing path or a non-repos
   })
   assert.deepEqual(await notARepository.currentBranch(PROJECT), { isRepository: false })
 })
+
+test('listing branches asks git for the worktree of each and reports a non-repository as such', async () => {
+  const calls: string[][] = []
+  const manager = createWorktreeManager({
+    runGit: gitStub(
+      [(args) => (args[0] === 'branch' ? ok('main\t*\tD:/Development/Toucan\nfeature/login\t \t\n') : undefined)],
+      calls
+    ),
+    pathExists: () => true
+  })
+
+  const listed = await manager.listBranches(PROJECT)
+
+  assert.equal(listed.ok, true)
+  assert.deepEqual(
+    listed.branches.map((branch) => branch.name),
+    ['main', 'feature/login']
+  )
+  const branchCall = calls.find((args) => args[0] === 'branch')
+  assert.ok(branchCall?.some((arg) => arg.startsWith('--format=') && arg.includes('%(worktreepath)')))
+
+  const missing = createWorktreeManager({ runGit: gitStub([]), pathExists: () => false })
+  assert.deepEqual(await missing.listBranches(PROJECT), { ok: false, branches: [], message: 'Not a git repository' })
+})
+
+test('checking out a branch verifies it is local first and surfaces the refusal from git', async () => {
+  const calls: string[][] = []
+  const manager = createWorktreeManager({ runGit: gitStub([], calls), pathExists: () => true })
+
+  assert.deepEqual(await manager.checkoutBranch({ path: PROJECT, branch: 'feature/login' }), { ok: true })
+  assert.deepEqual(calls.at(-1), ['checkout', 'feature/login', '--'])
+
+  // A name that only exists on a remote is refused before git gets a chance to create it.
+  const remoteOnly = createWorktreeManager({
+    runGit: gitStub([(args) => (args[0] === 'rev-parse' && args[1] === '--verify' ? fail('', 1) : undefined)]),
+    pathExists: () => true
+  })
+  const refused = await remoteOnly.checkoutBranch({ path: PROJECT, branch: 'origin-only' })
+  assert.equal(refused.ok, false)
+  assert.match(refused.message ?? '', /not a local branch/)
+
+  const dirty = createWorktreeManager({
+    runGit: gitStub([
+      (args) =>
+        args[0] === 'checkout'
+          ? fail('error: Your local changes to the following files would be overwritten by checkout:\n\tsrc/a.ts')
+          : undefined
+    ]),
+    pathExists: () => true
+  })
+  const blocked = await dirty.checkoutBranch({ path: PROJECT, branch: 'feature/login' })
+  assert.equal(blocked.ok, false)
+  assert.match(blocked.message ?? '', /would be overwritten/)
+})

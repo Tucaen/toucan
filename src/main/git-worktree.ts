@@ -26,7 +26,14 @@ import {
   parseWorktreeList
 } from '../shared/worktree'
 import { errorMessage } from '../shared/text'
-import type { GitBranchState } from '../shared/git-branch'
+import {
+  LOCAL_BRANCH_FORMAT,
+  parseLocalBranches,
+  type GitBranchListResult,
+  type GitBranchState,
+  type GitCheckoutRequest,
+  type GitCheckoutResult
+} from '../shared/git-branch'
 import type { GitDiffRequest, GitDiffSummary, GitFileDiff, GitFileDiffRequest } from '../shared/git-diff'
 import { changedFilesFromGit, parseUnifiedDiff } from '../shared/git-diff'
 
@@ -91,6 +98,17 @@ export interface WorktreeManager {
    * branch would otherwise have to ask git the same question twice.
    */
   currentBranch(path: string): Promise<GitBranchState>
+  /**
+   * Every local branch of a checkout, each with the worktree that already has it checked out so
+   * the switcher can refuse those up front. Remote-only branches are deliberately not listed:
+   * picking one would create a tracking branch, which is a different operation than switching.
+   */
+  listBranches(path: string): Promise<GitBranchListResult>
+  /**
+   * Checks an existing local branch out. The branch is verified first because a bare
+   * `git checkout <name>` would otherwise happily create one from a same-named remote branch.
+   */
+  checkoutBranch(request: GitCheckoutRequest): Promise<GitCheckoutResult>
   /**
    * What a checkout has changed against its base: the file list only, with counts. Hunks are
    * read per file through `diffFile`, never for the whole tree at once, so a large review costs
@@ -429,6 +447,34 @@ export function createWorktreeManager(options: WorktreeManagerOptions = {}): Wor
         return { isRepository: true, ...(detachedHead ? { detachedHead } : {}) }
       } catch {
         return { isRepository: false }
+      }
+    },
+
+    async listBranches(path): Promise<GitBranchListResult> {
+      try {
+        if (!pathExists(path) || (await readCommonDir(path)) === null) {
+          return { ok: false, branches: [], message: 'Not a git repository' }
+        }
+        const listed = await runGit(['branch', '--list', `--format=${LOCAL_BRANCH_FORMAT}`], path)
+        if (listed.code !== 0) return { ok: false, branches: [], message: listed.stderr.trim() || 'git branch failed' }
+        return { ok: true, branches: parseLocalBranches(listed.stdout) }
+      } catch (error) {
+        return { ok: false, branches: [], message: errorMessage(error) }
+      }
+    },
+
+    async checkoutBranch(request): Promise<GitCheckoutResult> {
+      try {
+        const branch = request.branch.trim()
+        if (!branch) return { ok: false, message: 'No branch named' }
+        const exists = await runGit(['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], request.path)
+        if (exists.code !== 0) return { ok: false, message: `${branch} is not a local branch` }
+        const checkout = await runGit(['checkout', branch, '--'], request.path)
+        if (checkout.code !== 0)
+          return { ok: false, message: checkout.stderr.trim() || `git checkout ${branch} failed` }
+        return { ok: true }
+      } catch (error) {
+        return { ok: false, message: errorMessage(error) }
       }
     },
 

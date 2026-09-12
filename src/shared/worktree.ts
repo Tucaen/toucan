@@ -5,7 +5,7 @@
  * vocabulary and the pure path/branch rules that both processes agree on.
  */
 
-import type { GitBranchState } from './git-branch'
+import type { GitBranchListResult, GitBranchState, GitCheckoutRequest, GitCheckoutResult } from './git-branch'
 import type { GitDiffRequest, GitDiffSummary, GitFileDiff, GitFileDiffRequest } from './git-diff'
 
 export interface WorkspaceWorktree {
@@ -359,4 +359,8 @@ export interface WorktreeApi {
   diffFile(request: GitFileDiffRequest): Promise<GitFileDiff>
   /** Which branch a checkout is on; `isRepository: false` for anything git cannot inspect. */
   currentBranch(path: string): Promise<GitBranchState>
+  /** Every local branch of the checkout at `path`, with where each is already checked out. */
+  listBranches(path: string): Promise<GitBranchListResult>
+  /** Checks an existing local branch out in the checkout at `path`; never creates one. */
+  checkoutBranch(request: GitCheckoutRequest): Promise<GitCheckoutResult>
 }

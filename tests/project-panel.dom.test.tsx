@@ -551,7 +551,7 @@ describe('running a saved project command', () => {
       within(menu)
         .getAllByRole('menuitem')
         .map((item) => item.textContent)
-    ).toEqual(['Change colour…', 'Move to group…'])
+    ).toEqual(['Switch branch…Checks out another local branch', 'Change colour…', 'Move to group…'])
   })
 
   test('a stored command that could not run is not offered, so a blank one cannot empty the section', async () => {

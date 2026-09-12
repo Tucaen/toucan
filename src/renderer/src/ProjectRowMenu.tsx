@@ -1,10 +1,16 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { computeNodePickerMenuPosition } from './node-picker-menu-position'
-import { FolderPlus, FolderMinus, Palette, PencilLine, Play, Trash2, ChevronLeft } from 'lucide-react'
+import { Check, ChevronLeft, FolderMinus, FolderPlus, GitBranch, Palette, PencilLine, Play, Trash2 } from 'lucide-react'
 import { runnableCommands } from '../../shared/project-run-commands'
 import type { ProjectGroup, WorkspaceProject } from '../../shared/terminal'
 import ProjectColorPicker from './ProjectColorPicker'
+import {
+  describeBranchChoiceBlocker,
+  type GitBranchListResult,
+  type GitCheckoutResult,
+  type GitLocalBranch
+} from '../../shared/git-branch'
 
 /**
  * The right-click menu on a sidebar row. It portals to `<body>` for the same reason every other
@@ -12,17 +18,28 @@ import ProjectColorPicker from './ProjectColorPicker'
  * off at the first project row - and it is positioned in viewport coordinates at the pointer.
  *
  * The colour picker is a second page of this same menu rather than a menu of its own: one portal,
- * one Escape, one outside click, so a half-open colour popover can never outlive its row.
+ * one Escape, one outside click, so a half-open colour popover can never outlive its row. The
+ * branch switcher is a third page for the same reason, and the row's branch chip opens the menu
+ * straight onto it.
  */
 
 export type ProjectMenuTarget = { kind: 'project'; project: WorkspaceProject } | { kind: 'group'; group: ProjectGroup }
+
+export type ProjectMenuPage = 'root' | 'colour' | 'groups' | 'branches'
 
 export interface ProjectRowMenuProps {
   x: number
   y: number
   target: ProjectMenuTarget
+  /** The page to open on; the branch chip opens straight onto the switcher. */
+  initialPage?: ProjectMenuPage
   groups: readonly ProjectGroup[]
   onClose(): void
+  onListBranches(projectPath: string): Promise<GitBranchListResult>
+  /** Resolves with git's refusal rather than throwing, so the page can show it beside the list. */
+  onSwitchBranch(project: WorkspaceProject, branch: string): Promise<GitCheckoutResult>
+  /** How many sessions are mid-turn in the project checkout itself; any at all blocks a switch. */
+  workingSessions(projectId: string): number
   onColorChange(projectId: string, color: string): void
   /** `undefined` takes the project back to the top level. */
   onMoveToGroup(projectId: string, groupId: string | undefined): void
@@ -35,7 +52,7 @@ export interface ProjectRowMenuProps {
 
 export default function ProjectRowMenu(props: ProjectRowMenuProps): JSX.Element {
   const menuRef = useRef<HTMLDivElement>(null)
-  const [page, setPage] = useState<'root' | 'colour' | 'groups'>('root')
+  const [page, setPage] = useState<ProjectMenuPage>(props.initialPage ?? 'root')
 
   /*
    * The pointer is the anchor, and the menu changes height when it turns into the colour or group
@@ -99,6 +116,21 @@ export default function ProjectRowMenu(props: ProjectRowMenuProps): JSX.Element 
               props.onColorChange(project.id, color)
               props.onClose()
             }}
+          />
+        </>
+      )
+    }
+
+    if (project && page === 'branches') {
+      return (
+        <>
+          {back}
+          <BranchPage
+            project={project}
+            workingSessions={props.workingSessions(project.id)}
+            listBranches={props.onListBranches}
+            switchBranch={props.onSwitchBranch}
+            onSwitched={props.onClose}
           />
         </>
       )
@@ -240,6 +272,17 @@ export default function ProjectRowMenu(props: ProjectRowMenuProps): JSX.Element 
             <div className="project-menu-divider" role="separator" />
           </>
         )}
+        {project && (
+          <button type="button" role="menuitem" onClick={() => setPage('branches')}>
+            <span className="menu-icon">
+              <GitBranch aria-hidden="true" />
+            </span>
+            <span>
+              <strong>Switch branch…</strong>
+              <small>Checks out another local branch</small>
+            </span>
+          </button>
+        )}
         <button type="button" role="menuitem" onClick={() => setPage('colour')}>
           <span className="menu-icon">
             <Palette aria-hidden="true" />
@@ -280,4 +323,106 @@ export default function ProjectRowMenu(props: ProjectRowMenuProps): JSX.Element 
     </div>,
     document.body
   )
+}
+
+/**
+ * The local branches of the project checkout, read when the page opens rather than kept fresh:
+ * a menu is open for seconds, and the list is re-read on every open. A refused checkout stays
+ * on the page with git's message, so the user can read why before picking something else.
+ */
+function BranchPage({
+  project,
+  workingSessions,
+  listBranches,
+  switchBranch,
+  onSwitched
+}: {
+  project: WorkspaceProject
+  workingSessions: number
+  listBranches(projectPath: string): Promise<GitBranchListResult>
+  switchBranch(project: WorkspaceProject, branch: string): Promise<GitCheckoutResult>
+  onSwitched(): void
+}): JSX.Element {
+  const [listing, setListing] = useState<GitBranchListResult | null>(null)
+  const [busy, setBusy] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let active = true
+    setListing(null)
+    void listBranches(project.path).then(
+      (result) => {
+        if (active) setListing(result)
+      },
+      (failure: unknown) => {
+        if (active) setListing({ ok: false, branches: [], message: describeFailure(failure) })
+      }
+    )
+    return () => {
+      active = false
+    }
+  }, [listBranches, project.path])
+
+  const pick = async (branch: GitLocalBranch): Promise<void> => {
+    setBusy(branch.name)
+    setError(null)
+    try {
+      const result = await switchBranch(project, branch.name)
+      if (result.ok) onSwitched()
+      else setError(result.message ?? `Could not check out ${branch.name}`)
+    } catch (failure) {
+      setError(describeFailure(failure))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  if (!listing) return <p className="project-menu-note">Reading branches…</p>
+  if (!listing.ok) return <p className="project-menu-note">{listing.message ?? 'Could not read branches'}</p>
+  if (listing.branches.length === 0) return <p className="project-menu-note">No local branches</p>
+
+  return (
+    <>
+      <p className="project-menu-section">Local branches</p>
+      {workingSessions > 0 && (
+        <p className="project-menu-note" data-tone="warning">
+          {describeBranchChoiceBlocker({ name: '', current: false }, { workingSessions })}
+        </p>
+      )}
+      <div className="project-branch-list">
+        {listing.branches.map((branch) => {
+          const blocker = describeBranchChoiceBlocker(branch, { workingSessions })
+          return (
+            <button
+              key={branch.name}
+              type="button"
+              role="menuitemradio"
+              aria-checked={branch.current}
+              disabled={Boolean(blocker) || busy !== null}
+              title={blocker ?? `Check out ${branch.name}`}
+              data-current={branch.current ? 'true' : undefined}
+              onClick={() => void pick(branch)}
+            >
+              <span className="menu-icon project-branch-mark">{branch.current && <Check aria-hidden="true" />}</span>
+              <span>
+                <strong className="project-branch-label">
+                  {busy === branch.name ? `Checking out ${branch.name}…` : branch.name}
+                </strong>
+                {branch.worktreePath && !branch.current && <small className="project-menu-command">{blocker}</small>}
+              </span>
+            </button>
+          )
+        })}
+      </div>
+      {error && (
+        <p className="project-menu-note" data-tone="error" role="alert">
+          {error}
+        </p>
+      )}
+    </>
+  )
+}
+
+function describeFailure(failure: unknown): string {
+  return failure instanceof Error ? failure.message : String(failure)
 }

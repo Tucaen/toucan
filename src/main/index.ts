@@ -78,6 +78,7 @@ import type {
   WorktreeStatusRequest
 } from '../shared/worktree'
 import type { GitDiffRequest, GitFileDiffRequest } from '../shared/git-diff'
+import type { GitCheckoutRequest } from '../shared/git-branch'
 
 /**
  * Plan usage moves slowly and a Claude read boots a CLI, so this caps how often that happens
@@ -128,6 +129,10 @@ function registerWorktreeIpc(worktrees: WorktreeManager): void {
   ipcMain.handle(WORKTREE_CHANNELS.diff, (_event, request: GitDiffRequest) => worktrees.diff(request))
   ipcMain.handle(WORKTREE_CHANNELS.diffFile, (_event, request: GitFileDiffRequest) => worktrees.diffFile(request))
   ipcMain.handle(WORKTREE_CHANNELS.currentBranch, (_event, path: string) => worktrees.currentBranch(path))
+  ipcMain.handle(WORKTREE_CHANNELS.listBranches, (_event, path: string) => worktrees.listBranches(path))
+  ipcMain.handle(WORKTREE_CHANNELS.checkoutBranch, (_event, request: GitCheckoutRequest) =>
+    worktrees.checkoutBranch(request)
+  )
 }
 
 /**

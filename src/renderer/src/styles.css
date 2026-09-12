@@ -7333,3 +7333,112 @@ button {
 .diff-node-pane .file-op-block-label {
   font-size: 11px;
 }
+
+/* ---- Project branch switcher ------------------------------------------ */
+
+/* The project's own branch, beside its path in the sidebar row. Styled as the node chip's sibling
+   (same glyph, same purple) so the two visibly mean the same thing, but as a button: this one is
+   where a branch is switched. */
+.project-branch {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0 6px 0 4px;
+  border: 1px solid rgba(201, 146, 255, 0.3);
+  border-radius: 999px;
+  color: #cbb0f0;
+  background: rgba(201, 146, 255, 0.08);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 16px;
+  cursor: pointer;
+}
+
+.project-branch:hover,
+.project-branch:focus-visible {
+  outline: none;
+  border-color: rgba(201, 146, 255, 0.6);
+  background: rgba(201, 146, 255, 0.16);
+}
+
+.project-branch[data-detached='true'] {
+  border-color: rgba(241, 199, 91, 0.45);
+  color: #f1c75b;
+  background: rgba(241, 199, 91, 0.08);
+}
+
+.project-branch .worktree-glyph {
+  font-size: 11px;
+  line-height: 0;
+}
+
+.project-branch-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-branch-caret {
+  width: 11px;
+  height: 11px;
+  flex: 0 0 auto;
+  opacity: 0.7;
+}
+
+/* The row's second line: branch first, then the path, each eliding on its own. */
+.project-copy-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.project-copy-meta small {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.project-menu-note {
+  margin: 2px 8px 6px;
+  color: #818b99;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: normal;
+  text-transform: none;
+  line-height: 1.4;
+}
+
+.project-menu-note[data-tone='warning'] {
+  color: #f1c75b;
+}
+
+.project-menu-note[data-tone='error'] {
+  color: #ff8a8e;
+}
+
+.project-branch-list {
+  max-height: 40vh;
+  overflow: auto;
+}
+
+.project-branch-list button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.project-branch-list button[data-current='true'] {
+  color: #cbb0f0;
+}
+
+.project-branch-mark {
+  color: #cbb0f0;
+}
+
+.project-branch-label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}

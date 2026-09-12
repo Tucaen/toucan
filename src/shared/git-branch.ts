@@ -31,3 +31,71 @@ export function describeGitBranch(
   }
   return { label: 'detached', title: `${directory} has a detached HEAD` }
 }
+
+/**
+ * One local branch as the switcher lists it. `worktreePath` is where git already has the branch
+ * checked out - the project checkout itself for the current branch, a worktree for any other -
+ * and git refuses to check such a branch out a second time, so the switcher greys it out rather
+ * than letting the user discover that from an error.
+ */
+export interface GitLocalBranch {
+  name: string
+  current: boolean
+  worktreePath?: string
+}
+
+export interface GitBranchListResult {
+  ok: boolean
+  branches: GitLocalBranch[]
+  message?: string
+}
+
+export interface GitCheckoutRequest {
+  path: string
+  branch: string
+}
+
+export interface GitCheckoutResult {
+  ok: boolean
+  /** Git's own words when the checkout was refused - most often uncommitted changes in the way. */
+  message?: string
+}
+
+/** The `--format` handed to `git branch`: name, HEAD marker, and worktree path, tab-separated. */
+export const LOCAL_BRANCH_FORMAT = '%(refname:short)%09%(HEAD)%09%(worktreepath)'
+
+/** Parses the output of `git branch --format=LOCAL_BRANCH_FORMAT`; the current branch sorts first. */
+export function parseLocalBranches(stdout: string): GitLocalBranch[] {
+  const branches: GitLocalBranch[] = []
+  for (const line of stdout.split(/\r?\n/)) {
+    if (!line.trim()) continue
+    const [name, head = '', worktreePath = ''] = line.split('\t')
+    // A detached worktree shows up as "(HEAD detached at …)"; it is not a branch anyone can pick.
+    if (!name || name.startsWith('(')) continue
+    branches.push({
+      name,
+      current: head.trim() === '*',
+      ...(worktreePath.trim() ? { worktreePath: worktreePath.trim() } : {})
+    })
+  }
+  return branches.sort((a, b) => Number(b.current) - Number(a.current) || a.name.localeCompare(b.name))
+}
+
+/**
+ * Why a branch cannot be picked right now, or `undefined` when it can. Switching the project
+ * checkout under a session that is mid-turn swaps the files it is editing, so that is refused
+ * outright rather than warned about - the same fail-closed instinct worktree removal has.
+ */
+export function describeBranchChoiceBlocker(
+  branch: GitLocalBranch,
+  context: { workingSessions: number }
+): string | undefined {
+  if (branch.current) return 'Already checked out'
+  if (branch.worktreePath) return `Checked out in ${branch.worktreePath}`
+  if (context.workingSessions > 0) {
+    return context.workingSessions === 1
+      ? '1 session is working in this checkout; wait for it to finish'
+      : `${context.workingSessions} sessions are working in this checkout; wait for them to finish`
+  }
+  return undefined
+}

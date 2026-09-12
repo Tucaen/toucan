@@ -70,7 +70,9 @@ export const WORKTREE_CHANNELS = {
   discover: 'worktree:discover',
   diff: 'worktree:diff',
   diffFile: 'worktree:diff-file',
-  currentBranch: 'worktree:current-branch'
+  currentBranch: 'worktree:current-branch',
+  listBranches: 'worktree:list-branches',
+  checkoutBranch: 'worktree:checkout-branch'
 } as const
 
 export const CONVERSATION_CHANNELS = {

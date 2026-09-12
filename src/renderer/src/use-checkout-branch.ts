@@ -9,8 +9,11 @@ const BRANCH_POLL_MS = 10_000
  * from outside Toucan - the agent itself, a terminal, another editor - and git has nothing to
  * subscribe to. A failed read keeps the last good answer rather than blanking the indicator, so a
  * momentary lock or an index rewrite mid-checkout does not flicker the row.
+ *
+ * `revision` is for the one case where Toucan itself moved the branch: bumping it re-reads at
+ * once instead of leaving the row stale for up to a poll interval after the user's own click.
  */
-export function useCheckoutBranch(directory: string): GitBranchState | null {
+export function useCheckoutBranch(directory: string, revision = 0): GitBranchState | null {
   const [state, setState] = useState<GitBranchState | null>(null)
 
   const read = useCallback(async (): Promise<GitBranchState | null> => {
@@ -39,6 +42,17 @@ export function useCheckoutBranch(directory: string): GitBranchState | null {
       clearInterval(interval)
     }
   }, [read])
+
+  useEffect(() => {
+    if (revision === 0) return
+    let active = true
+    void read().then((next) => {
+      if (active && next) setState(next)
+    })
+    return () => {
+      active = false
+    }
+  }, [read, revision])
 
   return state
 }

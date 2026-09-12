@@ -135,7 +135,9 @@ import {
   ungroupProjects,
   type MeasuredRow
 } from './project-order'
-import ProjectRowMenu, { type ProjectMenuTarget } from './ProjectRowMenu'
+import ProjectRowMenu, { type ProjectMenuPage, type ProjectMenuTarget } from './ProjectRowMenu'
+import ProjectBranchChip from './ProjectBranchChip'
+import type { GitCheckoutResult } from '../../shared/git-branch'
 import { ProviderRateLimitsContext } from './provider-rate-limits'
 import { ProviderUsageChip } from './ProviderUsageChip'
 import SessionKindIcon from './SessionKindIcon'
@@ -292,7 +294,15 @@ function Canvas(): JSX.Element {
   const [removalPrompt, setRemovalPrompt] = useState<WorktreeRemovalPrompt | null>(null)
   const [setupProjectId, setSetupProjectId] = useState<string | null>(null)
   // The sidebar's own right-click menu, positioned at the pointer like the canvas one.
-  const [projectMenu, setProjectMenu] = useState<{ x: number; y: number; target: ProjectMenuTarget } | null>(null)
+  const [projectMenu, setProjectMenu] = useState<{
+    x: number
+    y: number
+    target: ProjectMenuTarget
+    page?: ProjectMenuPage
+  } | null>(null)
+  // Bumped after Toucan itself checks a branch out, so the sidebar rows re-read at once instead of
+  // waiting out their poll interval. Node chips keep polling; they catch up within seconds.
+  const [branchRevision, setBranchRevision] = useState(0)
   const [renamingGroupId, setRenamingGroupId] = useState<string | null>(null)
   // Where a conversation picked from the history browser lands, captured when the browser opens
   // so the node still appears where the user right-clicked.
@@ -1450,6 +1460,41 @@ function Canvas(): JSX.Element {
   // lists, and for the spawns that phone asks for. The projection is derived from the same
   // snapshot that gets persisted, so the phone and the canvas can never be looking at two
   // different sets of nodes.
+  const listProjectBranches = useCallback((projectPath: string) => window.worktreeApi.listBranches(projectPath), [])
+
+  /**
+   * Sessions mid-turn in the project checkout itself. Worktree nodes do not count: switching the
+   * project checkout leaves their directories untouched.
+   */
+  const countWorkingCheckoutSessions = useCallback(
+    (projectId: string): number =>
+      nodes
+        .filter(isTerminalCanvasNode)
+        .filter((node) => node.data.projectId === projectId && !node.data.worktreeId)
+        .filter((node) => sessionNodeStatus(node, nodeStatuses) === 'working').length,
+    [nodes, nodeStatuses]
+  )
+
+  const switchProjectBranch = useCallback(
+    async (project: WorkspaceProject, branch: string): Promise<GitCheckoutResult> => {
+      // Re-checked here, not only in the menu: a session can start a turn while the list is open.
+      const working = countWorkingCheckoutSessions(project.id)
+      if (working > 0) {
+        return {
+          ok: false,
+          message:
+            working === 1
+              ? '1 session started working in this checkout; wait for it to finish'
+              : `${working} sessions are working in this checkout; wait for them to finish`
+        }
+      }
+      const result = await window.worktreeApi.checkoutBranch({ path: project.path, branch })
+      if (result.ok) setBranchRevision((current) => current + 1)
+      return result
+    },
+    [countWorkingCheckoutSessions]
+  )
+
   const remoteAccess = useRemoteAccess(workspaceSnapshot, nodeStatuses, startRemoteSpawn)
   const appUpdate = useAppUpdate()
 
@@ -2389,7 +2434,22 @@ function Canvas(): JSX.Element {
                                     {!sidebarCollapsed && (
                                       <span className="project-copy">
                                         <strong>{project.name}</strong>
-                                        <small>{project.path}</small>
+                                        <span className="project-copy-meta">
+                                          <ProjectBranchChip
+                                            directory={project.path}
+                                            revision={branchRevision}
+                                            onOpen={(anchor) => {
+                                              setMenu(null)
+                                              setProjectMenu({
+                                                x: anchor.left,
+                                                y: anchor.bottom + 4,
+                                                target: { kind: 'project', project },
+                                                page: 'branches'
+                                              })
+                                            }}
+                                          />
+                                          <small>{project.path}</small>
+                                        </span>
                                       </span>
                                     )}
                                   </button>
@@ -2720,8 +2780,12 @@ function Canvas(): JSX.Element {
                 x={projectMenu.x}
                 y={projectMenu.y}
                 target={projectMenu.target}
+                initialPage={projectMenu.page}
                 groups={projectGroups}
                 onClose={() => setProjectMenu(null)}
+                onListBranches={listProjectBranches}
+                onSwitchBranch={switchProjectBranch}
+                workingSessions={countWorkingCheckoutSessions}
                 onColorChange={setProjectColor}
                 onMoveToGroup={moveProjectToGroup}
                 onCreateGroup={createProjectGroup}
