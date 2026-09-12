@@ -5,7 +5,6 @@ import type { WorkspaceProject } from '../src/shared/terminal'
 import {
   BRAIN_DUMP_UNASSIGNED_LABEL,
   BRAIN_DUMP_UNREGISTERED_NOTE,
-  brainDumpPathIdentity,
   brainDumpTopicPreview,
   describeBrainDumpDate,
   nextBrainDumpSelection,
@@ -32,10 +31,8 @@ function topic(overrides: Partial<BrainDumpTopic> & Pick<BrainDumpTopic, 'slug'>
   }
 }
 
-test('the same checkout matches whatever drive casing and separators it arrived with', () => {
-  equal(brainDumpPathIdentity('D:\\Development\\Toucan\\'), brainDumpPathIdentity('d:/development/toucan'))
-})
-
+// That a checkout matches whatever casing and separators it arrived with is `pathIdentity`'s own
+// rule now, proved in `tests/paths.test.ts`; these cases assume it and test what is built on it.
 test('a registered project supplies its name and colour', () => {
   deepEqual(resolveBrainDumpProject('d:/development/toucan', projects), {
     label: 'Toucan',

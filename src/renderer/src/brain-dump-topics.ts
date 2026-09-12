@@ -1,5 +1,6 @@
 import type { BrainDumpTopic } from '../../shared/brain-dump'
 import type { WorkspaceProject } from '../../shared/terminal'
+import { pathIdentity } from '../../shared/paths'
 
 /**
  * How the library presents a topic before any of it reaches the DOM: which workspace project owns
@@ -25,18 +26,6 @@ export interface BrainDumpProjectIdentity {
 export const BRAIN_DUMP_UNASSIGNED_LABEL = 'Unassigned'
 export const BRAIN_DUMP_UNREGISTERED_NOTE = 'Project not in workspace'
 
-/**
- * One comparable identity for a filesystem path. The same checkout reaches Toucan with either drive
- * letter case and with either separator, so a topic written on one route must still match the
- * project registered by the other.
- */
-export function brainDumpPathIdentity(path: string): string {
-  return path
-    .replace(/[\\/]+/g, '/')
-    .replace(/\/+$/, '')
-    .toLocaleLowerCase('en-US')
-}
-
 function basename(path: string): string {
   const parts = path.replace(/[\\/]+$/, '').split(/[\\/]/)
   return parts[parts.length - 1] || path
@@ -48,8 +37,8 @@ export function resolveBrainDumpProject(
   projects: readonly WorkspaceProject[]
 ): BrainDumpProjectIdentity {
   if (!projectPath) return { label: BRAIN_DUMP_UNASSIGNED_LABEL, registered: false, unassigned: true }
-  const identity = brainDumpPathIdentity(projectPath)
-  const registered = projects.find((project) => brainDumpPathIdentity(project.path) === identity)
+  const identity = pathIdentity(projectPath)
+  const registered = projects.find((project) => pathIdentity(project.path) === identity)
   if (registered)
     return {
       label: registered.name,

@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Check, ChevronDown } from 'lucide-react'
 import type { WorkspaceProject } from '../../shared/terminal'
-import { BRAIN_DUMP_UNASSIGNED_LABEL, brainDumpPathIdentity, type BrainDumpProjectIdentity } from './brain-dump-topics'
+import { BRAIN_DUMP_UNASSIGNED_LABEL, type BrainDumpProjectIdentity } from './brain-dump-topics'
+import { pathIdentity } from '../../shared/paths'
 import { BrainDumpProjectChipContent } from './BrainDumpProjectChip'
 import { usePortalMenuPosition } from './use-portal-menu-position'
 
@@ -69,11 +70,10 @@ export default function BrainDumpProjectPicker(props: BrainDumpProjectPickerProp
    * projects with, so a topic filed under a differently-cased or differently-separated spelling of
    * a registered path still marks that project rather than none of them.
    */
-  const currentIdentity =
-    props.project.unassigned || !props.project.path ? undefined : brainDumpPathIdentity(props.project.path)
+  const currentIdentity = props.project.unassigned || !props.project.path ? undefined : pathIdentity(props.project.path)
 
   const option = (project: WorkspaceProject | undefined): JSX.Element => {
-    const selected = (project ? brainDumpPathIdentity(project.path) : undefined) === currentIdentity
+    const selected = (project ? pathIdentity(project.path) : undefined) === currentIdentity
     return (
       <button
         key={project?.id ?? 'unassigned'}

@@ -61,7 +61,6 @@ import {
   brainDumpPanelKeyAction,
   clampBrainDumpPanelWidth
 } from './brain-dump-panel-layout'
-import { brainDumpPathIdentity } from './brain-dump-topics'
 import BrainDumpLibraryPanel from './BrainDumpLibraryPanel'
 import {
   TICKET_BOARD_DEFAULT_WIDTH,
@@ -1893,9 +1892,9 @@ function Canvas(): JSX.Element {
    */
   const openBrainDumpSession = useCallback(
     (conversation: { provider: TerminalKind; conversationId: string; cwd: string }): void => {
-      const identity = brainDumpPathIdentity(conversation.cwd)
+      const identity = pathIdentity(conversation.cwd)
       const project =
-        projectsRef.current.find((candidate) => brainDumpPathIdentity(candidate.path) === identity) ??
+        projectsRef.current.find((candidate) => pathIdentity(candidate.path) === identity) ??
         projectsRef.current.find((candidate) => candidate.id === activeProjectId) ??
         projectsRef.current[0]
       if (!project) return

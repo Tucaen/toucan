@@ -8,6 +8,7 @@ import type {
   AgentPromptResult
 } from '../shared/agent'
 import { AGENT_CHANNELS, BRAIN_DUMP_CHANNELS } from '../shared/ipc-channels'
+import { pathIdentity } from '../shared/paths'
 import type {
   BrainDumpCaptureConversation,
   BrainDumpCaptureFailureCode,
@@ -57,12 +58,14 @@ export interface BrainDumpCaptureManagerOptions {
 
 export const DEFAULT_FINAL_ANSWER_GRACE_MS = 500
 
-function pathIdentity(path: string): string {
-  const normalized = win32.isAbsolute(path) ? win32.normalize(path) : normalize(path)
-  return normalized
-    .replace(/[\\/]+$/, '')
-    .replace(/\\/g, '/')
-    .toLocaleLowerCase('en-US')
+/**
+ * `pathIdentity` plus the one thing pure string work cannot do: resolve `.` and `..` segments. A
+ * capture's project association arrives as whatever the request carried, so `D:\a\..\b` has to
+ * match the registered `D:\b`. Kept as a layer over the shared rule rather than as a second rule -
+ * `node:path` is exactly what `src/shared` may not import, and that is the whole of the difference.
+ */
+function resolvedPathIdentity(path: string): string {
+  return pathIdentity(win32.isAbsolute(path) ? win32.normalize(path) : normalize(path))
 }
 
 export function buildBrainDumpCapturePrompt(content: string, projectPath?: string): AgentPromptContent {
@@ -176,7 +179,9 @@ export function createBrainDumpCaptureManager(options: BrainDumpCaptureManagerOp
     }
     let cwd = options.homeDirectory
     if (request.projectPath !== undefined) {
-      const registered = projects.find((path) => pathIdentity(path) === pathIdentity(request.projectPath!))
+      const registered = projects.find(
+        (path) => resolvedPathIdentity(path) === resolvedPathIdentity(request.projectPath!)
+      )
       if (!registered) {
         starting = false
         return { ok: false, code: 'invalid-project', message: 'Project is not registered in the workspace.' }
