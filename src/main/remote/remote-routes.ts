@@ -15,6 +15,13 @@ export type RemoteRoute =
   | { kind: 'pairing' }
   /** Starts a chat that does not exist yet. */
   | { kind: 'create-chat' }
+  /**
+   * What each provider was last seen to offer, so a client choosing a model *before* a session
+   * exists has something to choose from. Deliberately its own route rather than a field on the
+   * workspace projection: the projection is the canvas's answer, published by the renderer, and
+   * the model catalogue is main's own knowledge of what adapters have advertised.
+   */
+  | { kind: 'models' }
   /** A phone's recording, to be transcribed by the desktop's speech model and handed back as text. */
   | { kind: 'transcribe' }
   | { kind: 'client'; pathname: string }
@@ -35,8 +42,9 @@ export function resolveRemoteRoute(method: string | undefined, target: string | 
   // request, not the request, so it is answered for any path this host serves at all.
   if (method === 'OPTIONS') return { kind: 'preflight' }
 
-  if (pathname === '/api/workspace' || pathname === '/api/pairing') {
+  if (pathname === '/api/workspace' || pathname === '/api/pairing' || pathname === '/api/models') {
     if (method !== 'GET' && method !== 'HEAD') return { kind: 'method-not-allowed', allow: 'GET, HEAD' }
+    if (pathname === '/api/models') return { kind: 'models' }
     return pathname === '/api/workspace' ? { kind: 'workspace' } : { kind: 'pairing' }
   }
   if (pathname === '/api/chats') {
@@ -58,6 +66,7 @@ export function routeRequiresPairing(route: RemoteRoute): boolean {
     route.kind === 'workspace' ||
     route.kind === 'pairing' ||
     route.kind === 'create-chat' ||
+    route.kind === 'models' ||
     route.kind === 'transcribe'
   )
 }

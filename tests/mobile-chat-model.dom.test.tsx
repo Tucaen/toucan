@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import ChatScreen from '../mobile/src/ChatScreen'
 import type { SavedHost } from '../mobile/src/hosts'
-import type { AgentEvent } from '../src/shared/agent'
+import { MODEL_CHANGE_WHILE_BUSY, type AgentEvent } from '../src/shared/agent'
 import { foldAgentEvent, initialAgentTranscriptState } from '../src/shared/agent-transcript'
 import type { RemoteChatSummary } from '../src/shared/remote-access'
 import type { RemoteChatServerMessage } from '../src/shared/remote-chat'
@@ -168,6 +168,14 @@ describe('seeing and choosing the model from the phone', () => {
     })
     expect(screen.getByRole('alert')).toHaveTextContent('This agent does not expose model selection.')
     expect(picker()).not.toBeDisabled()
+  })
+
+  test('a turn in flight closes the picker and says why', () => {
+    open([MODELS, { type: 'status', status: 'working' }])
+    expect(picker().value).toBe('sonnet')
+    expect(picker()).toBeDisabled()
+    // The reason is readable rather than a silently dead control, and it is the host's own wording.
+    expect(screen.getByText(MODEL_CHANGE_WHILE_BUSY)).toBeInTheDocument()
   })
 
   test('an exited session shows what it ran on but offers no change', () => {

@@ -14,6 +14,7 @@ import type {
   AgentPromptContent,
   AgentTurnOutcome
 } from '../../shared/agent'
+import { MODEL_CHANGE_WHILE_BUSY } from '../../shared/agent'
 import type { AgentRoutineDelegation, RoutineDelegationRequest } from '../../shared/routine-delegation'
 import {
   applyAgentCreateResult,
@@ -141,6 +142,12 @@ export interface AgentConversationController {
   /** Hands one queued prompt to the running turn now, instead of waiting for it to finish. */
   sendQueuedNow(id: string): void
   selectorsDisabled: boolean
+  /**
+   * Why the *model* picker alone is closed, beyond `selectorsDisabled`, or null. A conversation
+   * keeps one model for a whole turn; effort and permission mode do not work that way, so this is
+   * deliberately not folded into `selectorsDisabled`.
+   */
+  modelChangeBlocked: string | null
   setDraft(value: string): void
   addImages(files: File[] | FileList): Promise<void>
   removeAttachment(id: string): void
@@ -563,6 +570,11 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     withdrawQueued,
     sendQueuedNow,
     selectorsDisabled: status === 'starting' || status === 'exited',
+    // The model picker alone closes for a turn in flight, in the words `setModel` would refuse it
+    // with. Effort and permission mode deliberately stay open: those the adapter applies at its
+    // next boundary, while a model swap costs the conversation its prompt cache and strands the
+    // running turn's reasoning on the model that produced it.
+    modelChangeBlocked: status === 'working' ? MODEL_CHANGE_WHILE_BUSY : null,
     setDraft,
     addImages,
     removeAttachment,

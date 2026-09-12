@@ -1,6 +1,13 @@
 import { strict as assert } from 'node:assert'
 import { describe, test } from 'node:test'
-import { initialNewChatForm, newChatProblem, newChatRequest, type NewChatForm } from '../mobile/src/new-chat'
+import {
+  initialNewChatForm,
+  newChatModels,
+  newChatProblem,
+  newChatRequest,
+  withNewChatKind,
+  type NewChatForm
+} from '../mobile/src/new-chat'
 import type { RemoteWorkspaceSnapshot } from '../src/shared/remote-access'
 
 /**
@@ -18,12 +25,17 @@ function snapshot(projectIds: string[]): RemoteWorkspaceSnapshot {
 }
 
 function form(overrides: Partial<NewChatForm> = {}): NewChatForm {
-  return { projectId: 'toucan', kind: 'claude', input: '', ...overrides }
+  return { projectId: 'toucan', kind: 'claude', input: '', modelId: '', ...overrides }
 }
 
 describe('the form a phone starts a chat from', () => {
   test('defaults to the only project when there is only one', () => {
-    assert.deepEqual(initialNewChatForm(snapshot(['toucan'])), { projectId: 'toucan', kind: 'claude', input: '' })
+    assert.deepEqual(initialNewChatForm(snapshot(['toucan'])), {
+      projectId: 'toucan',
+      kind: 'claude',
+      input: '',
+      modelId: ''
+    })
   })
 
   test('a workspace with no projects leaves nothing selected', () => {
@@ -71,5 +83,56 @@ describe('why the form cannot be submitted yet', () => {
       newChatProblem(form({ input: 'x'.repeat(20_000) }), snapshot(['toucan'])),
       'A message may be at most 16000 characters.'
     )
+  })
+})
+
+/**
+ * Choosing a model before the session exists. The rule that matters is that *no* model is a normal
+ * answer, not an unfilled field: the desktop has its own default, and the catalogue is empty until
+ * this host has run that agent once - so a form that demanded a model would be unsubmittable
+ * exactly where it is least useful.
+ */
+
+const CATALOGUE = {
+  claude: [
+    { id: 'sonnet', name: 'Sonnet' },
+    { id: 'opus', name: 'Opus' }
+  ],
+  codex: [{ id: 'gpt-5-codex', name: 'GPT-5 Codex' }]
+}
+
+describe('choosing a model for a chat that does not exist yet', () => {
+  test('the form starts on the desktop default and offers only the selected agent\u2019s models', () => {
+    const fresh = initialNewChatForm(snapshot(['toucan']))
+    assert.equal(fresh.modelId, '')
+    assert.deepEqual(
+      newChatModels(fresh, CATALOGUE).map((model) => model.id),
+      ['sonnet', 'opus']
+    )
+    assert.deepEqual(
+      newChatModels(form({ kind: 'codex' }), CATALOGUE).map((model) => model.id),
+      ['gpt-5-codex']
+    )
+  })
+
+  test('an agent this host has never run offers nothing, and that is not an error', () => {
+    assert.deepEqual(newChatModels(form(), {}), [])
+    assert.equal(newChatProblem(form(), snapshot(['toucan'])), null)
+    // Which is the whole point: a chat still starts, on whatever the desktop would have picked.
+    assert.equal(newChatRequest(form()).modelId, undefined)
+  })
+
+  test('a chosen model is sent, and no choice is omitted rather than sent empty', () => {
+    assert.equal(newChatRequest(form({ modelId: 'opus' })).modelId, 'opus')
+    assert.equal('modelId' in newChatRequest(form({ modelId: '' })), false)
+  })
+
+  test('switching agent drops a model chosen for the other one', () => {
+    // The two providers share no ids, so carrying it over would send the host something it must
+    // refuse - and the reader would have no idea why.
+    const chosen = form({ kind: 'claude', modelId: 'opus' })
+    assert.equal(withNewChatKind(chosen, 'codex').modelId, '')
+    // Re-selecting the agent already chosen changes nothing, so a re-render cannot clear a pick.
+    assert.equal(withNewChatKind(chosen, 'claude').modelId, 'opus')
   })
 })

@@ -1,4 +1,4 @@
-import type { AgentModel, AgentModelState } from '../../src/shared/agent'
+import { MODEL_CHANGE_WHILE_BUSY, type AgentModel, type AgentModelState } from '../../src/shared/agent'
 import { foldAgentEvent, type AgentTranscriptState } from '../../src/shared/agent-transcript'
 import { parseRemoteChatServerMessage, promptTextProblem } from '../../src/shared/remote-chat'
 import { pendingRequestFrom, type PendingRequest } from './chat-view'
@@ -260,6 +260,10 @@ export function modelPickerBlockedReason(state: ChatConnectionState): string | n
   const status = state.transcript?.status
   if (status === 'starting') return 'The session is still starting.'
   if (status === 'exited') return 'This session has exited.'
+  // A conversation keeps one model for a whole turn. Worded from the shared constant because the
+  // host refuses it in exactly these words too, and a greyed-out control whose reason differs from
+  // the refusal behind it is worse than either wording alone.
+  if (status === 'working') return MODEL_CHANGE_WHILE_BUSY
   return null
 }
 

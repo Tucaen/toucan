@@ -37,7 +37,7 @@ import {
   withSend,
   type ChatConnectionState
 } from '../mobile/src/chat-connection'
-import type { AgentDecisionRequest, AgentEvent } from '../src/shared/agent'
+import { MODEL_CHANGE_WHILE_BUSY, type AgentDecisionRequest, type AgentEvent } from '../src/shared/agent'
 import { foldAgentEvent, initialAgentTranscriptState, type AgentTranscriptState } from '../src/shared/agent-transcript'
 import { promptTextProblem, REMOTE_CHAT_PROMPT_LIMIT } from '../src/shared/remote-chat'
 
@@ -613,17 +613,22 @@ test('a model the session never advertised, and the one already selected, are no
   assert.equal(plannedModelChange(state, 'r1', 'gpt-5'), null)
 })
 
-test('the picker follows the desktop: closed while starting or exited, open mid-turn', () => {
+test('the picker is closed while starting, exited, or mid-turn', () => {
   const starting = live([{ type: 'status', status: 'starting' }, MODELS])
   assert.match(modelPickerBlockedReason(starting) ?? '', /still starting/)
 
   const exited = live([{ type: 'status', status: 'exited' }, MODELS])
   assert.match(modelPickerBlockedReason(exited) ?? '', /has exited/)
 
-  // Deliberately *not* blocked: the desktop's pickers stay live while a turn runs, so a model
-  // change offered on one surface and refused on the other would be the two disagreeing.
+  // A conversation keeps one model for a whole turn, and the phone says so in the host's own
+  // words - `setModel` refuses a busy session with this exact string, so the greyed-out control
+  // and the refusal behind it cannot describe two different rules.
   const working = live([{ type: 'status', status: 'working' }, MODELS])
-  assert.equal(modelPickerBlockedReason(working), null)
+  assert.equal(modelPickerBlockedReason(working), MODEL_CHANGE_WHILE_BUSY)
+  assert.equal(plannedModelChange(working, 'r1', 'opus'), null)
+
+  // Idle is the whole point of the rule: the change is available the moment the turn ends.
+  assert.equal(modelChangeBlockedReason(live(WITH_MODELS), 'opus'), null)
 })
 
 test('a change in flight is inert and says so, and the new selection comes from the session', () => {

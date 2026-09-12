@@ -878,6 +878,8 @@ function Canvas(): JSX.Element {
       titleSource?: ConversationTitleSource
       /** An existing provider conversation this node adopts instead of starting a fresh one. */
       resumeConversationId?: string
+      /** The model to open on. Absent leaves it to the adapter's own default, as a click does. */
+      modelId?: string
       // Returns the canvas node id it minted, so a caller waiting on this session can find it.
     }): string => {
       const { kind, project, worktree: requestedWorktree, position, resumeConversationId } = options
@@ -920,6 +922,7 @@ function Canvas(): JSX.Element {
               conversationId,
               focusMode: false,
               preferredPermissionMode: kind === 'terminal' ? undefined : permissionModesRef.current[kind],
+              modelId: options.modelId,
               dormant: false,
               launchMode: resumeConversationId ? 'resume' : 'new',
               initialInput: options.initialInput,
@@ -1450,7 +1453,10 @@ function Canvas(): JSX.Element {
           kind: request.kind,
           project,
           position: centredDropPosition(NEW_SESSION_NODE_SIZE),
-          initialInput: request.input
+          initialInput: request.input,
+          // A model the phone named travels as ordinary node data, so the session it opens is the
+          // same shape as one opened from a right-click that had a model remembered on it.
+          modelId: request.modelId
         })
       }
     },

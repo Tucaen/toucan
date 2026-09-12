@@ -1,3 +1,5 @@
+import type { AgentModel } from '../../src/shared/agent'
+import type { AgentModelCatalogue } from '../../src/shared/agent-model-catalogue'
 import type { RemoteChatKind, RemoteWorkspaceSnapshot } from '../../src/shared/remote-access'
 import { remoteChatSpawnProblem, type RemoteChatSpawnRequest } from '../../src/shared/remote-spawn'
 
@@ -16,6 +18,12 @@ export interface NewChatForm {
   kind: RemoteChatKind
   /** As typed. Trimmed on the way into a request, and omitted entirely when it is empty. */
   input: string
+  /**
+   * The model to open on, or `''` for the desktop's own default. Empty is the *normal* value, not
+   * an unfilled field: the desktop has a default and the catalogue may be empty, so a form that
+   * demanded a model would be unsubmittable exactly where it is least useful.
+   */
+  modelId: string
 }
 
 /**
@@ -24,7 +32,26 @@ export interface NewChatForm {
  * projects, which `newChatProblem` then explains rather than the form silently looking fillable.
  */
 export function initialNewChatForm(snapshot: RemoteWorkspaceSnapshot): NewChatForm {
-  return { projectId: snapshot.projects[0]?.id ?? '', kind: 'claude', input: '' }
+  return { projectId: snapshot.projects[0]?.id ?? '', kind: 'claude', input: '', modelId: '' }
+}
+
+/**
+ * The models this form may offer right now: the ones the *selected agent* was last seen to offer,
+ * and nothing else. Empty is a normal state - a desktop that has not run that agent since install
+ * knows nothing about it - and the caller renders "the desktop's default" rather than a dead
+ * control.
+ */
+export function newChatModels(form: NewChatForm, catalogue: AgentModelCatalogue): AgentModel[] {
+  return catalogue[form.kind] ?? []
+}
+
+/**
+ * Switching agent has to drop a model chosen for the previous one: the two providers share no ids,
+ * so carrying it over would send the host a model it is bound to refuse. Kept here rather than in
+ * the view so the rule is the same wherever the kind changes.
+ */
+export function withNewChatKind(form: NewChatForm, kind: RemoteChatKind): NewChatForm {
+  return kind === form.kind ? form : { ...form, kind, modelId: '' }
 }
 
 /**
@@ -36,7 +63,10 @@ export function newChatRequest(form: NewChatForm): RemoteChatSpawnRequest {
   return {
     projectId: form.projectId,
     kind: form.kind,
-    ...(input.length > 0 ? { input } : {})
+    ...(input.length > 0 ? { input } : {}),
+    // Omitted rather than sent empty: absent is the contract's word for "the desktop decides", and
+    // an empty string would be a model id the host has to refuse.
+    ...(form.modelId.length > 0 ? { modelId: form.modelId } : {})
   }
 }
 

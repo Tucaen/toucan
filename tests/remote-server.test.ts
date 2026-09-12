@@ -22,6 +22,7 @@ import {
   type RemoteTranscriptionResult
 } from '../src/shared/remote-voice'
 import type { AgentEvent } from '../src/shared/agent'
+import type { AgentModelCatalogue } from '../src/shared/agent-model-catalogue'
 import { foldAgentEvent, type AgentTranscriptState } from '../src/shared/agent-transcript'
 import {
   REMOTE_CHAT_ANSWER_VALUE_LIMIT,
@@ -86,6 +87,7 @@ function harness(
     sessions?: RemoteChatSessionOperations
     read?: RemoteChatRead
     spawn?: RemoteChatSpawn
+    models?: () => AgentModelCatalogue
     transcriber?: { transcribe: (audio: Float32Array) => Promise<RemoteTranscriptionResult> }
   } = {}
 ): Harness {
@@ -107,6 +109,7 @@ function harness(
     ...(options.sessions ? { sessions: options.sessions } : {}),
     ...(options.read ? { read: options.read } : {}),
     ...(options.spawn ? { spawn: options.spawn } : {}),
+    ...(options.models ? { models: options.models } : {}),
     ...(options.transcriber ? { transcriber: options.transcriber } : {})
   })
   running.push(server)
@@ -1378,5 +1381,137 @@ describe('choosing a model over a chat socket', () => {
     assert.equal((await socket.next()).type, 'event')
     assert.deepEqual(sessions.changes, [])
     socket.close()
+  })
+})
+
+/**
+ * Choosing a model for a chat that does not exist yet.
+ *
+ * The catalogue is the host's answer to a question with no live one - a model list is advertised by
+ * a running session, so before a spawn there is only what the desktop last saw. Two rules keep that
+ * honest: an empty catalogue is an ordinary answer (a desktop that has never run that agent knows
+ * nothing), and a named model is checked against the same catalogue the client picked it from,
+ * exactly as a project is checked against the projection it was listed in.
+ */
+
+const CATALOGUE = {
+  claude: [
+    { id: 'sonnet', name: 'Sonnet' },
+    { id: 'opus', name: 'Opus' }
+  ],
+  codex: [{ id: 'gpt-5-codex', name: 'GPT-5 Codex' }]
+}
+
+describe('the model catalogue route', () => {
+  test('needs the token and reports what the providers were last seen to offer', async () => {
+    const { server, store, get } = harness({ models: () => CATALOGUE })
+    await server.applySettings({ enabled: true, port: await freePort() })
+
+    assert.equal((await get('/api/models')).status, 401)
+    const authorized = await get('/api/models', store.read().token)
+    assert.equal(authorized.status, 200)
+    assert.deepEqual(JSON.parse(authorized.body), CATALOGUE)
+  })
+
+  test('a host that has seen nothing answers an empty catalogue, not an error', async () => {
+    const { server, store, get } = harness()
+    await server.applySettings({ enabled: true, port: await freePort() })
+    const response = await get('/api/models', store.read().token)
+    assert.equal(response.status, 200)
+    assert.deepEqual(JSON.parse(response.body), {})
+  })
+
+  test('it is a read, so anything but GET is refused with what it does accept', async () => {
+    const { server, store, post } = harness({ models: () => CATALOGUE })
+    await server.applySettings({ enabled: true, port: await freePort() })
+    const response = await post('/api/models', '{}', store.read().token)
+    assert.equal(response.status, 405)
+    assert.equal(response.headers.get('allow'), 'GET, HEAD')
+  })
+})
+
+describe('spawning a chat on a chosen model', () => {
+  test('a model the catalogue lists reaches the canvas with the spawn', async () => {
+    const spawned: RemoteChatSpawnRequest[] = []
+    const { server, store, post } = harness({
+      models: () => CATALOGUE,
+      spawn: async (request) => {
+        spawned.push(request)
+        return { ok: true, chatId: 'chat-9' }
+      }
+    })
+    await server.applySettings({ enabled: true, port: await freePort() })
+    server.publishWorkspace(CHAT_PROJECTION)
+
+    const response = await post(
+      '/api/chats',
+      JSON.stringify({ projectId: 'toucan', kind: 'claude', modelId: 'opus' }),
+      store.read().token
+    )
+    assert.equal(response.status, 201)
+    assert.deepEqual(spawned, [{ projectId: 'toucan', kind: 'claude', modelId: 'opus' }])
+  })
+
+  test('naming no model is the normal case and still spawns', async () => {
+    const spawned: RemoteChatSpawnRequest[] = []
+    const { server, store, post } = harness({
+      models: () => CATALOGUE,
+      spawn: async (request) => {
+        spawned.push(request)
+        return { ok: true, chatId: 'chat-9' }
+      }
+    })
+    await server.applySettings({ enabled: true, port: await freePort() })
+    server.publishWorkspace(CHAT_PROJECTION)
+
+    const response = await post(
+      '/api/chats',
+      JSON.stringify({ projectId: 'toucan', kind: 'claude' }),
+      store.read().token
+    )
+    assert.equal(response.status, 201)
+    assert.equal(spawned[0]?.modelId, undefined)
+  })
+
+  test('a model this desktop has never seen that agent offer never reaches the canvas', async () => {
+    const spawned: RemoteChatSpawnRequest[] = []
+    const { server, store, post } = harness({
+      models: () => CATALOGUE,
+      spawn: async (request) => {
+        spawned.push(request)
+        return { ok: true, chatId: 'chat-9' }
+      }
+    })
+    await server.applySettings({ enabled: true, port: await freePort() })
+    server.publishWorkspace(CHAT_PROJECTION)
+
+    // Invented outright, and - the case that actually happens - the *other* provider's model,
+    // since the two share no ids.
+    for (const modelId of ['gpt-4', 'gpt-5-codex']) {
+      const response = await post(
+        '/api/chats',
+        JSON.stringify({ projectId: 'toucan', kind: 'claude', modelId }),
+        store.read().token
+      )
+      assert.equal(response.status, 400)
+      assert.match((JSON.parse(response.body) as { error: string }).error, /has seen that agent offer/)
+    }
+    assert.deepEqual(spawned, [])
+  })
+
+  test('an empty model id is a malformed body rather than "no preference"', async () => {
+    const { server, store, post } = harness({
+      models: () => CATALOGUE,
+      spawn: async () => ({ ok: true, chatId: 'chat-9' })
+    })
+    await server.applySettings({ enabled: true, port: await freePort() })
+    server.publishWorkspace(CHAT_PROJECTION)
+
+    const response = await post(
+      '/api/chats',
+      JSON.stringify({ projectId: 'toucan', kind: 'claude', modelId: '' }),
+      store.read().token
+    )
+    assert.equal(response.status, 400)
   })
 })

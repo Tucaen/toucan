@@ -1,5 +1,5 @@
 import type { RemoteChatKind } from './remote-access'
-import { promptTextProblem, REMOTE_CHAT_PROMPT_LIMIT } from './remote-chat'
+import { promptTextProblem, REMOTE_CHAT_MODEL_ID_LIMIT, REMOTE_CHAT_PROMPT_LIMIT } from './remote-chat'
 import type { TerminalNodeStatus } from './terminal'
 
 /**
@@ -26,6 +26,16 @@ export interface RemoteChatSpawnRequest {
    * is not a prompt, so the phone omits the field rather than sending one the host would refuse.
    */
   input?: string
+  /**
+   * The model this chat should run on. Absent means "whatever the desktop's own add-node path
+   * would have picked", which is always valid and is what a client with no catalogue to offer
+   * sends - so this stays optional rather than becoming a choice a phone is forced to make.
+   *
+   * It is a *request*: the id comes from `GET /api/models`, which is what providers were last seen
+   * to advertise rather than a live list, so the host checks it against that same catalogue and
+   * the session manager has the final say when the session actually opens.
+   */
+  modelId?: string
 }
 
 export type RemoteChatSpawnResult = { ok: true; chatId: string } | { ok: false; message: string }
@@ -45,6 +55,11 @@ export const REMOTE_SPAWN_BODY_LIMIT = REMOTE_CHAT_PROMPT_LIMIT * 4 + 1024
 export function remoteChatSpawnProblem(request: RemoteChatSpawnRequest): string | null {
   if (request.projectId.trim().length === 0) return 'Pick a project first.'
   if (request.kind !== 'claude' && request.kind !== 'codex') return 'Pick an agent first.'
+  // Shape only. Whether this provider actually offers the model is the host's check against its
+  // own catalogue - a client cannot be the authority on a list it was handed.
+  if (request.modelId !== undefined && request.modelId.length > REMOTE_CHAT_MODEL_ID_LIMIT) {
+    return 'That model name is too long to send.'
+  }
   if (request.input !== undefined) return promptTextProblem(request.input)
   return null
 }
@@ -61,16 +76,20 @@ export function parseRemoteChatSpawnRequest(raw: string): RemoteChatSpawnRequest
     return null
   }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
-  const body = parsed as { projectId?: unknown; kind?: unknown; input?: unknown }
+  const body = parsed as { projectId?: unknown; kind?: unknown; input?: unknown; modelId?: unknown }
   if (typeof body.projectId !== 'string') return null
   if (body.kind !== 'claude' && body.kind !== 'codex') return null
   // A present-but-not-a-string input is a malformed body, not an absent prompt: reading it as one
   // would silently open a chat that was meant to start working.
   if (body.input !== undefined && typeof body.input !== 'string') return null
+  // Same rule for the model: a malformed one is refused rather than read as "no preference", or a
+  // version skew would quietly start the chat on something other than what was picked.
+  if (body.modelId !== undefined && (typeof body.modelId !== 'string' || body.modelId.length === 0)) return null
   return {
     projectId: body.projectId,
     kind: body.kind,
-    ...(typeof body.input === 'string' ? { input: body.input } : {})
+    ...(typeof body.input === 'string' ? { input: body.input } : {}),
+    ...(typeof body.modelId === 'string' ? { modelId: body.modelId } : {})
   }
 }
 

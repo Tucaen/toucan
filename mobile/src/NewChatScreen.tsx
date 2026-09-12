@@ -2,8 +2,17 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { RemoteWorkspaceSnapshot } from '../../src/shared/remote-access'
 import { EMPTY_REMOTE_WORKSPACE_SNAPSHOT } from '../../src/shared/remote-access'
 import type { SavedHost } from './hosts'
-import { initialNewChatForm, newChatProblem, newChatRequest, NEW_CHAT_KINDS, type NewChatForm } from './new-chat'
-import { createChat, fetchWorkspace } from './remote-client'
+import type { AgentModelCatalogue } from '../../src/shared/agent-model-catalogue'
+import {
+  initialNewChatForm,
+  newChatModels,
+  newChatProblem,
+  newChatRequest,
+  withNewChatKind,
+  NEW_CHAT_KINDS,
+  type NewChatForm
+} from './new-chat'
+import { createChat, fetchModels, fetchWorkspace } from './remote-client'
 
 /**
  * Starting a chat from the phone: pick a project, pick an agent, optionally say the first thing.
@@ -29,6 +38,9 @@ export default function NewChatScreen({
   onSpawned(chatId: string): void
 }): JSX.Element {
   const [snapshot, setSnapshot] = useState<RemoteWorkspaceSnapshot | null>(null)
+  // Read alongside the workspace and never blocking: an empty catalogue is a normal answer, and a
+  // host that cannot report one still starts chats on the desktop's own default.
+  const [catalogue, setCatalogue] = useState<AgentModelCatalogue>({})
   const [form, setForm] = useState<NewChatForm>(() => initialNewChatForm(EMPTY_REMOTE_WORKSPACE_SNAPSHOT))
   const [busy, setBusy] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
@@ -52,6 +64,12 @@ export default function NewChatScreen({
       }
       if (result.kind === 'unauthorized') unauthorized.current()
       else setProblem(result.message)
+    })
+    // Deliberately not awaited with the workspace read and deliberately not an error path: a model
+    // list this host cannot produce leaves the picker saying so, which is the same thing it says on
+    // a desktop that has simply never run that agent.
+    void fetchModels(host, controller.signal).then((result) => {
+      if (!cancelled && result.ok) setCatalogue(result.value)
     })
     return () => {
       cancelled = true
@@ -135,12 +153,40 @@ export default function NewChatScreen({
                 className="new-chat-kind"
                 data-kind={option.kind}
                 data-selected={form.kind === option.kind || undefined}
-                onClick={() => setForm((current) => ({ ...current, kind: option.kind }))}
+                onClick={() => setForm((current) => withNewChatKind(current, option.kind))}
               >
                 {option.label}
               </button>
             ))}
           </div>
+        </fieldset>
+
+        <fieldset disabled={busy}>
+          <legend>Model</legend>
+          {/* A native select, like the chat screen's: the phone renders its own picker. The empty
+              option is a real choice rather than a placeholder - "let the desktop decide" is what
+              a spawn with no model named actually does, and it is the only choice available until
+              this host has run that agent once. */}
+          <label className="new-chat-model">
+            <select
+              aria-label="Model"
+              value={form.modelId}
+              onChange={(event) => setForm((current) => ({ ...current, modelId: event.target.value }))}
+            >
+              <option value="">Desktop default</option>
+              {newChatModels(form, catalogue).map((model) => (
+                <option key={model.id} value={model.id}>
+                  {model.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          {newChatModels(form, catalogue).length === 0 && (
+            <p className="hint">
+              This desktop has not run {form.kind === 'claude' ? 'Claude' : 'Codex'} yet, so it cannot list its models.
+              The chat will start on the desktop&rsquo;s default and you can change it once it is open.
+            </p>
+          )}
         </fieldset>
 
         <label className="new-chat-input">

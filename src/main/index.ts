@@ -15,6 +15,7 @@ import {
 } from '../shared/ipc-channels'
 import { autoUpdater } from 'electron-updater'
 import { createAcpSessionManager, type AcpSessionManager } from './acp-session-manager'
+import { createAgentModelCatalogueStore } from './agent-model-catalogue-store'
 import { createAppUpdater, type AppUpdater } from './app-update'
 import { forwardAppUpdateChanges, registerAppUpdateIpc } from './app-update-ipc'
 import { createVoiceModelStore, type VoiceModelStore } from './voice-model-store'
@@ -364,12 +365,20 @@ void app.whenReady().then(async () => {
       if (!window.webContents.isDestroyed()) window.webContents.send(ADAPTER_CHANNELS.changed, snapshot)
     }
   })
+  // What providers have been seen to offer, kept across restarts. It exists for one reason: a
+  // surface that has to choose a model before any session is running - the phone's new-chat form -
+  // has nothing else to offer, because a model list is advertised by a live ACP session.
+  const modelCatalogue = createAgentModelCatalogueStore({
+    path: join(app.getPath('userData'), 'agent-models.json'),
+    log: mainLog('agent models')
+  })
   const agentManager = createAcpSessionManager({
     appPath: app.getAppPath(),
     resolveAdapter: adapters.resolve,
     codexHome,
     environment: agentEnvironment,
-    broker: agentEvents
+    broker: agentEvents,
+    onModelsAdvertised: (provider, models) => modelCatalogue.record(provider, models)
   })
   const workspace = createWorkspaceStore(join(app.getPath('userData'), 'prototype-workspace.json'))
   const captureStore = createBrainDumpCaptureStore(join(app.getPath('userData'), 'brain-dump-capture.json'))
@@ -478,6 +487,9 @@ void app.whenReady().then(async () => {
     // behind that badge are the canvas's - so this is a request to the window, like spawning, and
     // not something main applies on its own.
     read: (chatId) => canvasRequests.markRead(chatId),
+    // Read per request: a provider that advertises a new model is offered the moment a session has
+    // seen it, without the listener knowing anything happened.
+    models: () => modelCatalogue.read(),
     transcriber: voiceTranscriber
   })
   // Off unless the user turned it on and the setting survived a restart; `start` only ever binds

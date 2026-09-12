@@ -1,3 +1,4 @@
+import { parseAgentModelCatalogue, type AgentModelCatalogue } from '../../src/shared/agent-model-catalogue'
 import type { RemoteWorkspaceSnapshot } from '../../src/shared/remote-access'
 import type { RemoteChatSpawnRequest } from '../../src/shared/remote-spawn'
 import { parseRemoteTranscriptionReply, REMOTE_VOICE_CONTENT_TYPE } from '../../src/shared/remote-voice'
@@ -154,6 +155,29 @@ export async function fetchWorkspace(
   if (!result.ok) return result
   try {
     return { ok: true, value: (await result.value.json()) as RemoteWorkspaceSnapshot }
+  } catch (error) {
+    return { ok: false, kind: 'unreachable', message: error instanceof Error ? error.message : 'Unreadable reply' }
+  }
+}
+
+/**
+ * What each provider was last seen to offer on this host, for the new-chat form's model picker.
+ *
+ * An empty catalogue is an ordinary answer, not a failure: a desktop that has not run an agent of
+ * that kind since it was installed genuinely has nothing to report, because a model list comes from
+ * a live ACP session. The form stays usable with no model named - omitting one means "whatever the
+ * desktop would have picked" - so a caller renders what it got and never blocks on this.
+ */
+export async function fetchModels(
+  host: HostEndpoint,
+  signal?: AbortSignal
+): Promise<RemoteResult<AgentModelCatalogue>> {
+  const result = await request('/api/models', host, signal)
+  if (!result.ok) return result
+  try {
+    // Parsed through the shared predicate rather than cast: this list populates a control whose
+    // choice is sent back to start a process, so a damaged entry is dropped rather than offered.
+    return { ok: true, value: parseAgentModelCatalogue(await result.value.json()) ?? {} }
   } catch (error) {
     return { ok: false, kind: 'unreachable', message: error instanceof Error ? error.message : 'Unreadable reply' }
   }

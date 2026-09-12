@@ -35,6 +35,8 @@ import type {
   AgentPromptContent,
   AgentPromptResult
 } from '../shared/agent'
+import { MODEL_CHANGE_WHILE_BUSY, type AgentModel } from '../shared/agent'
+import type { AgentProvider } from '../shared/agent-provider'
 import {
   activityFromUpdate,
   imageContentFrom,
@@ -565,6 +567,14 @@ export interface AcpSessionManagerOptions {
    * same sessions and read the same live transcript snapshots.
    */
   broker?: AgentEventBroker
+  /**
+   * Told what a session just advertised as its available models, every time a session advertises
+   * anything. The manager keeps this per running session already (`cachedModels`); this is the seam
+   * that lets it outlive the session, which is the only way a surface choosing a model *before* a
+   * session exists has anything to offer. Injected rather than owned so the manager keeps no disk
+   * of its own - see `agent-model-catalogue-store.ts`.
+   */
+  onModelsAdvertised?: (provider: AgentProvider, models: readonly AgentModel[]) => void
 }
 
 /**
@@ -724,6 +734,18 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
   let lastClaudeSessionModelIds: string[] | undefined
   const broker = options.broker ?? createAgentEventBroker()
   const toucanSkillsRoot = resolveToucanSkillsRoot(options.appPath)
+
+  /**
+   * The one place a session's advertised model list is written down. Every assignment to
+   * `cachedModels` goes through here so that what outlives the session (the catalogue) cannot
+   * drift from what the session itself believes - and so a fourth site added later inherits the
+   * recording for free rather than silently skipping it.
+   */
+  const rememberModels = (running: RunningAgent, models: AgentModelState): AgentModelState => {
+    running.cachedModels = models
+    options.onModelsAdvertised?.(running.request.provider, models.availableModels)
+    return models
+  }
 
   const send = (running: RunningAgent, event: AgentEvent): void => {
     // A stopped session's channel is closed; a straggler (late stderr, a rejected in-flight
@@ -889,7 +911,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         if (applied.configOptions) configureOptions(applied.configOptions)
       }
       if (efforts) efforts = await applySavedEffort(running, efforts)
-      if (models) running.cachedModels = models
+      if (models) rememberModels(running, models)
       if (efforts) running.cachedEfforts = efforts
       if (running.request.provider === 'claude' && models) {
         lastClaudeSessionModelIds = models.availableModels.map((model) => model.id)
@@ -1151,7 +1173,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
             const modelSelector = modelSelectorFromConfigOptions(update.configOptions)
             if (modelSelector) {
               running.modelConfigId = modelSelector.configId
-              running.cachedModels = modelSelector.models
+              rememberModels(running, modelSelector.models)
               send(running, { type: 'models', models: modelSelector.models })
             }
             const effortSelector = effortSelectorFromConfigOptions(update.configOptions)
@@ -1352,11 +1374,20 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
           return { ok: false, message: 'That model is unavailable.' }
         }
         running.request.modelId = modelId
-        running.cachedModels = { ...running.cachedModels, currentModelId: modelId }
-        send(running, { type: 'models', models: running.cachedModels })
+        send(running, {
+          type: 'models',
+          models: rememberModels(running, { ...running.cachedModels, currentModelId: modelId })
+        })
         return { ok: true }
       }
       if (!running.modelConfigId) return { ok: false, message: 'This agent does not expose model selection.' }
+      // Refused mid-turn, and refused *here* so both surfaces inherit one rule rather than each
+      // greying out its own picker. Two things are wrong with swapping models under a running
+      // turn. The provider's prompt cache is model-scoped, so the next request re-reads the whole
+      // conversation uncached; worse, a thinking block is bound to the model that produced it, so
+      // the incoming model picks the turn up without the reasoning behind the tool calls already
+      // in it. Waiting for the boundary costs nothing - the turn is what is about to end anyway.
+      if (running.busy) return { ok: false, message: MODEL_CHANGE_WHILE_BUSY }
       try {
         const response = await running.context.request(methods.agent.session.setConfigOption, {
           sessionId: running.sessionId,
@@ -1376,7 +1407,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
           modelSelector?.models ??
           (running.cachedModels ? { ...running.cachedModels, currentModelId: modelId } : undefined)
         if (models) {
-          running.cachedModels = models
+          rememberModels(running, models)
           send(running, { type: 'models', models })
         }
         const effortSelector = effortSelectorFromConfigOptions(response.configOptions)

@@ -132,6 +132,21 @@ export interface AgentModelState {
   availableModels: AgentModel[]
 }
 
+/**
+ * Why a model cannot be changed right now, when the reason is a turn in flight.
+ *
+ * A conversation's model is fixed for the duration of a turn, and the refusal is the session
+ * manager's (`setModel`) so every surface inherits one rule. It is worded here because both
+ * pickers grey themselves out ahead of asking, and a control whose tooltip disagrees with the
+ * refusal it would have got is worse than either wording alone.
+ *
+ * The reason it is refused rather than merely discouraged: a provider's prompt cache is
+ * model-scoped, so a swap costs a full uncached re-read of the conversation, and a thinking block
+ * is bound to the model that produced it - so a model joining a turn already in progress cannot
+ * see the reasoning behind the tool calls it is expected to continue from.
+ */
+export const MODEL_CHANGE_WHILE_BUSY = 'Finish the turn first - a conversation keeps one model for the whole turn.'
+
 export interface AgentEffortState {
   currentEffortId: string
   availableEfforts: AgentModel[]

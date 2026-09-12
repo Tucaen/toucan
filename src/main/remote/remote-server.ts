@@ -38,6 +38,7 @@ import {
   remoteVoiceBodyProblem
 } from '../../shared/remote-voice'
 import type { AgentDecisionResponseContent, AgentPromptResult } from '../../shared/agent'
+import { catalogueOffers, type AgentModelCatalogue } from '../../shared/agent-model-catalogue'
 import type { AgentEventBroker } from '../agent-event-broker'
 import { describeHostAddresses } from './host-addresses'
 import { pairingTokenMatches, presentedPairingToken } from './pairing'
@@ -108,6 +109,14 @@ export interface RemoteAccessServerOptions {
    * accepted and dropped - the phone is told nothing either way, and the badge simply stays.
    */
   read?: RemoteChatRead
+  /**
+   * What each provider was last seen to advertise, for clients that must name a model *before* a
+   * session exists. Read per request rather than captured, so a provider that advertises something
+   * new is offered without restarting the listener. Absent, `/api/models` reports an empty
+   * catalogue - which every client must already handle, since it is also the state of a desktop
+   * that has not run that provider yet.
+   */
+  models?: () => AgentModelCatalogue
   /**
    * Transcribes a phone's recording with the desktop's own speech model, for phones whose browser
    * has no recognizer of its own. Absent, the route says the host does not transcribe.
@@ -236,6 +245,17 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
       refuse(400, 'That project is not open on the desktop.')
       return
     }
+    // A named model is checked against the same catalogue the client picked it from, exactly as the
+    // project is checked against the same projection it listed. Omitting one is always fine - it
+    // means "whatever the desktop would pick" - so this only ever refuses an id that was invented
+    // or has gone stale, never a client that simply has no list.
+    if (
+      spawnRequest.modelId !== undefined &&
+      !catalogueOffers(options.models?.() ?? {}, spawnRequest.kind, spawnRequest.modelId)
+    ) {
+      refuse(400, 'That model is not one this desktop has seen that agent offer.')
+      return
+    }
 
     const result = await spawn(spawnRequest)
     if (!result.ok) {
@@ -314,6 +334,13 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
         return
       case 'workspace':
         send(request, response, 200, JSON.stringify(snapshot), {
+          'content-type': 'application/json; charset=utf-8'
+        })
+        return
+      case 'models':
+        // An empty catalogue is a normal answer, not an error: a desktop that has not run this
+        // provider yet genuinely knows nothing, and a client has to render that either way.
+        send(request, response, 200, JSON.stringify(options.models?.() ?? {}), {
           'content-type': 'application/json; charset=utf-8'
         })
         return

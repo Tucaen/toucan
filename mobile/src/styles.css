@@ -1027,6 +1027,18 @@ body {
   gap: 7px;
 }
 
+.new-chat-model select {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #101520;
+  color: var(--ink);
+  /* 16px minimum, like every other field here: anything smaller makes iOS zoom on focus. */
+  font: inherit;
+  font-size: 16px;
+}
+
 .new-chat-input textarea {
   width: 100%;
   /* 16px minimum, same reason as the pairing input: smaller text zooms the viewport on focus. */

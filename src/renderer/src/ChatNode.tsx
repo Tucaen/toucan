@@ -170,6 +170,8 @@ interface FlatChatViewProps {
   /** What the running session's adapter actually launched with; the preference is only a request. */
   routineDelegation?: AgentRoutineDelegation | null
   selectorsDisabled?: boolean
+  /** Why the model picker alone is closed (a turn in flight), in the words `setModel` would refuse with. */
+  modelChangeBlocked?: string | null
   selectMode?(modeId: string): unknown
   selectModel?(modelId: string): void
   selectEffort?(effortId: string): void
@@ -200,6 +202,7 @@ export type ChatComposerProps = Pick<
   | 'efforts'
   | 'routineDelegation'
   | 'selectorsDisabled'
+  | 'modelChangeBlocked'
   | 'selectMode'
   | 'selectModel'
   | 'selectEffort'
@@ -294,6 +297,8 @@ export function SelectorPicker(props: {
   options: PickerOption[]
   selectedId?: string
   disabled: boolean
+  /** Why it is closed, when there is a reason worth reading. Outranks the usual hover text. */
+  disabledHint?: string
   select(optionId: string): void
 }): JSX.Element {
   const [open, setOpen] = useState(false)
@@ -374,7 +379,7 @@ export function SelectorPicker(props: {
         aria-expanded={open}
         aria-haspopup="listbox"
         disabled={!canOpen}
-        title={selected?.description ?? selected?.name ?? copy.hint}
+        title={props.disabledHint ?? selected?.description ?? selected?.name ?? copy.hint}
         onClick={() => setOpen((current) => !current)}
       >
         <PickerIcon aria-hidden="true" />
@@ -436,6 +441,7 @@ function ComposerToolbar(
     | 'efforts'
     | 'routineDelegation'
     | 'selectorsDisabled'
+    | 'modelChangeBlocked'
     | 'selectMode'
     | 'selectModel'
     | 'selectEffort'
@@ -457,7 +463,10 @@ function ComposerToolbar(
           kind="model"
           options={props.models.availableModels}
           selectedId={props.models.currentModelId}
-          disabled={disabled}
+          // Closed for a turn in flight on top of the shared rule: a conversation keeps one model
+          // for a whole turn, which is not true of the selectors either side of it.
+          disabled={disabled || Boolean(props.modelChangeBlocked)}
+          disabledHint={props.modelChangeBlocked ?? undefined}
           select={props.selectModel}
         />
       )}
