@@ -7388,17 +7388,11 @@ button {
   opacity: 0.7;
 }
 
-/* The row's second line: branch first, then the path, each eliding on its own. */
+/* The row's second line is reserved for branch context; the title discloses the path on hover. */
 .project-copy-meta {
   display: flex;
   align-items: center;
-  gap: 6px;
   min-width: 0;
-}
-
-.project-copy-meta small {
-  min-width: 0;
-  flex: 1 1 auto;
 }
 
 .project-menu-note {

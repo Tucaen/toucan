@@ -2428,7 +2428,7 @@ function Canvas(): JSX.Element {
                                   <button
                                     type="button"
                                     className="project-select"
-                                    title={sidebarCollapsed ? `${project.name}\n${project.path}` : project.path}
+                                    title={sidebarCollapsed ? `${project.name}\n${project.path}` : undefined}
                                     onClick={(event) => {
                                       event.stopPropagation()
                                       setActiveProjectId(project.id)
@@ -2451,7 +2451,7 @@ function Canvas(): JSX.Element {
                                     </span>
                                     {!sidebarCollapsed && (
                                       <span className="project-copy">
-                                        <strong>{project.name}</strong>
+                                        <strong title={project.path}>{project.name}</strong>
                                         <span className="project-copy-meta">
                                           <ProjectBranchChip
                                             directory={project.path}
@@ -2466,7 +2466,6 @@ function Canvas(): JSX.Element {
                                               })
                                             }}
                                           />
-                                          <small>{project.path}</small>
                                         </span>
                                       </span>
                                     )}

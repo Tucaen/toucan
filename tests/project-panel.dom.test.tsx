@@ -148,6 +148,17 @@ beforeEach(() => {
   vi.stubGlobal('ResizeObserver', ResizeObserverStub)
 })
 
+describe('project path', () => {
+  test('is hidden from the row and shown as the project title tooltip', async () => {
+    await renderApp()
+
+    const title = sidebar().getByText(alpha.name, { selector: '.project-copy strong' })
+    expect(title).toHaveAttribute('title', alpha.path)
+    expect(title.closest('.project-select')).not.toHaveAttribute('title')
+    expect(title.closest('.project-copy')?.querySelector('.project-copy-meta')).not.toHaveTextContent(alpha.path)
+  })
+})
+
 describe('changing a project colour', () => {
   test('the row menu offers the palette, and a pick reaches the sidebar, the header and the snapshot', async () => {
     await renderApp()
