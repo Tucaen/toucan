@@ -147,6 +147,15 @@ export interface RemoteChatSessionOperations {
     decisionId: string,
     content?: AgentDecisionResponseContent
   ): AgentPromptResult | Promise<AgentPromptResult>
+  /**
+   * Runs the rest of the conversation on another model, or refuses. Deliberately the *same*
+   * operation the desktop's picker calls rather than a remote-only variant: whether a model is
+   * selectable, and whether this session exposes a model choice at all, is knowledge the session
+   * manager holds, so the phone neither re-derives it nor gets a second answer to it. The change
+   * is published to every client as the session's own `models` event, so a pick made here is a
+   * pick the desktop's picker shows a moment later.
+   */
+  setModel(chatId: string, modelId: string): AgentPromptResult | Promise<AgentPromptResult>
 }
 
 /** Local close codes the phone can tell apart from a network drop. */
@@ -346,9 +355,9 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
   })
 
   /**
-   * The inbound half of a chat socket. Three things *drive* a session across it - a prompt, an
-   * answer to a tool permission, an answer to a structured question set - and every path out of
-   * here answers the client: accepted, or refused with a reason. That is the whole no-silent-drop
+   * The inbound half of a chat socket. Four things *drive* a session across it - a prompt, an
+   * answer to a tool permission, an answer to a structured question set, a model change - and every
+   * path out of here answers the client: accepted, or refused with a reason. That is the whole no-silent-drop
    * guarantee, and it is why the refusal text is passed through verbatim from the session manager
    * ("The agent session is busy.", "That request was already answered.") rather than flattened.
    *
@@ -381,9 +390,10 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
       return
     }
 
-    // A prompt and an answer are correlated the same way but reported on their own channels, so
-    // a client cannot mistake a verdict on one for a verdict on the other.
-    const resultType = message.type === 'prompt' ? 'prompt_result' : 'answer_result'
+    // Every driving frame is correlated the same way but reported on its own channel, so a client
+    // cannot mistake a verdict on one for a verdict on another.
+    const resultType =
+      message.type === 'prompt' ? 'prompt_result' : message.type === 'set_model' ? 'model_result' : 'answer_result'
     const answer = (result: AgentPromptResult): void =>
       deliver({
         type: resultType,
@@ -597,6 +607,8 @@ function perform(
       return sessions.approve(chatId, message.approvalId, message.optionId)
     case 'decision':
       return sessions.answerDecision(chatId, message.decisionId, message.content)
+    case 'set_model':
+      return sessions.setModel(chatId, message.modelId)
   }
 }
 

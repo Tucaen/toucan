@@ -1365,10 +1365,19 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         })
         // Setting a model can reshape the agent's other selectors (effort levels, fast mode).
         const modelSelector = modelSelectorFromConfigOptions(response.configOptions)
-        if (modelSelector) {
-          running.modelConfigId = modelSelector.configId
-          running.cachedModels = modelSelector.models
-          send(running, { type: 'models', models: modelSelector.models })
+        if (modelSelector) running.modelConfigId = modelSelector.configId
+        // An accepted change is *always* published, exactly as an accepted effort change is. An
+        // adapter that answers without restating its config options has still changed the model,
+        // and a client with no renderer-local fold of its own - the phone - would otherwise be left
+        // rendering the old one against a session running the new one, which is this selector's
+        // whole failure mode (#185). The advertised list is carried over from the cache, since a
+        // response that said nothing about the options did not retire any of them either.
+        const models =
+          modelSelector?.models ??
+          (running.cachedModels ? { ...running.cachedModels, currentModelId: modelId } : undefined)
+        if (models) {
+          running.cachedModels = models
+          send(running, { type: 'models', models })
         }
         const effortSelector = effortSelectorFromConfigOptions(response.configOptions)
         if (effortSelector) {

@@ -8,7 +8,11 @@ import {
   answerFailure,
   answerInFlight,
   canSendDraft,
+  chatModels,
   composerHidden,
+  currentModel,
+  modelChangeFailure,
+  modelPickerBlockedReason,
   pendingRequest,
   sendBlockedReason
 } from './chat-connection'
@@ -46,7 +50,8 @@ import { useChatConnection, type ChatConnection } from './use-chat-connection'
  * hook maintains; this component only renders what `chat-view.ts` derived from it, and the
  * composer only renders what `chat-connection.ts` decided - whether a send is possible, why not,
  * and what happened to the last one. Nothing here pretends a stale transcript is live, and nothing
- * here renders a sent message: that arrives as the provider's echo like every other message.
+ * here renders a sent message: that arrives as the provider's echo like every other message - and
+ * nor does anything here render a model the session has not reported running on.
  *
  * An unsent draft is retained on this device (see `rememberDraft`), which is what carries the
  * typed text through the one failure that unmounts this screen - a revoked token, on its way back
@@ -133,6 +138,8 @@ export default function ChatScreen({
         )}
       </header>
 
+      <ModelBar connection={connection} />
+
       {/* A transcript that is not live must say so; a silently stale one is the failure mode. */}
       {connection.phase === 'connecting' && <p className="connection-banner">Connecting…</p>}
       {connection.phase === 'reconnecting' && <p className="connection-banner stale">Disconnected — reconnecting…</p>}
@@ -155,6 +162,65 @@ export default function ChatScreen({
       {pending && <PendingRequestCard key={pending.id} pending={pending} connection={connection} />}
       {!composerHidden(connection) && <Composer connection={connection} host={host} />}
     </main>
+  )
+}
+
+/**
+ * What this conversation runs on, and the one control that changes it.
+ *
+ * It sits above the transcript rather than in the composer, because the composer is *taken away*
+ * while a request is pending and the model is exactly the thing a reader wants to see when nothing
+ * else is moving. It is a native `<select>` on purpose: a phone renders one as the platform's own
+ * picker, which beats anything hand-rolled here, and it keeps the whole control one element.
+ *
+ * The selection rendered is always the session's, never the tap's: a change in flight disables the
+ * control and says so, and the new value appears when the session's `models` event folds - the
+ * same moment the desktop's picker learns of it. A session that advertises no model choice renders
+ * nothing at all rather than an empty picker.
+ */
+function ModelBar({ connection }: { connection: ChatConnection }): JSX.Element | null {
+  const models = chatModels(connection)
+  if (!models) return null
+  const blocked = modelPickerBlockedReason(connection)
+  const failure = modelChangeFailure(connection)
+  const selected = currentModel(connection)
+  return (
+    <section className="chat-model">
+      {/* The wrapping label is the control's whole accessible name; no second aria-label above it,
+          or "the model control" and "the model row" become two things a reader has to tell apart. */}
+      <label className="chat-model-row">
+        <span className="chat-model-label">Model</span>
+        <select
+          className="chat-model-select"
+          disabled={blocked !== null}
+          // A `currentModelId` with no entry in the advertised list must not silently read as the
+          // first option, so it becomes a real, unselectable entry naming the id itself.
+          value={selected ? selected.id : ''}
+          onChange={(event) => connection.onSelectModel(event.target.value)}
+        >
+          {!selected && (
+            <option value="" disabled>
+              {models.currentModelId || 'Unknown'}
+            </option>
+          )}
+          {models.availableModels.map((model) => (
+            <option key={model.id} value={model.id}>
+              {model.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      {/* Why the control is dead, in the words the rule itself uses - but only for the reasons that
+          are about the *session*: a dropped connection already has its own banner below, and saying
+          it twice would read as two different problems. Outside the label on purpose, since text
+          inside one becomes part of the control's accessible name. */}
+      {blocked && connection.phase === 'live' && <p className="chat-model-note">{blocked}</p>}
+      {failure && (
+        <p className="send-error" role="alert">
+          {failure}
+        </p>
+      )}
+    </section>
   )
 }
 

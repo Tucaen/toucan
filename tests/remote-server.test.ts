@@ -25,6 +25,7 @@ import type { AgentEvent } from '../src/shared/agent'
 import { foldAgentEvent, type AgentTranscriptState } from '../src/shared/agent-transcript'
 import {
   REMOTE_CHAT_ANSWER_VALUE_LIMIT,
+  REMOTE_CHAT_MODEL_ID_LIMIT,
   REMOTE_CHAT_PROMPT_LIMIT,
   REMOTE_CHAT_PROTOCOL,
   parseRemoteChatServerMessage,
@@ -571,7 +572,8 @@ function recordingSessions(outcome: (prompt: RecordedPrompt) => { ok: boolean; m
 /** Answering is exercised by its own recorder; a prompt test must not accidentally drive it. */
 const refusingAnswers = {
   approve: () => ({ ok: false, message: 'not under test' }),
-  answerDecision: () => ({ ok: false, message: 'not under test' })
+  answerDecision: () => ({ ok: false, message: 'not under test' }),
+  setModel: () => ({ ok: false, message: 'not under test' })
 }
 
 async function joinedChat(options: {
@@ -751,6 +753,7 @@ function answeringSessions(pending: readonly string[]): {
     decisions,
     operations: {
       prompt: () => ({ ok: false, message: 'not under test' }),
+      setModel: () => ({ ok: false, message: 'not under test' }),
       approve: (chatId, approvalId, optionId) => {
         approvals.push({ chatId, approvalId, ...(optionId === undefined ? {} : { optionId }) })
         return take(approvalId)
@@ -1257,5 +1260,123 @@ describe('transcribing a recording over HTTP', () => {
     const response = await created.postBytes(speech, created.store.read().token)
     assert.equal(response.status, 503)
     assert.deepEqual(JSON.parse(response.body), { error: 'The desktop has no prepared speech model.' })
+  })
+})
+
+/**
+ * Choosing a model from the phone. This is the one driving frame whose *effect* is not reported on
+ * its own channel: the verdict says whether the change was accepted, and the change itself reaches
+ * every client as the session's own `models` event - which is what keeps the phone's picker and
+ * the desktop's reading one selection rather than two copies.
+ */
+
+interface RecordedModelChange {
+  chatId: string
+  modelId: string
+}
+
+function modelSessions(outcome: (change: RecordedModelChange) => { ok: boolean; message?: string }): {
+  operations: RemoteChatSessionOperations
+  changes: RecordedModelChange[]
+} {
+  const changes: RecordedModelChange[] = []
+  return {
+    changes,
+    operations: {
+      prompt: () => ({ ok: false, message: 'not under test' }),
+      approve: () => ({ ok: false, message: 'not under test' }),
+      answerDecision: () => ({ ok: false, message: 'not under test' }),
+      setModel: (chatId, modelId) => {
+        const recorded = { chatId, modelId }
+        changes.push(recorded)
+        return outcome(recorded)
+      }
+    }
+  }
+}
+
+/** The next frame, asserted to be a *model* verdict, so a prompt verdict cannot pass for one. */
+async function modelVerdict(socket: ChatSocket): Promise<{ requestId: string; ok: boolean; message?: string }> {
+  const message = await socket.next()
+  assert.equal(message.type, 'model_result')
+  return message as { requestId: string; ok: boolean; message?: string }
+}
+
+describe('choosing a model over a chat socket', () => {
+  test('a model change reaches the session and is answered on its own channel', async () => {
+    const sessions = modelSessions(() => ({ ok: true }))
+    const { socket } = await joinedChat({ sessions: sessions.operations })
+
+    await socket.send(JSON.stringify({ type: 'set_model', requestId: 'r1', modelId: 'opus' }))
+    assert.deepEqual(await modelVerdict(socket), { type: 'model_result', requestId: 'r1', ok: true })
+    assert.deepEqual(sessions.changes, [{ chatId: 'chat-1', modelId: 'opus' }])
+    socket.close()
+  })
+
+  test('the new selection arrives as the session\u2019s own models event, not in the verdict', async () => {
+    const sessions = modelSessions(() => ({ ok: true }))
+    const { chats, socket } = await joinedChat({ sessions: sessions.operations })
+
+    await socket.send(JSON.stringify({ type: 'set_model', requestId: 'r1', modelId: 'opus' }))
+    assert.equal((await modelVerdict(socket)).ok, true)
+
+    const models = { currentModelId: 'opus', availableModels: [{ id: 'opus', name: 'Opus' }] }
+    chats.publish('chat-1', { type: 'models', models })
+    assert.deepEqual(await socket.next(), { type: 'event', event: { type: 'models', models } })
+    socket.close()
+  })
+
+  test('the session manager\u2019s own refusal is passed through verbatim', async () => {
+    const sessions = modelSessions(() => ({ ok: false, message: 'This agent does not expose model selection.' }))
+    const { socket } = await joinedChat({ sessions: sessions.operations })
+
+    await socket.send(JSON.stringify({ type: 'set_model', requestId: 'r1', modelId: 'opus' }))
+    assert.deepEqual(await modelVerdict(socket), {
+      type: 'model_result',
+      requestId: 'r1',
+      ok: false,
+      message: 'This agent does not expose model selection.'
+    })
+    socket.close()
+  })
+
+  test('a read-only host answers the pick instead of leaving the picker waiting', async () => {
+    const { socket } = await joinedChat({})
+    await socket.send(JSON.stringify({ type: 'set_model', requestId: 'r1', modelId: 'opus' }))
+    const refused = await modelVerdict(socket)
+    assert.equal(refused.ok, false)
+    assert.match(refused.message ?? '', /not accepting/)
+    socket.close()
+  })
+
+  test('a chat the desktop has since unlisted is not a model target either', async () => {
+    const sessions = modelSessions(() => ({ ok: true }))
+    const chats = createAgentEventBroker()
+    const { server, store } = harness({ chats, sessions: sessions.operations })
+    await server.applySettings({ enabled: true, port: await freePort() })
+    server.publishWorkspace(CHAT_PROJECTION)
+    const socket = connectChat(server.state().boundPort!, 'chat-1', { header: store.read().token })
+    assert.equal((await socket.next()).type, 'snapshot')
+
+    server.publishWorkspace({ projects: CHAT_PROJECTION.projects, chats: [] })
+    await socket.send(JSON.stringify({ type: 'set_model', requestId: 'r1', modelId: 'opus' }))
+    assert.match((await modelVerdict(socket)).message ?? '', /no longer open/)
+    assert.deepEqual(sessions.changes, [])
+    socket.close()
+  })
+
+  test('a model id the frame contract refuses never reaches the session', async () => {
+    const sessions = modelSessions(() => ({ ok: true }))
+    const { chats, socket } = await joinedChat({ sessions: sessions.operations })
+
+    for (const modelId of [42, '', 'x'.repeat(REMOTE_CHAT_MODEL_ID_LIMIT + 1)]) {
+      await socket.send(JSON.stringify({ type: 'set_model', requestId: 'r1', modelId }))
+    }
+    // Unparsable frames get no verdict at all, so the proof they were dropped is that the socket
+    // still works and nothing was changed.
+    chats.publish('chat-1', assistantChunk('a1', 'still here'))
+    assert.equal((await socket.next()).type, 'event')
+    assert.deepEqual(sessions.changes, [])
+    socket.close()
   })
 })

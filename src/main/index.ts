@@ -468,7 +468,10 @@ void app.whenReady().then(async () => {
     sessions: {
       prompt: (id, text) => agentManager.startPrompt(id, text),
       approve: (id, approvalId, optionId) => agentManager.resolveApproval(id, approvalId, optionId),
-      answerDecision: (id, decisionId, content) => agentManager.resolveElicitation(id, decisionId, content)
+      answerDecision: (id, decisionId, content) => agentManager.resolveElicitation(id, decisionId, content),
+      // The same operation the desktop's own model picker calls, so both surfaces change one
+      // selection and both learn about it from the session's `models` event.
+      setModel: (id, modelId) => agentManager.setModel(id, modelId)
     },
     spawn: (request) => canvasRequests.spawn(request),
     // Reading a chat on the phone has to retire its badge everywhere, and the attention records

@@ -36,6 +36,16 @@ export type RemoteChatServerMessage =
    * event, so a loser's card retires from the same source the winner's does.
    */
   | { type: 'answer_result'; requestId: string; ok: boolean; message?: string }
+  /**
+   * The verdict on one `set_model`, correlated by its `requestId`. Its own channel rather than a
+   * shared one for the same reason an answer has one: a client that read a refused model change as
+   * a refused prompt would put the wrong text back in its composer.
+   *
+   * The change itself is *not* reported here. It reaches every client as the session's own `models`
+   * event, which is what makes a model picked on the phone and one picked on the desktop the same
+   * single selection observed from two places rather than two copies that can drift.
+   */
+  | { type: 'model_result'; requestId: string; ok: boolean; message?: string }
 
 /**
  * What a paired client may ask the host to do on a chat socket. Answering a pending request is a
@@ -51,6 +61,14 @@ export type RemoteChatClientMessage =
   | { type: 'approval'; requestId: string; approvalId: string; optionId?: string }
   /** Omitted `content` skips the question set, mirroring the desktop's "Skip". */
   | { type: 'decision'; requestId: string; decisionId: string; content?: AgentDecisionResponseContent }
+  /**
+   * "Run the rest of this conversation on that model." The id is one the session itself advertised
+   * as `AgentModelState.availableModels`, which a client only has because the snapshot it already
+   * holds carries it - so this frame names a choice the host published rather than one the client
+   * invented. Whether that choice is takeable *right now* is deliberately not settled here: the
+   * session manager owns it and refuses in its own words, exactly as it does for a prompt.
+   */
+  | { type: 'set_model'; requestId: string; modelId: string }
   /**
    * "I am looking at this chat." The one client frame with no `requestId` and no verdict, because
    * it is the one that asks for nothing back: the badge it retires is republished by the canvas in
@@ -97,6 +115,13 @@ export const REMOTE_CHAT_ANSWER_OPTION_LIMIT = 32
  * outcome this protocol does not have. Kept comfortably inside the socket's `maxPayload`.
  */
 export const REMOTE_CHAT_ANSWER_TOTAL_LIMIT = 32_000
+
+/**
+ * How long a model id one `set_model` frame may carry. Provider model ids are short slugs, so this
+ * is headroom rather than a policy: the check that matters is that the id is one the session
+ * actually advertised, and only the session manager can make that one.
+ */
+export const REMOTE_CHAT_MODEL_ID_LIMIT = 200
 
 /**
  * Whether this answer may be sent at all, and why not. Same discipline as `promptTextProblem`:
@@ -183,7 +208,7 @@ export function parseRemoteChatServerMessage(raw: unknown): RemoteChatServerMess
     return { type: 'event', event: message.event as AgentEvent }
   }
   if (
-    (message.type === 'prompt_result' || message.type === 'answer_result') &&
+    (message.type === 'prompt_result' || message.type === 'answer_result' || message.type === 'model_result') &&
     typeof message.requestId === 'string' &&
     typeof message.ok === 'boolean'
   ) {
@@ -220,6 +245,7 @@ export function parseRemoteChatClientMessage(raw: unknown): RemoteChatClientMess
     optionId?: unknown
     decisionId?: unknown
     content?: unknown
+    modelId?: unknown
   }
   // Ahead of the correlation guard: a read is answered by nothing, so demanding a `requestId` for
   // it would refuse the frame over the one field it has no use for.
@@ -240,6 +266,13 @@ export function parseRemoteChatClientMessage(raw: unknown): RemoteChatClientMess
       approvalId: message.approvalId,
       ...(typeof message.optionId === 'string' ? { optionId: message.optionId } : {})
     }
+  }
+  if (message.type === 'set_model') {
+    // Bounded rather than trusted: this id ends up inside an ACP `session/set_config_option` call.
+    // Membership in the session's advertised list is the session manager's check, not this one's.
+    if (typeof message.modelId !== 'string') return null
+    if (message.modelId.length === 0 || message.modelId.length > REMOTE_CHAT_MODEL_ID_LIMIT) return null
+    return { type: 'set_model', requestId: message.requestId, modelId: message.modelId }
   }
   if (message.type === 'decision') {
     if (typeof message.decisionId !== 'string' || message.decisionId.length === 0) return null

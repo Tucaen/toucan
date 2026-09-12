@@ -12,14 +12,17 @@ import {
   chatGone,
   connectionLost,
   draftChanged,
+  modelChangeFailed,
   pendingRequest,
   plannedAnswer,
+  plannedModelChange,
   plannedSend,
   readReportKey,
   reconnectDelayMs,
   restoredChatConnectionState,
   sendFailed,
   withAnswer,
+  withModelChange,
   withSend,
   type ChatConnectionState
 } from './chat-connection'
@@ -54,6 +57,11 @@ export interface ChatConnection extends ChatConnectionState {
   onApprove(optionId?: string): void
   /** Answers the pending question set, or skips it when `content` is omitted. */
   onAnswerDecision(content?: AgentDecisionResponseContent): void
+  /**
+   * Runs the rest of this conversation on another model. Inert unless the state allows it, so a
+   * tap on a stale list cannot reach the socket; the host refuses independently anyway.
+   */
+  onSelectModel(modelId: string): void
 }
 
 export function useChatConnection(host: SavedHost, chatId: string, onUnauthorized: () => void): ChatConnection {
@@ -216,7 +224,23 @@ export function useChatConnection(host: SavedHost, chatId: string, onUnauthorize
     [answerPending]
   )
 
-  return { ...state, onDraftChange, onSend, onApprove, onAnswerDecision }
+  const onSelectModel = useCallback((modelId: string) => {
+    // Same shape as a send: plan against the newest committed state, write once, then apply the
+    // decision already made rather than re-deciding it against whatever landed in the same tick.
+    const planned = plannedModelChange(stateRef.current, newRequestId(), modelId)
+    if (!planned) return
+    const delivered = writeToSocket(live.current, {
+      type: 'set_model',
+      requestId: planned.requestId,
+      modelId: planned.modelId
+    })
+    setState((current) => {
+      const applied = withModelChange(current, planned)
+      return delivered ? applied : modelChangeFailed(applied, 'Not connected — the model was not changed.')
+    })
+  }, [])
+
+  return { ...state, onDraftChange, onSend, onApprove, onAnswerDecision, onSelectModel }
 }
 
 /** Correlates one send with its verdict. Only uniqueness matters, so no crypto API is required. */

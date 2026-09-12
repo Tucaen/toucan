@@ -1,3 +1,4 @@
+import type { AgentModel, AgentModelState } from '../../src/shared/agent'
 import { foldAgentEvent, type AgentTranscriptState } from '../../src/shared/agent-transcript'
 import { parseRemoteChatServerMessage, promptTextProblem } from '../../src/shared/remote-chat'
 import { pendingRequestFrom, type PendingRequest } from './chat-view'
@@ -54,16 +55,37 @@ export type ChatAnswerState =
   | { status: 'answering'; requestId: string; target: string }
   | { status: 'failed'; target: string; message: string }
 
+/**
+ * One model change at a time, and - unlike a send - nothing optimistic about it. The selection
+ * shown is always the one the *session* reports (`AgentTranscriptState.models`), so while a change
+ * is on the wire the control says it is switching rather than pretending it already has; the new
+ * selection appears when the session's own `models` event folds, which is the same moment the
+ * desktop's picker learns about it.
+ */
+export type ChatModelState =
+  | { status: 'idle' }
+  /** Handed to the host; `modelId` is held so a refusal can name what it refused. */
+  | { status: 'selecting'; requestId: string; modelId: string }
+  | { status: 'failed'; message: string }
+
 export interface ChatConnectionState {
   transcript: AgentTranscriptState | null
   phase: ChatConnectionPhase
   draft: string
   send: ChatSendState
   answer: ChatAnswerState
+  model: ChatModelState
 }
 
 export function initialChatConnectionState(): ChatConnectionState {
-  return { transcript: null, phase: 'connecting', draft: '', send: { status: 'idle' }, answer: { status: 'idle' } }
+  return {
+    transcript: null,
+    phase: 'connecting',
+    draft: '',
+    send: { status: 'idle' },
+    answer: { status: 'idle' },
+    model: { status: 'idle' }
+  }
 }
 
 /**
@@ -105,6 +127,14 @@ export function applyServerFrame(state: ChatConnectionState, raw: unknown, now: 
           message: message.message ?? 'The host refused the answer.'
         }
       }
+    }
+    case 'model_result': {
+      // A verdict on a superseded change (one this state already gave up on) must not revive it.
+      if (state.model.status !== 'selecting' || state.model.requestId !== message.requestId) return state
+      // Accepted: the *selection* is not set here. It arrives as the session's own `models` event,
+      // so the phone and the desktop read one current model from one source.
+      if (message.ok) return { ...state, model: { status: 'idle' } }
+      return { ...state, model: { status: 'failed', message: message.message ?? 'The host refused the model.' } }
     }
     case 'snapshot':
       return { ...state, transcript: message.state, phase: 'live' }
@@ -183,6 +213,96 @@ export function answerBlockedReason(state: ChatConnectionState, target: string):
   return null
 }
 
+/**
+ * What this conversation is running on and what else it could run on, or null when the session has
+ * not advertised a model choice at all (an adapter that exposes none, or a transcript that has not
+ * arrived yet). Read straight off the shared reducer state, so it is the same selection the desktop
+ * renders - the whole of scope "show the current model" is this one accessor plus a label.
+ */
+export function chatModels(state: ChatConnectionState): AgentModelState | null {
+  return state.transcript?.models ?? null
+}
+
+/**
+ * The advertised entry for the model in use. Null when the session named one this client has no
+ * entry for, which a picker has to render as itself rather than as the first option it does know.
+ */
+export function currentModel(state: ChatConnectionState): AgentModel | null {
+  const models = chatModels(state)
+  if (!models) return null
+  return models.availableModels.find((model) => model.id === models.currentModelId) ?? null
+}
+
+/** Whether a model change is on the wire. The control is inert - not optimistic - while it is. */
+export function modelChangeInFlight(state: ChatConnectionState): boolean {
+  return state.model.status === 'selecting'
+}
+
+/** The last refusal of a model change, kept until the next attempt replaces it. */
+export function modelChangeFailure(state: ChatConnectionState): string | null {
+  return state.model.status === 'failed' ? state.model.message : null
+}
+
+/**
+ * Why this model cannot be picked right now, or null.
+ *
+ * The session-shaped half of this is deliberately the *desktop's* rule and not a stricter one of
+ * the phone's: the desktop greys its pickers out while a session is starting or has exited and at
+ * no other time, so a model change mid-turn is offered on both surfaces or on neither. The host
+ * refuses independently with the session manager's own words, which is what makes a disagreement
+ * visible rather than silent - exactly as it is for a prompt.
+ */
+export function modelPickerBlockedReason(state: ChatConnectionState): string | null {
+  if (state.phase === 'gone') return 'This chat is no longer open on the desktop.'
+  if (state.phase !== 'live') return 'Not connected.'
+  if (modelChangeInFlight(state)) return 'Switching…'
+  if (!chatModels(state)) return 'This agent does not offer a model choice.'
+  const status = state.transcript?.status
+  if (status === 'starting') return 'The session is still starting.'
+  if (status === 'exited') return 'This session has exited.'
+  return null
+}
+
+/**
+ * Why *this* model cannot be picked, or null. The half that does not depend on which model is
+ * `modelPickerBlockedReason`, so the control's disabled state and the gate on a tap are one rule
+ * read at two granularities rather than two rules that can disagree.
+ */
+export function modelChangeBlockedReason(state: ChatConnectionState, modelId: string): string | null {
+  const blocked = modelPickerBlockedReason(state)
+  if (blocked) return blocked
+  const models = chatModels(state)
+  if (!models) return 'This agent does not offer a model choice.'
+  if (!models.availableModels.some((model) => model.id === modelId)) return 'That model is unavailable.'
+  if (models.currentModelId === modelId) return 'That model is already selected.'
+  return null
+}
+
+export type PendingModelChange = Extract<ChatModelState, { status: 'selecting' }>
+
+/**
+ * The model slot a pick would create, or null when it must not reach the socket. Split from
+ * applying it for the same reason `plannedSend` is: the socket write sits between the two.
+ */
+export function plannedModelChange(
+  state: ChatConnectionState,
+  requestId: string,
+  modelId: string
+): PendingModelChange | null {
+  if (modelChangeBlockedReason(state, modelId)) return null
+  return { status: 'selecting', requestId, modelId }
+}
+
+export function withModelChange(state: ChatConnectionState, model: PendingModelChange): ChatConnectionState {
+  return { ...state, model }
+}
+
+/** A change that never reached the socket, or whose socket died before the host confirmed it. */
+export function modelChangeFailed(state: ChatConnectionState, message: string): ChatConnectionState {
+  if (state.model.status !== 'selecting') return state
+  return { ...state, model: { status: 'failed', message } }
+}
+
 export type PendingAnswer = Extract<ChatAnswerState, { status: 'answering' }>
 
 /**
@@ -220,7 +340,10 @@ export function connectionLost(state: ChatConnectionState): ChatConnectionState 
   // An answer in flight has the same unknowable outcome as a send, and the same honest reading:
   // report it as unconfirmed. The rejoin's snapshot then says whether the card is still pending,
   // which is the only trustworthy answer to "did it land".
-  const dropped = answerFailed(state, DISCONNECTED_WHILE_ANSWERING)
+  // A model change in flight is the same unknowable outcome, with the gentlest recovery of the
+  // three: the rejoin's snapshot carries the session's current model, so the control says what
+  // actually happened rather than what was asked for.
+  const dropped = modelChangeFailed(answerFailed(state, DISCONNECTED_WHILE_ANSWERING), DISCONNECTED_WHILE_SWITCHING)
   if (dropped.send.status !== 'sending') return { ...dropped, phase }
   return { ...recoverDraft(dropped, dropped.send.text, DISCONNECTED_WHILE_SENDING), phase }
 }
@@ -230,6 +353,9 @@ export const DISCONNECTED_WHILE_SENDING =
 
 export const DISCONNECTED_WHILE_ANSWERING =
   'Disconnected before the host confirmed the answer. It is still pending if the card is still here.'
+
+export const DISCONNECTED_WHILE_SWITCHING =
+  'Disconnected before the host confirmed the model. The model shown once reconnected is the real one.'
 
 export function chatGone(state: ChatConnectionState): ChatConnectionState {
   return { ...state, phase: 'gone' }

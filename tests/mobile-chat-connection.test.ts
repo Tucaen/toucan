@@ -9,14 +9,23 @@ import {
   beginSend,
   canSendDraft,
   chatGone,
+  chatModels,
   composerHidden,
   connectionLost,
+  currentModel,
   DISCONNECTED_WHILE_ANSWERING,
   DISCONNECTED_WHILE_SENDING,
+  DISCONNECTED_WHILE_SWITCHING,
   draftChanged,
   initialChatConnectionState,
+  modelChangeBlockedReason,
+  modelChangeFailed,
+  modelChangeFailure,
+  modelChangeInFlight,
+  modelPickerBlockedReason,
   pendingRequest,
   plannedAnswer,
+  plannedModelChange,
   plannedSend,
   readReportKey,
   reconnectDelayMs,
@@ -24,6 +33,7 @@ import {
   sendBlockedReason,
   sendFailed,
   withAnswer,
+  withModelChange,
   withSend,
   type ChatConnectionState
 } from '../mobile/src/chat-connection'
@@ -561,4 +571,120 @@ test('a whole turn that ran while the socket was down is not mistaken for nothin
   )
   const rejoined = applyFrames(dropped, [frame({ type: 'snapshot', state: missed })])
   assert.notEqual(readReportKey(rejoined), readReportKey(live(READY)))
+})
+
+/**
+ * Choosing a model, from the phone's side. The rule the tests are really about is that nothing
+ * here is optimistic: the selection shown is always the session's own, so a pick that is refused,
+ * lost to a drop, or simply not acted on by the adapter cannot leave the phone displaying a model
+ * the conversation is not running on.
+ */
+
+const MODELS: AgentEvent = {
+  type: 'models',
+  models: {
+    currentModelId: 'sonnet',
+    availableModels: [
+      { id: 'sonnet', name: 'Sonnet' },
+      { id: 'opus', name: 'Opus', description: 'The slow careful one' }
+    ]
+  }
+}
+
+const WITH_MODELS: AgentEvent[] = [...READY, MODELS]
+
+test('the model the session reports is the model the phone shows', () => {
+  const state = live(WITH_MODELS)
+  assert.deepEqual(currentModel(state), { id: 'sonnet', name: 'Sonnet' })
+  assert.equal(chatModels(state)?.availableModels.length, 2)
+
+  // A session that advertises no model choice renders nothing rather than an empty picker, and
+  // says why for any caller that asks.
+  assert.equal(chatModels(live(READY)), null)
+  assert.equal(currentModel(live(READY)), null)
+  assert.match(modelPickerBlockedReason(live(READY)) ?? '', /does not offer a model choice/)
+})
+
+test('a model the session never advertised, and the one already selected, are not pickable', () => {
+  const state = live(WITH_MODELS)
+  assert.equal(modelChangeBlockedReason(state, 'opus'), null)
+  assert.match(modelChangeBlockedReason(state, 'gpt-5') ?? '', /unavailable/)
+  assert.match(modelChangeBlockedReason(state, 'sonnet') ?? '', /already selected/)
+  assert.equal(plannedModelChange(state, 'r1', 'gpt-5'), null)
+})
+
+test('the picker follows the desktop: closed while starting or exited, open mid-turn', () => {
+  const starting = live([{ type: 'status', status: 'starting' }, MODELS])
+  assert.match(modelPickerBlockedReason(starting) ?? '', /still starting/)
+
+  const exited = live([{ type: 'status', status: 'exited' }, MODELS])
+  assert.match(modelPickerBlockedReason(exited) ?? '', /has exited/)
+
+  // Deliberately *not* blocked: the desktop's pickers stay live while a turn runs, so a model
+  // change offered on one surface and refused on the other would be the two disagreeing.
+  const working = live([{ type: 'status', status: 'working' }, MODELS])
+  assert.equal(modelPickerBlockedReason(working), null)
+})
+
+test('a change in flight is inert and says so, and the new selection comes from the session', () => {
+  const planned = plannedModelChange(live(WITH_MODELS), 'r1', 'opus')
+  assert.deepEqual(planned, { status: 'selecting', requestId: 'r1', modelId: 'opus' })
+  const selecting = withModelChange(live(WITH_MODELS), planned!)
+
+  assert.equal(modelChangeInFlight(selecting), true)
+  assert.match(modelPickerBlockedReason(selecting) ?? '', /Switching/)
+  // Still Sonnet: the pick has been asked for, not applied.
+  assert.deepEqual(currentModel(selecting), { id: 'sonnet', name: 'Sonnet' })
+
+  const accepted = applyServerFrame(selecting, frame({ type: 'model_result', requestId: 'r1', ok: true }), NOW)
+  assert.deepEqual(accepted.model, { status: 'idle' })
+  // Acceptance alone does not move the selection either; the session's own event does.
+  assert.deepEqual(currentModel(accepted), { id: 'sonnet', name: 'Sonnet' })
+
+  const applied = applyFrames(accepted, [
+    frame({
+      type: 'event',
+      event: {
+        type: 'models',
+        models: {
+          currentModelId: 'opus',
+          availableModels: MODELS.type === 'models' ? MODELS.models.availableModels : []
+        }
+      }
+    })
+  ])
+  assert.deepEqual(currentModel(applied), { id: 'opus', name: 'Opus', description: 'The slow careful one' })
+})
+
+test('a refused change reports the host reason and re-opens the picker', () => {
+  const selecting = withModelChange(live(WITH_MODELS), plannedModelChange(live(WITH_MODELS), 'r1', 'opus')!)
+  const refused = applyServerFrame(
+    selecting,
+    frame({
+      type: 'model_result',
+      requestId: 'r1',
+      ok: false,
+      message: 'This agent does not expose model selection.'
+    }),
+    NOW
+  )
+  assert.equal(modelChangeFailure(refused), 'This agent does not expose model selection.')
+  assert.equal(modelChangeInFlight(refused), false)
+  // Retryable, because most refusals are transient and the host refuses a second bad one anyway.
+  assert.equal(modelChangeBlockedReason(refused, 'opus'), null)
+})
+
+test('a verdict for a superseded model change is ignored', () => {
+  const selecting = withModelChange(live(WITH_MODELS), plannedModelChange(live(WITH_MODELS), 'r1', 'opus')!)
+  const other = applyServerFrame(selecting, frame({ type: 'model_result', requestId: 'r9', ok: false }), NOW)
+  assert.deepEqual(other.model, selecting.model)
+})
+
+test('a drop mid-change reports it as unconfirmed and points at the reconnected truth', () => {
+  const selecting = withModelChange(live(WITH_MODELS), plannedModelChange(live(WITH_MODELS), 'r1', 'opus')!)
+  const dropped = connectionLost(selecting)
+  assert.equal(modelChangeFailure(dropped), DISCONNECTED_WHILE_SWITCHING)
+
+  // And a change that never reached the socket at all is reported the same way, not assumed sent.
+  assert.equal(modelChangeFailed(selecting, 'Not connected.').model.status, 'failed')
 })

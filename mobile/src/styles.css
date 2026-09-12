@@ -366,6 +366,50 @@ body {
   color: var(--unread);
 }
 
+/*
+ * What the conversation runs on. One row above the transcript so it is readable while the composer
+ * is gone, and a native <select> so the phone opens its own picker rather than a hand-rolled menu.
+ */
+.chat-model {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.chat-model-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chat-model-label {
+  color: var(--ink-faint);
+  font-size: 12px;
+}
+
+.chat-model-select {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--raised);
+  color: var(--ink);
+  /* 16px keeps iOS Safari from zooming the page when the picker opens. */
+  font: inherit;
+  font-size: 16px;
+}
+
+.chat-model-select:disabled {
+  opacity: 0.55;
+}
+
+.chat-model-note {
+  margin: 0;
+  color: var(--ink-faint);
+  font-size: 12px;
+}
+
 .connection-banner {
   margin: 0;
   padding: 10px 14px;
