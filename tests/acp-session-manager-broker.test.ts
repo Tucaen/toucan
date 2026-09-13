@@ -612,7 +612,7 @@ test('the session outcome index is handed each session with the live conversatio
     sessionOutcomes: {
       watch: (sessionId, context) => {
         watched.push({ sessionId, context })
-        return { idle: () => Promise.resolve(), recordWrites: () => {} }
+        return { idle: () => Promise.resolve(), recordWrites: () => {}, finalize: () => {} }
       }
     }
   })
@@ -672,12 +672,18 @@ test('only file-writing tool calls reach the outcome index', async () => {
   toolCallingAdapter(appPath)
   const owner = { isDestroyed: () => false, send: () => {} } as unknown as WebContents
   const written: string[] = []
+  let finalized = 0
   const manager = createAcpSessionManager({
     appPath,
     sessionOutcomes: {
       watch: () => ({
         idle: () => Promise.resolve(),
-        recordWrites: (paths) => written.push(...paths)
+        recordWrites: (paths) => {
+          written.push(...paths)
+        },
+        finalize: () => {
+          finalized += 1
+        }
       })
     }
   })
@@ -691,4 +697,8 @@ test('only file-writing tool calls reach the outcome index', async () => {
   } finally {
     manager.killAll()
   }
+
+  // The adapter process exiting retires no broker channel, so its own exit is the only thing that
+  // can tell the index this session is over.
+  await until(() => finalized > 0)
 })

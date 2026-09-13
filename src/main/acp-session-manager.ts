@@ -1310,6 +1310,10 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       })
       child.on('exit', (code) => {
         if (agents.get(request.id) === running) agents.delete(request.id)
+        // An adapter that fell over on its own retires no broker channel, so this is the only
+        // place the index hears that the session is over. `stop` reaches the same call through
+        // `broker.close`, and finalizing twice rewrites the same record.
+        running.sessionOutcomes?.finalize()
         if (!running.stopping) {
           send(running, {
             type: 'status',

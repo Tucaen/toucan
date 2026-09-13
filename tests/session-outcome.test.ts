@@ -9,6 +9,8 @@ import {
   SESSION_OUTCOME_FILES_LIMIT,
   SESSION_OUTCOME_PATH_LIMIT,
   SESSION_OUTCOME_SIZE_BUDGET,
+  answeredLatestAsk,
+  endedSessionOutcome,
   extractSessionOutcome,
   parseSessionOutcome,
   renderSessionOutcome,
@@ -344,6 +346,11 @@ test('a conversation still taking turns is active, however its last turn ended',
   assert.equal(extractSessionOutcome(failed, SOURCE, null, AT)?.status, 'active')
 })
 
+function ended(snapshot: AgentTranscriptState, ending: 'complete' | 'failed' | 'cancelled'): string | undefined {
+  const record = extractSessionOutcome(snapshot, SOURCE, null, AT)
+  return record ? endedSessionOutcome(record, ending, answeredLatestAsk(snapshot), AT).status : undefined
+}
+
 test('a session that ended on a clean answered turn is completed', () => {
   const snapshot = transcript(
     user('u1', 'Finish the indexer and then I am closing the node.'),
@@ -351,7 +358,7 @@ test('a session that ended on a clean answered turn is completed', () => {
     { type: 'turn_complete', stopReason: 'end_turn' }
   )
 
-  assert.equal(extractSessionOutcome(snapshot, { ...SOURCE, endedOn: 'complete' }, null, AT)?.status, 'completed')
+  assert.equal(ended(snapshot, 'complete'), 'completed')
 })
 
 test('a session that ended on a failed, cancelled or unanswered turn is abandoned', () => {
@@ -368,9 +375,40 @@ test('a session that ended on a failed, cancelled or unanswered turn is abandone
     { type: 'turn_complete', stopReason: 'end_turn' }
   )
 
-  assert.equal(extractSessionOutcome(answered, { ...SOURCE, endedOn: 'failed' }, null, AT)?.status, 'abandoned')
-  assert.equal(extractSessionOutcome(answered, { ...SOURCE, endedOn: 'cancelled' }, null, AT)?.status, 'abandoned')
-  assert.equal(extractSessionOutcome(unanswered, { ...SOURCE, endedOn: 'complete' }, null, AT)?.status, 'abandoned')
+  assert.equal(ended(answered, 'failed'), 'abandoned')
+  assert.equal(ended(answered, 'cancelled'), 'abandoned')
+  assert.equal(ended(unanswered, 'complete'), 'abandoned')
+})
+
+test('an answer to an earlier ask does not make the latest one answered', () => {
+  // The conversation was answered once and then asked again; the last turn closed cleanly with
+  // nothing to say. Reading the whole transcript for "did it answer" would report this finished.
+  const snapshot = transcript(
+    user('u1', 'Land the worktree handoff.'),
+    assistant('a1', 'Landed.', 'final'),
+    { type: 'turn_complete', stopReason: 'end_turn' },
+    user('u2', 'Now do the same for the remote surface.'),
+    { type: 'turn_complete', stopReason: 'end_turn' }
+  )
+
+  assert.equal(answeredLatestAsk(snapshot), false)
+  assert.equal(ended(snapshot, 'complete'), 'abandoned')
+  // The last result is still the only thing the agent ever reported, which beats reporting nothing.
+  assert.equal(extractSessionOutcome(snapshot, SOURCE, null, AT)?.lastResult, 'Landed.')
+})
+
+test('finalizing settles the status and nothing else about the record', () => {
+  const snapshot = transcript(
+    user('u1', 'Write the record and then close the node.'),
+    assistant('a1', 'Written.', 'final'),
+    { type: 'turn_complete', stopReason: 'end_turn' }
+  )
+  const record = extractSessionOutcome(snapshot, { ...SOURCE, filesTouched: ['src/a.ts'] }, null, AT)
+  assert.ok(record)
+
+  const settled = endedSessionOutcome(record, 'complete', true, '2026-09-13T12:00:00.000Z')
+
+  assert.deepEqual(settled, { ...record, status: 'completed', updatedAt: '2026-09-13T12:00:00.000Z' })
 })
 
 test('a record filled to every cap still fits the retrieval budget', () => {
@@ -408,16 +446,45 @@ test('files, failures and status round-trip through the reader', () => {
     { type: 'turn_failed', turnId: 't2', message: 'Adapter exited: ENOENT' },
     { type: 'turn_complete', stopReason: 'end_turn' }
   )
+  const captured = extractSessionOutcome(
+    snapshot,
+    { ...SOURCE, filesTouched: ['src/shared/session-outcome.ts', 'tests/x.test.ts'] },
+    null,
+    AT
+  )
+  assert.ok(captured)
+  const record = endedSessionOutcome(captured, 'complete', true, AT)
+  assert.equal(record.status, 'completed')
+
+  assert.deepEqual(parseSessionOutcome(renderSessionOutcome(record)), record)
+})
+
+test('a realistic record still fits the 2 KB the tracer bullet budgeted for', () => {
+  // The worst case is bounded by SESSION_OUTCOME_SIZE_BUDGET; this is the case that decides whether
+  // hundreds of records actually fit one context window, and the tracer bullet's claim about it
+  // must survive files, failures and status being added.
+  const snapshot = transcript(
+    user('u1', 'Give the outcome record the files each session wrote, its failures and a status.'),
+    assistant('a1', 'Accumulated the write set at the tool-call seam and finalized status at close.', 'final'),
+    { type: 'turn_failed', turnId: 'turn-3', message: 'Typecheck failed: 2 errors in session-outcome.ts.' },
+    { type: 'turn_complete', stopReason: 'end_turn' }
+  )
   const record = extractSessionOutcome(
     snapshot,
-    { ...SOURCE, endedOn: 'complete', filesTouched: ['src/shared/session-outcome.ts', 'tests/x.test.ts'] },
+    {
+      ...SOURCE,
+      filesTouched: Array.from(
+        { length: SESSION_OUTCOME_FILES_LIMIT },
+        (_, index) => `src/main/session-outcome-indexer-${index}.ts`
+      )
+    },
     null,
     AT
   )
   assert.ok(record)
-  assert.equal(record.status, 'completed')
 
-  assert.deepEqual(parseSessionOutcome(renderSessionOutcome(record)), record)
+  assert.equal(record.filesTouched.length, SESSION_OUTCOME_FILES_LIMIT)
+  assert.ok(renderSessionOutcome(record).length < 2048)
 })
 
 test('a record that wrote nothing and failed nowhere spends no budget saying so', () => {

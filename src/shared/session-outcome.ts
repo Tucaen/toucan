@@ -31,7 +31,12 @@ export const SESSION_OUTCOME_TITLE_LIMIT = 72
  */
 export const SESSION_OUTCOME_FILES_LIMIT = 24
 
-/** Hard cap on one path. Long enough for a real repo-relative path, short enough to bound the list. */
+/**
+ * Hard cap on one path. Long enough for a real repo-relative path, short enough to bound the list.
+ * A path clipped by it keeps its ellipsis when the record is read back, so a later process writing
+ * the same absurdly long file records it a second time rather than deduping against the clip - one
+ * wasted slot out of `SESSION_OUTCOME_FILES_LIMIT`, which is cheaper than a cap a record escapes.
+ */
 export const SESSION_OUTCOME_PATH_LIMIT = 100
 
 /** How many failed or cancelled turns a record keeps, newest last. */
@@ -54,6 +59,9 @@ export const SESSION_OUTCOME_SIZE_BUDGET = 5120
  * both finished cleanly and left a final answer behind.
  */
 export type SessionOutcomeStatus = 'active' | 'completed' | 'abandoned'
+
+/** Which turn boundary a session ended on - the one input `status` is derived from. */
+export type SessionOutcomeEnding = 'complete' | 'failed' | 'cancelled'
 
 export interface SessionOutcomeRecord {
   /** Provider plus conversation id, filename-safe: conversations outlive the canvas nodes running them. */
@@ -105,11 +113,6 @@ export interface SessionOutcomeSource {
    */
   filesTouched?: readonly string[]
   /**
-   * Which turn boundary the session ended on, set only once its channel has been retired. Absent
-   * while turns keep landing, which is what `active` means.
-   */
-  endedOn?: 'complete' | 'failed' | 'cancelled'
-  /**
    * The durable title, where the conversation has one. Supplied rather than derived so the record
    * names the conversation the way every other surface does, manual renames included; the
    * transcript's own derivation is only the fallback until a title has settled.
@@ -152,30 +155,53 @@ function firstUserText(snapshot: AgentTranscriptState): string {
  * the answer wherever there is one; a failed or cancelled turn may leave only progress behind,
  * and reporting that is still better than reporting nothing.
  */
-function lastAssistantText(snapshot: AgentTranscriptState): { text: string; answered: boolean } {
+function lastAssistantText(snapshot: AgentTranscriptState): string {
   let progress = ''
   for (let index = snapshot.messages.length - 1; index >= 0; index -= 1) {
     const message = snapshot.messages[index]
     if (message.role !== 'assistant' || !message.text.trim()) continue
-    if (isFinalAssistantMessage(message)) return { text: message.text, answered: true }
+    if (isFinalAssistantMessage(message)) return message.text
     if (!progress) progress = message.text
   }
-  return { text: progress, answered: false }
+  return progress
 }
 
 /**
- * The write set, newest last. Walked backwards so a file written repeatedly keeps its *latest*
- * position before the cap is applied - a session that rewrote one file forty times must not push
- * everything else out with forty copies of the same entry.
+ * Whether the conversation's *latest* ask was answered: a final assistant message after the last
+ * user message. Scoped to the latest ask rather than the transcript as a whole, because that is
+ * the question `status` turns on - a session whose first turn answered and whose last one closed
+ * with nothing to say has left its captain without an answer, and reporting it `completed` would
+ * be the index lying about the one thing a later reader is asking it.
  */
-function boundedFiles(paths: readonly string[]): string[] {
+export function answeredLatestAsk(snapshot: AgentTranscriptState): boolean {
+  for (let index = snapshot.messages.length - 1; index >= 0; index -= 1) {
+    const message = snapshot.messages[index]
+    if (message.role === 'user') return false
+    if (isFinalAssistantMessage(message) && message.text.trim()) return true
+  }
+  return false
+}
+
+/**
+ * The write set, newest last: deduped, each path capped, the whole list capped. The one place
+ * that rule lives, so the indexer accumulating a session's writes and the record merging them with
+ * what a previous process wrote bound the set identically rather than twice.
+ *
+ * Walked backwards so a file written repeatedly keeps its *latest* position before the cap is
+ * applied - a session that rewrote one file forty times must not push everything else out with
+ * forty copies of the same entry.
+ */
+export function sessionOutcomeFiles(paths: readonly string[]): string[] {
   const newestFirst: string[] = []
   const seen = new Set<string>()
   for (let index = paths.length - 1; index >= 0 && newestFirst.length < SESSION_OUTCOME_FILES_LIMIT; index -= 1) {
-    const path = sessionOutcomeExcerpt(paths[index], SESSION_OUTCOME_PATH_LIMIT)
+    // Deduped on the path itself and clipped only afterwards: two deep files sharing a long prefix
+    // are two files, and collapsing them because their first hundred characters match would make
+    // the record claim one of them was never written.
+    const path = paths[index]
     if (!path || seen.has(path)) continue
     seen.add(path)
-    newestFirst.push(path)
+    newestFirst.push(sessionOutcomeExcerpt(path, SESSION_OUTCOME_PATH_LIMIT))
   }
   return newestFirst.reverse()
 }
@@ -189,13 +215,23 @@ function boundedFailures(outcomes: readonly AgentTurnOutcome[]): AgentTurnOutcom
 }
 
 /**
- * A session that ended is only `completed` if its last turn both finished cleanly *and* left a
- * final answer behind: an adapter that exits after a turn it never answered has abandoned the
- * conversation just as surely as one whose last turn failed outright.
+ * The record a retired session leaves behind: the one it already wrote, with its status settled.
+ * Deliberately a transition on the existing record rather than another extraction, so finalizing
+ * needs neither the transcript nor the async lookups a capture does - which is what lets it run
+ * synchronously at `before-quit`, where nothing that awaits will ever finish.
+ *
+ * A session is only `completed` if its last turn both finished cleanly *and* answered: an adapter
+ * that exits after a turn it never answered has abandoned the conversation just as surely as one
+ * whose last turn failed outright.
  */
-function statusFor(source: SessionOutcomeSource, answered: boolean): SessionOutcomeStatus {
-  if (!source.endedOn) return 'active'
-  return source.endedOn === 'complete' && answered ? 'completed' : 'abandoned'
+export function endedSessionOutcome(
+  record: SessionOutcomeRecord,
+  ending: SessionOutcomeEnding,
+  answered: boolean,
+  now: string
+): SessionOutcomeRecord {
+  const status: SessionOutcomeStatus = ending === 'complete' && answered ? 'completed' : 'abandoned'
+  return { ...record, status, updatedAt: now }
 }
 
 /**
@@ -215,7 +251,6 @@ export function extractSessionOutcome(
   const task = sessionOutcomeExcerpt(firstUserText(snapshot))
   if (!task) return null
   const title = source.title ?? generatedConversationTitle(snapshot.messages)
-  const lastAssistant = lastAssistantText(snapshot)
   return {
     key: sessionOutcomeKey(source.provider, source.conversationId),
     provider: source.provider,
@@ -224,11 +259,13 @@ export function extractSessionOutcome(
     ...(source.worktreeId ? { worktreeId: source.worktreeId } : {}),
     title: sessionOutcomeExcerpt(title ?? task, SESSION_OUTCOME_TITLE_LIMIT),
     task,
-    lastResult: sessionOutcomeExcerpt(lastAssistant.text),
+    lastResult: sessionOutcomeExcerpt(lastAssistantText(snapshot)),
     turns: snapshot.messages.filter((message) => message.role === 'user').length,
-    filesTouched: boundedFiles([...(previous?.filesTouched ?? []), ...(source.filesTouched ?? [])]),
+    filesTouched: sessionOutcomeFiles([...(previous?.filesTouched ?? []), ...(source.filesTouched ?? [])]),
     failures: boundedFailures(snapshot.outcomes),
-    status: statusFor(source, lastAssistant.answered),
+    // Always `active`: a turn landing is the proof a conversation is still going, and a session
+    // that has ended settles its status through `endedSessionOutcome` instead.
+    status: 'active',
     startedAt: previous?.startedAt ?? now,
     updatedAt: now
   }

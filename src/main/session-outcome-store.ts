@@ -1,7 +1,8 @@
+import { mkdirSync, readFileSync } from 'node:fs'
 import { mkdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { parseSessionOutcome, renderSessionOutcome, type SessionOutcomeRecord } from '../shared/session-outcome'
-import { writeSnapshotAtomically } from './durable-file'
+import { writeSnapshotAtomically, writeSnapshotAtomicallySync } from './durable-file'
 import { createSerialQueue } from './serial-queue'
 
 /**
@@ -18,6 +19,15 @@ import { createSerialQueue } from './serial-queue'
 export interface SessionOutcomeStore {
   read(key: string): Promise<SessionOutcomeRecord | null>
   write(record: SessionOutcomeRecord): Promise<void>
+  /**
+   * The synchronous pair, for the one write that cannot await: `before-quit` kills every session
+   * and the process is gone before any promise settles, so a status finalized asynchronously there
+   * would never reach disk. Unserialized by nature - it runs to completion before anything else on
+   * the event loop can - and it reads as well as writes, because finalizing is a transition on the
+   * record the last turn boundary already wrote.
+   */
+  readSync(key: string): SessionOutcomeRecord | null
+  writeSync(record: SessionOutcomeRecord): void
 }
 
 export function createSessionOutcomeStore(options: { directory: string }): SessionOutcomeStore {
@@ -39,6 +49,17 @@ export function createSessionOutcomeStore(options: { directory: string }): Sessi
         await mkdir(options.directory, { recursive: true })
         await writeSnapshotAtomically(pathFor(record.key), renderSessionOutcome(record))
       })
+    },
+    readSync(key) {
+      try {
+        return parseSessionOutcome(readFileSync(pathFor(key), 'utf8'))
+      } catch {
+        return null
+      }
+    },
+    writeSync(record) {
+      mkdirSync(options.directory, { recursive: true })
+      writeSnapshotAtomicallySync(pathFor(record.key), renderSessionOutcome(record), { durable: true })
     }
   }
 }

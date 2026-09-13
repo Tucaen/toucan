@@ -27,10 +27,12 @@ interface Fixture {
   publish(...events: AgentEvent[]): void
   /** Reports written files the way the session manager's tool-call seam does: absolute paths. */
   write(...paths: string[]): void
-  /** A second watch on the same conversation - what resuming a dormant node looks like. */
-  rewatch(): { write(...paths: string[]): void }
+  /** A second session on the same conversation - what resuming a dormant node looks like. */
+  rewatch(): { publish(...events: AgentEvent[]): void; write(...paths: string[]): void }
   /** Retires the session's channel the way `AcpSessionManager.stop` does. */
   close(): void
+  /** Reports the session over without retiring its channel, the way an adapter's own exit does. */
+  finalize(): void
   /** A turn boundary is observed synchronously and written asynchronously; this awaits the write. */
   settle(): Promise<void>
   record(key: string): SessionOutcomeRecord | null
@@ -67,17 +69,27 @@ function fixture(context: Partial<SessionOutcomeContext> = {}, worktreeId?: stri
       for (const event of events) broker.publish('node-1', event)
     },
     write: (...paths) => watches[0].recordWrites(paths),
+    // A resumed conversation is a *new* session - its own id, its own broker channel - that
+    // happens to report the same conversation id. Nothing of the first session's state survives
+    // into it, which is the whole point of the test it exists for.
     rewatch: () => {
-      const resumed = indexer.watch('node-1', () => ({
+      broker.close('node-1')
+      const resumed = indexer.watch('node-2', () => ({
         provider: 'codex',
         conversationId: 'conv-1',
         projectPath: 'D:\\Development\\ADE',
         ...context
       }))
       watches.push(resumed)
-      return { write: (...paths: string[]) => resumed.recordWrites(paths) }
+      return {
+        publish: (...events: AgentEvent[]) => {
+          for (const event of events) broker.publish('node-2', event)
+        },
+        write: (...paths: string[]) => resumed.recordWrites(paths)
+      }
     },
     close: () => broker.close('node-1'),
+    finalize: () => watches[0].finalize(),
     settle: async () => {
       for (const watch of watches) await watch.idle()
       assert.deepEqual(failures, [])
@@ -307,11 +319,11 @@ test('the write set survives the process that produced it', async () => {
     })
     await session.settle()
 
-    // A second watch on the same conversation is what a resumed dormant node looks like: it knows
-    // nothing of the earlier writes, so only the record on disk can carry them forward.
+    // A resumed dormant node is a new session that knows nothing of the earlier one's writes, so
+    // only the record on disk can carry them forward.
     const resumed = session.rewatch()
     resumed.write('D:\\Development\\ADE\\src\\b.ts')
-    session.publish(user('u2', 'Finish it.'), assistant('a2', 'Finished.'), {
+    resumed.publish(user('u1', 'Start the work now and finish it after a restart.'), user('u2', 'Finish it.'), {
       type: 'turn_complete',
       stopReason: 'end_turn'
     })
@@ -387,6 +399,65 @@ test('a session retired before any turn boundary leaves no record behind', async
     await session.settle()
 
     assert.deepEqual(session.files(), [])
+  } finally {
+    session.dispose()
+  }
+})
+
+test('an adapter that exits on its own finalizes the record without retiring the channel', async () => {
+  const session = fixture()
+  try {
+    session.publish(user('u1', 'Do the work and then fall over.'), assistant('a1', 'Done.'), {
+      type: 'turn_complete',
+      stopReason: 'end_turn'
+    })
+    await session.settle()
+
+    // `child.on('exit')` closes no broker channel, so without this call the record would sit at
+    // `active` until someone happened to kill an already-dead node.
+    session.finalize()
+    await session.settle()
+
+    assert.equal(session.record('codex-conv-1')?.status, 'completed')
+  } finally {
+    session.dispose()
+  }
+})
+
+test('the finalized status reaches disk without waiting for a promise to settle', async () => {
+  const session = fixture()
+  try {
+    session.publish(user('u1', 'Finish this; the app is about to quit.'), assistant('a1', 'Finished.'), {
+      type: 'turn_complete',
+      stopReason: 'end_turn'
+    })
+    await session.settle()
+
+    // `before-quit` kills every session and the process is gone before anything queued runs, so
+    // the status has to be on disk the instant the session is retired - not one tick later.
+    session.close()
+
+    assert.equal(session.record('codex-conv-1')?.status, 'completed')
+    await session.settle()
+    assert.equal(session.record('codex-conv-1')?.status, 'completed')
+  } finally {
+    session.dispose()
+  }
+})
+
+test('a capture still on disk cannot write active back over a finalized status', async () => {
+  const session = fixture()
+  try {
+    session.publish(user('u1', 'Finish and close in the same breath.'), assistant('a1', 'Finished.'), {
+      type: 'turn_complete',
+      stopReason: 'end_turn'
+    })
+    // Retired while the boundary's own write is still queued: the queued finalize is what orders
+    // the status after it.
+    session.close()
+    await session.settle()
+
+    assert.equal(session.record('codex-conv-1')?.status, 'completed')
   } finally {
     session.dispose()
   }

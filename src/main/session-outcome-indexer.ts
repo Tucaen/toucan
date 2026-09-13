@@ -3,9 +3,13 @@ import type { AgentEvent } from '../shared/agent'
 import type { AgentTranscriptState } from '../shared/agent-transcript'
 import type { ConversationProvider } from '../shared/conversation'
 import {
-  SESSION_OUTCOME_FILES_LIMIT,
+  answeredLatestAsk,
+  endedSessionOutcome,
   extractSessionOutcome,
+  sessionOutcomeFiles,
   sessionOutcomeKey,
+  type SessionOutcomeEnding,
+  type SessionOutcomeRecord,
   type SessionOutcomeSource
 } from '../shared/session-outcome'
 import type { AgentEventBroker } from './agent-event-broker'
@@ -44,6 +48,13 @@ export interface SessionOutcomeWatch {
    * drops the early writes of a long session.
    */
   recordWrites(paths: readonly string[]): void
+  /**
+   * The session is over: settle its record's status. Called for the two ways that happens - the
+   * broker channel being retired (`stop`) and the adapter exiting on its own, which retires no
+   * channel - and safe to call for both, since the second finalize of one session rewrites the
+   * same record.
+   */
+  finalize(): void
 }
 
 export interface SessionOutcomeIndexer {
@@ -75,9 +86,21 @@ export interface SessionOutcomeIndexerOptions {
   log?: (message: string) => void
 }
 
-type TurnBoundary = NonNullable<SessionOutcomeSource['endedOn']>
+/**
+ * One turn boundary as the index saw it, with everything a capture needs read *at* the boundary.
+ * Kept as a unit because finalizing runs from the broker's `closed` hook, which fires after the
+ * channel has dropped its snapshot and after the session manager has forgotten the session: by
+ * then neither the context nor the transcript can be looked up again.
+ */
+interface CapturedBoundary {
+  context: SessionOutcomeContext
+  snapshot: AgentTranscriptState
+  ending: SessionOutcomeEnding
+  /** Whether the latest ask got an answer, decided here because the snapshot is gone by finalize time. */
+  answered: boolean
+}
 
-function turnBoundary(event: AgentEvent): TurnBoundary | null {
+function turnBoundary(event: AgentEvent): SessionOutcomeEnding | null {
   if (event.type === 'turn_complete') return 'complete'
   if (event.type === 'turn_failed') return 'failed'
   if (event.type === 'turn_cancelled') return 'cancelled'
@@ -102,11 +125,10 @@ export function createSessionOutcomeIndexer(options: SessionOutcomeIndexerOption
 
   const capture = async (
     sessionId: string,
-    context: SessionOutcomeContext,
-    snapshot: AgentTranscriptState,
-    filesTouched: readonly string[],
-    endedOn: TurnBoundary | null
+    boundary: CapturedBoundary,
+    filesTouched: readonly string[]
   ): Promise<void> => {
+    const { context, snapshot } = boundary
     if (!context.conversationId) return
     let worktreeId: string | undefined
     let title: string | undefined
@@ -126,8 +148,7 @@ export function createSessionOutcomeIndexer(options: SessionOutcomeIndexerOption
       projectPath: context.projectPath,
       ...(worktreeId ? { worktreeId } : {}),
       ...(title ? { title } : {}),
-      ...(filesTouched.length ? { filesTouched } : {}),
-      ...(endedOn ? { endedOn } : {})
+      ...(filesTouched.length ? { filesTouched } : {})
     }
     const previous = await options.store.read(sessionOutcomeKey(source.provider, source.conversationId))
     const record = extractSessionOutcome(snapshot, source, previous, now().toISOString())
@@ -142,66 +163,74 @@ export function createSessionOutcomeIndexer(options: SessionOutcomeIndexerOption
       // still waiting on disk when the session is stopped would otherwise find the channel closed
       // and its snapshot gone - losing the final turn, which is the record most worth keeping.
       let pending: Promise<void> = Promise.resolve()
-      /**
-       * Every file this session wrote since the process started watching, newest last and capped
-       * at what a record can hold. Re-inserting a path moves it to the back, so a file written
-       * forty times occupies one slot rather than crowding the rest out.
-       */
-      const written = new Set<string>()
-      /**
-       * The last boundary this watch saw, and the snapshot and context it saw it with. Retained
-       * because finalizing runs from the broker's `closed` hook, which fires *after* the channel
-       * has dropped its snapshot - there is nothing left to read by then.
-       */
-      let last: { context: SessionOutcomeContext; snapshot: AgentTranscriptState; boundary: TurnBoundary } | null = null
+      /** Every file this session wrote since the process started watching, bounded by the one rule a record is. */
+      let written: string[] = []
+      /** The last boundary this watch saw, which is the only thing left to finalize from once the channel closes. */
+      let last: CapturedBoundary | null = null
 
-      const queue = (
-        resolved: SessionOutcomeContext,
-        snapshot: AgentTranscriptState,
-        endedOn: TurnBoundary | null
-      ): void => {
-        const files = [...written]
+      const queue = (boundary: CapturedBoundary): void => {
+        const files = written
         pending = pending.then(() =>
-          capture(sessionId, resolved, snapshot, files, endedOn).catch((error: unknown) => {
+          capture(sessionId, boundary, files).catch((error: unknown) => {
             options.log?.(`session outcome capture failed: ${error instanceof Error ? error.message : String(error)}`)
           })
         )
       }
 
+      /**
+       * Settling the status, twice on purpose. The synchronous pass is the only one that survives
+       * `before-quit`, where every session is killed and the process is gone before a promise can
+       * settle; the queued pass is the only one ordered *after* a capture still on disk, which
+       * would otherwise write `active` back over the status the synchronous pass just wrote. A
+       * session that never reached a turn boundary has no record, and nothing to say about it.
+       */
+      const finalize = (): void => {
+        const captured = last
+        if (!captured || !captured.context.conversationId) return
+        const key = sessionOutcomeKey(captured.context.provider, captured.context.conversationId)
+        const settle = (record: SessionOutcomeRecord): SessionOutcomeRecord =>
+          endedSessionOutcome(record, captured.ending, captured.answered, now().toISOString())
+        try {
+          const onDisk = options.store.readSync(key)
+          if (onDisk) options.store.writeSync(settle(onDisk))
+        } catch (error: unknown) {
+          options.log?.(`session outcome finalize failed: ${error instanceof Error ? error.message : String(error)}`)
+        }
+        pending = pending.then(async () => {
+          try {
+            const onDisk = await options.store.read(key)
+            if (onDisk) await options.store.write(settle(onDisk))
+          } catch (error: unknown) {
+            options.log?.(`session outcome finalize failed: ${error instanceof Error ? error.message : String(error)}`)
+          }
+        })
+      }
+
       options.broker.subscribe(
         sessionId,
         (event) => {
-          const boundary = turnBoundary(event)
-          if (!boundary) return
+          const ending = turnBoundary(event)
+          if (!ending) return
           const resolved = context()
           const snapshot = options.broker.snapshot(sessionId)
           if (!resolved || !snapshot) return
-          last = { context: resolved, snapshot, boundary }
-          queue(resolved, snapshot, null)
+          last = { context: resolved, snapshot, ending, answered: answeredLatestAsk(snapshot) }
+          queue(last)
         },
-        {
-          // Retiring the channel is the session's end, and the only moment a status other than
-          // `active` can be written. A session that never reached a turn boundary has no record to
-          // finalize, so there is nothing to say about it either.
-          closed: () => {
-            if (last) queue(last.context, last.snapshot, last.boundary)
-          }
-        }
+        // Retiring the channel is one of the two ways a session ends; the adapter exiting on its
+        // own is the other, and it reaches `finalize` through the session manager instead.
+        { closed: finalize }
       )
 
       return {
         idle: () => pending,
+        finalize,
         recordWrites(paths) {
           const projectPath = context()?.projectPath
-          for (const path of paths) {
-            const display = displayPath(path, projectPath)
-            written.delete(display)
-            written.add(display)
-          }
-          for (const oldest of written) {
-            if (written.size <= SESSION_OUTCOME_FILES_LIMIT) break
-            written.delete(oldest)
-          }
+          // Re-bounded on every report rather than at the boundary, so the set a long session
+          // carries is the same size as the one a record holds - and deduping, ordering and
+          // capping stay the shared rule's business rather than a second copy of it here.
+          written = sessionOutcomeFiles([...written, ...paths.map((path) => displayPath(path, projectPath))])
         }
       }
     }
