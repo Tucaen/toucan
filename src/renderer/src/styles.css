@@ -324,13 +324,14 @@ button {
 }
 
 .project-sidebar {
+  --sidebar-inline-padding: 8px;
   position: relative;
   z-index: 5;
   width: 238px;
   min-width: 238px;
   display: flex;
   flex-direction: column;
-  padding: 10px 8px;
+  padding: 10px var(--sidebar-inline-padding);
   border-right: 1px solid #222832;
   background: #0f1217;
   transition:
@@ -342,8 +343,8 @@ button {
 .project-sidebar.collapsed {
   width: 58px;
   min-width: 58px;
+  --sidebar-inline-padding: 7px;
   align-items: center;
-  padding-inline: 7px;
 }
 
 .sidebar-heading {
@@ -383,11 +384,15 @@ button {
   background: #20262f;
 }
 
+/* The list bleeds past the sidebar's inline padding so project cards run edge to edge; everything
+   else in the sidebar keeps that padding. */
 .project-list {
   min-height: 0;
   display: grid;
   align-content: start;
   gap: 4px;
+  margin-inline-start: calc(var(--sidebar-inline-padding) * -1);
+  margin-inline-end: calc(var(--sidebar-inline-padding) * -1 + 2px);
   overflow: auto;
 }
 
@@ -408,7 +413,7 @@ button {
 
 /* The grip is the whole card's handle, not the name line's, so it spans both rows. */
 .project-row .project-drag-handle {
-  grid-row: 1 / -1;
+  grid-row: 1 / 3;
 }
 
 .project-row:hover {
@@ -418,7 +423,7 @@ button {
 .project-row.active {
   border-color: #303946;
   background: #1b212a;
-  box-shadow: inset 2px 0 #71a9ff;
+  box-shadow: inset 1px 0 #71a9ff;
 }
 
 .project-sidebar.collapsed .project-row.active {
@@ -431,7 +436,7 @@ button {
   display: flex;
   align-items: center;
   gap: 9px;
-  padding: 8px 6px;
+  padding: 8px 8px 4px 4px;
   overflow: hidden;
   border: 0;
   color: #dce1e9;
@@ -880,22 +885,29 @@ button {
 }
 
 /* The handle is the only thing that starts a drag, so clicking a row or one of its action
-   buttons keeps doing what it always did. */
+   buttons keeps doing what it always did.
+
+   It is always visible, resting dim and brightening with the row. Revealing it on hover would
+   have to either reserve its width anyway - leaving every unhovered card with an 18px gutter of
+   what reads as stray padding - or collapse it, which shifts the whole row sideways under the
+   pointer that is about to click it. Dim-but-present costs a little texture down the sidebar and
+   buys back the only standing hint that rows reorder at all. */
 .project-drag-handle {
   width: 12px;
   display: grid;
+  padding-left: 2px;
   place-items: center;
   flex: 0 0 auto;
   align-self: stretch;
-  color: #414c5c;
-  opacity: 0;
+  color: #2b333e;
   cursor: grab;
   touch-action: none;
+  transition: color 120ms ease;
 }
 
 .project-row:hover .project-drag-handle,
 .project-group-header:hover .project-drag-handle {
-  opacity: 1;
+  color: #5b6778;
 }
 
 .project-drag-handle .lucide {
