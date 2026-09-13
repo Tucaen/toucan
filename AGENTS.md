@@ -63,6 +63,20 @@ This file is the project's committed home for project-intrinsic agent knowledge:
 - Every commit message subject follows `type(affected-feature): ticket-number commit-message` - for example `feat(agent): 127 fan agent events out through a main-process broker`. `type` is a conventional-commit type (`feat`, `fix`, `chore`, `refactor`, `docs`, `test`, `build`, `ci`, `perf`), `affected-feature` names the area touched (`agent`, `mobile`, `worktree`, `remote`, ...), and `ticket-number` is the bare GitHub issue number the work belongs to - no `#`, which git would strip as a comment in an editor-composed message. When no issue covers the work, drop the number and keep the rest of the shape. Keep the message itself imperative, lowercase, no trailing period.
 - Dictation is English-only on the desktop and says so in its label; the phone prefers its browser's own recognizer and only otherwise posts raw 16 kHz PCM to `POST /api/transcribe`, transcribed in main by the same model files. The model is not in the installer: `src/main/voice-model-store.ts` owns where it is (a dev run's prepared `src/renderer/public` directory, else `<userData>/models/...`) and the one shared download into userData on first use, with readiness meaning `streaming_config.json` is present - it is downloaded last and every file is renamed into place only at full size, so that one file proves the rest. The renderer keeps asking for `models/moonshine-medium-streaming-en/<file>` beside its `index.html`; main's `file:` protocol handler (`voice-model-protocol.ts` decides which requests) serves those from the store on the same origin so the cross-origin-isolation headers keep working, and passes every other `file:` request through. `src/shared/remote-voice.ts` is the one place the wire shape and the model directory name live, so `scripts/prepare-voice-model.mjs` must fetch the same architecture the renderer and main load. `src/main/remote/voice-engine.ts` is kept out of the test compile because the Moonshine package is ESM-only; the policy around it is tested through an injected engine. Measure accuracy with `npm run voice:wer -- <dir>` on the user's own recordings before changing models. See `docs/voice-input.md`.
 
+## Agent skills
+
+### Issue tracker
+
+GitHub issues on `Tucaen/ade`, via the `gh` CLI. `docs/tickets/` is Toucan dogfooding its own Markdown board, not this repo's tracker. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Only `ready-for-agent` and `wontfix` of the five canonical roles are in use; the other three are deliberately absent and must not be created. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `CONTEXT.md` plus `docs/adr/` at the repo root, both created lazily and neither present yet. See `docs/agents/domain.md`.
+
 ## Maintaining this file
 
 Keep this file for knowledge useful to almost every future agent session in this project.
