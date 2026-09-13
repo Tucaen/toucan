@@ -2452,21 +2452,6 @@ function Canvas(): JSX.Element {
                                     {!sidebarCollapsed && (
                                       <span className="project-copy">
                                         <strong title={project.path}>{project.name}</strong>
-                                        <span className="project-copy-meta">
-                                          <ProjectBranchChip
-                                            directory={project.path}
-                                            revision={branchRevision}
-                                            onOpen={(anchor) => {
-                                              setMenu(null)
-                                              setProjectMenu({
-                                                x: anchor.left,
-                                                y: anchor.bottom + 4,
-                                                target: { kind: 'project', project },
-                                                page: 'branches'
-                                              })
-                                            }}
-                                          />
-                                        </span>
                                       </span>
                                     )}
                                   </button>
@@ -2523,6 +2508,23 @@ function Canvas(): JSX.Element {
                                       >
                                         <X aria-hidden="true" />
                                       </button>
+                                    </div>
+                                  )}
+                                  {!sidebarCollapsed && (
+                                    <div className="project-branch-line">
+                                      <ProjectBranchChip
+                                        directory={project.path}
+                                        revision={branchRevision}
+                                        onOpen={(anchor) => {
+                                          setMenu(null)
+                                          setProjectMenu({
+                                            x: anchor.left,
+                                            y: anchor.bottom + 4,
+                                            target: { kind: 'project', project },
+                                            page: 'branches'
+                                          })
+                                        }}
+                                      />
                                     </div>
                                   )}
                                 </div>

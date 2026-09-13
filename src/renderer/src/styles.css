@@ -396,11 +396,19 @@ button {
   gap: 3px;
 }
 
+/* Two rows: the name and its buttons, then a full-width line for the branch. The grid is what
+   lets the branch line escape the sliver of width left beside the buttons. */
 .project-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   border: 1px solid transparent;
   border-radius: 9px;
+}
+
+/* The grip is the whole card's handle, not the name line's, so it spans both rows. */
+.project-row .project-drag-handle {
+  grid-row: 1 / -1;
 }
 
 .project-row:hover {
@@ -7388,11 +7396,29 @@ button {
   opacity: 0.7;
 }
 
-/* The row's second line is reserved for branch context; the title discloses the path on hover. */
-.project-copy-meta {
+/* The card's own line for branch context. It spans the full card rather than sitting beside the
+   name, because a branch like "feature/some-very-descriptive-name" has nothing legible to say in
+   the ~90px left over next to the row's buttons. Right-aligned so the chip reads as the card's
+   footer rather than as a second, weaker title.
+
+   It renders empty for a directory that is not a repository, and an empty line must not cost the
+   card any height at all - hence :empty, which also keeps the second grid row from being created. */
+.project-branch-line {
+  grid-column: 2 / -1;
   display: flex;
-  align-items: center;
+  justify-content: flex-end;
   min-width: 0;
+  padding: 0 6px 7px;
+}
+
+.project-branch-line:empty {
+  display: none;
+}
+
+/* Tightens the name against its branch chip, but only when there is a chip to tighten against:
+   without one the card is a single line and keeps its symmetric padding. */
+.project-row:has(.project-branch) .project-select {
+  padding-bottom: 2px;
 }
 
 .project-menu-note {

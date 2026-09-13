@@ -155,7 +155,7 @@ describe('project path', () => {
     const title = sidebar().getByText(alpha.name, { selector: '.project-copy strong' })
     expect(title).toHaveAttribute('title', alpha.path)
     expect(title.closest('.project-select')).not.toHaveAttribute('title')
-    expect(title.closest('.project-copy')?.querySelector('.project-copy-meta')).not.toHaveTextContent(alpha.path)
+    expect(title.closest('.project-row')).not.toHaveTextContent(alpha.path)
   })
 })
 
