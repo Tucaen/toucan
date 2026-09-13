@@ -46,6 +46,8 @@ import {
 import { agentPermissionTitle } from '../shared/agent-permission'
 import { effortSelectorFromConfigOptions } from '../shared/agent-effort'
 import { modelSelectorFromConfigOptions } from '../shared/agent-models'
+import { withCodexSessionConfig } from '../shared/codex-config'
+import { sessionOutcomeIndexInstruction } from '../shared/session-outcome'
 import {
   appliedClaudeDelegation,
   appliedCodexDelegation,
@@ -155,7 +157,7 @@ const PROJECT_SKILLS_DIRECTORY = '.agents'
 interface SessionSkillsConfiguration {
   additionalDirectories?: string[]
   _meta?: {
-    claudeCode: {
+    claudeCode?: {
       options: {
         plugins?: Array<{ type: 'local'; path: string }>
         agents?: ClaudeDelegationSessionMeta['claudeCode']['options']['agents']
@@ -195,20 +197,25 @@ export function sessionSkillsConfiguration(
 /**
  * Layers the routine worker into a Claude session's `_meta`, beside the skills plugins. The SDK
  * options object is one bag, so a delegating session's `agents` and the skills' `plugins` travel
- * in the same `claudeCode.options`; the routing instruction is a `claude_code` preset append.
+ * in the same `claudeCode.options`; the routing instruction goes through `withSessionInstruction`
+ * like every other Toucan instruction, so layering this before or after another one gives the same
+ * session either way - a caller cannot silently drop a sibling instruction by reordering.
  */
 export function withClaudeDelegation(
   configuration: SessionSkillsConfiguration,
   worker: RoutineDelegationRequest
 ): SessionSkillsConfiguration {
   const meta = claudeDelegationSessionMeta(worker)
-  return {
-    ...configuration,
-    _meta: {
-      claudeCode: { options: { ...configuration._meta?.claudeCode.options, ...meta.claudeCode.options } },
-      systemPrompt: meta.systemPrompt
-    }
-  }
+  return withSessionInstruction(
+    {
+      ...configuration,
+      _meta: {
+        ...configuration._meta,
+        claudeCode: { options: { ...configuration._meta?.claudeCode?.options, ...meta.claudeCode.options } }
+      }
+    },
+    meta.systemPrompt.append
+  )
 }
 
 /** Adds a request's own additional directories to the skills configuration, deduplicated and in order. */
@@ -218,6 +225,34 @@ export function withAdditionalDirectories(
 ): SessionSkillsConfiguration {
   const merged = [...new Set([...(configuration.additionalDirectories ?? []), ...(directories ?? [])])]
   return merged.length > 0 ? { ...configuration, additionalDirectories: merged } : configuration
+}
+
+/**
+ * Appends a Toucan-owned instruction to a Claude session's system prompt, after whatever is already
+ * there. It is a `claude_code` preset append, so it is a system prompt rather than a transcript
+ * message - the session is told the thing without a user message it might answer. Appending rather
+ * than assigning is what lets the delegation policy and the outcome-index pointer travel together
+ * on the one `_meta.systemPrompt` the protocol gives a session.
+ *
+ * Codex's counterpart is `developer_instructions` in `CODEX_CONFIG` (`shared/codex-config.ts`),
+ * layered at adapter launch rather than here, because that is where its environment is built.
+ */
+export function withSessionInstruction(
+  configuration: SessionSkillsConfiguration,
+  instruction: string
+): SessionSkillsConfiguration {
+  const existing = configuration._meta?.systemPrompt?.append
+  return {
+    ...configuration,
+    _meta: {
+      ...configuration._meta,
+      systemPrompt: {
+        type: 'preset',
+        preset: 'claude_code',
+        append: [existing, instruction].filter(Boolean).join('\n\n')
+      }
+    }
+  }
 }
 
 interface RunningAgent {
@@ -587,6 +622,14 @@ export interface AcpSessionManagerOptions {
    * observation: a session runs identically without it.
    */
   sessionOutcomes?: SessionOutcomeIndexer
+  /**
+   * Where the session outcome index keeps its records. Every session is granted it as an additional
+   * directory and told it exists, which is the whole of agent retrieval: a later session greps the
+   * folder with the tools it already has, inside a sandbox that already allows it, and needs no IPC
+   * surface of Toucan's (see `docs/plans/session-outcome-index.md`). Separate from
+   * `sessionOutcomes` because a session is granted the folder whether or not it is itself indexed.
+   */
+  sessionOutcomesDirectory?: string
 }
 
 /**
@@ -749,6 +792,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
   let lastClaudeSessionModelIds: string[] | undefined
   const broker = options.broker ?? createAgentEventBroker()
   const toucanSkillsRoot = resolveToucanSkillsRoot(options.appPath)
+  const sessionOutcomesDirectory = options.sessionOutcomesDirectory
 
   /**
    * The one place a session's advertised model list is written down. Every assignment to
@@ -870,12 +914,21 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       }
       const baseConfiguration = withAdditionalDirectories(
         sessionSkillsConfiguration(running.request.provider, running.request.cwd, toucanSkillsRoot),
-        running.request.additionalDirectories
+        [
+          ...(running.request.additionalDirectories ?? []),
+          ...(sessionOutcomesDirectory ? [sessionOutcomesDirectory] : [])
+        ]
       )
-      const skillsConfiguration =
+      const delegatingConfiguration =
         running.request.provider === 'claude' && running.routineDelegation?.status === 'configured'
           ? withClaudeDelegation(baseConfiguration, running.routineDelegation)
           : baseConfiguration
+      // The Codex half of the same pointer rides on `CODEX_CONFIG` at launch instead, which is why
+      // this one is Claude-only rather than a provider-neutral step.
+      const skillsConfiguration =
+        running.request.provider === 'claude' && sessionOutcomesDirectory
+          ? withSessionInstruction(delegatingConfiguration, sessionOutcomeIndexInstruction(sessionOutcomesDirectory))
+          : delegatingConfiguration
       let resumed = false
       let replay: AgentEvent[] | undefined
       if (running.request.sessionId) {
@@ -1123,10 +1176,18 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
             )
           : appliedClaudeDelegation(request.routineDelegation, lastClaudeSessionModelIds, environment)
       const baseEnvironment = agentProcessEnvironment(environment, request.id)
-      const agentEnvironment =
+      const delegatingEnvironment =
         request.provider === 'codex' && delegation?.status === 'configured'
           ? withCodexDelegationEnvironment(baseEnvironment, delegation)
           : baseEnvironment
+      // Layered second, so a user's own `developer_instructions` stay first and the delegation
+      // policy keeps its place; `withCodexSessionConfig` appends rather than replaces.
+      const agentEnvironment =
+        request.provider === 'codex' && sessionOutcomesDirectory
+          ? withCodexSessionConfig(delegatingEnvironment, {
+              developer_instructions: sessionOutcomeIndexInstruction(sessionOutcomesDirectory)
+            })
+          : delegatingEnvironment
       const launch = buildAgentProcessLaunch(process.execPath, path, request.cwd, agentEnvironment)
       const child = (options.spawnAgent ?? spawnAgentProcess)(launch)
       const pendingApprovals = new Map<string, PendingApproval>()

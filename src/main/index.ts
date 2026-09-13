@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, net, protocol, session, shell } from 'electron'
 import { execFileSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, mkdirSync } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
 import { extname, join, normalize } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -379,9 +379,13 @@ void app.whenReady().then(async () => {
   // What each conversation was asked for and where it stands, extracted from the same transcript
   // snapshots the broker already keeps. No UI and no IPC by design: a later session asks an agent
   // to read the folder (see `docs/plans/session-outcome-index.md`).
+  const sessionOutcomesDirectory = join(app.getPath('userData'), 'session-outcomes')
+  // Created up front rather than at the first record: every session is handed this folder as an
+  // additional directory, and a provider sandbox cannot grant a path that is not there yet.
+  mkdirSync(sessionOutcomesDirectory, { recursive: true })
   const sessionOutcomes = createSessionOutcomeIndexer({
     broker: agentEvents,
-    store: createSessionOutcomeStore({ directory: join(app.getPath('userData'), 'session-outcomes') }),
+    store: createSessionOutcomeStore({ directory: sessionOutcomesDirectory }),
     // The node/worktree association lives only in the persisted canvas snapshot, so that is where
     // the record's `worktree` attribute is read from.
     worktreeIdForNode: async (nodeId) =>
@@ -398,7 +402,8 @@ void app.whenReady().then(async () => {
     environment: agentEnvironment,
     broker: agentEvents,
     onModelsAdvertised: (provider, models) => modelCatalogue.record(provider, models),
-    sessionOutcomes
+    sessionOutcomes,
+    sessionOutcomesDirectory
   })
   const captureStore = createBrainDumpCaptureStore(join(app.getPath('userData'), 'brain-dump-capture.json'))
   const brainDumpCapture = createBrainDumpCaptureManager({

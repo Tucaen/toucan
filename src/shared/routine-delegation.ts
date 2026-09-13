@@ -43,6 +43,7 @@
  */
 
 import type { AgentProvider } from './agent-provider'
+import { withCodexSessionConfig } from './codex-config'
 
 export interface RoutineDelegationPreference {
   enabled: boolean
@@ -103,7 +104,7 @@ const WORKER_PREFERENCE_KEY: Record<AgentProvider, 'codexWorkerModelId' | 'claud
 }
 
 export function isRoutineDelegationPreference(value: unknown): value is RoutineDelegationPreference {
-  if (!isRecord(value)) return false
+  if (!value || typeof value !== 'object') return false
   const preference = value as Partial<RoutineDelegationPreference>
   if (typeof preference.enabled !== 'boolean') return false
   return (
@@ -308,42 +309,14 @@ export function claudeDelegationSessionMeta(worker: RoutineDelegationRequest): C
   }
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === 'object' && !Array.isArray(value)
-}
-
-function mergeConfig(base: Record<string, unknown>, addition: Record<string, unknown>): Record<string, unknown> {
-  const merged = { ...base }
-  for (const [key, value] of Object.entries(addition)) {
-    const existing = merged[key]
-    merged[key] = isRecord(existing) && isRecord(value) ? mergeConfig(existing, value) : value
-  }
-  return merged
-}
-
 /**
- * Layers the delegation policy into an environment's `CODEX_CONFIG`. A user-set value keeps its
- * unrelated keys; where both set `developer_instructions`, the user's text is kept ahead of the
- * delegation instruction rather than dropped. An unparseable existing value is replaced - the
- * adapter's own `JSON.parse` would have refused it anyway.
+ * Layers the delegation policy into an environment's `CODEX_CONFIG`, by the rules `codex-config.ts`
+ * owns: a user-set value keeps its unrelated keys, and where both set `developer_instructions` the
+ * user's text is kept ahead of the delegation instruction rather than dropped.
  */
 export function withCodexDelegationEnvironment(
   environment: Record<string, string | undefined>,
   worker: RoutineDelegationRequest
 ): Record<string, string | undefined> {
-  let existing: Record<string, unknown> = {}
-  if (environment.CODEX_CONFIG) {
-    try {
-      const parsed: unknown = JSON.parse(environment.CODEX_CONFIG)
-      if (isRecord(parsed)) existing = parsed
-    } catch {
-      // Replaced below: codex-acp would crash on it before any session opened.
-    }
-  }
-  const addition = codexDelegationConfig(worker)
-  const merged = mergeConfig(existing, addition)
-  if (typeof existing.developer_instructions === 'string' && existing.developer_instructions.trim()) {
-    merged.developer_instructions = `${existing.developer_instructions}\n\n${addition.developer_instructions as string}`
-  }
-  return { ...environment, CODEX_CONFIG: JSON.stringify(merged) }
+  return withCodexSessionConfig(environment, codexDelegationConfig(worker))
 }
