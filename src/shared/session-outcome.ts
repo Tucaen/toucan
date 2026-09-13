@@ -64,6 +64,23 @@ export const SESSION_OUTCOME_SIZE_BUDGET = 4096
 export const SESSION_OUTCOME_SCREENFUL = 20
 
 /**
+ * How many records the index holds before the least recently updated are dropped. Chosen as a
+ * multiple of `SESSION_OUTCOME_SCREENFUL` rather than a disk budget: the cap exists so the index
+ * stays a thing an agent can grep, and at this size the whole directory is still well under a
+ * megabyte. A conversation that has not been touched in four hundred conversations' worth of work
+ * is the one a later session is least likely to be asking about.
+ */
+export const SESSION_OUTCOME_RECORD_CAP = 400
+
+/**
+ * How many asks a conversation needs before it earns a record on its own. Below it, only having
+ * written something does. `turns` counts user messages rather than turn boundaries, so a captain
+ * who steered a follow-up into a running turn is already past this - which is the reading that
+ * matters, since that conversation was worked, not glanced at.
+ */
+export const SESSION_OUTCOME_TRIVIAL_TURNS = 2
+
+/**
  * Where a conversation stands. `active` is not a claim that a session is running right now - a
  * dormant node gets resumed and keeps going - only that no end has been observed; the end is
  * observed when the session's channel is retired, and it is `completed` only when the last turn
@@ -271,7 +288,7 @@ export function extractSessionOutcome(
     title: sessionOutcomeExcerpt(title ?? task, SESSION_OUTCOME_TITLE_LIMIT),
     task,
     lastResult: sessionOutcomeExcerpt(lastAssistantText(snapshot)),
-    turns: snapshot.messages.filter((message) => message.role === 'user').length,
+    turns: sessionOutcomeTurns(snapshot),
     filesTouched: sessionOutcomeFiles([...(previous?.filesTouched ?? []), ...(source.filesTouched ?? [])]),
     failures: boundedFailures(snapshot.outcomes),
     // Always `active`: a turn landing is the proof a conversation is still going, and a session
@@ -422,4 +439,63 @@ export function parseSessionOutcome(markdown: string): SessionOutcomeRecord | nu
     startedAt,
     updatedAt
   }
+}
+
+/**
+ * How many times the conversation has been asked for something. Exported because deciding whether
+ * a conversation is trivial cannot always wait for the record to be written - a session retired
+ * with a capture still on disk has to judge itself from the snapshot - and both readings must
+ * count the same thing.
+ */
+export function sessionOutcomeTurns(snapshot: AgentTranscriptState): number {
+  return snapshot.messages.filter((message) => message.role === 'user').length
+}
+
+/**
+ * A conversation that left nothing behind worth keeping: nobody's files changed and it was asked
+ * for one thing. Q&A the captain could have asked any session - "what does this flag do?" - which
+ * is real work but not work the *next* session needs told about, and a few hundred of those would
+ * crowd out the records that are.
+ *
+ * Deliberately not a judgement about failures: a first turn that fell over having written nothing
+ * is the adapter having died, not a finding. What makes a record is a write or a second ask.
+ */
+export function isTrivialSessionOutcome(record: Pick<SessionOutcomeRecord, 'turns' | 'filesTouched'>): boolean {
+  return record.filesTouched.length === 0 && record.turns < SESSION_OUTCOME_TRIVIAL_TURNS
+}
+
+/** One record as pruning sees it: its filename and the timestamp the order is decided by. */
+export interface SessionOutcomeIndexEntry {
+  key: string
+  /** ISO-8601, so lexicographic order is chronological order; an unreadable record contributes `''` and goes first. */
+  updatedAt: string
+}
+
+/**
+ * Which records to drop so the index stays under its cap, least-recently-updated first. Pure, and
+ * separate from the store, because what "safe to drop" means is a policy question with two parts
+ * the filesystem cannot answer: the cap, and the sessions still running.
+ *
+ * `isLive` is that second part. A live conversation is skipped whatever its age, because pruning
+ * the record a session is still updating would only make it write the file again a turn later -
+ * with its `startedAt` and its accumulated write set lost, which is the one part of a record no
+ * transcript can reconstruct. Live records still *count* toward the cap, so an index whose every
+ * record is live simply stays over it until sessions end; that is a transient state by nature and
+ * a soft cap is the right failure for it.
+ */
+export function prunableSessionOutcomes(
+  entries: readonly SessionOutcomeIndexEntry[],
+  isLive: (key: string) => boolean,
+  cap = SESSION_OUTCOME_RECORD_CAP
+): string[] {
+  if (entries.length <= cap) return []
+  // Ties break on the key so a directory written inside one clock tick prunes deterministically
+  // rather than in whatever order the filesystem happened to list it.
+  const oldestFirst = [...entries].sort((a, b) => a.updatedAt.localeCompare(b.updatedAt) || a.key.localeCompare(b.key))
+  const doomed: string[] = []
+  for (const entry of oldestFirst) {
+    if (entries.length - doomed.length <= cap) break
+    if (!isLive(entry.key)) doomed.push(entry.key)
+  }
+  return doomed
 }

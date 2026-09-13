@@ -6,14 +6,19 @@ import {
   answeredLatestAsk,
   endedSessionOutcome,
   extractSessionOutcome,
+  isTrivialSessionOutcome,
+  prunableSessionOutcomes,
   sessionOutcomeFiles,
   sessionOutcomeKey,
+  sessionOutcomeTurns,
+  SESSION_OUTCOME_RECORD_CAP,
   type SessionOutcomeEnding,
+  type SessionOutcomeIndexEntry,
   type SessionOutcomeRecord,
   type SessionOutcomeSource
 } from '../shared/session-outcome'
 import type { AgentEventBroker } from './agent-event-broker'
-import type { SessionOutcomeStore } from './session-outcome-store'
+import type { SessionOutcomeStore, SessionOutcomeUpdate } from './session-outcome-store'
 
 /**
  * Keeps the session outcome index up to date by watching the agent event fan-out. It sits at the
@@ -23,6 +28,11 @@ import type { SessionOutcomeStore } from './session-outcome-store'
  *
  * The turn boundary is the capture point, not the end of the session: sessions outlive processes
  * (a dormant node gets resumed), so a record written only at close would be lost to every restart.
+ *
+ * It is also where the index's hygiene lives, because both halves of it need something the store
+ * cannot see: which conversations are still being written to (pruning must skip those) and when a
+ * conversation is over (only then is "trivial" a settled verdict). The policy itself - the cap and
+ * the two rules - is pure and shared; this file is what supplies it the session's knowledge.
  */
 
 /** What the session manager knows about a watched session; read lazily, since the provider's conversation id arrives after launch. */
@@ -82,6 +92,8 @@ export interface SessionOutcomeIndexerOptions {
    * turn would let the record's title drift with the latest prompt.
    */
   titleFor?: (provider: ConversationProvider, conversationId: string) => Promise<string | undefined>
+  /** How many records the index keeps before the least recently updated go; injectable so a test can fill it. */
+  recordCap?: number
   now?: () => Date
   log?: (message: string) => void
 }
@@ -98,6 +110,13 @@ interface CapturedBoundary {
   ending: SessionOutcomeEnding
   /** Whether the latest ask got an answer, decided here because the snapshot is gone by finalize time. */
   answered: boolean
+  /**
+   * How many asks the conversation had reached, read here for the same reason. Finalizing needs it
+   * because the record on disk may be a turn behind: a capture still queued when the session is
+   * retired has not written the ask that made this conversation worth keeping, and judging
+   * triviality off that stale file would delete it.
+   */
+  turns: number
 }
 
 function turnBoundary(event: AgentEvent): SessionOutcomeEnding | null {
@@ -122,6 +141,50 @@ function displayPath(path: string, projectPath: string | undefined): string {
 
 export function createSessionOutcomeIndexer(options: SessionOutcomeIndexerOptions): SessionOutcomeIndexer {
   const now = options.now ?? ((): Date => new Date())
+  const cap = options.recordCap ?? SESSION_OUTCOME_RECORD_CAP
+  /**
+   * The records of conversations this process is still watching, which pruning must leave alone.
+   * Membership is the honest reading of "currently active", and a stricter one than the record's
+   * own `status`: `active` only says no end was observed, so a dormant node parked since last week
+   * reads the same as a session mid-turn. A key joins at the conversation's first turn boundary -
+   * before that there is no record to protect - and leaves once its finalize has settled.
+   *
+   * Counted rather than a set, because a conversation can be held by two watches at once: retiring
+   * a node and resuming it are one gesture apart, and the resumed session is already writing while
+   * the retired one's finalize is still queued. A plain set would have the first release drop the
+   * protection the second session is relying on.
+   */
+  const live = new Map<string, number>()
+
+  const holdLive = (key: string): void => {
+    live.set(key, (live.get(key) ?? 0) + 1)
+  }
+
+  const releaseLive = (key: string): void => {
+    const held = (live.get(key) ?? 0) - 1
+    if (held > 0) live.set(key, held)
+    else live.delete(key)
+  }
+
+  /**
+   * Drops the least recently updated records once the index is over its cap. Run after a record is
+   * *created* rather than after every write, because that is the only moment the count can grow;
+   * turn after turn on an existing conversation rewrites one file and changes nothing to prune.
+   */
+  const prune = async (): Promise<void> => {
+    const keys = await options.store.keys()
+    if (keys.length <= cap) return
+    // An unreadable record contributes an empty timestamp, so it sorts oldest and is the first
+    // thing dropped: a file the parser cannot make a record of is not one worth keeping over one
+    // it can. Reading the whole directory is only reached in the over-cap case, once per new
+    // conversation, which is what the cheap key listing above buys.
+    const entries: SessionOutcomeIndexEntry[] = await Promise.all(
+      keys.map(async (key) => ({ key, updatedAt: (await options.store.read(key))?.updatedAt ?? '' }))
+    )
+    for (const key of prunableSessionOutcomes(entries, (candidate) => live.has(candidate), cap)) {
+      await options.store.delete(key)
+    }
+  }
 
   const capture = async (
     sessionId: string,
@@ -150,9 +213,18 @@ export function createSessionOutcomeIndexer(options: SessionOutcomeIndexerOption
       ...(title ? { title } : {}),
       ...(filesTouched.length ? { filesTouched } : {})
     }
-    const previous = await options.store.read(sessionOutcomeKey(source.provider, source.conversationId))
-    const record = extractSessionOutcome(snapshot, source, previous, now().toISOString())
-    if (record) await options.store.write(record)
+    let created = false
+    await options.store.update(sessionOutcomeKey(source.provider, source.conversationId), (previous) => {
+      // A record is written whether or not the conversation is trivial so far, and the thin ones
+      // are dropped when the session ends instead: it is the record that carries `startedAt` and
+      // the write set from turn to turn, so suppressing it would cost a conversation that turns
+      // out to matter the very history no transcript can reconstruct.
+      const record = extractSessionOutcome(snapshot, source, previous, now().toISOString())
+      created = Boolean(record) && !previous
+      return record ?? 'keep'
+    })
+    // Only a record that did not exist can have taken the index over its cap.
+    if (created) await prune()
   }
 
   return {
@@ -167,6 +239,8 @@ export function createSessionOutcomeIndexer(options: SessionOutcomeIndexerOption
       let written: string[] = []
       /** The last boundary this watch saw, which is the only thing left to finalize from once the channel closes. */
       let last: CapturedBoundary | null = null
+      /** The key this watch is holding against pruning, held once however many boundaries it sees. */
+      let held: string | null = null
 
       const queue = (boundary: CapturedBoundary): void => {
         const files = written
@@ -183,25 +257,51 @@ export function createSessionOutcomeIndexer(options: SessionOutcomeIndexerOption
        * settle; the queued pass is the only one ordered *after* a capture still on disk, which
        * would otherwise write `active` back over the status the synchronous pass just wrote. A
        * session that never reached a turn boundary has no record, and nothing to say about it.
+       *
+       * It is also where a trivial conversation is dropped rather than settled. The end of the
+       * session is the only point at which "no writes and one ask" is final - a conversation is
+       * one ask right up until its second - so this is the one place that can tell a Q&A that left
+       * nothing behind from the first turn of real work.
        */
       const finalize = (): void => {
         const captured = last
         if (!captured || !captured.context.conversationId) return
         const key = sessionOutcomeKey(captured.context.provider, captured.context.conversationId)
-        const settle = (record: SessionOutcomeRecord): SessionOutcomeRecord =>
-          endedSessionOutcome(record, captured.ending, captured.answered, now().toISOString())
+        // The one verdict both passes reach, so they can only ever differ in the record they were
+        // handed - which is the whole reason the queued pass exists.
+        const verdict = (onDisk: SessionOutcomeRecord | null): SessionOutcomeUpdate => {
+          if (!onDisk) return 'keep'
+          // Trivial only if *neither* view of the conversation has anything to show for it. The
+          // record carries what earlier processes wrote and this session cannot see; the boundary
+          // and the write set carry what this session has seen and the record may not have caught
+          // up with - a capture still queued at `before-quit` never will, and dropping a record on
+          // the strength of that stale file would erase the conversation it belongs to.
+          const seen = { turns: captured.turns, filesTouched: written }
+          if (isTrivialSessionOutcome(onDisk) && isTrivialSessionOutcome(seen)) return 'delete'
+          return endedSessionOutcome(onDisk, captured.ending, captured.answered, now().toISOString())
+        }
         try {
-          const onDisk = options.store.readSync(key)
-          if (onDisk) options.store.writeSync(settle(onDisk))
+          const settled = verdict(options.store.readSync(key))
+          if (settled === 'delete') options.store.deleteSync(key)
+          else if (settled !== 'keep') options.store.writeSync(settled)
         } catch (error: unknown) {
           options.log?.(`session outcome finalize failed: ${error instanceof Error ? error.message : String(error)}`)
         }
         pending = pending.then(async () => {
           try {
-            const onDisk = await options.store.read(key)
-            if (onDisk) await options.store.write(settle(onDisk))
+            // Re-read rather than trusting the synchronous pass's verdict: a capture queued behind
+            // it may have landed the turn that made this conversation worth a record, and the
+            // deletion above would then have taken a record that is no longer trivial.
+            await options.store.update(key, verdict)
           } catch (error: unknown) {
             options.log?.(`session outcome finalize failed: ${error instanceof Error ? error.message : String(error)}`)
+          }
+          // Released only now, after the last write this session will ever make: a key dropped at
+          // the synchronous pass could be pruned out from under the queued one. Finalizing twice -
+          // an adapter exiting and its channel then being retired - releases once.
+          if (held) {
+            releaseLive(held)
+            held = null
           }
         })
       }
@@ -214,7 +314,17 @@ export function createSessionOutcomeIndexer(options: SessionOutcomeIndexerOption
           const resolved = context()
           const snapshot = options.broker.snapshot(sessionId)
           if (!resolved || !snapshot) return
-          last = { context: resolved, snapshot, ending, answered: answeredLatestAsk(snapshot) }
+          if (resolved.conversationId && !held) {
+            held = sessionOutcomeKey(resolved.provider, resolved.conversationId)
+            holdLive(held)
+          }
+          last = {
+            context: resolved,
+            snapshot,
+            ending,
+            answered: answeredLatestAsk(snapshot),
+            turns: sessionOutcomeTurns(snapshot)
+          }
           queue(last)
         },
         // Retiring the channel is one of the two ways a session ends; the adapter exiting on its

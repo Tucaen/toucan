@@ -64,11 +64,23 @@ Three things in it are the point. **Zero approvals** — the sandbox grant works
 
 The Codex leg is covered by tests (`session/new` carries the directory, `CODEX_CONFIG` carries the pointer) but **not yet by a live run**: the account hit its usage limit mid-verification. Codex's is the sandbox that would actually refuse the read, so that run is still owed.
 
+## Hygiene (#191)
+
+Two rules keep the index worth reading, and both need something the store cannot see, so both live at the indexer while the policy itself stays pure and shared.
+
+**Trivial conversations leave nothing behind.** No writes and fewer than `SESSION_OUTCOME_TRIVIAL_TURNS` (2) asks is a question the captain could have put to any session — real work, but not work the *next* session needs told about. The record is still written every turn while the conversation runs, because it is what carries `startedAt` and the accumulated write set from turn to turn, and it is dropped at `SessionOutcomeWatch.finalize` instead: the end of the session is the only moment "one ask, nothing written" is a settled verdict. Removal runs on both finalize passes — synchronously, which is the only thing that survives `before-quit`, and again on the queued pass, which re-reads rather than trusting the first, since a capture landing in between may have made the conversation worth keeping.
+
+**The index is capped at `SESSION_OUTCOME_RECORD_CAP` (400) records**, least-recently-updated pruned first. `prunableSessionOutcomes` is pure and decides the order; a record the parser cannot read contributes no timestamp and therefore goes first. Pruning runs only after a record is *created*, which is the only moment the count can grow, and the cheap `store.keys()` listing is what keeps the over-cap directory read to once per new conversation.
+
+A currently-active conversation is never pruned, and "active" here is membership of the indexer's live set — the conversations this process is still watching — not the record's own `status`, which only says no end was observed and so reads the same for a node dormant since last week. Live records still count toward the cap, so an index whose every record is live sits over it until sessions end: a soft cap is the right failure, because pruning a record mid-conversation would cost it exactly the history no transcript can reconstruct. Protection is refcounted per watch rather than per key, since retiring a node and resuming it leave two sessions holding one conversation for a moment and the first release must not speak for the second.
+
+Two residual gaps, both deliberate. The cap is enforced on one edge only — a new record — so an index left over the cap by other means (a lowered cap, records copied in) stays over it until the next new conversation. And a conversation is only protected while *this process* watches it, so a record resumed elsewhere before its first turn boundary is prunable; the cost of losing that race is one conversation re-deriving its record from the transcript, which is what the index does at every boundary anyway.
+
 ## Ticket set
 
 1. Tracer bullet: outcome record written at turn end (type + indexer + markdown store, compact by construction).
 2. Rich capture: files touched, failures, status.
 3. Agent retrieval: outcomes directory via `additionalDirectories` + context pointer; verify the grep path end-to-end. **Landed** — see "Measured retrieval budget" above.
-4. Hygiene: pruning and trivial-session filtering.
+4. Hygiene: pruning and trivial-session filtering. **Landed** — see "Hygiene" above.
 
 Out of scope for this set: LLM summarization, revert detection (needs git correlation), follow-up extraction, stow-skill integration, any UI.

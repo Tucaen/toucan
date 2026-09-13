@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -10,10 +10,18 @@ import { createSessionOutcomeStore } from '../src/main/session-outcome-store'
 import {
   SESSION_OUTCOME_FILES_LIMIT,
   parseSessionOutcome,
+  renderSessionOutcome,
   type SessionOutcomeRecord
 } from '../src/shared/session-outcome'
 
 const NOW = 1_700_000_000_000
+
+/**
+ * A file written, which is all it takes to keep a conversation off the trivial-session rule. The
+ * finalize tests below are about status, not about hygiene, so they each report one write rather
+ * than being read as one-ask Q&A the index is entitled to drop.
+ */
+const WORKED_ON = 'D:\\Development\\ADE\\src\\a.ts'
 
 function user(messageId: string, text: string): AgentEvent {
   return { type: 'message', role: 'user', messageId, text }
@@ -29,6 +37,13 @@ interface Fixture {
   write(...paths: string[]): void
   /** A second session on the same conversation - what resuming a dormant node looks like. */
   rewatch(): { publish(...events: AgentEvent[]): void; write(...paths: string[]): void }
+  /** A second, unrelated conversation running beside the first, which is what fills the index. */
+  watch(
+    sessionId: string,
+    conversationId: string
+  ): { publish(...events: AgentEvent[]): void; write(...paths: string[]): void }
+  /** Records some earlier session left behind, written straight to disk with the timestamps a prune sorts on. */
+  plant(...records: { key: string; updatedAt: string }[]): void
   /** Retires the session's channel the way `AcpSessionManager.stop` does. */
   close(): void
   /** Reports the session over without retiring its channel, the way an adapter's own exit does. */
@@ -41,7 +56,15 @@ interface Fixture {
   dispose(): void
 }
 
-function fixture(context: Partial<SessionOutcomeContext> = {}, worktreeId?: string, title?: string): Fixture {
+/** Everything a test varies about a watched session; all of it optional, since most tests vary none of it. */
+interface FixtureOptions {
+  context?: Partial<SessionOutcomeContext>
+  worktreeId?: string
+  title?: string
+  recordCap?: number
+}
+
+function fixture({ context = {}, worktreeId, title, recordCap }: FixtureOptions = {}): Fixture {
   const root = mkdtempSync(join(tmpdir(), 'toucan-outcomes-'))
   const directory = join(root, 'session-outcomes')
   const broker = createAgentEventBroker({ now: () => NOW })
@@ -52,6 +75,7 @@ function fixture(context: Partial<SessionOutcomeContext> = {}, worktreeId?: stri
     store: createSessionOutcomeStore({ directory }),
     ...(worktreeId ? { worktreeIdForNode: async (): Promise<string> => worktreeId } : {}),
     ...(title ? { titleFor: async (): Promise<string> => title } : {}),
+    ...(recordCap === undefined ? {} : { recordCap }),
     now: () => new Date((clock += 60_000)),
     log: (message) => failures.push(message)
   })
@@ -86,6 +110,45 @@ function fixture(context: Partial<SessionOutcomeContext> = {}, worktreeId?: stri
           for (const event of events) broker.publish('node-2', event)
         },
         write: (...paths: string[]) => resumed.recordWrites(paths)
+      }
+    },
+    watch: (sessionId, conversationId) => {
+      const other = indexer.watch(sessionId, () => ({
+        provider: 'codex',
+        conversationId,
+        projectPath: 'D:\\Development\\ADE',
+        ...context
+      }))
+      watches.push(other)
+      return {
+        publish: (...events: AgentEvent[]) => {
+          for (const event of events) broker.publish(sessionId, event)
+        },
+        write: (...paths: string[]) => other.recordWrites(paths)
+      }
+    },
+    plant: (...records) => {
+      mkdirSync(directory, { recursive: true })
+      for (const { key, updatedAt } of records) {
+        writeFileSync(
+          pathFor(key),
+          renderSessionOutcome({
+            key,
+            provider: 'codex',
+            conversationId: key,
+            projectPath: 'D:\\Development\\ADE',
+            title: key,
+            task: 'Something an earlier session was asked for.',
+            lastResult: 'Something it reported back.',
+            turns: 3,
+            filesTouched: ['src/old.ts'],
+            failures: [],
+            status: 'completed',
+            startedAt: updatedAt,
+            updatedAt
+          }),
+          'utf8'
+        )
       }
     },
     close: () => broker.close('node-1'),
@@ -164,7 +227,7 @@ test('completed, cancelled and failed turns all upsert the same record', async (
 })
 
 test('nothing is recorded before the provider has reported a conversation id', async () => {
-  const session = fixture({ conversationId: null })
+  const session = fixture({ context: { conversationId: null } })
   try {
     session.publish(user('u1', 'Start something the provider has not named yet.'), assistant('a1', 'Working on it.'), {
       type: 'turn_complete',
@@ -179,7 +242,7 @@ test('nothing is recorded before the provider has reported a conversation id', a
 })
 
 test('the worktree a node is attached to reaches the record', async () => {
-  const session = fixture({}, 'wt-5')
+  const session = fixture({ worktreeId: 'wt-5' })
   try {
     session.publish(
       user('u1', 'Implement this in the worktree and report back.'),
@@ -236,6 +299,7 @@ test('a record left unreadable on disk is rewritten from the transcript', async 
 test('the final turn still lands when the session is stopped before the write completes', async () => {
   const session = fixture()
   try {
+    session.write(WORKED_ON)
     session.publish(user('u1', 'Finish this and then close the node immediately.'), assistant('a1', 'All done.'), {
       type: 'turn_complete',
       stopReason: 'end_turn'
@@ -253,7 +317,7 @@ test('the final turn still lands when the session is stopped before the write co
 })
 
 test('the durable title reaches the record ahead of the derived one', async () => {
-  const session = fixture({}, undefined, 'Session outcome index')
+  const session = fixture({ title: 'Session outcome index' })
   try {
     session.publish(
       user('u1', 'Write the session outcome index tracer bullet.'),
@@ -358,6 +422,7 @@ test('a failed turn is recorded with its reason while the session stays active',
 test('retiring the session finalizes a clean answered conversation as completed', async () => {
   const session = fixture()
   try {
+    session.write(WORKED_ON)
     session.publish(user('u1', 'Finish this and I will close the node.'), assistant('a1', 'All done.'), {
       type: 'turn_complete',
       stopReason: 'end_turn'
@@ -377,6 +442,7 @@ test('retiring the session finalizes a clean answered conversation as completed'
 test('retiring the session after a failed turn finalizes it as abandoned', async () => {
   const session = fixture()
   try {
+    session.write(WORKED_ON)
     session.publish(user('u1', 'Package the installer.'), assistant('a1', 'It threw.'), {
       type: 'turn_failed',
       turnId: 't1',
@@ -407,6 +473,7 @@ test('a session retired before any turn boundary leaves no record behind', async
 test('an adapter that exits on its own finalizes the record without retiring the channel', async () => {
   const session = fixture()
   try {
+    session.write(WORKED_ON)
     session.publish(user('u1', 'Do the work and then fall over.'), assistant('a1', 'Done.'), {
       type: 'turn_complete',
       stopReason: 'end_turn'
@@ -427,6 +494,7 @@ test('an adapter that exits on its own finalizes the record without retiring the
 test('the finalized status reaches disk without waiting for a promise to settle', async () => {
   const session = fixture()
   try {
+    session.write(WORKED_ON)
     session.publish(user('u1', 'Finish this; the app is about to quit.'), assistant('a1', 'Finished.'), {
       type: 'turn_complete',
       stopReason: 'end_turn'
@@ -448,6 +516,7 @@ test('the finalized status reaches disk without waiting for a promise to settle'
 test('a capture still on disk cannot write active back over a finalized status', async () => {
   const session = fixture()
   try {
+    session.write(WORKED_ON)
     session.publish(user('u1', 'Finish and close in the same breath.'), assistant('a1', 'Finished.'), {
       type: 'turn_complete',
       stopReason: 'end_turn'
@@ -458,6 +527,220 @@ test('a capture still on disk cannot write active back over a finalized status',
     await session.settle()
 
     assert.equal(session.record('codex-conv-1')?.status, 'completed')
+  } finally {
+    session.dispose()
+  }
+})
+
+test('a one-turn Q&A that wrote nothing leaves no record behind once it ends', async () => {
+  const session = fixture()
+  try {
+    session.publish(
+      user('u1', 'What does the wake gate do again?'),
+      assistant('a1', 'It flushes once the turn settles.'),
+      {
+        type: 'turn_complete',
+        stopReason: 'end_turn'
+      }
+    )
+    await session.settle()
+    // The record exists while the conversation is running: it is what carries `startedAt` and the
+    // write set forward, and nothing yet says this conversation will stay a single ask.
+    assert.deepEqual(session.files(), ['codex-conv-1.md'])
+
+    session.close()
+    await session.settle()
+
+    assert.deepEqual(session.files(), [])
+  } finally {
+    session.dispose()
+  }
+})
+
+test('a conversation that starts trivial and then writes keeps its whole record', async () => {
+  const session = fixture()
+  try {
+    session.publish(user('u1', 'Have a look at the wake gate first.'), assistant('a1', 'Read it.'), {
+      type: 'turn_complete',
+      stopReason: 'end_turn'
+    })
+    await session.settle()
+    const early = session.record('codex-conv-1')
+
+    session.write('D:\\Development\\ADE\\src\\main\\wake-gate.ts')
+    session.publish(user('u2', 'Now fix the flush.'), assistant('a2', 'Fixed.'), {
+      type: 'turn_complete',
+      stopReason: 'end_turn'
+    })
+    await session.settle()
+    session.close()
+    await session.settle()
+
+    const record = session.record('codex-conv-1')
+    assert.equal(record?.status, 'completed')
+    assert.equal(record?.turns, 2)
+    assert.deepEqual(record?.filesTouched, ['src/main/wake-gate.ts'])
+    // The first turn is still the task, and the conversation still started when it started.
+    assert.equal(record?.task, 'Have a look at the wake gate first.')
+    assert.equal(record?.startedAt, early?.startedAt)
+  } finally {
+    session.dispose()
+  }
+})
+
+test('a trivial record is dropped even when the app quits before anything can await', async () => {
+  const session = fixture()
+  try {
+    session.publish(user('u1', 'Quick question before I quit.'), assistant('a1', 'Quick answer.'), {
+      type: 'turn_complete',
+      stopReason: 'end_turn'
+    })
+    await session.settle()
+
+    // `before-quit` kills every session and the process is gone before a promise settles, so the
+    // removal has to be on disk the instant the session is retired.
+    session.close()
+
+    assert.deepEqual(session.files(), [])
+  } finally {
+    session.dispose()
+  }
+})
+
+test('a record is pruned once the index passes its cap, oldest by updated first', async () => {
+  const session = fixture({ recordCap: 2 })
+  try {
+    session.plant(
+      { key: 'codex-old', updatedAt: '2026-01-01T10:00:00.000Z' },
+      { key: 'codex-newer', updatedAt: '2026-05-01T10:00:00.000Z' }
+    )
+
+    session.write(WORKED_ON)
+    session.publish(user('u1', 'Start a third conversation in a two-record index.'), assistant('a1', 'Started.'), {
+      type: 'turn_complete',
+      stopReason: 'end_turn'
+    })
+    await session.settle()
+
+    // Three records for a cap of two: the least recently updated one goes, and only that one.
+    assert.deepEqual(session.files(), ['codex-conv-1.md', 'codex-newer.md'])
+  } finally {
+    session.dispose()
+  }
+})
+
+test('pruning leaves the record of a session that is still running alone', async () => {
+  const session = fixture({ recordCap: 1 })
+  try {
+    session.write(WORKED_ON)
+    session.publish(user('u1', 'Keep this conversation open while another one starts.'), assistant('a1', 'Open.'), {
+      type: 'turn_complete',
+      stopReason: 'end_turn'
+    })
+    await session.settle()
+
+    // A second live conversation takes the index over a cap of one. The first is older, and it is
+    // exactly the record a cap-driven sweep would reach for - but it is being written to.
+    const other = session.watch('node-3', 'conv-2')
+    other.write('D:\\Development\\ADE\\src\\b.ts')
+    other.publish(user('u1', 'Start a second conversation past the cap.'), assistant('a1', 'Started.'), {
+      type: 'turn_complete',
+      stopReason: 'end_turn'
+    })
+    await session.settle()
+
+    assert.deepEqual(session.files(), ['codex-conv-1.md', 'codex-conv-2.md'])
+  } finally {
+    session.dispose()
+  }
+})
+
+test('a record left behind by a session that has ended is pruned on the next new conversation', async () => {
+  const session = fixture({ recordCap: 1 })
+  try {
+    session.write(WORKED_ON)
+    session.publish(user('u1', 'Finish this one and close it.'), assistant('a1', 'Done.'), {
+      type: 'turn_complete',
+      stopReason: 'end_turn'
+    })
+    await session.settle()
+    session.close()
+    await session.settle()
+
+    const other = session.watch('node-3', 'conv-2')
+    other.write('D:\\Development\\ADE\\src\\b.ts')
+    other.publish(user('u1', 'Start a second conversation past the cap.'), assistant('a1', 'Started.'), {
+      type: 'turn_complete',
+      stopReason: 'end_turn'
+    })
+    await session.settle()
+
+    // The retired conversation released its protection when its finalize settled, so the cap takes it.
+    assert.deepEqual(session.files(), ['codex-conv-2.md'])
+  } finally {
+    session.dispose()
+  }
+})
+
+test('a record is not dropped as trivial on the strength of a turn the disk has not caught up with', async () => {
+  const session = fixture()
+  try {
+    session.publish(user('u1', 'Have a look at the wake gate first.'), assistant('a1', 'Read it.'), {
+      type: 'turn_complete',
+      stopReason: 'end_turn'
+    })
+    await session.settle()
+
+    // The second turn's capture is still queued when the session is retired, so the record on disk
+    // is the one-ask, wrote-nothing version. On `before-quit` that capture never lands at all, and
+    // the synchronous pass judging triviality from the file would erase the conversation.
+    session.write(WORKED_ON)
+    session.publish(user('u2', 'Now fix the flush.'), assistant('a2', 'Fixed.'), {
+      type: 'turn_complete',
+      stopReason: 'end_turn'
+    })
+    session.close()
+
+    assert.deepEqual(session.files(), ['codex-conv-1.md'])
+    await session.settle()
+    const record = session.record('codex-conv-1')
+    assert.equal(record?.turns, 2)
+    assert.deepEqual(record?.filesTouched, ['src/a.ts'])
+    assert.equal(record?.status, 'completed')
+  } finally {
+    session.dispose()
+  }
+})
+
+test('a conversation resumed while its previous session is still finalizing keeps its protection', async () => {
+  const session = fixture({ recordCap: 1 })
+  try {
+    session.write(WORKED_ON)
+    session.publish(user('u1', 'Start the work and let the node be recycled.'), assistant('a1', 'Started.'), {
+      type: 'turn_complete',
+      stopReason: 'end_turn'
+    })
+    await session.settle()
+
+    // Retiring the node and resuming it are one gesture apart, so both sessions hold this
+    // conversation for a moment. The retired one's finalize must not hand its protection back
+    // while the resumed one is still writing.
+    const resumed = session.rewatch()
+    resumed.publish(user('u1', 'Start the work and let the node be recycled.'), user('u2', 'Carry on.'), {
+      type: 'turn_complete',
+      stopReason: 'end_turn'
+    })
+    await session.settle()
+
+    const other = session.watch('node-3', 'conv-2')
+    other.write('D:\Development\ADE\src\b.ts')
+    other.publish(user('u1', 'Start a second conversation past the cap.'), assistant('a1', 'Started.'), {
+      type: 'turn_complete',
+      stopReason: 'end_turn'
+    })
+    await session.settle()
+
+    assert.deepEqual(session.files(), ['codex-conv-1.md', 'codex-conv-2.md'])
   } finally {
     session.dispose()
   }
