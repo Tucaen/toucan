@@ -105,6 +105,27 @@ test('collapses newlines so an excerpt stays one line of prose', () => {
   assert.equal(record?.lastResult, 'Result across lines')
 })
 
+test('a follow-up steered into a running turn counts as an ask of its own', () => {
+  // `promptWhenIdle` publishes an accepted steer as a `user` message with no turn boundary of its
+  // own, so one boundary can close over several asks. The hygiene filter planned for #191 skips a
+  // conversation with fewer than two turns and reads this number: a session the captain steered
+  // repeatedly is the opposite of trivial and must never be pruned as one.
+  const snapshot = transcript(
+    user('u1', 'Start the worktree handoff and report when the branch exists.'),
+    assistant('a1', 'Creating the worktree.', 'progress'),
+    user('u2', 'Also set the upstream while you are in there.'),
+    user('u3', 'And leave the setup command alone.'),
+    assistant('a2', 'Worktree created, upstream set, setup untouched.', 'final'),
+    { type: 'turn_complete', stopReason: 'end_turn' }
+  )
+
+  const record = extractSessionOutcome(snapshot, SOURCE, null, AT)
+
+  assert.equal(record?.turns, 3)
+  // The task stays the conversation's opening ask, not the latest steer.
+  assert.equal(record?.task, 'Start the worktree handoff and report when the branch exists.')
+})
+
 test('re-derives every field each turn but carries the original start time forward', () => {
   const first = extractSessionOutcome(
     transcript(
