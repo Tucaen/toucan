@@ -13,7 +13,6 @@ import { attentionTextKey, type AttentionAction, type AttentionKind } from '../.
 import { isFinalAssistantMessage } from '../../shared/agent'
 import type { AgentChatMessage, AgentChatStatus } from '../../shared/agent-transcript'
 import type { TerminalNodeStatus } from '../../shared/terminal'
-import { deriveConversationTitle } from '../../shared/conversation-title'
 
 // A 'working' session with no new message/activity/plan event for this long is flagged
 // as stalled. Long enough that a slow tool call (build, long shell command) doesn't
@@ -174,20 +173,7 @@ export function failureAttentionAction(
   }
 }
 
-/**
- * The dialogue a generated title is derived from: the user's messages and the assistant's final
- * answers, in order - progress prose would title the conversation after its own scaffolding.
- */
-export function generatedConversationTitle(messages: readonly AgentChatMessage[]): string | null {
-  return deriveConversationTitle(
-    messages
-      .filter(
-        (message): message is AgentChatMessage & { role: 'user' | 'assistant' } =>
-          message.role === 'user' || isFinalAssistantMessage(message)
-      )
-      .map(({ role, text, presentation }) => ({ role, text, presentation }))
-  )
-}
+export { generatedConversationTitle } from '../../shared/conversation-title'
 
 /**
  * Where the running turn began, observed on the idle->working edge because the transcript alone

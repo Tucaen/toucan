@@ -61,3 +61,28 @@ export function deriveConversationTitle(turns: ConversationTitleTurn[]): string 
   if (assistantTurns.length >= 2) return titleLine(assistantTurns.at(-1)!.text)
   return null
 }
+
+/** A transcript message as this module needs to read one, so nothing here depends on the reducer. */
+export interface ConversationTitleMessage {
+  role: 'user' | 'assistant' | 'thought'
+  text: string
+  presentation?: AgentMessagePresentation
+}
+
+/**
+ * The dialogue a generated title is derived from: the user's messages and the assistant's final
+ * answers, in order - progress prose would title the conversation after its own scaffolding, and
+ * reasoning is not an answer at all. Lives here rather than beside either caller because
+ * `isFinalAssistantMessage` is the shared gate, and a second reading of it would be a second
+ * answer to what counts as the agent having spoken.
+ */
+export function generatedConversationTitle(messages: readonly ConversationTitleMessage[]): string | null {
+  return deriveConversationTitle(
+    messages
+      .filter(
+        (message): message is ConversationTitleMessage & { role: 'user' | 'assistant' } =>
+          message.role === 'user' || isFinalAssistantMessage(message)
+      )
+      .map(({ role, text, presentation }) => ({ role, text, presentation }))
+  )
+}

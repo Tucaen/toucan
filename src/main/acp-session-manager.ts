@@ -59,6 +59,7 @@ import { createAgentEventBroker, type AgentEventBroker } from './agent-event-bro
 import { buildAgentProcessLaunch, spawnAgentProcess, type AgentProcessLaunch } from './agent-process'
 import { readCachedCodexModels } from './codex-model-cache'
 import { createPromptWakeGate, type PromptWakeGate } from './prompt-wake-gate'
+import type { SessionOutcomeIndexer } from './session-outcome-indexer'
 import { AGENT_CHANNELS } from '../shared/ipc-channels'
 
 interface PendingApproval {
@@ -575,6 +576,12 @@ export interface AcpSessionManagerOptions {
    * of its own - see `agent-model-catalogue-store.ts`.
    */
   onModelsAdvertised?: (provider: AgentProvider, models: readonly AgentModel[]) => void
+  /**
+   * The session outcome index, watching each session's fan-out for its turn boundaries. Injected
+   * like the broker so the manager keeps no disk of its own, and optional because indexing is
+   * observation: a session runs identically without it.
+   */
+  sessionOutcomes?: SessionOutcomeIndexer
 }
 
 /**
@@ -1077,6 +1084,20 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       // client would. Retired with the session by `stop`'s broker.close.
       broker.subscribe(request.id, (event) => {
         if (!owner.isDestroyed()) owner.send(AGENT_CHANNELS.event, { id: request.id, event })
+      })
+
+      // Subscriber #2 where the index is wired: another reader of the same stream, retired by the
+      // same `broker.close`. Its context is read per boundary rather than captured here, because
+      // the provider's conversation id only exists once the session has opened.
+      options.sessionOutcomes?.watch(request.id, () => {
+        const running = agents.get(request.id)
+        return running
+          ? {
+              provider: running.request.provider,
+              conversationId: running.sessionId ?? null,
+              projectPath: running.request.cwd
+            }
+          : null
       })
 
       // Read before launch: the delegation policy consults the same account model cache the

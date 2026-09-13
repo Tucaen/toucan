@@ -57,6 +57,8 @@ import { createRemoteAccessServer, type RemoteAccessServer } from './remote/remo
 import { createRemoteVoiceTranscriber } from './remote/voice-transcription'
 import { loadMoonshineEngine } from './remote/voice-engine'
 import { VOICE_MODEL_ASSET_DIRECTORY } from '../shared/remote-voice'
+import { createSessionOutcomeIndexer } from './session-outcome-indexer'
+import { createSessionOutcomeStore } from './session-outcome-store'
 import { createSessionProviders } from './session-providers'
 import { createAdapterManager } from './adapter-manager'
 import { createAdapterInstaller } from './adapter-installer'
@@ -372,15 +374,32 @@ void app.whenReady().then(async () => {
     path: join(app.getPath('userData'), 'agent-models.json'),
     log: mainLog('agent models')
   })
+  const workspace = createWorkspaceStore(join(app.getPath('userData'), 'prototype-workspace.json'))
+  const conversationTitles = createConversationTitleStore(join(app.getPath('userData'), 'conversation-titles.json'))
+  // What each conversation was asked for and where it stands, extracted from the same transcript
+  // snapshots the broker already keeps. No UI and no IPC by design: a later session asks an agent
+  // to read the folder (see `docs/plans/session-outcome-index.md`).
+  const sessionOutcomes = createSessionOutcomeIndexer({
+    broker: agentEvents,
+    store: createSessionOutcomeStore({ directory: join(app.getPath('userData'), 'session-outcomes') }),
+    // The node/worktree association lives only in the persisted canvas snapshot, so that is where
+    // the record's `worktree` attribute is read from.
+    worktreeIdForNode: async (nodeId) =>
+      (await workspace.load()).state?.nodes.find((node) => node.id === nodeId)?.worktreeId,
+    // The same durable title every other surface shows, so a record cannot name the conversation
+    // something the user renamed away from.
+    titleFor: async (provider, conversationId) => (await conversationTitles.get(provider, conversationId))?.title,
+    log: mainLog('session outcomes')
+  })
   const agentManager = createAcpSessionManager({
     appPath: app.getAppPath(),
     resolveAdapter: adapters.resolve,
     codexHome,
     environment: agentEnvironment,
     broker: agentEvents,
-    onModelsAdvertised: (provider, models) => modelCatalogue.record(provider, models)
+    onModelsAdvertised: (provider, models) => modelCatalogue.record(provider, models),
+    sessionOutcomes
   })
-  const workspace = createWorkspaceStore(join(app.getPath('userData'), 'prototype-workspace.json'))
   const captureStore = createBrainDumpCaptureStore(join(app.getPath('userData'), 'brain-dump-capture.json'))
   const brainDumpCapture = createBrainDumpCaptureManager({
     agent: {
@@ -504,7 +523,6 @@ void app.whenReady().then(async () => {
     brainDumpCapture,
     brainDumpChanges
   )
-  const conversationTitles = createConversationTitleStore(join(app.getPath('userData'), 'conversation-titles.json'))
   registerConversationIpc(
     ipcMain,
     createConversationHistory({

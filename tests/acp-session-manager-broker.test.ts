@@ -8,6 +8,7 @@ import { test } from 'node:test'
 import type { WebContents } from 'electron'
 import { createAcpSessionManager, startingProgressFrom } from '../src/main/acp-session-manager'
 import { createAgentEventBroker } from '../src/main/agent-event-broker'
+import type { SessionOutcomeContext } from '../src/main/session-outcome-indexer'
 import type { AgentEvent, AgentEventEnvelope } from '../src/shared/agent'
 
 /**
@@ -597,4 +598,42 @@ test('a stderr chunk keeps the lines around an ignored diagnostic', () => {
   )
   assert.equal(startingProgressFrom('claude auth status failed: ENOENT\n'), undefined)
   assert.equal(startingProgressFrom('   \n'), undefined)
+})
+
+test('the session outcome index is handed each session with the live conversation id', async () => {
+  const appPath = mkdtempSync(join(tmpdir(), 'toucan-broker-outcomes-'))
+  promptingAdapter(appPath, {})
+  const broker = createAgentEventBroker()
+  const owner = { isDestroyed: () => false, send: () => {} } as unknown as WebContents
+  const watched: { sessionId: string; context: () => SessionOutcomeContext | null }[] = []
+  const manager = createAcpSessionManager({
+    appPath,
+    broker,
+    sessionOutcomes: {
+      watch: (sessionId, context) => {
+        watched.push({ sessionId, context })
+        return { idle: () => Promise.resolve() }
+      }
+    }
+  })
+
+  try {
+    await manager.create({ id: 'node-1', provider: 'claude', cwd: appPath }, owner)
+
+    assert.equal(watched.length, 1)
+    assert.equal(watched[0].sessionId, 'node-1')
+    // Read at the boundary rather than captured at create: the provider names the conversation
+    // only once the session has opened.
+    assert.deepEqual(watched[0].context(), {
+      provider: 'claude',
+      conversationId: 'live-session',
+      projectPath: appPath
+    })
+  } finally {
+    manager.killAll()
+  }
+
+  // Closing the session retires the index's subscription with every other one.
+  assert.equal(broker.snapshot('node-1'), null)
+  assert.equal(watched[0].context(), null)
 })
