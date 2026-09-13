@@ -612,7 +612,7 @@ test('the session outcome index is handed each session with the live conversatio
     sessionOutcomes: {
       watch: (sessionId, context) => {
         watched.push({ sessionId, context })
-        return { idle: () => Promise.resolve() }
+        return { idle: () => Promise.resolve(), recordWrites: () => {} }
       }
     }
   })
@@ -636,4 +636,59 @@ test('the session outcome index is handed each session with the live conversatio
   // Closing the session retires the index's subscription with every other one.
   assert.equal(broker.snapshot('node-1'), null)
   assert.equal(watched[0].context(), null)
+})
+
+/** An adapter whose turn reports one file edit and one file read, then finishes. */
+function toolCallingAdapter(appPath: string): void {
+  const directory = join(appPath, 'node_modules', '@agentclientprotocol', 'claude-agent-acp', 'dist')
+  mkdirSync(directory, { recursive: true })
+  writeFileSync(
+    join(directory, 'index.js'),
+    `
+const readline = require('node:readline')
+const lines = readline.createInterface({ input: process.stdin })
+const send = (message) => process.stdout.write(JSON.stringify(message) + '\\n')
+lines.on('line', (line) => {
+  const request = JSON.parse(line)
+  if (request.method === 'initialize') {
+    send({ jsonrpc: '2.0', id: request.id, result: { protocolVersion: 1, agentCapabilities: {}, authMethods: [] } })
+  } else if (request.method === 'session/new') {
+    send({ jsonrpc: '2.0', id: request.id, result: { sessionId: 'live-session' } })
+  } else if (request.method === 'session/prompt') {
+    const update = (u) => send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: request.params.sessionId, update: u } })
+    update({ sessionUpdate: 'tool_call', toolCallId: 'c1', title: 'Edit', kind: 'edit', locations: [{ path: 'src/a.ts' }] })
+    update({ sessionUpdate: 'tool_call', toolCallId: 'c2', title: 'Read', kind: 'read', locations: [{ path: 'src/b.ts' }] })
+    update({ sessionUpdate: 'tool_call', toolCallId: 'c3', title: 'Search', kind: 'search', locations: [{ path: 'src/c.ts' }] })
+    send({ jsonrpc: '2.0', id: request.id, result: { stopReason: 'end_turn' } })
+  }
+})
+`,
+    'utf8'
+  )
+}
+
+test('only file-writing tool calls reach the outcome index', async () => {
+  const appPath = mkdtempSync(join(tmpdir(), 'toucan-broker-writes-'))
+  toolCallingAdapter(appPath)
+  const owner = { isDestroyed: () => false, send: () => {} } as unknown as WebContents
+  const written: string[] = []
+  const manager = createAcpSessionManager({
+    appPath,
+    sessionOutcomes: {
+      watch: () => ({
+        idle: () => Promise.resolve(),
+        recordWrites: (paths) => written.push(...paths)
+      })
+    }
+  })
+
+  try {
+    await manager.create({ id: 'node-1', provider: 'claude', cwd: appPath }, owner)
+    await manager.prompt('node-1', 'Edit one file and read two others.')
+
+    // `src/b.ts` was read and `src/c.ts` searched: having looked at a file is not having written it.
+    assert.deepEqual(written, [join(appPath, 'src', 'a.ts')])
+  } finally {
+    manager.killAll()
+  }
 })

@@ -59,7 +59,7 @@ import { createAgentEventBroker, type AgentEventBroker } from './agent-event-bro
 import { buildAgentProcessLaunch, spawnAgentProcess, type AgentProcessLaunch } from './agent-process'
 import { readCachedCodexModels } from './codex-model-cache'
 import { createPromptWakeGate, type PromptWakeGate } from './prompt-wake-gate'
-import type { SessionOutcomeIndexer } from './session-outcome-indexer'
+import type { SessionOutcomeIndexer, SessionOutcomeWatch } from './session-outcome-indexer'
 import { AGENT_CHANNELS } from '../shared/ipc-channels'
 
 interface PendingApproval {
@@ -271,6 +271,11 @@ interface RunningAgent {
    * comparison later never has to know where the session was running.
    */
   recentWrites: Array<{ path: string; at: number }>
+  /**
+   * This session's handle on the outcome index, where one is wired. Held on the running agent so
+   * the tool-call seam can report a write without the index having to re-classify the call.
+   */
+  sessionOutcomes?: SessionOutcomeWatch
   busy: boolean
   stopping: boolean
   /**
@@ -709,19 +714,22 @@ function nextWriteStamp(): number {
  * a file is not having produced it, and steering the wrong session about a file it only read is
  * worse than steering nobody. A shell redirect is the gap this leaves - neither adapter reports
  * `locations` for an `execute` call, so such a write is noticed but attributed to no session.
+ *
+ * Returns the absolute paths it recorded, so the session outcome index can accumulate its own
+ * unbounded-by-the-ring write set off the same classification rather than duplicating it.
  */
 function recordWrittenLocations(
   running: RunningAgent,
   update: { kind?: string | null; locations?: ReadonlyArray<{ path: string }> | null }
-): void {
-  if (!isFileWritingToolKind(update.kind) || !update.locations?.length) return
+): string[] {
+  if (!isFileWritingToolKind(update.kind) || !update.locations?.length) return []
   const at = nextWriteStamp()
-  for (const location of update.locations) {
-    running.recentWrites.push({ path: resolve(running.request.cwd, location.path), at })
-  }
+  const written = update.locations.map((location) => resolve(running.request.cwd, location.path))
+  for (const path of written) running.recentWrites.push({ path, at })
   if (running.recentWrites.length > RECENT_WRITE_LIMIT) {
     running.recentWrites.splice(0, running.recentWrites.length - RECENT_WRITE_LIMIT)
   }
+  return written
 }
 
 export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpSessionManager {
@@ -1089,7 +1097,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       // Subscriber #2 where the index is wired: another reader of the same stream, retired by the
       // same `broker.close`. Its context is read per boundary rather than captured here, because
       // the provider's conversation id only exists once the session has opened.
-      options.sessionOutcomes?.watch(request.id, () => {
+      const outcomeWatch = options.sessionOutcomes?.watch(request.id, () => {
         const running = agents.get(request.id)
         return running
           ? {
@@ -1178,7 +1186,10 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
               text: update.content.text
             })
           } else if (update.sessionUpdate === 'tool_call' || update.sessionUpdate === 'tool_call_update') {
-            recordWrittenLocations(running, update)
+            // Recorded first and forwarded second: `a?.b(f())` would skip `f()` entirely whenever
+            // no index is wired, taking the session's own write attribution down with it.
+            const written = recordWrittenLocations(running, update)
+            if (written.length) running.sessionOutcomes?.recordWrites(written)
             send(running, { type: 'activity', activity: activityFromUpdate(update) })
           } else if (update.sessionUpdate === 'plan') {
             send(running, { type: 'plan', entries: update.entries })
@@ -1277,6 +1288,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         pendingApprovals,
         pendingElicitations,
         recentWrites: [],
+        ...(outcomeWatch ? { sessionOutcomes: outcomeWatch } : {}),
         busy: false,
         stopping: false,
         authRequired: false,

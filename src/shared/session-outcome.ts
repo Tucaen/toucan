@@ -1,4 +1,4 @@
-import { isFinalAssistantMessage } from './agent'
+import { isFinalAssistantMessage, type AgentTurnOutcome } from './agent'
 import type { AgentTranscriptState } from './agent-transcript'
 import type { ConversationProvider } from './conversation'
 import { generatedConversationTitle } from './conversation-title'
@@ -22,6 +22,39 @@ export const SESSION_OUTCOME_EXCERPT_LIMIT = 600
 /** Hard cap on the title, matching what `deriveConversationTitle` already produces. */
 export const SESSION_OUTCOME_TITLE_LIMIT = 72
 
+/**
+ * How many written files a record keeps, newest last. The write set is the one field that is
+ * accumulated rather than re-derived, so it is also the one that could grow without bound - a
+ * refactor touching three hundred files would otherwise cost every other record's share of the
+ * reader's context window. The most recent writes are kept because they are the ones a later
+ * session is likely asking about.
+ */
+export const SESSION_OUTCOME_FILES_LIMIT = 24
+
+/** Hard cap on one path. Long enough for a real repo-relative path, short enough to bound the list. */
+export const SESSION_OUTCOME_PATH_LIMIT = 100
+
+/** How many failed or cancelled turns a record keeps, newest last. */
+export const SESSION_OUTCOME_FAILURE_LIMIT = 3
+
+/** Hard cap on a failure message: enough to recognise the failure, not enough to paste a stack. */
+export const SESSION_OUTCOME_FAILURE_MESSAGE_LIMIT = 160
+
+/**
+ * The ceiling every cap above is chosen against: a record filled to all of them still renders
+ * under this, so "a few hundred records fit one context window" stays true for the worst case and
+ * not just the typical one. `tests/session-outcome.test.ts` holds it honest.
+ */
+export const SESSION_OUTCOME_SIZE_BUDGET = 5120
+
+/**
+ * Where a conversation stands. `active` is not a claim that a session is running right now - a
+ * dormant node gets resumed and keeps going - only that no end has been observed; the end is
+ * observed when the session's channel is retired, and it is `completed` only when the last turn
+ * both finished cleanly and left a final answer behind.
+ */
+export type SessionOutcomeStatus = 'active' | 'completed' | 'abandoned'
+
 export interface SessionOutcomeRecord {
   /** Provider plus conversation id, filename-safe: conversations outlive the canvas nodes running them. */
   key: string
@@ -44,6 +77,17 @@ export interface SessionOutcomeRecord {
    * this conversation" field is the more useful reading anyway.
    */
   turns: number
+  /**
+   * Every file this conversation's tool calls reported writing, newest last, deduped and capped.
+   * The one accumulated field: the capture site feeds it what it has seen since the process
+   * started and the previous record contributes the rest, because a conversation outlives the
+   * process running it. Reads and searches are never in here - having looked at a file is not
+   * having produced it (`isFileWritingToolKind`).
+   */
+  filesTouched: string[]
+  /** Failed and cancelled turns, newest last, in the transcript's own turn-outcome shape. */
+  failures: AgentTurnOutcome[]
+  status: SessionOutcomeStatus
   startedAt: string
   updatedAt: string
 }
@@ -54,6 +98,17 @@ export interface SessionOutcomeSource {
   conversationId: string
   projectPath: string
   worktreeId?: string
+  /**
+   * Files written since this process started watching the session, newest last. Accumulated by the
+   * indexer at the tool-call seam rather than read off the session's bounded `recentWrites` ring,
+   * which drops writes long before a long session ends.
+   */
+  filesTouched?: readonly string[]
+  /**
+   * Which turn boundary the session ended on, set only once its channel has been retired. Absent
+   * while turns keep landing, which is what `active` means.
+   */
+  endedOn?: 'complete' | 'failed' | 'cancelled'
   /**
    * The durable title, where the conversation has one. Supplied rather than derived so the record
    * names the conversation the way every other surface does, manual renames included; the
@@ -97,22 +152,59 @@ function firstUserText(snapshot: AgentTranscriptState): string {
  * the answer wherever there is one; a failed or cancelled turn may leave only progress behind,
  * and reporting that is still better than reporting nothing.
  */
-function lastAssistantText(snapshot: AgentTranscriptState): string {
+function lastAssistantText(snapshot: AgentTranscriptState): { text: string; answered: boolean } {
   let progress = ''
   for (let index = snapshot.messages.length - 1; index >= 0; index -= 1) {
     const message = snapshot.messages[index]
     if (message.role !== 'assistant' || !message.text.trim()) continue
-    if (isFinalAssistantMessage(message)) return message.text
+    if (isFinalAssistantMessage(message)) return { text: message.text, answered: true }
     if (!progress) progress = message.text
   }
-  return progress
+  return { text: progress, answered: false }
+}
+
+/**
+ * The write set, newest last. Walked backwards so a file written repeatedly keeps its *latest*
+ * position before the cap is applied - a session that rewrote one file forty times must not push
+ * everything else out with forty copies of the same entry.
+ */
+function boundedFiles(paths: readonly string[]): string[] {
+  const newestFirst: string[] = []
+  const seen = new Set<string>()
+  for (let index = paths.length - 1; index >= 0 && newestFirst.length < SESSION_OUTCOME_FILES_LIMIT; index -= 1) {
+    const path = sessionOutcomeExcerpt(paths[index], SESSION_OUTCOME_PATH_LIMIT)
+    if (!path || seen.has(path)) continue
+    seen.add(path)
+    newestFirst.push(path)
+  }
+  return newestFirst.reverse()
+}
+
+function boundedFailures(outcomes: readonly AgentTurnOutcome[]): AgentTurnOutcome[] {
+  return outcomes.slice(-SESSION_OUTCOME_FAILURE_LIMIT).map((outcome) => ({
+    id: outcome.id,
+    status: outcome.status,
+    message: sessionOutcomeExcerpt(outcome.message, SESSION_OUTCOME_FAILURE_MESSAGE_LIMIT)
+  }))
+}
+
+/**
+ * A session that ended is only `completed` if its last turn both finished cleanly *and* left a
+ * final answer behind: an adapter that exits after a turn it never answered has abandoned the
+ * conversation just as surely as one whose last turn failed outright.
+ */
+function statusFor(source: SessionOutcomeSource, answered: boolean): SessionOutcomeStatus {
+  if (!source.endedOn) return 'active'
+  return source.endedOn === 'complete' && answered ? 'completed' : 'abandoned'
 }
 
 /**
  * The record this snapshot describes, or `null` when there is nothing worth writing down yet - a
  * conversation with no user message has not been asked anything. `previous` is the record already
- * on disk: only `startedAt` is carried over from it, so a record is otherwise re-derived in full
- * at every turn boundary and cannot drift from the transcript it describes.
+ * on disk: only `startedAt` and the write set are carried over from it, so a record is otherwise
+ * re-derived in full at every turn boundary and cannot drift from the transcript it describes.
+ * The write set is the deliberate exception - no transcript snapshot reports what a process that
+ * has already exited wrote, so the only place that history survives is the record itself.
  */
 export function extractSessionOutcome(
   snapshot: AgentTranscriptState,
@@ -123,6 +215,7 @@ export function extractSessionOutcome(
   const task = sessionOutcomeExcerpt(firstUserText(snapshot))
   if (!task) return null
   const title = source.title ?? generatedConversationTitle(snapshot.messages)
+  const lastAssistant = lastAssistantText(snapshot)
   return {
     key: sessionOutcomeKey(source.provider, source.conversationId),
     provider: source.provider,
@@ -131,8 +224,11 @@ export function extractSessionOutcome(
     ...(source.worktreeId ? { worktreeId: source.worktreeId } : {}),
     title: sessionOutcomeExcerpt(title ?? task, SESSION_OUTCOME_TITLE_LIMIT),
     task,
-    lastResult: sessionOutcomeExcerpt(lastAssistantText(snapshot)),
+    lastResult: sessionOutcomeExcerpt(lastAssistant.text),
     turns: snapshot.messages.filter((message) => message.role === 'user').length,
+    filesTouched: boundedFiles([...(previous?.filesTouched ?? []), ...(source.filesTouched ?? [])]),
+    failures: boundedFailures(snapshot.outcomes),
+    status: statusFor(source, lastAssistant.answered),
     startedAt: previous?.startedAt ?? now,
     updatedAt: now
   }
@@ -162,6 +258,7 @@ export function renderSessionOutcome(record: SessionOutcomeRecord): string {
     `project: ${JSON.stringify(record.projectPath)}`,
     ...(record.worktreeId ? [`worktree: ${record.worktreeId}`] : []),
     `title: ${record.title}`,
+    `status: ${record.status}`,
     `turns: ${record.turns}`,
     `started: ${record.startedAt}`,
     `updated: ${record.updatedAt}`,
@@ -174,8 +271,33 @@ export function renderSessionOutcome(record: SessionOutcomeRecord): string {
     '## Last result',
     '',
     record.lastResult,
-    ''
+    '',
+    // Both lists are omitted entirely when empty: a record for a conversation that wrote nothing
+    // and failed nowhere should not spend the reader's budget saying so twice.
+    ...(record.filesTouched.length ? ['## Files', '', ...record.filesTouched.map((path) => `- ${path}`), ''] : []),
+    ...(record.failures.length
+      ? ['## Failures', '', ...record.failures.map((failure) => renderFailure(failure)), '']
+      : [])
   ].join('\n')
+}
+
+function renderFailure(failure: AgentTurnOutcome): string {
+  const line = `- ${failure.status} (${failure.id}):`
+  return failure.message ? `${line} ${failure.message}` : line
+}
+
+/**
+ * A failure line, read back the way it was written. The turn id is delimited by the first `)`, so
+ * a provider that ever mints an id containing one would round-trip lossily - which costs a record
+ * one failure entry at the next capture, since failures are re-derived from the transcript anyway.
+ */
+const FAILURE_LINE = /^- (failed|cancelled) \(([^)]*)\):\s?(.*)$/
+
+function listItems(body: string, heading: string): string[] {
+  return section(body, heading)
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith('- '))
 }
 
 function section(body: string, heading: string): string {
@@ -204,6 +326,13 @@ export function parseSessionOutcome(markdown: string): SessionOutcomeRecord | nu
   if ((provider !== 'claude' && provider !== 'codex') || !conversationId || !project) return null
   if (!Number.isInteger(turns) || turns < 0 || !startedAt || !updatedAt) return null
   const worktreeId = fields.get('worktree')
+  const status = fields.get('status')
+  const failures: AgentTurnOutcome[] = []
+  for (const item of listItems(body, 'Failures')) {
+    const match = FAILURE_LINE.exec(item)
+    if (match)
+      failures.push({ id: match[2], status: match[1] === 'failed' ? 'failed' : 'cancelled', message: match[3] })
+  }
   return {
     key: fields.get('key') || sessionOutcomeKey(provider, conversationId),
     provider,
@@ -214,6 +343,11 @@ export function parseSessionOutcome(markdown: string): SessionOutcomeRecord | nu
     task: section(body, 'Task'),
     lastResult: section(body, 'Last result'),
     turns,
+    filesTouched: listItems(body, 'Files').map((item) => item.slice(2)),
+    failures,
+    // An unrecognised status reads as `active`: the next turn boundary re-derives it, and the one
+    // thing a reader must never conclude from a damaged field is that a session is finished.
+    status: status === 'completed' || status === 'abandoned' ? status : 'active',
     startedAt,
     updatedAt
   }

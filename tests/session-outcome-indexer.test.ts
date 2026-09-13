@@ -7,7 +7,11 @@ import type { AgentEvent } from '../src/shared/agent'
 import { createAgentEventBroker } from '../src/main/agent-event-broker'
 import { createSessionOutcomeIndexer, type SessionOutcomeContext } from '../src/main/session-outcome-indexer'
 import { createSessionOutcomeStore } from '../src/main/session-outcome-store'
-import { parseSessionOutcome, type SessionOutcomeRecord } from '../src/shared/session-outcome'
+import {
+  SESSION_OUTCOME_FILES_LIMIT,
+  parseSessionOutcome,
+  type SessionOutcomeRecord
+} from '../src/shared/session-outcome'
 
 const NOW = 1_700_000_000_000
 
@@ -21,6 +25,10 @@ function assistant(messageId: string, text: string): AgentEvent {
 
 interface Fixture {
   publish(...events: AgentEvent[]): void
+  /** Reports written files the way the session manager's tool-call seam does: absolute paths. */
+  write(...paths: string[]): void
+  /** A second watch on the same conversation - what resuming a dormant node looks like. */
+  rewatch(): { write(...paths: string[]): void }
   /** Retires the session's channel the way `AcpSessionManager.stop` does. */
   close(): void
   /** A turn boundary is observed synchronously and written asynchronously; this awaits the write. */
@@ -37,27 +45,41 @@ function fixture(context: Partial<SessionOutcomeContext> = {}, worktreeId?: stri
   const broker = createAgentEventBroker({ now: () => NOW })
   let clock = Date.parse('2026-09-13T10:00:00.000Z')
   const failures: string[] = []
-  const watch = createSessionOutcomeIndexer({
+  const indexer = createSessionOutcomeIndexer({
     broker,
     store: createSessionOutcomeStore({ directory }),
     ...(worktreeId ? { worktreeIdForNode: async (): Promise<string> => worktreeId } : {}),
     ...(title ? { titleFor: async (): Promise<string> => title } : {}),
     now: () => new Date((clock += 60_000)),
     log: (message) => failures.push(message)
-  }).watch('node-1', () => ({
-    provider: 'codex',
-    conversationId: 'conv-1',
-    projectPath: 'D:\\Development\\ADE',
-    ...context
-  }))
+  })
+  const watches = [
+    indexer.watch('node-1', () => ({
+      provider: 'codex',
+      conversationId: 'conv-1',
+      projectPath: 'D:\\Development\\ADE',
+      ...context
+    }))
+  ]
   const pathFor = (key: string): string => join(directory, `${key}.md`)
   return {
     publish: (...events) => {
       for (const event of events) broker.publish('node-1', event)
     },
+    write: (...paths) => watches[0].recordWrites(paths),
+    rewatch: () => {
+      const resumed = indexer.watch('node-1', () => ({
+        provider: 'codex',
+        conversationId: 'conv-1',
+        projectPath: 'D:\\Development\\ADE',
+        ...context
+      }))
+      watches.push(resumed)
+      return { write: (...paths: string[]) => resumed.recordWrites(paths) }
+    },
     close: () => broker.close('node-1'),
     settle: async () => {
-      await watch.idle()
+      for (const watch of watches) await watch.idle()
       assert.deepEqual(failures, [])
     },
     record: (key) => parseSessionOutcome(readFileSync(pathFor(key), 'utf8')),
@@ -229,6 +251,142 @@ test('the durable title reaches the record ahead of the derived one', async () =
     await session.settle()
 
     assert.equal(session.record('codex-conv-1')?.title, 'Session outcome index')
+  } finally {
+    session.dispose()
+  }
+})
+
+test('the write set outlives the bounded recent-writes ring', async () => {
+  const session = fixture()
+  try {
+    // Far past the session manager's 100-entry ring: the index accumulates its own set, so the
+    // record still names the most recent writes rather than whatever the ring had room for.
+    session.write(...Array.from({ length: 400 }, (_, index) => `D:\\Development\\ADE\\src\\file-${index}.ts`))
+    session.publish(user('u1', 'Rename the symbol across the whole tree.'), assistant('a1', 'Renamed.'), {
+      type: 'turn_complete',
+      stopReason: 'end_turn'
+    })
+    await session.settle()
+
+    const files = session.record('codex-conv-1')?.filesTouched ?? []
+    assert.equal(files.length, SESSION_OUTCOME_FILES_LIMIT)
+    assert.equal(files.at(-1), 'src/file-399.ts')
+    assert.equal(files.at(0), `src/file-${400 - SESSION_OUTCOME_FILES_LIMIT}.ts`)
+  } finally {
+    session.dispose()
+  }
+})
+
+test('written paths are recorded relative to the project, in the shape a reader greps for', async () => {
+  const session = fixture()
+  try {
+    session.write('D:\\Development\\ADE\\src\\main\\index.ts', 'D:\\Development\\other\\notes.md')
+    session.publish(user('u1', 'Touch one file inside the project and one outside it.'), assistant('a1', 'Done.'), {
+      type: 'turn_complete',
+      stopReason: 'end_turn'
+    })
+    await session.settle()
+
+    // Anything outside the project stays absolute: a sibling checkout is only identifiable in full.
+    assert.deepEqual(session.record('codex-conv-1')?.filesTouched, [
+      'src/main/index.ts',
+      'D:\\Development\\other\\notes.md'
+    ])
+  } finally {
+    session.dispose()
+  }
+})
+
+test('the write set survives the process that produced it', async () => {
+  const session = fixture()
+  try {
+    session.write('D:\\Development\\ADE\\src\\a.ts')
+    session.publish(user('u1', 'Start the work now and finish it after a restart.'), assistant('a1', 'Started.'), {
+      type: 'turn_complete',
+      stopReason: 'end_turn'
+    })
+    await session.settle()
+
+    // A second watch on the same conversation is what a resumed dormant node looks like: it knows
+    // nothing of the earlier writes, so only the record on disk can carry them forward.
+    const resumed = session.rewatch()
+    resumed.write('D:\\Development\\ADE\\src\\b.ts')
+    session.publish(user('u2', 'Finish it.'), assistant('a2', 'Finished.'), {
+      type: 'turn_complete',
+      stopReason: 'end_turn'
+    })
+    await session.settle()
+
+    assert.deepEqual(session.record('codex-conv-1')?.filesTouched, ['src/a.ts', 'src/b.ts'])
+  } finally {
+    session.dispose()
+  }
+})
+
+test('a failed turn is recorded with its reason while the session stays active', async () => {
+  const session = fixture()
+  try {
+    session.publish(user('u1', 'Package the installer.'), assistant('a1', 'It threw.'), {
+      type: 'turn_failed',
+      turnId: 't1',
+      message: 'electron-builder exited with code 1.'
+    })
+    await session.settle()
+
+    const record = session.record('codex-conv-1')
+    assert.deepEqual(record?.failures, [
+      { id: 't1', status: 'failed', message: 'electron-builder exited with code 1.' }
+    ])
+    assert.equal(record?.status, 'active')
+  } finally {
+    session.dispose()
+  }
+})
+
+test('retiring the session finalizes a clean answered conversation as completed', async () => {
+  const session = fixture()
+  try {
+    session.publish(user('u1', 'Finish this and I will close the node.'), assistant('a1', 'All done.'), {
+      type: 'turn_complete',
+      stopReason: 'end_turn'
+    })
+    await session.settle()
+    assert.equal(session.record('codex-conv-1')?.status, 'active')
+
+    session.close()
+    await session.settle()
+
+    assert.equal(session.record('codex-conv-1')?.status, 'completed')
+  } finally {
+    session.dispose()
+  }
+})
+
+test('retiring the session after a failed turn finalizes it as abandoned', async () => {
+  const session = fixture()
+  try {
+    session.publish(user('u1', 'Package the installer.'), assistant('a1', 'It threw.'), {
+      type: 'turn_failed',
+      turnId: 't1',
+      message: 'electron-builder exited with code 1.'
+    })
+    session.close()
+    await session.settle()
+
+    assert.equal(session.record('codex-conv-1')?.status, 'abandoned')
+  } finally {
+    session.dispose()
+  }
+})
+
+test('a session retired before any turn boundary leaves no record behind', async () => {
+  const session = fixture()
+  try {
+    session.publish(user('u1', 'Open the node and close it again without asking for anything.'))
+    session.close()
+    await session.settle()
+
+    assert.deepEqual(session.files(), [])
   } finally {
     session.dispose()
   }

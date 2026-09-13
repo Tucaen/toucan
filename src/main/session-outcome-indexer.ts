@@ -1,7 +1,13 @@
+import { isAbsolute, relative } from 'node:path'
 import type { AgentEvent } from '../shared/agent'
 import type { AgentTranscriptState } from '../shared/agent-transcript'
 import type { ConversationProvider } from '../shared/conversation'
-import { extractSessionOutcome, sessionOutcomeKey, type SessionOutcomeSource } from '../shared/session-outcome'
+import {
+  SESSION_OUTCOME_FILES_LIMIT,
+  extractSessionOutcome,
+  sessionOutcomeKey,
+  type SessionOutcomeSource
+} from '../shared/session-outcome'
 import type { AgentEventBroker } from './agent-event-broker'
 import type { SessionOutcomeStore } from './session-outcome-store'
 
@@ -30,6 +36,14 @@ export interface SessionOutcomeWatch {
    * up with the stream - and the only way a test can assert on the file rather than on a delay.
    */
   idle(): Promise<void>
+  /**
+   * Files one tool call reported writing, absolute. Called from the same site that classifies a
+   * tool call as file-writing, so reads and searches never reach here - and called *there* rather
+   * than read off the session's `recentWrites` ring at the turn boundary, because that ring is
+   * bounded at 100 entries for a different job (attributing a file to a session) and silently
+   * drops the early writes of a long session.
+   */
+  recordWrites(paths: readonly string[]): void
 }
 
 export interface SessionOutcomeIndexer {
@@ -61,8 +75,26 @@ export interface SessionOutcomeIndexerOptions {
   log?: (message: string) => void
 }
 
-function isTurnBoundary(event: AgentEvent): boolean {
-  return event.type === 'turn_complete' || event.type === 'turn_failed' || event.type === 'turn_cancelled'
+type TurnBoundary = NonNullable<SessionOutcomeSource['endedOn']>
+
+function turnBoundary(event: AgentEvent): TurnBoundary | null {
+  if (event.type === 'turn_complete') return 'complete'
+  if (event.type === 'turn_failed') return 'failed'
+  if (event.type === 'turn_cancelled') return 'cancelled'
+  return null
+}
+
+/**
+ * A path as the reader will want to grep it: relative to the project the session runs in, with
+ * forward slashes, so a record names `src/main/index.ts` the way the repo and every other document
+ * does. Anything outside the project stays absolute - a temp file or a sibling checkout is only
+ * identifiable in full.
+ */
+function displayPath(path: string, projectPath: string | undefined): string {
+  if (!projectPath) return path
+  const within = relative(projectPath, path)
+  if (!within || within.startsWith('..') || isAbsolute(within)) return path
+  return within.replace(/\\/g, '/')
 }
 
 export function createSessionOutcomeIndexer(options: SessionOutcomeIndexerOptions): SessionOutcomeIndexer {
@@ -71,7 +103,9 @@ export function createSessionOutcomeIndexer(options: SessionOutcomeIndexerOption
   const capture = async (
     sessionId: string,
     context: SessionOutcomeContext,
-    snapshot: AgentTranscriptState
+    snapshot: AgentTranscriptState,
+    filesTouched: readonly string[],
+    endedOn: TurnBoundary | null
   ): Promise<void> => {
     if (!context.conversationId) return
     let worktreeId: string | undefined
@@ -91,7 +125,9 @@ export function createSessionOutcomeIndexer(options: SessionOutcomeIndexerOption
       conversationId: context.conversationId,
       projectPath: context.projectPath,
       ...(worktreeId ? { worktreeId } : {}),
-      ...(title ? { title } : {})
+      ...(title ? { title } : {}),
+      ...(filesTouched.length ? { filesTouched } : {}),
+      ...(endedOn ? { endedOn } : {})
     }
     const previous = await options.store.read(sessionOutcomeKey(source.provider, source.conversationId))
     const record = extractSessionOutcome(snapshot, source, previous, now().toISOString())
@@ -106,18 +142,68 @@ export function createSessionOutcomeIndexer(options: SessionOutcomeIndexerOption
       // still waiting on disk when the session is stopped would otherwise find the channel closed
       // and its snapshot gone - losing the final turn, which is the record most worth keeping.
       let pending: Promise<void> = Promise.resolve()
-      options.broker.subscribe(sessionId, (event) => {
-        if (!isTurnBoundary(event)) return
-        const resolved = context()
-        const snapshot = options.broker.snapshot(sessionId)
-        if (!resolved || !snapshot) return
+      /**
+       * Every file this session wrote since the process started watching, newest last and capped
+       * at what a record can hold. Re-inserting a path moves it to the back, so a file written
+       * forty times occupies one slot rather than crowding the rest out.
+       */
+      const written = new Set<string>()
+      /**
+       * The last boundary this watch saw, and the snapshot and context it saw it with. Retained
+       * because finalizing runs from the broker's `closed` hook, which fires *after* the channel
+       * has dropped its snapshot - there is nothing left to read by then.
+       */
+      let last: { context: SessionOutcomeContext; snapshot: AgentTranscriptState; boundary: TurnBoundary } | null = null
+
+      const queue = (
+        resolved: SessionOutcomeContext,
+        snapshot: AgentTranscriptState,
+        endedOn: TurnBoundary | null
+      ): void => {
+        const files = [...written]
         pending = pending.then(() =>
-          capture(sessionId, resolved, snapshot).catch((error: unknown) => {
+          capture(sessionId, resolved, snapshot, files, endedOn).catch((error: unknown) => {
             options.log?.(`session outcome capture failed: ${error instanceof Error ? error.message : String(error)}`)
           })
         )
-      })
-      return { idle: () => pending }
+      }
+
+      options.broker.subscribe(
+        sessionId,
+        (event) => {
+          const boundary = turnBoundary(event)
+          if (!boundary) return
+          const resolved = context()
+          const snapshot = options.broker.snapshot(sessionId)
+          if (!resolved || !snapshot) return
+          last = { context: resolved, snapshot, boundary }
+          queue(resolved, snapshot, null)
+        },
+        {
+          // Retiring the channel is the session's end, and the only moment a status other than
+          // `active` can be written. A session that never reached a turn boundary has no record to
+          // finalize, so there is nothing to say about it either.
+          closed: () => {
+            if (last) queue(last.context, last.snapshot, last.boundary)
+          }
+        }
+      )
+
+      return {
+        idle: () => pending,
+        recordWrites(paths) {
+          const projectPath = context()?.projectPath
+          for (const path of paths) {
+            const display = displayPath(path, projectPath)
+            written.delete(display)
+            written.add(display)
+          }
+          for (const oldest of written) {
+            if (written.size <= SESSION_OUTCOME_FILES_LIMIT) break
+            written.delete(oldest)
+          }
+        }
+      }
     }
   }
 }

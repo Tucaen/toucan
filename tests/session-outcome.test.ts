@@ -4,6 +4,11 @@ import type { AgentEvent } from '../src/shared/agent'
 import { foldAgentEvent, initialAgentTranscriptState, type AgentTranscriptState } from '../src/shared/agent-transcript'
 import {
   SESSION_OUTCOME_EXCERPT_LIMIT,
+  SESSION_OUTCOME_FAILURE_LIMIT,
+  SESSION_OUTCOME_FAILURE_MESSAGE_LIMIT,
+  SESSION_OUTCOME_FILES_LIMIT,
+  SESSION_OUTCOME_PATH_LIMIT,
+  SESSION_OUTCOME_SIZE_BUDGET,
   extractSessionOutcome,
   parseSessionOutcome,
   renderSessionOutcome,
@@ -238,4 +243,202 @@ test('the durable title outranks anything derived from the transcript', () => {
     extractSessionOutcome(snapshot, SOURCE, null, AT)?.title,
     'Give the canvas a diff node for reviewing a worktree'
   )
+})
+
+test('the write set accumulates across records rather than being re-derived', () => {
+  const snapshot = transcript(
+    user('u1', 'Give the outcome record the files each session wrote.'),
+    assistant('a1', 'Accumulated at the tool-call seam.', 'final'),
+    { type: 'turn_complete', stopReason: 'end_turn' }
+  )
+  const first = extractSessionOutcome(snapshot, { ...SOURCE, filesTouched: ['src/a.ts', 'src/b.ts'] }, null, AT)
+  assert.ok(first)
+  assert.deepEqual(first.filesTouched, ['src/a.ts', 'src/b.ts'])
+
+  // A later process knows nothing about the first one's writes; the record is where they survived.
+  const later = extractSessionOutcome(snapshot, { ...SOURCE, filesTouched: ['src/c.ts'] }, first, AT)
+
+  assert.deepEqual(later?.filesTouched, ['src/a.ts', 'src/b.ts', 'src/c.ts'])
+})
+
+test('a file written again keeps one slot, at its most recent position', () => {
+  const snapshot = transcript(
+    user('u1', 'Rewrite the same file until it compiles.'),
+    assistant('a1', 'Compiles now.', 'final'),
+    { type: 'turn_complete', stopReason: 'end_turn' }
+  )
+
+  const record = extractSessionOutcome(
+    snapshot,
+    { ...SOURCE, filesTouched: ['src/a.ts', 'src/b.ts', 'src/a.ts'] },
+    null,
+    AT
+  )
+
+  assert.deepEqual(record?.filesTouched, ['src/b.ts', 'src/a.ts'])
+})
+
+test('the write set is capped at its own limit, keeping the most recent writes', () => {
+  const snapshot = transcript(
+    user('u1', 'Rename the symbol everywhere it appears.'),
+    assistant('a1', 'Renamed across the tree.', 'final'),
+    { type: 'turn_complete', stopReason: 'end_turn' }
+  )
+  const paths = Array.from({ length: 300 }, (_, index) => `src/file-${index}.ts`)
+
+  const record = extractSessionOutcome(snapshot, { ...SOURCE, filesTouched: paths }, null, AT)
+
+  assert.equal(record?.filesTouched.length, SESSION_OUTCOME_FILES_LIMIT)
+  assert.equal(record?.filesTouched.at(-1), 'src/file-299.ts')
+  assert.equal(record?.filesTouched.at(0), `src/file-${300 - SESSION_OUTCOME_FILES_LIMIT}.ts`)
+})
+
+test('failed and cancelled turns are recorded with their reason', () => {
+  const snapshot = transcript(
+    user('u1', 'Run the packaging build and report what breaks.'),
+    { type: 'turn_cancelled', turnId: 't1', message: 'Stopped by you.' },
+    user('u2', 'Try again.'),
+    assistant('a2', 'It threw.', 'final'),
+    { type: 'turn_failed', turnId: 't2', message: 'Adapter exited with code 1.' }
+  )
+
+  const record = extractSessionOutcome(snapshot, SOURCE, null, AT)
+
+  assert.deepEqual(record?.failures, [
+    { id: 't1', status: 'cancelled', message: 'Stopped by you.' },
+    { id: 't2', status: 'failed', message: 'Adapter exited with code 1.' }
+  ])
+})
+
+test('only the most recent failures are kept, with their messages capped', () => {
+  const snapshot = transcript(
+    user('u1', 'Keep retrying the flaky suite.'),
+    ...Array.from({ length: SESSION_OUTCOME_FAILURE_LIMIT + 2 }, (_, index): AgentEvent => ({
+      type: 'turn_failed',
+      turnId: `t${index}`,
+      message: `Attempt ${index} failed: ${'stack frame '.repeat(80)}`
+    }))
+  )
+
+  const record = extractSessionOutcome(snapshot, SOURCE, null, AT)
+
+  assert.equal(record?.failures.length, SESSION_OUTCOME_FAILURE_LIMIT)
+  assert.equal(record?.failures.at(-1)?.id, `t${SESSION_OUTCOME_FAILURE_LIMIT + 1}`)
+  assert.ok((record?.failures.at(-1)?.message.length ?? 0) <= SESSION_OUTCOME_FAILURE_MESSAGE_LIMIT)
+  assert.ok(record?.failures.at(-1)?.message.endsWith('…'))
+})
+
+test('a conversation still taking turns is active, however its last turn ended', () => {
+  const answered = transcript(
+    user('u1', 'Land the first half now and the rest tomorrow.'),
+    assistant('a1', 'First half landed.', 'final'),
+    { type: 'turn_complete', stopReason: 'end_turn' }
+  )
+  const failed = transcript(user('u1', 'Land the first half now and the rest tomorrow.'), {
+    type: 'turn_failed',
+    turnId: 't1',
+    message: 'Adapter exited.'
+  })
+
+  assert.equal(extractSessionOutcome(answered, SOURCE, null, AT)?.status, 'active')
+  assert.equal(extractSessionOutcome(failed, SOURCE, null, AT)?.status, 'active')
+})
+
+test('a session that ended on a clean answered turn is completed', () => {
+  const snapshot = transcript(
+    user('u1', 'Finish the indexer and then I am closing the node.'),
+    assistant('a1', 'Finished.', 'final'),
+    { type: 'turn_complete', stopReason: 'end_turn' }
+  )
+
+  assert.equal(extractSessionOutcome(snapshot, { ...SOURCE, endedOn: 'complete' }, null, AT)?.status, 'completed')
+})
+
+test('a session that ended on a failed, cancelled or unanswered turn is abandoned', () => {
+  const answered = transcript(
+    user('u1', 'Finish the indexer and then I am closing the node.'),
+    assistant('a1', 'Finished.', 'final'),
+    { type: 'turn_complete', stopReason: 'end_turn' }
+  )
+  // A turn that closed cleanly but left only narration behind answered nothing, so the
+  // conversation is no more finished than one whose adapter fell over.
+  const unanswered = transcript(
+    user('u1', 'Finish the indexer and then I am closing the node.'),
+    assistant('a1', 'Still reading the store.', 'progress'),
+    { type: 'turn_complete', stopReason: 'end_turn' }
+  )
+
+  assert.equal(extractSessionOutcome(answered, { ...SOURCE, endedOn: 'failed' }, null, AT)?.status, 'abandoned')
+  assert.equal(extractSessionOutcome(answered, { ...SOURCE, endedOn: 'cancelled' }, null, AT)?.status, 'abandoned')
+  assert.equal(extractSessionOutcome(unanswered, { ...SOURCE, endedOn: 'complete' }, null, AT)?.status, 'abandoned')
+})
+
+test('a record filled to every cap still fits the retrieval budget', () => {
+  const snapshot = transcript(
+    user('u1', `Do this: ${'context '.repeat(400)}`),
+    ...Array.from({ length: SESSION_OUTCOME_FAILURE_LIMIT }, (_, index): AgentEvent => ({
+      type: 'turn_failed',
+      turnId: `turn-${'x'.repeat(30)}-${index}`,
+      message: 'stack frame '.repeat(80)
+    })),
+    assistant('a1', `Done: ${'detail '.repeat(400)}`, 'final'),
+    { type: 'turn_complete', stopReason: 'end_turn' }
+  )
+  const record = extractSessionOutcome(
+    snapshot,
+    {
+      ...SOURCE,
+      worktreeId: 'wt-11',
+      filesTouched: Array.from({ length: 300 }, (_, index) => `src/${'deeply-nested/'.repeat(20)}file-${index}.ts`)
+    },
+    null,
+    AT
+  )
+  assert.ok(record)
+
+  assert.ok(record.filesTouched.every((path) => path.length <= SESSION_OUTCOME_PATH_LIMIT))
+  assert.ok(renderSessionOutcome(record).length <= SESSION_OUTCOME_SIZE_BUDGET)
+})
+
+test('files, failures and status round-trip through the reader', () => {
+  const snapshot = transcript(
+    user('u1', 'Persist what each session wrote and how it ended.'),
+    assistant('a1', 'Wrote the files and the failures into the record.', 'final'),
+    { type: 'turn_cancelled', turnId: 't1', message: '' },
+    { type: 'turn_failed', turnId: 't2', message: 'Adapter exited: ENOENT' },
+    { type: 'turn_complete', stopReason: 'end_turn' }
+  )
+  const record = extractSessionOutcome(
+    snapshot,
+    { ...SOURCE, endedOn: 'complete', filesTouched: ['src/shared/session-outcome.ts', 'tests/x.test.ts'] },
+    null,
+    AT
+  )
+  assert.ok(record)
+  assert.equal(record.status, 'completed')
+
+  assert.deepEqual(parseSessionOutcome(renderSessionOutcome(record)), record)
+})
+
+test('a record that wrote nothing and failed nowhere spends no budget saying so', () => {
+  const snapshot = transcript(
+    user('u1', 'Explain how the wake gate decides to flush.'),
+    assistant('a1', 'It flushes once the turn settles.', 'final'),
+    { type: 'turn_complete', stopReason: 'end_turn' }
+  )
+  const record = extractSessionOutcome(snapshot, SOURCE, null, AT)
+  assert.ok(record)
+
+  const rendered = renderSessionOutcome(record)
+  assert.ok(!rendered.includes('## Files'))
+  assert.ok(!rendered.includes('## Failures'))
+  assert.deepEqual(parseSessionOutcome(rendered), record)
+})
+
+test('an unreadable status never reads as a finished session', () => {
+  const record = parseSessionOutcome(
+    '---\nprovider: codex\nconversation: x\nproject: "C:"\nstatus: finito\nturns: 1\nstarted: a\nupdated: b\n---\n'
+  )
+
+  assert.equal(record?.status, 'active')
 })
