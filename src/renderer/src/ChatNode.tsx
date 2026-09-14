@@ -1439,7 +1439,7 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
       className={`terminal-node chat-node ${selected ? 'selected' : ''}`}
       style={
         {
-          '--node-accent': provider === 'claude' ? '#e69a71' : '#71a9ff',
+          '--node-accent': provider === 'claude' ? 'var(--claude)' : '#71a9ff',
           '--project-color': data.projectColor
         } as React.CSSProperties
       }

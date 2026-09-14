@@ -2,6 +2,8 @@
   /* The two usage bands, shared by every gauge and warning that reports consumption. */
   --usage-warning: #eab308;
   --usage-critical: #ff6b6f;
+  /* Claude's brand accent. Nodes feed it into --node-accent; the header chip wears it directly. */
+  --claude: #e69a71;
   /* One scrollbar for the whole app. Both properties inherit, so every scroll
      container below :root gets the chat-node scrollbar without opting in. */
   scrollbar-color: #3b4553 transparent;
@@ -272,9 +274,17 @@ button {
   color: #8fb8ff;
 }
 
+/* Claude's chip carries the brand accent as a fill, so the dark header text has to flip to keep
+   reading against it. */
+.provider-usage-name[data-provider='claude'] {
+  padding: 1px 6px;
+  border-radius: 4px;
+  color: var(--claude);
+}
+
 /* Plan-wide windows share the first row; per-model allowances get a row of their own below. The
    tight line-height matters: the header is 52px and nothing clips a chip that grows past it. */
-.provider-usage-windows {t
+.provider-usage-windows {
   display: flex;
   flex-direction: column;
   align-items: start;

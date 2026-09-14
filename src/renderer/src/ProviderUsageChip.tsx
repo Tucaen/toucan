@@ -85,6 +85,7 @@ export function ProviderUsageChip({
     >
       <span
         className="provider-usage-name"
+        data-provider={provider}
         data-critical={status.rejected || windows.some((window) => window.level === 'critical') ? 'true' : undefined}
       >
         {label}
