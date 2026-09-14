@@ -100,6 +100,7 @@ button {
   display: flex;
   align-items: center;
   gap: 10px;
+  height: 100%;
 }
 
 .target-chip {
@@ -199,18 +200,22 @@ button {
 .global-usage-summary {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 0px;
+  height: 100%;
 }
 
 .provider-usage-chip {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 3px 8px;
-  border: 1px solid #3a4350;
-  border-radius: 6px;
+  height: 100%;
+  gap: 10px;
+  padding: 3px 10px;
+  border-top: none;
+  border-bottom: none;
+  border-left: 1px solid #3a4350;
+  border-right: 1px solid #3a4350;
   background: #1a1f28;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   white-space: nowrap;
   font-family: inherit;
@@ -267,6 +272,22 @@ button {
   color: #8fb8ff;
 }
 
+/* Plan-wide windows share the first row; per-model allowances get a row of their own below. The
+   tight line-height matters: the header is 52px and nothing clips a chip that grows past it. */
+.provider-usage-windows {t
+  display: flex;
+  flex-direction: column;
+  align-items: start;
+  gap: 2px;
+  line-height: 1.2;
+}
+
+.provider-usage-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
 .usage-window {
   display: flex;
   align-items: center;
@@ -285,7 +306,8 @@ button {
   width: 34px;
   height: 5px;
   border-radius: 3px;
-  background: #2a3040;
+  background: #171b23;
+  border: 1px solid rgba(255, 255, 255, 0.6);
 }
 
 .usage-window-fill {
@@ -297,8 +319,8 @@ button {
 }
 
 /* Where "now" sits between the window's start and its reset: the marker walks left to right and
-   reaches the right edge when the reset is due. It overshoots the 5px track on both sides on
-   purpose - a hairline confined to the track would vanish against the fill. */
+   reaches the right edge when the reset is due. It overshoots the track on both sides on purpose,
+   and carries a dark outline so it stays visible on the warning/critical fills too. */
 .usage-window-reset {
   position: absolute;
   top: -3px;
@@ -306,8 +328,20 @@ button {
   width: 2px;
   border-radius: 1px;
   background: #c8d2e0;
+  box-shadow: 0 0 0 1px rgba(10, 13, 18, 0.55);
   transform: translateX(-50%);
   pointer-events: none;
+}
+
+/* The header chip has the room for a fuller pill-shaped gauge than the node's status-bar row. */
+.provider-usage-chip .usage-window-bar {
+  width: 46px;
+  height: 6px;
+  border-radius: 999px;
+}
+
+.provider-usage-chip .usage-window-fill {
+  border-radius: 999px;
 }
 
 .usage-window-pct {

@@ -54,6 +54,11 @@ export function ProviderUsageChip({
   const flashing = useRefreshFlash(refreshing, stale)
 
   const windows = describeRateLimitWindows(status)
+  // `describeRateLimitWindows` lists plan-wide windows first, then per-model allowances; the chip
+  // keeps the plan windows on the first row and gives the model windows a row of their own.
+  const planCount = (status.fiveHour ? 1 : 0) + (status.weekly ? 1 : 0)
+  const planWindows = windows.slice(0, planCount)
+  const modelWindows = windows.slice(planCount)
   const title = [
     `${label} account usage`,
     ...windows.map((window) => window.text),
@@ -78,10 +83,28 @@ export function ProviderUsageChip({
       disabled={refreshing}
       onClick={() => onRefresh(provider)}
     >
-      <span className="provider-usage-name">{label}</span>
-      {windows.map((window) => (
-        <UsageWindow key={window.label} window={window} />
-      ))}
+      <span
+        className="provider-usage-name"
+        data-critical={status.rejected || windows.some((window) => window.level === 'critical') ? 'true' : undefined}
+      >
+        {label}
+      </span>
+      <span className="provider-usage-windows">
+        {planWindows.length > 0 && (
+          <span className="provider-usage-row">
+            {planWindows.map((window) => (
+              <UsageWindow key={window.label} window={window} />
+            ))}
+          </span>
+        )}
+        {modelWindows.length > 0 && (
+          <span className="provider-usage-row">
+            {modelWindows.map((window) => (
+              <UsageWindow key={window.label} window={window} />
+            ))}
+          </span>
+        )}
+      </span>
     </button>
   )
 }
