@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react'
-import type { AgentProvider, AgentRateLimitWindow } from '../../shared/agent'
-import { describeRateLimitWindow, describeRateLimitWindows, describeUsageFreshness } from './session-usage'
+import type { AgentProvider } from '../../shared/agent'
+import { describeRateLimitWindows, describeUsageFreshness } from './session-usage'
+import type { RateLimitWindowReadout } from './session-usage'
 import { REFRESH_FLASH_MS, useRefreshFlash } from './use-refresh-flash'
 import type { ProviderUsageView } from './use-provider-rate-limits'
 
@@ -10,15 +11,18 @@ const PROVIDER_LABELS: Record<AgentProvider, string> = {
   codex: 'Codex'
 }
 
-function UsageWindow({ label, window }: { label: string; window: AgentRateLimitWindow }): JSX.Element {
-  // Thresholds, clamping and wording are shared with the per-node usage bar so one window never
-  // reads as two different states in the two places it is shown.
-  const { level, displayPercent } = describeRateLimitWindow(label, window)
+// Thresholds, clamping and wording come from the same readout the tooltip is built from, shared
+// with the per-node usage bar, so one window never reads as two different states anywhere shown.
+function UsageWindow({ window }: { window: RateLimitWindowReadout }): JSX.Element {
+  const { label, level, displayPercent, resetProgressPercent } = window
   return (
     <span className="usage-window" data-level={level}>
       <span className="usage-window-label">{label}</span>
       <span className="usage-window-bar">
         <span className="usage-window-fill" style={{ width: `${displayPercent}%` }} />
+        {resetProgressPercent !== undefined && (
+          <span className="usage-window-reset" style={{ left: `${resetProgressPercent}%` }} />
+        )}
       </span>
       <span className="usage-window-pct">{displayPercent}%</span>
     </span>
@@ -75,10 +79,8 @@ export function ProviderUsageChip({
       onClick={() => onRefresh(provider)}
     >
       <span className="provider-usage-name">{label}</span>
-      {status.fiveHour && <UsageWindow label="5h" window={status.fiveHour} />}
-      {status.weekly && <UsageWindow label="7d" window={status.weekly} />}
-      {(status.models ?? []).map((model) => (
-        <UsageWindow key={model.label} label={model.label} window={model} />
+      {windows.map((window) => (
+        <UsageWindow key={window.label} window={window} />
       ))}
     </button>
   )

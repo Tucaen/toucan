@@ -278,12 +278,14 @@ button {
   font-weight: 600;
 }
 
+/* Overflow stays visible so the reset marker can stand taller than the track; the fill carries
+   its own radius, so nothing here relies on the track clipping it. */
 .usage-window-bar {
+  position: relative;
   width: 34px;
   height: 5px;
   border-radius: 3px;
   background: #2a3040;
-  overflow: hidden;
 }
 
 .usage-window-fill {
@@ -292,6 +294,20 @@ button {
   border-radius: 3px;
   background: #5a8ad4;
   transition: width 0.4s ease;
+}
+
+/* Where "now" sits between the window's start and its reset: the marker walks left to right and
+   reaches the right edge when the reset is due. It overshoots the 5px track on both sides on
+   purpose - a hairline confined to the track would vanish against the fill. */
+.usage-window-reset {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 2px;
+  border-radius: 1px;
+  background: #c8d2e0;
+  transform: translateX(-50%);
+  pointer-events: none;
 }
 
 .usage-window-pct {

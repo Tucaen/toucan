@@ -83,6 +83,14 @@ export function formatResetsAt(resetsAt: number, now: number = Date.now()): stri
   return `${duration} | ${stamp}`
 }
 
+/**
+ * How long each plan-wide window spans. A provider reports only the reset moment, so knowing where
+ * "now" sits inside the window takes the window's length - which only the named slots carry; a
+ * per-model window has no documented span, so it gets no progress marker.
+ */
+const FIVE_HOUR_MS = 5 * 60 * 60_000
+const SEVEN_DAY_MS = 7 * 24 * 60 * 60_000
+
 export interface RateLimitWindowReadout {
   /** The window name the UI shows: `5h`, `7d`, or a provider's model name such as `Fable`. */
   label: string
@@ -97,23 +105,36 @@ export interface RateLimitWindowReadout {
   level: UsageLevel
   /** One line of prose, used both in the header's tooltip and in a node's. */
   text: string
+  /**
+   * How far through the window "now" sits, 0 at the window's start and 100 at its reset - the
+   * position of the reset marker on the bar. Absent when the provider reported no reset moment or
+   * the window's span is unknown (per-model windows), because a marker placed by guesswork would
+   * misreport when relief arrives.
+   */
+  resetProgressPercent?: number
 }
 
 /** Exported so the header's account chips and a node's bar describe a window identically. */
 export function describeRateLimitWindow(
   label: string,
   window: AgentRateLimitWindow,
-  now: number = Date.now()
+  now: number = Date.now(),
+  windowMs?: number
 ): RateLimitWindowReadout {
   const percent = window.usedPercent
   const displayPercent = clampPercent(percent)
   const resets = window.resetsAt === undefined ? '' : ` (resets in ${formatResetsAt(window.resetsAt, now)})`
+  const resetProgressPercent =
+    window.resetsAt !== undefined && windowMs !== undefined && windowMs > 0
+      ? clampPercent(((windowMs - (window.resetsAt - now)) / windowMs) * 100)
+      : undefined
   return {
     label,
     percent,
     displayPercent,
     level: usageLevel(percent),
-    text: `${label}: ${displayPercent}%${resets}`
+    text: `${label}: ${displayPercent}%${resets}`,
+    ...(resetProgressPercent === undefined ? {} : { resetProgressPercent })
   }
 }
 
@@ -127,8 +148,8 @@ export function describeRateLimitWindows(
   now: number = Date.now()
 ): RateLimitWindowReadout[] {
   return [
-    status.fiveHour ? describeRateLimitWindow('5h', status.fiveHour, now) : null,
-    status.weekly ? describeRateLimitWindow('7d', status.weekly, now) : null,
+    status.fiveHour ? describeRateLimitWindow('5h', status.fiveHour, now, FIVE_HOUR_MS) : null,
+    status.weekly ? describeRateLimitWindow('7d', status.weekly, now, SEVEN_DAY_MS) : null,
     ...(status.models ?? []).map((model) => describeRateLimitWindow(model.label, model, now))
   ].filter((window): window is RateLimitWindowReadout => window !== null)
 }

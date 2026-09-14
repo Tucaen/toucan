@@ -122,6 +122,27 @@ describe('the provider usage chip', () => {
     expect(screen.getByRole('button', { name: /Claude/ })).not.toHaveAttribute('data-refreshed')
   })
 
+  test('marks where the reset sits inside a window that reported one', () => {
+    vi.setSystemTime(READ_AT)
+    const fourHoursOut = READ_AT + 4 * 60 * 60_000
+    renderChip(
+      view({
+        status: {
+          // One hour into the 5h window; the weekly window reported no reset moment.
+          fiveHour: { usedPercent: 40, resetsAt: fourHoursOut },
+          weekly: { usedPercent: 59 },
+          // A per-model window has no known span, so it must not guess a marker position.
+          models: [{ label: 'Fable', usedPercent: 64, resetsAt: fourHoursOut }]
+        }
+      })
+    )
+
+    const chip = screen.getByRole('button', { name: /Claude/ })
+    const markers = chip.querySelectorAll('.usage-window-reset')
+    expect(markers).toHaveLength(1)
+    expect((markers[0] as HTMLElement).style.left).toBe('20%')
+  })
+
   test('renders only the windows the provider reported', () => {
     renderChip(view({ status: { weekly: { usedPercent: 76 }, models: [{ label: 'Fable', usedPercent: 64 }] } }))
 

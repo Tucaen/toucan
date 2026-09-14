@@ -194,6 +194,29 @@ test('one window describes itself the same way wherever it is rendered', () => {
   })
 })
 
+test('the reset marker walks the bar from window start to reset', () => {
+  const fiveHours = 5 * 60 * 60_000
+  // One hour into a 5h window: 20% elapsed, so the marker sits a fifth of the way along.
+  const oneHourIn = describeRateLimitWindow('5h', { usedPercent: 10, resetsAt: 4 * 60 * 60_000 }, 0, fiveHours)
+  assert.equal(oneHourIn.resetProgressPercent, 20)
+  // A reset that has already passed reads as the right edge, never past it.
+  const overdue = describeRateLimitWindow('5h', { usedPercent: 10, resetsAt: -60_000 }, 0, fiveHours)
+  assert.equal(overdue.resetProgressPercent, 100)
+  // A reset further out than the window's own span clamps to the start rather than going negative.
+  const beyond = describeRateLimitWindow('5h', { usedPercent: 10, resetsAt: 6 * 60 * 60_000 }, 0, fiveHours)
+  assert.equal(beyond.resetProgressPercent, 0)
+})
+
+test('no reset moment or unknown window span means no marker', () => {
+  const fiveHours = 5 * 60 * 60_000
+  assert.equal(describeRateLimitWindow('5h', { usedPercent: 10 }, 0, fiveHours).resetProgressPercent, undefined)
+  // A per-model window has no documented span, so guessing a marker position would misreport it.
+  assert.equal(
+    describeRateLimitWindow('Fable', { usedPercent: 10, resetsAt: 60_000 }, 0).resetProgressPercent,
+    undefined
+  )
+})
+
 test('a window a provider reports past its own limit is shown as full, not as 120%', () => {
   // Display maths belongs here rather than in the three places a window is rendered.
   const over = describeRateLimitWindow('5h', { usedPercent: 120 }, 0)
