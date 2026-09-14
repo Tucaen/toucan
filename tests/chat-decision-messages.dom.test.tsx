@@ -217,7 +217,7 @@ describe('assistant message tone rendering', () => {
     })
 
     expect(within(panel).queryByRole('button', { name: 'Submit answers' })).not.toBeInTheDocument()
-    fireEvent.click(within(panel).getByRole('button', { name: 'Next question' }))
+    fireEvent.click(within(panel).getByRole('tab', { name: /Question 2/ }))
 
     expect(resolveElicitation).not.toHaveBeenCalled()
     expect(within(panel).getByText('Which theme?')).toBeInTheDocument()
@@ -365,12 +365,11 @@ describe('assistant message tone rendering', () => {
     expect(secondTab).toHaveFocus()
     expect(within(panel).getByRole('textbox', { name: 'What should users know?' })).toBeInTheDocument()
     expect(within(panel).getByRole('tabpanel')).toHaveAttribute('data-scroll-region', 'question')
-    expect(within(panel).getByRole('navigation', { name: 'Question navigation' })).toBeInTheDocument()
     expect(panel.querySelector('footer')).toContainElement(
       within(panel).getByRole('button', { name: 'Submit answers' })
     )
 
-    fireEvent.click(within(panel).getByRole('button', { name: 'Previous question' }))
+    fireEvent.click(firstTab)
     expect(firstTab).toHaveAttribute('aria-selected', 'true')
     firstTab.focus()
     expect(firstTab).toHaveFocus()
@@ -527,15 +526,15 @@ describe('assistant message tone rendering', () => {
     fireEvent.click(within(panel).getByRole('button', { name: 'Local' }))
     fireEvent.click(within(panel).getByRole('button', { name: 'Lint' }))
     fireEvent.click(within(panel).getByRole('button', { name: 'Test' }))
-    fireEvent.click(within(panel).getByRole('button', { name: 'Next question' }))
+    fireEvent.click(within(panel).getByRole('tab', { name: /Question 3/ }))
     fireEvent.change(within(panel).getByRole('spinbutton', { name: 'How many retries?' }), {
       target: { value: '2' }
     })
-    fireEvent.click(within(panel).getByRole('button', { name: 'Next question' }))
+    fireEvent.click(within(panel).getByRole('tab', { name: /Question 4/ }))
     fireEvent.change(within(panel).getByRole('textbox', { name: 'Other answer' }), {
       target: { value: 'JSON Lines' }
     })
-    fireEvent.click(within(panel).getByRole('button', { name: 'Next question' }))
+    fireEvent.click(within(panel).getByRole('tab', { name: /Question 5/ }))
     fireEvent.click(within(panel).getByRole('button', { name: 'Yes' }))
 
     fireEvent.click(within(panel).getByRole('tab', { name: /Question 1/ }))
