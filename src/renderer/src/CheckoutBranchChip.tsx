@@ -23,7 +23,7 @@ function CheckoutBranchChip({
       <span className="worktree-glyph" aria-hidden="true">
         <GitBranch />
       </span>
-      {branch.label}
+      <span className="branch-label">{branch.label}</span>
     </span>
   )
 }

@@ -3788,11 +3788,22 @@ button {
   color: #cbb0f0;
   background: rgba(201, 146, 255, 0.08);
   font-weight: 650;
+  white-space: nowrap;
+}
+
+/* The chip itself is a flex row, so `text-overflow` on it never fires - it only truncates the inline
+   content of a block container. The label therefore gets its own block to ellipsise in, and the
+   glyph is pinned so the shrinking lands on the branch name. */
+.session-checkout-branch .branch-label {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .session-checkout-branch .worktree-glyph {
+  flex: 0 0 auto;
   font-size: 11px;
 }
 
