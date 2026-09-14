@@ -2421,14 +2421,6 @@ button {
   outline-offset: 2px;
 }
 
-.structured-decision-navigation {
-  display: flex;
-  justify-content: space-between;
-  padding: 8px 14px;
-  border-top: 1px solid #292f3a;
-}
-
-.structured-decision-navigation button,
 .structured-decision footer button {
   padding: 6px 9px;
   border: 1px solid #3a4554;
@@ -2493,26 +2485,9 @@ button {
   .structured-decision-header,
   .structured-decision-question,
   .structured-decision-tabs,
-  .structured-decision-navigation,
   .structured-decision footer {
     padding-right: 10px;
     padding-left: 10px;
-  }
-
-  .structured-decision-navigation button {
-    font-size: 0;
-  }
-
-  .structured-decision-navigation button::after {
-    font-size: 11px;
-  }
-
-  .structured-decision-navigation button:first-child::after {
-    content: 'Previous';
-  }
-
-  .structured-decision-navigation button:last-child::after {
-    content: 'Next';
   }
 }
 

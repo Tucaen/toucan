@@ -196,18 +196,6 @@ export default function StructuredDecisionPanel(props: StructuredDecisionPanelPr
           </label>
         )}
       </article>
-      <nav className="structured-decision-navigation" aria-label="Question navigation">
-        <button type="button" disabled={active === 0} onClick={() => setActive((value) => value - 1)}>
-          Previous question
-        </button>
-        <button
-          type="button"
-          disabled={active === request.questions.length - 1}
-          onClick={() => setActive((value) => value + 1)}
-        >
-          Next question
-        </button>
-      </nav>
       <footer>
         <span role="status" aria-live="polite">
           {requiredRemaining === 0
