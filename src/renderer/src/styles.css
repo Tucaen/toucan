@@ -6973,32 +6973,104 @@ button {
 }
 
 .code-editor .cm-panel.cm-search {
-  padding: 6px 8px;
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  padding: 6px 34px 6px 8px;
   font: inherit;
+}
+
+/* CodeMirror separates the find and replace rows with a <br>; as a flex item it becomes a
+   full-width break, which keeps the two-row layout under the flex gap spacing. */
+.code-editor .cm-panel.cm-search br {
+  flex-basis: 100%;
+  height: 0;
+  margin: 0;
+  border: 0;
 }
 
 .code-editor .cm-panel.cm-search input,
 .code-editor .cm-panel.cm-search button,
 .code-editor .cm-panel.cm-search label {
+  margin: 0;
   font-family: inherit;
   font-size: 11px;
   line-height: 1.6;
   color: #c3cad5;
 }
 
-.code-editor .cm-panel.cm-search input[type='text'] {
-  padding: 2px 6px;
+/* The panel's text inputs carry no `type` attribute, only this class. */
+.code-editor .cm-panel.cm-search .cm-textfield {
+  width: 220px;
+  padding: 3px 8px;
   border: 1px solid #39414f;
   border-radius: 4px;
   background: #1a1f29;
+  color: #dbe2ea;
 }
 
-.code-editor .cm-panel.cm-search button {
-  padding: 2px 8px;
+.code-editor .cm-panel.cm-search .cm-textfield::placeholder {
+  color: #6c7686;
+}
+
+.code-editor .cm-panel.cm-search .cm-textfield:focus {
+  outline: none;
+  border-color: var(--project-color, #74d8a2);
+}
+
+.code-editor .cm-panel.cm-search .cm-button {
+  padding: 3px 10px;
   border: 1px solid #39414f;
   border-radius: 4px;
   background: #2a3240;
   background-image: none;
+  cursor: pointer;
+}
+
+.code-editor .cm-panel.cm-search .cm-button:hover {
+  border-color: #4a5464;
+  background: #333c4c;
+  color: #e2e8f0;
+}
+
+.code-editor .cm-panel.cm-search label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #a9b3c1;
+  cursor: pointer;
+  user-select: none;
+}
+
+.code-editor .cm-panel.cm-search input[type='checkbox'] {
+  width: 13px;
+  height: 13px;
+  accent-color: var(--project-color, #74d8a2);
+}
+
+.code-editor .cm-panel.cm-search button[name='close'] {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #8b95a5;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.code-editor .cm-panel.cm-search button[name='close']:hover {
+  background: #39414f;
+  color: #e2e8f0;
 }
 
 .code-editor .cm-searchMatch {
