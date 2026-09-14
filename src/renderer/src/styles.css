@@ -469,6 +469,7 @@ button {
   align-items: center;
   border: 1px solid transparent;
   border-radius: 9px;
+  background: #4a91ff0f;
 }
 
 /* The grip is the whole card's handle, not the name line's, so it spans both rows. */
