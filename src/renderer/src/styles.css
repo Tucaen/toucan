@@ -193,6 +193,38 @@ button {
   box-shadow: 0 0 9px rgba(241, 199, 91, 0.6);
 }
 
+.global-status-chip[data-kind='save-error'] {
+  color: #ffb2b7;
+  border-color: #6b2c31;
+  background: #2c1618;
+}
+
+.global-status-chip[data-kind='save-error'] .global-status-dot {
+  background: #df737a;
+  box-shadow: 0 0 9px rgba(223, 115, 122, 0.6);
+}
+
+.global-status-chip[data-kind='recovered'] {
+  color: #f4d38a;
+  border-color: #6a5324;
+  background: #2a2214;
+}
+
+.global-status-chip[data-kind='recovered'] .global-status-dot {
+  background: #e0b34f;
+  box-shadow: 0 0 9px rgba(224, 179, 79, 0.6);
+}
+
+/* The dismissible chip is a button; nothing about it should look like one. */
+button.global-status-chip {
+  cursor: pointer;
+  font-family: inherit;
+}
+
+button.global-status-chip:hover {
+  border-color: #8a6d2f;
+}
+
 @keyframes global-attention-glow {
   50% {
     box-shadow: 0 0 0 3px rgba(255, 107, 111, 0.16);
@@ -1059,11 +1091,12 @@ button {
   cursor: pointer;
 }
 
-/* Sidebar footer: creation-target card on the left, the zoom column hugging its right edge.
-   The footer always renders (the zoom column survives a collapsed sidebar), so it is what
-   carries the margin-top: auto that pins everything to the bottom. */
+/* Sidebar footer: the zoom column, pinned to the bottom and hugging the sidebar's right edge.
+   It survives a collapsed sidebar, which is why the footer carries the margin-top: auto rather
+   than anything inside it. */
 .sidebar-footer {
   display: flex;
+  justify-content: flex-end;
   align-items: stretch;
   gap: 6px;
   margin-top: auto;
@@ -1105,69 +1138,6 @@ button {
 .canvas-zoom-button .lucide {
   width: 15px;
   height: 15px;
-}
-
-.creation-target {
-  min-width: 0;
-  flex: 1;
-  display: grid;
-  gap: 3px;
-  padding: 10px 11px;
-  overflow: hidden;
-  border: 1px solid #282f39;
-  border-radius: 8px;
-  background: #15191f;
-}
-
-.creation-target small {
-  color: #687280;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-}
-
-.creation-target strong {
-  overflow: hidden;
-  color: #cbd2dc;
-  font-size: 13px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.save-state {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  margin-top: 5px;
-  color: #687280;
-  font-size: 11px;
-}
-
-.save-state > span {
-  width: 6px;
-  height: 6px;
-  border-radius: 999px;
-  background: #7e8998;
-}
-
-.save-state[data-status='saved'] > span {
-  background: #74d8a2;
-}
-
-.save-state[data-status='error'] {
-  color: #d97d83;
-}
-
-.save-state[data-status='error'] > span {
-  background: #df737a;
-}
-
-.save-state[data-status='recovered'] {
-  color: #d9a441;
-}
-
-.save-state[data-status='recovered'] > span {
-  background: #e0b34f;
 }
 
 .unrecoverable-workspace-overlay {

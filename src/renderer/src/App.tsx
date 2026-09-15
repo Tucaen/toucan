@@ -1525,6 +1525,14 @@ function Canvas(): JSX.Element {
   } = useWorkspacePersistence({ snapshot: workspaceSnapshot, restore: restoreWorkspace, seedFresh: seedFreshWorkspace })
 
   /*
+   * A recovery is reported once and then goes away for good on this launch: it is news the first
+   * time the canvas comes back from a backup, and clutter for the rest of the session. A failed
+   * save is not dismissible for the same reason inverted - it stays until a save succeeds, because
+   * what it reports is work that is not on disk.
+   */
+  const [recoveryDismissed, setRecoveryDismissed] = useState(false)
+
+  /*
    * Main resolves a project's tickets folder from the *persisted* snapshot, so a board re-listed
    * the moment the setting changed would read the old folder and never hear about the new one.
    * The revision therefore advances when the save lands, not when the user hits Save - and only
@@ -2204,7 +2212,11 @@ function Canvas(): JSX.Element {
                 <span className="prototype-label">Agentic Development Environment</span>
               </div>
               <div className="header-target">
-                {(statusSummary.working > 0 || statusSummary.stalled > 0 || unreadTotal > 0) && (
+                {(statusSummary.working > 0 ||
+                  statusSummary.stalled > 0 ||
+                  unreadTotal > 0 ||
+                  saveStatus === 'error' ||
+                  (workspaceRecovered && !recoveryDismissed)) && (
                   <div className="global-status-summary" role="status">
                     {statusSummary.working > 0 && (
                       <span className="global-status-chip" data-kind="working">
@@ -2229,6 +2241,31 @@ function Canvas(): JSX.Element {
                         <span className="global-status-dot" />
                         {unreadTotal} unread
                       </span>
+                    )}
+                    {/* In the header rather than the sidebar because the sidebar collapses and
+                  these two must not: a canvas that is not reaching disk is worth reporting in
+                  every layout the window has. */}
+                    {saveStatus === 'error' && (
+                      <span
+                        className="global-status-chip"
+                        data-kind="save-error"
+                        title="The canvas could not be written to disk. Recent changes are only in memory until a save succeeds."
+                      >
+                        <span className="global-status-dot" />
+                        Save failed
+                      </span>
+                    )}
+                    {workspaceRecovered && !recoveryDismissed && (
+                      <button
+                        type="button"
+                        className="global-status-chip"
+                        data-kind="recovered"
+                        title="The saved workspace was damaged or incomplete, so this canvas was restored from the last known-good backup. Click to dismiss."
+                        onClick={() => setRecoveryDismissed(true)}
+                      >
+                        <span className="global-status-dot" />
+                        Recovered from backup
+                      </button>
                     )}
                   </div>
                 )}
@@ -2678,26 +2715,6 @@ function Canvas(): JSX.Element {
                 </div>
 
                 <div className="sidebar-footer">
-                  {!sidebarCollapsed && activeProject && (
-                    <div className="creation-target">
-                      <small>New nodes open in</small>
-                      <strong>{activeProject.name}</strong>
-                      <span className="save-state" data-status={saveStatus}>
-                        <span />
-                        {saveStatus === 'saving' ? 'Saving…' : saveStatus === 'saved' ? 'Saved locally' : 'Save failed'}
-                      </span>
-                      {workspaceRecovered && (
-                        <span
-                          className="save-state"
-                          data-status="recovered"
-                          title="The saved workspace was damaged or incomplete, so this canvas was restored from the last known-good backup."
-                        >
-                          <span />
-                          Recovered from backup
-                        </span>
-                      )}
-                    </div>
-                  )}
                   <div className="canvas-zoom-row" role="group" aria-label="Canvas zoom">
                     <button
                       type="button"

@@ -563,7 +563,8 @@ void app.whenReady().then(async () => {
         codex: createCodexRateLimitReader({
           homeDirectory: app.getPath('home'),
           environment: process.env,
-          command: findCommand('codex')
+          command: findCommand('codex'),
+          appPath: app.getAppPath()
         })
       },
       ttlMs: PROVIDER_USAGE_TTL_MS
