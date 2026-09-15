@@ -516,7 +516,9 @@ button.global-status-chip:hover {
 .project-row.active {
   border-color: #2d4468;
   background: #1b212a;
-  box-shadow: inset 1px 0 #71a9ff, inset -1px 0 #71a9ff;
+  box-shadow:
+    inset 1px 0 #71a9ff,
+    inset -1px 0 #71a9ff;
 }
 
 .project-sidebar.collapsed .project-row.active {
