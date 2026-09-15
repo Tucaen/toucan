@@ -52,10 +52,19 @@ describe('Composer disabled state', () => {
     expect(screen.getByRole('button', { name: status === 'working' ? 'Queue' : 'Send' })).toBeEnabled()
   })
 
-  test.each(['starting', 'auth_required', 'exited'] as const)('disables for status %s', (status) => {
+  test.each(['auth_required', 'exited'] as const)('disables for status %s', (status) => {
     renderChatView({ status, draft: 'a message' })
 
     expect(screen.getByPlaceholderText(/message the agent|will be queued/i)).toBeDisabled()
+  })
+
+  // A session still coming up will take the prompt the moment it is ready, so the wait belongs on
+  // the send and not on the typing: the captain types into the node they just created.
+  test('takes typing while status is starting, but holds the send back', () => {
+    renderChatView({ status: 'starting', draft: 'a message' })
+
+    expect(screen.getByPlaceholderText(/message the agent|will be queued/i)).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled()
   })
 })
 

@@ -84,16 +84,17 @@ function composer(): HTMLTextAreaElement {
 }
 
 describe('chat node open focus', () => {
-  test('a node opened on the canvas takes the caret once its session is ready', async () => {
+  test('a node opened on the canvas takes the caret while its session is still starting', () => {
     window.agentApi = createMockAgentApi().api
     const node = chatNode('opened-node')
 
     render(nodeView(node, { selected: true }))
 
-    // Nothing to focus yet: the composer is disabled while the session starts.
-    expect(composer()).toBeDisabled()
-    expect(composer()).not.toHaveFocus()
-    await waitFor(() => expect(composer()).toHaveFocus())
+    // The caret lands with the node, not with the session: a prompt can be typed through the
+    // whole handshake. Only the send waits for the session that will carry it.
+    expect(composer()).toBeEnabled()
+    expect(composer()).toHaveFocus()
+    expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled()
   })
 
   test('a conversation restored by a workspace reload leaves the caret alone', async () => {

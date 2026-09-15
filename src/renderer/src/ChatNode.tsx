@@ -261,6 +261,17 @@ function isSendDisabled(status: FlatChatViewProps['status']): boolean {
   return status === 'starting' || status === 'auth_required' || status === 'exited'
 }
 
+/**
+ * Whether the composer itself refuses input, which is a narrower thing than refusing to send. A
+ * session that is still `starting` will take a prompt the moment it is ready, so the captain may
+ * type - and be focused - while it comes up; only the send is held back. `auth_required` and
+ * `exited` are the states where typing leads nowhere, because no amount of waiting turns the
+ * draft into a sent prompt.
+ */
+function isTypingDisabled(status: FlatChatViewProps['status']): boolean {
+  return status === 'auth_required' || status === 'exited'
+}
+
 interface PickerOption {
   id: string
   name: string
@@ -531,7 +542,8 @@ type ComposerProps = ChatComposerProps &
  */
 export function Composer(props: ComposerProps): JSX.Element {
   const busy = props.status === 'working'
-  const composerDisabled = isSendDisabled(props.status)
+  const sendDisabled = isSendDisabled(props.status)
+  const typingDisabled = isTypingDisabled(props.status)
   const { sendKey } = useComposerSendKey()
   // A conversation loaded from disk already shows what was asked; ArrowUp should be able to walk
   // back through it too, rather than starting blank above a full transcript.
@@ -546,7 +558,7 @@ export function Composer(props: ComposerProps): JSX.Element {
     fileMentions: props.fileMentions,
     sentPrompts,
     sendKey,
-    disabled: composerDisabled,
+    disabled: typingDisabled,
     submit: props.submit
   })
   const [pasteBlocked, setPasteBlocked] = useState(false)
@@ -565,7 +577,7 @@ export function Composer(props: ComposerProps): JSX.Element {
 
   return (
     <form className="chat-composer nodrag" onSubmit={editor.submit}>
-      <ComposerQueue {...props} stranded={composerDisabled} />
+      <ComposerQueue {...props} stranded={sendDisabled} />
       <AttachmentPreview attachments={props.attachments} removeAttachment={props.removeAttachment} />
       {pasteBlocked && <small className="composer-paste-blocked">This agent doesn't support image attachments.</small>}
       {(props.detail || busy) && (
@@ -589,7 +601,7 @@ export function Composer(props: ComposerProps): JSX.Element {
         <div className="composer-actions">
           <VoiceInput
             draft={editor.draft}
-            disabled={composerDisabled}
+            disabled={typingDisabled}
             textareaRef={editor.textareaRef}
             setDraft={editor.setDraft}
             context={dictationContext(editor.draft, props.messages)}
@@ -610,7 +622,7 @@ export function Composer(props: ComposerProps): JSX.Element {
             className="composer-send"
             aria-label={busy ? 'Queue' : 'Send'}
             title={composerSendKeyLabels[sendKey].description}
-            disabled={(editor.blank && props.attachments.length === 0) || composerDisabled}
+            disabled={(editor.blank && props.attachments.length === 0) || sendDisabled}
           >
             {busy ? <ListPlus aria-hidden="true" /> : <SendHorizontal aria-hidden="true" />}
           </button>
@@ -1400,8 +1412,10 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
    * saved panel - starts with the caret in its composer, so a conversation can be typed without a
    * click. Two things decide when that can happen:
    *
-   * - The composer stays disabled until the session leaves `starting`, and a disabled textarea
-   *   cannot take focus, so the caret waits for the session rather than landing on the mount.
+   * - The composer takes input as soon as it mounts, `starting` included, so the caret lands with
+   *   the node rather than waiting on the session handshake; only the send is held back until the
+   *   session can carry a prompt. It waits only for the states a disabled textarea cannot take
+   *   focus in, where typing would lead nowhere anyway.
    * - Only a selected node claims the focus. An open acts on one node and selects it, while
    *   workspace hydration mounts every saved conversation and selects none, so keying on the
    *   mount alone would have them all race for the caret on startup.
@@ -1412,7 +1426,7 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
   useEffect(() => {
     if (wasDormant.current && !dormant && selected) composerFocusPending.current = true
     wasDormant.current = dormant
-    if (!composerFocusPending.current || dormant || isSendDisabled(status)) return
+    if (!composerFocusPending.current || dormant || isTypingDisabled(status)) return
     composerFocusPending.current = false
     nodeRef.current?.querySelector<HTMLTextAreaElement>('.chat-composer-row textarea')?.focus()
   }, [dormant, selected, status])
