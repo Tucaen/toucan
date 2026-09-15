@@ -1251,7 +1251,7 @@ export function ChatView(groups: ChatViewProps): JSX.Element {
   )
 }
 
-export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanvasNode>): JSX.Element {
+export default function ChatNode({ id, data, selected, width }: NodeProps<TerminalCanvasNode>): JSX.Element {
   const provider = data.kind === 'claude' ? 'claude' : 'codex'
   const routineDelegationPreference = useRoutineDelegation().preference
   const conversation = useAgentConversation({
@@ -1419,6 +1419,12 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
    * - Only a selected node claims the focus. An open acts on one node and selects it, while
    *   workspace hydration mounts every saved conversation and selects none, so keying on the
    *   mount alone would have them all race for the caret on startup.
+   * - The attempt only counts once the caret actually lands. React Flow renders a node
+   *   `visibility: hidden` until it has measured it, and focusing a hidden element is a silent
+   *   no-op - so a request that fires on the mount, before the measuring pass, would otherwise
+   *   spend itself on nothing and leave the composer unfocused for good. `width` is what React
+   *   Flow reports from that measurement, so the effect runs again on the render that makes the
+   *   node visible.
    */
   const nodeRef = useRef<HTMLElement>(null)
   const wasDormant = useRef(dormant)
@@ -1427,9 +1433,11 @@ export default function ChatNode({ id, data, selected }: NodeProps<TerminalCanva
     if (wasDormant.current && !dormant && selected) composerFocusPending.current = true
     wasDormant.current = dormant
     if (!composerFocusPending.current || dormant || isTypingDisabled(status)) return
+    const textarea = nodeRef.current?.querySelector<HTMLTextAreaElement>('.chat-composer-row textarea')
+    textarea?.focus()
+    if (document.activeElement !== textarea) return
     composerFocusPending.current = false
-    nodeRef.current?.querySelector<HTMLTextAreaElement>('.chat-composer-row textarea')?.focus()
-  }, [dormant, selected, status])
+  }, [dormant, selected, status, width])
 
   const flatProps: FlatChatViewProps = {
     provider,

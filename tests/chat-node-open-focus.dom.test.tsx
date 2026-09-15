@@ -13,9 +13,10 @@ import {
 } from '../src/renderer/src/canvas-workspace'
 import { createMockAgentApi } from './dom/agent-api-mock'
 
-// Where the caret lands when a chat node opens. The composer is disabled while the session starts,
-// so the interesting part is that the focus waits for the session and still only ever goes to the
-// node the open acted on - never to the crowd of conversations a workspace reload brings back.
+// Where the caret lands when a chat node opens. The composer takes input from its first render, so
+// the interesting parts are that the caret only ever goes to the node the open acted on - never to
+// the crowd of conversations a workspace reload brings back - and that a request which lands on
+// nothing, because React Flow has not measured the node into view yet, is not spent.
 
 const callbacks: TerminalNodeCallbacks & WorktreeNodeCallbacks = {
   onStatusChange: vi.fn(),
@@ -58,7 +59,10 @@ function chatNode(id: string): TerminalCanvasNode {
 }
 
 /** One chat node rendered the way the canvas renders it, with only the two inputs an open moves. */
-function nodeView(node: TerminalCanvasNode, options: { selected: boolean; dormant?: boolean }): ReactElement {
+function nodeView(
+  node: TerminalCanvasNode,
+  options: { selected: boolean; dormant?: boolean; width?: number }
+): ReactElement {
   return (
     <ReactFlowProvider>
       <ChatNode
@@ -70,6 +74,7 @@ function nodeView(node: TerminalCanvasNode, options: { selected: boolean; dorman
         selectable
         deletable
         selected={options.selected}
+        width={options.width}
         draggable
         isConnectable={false}
         positionAbsoluteX={0}
@@ -95,6 +100,25 @@ describe('chat node open focus', () => {
     expect(composer()).toBeEnabled()
     expect(composer()).toHaveFocus()
     expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled()
+  })
+
+  test('a node still waiting to be measured keeps its caret request instead of spending it', () => {
+    window.agentApi = createMockAgentApi().api
+    const node = chatNode('unmeasured-node')
+
+    // React Flow renders a node `visibility: hidden` until it has measured it, and a hidden element
+    // silently refuses focus. jsdom has no layout, so that refusal is stubbed here: the attempt on
+    // the mount - the one that runs before the measuring pass - lands on nothing, as it does on the
+    // canvas. The request has to survive it.
+    const focus = vi.spyOn(HTMLTextAreaElement.prototype, 'focus').mockImplementation(() => {})
+    const view = render(nodeView(node, { selected: true }))
+    expect(composer()).not.toHaveFocus()
+
+    // The measurement is what makes the node visible, and `width` is what it reports.
+    focus.mockRestore()
+    view.rerender(nodeView(node, { selected: true, width: 640 }))
+
+    expect(composer()).toHaveFocus()
   })
 
   test('a conversation restored by a workspace reload leaves the caret alone', async () => {
