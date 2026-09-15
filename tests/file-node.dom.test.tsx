@@ -34,7 +34,13 @@ function stubApis(result: FileReadResult, write?: (request: FileWriteRequest) =>
   let listener: ((path: string) => void) | null = null
   const read = vi.fn(async () => result)
   const writeStub = vi.fn(
-    write ?? (async (request: FileWriteRequest) => ({ ok: true, mtime: 'saved', size: request.content.length }))
+    write ??
+      (async (request: FileWriteRequest) => ({
+        ok: true,
+        mtime: 'saved',
+        size: request.content.length,
+        content: request.content
+      }))
   )
   const watch = vi.fn(async () => undefined)
   const unwatch = vi.fn(async () => undefined)
@@ -302,7 +308,7 @@ test('a file-change prompt opened during a save keeps keyboard focus inside unti
   fireEvent.keyDown(panel, { key: 'Tab' })
   expect(panel).toHaveFocus()
 
-  await act(async () => finish({ ok: true, mtime: 'saved', size: 12 }))
+  await act(async () => finish({ ok: true, mtime: 'saved', size: 12, content: 'old\npending\n' }))
   await waitFor(() => expect(screen.getByRole('button', { name: 'Abort' })).toHaveFocus())
   fireEvent.click(screen.getByRole('button', { name: 'Switch' }))
   expect(onPathChange).toHaveBeenCalledWith('file-1', nextPath)
@@ -324,7 +330,7 @@ test('edits made while save-and-switch is writing must be saved before the node 
   await waitFor(() => expect(document.querySelector('.worktree-dialog')).toHaveFocus())
 
   type(view, 'new\n')
-  await act(async () => finish({ ok: true, mtime: 'saved-once', size: 12 }))
+  await act(async () => finish({ ok: true, mtime: 'saved-once', size: 12, content: 'old\npending\n' }))
 
   expect(onPathChange).not.toHaveBeenCalled()
   expect(screen.getByRole('dialog', { name: 'Unsaved changes' })).toBeInTheDocument()
@@ -332,7 +338,7 @@ test('edits made while save-and-switch is writing must be saved before the node 
   fireEvent.click(screen.getByRole('button', { name: 'Save and switch' }))
   await waitFor(() => expect(stub.write).toHaveBeenCalledTimes(2))
   expect(stub.write.mock.calls[1][0]).toMatchObject({ content: 'old\npending\nnew\n', baseMtime: 'saved-once' })
-  await act(async () => finish({ ok: true, mtime: 'saved-twice', size: 16 }))
+  await act(async () => finish({ ok: true, mtime: 'saved-twice', size: 16, content: 'old\npending\nnew\n' }))
 
   await waitFor(() => expect(onPathChange).toHaveBeenCalledWith('file-1', nextPath))
 })
@@ -493,6 +499,41 @@ test('typing makes a draft, Save writes it with the mtime it was based on, and t
   expect(stub.write.mock.calls[1][0]).toMatchObject({ baseMtime: 'saved' })
 })
 
+test('format-on-save replaces the submitted draft with the bytes main wrote', async () => {
+  const stub = stubApis(ok(''), async () => ({
+    ok: true,
+    mtime: 'formatted',
+    size: 20,
+    content: 'a {\n  color: red;\n}\n'
+  }))
+  renderNode({ path: 'D:\\Development\\Toucan\\src\\styles.css' })
+  const view = await editor()
+  type(view, 'a{color:red}')
+
+  fireEvent.click(saveButton())
+  await waitFor(() => expect(stub.write).toHaveBeenCalledTimes(1))
+  await waitFor(() => expect(view.state.doc.toString()).toBe('a {\n  color: red;\n}\n'))
+  expect(screen.queryByLabelText('Unsaved changes')).toBeNull()
+})
+
+test('a formatter error saves the draft unchanged and is visible in the node', async () => {
+  stubApis(ok(''), async (request) => ({
+    ok: true,
+    mtime: 'saved',
+    size: request.content.length,
+    content: request.content,
+    formatWarning: 'CSS: unexpected end of file'
+  }))
+  renderNode({ path: 'D:\\Development\\Toucan\\src\\styles.css' })
+  const view = await editor()
+  type(view, 'a {')
+
+  fireEvent.click(saveButton())
+  expect(await screen.findByRole('status')).toHaveTextContent('Saved without formatting: CSS: unexpected end of file')
+  expect(view.state.doc.toString()).toBe('a {')
+  expect(screen.queryByLabelText('Unsaved changes')).toBeNull()
+})
+
 test('keystrokes during a save become a new draft on the saved file, and a second Ctrl+S waits', async () => {
   let finish: (result: FileWriteResult) => void = () => {}
   const stub = stubApis(ok('one\n'), () => new Promise<FileWriteResult>((resolve) => (finish = resolve)))
@@ -505,7 +546,7 @@ test('keystrokes during a save become a new draft on the saved file, and a secon
   expect(screen.getByRole('button', { name: 'Saving…' })).toBeDisabled()
 
   type(view, 'three\n')
-  await act(async () => finish({ ok: true, mtime: 'saved', size: 8 }))
+  await act(async () => finish({ ok: true, mtime: 'saved', size: 8, content: 'one\ntwo\n' }))
 
   // The write carried 'one\ntwo\n'; 'three' typed meanwhile is still here, unsaved, based on the save.
   expect(view.state.doc.toString()).toBe('one\ntwo\nthree\n')

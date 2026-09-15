@@ -20,6 +20,7 @@
     "src/main/brain-dump-migration.ts",
     "src/main/durable-file.ts",
     "src/main/file-view.ts",
+    "src/main/file-formatter.ts",
     "src/main/file-view-ipc.ts",
     "src/main/codex-model-cache.ts",
     "src/main/codex-rate-limits.ts",

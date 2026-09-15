@@ -39,6 +39,7 @@ import { createImageArtifactSaver } from './image-save'
 import { createLocalFileOpener } from './local-file-open'
 import { createWorkspaceContainment } from './workspace-containment'
 import { registerFileViewIpc } from './file-view-ipc'
+import { createPrettierFileFormatter } from './file-formatter'
 import { createGithubIssueReader } from './github-issues'
 import { registerGithubIssuesIpc } from './github-issues-ipc'
 import { registerTicketIpc } from './ticket-ipc'
@@ -452,7 +453,10 @@ void app.whenReady().then(async () => {
     const state = (await workspace.load()).state
     return [...(state?.projects.map(({ path }) => path) ?? []), ...(state?.worktrees.map(({ path }) => path) ?? [])]
   }
-  const fileView = createFileView({ roots: workspaceRoots })
+  const fileView = createFileView({
+    roots: workspaceRoots,
+    formatter: createPrettierFileFormatter({ roots: workspaceRoots })
+  })
   // Opening an artifact with its associated application answers to the same roots, through the
   // same containment rule - it is the one path action that can run something.
   const openLocalFile = createLocalFileOpener({

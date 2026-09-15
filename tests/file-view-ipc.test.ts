@@ -25,7 +25,12 @@ function harness(): Harness {
     },
     write: async (request) => {
       writes.push(request)
-      return { ok: true, mtime: '2026-09-05T00:00:01.000Z', size: Buffer.byteLength(request.content) }
+      return {
+        ok: true,
+        mtime: '2026-09-05T00:00:01.000Z',
+        size: Buffer.byteLength(request.content),
+        content: request.content
+      }
     },
     watch: async (path, owner) => void watched.push([path, owner]),
     unwatch: (path, owner) => void unwatched.push([path, owner]),
@@ -69,7 +74,7 @@ test('a write is forwarded only for a well-formed request, never a partial one',
   const { handlers, writes } = harness()
   const request = { path: 'D:\\p\\README.md', content: '# Hi\n', baseMtime: '2026-09-05T00:00:00.000Z' }
   const result = await handlers.get('file-view:write')!(event, request)
-  assert.deepEqual(result, { ok: true, mtime: '2026-09-05T00:00:01.000Z', size: 5 })
+  assert.deepEqual(result, { ok: true, mtime: '2026-09-05T00:00:01.000Z', size: 5, content: '# Hi\n' })
   assert.deepEqual(writes, [request])
 
   for (const malformed of [

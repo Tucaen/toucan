@@ -351,12 +351,78 @@ test('writes a file inside a registered project atomically and reports the new b
     const written = await view.write({ path: file, content: '# Notes\n\nEdited.\n', baseMtime: before.mtime })
     assert.ok(written.ok)
     assert.equal(written.size, Buffer.byteLength('# Notes\n\nEdited.\n'))
+    assert.equal(written.content, '# Notes\n\nEdited.\n')
     const after = await view.read(file)
     assert.ok(after.ok)
     assert.equal(after.content, '# Notes\n\nEdited.\n')
     assert.equal(after.mtime, written.mtime)
     // No temporary file is left beside the document.
     assert.deepEqual(await readdir(join(project, 'docs')), ['notes.md'])
+  })
+})
+
+test('formats a supported file before its atomic replacement and reports the written content', async () => {
+  await withRoot(async (root) => {
+    const file = join(root, 'styles.css')
+    await writeFile(file, 'a {}\n', 'utf8')
+    const view = createFileView({
+      roots: async () => [root],
+      formatter: async (_path, content) => ({ content: content.replace('red', 'blue') })
+    })
+    const base = await view.read(file)
+    assert.ok(base.ok)
+
+    const written = await view.write({ path: file, content: 'a { color: red; }', baseMtime: base.mtime })
+    assert.ok(written.ok)
+    assert.equal(written.content, 'a { color: blue; }')
+    assert.equal(await readFile(file, 'utf8'), 'a { color: blue; }')
+  })
+})
+
+test('a formatter failure does not prevent saving the submitted content', async () => {
+  await withRoot(async (root) => {
+    const file = join(root, 'styles.css')
+    await writeFile(file, 'a {}\n', 'utf8')
+    const view = createFileView({
+      roots: async () => [root],
+      formatter: async () => {
+        throw new Error('formatter unavailable')
+      }
+    })
+    const base = await view.read(file)
+    assert.ok(base.ok)
+
+    const written = await view.write({ path: file, content: 'a {', baseMtime: base.mtime })
+    assert.ok(written.ok)
+    assert.equal(written.content, 'a {')
+    assert.equal(written.formatWarning, 'formatter unavailable')
+    assert.equal(await readFile(file, 'utf8'), 'a {')
+  })
+})
+
+test('an external change during formatting is still a conflict and is not overwritten', async () => {
+  await withRoot(async (root) => {
+    const file = join(root, 'styles.css')
+    await writeFile(file, 'a {}\n', 'utf8')
+    let finishFormatting: (content: string) => void = () => {}
+    const view = createFileView({
+      roots: async () => [root],
+      formatter: (_path, content) =>
+        new Promise((resolve) => {
+          finishFormatting = (formatted) => resolve({ content: formatted || content })
+        })
+    })
+    const base = await view.read(file)
+    assert.ok(base.ok)
+
+    const saving = view.write({ path: file, content: 'mine', baseMtime: base.mtime })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    await writeFile(file, 'theirs', 'utf8')
+    finishFormatting('formatted mine')
+
+    const result = await saving
+    assert.equal(!result.ok && result.reason, 'conflict')
+    assert.equal(await readFile(file, 'utf8'), 'theirs')
   })
 })
 

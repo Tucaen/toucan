@@ -75,6 +75,7 @@ export default function FileNode({ id, data, selected }: NodeProps<FileCanvasNod
   const [result, setResult] = useState<FileReadResult | null>(null)
   const [edit, setEdit] = useState<FileEditState>(UNEDITED)
   const [saveFailure, setSaveFailure] = useState<Extract<FileWriteResult, { ok: false }> | null>(null)
+  const [formatWarning, setFormatWarning] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [pendingPath, setPendingPath] = useState<string | null>(null)
   const savingRef = useRef(false)
@@ -156,6 +157,7 @@ export default function FileNode({ id, data, selected }: NodeProps<FileCanvasNod
     setResult(null)
     setEdit(UNEDITED)
     setSaveFailure(null)
+    setFormatWarning(null)
     setPendingPath(null)
     void read()
     void api.watch(path)
@@ -180,6 +182,7 @@ export default function FileNode({ id, data, selected }: NodeProps<FileCanvasNod
     if (!disk?.ok) return
     setEdit((state) => editStateAfterEdit(state, text, disk))
     setSaveFailure(null)
+    setFormatWarning(null)
   }, [])
 
   const save = useCallback(async (): Promise<SaveOutcome> => {
@@ -208,15 +211,17 @@ export default function FileNode({ id, data, selected }: NodeProps<FileCanvasNod
       }
       return 'failed'
     }
-    const saved = state.draft
+    const submitted = state.draft
+    const saved = written.content
     setSaveFailure(null)
+    setFormatWarning(written.formatWarning ?? null)
     setResult((current) =>
       current?.ok ? { ...current, content: saved, mtime: written.mtime, size: written.size } : current
     )
-    setEdit((current) => editStateAfterSave(written.mtime, saved, current.draft))
+    setEdit((current) => editStateAfterSave(written.mtime, submitted, current.draft))
     // A draft can still move while an asynchronous write is in flight. That newer text remains
     // dirty and must get its own save before a file change may hide it.
-    return editRef.current.draft === saved ? 'saved' : 'still-dirty'
+    return editRef.current.draft === submitted ? 'saved' : 'still-dirty'
   }, [path, read])
 
   /** Back to the file as it is on disk; also how a conflict is resolved in disk's favour. */
@@ -422,6 +427,11 @@ export default function FileNode({ id, data, selected }: NodeProps<FileCanvasNod
         {saveFailure && !edit.conflict && (
           <p className="file-node-notice" data-reason={saveFailure.reason} role="alert">
             {describeFileWriteFailure(saveFailure.reason, saveFailure.message)}
+          </p>
+        )}
+        {formatWarning && !edit.conflict && (
+          <p className="file-node-notice" data-reason="format" role="status">
+            Saved without formatting: {formatWarning}
           </p>
         )}
         {(result?.ok && !result.binary) || dirty ? (

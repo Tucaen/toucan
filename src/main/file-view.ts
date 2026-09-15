@@ -9,6 +9,7 @@ import {
 } from '../shared/file-view'
 import { createWatchedDirectories, type WatchDirectory } from './watched-directories'
 import { createWorkspaceContainment, type WorkspaceContainmentOptions } from './workspace-containment'
+import type { FileFormatResult, FileFormatter } from './file-formatter'
 
 /** How many leading bytes decide whether a file is text: a NUL in them means it is not. */
 const BINARY_PROBE_BYTES = 8 * 1024
@@ -36,6 +37,8 @@ export interface FileViewOptions extends WorkspaceContainmentOptions {
   maxBytes?: number
   debounceMs?: number
   watchDirectory?: WatchDirectory
+  /** Optional format-on-save policy supplied by the composition root. */
+  formatter?: FileFormatter
 }
 
 /**
@@ -159,11 +162,41 @@ export function createFileView(options: FileViewOptions): FileView {
         message: 'This file changed on disk while you were editing it, so your version was not written over it.'
       }
     }
+    let formatted: FileFormatResult = { content }
+    try {
+      if (options.formatter) formatted = await options.formatter(path, content)
+    } catch (error) {
+      formatted = { content, warning: (error as Error).message }
+    }
+    // Formatting is asynchronous and makes the old stat-to-rename race large enough to matter.
+    // Re-check the base immediately before creating the replacement so formatter work can never
+    // give an external writer a window in which its newer contents are silently overwritten.
+    let beforeWrite
+    try {
+      beforeWrite = await stat(resolved)
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code
+      if (code === 'ENOENT' || code === 'ENOTDIR') {
+        return {
+          ok: false,
+          reason: 'not-found',
+          message: 'This file is not on disk any more, so the edit was not saved.'
+        }
+      }
+      return { ok: false, reason: 'unwritable', message: (error as Error).message }
+    }
+    if (beforeWrite.mtime.toISOString() !== baseMtime) {
+      return {
+        ok: false,
+        reason: 'conflict',
+        message: 'This file changed on disk while you were editing it, so your version was not written over it.'
+      }
+    }
     const temporary = join(dirname(resolved), `.${basename(resolved)}.${process.pid}.${Date.now()}.tmp`)
     try {
-      const handle = await open(temporary, 'w', current.mode)
+      const handle = await open(temporary, 'w', beforeWrite.mode)
       try {
-        await handle.writeFile(content, 'utf8')
+        await handle.writeFile(formatted.content, 'utf8')
         await handle.sync()
       } finally {
         await handle.close()
@@ -174,7 +207,13 @@ export function createFileView(options: FileViewOptions): FileView {
       return { ok: false, reason: 'unwritable', message: (error as Error).message }
     }
     const written = await stat(resolved)
-    return { ok: true, mtime: written.mtime.toISOString(), size: written.size }
+    return {
+      ok: true,
+      mtime: written.mtime.toISOString(),
+      size: written.size,
+      content: formatted.content,
+      formatWarning: formatted.warning
+    }
   }
 
   return {

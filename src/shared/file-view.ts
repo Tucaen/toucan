@@ -69,6 +69,10 @@ export type FileWriteResult =
       /** The written file's modification time, the base for the next edit. */
       mtime: string
       size: number
+      /** The bytes main actually wrote; format-on-save may have changed the submitted draft. */
+      content: string
+      /** Present when a supported file had to be saved unchanged because formatting failed. */
+      formatWarning?: string
     }
   | { ok: false; reason: FileWriteFailure; message: string }
 
