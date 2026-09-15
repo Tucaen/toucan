@@ -2198,9 +2198,10 @@ button.global-status-chip:hover {
 .structured-decision {
   grid-column: 1;
   grid-row: 2;
-  display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr) auto auto;
-  gap: 0;
+  /* Flex, not grid rows: the tab strip is absent for single-question requests, so positional
+     row templates hand the 1fr to whatever follows and the footer gets clipped. */
+  display: flex;
+  flex-direction: column;
   min-height: 0;
   max-height: min(52vh, 440px);
   overflow: hidden;
@@ -2209,6 +2210,7 @@ button.global-status-chip:hover {
 }
 
 .structured-decision-header {
+  flex: none;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -2245,6 +2247,7 @@ button.global-status-chip:hover {
 }
 
 .structured-decision-tabs {
+  flex: none;
   display: flex;
   gap: 4px;
   padding: 8px 14px;
@@ -2300,6 +2303,7 @@ button.global-status-chip:hover {
 }
 
 .structured-decision-question {
+  flex: 1 1 auto;
   min-height: 0;
   padding: 12px 14px;
   overflow-y: auto;
@@ -2408,6 +2412,7 @@ button.global-status-chip:hover {
 }
 
 .structured-decision footer {
+  flex: none;
   display: flex;
   align-items: center;
   gap: 7px;
