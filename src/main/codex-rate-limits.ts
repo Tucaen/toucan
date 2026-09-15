@@ -198,8 +198,39 @@ export function codexRateLimitsFromAppServer(response: unknown): AgentRateLimitS
   return models.length > 0 ? { ...status, models } : status
 }
 
-/** Exported for tests: turns one transcript's lines into the newest usable rate-limit report. */
-export function parseCodexRateLimits(lines: string[]): AgentRateLimitStatus | null {
+/**
+ * A transcript is only a cache of the last report Codex wrote, and a window that has passed its
+ * `resets_at` since then is no longer described by it: no turn was recorded after the reset, so the
+ * window is empty rather than however full it was before. Trusting the cached percentage is what
+ * leaves the badge showing yesterday's number - 94% on a window that reset hours ago - until the
+ * next Codex turn happens to write a fresh record.
+ */
+function withoutExpiredWindows(status: AgentRateLimitStatus, now: number): AgentRateLimitStatus | null {
+  let expired = false
+  const fresh: AgentRateLimitStatus = {}
+  for (const slot of ['fiveHour', 'weekly'] as const) {
+    const window = status[slot]
+    if (!window) continue
+    if (window.resetsAt !== undefined && window.resetsAt <= now) {
+      expired = true
+      // The next reset is a window length away from an instant Codex never reported, so it is
+      // dropped rather than guessed; the live read restores it.
+      fresh[slot] = { usedPercent: 0 }
+    } else {
+      fresh[slot] = window
+    }
+  }
+  // `rate_limit_reached_type` does not name the window it refers to, so any reset clears it. A limit
+  // still genuinely in force comes back on the next app-server read.
+  if (status.rejected && !expired) fresh.rejected = true
+  return fresh.fiveHour || fresh.weekly ? fresh : null
+}
+
+/**
+ * Exported for tests: turns one transcript's lines into the newest usable rate-limit report, with
+ * windows that have since reset reported as empty rather than at their cached fill.
+ */
+export function parseCodexRateLimits(lines: string[], now: number = Date.now()): AgentRateLimitStatus | null {
   // Later records supersede earlier ones, so scan backwards and stop at the first usable report.
   for (let index = lines.length - 1; index >= 0; index -= 1) {
     let payload: CodexRateLimitsPayload | undefined
@@ -219,7 +250,7 @@ export function parseCodexRateLimits(lines: string[]): AgentRateLimitStatus | nu
       toWindow(payload.secondary),
       typeof payload.rate_limit_reached_type === 'string'
     )
-    if (status) return status
+    if (status) return withoutExpiredWindows(status, now)
   }
   return null
 }
@@ -231,8 +262,10 @@ export interface CodexRateLimitReaderOptions {
   now?(): Date
   /** Injected in tests so no Codex process is spawned. */
   requestRateLimits?(): Promise<unknown>
-  /** Resolved Codex CLI command; absent means transcript-only fallback. */
+  /** Resolved Codex CLI command from PATH; absent falls back to the copy Toucan ships. */
   command?: string | null
+  /** Application root, so the bundled Codex can answer when none is installed globally. */
+  appPath?: string
 }
 
 export interface CodexRateLimitReader {
@@ -250,38 +283,72 @@ interface CodexAppServerLaunch {
  * `codex.js` leaves that wrapper to spawn the native binary with inherited stdio, which can briefly
  * surface a `PseudoConsoleWindow` even when the wrapper itself was started with `windowsHide`.
  */
+const APP_SERVER_ARGS = ['app-server', '--listen', 'stdio://']
+
+interface CodexNativeTarget {
+  packageName: string
+  triple: string
+}
+
+/** Codex publishes one native package per Windows architecture; other platforms are not bundled. */
+const WINDOWS_TARGETS: Partial<Record<NodeJS.Architecture, CodexNativeTarget>> = {
+  x64: { packageName: 'codex-win32-x64', triple: 'x86_64-pc-windows-msvc' },
+  arm64: { packageName: 'codex-win32-arm64', triple: 'aarch64-pc-windows-msvc' }
+}
+
+function nativeExecutablePath(target: CodexNativeTarget): string[] {
+  return ['@openai', target.packageName, 'vendor', target.triple, 'bin', 'codex.exe']
+}
+
 export function resolveCodexAppServerLaunch(
   command: string,
   architecture: NodeJS.Architecture = process.arch,
   pathExists: (path: string) => boolean = existsSync
 ): CodexAppServerLaunch | null {
   if (!['.cmd', '.bat'].includes(extname(command).toLowerCase())) {
-    return { executable: command, args: ['app-server', '--listen', 'stdio://'] }
+    return { executable: command, args: APP_SERVER_ARGS }
   }
 
-  const target =
-    architecture === 'x64'
-      ? { packageName: 'codex-win32-x64', triple: 'x86_64-pc-windows-msvc' }
-      : architecture === 'arm64'
-        ? { packageName: 'codex-win32-arm64', triple: 'aarch64-pc-windows-msvc' }
-        : null
+  const target = WINDOWS_TARGETS[architecture]
   if (!target) return null
 
   const commandDirectory = win32.dirname(command)
   const packageRoots = [win32.join(commandDirectory, 'node_modules'), win32.join(commandDirectory, '..')]
-  const nativeRelativePath = ['@openai', target.packageName, 'vendor', target.triple, 'bin', 'codex.exe']
   const executable = packageRoots
     .flatMap((root) => [
-      win32.join(root, ...nativeRelativePath),
-      win32.join(root, '@openai', 'codex', 'node_modules', ...nativeRelativePath)
+      win32.join(root, ...nativeExecutablePath(target)),
+      win32.join(root, '@openai', 'codex', 'node_modules', ...nativeExecutablePath(target))
     ])
     .find(pathExists)
-  return executable ? { executable, args: ['app-server', '--listen', 'stdio://'] } : null
+  return executable ? { executable, args: APP_SERVER_ARGS } : null
 }
 
-async function requestRateLimitsViaAppServer(command: string, environment: NodeJS.ProcessEnv): Promise<unknown> {
-  const launch = resolveCodexAppServerLaunch(command)
-  if (!launch) throw new Error('Codex command shim could not be resolved')
+/**
+ * Toucan ships Codex itself, so a machine with no global `codex` on PATH still has a binary able to
+ * answer `account/rateLimits/read`. Without this the reader has no live source at all there and
+ * every poll silently lands on the transcript cache, which is what made the badge look frozen.
+ */
+export function resolveBundledCodexAppServerLaunch(
+  appPath: string,
+  architecture: NodeJS.Architecture = process.arch,
+  pathExists: (path: string) => boolean = existsSync
+): CodexAppServerLaunch | null {
+  const target = WINDOWS_TARGETS[architecture]
+  if (!target) return null
+  // Packaged builds keep the native binary outside the archive; `spawn` cannot reach into an asar.
+  const roots = appPath.endsWith('app.asar')
+    ? [win32.join(win32.dirname(appPath), 'app.asar.unpacked'), appPath]
+    : [appPath]
+  const executable = roots
+    .map((root) => win32.join(root, 'node_modules', ...nativeExecutablePath(target)))
+    .find(pathExists)
+  return executable ? { executable, args: APP_SERVER_ARGS } : null
+}
+
+async function requestRateLimitsViaAppServer(
+  launch: CodexAppServerLaunch,
+  environment: NodeJS.ProcessEnv
+): Promise<unknown> {
   const child = spawn(
     launch.executable,
     launch.args,
@@ -327,27 +394,43 @@ async function requestRateLimitsViaAppServer(command: string, environment: NodeJ
   }
 }
 
+/**
+ * The installed CLI is tried first - it is the one the user keeps current - and Toucan's bundled
+ * copy stands in when PATH has none or its shim cannot be resolved to a native binary.
+ */
+function appServerLaunches(options: CodexRateLimitReaderOptions): CodexAppServerLaunch[] {
+  return [
+    options.command ? resolveCodexAppServerLaunch(options.command) : null,
+    options.appPath ? resolveBundledCodexAppServerLaunch(options.appPath) : null
+  ].filter((launch): launch is CodexAppServerLaunch => launch !== null)
+}
+
 export function createCodexRateLimitReader(options: CodexRateLimitReaderOptions): CodexRateLimitReader {
   const now = options.now ?? ((): Date => new Date())
-  const requestRateLimits =
-    options.requestRateLimits ??
-    (options.command
-      ? (): Promise<unknown> => requestRateLimitsViaAppServer(options.command!, options.environment)
-      : null)
+  const launches = options.requestRateLimits ? [] : appServerLaunches(options)
   return {
     async read(): Promise<AgentRateLimitStatus | null> {
-      if (requestRateLimits) {
+      if (options.requestRateLimits) {
         try {
-          const live = codexRateLimitsFromAppServer(await requestRateLimits())
+          const live = codexRateLimitsFromAppServer(await options.requestRateLimits())
           if (live) return live
         } catch {
           // Older, missing, unauthenticated, or stalled CLIs fall through to the transcript cache.
         }
       }
+      for (const launch of launches) {
+        try {
+          const live = codexRateLimitsFromAppServer(await requestRateLimitsViaAppServer(launch, options.environment))
+          if (live) return live
+        } catch {
+          // Older, missing, unauthenticated, or stalled CLIs fall through to the next candidate.
+        }
+      }
       const root = join(options.environment.CODEX_HOME ?? join(options.homeDirectory, '.codex'), 'sessions')
       try {
-        const transcript = newestTranscript(root, now())
-        return transcript ? parseCodexRateLimits(readTail(transcript)) : null
+        const reference = now()
+        const transcript = newestTranscript(root, reference)
+        return transcript ? parseCodexRateLimits(readTail(transcript), reference.getTime()) : null
       } catch {
         return null
       }
