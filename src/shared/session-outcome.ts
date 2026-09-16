@@ -30,8 +30,37 @@ export const SESSION_OUTCOME_TITLE_LIMIT = 72
  * session is likely asking about. Tightened from 24 when the retrieval budget was measured
  * end-to-end (#190): the file list was the worst case's single biggest line item, and it is the
  * one an agent re-derives from git for free once it knows which conversation to ask about.
+ *
+ * A list that hit the cap says so (#198). Without that marker a truncated record is
+ * indistinguishable from a complete one, and the file list is precisely what a later session
+ * trusts to answer "has anything already touched this area?" - so a silent truncation answers
+ * "no" for a file this conversation in fact rewrote.
  */
 export const SESSION_OUTCOME_FILES_LIMIT = 16
+
+/**
+ * The line a truncated file list ends on. "At least" because the number is a floor, not a census:
+ * a record keeps only the paths it lists, so a *later process* merging its own writes into one
+ * cannot tell whether they are files an earlier process already dropped and counted. Within one
+ * process it is exact; across a restart it can only understate - which is the safe direction,
+ * since the claim the reader needs is "this list is partial", and that is never wrong.
+ *
+ * The one way it can over-count is the artefact `SESSION_OUTCOME_PATH_LIMIT` already documents:
+ * a path longer than that cap, written across two boundaries, is recorded as two clipped entries -
+ * so where the pair falls past the cap the marker counts a file twice. Both alternatives are worse
+ * than a marker one too high: deduping on the clipped form would let two deep files sharing a long
+ * prefix collapse, which is the record claiming one of them was never written.
+ *
+ * Written as a list item so the section stays one flat list, and recognised on the way back in so
+ * the reader never mistakes it for a path. Nothing else in the list can collide with it: a clipped
+ * path carries its ellipsis at the end (`sessionOutcomeExcerpt`), never at the start.
+ */
+export function sessionOutcomeFilesOmittedMarker(count: number): string {
+  return `… and at least ${count} older file${count === 1 ? '' : 's'} omitted`
+}
+
+/** The marker, read back. Anchored, so a path that merely mentions omission is still a path. */
+const FILES_OMITTED_LINE = /^… and at least (\d+) older files? omitted$/
 
 /**
  * Hard cap on one path. Long enough for a real repo-relative path, short enough to bound the list.
@@ -121,6 +150,11 @@ export interface SessionOutcomeRecord {
    * having produced it (`isFileWritingToolKind`).
    */
   filesTouched: string[]
+  /**
+   * How many writes fell off the end of `filesTouched`, so a reader can tell a complete list from
+   * a capped one. A floor rather than a count - see `sessionOutcomeFilesOmittedMarker`.
+   */
+  filesOmitted: number
   /** Failed and cancelled turns, newest last, in the transcript's own turn-outcome shape. */
   failures: AgentTurnOutcome[]
   status: SessionOutcomeStatus
@@ -210,19 +244,41 @@ export function answeredLatestAsk(snapshot: AgentTranscriptState): boolean {
   return false
 }
 
+/** What a record's `## Files` section holds: the paths it lists, and how many it does not. */
+export interface SessionOutcomeFileList {
+  files: string[]
+  omitted: number
+}
+
 /**
- * The write set, newest last: deduped, each path capped, the whole list capped. The one place
- * that rule lives, so the indexer accumulating a session's writes and the record merging them with
- * what a previous process wrote bound the set identically rather than twice.
- *
- * Walked backwards so a file written repeatedly keeps its *latest* position before the cap is
- * applied - a session that rewrote one file forty times must not push everything else out with
- * forty copies of the same entry.
+ * The write set as a record carries it: `sessionOutcomeWriteSet` with the cap applied, and the
+ * count of what the cap cost. The only place that cap is applied, so the number the marker reports
+ * is produced by the same step that drops the paths it is counting - a second site bounding the
+ * list earlier would hand this one a set that already looks complete.
  */
-export function sessionOutcomeFiles(paths: readonly string[]): string[] {
+export function sessionOutcomeFiles(paths: readonly string[]): SessionOutcomeFileList {
+  const distinct = sessionOutcomeWriteSet(paths)
+  return {
+    // The newest survive, which is what walking backwards buys: a later session asking "has
+    // anything touched this area?" is asking about recent work, and the oldest entries are also
+    // the ones git will still name for free. Everything before them is what the marker counts.
+    files: distinct.slice(-SESSION_OUTCOME_FILES_LIMIT),
+    omitted: Math.max(0, distinct.length - SESSION_OUTCOME_FILES_LIMIT)
+  }
+}
+
+/**
+ * Every distinct path, newest last, each clipped: the ordering and deduping rule, uncapped. The
+ * accumulator a watching session keeps, and the input `sessionOutcomeFiles` then caps - so a
+ * session's own bookkeeping cannot silently drop a file before the record gets to count it.
+ *
+ * Walked backwards so a file written repeatedly keeps its *latest* position - a session that
+ * rewrote one file forty times must not push everything else out with forty copies of the entry.
+ */
+export function sessionOutcomeWriteSet(paths: readonly string[]): string[] {
   const newestFirst: string[] = []
   const seen = new Set<string>()
-  for (let index = paths.length - 1; index >= 0 && newestFirst.length < SESSION_OUTCOME_FILES_LIMIT; index -= 1) {
+  for (let index = paths.length - 1; index >= 0; index -= 1) {
     // Deduped on the path itself and clipped only afterwards: two deep files sharing a long prefix
     // are two files, and collapsing them because their first hundred characters match would make
     // the record claim one of them was never written.
@@ -279,6 +335,12 @@ export function extractSessionOutcome(
   const task = sessionOutcomeExcerpt(firstUserText(snapshot))
   if (!task) return null
   const title = source.title ?? generatedConversationTitle(snapshot.messages)
+  const written = sessionOutcomeFiles([...(previous?.filesTouched ?? []), ...(source.filesTouched ?? [])])
+  // What the previous record's own count would still be worth once this merge's list replaces its
+  // list. Taking the larger of the two rather than adding them is what makes a session re-reporting
+  // its whole write set turn after turn idempotent instead of inflationary; neither view can see
+  // the other's dropped paths, which is why the result is a floor (see the marker).
+  const carried = previous ? previous.filesTouched.length + previous.filesOmitted - written.files.length : 0
   return {
     key: sessionOutcomeKey(source.provider, source.conversationId),
     provider: source.provider,
@@ -289,7 +351,8 @@ export function extractSessionOutcome(
     task,
     lastResult: sessionOutcomeExcerpt(lastAssistantText(snapshot)),
     turns: sessionOutcomeTurns(snapshot),
-    filesTouched: sessionOutcomeFiles([...(previous?.filesTouched ?? []), ...(source.filesTouched ?? [])]),
+    filesTouched: written.files,
+    filesOmitted: Math.max(written.omitted, carried),
     failures: boundedFailures(snapshot.outcomes),
     // Always `active`: a turn landing is the proof a conversation is still going, and a session
     // that has ended settles its status through `endedSessionOutcome` instead.
@@ -339,7 +402,17 @@ export function renderSessionOutcome(record: SessionOutcomeRecord): string {
     '',
     // Both lists are omitted entirely when empty: a record for a conversation that wrote nothing
     // and failed nowhere should not spend the reader's budget saying so twice.
-    ...(record.filesTouched.length ? ['## Files', '', ...record.filesTouched.map((path) => `- ${path}`), ''] : []),
+    ...(record.filesTouched.length || record.filesOmitted
+      ? [
+          '## Files',
+          '',
+          ...record.filesTouched.map((path) => `- ${path}`),
+          // Counted against the same budget as the paths it follows, so a saturated record renders
+          // under SESSION_OUTCOME_SIZE_BUDGET with its marker rather than only without one.
+          ...(record.filesOmitted > 0 ? [`- ${sessionOutcomeFilesOmittedMarker(record.filesOmitted)}`] : []),
+          ''
+        ]
+      : []),
     ...(record.failures.length
       ? ['## Failures', '', ...record.failures.map((failure) => renderFailure(failure)), '']
       : [])
@@ -407,6 +480,23 @@ function renderFailure(failure: AgentTurnOutcome): string {
  */
 const FAILURE_LINE = /^- (failed|cancelled) \(([^)]*)\):\s?(.*)$/
 
+/**
+ * The file list as the writer left it: the paths, and the marker read back as a number rather than
+ * as another path. An unrecognised line is a path, so a record hand-edited into some other shape
+ * costs a count and never a file.
+ */
+function readFiles(body: string): Pick<SessionOutcomeRecord, 'filesTouched' | 'filesOmitted'> {
+  const filesTouched: string[] = []
+  let filesOmitted = 0
+  for (const item of listItems(body, 'Files')) {
+    const path = item.slice(2)
+    const marker = FILES_OMITTED_LINE.exec(path)
+    if (marker) filesOmitted = Number(marker[1])
+    else filesTouched.push(path)
+  }
+  return { filesTouched, filesOmitted }
+}
+
 function listItems(body: string, heading: string): string[] {
   return section(body, heading)
     .split('\n')
@@ -457,7 +547,7 @@ export function parseSessionOutcome(markdown: string): SessionOutcomeRecord | nu
     task: section(body, 'Task'),
     lastResult: section(body, 'Last result'),
     turns,
-    filesTouched: listItems(body, 'Files').map((item) => item.slice(2)),
+    ...readFiles(body),
     failures,
     // An unrecognised status reads as `active`: the next turn boundary re-derives it, and the one
     // thing a reader must never conclude from a damaged field is that a session is finished.

@@ -8,9 +8,9 @@ import {
   extractSessionOutcome,
   isTrivialSessionOutcome,
   prunableSessionOutcomes,
-  sessionOutcomeFiles,
   sessionOutcomeKey,
   sessionOutcomeTurns,
+  sessionOutcomeWriteSet,
   SESSION_OUTCOME_RECORD_CAP,
   type SessionOutcomeEnding,
   type SessionOutcomeIndexEntry,
@@ -235,7 +235,13 @@ export function createSessionOutcomeIndexer(options: SessionOutcomeIndexerOption
       // still waiting on disk when the session is stopped would otherwise find the channel closed
       // and its snapshot gone - losing the final turn, which is the record most worth keeping.
       let pending: Promise<void> = Promise.resolve()
-      /** Every file this session wrote since the process started watching, bounded by the one rule a record is. */
+      /**
+       * Every distinct file this session has written since the process started watching, newest
+       * last. Deliberately *not* capped here, only deduped: the cap exists to bound what a reader
+       * pays for, and applying it twice would throw away the very paths the record's omitted count
+       * is derived from - a session's list would then look complete at sixteen however many
+       * hundred it wrote. Ordering, clipping and deduping stay the shared rule's business.
+       */
       let written: string[] = []
       /** The last boundary this watch saw, which is the only thing left to finalize from once the channel closes. */
       let last: CapturedBoundary | null = null
@@ -337,10 +343,10 @@ export function createSessionOutcomeIndexer(options: SessionOutcomeIndexerOption
         finalize,
         recordWrites(paths) {
           const projectPath = context()?.projectPath
-          // Re-bounded on every report rather than at the boundary, so the set a long session
-          // carries is the same size as the one a record holds - and deduping, ordering and
-          // capping stay the shared rule's business rather than a second copy of it here.
-          written = sessionOutcomeFiles([...written, ...paths.map((path) => displayPath(path, projectPath))])
+          // Re-deduped on every report rather than at the boundary, so ordering, clipping and
+          // deduping stay the shared rule's business rather than a second copy of it here. The cap
+          // is deliberately not among them - see `written`.
+          written = sessionOutcomeWriteSet([...written, ...paths.map((path) => displayPath(path, projectPath))])
         }
       }
     }

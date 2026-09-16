@@ -18,6 +18,7 @@ import {
   prunableSessionOutcomes,
   renderSessionOutcome,
   sessionOutcomeExcerpt,
+  sessionOutcomeFilesOmittedMarker,
   sessionOutcomeKey,
   type SessionOutcomeSource
 } from '../src/shared/session-outcome'
@@ -438,6 +439,9 @@ test('a record filled to every cap still fits the retrieval budget', () => {
   assert.ok(record)
 
   assert.ok(record.filesTouched.every((path) => path.length <= SESSION_OUTCOME_PATH_LIMIT))
+  // The marker is part of what a saturated record renders, so it is part of what the budget has to
+  // hold: a fixture that stopped truncating would stop measuring the case this ceiling is for.
+  assert.ok(renderSessionOutcome(record).includes(sessionOutcomeFilesOmittedMarker(record.filesOmitted)))
   assert.ok(renderSessionOutcome(record).length <= SESSION_OUTCOME_SIZE_BUDGET)
 })
 
@@ -596,4 +600,133 @@ test('records updated within the same tick prune in a deterministic order', () =
     prunableSessionOutcomes(entries, () => false, 1),
     ['codex-a', 'codex-b']
   )
+})
+
+test('a truncated write set names how many files it dropped', () => {
+  const snapshot = transcript(
+    user('u1', 'Rename the symbol everywhere it appears.'),
+    assistant('a1', 'Renamed across the tree.', 'final'),
+    { type: 'turn_complete', stopReason: 'end_turn' }
+  )
+  const paths = Array.from({ length: 300 }, (_, index) => `src/file-${index}.ts`)
+
+  const record = extractSessionOutcome(snapshot, { ...SOURCE, filesTouched: paths }, null, AT)
+  assert.ok(record)
+
+  assert.equal(record.filesOmitted, 300 - SESSION_OUTCOME_FILES_LIMIT)
+  // The marker is the last line of the list, so what a reader sees under `## Files` ends by
+  // saying the list is partial rather than trailing off as though it were whole.
+  const files = renderSessionOutcome(record).split('## Files\n\n')[1]?.trimEnd().split('\n') ?? []
+  assert.equal(files.length, SESSION_OUTCOME_FILES_LIMIT + 1)
+  assert.equal(files.at(-1), `- … and at least ${300 - SESSION_OUTCOME_FILES_LIMIT} older files omitted`)
+})
+
+test('a write set at exactly the cap must not claim to be truncated', () => {
+  const snapshot = transcript(user('u1', 'Touch exactly the cap.'), assistant('a1', 'Touched.', 'final'), {
+    type: 'turn_complete',
+    stopReason: 'end_turn'
+  })
+  const paths = Array.from({ length: SESSION_OUTCOME_FILES_LIMIT }, (_, index) => `src/file-${index}.ts`)
+
+  const record = extractSessionOutcome(snapshot, { ...SOURCE, filesTouched: paths }, null, AT)
+  assert.ok(record)
+
+  assert.equal(record.filesOmitted, 0)
+  assert.ok(!renderSessionOutcome(record).includes('omitted'))
+})
+
+test('a truncated record round-trips without reading its marker as a file', () => {
+  const snapshot = transcript(
+    user('u1', 'Rename the symbol everywhere it appears.'),
+    assistant('a1', 'Renamed across the tree.', 'final'),
+    { type: 'turn_complete', stopReason: 'end_turn' }
+  )
+  const paths = Array.from({ length: 40 }, (_, index) => `src/file-${index}.ts`)
+  const record = extractSessionOutcome(snapshot, { ...SOURCE, filesTouched: paths }, null, AT)
+  assert.ok(record)
+
+  const read = parseSessionOutcome(renderSessionOutcome(record))
+
+  assert.deepEqual(read, record)
+  assert.equal(read?.filesTouched.length, SESSION_OUTCOME_FILES_LIMIT)
+  assert.ok(read?.filesTouched.every((path) => path.startsWith('src/file-')))
+})
+
+test('the omitted count holds steady over a turn that wrote nothing new', () => {
+  const snapshot = transcript(
+    user('u1', 'Rename the symbol everywhere it appears.'),
+    assistant('a1', 'Renamed across the tree.', 'final'),
+    { type: 'turn_complete', stopReason: 'end_turn' }
+  )
+  const paths = Array.from({ length: 40 }, (_, index) => `src/file-${index}.ts`)
+  const first = extractSessionOutcome(snapshot, { ...SOURCE, filesTouched: paths }, null, AT)
+  assert.ok(first)
+  assert.equal(first.filesOmitted, 40 - SESSION_OUTCOME_FILES_LIMIT)
+
+  // The same session reporting the same write set at a later boundary: its own contribution is
+  // already in the record, and counting it twice would make the marker grow turn after turn.
+  const later = extractSessionOutcome(snapshot, { ...SOURCE, filesTouched: paths }, first, AT)
+
+  assert.equal(later?.filesOmitted, 40 - SESSION_OUTCOME_FILES_LIMIT)
+})
+
+test('the omitted count is a floor a later process can only raise', () => {
+  const snapshot = transcript(
+    user('u1', 'Rename the symbol everywhere it appears.'),
+    assistant('a1', 'Renamed across the tree.', 'final'),
+    { type: 'turn_complete', stopReason: 'end_turn' }
+  )
+  const first = extractSessionOutcome(
+    snapshot,
+    { ...SOURCE, filesTouched: Array.from({ length: 40 }, (_, index) => `old/file-${index}.ts`) },
+    null,
+    AT
+  )
+  assert.ok(first)
+
+  // A later process knows only the record, so it cannot tell whether its own writes are files the
+  // first process already dropped. It carries what the record knew and stays a floor - never zero
+  // where a list was truncated, which is the only claim the marker actually makes.
+  const later = extractSessionOutcome(
+    snapshot,
+    { ...SOURCE, filesTouched: Array.from({ length: 10 }, (_, index) => `new/file-${index}.ts`) },
+    first,
+    AT
+  )
+
+  assert.equal(later?.filesTouched.length, SESSION_OUTCOME_FILES_LIMIT)
+  assert.equal(later?.filesOmitted, 40 - SESSION_OUTCOME_FILES_LIMIT)
+})
+
+test('a list one file over the cap says so in the singular', () => {
+  const snapshot = transcript(user('u1', 'Touch one file more than the cap.'), assistant('a1', 'Touched.', 'final'), {
+    type: 'turn_complete',
+    stopReason: 'end_turn'
+  })
+  const paths = Array.from({ length: SESSION_OUTCOME_FILES_LIMIT + 1 }, (_, index) => `src/file-${index}.ts`)
+
+  const record = extractSessionOutcome(snapshot, { ...SOURCE, filesTouched: paths }, null, AT)
+  assert.ok(record)
+
+  assert.equal(record.filesOmitted, 1)
+  assert.ok(renderSessionOutcome(record).includes('- … and at least 1 older file omitted'))
+  assert.deepEqual(parseSessionOutcome(renderSessionOutcome(record)), record)
+})
+
+test('a count with no paths left to show is still reported', () => {
+  const snapshot = transcript(
+    user('u1', 'Write files this record cannot list.'),
+    assistant('a1', 'Written.', 'final'),
+    { type: 'turn_complete', stopReason: 'end_turn' }
+  )
+  const record = extractSessionOutcome(snapshot, SOURCE, null, AT)
+  assert.ok(record)
+
+  // Not reachable through extraction - the cap only bites once there are paths to keep - but the
+  // renderer must not answer "nothing was written" to a record that says otherwise, which is the
+  // very failure the marker exists to prevent.
+  const truncated = { ...record, filesTouched: [], filesOmitted: 4 }
+
+  assert.ok(renderSessionOutcome(truncated).includes('- … and at least 4 older files omitted'))
+  assert.deepEqual(parseSessionOutcome(renderSessionOutcome(truncated)), truncated)
 })

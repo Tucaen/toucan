@@ -142,6 +142,7 @@ function fixture({ context = {}, worktreeId, title, recordCap }: FixtureOptions 
             lastResult: 'Something it reported back.',
             turns: 3,
             filesTouched: ['src/old.ts'],
+            filesOmitted: 0,
             failures: [],
             status: 'completed',
             startedAt: updatedAt,
@@ -348,6 +349,9 @@ test('the write set outlives the bounded recent-writes ring', async () => {
     assert.equal(files.length, SESSION_OUTCOME_FILES_LIMIT)
     assert.equal(files.at(-1), 'src/file-399.ts')
     assert.equal(files.at(0), `src/file-${400 - SESSION_OUTCOME_FILES_LIMIT}.ts`)
+    // And the record says how much of the session it is not showing: the watch accumulates the
+    // whole distinct set so the cap is applied once, where the count that survives it is written.
+    assert.equal(session.record('codex-conv-1')?.filesOmitted, 400 - SESSION_OUTCOME_FILES_LIMIT)
   } finally {
     session.dispose()
   }

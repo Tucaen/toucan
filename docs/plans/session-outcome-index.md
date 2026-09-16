@@ -32,6 +32,16 @@ Two things follow. The caps the tracer bullet wrote were too loose for the satur
 
 The pointer itself costs ~930 characters (~235 tokens) on every session, read or not (grown from ~740 by #197's retrieval-pattern sentence). That is the fixed price of the index being discoverable at all, and it is one file-read's worth.
 
+### A capped file list says it is capped (#198)
+
+Truncation without a marker is the same silent false negative as #197's pattern, one layer down: the file list is what a later session trusts to answer "has anything already touched this area?", and a list that stops at `SESSION_OUTCOME_FILES_LIMIT` with nothing to show for it answers "no" for a file the conversation in fact rewrote. A record at exactly the cap was indistinguishable from a complete one — observed against the real index on 2026-09-16.
+
+A truncated list now ends on one more item, `- … and at least N older files omitted` (`sessionOutcomeFilesOmittedMarker`), counted against `SESSION_OUTCOME_SIZE_BUDGET` like any other line and recognised on the way back in so the parser never reads it as a path. The newest writes are the ones kept: they are what a later session is asking about, and the oldest are the ones git still names for free once the conversation is identified.
+
+The watch's accumulator is the one deliberate cost: it now holds the session's whole distinct write set rather than sixteen entries, and re-dedupes it at every report. That is what the exactness is bought with — a capped accumulator throws away the paths the count is derived from — and the set is the paths the tool calls already reported, so it is bounded by the work the session actually did rather than by anything the index chose.
+
+**"At least" is not hedging.** The record keeps only the paths it lists, so `filesOmitted` is a floor, taken as `max(what the record already knew, what this merge dropped)`. Within one process it is exact — the watch now accumulates the session's *whole* distinct write set and lets the record apply the cap once, instead of bounding the list twice and throwing away the paths the count is derived from. Across a restart it can only understate, because a resumed session cannot tell whether its writes are files an earlier process already dropped and counted. Understating is the safe direction: the claim the marker makes is "this list is partial", and that is never wrong.
+
 ### The taught pattern (#197)
 
 The pointer originally taught "the path is JSON-quoted, so backslashes are doubled", which sends a session grepping for the literal quoted path — and from Bash on Windows that silently returns nothing: the shell mangles backslash runs in arguments before grep sees them (`MSYS_NO_PATHCONV=1` does not rescue it), and "no matches" is indistinguishable from "this project is new", so the session re-derives exactly what the index was holding. Measured against the real index on 2026-09-16: 6 records for this repo, literal-path grep found 0, the dot-wildcard pattern found all 6. The #190 demo run below never caught it because the session happened to grep the temp directory's leaf name, which contains no backslashes.

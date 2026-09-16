@@ -306,6 +306,9 @@ test('a screenful of records costs little enough that consulting the index is al
   // twenty times the per-record budget. The caps were tightened against these numbers (#190).
   const typical = screenful(typicalRecord)
   const saturated = screenful(saturatedRecord)
+  // The saturated record is the one that truncates, so its marker is inside the number below - a
+  // fixture that stopped overflowing the file cap would quietly stop measuring the worst case.
+  assert.ok(renderSessionOutcome(saturatedRecord(0)).includes('older files omitted'))
 
   assert.ok(typical < 24_000, `a typical screenful grew to ${typical} bytes`)
   assert.ok(saturated < SESSION_OUTCOME_SCREENFUL * SESSION_OUTCOME_SIZE_BUDGET)
