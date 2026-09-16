@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, type RefObject } from 'react'
-import { MicTranscriber, ModelArch } from '@moonshine-ai/moonshine-wasm'
+import { MicTranscriber, ModelArch, Transcriber } from '@moonshine-ai/moonshine-wasm'
 import { LoaderCircle, Mic, Square, X } from 'lucide-react'
 import { VOICE_MODEL_ASSET_DIRECTORY, VOICE_MODEL_LANGUAGE } from '../../shared/remote-voice'
 import { voiceModelProgress, type VoiceModelStatus } from '../../shared/voice-model'
 import { withStallGuard } from '../../shared/stall-guard'
 import { errorMessage } from '../../shared/text'
+import { fetchVoiceModelFiles } from './voice-model-files'
 import {
   insertAtSelection,
   joinTranscript,
@@ -53,12 +54,25 @@ const LOCAL_MODEL_URL = new URL(`./${VOICE_MODEL_ASSET_DIRECTORY}/`, window.loca
 // stuck forever: a WASM worker that dies on startup never rejects its load promise.
 const VOICE_STALL_TIMEOUT_MS = 60_000
 
+/**
+ * The renderer has to be cross-origin isolated or Moonshine's threaded WASM cannot have a
+ * `SharedArrayBuffer`, and its pthread worker then fails its first `postMessage` inside a promise
+ * that never settles - a stuck "Preparing local speech model...", not an error. The host serves
+ * both origins with the isolation headers (`main/app-protocol.ts`, `electron.vite.config.ts`), so
+ * this failing means something has been reconfigured, and saying so beats a timeout.
+ */
+const ISOLATION_MESSAGE =
+  'This window is not cross-origin isolated, so the local speech model cannot run. Restart Toucan.'
+
 export default function VoiceInput(props: VoiceInputProps): JSX.Element {
   const [state, setState] = useState<VoiceState>('idle')
   const [progress, setProgress] = useState(0)
   const [partial, setPartial] = useState('')
   const [error, setError] = useState('')
   const transcriberRef = useRef<MicTranscriber>()
+  // Held apart from the microphone because the microphone does not own it: the model is built once
+  // from bytes and handed over, so closing it is this component's job, not `MicTranscriber.close`'s.
+  const modelRef = useRef<Transcriber>()
   const completedLinesRef = useRef<string[]>([])
   const partialRef = useRef('')
   const insertionRef = useRef({ start: 0, end: 0 })
@@ -73,6 +87,7 @@ export default function VoiceInput(props: VoiceInputProps): JSX.Element {
       const transcriber = transcriberRef.current
       if (transcriber?.isRunning) void transcriber.stop()
       transcriber?.close()
+      modelRef.current?.close()
     },
     []
   )
@@ -111,11 +126,21 @@ export default function VoiceInput(props: VoiceInputProps): JSX.Element {
       }
       setState('loading')
       if (!transcriber) {
+        if (!window.crossOriginIsolated) throw new Error(ISOLATION_MESSAGE)
+        // The host names the files; the renderer reads them off its own origin and hands the bytes
+        // to the loader. See `voice-model-files.ts` for why Moonshine's downloader is not used.
+        const listed = await window.voiceModelApi.files()
+        if (listed.length === 0) throw new Error('The speech model is not available.')
+        const bytes = await fetchVoiceModelFiles(listed, LOCAL_MODEL_URL, (fraction) => setProgress(fraction))
+        const model = await withStallGuard(
+          Transcriber.load({ files: bytes, modelArch: ModelArch.MediumStreaming }),
+          VOICE_STALL_TIMEOUT_MS,
+          'Local speech model timed out while loading.'
+        )
+        modelRef.current = model
         transcriber = new MicTranscriber()
+          .useTranscriber(model)
           .language(VOICE_MODEL_LANGUAGE)
-          .modelArch(ModelArch.MediumStreaming)
-          .modelsFrom(LOCAL_MODEL_URL)
-          .onProgress((fraction) => setProgress(fraction))
           .onText((text) => {
             partialRef.current = text
             setPartial(text)
@@ -130,7 +155,6 @@ export default function VoiceInput(props: VoiceInputProps): JSX.Element {
             setState('error')
           })
         transcriberRef.current = transcriber
-        await withStallGuard(transcriber.load(), VOICE_STALL_TIMEOUT_MS, 'Local speech model timed out while loading.')
       }
       // Re-applied on every start rather than once: what the speaker is talking about changes
       // between dictations, and an empty context clears the previous one instead of keeping it.
@@ -179,7 +203,7 @@ export default function VoiceInput(props: VoiceInputProps): JSX.Element {
   }
 
   const label = voiceControlLabel(state, progress)
-  const preview = voiceLivePreview(state, progress, partial)
+  const preview = voiceLivePreview(state, progress, partial, error)
 
   return (
     <div className="voice-input">
@@ -212,7 +236,12 @@ export default function VoiceInput(props: VoiceInputProps): JSX.Element {
         </button>
       )}
       {preview !== null && (
-        <span className="voice-live-preview" title={preview}>
+        <span
+          className="voice-live-preview"
+          data-state={state}
+          title={preview}
+          role={state === 'error' ? 'alert' : undefined}
+        >
           {preview}
         </span>
       )}

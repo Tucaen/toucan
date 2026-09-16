@@ -145,5 +145,6 @@ export const APP_UPDATE_CHANNELS = {
 export const VOICE_MODEL_CHANNELS = {
   state: 'voice-model:state',
   ensure: 'voice-model:ensure',
+  files: 'voice-model:files',
   changed: 'voice-model:changed'
 } as const

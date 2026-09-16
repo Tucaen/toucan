@@ -22,7 +22,7 @@ import { createVoiceModelStore, type VoiceModelStore } from './voice-model-store
 import { createMainLog } from './main-log'
 import { createVoiceModelPort } from './voice-model-download'
 import { forwardVoiceModelChanges, registerVoiceModelIpc } from './voice-model-ipc'
-import { voiceModelRequestFile } from './voice-model-protocol'
+import { APP_INDEX_URL, APP_ISOLATION_HEADERS, APP_SCHEME, appContentType, appRequestTarget } from './app-protocol'
 import { createAgentEventBroker } from './agent-event-broker'
 import { createBrainDumpLibrary } from './brain-dump-library'
 import { hiddenProcessOptions } from './background-process'
@@ -84,6 +84,16 @@ import type {
 } from '../shared/worktree'
 import type { GitDiffRequest, GitFileDiffRequest } from '../shared/git-diff'
 import type { GitCheckoutRequest } from '../shared/git-branch'
+
+// Has to run before the app is ready, which is why it is here and not inside a function. The
+// privileges are what make the packaged renderer's origin behave like an HTTP one - a secure
+// context that `fetch`, the Cache API and cross-origin isolation all accept. See `app-protocol.ts`.
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: APP_SCHEME,
+    privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true }
+  }
+])
 
 /**
  * Plan usage moves slowly and a Claude read boots a CLI, so this caps how often that happens
@@ -268,7 +278,7 @@ function createWindow(
     }
     void window.loadURL(rendererUrl.toString())
   } else {
-    void window.loadFile(join(__dirname, '../renderer/index.html'))
+    void window.loadURL(APP_INDEX_URL)
   }
 }
 
@@ -292,33 +302,29 @@ function registerVoicePermissions(): void {
   })
 }
 
-function registerVoiceCrossOriginIsolation(): void {
-  // Moonshine's threaded WASM build needs SharedArrayBuffer, which
-  // Chromium only exposes to a crossOriginIsolated page. electron.vite.config.ts
-  // sets these headers for the dev server, but a packaged build loads the
-  // renderer via loadFile() (file://), which never goes through that dev
-  // server. Without this, the WASM module's worker thread dies silently on
-  // startup (no SharedArrayBuffer to back its shared memory) and the pending
-  // model-load promise never settles, leaving the mic button stuck loading.
-  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
-    callback({
-      responseHeaders: {
-        ...details.responseHeaders,
-        'Cross-Origin-Opener-Policy': ['same-origin'],
-        'Cross-Origin-Embedder-Policy': ['require-corp']
-      }
-    })
-  })
-}
-
-function registerVoiceModelProtocol(store: VoiceModelStore, rendererRoot: string): void {
-  // Same origin on purpose: a custom scheme would put the model fetch on the wrong side of the
-  // cross-origin-isolation headers the WASM needs. Every other file: request passes straight through.
-  protocol.handle('file', (request) => {
-    const name = voiceModelRequestFile(request.url, rendererRoot)
-    const path = name ? store.filePath(name) : null
-    if (path) return net.fetch(pathToFileURL(path).toString(), { bypassCustomProtocolHandlers: true })
-    return net.fetch(request, { bypassCustomProtocolHandlers: true })
+/**
+ * Serves the packaged renderer, and the speech model beside it, on one cross-origin-isolated
+ * origin. See `app-protocol.ts` for why this is not `file:`; the dev server sets the same two
+ * isolation headers itself (`electron.vite.config.ts`), so both runs are isolated the same way.
+ */
+function registerAppProtocol(store: VoiceModelStore, rendererRoot: string): void {
+  protocol.handle(APP_SCHEME, async (request) => {
+    const target = appRequestTarget(request.url)
+    const path =
+      target === null
+        ? null
+        : target.kind === 'model'
+          ? store.filePath(target.name)
+          : join(rendererRoot, ...target.path.split('/'))
+    if (!path) return new Response('Not found', { status: 404, headers: APP_ISOLATION_HEADERS })
+    const response = await net.fetch(pathToFileURL(path).toString(), { bypassCustomProtocolHandlers: true })
+    const headers = new Headers(response.headers)
+    for (const [name, value] of Object.entries(APP_ISOLATION_HEADERS)) headers.set(name, value)
+    // A custom scheme has no server behind it to label what it serves, and Chromium will not run a
+    // module script or stream a WebAssembly compile off a guessed type.
+    const contentType = appContentType(path)
+    if (contentType) headers.set('Content-Type', contentType)
+    return new Response(response.body, { status: response.status, headers })
   })
 }
 
@@ -326,7 +332,6 @@ void app.whenReady().then(async () => {
   // Diagnostics land in a file as well as the console: an installed Toucan.exe has no console.
   const mainLog = createMainLog({ file: join(app.getPath('logs'), 'main.log') })
   registerVoicePermissions()
-  registerVoiceCrossOriginIsolation()
   const codexHome = process.env.CODEX_HOME ?? join(app.getPath('home'), '.codex')
   const brainDumpDirectory = join(app.getPath('userData'), 'brain-dumps')
   const agentEnvironment = { ...process.env, TOUCAN_BRAIN_DUMPS_DIR: brainDumpDirectory }
@@ -477,7 +482,7 @@ void app.whenReady().then(async () => {
     log: mainLog('voice model')
   })
   registerVoiceModelIpc(ipcMain, voiceModel)
-  registerVoiceModelProtocol(voiceModel, join(__dirname, '..', 'renderer'))
+  registerAppProtocol(voiceModel, join(__dirname, '..', 'renderer'))
   const canvasRequests = createRemoteCanvasRequests()
   // A phone whose browser cannot recognize speech sends its recording here, and main transcribes
   // it with the same prepared model files the renderer dictates with - loaded lazily, because a

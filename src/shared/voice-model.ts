@@ -17,11 +17,23 @@ export type VoiceModelStatus =
   | { phase: 'ready' }
   | { phase: 'error'; message: string }
 
+/** One model file as the renderer sees it: what to fetch, and how many bytes that will be. */
+export interface VoiceModelFileInfo {
+  name: string
+  size: number
+}
+
 /** The seam as the renderer sees it. `ensure` never rejects: a failed download is a status. */
 export interface VoiceModelApi {
   state(): Promise<VoiceModelStatus>
   /** Fetches the model if it is not on disk yet and resolves with the status that settled on. */
   ensure(): Promise<VoiceModelStatus>
+  /**
+   * The files the renderer has to fetch to build a transcriber, once the model is ready. The host
+   * is the authority on which files those are: it knows where the model ended up, and the renderer
+   * may not read userData.
+   */
+  files(): Promise<VoiceModelFileInfo[]>
   onChange(callback: (status: VoiceModelStatus) => void): () => void
 }
 

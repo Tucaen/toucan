@@ -14,19 +14,21 @@ import { createMockBrainDumpApi, topicFixture, type MockBrainDumpApi } from './d
 const speech = { failLoad: false, transcript: 'dictated words' }
 
 vi.mock('@moonshine-ai/moonshine-wasm', () => {
+  // The renderer builds the model from bytes it fetched itself and hands it to the microphone;
+  // see src/renderer/src/voice-model-files.ts for why Moonshine's own downloader is not used.
+  class Transcriber {
+    static async load(): Promise<Transcriber> {
+      return new Transcriber()
+    }
+    close(): void {}
+  }
   class MicTranscriber {
     isRunning = false
     private line: ((value: { text: string }) => void) | undefined
+    useTranscriber(): this {
+      return this
+    }
     language(): this {
-      return this
-    }
-    modelArch(): this {
-      return this
-    }
-    modelsFrom(): this {
-      return this
-    }
-    onProgress(): this {
       return this
     }
     onText(): this {
@@ -40,10 +42,8 @@ vi.mock('@moonshine-ai/moonshine-wasm', () => {
       return this
     }
     setContext(): void {}
-    async load(): Promise<void> {
-      if (speech.failLoad) throw new Error('The microphone could not be opened.')
-    }
     async start(): Promise<void> {
+      if (speech.failLoad) throw new Error('The microphone could not be opened.')
       this.isRunning = true
       this.line?.({ text: speech.transcript })
     }
@@ -52,7 +52,7 @@ vi.mock('@moonshine-ai/moonshine-wasm', () => {
     }
     close(): void {}
   }
-  return { MicTranscriber, ModelArch: { MediumStreaming: 'medium-streaming' } }
+  return { MicTranscriber, Transcriber, ModelArch: { MediumStreaming: 'medium-streaming' } }
 })
 
 const projects: WorkspaceProject[] = [
@@ -91,10 +91,15 @@ describe('the review tray', () => {
     speech.failLoad = false
     speech.transcript = 'dictated words'
     api = createMockBrainDumpApi()
+    // The renderer only loads the model on a cross-origin-isolated page; jsdom is not one, so the
+    // guard that reports that has to be satisfied before the tray's own states are visible.
+    Object.defineProperty(window, 'crossOriginIsolated', { value: true, configurable: true })
+    window.fetch = vi.fn(async () => new Response(new Uint8Array(1))) as typeof fetch
     // The host reports the speech model present, so the tray's states are the microphone's alone.
     window.voiceModelApi = {
       state: async () => ({ phase: 'ready' }),
       ensure: async () => ({ phase: 'ready' }),
+      files: async () => [{ name: 'streaming_config.json', size: 1 }],
       onChange: () => () => undefined
     }
   })
@@ -129,6 +134,7 @@ describe('the review tray', () => {
     window.voiceModelApi = {
       state: async () => ({ phase: 'missing' }),
       ensure: async () => ({ phase: 'error', message: 'Speech model download failed: the network dropped.' }),
+      files: async () => [],
       onChange: () => () => undefined
     }
     renderPanel(api, { draft: 'partly typed already' })

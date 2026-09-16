@@ -3659,6 +3659,10 @@ button.global-status-chip:hover {
   background: #241d20;
 }
 
+/*
+ * Neutral on purpose. This box reports ordinary progress far more often than it reports a failure,
+ * and a red one read as "something went wrong" every time the model was merely loading.
+ */
 .voice-live-preview {
   position: absolute;
   right: 0;
@@ -3666,10 +3670,10 @@ button.global-status-chip:hover {
   width: 220px;
   overflow: hidden;
   padding: 6px 8px;
-  border: 1px solid #51383d;
+  border: 1px solid #3a4350;
   border-radius: 7px;
-  color: #e8c9cc;
-  background: #21171a;
+  color: #c7d2e0;
+  background: #171c23;
   font:
     11px/1.35 Inter,
     system-ui,
@@ -3677,6 +3681,14 @@ button.global-status-chip:hover {
   text-overflow: ellipsis;
   white-space: nowrap;
   pointer-events: none;
+}
+
+/* The one state that is worth alarming about. A failure is also worth reading in full. */
+.voice-live-preview[data-state='error'] {
+  border-color: #6b3a40;
+  color: #e8c9cc;
+  background: #21171a;
+  white-space: normal;
 }
 
 .chat-dormant {

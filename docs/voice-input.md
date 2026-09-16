@@ -61,10 +61,11 @@ you would type into a Claude or Codex node; that is the set any future engine ha
   beside it holds the pure decisions: transcript assembly, cursor insertion, labels, the context
   passage. `withStallGuard` bounds model load and start (60 s) so a WASM worker that dies on startup
   leaves an error, not a spinner.
-- `src/main/index.ts` grants microphone audio to Toucan's own window only, and sets the
-  cross-origin isolation headers a packaged build needs for Moonshine's threaded WASM
-  (`registerVoicePermissions`, `registerVoiceCrossOriginIsolation`). The dev server sets the same
-  headers in `electron.vite.config.ts`.
+- `src/main/app-protocol.ts` and the `toucan://app` origin it defines are what make the model
+  loadable at all in a packaged build; see **The origin the renderer runs on** below.
+- `src/main/index.ts` grants microphone audio to Toucan's own window only
+  (`registerVoicePermissions`) and serves that origin (`registerAppProtocol`). The dev server sets
+  the same isolation headers in `electron.vite.config.ts`.
 - `src/shared/remote-voice.ts` is the phone-to-host contract: `audio/L16; rate=16000; channels=1`,
   a body bound of 180 seconds, PCM encode/decode and resampling used by both ends.
 - `src/main/remote/voice-transcription.ts` is the host policy - lazy shared load, serialized
@@ -88,12 +89,41 @@ and the microphone button shows the download with the host's byte counts (`downl
   next attempt skips the files that already landed. `voice-model-download.ts` is the real CDN and
   disk IO behind it.
 - The renderer still asks for `models/moonshine-medium-streaming-en/<file>` beside its own
-  `index.html`. `src/main/voice-model-protocol.ts` decides which `file:` requests that is, and
-  main's `file:` handler answers those from the store's directory, on the same origin, so the
-  cross-origin-isolation headers keep working. Every other `file:` request passes through.
+  `index.html`. `src/main/app-protocol.ts` decides which `toucan://app` requests those are, and the
+  handler answers them from the store's directory rather than the bundle - `build.files` excludes
+  the model from the package on purpose.
 - `voice-model:*` IPC (`voice-model-ipc.ts`, `window.voiceModelApi`) is how the button asks for
-  the model and follows its progress. The phone path (`voice-transcription.ts`) awaits the same
-  store before loading the engine.
+  the model, follows its progress, and learns which files to fetch. The phone path
+  (`voice-transcription.ts`) awaits the same store before loading the engine.
+
+## The origin the renderer runs on
+
+A packaged renderer is loaded from `toucan://app/index.html`, a scheme registered privileged
+(`standard`, `secure`, `supportFetchAPI`, `corsEnabled`) before the app is ready. It is not a
+detail. Loading the renderer with `loadFile()` - the obvious thing - breaks dictation in two
+independent ways, and both look like a hung button rather than an error:
+
+- **No `SharedArrayBuffer`.** Moonshine's threaded WASM build needs one, and Chromium only exposes
+  it to a cross-origin-isolated page. A `file:` page has an opaque origin, which COOP/COEP cannot
+  isolate however the headers are delivered - `webRequest.onHeadersReceived` included. Emscripten's
+  pthread worker then throws `DataCloneError` on its first `postMessage` **inside a promise that
+  never settles**, so the button sits on "Preparing local speech model…" until the 60 s stall guard
+  fires.
+- **No way to read the model.** `fetch` and the Cache API both reject a non-HTTP scheme outright
+  (`Request scheme 'file' is unsupported`).
+
+The scheme fixes the first. The second is only half fixed by it, because the Cache API refuses any
+non-HTTP scheme including this one - so `VoiceInput` no longer uses Moonshine's `AssetDownloader`.
+The host names and sizes the files (`src/main/voice-model-files.ts`), the renderer fetches them off
+its own origin (`src/renderer/src/voice-model-files.ts`) and hands the bytes to
+`Transcriber.load({ files })`. That also stops 291 MB from being copied into a browser cache it is
+already on disk for.
+
+Two things the handler must keep doing: stamp the isolation headers on every response
+(`require-corp` means subresources opt in too, so `Cross-Origin-Resource-Policy` goes on as well),
+and set `Content-Type` itself - a custom scheme has no server behind it, and Chromium refuses a
+module script or a streaming WebAssembly compile on a guessed type. `tests/app-protocol.test.ts`
+covers the routing and the types.
 
 In development, `npm run dev` still runs `scripts/prepare-voice-model.mjs`, which fetches the model
 into the gitignored `src/renderer/public/models/moonshine-medium-streaming-en/` so Vite serves it;

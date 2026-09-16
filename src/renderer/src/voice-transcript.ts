@@ -64,8 +64,17 @@ export function voiceControlLabel(state: VoiceState, progress: number): string {
   }
 }
 
-/** The floating preview beside the button, or null when there is nothing live to show. */
-export function voiceLivePreview(state: VoiceState, progress: number, partial: string): string | null {
+/**
+ * The floating preview beside the button, or null when there is nothing to show. A failure belongs
+ * here too: it is the only surface the composer's microphone has, and a button that silently
+ * returns to idle is how a broken model reads as a click that did nothing.
+ */
+export function voiceLivePreview(
+  state: VoiceState,
+  progress: number,
+  partial: string,
+  error: string = ''
+): string | null {
   switch (state) {
     case 'downloading':
       return `${progressLabel(DOWNLOADING_LABEL, progress)}…`
@@ -74,8 +83,9 @@ export function voiceLivePreview(state: VoiceState, progress: number, partial: s
     case 'listening':
     case 'stopping':
       return partial || 'Listening (English only)…'
-    case 'idle':
     case 'error':
+      return error || 'Dictation could not start.'
+    case 'idle':
       return null
   }
 }

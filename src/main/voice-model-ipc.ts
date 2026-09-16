@@ -3,6 +3,7 @@ import type { VoiceModelStatus } from '../shared/voice-model'
 import type { IpcRegistrar } from './ipc-registrar'
 import type { VoiceModelStore } from './voice-model-store'
 import { VOICE_MODEL_CHANNELS } from '../shared/ipc-channels'
+import { readVoiceModelFiles } from './voice-model-files'
 
 /**
  * The speech-model seam, seen from the renderer: what state it is in, and "make it exist". The
@@ -12,6 +13,7 @@ import { VOICE_MODEL_CHANNELS } from '../shared/ipc-channels'
 export function registerVoiceModelIpc(ipc: IpcRegistrar, store: VoiceModelStore): void {
   ipc.handle(VOICE_MODEL_CHANNELS.state, () => store.snapshot())
   ipc.handle(VOICE_MODEL_CHANNELS.ensure, () => store.ensure())
+  ipc.handle(VOICE_MODEL_CHANNELS.files, () => readVoiceModelFiles(store.directory()))
 }
 
 /** Progress arrives for minutes after the click, so the window subscribes for as long as it exists. */

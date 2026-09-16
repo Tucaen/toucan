@@ -226,6 +226,7 @@ contextBridge.exposeInMainWorld('appUpdateApi', appUpdateApi)
 const voiceModelApi: VoiceModelApi = {
   state: () => ipcRenderer.invoke(VOICE_MODEL_CHANNELS.state),
   ensure: () => ipcRenderer.invoke(VOICE_MODEL_CHANNELS.ensure),
+  files: () => ipcRenderer.invoke(VOICE_MODEL_CHANNELS.files),
   onChange: (callback) => subscribe(VOICE_MODEL_CHANNELS.changed, (status: VoiceModelStatus) => callback(status))
 }
 

@@ -52,7 +52,14 @@ describe('voiceLivePreview', () => {
     assert.equal(voiceLivePreview('downloading', 0.5, ''), 'Downloading speech model (one-time, 291 MB) 50%…')
     assert.equal(voiceLivePreview('stopping', 1, 'tail'), 'tail')
     assert.equal(voiceLivePreview('idle', 0, 'x'), null)
-    assert.equal(voiceLivePreview('error', 0, 'x'), null)
+  })
+
+  test('reads a failure out rather than leaving the click unexplained', () => {
+    assert.equal(
+      voiceLivePreview('error', 0, 'x', 'The microphone could not be opened.'),
+      'The microphone could not be opened.'
+    )
+    assert.equal(voiceLivePreview('error', 0, 'x'), 'Dictation could not start.')
   })
 })
 
