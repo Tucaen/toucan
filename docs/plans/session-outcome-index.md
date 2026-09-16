@@ -30,7 +30,13 @@ Capture being free is only half the bargain; the read has to be cheap enough tha
 
 Two things follow. The caps the tracer bullet wrote were too loose for the saturated case, so they were tightened here: `SESSION_OUTCOME_FILES_LIMIT` 24 → 16, `SESSION_OUTCOME_PATH_LIMIT` 100 → 80, and the per-record ceiling `SESSION_OUTCOME_SIZE_BUDGET` 5120 → 4096. And the pointer teaches a **two-stage read** — grep `project:` to name the files, then open only the records worth reading — which is what keeps the common case at stage one's price rather than stage two's.
 
-The pointer itself costs ~740 characters (~185 tokens) on every session, read or not. That is the fixed price of the index being discoverable at all, and it is one file-read's worth.
+The pointer itself costs ~930 characters (~235 tokens) on every session, read or not (grown from ~740 by #197's retrieval-pattern sentence). That is the fixed price of the index being discoverable at all, and it is one file-read's worth.
+
+### The taught pattern (#197)
+
+The pointer originally taught "the path is JSON-quoted, so backslashes are doubled", which sends a session grepping for the literal quoted path — and from Bash on Windows that silently returns nothing: the shell mangles backslash runs in arguments before grep sees them (`MSYS_NO_PATHCONV=1` does not rescue it), and "no matches" is indistinguishable from "this project is new", so the session re-derives exactly what the index was holding. Measured against the real index on 2026-09-16: 6 records for this repo, literal-path grep found 0, the dot-wildcard pattern found all 6. The #190 demo run below never caught it because the session happened to grep the temp directory's leaf name, which contains no backslashes.
+
+The pointer now teaches a pattern with **no backslashes at all**: the JSON-quoted `project:` line with a dot per stored backslash, closing quote included — `project: "D:..Development..ADE"` for `D:\Development\ADE`. The quotes and the full-path shape are the selectivity: a same-named leaf under a different root, a sibling sharing the prefix, and the project's own worktrees all fail the match. `sessionOutcomeProjectPattern` in `src/shared/session-outcome.ts` is that recipe in code — it generates the pointer's own worked example, and `tests/session-outcome-retrieval.test.ts` proves it against a record written by the real serializer, so the prose, the pattern and the on-disk format cannot drift apart. The live script now normalizes its throwaway project path to backslashes on win32 (refusing to run vacuously without them) and fails itself when the answer names fewer than two of the three seeded records. Re-run live on 2026-09-16 (Claude): the session greped `project: "C:..Users..user..AppData..Local..Temp..toucan-live-project-wlnV9q"` — the taught pattern verbatim, against a fully backslashed path — read all three records, zero approvals, PASS.
 
 ### The demo run
 

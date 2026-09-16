@@ -10,12 +10,18 @@
  * It builds a throwaway project and a throwaway outcomes directory holding three records, opens a
  * session the way `src/main/index.ts` does (the outcomes directory as an additional directory, the
  * pointer on the session's own context), asks the retrieval question, and prints every approval the
- * session asked for. Zero approvals plus an answer naming the records is the passing result.
+ * session asked for. The run judges itself: zero approvals plus an answer naming the records passes,
+ * anything else exits non-zero.
+ *
+ * The project path must contain backslashes on Windows (#197): the #190 run's temp path happened to
+ * carry none, so it never exercised the shell mangling that made the taught grep silently match
+ * nothing. A run whose project path has no backslash on win32 fails up front rather than passing
+ * vacuously.
  */
 
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, win32 } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
 const out = (path) => pathToFileURL(join(process.cwd(), '.test-out', path)).href
@@ -24,7 +30,14 @@ const { createAcpSessionManager } = await import(out('src/main/acp-session-manag
 const { foldAgentEvent, initialAgentTranscriptState } = await import(out('src/shared/agent-transcript.js'))
 
 const provider = process.argv[2] === 'codex' ? 'codex' : 'claude'
-const project = mkdtempSync(join(tmpdir(), 'toucan-live-project-'))
+// Normalized to backslashes on Windows so the records' `project:` lines carry the separators the
+// taught pattern exists for - a forward-slashed temp path (Git Bash sets one) would dodge the bug.
+const temporaryProject = mkdtempSync(join(tmpdir(), 'toucan-live-project-'))
+const project = process.platform === 'win32' ? win32.normalize(temporaryProject) : temporaryProject
+if (process.platform === 'win32' && !project.includes('\\')) {
+  console.error(`project path carries no backslash, so this run would not exercise #197: ${project}`)
+  process.exit(1)
+}
 const outcomes = mkdtempSync(join(tmpdir(), 'toucan-live-outcomes-'))
 
 const record = (key, title, task, result, files) =>
@@ -129,10 +142,9 @@ const snapshot = events.reduce(
   (state, event) => foldAgentEvent(state, event, Date.now()),
   initialAgentTranscriptState()
 )
+const finalAnswer = snapshot.messages.filter((message) => message.role === 'assistant').at(-1)?.text ?? ''
 console.log('\n===== ANSWER =====')
-console.log(
-  snapshot.messages.filter((message) => message.role === 'assistant').at(-1)?.text ?? '(no assistant message)'
-)
+console.log(finalAnswer || '(no assistant message)')
 console.log('\n===== TOOL CALLS =====')
 const seen = new Set()
 for (const activity of Object.values(snapshot.activities)) {
@@ -145,4 +157,16 @@ console.log(`\napprovals asked: ${approvals.length}`)
 console.log(`outcomes directory: ${outcomes}`)
 console.log(`project: ${project}`)
 manager.killAll()
+// The run judges itself, so a regression in the taught pattern fails it instead of printing an
+// answer nobody re-reads: a session that greps wrong finds no records, and an answer naming fewer
+// than two of the three seeded conversations is that silent failure (two, not three, so a session
+// paraphrasing one record does not fail a run that plainly read the index).
+const namedTopics = ['backoff', 'thumbnail', 'settings'].filter((topic) => finalAnswer.toLowerCase().includes(topic))
+if (approvals.length > 0 || namedTopics.length < 2) {
+  console.error(
+    `\nFAIL: ${approvals.length} approvals, answer names ${namedTopics.length}/3 seeded records - the index was not read.`
+  )
+  process.exit(1)
+}
+console.log('\nPASS: no approvals and the answer names the seeded records.')
 process.exit(0)
