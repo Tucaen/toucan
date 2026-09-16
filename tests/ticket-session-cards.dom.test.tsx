@@ -231,7 +231,7 @@ describe('the board chip for a session that is on a ticket', () => {
     const chip = within(cardOf('Live session cards')).getByRole('button', { name: /Claude 1/ })
     expect(chip).toHaveAttribute('data-working', 'true')
     // The provider icon is what says *which* kind of session is on the ticket.
-    expect(chip.querySelector('svg.lucide-sparkles')).not.toBeNull()
+    expect(chip.querySelector('svg.claude-glyph')).not.toBeNull()
     act(() => chip.click())
     expect(onFocusSession).toHaveBeenCalledWith(NODE_ID)
   })
