@@ -67,7 +67,7 @@ export default function StructuredDecisionPanel(props: StructuredDecisionPanelPr
   }
   return (
     <section
-      className="structured-decision nodrag nopan nowheel"
+      className="structured-decision nodrag nopan"
       aria-labelledby={headingId}
       aria-describedby={`${headingId}-context`}
     >

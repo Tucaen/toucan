@@ -120,7 +120,7 @@ export default function FindBar({ containerRef, contentKey, openSignal, label, o
 
   const count = query === '' ? '' : matchCountLabel(ranges.length, index)
   return (
-    <div className="node-find-bar nodrag nowheel" role="search" onMouseDown={stopDrag} onKeyDown={onKeyDown}>
+    <div className="node-find-bar nodrag" role="search" onMouseDown={stopDrag} onKeyDown={onKeyDown}>
       <input
         ref={input}
         type="search"

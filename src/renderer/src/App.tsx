@@ -2821,11 +2821,19 @@ function Canvas(): JSX.Element {
                         onPaneClick={() => setMenu(null)}
                         minZoom={0.25}
                         maxZoom={2}
-                        /* Plain wheel is reserved for scrolling inside nodes; only Ctrl/Cmd +
-                           wheel moves the canvas, so a stray scroll over the pane never zooms. */
+                        /* Plain wheel is reserved for scrolling inside nodes; only a Ctrl-held
+                           wheel moves the canvas, so a stray scroll over the pane never zooms.
+                           Ctrl is the whole gate - a trackpad pinch arrives as one too, which is
+                           what `zoomOnPinch` then lets through. `preventScrolling` has to go with
+                           it: React Flow otherwise calls preventDefault on every wheel that bubbles
+                           out of a node, which would freeze the very scrolling this reserves the
+                           gesture for. Nodes can then leave the wheel alone entirely - no
+                           `nowheel`, no stopPropagation - so a Ctrl+wheel over a transcript or a
+                           grown composer still zooms. */
                         zoomOnScroll={false}
                         zoomOnPinch
                         panOnScroll={false}
+                        preventScrolling={false}
                         defaultViewport={{ x: 0, y: 0, zoom: 1 }}
                         colorMode="dark"
                         deleteKeyCode={['Backspace', 'Delete']}

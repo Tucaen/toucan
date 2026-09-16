@@ -13,7 +13,7 @@ import {
 import type { AgentCommand } from '../../shared/agent'
 import type { WorkspaceFileEntry, WorkspaceFileIndex } from '../../shared/workspace-files'
 import type { CompletionToken } from './completion-token'
-import { composerConsumesWheel, composerTextareaSize } from './composer-autosize'
+import { composerTextareaSize } from './composer-autosize'
 import { composerKeyAction, type ComposerSendKey } from './composer-keys'
 import {
   acceptFileMention,
@@ -52,10 +52,9 @@ import {
  * alone: which picker takes the menu, when a picker's memory is forgotten, how the caret is put
  * back after an acceptance, and which accepted command is hoisted on send.
  *
- * It is a hook rather than a pure function because three of its concerns are bound to the real
- * element: the box is measured against `scrollHeight`, the caret is restored with
- * `setSelectionRange`, and the wheel is claimed through a native listener that has to beat
- * d3-zoom's own.
+ * It is a hook rather than a pure function because two of its concerns are bound to the real
+ * element: the box is measured against `scrollHeight`, and the caret is restored with
+ * `setSelectionRange`.
  */
 
 /**
@@ -282,20 +281,6 @@ export function usePromptEditor(options: PromptEditorOptions): PromptEditor {
     element.style.height = `${height}px`
     element.style.overflowY = scrollable ? 'auto' : 'hidden'
   }, [draft])
-
-  // React Flow zooms on any wheel it sees, and the editor is not covered by a static `nowheel`
-  // because it should only claim the gesture while it actually has somewhere to scroll. The
-  // listener is native and bound to the element so it runs before d3-zoom's own listener on the
-  // pane above it - React's delegated handler at the app root would fire too late to stop it.
-  useEffect(() => {
-    const element = textareaRef.current
-    if (!element) return
-    const onWheel = (event: WheelEvent): void => {
-      if (composerConsumesWheel(element)) event.stopPropagation()
-    }
-    element.addEventListener('wheel', onWheel)
-    return () => element.removeEventListener('wheel', onWheel)
-  }, [])
 
   const applyHistory = (next: { state: typeof history; draft: string }): void => {
     setHistory(next.state)

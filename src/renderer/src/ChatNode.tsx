@@ -644,7 +644,7 @@ function AuthPanel(
   const [submittingCode, setSubmittingCode] = useState(false)
   const [codeError, setCodeError] = useState<string>()
   const dialogProps = {
-    className: 'chat-auth-panel nodrag nopan nowheel',
+    className: 'chat-auth-panel nodrag nopan',
     role: 'dialog',
     'aria-modal': true,
     'aria-labelledby': titleId,
@@ -1172,7 +1172,7 @@ export function ChatView(groups: ChatViewProps): JSX.Element {
         <ShellLaunchesContext.Provider value={shellLaunches}>
           <SubagentActivitiesContext.Provider value={subagentActivities}>
             <SessionCommandsContext.Provider value={transcript.commands ?? []}>
-              <div className="chat-scroll nodrag nopan nowheel" ref={scrollRef} onScroll={onScroll}>
+              <div className="chat-scroll nodrag nopan" ref={scrollRef} onScroll={onScroll}>
                 {!authVisible &&
                   transcript.messages.length === 0 &&
                   (transcript.outcomes?.length ?? 0) === 0 &&
@@ -1213,7 +1213,7 @@ export function ChatView(groups: ChatViewProps): JSX.Element {
         </ShellLaunchesContext.Provider>
       </WorkspaceRootsContext.Provider>
       {pendingDecisions.length > 0 && (
-        <section className="pending-decisions nodrag nopan nowheel" aria-label="Pending decisions">
+        <section className="pending-decisions nodrag nopan" aria-label="Pending decisions">
           {pendingDecisions.map((decision: PendingDecision) => (
             <article key={decision.id} data-state={decision.state}>
               <header>
