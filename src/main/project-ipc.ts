@@ -4,6 +4,7 @@ import type { ImageArtifactSaveRequest, ImageArtifactSaveResult } from '../share
 import type { LocalFileOpenResult } from '../shared/local-file-link'
 import type { ProjectDirectory, WorkspaceLoadResult, WorkspaceSaveResult, WorkspaceState } from '../shared/terminal'
 import type { IpcRegistrar } from './ipc-registrar'
+import type { ProjectAvatarStore } from './project-avatar-store'
 
 /**
  * Everything the project/shell/workspace channels are wired to. The Electron pieces - the folder
@@ -26,6 +27,8 @@ export interface ProjectIpcDependencies {
   openLocalFile(path: string): Promise<LocalFileOpenResult>
   /** Writes one transcript image to a file the user picks; see `image-artifact.ts`. */
   saveImage(sender: unknown, request: ImageArtifactSaveRequest): Promise<ImageArtifactSaveResult>
+  /** Custom project avatar images; see `shared/project-avatar.ts` and `project-avatar-store.ts`. */
+  avatars: ProjectAvatarStore
 }
 
 /**
@@ -88,6 +91,15 @@ export function registerProjectIpc(ipc: IpcRegistrar, deps: ProjectIpcDependenci
   ipc.handle(SHELL_CHANNELS.saveImage, (event, request: unknown) =>
     deps.saveImage(event.sender, imageSaveRequest(request))
   )
+  // A project's custom avatar. The store validates the id (it names a file) and does the
+  // normalizing; anything that is not a string id is handed over as the empty one so the store
+  // stays the single author of every refusal.
+  const avatarId = (projectId: unknown): string => (typeof projectId === 'string' ? projectId : '')
+  ipc.handle(PROJECT_CHANNELS.avatarChoose, (event, projectId: unknown) =>
+    deps.avatars.choose(event.sender, avatarId(projectId))
+  )
+  ipc.handle(PROJECT_CHANNELS.avatarRead, (_event, projectId: unknown) => deps.avatars.read(avatarId(projectId)))
+  ipc.handle(PROJECT_CHANNELS.avatarRemove, (_event, projectId: unknown) => deps.avatars.remove(avatarId(projectId)))
   ipc.handle(WORKSPACE_CHANNELS.load, () => deps.workspace.load())
   ipc.handle(WORKSPACE_CHANNELS.save, (_event, state) => deps.workspace.save(state as WorkspaceState))
 }

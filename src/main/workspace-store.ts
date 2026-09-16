@@ -107,6 +107,7 @@ function hasValidProjects(
       (project.groupId === undefined || typeof project.groupId === 'string') &&
       (project.ticketsDirectory === undefined || typeof project.ticketsDirectory === 'string') &&
       (project.githubInProgressLabel === undefined || typeof project.githubInProgressLabel === 'string') &&
+      (project.avatarVersion === undefined || typeof project.avatarVersion === 'number') &&
       (project.runCommands === undefined ||
         (Array.isArray(project.runCommands) && project.runCommands.every(isProjectRunCommand)))
   )

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { ProjectAvatar } from './ProjectAvatar'
 import { ArrowDown, ArrowUp, X } from 'lucide-react'
 import type { WorkspaceProject } from '../../shared/terminal'
 import {
@@ -186,7 +187,7 @@ export interface ProjectSettingsDraft {
  * settings list that grows must not cost a wording edit in every test that opens the dialog.
  */
 export function projectSettingsTitle(project: { name: string }): string {
-  return `Settings for ${project.name}: setup command, tickets folder and run commands`
+  return `Settings for ${project.name}: avatar image, setup command, tickets folder and run commands`
 }
 
 /**
@@ -203,10 +204,20 @@ export function projectSettingsTitle(project: { name: string }): string {
  */
 export function ProjectSettingsDialog({
   project,
+  avatarUrl,
+  avatarError,
+  onChooseAvatar,
+  onRemoveAvatar,
   onCancel,
   onSave
 }: {
   project: WorkspaceProject
+  /** The stored custom avatar as a data URL; null shows the letter chip the sidebar falls back to. */
+  avatarUrl: string | null
+  avatarError: string | null
+  /** Applies immediately (the pick is normalized and written by main); Save/Cancel govern only the text settings. */
+  onChooseAvatar(): void
+  onRemoveAvatar(): void
   onCancel(): void
   onSave(settings: ProjectSettingsDraft): void
 }): JSX.Element {
@@ -239,6 +250,27 @@ export function ProjectSettingsDialog({
         }}
       >
         <strong id="project-settings-title">Settings for {project.name}</strong>
+        <div className="project-avatar-settings">
+          <ProjectAvatar
+            project={project}
+            avatarUrl={avatarUrl}
+            className="project-avatar-preview"
+            imageAlt={`Avatar of ${project.name}`}
+          />
+          <button type="button" onClick={onChooseAvatar}>
+            Choose image…
+          </button>
+          {avatarUrl && (
+            <button type="button" onClick={onRemoveAvatar}>
+              Remove image
+            </button>
+          )}
+        </div>
+        <p>
+          Shown instead of the letter in the sidebar. The image is copied, center-cropped square and stored by Toucan;
+          changes apply immediately.
+        </p>
+        {avatarError && <p className="worktree-dialog-error">{avatarError}</p>}
         <label>
           <span>Setup command</span>
           <input

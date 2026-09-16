@@ -563,6 +563,30 @@ button.global-status-chip:hover {
   position: relative;
 }
 
+/* A custom image fills the fixed chip: `cover` center-crops whatever resolution the source had,
+   so no upload can alter the sidebar's layout. Clipping to the chip's own radius keeps the border. */
+.project-avatar-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 7px;
+}
+
+/* The settings dialog's avatar row: the same chip at preview size beside its actions. */
+.project-avatar-settings {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.project-avatar-settings .project-avatar-preview {
+  width: 44px;
+  height: 44px;
+  font-size: 18px;
+}
+
 /* One pill for every unread count in the app, so a sidebar row and a project avatar can never
    read as two different kinds of thing. */
 .unread-badge {

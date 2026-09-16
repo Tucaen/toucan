@@ -13,6 +13,7 @@ import type { FileViewApi } from '../shared/file-view'
 import type { AppUpdateApi, AppUpdateSnapshot } from '../shared/app-update'
 import type { VoiceModelApi, VoiceModelStatus } from '../shared/voice-model'
 import type { AdapterManagementApi, AdapterSnapshot } from '../shared/adapter-management'
+import type { ProjectAvatarApi } from '../shared/project-avatar'
 import {
   ADAPTER_CHANNELS,
   AGENT_CHANNELS,
@@ -83,6 +84,14 @@ const terminalApi: TerminalApi = {
 }
 
 contextBridge.exposeInMainWorld('terminalApi', terminalApi)
+
+const projectAvatarApi: ProjectAvatarApi = {
+  choose: (projectId) => ipcRenderer.invoke(PROJECT_CHANNELS.avatarChoose, projectId),
+  read: (projectId) => ipcRenderer.invoke(PROJECT_CHANNELS.avatarRead, projectId),
+  remove: (projectId) => ipcRenderer.invoke(PROJECT_CHANNELS.avatarRemove, projectId)
+}
+
+contextBridge.exposeInMainWorld('projectAvatarApi', projectAvatarApi)
 
 const agentApi: AgentApi = {
   create: (request) => ipcRenderer.invoke(AGENT_CHANNELS.create, request),

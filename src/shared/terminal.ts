@@ -93,6 +93,13 @@ export interface WorkspaceProject extends ProjectDirectory {
    * `shared/project-run-commands.ts`.
    */
   runCommands?: ProjectRunCommand[]
+  /**
+   * Set when the project has a custom avatar image stored by main's project-avatar store; the
+   * value only exists to change on every replacement so renderer caches re-read. Absent means the
+   * letter chip. The bytes themselves never live in the workspace snapshot - it is rewritten on
+   * every save. See `shared/project-avatar.ts`.
+   */
+  avatarVersion?: number
 }
 
 /**

@@ -43,6 +43,11 @@ function harness(overrides: Partial<ProjectIpcDependencies> = {}): Harness {
         imageSaves.push(request)
         return { status: 'saved', path: 'D:\\pictures\\keep.png' }
       },
+      avatars: {
+        choose: async () => ({ status: 'cancelled' }),
+        read: async () => null,
+        remove: async () => undefined
+      },
       ...overrides
     }
   )

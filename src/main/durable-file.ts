@@ -62,7 +62,7 @@ export async function syncPromotedFile(path: string, directory: string): Promise
 }
 
 /** Writes `contents` fully and durably to `tempPath`, unlinking it again on any failure. */
-export async function writeFileDurably(tempPath: string, contents: string): Promise<void> {
+export async function writeFileDurably(tempPath: string, contents: string | Uint8Array): Promise<void> {
   try {
     const handle = await open(tempPath, 'w')
     try {
@@ -78,7 +78,7 @@ export async function writeFileDurably(tempPath: string, contents: string): Prom
 }
 
 /** Writes `contents` fully and durably to a temp file, then atomically renames it onto `targetPath`. */
-export async function writeSnapshotAtomically(targetPath: string, contents: string): Promise<void> {
+export async function writeSnapshotAtomically(targetPath: string, contents: string | Uint8Array): Promise<void> {
   const tempPath = `${targetPath}.tmp-${randomUUID()}`
   await writeFileDurably(tempPath, contents)
   try {

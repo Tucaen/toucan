@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, net, protocol, session, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, nativeImage, net, protocol, session, shell } from 'electron'
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
@@ -69,6 +69,7 @@ import { createTerminalManager, type TerminalManager } from './terminal-manager'
 import { createTerminalScrollbackStore } from './terminal-scrollback-store'
 import { registerTerminalIpc } from './terminal-ipc'
 import { registerConversationIpc } from './conversation-ipc'
+import { createProjectAvatarStore } from './project-avatar-store'
 import { registerProjectIpc } from './project-ipc'
 import { createWorktreeManager, type WorktreeManager } from './git-worktree'
 import { createWorkspaceFileIndex, type WorkspaceFileIndexReader } from './workspace-file-index'
@@ -600,6 +601,32 @@ void app.whenReady().then(async () => {
         return result.canceled || !result.filePath ? null : result.filePath
       },
       writeFile: (path, bytes) => writeFile(path, bytes)
+    }),
+    // Upload-and-copy semantics and their reasoning live in `shared/project-avatar.ts`; this is
+    // only the Electron wiring. The filter offers exactly what nativeImage decodes (PNG and JPEG)
+    // so the picker never advertises a format the decoder would refuse.
+    avatars: createProjectAvatarStore({
+      directory: join(app.getPath('userData'), 'project-avatars'),
+      pickImageFile: async (sender) => {
+        const owner = BrowserWindow.fromWebContents(sender as Electron.WebContents)
+        const options: Electron.OpenDialogOptions = {
+          title: 'Choose avatar image',
+          properties: ['openFile'],
+          filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg'] }]
+        }
+        const result = owner ? await dialog.showOpenDialog(owner, options) : await dialog.showOpenDialog(options)
+        return result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0]
+      },
+      decodeImage: (path) => {
+        const image = nativeImage.createFromPath(path)
+        if (image.isEmpty()) return Promise.resolve(null)
+        const { width, height } = image.getSize()
+        return Promise.resolve({
+          width,
+          height,
+          toPng: (rect, edge) => image.crop(rect).resize({ width: edge, height: edge, quality: 'best' }).toPNG()
+        })
+      }
     })
   })
   registerRemoteIpc(ipcMain, remote, canvasRequests)

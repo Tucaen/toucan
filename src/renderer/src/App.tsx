@@ -185,6 +185,8 @@ import { NodeFitContext } from './node-fit-context'
 import { nodeSearchKeyAction } from './node-search'
 import { NodeSearchContext, NO_NODE_SEARCH_REQUEST, type NodeSearchRequest } from './node-search-context'
 import { useNodeSnap } from './use-node-snap'
+import { useProjectAvatars } from './use-project-avatars'
+import { ProjectAvatar } from './ProjectAvatar'
 
 type Project = WorkspaceProject
 
@@ -336,8 +338,7 @@ function Canvas(): JSX.Element {
     []
   )
   const [workspaceWidth, setWorkspaceWidth] = useState(() => window.innerWidth)
-  const { fitView, getViewport, screenToFlowPosition, setViewport, zoomIn, zoomOut, zoomTo } =
-    useReactFlow()
+  const { fitView, getViewport, screenToFlowPosition, setViewport, zoomIn, zoomOut, zoomTo } = useReactFlow()
   // Selecting the scalar rather than the whole transform keeps the sidebar out of every pan frame:
   // panning changes transform[0]/[1] on each pointer move, and only the zoom readout needs to react.
   const canvasZoom = useStore((state) => state.transform[2])
@@ -356,6 +357,9 @@ function Canvas(): JSX.Element {
     () => projects.find((project) => project.id === setupProjectId),
     [projects, setupProjectId]
   )
+  const projectAvatars = useProjectAvatars(projects)
+  // A refused avatar pick, shown inside the settings dialog it happened in; cleared on open/close.
+  const [avatarError, setAvatarError] = useState<string | null>(null)
 
   const {
     records: attention,
@@ -1691,6 +1695,8 @@ function Canvas(): JSX.Element {
       const remaining = projects.filter((project) => project.id !== projectId)
       clearRecentlyClosedNodes()
       setProjects(remaining)
+      // A removed project's stored avatar would otherwise sit orphaned in userData forever.
+      void window.projectAvatarApi?.remove(projectId)
       if (activeProjectId === projectId) setActiveProjectId(remaining[0].id)
       setMenu(null)
     },
@@ -2021,6 +2027,32 @@ function Canvas(): JSX.Element {
         setWorktreeDraft(null)
       })
   }, [projects, setNodes, worktreeDraft, worktreeCallbacks])
+
+  /**
+   * Avatar changes apply immediately rather than on the dialog's Save: the picked file has to be
+   * normalized and written by main to be previewable at all, so Save/Cancel govern only the text
+   * settings. A successful set bumps `avatarVersion`, which is what makes every chip re-read.
+   */
+  const chooseProjectAvatar = useCallback(async (projectId: string): Promise<void> => {
+    const result = await window.projectAvatarApi.choose(projectId)
+    if (result.status === 'set')
+      setProjects((current) =>
+        current.map((project) => (project.id === projectId ? { ...project, avatarVersion: result.version } : project))
+      )
+    setAvatarError(result.status === 'refused' ? result.message : null)
+  }, [])
+
+  const removeProjectAvatar = useCallback(async (projectId: string): Promise<void> => {
+    await window.projectAvatarApi.remove(projectId)
+    setProjects((current) =>
+      current.map((project) => {
+        if (project.id !== projectId) return project
+        const { avatarVersion: _removed, ...rest } = project
+        return rest
+      })
+    )
+    setAvatarError(null)
+  }, [])
 
   const saveProjectSettings = useCallback((projectId: string, settings: ProjectSettingsDraft): void => {
     setProjects((current) =>
@@ -2477,11 +2509,7 @@ function Canvas(): JSX.Element {
                                       setMenu(null)
                                     }}
                                   >
-                                    <span
-                                      className="project-avatar"
-                                      style={{ '--project-color': project.color } as React.CSSProperties}
-                                    >
-                                      {project.name.slice(0, 1).toUpperCase()}
+                                    <ProjectAvatar project={project} avatarUrl={projectAvatars[project.id] ?? null}>
                                       {projectUnread > 0 && (
                                         <span
                                           className="unread-badge project-unread"
@@ -2490,7 +2518,7 @@ function Canvas(): JSX.Element {
                                           {projectUnread}
                                         </span>
                                       )}
-                                    </span>
+                                    </ProjectAvatar>
                                     {!sidebarCollapsed && (
                                       <span className="project-copy">
                                         <strong title={project.path}>{project.name}</strong>
@@ -2512,6 +2540,7 @@ function Canvas(): JSX.Element {
                                         }
                                         onClick={(event) => {
                                           event.stopPropagation()
+                                          setAvatarError(null)
                                           setSetupProjectId(project.id)
                                           setMenu(null)
                                         }}
@@ -2678,9 +2707,7 @@ function Canvas(): JSX.Element {
                         <BookOpen />
                       </span>
                       {!sidebarCollapsed && <span>Brain dumps</span>}
-                      {sidebarCollapsed && (
-                        <span className="visually-hidden">Open brain-dump library</span>
-                      )}
+                      {sidebarCollapsed && <span className="visually-hidden">Open brain-dump library</span>}
                     </button>
 
                     <button
@@ -2697,9 +2724,7 @@ function Canvas(): JSX.Element {
                         <ClipboardList />
                       </span>
                       {!sidebarCollapsed && <span>Tickets</span>}
-                      {sidebarCollapsed && (
-                        <span className="visually-hidden">Open the ticket board</span>
-                      )}
+                      {sidebarCollapsed && <span className="visually-hidden">Open the ticket board</span>}
                     </button>
                   </div>
 
@@ -2945,6 +2970,10 @@ function Canvas(): JSX.Element {
             {setupProject && (
               <ProjectSettingsDialog
                 project={setupProject}
+                avatarUrl={projectAvatars[setupProject.id] ?? null}
+                avatarError={avatarError}
+                onChooseAvatar={() => void chooseProjectAvatar(setupProject.id)}
+                onRemoveAvatar={() => void removeProjectAvatar(setupProject.id)}
                 onCancel={() => setSetupProjectId(null)}
                 onSave={(settings) => saveProjectSettings(setupProject.id, settings)}
               />
