@@ -298,13 +298,6 @@ button.global-status-chip:hover {
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .provider-usage-chip[data-refreshed='true'] {
-    animation: none;
-    box-shadow: 0 0 0 2px #4f8fe0;
-  }
-}
-
 .provider-usage-name {
   color: #8fb8ff;
 }
@@ -3333,12 +3326,6 @@ button.global-status-chip:hover {
   animation: thought-pulse 1.2s ease-in-out infinite;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .composer-queue-hint {
-    animation: none;
-  }
-}
-
 /* Queued follow-ups: still local, still withdrawable. See prompt-outbox.ts. */
 .composer-queue {
   display: flex;
@@ -4787,12 +4774,6 @@ button.global-status-chip:hover {
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .thought-card[data-streaming='true'] .activity-icon {
-    animation: none;
-  }
-}
-
 /* ---- Conversation history -------------------------------------------- */
 
 .history-icon {
@@ -5645,16 +5626,6 @@ button.global-status-chip:hover {
 @keyframes brain-dump-spin {
   to {
     transform: rotate(360deg);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .brain-dump-capture-spinner {
-    animation: none;
-  }
-
-  .brain-dump-panel {
-    transition: none;
   }
 }
 
@@ -6638,16 +6609,6 @@ button.global-status-chip:hover {
 .ticket-board-diagnostics ul {
   margin: 6px 0 0;
   padding-left: 18px;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .ticket-board-panel {
-    transition: none;
-  }
-
-  .ticket-session-chip[data-working='true'] svg {
-    animation: none;
-  }
 }
 
 /* ---- File nodes -------------------------------------------------------- */
