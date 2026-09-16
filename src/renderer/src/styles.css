@@ -7493,6 +7493,14 @@ button.global-status-chip:hover {
   line-height: 0;
 }
 
+/* Unselected rows mute the chip to the sidebar's own grey: the purple is there to mark the row you
+   are working in, so leaving every row purple makes the accent meaningless. The detached state keeps
+   its warning colour either way - that one is a problem to notice, not a selection cue. */
+.project-row:not(.active) .project-branch:not([data-detached='true']),
+.project-row:not(.active) .project-branch:not([data-detached='true']) .worktree-glyph {
+  color: #7c7486;
+}
+
 .project-branch-name {
   overflow: hidden;
   text-overflow: ellipsis;
