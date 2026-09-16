@@ -5,6 +5,7 @@ import {
   ReactFlowProvider,
   useNodesState,
   useReactFlow,
+  useStore,
   type NodeChange,
   type NodeTypes
 } from '@xyflow/react'
@@ -335,7 +336,11 @@ function Canvas(): JSX.Element {
     []
   )
   const [workspaceWidth, setWorkspaceWidth] = useState(() => window.innerWidth)
-  const { fitView, getViewport, screenToFlowPosition, setViewport, zoomIn, zoomOut } = useReactFlow()
+  const { fitView, getViewport, screenToFlowPosition, setViewport, zoomIn, zoomOut, zoomTo } =
+    useReactFlow()
+  // Selecting the scalar rather than the whole transform keeps the sidebar out of every pan frame:
+  // panning changes transform[0]/[1] on each pointer move, and only the zoom readout needs to react.
+  const canvasZoom = useStore((state) => state.transform[2])
   const canvasRegionRef = useRef<HTMLElement>(null)
   const nextSessionNumber = useRef(1)
 
@@ -2652,80 +2657,84 @@ function Canvas(): JSX.Element {
                   />
                 )}
 
-                {/* Separated from the project rows on purpose: the library is global Toucan
-                  functionality, not something the active project owns. */}
-                <button
-                  type="button"
-                  className="sidebar-global-entry"
-                  aria-pressed={brainDumpPanel.open}
-                  title={sidebarCollapsed ? 'Open brain-dump library' : 'Brain dumps (Ctrl+Shift+B)'}
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    toggleBrainDumpPanel()
-                  }}
-                >
-                  <span className="sidebar-global-icon" aria-hidden="true">
-                    <BookOpen />
-                  </span>
-                  {!sidebarCollapsed && <span>Brain dumps</span>}
-                  {sidebarCollapsed && <span className="visually-hidden">Open brain-dump library</span>}
-                </button>
-
-                <button
-                  type="button"
-                  className="sidebar-global-entry"
-                  aria-pressed={ticketBoardPanel.open}
-                  title={sidebarCollapsed ? 'Open the ticket board' : 'Tickets (Ctrl+Shift+K)'}
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    toggleTicketBoardPanel()
-                  }}
-                >
-                  <span className="sidebar-global-icon" aria-hidden="true">
-                    <ClipboardList />
-                  </span>
-                  {!sidebarCollapsed && <span>Tickets</span>}
-                  {sidebarCollapsed && <span className="visually-hidden">Open the ticket board</span>}
-                </button>
-
-                <div className="sidebar-add-row">
-                  <button
-                    type="button"
-                    className="add-project"
-                    title="Add project folder"
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      void addProject()
-                    }}
-                  >
-                    <Plus aria-hidden="true" />
-                    {!sidebarCollapsed && 'Add project'}
-                  </button>
-                  <button
-                    type="button"
-                    className="add-project add-project-group"
-                    title="New group"
-                    aria-label="New group"
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      addProjectGroup()
-                    }}
-                  >
-                    <FolderPlus aria-hidden="true" />
-                  </button>
-                </div>
-
+                {/* The sidebar's chrome, below the scrolling project list: global destinations,
+                  the create actions, and the canvas controls. One block with one alignment and one
+                  border language so the footer reads as chrome rather than as four loose widgets.
+                  The canvas controls live here rather than floating on the canvas because a
+                  floating group overlaps auto-laid-out nodes. */}
                 <div className="sidebar-footer">
-                  <div className="canvas-zoom-row" role="group" aria-label="Canvas zoom">
+                  <div className="sidebar-footer-group">
                     <button
                       type="button"
-                      className="canvas-zoom-button"
-                      title="Zoom in"
-                      aria-label="Zoom in"
-                      onClick={() => void zoomIn()}
+                      className="sidebar-global-entry"
+                      aria-pressed={brainDumpPanel.open}
+                      title={sidebarCollapsed ? 'Open brain-dump library' : 'Brain dumps (Ctrl+Shift+B)'}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        toggleBrainDumpPanel()
+                      }}
                     >
-                      <ZoomIn aria-hidden="true" />
+                      <span className="sidebar-global-icon" aria-hidden="true">
+                        <BookOpen />
+                      </span>
+                      {!sidebarCollapsed && <span>Brain dumps</span>}
+                      {sidebarCollapsed && (
+                        <span className="visually-hidden">Open brain-dump library</span>
+                      )}
                     </button>
+
+                    <button
+                      type="button"
+                      className="sidebar-global-entry"
+                      aria-pressed={ticketBoardPanel.open}
+                      title={sidebarCollapsed ? 'Open the ticket board' : 'Tickets (Ctrl+Shift+K)'}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        toggleTicketBoardPanel()
+                      }}
+                    >
+                      <span className="sidebar-global-icon" aria-hidden="true">
+                        <ClipboardList />
+                      </span>
+                      {!sidebarCollapsed && <span>Tickets</span>}
+                      {sidebarCollapsed && (
+                        <span className="visually-hidden">Open the ticket board</span>
+                      )}
+                    </button>
+                  </div>
+
+                  <div className="sidebar-add-row">
+                    <button
+                      type="button"
+                      className="add-project"
+                      title="Add project folder"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        void addProject()
+                      }}
+                    >
+                      <Plus aria-hidden="true" />
+                      {!sidebarCollapsed && 'Add project'}
+                    </button>
+                    <button
+                      type="button"
+                      className="add-project add-project-group"
+                      title="New group"
+                      aria-label="New group"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        addProjectGroup()
+                      }}
+                    >
+                      <FolderPlus aria-hidden="true" />
+                    </button>
+                  </div>
+
+                  {/* One segmented group, not five loose buttons: they all steer the canvas, so they
+                    share a single border and are divided by hairlines, like the stock React Flow
+                    controls. The readout is the group's own reset affordance, which is why it is a
+                    button rather than a label. */}
+                  <div className="canvas-zoom-row" role="group" aria-label="Canvas zoom">
                     <button
                       type="button"
                       className="canvas-zoom-button"
@@ -2734,6 +2743,24 @@ function Canvas(): JSX.Element {
                       onClick={() => void zoomOut()}
                     >
                       <ZoomOut aria-hidden="true" />
+                    </button>
+                    <button
+                      type="button"
+                      className="canvas-zoom-level"
+                      title="Reset zoom to 100%"
+                      aria-label={`Canvas zoom ${Math.round(canvasZoom * 100)} percent, reset to 100 percent`}
+                      onClick={() => void zoomTo(1, { duration: 160 })}
+                    >
+                      {Math.round(canvasZoom * 100)}%
+                    </button>
+                    <button
+                      type="button"
+                      className="canvas-zoom-button"
+                      title="Zoom in"
+                      aria-label="Zoom in"
+                      onClick={() => void zoomIn()}
+                    >
+                      <ZoomIn aria-hidden="true" />
                     </button>
                     <button
                       type="button"

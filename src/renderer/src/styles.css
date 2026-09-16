@@ -867,32 +867,33 @@ button.global-status-chip:hover {
 }
 
 .add-project {
-  height: 36px;
+  height: 34px;
   display: flex;
   align-items: center;
-  justify-content: center;
   gap: 8px;
-  margin-top: 8px;
-  border: 1px dashed #303946;
+  padding: 0 10px;
+  border: 1px solid #262d38;
   border-radius: 8px;
   color: #8993a1;
   background: transparent;
-  font-size: 13px;
+  font-size: 12px;
   cursor: pointer;
 }
 
 .add-project > .lucide {
-  font-size: 17px;
+  font-size: 15px;
 }
 
 .add-project:hover {
-  border-color: #4b596c;
+  border-color: #38424f;
   color: #dce2ea;
-  background: #171c23;
+  background: #151a21;
 }
 
 .project-sidebar.collapsed .add-project {
   width: 36px;
+  justify-content: center;
+  padding: 0;
 }
 
 .sidebar-add-row {
@@ -906,6 +907,8 @@ button.global-status-chip:hover {
 
 .add-project-group {
   flex: 0 0 36px;
+  justify-content: center;
+  padding: 0;
 }
 
 /* Groups: one level deep, like bookmark folders. The header is the toggle, the drag handle and
@@ -1113,26 +1116,36 @@ button.global-status-chip:hover {
   cursor: pointer;
 }
 
-/* Sidebar footer: the zoom column, pinned to the bottom and hugging the sidebar's right edge.
-   It survives a collapsed sidebar, which is why the footer carries the margin-top: auto rather
-   than anything inside it. */
+/* Sidebar footer: the sidebar's chrome, pinned below the scrolling project list. The hairline is
+   what separates chrome from content, so the pieces inside it no longer need borders or margins of
+   their own to look separated. */
 .sidebar-footer {
   display: flex;
-  justify-content: flex-end;
-  align-items: stretch;
-  gap: 6px;
+  flex-direction: column;
+  gap: 8px;
   margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid #1d232c;
 }
 
-/* One segmented group, not three loose buttons: all three steer the canvas, so they share a
-   single border and are divided by hairlines, like the stock React Flow controls. */
+.sidebar-footer-group {
+  display: grid;
+  gap: 4px;
+}
+
+.project-sidebar.collapsed .sidebar-footer {
+  align-items: center;
+}
+
+/* One segmented group, not five loose buttons: they all steer the canvas, so they share a single
+   border and are divided by hairlines, like the stock React Flow controls. It turns into a column
+   when the sidebar collapses, because a 58px rail has no room for a row. */
 .canvas-zoom-row {
   display: flex;
-  flex-direction: column;
   overflow: hidden;
-  border: 1px solid #303946;
+  border: 1px solid #262d38;
   border-radius: 8px;
-  background: #15191f;
+  background: #13171d;
 }
 
 .canvas-zoom-button {
@@ -1140,7 +1153,7 @@ button.global-status-chip:hover {
   flex: 1;
   align-items: center;
   justify-content: center;
-  width: 36px;
+  min-width: 30px;
   min-height: 30px;
   border: 0;
   color: #b6bfcc;
@@ -1148,11 +1161,44 @@ button.global-status-chip:hover {
   cursor: pointer;
 }
 
-.canvas-zoom-button + .canvas-zoom-button {
-  border-top: 1px solid #282f39;
+/* Tabular figures so stepping 90 -> 100 -> 110 does not shuffle the buttons either side of it. */
+.canvas-zoom-level {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 46px;
+  min-height: 30px;
+  padding: 0 6px;
+  border: 0;
+  color: #8993a1;
+  background: transparent;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
 }
 
-.canvas-zoom-button:hover {
+.canvas-zoom-row > * + * {
+  border-left: 1px solid #222832;
+}
+
+.project-sidebar.collapsed .canvas-zoom-row {
+  flex-direction: column;
+  width: 36px;
+}
+
+.project-sidebar.collapsed .canvas-zoom-level {
+  min-width: 0;
+  font-size: 10px;
+}
+
+.project-sidebar.collapsed .canvas-zoom-row > * + * {
+  border-left: 0;
+  border-top: 1px solid #222832;
+}
+
+.canvas-zoom-button:hover,
+.canvas-zoom-level:hover {
   color: #dce2ea;
   background: #171c23;
 }
@@ -5582,10 +5628,8 @@ button.global-status-chip:hover {
 .sidebar-global-entry {
   display: flex;
   align-items: center;
-  justify-content: center;
   gap: 8px;
   height: 34px;
-  margin-top: 10px;
   padding: 0 10px;
   border: 1px solid #262d38;
   border-radius: 8px;
@@ -5593,6 +5637,12 @@ button.global-status-chip:hover {
   background: transparent;
   font-size: 12px;
   cursor: pointer;
+}
+
+.project-sidebar.collapsed .sidebar-global-entry {
+  width: 36px;
+  justify-content: center;
+  padding: 0;
 }
 
 .sidebar-global-entry:hover {
