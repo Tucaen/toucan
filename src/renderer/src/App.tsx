@@ -2769,6 +2769,11 @@ function Canvas(): JSX.Element {
                         onPaneClick={() => setMenu(null)}
                         minZoom={0.25}
                         maxZoom={2}
+                        /* Plain wheel is reserved for scrolling inside nodes; only Ctrl/Cmd +
+                           wheel moves the canvas, so a stray scroll over the pane never zooms. */
+                        zoomOnScroll={false}
+                        zoomOnPinch
+                        panOnScroll={false}
                         defaultViewport={{ x: 0, y: 0, zoom: 1 }}
                         colorMode="dark"
                         deleteKeyCode={['Backspace', 'Delete']}
