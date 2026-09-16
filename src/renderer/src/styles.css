@@ -2,8 +2,11 @@
   /* The two usage bands, shared by every gauge and warning that reports consumption. */
   --usage-warning: #eab308;
   --usage-critical: #ff6b6f;
-  /* Claude's brand accent. Nodes feed it into --node-accent; the header chip wears it directly. */
+  /* One accent per session kind. Nodes feed them into --node-accent; header chips and the
+     selected sidebar row wear them directly. */
   --claude: #e69a71;
+  --codex: #71a9ff;
+  --terminal: #74d8a2;
   /* One scrollbar for the whole app. Both properties inherit, so every scroll
      container below :root gets the chat-node scrollbar without opting in. */
   scrollbar-color: #3b4553 transparent;
@@ -439,6 +442,15 @@ button.global-status-chip:hover {
   align-items: center;
 }
 
+/* One icon size down the whole sidebar. Stroked lucide icons size themselves off font-size
+   and the solid brand marks off their own width/height attributes, so the two drifted apart
+   in the same slot; pinning the box here makes every glyph 16x16 regardless of which it is.
+   The drag handle keeps its smaller grip on purpose - see .project-drag-handle. */
+.project-sidebar svg {
+  width: 16px;
+  height: 16px;
+}
+
 .sidebar-heading {
   height: 30px;
   display: flex;
@@ -699,6 +711,24 @@ button.global-status-chip:hover {
   border-color: #303946;
 }
 
+/* Selecting a row promotes its icon to the session kind's accent, so the focused node is
+   identified by colour as well as position. Unselected rows stay neutral grey. */
+.project-node-row.selected .project-node-kind {
+  color: var(--kind-accent);
+}
+
+.project-node-row[data-kind='claude'] {
+  --kind-accent: var(--claude);
+}
+
+.project-node-row[data-kind='codex'] {
+  --kind-accent: var(--codex);
+}
+
+.project-node-row[data-kind='terminal'] {
+  --kind-accent: var(--terminal);
+}
+
 .project-node-row[data-unread='true'] .project-node-name {
   color: #eef1f5;
   font-weight: 800;
@@ -706,17 +736,14 @@ button.global-status-chip:hover {
 
 .project-node-kind {
   width: 19px;
+  display: flex;
   flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
   color: #687484;
   font-family: Consolas, monospace;
   font-size: 11px;
   font-weight: 800;
-  text-align: center;
-}
-
-.project-node-kind .lucide {
-  margin: auto;
-  font-size: 14px;
 }
 
 .project-node-name {
@@ -1138,8 +1165,8 @@ button.global-status-chip:hover {
 }
 
 .canvas-zoom-button .lucide {
-  width: 15px;
-  height: 15px;
+  width: 16px;
+  height: 16px;
 }
 
 .unrecoverable-workspace-overlay {
@@ -3296,6 +3323,20 @@ button.global-status-chip:hover {
 
 .composer-status {
   color: #a7b0bc;
+}
+
+/* Reuses thought-pulse (opacity only) at the status-dot's 1.2s cadence. */
+.composer-queue-hint {
+  color: #d7dce5;
+  font-size: 11px;
+  font-weight: 500;
+  animation: thought-pulse 1.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .composer-queue-hint {
+    animation: none;
+  }
 }
 
 /* Queued follow-ups: still local, still withdrawable. See prompt-outbox.ts. */

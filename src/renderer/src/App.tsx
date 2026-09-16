@@ -2601,6 +2601,7 @@ function Canvas(): JSX.Element {
                                           type="button"
                                           className={`project-node-row ${node.selected ? 'selected' : ''}`}
                                           key={node.id}
+                                          data-kind={node.data.kind}
                                           data-unread={nodeUnread > 0 ? 'true' : undefined}
                                           title={[
                                             `Focus ${node.data.label} · ${statusLabels[status]}`,
