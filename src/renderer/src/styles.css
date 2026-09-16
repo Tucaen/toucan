@@ -4343,29 +4343,17 @@ button.global-status-chip:hover {
   cursor: not-allowed;
 }
 
-.project-run-command-add {
-  justify-self: start;
-  padding: 6px 12px;
-  border: 1px solid #3a4250;
-  border-radius: 6px;
-  background: transparent;
-  color: #cbd2dc;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.project-run-command-add:hover {
-  border-color: #5d6675;
-  color: #f0f2f5;
-}
-
 .worktree-dialog-actions {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
 }
 
-.worktree-dialog-actions button {
+/* Every labelled button inside a dialog - footer actions, the run-command add, the avatar actions -
+   is the same outlined control, so it lives in one rule; only padding and placement vary per row. */
+.worktree-dialog-actions button,
+.project-run-command-add,
+.project-avatar-settings button {
   padding: 7px 14px;
   border: 1px solid #3a4250;
   border-radius: 6px;
@@ -4375,12 +4363,16 @@ button.global-status-chip:hover {
   cursor: pointer;
 }
 
-.worktree-dialog-actions button:hover:not(:disabled) {
+.worktree-dialog-actions button:hover:not(:disabled),
+.project-run-command-add:hover:not(:disabled),
+.project-avatar-settings button:hover:not(:disabled) {
   border-color: #5d6675;
   color: #f0f2f5;
 }
 
-.worktree-dialog-actions button:disabled {
+.worktree-dialog-actions button:disabled,
+.project-run-command-add:disabled,
+.project-avatar-settings button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
@@ -4401,6 +4393,11 @@ button.global-status-chip:hover {
 
 .worktree-dialog-actions .danger:hover:not(:disabled) {
   background: rgba(223, 115, 122, 0.16);
+}
+
+.project-run-command-add {
+  justify-self: start;
+  padding: 6px 12px;
 }
 
 /*
