@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { type NodeProps } from '@xyflow/react'
+import { Handle, Position, type NodeProps } from '@xyflow/react'
 import { FitAddon } from '@xterm/addon-fit'
 import { Terminal } from '@xterm/xterm'
 import type { TerminalCanvasNode } from './canvas-workspace'
@@ -279,6 +279,15 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
       }
     >
       <NodeBorderResizer minWidth={360} minHeight={240} selected={selected} color={data.projectColor} />
+      {/* The terminal-context edge's source: drag onto a chat node to let its agent read this
+          terminal's output. Rendered while dormant too - the retained tail is exactly what an
+          agent reads after an exit. */}
+      <Handle
+        type="source"
+        position={Position.Right}
+        className="terminal-context-handle"
+        title="Drag to a chat node to let its agent read this terminal's output"
+      />
       <header className="node-header">
         <span className="status-dot" data-liveness={data.terminalLiveness} />
         <strong>{data.label}</strong>

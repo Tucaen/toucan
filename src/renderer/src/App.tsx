@@ -3,9 +3,13 @@ import {
   BackgroundVariant,
   ReactFlow,
   ReactFlowProvider,
+  useEdgesState,
   useNodesState,
   useReactFlow,
   useStore,
+  type Connection,
+  type Edge,
+  type IsValidConnection,
   type NodeChange,
   type NodeTypes
 } from '@xyflow/react'
@@ -110,6 +114,12 @@ import {
   type WorktreeCanvasNode,
   type WorktreeNodeCallbacks
 } from './canvas-workspace'
+import {
+  isValidTerminalContextConnection,
+  mirroredTerminalContextEdges,
+  withTerminalContextEdge,
+  withoutEdgesTouchingNodes
+} from './terminal-context-edges'
 import { COMPOSER_SEND_KEY_DEFAULT } from './composer-keys'
 import { ComposerSendKeyContext } from './composer-send-key-context'
 import { RoutineDelegationContext } from './routine-delegation-context'
@@ -283,6 +293,10 @@ function worktreeRemovalErrorMessage(error: unknown): string {
 
 function Canvas(): JSX.Element {
   const [nodes, setNodes, onNodesChange] = useNodesState<CanvasNode>([])
+  // Terminal-context edges: runtime-only React state on purpose, never `WorkspaceState` - closing
+  // either node removes the edge and a restart starts with none (decision 2 in
+  // docs/plans/terminal-context-edge.md). Main's registry mirrors this set; see the effect below.
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([])
   const [projects, setProjects] = useState<Project[]>([])
   const [projectGroups, setProjectGroups] = useState<ProjectGroup[]>([])
   const [nodeStatuses, setNodeStatuses] = useState<Record<string, TerminalNodeStatus>>({})
@@ -780,14 +794,40 @@ function Canvas(): JSX.Element {
         setTicketActivity((current) =>
           Object.fromEntries(Object.entries(current).filter(([nodeId]) => !removedIds.has(nodeId)))
         )
+        // Closing either end of a terminal-context edge revokes it - the whole lifecycle rule.
+        setEdges((current) => withoutEdgesTouchingNodes(current, removedIds))
       }
       // Fit mode reads the changes before they land: a drag or manual resize of the fitted node
       // leaves fit mode, and a removed node must not leave a restore waiting for it.
       nodeFit.observeChanges(changes)
       onNodesChange(changes)
     },
-    [forgetNodeAttention, nodeFit, onNodesChange]
+    [forgetNodeAttention, nodeFit, onNodesChange, setEdges]
   )
+
+  // The only edge the canvas admits: terminal → chat, the terminal-context grant. No generic
+  // untyped edges exist, so anything else is refused while it is still being dragged.
+  const isValidCanvasConnection: IsValidConnection = useCallback(
+    (connection) => isValidTerminalContextConnection(nodesRef.current, connection),
+    []
+  )
+
+  const connectTerminalContext = useCallback(
+    (connection: Connection): void => {
+      setEdges((current) => withTerminalContextEdge(current, nodesRef.current, connection))
+    },
+    [setEdges]
+  )
+
+  // Main is the privilege boundary, so the edge set is mirrored into its registry on every change:
+  // a full-set replace keyed by durable terminal sessionId + agent session id, idempotent and
+  // last-write-wins - which is also what resyncs after a renderer reload, since the fresh
+  // renderer's first (empty) publish wipes whatever a previous incarnation had granted. Keyed on
+  // `edges` alone on purpose: both mirror keys are fixed for a node's life, and re-publishing on
+  // every node drag would be an IPC send per pointer frame.
+  useEffect(() => {
+    window.terminalContextApi.replaceEdges(mirroredTerminalContextEdges(nodesRef.current, edges))
+  }, [edges])
 
   const reopenLastClosedSession = useCallback((): boolean => {
     const result = reopenClosedSession(
@@ -2816,6 +2856,10 @@ function Canvas(): JSX.Element {
                       <ReactFlow
                         nodes={nodes}
                         nodeTypes={nodeTypes}
+                        edges={edges}
+                        onEdgesChange={onEdgesChange}
+                        onConnect={connectTerminalContext}
+                        isValidConnection={isValidCanvasConnection}
                         onNodesChange={handleNodesChange}
                         onPaneContextMenu={openContextMenu}
                         onPaneClick={() => setMenu(null)}

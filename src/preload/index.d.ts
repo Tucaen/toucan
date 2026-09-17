@@ -11,6 +11,7 @@ import type { VoiceModelApi } from '../shared/voice-model'
 import type { FileViewApi } from '../shared/file-view'
 import type { AdapterManagementApi } from '../shared/adapter-management'
 import type { ProjectAvatarApi } from '../shared/project-avatar'
+import type { TerminalContextApi } from '../shared/terminal-context'
 
 /**
  * Only the `Window` augmentation lives here. Every `*Api` contract is a shared type that
@@ -20,6 +21,7 @@ declare global {
   interface Window {
     adapterManagementApi: AdapterManagementApi
     terminalApi: TerminalApi
+    terminalContextApi: TerminalContextApi
     projectAvatarApi: ProjectAvatarApi
     agentApi: AgentApi
     workspaceFilesApi: WorkspaceFilesApi

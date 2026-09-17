@@ -13,6 +13,7 @@ import type { FileViewApi } from '../shared/file-view'
 import type { AppUpdateApi, AppUpdateSnapshot } from '../shared/app-update'
 import type { VoiceModelApi, VoiceModelStatus } from '../shared/voice-model'
 import type { AdapterManagementApi, AdapterSnapshot } from '../shared/adapter-management'
+import type { TerminalContextApi } from '../shared/terminal-context'
 import type { ProjectAvatarApi } from '../shared/project-avatar'
 import {
   ADAPTER_CHANNELS,
@@ -26,6 +27,7 @@ import {
   REMOTE_CHANNELS,
   SHELL_CHANNELS,
   TERMINAL_CHANNELS,
+  TERMINAL_CONTEXT_CHANNELS,
   TICKET_CHANNELS,
   USAGE_CHANNELS,
   VOICE_MODEL_CHANNELS,
@@ -84,6 +86,13 @@ const terminalApi: TerminalApi = {
 }
 
 contextBridge.exposeInMainWorld('terminalApi', terminalApi)
+
+/** The canvas mirrors its terminal-context edges into main's registry; full-set replace, one way. */
+const terminalContextApi: TerminalContextApi = {
+  replaceEdges: (edges) => ipcRenderer.send(TERMINAL_CONTEXT_CHANNELS.replaceEdges, edges)
+}
+
+contextBridge.exposeInMainWorld('terminalContextApi', terminalContextApi)
 
 const projectAvatarApi: ProjectAvatarApi = {
   choose: (projectId) => ipcRenderer.invoke(PROJECT_CHANNELS.avatarChoose, projectId),

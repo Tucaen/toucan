@@ -64,6 +64,7 @@ import { createSessionProviders } from './session-providers'
 import { createAdapterManager } from './adapter-manager'
 import { createAdapterInstaller } from './adapter-installer'
 import { registerAdapterManagementIpc } from './adapter-management-ipc'
+import { createTerminalContextRegistry, registerTerminalContextIpc } from './terminal-context-registry'
 import { createTerminalLivenessStore } from './terminal-liveness-store'
 import { createTerminalManager, type TerminalManager } from './terminal-manager'
 import { createTerminalScrollbackStore } from './terminal-scrollback-store'
@@ -532,6 +533,11 @@ void app.whenReady().then(async () => {
 
   registerTerminalIpc(ipcMain, manager, providers, scrollback, liveness)
   registerAgentIpc(agentManager)
+  // Main's copy of the canvas's terminal-context edges, held here so the terminal-read tool
+  // (slice 3 of docs/plans/terminal-context-edge.md) can answer its capability checks against it
+  // at call time; nothing consumes it yet beyond the renderer's mirror.
+  const terminalContextEdges = createTerminalContextRegistry()
+  registerTerminalContextIpc(ipcMain, terminalContextEdges)
   registerBrainDumpIpc(
     ipcMain,
     createBrainDumpLibrary({ rootDirectory: brainDumpDirectory, today: localCalendarDate }),

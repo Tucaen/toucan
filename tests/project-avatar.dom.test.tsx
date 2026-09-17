@@ -81,6 +81,7 @@ function installWindowApis(
   })
   define('conversationApi', { setTitle: vi.fn(async () => null) })
   define('agentApi', { onEvent: () => () => undefined })
+  define('terminalContextApi', { replaceEdges: vi.fn() })
   define('appUpdateApi', createMockAppUpdateApi())
   define('remoteApi', createMockRemoteApi())
   define('brainDumpApi', {

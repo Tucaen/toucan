@@ -12,7 +12,7 @@ import {
   type RefObject
 } from 'react'
 import { createPortal } from 'react-dom'
-import { type NodeProps } from '@xyflow/react'
+import { Handle, Position, type NodeProps } from '@xyflow/react'
 import {
   AtSign,
   BrainCircuit,
@@ -1467,6 +1467,14 @@ export default function ChatNode({ id, data, selected, width }: NodeProps<Termin
       }
     >
       <NodeBorderResizer minWidth={420} minHeight={320} selected={selected} color={data.projectColor} />
+      {/* The terminal-context edge's target: a connected terminal's output becomes readable to
+          this node's agent. Several terminals may feed one chat. */}
+      <Handle
+        type="target"
+        position={Position.Left}
+        className="terminal-context-handle"
+        title="Connect a terminal to let this agent read its output"
+      />
       <header className="node-header chat-node-header">
         <span
           className="status-dot"

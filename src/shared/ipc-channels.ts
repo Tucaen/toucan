@@ -62,6 +62,11 @@ export const AGENT_CHANNELS = {
   event: 'agent:event'
 } as const
 
+export const TERMINAL_CONTEXT_CHANNELS = {
+  /** Full-set replace of the canvas's terminal-context edges; see `shared/terminal-context.ts`. */
+  replaceEdges: 'terminal-context:replace-edges'
+} as const
+
 export const USAGE_CHANNELS = {
   rateLimits: 'usage:rate-limits'
 } as const

@@ -63,6 +63,7 @@ function installWindowApis(state: WorkspaceState): void {
   define('worktreeApi', { discover: vi.fn(async () => ({ worktrees: [], claims: [] })) })
   define('conversationApi', { setTitle: vi.fn(async () => null) })
   define('agentApi', { onEvent: () => () => undefined })
+  define('terminalContextApi', { replaceEdges: vi.fn() })
   define('appUpdateApi', createMockAppUpdateApi())
   define('remoteApi', createMockRemoteApi())
   define('brainDumpApi', api)

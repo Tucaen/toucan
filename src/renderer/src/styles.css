@@ -1413,6 +1413,22 @@ button.global-status-chip:hover {
     0 20px 60px rgba(0, 0, 0, 0.5);
 }
 
+/* The terminal-context connection points: a terminal's source on its right edge, a chat node's
+   target on its left. Sized up from xyflow's 6px default so the grab target is findable, tinted
+   by the node's own accent so the pair reads as one typed connection rather than generic ports. */
+.terminal-context-handle.react-flow__handle {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--node-accent, #74d8a2);
+  background: #101319;
+}
+
+.terminal-context-handle.react-flow__handle:hover,
+.terminal-context-handle.react-flow__handle.connectingfrom,
+.terminal-context-handle.react-flow__handle.connectingto.valid {
+  background: var(--node-accent, #74d8a2);
+}
+
 /* xyflow marks the whole node wrapper as draggable. The actual drag target is the header, so the
    cursor should describe the body content (text, controls, terminal) instead of showing a hand. */
 .react-flow__node.draggable {
