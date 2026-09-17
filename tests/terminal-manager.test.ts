@@ -271,3 +271,98 @@ test('losing the renderer records nothing durable because that process is still 
   exit()
   assert.deepEqual(recorded.get('session'), { incarnationId: 'incarnation', liveness: 'exited' })
 })
+
+test('a read after the process crashed still returns its output, labelled with the exit verdict', () => {
+  const datas: Array<(data: string) => void> = []
+  const exits: Array<(event: { exitCode: number }) => void> = []
+  let incarnation = 0
+  const manager = createTerminalManager({
+    providers: createSessionProviders({
+      homeDirectory: 'C:\Users\tester',
+      environment: {},
+      resolveCommand: () => 'pwsh.exe'
+    }),
+    pathExists: () => true,
+    pathIsDirectory: () => true,
+    createIncarnationId: () => `inc-${++incarnation}`,
+    spawn: () => ({
+      onData: (listener) => {
+        datas.push(listener)
+      },
+      onExit: (listener) => {
+        exits.push(listener)
+      },
+      write: () => undefined,
+      resize: () => undefined,
+      kill: () => undefined
+    })
+  })
+  const owner = { isDestroyed: () => false, send: () => undefined }
+  const request = {
+    id: 'node',
+    sessionId: 'dev-server',
+    kind: 'terminal' as const,
+    cols: 80,
+    rows: 24,
+    cwd: 'D:\Toucan'
+  }
+  manager.create(request, owner)
+  datas[0]('\u001B[31mError\u001B[0m: build failed\n')
+  exits[0]({ exitCode: 1 })
+
+  assert.deepEqual(manager.readOutput('agent-1', 'dev-server'), {
+    terminalSessionId: 'dev-server',
+    incarnationId: 'inc-1',
+    liveness: 'exited',
+    text: 'Error: build failed\n',
+    delta: false,
+    skippedBytes: 0
+  })
+
+  // The next read continues where the first stopped, even though the process is long gone.
+  assert.deepEqual(manager.readOutput('agent-1', 'dev-server')?.text, '')
+
+  // A restart starts a new stream, so the cursor into the crashed run means nothing any more.
+  manager.create(request, owner)
+  datas[1]('serving\n')
+  const restarted = manager.readOutput('agent-1', 'dev-server')
+  assert.equal(restarted?.liveness, 'live')
+  assert.equal(restarted?.incarnationId, 'inc-2')
+  assert.equal(restarted?.delta, false)
+  assert.equal(restarted?.text, 'serving\n')
+})
+
+test('a terminal this manager never started reads as nothing, and a retired one stops reading', () => {
+  const datas: Array<(data: string) => void> = []
+  const manager = createTerminalManager({
+    providers: createSessionProviders({
+      homeDirectory: 'C:\Users\tester',
+      environment: {},
+      resolveCommand: () => 'pwsh.exe'
+    }),
+    pathExists: () => true,
+    pathIsDirectory: () => true,
+    createIncarnationId: () => 'inc-1',
+    spawn: () => ({
+      onData: (listener) => {
+        datas.push(listener)
+      },
+      onExit: () => undefined,
+      write: () => undefined,
+      resize: () => undefined,
+      kill: () => undefined
+    })
+  })
+
+  assert.equal(manager.readOutput('agent-1', 'never-started'), undefined)
+
+  manager.create(
+    { id: 'node', sessionId: 'shell', kind: 'terminal', cols: 80, rows: 24, cwd: 'D:\Toucan' },
+    { isDestroyed: () => false, send: () => undefined }
+  )
+  datas[0]('hello\n')
+  assert.equal(manager.readOutput('agent-1', 'shell')?.text, 'hello\n')
+
+  manager.forgetSession('shell')
+  assert.equal(manager.readOutput('agent-1', 'shell'), undefined)
+})

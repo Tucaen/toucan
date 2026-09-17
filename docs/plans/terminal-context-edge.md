@@ -61,7 +61,12 @@ node declares handles. This slice introduces them as the typed terminal-context 
 
 ## Slice 2 — retained tail and cursors in `terminal-manager.ts`
 
-Reads go through the terminal's owner, keyed sessionId + incarnationId like every terminal IPC.
+Reads go through the terminal's owner, keyed by the durable sessionId and the reading agent's
+session. Unlike every other terminal call they do *not* take an incarnationId: a reader that has
+never seen this terminal cannot name its current incarnation, and after a crash-and-restart the
+only honest answer is the one the manager already knows. The incarnation is reported back on the
+result instead, which is what a reader needs it for — telling a new process from the old one.
+
 The scrollback store stays display-only per AGENTS.md (its file is write-debounced and unfsynced;
 handing an agent stale mid-build output would be the fix loop reading the previous build), so the
 manager retains its own bounded in-memory tail per running terminal, fed from the same `onData`

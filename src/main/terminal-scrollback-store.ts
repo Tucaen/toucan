@@ -40,8 +40,12 @@ function isStoredSnapshot(value: unknown): value is StoredSnapshot {
   )
 }
 
-/** Returns the largest valid UTF-8 suffix within the byte limit. */
-function boundedSuffix(data: string, maxBytes: number): string {
+/**
+ * The largest valid UTF-8 suffix within a byte limit. Shared with `terminal-output-tail.ts`,
+ * which caps its retained tail the same way: a limit that splits a character would hand its
+ * reader a replacement character where the process emitted a letter.
+ */
+export function boundedUtf8Suffix(data: string, maxBytes: number): string {
   const bytes = Buffer.from(data, 'utf8')
   if (bytes.length <= maxBytes) return data
   let start = bytes.length - maxBytes
@@ -127,7 +131,7 @@ export function createTerminalScrollbackStore(options: TerminalScrollbackStoreOp
       const existing = read(sessionId)
       if (!existing || existing.incarnationId !== incarnationId) return
       const combined = `${existing.data}${data}`
-      const bounded = boundedSuffix(combined, maxBytes)
+      const bounded = boundedUtf8Suffix(combined, maxBytes)
       const wasTruncated = Buffer.byteLength(combined, 'utf8') > maxBytes
       const snapshot: StoredSnapshot = {
         ...existing,

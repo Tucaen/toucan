@@ -28,6 +28,7 @@
     "src/main/provider-usage.ts",
     "src/main/prompt-wake-gate.ts",
     "src/main/terminal-context-registry.ts",
+    "src/main/terminal-output-tail.ts",
     "src/main/terminal-events.ts",
     "src/main/session-providers.ts",
     "src/main/terminal-manager.ts",

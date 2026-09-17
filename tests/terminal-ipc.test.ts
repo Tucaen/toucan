@@ -52,7 +52,11 @@ function harness(): Harness {
     },
     disconnectOwner: () => {},
     killAll: () => {},
-    state: () => undefined
+    state: () => undefined,
+    readOutput: () => undefined,
+    forgetSession: (sessionId) => {
+      calls.push(`forget:${sessionId}`)
+    }
   }
   const providers: SessionProviders = {
     resolveLaunch: () => {
@@ -127,12 +131,13 @@ test('scrollback loads only for a string session id', () => {
   assert.equal(handler(event, 7), null)
 })
 
-test('removing scrollback retires the liveness verdict with the retained output', () => {
-  const { handlers, scrollbackRemoved, livenessRemoved } = harness()
+test('removing scrollback retires the liveness verdict and the agent-readable tail with it', () => {
+  const { handlers, calls, scrollbackRemoved, livenessRemoved } = harness()
   const handler = handlers.get(TERMINAL_CHANNELS.scrollbackRemove)!
   assert.equal(handler(event, 's-1'), true)
   assert.deepEqual(livenessRemoved, ['s-1'])
   assert.deepEqual(scrollbackRemoved, ['s-1'])
+  assert.ok(calls.includes('forget:s-1'))
 })
 
 test('a scrollback removal that cannot delete every file reports false, and a bad id touches nothing', () => {

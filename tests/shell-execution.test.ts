@@ -5,7 +5,6 @@ import {
   backgroundShellIdFromOutput,
   clampShellOutputBlocks,
   indexShellLaunches,
-  normalizeTerminalOutput,
   parseShellExecution,
   shellCommandLine,
   shellExitLabel,
@@ -178,15 +177,6 @@ test('the working directory is shown only when it is not the one the node alread
   assert.equal(shellWorkingDirectoryLabel(`${ROOT}\\src\\main`, roots), 'src/main')
   assert.equal(shellWorkingDirectoryLabel('C:\\elsewhere', roots), 'C:/elsewhere')
   assert.equal(shellWorkingDirectoryLabel(undefined, roots), undefined)
-})
-
-test('ANSI colour, cursor moves and progress-bar rewrites never reach the reader', () => {
-  assert.equal(normalizeTerminalOutput('\u001B[32mPASS\u001B[0m tests/a.test.ts'), 'PASS tests/a.test.ts')
-  assert.equal(normalizeTerminalOutput('\u001B]0;window title\u0007done'), 'done')
-  assert.equal(normalizeTerminalOutput('\u001B[2K\u001B[1Gbuilding'), 'building')
-  // A download rewriting its line is one line, not a hundred.
-  assert.equal(normalizeTerminalOutput('10%\r55%\r100%'), '100%')
-  assert.equal(normalizeTerminalOutput('first\r\nsecond\r\n'), 'first\nsecond\n')
 })
 
 test('stdout and stderr are labelled apart only when the adapter reported them apart', () => {

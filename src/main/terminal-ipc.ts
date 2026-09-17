@@ -48,6 +48,9 @@ export function registerTerminalIpc(
   ipc.handle(TERMINAL_CHANNELS.scrollbackRemove, (_event, sessionId: unknown) => {
     if (typeof sessionId !== 'string') return false
     liveness.remove(sessionId)
+    // The retained tail an agent could read goes the same way, and with it every read cursor: a
+    // session nothing can reach must not stay readable through a terminal-context edge.
+    manager.forgetSession(sessionId)
     return scrollback.remove(sessionId)
   })
 }

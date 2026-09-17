@@ -1,4 +1,5 @@
 import type { AgentActivity } from '../../shared/agent'
+import { normalizeTerminalOutput } from '../../shared/terminal-output'
 import { asRecord, asText, memoizePerActivity, normalizeToolName } from './tool-input'
 
 /**
@@ -172,37 +173,6 @@ export function shellWorkingDirectoryLabel(
     return normalized.slice(prefix.length + 1)
   }
   return normalized
-}
-
-// Matches CSI/OSC sequences and the stray escapes a truncated stream leaves behind. Output reaches
-// the DOM as text, so an unstripped sequence would be shown to the reader verbatim.
-const ANSI_SEQUENCE = new RegExp(
-  [
-    '\\u001B\\][^\\u0007\\u001B]*(?:\\u0007|\\u001B\\\\)',
-    '\\u001B[[\\]()#;?][0-9;?]*[\\u0020-\\u002F]*[\\u0040-\\u007E]',
-    '\\u001B[\\u0040-\\u005A\\u005C-\\u005F]',
-    '[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F\\u007F]'
-  ].join('|'),
-  'g'
-)
-
-/**
- * Strips the control bytes a terminal would have consumed rather than shown: ANSI colour and
- * cursor sequences, and the carriage returns a progress bar uses to rewrite its line - only the
- * final state of such a line is meaningful, and keeping every rewrite would show one download as
- * a hundred lines.
- */
-export function normalizeTerminalOutput(text: string): string {
-  return text
-    .replace(ANSI_SEQUENCE, '')
-    .split('\n')
-    .map((line) => {
-      const withoutTrailing = line.replace(/\r+$/, '')
-      if (!withoutTrailing.includes('\r')) return withoutTrailing
-      const segments = withoutTrailing.split('\r')
-      return segments.at(-1) || segments.filter(Boolean).at(-1) || ''
-    })
-    .join('\n')
 }
 
 const CONSOLE_FENCE = /^```(?:console|bash|sh)?\n([\s\S]*?)\n?```$/

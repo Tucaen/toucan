@@ -8,6 +8,7 @@ import { errorMessage } from '../shared/text'
 import type { TerminalScrollbackStore } from './terminal-scrollback-store'
 import type { TerminalLivenessStore } from './terminal-liveness-store'
 import { TERMINAL_CHANNELS } from '../shared/ipc-channels'
+import { createTerminalOutputTails, type TerminalOutputRead, type TerminalReadOptions } from './terminal-output-tail'
 
 export interface TerminalProcess {
   onData(listener: (data: string) => void): unknown
@@ -44,11 +45,26 @@ export interface TerminalManager {
   disconnectOwner(owner: TerminalEventOwner): void
   killAll(): void
   state(sessionId: string): { incarnationId: string; liveness: TerminalLiveness } | undefined
+  /**
+   * Serves a bounded slice of the terminal's retained output to one agent session, advancing that
+   * session's read cursor (`terminal-output-tail.ts`). Undefined means there is nothing to read
+   * about this terminal at all - it was never started here, or its session has been retired.
+   *
+   * This grants nothing: whether `agentId` may read `sessionId` is the edge registry's call-time
+   * decision, made before this is ever reached. The id is here only because the cursor is per
+   * reader - two agents watching one dev server each get their own "since last time".
+   */
+  readOutput(agentId: string, sessionId: string, options?: TerminalReadOptions): TerminalOutputRead | undefined
+  /** Drops a retired session's retained output and read cursors. */
+  forgetSession(sessionId: string): void
 }
 
 export function createTerminalManager(options: TerminalManagerOptions): TerminalManager {
   const terminals = new Map<string, RunningTerminal>()
   const lastStates = new Map<string, { incarnationId: string; liveness: TerminalLiveness }>()
+  // Outlives the incarnation that filled it, exactly like `lastStates`: a read after a crash has
+  // to return the crash output, labelled with the verdict `lastStates` holds.
+  const outputTails = createTerminalOutputTails()
   const pathExists = options.pathExists ?? existsSync
   const pathIsDirectory = options.pathIsDirectory ?? ((path: string) => statSync(path).isDirectory())
 
@@ -124,9 +140,11 @@ export function createTerminalManager(options: TerminalManagerOptions): Terminal
         terminals.set(sessionId, running)
         remember(sessionId, incarnationId, 'live')
         options.scrollback?.begin(sessionId, incarnationId)
+        outputTails.begin(sessionId, incarnationId)
         terminal.onData((data) => {
           if (terminals.get(sessionId) === running) {
             options.scrollback?.append(sessionId, incarnationId, data)
+            outputTails.append(sessionId, incarnationId, data)
           }
           if (terminals.get(sessionId) === running && running.owner) {
             sendTerminalEvent(running.owner, TERMINAL_CHANNELS.data, {
@@ -190,6 +208,25 @@ export function createTerminalManager(options: TerminalManagerOptions): Terminal
     },
     state(sessionId) {
       return lastStates.get(sessionId)
+    },
+    readOutput(agentId, sessionId, options): TerminalOutputRead | undefined {
+      const state = lastStates.get(sessionId)
+      if (!state) return undefined
+      const read = outputTails.read(agentId, sessionId, options)
+      if (!read) return undefined
+      return {
+        terminalSessionId: sessionId,
+        incarnationId: read.incarnationId,
+        // The verdict travels with the output rather than being read out of it, so a crashed
+        // build's output arrives labelled `exited` instead of looking like a build still running.
+        liveness: state.liveness,
+        text: read.text,
+        delta: read.delta,
+        skippedBytes: read.skippedBytes
+      }
+    },
+    forgetSession(sessionId): void {
+      outputTails.forget(sessionId)
     }
   }
 }
