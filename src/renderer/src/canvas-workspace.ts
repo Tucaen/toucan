@@ -54,6 +54,12 @@ export interface TerminalNodeCallbacks {
   onResume(nodeId: string): void
   onTerminalLiveness?(nodeId: string, liveness: TerminalLiveness): void
   /**
+   * Whether this node's just-created session carries the terminal-context read tool - the
+   * launch-time truth off `AgentCreateResult`, which is what the workspace's adoption rule
+   * compares the live edge set against (`terminal-context-edges.ts`).
+   */
+  onTerminalContext?(nodeId: string, carried: boolean): void
+  /**
    * A prompt that asked for its own worktree. The composer hands it up rather than dispatching
    * it, so the work starts in a session whose working directory is the worktree from its first
    * turn - which is the only way it can be granted as a writable root.
@@ -116,6 +122,12 @@ export interface TerminalNodeData
   /** The most blocking of those unread records, so a node's own dot can say which kind it is. */
   unreadKind?: AttentionKind
   launchMode: 'new' | 'resume'
+  /**
+   * Bumped when a terminal-context edge is adopted mid-session (`adoptTerminalContext`): the
+   * session effect restarts on it, resuming the same conversation with the read tool included.
+   * Runtime-only, like the edges themselves - never persisted.
+   */
+  terminalContextNonce?: number
   /**
    * Written into the shell on first start: a worktree's setup command, or one of the project's
    * saved run commands picked from its row menu. Built by `terminalRunInput`.
@@ -651,6 +663,7 @@ function restoreTerminalCanvasNode(
       onTurnOutcome: callbacks.onTurnOutcome,
       onResume: callbacks.onResume,
       onTerminalLiveness: callbacks.onTerminalLiveness,
+      onTerminalContext: callbacks.onTerminalContext,
       onWorktreeHandoff: callbacks.onWorktreeHandoff
     },
     style: { width: savedNode.width, height: savedNode.height }

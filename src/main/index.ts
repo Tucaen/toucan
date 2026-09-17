@@ -65,6 +65,7 @@ import { createAdapterManager } from './adapter-manager'
 import { createAdapterInstaller } from './adapter-installer'
 import { registerAdapterManagementIpc } from './adapter-management-ipc'
 import { createTerminalContextRegistry, registerTerminalContextIpc } from './terminal-context-registry'
+import { createTerminalContextMcp } from './terminal-context-mcp'
 import { createTerminalLivenessStore } from './terminal-liveness-store'
 import { createTerminalManager, type TerminalManager } from './terminal-manager'
 import { createTerminalScrollbackStore } from './terminal-scrollback-store'
@@ -403,6 +404,16 @@ void app.whenReady().then(async () => {
     titleFor: async (provider, conversationId) => (await conversationTitles.get(provider, conversationId))?.title,
     log: mainLog('session outcomes')
   })
+  // Main's copy of the canvas's terminal-context edges, and the MCP server that answers reads
+  // against it (docs/plans/terminal-context-edge.md). The registry is the call-time capability
+  // check; the server's localhost listener starts lazily with the first session that has an edge.
+  const terminalContextEdges = createTerminalContextRegistry()
+  const terminalContextMcp = createTerminalContextMcp({
+    registry: terminalContextEdges,
+    readOutput: (agentId, terminalSessionId, readOptions) =>
+      manager.readOutput(agentId, terminalSessionId, readOptions),
+    log: mainLog('terminal context')
+  })
   const agentManager = createAcpSessionManager({
     appPath: app.getAppPath(),
     resolveAdapter: adapters.resolve,
@@ -411,7 +422,8 @@ void app.whenReady().then(async () => {
     broker: agentEvents,
     onModelsAdvertised: (provider, models) => modelCatalogue.record(provider, models),
     sessionOutcomes,
-    sessionOutcomesDirectory
+    sessionOutcomesDirectory,
+    terminalContext: terminalContextMcp
   })
   const captureStore = createBrainDumpCaptureStore(join(app.getPath('userData'), 'brain-dump-capture.json'))
   const brainDumpCapture = createBrainDumpCaptureManager({
@@ -533,10 +545,6 @@ void app.whenReady().then(async () => {
 
   registerTerminalIpc(ipcMain, manager, providers, scrollback, liveness)
   registerAgentIpc(agentManager)
-  // Main's copy of the canvas's terminal-context edges, held here so the terminal-read tool
-  // (slice 3 of docs/plans/terminal-context-edge.md) can answer its capability checks against it
-  // at call time; nothing consumes it yet beyond the renderer's mirror.
-  const terminalContextEdges = createTerminalContextRegistry()
   registerTerminalContextIpc(ipcMain, terminalContextEdges)
   registerBrainDumpIpc(
     ipcMain,

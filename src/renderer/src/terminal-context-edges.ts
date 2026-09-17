@@ -1,6 +1,13 @@
 import type { Edge } from '@xyflow/react'
 import type { TerminalContextEdge } from '../../shared/terminal-context'
-import { isChatCanvasNode, isTerminalCanvasNode, type CanvasNode, type TerminalCanvasNode } from './canvas-workspace'
+import {
+  isChatCanvasNode,
+  isTerminalCanvasNode,
+  sessionNodeStatus,
+  type CanvasNode,
+  type TerminalCanvasNode,
+  type TerminalNodeStatus
+} from './canvas-workspace'
 
 /**
  * The renderer-side decisions behind the terminal-context edge (design in
@@ -81,4 +88,63 @@ export function mirroredTerminalContextEdges(
     if (!source || !target || !isTerminalContextPair(source, target)) return []
     return [{ terminalSessionId: source.data.sessionId, agentId: target.id }]
   })
+}
+
+/**
+ * When a session may restart to adopt an edge drawn onto it mid-conversation. Narrower than the
+ * worktree adoption boundary on purpose: `dormant` and `exited` sessions are not restarted -
+ * their next natural creation consults the registry anyway, and reviving an exited session
+ * because an edge appeared would be the edge doing more than granting a read.
+ */
+export const TERMINAL_CONTEXT_ADOPTION_BOUNDARY: readonly TerminalNodeStatus[] = ['idle', 'result']
+
+/**
+ * The chat nodes whose live session must restart to pick up the read tool: an edge stands, but
+ * the session reported launching without the tool (`sessions[id] === false` - the launch-time
+ * truth off `AgentCreateResult`; unknown means a session is still opening and will consult the
+ * registry itself). Only at a boundary with nothing in flight, and only with a conversation to
+ * resume - the restart replays the transcript, it must never begin a new one. Removing an edge
+ * plans nothing: the registry already refuses at call time, and the definition drops off at the
+ * session's next natural resume.
+ */
+export function planTerminalContextAdoptions(
+  nodes: readonly CanvasNode[],
+  edges: readonly Edge[],
+  statuses: Readonly<Record<string, TerminalNodeStatus>>,
+  sessions: Readonly<Record<string, boolean>>
+): string[] {
+  const connected = new Set(mirroredTerminalContextEdges(nodes, edges).map((edge) => edge.agentId))
+  return nodes
+    .filter(isChatCanvasNode)
+    .filter(
+      (node) =>
+        connected.has(node.id) &&
+        sessions[node.id] === false &&
+        !node.data.dormant &&
+        Boolean(node.data.conversationId) &&
+        TERMINAL_CONTEXT_ADOPTION_BOUNDARY.includes(sessionNodeStatus(node, statuses))
+    )
+    .map((node) => node.id)
+}
+
+/**
+ * Applies those adoptions: bumping `terminalContextNonce` is what restarts the session effect,
+ * and `resume` makes the restart load the same conversation - the `adoptClaimedWorktrees` move,
+ * except the cwd never changes, which is why this one is safe for both providers.
+ */
+export function adoptTerminalContext(nodes: CanvasNode[], nodeIds: readonly string[]): CanvasNode[] {
+  if (nodeIds.length === 0) return nodes
+  const ids = new Set(nodeIds)
+  return nodes.map((node) =>
+    isChatCanvasNode(node) && ids.has(node.id)
+      ? {
+          ...node,
+          data: {
+            ...node.data,
+            terminalContextNonce: (node.data.terminalContextNonce ?? 0) + 1,
+            launchMode: 'resume' as const
+          }
+        }
+      : node
+  )
 }

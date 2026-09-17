@@ -87,13 +87,16 @@ how much retained output the size cap skipped.
   terminal selector when several edges exist, optional size override capped at retention; both
   optional so the bare call does the right thing). Results are plain text — both adapters flatten
   content blocks anyway.
-- **Transport is the open verification item.** ACP `session/new`/`session/load` already accept
-  `mcpServers` (passed `[]` today at both call sites in `acp-session-manager.ts`); what each
-  installed adapter accepts there (stdio command vs HTTP) must be read from the pinned adapters'
-  dist before the transport is chosen. Preferred: an HTTP listener on localhost in main (no child
-  process, tools answer from the registry/manager directly). Fallback: a small stdio bridge script
-  (the `settle-worktree.mjs` pattern) spawned by the adapter, connecting back to main over a
-  localhost socket carrying a per-session token, so a stray local process cannot read terminals.
+- **Transport: verified and resolved (2026-09-17) — the localhost HTTP listener.** Read from the
+  pinned dists: claude-agent-acp 0.75.1 accepts `mcpServers` entries of `type: 'http' | 'sse'`
+  (`{url, headers}`, forwarded into the SDK's `mcpServers` options) plus stdio, and codex-acp
+  1.10.0 accepts `type: 'http'` (mapped to Codex's `{url, http_headers}`) plus stdio while
+  rejecting SSE and ACP transports outright. So HTTP is the one transport both take, and the
+  stdio bridge fallback is not needed. Implementation: `src/main/terminal-context-mcp.ts`, a
+  hand-rolled stateless streamable-HTTP JSON-RPC server (initialize / notifications / tools/list
+  / tools/call / ping, always-JSON responses) on a lazily bound 127.0.0.1 port — no edge, no
+  listener — with a per-agent bearer token minted with the grant, so a stray local process cannot
+  read terminals and the serving read is keyed to the right cursor.
 - The server is included in `mcpServers` only when the chat node has a terminal edge at session
   creation (the `withAdditionalDirectories`/delegation seam is where per-session configuration
   already composes). Sessions without an edge carry zero extra tokens.
@@ -120,8 +123,12 @@ how much retained output the size cap skipped.
   `tests/acp-session-manager-launch.test.ts`).
 - Adoption: edge drawn mid-session restarts only at a safe boundary (the worktree-adoption test
   shape).
-- Live smoke per provider, deliberately outside `npm test`: dev-server terminal, edge, agent asked
-  to fix a build error and re-read — the loop the feature exists for.
+- Live smoke per provider, deliberately outside `npm test` (it needs a real dev server, account
+  tokens and a drawn edge): start `npm run dev` in a plain terminal node, draw its edge onto a
+  chat node of the provider under test, ask the agent to break and fix a renderer file while
+  re-reading the terminal — the first read must return the hot-reload error, the read after the
+  fix only the fresh rebuild output (the cursor delta), and a session opened with no edge must
+  not list `read_terminal_output` at all.
 
 ## Non-goals (restated from the issue)
 

@@ -115,8 +115,10 @@ import {
   type WorktreeNodeCallbacks
 } from './canvas-workspace'
 import {
+  adoptTerminalContext,
   isValidTerminalContextConnection,
   mirroredTerminalContextEdges,
+  planTerminalContextAdoptions,
   withTerminalContextEdge,
   withoutEdgesTouchingNodes
 } from './terminal-context-edges'
@@ -297,6 +299,10 @@ function Canvas(): JSX.Element {
   // either node removes the edge and a restart starts with none (decision 2 in
   // docs/plans/terminal-context-edge.md). Main's registry mirrors this set; see the effect below.
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([])
+  // Whether each chat node's *live session* was created with the terminal-context read tool - the
+  // launch-time truth off `AgentCreateResult.terminalContext`. Compared against the live edge set
+  // to decide when a session must restart to adopt an edge drawn onto it mid-conversation.
+  const [terminalContextSessions, setTerminalContextSessions] = useState<Record<string, boolean>>({})
   const [projects, setProjects] = useState<Project[]>([])
   const [projectGroups, setProjectGroups] = useState<ProjectGroup[]>([])
   const [nodeStatuses, setNodeStatuses] = useState<Record<string, TerminalNodeStatus>>({})
@@ -468,6 +474,10 @@ function Canvas(): JSX.Element {
     },
     [patchTerminalNode]
   )
+
+  const handleTerminalContext = useCallback((nodeId: string, carried: boolean): void => {
+    setTerminalContextSessions((current) => (current[nodeId] === carried ? current : { ...current, [nodeId]: carried }))
+  }, [])
 
   const handleTerminalLiveness = useCallback(
     (nodeId: string, liveness: TerminalLiveness): void => {
@@ -796,6 +806,9 @@ function Canvas(): JSX.Element {
         )
         // Closing either end of a terminal-context edge revokes it - the whole lifecycle rule.
         setEdges((current) => withoutEdgesTouchingNodes(current, removedIds))
+        setTerminalContextSessions((current) =>
+          Object.fromEntries(Object.entries(current).filter(([nodeId]) => !removedIds.has(nodeId)))
+        )
       }
       // Fit mode reads the changes before they land: a drag or manual resize of the fitted node
       // leaves fit mode, and a removed node must not leave a restore waiting for it.
@@ -851,6 +864,7 @@ function Canvas(): JSX.Element {
         onTurnOutcome: handleTurnOutcome,
         onResume: resumeNode,
         onTerminalLiveness: handleTerminalLiveness,
+        onTerminalContext: handleTerminalContext,
         onWorktreeHandoff: dispatchWorktreeHandoff
       }
     )
@@ -873,6 +887,7 @@ function Canvas(): JSX.Element {
     handlePreview,
     handleStatusChange,
     handleTicketActivity,
+    handleTerminalContext,
     handleTerminalLiveness,
     handleTitleChange,
     resumeNode,
@@ -988,6 +1003,7 @@ function Canvas(): JSX.Element {
               onTurnOutcome: handleTurnOutcome,
               onResume: resumeNode,
               onTerminalLiveness: handleTerminalLiveness,
+              onTerminalContext: handleTerminalContext,
               onWorktreeHandoff: dispatchWorktreeHandoff
             },
             style: { ...NEW_SESSION_NODE_SIZE }
@@ -1007,6 +1023,7 @@ function Canvas(): JSX.Element {
       handlePreview,
       handleStatusChange,
       handleTicketActivity,
+      handleTerminalContext,
       handleTerminalLiveness,
       handleTitleChange,
       resumeNode,
@@ -1370,6 +1387,7 @@ function Canvas(): JSX.Element {
         onTurnOutcome: handleTurnOutcome,
         onResume: resumeNode,
         onTerminalLiveness: handleTerminalLiveness,
+        onTerminalContext: handleTerminalContext,
         onWorktreeHandoff: dispatchWorktreeHandoff,
         ...worktreeCallbacks,
         onViewModeChange: handleFileViewModeChange,
@@ -1428,6 +1446,7 @@ function Canvas(): JSX.Element {
       handleSelectDiffPath,
       handleStatusChange,
       handleTicketActivity,
+      handleTerminalContext,
       handleTerminalLiveness,
       handleTitleChange,
       resumeNode,
@@ -1621,6 +1640,22 @@ function Canvas(): JSX.Element {
   useEffect(() => {
     setNodes((current) => adoptClaimedWorktrees(current, nodeStatuses))
   }, [nodeStatuses, nodes, setNodes])
+
+  /**
+   * An edge drawn onto a running session grants nothing until the session carries the read tool,
+   * and `mcpServers` is fixed at creation - so the session restarts (resuming its own
+   * conversation, cwd unchanged, both providers) at the next safe boundary. The entry is spent
+   * before the restart so an unrelated re-render cannot adopt the same node twice while the
+   * fresh session's own report is still on its way.
+   */
+  useEffect(() => {
+    const adopting = planTerminalContextAdoptions(nodesRef.current, edges, nodeStatuses, terminalContextSessions)
+    if (adopting.length === 0) return
+    setTerminalContextSessions((current) =>
+      Object.fromEntries(Object.entries(current).filter(([nodeId]) => !adopting.includes(nodeId)))
+    )
+    setNodes((current) => adoptTerminalContext(current, adopting))
+  }, [edges, nodeStatuses, nodes, setNodes, terminalContextSessions])
 
   /**
    * Worktrees can appear without Toucan creating them - an agent running the worktree skill, a

@@ -1264,8 +1264,12 @@ export default function ChatNode({ id, data, selected, width }: NodeProps<Termin
     // Read at session creation, so a change applies on the next safe creation or resume and
     // never cancels a turn already running under the old policy.
     routineDelegation: routineDelegationRequest(provider, routineDelegationPreference),
+    // Bumped when a terminal-context edge is adopted mid-session: the restart resumes this same
+    // conversation with the read tool included (terminal-context-edges.ts).
+    restartKey: data.terminalContextNonce,
     enabled: !data.dormant,
     onSessionId: (sessionId) => data.onConversationId(id, sessionId),
+    onTerminalContext: (carried) => data.onTerminalContext?.(id, carried),
     onPermissionMode: (modeId) => data.onPermissionModeChange(provider, modeId),
     onModel: (modelId) => data.onModelChange(id, modelId)
   })

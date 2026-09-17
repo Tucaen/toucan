@@ -14,6 +14,7 @@ import {
   type ContentBlock,
   type CreateElicitationRequest,
   type CreateElicitationResponse,
+  type McpServer,
   type RequestPermissionResponse,
   type SessionConfigOption
 } from '@agentclientprotocol/sdk'
@@ -61,6 +62,7 @@ import { createAgentEventBroker, type AgentEventBroker } from './agent-event-bro
 import { buildAgentProcessLaunch, spawnAgentProcess, type AgentProcessLaunch } from './agent-process'
 import { readCachedCodexModels } from './codex-model-cache'
 import { createPromptWakeGate, type PromptWakeGate } from './prompt-wake-gate'
+import type { TerminalContextMcp } from './terminal-context-mcp'
 import type { SessionOutcomeIndexer, SessionOutcomeWatch } from './session-outcome-indexer'
 import { AGENT_CHANNELS } from '../shared/ipc-channels'
 
@@ -630,6 +632,13 @@ export interface AcpSessionManagerOptions {
    * `sessionOutcomes` because a session is granted the folder whether or not it is itself indexed.
    */
   sessionOutcomesDirectory?: string
+  /**
+   * The terminal-context MCP server (`terminal-context-mcp.ts`), asked per session creation
+   * whether this agent has a terminal edge right now: an entry back rides `session/new`/
+   * `session/load` `mcpServers`, undefined keeps the session at zero extra tokens. The seam never
+   * throws - a listener that cannot bind costs the tool, not the session.
+   */
+  terminalContext?: Pick<TerminalContextMcp, 'serverFor'>
 }
 
 /**
@@ -929,6 +938,11 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         running.request.provider === 'claude' && sessionOutcomesDirectory
           ? withSessionInstruction(delegatingConfiguration, sessionOutcomeIndexInstruction(sessionOutcomesDirectory))
           : delegatingConfiguration
+      // Included only when a terminal edge stands at this creation; a session without one carries
+      // zero extra tokens. An edge drawn later is adopted by a canvas-driven restart at a safe
+      // boundary, and removal forces nothing - the registry already refuses at call time.
+      const terminalContextServer = await options.terminalContext?.serverFor(running.request.id)
+      const mcpServers: McpServer[] = terminalContextServer ? [terminalContextServer] : []
       let resumed = false
       let replay: AgentEvent[] | undefined
       if (running.request.sessionId) {
@@ -941,7 +955,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
           response = await running.context.request(methods.agent.session.load, {
             sessionId: running.request.sessionId,
             cwd: running.request.cwd,
-            mcpServers: [],
+            mcpServers,
             ...skillsConfiguration
           })
         } finally {
@@ -954,7 +968,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       if (!resumed) {
         const response = await running.context.request(methods.agent.session.new, {
           cwd: running.request.cwd,
-          mcpServers: [],
+          mcpServers,
           ...skillsConfiguration
         })
         running.sessionId = response.sessionId
@@ -1010,6 +1024,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         ...(efforts ? { efforts } : {}),
         ...(running.cachedCommands?.length ? { commands: running.cachedCommands } : {}),
         ...(running.routineDelegation ? { routineDelegation: running.routineDelegation } : {}),
+        ...(terminalContextServer ? { terminalContext: true } : {}),
         ...(replay?.length ? { replay } : {})
       }
     } catch (error) {

@@ -82,6 +82,12 @@ export interface AgentConversationOptions {
   onModel(modelId: string): void
   onEffort?(effortId?: string): void
   /**
+   * Whether the session was created with the terminal-context read tool (`AgentCreateResult.
+   * terminalContext`) - reported once per successful create so the workspace's edge-adoption rule
+   * compares the live edge set against launch-time truth rather than a guess.
+   */
+  onTerminalContext?(carried: boolean): void
+  /**
    * How long a sent message waits in `pendingSentRef` for its own echoed `message`/`role: 'user'`
    * event before its queued badge is force-cleared anyway. Defaults to `DEFAULT_ECHO_TIMEOUT_MS`;
    * overridable so tests can reproduce a missed echo without a real multi-second wait.
@@ -241,6 +247,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
   const onPermissionMode = useRef(options.onPermissionMode)
   const onModel = useRef(options.onModel)
   const onEffort = useRef(options.onEffort)
+  const onTerminalContext = useRef(options.onTerminalContext)
 
   useEffect(() => {
     onSessionId.current = options.onSessionId
@@ -254,6 +261,9 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
   useEffect(() => {
     onEffort.current = options.onEffort
   }, [options.onEffort])
+  useEffect(() => {
+    onTerminalContext.current = options.onTerminalContext
+  }, [options.onTerminalContext])
 
   useEffect(() => {
     if (!options.enabled) return
@@ -298,6 +308,9 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
         for (const event of result.replay ?? []) handleEvent(event)
         if (result.sessionId) onSessionId.current(result.sessionId)
         if (result.efforts) onEffort.current?.(result.efforts.currentEffortId)
+        // Only a session that actually opened has a launch-time truth to report; an auth-required
+        // or failed create leaves the previous knowledge standing.
+        if (result.status === 'ready') onTerminalContext.current?.(result.terminalContext ?? false)
         setImageSupport(result.imageSupport ?? false)
         setChat((current) => applyAgentCreateResult(current, result))
       })

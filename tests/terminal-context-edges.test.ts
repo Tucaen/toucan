@@ -3,8 +3,10 @@ import { test } from 'node:test'
 import type { Edge } from '@xyflow/react'
 import { restoreCanvasWorkspace, type CanvasNode } from '../src/renderer/src/canvas-workspace'
 import {
+  adoptTerminalContext,
   isValidTerminalContextConnection,
   mirroredTerminalContextEdges,
+  planTerminalContextAdoptions,
   terminalContextEdgeId,
   withTerminalContextEdge,
   withoutEdgesTouchingNodes
@@ -162,4 +164,68 @@ test('an edge whose endpoint vanished or is the wrong kind mirrors as nothing', 
     { id: 'wrong-kind', source: 'file-node', target: 'chat-node' }
   ]
   assert.deepEqual(mirroredTerminalContextEdges(nodes, stale), [])
+})
+
+// Mid-session adoption (the worktree-claim pattern): an edge drawn onto a running session
+// restarts it at a safe boundary so the recreated session carries the read tool.
+
+const edgeToChat: Edge[] = [{ id: 'edge', source: 'terminal-node', target: 'chat-node' }]
+
+test('plans a restart only for a connected live session that launched without the tool', () => {
+  const nodes = canvasNodes()
+
+  assert.deepEqual(planTerminalContextAdoptions(nodes, edgeToChat, { 'chat-node': 'idle' }, { 'chat-node': false }), [
+    'chat-node'
+  ])
+  assert.deepEqual(planTerminalContextAdoptions(nodes, edgeToChat, { 'chat-node': 'result' }, { 'chat-node': false }), [
+    'chat-node'
+  ])
+  // A session that already carries the tool - or one whose launch report is still on its way
+  // (unknown) - is never restarted for an edge it can already serve or will pick up itself.
+  assert.deepEqual(planTerminalContextAdoptions(nodes, edgeToChat, { 'chat-node': 'idle' }, { 'chat-node': true }), [])
+  assert.deepEqual(planTerminalContextAdoptions(nodes, edgeToChat, { 'chat-node': 'idle' }, {}), [])
+  // No edge, no restart: removal forces nothing - the registry already refuses at call time.
+  assert.deepEqual(planTerminalContextAdoptions(nodes, [], { 'chat-node': 'idle' }, { 'chat-node': false }), [])
+})
+
+test('never restarts across a boundary with something in flight, or a session that is not live', () => {
+  const nodes = canvasNodes()
+  for (const status of ['working', 'starting', 'attention', 'stalled', 'exited', 'dormant'] as const) {
+    assert.deepEqual(
+      planTerminalContextAdoptions(nodes, edgeToChat, { 'chat-node': status }, { 'chat-node': false }),
+      [],
+      `status ${status} must not restart`
+    )
+  }
+  const dormant = nodes.map((node) =>
+    node.id === 'chat-node' ? { ...node, data: { ...node.data, dormant: true } } : node
+  ) as CanvasNode[]
+  assert.deepEqual(
+    planTerminalContextAdoptions(dormant, edgeToChat, { 'chat-node': 'idle' }, { 'chat-node': false }),
+    []
+  )
+})
+
+test('a session with no conversation to resume is never restarted - the restart must replay, not replace', () => {
+  const nodes = canvasNodes().map((node) =>
+    node.id === 'chat-node' ? { ...node, data: { ...node.data, conversationId: undefined } } : node
+  ) as CanvasNode[]
+  assert.deepEqual(planTerminalContextAdoptions(nodes, edgeToChat, { 'chat-node': 'idle' }, { 'chat-node': false }), [])
+})
+
+test('adopting bumps the restart nonce and resumes the same conversation', () => {
+  const nodes = canvasNodes()
+  const adopted = adoptTerminalContext(nodes, ['chat-node'])
+  const chat = adopted.find((node) => node.id === 'chat-node')!
+  assert.equal(chat.data.terminalContextNonce, 1)
+  assert.equal(chat.data.launchMode, 'resume')
+  // A second adoption later in the session's life restarts again rather than being spent forever.
+  const again = adoptTerminalContext(adopted, ['chat-node']).find((node) => node.id === 'chat-node')!
+  assert.equal(again.data.terminalContextNonce, 2)
+  // Untouched nodes and an empty plan keep their references: no re-render for a no-op.
+  assert.equal(
+    adopted.find((node) => node.id === 'second-chat'),
+    nodes.find((node) => node.id === 'second-chat')
+  )
+  assert.equal(adoptTerminalContext(nodes, []), nodes)
 })

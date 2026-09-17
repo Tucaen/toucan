@@ -58,6 +58,12 @@ export interface AgentCreateResult {
    * launch does not alter. Absent when the request carried no policy.
    */
   routineDelegation?: AgentRoutineDelegation
+  /**
+   * True when the session was created with the terminal-context MCP server in its `mcpServers`
+   * (a terminal edge stood at creation). Launch-time truth like `routineDelegation`: an edge
+   * drawn later does not alter it - the canvas restarts the session at a safe boundary instead.
+   */
+  terminalContext?: boolean
   message?: string
 }
 
