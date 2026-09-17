@@ -316,6 +316,12 @@ export interface AgentRateLimitWindow {
  */
 export interface AgentModelRateLimitWindow extends AgentRateLimitWindow {
   label: string
+  /**
+   * How long the window spans, in minutes, when the provider makes it knowable - Claude's
+   * model-scoped buckets are weekly, Codex states each window's length outright. Without it the UI
+   * can only show how much is used, never how close relief is.
+   */
+  windowMinutes?: number
 }
 
 export interface AgentRateLimitStatus {

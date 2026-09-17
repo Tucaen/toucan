@@ -85,8 +85,8 @@ export function formatResetsAt(resetsAt: number, now: number = Date.now()): stri
 
 /**
  * How long each plan-wide window spans. A provider reports only the reset moment, so knowing where
- * "now" sits inside the window takes the window's length - which only the named slots carry; a
- * per-model window has no documented span, so it gets no progress marker.
+ * "now" sits inside the window takes the window's length. The named slots carry it by definition;
+ * a per-model window states its own span in `windowMinutes`, since only its producer knows it.
  */
 const FIVE_HOUR_MS = 5 * 60 * 60_000
 const SEVEN_DAY_MS = 7 * 24 * 60 * 60_000
@@ -108,8 +108,8 @@ export interface RateLimitWindowReadout {
   /**
    * How far through the window "now" sits, 0 at the window's start and 100 at its reset - the
    * position of the reset marker on the bar. Absent when the provider reported no reset moment or
-   * the window's span is unknown (per-model windows), because a marker placed by guesswork would
-   * misreport when relief arrives.
+   * did not state the window's span, because a marker placed by guesswork would misreport when
+   * relief arrives.
    */
   resetProgressPercent?: number
 }
@@ -150,7 +150,14 @@ export function describeRateLimitWindows(
   return [
     status.fiveHour ? describeRateLimitWindow('5h', status.fiveHour, now, FIVE_HOUR_MS) : null,
     status.weekly ? describeRateLimitWindow('7d', status.weekly, now, SEVEN_DAY_MS) : null,
-    ...(status.models ?? []).map((model) => describeRateLimitWindow(model.label, model, now))
+    ...(status.models ?? []).map((model) =>
+      describeRateLimitWindow(
+        model.label,
+        model,
+        now,
+        model.windowMinutes === undefined ? undefined : model.windowMinutes * 60_000
+      )
+    )
   ].filter((window): window is RateLimitWindowReadout => window !== null)
 }
 

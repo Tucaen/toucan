@@ -122,6 +122,12 @@ function toWindow(payload: SdkUsageWindow | null | undefined): AgentRateLimitWin
   }
 }
 
+/**
+ * `model_scoped` buckets are weekly, like `seven_day`; the SDK states the scope in its docs rather
+ * than in the payload, so the span is attached here where that knowledge lives.
+ */
+const MODEL_WINDOW_MINUTES = 7 * 24 * 60
+
 function toModelWindows(payload: SdkModelScopedWindow[] | null | undefined): AgentModelRateLimitWindow[] {
   if (!Array.isArray(payload)) return []
   const models: AgentModelRateLimitWindow[] = []
@@ -129,7 +135,7 @@ function toModelWindows(payload: SdkModelScopedWindow[] | null | undefined): Age
     const window = toWindow(entry)
     // The server names the bucket ("Fable"); an unnamed one has nothing a reader could attribute it to.
     if (!window || typeof entry.display_name !== 'string' || entry.display_name.trim() === '') continue
-    models.push({ label: entry.display_name.trim(), ...window })
+    models.push({ label: entry.display_name.trim(), windowMinutes: MODEL_WINDOW_MINUTES, ...window })
   }
   return models
 }

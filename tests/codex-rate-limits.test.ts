@@ -128,9 +128,10 @@ test('an allowance keyed by another limit id is surfaced by name beside the acco
   assert.deepEqual(status, {
     fiveHour: { usedPercent: 29, resetsAt: 1788782448000 },
     weekly: { usedPercent: 4, resetsAt: 1789369248000 },
+    // Each allowance carries the length of the window it surfaced, so the UI can mark its reset.
     models: [
-      { label: 'Astra', usedPercent: 61, resetsAt: 1789369248000 },
-      { label: 'unnamed', usedPercent: 3 }
+      { label: 'Astra', windowMinutes: 10080, usedPercent: 61, resetsAt: 1789369248000 },
+      { label: 'unnamed', windowMinutes: 300, usedPercent: 3 }
     ]
   })
 })

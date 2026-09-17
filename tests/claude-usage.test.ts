@@ -45,8 +45,14 @@ test('a per-model allowance such as Fable is kept under the name the server give
     }
   })
 
+  // The weekly span travels with the window so the UI can place a reset marker on it.
   assert.deepEqual(status?.models, [
-    { label: 'Fable', usedPercent: 43, resetsAt: Date.parse('2026-09-08T03:00:00.456106+00:00') }
+    {
+      label: 'Fable',
+      windowMinutes: 7 * 24 * 60,
+      usedPercent: 43,
+      resetsAt: Date.parse('2026-09-08T03:00:00.456106+00:00')
+    }
   ])
   assert.equal(status?.fiveHour?.usedPercent, 42)
   assert.equal(status?.weekly?.usedPercent, 24)
@@ -58,7 +64,7 @@ test('a plan that only reports a per-model allowance still produces a status', (
     rate_limits: { model_scoped: [{ display_name: 'Fable', utilization: 7, resets_at: null }] }
   })
 
-  assert.deepEqual(status, { models: [{ label: 'Fable', usedPercent: 7 }] })
+  assert.deepEqual(status, { models: [{ label: 'Fable', windowMinutes: 7 * 24 * 60, usedPercent: 7 }] })
 })
 
 test('keeps a window that reports usage without a reset time', () => {

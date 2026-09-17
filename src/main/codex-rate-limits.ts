@@ -176,7 +176,7 @@ function modelWindowsFromAppServer(
     const longest = windows.reduce((a, b) => (b.minutes > a.minutes ? b : a))
     const label =
       typeof snapshot.limitName === 'string' && snapshot.limitName.trim() !== '' ? snapshot.limitName.trim() : limitId
-    models.push({ label, ...longest.window })
+    models.push({ label, windowMinutes: longest.minutes, ...longest.window })
   }
   return models
 }

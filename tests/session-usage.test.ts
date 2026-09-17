@@ -2,6 +2,7 @@ import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
 import {
   describeRateLimitWindow,
+  describeRateLimitWindows,
   describeSessionUsage,
   formatResetsAt,
   formatTokens,
@@ -210,11 +211,22 @@ test('the reset marker walks the bar from window start to reset', () => {
 test('no reset moment or unknown window span means no marker', () => {
   const fiveHours = 5 * 60 * 60_000
   assert.equal(describeRateLimitWindow('5h', { usedPercent: 10 }, 0, fiveHours).resetProgressPercent, undefined)
-  // A per-model window has no documented span, so guessing a marker position would misreport it.
+  // A window whose producer did not state its span gets no marker; guessing one would misreport it.
   assert.equal(
     describeRateLimitWindow('Fable', { usedPercent: 10, resetsAt: 60_000 }, 0).resetProgressPercent,
     undefined
   )
+})
+
+test('a per-model window carries its own span, so it gets a marker like the plan windows', () => {
+  const sevenDays = 7 * 24 * 60 * 60_000
+  const windows = describeRateLimitWindows(
+    { models: [{ label: 'Fable', usedPercent: 40, resetsAt: sevenDays / 2, windowMinutes: 7 * 24 * 60 }] },
+    0
+  )
+  assert.equal(windows.length, 1)
+  assert.equal(windows[0].label, 'Fable')
+  assert.equal(windows[0].resetProgressPercent, 50)
 })
 
 test('a window a provider reports past its own limit is shown as full, not as 120%', () => {
