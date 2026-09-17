@@ -4118,8 +4118,9 @@ button.global-status-chip:hover {
   cursor: pointer;
 }
 
-.worktree-open-group button .lucide {
-  font-size: 14px;
+.worktree-open-group button svg {
+  width: 14px;
+  height: 14px;
 }
 
 .worktree-actions button:hover:not(:disabled) {
