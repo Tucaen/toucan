@@ -293,6 +293,11 @@ function worktreeRemovalErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'The worktree could not be removed.'
 }
 
+/** Drops the named node ids from a per-node record - closing a node and spending an adoption share it. */
+function withoutNodeKeys<Value>(record: Record<string, Value>, nodeIds: ReadonlySet<string>): Record<string, Value> {
+  return Object.fromEntries(Object.entries(record).filter(([nodeId]) => !nodeIds.has(nodeId)))
+}
+
 function Canvas(): JSX.Element {
   const [nodes, setNodes, onNodesChange] = useNodesState<CanvasNode>([])
   // Terminal-context edges: runtime-only React state on purpose, never `WorkspaceState` - closing
@@ -806,9 +811,7 @@ function Canvas(): JSX.Element {
         )
         // Closing either end of a terminal-context edge revokes it - the whole lifecycle rule.
         setEdges((current) => withoutEdgesTouchingNodes(current, removedIds))
-        setTerminalContextSessions((current) =>
-          Object.fromEntries(Object.entries(current).filter(([nodeId]) => !removedIds.has(nodeId)))
-        )
+        setTerminalContextSessions((current) => withoutNodeKeys(current, removedIds))
       }
       // Fit mode reads the changes before they land: a drag or manual resize of the fitted node
       // leaves fit mode, and a removed node must not leave a restore waiting for it.
@@ -1651,9 +1654,7 @@ function Canvas(): JSX.Element {
   useEffect(() => {
     const adopting = planTerminalContextAdoptions(nodesRef.current, edges, nodeStatuses, terminalContextSessions)
     if (adopting.length === 0) return
-    setTerminalContextSessions((current) =>
-      Object.fromEntries(Object.entries(current).filter(([nodeId]) => !adopting.includes(nodeId)))
-    )
+    setTerminalContextSessions((current) => withoutNodeKeys(current, new Set(adopting)))
     setNodes((current) => adoptTerminalContext(current, adopting))
   }, [edges, nodeStatuses, nodes, setNodes, terminalContextSessions])
 

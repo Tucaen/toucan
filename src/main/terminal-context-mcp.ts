@@ -127,7 +127,8 @@ export function renderTerminalRead(read: TerminalOutputRead): string {
 
 export function createTerminalContextMcp(options: TerminalContextMcpOptions): TerminalContextMcp {
   const tokensByAgent = new Map<string, string>()
-  let listening: Promise<HttpServer> | undefined
+  /** The lazily started listener; pending from the first grant, undefined until then and after close. */
+  let startedServer: Promise<HttpServer> | undefined
 
   /** Constant-time per candidate, like the remote server's pairing gate; the map stays tiny. */
   const agentForToken = (presented: string | null): string | undefined => {
@@ -237,7 +238,7 @@ export function createTerminalContextMcp(options: TerminalContextMcpOptions): Te
         respondJson(response, 400, {
           jsonrpc: '2.0',
           id: null,
-          error: { code: -32700, message: 'Request too large' }
+          error: { code: -32600, message: 'Request too large' }
         })
         request.destroy()
         return
@@ -269,14 +270,14 @@ export function createTerminalContextMcp(options: TerminalContextMcpOptions): Te
   }
 
   const ensureListening = (): Promise<HttpServer> => {
-    listening ??= new Promise((resolve, reject) => {
+    startedServer ??= new Promise((resolve, reject) => {
       const server = createServer(handleRequest)
       // The listener must never be what keeps the process alive - sessions are.
       server.unref()
       server.once('error', reject)
       server.listen(0, '127.0.0.1', () => resolve(server))
     })
-    return listening
+    return startedServer
   }
 
   return {
@@ -299,17 +300,17 @@ export function createTerminalContextMcp(options: TerminalContextMcpOptions): Te
       } catch (error) {
         // A failed bind costs the session its tool, never its creation; the next grant retries.
         options.log?.(`terminal-context MCP listener failed: ${errorMessage(error)}`)
-        listening = undefined
+        startedServer = undefined
         return undefined
       }
     },
     listening() {
-      return listening !== undefined
+      return startedServer !== undefined
     },
     async close() {
       tokensByAgent.clear()
-      const pending = listening
-      listening = undefined
+      const pending = startedServer
+      startedServer = undefined
       if (!pending) return
       const server = await pending.catch(() => undefined)
       if (server) await new Promise<void>((resolve) => server.close(() => resolve()))
