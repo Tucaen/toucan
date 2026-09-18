@@ -46,9 +46,7 @@ const waitForTurn = (id) =>
     const events = eventsById.get(id)
     const from = events.length
     const poll = setInterval(() => {
-      const done = events
-        .slice(from)
-        .some((event) => event?.type === 'turn_complete' || event?.type === 'turn_failed')
+      const done = events.slice(from).some((event) => event?.type === 'turn_complete' || event?.type === 'turn_failed')
       if (done) {
         clearInterval(poll)
         resolveWait()
@@ -75,7 +73,9 @@ const fail = (reason) => {
 
 // 1. Seed the parent.
 const parent = await manager.create({ id: 'parent', provider: 'claude', cwd: project }, ownerFor('parent'))
-console.log(`parent: ${parent.status}${parent.message ? ` - ${parent.message}` : ''} (forkSupport: ${parent.forkSupport})`)
+console.log(
+  `parent: ${parent.status}${parent.message ? ` - ${parent.message}` : ''} (forkSupport: ${parent.forkSupport})`
+)
 if (parent.status !== 'ready') fail('parent session did not open')
 if (!parent.forkSupport) fail('the adapter did not advertise session.fork')
 const parentSessionId = parent.sessionId

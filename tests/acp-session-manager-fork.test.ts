@@ -71,9 +71,7 @@ test('a fork launch issues session/fork then loads the id the fork returned', as
     assert.equal(result.status, 'ready')
     assert.equal(result.sessionId, 'forked-child')
     assert.equal(result.forkSupport, true)
-    const observedText = result.replay?.find(
-      (event) => event.type === 'message' && event.role === 'user'
-    )
+    const observedText = result.replay?.find((event) => event.type === 'message' && event.role === 'user')
     assert.ok(observedText && observedText.type === 'message')
     const observed = JSON.parse(observedText.text) as {
       fork: { sessionId: string; cwd: string }
@@ -180,10 +178,7 @@ test('reports forkSupport false when initialize advertised no session.fork capab
   const manager = createAcpSessionManager({ appPath })
 
   try {
-    const result = await manager.create(
-      { id: 'plain-node', provider: 'claude', cwd: appPath },
-      owner
-    )
+    const result = await manager.create({ id: 'plain-node', provider: 'claude', cwd: appPath }, owner)
 
     assert.equal(result.status, 'ready')
     assert.equal(result.forkSupport, false)
