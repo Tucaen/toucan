@@ -92,6 +92,21 @@ A currently-active conversation is never pruned, and "active" here is membership
 
 Two residual gaps, both deliberate. The cap is enforced on one edge only — a new record — so an index left over the cap by other means (a lowered cap, records copied in) stays over it until the next new conversation. And a conversation is only protected while *this process* watches it, so a record resumed elsewhere before its first turn boundary is prunable; the cost of losing that race is one conversation re-deriving its record from the transcript, which is what the index does at every boundary anyway.
 
+## What extraction cannot reach (for whoever picks up summarization)
+
+Observed against the live index on 2026-09-18, 29 records. Recorded here because it only becomes visible once real sessions have filled the index, and because it contradicts the assumption the design was argued from.
+
+The design expected the weakness of zero-token extraction to be *thinness* — a final assistant message reading "Done, I fixed X", carrying no more than the commit subject. That is not what the index fills with. The real shape is the opposite: a working session's last message is a **commit changelog**, and the excerpt spends its whole budget restating the diff — "Committed as `e340d4f`. What changed — `src/shared/session-outcome.ts`: new `filesOmitted` on the record, `sessionOutcomeFilesOmittedMarker` + its anchored read-back regex…" — which is the one thing git already carries for free and the index least needs. The judgment in the same message, the part no diff reconstructs, is what gets crowded out.
+
+The task excerpt has its own version. It is the conversation's *first* user message, which on a long conversation can be a fragment — one real record's task reads `updaet the issue` — while the ask the session actually served arrived several turns later.
+
+So a summarization upgrade should not be aimed at writing *more*. Two specific targets, both now evidenced:
+
+- **Last result: drop the changelog, keep the judgment.** What was tried and abandoned and why, what was deliberately left undone, what turned out not to be the cause. The same record that wasted its budget on a file list also recorded that a prior ticket's claimed PASS was not reproducible — exactly the content worth paying tokens for.
+- **Task: the conversation's dominant ask, not its first message.**
+
+Until that lands the records are still net-positive — they carry the files, the failures, and often enough judgment to be worth the read — but this is the ceiling, and it is a content ceiling rather than the budget ceiling the caps were tuned against.
+
 ## Ticket set
 
 1. Tracer bullet: outcome record written at turn end (type + indexer + markdown store, compact by construction).
@@ -99,4 +114,4 @@ Two residual gaps, both deliberate. The cap is enforced on one edge only — a n
 3. Agent retrieval: outcomes directory via `additionalDirectories` + context pointer; verify the grep path end-to-end. **Landed** — see "Measured retrieval budget" above.
 4. Hygiene: pruning and trivial-session filtering. **Landed** — see "Hygiene" above.
 
-Out of scope for this set: LLM summarization, revert detection (needs git correlation), follow-up extraction, stow-skill integration, any UI.
+Out of scope for this set: LLM summarization (see "What extraction cannot reach" above for what it should target), revert detection (needs git correlation), follow-up extraction, stow-skill integration, any UI.
