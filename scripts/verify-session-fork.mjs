@@ -40,23 +40,24 @@ const ownerFor = (id) => {
 
 const manager = createAcpSessionManager({ appPath: process.cwd(), environment: process.env })
 
-const waitForTurn = (id) =>
-  new Promise((resolveWait, rejectWait) => {
-    const started = Date.now()
-    const events = eventsById.get(id)
-    const from = events.length
-    const poll = setInterval(() => {
-      const done = events.slice(from).some((event) => event?.type === 'turn_complete' || event?.type === 'turn_failed')
-      if (done) {
-        clearInterval(poll)
-        resolveWait()
-      } else if (Date.now() - started > 180_000) {
-        // A wedged turn is its own failure; resolving here would misreport it as a wrong answer.
-        clearInterval(poll)
-        rejectWait(new Error(`turn on '${id}' did not complete within 180s`))
-      }
-    }, 250)
-  })
+/**
+ * Runs one turn and proves it reached a boundary.
+ *
+ * `manager.prompt` settles with the *whole turn*, not with the adapter accepting the prompt - so
+ * `turn_complete` is already in the log by the time it resolves. Waiting for a boundary *after*
+ * awaiting the prompt therefore waits for a second turn that will never be asked for, which is a
+ * guaranteed timeout rather than a check. The offset is captured before the prompt for that
+ * reason, and the boundary is asserted rather than polled for.
+ */
+const runTurn = async (id, text) => {
+  const events = eventsById.get(id)
+  const from = events.length
+  const result = await manager.prompt(id, text)
+  if (!result?.ok) fail(`prompt on '${id}' was refused: ${result?.message ?? 'no reason given'}`)
+  const boundary = events.slice(from).find((event) => event?.type === 'turn_complete' || event?.type === 'turn_failed')
+  if (!boundary) fail(`turn on '${id}' settled without a completion boundary`)
+  if (boundary.type === 'turn_failed') fail(`turn on '${id}' failed: ${boundary.message ?? 'no reason given'}`)
+}
 
 const lastAssistantText = (id) => {
   const snapshot = eventsById
@@ -80,8 +81,7 @@ if (parent.status !== 'ready') fail('parent session did not open')
 if (!parent.forkSupport) fail('the adapter did not advertise session.fork')
 const parentSessionId = parent.sessionId
 
-await manager.prompt('parent', `Remember the codeword ${CODEWORD}. Reply with just OK.`)
-await waitForTurn('parent')
+await runTurn('parent', `Remember the codeword ${CODEWORD}. Reply with just OK.`)
 console.log(`parent seeded, said: ${lastAssistantText('parent')}`)
 
 // 2. Fork the live, idle parent.
@@ -98,15 +98,13 @@ const liveReplayHasHistory = (liveChild.replay ?? []).some(
 console.log(`live child replayed parent history: ${liveReplayHasHistory}`)
 if (!liveReplayHasHistory) fail('live fork replay is missing the parent history')
 
-await manager.prompt('live-child', 'What is the codeword? Answer with the codeword only.')
-await waitForTurn('live-child')
+await runTurn('live-child', 'What is the codeword? Answer with the codeword only.')
 const liveAnswer = lastAssistantText('live-child')
 console.log(`live child answered: ${liveAnswer}`)
 if (!liveAnswer.includes(CODEWORD)) fail('live fork could not answer from inherited context')
 
 // 3. The parent still accepts a turn after being forked.
-await manager.prompt('parent', 'Reply with just OK again.')
-await waitForTurn('parent')
+await runTurn('parent', 'Reply with just OK again.')
 const parentAfter = lastAssistantText('parent')
 console.log(`parent after fork answered: ${parentAfter}`)
 if (!parentAfter) fail('parent refused a turn after being forked')
@@ -125,8 +123,7 @@ const dormantReplayHasHistory = (dormantChild.replay ?? []).some(
 console.log(`dormant child replayed parent history: ${dormantReplayHasHistory}`)
 if (!dormantReplayHasHistory) fail('dormant fork replay is missing the parent history')
 
-await manager.prompt('dormant-child', 'What is the codeword? Answer with the codeword only.')
-await waitForTurn('dormant-child')
+await runTurn('dormant-child', 'What is the codeword? Answer with the codeword only.')
 const dormantAnswer = lastAssistantText('dormant-child')
 console.log(`dormant child answered: ${dormantAnswer}`)
 if (!dormantAnswer.includes(CODEWORD)) fail('dormant fork could not answer from inherited context')

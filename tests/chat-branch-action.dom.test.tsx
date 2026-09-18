@@ -157,4 +157,25 @@ describe('the chat node Branch action', () => {
     // which is the child's own - never the parent's, or a restart would re-fork.
     await waitFor(() => expect(onConversationId).toHaveBeenCalledWith('chat-node', 'conversation-child'))
   })
+  test('a dormant node offers Branch: the fork runs in the child, so the parent needs no live session', async () => {
+    window.agentApi = createMockAgentApi().api
+    const onBranch = vi.fn()
+
+    // Dormant is the case the capability gate cannot consult: no session ran, so `forkSupport` was
+    // never reported. That unknown is deliberately permissive - the parent's process is not what
+    // forks, its transcript on disk is - and the boundary lets `dormant` through for the same
+    // reason. The node renders its saved-conversation panel, not a transcript.
+    render(nodeView(chatNode(), { dormant: true, forkSupport: undefined, onBranch }))
+
+    screen.getByText('Saved Claude conversation')
+    expect(branchAction()).toBeEnabled()
+    fireEvent.click(branchAction()!)
+    expect(onBranch).toHaveBeenCalledWith('chat-node')
+  })
+
+  test('a dormant node that once reported no fork capability still hides the action', () => {
+    window.agentApi = createMockAgentApi().api
+    render(nodeView(chatNode(), { dormant: true, forkSupport: false }))
+    expect(branchAction()).toBeNull()
+  })
 })
