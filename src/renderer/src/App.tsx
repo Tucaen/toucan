@@ -128,8 +128,8 @@ import {
   launchModeAfterConversation,
   lineageEdges,
   lineageKey,
-  lineageOf,
-  offersBranchAction
+  offersBranchAction,
+  planBranch
 } from './conversation-lineage'
 import { COMPOSER_SEND_KEY_DEFAULT } from './composer-keys'
 import { ComposerSendKeyContext } from './composer-send-key-context'
@@ -1114,19 +1114,20 @@ function Canvas(): JSX.Element {
       )
       if (!node || !offersBranchAction(node)) return
       if (branchBlockedReason(sessionNodeStatus(node, nodeStatusesRef.current))) return
-      const lineage = lineageOf(node)
+      const plan = planBranch(node)
       const project = projectsRef.current.find((candidate) => candidate.id === node.data.projectId)
-      if (!lineage || !project) return
+      if (!plan || !project) return
       const width = typeof node.style?.width === 'number' ? node.style.width : NEW_SESSION_NODE_SIZE.width
       addSessionNode({
-        kind: node.data.kind,
+        kind: plan.kind,
         project,
-        worktree: node.data.worktreeId ? findWorktreeNode(node.data.worktreeId)?.data : undefined,
+        worktree: plan.worktreeId ? findWorktreeNode(plan.worktreeId)?.data : undefined,
         position: cascadedNodePosition(nodesRef.current, {
           x: node.position.x + (node.measured?.width ?? width) + 48,
           y: node.position.y
         }),
-        branchedFrom: lineage
+        modelId: plan.modelId,
+        branchedFrom: plan.branchedFrom
       })
     },
     [addSessionNode, findWorktreeNode]

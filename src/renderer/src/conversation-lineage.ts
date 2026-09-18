@@ -116,7 +116,32 @@ export function lineageEdges(nodes: readonly CanvasNode[]): Edge[] {
   })
 }
 
-/** The record a branch writes onto the child, from the parent it was taken at. */
-export function lineageOf(parent: TerminalCanvasNode): ConversationLineage | undefined {
-  return parent.data.conversationId ? { nodeId: parent.id, conversationId: parent.data.conversationId } : undefined
+/** Everything a branch inherits from the node it was taken at; `undefined` when there is nothing to fork. */
+export interface BranchPlan {
+  kind: TerminalKind
+  /** The provenance record the child carries, and the conversation its fork copies. */
+  branchedFrom: ConversationLineage
+  /**
+   * The model the parent is running, so the branch continues the same conversation on the same
+   * model. Absent only when the parent never reported one, which leaves the child on the adapter's
+   * default exactly as a fresh node would be - a branch must not silently change the model that
+   * wrote the transcript it inherits.
+   */
+  modelId?: string
+  /** The worktree the parent runs in, so the child runs in the same checkout. */
+  worktreeId?: string
+}
+
+/**
+ * What a branch of this node would be. One place decides it, so the canvas's placement code
+ * cannot quietly drop an inherited property the way passing fields one by one invites.
+ */
+export function planBranch(parent: TerminalCanvasNode): BranchPlan | undefined {
+  if (!parent.data.conversationId) return undefined
+  return {
+    kind: parent.data.kind,
+    branchedFrom: { nodeId: parent.id, conversationId: parent.data.conversationId },
+    modelId: parent.data.modelId,
+    worktreeId: parent.data.worktreeId
+  }
 }

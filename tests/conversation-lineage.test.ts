@@ -14,8 +14,8 @@ import {
   lineageEdgeId,
   lineageEdges,
   lineageKey,
-  lineageOf,
-  offersBranchAction
+  offersBranchAction,
+  planBranch
 } from '../src/renderer/src/conversation-lineage'
 import { isValidTerminalContextConnection } from '../src/renderer/src/terminal-context-edges'
 import type { WorkspaceState, WorkspaceTerminalNode } from '../src/shared/terminal'
@@ -174,11 +174,26 @@ test('a branch relaunches as a fork until it owns a conversation, then resumes l
   assert.equal(node(canvasNodes(), 'child').data.launchMode, 'resume')
 })
 
-test('lineageOf reads the parent record a branch writes, and refuses a parent with no conversation', () => {
-  const nodes = canvasNodes()
-  assert.deepEqual(lineageOf(node(nodes, 'parent')), { nodeId: 'parent', conversationId: 'conversation-parent' })
+test('a branch inherits what the parent is running: its model, its worktree, its conversation', () => {
+  const parent = node(canvasNodes(), 'parent')
+  const running: TerminalCanvasNode = {
+    ...parent,
+    data: { ...parent.data, modelId: 'claude-opus-5[1m]', worktreeId: 'worktree-7' }
+  }
+  assert.deepEqual(planBranch(running), {
+    kind: 'claude',
+    branchedFrom: { nodeId: 'parent', conversationId: 'conversation-parent' },
+    modelId: 'claude-opus-5[1m]',
+    worktreeId: 'worktree-7'
+  })
+
+  // A parent that never reported a model leaves the child on the adapter's default, as a fresh
+  // node is - not on some other model picked by accident.
+  assert.equal(planBranch(node(canvasNodes(), 'parent'))?.modelId, undefined)
+
+  // Nothing to fork: no plan at all.
   const fresh = restoreCanvasWorkspace(workspace([chat('fresh', { conversationId: undefined })]), callbacks).nodes
-  assert.equal(lineageOf(node(fresh, 'fresh')), undefined)
+  assert.equal(planBranch(node(fresh, 'fresh')), undefined)
 })
 
 test('the lineage key ignores everything a drag changes and notices everything lineage depends on', () => {
