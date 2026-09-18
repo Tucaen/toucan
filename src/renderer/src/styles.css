@@ -1421,6 +1421,23 @@ button.global-status-chip:hover {
   height: 12px;
   border: 2px solid var(--node-accent, #74d8a2);
   background: #101319;
+  /* Above the border resizer, whose side grab band spans the full edge at z-index 4-5: a handle
+     left at the default stacking order is painted under it, and every connection drag would start
+     as a resize instead. */
+  z-index: 6;
+}
+
+/* Pulled fully inside the node. xyflow centers a side handle on the border (`translate(±50%)`),
+   but every node root clips its overflow for the rounded corners, so the outer half is erased and
+   only the half the resize band covers is left to grab. */
+.terminal-context-handle.react-flow__handle-right {
+  right: 0;
+  transform: translate(0, -50%);
+}
+
+.terminal-context-handle.react-flow__handle-left {
+  left: 0;
+  transform: translate(0, -50%);
 }
 
 .terminal-context-handle.react-flow__handle:hover,
