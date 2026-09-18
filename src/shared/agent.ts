@@ -9,6 +9,13 @@ export interface AgentCreateRequest {
   cwd: string
   scope?: 'project'
   sessionId?: string
+  /**
+   * Branch a new conversation off an existing one: the adapter copies the named session's
+   * transcript into a new session id, which is then loaded like any resume - so the child inherits
+   * the full prior context and owns a conversation id of its own. Mutually exclusive with
+   * `sessionId`; a request carrying both is refused before any process is spawned.
+   */
+  forkFromSessionId?: string
   permissionMode?: string
   modelId?: string
   effortId?: string
@@ -52,6 +59,11 @@ export interface AgentCreateResult {
   authMethods?: AgentAuthMethod[]
   /** Whether the agent's `initialize` handshake advertised `promptCapabilities.image`. */
   imageSupport?: boolean
+  /**
+   * Whether the agent's `initialize` handshake advertised `sessionCapabilities.fork` - launch-time
+   * truth like `imageSupport`, so the renderer can offer a Branch action only where it can work.
+   */
+  forkSupport?: boolean
   /**
    * The routine-delegation policy the session's adapter actually launched with (see
    * `shared/routine-delegation.ts`) - the launch-time truth, which a preference changed since

@@ -20,6 +20,8 @@ export interface ScriptedAdapter {
   prelude?: string
   /** JavaScript body of `(request) => { ... }`, invoked for every request other than `initialize`. */
   handleRequest: string
+  /** Extra `agentCapabilities` merged into the `initialize` answer; `loadSession: true` stays. */
+  agentCapabilities?: Record<string, unknown>
 }
 
 /**
@@ -43,7 +45,7 @@ lines.on('line', (line) => {
   if (request.method === 'initialize') {
     send({ jsonrpc: '2.0', id: request.id, result: {
       protocolVersion: 1,
-      agentCapabilities: { loadSession: true },
+      agentCapabilities: Object.assign({ loadSession: true }, ${JSON.stringify(script.agentCapabilities ?? {})}),
       authMethods: []
     } })
   } else {

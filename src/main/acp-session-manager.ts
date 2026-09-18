@@ -281,6 +281,8 @@ interface RunningAgent {
   cachedModels?: AgentModelState
   /** Whether the agent's `initialize` handshake advertised `promptCapabilities.image`. */
   imageSupport: boolean
+  /** Whether the agent's `initialize` handshake advertised `sessionCapabilities.fork`. */
+  forkSupport: boolean
   /** Whether the adapter can inject a prompt into the active turn at its own safe boundary. */
   steeringSupport: boolean
   sessionId?: string
@@ -943,9 +945,28 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       // boundary, and removal forces nothing - the registry already refuses at call time.
       const terminalContextServer = await options.terminalContext?.serverFor(running.request.id)
       const mcpServers: McpServer[] = terminalContextServer ? [terminalContextServer] : []
+      // Fork-then-load: `session/fork` copies the parent's transcript to a new session id and
+      // returns only that id - it registers no live session - so the child is opened by falling
+      // into the very load path a resume takes (same replay capture, same configure), and owns a
+      // distinct conversation id by construction. A reopen of an already-forked launch (the
+      // reauth path) loads the child it already has rather than forking a second copy.
+      let loadSessionId = running.request.sessionId
+      if (running.request.forkFromSessionId) {
+        loadSessionId =
+          running.sessionId ??
+          (
+            await running.context.request(methods.agent.session.fork, {
+              sessionId: running.request.forkFromSessionId,
+              cwd: running.request.cwd,
+              mcpServers,
+              ...skillsConfiguration
+            })
+          ).sessionId
+        if (!loadSessionId) throw new Error('The agent did not return a session ID for the fork.')
+      }
       let resumed = false
       let replay: AgentEvent[] | undefined
-      if (running.request.sessionId) {
+      if (loadSessionId) {
         replay = []
         running.replayEvents = replay
         running.replayMessageSequence = 0
@@ -953,7 +974,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         let response
         try {
           response = await running.context.request(methods.agent.session.load, {
-            sessionId: running.request.sessionId,
+            sessionId: loadSessionId,
             cwd: running.request.cwd,
             mcpServers,
             ...skillsConfiguration
@@ -961,7 +982,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         } finally {
           running.replayEvents = undefined
         }
-        running.sessionId = running.request.sessionId
+        running.sessionId = loadSessionId
         configure(response)
         resumed = true
       }
@@ -1019,6 +1040,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         status: 'ready',
         sessionId,
         imageSupport: running.imageSupport,
+        forkSupport: running.forkSupport,
         ...(modes ? { modes } : {}),
         ...(models ? { models } : {}),
         ...(efforts ? { efforts } : {}),
@@ -1041,6 +1063,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
           status: 'auth_required',
           authMethods: running.authMethods,
           imageSupport: running.imageSupport,
+          forkSupport: running.forkSupport,
           ...(models ? { models } : {}),
           ...(efforts ? { efforts } : {}),
           ...(running.routineDelegation ? { routineDelegation: running.routineDelegation } : {})
@@ -1143,6 +1166,15 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
 
   return {
     async create(request, owner): Promise<AgentCreateResult> {
+      // Refused before anything is spawned or subscribed: resuming a session and forking one are
+      // two different launches, and a request naming both has no readable intent.
+      if (request.sessionId && request.forkFromSessionId) {
+        return {
+          ok: false,
+          status: 'error',
+          message: 'A session cannot both resume and fork: pass sessionId or forkFromSessionId, never both.'
+        }
+      }
       const existing = agents.get(request.id)
       if (existing) return openSession(existing)
 
@@ -1370,6 +1402,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         authRequired: false,
         opening: true,
         imageSupport: false,
+        forkSupport: false,
         steeringSupport: false
       }
       running.wakeGate = createPromptWakeGate<AgentPromptContent>({
@@ -1417,6 +1450,8 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         })
         running.authMethods = (initialized.authMethods ?? []).map(simplifyAuthMethod)
         running.imageSupport = initialized.agentCapabilities?.promptCapabilities?.image ?? false
+        // `{}` advertises support; omitted or `null` both mean the adapter cannot fork.
+        running.forkSupport = initialized.agentCapabilities?.sessionCapabilities?.fork != null
         const initializeMeta = initialized._meta as { steering?: { supported?: boolean } } | undefined
         running.steeringSupport = initializeMeta?.steering?.supported === true
         return await openSession(running)
