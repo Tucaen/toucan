@@ -25,9 +25,10 @@ import { ADOPTION_BOUNDARY } from './worktree-attachment'
 /**
  * Providers whose fork is verified end to end. The `session.fork` capability is necessary but not
  * sufficient: an adapter can advertise it and still replay a transcript Toucan has never checked,
- * so the action stays behind an allow-list until each provider is verified (Codex is #205).
+ * so the action stays behind an allow-list until each provider is verified - both by
+ * `scripts/verify-session-fork.mjs <provider>` (Claude for #200, Codex for #205).
  */
-export const BRANCHABLE_PROVIDERS: readonly TerminalKind[] = ['claude']
+export const BRANCHABLE_PROVIDERS: readonly TerminalKind[] = ['claude', 'codex']
 
 /** The little of a node this decision reads, so a rendering node can ask without being one. */
 export type BranchCandidate = { data: Pick<TerminalNodeData, 'kind' | 'conversationId' | 'forkSupport'> }

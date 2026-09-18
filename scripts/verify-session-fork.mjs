@@ -1,10 +1,10 @@
 /**
- * Live check for issue #200: does fork-on-resume branch a *real* Claude conversation?
+ * Live check for issues #200/#205: does fork-on-resume branch a *real* conversation?
  *
  * Not part of `npm test` - it launches real ACP adapters and spends account tokens. Run it by hand
  * after `tsc -p tsconfig.test.json`:
  *
- *   node scripts/verify-session-fork.mjs
+ *   node scripts/verify-session-fork.mjs [claude|codex]
  *
  * It seeds a parent conversation with a codeword, then forks it twice - once while the parent is
  * live and idle, once after the parent's adapter has been killed (a dormant conversation) - and
@@ -20,6 +20,12 @@ import { pathToFileURL } from 'node:url'
 const out = (path) => pathToFileURL(join(process.cwd(), '.test-out', path)).href
 const { createAcpSessionManager } = await import(out('src/main/acp-session-manager.js'))
 const { foldAgentEvent, initialAgentTranscriptState } = await import(out('src/shared/agent-transcript.js'))
+
+const provider = process.argv[2] ?? 'claude'
+if (provider !== 'claude' && provider !== 'codex') {
+  console.error(`Unknown provider '${provider}': pass claude or codex.`)
+  process.exit(1)
+}
 
 const project = mkdtempSync(join(tmpdir(), 'toucan-fork-project-'))
 writeFileSync(join(project, 'README.md'), '# A project to branch conversations in\n')
@@ -73,7 +79,7 @@ const fail = (reason) => {
 }
 
 // 1. Seed the parent.
-const parent = await manager.create({ id: 'parent', provider: 'claude', cwd: project }, ownerFor('parent'))
+const parent = await manager.create({ id: 'parent', provider, cwd: project }, ownerFor('parent'))
 console.log(
   `parent: ${parent.status}${parent.message ? ` - ${parent.message}` : ''} (forkSupport: ${parent.forkSupport})`
 )
@@ -86,7 +92,7 @@ console.log(`parent seeded, said: ${lastAssistantText('parent')}`)
 
 // 2. Fork the live, idle parent.
 const liveChild = await manager.create(
-  { id: 'live-child', provider: 'claude', cwd: project, forkFromSessionId: parentSessionId },
+  { id: 'live-child', provider, cwd: project, forkFromSessionId: parentSessionId },
   ownerFor('live-child')
 )
 console.log(`live child: ${liveChild.status} (session ${liveChild.sessionId})`)
@@ -112,7 +118,7 @@ if (!parentAfter) fail('parent refused a turn after being forked')
 // 4. Fork the now-dormant parent (its adapter killed, only the transcript on disk remains).
 manager.kill('parent')
 const dormantChild = await manager.create(
-  { id: 'dormant-child', provider: 'claude', cwd: project, forkFromSessionId: parentSessionId },
+  { id: 'dormant-child', provider, cwd: project, forkFromSessionId: parentSessionId },
   ownerFor('dormant-child')
 )
 console.log(`dormant child: ${dormantChild.status} (session ${dormantChild.sessionId})`)

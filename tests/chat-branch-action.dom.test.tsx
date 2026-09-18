@@ -97,15 +97,12 @@ describe('the chat node Branch action', () => {
     expect(onBranch).toHaveBeenCalledWith('chat-node')
   })
 
-  test('is absent where a fork cannot work: a Codex node, and a session that reported no capability', () => {
+  test('is absent where a fork cannot work: a session that reported no capability', () => {
     window.agentApi = createMockAgentApi().api
-
-    render(nodeView(chatNode({ kind: 'codex' })))
-    expect(branchAction()).toBeNull()
-    screen.getByText('Claude 1') // the node itself rendered; only the action is missing
 
     render(nodeView(chatNode(), { forkSupport: false }))
     expect(branchAction()).toBeNull()
+    screen.getByText('Claude 1') // the node itself rendered; only the action is missing
   })
 
   test('is disabled with a reason while the session is not at a turn boundary', async () => {

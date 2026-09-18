@@ -94,8 +94,10 @@ test('the Branch action is offered only for an allow-listed provider that report
   assert.equal(offersBranchAction(withSupport('parent', undefined)), true)
   // Reported missing is absent, not disabled.
   assert.equal(offersBranchAction(withSupport('parent', false)), false)
-  // Codex is off the allow-list until its fork is verified (#205).
-  assert.equal(offersBranchAction(withSupport('codex-chat', true)), false)
+  // Codex is on the allow-list since its fork was verified live (#205).
+  assert.equal(offersBranchAction(withSupport('codex-chat', true)), true)
+  // The capability gate still applies to an allow-listed provider.
+  assert.equal(offersBranchAction(withSupport('codex-chat', false)), false)
 })
 
 test('a node with no conversation, and a node that is not a chat, offer nothing to branch', () => {
