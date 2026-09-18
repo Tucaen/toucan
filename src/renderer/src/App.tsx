@@ -44,6 +44,7 @@ import type {
   AgentPermissionModes,
   BrainDumpPanelState,
   ComposerSendKey,
+  ConversationLineage,
   ConversationPreview,
   ProjectDirectory,
   ProjectGroup,
@@ -122,6 +123,14 @@ import {
   withTerminalContextEdge,
   withoutEdgesTouchingNodes
 } from './terminal-context-edges'
+import {
+  branchBlockedReason,
+  launchModeAfterConversation,
+  lineageEdges,
+  lineageKey,
+  lineageOf,
+  offersBranchAction
+} from './conversation-lineage'
 import { COMPOSER_SEND_KEY_DEFAULT } from './composer-keys'
 import { ComposerSendKeyContext } from './composer-send-key-context'
 import { RoutineDelegationContext } from './routine-delegation-context'
@@ -450,7 +459,8 @@ function Canvas(): JSX.Element {
             .setTitle(data.kind, conversationId, data.label, data.titleSource)
             .catch(() => undefined)
         }
-        return { conversationId }
+        // A fork is a one-shot launch; `launchModeAfterConversation` says what it settles into.
+        return { conversationId, launchMode: launchModeAfterConversation(data.launchMode) }
       })
     },
     [patchTerminalNode]
@@ -476,6 +486,15 @@ function Canvas(): JSX.Element {
       }
       patchTerminalNode(nodeId, () => ({ label: normalized, titleSource: source }))
       return true
+    },
+    [patchTerminalNode]
+  )
+
+  // Launch-time truth about the adapter, kept on the node so the Branch action still knows the
+  // answer once the session it came from is dormant or gone.
+  const handleForkSupport = useCallback(
+    (nodeId: string, supported: boolean): void => {
+      patchTerminalNode(nodeId, () => ({ forkSupport: supported }))
     },
     [patchTerminalNode]
   )
@@ -607,6 +626,7 @@ function Canvas(): JSX.Element {
   // Node-data callbacks must keep a stable identity or every worktree node re-renders on each
   // canvas change, so they read the latest workspace through refs instead of dependencies.
   const nodesRef = useRef<CanvasNode[]>([])
+  const nodeStatusesRef = useRef<Record<string, TerminalNodeStatus>>({})
   const projectsRef = useRef<Project[]>([])
   const permissionModesRef = useRef<AgentPermissionModes>({})
   const recentlyClosedNodesRef = useRef<WorkspaceTerminalNode[]>([])
@@ -620,7 +640,15 @@ function Canvas(): JSX.Element {
     (nodeId, request) => handleWorktreeHandoffRef.current?.(nodeId, request),
     []
   )
+  // Branching places a node, so its handler is built on `addSessionNode` further down; same ref
+  // indirection, for the same two reasons.
+  const handleBranchRef = useRef<TerminalNodeCallbacks['onBranch']>(undefined)
+  const dispatchBranch = useCallback<NonNullable<TerminalNodeCallbacks['onBranch']>>(
+    (nodeId) => handleBranchRef.current?.(nodeId),
+    []
+  )
   nodesRef.current = nodes
+  nodeStatusesRef.current = nodeStatuses
   projectsRef.current = projects
   permissionModesRef.current = agentPermissionModes
   recentlyClosedNodesRef.current = recentlyClosedNodes
@@ -828,6 +856,20 @@ function Canvas(): JSX.Element {
     []
   )
 
+  /**
+   * What the canvas draws: the terminal-context edges it owns as state, plus the lineage edges
+   * projected from `branchedFrom` on every render. The projection is deliberately not merged into
+   * `edges` - it is derived from nodes, so storing it would make two sources of truth for one
+   * fact, and a lineage edge would then be something the user could select and delete.
+   */
+  const lineage = lineageKey(nodes)
+  const canvasEdges = useMemo(
+    () => [...edges, ...lineageEdges(nodesRef.current)],
+    // `lineage` stands in for `nodes` deliberately: it changes only when a node or a `branchedFrom`
+    // does, so dragging a node does not rebuild the projection on every pointer frame.
+    [edges, lineage]
+  )
+
   const connectTerminalContext = useCallback(
     (connection: Connection): void => {
       setEdges((current) => withTerminalContextEdge(current, nodesRef.current, connection))
@@ -868,6 +910,8 @@ function Canvas(): JSX.Element {
         onResume: resumeNode,
         onTerminalLiveness: handleTerminalLiveness,
         onTerminalContext: handleTerminalContext,
+        onForkSupport: handleForkSupport,
+        onBranch: dispatchBranch,
         onWorktreeHandoff: dispatchWorktreeHandoff
       }
     )
@@ -881,6 +925,7 @@ function Canvas(): JSX.Element {
     return true
   }, [
     dispatchWorktreeHandoff,
+    dispatchBranch,
     handleConversationId,
     handleDraftChange,
     handleFocusModeChange,
@@ -891,6 +936,7 @@ function Canvas(): JSX.Element {
     handleStatusChange,
     handleTicketActivity,
     handleTerminalContext,
+    handleForkSupport,
     handleTerminalLiveness,
     handleTitleChange,
     resumeNode,
@@ -945,14 +991,24 @@ function Canvas(): JSX.Element {
       titleSource?: ConversationTitleSource
       /** An existing provider conversation this node adopts instead of starting a fresh one. */
       resumeConversationId?: string
+      /**
+       * The conversation this node branches off: it launches as a fork, inheriting the whole
+       * transcript, and keeps the record as its provenance. Mutually exclusive with
+       * `resumeConversationId` - one loads a conversation, the other copies it.
+       */
+      branchedFrom?: ConversationLineage
       /** The model to open on. Absent leaves it to the adapter's own default, as a click does. */
       modelId?: string
       // Returns the canvas node id it minted, so a caller waiting on this session can find it.
     }): string => {
-      const { kind, project, worktree: requestedWorktree, position, resumeConversationId } = options
+      const { kind, project, worktree: requestedWorktree, position, resumeConversationId, branchedFrom } = options
       const id = crypto.randomUUID()
       const label = options.label ?? `${labels[kind]} ${nextSessionNumber.current}`
-      const conversationId = resumeConversationId ?? (kind === 'claude' ? crypto.randomUUID() : undefined)
+      // A branch has no conversation of its own until the fork produces one, and must not be
+      // handed a speculative id: an id here would read as a conversation to resume.
+      const conversationId = branchedFrom
+        ? undefined
+        : (resumeConversationId ?? (kind === 'claude' ? crypto.randomUUID() : undefined))
       nextSessionNumber.current += 1
       setNodes((current) => {
         const worktree = requestedWorktree
@@ -991,7 +1047,8 @@ function Canvas(): JSX.Element {
               preferredPermissionMode: kind === 'terminal' ? undefined : permissionModesRef.current[kind],
               modelId: options.modelId,
               dormant: false,
-              launchMode: resumeConversationId ? 'resume' : 'new',
+              branchedFrom,
+              launchMode: branchedFrom ? 'fork' : resumeConversationId ? 'resume' : 'new',
               initialInput: options.initialInput,
               onStatusChange: handleStatusChange,
               onAttention: handleAttention,
@@ -1007,6 +1064,8 @@ function Canvas(): JSX.Element {
               onResume: resumeNode,
               onTerminalLiveness: handleTerminalLiveness,
               onTerminalContext: handleTerminalContext,
+              onForkSupport: handleForkSupport,
+              onBranch: dispatchBranch,
               onWorktreeHandoff: dispatchWorktreeHandoff
             },
             style: { ...NEW_SESSION_NODE_SIZE }
@@ -1027,6 +1086,8 @@ function Canvas(): JSX.Element {
       handleStatusChange,
       handleTicketActivity,
       handleTerminalContext,
+      handleForkSupport,
+      dispatchBranch,
       handleTerminalLiveness,
       handleTitleChange,
       resumeNode,
@@ -1039,6 +1100,38 @@ function Canvas(): JSX.Element {
       nodesRef.current.filter(isWorktreeCanvasNode).find((node) => node.data.worktreeId === worktreeId),
     []
   )
+
+  /**
+   * "Branch" on a chat node: a sibling beside it that forks the conversation, in the same project,
+   * the same worktree and so the same working directory - a branch is another line of the same
+   * work, not a move. The boundary is re-checked here rather than trusted from the click, because
+   * a turn can start between the render that enabled the button and the press.
+   */
+  const handleBranchSession = useCallback(
+    (nodeId: string): void => {
+      const node = nodesRef.current.find(
+        (candidate): candidate is TerminalCanvasNode => candidate.id === nodeId && isTerminalCanvasNode(candidate)
+      )
+      if (!node || !offersBranchAction(node)) return
+      if (branchBlockedReason(sessionNodeStatus(node, nodeStatusesRef.current))) return
+      const lineage = lineageOf(node)
+      const project = projectsRef.current.find((candidate) => candidate.id === node.data.projectId)
+      if (!lineage || !project) return
+      const width = typeof node.style?.width === 'number' ? node.style.width : NEW_SESSION_NODE_SIZE.width
+      addSessionNode({
+        kind: node.data.kind,
+        project,
+        worktree: node.data.worktreeId ? findWorktreeNode(node.data.worktreeId)?.data : undefined,
+        position: cascadedNodePosition(nodesRef.current, {
+          x: node.position.x + (node.measured?.width ?? width) + 48,
+          y: node.position.y
+        }),
+        branchedFrom: lineage
+      })
+    },
+    [addSessionNode, findWorktreeNode]
+  )
+  handleBranchRef.current = handleBranchSession
 
   /** Puts a review of one checkout on the canvas; the node reads git itself. */
   const addDiffNode = useCallback(
@@ -1391,6 +1484,8 @@ function Canvas(): JSX.Element {
         onResume: resumeNode,
         onTerminalLiveness: handleTerminalLiveness,
         onTerminalContext: handleTerminalContext,
+        onForkSupport: handleForkSupport,
+        onBranch: dispatchBranch,
         onWorktreeHandoff: dispatchWorktreeHandoff,
         ...worktreeCallbacks,
         onViewModeChange: handleFileViewModeChange,
@@ -1450,6 +1545,8 @@ function Canvas(): JSX.Element {
       handleStatusChange,
       handleTicketActivity,
       handleTerminalContext,
+      handleForkSupport,
+      dispatchBranch,
       handleTerminalLiveness,
       handleTitleChange,
       resumeNode,
@@ -2892,7 +2989,7 @@ function Canvas(): JSX.Element {
                       <ReactFlow
                         nodes={nodes}
                         nodeTypes={nodeTypes}
-                        edges={edges}
+                        edges={canvasEdges}
                         onEdgesChange={onEdgesChange}
                         onConnect={connectTerminalContext}
                         isValidConnection={isValidCanvasConnection}

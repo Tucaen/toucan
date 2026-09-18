@@ -20,6 +20,7 @@ import {
   ChevronDown,
   CircleAlert,
   Cpu,
+  GitBranch,
   Keyboard,
   ListChecks,
   ListPlus,
@@ -34,6 +35,12 @@ import {
 import MarkdownMessage from './MarkdownMessage'
 import { ImageAttachments } from './ImageAttachments'
 import WorktreeBadge from './WorktreeBadge'
+import {
+  LINEAGE_SOURCE_HANDLE,
+  LINEAGE_TARGET_HANDLE,
+  branchBlockedReason,
+  offersBranchAction
+} from './conversation-lineage'
 import {
   type AgentActivity,
   type AgentAuthMethod,
@@ -1259,6 +1266,9 @@ export default function ChatNode({ id, data, selected, width }: NodeProps<Termin
     provider,
     cwd: data.workingDirectory,
     sessionId: data.launchMode === 'resume' ? data.conversationId : undefined,
+    // A branch launches once as a fork of its parent's conversation; the moment it reports a
+    // conversation of its own, `launchMode` becomes `resume` and this goes quiet for good.
+    forkFromSessionId: data.launchMode === 'fork' ? data.branchedFrom?.conversationId : undefined,
     permissionMode: data.preferredPermissionMode,
     modelId: data.modelId,
     // Read at session creation, so a change applies on the next safe creation or resume and
@@ -1270,6 +1280,7 @@ export default function ChatNode({ id, data, selected, width }: NodeProps<Termin
     enabled: !data.dormant,
     onSessionId: (sessionId) => data.onConversationId(id, sessionId),
     onTerminalContext: (carried) => data.onTerminalContext?.(id, carried),
+    onForkSupport: (supported) => data.onForkSupport?.(id, supported),
     onPermissionMode: (modeId) => data.onPermissionModeChange(provider, modeId),
     onModel: (modelId) => data.onModelChange(id, modelId)
   })
@@ -1307,6 +1318,13 @@ export default function ChatNode({ id, data, selected, width }: NodeProps<Termin
     onTitleChange: data.onTitleChange
   })
   const stalled = reporting.stalled
+  /**
+   * The Branch action. It is absent - not disabled - where a fork cannot work at all, and disabled
+   * with a reason only while the transcript it would copy is mid-turn. The node is assembled here
+   * The rules themselves are pure (conversation-lineage.ts); this node only supplies its data.
+   */
+  const branchable = offersBranchAction({ data })
+  const branchBlocked = branchBlockedReason(reporting.nodeStatus)
 
   const commitTitle = (): void => {
     const title = titleDraft.trim()
@@ -1479,6 +1497,23 @@ export default function ChatNode({ id, data, selected, width }: NodeProps<Termin
         className="terminal-context-handle"
         title="Connect a terminal to let this agent read its output"
       />
+      {/* The lineage edge's anchors. Deliberately unconnectable: lineage is derived from the
+          child's `branchedFrom` record, never drawn, so these are attachment points for a
+          projection rather than ports the user can start a drag from. */}
+      <Handle
+        type="source"
+        id={LINEAGE_SOURCE_HANDLE}
+        position={Position.Right}
+        className="lineage-handle"
+        isConnectable={false}
+      />
+      <Handle
+        type="target"
+        id={LINEAGE_TARGET_HANDLE}
+        position={Position.Left}
+        className="lineage-handle lineage-handle-target"
+        isConnectable={false}
+      />
       <header className="node-header chat-node-header">
         <span
           className="status-dot"
@@ -1536,6 +1571,22 @@ export default function ChatNode({ id, data, selected, width }: NodeProps<Termin
             room for the node's identity. */}
         <UnreadToggle unread={data.unread ?? 0} onToggle={reporting.toggleUnread} />
         <span className="node-status">{status.replace('_', ' ')}</span>
+        {branchable && (
+          <button
+            type="button"
+            className="node-branch-action nodrag"
+            aria-label="Branch conversation"
+            title={branchBlocked ?? 'Branch this conversation into a new node that inherits its history'}
+            disabled={Boolean(branchBlocked)}
+            onMouseDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation()
+              data.onBranch?.(id)
+            }}
+          >
+            <GitBranch aria-hidden="true" />
+          </button>
+        )}
         <NodeFitAction nodeId={id} fitted={data.fittedToCanvas ?? false} />
       </header>
       {data.dormant ? (

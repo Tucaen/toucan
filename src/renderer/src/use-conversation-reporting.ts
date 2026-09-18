@@ -76,6 +76,8 @@ export interface ConversationReporting {
   generatedTitleError: boolean
   /** The header toggle's handler; holds "mark unread" against the read-on-view effect. */
   toggleUnread(next: 'read' | 'unread'): void
+  /** The status this node reports upward, available to the node itself in the same render. */
+  nodeStatus: TerminalNodeStatus
 }
 
 export function useConversationReporting(options: ConversationReportingOptions): ConversationReporting {
@@ -203,12 +205,17 @@ export function useConversationReporting(options: ConversationReportingOptions):
   }, [status])
 
   const onStatusChange = options.onStatusChange
+  // Either kind of pending request is the same thing to a list: the agent is waiting on you.
+  const waiting = approval !== null || decisionRequest !== null
+  // The same verdict the workspace is told, kept here too so the node can act on its own status -
+  // reading it back out of the workspace would be this node's own report arriving a render late.
+  const nodeStatus: TerminalNodeStatus = options.dormant
+    ? 'dormant'
+    : sidebarStatus(status, waiting, options.unreadKind, stalled)
   useEffect(() => {
     if (options.dormant) return
-    // Either kind of pending request is the same thing to a list: the agent is waiting on you.
-    const waiting = approval !== null || decisionRequest !== null
-    onStatusChange(id, sidebarStatus(status, waiting, options.unreadKind, stalled))
-  }, [approval, options.dormant, onStatusChange, options.unreadKind, decisionRequest, id, status, stalled])
+    onStatusChange(id, nodeStatus)
+  }, [options.dormant, onStatusChange, id, nodeStatus])
 
   /**
    * What this session has been writing, for the ticket board's live card. Paths go up, not
@@ -235,5 +242,5 @@ export function useConversationReporting(options: ConversationReportingOptions):
     reportTicketActivity?.(id, { paths, working })
   }, [activities, transcript, id, reportTicketActivity, status])
 
-  return { stalled, generatedTitleError, toggleUnread }
+  return { stalled, generatedTitleError, toggleUnread, nodeStatus }
 }

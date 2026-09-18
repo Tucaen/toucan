@@ -19,8 +19,12 @@ import { isTerminalCanvasNode, isWorktreeCanvasNode, sessionNodeStatus, withoutW
  * is in flight to lose. `working`/`starting` have a turn or a handshake running, `attention` has
  * a request waiting for the user, and `stalled` is a turn Toucan cannot prove is finished - all
  * of them keep the association and try again at the next boundary.
+ *
+ * Exported because branching a conversation (`conversation-lineage.ts`) needs the same boundary
+ * for a different reason - the transcript on disk a fork copies is only complete between turns -
+ * and two lists that must agree would sooner or later stop agreeing.
  */
-const ADOPTION_BOUNDARY: readonly TerminalNodeStatus[] = ['idle', 'result', 'dormant', 'exited']
+export const ADOPTION_BOUNDARY: readonly TerminalNodeStatus[] = ['idle', 'result', 'dormant', 'exited']
 
 /** Creation can finish after discovery: preserve the existing id and every reference to it. */
 export function registerWorktreeNode(nodes: CanvasNode[], incoming: WorktreeCanvasNode): CanvasNode[] {

@@ -69,6 +69,12 @@ export interface AgentConversationOptions {
   cwd: string
   scope?: 'project'
   sessionId?: string
+  /**
+   * The conversation this session branches off: the adapter copies its transcript into a new
+   * session id, which is then loaded like a resume. Mutually exclusive with `sessionId` - main
+   * refuses a request carrying both - and read only at create, like everything else here.
+   */
+  forkFromSessionId?: string
   permissionMode?: string
   modelId?: string
   effortId?: string
@@ -87,6 +93,12 @@ export interface AgentConversationOptions {
    * compares the live edge set against launch-time truth rather than a guess.
    */
   onTerminalContext?(carried: boolean): void
+  /**
+   * Whether the created session advertised `session.fork` (`AgentCreateResult.forkSupport`) -
+   * reported once per successful create so the workspace can remember it on the node and offer
+   * the Branch action after the live session is gone.
+   */
+  onForkSupport?(supported: boolean): void
   /**
    * How long a sent message waits in `pendingSentRef` for its own echoed `message`/`role: 'user'`
    * event before its queued badge is force-cleared anyway. Defaults to `DEFAULT_ECHO_TIMEOUT_MS`;
@@ -248,7 +260,11 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
   const onModel = useRef(options.onModel)
   const onEffort = useRef(options.onEffort)
   const onTerminalContext = useRef(options.onTerminalContext)
+  const onForkSupport = useRef(options.onForkSupport)
 
+  useEffect(() => {
+    onForkSupport.current = options.onForkSupport
+  }, [options.onForkSupport])
   useEffect(() => {
     onSessionId.current = options.onSessionId
   }, [options.onSessionId])
@@ -296,6 +312,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
         cwd: options.cwd,
         scope: options.scope,
         sessionId: options.sessionId,
+        forkFromSessionId: options.forkFromSessionId,
         permissionMode: options.permissionMode,
         modelId: options.modelId,
         effortId: options.effortId,
@@ -311,6 +328,11 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
         // Only a session that actually opened has a launch-time truth to report; an auth-required
         // or failed create leaves the previous knowledge standing.
         if (result.status === 'ready') onTerminalContext.current?.(result.terminalContext ?? false)
+        // Fork support is a fact about the adapter's handshake, which an auth-required create has
+        // already completed - so unlike the terminal-context grant it is reported either way.
+        if (result.status === 'ready' || result.status === 'auth_required') {
+          onForkSupport.current?.(result.forkSupport ?? false)
+        }
         setImageSupport(result.imageSupport ?? false)
         setChat((current) => applyAgentCreateResult(current, result))
       })

@@ -875,3 +875,41 @@ test('the validator table names the same fields, on the same terms, as the canva
 
   assert.deepEqual(terms(CANVAS_NODE_VALIDATORS), terms(CANVAS_NODE_KINDS))
 })
+
+test("a branch's provenance round-trips, and a malformed one is refused at the seam (issue #204)", async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'toucan-workspace-test-'))
+  const store = createWorkspaceStore(join(directory, 'workspace.json'))
+  const state = makeState('lineage')
+  const child = {
+    id: 'child-node',
+    kind: 'claude' as const,
+    label: 'Claude 2',
+    projectId: 'project-1',
+    position: { x: 600, y: 0 },
+    width: 520,
+    height: 340,
+    conversationId: 'conversation-child',
+    branchedFrom: { nodeId: 'parent-node', conversationId: 'conversation-parent' }
+  }
+  state.nodes = [child]
+
+  assert.equal((await store.save(state)).ok, true)
+  assert.deepEqual((await store.load()).state?.nodes[0].branchedFrom, {
+    nodeId: 'parent-node',
+    conversationId: 'conversation-parent'
+  })
+
+  // The conversation id in this record leaves the renderer again as `forkFromSessionId` on an
+  // `agent:create`, so a half-shaped record must not survive the crossing.
+  const base = {
+    version: 3,
+    projects: [{ id: 'project-1', name: 'Toucan', path: 'D:\Development\Toucan', color: '#71a9ff' }],
+    activeProjectId: 'project-1',
+    sidebarCollapsed: false,
+    nodes: [],
+    worktrees: []
+  }
+  assert.equal(parseWorkspaceState({ ...base, nodes: [{ ...child, branchedFrom: { nodeId: 'parent-node' } }] }), null)
+  assert.equal(parseWorkspaceState({ ...base, nodes: [{ ...child, branchedFrom: 'parent-node' }] }), null)
+  assert.ok(parseWorkspaceState({ ...base, nodes: [child] }))
+})

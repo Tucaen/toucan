@@ -4,6 +4,7 @@ import type { AgentTurnOutcome } from '../../shared/agent'
 import type {
   AgentPermissionModes,
   CanvasNodeStateField,
+  ConversationLineage,
   ConversationPreview,
   TerminalLiveness,
   TerminalKind,
@@ -59,6 +60,18 @@ export interface TerminalNodeCallbacks {
    * compares the live edge set against (`terminal-context-edges.ts`).
    */
   onTerminalContext?(nodeId: string, carried: boolean): void
+  /**
+   * Whether the session just created advertised `session.fork`. Reported once per successful
+   * create so the Branch action can be offered on launch-time truth rather than a guess, and so
+   * the answer outlives the live session it came from.
+   */
+  onForkSupport?(nodeId: string, supported: boolean): void
+  /**
+   * Branch this conversation: the workspace places a child beside it that forks the transcript.
+   * It belongs up there rather than on the node because creating a canvas node is the workspace's
+   * job, and because the child needs the parent's project and worktree, not just its session.
+   */
+  onBranch?(nodeId: string): void
   /**
    * A prompt that asked for its own worktree. The composer hands it up rather than dispatching
    * it, so the work starts in a session whose working directory is the worktree from its first
@@ -121,7 +134,21 @@ export interface TerminalNodeData
   unread?: number
   /** The most blocking of those unread records, so a node's own dot can say which kind it is. */
   unreadKind?: AttentionKind
-  launchMode: 'new' | 'resume'
+  /**
+   * How the next session creation opens: fresh, loading `conversationId`, or forking the
+   * conversation named by `branchedFrom`. `fork` lasts exactly until the child reports a
+   * conversation id of its own, after which it rehydrates as an ordinary `resume` - the same
+   * one-shot life `new` has.
+   */
+  launchMode: 'new' | 'resume' | 'fork'
+  /** Which conversation this one was branched off; see conversation-lineage.ts. */
+  branchedFrom?: ConversationLineage
+  /**
+   * Whether this node's session reported the `session.fork` capability at launch, remembered on
+   * the node so the Branch action still reads it once the session goes dormant. Runtime-only:
+   * unknown after a restart, which `offersBranchAction` treats as permissive.
+   */
+  forkSupport?: boolean
   /**
    * Bumped when a terminal-context edge is adopted mid-session (`adoptTerminalContext`): the
    * session effect restarts on it, resuming the same conversation with the read tool included.
@@ -569,6 +596,7 @@ export function serializeCanvasNode(node: TerminalCanvasNode): WorkspaceTerminal
     ...(node.data.modelId ? { modelId: node.data.modelId } : {}),
     ...(node.data.turnOutcomes?.length ? { turnOutcomes: node.data.turnOutcomes } : {}),
     ...(node.data.draft ? { draft: node.data.draft } : {}),
+    ...(node.data.branchedFrom ? { branchedFrom: node.data.branchedFrom } : {}),
     ...(node.data.kind === 'terminal' ? {} : { focusMode: node.data.focusMode }),
     ...(node.data.kind === 'terminal' ? { terminalLiveness: node.data.terminalLiveness } : {})
   }
@@ -649,7 +677,11 @@ function restoreTerminalCanvasNode(
       modelId: savedNode.kind === 'terminal' ? undefined : savedNode.modelId,
       turnOutcomes: savedNode.kind === 'terminal' ? undefined : savedNode.turnOutcomes,
       dormant,
-      launchMode: 'resume',
+      branchedFrom: savedNode.branchedFrom,
+      // A branch that never got as far as its own conversation id is still a branch: it reopens as
+      // the fork it was launched as. Everything else resumes, which for an already-forked child
+      // means loading the conversation the fork produced.
+      launchMode: !savedNode.conversationId && savedNode.branchedFrom ? 'fork' : 'resume',
       onStatusChange: callbacks.onStatusChange,
       onAttention: callbacks.onAttention,
       onTicketActivity: callbacks.onTicketActivity,
@@ -664,6 +696,8 @@ function restoreTerminalCanvasNode(
       onResume: callbacks.onResume,
       onTerminalLiveness: callbacks.onTerminalLiveness,
       onTerminalContext: callbacks.onTerminalContext,
+      onForkSupport: callbacks.onForkSupport,
+      onBranch: callbacks.onBranch,
       onWorktreeHandoff: callbacks.onWorktreeHandoff
     },
     style: { width: savedNode.width, height: savedNode.height }

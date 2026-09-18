@@ -118,6 +118,17 @@ export interface ConversationPreview {
   updatedAt: string
 }
 
+/**
+ * Where a branched conversation came from: the canvas node it was taken at and that node's
+ * provider conversation, captured at branch time. Persisted on the *child*, which is what makes it
+ * a provenance record rather than a link - closing the parent removes the drawn lineage, never the
+ * fact. The canvas derives its lineage edge from this; nothing else reads it.
+ */
+export interface ConversationLineage {
+  nodeId: string
+  conversationId: string
+}
+
 export interface WorkspaceTerminalNode {
   id: string
   sessionId?: string
@@ -152,6 +163,8 @@ export interface WorkspaceTerminalNode {
   terminalLiveness?: TerminalLiveness
   /** Unsent composer text, kept so a draft survives resize, collapse, and an Toucan restart. */
   draft?: string
+  /** The conversation this one was branched off, if any; the canvas draws the lineage from it. */
+  branchedFrom?: ConversationLineage
 }
 
 /**

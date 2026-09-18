@@ -152,6 +152,10 @@ function isWorkspaceTerminalNode(value: unknown): boolean {
     (node.turnOutcomes === undefined ||
       (Array.isArray(node.turnOutcomes) && node.turnOutcomes.every(isAgentTurnOutcome))) &&
     (node.draft === undefined || typeof node.draft === 'string') &&
+    // A branch's provenance leaves here as `forkFromSessionId` on an `agent:create`, so both halves
+    // are checked rather than trusted: a malformed record would otherwise reach the adapter.
+    (node.branchedFrom === undefined ||
+      (typeof node.branchedFrom.nodeId === 'string' && typeof node.branchedFrom.conversationId === 'string')) &&
     (node.terminalLiveness === undefined || ['live', 'unverifiable', 'exited'].includes(node.terminalLiveness)) &&
     (node.preview === undefined ||
       (typeof node.preview.updatedAt === 'string' &&

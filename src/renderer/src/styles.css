@@ -1429,6 +1429,31 @@ button.global-status-chip:hover {
   background: var(--node-accent, #74d8a2);
 }
 
+/* The lineage anchors. A lineage edge is a projection of the child's own provenance record, not a
+   connection, so these are markers rather than ports: no pointer target, no hover state, and small
+   enough that a chat node does not look like it has grown two more places to drag from. The target
+   sits above the terminal-context handle so the two never overlap on the left edge. */
+.lineage-handle.react-flow__handle {
+  width: 7px;
+  height: 7px;
+  border: 1px solid #8d7ae0;
+  background: #101319;
+  pointer-events: none;
+  opacity: 0.75;
+}
+
+.lineage-handle-target.react-flow__handle {
+  top: 26px;
+}
+
+/* Visibly not a context grant: a thin violet dash, under the nodes and out of the way. */
+.react-flow__edge.lineage-edge .react-flow__edge-path {
+  stroke: #8d7ae0;
+  stroke-width: 1.5;
+  stroke-dasharray: 5 4;
+  opacity: 0.8;
+}
+
 /* xyflow marks the whole node wrapper as draggable. The actual drag target is the header, so the
    cursor should describe the body content (text, controls, terminal) instead of showing a hand. */
 .react-flow__node.draggable {
@@ -1499,6 +1524,7 @@ button.global-status-chip:hover {
   user-select: none;
 }
 
+.node-branch-action,
 .node-fit-action {
   width: 26px;
   height: 26px;
@@ -1514,6 +1540,8 @@ button.global-status-chip:hover {
   cursor: pointer;
 }
 
+.node-branch-action:hover:enabled,
+.node-branch-action:focus-visible:enabled,
 .node-fit-action:hover,
 .node-fit-action:focus-visible {
   border-color: #3b4655;
@@ -1521,6 +1549,14 @@ button.global-status-chip:hover {
   background: #252b35;
 }
 
+/* Disabled means "not at this moment" - the title says which moment - so it stays legible rather
+   than disappearing, which is what would make the action look absent instead of unavailable. */
+.node-branch-action:disabled {
+  color: #4f5866;
+  cursor: not-allowed;
+}
+
+.node-branch-action svg,
 .node-fit-action svg {
   width: 15px;
   height: 15px;
