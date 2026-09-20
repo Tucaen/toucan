@@ -4,6 +4,7 @@ import {
   TICKET_FORMAT_DONE_COLUMN,
   TICKET_FORMAT_FILENAME,
   TICKET_FORMAT_FRONTMATTER,
+  TICKET_FORMAT_LENIENCE,
   TICKET_FORMAT_UNKNOWN_STATUS,
   exampleTicketMarkdown,
   ticketLocationNote
@@ -40,6 +41,7 @@ export default function TicketFormatPrimer(props: TicketFormatPrimerProps): JSX.
       </p>
       <p>{TICKET_FORMAT_FILENAME}</p>
       <p>{TICKET_FORMAT_FRONTMATTER}</p>
+      <p>{TICKET_FORMAT_LENIENCE}</p>
 
       <pre className="ticket-format-example">
         <code>{exampleTicketMarkdown(props.today)}</code>
@@ -52,7 +54,7 @@ export default function TicketFormatPrimer(props: TicketFormatPrimerProps): JSX.
               <code>{field.name}</code>
             </dt>
             <dd>
-              <span className="ticket-format-requirement">{field.required ? 'Required.' : 'Optional.'}</span>{' '}
+              <span className="ticket-format-requirement">{field.expected ? 'Recommended.' : 'Optional.'}</span>{' '}
               {field.summary} {field.whenAbsent}
             </dd>
           </div>

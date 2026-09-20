@@ -95,12 +95,24 @@ export function ticketRemoveAllowed(card: TicketCard, sources: readonly TicketSo
 }
 
 /**
+ * When a card last changed, as a number to sort by. A card that carries a date is placed by it;
+ * one that does not falls back to whatever its source knows about the record's last change (the
+ * file's mtime), and to the bottom when even that is unknown. Comparing a calendar day against a
+ * wall-clock instant is deliberate: a note touched today sitting above a ticket dated today is
+ * the order someone scanning the column expects.
+ */
+function changedAt(card: TicketCard): number {
+  const dated = card.updated ? Date.parse(`${card.updated}T00:00:00Z`) : Number.NaN
+  return Number.isNaN(dated) ? (card.orderedAt ?? 0) : dated
+}
+
+/**
  * Newest first, then alphabetically, then by source: a board that reorders itself between two
  * identical listings is a board nobody can point at.
  */
 function byRecencyThenTitle(left: TicketCard, right: TicketCard): number {
   return (
-    right.updated.localeCompare(left.updated) ||
+    changedAt(right) - changedAt(left) ||
     left.title.localeCompare(right.title) ||
     left.sourceId.localeCompare(right.sourceId) ||
     left.id.localeCompare(right.id)
@@ -128,9 +140,10 @@ function columnStatuses(cards: readonly TicketCard[]): string[] {
  * two spellings of "older than 30 days" would eventually disagree about a card on the boundary.
  */
 function isStaleDone(card: TicketCard, today: string): boolean {
-  if (card.status !== TICKET_STATUS.done) return false
+  if (card.status !== TICKET_STATUS.done || !card.updated) return false
   const elapsed = calendarDaysBetween(card.updated, today)
-  // An unreadable date is never stale: a file Toucan cannot date is not one it may offer to delete.
+  // An absent or unreadable date is never stale: a card Toucan cannot date is not one it may offer
+  // to delete, and an mtime is not evidence about when the work closed.
   return elapsed !== null && elapsed > DONE_COLUMN_RECENT_DAYS
 }
 

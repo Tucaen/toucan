@@ -1,11 +1,19 @@
-import { parseFrontmatter } from './frontmatter'
+import { lenientFrontmatter } from './frontmatter'
 import { isAbsolutePath } from './paths'
 
 /**
  * A ticket is a Markdown file in a project's tickets folder, and the file is the truth: Toucan
  * renders and mutates those files but never keeps a second copy of ticket state. This module is
- * the only place that decides what a conforming file looks like, so the board, the agent-facing
+ * the only place that decides what one of those files says, so the board, the agent-facing
  * `tickets` skill and any future source all agree. Pure: no filesystem, no Node.
+ *
+ * Reading is deliberately *lenient*: a tickets folder is a notepad before it is a tracker, so
+ * every `.md` file in it becomes a card and nothing here can reject one. Each field that is
+ * missing, blank or misspelled falls back to something the file itself supports - a heading for a
+ * title, the default column for a status - with one exception that is never bridged: a date is
+ * shown only when the file carries a real one, because an invented date is a lie a board tells
+ * every time it is read. Ordering a dateless card is the *source's* problem (the files source
+ * uses the file's mtime), not something guessed here.
  */
 
 /** The statuses Toucan ships columns for. A project may invent more; see `Ticket.status`. */
@@ -42,16 +50,27 @@ export interface Ticket {
    * is tolerated and becomes an extra board column rather than a reason to reject the file.
    */
   status: string
-  created: string
-  updated: string
-  /** Slugs of tickets in the same folder, deduplicated, in first-mention order. */
+  /** Absent when the file carries no usable `created`; never filled in with a guess. */
+  created?: string
+  /** Absent when the file carries no usable `updated`; never filled in with a guess. */
+  updated?: string
+  /**
+   * What `blocked_by` named, deduplicated, in first-mention order, minus the ticket itself. Kept
+   * as written rather than filtered to slugs: an entry no ticket in the folder answers to is the
+   * board's existing flagged chip, which is how a typo stays visible instead of disappearing.
+   */
   blockedBy: string[]
   /** Everything after the frontmatter, verbatim. */
   body: string
   markdown: string
 }
 
-/** Why one file in the tickets folder is not a ticket. Listed on the board, never dropped. */
+/**
+ * Why one file in the tickets folder could not be shown at all. Listed on the board, never
+ * dropped - but rare by design: reading is lenient, so this is left for a file whose *name* is
+ * not an id (`blocked_by` and every link point at the filename) or one that could not be read off
+ * disk. A file Toucan can open and whose name is a slug always becomes a card instead.
+ */
 export interface TicketDiagnostic {
   path: string
   code: string
@@ -63,16 +82,25 @@ export function isTicketSlug(value: string): boolean {
   return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value)
 }
 
-function required(fields: Map<string, string>, name: string): string {
-  const value = fields.get(name)?.trim()
-  if (!value) throw new Error(`${name} is required.`)
-  return value
+function field(fields: Map<string, string>, name: string): string | undefined {
+  return fields.get(name)?.trim() || undefined
 }
 
-function date(fields: Map<string, string>, name: string): string {
-  const value = required(fields, name)
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new Error(`${name} must use YYYY-MM-DD.`)
-  return value
+/** A date the file genuinely carries, or nothing: any other spelling is treated as unwritten. */
+function date(fields: Map<string, string>, name: string): string | undefined {
+  const value = field(fields, name)
+  return value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : undefined
+}
+
+/** The first ATX heading's text: what a note someone typed is called, when it is called anything. */
+const HEADING = /^#{1,6}[ \t]+(\S.*?)[ \t]*$/m
+
+/**
+ * What the card is headed with. A `title` when the file sets one, else the note's own first
+ * heading, else the filename - which is always something, so a card is never nameless.
+ */
+function title(fields: Map<string, string>, body: string, slug: string): string {
+  return field(fields, 'title') ?? HEADING.exec(body)?.[1] ?? slug
 }
 
 function blockedBy(raw: string | undefined, slug: string): string[] {
@@ -81,27 +109,31 @@ function blockedBy(raw: string | undefined, slug: string): string[] {
   const blockers: string[] = []
   for (const entry of value.split(',')) {
     const blocker = entry.trim()
-    if (!isTicketSlug(blocker)) throw new Error('blocked_by must be a comma separated list of ticket slugs.')
-    if (blocker === slug) throw new Error('blocked_by must not reference the ticket itself.')
-    if (!blockers.includes(blocker)) blockers.push(blocker)
+    // An empty entry is a stray separator rather than a reference, and a ticket cannot wait on
+    // itself; neither is worth a chip, and neither is worth refusing the file over.
+    if (!blocker || blocker === slug || blockers.includes(blocker)) continue
+    blockers.push(blocker)
   }
   return blockers
 }
 
 /**
- * Throws with a human-readable reason when `markdown` is not a conforming ticket; callers turn
- * that into a `TicketDiagnostic` so a broken file stays visible instead of vanishing.
+ * The ticket a file says it is, always: there is no reading that fails. `slug` is the filename
+ * without `.md`, and deciding whether that filename is usable as an id belongs to whoever has the
+ * folder - here it is only the last fallback for a title.
  */
-export function parseTicket(markdown: string, slug: string): Ticket {
-  if (!isTicketSlug(slug)) throw new Error('Filename must be a lowercase kebab-case slug.')
-  const parsed = parseFrontmatter(markdown, 'Ticket')
-  if (!parsed.ok) throw new Error(parsed.message)
+export function readTicket(markdown: string, slug: string): Ticket {
+  const parsed = lenientFrontmatter(markdown)
+  const created = date(parsed.fields, 'created')
+  const updated = date(parsed.fields, 'updated')
   return {
     slug,
-    title: required(parsed.fields, 'title'),
-    status: required(parsed.fields, 'status'),
-    created: date(parsed.fields, 'created'),
-    updated: date(parsed.fields, 'updated'),
+    title: title(parsed.fields, parsed.body, slug),
+    status: field(parsed.fields, 'status') ?? TICKET_STATUS.open,
+    // Absent rather than undefined: these cross IPC, and a key that is there but empty invites a
+    // reader to render it.
+    ...(created ? { created } : {}),
+    ...(updated ? { updated } : {}),
     blockedBy: blockedBy(parsed.fields.get('blocked_by'), slug),
     body: parsed.body,
     markdown

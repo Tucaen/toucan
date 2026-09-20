@@ -1,6 +1,12 @@
 import { deepEqual, equal, throws } from 'node:assert/strict'
 import { test } from 'node:test'
-import { frontmatterForDisplay, parseFrontmatter, rewriteFrontmatter } from '../src/shared/frontmatter'
+import {
+  frontmatterForDisplay,
+  lenientFrontmatter,
+  parseFrontmatter,
+  rewriteFrontmatter,
+  upsertFrontmatter
+} from '../src/shared/frontmatter'
 
 // The one frontmatter reader and writer behind every one-file-per-record collection: brain-dump
 // topics and tickets. Fields are flat `key: value` lines; the body is whatever follows and is
@@ -121,4 +127,57 @@ test('a repeated field is shown twice rather than rejected, because disk says so
 test('a document with no closed frontmatter block has nothing to lift out', () => {
   equal(frontmatterForDisplay('# Plan\n\nBody.\n'), undefined)
   equal(frontmatterForDisplay('---\nname: a\n'), undefined)
+})
+
+// The lenient reader and writer: a notepad file is still a record, so nothing here rejects one.
+
+test('lenient reading takes the fields it can and never fails on the rest', () => {
+  const read = lenientFrontmatter(
+    ['---', 'title: A', 'not a field', '  nested: thing', '# comment', 'status: open', '---', '', 'Body.\n'].join('\n')
+  )
+  deepEqual(
+    [...read.fields],
+    [
+      ['title', 'A'],
+      ['status', 'open']
+    ]
+  )
+  equal(read.body, '\nBody.\n')
+})
+
+test('lenient reading keeps the first of a duplicated field rather than rejecting the file', () => {
+  deepEqual([...lenientFrontmatter('---\nstatus: open\nstatus: done\n---\nBody\n').fields], [['status', 'open']])
+})
+
+test('a note that opens with a horizontal rule keeps its prose, rather than losing it to a block', () => {
+  // Two `---` lines with nothing field-shaped between them is a rule, not frontmatter: reading it
+  // as a block would lift the first paragraph out of the body and nothing would ever show it.
+  const note = '---\nSomething someone typed.\n---\nAnd more below.\n'
+  const read = lenientFrontmatter(note)
+
+  deepEqual([...read.fields], [])
+  equal(read.body, note)
+  // The writer has to agree, or it would edit a block the reader never saw.
+  equal(upsertFrontmatter(note, { status: 'done' }), `---\nstatus: done\n---\n\n${note}`)
+})
+
+test('a document with no closed block is all body, with no fields', () => {
+  const read = lenientFrontmatter('# Just a heading\n\nProse.\n')
+  deepEqual([...read.fields], [])
+  equal(read.body, '# Just a heading\n\nProse.\n')
+  deepEqual([...lenientFrontmatter('---\ntitle: A\nnever closed\n').fields], [])
+})
+
+test('upserting into a document without frontmatter writes a block above the text it keeps', () => {
+  equal(
+    upsertFrontmatter('# Heading\n\nProse.\n', { status: 'done', updated: '2026-09-04' }),
+    '---\nstatus: done\nupdated: 2026-09-04\n---\n\n# Heading\n\nProse.\n'
+  )
+})
+
+test('upserting into a block rewrites in place, keeps lines it cannot read, and drops duplicates it replaced', () => {
+  equal(
+    upsertFrontmatter('---\ntitle: A\nnot a field\nstatus: open\nstatus: blocked\n---\nBody\n', { status: 'done' }),
+    '---\ntitle: A\nnot a field\nstatus: done\n---\nBody\n'
+  )
 })

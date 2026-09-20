@@ -365,7 +365,8 @@ export default function TicketBoardPanel(props: TicketBoardPanelProps): JSX.Elem
   const renderMeta = (card: TicketCard): JSX.Element => (
     <div className="ticket-card-meta">
       <code>{card.id}</code>
-      <span>{describeTicketDate(card.updated, today)}</span>
+      {/* No date at all rather than a guessed one: a file that never wrote one has nothing to show. */}
+      {card.updated && <span>{describeTicketDate(card.updated, today)}</span>}
       {showSourceBadges && <span className="ticket-card-source">{sourceLabels.get(card.sourceId)}</span>}
     </div>
   )
@@ -772,7 +773,7 @@ export default function TicketBoardPanel(props: TicketBoardPanelProps): JSX.Elem
 
       {board.diagnostics.length > 0 && (
         <div className="ticket-board-diagnostics" role="status">
-          <strong>{board.diagnostics.length} ticket file(s) could not be read</strong>
+          <strong>{board.diagnostics.length} file(s) could not be shown as a ticket</strong>
           <ul>
             {board.diagnostics.map((diagnostic) => (
               <li key={diagnostic.path}>
@@ -786,7 +787,7 @@ export default function TicketBoardPanel(props: TicketBoardPanelProps): JSX.Elem
               folder holding nothing but broken files is the one case where the primer is already
               open in the list pane, so there it points rather than repeating itself. */}
           {board.isEmpty ? (
-            <p className="ticket-format-pointer">The shape a ticket file has to have is explained above.</p>
+            <p className="ticket-format-pointer">What the board makes of a ticket file is explained above.</p>
           ) : (
             <details className="ticket-format-disclosure">
               <summary>What a ticket file looks like</summary>

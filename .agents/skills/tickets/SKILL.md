@@ -27,10 +27,10 @@ blocked_by: shared-frontmatter, ticket-board
 Body in ordinary Markdown: context, acceptance criteria, notes.
 ```
 
-- **Filename is the id.** A lowercase kebab-case slug plus `.md` (`ticket-board.md` → `ticket-board`), unique in the folder. Name it after the work, not after a number or a date, and keep it stable once written — `blocked_by` and every link elsewhere point at it.
-- **Frontmatter is flat.** One `key: value` per line, no nesting, no lists, no quoting. A duplicated key or a line that is neither a field nor a `#` comment makes the file unreadable.
-- `title`, `status`, `created` and `updated` are required. `blocked_by` is optional.
-- Dates are `YYYY-MM-DD`. Never invent them: read today's date from the environment.
+- **Filename is the id.** A lowercase kebab-case slug plus `.md` (`ticket-board.md` → `ticket-board`), unique in the folder. Name it after the work, not after a number or a date, and keep it stable once written — `blocked_by` and every link elsewhere point at it. This is the only part the board insists on: a file named anything else cannot be addressed, so it shows as a diagnostic row instead of a card.
+- **Frontmatter is flat.** One `key: value` per line, no nesting, no lists, no quoting. A duplicated key wins on its first value and a line that is neither a field nor a `#` comment is skipped — both stay in the file, neither is an error.
+- Write `title`, `status`, `created` and `updated` on every ticket you create. None of them is enforced: the board renders a file that has no frontmatter at all, falling back to the body's first heading for a title, `open` for a status, and no date rather than a made-up one. That leniency is there for notes a human typed, not a licence to file half a ticket.
+- Dates are `YYYY-MM-DD`. Never invent them: read today's date from the environment. A ticket with no date is ordered by when its file last changed and shows no date at all, which is the honest outcome — a wrong date is worse.
 - Everything after the closing `---` is the body. Write it for whoever picks the ticket up: the problem, what "done" means, and any decision already made. Keep discussion that is not actionable out of it.
 
 ## Status
@@ -41,14 +41,14 @@ Flip `status` when the observable state changed, and bump `updated` in the same 
 
 ## Blockers
 
-`blocked_by` is a comma separated list of slugs of tickets **in the same folder**, and nothing else. A pull request, an upstream release, or a ticket in another project's folder is prose in the body, not a slug. Do not list a ticket as blocking itself, and drop a slug once its ticket is `done`.
+`blocked_by` is a comma separated list of slugs of tickets **in the same folder**, and nothing else. A pull request, an upstream release, or a ticket in another project's folder is prose in the body, not a slug. Do not list a ticket as blocking itself, and drop a slug once its ticket is `done`. An entry that names no ticket in the folder is shown as a flagged chip rather than dropped, so a typo stays visible — which is why it is worth spelling right.
 
 ## Working on tickets
 
 - Read every direct `.md` child of the folder before creating a ticket: extend the ticket that already covers the work rather than opening a near-duplicate.
 - One ticket is one slice of work someone can pick up and finish. Split a request that has two independent outcomes; do not split a single change into a file per file it touches.
 - Editing a ticket means rewriting the body to the current understanding, not appending a log. Keep the decisions and constraints; drop the superseded speculation.
-- Leave a file you cannot parse alone and report it. A malformed ticket shows on the board as a diagnostic row; silently rewriting it loses whatever the human meant.
+- Leave a file you did not write alone unless the user asked you to change it. A note with no frontmatter is a card on the board exactly as it stands; "fixing" it into the shape above rewrites whatever the human meant, and gains nothing.
 
 ## Completion
 

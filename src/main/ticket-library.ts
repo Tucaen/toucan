@@ -1,11 +1,11 @@
-import { mkdir, readFile, readdir, rename, rm } from 'node:fs/promises'
+import { mkdir, readFile, readdir, rename, rm, stat } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
-import { rewriteFrontmatter } from '../shared/frontmatter'
+import { upsertFrontmatter } from '../shared/frontmatter'
 import type { TicketMutationResult, TicketRemovalResult, TicketSourceListResult } from '../shared/ticket-source'
 import { EMPTY_TICKET_LISTING, ticketCard } from '../shared/ticket-source'
 import { errorMessage } from '../shared/text'
 import type { Ticket, TicketDiagnostic } from '../shared/tickets'
-import { isTicketSlug, isTicketStatus, parseTicket } from '../shared/tickets'
+import { isTicketSlug, isTicketStatus, readTicket } from '../shared/tickets'
 import { syncPromotedFile, writeNewFileDurably } from './durable-file'
 
 /**
@@ -16,7 +16,12 @@ import { syncPromotedFile, writeNewFileDurably } from './durable-file'
  *
  * Deliberately not built on `brain-dump-library.ts`: that module knows about two collections, an
  * immutable archive and capture jobs, none of which a ticket has. The shape is copied; the code is
- * not shared. What *is* shared is `shared/frontmatter.ts`, through `parseTicket`.
+ * not shared. What *is* shared is `shared/frontmatter.ts` - through `readTicket` when listing, and
+ * through `upsertFrontmatter` when writing a status back.
+ *
+ * Reading a file here cannot fail (see `shared/tickets.ts`), so the only diagnostics this source
+ * ever produces are about the file rather than its contents: a name that is not an id, or bytes it
+ * could not get off disk.
  */
 
 export interface TicketLibraryOptions {
@@ -29,8 +34,8 @@ export interface TicketLibraryOptions {
 export interface TicketLibrary {
   list(projectPath: string): Promise<TicketSourceListResult>
   /**
-   * One ticket, parsed fresh from its file: `null` when no such file exists, and a throw with the
-   * parse reason when the file is not a conforming ticket - the same reason `list` would report.
+   * One ticket, read fresh from its file, or `null` when the slug names no file - or nothing this
+   * library may open. Whatever the file contains, it reads as a ticket: see `shared/tickets.ts`.
    */
   read(projectPath: string, slug: string): Promise<Ticket | null>
   setStatus(projectPath: string, slug: string, status: string): Promise<TicketMutationResult>
@@ -67,7 +72,7 @@ export function createTicketLibrary(options: TicketLibraryOptions): TicketLibrar
       if (isMissing(error)) return null
       throw error
     }
-    return parseTicket(markdown, slug)
+    return readTicket(markdown, slug)
   }
 
   async function list(projectPath: string): Promise<TicketSourceListResult> {
@@ -87,10 +92,20 @@ export function createTicketLibrary(options: TicketLibraryOptions): TicketLibrar
       // durable-write temporary is a dotfile, so it is skipped rather than reported as broken.
       if (!entry.isFile() || !entry.name.endsWith('.md') || entry.name.startsWith('.')) continue
       const path = join(folder, entry.name)
+      const slug = entry.name.slice(0, -3)
+      // The one thing leniency cannot bridge: the filename *is* the id, so a file named anything
+      // else has nothing for `blocked_by`, a drop or a delete to address it by.
+      if (!isTicketSlug(slug)) {
+        diagnostics.push({ path, code: 'unusable-filename', message: 'Filename must be a lowercase kebab-case slug.' })
+        continue
+      }
       try {
-        cards.push(ticketCard(parseTicket(await readFile(path, 'utf8'), entry.name.slice(0, -3))))
+        // mtime alongside the bytes, because a file that wrote no `updated` still has to sort
+        // somewhere, and when it last changed on disk is the only honest answer available.
+        const [markdown, stats] = await Promise.all([readFile(path, 'utf8'), stat(path)])
+        cards.push(ticketCard(readTicket(markdown, slug), stats.mtimeMs))
       } catch (error) {
-        diagnostics.push({ path, code: 'malformed-ticket', message: errorMessage(error) })
+        diagnostics.push({ path, code: 'unreadable-ticket', message: errorMessage(error) })
       }
     }
     diagnostics.sort((left, right) => left.path.localeCompare(right.path))
@@ -149,17 +164,11 @@ export function createTicketLibrary(options: TicketLibraryOptions): TicketLibrar
     } catch (error) {
       return { ok: false, code: 'missing-ticket', message: errorMessage(error) }
     }
-    // Both ends are parsed before anything is written, so a mutation can never leave behind a file
-    // this library would refuse to read back - and a file someone broke by hand is left alone.
-    let rewritten: Ticket
-    let contents: string
-    try {
-      parseTicket(markdown, slug)
-      contents = rewriteFrontmatter(markdown, { status, updated: options.today() })
-      rewritten = parseTicket(contents, slug)
-    } catch (error) {
-      return { ok: false, code: 'malformed-source', message: errorMessage(error) }
-    }
+    // A card the board is willing to show is a card the board must be able to move, so a file
+    // with no frontmatter gets one written above the text it already had rather than refusing the
+    // drop. Nothing below the closing delimiter is touched, whatever shape the prose is in.
+    const contents = upsertFrontmatter(markdown, { status, updated: options.today() })
+    const rewritten: Ticket = readTicket(contents, slug)
     try {
       await writeThroughTemporary(folder, slug, contents)
     } catch (error) {

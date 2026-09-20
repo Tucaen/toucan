@@ -10,7 +10,7 @@ import { createTicketSteering } from '../src/main/ticket-steering'
 import type { AgentEvent, AgentEventEnvelope } from '../src/shared/agent'
 
 /**
- * The whole loop against a live ACP session: an agent writes a file the ticket board cannot read,
+ * The whole loop against a live ACP session: an agent writes a file the ticket board cannot show,
  * Toucan notices through the same listing the board renders, and the agent hears about it - steered
  * into the open turn where the adapter supports that, queued as the next prompt where it does not.
  *
@@ -20,7 +20,7 @@ import type { AgentEvent, AgentEventEnvelope } from '../src/shared/agent'
  */
 
 /**
- * An adapter that reports one write and one read during a turn it then parks on an approval, and
+ * An adapter that reports two writes and one read during a turn it then parks on an approval, and
  * echoes any follow-up it is given back as assistant text so the test can read what it received.
  */
 function writingAdapter(appPath: string, provider: 'claude' | 'codex', steering: boolean): void {
@@ -63,11 +63,17 @@ lines.on('line', (line) => {
     // which checkout that was relative to.
     send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: 'live-session', update: {
       sessionUpdate: 'tool_call', toolCallId: 'call-write', title: 'Write', kind: 'edit',
-      status: 'completed', locations: [{ path: 'docs/tickets/to-tickets.md' }]
+      status: 'completed', locations: [{ path: 'docs/tickets/To Tickets.md' }]
+    } } })
+    // A second write, of a file the board is perfectly happy to render: the session must not be
+    // corrected over it, which is the whole difference the lenient board makes here.
+    send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: 'live-session', update: {
+      sessionUpdate: 'tool_call', toolCallId: 'call-note', title: 'Write', kind: 'edit',
+      status: 'completed', locations: [{ path: 'docs/tickets/hand-written.md' }]
     } } })
     send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: 'live-session', update: {
       sessionUpdate: 'tool_call', toolCallId: 'call-read', title: 'Read', kind: 'read',
-      status: 'completed', locations: [{ path: 'docs/tickets/stray-notes.md' }]
+      status: 'completed', locations: [{ path: 'docs/tickets/Stray Notes.md' }]
     } } })
     send({ jsonrpc: '2.0', id: 900, method: 'session/request_permission', params: {
       sessionId: 'live-session',
@@ -89,8 +95,11 @@ lines.on('line', (line) => {
 function malformedTickets(projectPath: string): void {
   const folder = join(projectPath, 'docs', 'tickets')
   mkdirSync(folder, { recursive: true })
-  writeFileSync(join(folder, 'to-tickets.md'), '# Convert the board\n\nNo frontmatter at all.\n', 'utf8')
-  writeFileSync(join(folder, 'stray-notes.md'), '# Someone else’s notes\n', 'utf8')
+  // Both unshowable for the one reason left: their names are not ids. Their contents are fine.
+  writeFileSync(join(folder, 'To Tickets.md'), '# Convert the board\n\nNo frontmatter at all.\n', 'utf8')
+  writeFileSync(join(folder, 'Stray Notes.md'), '# Someone else’s notes\n', 'utf8')
+  // Named like a ticket, written like a note: a card, and so never anything to steer anyone over.
+  writeFileSync(join(folder, 'hand-written.md'), '# Look into the flaky test\n', 'utf8')
 }
 
 async function until<T>(get: () => T | undefined): Promise<T> {
@@ -141,18 +150,20 @@ test('a session that wrote an unreadable ticket is steered mid-turn, naming only
   try {
     await manager.create({ id: 'node-1', provider: 'claude', cwd: appPath }, owner)
     const turn = manager.prompt('node-1', 'file the tickets')
-    // The write is attributed; the read of the other malformed file deliberately is not.
-    await until(() => manager.recentWrites().length > 0)
+    // Both writes are attributed; the read of the other unshowable file deliberately is not.
+    await until(() => manager.recentWrites().length > 1)
     assert.deepEqual(
       manager.recentWrites().map((write) => write.agentId),
-      ['node-1']
+      ['node-1', 'node-1']
     )
 
     await steering.check(appPath)
     const message = await until(() => received(events))
 
-    assert.ok(message.includes(join(appPath, 'docs', 'tickets', 'to-tickets.md')))
-    assert.ok(!message.includes('stray-notes.md'))
+    assert.ok(message.includes(join(appPath, 'docs', 'tickets', 'To Tickets.md')))
+    assert.ok(!message.includes('Stray Notes.md'))
+    // The note it also wrote is a card, so it is not in the message however recently it was written.
+    assert.ok(!message.includes('hand-written.md'))
     assert.ok(message.includes('tickets` skill'))
 
     const approval = events.find((event) => event.type === 'approval')
@@ -185,7 +196,7 @@ test('a Codex session, whose adapter cannot steer, receives the same message as 
     await turn
 
     const message = await until(() => received(events))
-    assert.ok(message.includes(join(appPath, 'docs', 'tickets', 'to-tickets.md')))
+    assert.ok(message.includes(join(appPath, 'docs', 'tickets', 'To Tickets.md')))
   } finally {
     manager.killAll()
   }

@@ -10,9 +10,9 @@ import type { TicketDiagnostic } from '../src/shared/tickets'
  * and it must never tell a session about someone else's file or the same breakage twice.
  */
 
-const broken = (path: string, message = 'Ticket frontmatter is missing.'): TicketDiagnostic => ({
+const broken = (path: string, message = 'Filename must be a lowercase kebab-case slug.'): TicketDiagnostic => ({
   path,
-  code: 'malformed-ticket',
+  code: 'unusable-filename',
   message
 })
 
@@ -20,11 +20,11 @@ const wrote = (agentId: string, path: string, at: number): AgentFileWrite => ({ 
 
 /** Every write below is stamped well inside the evidence window; staleness has its own test. */
 const NOW = 1000
-const BOARD = 'D:/checkout/docs/tickets/to-tickets.md'
+const BOARD = 'D:/checkout/docs/tickets/To Tickets.md'
 
-test('the one session that wrote the malformed file is steered, named with the parse error', () => {
+test('the one session that wrote the unshowable file is steered, named with the reason', () => {
   const decision = ticketConformanceSteers({
-    diagnostics: [broken(BOARD, 'Ticket frontmatter is missing.')],
+    diagnostics: [broken(BOARD, 'Filename must be a lowercase kebab-case slug.')],
     writes: [wrote('node-1', BOARD, 10)],
     reported: new Map(),
     now: NOW
@@ -32,9 +32,9 @@ test('the one session that wrote the malformed file is steered, named with the p
 
   equal(decision.steers.length, 1)
   equal(decision.steers[0].agentId, 'node-1')
-  deepEqual(decision.steers[0].files, [broken(BOARD, 'Ticket frontmatter is missing.')])
+  deepEqual(decision.steers[0].files, [broken(BOARD, 'Filename must be a lowercase kebab-case slug.')])
   ok(decision.steers[0].text.includes(BOARD))
-  ok(decision.steers[0].text.includes('Ticket frontmatter is missing.'))
+  ok(decision.steers[0].text.includes('Filename must be a lowercase kebab-case slug.'))
   match(decision.steers[0].text, /tickets` skill/)
 })
 
@@ -66,8 +66,8 @@ test('with two writers only the most recent one is steered', () => {
 
 test('a path is matched by identity, not string equality', () => {
   const decision = ticketConformanceSteers({
-    diagnostics: [broken('D:\\checkout\\docs\\tickets\\to-tickets.md')],
-    writes: [wrote('node-1', 'd:/checkout/docs/tickets/to-tickets.md', 10)],
+    diagnostics: [broken('D:\\checkout\\docs\\tickets\\To Tickets.md')],
+    writes: [wrote('node-1', 'd:/checkout/docs/tickets/To Tickets.md', 10)],
     reported: new Map(),
     now: NOW
   })
@@ -76,9 +76,9 @@ test('a path is matched by identity, not string equality', () => {
 })
 
 test('a file that stays broken with the same error is not steered again', () => {
-  const reported = new Map([[reportedTicketKey('node-1', BOARD), 'Ticket frontmatter is missing.']])
+  const reported = new Map([[reportedTicketKey('node-1', BOARD), 'Filename must be a lowercase kebab-case slug.']])
   const decision = ticketConformanceSteers({
-    diagnostics: [broken(BOARD, 'Ticket frontmatter is missing.')],
+    diagnostics: [broken(BOARD, 'Filename must be a lowercase kebab-case slug.')],
     writes: [wrote('node-1', BOARD, 10)],
     reported,
     now: NOW
@@ -93,7 +93,7 @@ test('a still-broken file whose error changed is steered again', () => {
   const decision = ticketConformanceSteers({
     diagnostics: [broken(BOARD, 'created must use YYYY-MM-DD.')],
     writes: [wrote('node-1', BOARD, 10)],
-    reported: new Map([[reportedTicketKey('node-1', BOARD), 'Ticket frontmatter is missing.']]),
+    reported: new Map([[reportedTicketKey('node-1', BOARD), 'Filename must be a lowercase kebab-case slug.']]),
     now: NOW
   })
 
@@ -107,7 +107,7 @@ test('a fixed or deleted file is forgotten, so breaking it again steers anew', (
   const decision = ticketConformanceSteers({
     diagnostics: [],
     writes: [wrote('node-1', BOARD, 10)],
-    reported: new Map([[reportedTicketKey('node-1', BOARD), 'Ticket frontmatter is missing.']]),
+    reported: new Map([[reportedTicketKey('node-1', BOARD), 'Filename must be a lowercase kebab-case slug.']]),
     now: NOW
   })
 
@@ -167,7 +167,7 @@ test('a write too old to be evidence steers nobody, so a hand edit stays the boa
 })
 
 test('a second session that rewrites a file the first was told about hears about it too', () => {
-  const reported = new Map([[reportedTicketKey('node-1', BOARD), 'Ticket frontmatter is missing.']])
+  const reported = new Map([[reportedTicketKey('node-1', BOARD), 'Filename must be a lowercase kebab-case slug.']])
   const decision = ticketConformanceSteers({
     diagnostics: [broken(BOARD)],
     writes: [wrote('node-1', BOARD, 10), wrote('node-2', BOARD, 20)],

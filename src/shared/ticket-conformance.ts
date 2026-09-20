@@ -4,8 +4,12 @@ import { TICKET_FIELD_SENTENCE } from './ticket-format'
 import type { TicketDiagnostic } from './tickets'
 
 /**
- * Toucan's ticket board only renders files that conform to `tickets.ts`, and a file that does not
- * shows as a diagnostic row the agent who wrote it never sees. This module decides who to tell.
+ * Toucan's ticket board shows a file in the tickets folder as a diagnostic row the agent who
+ * wrote it never sees, rather than as a card. This module decides who to tell.
+ *
+ * It is deliberately quiet, because reading is lenient: a file missing every field is a card, so
+ * what reaches here is only what could not be shown at all - a filename that is not an id, a file
+ * that would not open. A session is never corrected over a shape the board is happy to render.
  *
  * Enforcement is deliberately post-hoc and Toucan-side rather than a provider hook: any skill in
  * any provider can write into the tickets folder (including through a shell redirect), so the one
@@ -61,24 +65,28 @@ export function reportedTicketKey(agentId: string, path: string): string {
 }
 
 /**
- * What a conforming ticket file is, in the words an agent has to act on. Deliberately restates the
- * shape rather than only pointing at the skill: the session being steered may never have loaded
- * it. The field list itself is `TICKET_FIELD_SENTENCE` from `shared/ticket-format.ts`, which is also
- * what the board's empty-state primer lays out, so an agent and a human are never told two
- * different shapes - `shared/tickets.ts` decides the shape and `.agents/skills/tickets/SKILL.md`
- * teaches it at length; all of them move together.
+ * What to do about it, in the words an agent has to act on. Deliberately restates the shape
+ * rather than only pointing at the skill: the session being steered may never have loaded it.
+ * Leads with the filename, because that is the only thing the board insists on and so very
+ * nearly the only thing a message that fires at all can be about; the field list behind it is
+ * `TICKET_FIELD_SENTENCE` from `shared/ticket-format.ts`, which is also what the board's
+ * empty-state primer lays out, so an agent and a human are never told two different shapes -
+ * `shared/tickets.ts` decides how a file is read and `.agents/skills/tickets/SKILL.md` teaches
+ * the convention at length; all of them move together.
  */
 const TICKET_SHAPE =
-  'A ticket is a Markdown file named `<lowercase-kebab-case>.md` directly in the tickets folder, ' +
-  `opening with frontmatter that has ${TICKET_FIELD_SENTENCE}. Dates are YYYY-MM-DD. Fix the file ` +
-  'to that shape - the `tickets` skill describes it in full - or move it out of the tickets ' +
-  'folder if it is not a ticket.'
+  'A ticket is a Markdown file named `<lowercase-kebab-case>.md` directly in the tickets folder: ' +
+  'the filename is the ticket’s id, so a file the board cannot address is a file it cannot show. ' +
+  'Rename it to a slug, or move it out of the tickets folder if it is not a ticket. A ticket ' +
+  `should also open with frontmatter that has ${TICKET_FIELD_SENTENCE}, dates as YYYY-MM-DD - ` +
+  'though the board renders a file that has none of it, so do not rewrite anyone else’s notes ' +
+  'to add them. The `tickets` skill describes the convention in full.'
 
 function steerText(files: readonly TicketDiagnostic[]): string {
   const lead =
     files.length === 1
-      ? 'A ticket file you just wrote cannot be read by Toucan’s ticket board:'
-      : 'Ticket files you just wrote cannot be read by Toucan’s ticket board:'
+      ? 'A file you just wrote into the tickets folder cannot be shown on Toucan’s ticket board:'
+      : 'Files you just wrote into the tickets folder cannot be shown on Toucan’s ticket board:'
   return [lead, ...files.map((file) => `- \`${file.path}\`: ${file.message}`), '', TICKET_SHAPE].join('\n')
 }
 

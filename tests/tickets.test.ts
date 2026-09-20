@@ -1,9 +1,16 @@
-import { deepEqual, equal, throws } from 'node:assert/strict'
+import { deepEqual, equal } from 'node:assert/strict'
 import { test } from 'node:test'
-import { DEFAULT_TICKETS_DIRECTORY, DEFAULT_TICKET_STATUSES, isTicketSlug, parseTicket } from '../src/shared/tickets'
+import {
+  DEFAULT_TICKETS_DIRECTORY,
+  DEFAULT_TICKET_STATUSES,
+  TICKET_STATUS,
+  isTicketSlug,
+  readTicket
+} from '../src/shared/tickets'
 
-// A ticket is its file. These are the rules that decide whether a file in the tickets folder is a
-// ticket the board can render or a diagnostic row explaining why it is not.
+// A ticket is its file, and a file in the tickets folder is a notepad before it is a record: the
+// board shows every one of them. These are the rules that decide what a card says when the file
+// does not spell it out - and the one thing that is never done, which is inventing a date.
 
 const valid = [
   '---',
@@ -18,8 +25,8 @@ const valid = [
   ''
 ].join('\n')
 
-test('a valid file becomes a ticket keyed by its slug, body and markdown preserved', () => {
-  deepEqual(parseTicket(valid, 'ticket-board'), {
+test('a fully written file becomes a ticket keyed by its slug, body and markdown preserved', () => {
+  deepEqual(readTicket(valid, 'ticket-board'), {
     slug: 'ticket-board',
     title: 'Add a ticket board',
     status: 'in-progress',
@@ -32,12 +39,12 @@ test('a valid file becomes a ticket keyed by its slug, body and markdown preserv
 })
 
 test('blocked_by is optional and absent means nothing blocks the ticket', () => {
-  const ticket = parseTicket('---\ntitle: A\nstatus: open\ncreated: 2026-09-01\nupdated: 2026-09-01\n---\n', 'a')
+  const ticket = readTicket('---\ntitle: A\nstatus: open\ncreated: 2026-09-01\nupdated: 2026-09-01\n---\n', 'a')
   deepEqual(ticket.blockedBy, [])
 })
 
 test('an empty blocked_by reads the same as an absent one', () => {
-  const ticket = parseTicket(
+  const ticket = readTicket(
     '---\ntitle: A\nstatus: open\ncreated: 2026-09-01\nupdated: 2026-09-01\nblocked_by:\n---\n',
     'a'
   )
@@ -45,13 +52,13 @@ test('an empty blocked_by reads the same as an absent one', () => {
 })
 
 test('an unknown status is tolerated so a project can invent a column', () => {
-  equal(parseTicket(valid.replace('status: in-progress', 'status: review'), 'a').status, 'review')
+  equal(readTicket(valid.replace('status: in-progress', 'status: review'), 'a').status, 'review')
   equal(DEFAULT_TICKET_STATUSES.includes('review' as never), false)
 })
 
 test('a status Toucan would never render as a tidy column is still tolerated, not rejected', () => {
   equal(
-    parseTicket(valid.replace('status: in-progress', 'status: In Review (blocked)'), 'a').status,
+    readTicket(valid.replace('status: in-progress', 'status: In Review (blocked)'), 'a').status,
     'In Review (blocked)'
   )
 })
@@ -64,52 +71,90 @@ test('the default folder is the one the skill tells agents to write into', () =>
   equal(DEFAULT_TICKETS_DIRECTORY, 'docs/tickets')
 })
 
-for (const field of ['title', 'status', 'created', 'updated']) {
-  test(`a missing ${field} is an error naming the field`, () => {
-    const missing = valid
-      .split('\n')
-      .filter((line) => !line.startsWith(`${field}:`))
-      .join('\n')
-    throws(() => parseTicket(missing, 'a'), new RegExp(field))
-  })
-}
+// A hand-written note is the case the board exists to tolerate: no frontmatter, no fields, just
+// something someone typed into the folder.
 
-test('a blank required field is missing, not empty', () => {
-  throws(() => parseTicket(valid.replace('title: Add a ticket board', 'title:'), 'a'), /title/)
+test('a file with no frontmatter at all is still a ticket, titled from its first heading', () => {
+  const ticket = readTicket('# Look into the flaky test\n\nIt fails on Windows only.\n', 'flaky-test')
+
+  equal(ticket.title, 'Look into the flaky test')
+  equal(ticket.status, TICKET_STATUS.open)
+  equal(ticket.created, undefined)
+  equal(ticket.updated, undefined)
+  deepEqual(ticket.blockedBy, [])
+  // Nothing was lifted out of it, so the whole note is the body the detail pane renders.
+  equal(ticket.body, '# Look into the flaky test\n\nIt fails on Windows only.\n')
 })
 
-test('a duplicated field is an error rather than a silent last-wins', () => {
-  throws(() => parseTicket(valid.replace('status: in-progress', 'status: open\nstatus: done'), 'a'), /status/)
+test('a heading at any level titles the card, and only the first one does', () => {
+  equal(readTicket('## Notes\n\n# Later\n', 'notes').title, 'Notes')
+  equal(readTicket('Prose first.\n\n### Then a heading\n', 'notes').title, 'Then a heading')
 })
 
-test('a date that is not YYYY-MM-DD is an error', () => {
-  throws(() => parseTicket(valid.replace('created: 2026-09-01', 'created: 09/01/2026'), 'a'), /created/)
+test('a note with no heading falls back to its filename, never to an empty card', () => {
+  equal(readTicket('Just some prose.\n', 'rate-limit-spike').title, 'rate-limit-spike')
+  equal(readTicket('', 'empty-note').title, 'empty-note')
+  // A `#` with nothing after it is not a heading anyone wrote a title into.
+  equal(readTicket('#\n\nProse.\n', 'hash-only').title, 'hash-only')
 })
 
-test('blocked_by entries that are not slugs are an error, not silently dropped links', () => {
-  throws(() => parseTicket(valid.replace('shared-frontmatter', 'Shared Frontmatter'), 'a'), /blocked_by/)
+test('a missing status puts the card in the default column rather than off the board', () => {
+  equal(readTicket('---\ntitle: A\n---\nBody\n', 'a').status, TICKET_STATUS.open)
+  equal(readTicket('---\ntitle: A\nstatus:\n---\nBody\n', 'a').status, TICKET_STATUS.open)
 })
 
-test('a trailing separator in blocked_by is an error rather than an empty reference', () => {
-  throws(() => parseTicket(valid.replace('shared-frontmatter', 'shared-frontmatter,'), 'a'), /blocked_by/)
+test('a blank title falls back the same way an absent one does', () => {
+  equal(readTicket('---\ntitle:\n---\n\n# From the heading\n', 'a').title, 'From the heading')
 })
 
-test('a ticket cannot block itself', () => {
-  throws(() => parseTicket(valid.replace('shared-frontmatter', 'ticket-board'), 'ticket-board'), /blocked_by/)
+test('a date that is not YYYY-MM-DD is absent rather than shown, because a card never invents one', () => {
+  const ticket = readTicket('---\ntitle: A\ncreated: 09/01/2026\nupdated: soon\n---\nBody\n', 'a')
+
+  equal(ticket.created, undefined)
+  equal(ticket.updated, undefined)
 })
 
-test('a repeated blocker is listed once, in first-mention order', () => {
-  deepEqual(parseTicket(valid.replace('shared-frontmatter', 'ticket-file-convention'), 'a').blockedBy, [
+test('an unparseable frontmatter line is ignored for the card and left in the file', () => {
+  const markdown = '---\ntitle: A\nthis line is not a field\nstatus: blocked\n---\nBody\n'
+  const ticket = readTicket(markdown, 'a')
+
+  equal(ticket.title, 'A')
+  equal(ticket.status, 'blocked')
+  equal(ticket.markdown, markdown)
+})
+
+test('a duplicated field takes the first value rather than making the file unreadable', () => {
+  equal(readTicket('---\nstatus: open\nstatus: done\n---\nBody\n', 'a').status, 'open')
+})
+
+test('an unterminated frontmatter block is prose, not a broken record', () => {
+  const ticket = readTicket('---\ntitle: A\nnever closed\n', 'a')
+
+  equal(ticket.title, 'a')
+  equal(ticket.body, '---\ntitle: A\nnever closed\n')
+})
+
+test('a blocked_by entry that is not a slug is kept as written, for the board to flag', () => {
+  deepEqual(readTicket(valid.replace('shared-frontmatter', 'Shared Frontmatter'), 'a').blockedBy, [
+    'ticket-file-convention',
+    'Shared Frontmatter'
+  ])
+})
+
+test('a trailing separator in blocked_by is an empty reference nobody meant, so it is dropped', () => {
+  deepEqual(readTicket('---\nblocked_by: one, , two,\n---\n', 'a').blockedBy, ['one', 'two'])
+})
+
+test('a ticket never blocks itself, however the file spells it', () => {
+  deepEqual(readTicket(valid.replace('shared-frontmatter', 'ticket-board'), 'ticket-board').blockedBy, [
     'ticket-file-convention'
   ])
 })
 
-test('a filename that is not a slug is an error, because the filename is the id', () => {
-  throws(() => parseTicket(valid, 'My Ticket'), /[Ff]ilename/)
-})
-
-test('a file with no frontmatter says which collection it failed to be', () => {
-  throws(() => parseTicket('# Just a heading\n', 'a'), /Ticket must start with YAML frontmatter/)
+test('a repeated blocker is listed once, in first-mention order', () => {
+  deepEqual(readTicket(valid.replace('shared-frontmatter', 'ticket-file-convention'), 'a').blockedBy, [
+    'ticket-file-convention'
+  ])
 })
 
 test('slugs are lowercase kebab-case, which is also what the filename must be', () => {

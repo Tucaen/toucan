@@ -18,10 +18,10 @@ import type { TicketDiagnostic } from '../src/shared/tickets'
  */
 const settled = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
 
-const BOARD = 'D:/checkout/docs/tickets/to-tickets.md'
-const broken = (message = 'Ticket frontmatter is missing.'): TicketDiagnostic => ({
+const BOARD = 'D:/checkout/docs/tickets/To Tickets.md'
+const broken = (message = 'Filename must be a lowercase kebab-case slug.'): TicketDiagnostic => ({
   path: BOARD,
-  code: 'malformed-ticket',
+  code: 'unusable-filename',
   message
 })
 
@@ -54,7 +54,7 @@ function harness(): { state: Harness; steering: ReturnType<typeof createTicketSt
   return { state, steering }
 }
 
-test('a malformed file is reported to its writer once, however often the folder changes', async () => {
+test('an unshowable file is reported to its writer once, however often the folder changes', async () => {
   const { state, steering } = harness()
   state.diagnostics = [broken()]
 

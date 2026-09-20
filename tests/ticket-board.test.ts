@@ -192,3 +192,61 @@ test('the bulk delete offers exactly the Done cards the collapsed column already
   assert.equal(done.hidden, staleDoneCards(cards, TODAY).length)
   assert.equal(DONE_COLUMN_RECENT_DAYS, 30)
 })
+
+// A card whose source could not date it: it still has to land somewhere sensible in a column, and
+// it must never be folded away or offered for deletion on the strength of a guess.
+
+const at = (date: string): number => Date.parse(`${date}T12:00:00Z`)
+
+test('a card with no date is ordered by when its record last changed, not sunk to the bottom', () => {
+  const [column] = ticketBoardColumns({
+    listings: [
+      listing([
+        card({ id: 'dated-old', updated: '2026-09-01' }),
+        card({ id: 'note', updated: undefined, orderedAt: at('2026-09-03') }),
+        card({ id: 'dated-new', updated: '2026-09-04' })
+      ])
+    ],
+    today: TODAY,
+    showAllDone: false
+  })
+
+  assert.deepEqual(
+    column.cards.map((entry) => entry.id),
+    ['dated-new', 'note', 'dated-old']
+  )
+})
+
+test('a card with neither a date nor a change time sorts last, and two of them stay in title order', () => {
+  const [column] = ticketBoardColumns({
+    listings: [
+      listing([
+        card({ id: 'zebra', title: 'Zebra', updated: undefined }),
+        card({ id: 'apple', title: 'Apple', updated: undefined }),
+        card({ id: 'dated', updated: '2026-01-01' })
+      ])
+    ],
+    today: TODAY,
+    showAllDone: false
+  })
+
+  assert.deepEqual(
+    column.cards.map((entry) => entry.id),
+    ['dated', 'apple', 'zebra']
+  )
+})
+
+test('an undated Done card is never stale, however long ago its file was touched', () => {
+  const undated = [card({ id: 'note', status: 'done', updated: undefined, orderedAt: at('2020-01-01') })]
+
+  assert.deepEqual(staleDoneCards(undated, TODAY), [])
+  const column = ticketBoardColumns({ listings: [listing(undated)], today: TODAY, showAllDone: false }).find(
+    (entry) => entry.status === 'done'
+  )!
+  // Shown rather than counted away: a card Toucan cannot date is not one it may fold up.
+  assert.deepEqual(
+    column.cards.map((entry) => entry.id),
+    ['note']
+  )
+  assert.equal(column.hidden, 0)
+})

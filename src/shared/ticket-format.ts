@@ -3,12 +3,15 @@ import { DEFAULT_TICKETS_DIRECTORY, TICKET_STATUS } from './tickets'
 /**
  * The ticket file convention written for someone to *read*: which frontmatter fields the board
  * takes, what it does without each of them, how a status becomes a column, and what `blocked_by`
- * means. `shared/tickets.ts` still decides what a conforming file is - nothing here parses
- * anything - this is only the one place that says it in words, so the board's empty-state primer
- * and the sentence a steered agent gets cannot describe two different shapes.
+ * means. `shared/tickets.ts` still decides how a file is read - nothing here parses anything -
+ * this is only the one place that says it in words, so the board's empty-state primer and the
+ * sentence a steered agent gets cannot describe two different shapes.
  *
- * `tests/ticket-format.test.ts` checks every claim below against `parseTicket` itself, which is
- * what keeps a fourth telling of the convention from drifting into a fourth convention.
+ * What it describes is a *convention*, not a gate: the board renders every Markdown file in the
+ * folder, so each field below is what a ticket should write and `whenAbsent` is what the board
+ * falls back to without it. `tests/ticket-format.test.ts` checks every one of those claims
+ * against `readTicket` itself, which is what keeps a fourth telling of the convention from
+ * drifting into a fourth convention.
  *
  * Pure: no DOM, no filesystem, so main, renderer and the tests can all read it.
  */
@@ -16,10 +19,15 @@ import { DEFAULT_TICKETS_DIRECTORY, TICKET_STATUS } from './tickets'
 export interface TicketFieldDoc {
   /** The frontmatter key, exactly as it is written in a file. */
   name: string
-  required: boolean
+  /**
+   * Whether a ticket written from scratch should set it. Not whether the board needs it: no
+   * field is needed, and a file with no frontmatter at all still becomes a card. What an omitted
+   * field costs is `whenAbsent`.
+   */
+  expected: boolean
   /** What the board reads this field for. */
   summary: string
-  /** What the board does when the field is missing - for a required one, why the file is rejected. */
+  /** What the board falls back to when the field is missing, or written in a shape it cannot read. */
   whenAbsent: string
 }
 
@@ -27,31 +35,32 @@ export interface TicketFieldDoc {
 export const TICKET_FIELDS: readonly TicketFieldDoc[] = [
   {
     name: 'title',
-    required: true,
+    expected: true,
     summary: 'The card’s heading on the board.',
-    whenAbsent: 'Without it the file is listed as unreadable instead of becoming a card.'
+    whenAbsent: 'Without it the card is headed by the body’s first heading, and failing that by the filename.'
   },
   {
     name: 'status',
-    required: true,
+    expected: true,
     summary: 'Which column the ticket sits in; one lowercase kebab-case word.',
-    whenAbsent: 'Without it the file is listed as unreadable instead of becoming a card.'
+    whenAbsent: `Without it the card sits in ${TICKET_STATUS.open}.`
   },
   {
     name: 'created',
-    required: true,
+    expected: true,
     summary: 'The day the ticket was opened, as YYYY-MM-DD.',
-    whenAbsent: 'Without it, or with any other date format, the file is listed as unreadable.'
+    whenAbsent: 'Without it, or written any other way, nothing is recorded - the board never invents a date.'
   },
   {
     name: 'updated',
-    required: true,
+    expected: true,
     summary: 'The day it last changed, as YYYY-MM-DD. Cards are ordered newest first by it.',
-    whenAbsent: 'Without it, or with any other date format, the file is listed as unreadable.'
+    whenAbsent:
+      'Without it, or written any other way, the card shows no date and is ordered by when its file last changed.'
   },
   {
     name: 'blocked_by',
-    required: false,
+    expected: false,
     summary: 'Comma separated slugs of the tickets this one waits on.',
     whenAbsent: 'Absent simply means nothing is blocking it; the card shows no blocker chips.'
   }
@@ -96,6 +105,16 @@ export const TICKET_FORMAT_FRONTMATTER =
   'The file opens with frontmatter between two `---` lines: one flat `key: value` per line, no nesting, no lists ' +
   'and no quoting. Everything after the closing `---` is the body, rendered as Markdown when the ticket is open.'
 
+/**
+ * The leniency, said out loud. Without it the primer reads as a specification a file has to pass,
+ * which is exactly the impression that made people keep notes out of the folder.
+ */
+export const TICKET_FORMAT_LENIENCE =
+  'None of this is compulsory. Every Markdown file in the folder becomes a card, so a note with nothing but a ' +
+  'heading and a paragraph is a ticket too, and each field it leaves out simply falls back to what is listed ' +
+  'below. Only a filename that is not a lowercase kebab-case slug keeps a file off the board, because the ' +
+  'filename is the only thing a link, a blocker or a drag has to hold on to.'
+
 export const TICKET_FORMAT_UNKNOWN_STATUS =
   'A status that is none of these is tolerated rather than rejected: it becomes an extra column of its own, named ' +
   'after its own words.'
@@ -110,8 +129,8 @@ export const TICKET_FORMAT_BLOCKED_BY =
   'rather than disappearing.'
 
 /**
- * A ticket nobody has to invent: the required fields filled in, dated today, and copyable into the
- * folder as it stands. The optional field is shown commented out rather than filled - a blocker
+ * A ticket nobody has to invent: every expected field filled in, dated today, and copyable into
+ * the folder as it stands. The optional field is shown commented out rather than filled - a blocker
  * slug naming a ticket the folder does not have is exactly the flagged chip the primer warns
  * about two paragraphs down, and an example that produced one would teach the mistake.
  */
@@ -139,7 +158,7 @@ function backticked(fields: readonly TicketFieldDoc[]): string {
 
 /**
  * The same field list in one sentence, for a surface with no room to lay it out - today the
- * message a session gets when it writes a file the board cannot read. Built from `TICKET_FIELDS`
- * rather than written again, so the two can only ever name the same fields.
+ * message a session gets when it writes a file the board cannot address at all. Built from
+ * `TICKET_FIELDS` rather than written again, so the two can only ever name the same fields.
  */
-export const TICKET_FIELD_SENTENCE = `${backticked(TICKET_FIELDS.filter((field) => field.required))}, and optionally ${backticked(TICKET_FIELDS.filter((field) => !field.required))}`
+export const TICKET_FIELD_SENTENCE = `${backticked(TICKET_FIELDS.filter((field) => field.expected))}, and optionally ${backticked(TICKET_FIELDS.filter((field) => !field.expected))}`

@@ -42,7 +42,7 @@ test('a project without a tickets folder lists as empty rather than failing', as
   }
 })
 
-test('list projects each conforming file onto a card and reports the rest as diagnostics', async () => {
+test('list projects every direct .md child onto a card, however little the file says', async () => {
   await withProject(async (project, folder) => {
     await writeFile(
       join(folder, 'ticket-board.md'),
@@ -55,34 +55,53 @@ test('list projects each conforming file onto a card and reports the rest as dia
       }),
       'utf8'
     )
+    await writeFile(join(folder, 'no-frontmatter.md'), '# A hand-written note\n\nJust prose.\n', 'utf8')
+    await writeFile(join(folder, 'notes.txt'), 'ignored', 'utf8')
+    await mkdir(join(folder, 'subfolder'), { recursive: true })
+
+    const { cards, diagnostics } = await library().list(project)
+    assert.deepEqual(diagnostics, [])
+    assert.deepEqual(
+      // `orderedAt` is an mtime, so it is asserted below rather than matched against a constant.
+      cards.map(({ orderedAt: _orderedAt, ...card }) => card),
+      [
+        {
+          sourceId: 'files',
+          id: 'no-frontmatter',
+          title: 'A hand-written note',
+          status: 'open',
+          body: '# A hand-written note\n\nJust prose.\n'
+        },
+        {
+          sourceId: 'files',
+          id: 'ticket-board',
+          title: 'Ticket board panel',
+          status: 'in-progress',
+          updated: '2026-09-03',
+          blockedBy: ['shared-frontmatter'],
+          body: '\nThe body.\n'
+        }
+      ]
+    )
+    // The note has no date to show, so it carries the file's own mtime for the board to order by.
+    assert.equal(cards[0].updated, undefined)
+    assert.ok((cards[0].orderedAt ?? 0) > 0)
+  })
+})
+
+test('a filename that is not a slug is the one thing that keeps a file off the board', async () => {
+  await withProject(async (project, folder) => {
     await writeFile(
       join(folder, 'Broken Name.md'),
       ticketFile({ title: 'x', status: 'open', created: TODAY, updated: TODAY }),
       'utf8'
     )
-    await writeFile(join(folder, 'no-frontmatter.md'), 'Just prose.\n', 'utf8')
-    await writeFile(join(folder, 'notes.txt'), 'ignored', 'utf8')
-    await mkdir(join(folder, 'subfolder'), { recursive: true })
 
     const { cards, diagnostics } = await library().list(project)
-    assert.deepEqual(cards, [
-      {
-        sourceId: 'files',
-        id: 'ticket-board',
-        title: 'Ticket board panel',
-        status: 'in-progress',
-        updated: '2026-09-03',
-        blockedBy: ['shared-frontmatter'],
-        body: '\nThe body.\n'
-      }
-    ])
-    assert.deepEqual(
-      diagnostics.map((diagnostic) => diagnostic.path.endsWith('Broken Name.md')),
-      [true, false]
-    )
+    assert.deepEqual(cards, [])
+    assert.equal(diagnostics.length, 1)
+    assert.equal(diagnostics[0].code, 'unusable-filename')
     assert.match(diagnostics[0].message, /kebab-case/)
-    assert.match(diagnostics[1].message, /frontmatter/)
-    assert.equal(diagnostics[0].code, 'malformed-ticket')
   })
 })
 
@@ -130,13 +149,41 @@ test('a status a project invented is written, an unusable one is refused', async
   })
 })
 
-test('a file edited into nonsense outside Toucan is refused, not rewritten', async () => {
+test('a note with no frontmatter can be dropped into a column: the block is written above it', async () => {
   await withProject(async (project, folder) => {
-    await writeFile(join(folder, 'ticket-board.md'), 'no frontmatter at all\n', 'utf8')
+    await writeFile(join(folder, 'flaky-test.md'), '# Flaky test\n\nFails on Windows only.\n', 'utf8')
+
+    const result = await library().setStatus(project, 'flaky-test', 'done')
+
+    assert.equal(result.ok, true)
+    assert.deepEqual(result.ok && result.card, {
+      sourceId: 'files',
+      id: 'flaky-test',
+      title: 'Flaky test',
+      status: 'done',
+      updated: TODAY,
+      body: '\n# Flaky test\n\nFails on Windows only.\n'
+    })
+    // The prose is kept verbatim below the block; nothing is invented but the two fields written.
+    assert.equal(
+      await readFile(join(folder, 'flaky-test.md'), 'utf8'),
+      `---\nstatus: done\nupdated: ${TODAY}\n---\n\n# Flaky test\n\nFails on Windows only.\n`
+    )
+  })
+})
+
+test('a frontmatter line Toucan cannot read survives the status write beside the fields it did', async () => {
+  await withProject(async (project, folder) => {
+    const original = '---\ntitle: Board\nthis line is not a field\nstatus: open\n---\n\nBody.\n'
+    await writeFile(join(folder, 'ticket-board.md'), original, 'utf8')
+
     const result = await library().setStatus(project, 'ticket-board', 'done')
-    assert.equal(result.ok, false)
-    assert.equal(result.ok === false && result.code, 'malformed-source')
-    assert.equal(await readFile(join(folder, 'ticket-board.md'), 'utf8'), 'no frontmatter at all\n')
+
+    assert.equal(result.ok, true)
+    assert.equal(
+      await readFile(join(folder, 'ticket-board.md'), 'utf8'),
+      `---\ntitle: Board\nthis line is not a field\nstatus: done\nupdated: ${TODAY}\n---\n\nBody.\n`
+    )
   })
 })
 
@@ -154,14 +201,14 @@ test('a write leaves no temporary file behind for the next listing to trip over'
   })
 })
 
-test('one ticket reads fresh from its file, a missing one is null, a broken one says why', async () => {
+test('one ticket reads fresh from its file, a missing one is null, a bare note is still a ticket', async () => {
   await withProject(async (project, folder) => {
     await writeFile(
       join(folder, 'ticket-board.md'),
       ticketFile({ title: 'Ticket board', status: 'open', created: TODAY, updated: TODAY }, 'Body.\n'),
       'utf8'
     )
-    await writeFile(join(folder, 'broken.md'), 'no frontmatter\n', 'utf8')
+    await writeFile(join(folder, 'bare.md'), 'no frontmatter\n', 'utf8')
     const store = library()
 
     const ticket = await store.read(project, 'ticket-board')
@@ -169,7 +216,8 @@ test('one ticket reads fresh from its file, a missing one is null, a broken one 
     assert.equal(ticket?.body, '\nBody.\n')
     assert.equal(await store.read(project, 'never-written'), null)
     assert.equal(await store.read(project, '../escape'), null)
-    await assert.rejects(store.read(project, 'broken'), /frontmatter/)
+    // No throw and no null: the file says nothing, so the ticket falls back to what it can.
+    assert.equal((await store.read(project, 'bare'))?.title, 'bare')
   })
 })
 

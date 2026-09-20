@@ -250,6 +250,26 @@ describe('the three panes', () => {
     expect(within(column('Blocked')).getByText('No tickets in Blocked.')).toBeInTheDocument()
   })
 
+  test('a card the source could not date shows its id and no date at all', async () => {
+    tickets.projects.set(project.path, {
+      cards: [
+        cardFixture({ id: 'hand-written', title: 'Look into the flaky test', updated: undefined, orderedAt: 1 }),
+        cardFixture({ id: 'ticket-board', title: 'Ticket board', updated: '2026-09-03' })
+      ],
+      diagnostics: []
+    })
+    await openBoard()
+    const note = (await screen.findByText('Look into the flaky test')).closest('.ticket-card') as HTMLElement
+
+    expect(within(note).getByText('hand-written')).toBeInTheDocument()
+    // Nothing invented in its place: the meta line is the id and the source, and stops there.
+    expect(within(note).queryByText(/2026-/)).toBeNull()
+    expect(within(note).queryByText(/ago|today|yesterday/)).toBeNull()
+    // The dated card beside it is untouched.
+    const dated = screen.getByText('Ticket board').closest('.ticket-card') as HTMLElement
+    expect(within(dated).getByText('2026-09-03')).toBeInTheDocument()
+  })
+
   test('a blocker chip shows whether the ticket it names is finished or unknown', async () => {
     await openBoard()
     await screen.findByText('File node')
@@ -257,20 +277,21 @@ describe('the three panes', () => {
     expect(screen.getByTitle('ghost is not a ticket in this folder')).toBeInTheDocument()
   })
 
-  test('a file that could not be read is listed rather than dropped', async () => {
+  test('a file that could not be shown is listed rather than dropped', async () => {
     tickets.projects.set(project.path, {
       cards: [],
       diagnostics: [
         {
           path: 'D:\\Development\\Toucan\\docs\\tickets\\Broken.md',
-          code: 'malformed-ticket',
-          message: 'title is required.'
+          code: 'unusable-filename',
+          message: 'Filename must be a lowercase kebab-case slug.'
         }
       ]
     })
     await openBoard()
-    expect(await screen.findByText('1 ticket file(s) could not be read')).toBeInTheDocument()
-    expect(screen.getByText(/title is required/)).toBeInTheDocument()
+    expect(await screen.findByText('1 file(s) could not be shown as a ticket')).toBeInTheDocument()
+    const listed = document.querySelector('.ticket-board-diagnostics') as HTMLElement
+    expect(within(listed).getByText(/kebab-case slug/)).toBeInTheDocument()
   })
 
   test('selecting a ticket renders its Markdown in the detail pane, not inside the card', async () => {
@@ -817,7 +838,17 @@ describe('learning the ticket file format', () => {
       expect(within(primer()).getByText(field, { selector: 'dt code' })).toBeTruthy()
     }
     expect(within(primer()).getByText(/Absent simply means nothing is blocking it/)).toBeTruthy()
-    expect(within(primer()).getAllByText(/listed as unreadable/).length).toBeGreaterThan(0)
+    // Absence costs a fallback rather than the card: what the primer promises is what it loses.
+    expect(within(primer()).getByText(/headed by the body’s first heading/)).toBeTruthy()
+    expect(within(primer()).getByText(/the card sits in open/)).toBeTruthy()
+    expect(within(primer()).queryByText(/listed as unreadable/)).toBeNull()
+  })
+
+  test('the primer says a file needs none of it, so a plain note is not kept out of the folder', async () => {
+    await openEmptyBoard()
+
+    expect(within(primer()).getByText(/Every Markdown file in the folder becomes a card/)).toBeTruthy()
+    expect(within(primer()).getAllByText(/Recommended\./).length).toBeGreaterThan(0)
   })
 
   test('the primer maps the statuses onto the columns the board actually shows', async () => {
@@ -858,11 +889,15 @@ describe('learning the ticket file format', () => {
     expect(screen.queryByRole('region', { name: 'Ticket file format' })).toBeNull()
   })
 
-  test('a file that could not be read offers the same explanation, and it starts closed', async () => {
+  test('a file that could not be shown offers the same explanation, and it starts closed', async () => {
     tickets.projects.set(project.path, {
       cards: [cardFixture({ id: 'ticket-board', title: 'Ticket board' })],
       diagnostics: [
-        { path: 'docs/tickets/notes.md', code: 'malformed-ticket', message: 'Ticket frontmatter is missing.' }
+        {
+          path: 'docs/tickets/notes.md',
+          code: 'unusable-filename',
+          message: 'Filename must be a lowercase kebab-case slug.'
+        }
       ]
     })
     await openBoard()
@@ -877,7 +912,11 @@ describe('learning the ticket file format', () => {
     tickets.projects.set(project.path, {
       cards: [],
       diagnostics: [
-        { path: 'docs/tickets/notes.md', code: 'malformed-ticket', message: 'Ticket frontmatter is missing.' }
+        {
+          path: 'docs/tickets/notes.md',
+          code: 'unusable-filename',
+          message: 'Filename must be a lowercase kebab-case slug.'
+        }
       ]
     })
     await openBoard()
@@ -886,6 +925,6 @@ describe('learning the ticket file format', () => {
     // offering a second copy of it.
     expect(primer()).toBeTruthy()
     expect(screen.queryByText('What a ticket file looks like')).toBeNull()
-    expect(screen.getByText('The shape a ticket file has to have is explained above.')).toBeTruthy()
+    expect(screen.getByText('What the board makes of a ticket file is explained above.')).toBeTruthy()
   })
 })

@@ -1,20 +1,21 @@
-import { deepEqual, equal, match, ok, throws } from 'node:assert/strict'
+import { deepEqual, equal, match, ok } from 'node:assert/strict'
 import { test } from 'node:test'
 import {
   TICKET_FIELDS,
   TICKET_FORMAT_BLOCKED_BY,
   TICKET_FORMAT_FILENAME,
+  TICKET_FORMAT_LENIENCE,
   TICKET_FORMAT_UNKNOWN_STATUS,
   exampleTicketMarkdown,
   ticketLocationNote,
   TICKET_FIELD_SENTENCE
 } from '../src/shared/ticket-format'
-import { DEFAULT_TICKET_STATUSES, parseTicket } from '../src/shared/tickets'
+import { DEFAULT_TICKET_STATUSES, readTicket } from '../src/shared/tickets'
 
 /**
  * The format primer is the fourth surface the ticket convention is written on, and the only one a
  * human reads. These tests are the lock that keeps it honest: every claim it makes is checked
- * against `parseTicket`, which is what actually decides. A primer that taught a shape the parser
+ * against `readTicket`, which is what actually decides. A primer that taught a shape the parser
  * rejects would be worse than no primer at all.
  */
 
@@ -22,7 +23,7 @@ const EXAMPLE_SLUG = 'ticket-board'
 const TODAY = '2026-09-20'
 
 test('the example the primer shows is itself a conforming ticket', () => {
-  const ticket = parseTicket(exampleTicketMarkdown(TODAY), EXAMPLE_SLUG)
+  const ticket = readTicket(exampleTicketMarkdown(TODAY), EXAMPLE_SLUG)
 
   equal(ticket.slug, EXAMPLE_SLUG)
   equal(ticket.created, TODAY)
@@ -47,37 +48,59 @@ test('the example uses only fields the primer names', () => {
   ok(exampleKeys(exampleTicketMarkdown(TODAY)).every((key) => named.includes(key)))
 })
 
-test('the example sets every required field and no optional one', () => {
+test('the example sets every expected field and no optional one', () => {
   const keys = exampleKeys(exampleTicketMarkdown(TODAY))
 
   deepEqual(
     keys,
-    TICKET_FIELDS.filter((field) => field.required).map((field) => field.name)
+    TICKET_FIELDS.filter((field) => field.expected).map((field) => field.name)
   )
   // Pasted as it stands it must not produce the flagged blocker chip the primer warns about.
-  deepEqual(parseTicket(exampleTicketMarkdown(TODAY), EXAMPLE_SLUG).blockedBy, [])
+  deepEqual(readTicket(exampleTicketMarkdown(TODAY), EXAMPLE_SLUG).blockedBy, [])
 })
 
-test('every field the primer calls required really is', () => {
+/** The example minus one of its lines: the file someone wrote who left that field out. */
+function exampleWithout(name: string): string {
+  return exampleTicketMarkdown(TODAY)
+    .split('\n')
+    .filter((line) => !line.startsWith(`${name}:`))
+    .join('\n')
+}
+
+test('no field the primer names is actually required - every one of them falls back', () => {
   for (const field of TICKET_FIELDS) {
-    if (!field.required) continue
-    const without = exampleTicketMarkdown(TODAY)
-      .split('\n')
-      .filter((line) => !line.startsWith(`${field.name}:`))
-      .join('\n')
-    throws(() => parseTicket(without, EXAMPLE_SLUG), new RegExp(field.name))
+    const ticket = readTicket(exampleWithout(field.name), EXAMPLE_SLUG)
+    equal(ticket.slug, EXAMPLE_SLUG, `${field.name} kept the file off the board`)
+    ok(ticket.title.length > 0)
   }
 })
 
+test('the fallback the primer promises for each absent field is the one the parser takes', () => {
+  // `whenAbsent` is prose, so what is locked here is the behaviour it describes, field by field.
+  // The example's body carries no heading, so the filename is the fallback left.
+  equal(readTicket(exampleWithout('title'), EXAMPLE_SLUG).title, EXAMPLE_SLUG)
+  equal(readTicket(`${exampleWithout('title')}\n# A typed heading\n`, EXAMPLE_SLUG).title, 'A typed heading')
+  equal(readTicket(exampleWithout('status'), EXAMPLE_SLUG).status, DEFAULT_TICKET_STATUSES[0])
+  equal(readTicket(exampleWithout('created'), EXAMPLE_SLUG).created, undefined)
+  equal(readTicket(exampleWithout('updated'), EXAMPLE_SLUG).updated, undefined)
+  deepEqual(readTicket(exampleWithout('blocked_by'), EXAMPLE_SLUG).blockedBy, [])
+})
+
+test('the primer says out loud that a file needs none of this to become a card', () => {
+  match(TICKET_FORMAT_LENIENCE, /card/)
+  // The one thing that does keep a file off the board has to be the thing the primer names.
+  match(TICKET_FORMAT_LENIENCE, /filename/)
+})
+
 test('every field the primer calls optional really is', () => {
-  const optional = TICKET_FIELDS.filter((field) => !field.required)
+  const optional = TICKET_FIELDS.filter((field) => !field.expected)
   ok(optional.length > 0)
   for (const field of optional) {
     // Added to the example rather than removed from it: the example already omits every optional
     // field, so what is worth proving is that writing one is still a conforming ticket.
     const lines = exampleTicketMarkdown(TODAY).split('\n')
     lines.splice(lines.indexOf('---', 1), 0, `${field.name}: shared-frontmatter`)
-    const ticket = parseTicket(lines.join('\n'), EXAMPLE_SLUG)
+    const ticket = readTicket(lines.join('\n'), EXAMPLE_SLUG)
     equal(ticket.slug, EXAMPLE_SLUG)
   }
 })
@@ -99,7 +122,7 @@ test('the agent-facing sentence enumerates exactly the fields the primer does', 
   const sentence = TICKET_FIELD_SENTENCE
 
   for (const field of TICKET_FIELDS) match(sentence, new RegExp(`\`${field.name}\``))
-  // Required and optional are not one list: an agent told `blocked_by` is required would add it.
+  // Expected and optional are not one list: an agent told `blocked_by` is required would add it.
   match(sentence, /optionally `blocked_by`/)
 })
 
