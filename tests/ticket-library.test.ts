@@ -187,6 +187,42 @@ test('a frontmatter line Toucan cannot read survives the status write beside the
   })
 })
 
+test('a ticket saved from a Windows editor is edited in place rather than stacked on top of', async () => {
+  await withProject(async (project, folder) => {
+    // CRLF read as no frontmatter at all would put a second block above this one and leave
+    // `title` and `created` below it as prose - the file would lose its own record to a drop.
+    const original = '---\r\ntitle: Board\r\nstatus: open\r\ncreated: 2026-09-01\r\n---\r\n\r\nBody.\r\n'
+    await writeFile(join(folder, 'ticket-board.md'), original, 'utf8')
+
+    const result = await library().setStatus(project, 'ticket-board', 'done')
+
+    assert.equal(result.ok, true)
+    assert.equal(result.ok && result.card.title, 'Board')
+    assert.equal(
+      await readFile(join(folder, 'ticket-board.md'), 'utf8'),
+      `---\r\ntitle: Board\r\nstatus: done\r\ncreated: 2026-09-01\r\nupdated: ${TODAY}\r\n---\r\n\r\nBody.\r\n`
+    )
+  })
+})
+
+test('a ticket whose frontmatter was never closed refuses the drop and is left byte-for-byte alone', async () => {
+  await withProject(async (project, folder) => {
+    // The one file leniency cannot write to: a second block above it would leave every field
+    // below as prose, so what the board would be saving is a record that lost its own title.
+    const original = '---\ntitle: Board\nstatus: open\n\nBody with no closing delimiter.\n'
+    await writeFile(join(folder, 'ticket-board.md'), original, 'utf8')
+
+    const result = await library().setStatus(project, 'ticket-board', 'done')
+
+    assert.equal(result.ok, false)
+    assert.equal(result.ok === false && result.code, 'unwritable-frontmatter')
+    assert.match(result.ok === false ? result.message : '', /closing ---/)
+    assert.equal(await readFile(join(folder, 'ticket-board.md'), 'utf8'), original)
+    // Refusing the write is not refusing the card: the board still lists and shows the file.
+    assert.equal((await library().list(project)).cards.length, 1)
+  })
+})
+
 test('a write leaves no temporary file behind for the next listing to trip over', async () => {
   await withProject(async (project, folder) => {
     await writeFile(

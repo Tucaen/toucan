@@ -103,7 +103,9 @@ export const TICKET_FORMAT_FILENAME =
 
 export const TICKET_FORMAT_FRONTMATTER =
   'The file opens with frontmatter between two `---` lines: one flat `key: value` per line, no nesting, no lists ' +
-  'and no quoting. Everything after the closing `---` is the body, rendered as Markdown when the ticket is open.'
+  'and no quoting. Everything after the closing `---` is the body, rendered as Markdown when the ticket is open. ' +
+  'A block that is opened and never closed is the one shape Toucan will not write to - moving such a card is ' +
+  'refused rather than risk leaving the fields it holds stranded below a second block.'
 
 /**
  * The leniency, said out loud. Without it the primer reads as a specification a file has to pass,

@@ -4,12 +4,14 @@ import {
   TICKET_FIELDS,
   TICKET_FORMAT_BLOCKED_BY,
   TICKET_FORMAT_FILENAME,
+  TICKET_FORMAT_FRONTMATTER,
   TICKET_FORMAT_LENIENCE,
   TICKET_FORMAT_UNKNOWN_STATUS,
   exampleTicketMarkdown,
   ticketLocationNote,
   TICKET_FIELD_SENTENCE
 } from '../src/shared/ticket-format'
+import { upsertFrontmatter } from '../src/shared/frontmatter'
 import { DEFAULT_TICKET_STATUSES, readTicket } from '../src/shared/tickets'
 
 /**
@@ -90,6 +92,17 @@ test('the primer says out loud that a file needs none of this to become a card',
   match(TICKET_FORMAT_LENIENCE, /card/)
   // The one thing that does keep a file off the board has to be the thing the primer names.
   match(TICKET_FORMAT_LENIENCE, /filename/)
+})
+
+test('the one file the primer says cannot be moved is the one the writer actually refuses', () => {
+  const unclosed = '---\ntitle: Short imperative title\nstatus: open\n\nBody.\n'
+
+  match(TICKET_FORMAT_FRONTMATTER, /opened and never closed/)
+  equal(upsertFrontmatter(unclosed, { status: 'done' }).ok, false)
+  // And the shape it describes as writable stays writable, or the primer would scare people off
+  // the notepad files the board exists to show.
+  equal(upsertFrontmatter(exampleTicketMarkdown(TODAY), { status: 'done' }).ok, true)
+  equal(upsertFrontmatter('# Just a note\n', { status: 'done' }).ok, true)
 })
 
 test('every field the primer calls optional really is', () => {

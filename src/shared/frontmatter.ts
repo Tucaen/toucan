@@ -13,6 +13,11 @@
  * what they can read, copy through what they cannot, and write a block where there is none. The
  * strictness is the *caller's* decision, which is why it is two pairs of functions and not a
  * flag: a module that had to be told each time would eventually be told wrong.
+ *
+ * Lenient is not unconditional, and the one condition is a *write* one: reading never fails, but
+ * a write that would strand a field the file already carries is refused rather than performed
+ * (see `upsertFrontmatter`). That refusal is in the return type rather than an exception, because
+ * its caller has a diagnostic to show and nothing to retry.
  */
 
 const FIELD = /^([A-Za-z][A-Za-z0-9_-]*):\s*(.*?)\s*$/
@@ -41,10 +46,26 @@ interface Delimited {
   closing: number
 }
 
+/**
+ * A `---` line, in a document split on `\n` alone. The optional carriage return is the whole
+ * reason this is a pattern rather than a comparison: a file someone saved from a Windows editor
+ * would otherwise have no frontmatter at all as far as this module is concerned, and a write
+ * would then stack a second block on top of the one already there.
+ */
+const DELIMITER = /^---\r?$/
+
+/**
+ * The carriage return this document's lines carry, or nothing. Appended to every line this module
+ * writes, so a block added to a CRLF file does not leave one line ending in the middle of it.
+ */
+function carriageReturn(lines: string[]): string {
+  return lines.some((line) => line.endsWith('\r')) ? '\r' : ''
+}
+
 /** The delimiters alone, with no opinion about what is written between them. */
 function findBlock(lines: string[]): Delimited | undefined {
-  if (lines[0] !== '---') return undefined
-  const closing = lines.indexOf('---', 1)
+  if (!DELIMITER.test(lines[0])) return undefined
+  const closing = lines.findIndex((line, index) => index > 0 && DELIMITER.test(line))
   return closing < 0 ? undefined : { lines, closing }
 }
 
@@ -52,7 +73,7 @@ function readBlock(markdown: string, label: string): Block | { message: string }
   const lines = markdown.split('\n')
   const delimited = findBlock(lines)
   if (!delimited) {
-    if (lines[0] !== '---') return { message: `${label} must start with YAML frontmatter.` }
+    if (!DELIMITER.test(lines[0])) return { message: `${label} must start with YAML frontmatter.` }
     return { message: `${label} frontmatter must have a closing --- delimiter.` }
   }
   const closing = delimited.closing
@@ -97,12 +118,13 @@ export function rewriteFrontmatter(markdown: string, updates: Record<string, str
 function rewriteBlock(block: Delimited, updates: Record<string, string | undefined>): string {
   const remaining = new Map(Object.entries(updates))
   const replaced = new Set<string>()
+  const carriage = carriageReturn(block.lines)
   const output = [block.lines[0]]
   for (let index = 1; index < block.closing; index += 1) {
     const key = FIELD.exec(block.lines[index])?.[1]
     if (key && remaining.has(key)) {
       const value = remaining.get(key)
-      if (value !== undefined) output.push(`${key}: ${value}`)
+      if (value !== undefined) output.push(`${key}: ${value}${carriage}`)
       remaining.delete(key)
       replaced.add(key)
       continue
@@ -112,7 +134,7 @@ function rewriteBlock(block: Delimited, updates: Record<string, string | undefin
     if (key && replaced.has(key)) continue
     output.push(block.lines[index])
   }
-  for (const [key, value] of remaining) if (value !== undefined) output.push(`${key}: ${value}`)
+  for (const [key, value] of remaining) if (value !== undefined) output.push(`${key}: ${value}${carriage}`)
   output.push(...block.lines.slice(block.closing))
   return output.join('\n')
 }
@@ -135,19 +157,56 @@ function lenientBlock(lines: string[]): { fields: Map<string, string>; closing: 
   return fields.size > 0 ? { fields, closing: delimited.closing } : undefined
 }
 
+export type UpsertResult = { ok: true; markdown: string } | { ok: false; message: string }
+
+/**
+ * A block someone opened with `---`, wrote fields into, and never closed - the one document shape
+ * this module will not write to. Prepending a block of its own would leave those fields below it
+ * as prose: still in the file, but no longer read by anything, and out of reach of every later
+ * write, which now edits the copy on top. Returns the first stranded key so the diagnostic can
+ * name the line to fix rather than just the file.
+ *
+ * An unclosed opening with no field under it is a horizontal rule, and strands nothing. The scan
+ * stops at the first line that is neither a field nor ignorable for the same reason: frontmatter
+ * runs from the opening delimiter until something that is not frontmatter, so a note that starts
+ * with a rule and writes `Note: call Bob` three paragraphs down is prose, not a record, and
+ * refusing to move it would take leniency back with the other hand.
+ */
+function strandedField(lines: string[]): string | undefined {
+  if (!DELIMITER.test(lines[0]) || findBlock(lines)) return undefined
+  for (let index = 1; index < lines.length; index += 1) {
+    const match = FIELD.exec(lines[index])
+    if (match) return match[1]
+    if (!IGNORABLE.test(lines[index])) return undefined
+  }
+  return undefined
+}
+
 /**
  * Like `rewriteFrontmatter`, but a document with no block gets one written above the text it
  * already had, and a block this module could not parse strictly is edited anyway - lines it
  * cannot read are copied through untouched. For collections whose files are notepads first and
  * records second (tickets): refusing to write would make the board unable to move a card the
  * board is perfectly able to show.
+ *
+ * So strictness lives here rather than in the read, and it is down to one case: a document this
+ * can neither edit nor safely write above (`strandedField`) is refused, and a caller that cannot
+ * write is expected to say so rather than fall back to a write that loses a field.
  */
-export function upsertFrontmatter(markdown: string, updates: Record<string, string | undefined>): string {
+export function upsertFrontmatter(markdown: string, updates: Record<string, string | undefined>): UpsertResult {
   const lines = markdown.split('\n')
   const block = lenientBlock(lines)
-  if (block) return rewriteBlock({ lines, closing: block.closing }, updates)
+  if (block) return { ok: true, markdown: rewriteBlock({ lines, closing: block.closing }, updates) }
+  const stranded = strandedField(lines)
+  if (stranded)
+    return {
+      ok: false,
+      message: `Frontmatter opens with --- and sets "${stranded}" but has no closing --- delimiter. Add one above the body and try again.`
+    }
   const fields = Object.entries(updates).flatMap(([key, value]) => (value === undefined ? [] : [`${key}: ${value}`]))
-  return ['---', ...fields, '---', '', markdown].join('\n')
+  const carriage = carriageReturn(lines)
+  const written = ['---', ...fields, '---', ''].map((line) => `${line}${carriage}`)
+  return { ok: true, markdown: [...written, markdown].join('\n') }
 }
 
 /**

@@ -166,8 +166,12 @@ export function createTicketLibrary(options: TicketLibraryOptions): TicketLibrar
     }
     // A card the board is willing to show is a card the board must be able to move, so a file
     // with no frontmatter gets one written above the text it already had rather than refusing the
-    // drop. Nothing below the closing delimiter is touched, whatever shape the prose is in.
-    const contents = upsertFrontmatter(markdown, { status, updated: options.today() })
+    // drop. Nothing below the closing delimiter is touched, whatever shape the prose is in. The
+    // single exception is a file the write would take a field away from, which is refused with
+    // the writer's own reason: the drop fails and the file is not opened for writing at all.
+    const upserted = upsertFrontmatter(markdown, { status, updated: options.today() })
+    if (!upserted.ok) return { ok: false, code: 'unwritable-frontmatter', message: upserted.message }
+    const contents = upserted.markdown
     const rewritten: Ticket = readTicket(contents, slug)
     try {
       await writeThroughTemporary(folder, slug, contents)

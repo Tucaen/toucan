@@ -1,4 +1,4 @@
-import { deepEqual, equal, throws } from 'node:assert/strict'
+import { deepEqual, equal, match, throws } from 'node:assert/strict'
 import { test } from 'node:test'
 import {
   frontmatterForDisplay,
@@ -131,6 +131,13 @@ test('a document with no closed frontmatter block has nothing to lift out', () =
 
 // The lenient reader and writer: a notepad file is still a record, so nothing here rejects one.
 
+/** The rewritten document, for a write the caller expects to be allowed. */
+function upserted(markdown: string, updates: Record<string, string | undefined>): string {
+  const result = upsertFrontmatter(markdown, updates)
+  if (!result.ok) throw new Error(`Expected the write to be allowed, got: ${result.message}`)
+  return result.markdown
+}
+
 test('lenient reading takes the fields it can and never fails on the rest', () => {
   const read = lenientFrontmatter(
     ['---', 'title: A', 'not a field', '  nested: thing', '# comment', 'status: open', '---', '', 'Body.\n'].join('\n')
@@ -158,7 +165,7 @@ test('a note that opens with a horizontal rule keeps its prose, rather than losi
   deepEqual([...read.fields], [])
   equal(read.body, note)
   // The writer has to agree, or it would edit a block the reader never saw.
-  equal(upsertFrontmatter(note, { status: 'done' }), `---\nstatus: done\n---\n\n${note}`)
+  equal(upserted(note, { status: 'done' }), `---\nstatus: done\n---\n\n${note}`)
 })
 
 test('a document with no closed block is all body, with no fields', () => {
@@ -170,14 +177,59 @@ test('a document with no closed block is all body, with no fields', () => {
 
 test('upserting into a document without frontmatter writes a block above the text it keeps', () => {
   equal(
-    upsertFrontmatter('# Heading\n\nProse.\n', { status: 'done', updated: '2026-09-04' }),
+    upserted('# Heading\n\nProse.\n', { status: 'done', updated: '2026-09-04' }),
     '---\nstatus: done\nupdated: 2026-09-04\n---\n\n# Heading\n\nProse.\n'
   )
 })
 
 test('upserting into a block rewrites in place, keeps lines it cannot read, and drops duplicates it replaced', () => {
   equal(
-    upsertFrontmatter('---\ntitle: A\nnot a field\nstatus: open\nstatus: blocked\n---\nBody\n', { status: 'done' }),
+    upserted('---\ntitle: A\nnot a field\nstatus: open\nstatus: blocked\n---\nBody\n', { status: 'done' }),
     '---\ntitle: A\nnot a field\nstatus: done\n---\nBody\n'
+  )
+})
+
+test('a block that was opened and never closed refuses the write rather than stranding its fields', () => {
+  // Writing a second block above this one would leave `title: A` below it as prose: still in the
+  // file, but no longer a field anything reads, and no later write would ever reach it again.
+  const result = upsertFrontmatter('---\ntitle: A\nstatus: open\n\nBody.\n', { status: 'done' })
+
+  equal(result.ok, false)
+  if (result.ok) return
+  match(result.message, /closing ---/)
+  // The key it would have stranded is named, so the line to fix is findable in a long file.
+  match(result.message, /title/)
+})
+
+test('an opening --- with nothing field-shaped under it is prose, and still takes a block above it', () => {
+  // A rule someone typed strands nothing, so there is nothing to refuse: only an unclosed block
+  // that holds fields is a record this module would be writing a competing copy of.
+  equal(
+    upserted('---\nJust a rule and a note.\n', { status: 'done' }),
+    '---\nstatus: done\n---\n\n---\nJust a rule and a note.\n'
+  )
+})
+
+test('a colon in the prose below a rule is not a stranded field, however far down it is', () => {
+  // The refusal reads the run of lines under the opening delimiter and stops where frontmatter
+  // would: a note is full of `Word: text` lines, and treating one as a record would refuse the
+  // drop on exactly the notepad files the board exists to carry.
+  equal(upserted('---\nJust a rule.\n\nNote: call Bob\n', { status: 'done' }).startsWith('---\nstatus: done\n'), true)
+})
+
+test('a document saved with CRLF is edited in place, in its own line ending', () => {
+  // Splitting on `\n` alone leaves `---\r`, which read as no frontmatter at all: the write would
+  // then stack a second block on the one already there and strand every field below it.
+  equal(
+    upserted('---\r\ntitle: A\r\nstatus: open\r\n---\r\n\r\nBody.\r\n', { status: 'done', updated: '2026-09-04' }),
+    '---\r\ntitle: A\r\nstatus: done\r\nupdated: 2026-09-04\r\n---\r\n\r\nBody.\r\n'
+  )
+  deepEqual(Object.fromEntries(lenientFrontmatter('---\r\ntitle: A\r\n---\r\nBody.\r\n').fields), { title: 'A' })
+})
+
+test('a CRLF note with no frontmatter gets a block in CRLF rather than one mixed line ending', () => {
+  equal(
+    upserted('# Heading\r\n\r\nProse.\r\n', { status: 'done' }),
+    '---\r\nstatus: done\r\n---\r\n\r\n# Heading\r\n\r\nProse.\r\n'
   )
 })
