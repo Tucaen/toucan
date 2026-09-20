@@ -3,12 +3,14 @@ import { ArrowLeft, ExternalLink, FolderOpen, GripVertical, MoreHorizontal, Refr
 import ReactMarkdown from 'react-markdown'
 import type { TicketBoardPanelState } from '../../shared/terminal'
 import type { TicketCard, TicketSource } from '../../shared/ticket-source'
+import type { TicketSkillApi } from '../../shared/ticket-skill'
 import { ticketCardKey } from '../../shared/ticket-source'
 import { TICKET_STATUS, ticketsDirectoryOrDefault } from '../../shared/tickets'
 import { markdownBlockComponents, remarkPlugins } from './MarkdownMessage'
 import SessionKindIcon from './SessionKindIcon'
 import TicketDeleteDialog from './TicketDeleteDialog'
 import TicketFormatPrimer from './TicketFormatPrimer'
+import TicketSkillSetup, { TicketSkillHeaderButton } from './TicketSkillSetup'
 import type { TicketSessionChip } from './ticket-activity'
 import {
   DONE_COLUMN_RECENT_DAYS,
@@ -36,6 +38,7 @@ import {
   type TicketPaneSelection
 } from './ticket-board-panes'
 import { useTicketBoard } from './use-ticket-board'
+import { useTicketSkill } from './use-ticket-skill'
 
 /**
  * The docked ticket board, as three panes: the states on the left, the selected state's tickets in
@@ -62,6 +65,8 @@ export interface TicketBoardPanelProps {
   /** The project's own tickets folder, unresolved; absent means the shipped default. */
   ticketsDirectory?: string
   sources: readonly TicketSource[]
+  /** Scaffolding this project its own tickets skill; see `use-ticket-skill.ts`. */
+  skillApi: TicketSkillApi
   /** Advanced when the project's tickets folder change has been persisted; see `useTicketBoard`. */
   revision?: number
   /** Today as `YYYY-MM-DD`, so relative dates and the Done cutoff stay testable. */
@@ -102,6 +107,7 @@ export default function TicketBoardPanel(props: TicketBoardPanelProps): JSX.Elem
     [panel.enabledSources, projectPath]
   )
   const board = useTicketBoard({ sources, projectPath, today, enabledSources, revision })
+  const skill = useTicketSkill({ api: props.skillApi, projectPath })
   const ticketsDirectory = ticketsDirectoryOrDefault(props.ticketsDirectory)
   /** What the board is pointed at. Resolved against every fresh listing, never trusted raw. */
   const [selection, setSelection] = useState<TicketPaneSelection>({ status: null, cardKey: null })
@@ -565,7 +571,10 @@ export default function TicketBoardPanel(props: TicketBoardPanelProps): JSX.Elem
               all is a board nobody has been told how to fill, so that one teaches the format. */}
           {selectedColumn.cards.length === 0 &&
             (board.isEmpty ? (
-              <TicketFormatPrimer ticketsDirectory={ticketsDirectory} today={today} />
+              <>
+                <TicketFormatPrimer ticketsDirectory={ticketsDirectory} today={today} />
+                <TicketSkillSetup skill={skill} />
+              </>
             ) : (
               <p className="ticket-board-state">No tickets in {selectedColumn.label}.</p>
             ))}
@@ -672,6 +681,9 @@ export default function TicketBoardPanel(props: TicketBoardPanelProps): JSX.Elem
           <h2 id={headingId}>Tickets</h2>
         </div>
         <div className="ticket-board-controls">
+          {/* Offered here only while the project has no skill of its own, so a board that already
+              has tickets is still a place the project can be given one. */}
+          {projectPath && <TicketSkillHeaderButton skill={skill} />}
           {/* A project that had no tickets folder when the board opened is not being watched -
               Toucan will not create the folder to watch it - so this is how its first ticket
               arrives without a restart. */}

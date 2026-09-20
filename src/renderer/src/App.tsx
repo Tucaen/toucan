@@ -3048,6 +3048,7 @@ function Canvas(): JSX.Element {
                   projectName={activeProject?.name}
                   ticketsDirectory={activeProject?.ticketsDirectory}
                   sources={ticketSources}
+                  skillApi={window.ticketSkillApi}
                   today={localCalendarDate()}
                   sessions={ticketSessions}
                   onFocusSession={focusNode}

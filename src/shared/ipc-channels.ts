@@ -124,7 +124,10 @@ export const TICKET_CHANNELS = {
   remove: 'tickets:remove',
   isGitRepository: 'tickets:is-git-repository',
   reveal: 'tickets:reveal',
-  changed: 'tickets:changed'
+  changed: 'tickets:changed',
+  skillState: 'tickets:skill-state',
+  writeSkill: 'tickets:write-skill',
+  revealSkill: 'tickets:reveal-skill'
 } as const
 
 export const GITHUB_ISSUES_CHANNELS = {

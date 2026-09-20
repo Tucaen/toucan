@@ -11,8 +11,11 @@ import { createMockRemoteApi } from './dom/remote-api-mock'
 import {
   cardFixture,
   createMockGithubIssuesApi,
+  createMockTicketSkillApi,
   createMockTicketsApi,
+  MOCK_TICKET_SKILL_PATH,
   type MockGithubIssuesApi,
+  type MockTicketSkillApi,
   type MockTicketsApi
 } from './dom/tickets-api-mock'
 
@@ -45,6 +48,7 @@ function savedWorkspace(overrides: Partial<WorkspaceState> = {}): WorkspaceState
 
 let tickets: MockTicketsApi
 let github: MockGithubIssuesApi
+let ticketSkill: MockTicketSkillApi
 let saved: WorkspaceState[]
 
 function installWindowApis(state: WorkspaceState): void {
@@ -71,6 +75,7 @@ function installWindowApis(state: WorkspaceState): void {
   define('remoteApi', createMockRemoteApi())
   define('brainDumpApi', createMockBrainDumpApi())
   define('ticketsApi', tickets)
+  define('ticketSkillApi', ticketSkill)
   define('githubIssuesApi', github)
 }
 
@@ -166,6 +171,7 @@ beforeEach(() => {
   setWindowWidth(1920)
   tickets = createMockTicketsApi()
   github = createMockGithubIssuesApi()
+  ticketSkill = createMockTicketSkillApi()
   tickets.projects.set(project.path, {
     cards: [
       cardFixture({ id: 'ticket-board', title: 'Ticket board', status: 'in-progress', updated: '2026-09-03' }),
@@ -926,5 +932,81 @@ describe('learning the ticket file format', () => {
     expect(primer()).toBeTruthy()
     expect(screen.queryByText('What a ticket file looks like')).toBeNull()
     expect(screen.getByText('What the board makes of a ticket file is explained above.')).toBeTruthy()
+  })
+})
+
+/**
+ * The board explains the file format to a human; this is the other half of that first run - the
+ * project's agents have been told nothing at all until it carries a tickets skill of its own.
+ * Toucan writes one starting point and then stays out: the refusal is what makes the file the
+ * project's rather than Toucan's, so it is what these tests spend their weight on.
+ */
+describe('scaffolding the project its own tickets skill', () => {
+  const setup = (): HTMLElement => screen.getByRole('region', { name: 'Tickets skill' })
+  const offer = (): HTMLElement => within(setup()).getByRole('button', { name: 'Set up ticket skill' })
+
+  async function openEmptyBoard(): Promise<void> {
+    tickets.projects.set(project.path, { cards: [], diagnostics: [] })
+    await openBoard()
+    await screen.findByRole('region', { name: 'Tickets skill' })
+  }
+
+  test('an empty board offers to write the skill, naming the file it would create', async () => {
+    await openEmptyBoard()
+
+    expect(within(setup()).getByText(MOCK_TICKET_SKILL_PATH, { selector: 'code' })).toBeTruthy()
+    expect(offer()).toBeTruthy()
+  })
+
+  test('writing the skill reports the file it wrote and stops offering to write it again', async () => {
+    await openEmptyBoard()
+
+    fireEvent.click(offer())
+
+    await waitFor(() => expect(ticketSkill.writeCalls).toEqual([project.path]))
+    await waitFor(() =>
+      expect(setup().querySelector('.ticket-skill-outcome')?.textContent).toContain(`Wrote ${MOCK_TICKET_SKILL_PATH}`)
+    )
+    // What the board now says comes from a fresh probe, not from the write having succeeded.
+    await waitFor(() => expect(within(setup()).queryByRole('button', { name: 'Set up ticket skill' })).toBeNull())
+  })
+
+  test('a project that already has a tickets skill is never offered a replacement', async () => {
+    ticketSkill.setPresent(true)
+    await openEmptyBoard()
+
+    expect(within(setup()).queryByRole('button', { name: 'Set up ticket skill' })).toBeNull()
+    expect(within(setup()).getByText(/Toucan never rewrites it/)).toBeTruthy()
+    expect(ticketSkill.writeCalls).toEqual([])
+  })
+
+  test('a refused write is shown as it came back, with a way to go and read the file', async () => {
+    ticketSkill.failWith('.agents/skills/tickets/SKILL.md already exists.')
+    await openEmptyBoard()
+
+    fireEvent.click(offer())
+
+    await screen.findByText(/already exists\./)
+    fireEvent.click(screen.getByRole('button', { name: 'Show the file' }))
+    expect(ticketSkill.revealCalls).toEqual([project.path])
+  })
+
+  test('a board that has tickets can still be given the skill, from the header', async () => {
+    await openBoard()
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Set up ticket skill' })).toBeTruthy())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Set up ticket skill' }))
+
+    await waitFor(() => expect(ticketSkill.writeCalls).toEqual([project.path]))
+    // Nothing left to offer once the project has one, so the control goes rather than greying out.
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Set up ticket skill' })).toBeNull())
+  })
+
+  test('the header control is absent for a project that already has a skill', async () => {
+    ticketSkill.setPresent(true)
+    await openBoard()
+
+    await waitFor(() => expect(ticketSkill.state).toHaveBeenCalled())
+    expect(screen.queryByRole('button', { name: 'Set up ticket skill' })).toBeNull()
   })
 })

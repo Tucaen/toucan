@@ -2,6 +2,7 @@ import { EMPTY_TICKET_LISTING } from '../shared/ticket-source'
 import { errorMessage } from '../shared/text'
 import type { IpcRegistrar } from './ipc-registrar'
 import type { TicketLibrary } from './ticket-library'
+import type { TicketSkillScaffold } from './ticket-skill-scaffold'
 import type { TicketChangeOwner, TicketChangeWatcher } from './ticket-watcher'
 import { TICKET_CHANNELS } from '../shared/ipc-channels'
 
@@ -12,6 +13,8 @@ import { TICKET_CHANNELS } from '../shared/ipc-channels'
 export interface TicketIpcDependencies {
   library: TicketLibrary
   changes: TicketChangeWatcher
+  /** Writes a project its own starter tickets skill; see `ticket-skill-scaffold.ts`. */
+  skill: TicketSkillScaffold
   /** Shows a file in the OS file manager. */
   reveal(path: string): void
   isGitRepository(projectPath: string): Promise<boolean>
@@ -23,7 +26,7 @@ export interface TicketIpcDependencies {
  * change, and tying the two together removes the failure mode where one happened without the other.
  */
 export function registerTicketIpc(ipc: IpcRegistrar<TicketChangeOwner>, deps: TicketIpcDependencies): void {
-  const { library, changes, reveal, isGitRepository } = deps
+  const { library, changes, reveal, isGitRepository, skill } = deps
 
   ipc.handle(TICKET_CHANNELS.list, async (event, projectPath: unknown) => {
     if (typeof projectPath !== 'string' || !projectPath) return EMPTY_TICKET_LISTING
@@ -62,5 +65,23 @@ export function registerTicketIpc(ipc: IpcRegistrar<TicketChangeOwner>, deps: Ti
     if (typeof projectPath !== 'string' || typeof slug !== 'string') return
     const path = await library.pathFor(projectPath, slug)
     if (path) reveal(path)
+  })
+
+  // Without a project there is nothing to probe, and `unknown` is the honest answer rather than a
+  // guess in either direction: the board then says nothing about a skill and offers no action.
+  ipc.handle(TICKET_CHANNELS.skillState, (_event, projectPath: unknown) =>
+    typeof projectPath === 'string' && projectPath
+      ? skill.state(projectPath)
+      : { status: 'unknown', path: skill.relativePath }
+  )
+
+  ipc.handle(TICKET_CHANNELS.writeSkill, (_event, projectPath: unknown) =>
+    typeof projectPath === 'string' && projectPath
+      ? skill.write(projectPath)
+      : { ok: false, code: 'invalid-request', message: 'A project is required.' }
+  )
+
+  ipc.handle(TICKET_CHANNELS.revealSkill, (_event, projectPath: unknown) => {
+    if (typeof projectPath === 'string' && projectPath) reveal(skill.pathFor(projectPath))
   })
 }

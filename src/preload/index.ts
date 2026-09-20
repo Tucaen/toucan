@@ -9,6 +9,7 @@ import type { RemoteApi } from '../shared/remote-api'
 import type { RemoteChatSpawnRequest } from '../shared/remote-spawn'
 import type { BrainDumpApi, BrainDumpCaptureState, BrainDumpCollection } from '../shared/brain-dump'
 import type { TicketFilesApi, TicketGithubApi } from '../shared/ticket-source'
+import type { TicketSkillApi } from '../shared/ticket-skill'
 import type { FileViewApi } from '../shared/file-view'
 import type { AppUpdateApi, AppUpdateSnapshot } from '../shared/app-update'
 import type { VoiceModelApi, VoiceModelStatus } from '../shared/voice-model'
@@ -204,6 +205,15 @@ const ticketsApi: TicketFilesApi = {
 }
 
 contextBridge.exposeInMainWorld('ticketsApi', ticketsApi)
+
+/** Scaffolding a project its own tickets skill: about the checkout, not about any one ticket. */
+const ticketSkillApi: TicketSkillApi = {
+  state: (projectPath) => ipcRenderer.invoke(TICKET_CHANNELS.skillState, projectPath),
+  write: (projectPath) => ipcRenderer.invoke(TICKET_CHANNELS.writeSkill, projectPath),
+  revealInFolder: (projectPath) => void ipcRenderer.invoke(TICKET_CHANNELS.revealSkill, projectPath)
+}
+
+contextBridge.exposeInMainWorld('ticketSkillApi', ticketSkillApi)
 
 const githubIssuesApi: TicketGithubApi = {
   availability: (projectPath) => ipcRenderer.invoke(GITHUB_ISSUES_CHANNELS.availability, projectPath),

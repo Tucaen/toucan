@@ -48,6 +48,7 @@ import { agentPermissionTitle } from '../shared/agent-permission'
 import { effortSelectorFromConfigOptions } from '../shared/agent-effort'
 import { modelSelectorFromConfigOptions } from '../shared/agent-models'
 import { withCodexSessionConfig } from '../shared/codex-config'
+import { PROJECT_SKILLS_DIRECTORY } from '../shared/project-skills'
 import { sessionOutcomeIndexInstruction } from '../shared/session-outcome'
 import {
   appliedClaudeDelegation,
@@ -152,9 +153,6 @@ export function decisionQuestions(request: CreateElicitationRequest): AgentDecis
     ]
   })
 }
-
-/** The directory holding agent skills inside either a project or the Toucan application. */
-const PROJECT_SKILLS_DIRECTORY = '.agents'
 
 interface SessionSkillsConfiguration {
   additionalDirectories?: string[]

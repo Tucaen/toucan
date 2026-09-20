@@ -44,6 +44,7 @@ import { createGithubIssueReader } from './github-issues'
 import { registerGithubIssuesIpc } from './github-issues-ipc'
 import { registerTicketIpc } from './ticket-ipc'
 import { createTicketLibrary } from './ticket-library'
+import { createTicketSkillScaffold } from './ticket-skill-scaffold'
 import { createTicketSteering } from './ticket-steering'
 import { createTicketChangeWatcher, type TicketChangeWatcher } from './ticket-watcher'
 import { createClaudeUsageReader } from './claude-usage'
@@ -76,7 +77,7 @@ import { registerProjectIpc } from './project-ipc'
 import { createWorktreeManager, type WorktreeManager } from './git-worktree'
 import { createWorkspaceFileIndex, type WorkspaceFileIndexReader } from './workspace-file-index'
 import { createWorkspaceStore } from './workspace-store'
-import { projectFor, ticketsDirectoryFor } from './ticket-directory'
+import { projectFor, ticketsDirectoryFor, ticketsRelativeDirectoryFor } from './ticket-directory'
 import { githubStatusLabelsFor, type GithubStatusLabels } from '../shared/github-issues'
 import type {
   WorktreeCreateRequest,
@@ -452,6 +453,13 @@ void app.whenReady().then(async () => {
       projectFor(projectPath, (await workspace.load()).state?.projects ?? [])?.githubInProgressLabel
     )
   const ticketLibrary = createTicketLibrary({ directoryFor: ticketsFolderFor, today: localCalendarDate })
+  // The scaffolded skill names the folder the way the *project* writes it, so it reads the same
+  // setting the board does, one step before it is resolved against the checkout.
+  const ticketSkill = createTicketSkillScaffold({
+    directoryFor: async (projectPath) =>
+      ticketsRelativeDirectoryFor(projectPath, (await workspace.load()).state?.projects ?? []),
+    today: localCalendarDate
+  })
   // The board is not the only reader of a ticket-folder change: a file an agent just wrote that
   // this listing cannot parse is fed back to that agent, through the same listing the board
   // renders, so generation and rendering can never be held to two different schemas.
@@ -567,6 +575,7 @@ void app.whenReady().then(async () => {
   registerTicketIpc(ipcMain, {
     library: ticketLibrary,
     changes: ticketChanges,
+    skill: ticketSkill,
     reveal: (path) => shell.showItemInFolder(normalize(path)),
     isGitRepository: (projectPath) => worktrees.isRepository(projectPath)
   })

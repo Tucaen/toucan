@@ -6,6 +6,7 @@ import type { WorkspaceFilesApi } from '../shared/workspace-files'
 import type { RemoteApi } from '../shared/remote-api'
 import type { BrainDumpApi } from '../shared/brain-dump'
 import type { TicketFilesApi, TicketGithubApi } from '../shared/ticket-source'
+import type { TicketSkillApi } from '../shared/ticket-skill'
 import type { AppUpdateApi } from '../shared/app-update'
 import type { VoiceModelApi } from '../shared/voice-model'
 import type { FileViewApi } from '../shared/file-view'
@@ -31,6 +32,7 @@ declare global {
     remoteApi: RemoteApi
     brainDumpApi: BrainDumpApi
     ticketsApi: TicketFilesApi
+    ticketSkillApi: TicketSkillApi
     githubIssuesApi: TicketGithubApi
     fileViewApi: FileViewApi
     appUpdateApi: AppUpdateApi

@@ -19,7 +19,7 @@ import type { AgentActivity } from '../src/shared/agent'
 import type { WorkspaceState } from '../src/shared/terminal'
 import type { TicketSource } from '../src/shared/ticket-source'
 import { createMockAgentApi, type MockAgentApi } from './dom/agent-api-mock'
-import { cardFixture } from './dom/tickets-api-mock'
+import { cardFixture, createMockTicketSkillApi } from './dom/tickets-api-mock'
 
 /**
  * The live session card, end to end but in its two halves: a chat node reporting the ticket files
@@ -208,6 +208,7 @@ async function renderBoard(
       projectPath={PROJECT}
       projectName="Toucan"
       sources={[boardSource()]}
+      skillApi={createMockTicketSkillApi()}
       today={TODAY}
       sessions={ticketSessionsFromNodes([node], { [NODE_ID]: report }, { id: PROJECT_ID, path: PROJECT })}
       onFocusSession={onFocusSession}

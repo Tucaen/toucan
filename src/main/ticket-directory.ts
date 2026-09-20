@@ -25,5 +25,15 @@ export function projectFor(projectPath: string, projects: readonly WorkspaceProj
  * the snapshot catches up, and the default folder is the right answer for it.
  */
 export function ticketsDirectoryFor(projectPath: string, projects: readonly WorkspaceProject[]): string {
-  return resolve(projectPath, ticketsDirectoryOrDefault(projectFor(projectPath, projects)?.ticketsDirectory))
+  return resolve(projectPath, ticketsRelativeDirectoryFor(projectPath, projects))
+}
+
+/**
+ * The same answer before it is resolved against the checkout. Prose about where tickets live -
+ * the board's primer, the scaffolded skill - names the folder the way the project writes it, so
+ * the relative form is the one those callers need, and it comes from here rather than from a
+ * second reading of the project's setting.
+ */
+export function ticketsRelativeDirectoryFor(projectPath: string, projects: readonly WorkspaceProject[]): string {
+  return ticketsDirectoryOrDefault(projectFor(projectPath, projects)?.ticketsDirectory)
 }

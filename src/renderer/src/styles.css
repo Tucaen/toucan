@@ -6839,6 +6839,84 @@ button.global-status-chip:hover {
   color: #8a94a2;
 }
 
+/* The offer to scaffold the project's own tickets skill, under the primer it explains. */
+.ticket-skill-setup {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 9px;
+  margin-top: 4px;
+  padding: 11px 12px 12px;
+  border: 1px solid #222935;
+  border-radius: 8px;
+  background: #11151b;
+  color: #8a94a2;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.ticket-skill-setup p {
+  margin: 0;
+}
+
+.ticket-skill-setup code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  color: #cbd2dc;
+  background: #161a21;
+  font-size: 11px;
+}
+
+.ticket-skill-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 11px;
+  border: 1px solid #2c3543;
+  border-radius: 7px;
+  background: #1a212b;
+  color: #cbd2dc;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.ticket-skill-button:hover:not(:disabled) {
+  border-color: #3a4657;
+  background: #202836;
+}
+
+.ticket-skill-button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.ticket-skill-button svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* One line carrying both outcomes; the actions after it are the same either way. */
+.ticket-skill-outcome {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.ticket-skill-outcome[role='alert'] {
+  color: #e08c8c;
+}
+
+.ticket-skill-outcome button {
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font-size: 11px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 /* ---- File nodes -------------------------------------------------------- */
 
 .file-icon {

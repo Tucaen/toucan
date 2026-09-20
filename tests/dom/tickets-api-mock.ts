@@ -7,6 +7,7 @@ import type {
   TicketSourceAvailability,
   TicketSourceListResult
 } from '../../src/shared/ticket-source'
+import { TICKET_SKILL_PATH, type TicketSkillApi } from '../../src/shared/ticket-skill'
 
 /**
  * The files ticket source as the preload bridge exposes it, backed by a plain array the test
@@ -110,5 +111,47 @@ export function createMockGithubIssuesApi(): MockGithubIssuesApi {
       listCalls.push(projectPath)
       return listing
     })
+  }
+}
+
+/**
+ * The tickets-skill scaffold as the preload bridge exposes it. It holds whether the project has a
+ * skill so a test can watch the board's offer change after a write, and it refuses a second write
+ * exactly as main does - the refusal is the behaviour worth rehearsing here.
+ */
+export interface MockTicketSkillApi extends TicketSkillApi {
+  setPresent(present: boolean): void
+  /** Makes the next write fail with this message, for the board's error path. */
+  failWith(message: string | null): void
+  writeCalls: string[]
+  revealCalls: string[]
+}
+
+/** Forward slashes; main answers in the host's own separator, which no assertion here depends on. */
+export const MOCK_TICKET_SKILL_PATH = TICKET_SKILL_PATH
+
+export function createMockTicketSkillApi(): MockTicketSkillApi {
+  let present = false
+  let failure: string | null = null
+  const writeCalls: string[] = []
+  const revealCalls: string[] = []
+  return {
+    writeCalls,
+    revealCalls,
+    setPresent: (value) => void (present = value),
+    failWith: (message) => void (failure = message),
+    state: vi.fn(async () => ({
+      status: present ? ('present' as const) : ('absent' as const),
+      path: MOCK_TICKET_SKILL_PATH
+    })),
+    write: vi.fn(async (projectPath: string) => {
+      writeCalls.push(projectPath)
+      if (failure) return { ok: false as const, code: 'write-failed', message: failure }
+      if (present)
+        return { ok: false as const, code: 'skill-exists', message: `${MOCK_TICKET_SKILL_PATH} already exists.` }
+      present = true
+      return { ok: true as const, path: MOCK_TICKET_SKILL_PATH }
+    }),
+    revealInFolder: vi.fn((projectPath: string) => void revealCalls.push(projectPath))
   }
 }
