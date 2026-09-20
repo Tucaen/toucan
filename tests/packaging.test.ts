@@ -2,6 +2,8 @@ import { strict as assert } from 'node:assert'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { minimatch } from 'minimatch'
+import { PROJECT_SKILLS_MANIFEST_SEGMENTS, projectSkillFileSegments } from '../src/shared/project-skills'
 
 interface WindowsTarget {
   target: string
@@ -13,6 +15,7 @@ interface PackageManifest {
   dependencies?: Record<string, string>
   devDependencies?: Record<string, string>
   build?: {
+    files?: string[]
     asarUnpack?: string[]
     win?: {
       target?: WindowsTarget[]
@@ -48,6 +51,32 @@ test('keeps native agent runtimes outside app.asar so chat providers can spawn t
     unpackedPaths.includes('**/node_modules/@anthropic-ai/claude-agent-sdk-win32-x64/**/*'),
     'Every copy of the bundled Claude executable must be unpacked before the Claude SDK can spawn it.'
   )
+})
+
+test('the bundled skills ship with the manifest that makes Claude load them at all', () => {
+  // The manifest sits beside `skills/`, not inside it, so a glob aimed at the skills alone leaves
+  // it behind and every packaged session loads a plugin with nothing in it - silently, because the
+  // skills folder Toucan probes for is there all the same (#212). Both halves are asserted, since
+  // either one alone is a glob that can be narrowed onto the other and still pass. electron-builder
+  // matches with minimatch and `dot: true` (`app-builder-lib/out/fileMatcher.js`), which is what
+  // this uses - over the include patterns only, since minimatch reports a miss against a `!`
+  // exclude as a hit. It is stricter in one way: a magic-free pattern, which electron-builder
+  // expands to `<pattern>/**/*` itself, would have to be written out here as the glob it becomes.
+  const required = [PROJECT_SKILLS_MANIFEST_SEGMENTS, projectSkillFileSegments('brain-dump')].map((segments) =>
+    segments.join('/')
+  )
+  for (const [option, patterns] of [
+    ['files', manifest.build?.files ?? []],
+    ['asarUnpack', manifest.build?.asarUnpack ?? []]
+  ] as const) {
+    const includes = patterns.filter((pattern) => !pattern.startsWith('!'))
+    for (const path of required) {
+      assert.ok(
+        includes.some((pattern) => minimatch(path, pattern, { dot: true })),
+        `build.${option} must cover ${path}, or a packaged build's skills plugin loads nothing`
+      )
+    }
+  }
 })
 
 test('builds both a portable exe and an NSIS installer for Windows x64', () => {
