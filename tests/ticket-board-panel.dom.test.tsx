@@ -789,3 +789,103 @@ describe('where a project keeps its tickets', () => {
     )
   })
 })
+
+/**
+ * A first-run board has to teach the convention it renders: the only other places it is written
+ * down are a skill an agent loads and a message an agent receives, so a human opening an empty
+ * board would otherwise be shown four empty columns and no way to fill them.
+ */
+describe('learning the ticket file format', () => {
+  const primer = (): HTMLElement => screen.getByRole('region', { name: 'Ticket file format' })
+
+  async function openEmptyBoard(state?: WorkspaceState): Promise<void> {
+    tickets.projects.set(project.path, { cards: [], diagnostics: [] })
+    await openBoard(state)
+  }
+
+  test('a project with no tickets is told where they go and what one looks like', async () => {
+    await openEmptyBoard()
+
+    expect(within(primer()).getByText('docs/tickets', { selector: 'code' })).toBeTruthy()
+    expect(within(primer()).getByText(/title: Short imperative title/)).toBeTruthy()
+  })
+
+  test('the primer names every frontmatter field and what its absence costs', async () => {
+    await openEmptyBoard()
+
+    for (const field of ['title', 'status', 'created', 'updated', 'blocked_by']) {
+      expect(within(primer()).getByText(field, { selector: 'dt code' })).toBeTruthy()
+    }
+    expect(within(primer()).getByText(/Absent simply means nothing is blocking it/)).toBeTruthy()
+    expect(within(primer()).getAllByText(/listed as unreadable/).length).toBeGreaterThan(0)
+  })
+
+  test('the primer maps the statuses onto the columns the board actually shows', async () => {
+    await openEmptyBoard()
+
+    for (const label of ['Open', 'In progress', 'Blocked', 'Done']) {
+      expect(within(primer()).getByText(label, { selector: 'code' })).toBeTruthy()
+    }
+    expect(within(primer()).getByText(/becomes an extra column/)).toBeTruthy()
+  })
+
+  test('the primer explains what a blocker slug may name', async () => {
+    await openEmptyBoard()
+
+    expect(within(primer()).getByText(/names tickets in the same folder by slug/)).toBeTruthy()
+  })
+
+  test('the primer names the folder the project chose, not the default', async () => {
+    await openEmptyBoard(savedWorkspace({ projects: [{ ...project, ticketsDirectory: 'notes/tickets' }, other] }))
+
+    expect(within(primer()).getByText('notes/tickets', { selector: 'code' })).toBeTruthy()
+    // Both folders are named: the one this project uses, and the default it moved away from.
+    expect(within(primer()).getByText('docs/tickets', { selector: 'code' })).toBeTruthy()
+    expect(within(primer()).getByText(/is the default/)).toBeTruthy()
+  })
+
+  test('the primer is gone once the folder holds a ticket', async () => {
+    await openBoard()
+
+    expect(screen.queryByRole('region', { name: 'Ticket file format' })).toBeNull()
+  })
+
+  test('an empty column on a board that has tickets still says only that it is empty', async () => {
+    await openBoard()
+    column('Blocked')
+
+    expect(screen.getByText('No tickets in Blocked.')).toBeTruthy()
+    expect(screen.queryByRole('region', { name: 'Ticket file format' })).toBeNull()
+  })
+
+  test('a file that could not be read offers the same explanation, and it starts closed', async () => {
+    tickets.projects.set(project.path, {
+      cards: [cardFixture({ id: 'ticket-board', title: 'Ticket board' })],
+      diagnostics: [
+        { path: 'docs/tickets/notes.md', code: 'malformed-ticket', message: 'Ticket frontmatter is missing.' }
+      ]
+    })
+    await openBoard()
+
+    // A disclosure keeps the paths readable: the explanation is a click away, not in the way.
+    const disclosure = screen.getByText('What a ticket file looks like').closest('details')
+    expect(disclosure?.open).toBe(false)
+    expect(within(primer()).getByText(/title: Short imperative title/)).toBeTruthy()
+  })
+
+  test('a folder holding nothing but broken files is pointed at the primer already on screen', async () => {
+    tickets.projects.set(project.path, {
+      cards: [],
+      diagnostics: [
+        { path: 'docs/tickets/notes.md', code: 'malformed-ticket', message: 'Ticket frontmatter is missing.' }
+      ]
+    })
+    await openBoard()
+
+    // The primer is the empty board's own content here, so the diagnostics point rather than
+    // offering a second copy of it.
+    expect(primer()).toBeTruthy()
+    expect(screen.queryByText('What a ticket file looks like')).toBeNull()
+    expect(screen.getByText('The shape a ticket file has to have is explained above.')).toBeTruthy()
+  })
+})

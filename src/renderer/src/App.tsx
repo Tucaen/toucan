@@ -3046,6 +3046,7 @@ function Canvas(): JSX.Element {
                   workspaceWidth={workspaceWidth}
                   projectPath={activeProject?.path}
                   projectName={activeProject?.name}
+                  ticketsDirectory={activeProject?.ticketsDirectory}
                   sources={ticketSources}
                   today={localCalendarDate()}
                   sessions={ticketSessions}

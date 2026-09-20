@@ -6764,6 +6764,81 @@ button.global-status-chip:hover {
   padding-left: 18px;
 }
 
+/* The format primer: the empty board's whole content, and the same block folded away under the
+   diagnostics. It is prose, so it reads at the panel's width rather than the card grid's. */
+.ticket-format-primer {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 4px 12px;
+  color: #8a94a2;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.ticket-format-primer p {
+  margin: 0;
+}
+
+.ticket-format-primer code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  color: #cbd2dc;
+  background: #161a21;
+  font-size: 11px;
+}
+
+.ticket-format-example {
+  margin: 0;
+  padding: 10px 12px;
+  overflow-x: auto;
+  border: 1px solid #222935;
+  border-radius: 8px;
+  background: #11151b;
+}
+
+.ticket-format-example code {
+  padding: 0;
+  background: none;
+  color: #9fb4cc;
+  white-space: pre;
+}
+
+.ticket-format-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin: 0;
+}
+
+.ticket-format-fields dt {
+  margin-bottom: 2px;
+}
+
+.ticket-format-fields dd {
+  margin: 0;
+}
+
+.ticket-format-requirement {
+  color: #6f7988;
+}
+
+/* Closed by default, so a reader who already knows the shape sees the paths and nothing else. */
+.ticket-format-disclosure {
+  margin-top: 10px;
+}
+
+.ticket-format-disclosure > summary {
+  cursor: pointer;
+  color: #8a94a2;
+}
+
+/* Where the primer is already the empty board's content, the diagnostics point at it instead. */
+.ticket-format-pointer {
+  margin: 10px 0 0;
+  color: #8a94a2;
+}
+
 /* ---- File nodes -------------------------------------------------------- */
 
 .file-icon {

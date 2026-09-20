@@ -49,6 +49,12 @@ export interface TicketBoard {
   status: TicketBoardStatus
   columns: TicketBoardColumn[]
   cards: TicketCard[]
+  /**
+   * Not 'this column is empty' but 'every source has answered and none of them produced a card' -
+   * the first-run board, which is the one that owes an explanation rather than four empty columns.
+   * False while the board is still loading, so nothing is taught to someone about to be shown work.
+   */
+  isEmpty: boolean
   diagnostics: TicketDiagnostic[]
   error?: string
   showAllDone: boolean
@@ -340,6 +346,7 @@ export function useTicketBoard(options: TicketBoardOptions): TicketBoard {
     status,
     columns,
     cards,
+    isEmpty: status === 'ready' && cards.length === 0,
     diagnostics,
     error,
     showAllDone,

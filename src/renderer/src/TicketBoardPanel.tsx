@@ -4,10 +4,11 @@ import ReactMarkdown from 'react-markdown'
 import type { TicketBoardPanelState } from '../../shared/terminal'
 import type { TicketCard, TicketSource } from '../../shared/ticket-source'
 import { ticketCardKey } from '../../shared/ticket-source'
-import { TICKET_STATUS } from '../../shared/tickets'
+import { TICKET_STATUS, ticketsDirectoryOrDefault } from '../../shared/tickets'
 import { markdownBlockComponents, remarkPlugins } from './MarkdownMessage'
 import SessionKindIcon from './SessionKindIcon'
 import TicketDeleteDialog from './TicketDeleteDialog'
+import TicketFormatPrimer from './TicketFormatPrimer'
 import type { TicketSessionChip } from './ticket-activity'
 import {
   DONE_COLUMN_RECENT_DAYS,
@@ -58,6 +59,8 @@ export interface TicketBoardPanelProps {
   /** The active project's tickets are the board; without one there is nothing to render. */
   projectPath?: string
   projectName?: string
+  /** The project's own tickets folder, unresolved; absent means the shipped default. */
+  ticketsDirectory?: string
   sources: readonly TicketSource[]
   /** Advanced when the project's tickets folder change has been persisted; see `useTicketBoard`. */
   revision?: number
@@ -99,6 +102,7 @@ export default function TicketBoardPanel(props: TicketBoardPanelProps): JSX.Elem
     [panel.enabledSources, projectPath]
   )
   const board = useTicketBoard({ sources, projectPath, today, enabledSources, revision })
+  const ticketsDirectory = ticketsDirectoryOrDefault(props.ticketsDirectory)
   /** What the board is pointed at. Resolved against every fresh listing, never trusted raw. */
   const [selection, setSelection] = useState<TicketPaneSelection>({ status: null, cardKey: null })
   /** The card whose actions menu is open; at most one, closed by any action or by Escape. */
@@ -556,9 +560,14 @@ export default function TicketBoardPanel(props: TicketBoardPanelProps): JSX.Elem
           )}
         </header>
         <div className="ticket-list-cards" ref={scrollRef}>
-          {selectedColumn.cards.length === 0 && (
-            <p className="ticket-board-state">No tickets in {selectedColumn.label}.</p>
-          )}
+          {/* An empty column on a board that has tickets is just empty; a board with no tickets at
+              all is a board nobody has been told how to fill, so that one teaches the format. */}
+          {selectedColumn.cards.length === 0 &&
+            (board.isEmpty ? (
+              <TicketFormatPrimer ticketsDirectory={ticketsDirectory} today={today} />
+            ) : (
+              <p className="ticket-board-state">No tickets in {selectedColumn.label}.</p>
+            ))}
           {selectedColumn.cards.map(renderCard)}
         </div>
         {/* Closed work is history, not news: Done lists the recent ones and offers the rest. */}
@@ -771,6 +780,19 @@ export default function TicketBoardPanel(props: TicketBoardPanelProps): JSX.Elem
               </li>
             ))}
           </ul>
+          {/* The parse error says what is wrong with the file; only the primer says what a right
+              one is, so the contract is learnable from the error rather than only from an empty
+              board. Closed by default: a reader who already knows the shape wants the paths. A
+              folder holding nothing but broken files is the one case where the primer is already
+              open in the list pane, so there it points rather than repeating itself. */}
+          {board.isEmpty ? (
+            <p className="ticket-format-pointer">The shape a ticket file has to have is explained above.</p>
+          ) : (
+            <details className="ticket-format-disclosure">
+              <summary>What a ticket file looks like</summary>
+              <TicketFormatPrimer ticketsDirectory={ticketsDirectory} today={today} />
+            </details>
+          )}
         </div>
       )}
 

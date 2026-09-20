@@ -1,5 +1,6 @@
 import type { AgentFileWrite } from './agent-activity'
 import { pathIdentity } from './paths'
+import { TICKET_FIELD_SENTENCE } from './ticket-format'
 import type { TicketDiagnostic } from './tickets'
 
 /**
@@ -62,14 +63,16 @@ export function reportedTicketKey(agentId: string, path: string): string {
 /**
  * What a conforming ticket file is, in the words an agent has to act on. Deliberately restates the
  * shape rather than only pointing at the skill: the session being steered may never have loaded
- * it. One of three places the convention is written down - `shared/tickets.ts` decides it and
- * `.agents/skills/tickets/SKILL.md` teaches it; all three move together.
+ * it. The field list itself is `TICKET_FIELD_SENTENCE` from `shared/ticket-format.ts`, which is also
+ * what the board's empty-state primer lays out, so an agent and a human are never told two
+ * different shapes - `shared/tickets.ts` decides the shape and `.agents/skills/tickets/SKILL.md`
+ * teaches it at length; all of them move together.
  */
 const TICKET_SHAPE =
   'A ticket is a Markdown file named `<lowercase-kebab-case>.md` directly in the tickets folder, ' +
-  'opening with frontmatter that has `title`, `status`, `created` (YYYY-MM-DD), `updated` ' +
-  '(YYYY-MM-DD) and optionally `blocked_by`. Fix the file to that shape - the `tickets` skill ' +
-  'describes it in full - or move it out of the tickets folder if it is not a ticket.'
+  `opening with frontmatter that has ${TICKET_FIELD_SENTENCE}. Dates are YYYY-MM-DD. Fix the file ` +
+  'to that shape - the `tickets` skill describes it in full - or move it out of the tickets ' +
+  'folder if it is not a ticket.'
 
 function steerText(files: readonly TicketDiagnostic[]): string {
   const lead =
