@@ -2,7 +2,7 @@
 
 Issues and specs for this repo live as GitHub issues on `Tucaen/ade`. Use the `gh` CLI for all operations.
 
-Not to be confused with `docs/tickets/`. That folder is Toucan **dogfooding its own Markdown ticket convention** (the project skill in `.agents/skills/tickets/`) - it is the board's self-hosted sample data, not this repo's tracker. A skill told to "publish to the issue tracker" files a GitHub issue, never a file there.
+Not to be confused with `docs/tickets/`. That folder is Toucan **dogfooding its own Markdown ticket convention** (`src/shared/ticket-format.ts` describes it; there is deliberately no tickets skill in this repo) - it is the board's self-hosted sample data, not this repo's tracker. A skill told to "publish to the issue tracker" files a GitHub issue, never a file there.
 
 ## Conventions
 

@@ -164,7 +164,7 @@ test('a session that wrote an unreadable ticket is steered mid-turn, naming only
     assert.ok(!message.includes('Stray Notes.md'))
     // The note it also wrote is a card, so it is not in the message however recently it was written.
     assert.ok(!message.includes('hand-written.md'))
-    assert.ok(message.includes('tickets` skill'))
+    assert.ok(message.includes('`<lowercase-kebab-case>.md`'))
 
     const approval = events.find((event) => event.type === 'approval')
     assert.ok(approval && approval.type === 'approval')

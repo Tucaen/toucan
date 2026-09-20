@@ -1,10 +1,24 @@
 import { strict as assert } from 'node:assert'
+import { readdirSync } from 'node:fs'
+import { join } from 'node:path'
 import { test } from 'node:test'
 import {
   resolveToucanSkillsRoot,
   sessionSkillsConfiguration,
   withAdditionalDirectories
 } from '../src/main/acp-session-manager'
+import { PROJECT_SKILLS_DIRECTORY } from '../src/shared/project-skills'
+import { TICKET_SKILL_NAME } from '../src/shared/ticket-skill'
+
+test('Toucan ships no tickets skill, so a project only ever sees the one it wrote itself', () => {
+  // `.agents/skills` is handed to every session Toucan launches, so a tickets skill committed here
+  // would be injected into every project at once - the duplicate this repo deliberately has none
+  // of. Scaffolding one into this checkout to try the board out is a local experiment, never a
+  // commit. The skills named are what Toucan does ship; a new one is a decision, this is a guard.
+  const shipped = readdirSync(join(process.cwd(), PROJECT_SKILLS_DIRECTORY, 'skills'))
+  assert.ok(!shipped.includes(TICKET_SKILL_NAME), 'Toucan must ship no tickets skill of its own')
+  assert.ok(shipped.includes('brain-dump') && shipped.includes('implement-in-worktree'))
+})
 
 test('Toucan skills remain available when a Codex node works in another project', () => {
   const toucanRoot = 'D:\\Development\\ADE'

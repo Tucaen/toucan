@@ -65,14 +65,16 @@ export function reportedTicketKey(agentId: string, path: string): string {
 }
 
 /**
- * What to do about it, in the words an agent has to act on. Deliberately restates the shape
- * rather than only pointing at the skill: the session being steered may never have loaded it.
+ * What to do about it, in the words an agent has to act on. It carries the whole shape and names
+ * no skill, because Toucan ships no tickets skill: a project has one only if it wrote or
+ * scaffolded its own, so a message pointing at "the tickets skill" would as often as not send the
+ * steered agent looking for a file that is not there.
  * Leads with the filename, because that is the only thing the board insists on and so very
  * nearly the only thing a message that fires at all can be about; the field list behind it is
  * `TICKET_FIELD_SENTENCE` from `shared/ticket-format.ts`, which is also what the board's
  * empty-state primer lays out, so an agent and a human are never told two different shapes -
- * `shared/tickets.ts` decides how a file is read and `.agents/skills/tickets/SKILL.md` teaches
- * the convention at length; all of them move together.
+ * `shared/tickets.ts` decides how a file is read and the skill `shared/ticket-skill.ts` generates
+ * teaches the convention at length; all of them move together.
  */
 const TICKET_SHAPE =
   'A ticket is a Markdown file named `<lowercase-kebab-case>.md` directly in the tickets folder: ' +
@@ -80,7 +82,7 @@ const TICKET_SHAPE =
   'Rename it to a slug, or move it out of the tickets folder if it is not a ticket. A ticket ' +
   `should also open with frontmatter that has ${TICKET_FIELD_SENTENCE}, dates as YYYY-MM-DD - ` +
   'though the board renders a file that has none of it, so do not rewrite anyone else’s notes ' +
-  'to add them. The `tickets` skill describes the convention in full.'
+  'to add them.'
 
 function steerText(files: readonly TicketDiagnostic[]): string {
   const lead =

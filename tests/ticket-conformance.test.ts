@@ -1,4 +1,4 @@
-import { deepEqual, equal, match, ok } from 'node:assert/strict'
+import { deepEqual, doesNotMatch, equal, match, ok } from 'node:assert/strict'
 import { test } from 'node:test'
 import type { AgentFileWrite } from '../src/shared/agent-activity'
 import { RECENT_WRITE_WINDOW_MS, reportedTicketKey, ticketConformanceSteers } from '../src/shared/ticket-conformance'
@@ -35,7 +35,8 @@ test('the one session that wrote the unshowable file is steered, named with the 
   deepEqual(decision.steers[0].files, [broken(BOARD, 'Filename must be a lowercase kebab-case slug.')])
   ok(decision.steers[0].text.includes(BOARD))
   ok(decision.steers[0].text.includes('Filename must be a lowercase kebab-case slug.'))
-  match(decision.steers[0].text, /tickets` skill/)
+  doesNotMatch(decision.steers[0].text, /skill/, 'Toucan ships no tickets skill to point a steered session at')
+  match(decision.steers[0].text, /lowercase-kebab-case>.md/)
 })
 
 test('a file nobody is recorded as having written steers no session and is not remembered', () => {
