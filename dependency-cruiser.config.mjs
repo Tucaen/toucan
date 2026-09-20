@@ -30,7 +30,6 @@ const pureRendererFeatureNames = [
   'prompt-history',
   'prompt-outbox',
   'search-navigation',
-  'session-usage',
   'shell-execution',
   'slash-command-completion',
   'terminal-liveness',

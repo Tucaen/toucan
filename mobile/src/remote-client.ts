@@ -1,6 +1,8 @@
 import { parseAgentModelCatalogue, type AgentModelCatalogue } from '../../src/shared/agent-model-catalogue'
 import type { RemoteWorkspaceSnapshot } from '../../src/shared/remote-access'
+import type { ProviderUsageReport } from '../../src/shared/agent'
 import type { RemoteChatSpawnRequest } from '../../src/shared/remote-spawn'
+import { parseProviderUsageReport } from '../../src/shared/remote-usage'
 import { parseRemoteTranscriptionReply, REMOTE_VOICE_CONTENT_TYPE } from '../../src/shared/remote-voice'
 import {
   EMPTY_HOST_DIRECTORY,
@@ -178,6 +180,33 @@ export async function fetchModels(
     // Parsed through the shared predicate rather than cast: this list populates a control whose
     // choice is sent back to start a process, so a damaged entry is dropped rather than offered.
     return { ok: true, value: parseAgentModelCatalogue(await result.value.json()) ?? {} }
+  } catch (error) {
+    return { ok: false, kind: 'unreachable', message: error instanceof Error ? error.message : 'Unreadable reply' }
+  }
+}
+
+/**
+ * What the account behind each provider has left on this host (issue #195).
+ *
+ * Read-only by construction: there is no way to ask for a *forced* read, because a forced read
+ * boots a provider CLI process on someone's desktop and this is a surface a paired client could
+ * hammer. The phone takes the host's cached reading on a poll no faster than the desktop's own, so
+ * however often it asks, at most one provider read per host-side TTL follows. A reading older than
+ * it looks says so through `stale` rather than being refreshed.
+ *
+ * Parsed through the shared predicate rather than cast, like the model catalogue: these figures are
+ * what a reader decides whether to keep working on, so a damaged field is dropped rather than
+ * rendered as a bar of width `NaN%`. An empty report is an ordinary answer - a desktop that has not
+ * read its providers yet genuinely has nothing to say.
+ */
+export async function fetchProviderUsage(
+  host: HostEndpoint,
+  signal?: AbortSignal
+): Promise<RemoteResult<ProviderUsageReport>> {
+  const result = await request('/api/usage', host, signal)
+  if (!result.ok) return result
+  try {
+    return { ok: true, value: parseProviderUsageReport(await result.value.json()) ?? {} }
   } catch (error) {
     return { ok: false, kind: 'unreachable', message: error instanceof Error ? error.message : 'Unreadable reply' }
   }

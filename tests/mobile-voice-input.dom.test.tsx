@@ -82,7 +82,16 @@ function snapshot(): RemoteChatServerMessage {
 }
 
 function open(): void {
-  render(<ChatScreen host={HOST} chatId="chat-1" summary={SUMMARY} onBack={() => {}} onUnauthorized={() => {}} />)
+  render(
+    <ChatScreen
+      host={HOST}
+      chatId="chat-1"
+      summary={SUMMARY}
+      rateLimits={{}}
+      onBack={() => {}}
+      onUnauthorized={() => {}}
+    />
+  )
   const socket = StubSocket.instances[0]
   act(() => {
     socket.onopen?.()

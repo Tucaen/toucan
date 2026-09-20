@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { ProviderUsageReport } from '../../src/shared/agent'
 import {
   EMPTY_REMOTE_WORKSPACE_SNAPSHOT,
   type RemoteChatSummary,
@@ -27,6 +28,8 @@ import NewChatScreen from './NewChatScreen'
 import { WORKSPACE_POLL_MS, fetchWorkspace, verifyHost } from './remote-client'
 import { chatPathname, routeFromPathname, HOSTS_PATHNAME, NEW_CHAT_PATHNAME, type MobileRoute } from './routes'
 import { useHostDirectory } from './use-host-directory'
+import { useProviderUsage } from './use-provider-usage'
+import { describeProviderUsage, type ProviderUsageCard } from './provider-usage'
 
 /**
  * Toucan on a phone: pair with one host or several, then watch each one's agent chats and read any
@@ -59,6 +62,15 @@ export default function App(): JSX.Element {
   }, [])
 
   const host = hosts.host
+
+  /**
+   * Account usage for the selected host, polled once for the whole app (issue #195). Above the
+   * router on purpose: the list screen draws the provider chips and a conversation's usage row
+   * shows the nearest account window, and a second poll would read one PC twice a minute to draw
+   * the same number twice. A host still waiting to be re-paired is not polled - its token is known
+   * bad, and asking would only spend requests collecting `401`s.
+   */
+  const usage = useProviderUsage(host && !hostNeedsPairing(host) ? host : null)
 
   const openChat = useCallback((chat: RemoteChatSummary) => {
     setOpenedChat(chat)
@@ -168,6 +180,9 @@ export default function App(): JSX.Element {
         host={host}
         chatId={route.chatId}
         summary={openedChat?.id === route.chatId ? openedChat : null}
+        // The same reading the list's chips draw, so "which window bites first" cannot say one
+        // thing on the list and another inside the conversation it is about to stop.
+        rateLimits={usage}
         onBack={backToList}
         onUnauthorized={revokeSelected}
       />
@@ -190,6 +205,7 @@ export default function App(): JSX.Element {
       host={host}
       statuses={hosts.statuses}
       hostCount={hosts.directory.hosts.length}
+      usage={usage}
       onUnauthorized={revokeSelected}
       onOpenHosts={openHosts}
       onOpenChat={openChat}
@@ -404,6 +420,7 @@ function ChatListScreen({
   host,
   statuses,
   hostCount,
+  usage,
   onUnauthorized,
   onOpenHosts,
   onOpenChat,
@@ -413,6 +430,8 @@ function ChatListScreen({
   host: SavedHost
   statuses: HostStatuses
   hostCount: number
+  /** This host's account usage, polled by the shell. Empty until the first reading lands. */
+  usage: ProviderUsageReport
   onUnauthorized(): void
   onOpenHosts(): void
   onOpenChat(chat: RemoteChatSummary): void
@@ -460,6 +479,7 @@ function ChatListScreen({
 
   const groups = useMemo(() => groupChatsByProject(snapshot), [snapshot])
   const summary = useMemo(() => countActiveChats(snapshot), [snapshot])
+  const usageCards = useMemo(() => describeProviderUsage(usage), [usage])
   const awaiting = isAwaitingDesktop(snapshot)
   const status = effectiveHostStatus(host, statuses)
   const offline = status.reachability === 'offline'
@@ -509,6 +529,8 @@ function ChatListScreen({
         </p>
       )}
       {blocked && <p className="problem">{blocked}</p>}
+
+      <ProviderUsagePanel cards={usageCards} />
 
       {/* The list's one action. Offered even while the desktop is quiet: a workspace with nothing
           open is exactly when starting something is the useful thing to do. */}
@@ -562,5 +584,71 @@ function ChatListScreen({
         </section>
       ))}
     </main>
+  )
+}
+
+/**
+ * How much of each plan is left, on the screen you open first.
+ *
+ * Here rather than inside a conversation, and that is the substantive placement call (issue #195).
+ * Waiting out a limit is something you do *away from the desk*, so this is a glance question - "can
+ * I start something, or is the 5h window gone until seven?" - asked before picking a chat, not
+ * halfway through one. The chat screen's vertical budget is also already contested by its header,
+ * its model row and its composer (issue #194), and an account-wide readout is not about the
+ * conversation it would be pushing off screen.
+ *
+ * Two things it does that the desktop's chip does not have to.
+ *
+ * It **renders the reset moment as text**. On the desktop that lives in the chip's `title`, which a
+ * phone has no way to show; and when relief arrives is the single most useful thing here, since it
+ * is what the reader is deciding their evening around.
+ *
+ * And it **has no refresh**. The desktop's chip is a button because a click is a person asking, and
+ * it can afford to bypass the host's cache. This cannot: a forced read boots a provider CLI process
+ * on someone's desktop, which is not something a paired device gets to trigger at whatever rate it
+ * likes. So every card dates itself instead - `Updated 14:03`, or the host's own admission that the
+ * last read failed - because an undated frozen number that cannot be refreshed is the one way this
+ * surface could actively mislead.
+ */
+function ProviderUsagePanel({ cards }: { cards: ProviderUsageCard[] }): JSX.Element | null {
+  // Nothing to say is the ordinary state of a desktop that has not read its providers yet, and a
+  // section of empty chips would take room from the list this screen exists for.
+  if (cards.length === 0) return null
+  return (
+    <section className="provider-usage" aria-label="Account usage">
+      {cards.map((card) => (
+        <article
+          key={card.provider}
+          className="provider-usage-card"
+          data-level={card.level}
+          data-stale={card.stale ? 'true' : undefined}
+          data-rejected={card.rejected ? 'true' : undefined}
+        >
+          <h2>
+            <span className="provider-usage-name" data-provider={card.provider}>
+              {card.label}
+            </span>
+            {/* A plan that has started refusing requests outranks every percentage on the card. */}
+            {card.rejected && <span className="provider-usage-rejected">Limit reached</span>}
+          </h2>
+          {card.windows.map((window) => (
+            <div className="usage-window" key={window.label} data-level={window.level}>
+              <span className="usage-window-label">{window.label}</span>
+              <span className="usage-window-bar">
+                <span className="usage-window-fill" style={{ width: `${window.displayPercent}%` }} />
+                {window.resetProgressPercent !== undefined && (
+                  <span className="usage-window-reset" style={{ left: `${window.resetProgressPercent}%` }} />
+                )}
+              </span>
+              <span className="usage-window-pct">{window.displayPercent}%</span>
+              {/* Absent rather than guessed at: a provider that named no reset moment must not be
+                  given one, or the bar would promise relief at a time nobody reported. */}
+              <small className="usage-window-resets">{window.resets ? `resets in ${window.resets}` : ''}</small>
+            </div>
+          ))}
+          <small className="provider-usage-freshness">{card.freshness}</small>
+        </article>
+      ))}
+    </section>
   )
 }

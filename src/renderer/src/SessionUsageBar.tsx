@@ -1,5 +1,5 @@
 import { memo } from 'react'
-import type { SessionUsageReadout } from './session-usage'
+import type { SessionUsageReadout } from '../../shared/session-usage'
 
 /**
  * The chat node's usage row: how full the context window is, what the conversation has cost, and

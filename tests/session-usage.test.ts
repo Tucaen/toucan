@@ -1,14 +1,16 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
 import {
+  accountUsageLevel,
   describeRateLimitWindow,
   describeRateLimitWindows,
   describeSessionUsage,
   formatResetsAt,
   formatTokens,
   mergeSessionUsage,
-  usageLevel
-} from '../src/renderer/src/session-usage'
+  usageLevel,
+  worstRateLimitWindow
+} from '../src/shared/session-usage'
 
 // Issue #99: a chat node has to answer "how full is this conversation, what has it cost, and am I
 // near an account limit" from data Toucan already collects. Every one of those decisions - the
@@ -184,7 +186,10 @@ test('one window describes itself the same way wherever it is rendered', () => {
     percent: 96.4,
     displayPercent: 96,
     level: 'critical',
-    text: `5h: 96% (resets in 1m | ${formatResetsAt(60_000, 0).split(' | ')[1]})`
+    text: `5h: 96% (resets in 1m | ${formatResetsAt(60_000, 0).split(' | ')[1]})`,
+    // Also carried on its own, for the phone: it cannot hover, so the reset moment has to be
+    // renderable as text without the label and percentage already in front of it.
+    resets: formatResetsAt(60_000, 0)
   })
   assert.deepEqual(describeRateLimitWindow('7d', { usedPercent: 5 }, 0), {
     label: '7d',
@@ -236,4 +241,42 @@ test('a window a provider reports past its own limit is shown as full, not as 12
   assert.equal(over.text, '5h: 100%')
   assert.equal(over.level, 'critical')
   assert.equal(describeRateLimitWindow('7d', { usedPercent: -4 }, 0).displayPercent, 0)
+})
+
+test('which window is worst is one rule, so no two surfaces can rank them differently', () => {
+  const windows = [
+    describeRateLimitWindow('5h', { usedPercent: 40 }, 0),
+    describeRateLimitWindow('7d', { usedPercent: 93 }, 0),
+    describeRateLimitWindow('Fable', { usedPercent: 12 }, 0)
+  ]
+  assert.equal(worstRateLimitWindow(windows)?.label, '7d')
+  assert.equal(worstRateLimitWindow([]), null)
+
+  // Ranked on the unrounded percentage, so two windows that round to the same integer still order.
+  const close = [
+    describeRateLimitWindow('5h', { usedPercent: 90.4 }, 0),
+    describeRateLimitWindow('7d', { usedPercent: 90.6 }, 0)
+  ]
+  assert.equal(worstRateLimitWindow(close)?.label, '7d')
+
+  assert.equal(accountUsageLevel(windows, false), 'critical')
+  assert.equal(accountUsageLevel([describeRateLimitWindow('5h', { usedPercent: 10 }, 0)], false), 'normal')
+  // A provider that has actually refused is at its limit whatever its percentages went on saying.
+  assert.equal(accountUsageLevel([describeRateLimitWindow('5h', { usedPercent: 10 }, 0)], true), 'critical')
+  // No window at all and no refusal is not a colour, and must not read as a full bar.
+  assert.equal(accountUsageLevel([], false), 'normal')
+})
+
+test('the surfaced account window carries its reset phrase out of the tooltip', () => {
+  const readout = describeSessionUsage({
+    rateLimits: { fiveHour: { usedPercent: 96, resetsAt: 60_000 } },
+    now: 0
+  })
+  // The phone renders this as text; the desktop still has the same phrase folded into `title`.
+  assert.equal(readout.limit?.resets, formatResetsAt(60_000, 0))
+  assert.ok(readout.limit?.title.includes('resets in'))
+
+  // A provider that named no reset moment is not given one.
+  const noReset = describeSessionUsage({ rateLimits: { weekly: { usedPercent: 50 } }, now: 0 })
+  assert.equal(noReset.limit?.resets, undefined)
 })

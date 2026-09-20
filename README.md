@@ -41,8 +41,11 @@ workspace state is stored locally and the Windows x64 builds are not yet signed.
   permissions and structured questions alike. Answering is race-safe: whether you answer on
   the phone or on the desktop, exactly one answer reaches the agent and the other client's
   card resolves. Start a new chat for a project from the phone, and keep several PCs in one
-  installed app, switching between them. Put `tailscale serve` in front of a host and the client
-  installs to the Android home screen as a standalone app.
+  installed app, switching between them. The chat list also shows how much of each provider's
+  plan is left and when each window resets - waiting out a limit is something you do away from
+  the desk - and a conversation shows its own context fill, cost and nearest limit. Put
+  `tailscale serve` in front of a host and the client installs to the Android home screen as a
+  standalone app.
 
 Live shell processes still end when Toucan exits, and live PTY process restoration is not
 implemented.

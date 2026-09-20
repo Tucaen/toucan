@@ -514,6 +514,24 @@ void app.whenReady().then(async () => {
       return loadMoonshineEngine(voiceModel.directory())
     }
   })
+  // One usage cache for both surfaces. The desktop header polls it over IPC and the phone reads it
+  // over `/api/usage`, so two clients asking about the same account still cost one provider read
+  // per TTL rather than one per client - which is the whole reason this sits in main at all.
+  const providerUsage = createProviderUsage({
+    readers: {
+      claude: createClaudeUsageReader({
+        cwd: app.getPath('home'),
+        log: mainLog('claude usage')
+      }),
+      codex: createCodexRateLimitReader({
+        homeDirectory: app.getPath('home'),
+        environment: process.env,
+        command: findCommand('codex'),
+        appPath: app.getAppPath()
+      })
+    },
+    ttlMs: PROVIDER_USAGE_TTL_MS
+  })
   const remote = createRemoteAccessServer({
     store: createRemoteAccessStore({ path: join(app.getPath('userData'), 'remote-access.json') }),
     // The mobile client is built beside the main and renderer bundles, so the same path resolves
@@ -545,6 +563,12 @@ void app.whenReady().then(async () => {
     // Read per request: a provider that advertises a new model is offered the moment a session has
     // seen it, without the listener knowing anything happened.
     models: () => modelCatalogue.read(),
+    // Read without `force`, which is the whole rate story of this route. It does not mean no
+    // provider CLI ever runs for a phone - an expired cache starts a real read, and a desktop
+    // nobody is sitting at has nothing else keeping it warm - it means the *rate* is
+    // `PROVIDER_USAGE_TTL_MS` and is the host's to set. A paired client cannot raise it by asking
+    // more often, which is the property a network surface needs.
+    usage: () => providerUsage.read(),
     transcriber: voiceTranscriber
   })
   // Off unless the user turned it on and the setting survived a restart; `start` only ever binds
@@ -586,23 +610,7 @@ void app.whenReady().then(async () => {
   registerWorktreeIpc(worktrees)
   registerFileViewIpc(ipcMain, fileView)
   registerWorkspaceFileIpc(createWorkspaceFileIndex())
-  registerUsageIpc(
-    createProviderUsage({
-      readers: {
-        claude: createClaudeUsageReader({
-          cwd: app.getPath('home'),
-          log: mainLog('claude usage')
-        }),
-        codex: createCodexRateLimitReader({
-          homeDirectory: app.getPath('home'),
-          environment: process.env,
-          command: findCommand('codex'),
-          appPath: app.getAppPath()
-        })
-      },
-      ttlMs: PROVIDER_USAGE_TTL_MS
-    })
-  )
+  registerUsageIpc(providerUsage)
   registerProjectIpc(ipcMain, {
     workspace,
     initialProjectPath: () => process.cwd(),

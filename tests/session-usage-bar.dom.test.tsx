@@ -2,7 +2,7 @@ import { render, within } from '@testing-library/react'
 import { describe, expect, test, vi } from 'vitest'
 import { TestChatView as ChatView, type TestChatViewProps as ChatViewProps } from './dom/chat-view-fixture'
 import SessionUsageBar from '../src/renderer/src/SessionUsageBar'
-import { describeSessionUsage, type SessionUsageInput } from '../src/renderer/src/session-usage'
+import { describeSessionUsage, type SessionUsageInput } from '../src/shared/session-usage'
 import type { AgentRateLimitStatus } from '../src/shared/agent'
 
 // Issue #99: a chat node shows what the conversation has consumed - context against the model's

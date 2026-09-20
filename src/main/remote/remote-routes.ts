@@ -22,6 +22,13 @@ export type RemoteRoute =
    * the model catalogue is main's own knowledge of what adapters have advertised.
    */
   | { kind: 'models' }
+  /**
+   * What the account behind each provider has left, for a reader waiting out a limit away from the
+   * desk. Read-only and answered from the host's usage cache, with no way to ask for a *forced*
+   * read: a forced read boots a provider CLI process, and that is not something a network surface
+   * gets to trigger on demand. See `src/shared/remote-usage.ts`.
+   */
+  | { kind: 'usage' }
   /** A phone's recording, to be transcribed by the desktop's speech model and handed back as text. */
   | { kind: 'transcribe' }
   | { kind: 'client'; pathname: string }
@@ -35,6 +42,18 @@ export type RemoteRoute =
   /** Carries the methods this path *does* accept, so `Allow` is never a guess at the call site. */
   | { kind: 'method-not-allowed'; allow: string }
 
+/**
+ * Every path that is a plain authorized read, in one table. A list of these grown as an `if` chain
+ * ends up naming each path twice - once to admit it, once to say which route it became - and the
+ * second list is the one a new endpoint forgets to join.
+ */
+const READ_ROUTES = new Map<string, RemoteRoute>([
+  ['/api/workspace', { kind: 'workspace' }],
+  ['/api/pairing', { kind: 'pairing' }],
+  ['/api/models', { kind: 'models' }],
+  ['/api/usage', { kind: 'usage' }]
+])
+
 export function resolveRemoteRoute(method: string | undefined, target: string | undefined): RemoteRoute {
   const pathname = requestPathname(target)
   if (pathname === null) return { kind: 'not-found' }
@@ -42,10 +61,12 @@ export function resolveRemoteRoute(method: string | undefined, target: string | 
   // request, not the request, so it is answered for any path this host serves at all.
   if (method === 'OPTIONS') return { kind: 'preflight' }
 
-  if (pathname === '/api/workspace' || pathname === '/api/pairing' || pathname === '/api/models') {
+  // A `Map` rather than an object literal: a plain lookup would answer `/api/constructor` with
+  // something truthy off `Object.prototype` and hand it back as a route.
+  const read = READ_ROUTES.get(pathname)
+  if (read) {
     if (method !== 'GET' && method !== 'HEAD') return { kind: 'method-not-allowed', allow: 'GET, HEAD' }
-    if (pathname === '/api/models') return { kind: 'models' }
-    return pathname === '/api/workspace' ? { kind: 'workspace' } : { kind: 'pairing' }
+    return read
   }
   if (pathname === '/api/chats') {
     // `POST` and nothing else: a collection this host does not enumerate over HTTP, because what
@@ -67,6 +88,7 @@ export function routeRequiresPairing(route: RemoteRoute): boolean {
     route.kind === 'pairing' ||
     route.kind === 'create-chat' ||
     route.kind === 'models' ||
+    route.kind === 'usage' ||
     route.kind === 'transcribe'
   )
 }

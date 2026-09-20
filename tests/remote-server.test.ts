@@ -21,7 +21,7 @@ import {
   REMOTE_VOICE_CONTENT_TYPE,
   type RemoteTranscriptionResult
 } from '../src/shared/remote-voice'
-import type { AgentEvent } from '../src/shared/agent'
+import type { AgentEvent, ProviderUsageReport } from '../src/shared/agent'
 import type { AgentModelCatalogue } from '../src/shared/agent-model-catalogue'
 import { foldAgentEvent, type AgentTranscriptState } from '../src/shared/agent-transcript'
 import {
@@ -88,6 +88,7 @@ function harness(
     read?: RemoteChatRead
     spawn?: RemoteChatSpawn
     models?: () => AgentModelCatalogue
+    usage?: () => ProviderUsageReport | Promise<ProviderUsageReport>
     transcriber?: { transcribe: (audio: Float32Array) => Promise<RemoteTranscriptionResult> }
   } = {}
 ): Harness {
@@ -110,6 +111,7 @@ function harness(
     ...(options.read ? { read: options.read } : {}),
     ...(options.spawn ? { spawn: options.spawn } : {}),
     ...(options.models ? { models: options.models } : {}),
+    ...(options.usage ? { usage: options.usage } : {}),
     ...(options.transcriber ? { transcriber: options.transcriber } : {})
   })
   running.push(server)
@@ -1427,6 +1429,72 @@ describe('the model catalogue route', () => {
     const response = await post('/api/models', '{}', store.read().token)
     assert.equal(response.status, 405)
     assert.equal(response.headers.get('allow'), 'GET, HEAD')
+  })
+})
+
+const USAGE: ProviderUsageReport = {
+  claude: {
+    status: { fiveHour: { usedPercent: 42, resetsAt: 1_700_000_000_000 }, weekly: { usedPercent: 91 } },
+    readAt: 1_699_999_000_000,
+    stale: false
+  }
+}
+
+/**
+ * `GET /api/usage`. Waiting out a plan limit happens away from the desk, so the phone needs the
+ * same answer the desktop header shows - and it must not be able to buy that answer with a process
+ * spawn on the desktop, which is what makes this read-only and cache-served.
+ */
+describe('the account usage route', () => {
+  test('needs the token and reports each provider reading verbatim', async () => {
+    const { server, store, get } = harness({ usage: () => USAGE })
+    await server.applySettings({ enabled: true, port: await freePort() })
+
+    assert.equal((await get('/api/usage')).status, 401)
+    const authorized = await get('/api/usage', store.read().token)
+    assert.equal(authorized.status, 200)
+    assert.deepEqual(JSON.parse(authorized.body), USAGE)
+  })
+
+  test('a host with no usage reader answers an empty report rather than an error', async () => {
+    const { server, store, get } = harness()
+    await server.applySettings({ enabled: true, port: await freePort() })
+    const response = await get('/api/usage', store.read().token)
+    assert.equal(response.status, 200)
+    assert.deepEqual(JSON.parse(response.body), {})
+  })
+
+  test('a reader that throws costs the reading, not the listener', async () => {
+    const { server, store, get } = harness({
+      usage: () => {
+        throw new Error('the CLI is not installed')
+      }
+    })
+    await server.applySettings({ enabled: true, port: await freePort() })
+    const response = await get('/api/usage', store.read().token)
+    assert.equal(response.status, 200)
+    // Empty rather than a 500: "this desktop cannot read its plan usage" is a state every client
+    // already renders, and it is not worth presenting to a phone as the host being broken.
+    assert.deepEqual(JSON.parse(response.body), {})
+    assert.equal((await get('/api/pairing', store.read().token)).status, 204)
+  })
+
+  test('it is a read, so anything but GET is refused with what it does accept', async () => {
+    const { server, store, post } = harness({ usage: () => USAGE })
+    await server.applySettings({ enabled: true, port: await freePort() })
+    const response = await post('/api/usage', '{}', store.read().token)
+    assert.equal(response.status, 405)
+    assert.equal(response.headers.get('allow'), 'GET, HEAD')
+  })
+
+  test('the reading is taken per request, so a phone sees what the desktop has since learnt', async () => {
+    let report: ProviderUsageReport = {}
+    const { server, store, get } = harness({ usage: () => report })
+    await server.applySettings({ enabled: true, port: await freePort() })
+
+    assert.deepEqual(JSON.parse((await get('/api/usage', store.read().token)).body), {})
+    report = USAGE
+    assert.deepEqual(JSON.parse((await get('/api/usage', store.read().token)).body), USAGE)
   })
 })
 

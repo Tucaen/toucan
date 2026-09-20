@@ -27,7 +27,7 @@ import {
   type AgentTranscriptState,
   type LocalAgentEvent
 } from '../../shared/agent-transcript'
-import type { SessionUsageInput } from './session-usage'
+import type { SessionUsageInput } from '../../shared/session-usage'
 import { chooseAgentPromptApi, createDispatchOrderGate, deliverAgentPrompt } from './agent-prompt-delivery'
 import {
   editQueuedPrompt,

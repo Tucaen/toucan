@@ -2,7 +2,13 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { remarkHardBreaks } from '../../src/shared/markdown-hard-breaks'
-import type { AgentDecisionQuestion, AgentDecisionResponseContent } from '../../src/shared/agent'
+import type {
+  AgentDecisionQuestion,
+  AgentDecisionResponseContent,
+  ProviderUsageEntry,
+  ProviderUsageReport
+} from '../../src/shared/agent'
+import { describeSessionUsage, describeUsageFreshness, type SessionUsageReadout } from '../../src/shared/session-usage'
 import type { RemoteChatSummary } from '../../src/shared/remote-access'
 import {
   answerFailure,
@@ -61,6 +67,7 @@ export default function ChatScreen({
   host,
   chatId,
   summary: initialSummary,
+  rateLimits,
   onBack,
   onUnauthorized
 }: {
@@ -69,6 +76,12 @@ export default function ChatScreen({
   chatId: string
   /** What the chat list knew when it navigated here; null on a reloaded deep link. */
   summary: RemoteChatSummary | null
+  /**
+   * This host's account usage, from the shell's single poll. Only this chat's provider is read
+   * from it: the window that will stop *this* conversation is the only one worth a line here, and
+   * the whole set is the chat list's business.
+   */
+  rateLimits: ProviderUsageReport
   onBack(): void
   onUnauthorized(): void
 }): JSX.Element {
@@ -100,6 +113,23 @@ export default function ChatScreen({
   )
   const status = connection.transcript ? chatStatusSummary(connection.transcript) : null
   const pending = pendingRequest(connection)
+
+  /**
+   * How full this conversation's context is, what it has cost, and the account window closest to
+   * biting - the same three answers the desktop's chat node gives, derived by the same shared
+   * module (issue #195). Nothing on the wire had to change for the first two: `usage` is already
+   * folded into the transcript state by the shared reducer this screen was already reading.
+   *
+   * The account half needs this chat's *provider*, which the list's summary carries; a reloaded
+   * deep link has none until the workspace read lands, and until then the row simply has one fewer
+   * thing to say rather than showing the wrong plan's numbers.
+   */
+  const usage = connection.transcript?.usage ?? null
+  const providerUsage = summary ? (rateLimits[summary.kind] ?? null) : null
+  const usageReadout = useMemo(
+    () => describeSessionUsage({ usage, rateLimits: providerUsage?.status ?? null }),
+    [usage, providerUsage]
+  )
 
   // Follow the tail the way a chat should: stick to the bottom while the reader is there, and
   // stop following the moment they scroll up to read history.
@@ -139,6 +169,7 @@ export default function ChatScreen({
       </header>
 
       <ModelBar connection={connection} />
+      <SessionUsageRow readout={usageReadout} limitFreshness={providerUsage} />
 
       {/* A transcript that is not live must say so; a silently stale one is the failure mode. */}
       {connection.phase === 'connecting' && <p className="connection-banner">Connecting…</p>}
@@ -218,6 +249,85 @@ function ModelBar({ connection }: { connection: ChatConnection }): JSX.Element |
       {failure && (
         <p className="send-error" role="alert">
           {failure}
+        </p>
+      )}
+    </section>
+  )
+}
+
+/**
+ * This conversation's own usage: context fill, what it has cost, and the account window nearest to
+ * stopping it.
+ *
+ * Every decision here was already made by `describeSessionUsage`, the same shared module the
+ * desktop's `SessionUsageBar` renders - which is the point. Two surfaces deriving "75% is a
+ * warning" separately is how one device comes to say `warning` and the other `critical` about the
+ * same window, and the reader who is looking at the phone *because* they are away from the desk
+ * has no way to tell which one is lying.
+ *
+ * Sat beside the model row rather than in the header: both answer "what is this conversation
+ * running on, and how much of it is left", both are worth a glance rather than constant presence,
+ * and keeping them together means whatever #194 decides about that band covers both at once.
+ *
+ * Two things live in a `title` on the desktop and cannot here, because a phone does not hover -
+ * and both are the reason someone opened this at all. The context warning is text. And the account
+ * window carries *when it resets* and *when it was last read*: with no refresh button anywhere on
+ * this device, a dead host's percentage would otherwise sit here looking like the present.
+ */
+function SessionUsageRow({
+  readout,
+  limitFreshness
+}: {
+  readout: SessionUsageReadout
+  /** The reading the account window came from, so the row can date it. Null before one lands. */
+  limitFreshness: ProviderUsageEntry | null
+}): JSX.Element | null {
+  if (readout.empty) return null
+  const { context, tokens, cost, limit } = readout
+  return (
+    <section className="chat-usage" aria-label="Usage">
+      <div className="chat-usage-row">
+        {context && (
+          <span className="usage-window" data-level={context.level}>
+            <span className="usage-window-label">Context</span>
+            <span className="usage-window-bar">
+              <span className="usage-window-fill" style={{ width: `${context.percent}%` }} />
+            </span>
+            <span className="usage-window-pct">{context.percent}%</span>
+            <small className="chat-usage-tokens">{context.label}</small>
+          </span>
+        )}
+        {/* A session that reported tokens before it knew its window still has something to say. */}
+        {tokens && <span className="chat-usage-tokens">{tokens.label}</span>}
+        {cost && <span className="chat-usage-cost">{cost.label}</span>}
+        {limit && (
+          <span
+            className="usage-window chat-usage-limit"
+            data-level={limit.level}
+            data-rejected={limit.rejected ? 'true' : undefined}
+            data-stale={limitFreshness?.stale ? 'true' : undefined}
+          >
+            <span className="usage-window-label">{limit.label}</span>
+            <span className="usage-window-pct">{limit.displayPercent}%</span>
+          </span>
+        )}
+      </div>
+      {/* The account window's own two lines, which the desktop hides in a tooltip. Both are about
+          trusting the number above: when it stops being a problem, and when it was last true. */}
+      {limit && (limit.resets || limitFreshness) && (
+        <p className="chat-usage-limit-note" data-stale={limitFreshness?.stale ? 'true' : undefined}>
+          {[
+            limit.rejected ? 'Limit reached' : null,
+            limit.resets ? `${limit.label} resets in ${limit.resets}` : null,
+            limitFreshness ? describeUsageFreshness(limitFreshness) : null
+          ]
+            .filter((part): part is string => part !== null)
+            .join(' · ')}
+        </p>
+      )}
+      {context?.warning && (
+        <p className="chat-usage-warning" data-level={context.level} role="status">
+          {context.warning}
         </p>
       )}
     </section>

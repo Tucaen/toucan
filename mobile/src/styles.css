@@ -17,6 +17,9 @@
   --unread: #ffb454;
   /* Blocking, not merely unseen: a request nobody has answered gets its own reading. */
   --attention: #ffb0c0;
+  /* The same two usage bands the desktop draws, so one window is not amber here and red there. */
+  --usage-warning: #eab308;
+  --usage-critical: #ff6b6f;
   color-scheme: dark;
 }
 
@@ -1271,4 +1274,199 @@ body {
 .new-chat:disabled {
   background: #2a2f3b;
   color: var(--ink-faint);
+}
+
+/*
+ * Usage, on both surfaces that show it: the chat list's account cards and a conversation's own row.
+ *
+ * `.usage-window` is one element shared by both for the same reason its maths is shared - a window
+ * drawn two ways is a window a reader has to learn twice - and the bands come from the same two
+ * variables the desktop uses, so 91% is the same red everywhere Toucan draws it.
+ *
+ * The one phone-specific rule is that nothing lives in a tooltip. There is no hover here, so the
+ * reset moment and the reading's age are laid out as text rather than folded into a `title`.
+ */
+.usage-window {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.usage-window-label {
+  color: var(--ink-faint);
+  font-weight: 600;
+  min-width: 22px;
+}
+
+/* Overflow stays visible so the reset marker can stand proud of the track. */
+.usage-window-bar {
+  position: relative;
+  flex: 1;
+  min-width: 40px;
+  height: 6px;
+  border-radius: 999px;
+  background: #0f131a;
+  border: 1px solid var(--line);
+}
+
+.usage-window-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--working);
+  transition: width 0.4s ease;
+}
+
+/* Where "now" sits inside the window, so how close relief is reads off the same bar. */
+.usage-window-reset {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--ink-dim);
+}
+
+.usage-window-pct {
+  color: var(--ink-dim);
+  min-width: 34px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-window[data-level='warning'] .usage-window-fill {
+  background: var(--usage-warning);
+}
+
+.usage-window[data-level='warning'] .usage-window-pct {
+  color: var(--usage-warning);
+}
+
+.usage-window[data-level='critical'] .usage-window-fill {
+  background: var(--usage-critical);
+}
+
+.usage-window[data-level='critical'] .usage-window-pct {
+  color: var(--usage-critical);
+}
+
+.provider-usage {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.provider-usage-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--raised);
+}
+
+.provider-usage-card h2 {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  font-size: 13px;
+}
+
+.provider-usage-card[data-level='critical'] {
+  border-color: var(--usage-critical);
+}
+
+/* A kept reading is not a wrong one, so it is dimmed rather than hidden - the freshness line
+   underneath is what actually says the last read failed. */
+.provider-usage-card[data-stale='true'] {
+  opacity: 0.7;
+}
+
+.provider-usage-name {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.provider-usage-rejected {
+  color: var(--usage-critical);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* The reset phrase takes the full width under its bar rather than competing with it: on a phone
+   the bar row has no room left, and this is the line the reader actually came for. */
+.usage-window-resets {
+  flex-basis: 100%;
+  color: var(--ink-faint);
+  font-size: 11px;
+  text-align: right;
+}
+
+.provider-usage-card .usage-window {
+  flex-wrap: wrap;
+  row-gap: 0;
+}
+
+.provider-usage-freshness {
+  color: var(--ink-faint);
+  font-size: 11px;
+}
+
+.chat-usage {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.chat-usage-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+
+/* The context gauge earns the room; the nearest account window is a glance, so it takes only the
+   width of its own figures rather than a second full-width bar. */
+.chat-usage-row .usage-window {
+  flex: 1;
+  min-width: 140px;
+}
+
+.chat-usage-row .chat-usage-limit {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.chat-usage-tokens,
+.chat-usage-cost {
+  color: var(--ink-faint);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The point of the whole row, so it is readable without a hover the phone does not have. */
+.chat-usage-warning {
+  margin: 0;
+  color: var(--usage-warning);
+  font-size: 12px;
+}
+
+.chat-usage-warning[data-level='critical'] {
+  color: var(--usage-critical);
+}
+
+/* The account window's reset moment and reading age, which the desktop keeps in a tooltip. Its own
+   line because the row above is already full, and dimmed further once the reading is a kept one. */
+.chat-usage-limit-note {
+  margin: 0;
+  color: var(--ink-faint);
+  font-size: 11px;
+}
+
+.chat-usage-limit-note[data-stale='true'],
+.chat-usage-limit[data-stale='true'] {
+  opacity: 0.6;
 }

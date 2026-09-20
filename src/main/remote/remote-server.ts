@@ -37,7 +37,7 @@ import {
   REMOTE_VOICE_TOO_LONG_MESSAGE,
   remoteVoiceBodyProblem
 } from '../../shared/remote-voice'
-import type { AgentDecisionResponseContent, AgentPromptResult } from '../../shared/agent'
+import type { AgentDecisionResponseContent, AgentPromptResult, ProviderUsageReport } from '../../shared/agent'
 import { catalogueOffers, type AgentModelCatalogue } from '../../shared/agent-model-catalogue'
 import type { AgentEventBroker } from '../agent-event-broker'
 import { describeHostAddresses } from './host-addresses'
@@ -117,6 +117,24 @@ export interface RemoteAccessServerOptions {
    * that has not run that provider yet.
    */
   models?: () => AgentModelCatalogue
+  /**
+   * What each provider's account has left, for `GET /api/usage`. Read per request like `models`,
+   * so a phone sees whatever the desktop has since learnt without the listener being restarted.
+   *
+   * Deliberately a nullary read with no `force`: the desktop's own chip may bypass the usage cache
+   * because a click is a person asking, but a forced read *boots a provider CLI process* and a
+   * paired client must not be able to spawn one at whatever rate it likes.
+   *
+   * What that buys is a **bound, not an absence**. Wired to `ProviderUsage.read()`, a request that
+   * finds the cache warm costs nothing, and one that finds it expired does start a provider read -
+   * so a phone polling a desktop nobody is sitting at drives at most one CLI read per TTL
+   * (`PROVIDER_USAGE_TTL_MS`), whatever cadence it asks at. That is the property worth having:
+   * the rate is the host's to decide and cannot be raised from the network.
+   *
+   * Absent, the route reports nothing - the same state as a desktop whose providers have not been
+   * read yet, which every client already renders.
+   */
+  usage?: () => ProviderUsageReport | Promise<ProviderUsageReport>
   /**
    * Transcribes a phone's recording with the desktop's own speech model, for phones whose browser
    * has no recognizer of its own. Absent, the route says the host does not transcribe.
@@ -272,6 +290,21 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
   }
 
   /**
+   * `GET /api/usage`'s reading, with the seam's failures absorbed. Wrapping in an async call
+   * normalizes a synchronous reader and a synchronous throw alike, exactly as `provider-usage.ts`
+   * does one layer down - a provider CLI is the single flakiest thing this host talks to, and it
+   * does not get to decide whether the route answers.
+   */
+  const readUsage = async (): Promise<ProviderUsageReport> => {
+    if (!options.usage) return {}
+    try {
+      return (await options.usage()) ?? {}
+    } catch {
+      return {}
+    }
+  }
+
+  /**
    * `POST /api/transcribe`. A phone that cannot recognize speech itself sends what it heard as raw
    * PCM, and gets text back. The gates run cheapest first: the seam, the declared media type, the
    * byte bound while the body arrives (a body that stops arriving is refused the same way, as the
@@ -341,6 +374,17 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
         // An empty catalogue is a normal answer, not an error: a desktop that has not run this
         // provider yet genuinely knows nothing, and a client has to render that either way.
         send(request, response, 200, JSON.stringify(options.models?.() ?? {}), {
+          'content-type': 'application/json; charset=utf-8'
+        })
+        return
+      case 'usage':
+        // A reader that fails costs this reading and nothing else. "This desktop cannot read its
+        // plan usage" is a state every client already handles, so it is reported as no reading
+        // rather than as a broken host - and a provider CLI that is missing or hanging must never
+        // be able to present itself to a phone as the whole remote surface being down.
+        // `HEAD` pays for the same reading and then discards the body, as every other read route
+        // here does; the cost is bounded by the same cache, so it is not worth a special case.
+        send(request, response, 200, JSON.stringify(await readUsage()), {
           'content-type': 'application/json; charset=utf-8'
         })
         return

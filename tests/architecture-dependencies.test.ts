@@ -28,7 +28,7 @@ const cases = [
   ['preload-only-imports-electron-externally', 'preload/imports-react.ts', 'react'],
   ['renderer-does-not-import-privileged-layers', 'renderer/src/importer.ts', 'main/dependency.ts'],
   ['renderer-does-not-import-node-runtime', 'renderer/src/imports-node.ts', 'fs'],
-  ['pure-renderer-features-do-not-import-impure-modules', 'renderer/src/session-usage.ts', 'renderer/src/View.tsx'],
+  ['pure-renderer-features-do-not-import-impure-modules', 'renderer/src/prompt-outbox.ts', 'renderer/src/View.tsx'],
   ['pure-renderer-features-do-not-import-externals', 'renderer/src/prompt-history.ts', 'react'],
   ['file-operation-only-imports-diff', 'renderer/src/file-operation.ts', 'react'],
   ['production-does-not-import-tests', 'main/imports-test.ts', 'tests/helper.ts']

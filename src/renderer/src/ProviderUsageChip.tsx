@@ -1,15 +1,9 @@
 import type { CSSProperties } from 'react'
 import type { AgentProvider } from '../../shared/agent'
-import { describeRateLimitWindows, describeUsageFreshness } from './session-usage'
-import type { RateLimitWindowReadout } from './session-usage'
+import { describeRateLimitWindows, describeUsageFreshness, providerUsageLabel } from '../../shared/session-usage'
+import type { RateLimitWindowReadout } from '../../shared/session-usage'
 import { REFRESH_FLASH_MS, useRefreshFlash } from './use-refresh-flash'
 import type { ProviderUsageView } from './use-provider-rate-limits'
-
-/** What each provider calls itself in the header; the `AgentProvider` id is lowercase wiring. */
-const PROVIDER_LABELS: Record<AgentProvider, string> = {
-  claude: 'Claude',
-  codex: 'Codex'
-}
 
 // Thresholds, clamping and wording come from the same readout the tooltip is built from, shared
 // with the per-node usage bar, so one window never reads as two different states anywhere shown.
@@ -50,7 +44,7 @@ export function ProviderUsageChip({
   onRefresh(provider: AgentProvider): void
 }): JSX.Element {
   const { status, refreshing, stale } = entry
-  const label = PROVIDER_LABELS[provider]
+  const label = providerUsageLabel(provider)
   const flashing = useRefreshFlash(refreshing, stale)
 
   const windows = describeRateLimitWindows(status)

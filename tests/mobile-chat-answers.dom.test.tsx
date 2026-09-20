@@ -114,7 +114,16 @@ function snapshotFrame(events: readonly AgentEvent[]): RemoteChatServerMessage {
 
 /** Renders the screen with an open socket and the host's first frame already delivered. */
 function open(events: readonly AgentEvent[]): StubSocket {
-  render(<ChatScreen host={HOST} chatId="chat-1" summary={SUMMARY} onBack={() => {}} onUnauthorized={() => {}} />)
+  render(
+    <ChatScreen
+      host={HOST}
+      chatId="chat-1"
+      summary={SUMMARY}
+      rateLimits={{}}
+      onBack={() => {}}
+      onUnauthorized={() => {}}
+    />
+  )
   const socket = StubSocket.instances[0]
   act(() => {
     socket.onopen?.()

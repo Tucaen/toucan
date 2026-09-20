@@ -270,6 +270,17 @@ describe('routing', () => {
     assert.deepEqual(resolveRemoteRoute('GET', '/api/transcribe'), { kind: 'method-not-allowed', allow: 'POST' })
   })
 
+  test('account usage is a read-only route behind the same gate', () => {
+    assert.deepEqual(resolveRemoteRoute('GET', '/api/usage'), { kind: 'usage' })
+    assert.deepEqual(resolveRemoteRoute('HEAD', '/api/usage'), { kind: 'usage' })
+    assert.equal(routeRequiresPairing(resolveRemoteRoute('GET', '/api/usage')), true)
+    // No write method, and deliberately no way to ask for a *forced* read: the desktop's chip may
+    // bypass the cache because a click is a person, but a forced read boots a provider CLI process
+    // and a paired client must not be able to spawn one on demand.
+    assert.deepEqual(resolveRemoteRoute('POST', '/api/usage'), { kind: 'method-not-allowed', allow: 'GET, HEAD' })
+    assert.deepEqual(resolveRemoteRoute('GET', '/api/usage?force=1'), { kind: 'usage' })
+  })
+
   test('a query string never carries a route decision', () => {
     assert.deepEqual(resolveRemoteRoute('GET', '/api/workspace?token=leaked'), { kind: 'workspace' })
   })
