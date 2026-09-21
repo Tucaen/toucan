@@ -5,6 +5,56 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { createTerminalScrollbackStore } from '../src/main/terminal-scrollback-store'
 
+function manualClock(): {
+  schedule: (run: () => void, delayMs: number) => { cancel(): void }
+  scheduled: number
+  fire(): void
+} {
+  let pending: (() => void) | undefined
+  const clock = {
+    scheduled: 0,
+    schedule(run: () => void): { cancel(): void } {
+      clock.scheduled += 1
+      pending = run
+      return {
+        cancel: () => {
+          if (pending === run) pending = undefined
+        }
+      }
+    },
+    fire(): void {
+      const run = pending
+      pending = undefined
+      run?.()
+    }
+  }
+  return clock
+}
+
+test('coalesces many appended chunks into one scheduled snapshot write', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'toucan-scrollback-'))
+  const clock = manualClock()
+  const store = createTerminalScrollbackStore({
+    directory,
+    maxBytes: 1024,
+    maxAgeMs: 60_000,
+    schedule: clock.schedule
+  })
+
+  store.begin('session', 'incarnation')
+  store.append('session', 'incarnation', 'one')
+  store.append('session', 'incarnation', ' two')
+  store.append('session', 'incarnation', ' three')
+
+  assert.equal(clock.scheduled, 1)
+  assert.equal(createTerminalScrollbackStore({ directory }).load('session')?.data, '')
+
+  clock.fire()
+
+  assert.equal(clock.scheduled, 1)
+  assert.equal(createTerminalScrollbackStore({ directory }).load('session')?.data, 'one two three')
+})
+
 test('retains ANSI, control data, and Unicode for the exact terminal incarnation', () => {
   const directory = mkdtempSync(join(tmpdir(), 'toucan-scrollback-'))
   const store = createTerminalScrollbackStore({ directory, maxBytes: 1024, maxAgeMs: 60_000, now: () => 100 })

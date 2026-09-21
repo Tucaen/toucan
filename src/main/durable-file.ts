@@ -92,8 +92,8 @@ export async function writeSnapshotAtomically(targetPath: string, contents: stri
 /**
  * The synchronous `writeSnapshotAtomically`, for the writes that cannot await (`before-quit`, the
  * pre-window remote-access read/write path). `durable` decides whether the temp file is fsynced
- * before the rename: a credential or a shutdown verdict wants the barrier, while a per-output-chunk
- * write like terminal scrollback would pay it on every keystroke's worth of output.
+ * before the rename: a credential or a shutdown verdict wants the barrier, while write-debounced
+ * terminal scrollback deliberately trades the barrier for lower output-path latency.
  */
 export function writeSnapshotAtomicallySync(targetPath: string, contents: string, options: { durable: boolean }): void {
   const tempPath = `${targetPath}.tmp-${randomUUID()}`

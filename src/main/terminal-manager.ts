@@ -93,6 +93,7 @@ export function createTerminalManager(options: TerminalManagerOptions): Terminal
     // and a terminal Toucan itself killed must not come back as `unverifiable`.
     terminal.liveness = 'exited'
     remember(sessionId, incarnationId, 'exited')
+    options.scrollback?.flush(sessionId, incarnationId)
     terminal.process.kill()
     return true
   }
@@ -161,6 +162,7 @@ export function createTerminalManager(options: TerminalManagerOptions): Terminal
           if (current === running) terminals.delete(sessionId)
           if (lastStates.get(sessionId)?.incarnationId !== incarnationId) return
           remember(sessionId, incarnationId, 'exited')
+          options.scrollback?.flush(sessionId, incarnationId)
           if (running.owner)
             sendTerminalEvent(running.owner, TERMINAL_CHANNELS.exit, {
               sessionId,

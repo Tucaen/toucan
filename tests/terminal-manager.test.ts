@@ -1,6 +1,10 @@
 import { strict as assert } from 'node:assert'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { test } from 'node:test'
 import { createTerminalManager } from '../src/main/terminal-manager'
+import { createTerminalScrollbackStore } from '../src/main/terminal-scrollback-store'
 import { createSessionProviders } from '../src/main/session-providers'
 import type { TerminalLiveness } from '../src/shared/terminal'
 
@@ -255,6 +259,54 @@ test('killing every terminal on quit records exited, so the verdict outlives the
   // already written the durable one; nothing here waits on the exit callback.
   assert.deepEqual(manager.state('session'), { incarnationId: 'incarnation', liveness: 'exited' })
   assert.deepEqual(recorded.get('session'), { incarnationId: 'incarnation', liveness: 'exited' })
+})
+
+test('process exit and shutdown flush buffered scrollback before the terminal is retired', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'toucan-scrollback-'))
+  const scrollback = createTerminalScrollbackStore({
+    directory,
+    schedule: () => ({ cancel: () => undefined })
+  })
+  const dataListeners: Array<(data: string) => void> = []
+  const exitListeners: Array<(event: { exitCode: number }) => void> = []
+  let incarnation = 0
+  const manager = createTerminalManager({
+    providers: createSessionProviders({
+      homeDirectory: 'C:\\Users\\tester',
+      environment: {},
+      resolveCommand: () => 'pwsh.exe'
+    }),
+    pathExists: () => true,
+    pathIsDirectory: () => true,
+    createIncarnationId: () => `inc-${++incarnation}`,
+    scrollback,
+    spawn: () => ({
+      onData: (listener) => dataListeners.push(listener),
+      onExit: (listener) => exitListeners.push(listener),
+      write: () => undefined,
+      resize: () => undefined,
+      kill: () => undefined
+    })
+  })
+  const owner = { isDestroyed: () => false, send: () => undefined }
+
+  manager.create(
+    { id: 'exit-node', sessionId: 'exit-session', kind: 'terminal', cols: 80, rows: 24, cwd: 'D:\\Toucan' },
+    owner
+  )
+  dataListeners[0]('saved on exit')
+  assert.equal(createTerminalScrollbackStore({ directory }).load('exit-session')?.data, '')
+  exitListeners[0]({ exitCode: 0 })
+  assert.equal(createTerminalScrollbackStore({ directory }).load('exit-session')?.data, 'saved on exit')
+
+  manager.create(
+    { id: 'quit-node', sessionId: 'quit-session', kind: 'terminal', cols: 80, rows: 24, cwd: 'D:\\Toucan' },
+    owner
+  )
+  dataListeners[1]('saved on shutdown')
+  assert.equal(createTerminalScrollbackStore({ directory }).load('quit-session')?.data, '')
+  manager.killAll()
+  assert.equal(createTerminalScrollbackStore({ directory }).load('quit-session')?.data, 'saved on shutdown')
 })
 
 test('losing the renderer records nothing durable because that process is still running', () => {

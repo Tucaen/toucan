@@ -67,6 +67,7 @@ function harness(): Harness {
   const scrollback: TerminalScrollbackStore = {
     begin: () => {},
     append: () => {},
+    flush: () => {},
     load: (sessionId) => (sessionId === 's-1' ? snapshot : null),
     remove: (sessionId) => {
       scrollbackRemoved.push(sessionId)

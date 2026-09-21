@@ -6,6 +6,7 @@ import { writeSnapshotAtomicallySync } from './durable-file'
 
 export const TERMINAL_SCROLLBACK_MAX_BYTES = 512 * 1024
 export const TERMINAL_SCROLLBACK_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
+export const TERMINAL_SCROLLBACK_FLUSH_DELAY_MS = 100
 
 interface StoredSnapshot extends TerminalScrollbackSnapshot {
   version: 1
@@ -16,14 +17,24 @@ export interface TerminalScrollbackStoreOptions {
   maxBytes?: number
   maxAgeMs?: number
   now?: () => number
+  /** Injectable so tests can advance the debounce without waiting in real time. */
+  schedule?: (run: () => void, delayMs: number) => { cancel(): void }
 }
 
 export interface TerminalScrollbackStore {
   begin(sessionId: string, incarnationId: string): void
   append(sessionId: string, incarnationId: string, data: string): void
+  flush(sessionId: string, incarnationId: string): void
   load(sessionId: string): TerminalScrollbackSnapshot | null
   /** False means at least one retained file could not be deleted. */
   remove(sessionId: string): boolean
+}
+
+interface CachedSnapshot {
+  snapshot: StoredSnapshot
+  /** Tracked as chunks arrive so append never measures the whole retained string. */
+  dataBytes: number
+  dirty: boolean
 }
 
 function isStoredSnapshot(value: unknown): value is StoredSnapshot {
@@ -57,7 +68,15 @@ export function createTerminalScrollbackStore(options: TerminalScrollbackStoreOp
   const maxBytes = Math.max(0, options.maxBytes ?? TERMINAL_SCROLLBACK_MAX_BYTES)
   const maxAgeMs = Math.max(0, options.maxAgeMs ?? TERMINAL_SCROLLBACK_MAX_AGE_MS)
   const now = options.now ?? Date.now
-  const snapshotsBySessionId = new Map<string, StoredSnapshot>()
+  const schedule =
+    options.schedule ??
+    ((run: () => void, delayMs: number) => {
+      const timer = setTimeout(run, delayMs)
+      timer.unref()
+      return { cancel: () => clearTimeout(timer) }
+    })
+  const snapshotsBySessionId = new Map<string, CachedSnapshot>()
+  const scheduledFlushes = new Map<string, { incarnationId: string; cancel(): void }>()
   mkdirSync(options.directory, { recursive: true })
 
   const pathFor = (sessionId: string): string =>
@@ -87,7 +106,7 @@ export function createTerminalScrollbackStore(options: TerminalScrollbackStoreOp
     }
   }
 
-  const read = (sessionId: string): StoredSnapshot | null => {
+  const read = (sessionId: string): CachedSnapshot | null => {
     const cached = snapshotsBySessionId.get(sessionId)
     if (cached) return cached
     try {
@@ -106,15 +125,61 @@ export function createTerminalScrollbackStore(options: TerminalScrollbackStoreOp
       // incarnation under the durable session just because it was the last successful write.
       if (pendingIncarnationId && pendingIncarnationId !== parsed.incarnationId) return null
       const snapshot = pendingIncarnationId ? { ...parsed, incomplete: true } : parsed
-      snapshotsBySessionId.set(sessionId, snapshot)
-      return snapshot
+      const entry = { snapshot, dataBytes: Buffer.byteLength(snapshot.data, 'utf8'), dirty: false }
+      snapshotsBySessionId.set(sessionId, entry)
+      return entry
     } catch {
       return null
     }
   }
 
+  const cancelScheduledFlush = (sessionId: string): void => {
+    scheduledFlushes.get(sessionId)?.cancel()
+    scheduledFlushes.delete(sessionId)
+  }
+
+  const boundedSnapshot = (entry: CachedSnapshot): StoredSnapshot => {
+    if (entry.dataBytes <= maxBytes) return entry.snapshot
+    return {
+      ...entry.snapshot,
+      data: boundedUtf8Suffix(entry.snapshot.data, maxBytes),
+      truncated: true,
+      incomplete: true
+    }
+  }
+
+  const flush = (sessionId: string, incarnationId: string): void => {
+    const scheduled = scheduledFlushes.get(sessionId)
+    if (scheduled?.incarnationId === incarnationId) cancelScheduledFlush(sessionId)
+    const entry = snapshotsBySessionId.get(sessionId)
+    if (!entry || entry.snapshot.incarnationId !== incarnationId || !entry.dirty) return
+    const snapshot = boundedSnapshot(entry)
+    const dataBytes = Buffer.byteLength(snapshot.data, 'utf8')
+    if (persist(snapshot)) {
+      snapshotsBySessionId.set(sessionId, { snapshot, dataBytes, dirty: false })
+    } else {
+      snapshotsBySessionId.set(sessionId, {
+        snapshot: { ...snapshot, incomplete: true },
+        dataBytes,
+        dirty: true
+      })
+    }
+  }
+
+  const scheduleFlush = (sessionId: string, incarnationId: string): void => {
+    if (scheduledFlushes.has(sessionId)) return
+    const timer = schedule(() => {
+      const scheduled = scheduledFlushes.get(sessionId)
+      if (!scheduled || scheduled.incarnationId !== incarnationId) return
+      scheduledFlushes.delete(sessionId)
+      flush(sessionId, incarnationId)
+    }, TERMINAL_SCROLLBACK_FLUSH_DELAY_MS)
+    scheduledFlushes.set(sessionId, { incarnationId, cancel: timer.cancel })
+  }
+
   return {
     begin(sessionId, incarnationId): void {
+      cancelScheduledFlush(sessionId)
       const snapshot: StoredSnapshot = {
         version: 1,
         sessionId,
@@ -124,29 +189,41 @@ export function createTerminalScrollbackStore(options: TerminalScrollbackStoreOp
         truncated: false,
         incomplete: false
       }
-      snapshotsBySessionId.set(sessionId, snapshot)
-      if (!persist(snapshot)) snapshotsBySessionId.set(sessionId, { ...snapshot, incomplete: true })
+      snapshotsBySessionId.set(sessionId, { snapshot, dataBytes: 0, dirty: true })
+      flush(sessionId, incarnationId)
     },
     append(sessionId, incarnationId, data): void {
       const existing = read(sessionId)
-      if (!existing || existing.incarnationId !== incarnationId) return
-      const combined = `${existing.data}${data}`
-      const bounded = boundedUtf8Suffix(combined, maxBytes)
-      const wasTruncated = Buffer.byteLength(combined, 'utf8') > maxBytes
-      const snapshot: StoredSnapshot = {
-        ...existing,
-        data: bounded,
-        capturedAt: now(),
-        truncated: existing.truncated || wasTruncated,
-        incomplete: existing.incomplete || wasTruncated
+      if (!existing || existing.snapshot.incarnationId !== incarnationId) return
+      const addedBytes = Buffer.byteLength(data, 'utf8')
+      let combined = `${existing.snapshot.data}${data}`
+      let combinedBytes = existing.dataBytes + addedBytes
+      const wasTruncated = combinedBytes > maxBytes
+      // Match the in-memory terminal tail: pay for a whole-buffer trim once per retention's worth
+      // of output, rather than on every PTY chunk after the limit is first reached.
+      if (combinedBytes > maxBytes * 2) {
+        combined = boundedUtf8Suffix(combined, maxBytes)
+        combinedBytes = Buffer.byteLength(combined, 'utf8')
       }
-      snapshotsBySessionId.set(sessionId, snapshot)
-      if (!persist(snapshot)) snapshotsBySessionId.set(sessionId, { ...snapshot, incomplete: true })
+      const snapshot: StoredSnapshot = {
+        ...existing.snapshot,
+        data: combined,
+        capturedAt: now(),
+        truncated: existing.snapshot.truncated || wasTruncated,
+        incomplete: existing.snapshot.incomplete || wasTruncated
+      }
+      snapshotsBySessionId.set(sessionId, { snapshot, dataBytes: combinedBytes, dirty: true })
+      scheduleFlush(sessionId, incarnationId)
+    },
+    flush(sessionId, incarnationId): void {
+      flush(sessionId, incarnationId)
     },
     load(sessionId): TerminalScrollbackSnapshot | null {
-      const snapshot = read(sessionId)
-      if (!snapshot) return null
+      const entry = read(sessionId)
+      if (!entry) return null
+      const snapshot = boundedSnapshot(entry)
       if (now() - snapshot.capturedAt > maxAgeMs) {
+        cancelScheduledFlush(sessionId)
         snapshotsBySessionId.delete(sessionId)
         try {
           unlinkSync(pathFor(sessionId))
@@ -164,6 +241,7 @@ export function createTerminalScrollbackStore(options: TerminalScrollbackStoreOp
       return publicSnapshot
     },
     remove(sessionId): boolean {
+      cancelScheduledFlush(sessionId)
       snapshotsBySessionId.delete(sessionId)
       let removed = true
       for (const path of [pathFor(sessionId), pendingPathFor(sessionId)]) {
