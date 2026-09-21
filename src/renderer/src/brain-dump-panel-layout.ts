@@ -5,9 +5,13 @@
  * between a restored width and a canvas squeezed out of existence.
  */
 
-/** Below this the list and reader can no longer both stay readable. */
+/**
+ * Below this the list and reader can no longer both stay readable.
+ * @internal exported for tests
+ */
 export const BRAIN_DUMP_PANEL_MIN_WIDTH = 420
 export const BRAIN_DUMP_PANEL_DEFAULT_WIDTH = 760
+/** @internal exported for tests */
 export const BRAIN_DUMP_PANEL_MAX_WIDTH = 920
 /** The panel never takes more than this share of the workspace, however wide the window is. */
 export const BRAIN_DUMP_PANEL_MAX_WORKSPACE_SHARE = 0.7

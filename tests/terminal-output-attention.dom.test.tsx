@@ -56,7 +56,6 @@ function terminalElement(onAttention: (action: NodeAttentionAction) => void, unr
           onAttention,
           onStatusChange: vi.fn(),
           onConversationId: vi.fn(),
-          onPreview: vi.fn(),
           onFocusModeChange: vi.fn(),
           onDraftChange: vi.fn(),
           onPermissionModeChange: vi.fn(),

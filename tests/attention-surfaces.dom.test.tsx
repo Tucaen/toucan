@@ -108,7 +108,6 @@ function baseCallbacks(
     onStatusChange: vi.fn(),
     onAttention,
     onConversationId: vi.fn(),
-    onPreview: vi.fn(),
     onFocusModeChange: vi.fn(),
     onDraftChange: vi.fn(),
     onPermissionModeChange: vi.fn(),

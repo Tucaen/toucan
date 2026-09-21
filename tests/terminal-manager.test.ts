@@ -5,18 +5,17 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { createTerminalManager } from '../src/main/terminal-manager'
 import { createTerminalScrollbackStore } from '../src/main/terminal-scrollback-store'
-import { createSessionProviders } from '../src/main/session-providers'
+import { createTerminalShell } from '../src/main/terminal-shell'
 import type { TerminalLiveness } from '../src/shared/terminal'
 
 test('rejects a session when its project folder no longer exists', () => {
   let spawnCount = 0
-  const providers = createSessionProviders({
-    homeDirectory: 'C:\\Users\\tester',
+  const shell = createTerminalShell({
     environment: {},
     resolveCommand: (command) => (command === 'pwsh.exe' ? 'C:\\Tools\\pwsh.exe' : null)
   })
   const manager = createTerminalManager({
-    providers,
+    shell,
     pathExists: () => false,
     pathIsDirectory: () => false,
     spawn: () => {
@@ -48,8 +47,7 @@ test('keeps session identity stable while replacing each exited process with a n
   const exits: Array<(event: { exitCode: number }) => void> = []
   let incarnation = 0
   const manager = createTerminalManager({
-    providers: createSessionProviders({
-      homeDirectory: 'C:\\Users\\tester',
+    shell: createTerminalShell({
       environment: {},
       resolveCommand: () => 'pwsh.exe'
     }),
@@ -93,8 +91,7 @@ test('rejects stale input and resize and ignores stale data and exit after repla
   let incarnation = 0
   const events: Array<{ channel: string; payload: unknown }> = []
   const manager = createTerminalManager({
-    providers: createSessionProviders({
-      homeDirectory: 'C:\\Users\\tester',
+    shell: createTerminalShell({
       environment: {},
       resolveCommand: () => 'pwsh.exe'
     }),
@@ -144,8 +141,7 @@ test('rejects stale input and resize and ignores stale data and exit after repla
 test('owner loss is unverifiable while only the process exit callback proves exit', () => {
   let exit: ((event: { exitCode: number }) => void) | undefined
   const manager = createTerminalManager({
-    providers: createSessionProviders({
-      homeDirectory: 'C:\\Users\\tester',
+    shell: createTerminalShell({
       environment: {},
       resolveCommand: () => 'pwsh.exe'
     }),
@@ -173,8 +169,7 @@ test('owner loss is unverifiable while only the process exit callback proves exi
 test('a retired attachment cannot kill a session reclaimed by a replacement', () => {
   let killed = 0
   const manager = createTerminalManager({
-    providers: createSessionProviders({
-      homeDirectory: 'C:\\Users\\tester',
+    shell: createTerminalShell({
       environment: {},
       resolveCommand: () => 'pwsh.exe'
     }),
@@ -212,8 +207,7 @@ function managerWithJournal(): {
   const recorded = new Map<string, { incarnationId: string; liveness: TerminalLiveness }>()
   let exitListener: ((event: { exitCode: number }) => void) | undefined
   const manager = createTerminalManager({
-    providers: createSessionProviders({
-      homeDirectory: 'C:\\Users\\tester',
+    shell: createTerminalShell({
       environment: {},
       resolveCommand: () => 'pwsh.exe'
     }),
@@ -271,8 +265,7 @@ test('process exit and shutdown flush buffered scrollback before the terminal is
   const exitListeners: Array<(event: { exitCode: number }) => void> = []
   let incarnation = 0
   const manager = createTerminalManager({
-    providers: createSessionProviders({
-      homeDirectory: 'C:\\Users\\tester',
+    shell: createTerminalShell({
       environment: {},
       resolveCommand: () => 'pwsh.exe'
     }),
@@ -329,8 +322,7 @@ test('a read after the process crashed still returns its output, labelled with t
   const exits: Array<(event: { exitCode: number }) => void> = []
   let incarnation = 0
   const manager = createTerminalManager({
-    providers: createSessionProviders({
-      homeDirectory: 'C:\Users\tester',
+    shell: createTerminalShell({
       environment: {},
       resolveCommand: () => 'pwsh.exe'
     }),
@@ -387,8 +379,7 @@ test('a read after the process crashed still returns its output, labelled with t
 test('a terminal this manager never started reads as nothing, and a retired one stops reading', () => {
   const datas: Array<(data: string) => void> = []
   const manager = createTerminalManager({
-    providers: createSessionProviders({
-      homeDirectory: 'C:\Users\tester',
+    shell: createTerminalShell({
       environment: {},
       resolveCommand: () => 'pwsh.exe'
     }),

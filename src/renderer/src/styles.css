@@ -1768,54 +1768,6 @@ button.global-status-chip:hover {
   line-height: 1.45;
 }
 
-.conversation-preview {
-  width: min(100%, 370px);
-  display: grid;
-  gap: 5px;
-  margin-top: 5px;
-  padding: 8px 10px;
-  border: 1px solid #29313c;
-  border-radius: 8px;
-  background: rgba(12, 15, 20, 0.72);
-  text-align: left;
-}
-
-.conversation-preview > div {
-  min-width: 0;
-  display: grid;
-  grid-template-columns: 42px 1fr;
-  gap: 7px;
-  align-items: start;
-}
-
-.conversation-preview span {
-  padding-top: 1px;
-  color: var(--project-color);
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-}
-
-.conversation-preview p {
-  display: -webkit-box;
-  margin: 0;
-  overflow: hidden;
-  color: #aeb7c3;
-  font-size: 11px;
-  line-height: 1.4;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-
-.conversation-preview time {
-  padding-top: 3px;
-  border-top: 1px solid #252c35;
-  color: #626d7b;
-  font-size: 10px;
-  text-align: right;
-}
-
 .resume-session {
   margin-top: 5px;
   padding: 7px 12px;
@@ -5694,7 +5646,6 @@ button.global-status-chip:hover {
 }
 
 .brain-dump-capture-error,
-.brain-dump-reader-error,
 .app-dialog-error,
 .brain-dump-dialog-error {
   margin: 0;

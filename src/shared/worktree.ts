@@ -146,7 +146,10 @@ function splitPath(value: string): { parent: string; name: string; separator: st
     : { parent: trimmed.slice(0, index), name: trimmed.slice(index + 1), separator }
 }
 
-/** A branch name turned into one safe directory segment: `fix/login-2` becomes `fix-login-2`. */
+/**
+ * A branch name turned into one safe directory segment: `fix/login-2` becomes `fix-login-2`.
+ * @internal exported for tests
+ */
 export function worktreeDirectorySlug(branch: string): string {
   return branch
     .replace(/[^A-Za-z0-9._-]+/g, '-')

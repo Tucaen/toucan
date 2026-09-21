@@ -26,7 +26,10 @@ import { errorMessage } from '../shared/text'
  * and the next `ensure` tries again, skipping the asset that already landed.
  */
 
-/** Names the engine build a `bin/` directory was extracted from. */
+/**
+ * Names the engine build a `bin/` directory was extracted from.
+ * @internal exported for tests
+ */
 export const WHISPER_ENGINE_MARKER_FILE = 'engine-build.txt'
 
 export interface VoiceAssetFile {

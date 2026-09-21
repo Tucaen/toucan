@@ -1,7 +1,6 @@
 import type { TerminalCreateRequest } from '../shared/terminal'
 import { TERMINAL_CHANNELS } from '../shared/ipc-channels'
 import type { IpcEventRegistrar } from './ipc-registrar'
-import type { SessionProviders } from './session-providers'
 import type { TerminalEventOwner } from './terminal-events'
 import type { TerminalLivenessStore } from './terminal-liveness-store'
 import type { TerminalManager } from './terminal-manager'
@@ -14,14 +13,9 @@ import type { TerminalScrollbackStore } from './terminal-scrollback-store'
 export function registerTerminalIpc(
   ipc: IpcEventRegistrar<TerminalEventOwner>,
   manager: TerminalManager,
-  providers: SessionProviders,
   scrollback: TerminalScrollbackStore,
   liveness: TerminalLivenessStore
 ): void {
-  ipc.handle(TERMINAL_CHANNELS.preview, (_event, kind: unknown, conversationId: unknown) => {
-    if ((kind !== 'claude' && kind !== 'codex') || typeof conversationId !== 'string') return null
-    return providers.getConversationPreview(kind, conversationId)
-  })
   ipc.handle(TERMINAL_CHANNELS.create, (event, request) =>
     manager.create(request as TerminalCreateRequest, event.sender)
   )

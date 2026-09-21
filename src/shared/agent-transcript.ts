@@ -481,6 +481,7 @@ export function applyAgentCreateResult(state: AgentTranscriptState, result: Agen
  * Records a locally originated user message (an optimistic send) in transcript order. The echo the
  * provider later streams back is deduplicated against it by the sender, not here: a host that
  * never sends optimistically folds the echo as the message itself.
+ * @internal exported for tests
  */
 export function appendLocalUserMessage(state: AgentTranscriptState, message: AgentChatMessage): AgentTranscriptState {
   const entry: AgentTranscriptEntry = { type: 'message', id: message.id, role: message.role }

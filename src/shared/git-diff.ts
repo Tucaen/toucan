@@ -90,7 +90,10 @@ function nulFields(stdout: string): string[] {
   return fields
 }
 
-/** `git diff -z --name-status <base>`: one status field, then one path - two for renames and copies. */
+/**
+ * `git diff -z --name-status <base>`: one status field, then one path - two for renames and copies.
+ * @internal exported for tests
+ */
 export function parseNameStatus(stdout: string): GitChangedFile[] {
   const fields = nulFields(stdout)
   const files: GitChangedFile[] = []
@@ -122,6 +125,7 @@ export interface GitLineCounts {
 /**
  * `git diff -z --numstat <base>`: `added TAB deleted TAB path`, or for a rename `added TAB deleted
  * TAB` followed by the old and new paths as two more fields. Binary files count as `-`.
+ * @internal exported for tests
  */
 export function parseNumstat(stdout: string): Map<string, GitLineCounts> {
   const counts = new Map<string, GitLineCounts>()
@@ -147,6 +151,7 @@ export function parseNumstat(stdout: string): Map<string, GitLineCounts> {
  * `git status --porcelain=v1 -z --untracked-files=all`: every entry is `XY path`, and a rename or
  * copy is followed by its origin as one more field, which must be skipped rather than read as an
  * entry of its own.
+ * @internal exported for tests
  */
 export function parseUntrackedPaths(stdout: string): string[] {
   const fields = nulFields(stdout)

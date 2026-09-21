@@ -31,6 +31,7 @@ export type SnapStates = Readonly<Record<string, SnapState>>
 
 export type SnapArrow = 'left' | 'right' | 'up' | 'down'
 
+/** @internal exported for tests */
 export const MAXIMISED: SnapSlice = { h: 'full', v: 'full' }
 
 export function isMaximised(slice: SnapSlice | undefined): boolean {
@@ -49,7 +50,10 @@ export function canvasRegion(canvas: CanvasSize, viewport: Viewport, inset: numb
   }
 }
 
-/** The part of the region a slice covers; halves share the inset as their gap. */
+/**
+ * The part of the region a slice covers; halves share the inset as their gap.
+ * @internal exported for tests
+ */
 export function sliceGeometry(region: NodeGeometry, slice: SnapSlice, gap: number): NodeGeometry {
   const halfWidth = (region.width - gap) / 2
   const halfHeight = (region.height - gap) / 2
@@ -68,6 +72,7 @@ export function sliceGeometry(region: NodeGeometry, slice: SnapSlice, gap: numbe
  * back to full width. Up from an unsnapped node maximises; from a half it picks the top quarter;
  * from a bottom quarter it returns to the half. Down mirrors Up, and from a maximised node or from
  * the bottom row it restores. Null means "restore"; the same slice means "nothing to do".
+ * @internal exported for tests
  */
 export function nextSnapSlice(current: SnapSlice | null, arrow: SnapArrow): SnapSlice | null {
   if (!current) {

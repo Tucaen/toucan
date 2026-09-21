@@ -204,6 +204,7 @@ const FULL_WINDOW_SAMPLES = REMOTE_VOICE_SAMPLE_RATE * 30
  * speech unless the context is trimmed to the audio - which is the difference between ~15 s and
  * ~3 s per decode on a desktop CPU. The floor and the headroom are what keep it from hallucinating
  * on very short clips; measured in #214, and re-measurable with `npm run voice:wer`.
+ * @internal exported for tests
  */
 export function whisperAudioContext(sampleCount: number): number {
   if (sampleCount >= FULL_WINDOW_SAMPLES) return FULL_AUDIO_CONTEXT
@@ -228,7 +229,10 @@ function freePort(): Promise<number> {
   })
 }
 
-/** A minimal 16 kHz mono 16-bit PCM WAV around the samples; whisper-server reads nothing else raw. */
+/**
+ * A minimal 16 kHz mono 16-bit PCM WAV around the samples; whisper-server reads nothing else raw.
+ * @internal exported for tests
+ */
 export function wavBytes(samples: Float32Array): Uint8Array<ArrayBuffer> {
   const pcm = encodePcm16(samples)
   const bytes = new Uint8Array(44 + pcm.byteLength)

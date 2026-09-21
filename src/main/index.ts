@@ -64,7 +64,7 @@ import { createVoiceTranscriber } from './voice-transcription'
 import { loadWhisperEngine, VOICE_MODEL_MISSING_MESSAGE } from './whisper-engine'
 import { createSessionOutcomeIndexer } from './session-outcome-indexer'
 import { createSessionOutcomeStore } from './session-outcome-store'
-import { createSessionProviders } from './session-providers'
+import { createTerminalShell } from './terminal-shell'
 import { createAdapterManager } from './adapter-manager'
 import { createAdapterInstaller } from './adapter-installer'
 import { registerAdapterManagementIpc } from './adapter-management-ipc'
@@ -336,8 +336,7 @@ void app.whenReady().then(async () => {
   const codexHome = process.env.CODEX_HOME ?? join(app.getPath('home'), '.codex')
   const brainDumpDirectory = join(app.getPath('userData'), 'brain-dumps')
   const agentEnvironment = { ...process.env, TOUCAN_BRAIN_DUMPS_DIR: brainDumpDirectory }
-  const providers = createSessionProviders({
-    homeDirectory: app.getPath('home'),
+  const terminalShell = createTerminalShell({
     environment: process.env,
     resolveCommand: findCommand
   })
@@ -348,7 +347,7 @@ void app.whenReady().then(async () => {
     path: join(app.getPath('userData'), 'terminal-liveness.json')
   })
   const manager = createTerminalManager({
-    providers,
+    shell: terminalShell,
     scrollback,
     liveness,
     spawn: (launch, request, cwd) =>
@@ -582,7 +581,7 @@ void app.whenReady().then(async () => {
   // what the stored settings already asked for.
   await remote.start()
 
-  registerTerminalIpc(ipcMain, manager, providers, scrollback, liveness)
+  registerTerminalIpc(ipcMain, manager, scrollback, liveness)
   registerAgentIpc(agentManager)
   registerTerminalContextIpc(ipcMain, terminalContextEdges)
   registerBrainDumpIpc(

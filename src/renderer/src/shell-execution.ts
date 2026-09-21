@@ -68,6 +68,7 @@ const BACKGROUND_SHELL_ID = /\b(?:ID|id)[:=]?\s*([A-Za-z0-9_.:-]+)/
  * bash_1"), and that string is the only thing tying the later output/kill calls back to this
  * command. A format change makes this return nothing, which costs the follow-up cards their
  * command reference and nothing else.
+ * @internal exported for tests
  */
 export function backgroundShellIdFromOutput(text: string | undefined): string | undefined {
   if (!text) return undefined
@@ -81,6 +82,7 @@ export function backgroundShellIdFromOutput(text: string | undefined): string | 
  * falling back to ACP's `execute` kind plus a command in `rawInput` (which is all codex-acp
  * sends). Returns `null` for anything whose card would be guessing - including an `execute` call
  * with no command to lead with - so those keep the generic card.
+ * @internal exported for tests
  */
 export function parseShellExecution(activity: AgentActivity): ShellExecution | null {
   const input = asRecord(activity.rawInput) ?? {}
@@ -185,6 +187,7 @@ const TERMINAL_PLACEHOLDER = 'Terminal output is available.'
  * adapters stream through, then Codex's aggregated `formatted_output`, then ACP content - which
  * for an older or replay-fed adapter is the whole output wrapped in a code fence, and for the
  * background follow-up tools is the only source there is.
+ * @internal exported for tests
  */
 export function shellOutputText(activity: AgentActivity): string | undefined {
   if (activity.terminalOutput) return activity.terminalOutput

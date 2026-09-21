@@ -1,11 +1,6 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
-import {
-  decisionIdentity,
-  durableTaskClosureState,
-  pendingDecisionsFromMessages,
-  pendingDecisionStateFromMessages
-} from '../src/renderer/src/pending-decisions'
+import { decisionIdentity, pendingDecisionsFromMessages } from '../src/renderer/src/pending-decisions'
 
 const claudeDecision = [
   'Task alpha [task=alpha] needs a choice [key=storage]:',
@@ -83,13 +78,16 @@ test('a repeated stale wake after an accepted answer does not reopen the same de
   )
 })
 
-test('persisted resolution prevents transcript replay from reopening a decided pin', () => {
+test('a decision answered in the transcript stays closed when the fold reaches it again', () => {
   const id = decisionIdentity(assistant('first', codexDecision))
-  const live = pendingDecisionStateFromMessages([
-    assistant('first', codexDecision),
-    { id: 'answer', role: 'user', text: 'Gradual', decisionReplyTo: id }
-  ])
-  assert.deepEqual(pendingDecisionsFromMessages([assistant('replayed', codexDecision)], new Set(), live.closedIds), [])
+  assert.deepEqual(
+    pendingDecisionsFromMessages([
+      assistant('first', codexDecision),
+      { id: 'answer', role: 'user', text: 'Gradual', decisionReplyTo: id },
+      assistant('replayed', codexDecision)
+    ]),
+    []
+  )
 })
 
 test('same-task keyed pins coexist until one is explicitly superseded', () => {
@@ -101,19 +99,12 @@ test('same-task keyed pins coexist until one is explicitly superseded', () => {
     ['alpha:storage', 'alpha:credentials']
   )
   const replacement = credentials.replace('[key=credentials]', '[key=credentials] [supersedes=storage]')
-  const state = pendingDecisionStateFromMessages([
-    assistant('storage', claudeDecision),
-    assistant('replacement', replacement)
-  ])
   assert.deepEqual(
-    state.decisions.map((pin) => pin.id),
+    pendingDecisionsFromMessages([assistant('storage', claudeDecision), assistant('replacement', replacement)]).map(
+      (pin) => pin.id
+    ),
     ['alpha:credentials']
   )
-  assert.equal(state.closedIds.has('alpha:storage'), true)
-})
-
-test('persisted terminal task closure survives an empty lifecycle snapshot', () => {
-  assert.deepEqual(pendingDecisionsFromMessages([assistant('replayed', claudeDecision)], new Set(['alpha'])), [])
 })
 
 test('exact replies resolve only their decision while queued and failed sends remain visible', () => {
@@ -166,7 +157,7 @@ test('exact replies resolve only their decision while queued and failed sends re
   )
 })
 
-test('ordinary replies preserve every unresolved pin and completed tasks remove only their own pins', () => {
+test('an ordinary reply that answers no decision preserves every unresolved pin', () => {
   const base = [assistant('c', claudeDecision), assistant('x', codexDecision)]
   assert.deepEqual(
     pendingDecisionsFromMessages([...base, { id: 'replayed-user', role: 'user', text: 'Gradual' }]).map(
@@ -174,33 +165,6 @@ test('ordinary replies preserve every unresolved pin and completed tasks remove 
     ),
     ['alpha:storage', 'beta:rollout']
   )
-  assert.deepEqual(
-    pendingDecisionsFromMessages(base, new Set(['alpha'])).map((pin) => pin.id),
-    ['beta:rollout']
-  )
-})
-
-test('snapshot absence stays open until an explicit terminal signal', () => {
-  const validating = durableTaskClosureState(new Set(), new Set(['alpha']), new Set())
-  assert.deepEqual([...validating.closedTaskIds], [])
-  assert.deepEqual(
-    pendingDecisionsFromMessages([assistant('decision', claudeDecision)], validating.closedTaskIds).map(
-      (pin) => pin.id
-    ),
-    ['alpha:storage']
-  )
-  const absent = durableTaskClosureState(new Set(), new Set(), validating.closedTaskIds)
-  assert.deepEqual([...absent.closedTaskIds], [])
-  assert.deepEqual(
-    pendingDecisionsFromMessages([assistant('later-decision', claudeDecision)], absent.closedTaskIds).map(
-      (pin) => pin.id
-    ),
-    ['alpha:storage']
-  )
-  const completed = durableTaskClosureState(new Set(['alpha']), new Set(), absent.closedTaskIds)
-  assert.deepEqual([...completed.closedTaskIds], ['alpha'])
-  const restarted = durableTaskClosureState(new Set(), new Set(['alpha']), completed.closedTaskIds)
-  assert.deepEqual([...restarted.closedTaskIds], [])
 })
 
 test('normal, noise, thought, and decision-shaped user messages never pin', () => {

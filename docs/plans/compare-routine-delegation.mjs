@@ -1,11 +1,13 @@
-// Run after `npx tsc -p tsconfig.test.json`. Uses the signed-in Claude CLI/account.
-// Two bounded, read-only calls; raw logs stay in a newly-created temporary fixture.
+// The one-off experiment behind `delegation-evidence.md` (#181), kept next to the evidence it
+// produced rather than in `scripts/`, which is for tooling the project still runs.
+// Run from the repo root after `npx tsc -p tsconfig.test.json`. Uses the signed-in Claude
+// CLI/account: two bounded, read-only calls, with raw logs in a newly-created temporary fixture.
 import { spawn } from 'node:child_process'
 import { mkdtemp, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { hiddenProcessOptions } from '../.test-out/src/main/background-process.js'
-import { claudeDelegationSessionMeta } from '../.test-out/src/shared/routine-delegation.js'
+import { hiddenProcessOptions } from '../../.test-out/src/main/background-process.js'
+import { claudeDelegationSessionMeta } from '../../.test-out/src/shared/routine-delegation.js'
 
 const executable = process.argv[2] ?? join(homedir(), '.local', 'bin', 'claude.exe')
 const fixture = await mkdtemp(join(tmpdir(), 'toucan-delegation-181-'))

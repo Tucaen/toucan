@@ -49,7 +49,7 @@ cannot reconstruct it; the shared fold preserves every status it actually receiv
 
 ## Reproducible workload comparison
 
-Run `npx tsc -p tsconfig.test.json`, then `node scripts/compare-routine-delegation.mjs`.
+Run `npx tsc -p tsconfig.test.json`, then `node docs/plans/compare-routine-delegation.mjs`.
 An optional first argument supplies the native Claude executable. This uses the signed-in
 account and makes two budget-bounded calls (maximum $2 per call); it is not part of the test
 suite. The script creates twelve temporary TypeScript files, each with two `is*` exports and

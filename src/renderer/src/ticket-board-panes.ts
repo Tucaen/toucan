@@ -11,17 +11,28 @@ import type { TicketBoardColumn } from './ticket-board'
  * about the panel's inside, and the other two must stay usable without it.
  */
 
-/** The states pane is a list of short labels; it never earns more than this (`.ticket-state-list`). */
+/**
+ * The states pane is a list of short labels; it never earns more than this (`.ticket-state-list`).
+ * @internal exported for tests
+ */
 export const TICKET_STATE_PANE_WIDTH = 138
-/** Below this the ticket cards are narrower than the meta line they carry. */
+/**
+ * Below this the ticket cards are narrower than the meta line they carry.
+ * @internal exported for tests
+ */
 export const TICKET_LIST_MIN_WIDTH = 240
-/** The reading surface the whole redesign exists for: less than this and a body wraps to shreds. */
+/**
+ * The reading surface the whole redesign exists for: less than this and a body wraps to shreds.
+ * @internal exported for tests
+ */
 export const TICKET_DETAIL_MIN_WIDTH = 320
+/** @internal exported for tests */
 export const TICKET_DETAIL_DEFAULT_WIDTH = 420
 /**
  * The horizontal padding and the two gaps `.ticket-board-panes` spends on itself. Counted here
  * because a threshold that forgets the chrome promises a third pane the panel cannot actually
  * seat, and then lets the detail take the width out of the list.
+ * @internal exported for tests
  */
 export const TICKET_PANES_CHROME_WIDTH = 54
 

@@ -22,7 +22,7 @@ import {
   type WorkspaceSaveResult,
   type WorkspaceState
 } from '../shared/terminal'
-import { errorMessage, repairUtf8Mojibake } from '../shared/text'
+import { errorMessage } from '../shared/text'
 import { normalizeWorkspaceWorktrees } from '../shared/worktree-identity'
 
 interface WorkspaceStateV1 {
@@ -158,11 +158,7 @@ function isWorkspaceTerminalNode(value: unknown): boolean {
     // are checked rather than trusted: a malformed record would otherwise reach the adapter.
     (node.branchedFrom === undefined ||
       (typeof node.branchedFrom.nodeId === 'string' && typeof node.branchedFrom.conversationId === 'string')) &&
-    (node.terminalLiveness === undefined || ['live', 'unverifiable', 'exited'].includes(node.terminalLiveness)) &&
-    (node.preview === undefined ||
-      (typeof node.preview.updatedAt === 'string' &&
-        (node.preview.user === undefined || typeof node.preview.user === 'string') &&
-        (node.preview.assistant === undefined || typeof node.preview.assistant === 'string')))
+    (node.terminalLiveness === undefined || ['live', 'unverifiable', 'exited'].includes(node.terminalLiveness))
   )
 }
 
@@ -232,6 +228,7 @@ export const CANVAS_NODE_VALIDATORS: readonly {
   { field: 'diffs', alwaysPersisted: false, isRecord: isWorkspaceDiffNode }
 ]
 
+/** @internal exported for tests */
 export function isWorkspaceState(value: unknown): value is WorkspaceState {
   if (!hasValidProjects(value)) return false
   const state = value as Partial<WorkspaceState>
@@ -309,6 +306,7 @@ function normalizeProjectsAndGroups(value: unknown): unknown {
   return { ...state, projects, ...(groups ? { projectGroups: groups } : {}) }
 }
 
+/** @internal exported for tests */
 export function parseWorkspaceState(candidate: unknown): WorkspaceState | null {
   const value = normalizeProjectsAndGroups(candidate)
   if (!hasValidProjects(value)) return null
@@ -327,20 +325,16 @@ export function parseWorkspaceState(candidate: unknown): WorkspaceState | null {
         ? { recentlyClosedNodes: state.recentlyClosedNodes.slice(-RECENTLY_CLOSED_SESSION_LIMIT) }
         : {}),
       nodes: state.nodes.map((node) => {
-        const { worklogCollapsed: _legacy, ...current } = node
+        // Legacy keys older snapshots still carry, dropped here so they are never written back.
+        const {
+          worklogCollapsed: _collapsed,
+          preview: _preview,
+          ...current
+        } = node as typeof node & { preview?: unknown }
         return {
           ...current,
           ...(node.kind === 'terminal' ? {} : { focusMode: nodeFocusMode(node) }),
-          ...(node.turnOutcomes ? { turnOutcomes: node.turnOutcomes.slice(-AGENT_TURN_OUTCOME_LIMIT) } : {}),
-          ...(node.preview
-            ? {
-                preview: {
-                  ...node.preview,
-                  ...(node.preview.user ? { user: repairUtf8Mojibake(node.preview.user) } : {}),
-                  ...(node.preview.assistant ? { assistant: repairUtf8Mojibake(node.preview.assistant) } : {})
-                }
-              }
-            : {})
+          ...(node.turnOutcomes ? { turnOutcomes: node.turnOutcomes.slice(-AGENT_TURN_OUTCOME_LIMIT) } : {})
         }
       })
     }

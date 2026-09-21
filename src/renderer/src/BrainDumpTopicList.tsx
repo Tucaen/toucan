@@ -10,7 +10,10 @@ import { BrainDumpProjectChip, brainDumpProjectDescription } from './BrainDumpPr
  * so a thousand topics cost the same DOM as fifty.
  */
 
-/** Rows below this all render; above it, only the visible window plus a small overscan does. */
+/**
+ * Rows below this all render; above it, only the visible window plus a small overscan does.
+ * @internal exported for tests
+ */
 export const BRAIN_DUMP_WINDOW_THRESHOLD = 50
 const ROW_HEIGHT = 92
 const OVERSCAN = 6

@@ -43,6 +43,7 @@ const CODEX_ACTIVITY_VERBS: Record<string, string> = {
  * `_meta.codex.subagent`) and the tool name second. The name check is deliberately last and
  * deliberately excludes MCP calls: a third-party `mcp__tracker__task` flattens to the same bare
  * `task`, and claiming it here would show somebody's issue tracker as a spawned agent.
+ * @internal exported for tests
  */
 export function parseSubagentTask(activity: AgentActivity): SubagentTask | null {
   if (!isDelegationActivity(activity)) return null

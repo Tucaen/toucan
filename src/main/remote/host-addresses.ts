@@ -23,6 +23,7 @@ export function describeHostAddresses(
   )
 }
 
+/** @internal exported for tests */
 export function isTailscaleAddress(address: string): boolean {
   const octets = address.split('.').map(Number)
   if (octets.length !== 4 || octets.some((octet) => !Number.isInteger(octet))) return false

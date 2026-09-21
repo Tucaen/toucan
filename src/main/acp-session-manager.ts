@@ -172,7 +172,10 @@ interface SessionSkillsConfiguration {
   }
 }
 
-/** Resolves unpacked application skills so native provider processes can read packaged builds. */
+/**
+ * Resolves unpacked application skills so native provider processes can read packaged builds.
+ * @internal exported for tests
+ */
 export function resolveToucanSkillsRoot(appPath: string, pathExists = existsSync): string | undefined {
   const roots = [appPath]
   if (appPath.endsWith('app.asar')) roots.unshift(join(dirname(appPath), 'app.asar.unpacked'))
@@ -205,6 +208,7 @@ export function sessionSkillsConfiguration(
  * in the same `claudeCode.options`; the routing instruction goes through `withSessionInstruction`
  * like every other Toucan instruction, so layering this before or after another one gives the same
  * session either way - a caller cannot silently drop a sibling instruction by reordering.
+ * @internal exported for tests
  */
 export function withClaudeDelegation(
   configuration: SessionSkillsConfiguration,
@@ -223,7 +227,10 @@ export function withClaudeDelegation(
   )
 }
 
-/** Adds a request's own additional directories to the skills configuration, deduplicated and in order. */
+/**
+ * Adds a request's own additional directories to the skills configuration, deduplicated and in order.
+ * @internal exported for tests
+ */
 export function withAdditionalDirectories(
   configuration: SessionSkillsConfiguration,
   directories: readonly string[] | undefined
@@ -360,6 +367,7 @@ const IGNORED_ADAPTER_DIAGNOSTICS = [/^claude auth status\b/i]
  * The progress text one stderr chunk is worth: its lines minus the ignored diagnostics. A chunk can
  * carry several lines, so the filter is per line rather than per chunk, and a chunk left with
  * nothing publishes no status at all.
+ * @internal exported for tests
  */
 export function startingProgressFrom(chunk: string): string | undefined {
   const kept = chunk
@@ -369,7 +377,10 @@ export function startingProgressFrom(chunk: string): string | undefined {
   return kept.length > 0 ? kept.join('\n') : undefined
 }
 
-/** Normalizes a prompt submission (plain text, or a mix of text/image content blocks) into the ACP content-block array. */
+/**
+ * Normalizes a prompt submission (plain text, or a mix of text/image content blocks) into the ACP content-block array.
+ * @internal exported for tests
+ */
 export function toPromptBlocks(content: AgentPromptContent): AgentPromptBlock[] {
   return typeof content === 'string' ? [{ type: 'text', text: content }] : content
 }
@@ -379,6 +390,7 @@ export function toPromptBlocks(content: AgentPromptContent): AgentPromptBlock[] 
  * those. Images stay desktop-local render state (`AgentChatMessage.images`) - a phone cannot attach
  * them and the snapshot should not carry their bytes - so an image-only prompt yields `''` and no
  * user message is published for it.
+ * @internal exported for tests
  */
 export function promptText(content: AgentPromptContent): string {
   return toPromptBlocks(content)
@@ -391,6 +403,7 @@ export function promptText(content: AgentPromptContent): string {
  * Blocks `runPrompt` from sending an `image` content block to an agent whose `initialize`
  * handshake never advertised `promptCapabilities.image`. Pulled out as a pure function (mirroring
  * `promptGuard`) so the gating is directly testable without spinning up the full ACP connection.
+ * @internal exported for tests
  */
 export function imageCapabilityGuard(
   running: { imageSupport: boolean },
@@ -405,6 +418,7 @@ export function imageCapabilityGuard(
  * Blocks `runPrompt` from re-attempting delivery while the agent is already parked in
  * `auth_required`. Pulled out as a pure function (mirroring `promptFailure`) so the
  * no-retry-storm behavior is directly testable without spinning up the full ACP connection.
+ * @internal exported for tests
  */
 export function promptGuard(running: { authRequired: boolean }): AgentPromptResult | null {
   if (!running.authRequired) return null
@@ -413,7 +427,10 @@ export function promptGuard(running: { authRequired: boolean }): AgentPromptResu
 
 type SteeringResponse = { outcome?: 'injected' | 'startedNewTurn' | 'failed' }
 
-/** Injects a queued message into an in-flight ACP turn via the adapter's steering extension. */
+/**
+ * Injects a queued message into an in-flight ACP turn via the adapter's steering extension.
+ * @internal exported for tests
+ */
 export async function deliverSteeredPrompt(
   request: (method: string, params: { sessionId: string; prompt: ContentBlock[] }) => Promise<SteeringResponse>,
   sessionId: string,
@@ -448,6 +465,7 @@ const LOGIN_URL_PATTERN = /https?:\/\/[^\s<>"')]+/
  *  elicitation message), if it printed one, so Toucan can both auto-open it and offer a persistent,
  *  actionable link instead of relying solely on the CLI's own (not always reachable) browser
  *  launch. */
+/** @internal exported for tests */
 export function extractLoginUrl(text: string): string | undefined {
   return text.match(LOGIN_URL_PATTERN)?.[0]
 }
@@ -456,6 +474,7 @@ export function extractLoginUrl(text: string): string | undefined {
  * Sends one browser paste-back code to the terminal authentication helper without ever putting
  * the credential into an event, log, or command line. The trailing newline is the Enter key the
  * underlying Claude CLI is waiting for.
+ * @internal exported for tests
  */
 export function writeAuthCode(input: Writable | undefined, code: string): Promise<AgentPromptResult> {
   const trimmed = code.trim()
@@ -503,7 +522,10 @@ function isAuthRequired(error: unknown): boolean {
   )
 }
 
-/** Filters out internal notification wrappers that leak into the chat view on session resume. */
+/**
+ * Filters out internal notification wrappers that leak into the chat view on session resume.
+ * @internal exported for tests
+ */
 export function isInternalNotificationText(text: string): boolean {
   const trimmed = text.trimStart()
   return trimmed.startsWith('<task-notification>') || trimmed.startsWith('<system-reminder>')
@@ -574,6 +596,7 @@ function simplifyAuthMethod(method: AuthMethod): AgentAuthMethod {
  * Narrows the protocol's `AvailableCommand` to what the composer's completion actually renders,
  * and drops anything unnamed so a malformed entry can never occupy a row nothing can insert.
  * `input` is what distinguishes a command that expects arguments from one that doesn't.
+ * @internal exported for tests
  */
 export function simplifyAvailableCommands(commands: AvailableCommand[] | null | undefined): AgentCommand[] {
   if (!commands) return []
@@ -665,6 +688,7 @@ export interface AcpSessionManagerOptions {
  * starts outside Toucan's sight - a worktree it creates for itself - can name the node that
  * asked for it. One function builds it, because a node id that reaches only the record kept
  * beside the process and not the process itself is exactly as good as no node id at all.
+ * @internal exported for tests
  */
 export function agentProcessEnvironment(environment: NodeJS.ProcessEnv, nodeId: string): NodeJS.ProcessEnv {
   return { ...environment, TOUCAN_NODE_ID: nodeId }
@@ -698,6 +722,7 @@ export function promptFailure(
  * Waits for the provider-owned ACP turn to reach its real terminal boundary. Elapsed wall-clock
  * time is deliberately absent: a long-running turn is still live until the provider completes,
  * rejects, exits, or the user explicitly cancels it.
+ * @internal exported for tests
  */
 export async function settleAgentTurn(
   turnId: string,
@@ -1736,9 +1761,8 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
     cancel(id): void {
       const running = agents.get(id)
       if (!running?.sessionId) return
-      // Stop is also an explicit queue reconciliation boundary for adapters without steering.
-      // The active prompt's finally drains pre-existing messages after cancellation settles.
-      running.wakeGate?.checkpoint(true)
+      // Queued messages are not dropped by a stop: the cancelled prompt's `finally` flushes the
+      // wake gate once cancellation settles, so they run as the next turn rather than vanishing.
       void running.context.notify(methods.agent.session.cancel, { sessionId: running.sessionId })
     },
 

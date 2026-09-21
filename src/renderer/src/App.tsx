@@ -45,7 +45,6 @@ import type {
   BrainDumpPanelState,
   ComposerSendKey,
   ConversationLineage,
-  ConversationPreview,
   ProjectDirectory,
   ProjectGroup,
   TerminalKind,
@@ -520,20 +519,6 @@ function Canvas(): JSX.Element {
     [patchTerminalNode]
   )
 
-  const handlePreview = useCallback(
-    (nodeId: string, preview: ConversationPreview): void => {
-      patchTerminalNode(nodeId, (data) => ({
-        preview: {
-          ...data.preview,
-          ...preview,
-          user: preview.user ?? data.preview?.user,
-          assistant: preview.assistant ?? data.preview?.assistant
-        }
-      }))
-    },
-    [patchTerminalNode]
-  )
-
   const handleFocusModeChange = useCallback(
     (nodeId: string, enabled: boolean): void => {
       patchTerminalNode(nodeId, () => ({ focusMode: enabled }))
@@ -911,7 +896,6 @@ function Canvas(): JSX.Element {
         onTicketActivity: handleTicketActivity,
         onConversationId: handleConversationId,
         onTitleChange: handleTitleChange,
-        onPreview: handlePreview,
         onFocusModeChange: handleFocusModeChange,
         onDraftChange: handleDraftChange,
         onPermissionModeChange: handlePermissionModeChange,
@@ -942,7 +926,6 @@ function Canvas(): JSX.Element {
     handleModelChange,
     handleTurnOutcome,
     handlePermissionModeChange,
-    handlePreview,
     handleStatusChange,
     handleTicketActivity,
     handleTerminalContext,
@@ -1065,7 +1048,6 @@ function Canvas(): JSX.Element {
               onTicketActivity: handleTicketActivity,
               onConversationId: handleConversationId,
               onTitleChange: handleTitleChange,
-              onPreview: handlePreview,
               onFocusModeChange: handleFocusModeChange,
               onDraftChange: handleDraftChange,
               onPermissionModeChange: handlePermissionModeChange,
@@ -1092,7 +1074,6 @@ function Canvas(): JSX.Element {
       handleModelChange,
       handleTurnOutcome,
       handlePermissionModeChange,
-      handlePreview,
       handleStatusChange,
       handleTicketActivity,
       handleTerminalContext,
@@ -1486,7 +1467,6 @@ function Canvas(): JSX.Element {
         onTicketActivity: handleTicketActivity,
         onConversationId: handleConversationId,
         onTitleChange: handleTitleChange,
-        onPreview: handlePreview,
         onFocusModeChange: handleFocusModeChange,
         onDraftChange: handleDraftChange,
         onPermissionModeChange: handlePermissionModeChange,
@@ -1553,7 +1533,6 @@ function Canvas(): JSX.Element {
       handleModelChange,
       handleTurnOutcome,
       handlePermissionModeChange,
-      handlePreview,
       handleSelectDiffPath,
       handleStatusChange,
       handleTicketActivity,

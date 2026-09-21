@@ -106,6 +106,7 @@ export function promptTextProblem(text: string): string | null {
  * worst case still fits inside the frame size `ws` is configured to accept.
  */
 export const REMOTE_CHAT_ANSWER_FIELD_LIMIT = 16
+/** @internal exported for tests */
 export const REMOTE_CHAT_ANSWER_VALUE_LIMIT = 2_000
 /** How many options one multi-select question may carry an answer for. */
 export const REMOTE_CHAT_ANSWER_OPTION_LIMIT = 32

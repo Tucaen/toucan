@@ -21,7 +21,6 @@ const baseProps: ChatViewProps = {
   draft: '',
   imageSupport: false,
   attachments: [],
-  setDraft: vi.fn(),
   addImages: vi.fn(),
   removeAttachment: vi.fn(),
   submit: vi.fn(),

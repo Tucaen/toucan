@@ -52,6 +52,7 @@ export type UsageLevel = 'normal' | 'warning' | 'critical'
 const WARNING_PERCENT = 75
 const CRITICAL_PERCENT = 90
 
+/** @internal exported for tests */
 export function usageLevel(percent: number): UsageLevel {
   if (percent >= CRITICAL_PERCENT) return 'critical'
   if (percent >= WARNING_PERCENT) return 'warning'
@@ -74,6 +75,7 @@ function clampPercent(percent: number): number {
 /**
  * The status bar is the tightest row in the node, so a token count trades precision for width as
  * it grows: a decimal is worth a character below 100k and worth nothing above it.
+ * @internal exported for tests
  */
 export function formatTokens(tokens: number): string {
   const value = Math.max(0, tokens)
@@ -88,6 +90,7 @@ export function formatTokens(tokens: number): string {
  * what the reader plans around and is deliberately coarse, so the clock time carries the precision
  * the duration drops; a reset more than a day out also needs its date to be unambiguous. A past
  * reset reads as "now" rather than as a negative duration.
+ * @internal exported for tests
  */
 export function formatResetsAt(resetsAt: number, now: number = Date.now()): string {
   const delta = resetsAt - now
@@ -156,7 +159,10 @@ export interface RateLimitWindowReadout {
   resetProgressPercent?: number
 }
 
-/** Exported so the header's account chips and a node's bar describe a window identically. */
+/**
+ * One window's readout, shared by every surface that describes a rate limit.
+ * @internal exported for tests; production reaches it through `describeRateLimitWindows`.
+ */
 export function describeRateLimitWindow(
   label: string,
   window: AgentRateLimitWindow,
@@ -208,10 +214,11 @@ export function describeRateLimitWindows(
  * The window that will actually stop the next turn, and therefore the one any surface with room
  * for a single figure spends it on. Null only when the status carried no window at all.
  *
- * Shared because "worst" is a rule, not an implementation detail: a node's bar picks the figure it
- * shows with it, and the phone's account card picks its colour with it. Two reduces written a week
- * apart is how one surface comes to rank by `displayPercent` and the other by `percent`, and then
- * two devices disagree about which plan is the problem.
+ * "Worst" is a rule, not an implementation detail: two reduces written a week apart is how one
+ * surface comes to rank by `displayPercent` and the other by `percent`, and then two devices
+ * disagree about which plan is the problem. Every surface reaches it through `accountUsageLevel`
+ * or `describeSessionUsage`.
+ * @internal exported for tests
  */
 export function worstRateLimitWindow(windows: readonly RateLimitWindowReadout[]): RateLimitWindowReadout | null {
   return windows.reduce<RateLimitWindowReadout | null>(

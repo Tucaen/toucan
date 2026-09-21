@@ -133,6 +133,7 @@ export interface WorktreeAdoption {
  * conversation in a directory it did not start in works there, which is the whole reason a
  * Codex node can move at all. A Claude node keeps the association and stays where it is,
  * exactly as its handoff rules already require.
+ * @internal exported for tests
  */
 export function planWorktreeAdoptions(
   nodes: CanvasNode[],

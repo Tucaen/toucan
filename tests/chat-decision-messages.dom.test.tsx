@@ -23,7 +23,6 @@ const baseChatViewProps: ChatViewProps = {
   draft: '',
   imageSupport: false,
   attachments: [],
-  setDraft: vi.fn(),
   addImages: vi.fn(),
   removeAttachment: vi.fn(),
   submit: vi.fn(),
@@ -691,9 +690,6 @@ describe('decision option interaction', () => {
         }
       ])
     )
-    // sendMessage never touches the draft, unlike submit()'s clear-on-send behavior.
-    expect(result.current.draft).toBe('')
-
     emit('session-decision', {
       type: 'message',
       role: 'user',

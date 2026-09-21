@@ -42,6 +42,7 @@ function withProvider(
  * newer reading clears a failure, since a cache hit is not evidence that the provider was reachable.
  *
  * Exported for tests, which drive the orderings that are hard to provoke against a real host.
+ * @internal exported for tests
  */
 export function mergePolledUsage(current: ProviderUsageReport, polled: ProviderUsageReport): ProviderUsageReport {
   const next = { ...polled }
@@ -95,7 +96,6 @@ export function useProviderRateLimits(): ProviderRateLimitsState {
           const entry = next ? next[provider] : keptAsStale(current[provider])
           return withProvider(current, provider, entry)
         })
-        setRefreshing((current) => ({ ...current, [provider]: false }))
       })
   }, [])
 

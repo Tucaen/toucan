@@ -64,7 +64,10 @@ function labelToken(name: string): string {
   return name.trim().toLocaleLowerCase().replace(/\s+/g, '-')
 }
 
-/** The one place a GitHub issue turns into a board column. */
+/**
+ * The one place a GitHub issue turns into a board column.
+ * @internal exported for tests
+ */
 export function githubIssueStatus(
   issue: Pick<GithubIssueRecord, 'state' | 'labels'>,
   statusLabels: GithubStatusLabels = DEFAULT_GITHUB_STATUS_LABELS
@@ -86,6 +89,7 @@ function calendarDay(updatedAt: string): string {
  * The projection of an issue onto the source-neutral card. `blockedBy` is deliberately never set:
  * `blocked_by` names siblings in the same source, and GitHub expresses blocking as a label and as
  * prose, neither of which is a card id.
+ * @internal exported for tests
  */
 export function githubIssueCard(
   issue: GithubIssueRecord,

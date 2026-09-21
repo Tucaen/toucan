@@ -24,7 +24,6 @@ const baseChatViewProps: ChatViewProps = {
   draft: '',
   imageSupport: false,
   attachments: [],
-  setDraft: vi.fn(),
   addImages: vi.fn(),
   removeAttachment: vi.fn(),
   submit: vi.fn(),
@@ -312,8 +311,7 @@ describe('useAgentConversation prompt failure status', () => {
     const { result } = renderConversation('session-oauth-expired', api)
     await waitFor(() => expect(result.current.status).toBe('ready'))
 
-    act(() => result.current.setDraft('continue please'))
-    act(() => result.current.submit(fakeSubmitEvent()))
+    act(() => result.current.submit(fakeSubmitEvent(), 'continue please'))
     expect(result.current.status).toBe('working')
     await waitFor(() => expect(api.prompt).toHaveBeenCalledTimes(1))
 
@@ -342,8 +340,7 @@ describe('useAgentConversation prompt failure status', () => {
     const { result } = renderConversation('session-turn-failed', api)
     await waitFor(() => expect(result.current.status).toBe('ready'))
 
-    act(() => result.current.setDraft('do the thing'))
-    act(() => result.current.submit(fakeSubmitEvent()))
+    act(() => result.current.submit(fakeSubmitEvent(), 'do the thing'))
     expect(result.current.status).toBe('working')
     await waitFor(() => expect(api.prompt).toHaveBeenCalledTimes(1))
 
@@ -367,8 +364,7 @@ describe('useAgentConversation prompt failure status', () => {
     const { result } = renderConversation('session-refused', api)
     await waitFor(() => expect(result.current.status).toBe('ready'))
 
-    act(() => result.current.setDraft('hello'))
-    act(() => result.current.submit(fakeSubmitEvent()))
+    act(() => result.current.submit(fakeSubmitEvent(), 'hello'))
 
     await waitFor(() => expect(result.current.detail).toBe('This agent does not support image attachments.'))
     expect(result.current.status).toBe('ready')
@@ -381,8 +377,7 @@ describe('useAgentConversation prompt failure status', () => {
     })
     await waitFor(() => expect(result.current.status).toBe('ready'))
 
-    act(() => result.current.setDraft('hello'))
-    act(() => result.current.submit(fakeSubmitEvent()))
+    act(() => result.current.submit(fakeSubmitEvent(), 'hello'))
 
     await waitFor(() => expect(result.current.detail).toBe('Could not read the workspace context.'))
     expect(result.current.status).toBe('ready')

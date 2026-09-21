@@ -18,6 +18,7 @@ export interface RowRect {
 /**
  * The insertion index a pointer implies among a run of rows: a row is claimed from its midpoint
  * down, so 0 means "above everything" and `rows.length` means "below everything".
+ * @internal exported for tests
  */
 export function dropIndexFromPointer(rows: readonly RowRect[], pointerY: number): number {
   for (let index = 0; index < rows.length; index += 1) {

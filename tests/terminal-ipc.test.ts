@@ -2,12 +2,11 @@ import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
 import { TERMINAL_CHANNELS } from '../src/shared/ipc-channels'
 import { registerTerminalIpc } from '../src/main/terminal-ipc'
-import type { SessionProviders } from '../src/main/session-providers'
 import type { TerminalEventOwner } from '../src/main/terminal-events'
 import type { TerminalLivenessStore } from '../src/main/terminal-liveness-store'
 import type { TerminalManager } from '../src/main/terminal-manager'
 import type { TerminalScrollbackStore } from '../src/main/terminal-scrollback-store'
-import type { ConversationPreview, TerminalScrollbackSnapshot } from '../src/shared/terminal'
+import type { TerminalScrollbackSnapshot } from '../src/shared/terminal'
 
 interface Harness {
   handlers: Map<string, (...args: unknown[]) => unknown>
@@ -17,7 +16,6 @@ interface Harness {
   livenessRemoved: string[]
 }
 
-const preview: ConversationPreview = { user: 'hi', assistant: 'hello', updatedAt: '2026-09-08T00:00:00Z' }
 const snapshot: TerminalScrollbackSnapshot = {
   sessionId: 's-1',
   incarnationId: 'inc-1',
@@ -58,12 +56,6 @@ function harness(): Harness {
       calls.push(`forget:${sessionId}`)
     }
   }
-  const providers: SessionProviders = {
-    resolveLaunch: () => {
-      throw new Error('not used here')
-    },
-    getConversationPreview: (kind, conversationId) => (kind === 'claude' && conversationId === 'c-1' ? preview : null)
-  }
   const scrollback: TerminalScrollbackStore = {
     begin: () => {},
     append: () => {},
@@ -85,7 +77,6 @@ function harness(): Harness {
       on: (channel, listener) => void ons.set(channel, listener as (...args: unknown[]) => void)
     },
     manager,
-    providers,
     scrollback,
     liveness
   )
@@ -94,14 +85,6 @@ function harness(): Harness {
 
 const owner: TerminalEventOwner = { isDestroyed: () => false, send: () => {} }
 const event = { sender: owner }
-
-test('a preview needs a known provider and a string id; anything else is null', () => {
-  const { handlers } = harness()
-  const handler = handlers.get(TERMINAL_CHANNELS.preview)!
-  assert.equal(handler(event, 'claude', 'c-1'), preview)
-  assert.equal(handler(event, 'gemini', 'c-1'), null)
-  assert.equal(handler(event, 'claude', 42), null)
-})
 
 test('create hands the request and the asking window to the manager', () => {
   const { handlers, calls } = harness()

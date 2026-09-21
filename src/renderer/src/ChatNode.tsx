@@ -142,10 +142,9 @@ interface FlatChatViewProps {
    * its full form rather than a relative one that would point at the wrong tree.
    */
   workspaceRoots?: readonly string[]
-  setDraft(value: string): void
   addImages(files: File[] | FileList): Promise<void>
   removeAttachment(id: string): void
-  submit(event: FormEvent, draftOverride?: string, onPrepared?: () => void): void
+  submit(event: FormEvent, prompt: string, onPrepared?: () => void): void
   sendMessage(text: string): void
   answerDecision(decisionId: string, text: string): void
   editQueued(id: string, text: string): void
@@ -229,8 +228,6 @@ export type ChatSessionControlsProps = Pick<FlatChatViewProps, 'status' | 'detai
   focusShortcutEnabled?: boolean
   empty?: { icon: ReactNode; title: string; description: string }
   statusBar?: ReactNode
-  completedTaskIds?: ReadonlySet<string>
-  closedDecisionIds?: ReadonlySet<string>
 }
 
 /**
@@ -922,11 +919,7 @@ export function ChatView(groups: ChatViewProps): JSX.Element {
     [transcript.activities, subagentActivities, transcript.plan.length]
   )
   const authVisible = session.status === 'auth_required' || pending.reauthenticating
-  const pendingDecisions = pendingDecisionsFromMessages(
-    transcript.messages,
-    session.completedTaskIds,
-    session.closedDecisionIds
-  )
+  const pendingDecisions = pendingDecisionsFromMessages(transcript.messages)
   const { ref: scrollRef, onScroll } = useStickToBottom([
     transcript.messages,
     transcript.activities,
@@ -1198,20 +1191,20 @@ export default function ChatNode({ id, data, selected, width }: NodeProps<Termin
    * shape in which the worktree can be a writable root rather than an approval prompt. A node
    * already running in a worktree is where such work belongs, so it dispatches normally.
    */
-  const submit: FlatChatViewProps['submit'] = (event, draftOverride, onPrepared) => {
+  const submit: FlatChatViewProps['submit'] = (event, prompt, onPrepared) => {
     // Mid-turn, the prompt queues as any follow-up does rather than moving a session that is
     // still working. It runs where it was typed when the outbox drains, which is visible in the
     // composer queue - unlike tearing down a session with a turn in flight.
     const handoff = status === 'working' ? undefined : data.onWorktreeHandoff
     const plan = handoff
-      ? planWorktreeHandoff(draftOverride ?? data.draft ?? '', {
+      ? planWorktreeHandoff(prompt, {
           hasHistory: messages.length > 0,
           alreadyInWorktree: Boolean(data.worktreeId),
           provider
         })
       : null
     if (!handoff || !plan) {
-      conversation.submit(event, draftOverride, onPrepared)
+      conversation.submit(event, prompt, onPrepared)
       return
     }
     event.preventDefault()
@@ -1445,7 +1438,6 @@ export default function ChatNode({ id, data, selected, width }: NodeProps<Termin
               ? 'Load its ACP history and continue where you left off.'
               : 'Start a new ACP conversation.'}
           </small>
-          {data.preview?.assistant && <blockquote>{data.preview.assistant}</blockquote>}
           <button type="button" className="resume-session" onClick={() => data.onResume(id)}>
             {data.conversationId ? 'Open conversation' : 'Start conversation'}
           </button>

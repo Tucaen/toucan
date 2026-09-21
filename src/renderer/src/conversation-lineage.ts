@@ -69,7 +69,10 @@ export function launchModeAfterConversation(
   return launchMode === 'fork' ? 'resume' : launchMode
 }
 
-/** Own namespace, so a lineage edge can never be confused with a terminal-context grant. */
+/**
+ * Own namespace, so a lineage edge can never be confused with a terminal-context grant.
+ * @internal exported for tests
+ */
 export function lineageEdgeId(parentNodeId: string, childNodeId: string): string {
   return `lineage:${parentNodeId}->${childNodeId}`
 }

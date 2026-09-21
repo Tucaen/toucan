@@ -258,10 +258,10 @@ test('saves and loads a valid workspace through the store', async () => {
   assert.deepEqual(await store.load(), { state, recovered: false, unrecoverable: false })
 })
 
-test('repairs UTF-8 text that an older workspace cached as Windows-1252', () => {
+test('drops the conversation preview an older workspace cached on its nodes', () => {
   const parsed = parseWorkspaceState({
     version: 2,
-    projects: [{ id: 'project-1', name: 'Toucan', path: 'D:\\Development\\Toucan', color: '#71a9ff' }],
+    projects: [{ id: 'project-1', name: 'Toucan', path: 'D:\Development\Toucan', color: '#71a9ff' }],
     activeProjectId: 'project-1',
     sidebarCollapsed: false,
     nodes: [
@@ -273,15 +273,13 @@ test('repairs UTF-8 text that an older workspace cached as Windows-1252', () => 
         position: { x: 0, y: 0 },
         width: 520,
         height: 340,
-        preview: {
-          assistant: 'Session persistence is working\u00e2\u20ac\u201dthe preview is readable.',
-          updatedAt: '2026-08-11T11:38:54.228Z'
-        }
+        preview: { assistant: 'Session persistence is working.', updatedAt: '2026-08-11T11:38:54.228Z' }
       }
     ]
   })
 
-  assert.equal(parsed?.nodes[0].preview?.assistant, 'Session persistence is working\u2014the preview is readable.')
+  assert.equal(parsed?.nodes.length, 1)
+  assert.equal('preview' in (parsed!.nodes[0] as unknown as Record<string, unknown>), false)
 })
 
 test('rejects an invalid workspace without touching disk', async () => {

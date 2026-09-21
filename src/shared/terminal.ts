@@ -20,17 +20,8 @@ export type TerminalLiveness = 'live' | 'unverifiable' | 'exited'
  * this only says what the session is doing right now. Defined here rather than in the canvas so the
  * host and the mobile client can name the same states.
  */
-export const terminalNodeStatuses = [
-  'dormant',
-  'starting',
-  'idle',
-  'working',
-  'result',
-  'attention',
-  'stalled',
-  'exited'
-] as const
-export type TerminalNodeStatus = (typeof terminalNodeStatuses)[number]
+export type TerminalNodeStatus =
+  'dormant' | 'starting' | 'idle' | 'working' | 'result' | 'attention' | 'stalled' | 'exited'
 
 export const RECENTLY_CLOSED_SESSION_LIMIT = 10
 
@@ -114,12 +105,6 @@ export interface ProjectGroup {
   collapsed: boolean
 }
 
-export interface ConversationPreview {
-  user?: string
-  assistant?: string
-  updatedAt: string
-}
-
 /**
  * Where a branched conversation came from: the canvas node it was taken at and that node's
  * provider conversation, captured at branch time. Persisted on the *child*, which is what makes it
@@ -153,7 +138,6 @@ export interface WorkspaceTerminalNode {
   width: number
   height: number
   conversationId?: string
-  preview?: ConversationPreview
   /** Whether this node hides inline activity and reasoning, leaving only the dialogue. */
   focusMode?: boolean
   /** Legacy name read during migration; new snapshots never write it. */
@@ -333,12 +317,6 @@ export interface TerminalExit {
   exitCode: number
 }
 
-export interface TerminalLivenessEvent {
-  sessionId: string
-  incarnationId: string
-  liveness: TerminalLiveness
-}
-
 /**
  * Terminals, the workspace snapshot, and the clipboard/shell affordances the canvas offers,
  * seen from the renderer. Preload implements it; main answers the channels behind it.
@@ -348,7 +326,6 @@ export interface TerminalApi {
   pickProject(): Promise<ProjectDirectory | null>
   loadWorkspace(): Promise<WorkspaceLoadResult>
   saveWorkspace(state: WorkspaceState): Promise<WorkspaceSaveResult>
-  getConversationPreview(kind: 'claude' | 'codex', conversationId: string): Promise<ConversationPreview | null>
   create(request: TerminalCreateRequest): Promise<TerminalCreateResult>
   write(sessionId: string, incarnationId: string, data: string): void
   resize(sessionId: string, incarnationId: string, cols: number, rows: number): void

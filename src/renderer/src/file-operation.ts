@@ -95,6 +95,7 @@ function readRange(input: Record<string, unknown>): FileOperation['range'] {
  * location. Returns `null` for anything whose card would be guessing - a command, a search, or a
  * file tool that named no file at all - so those keep the generic card rather than a card that
  * leads with a path it does not have.
+ * @internal exported for tests
  */
 export function parseFileOperation(activity: AgentActivity): FileOperation | null {
   const input = asRecord(activity.rawInput) ?? {}

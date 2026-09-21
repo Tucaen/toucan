@@ -22,6 +22,7 @@ export function toolCardStatusLabel(status: ToolCardStatus | undefined): string 
  * A tool card's open/closed state before any reader input: a call the agent is still working on
  * is worth watching, a failure is worth reading, and a completed call is noise once its one-line
  * summary says what it did.
+ * @internal exported for tests
  */
 export function defaultToolCardExpanded(status: ToolCardStatus | undefined): boolean {
   return status !== 'completed'

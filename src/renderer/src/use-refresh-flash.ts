@@ -17,6 +17,7 @@ export interface RefreshFlashInput {
  * "it worked and nothing moved" from "the click did nothing" - and a refresh that only fell back to
  * the reading already on screen is deliberately not confirmed, because the stale marking says the
  * opposite and two contradicting signals are worse than one.
+ * @internal exported for tests
  */
 export function confirmsRefresh(input: RefreshFlashInput): boolean {
   return input.wasRefreshing && !input.refreshing && !input.stale

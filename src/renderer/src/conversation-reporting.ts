@@ -17,6 +17,7 @@ import type { TerminalNodeStatus } from '../../shared/terminal'
 // A 'working' session with no new message/activity/plan event for this long is flagged
 // as stalled. Long enough that a slow tool call (build, long shell command) doesn't
 // false-positive, short enough to catch a genuinely wedged agent.
+/** @internal exported for tests */
 export const STALL_THRESHOLD_MS = 5 * 60 * 1000
 export const STALL_CHECK_INTERVAL_MS = 15 * 1000
 

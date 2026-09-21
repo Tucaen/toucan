@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { existsSync, statSync } from 'node:fs'
 import { normalize } from 'node:path'
 import type { TerminalCreateRequest, TerminalCreateResult, TerminalLiveness } from '../shared/terminal'
-import type { SessionLaunch, SessionProviders } from './session-providers'
+import type { ShellLaunch, TerminalShell } from './terminal-shell'
 import { sendTerminalEvent, type TerminalEventOwner } from './terminal-events'
 import { errorMessage } from '../shared/text'
 import type { TerminalScrollbackStore } from './terminal-scrollback-store'
@@ -28,8 +28,8 @@ interface RunningTerminal {
 }
 
 export interface TerminalManagerOptions {
-  providers: SessionProviders
-  spawn(launch: SessionLaunch, request: TerminalCreateRequest, cwd: string): TerminalProcess
+  shell: TerminalShell
+  spawn(launch: ShellLaunch, request: TerminalCreateRequest, cwd: string): TerminalProcess
   pathExists?(path: string): boolean
   pathIsDirectory?(path: string): boolean
   createIncarnationId?(): string
@@ -115,7 +115,7 @@ export function createTerminalManager(options: TerminalManagerOptions): Terminal
           liveness: 'live'
         }
       }
-      const launch = options.providers.resolveLaunch()
+      const launch = options.shell.resolveLaunch()
 
       let cwd: string
       try {

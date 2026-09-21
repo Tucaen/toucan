@@ -1,4 +1,7 @@
-/** Raised when a guarded promise doesn't settle before its deadline. */
+/**
+ * Raised when a guarded promise doesn't settle before its deadline.
+ * @internal exported for tests
+ */
 export class StallTimeoutError extends Error {
   constructor(message: string) {
     super(message)

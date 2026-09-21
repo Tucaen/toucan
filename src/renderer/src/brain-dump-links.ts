@@ -10,7 +10,10 @@ import { classifyMarkdownLink } from '../../shared/local-file-link'
  * is a topic, a browser URL, a local file, or something that must not navigate at all.
  */
 
-/** The private scheme carrying a `[[slug]]` reference through the Markdown pipeline. */
+/**
+ * The private scheme carrying a `[[slug]]` reference through the Markdown pipeline.
+ * @internal exported for tests
+ */
 export const BRAIN_DUMP_TOPIC_SCHEME = 'toucan-topic:'
 
 export type BrainDumpLinkKind =
@@ -96,7 +99,10 @@ export function classifyBrainDumpLink(href: string | undefined): BrainDumpLinkKi
   return classifyMarkdownLink(href)
 }
 
-/** Where a `[[slug]]` reference points, given the slugs each collection currently holds. */
+/**
+ * Where a `[[slug]]` reference points, given the slugs each collection currently holds.
+ * @internal exported for tests
+ */
 export function resolveBrainDumpReference(slug: string, index: BrainDumpTopicIndex): BrainDumpLinkResolution {
   if (index.active.has(slug)) return { status: 'found', slug, collection: 'active' }
   if (index.archived.has(slug)) return { status: 'found', slug, collection: 'archived' }

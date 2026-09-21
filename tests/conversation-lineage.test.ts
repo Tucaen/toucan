@@ -24,7 +24,6 @@ const callbacks = {
   onStatusChange: () => undefined,
   onConversationId: () => undefined,
   onTitleChange: async () => true,
-  onPreview: () => undefined,
   onFocusModeChange: () => undefined,
   onDraftChange: () => undefined,
   onPermissionModeChange: () => undefined,

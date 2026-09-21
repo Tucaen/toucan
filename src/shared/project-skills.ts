@@ -14,7 +14,10 @@ export const PROJECT_SKILLS_DIRECTORY = '.agents'
 /** The file a skill is defined by; a directory without one is not a skill. */
 export const SKILL_DEFINITION_FILE = 'SKILL.md'
 
-/** `<project>/.agents/skills/<name>/SKILL.md` as segments, relative to the checkout. */
+/**
+ * `<project>/.agents/skills/<name>/SKILL.md` as segments, relative to the checkout.
+ * @internal exported for tests
+ */
 export function projectSkillFileSegments(name: string): string[] {
   return [PROJECT_SKILLS_DIRECTORY, 'skills', name, SKILL_DEFINITION_FILE]
 }

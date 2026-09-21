@@ -4,6 +4,7 @@ import {
   type DecisionDelegationPreference
 } from '../../shared/decision-delegation'
 
+/** @internal exported for tests */
 export const DECISION_DELEGATION_OFF_OPTION = {
   id: 'off',
   name: 'Off',

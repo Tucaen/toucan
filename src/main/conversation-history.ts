@@ -44,7 +44,10 @@ const READ_CONCURRENCY = 24
 const DEFAULT_LIMIT = 25
 const CACHE_LIMIT = 1000
 
-/** Claude names a project directory after its cwd with every non-alphanumeric byte replaced. */
+/**
+ * Claude names a project directory after its cwd with every non-alphanumeric byte replaced.
+ * @internal exported for tests
+ */
 export function encodeClaudeProjectDirectory(directory: string): string {
   return directory.replace(/[^a-zA-Z0-9]/g, '-')
 }

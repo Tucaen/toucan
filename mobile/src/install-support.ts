@@ -13,6 +13,7 @@
 /**
  * Root-scoped on purpose: the client is served at the origin root and routes by pathname, so a
  * worker parked one directory down would control none of the deep links a reader reloads.
+ * @internal exported for tests
  */
 export const SERVICE_WORKER_PATH = '/sw.js'
 
@@ -37,6 +38,7 @@ export type ServiceWorkerSkipReason = 'insecure-context' | 'unsupported'
 export type ServiceWorkerVerdict =
   { kind: 'register'; path: string } | { kind: 'skip'; reason: ServiceWorkerSkipReason }
 
+/** @internal exported for tests */
 export function serviceWorkerVerdict(page: PageInstallCapabilities): ServiceWorkerVerdict {
   // Checked before the API, because an insecure context is *why* a browser withholds the API, and
   // reporting "unsupported browser" for a plain-HTTP tailnet address would misdiagnose the fix.
@@ -45,7 +47,10 @@ export function serviceWorkerVerdict(page: PageInstallCapabilities): ServiceWork
   return { kind: 'register', path: SERVICE_WORKER_PATH }
 }
 
-/** Reads the two facts off the scope. Anything missing counts as incapable. */
+/**
+ * Reads the two facts off the scope. Anything missing counts as incapable.
+ * @internal exported for tests
+ */
 export function pageInstallCapabilities(scope: InstallScope): PageInstallCapabilities {
   return {
     secureContext: scope.isSecureContext === true,
