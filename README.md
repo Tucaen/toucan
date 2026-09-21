@@ -73,7 +73,8 @@ implementation and compatibility limits.
 
 ## Set up and run
 
-Development currently targets Windows with a current Node.js LTS release, npm, and Git.
+Development currently targets Windows with Node.js 24 or newer (`.nvmrc` and `engines.node`
+agree on this), npm, and Git.
 From PowerShell in the repository checkout:
 
 ```powershell
@@ -179,19 +180,22 @@ feed.
 ## Release
 
 Builds are published as GitHub Releases on the public
-[Tucaen/toucan-releases](https://github.com/Tucaen/toucan-releases/releases/latest) repository,
-so anyone can download the installer without a GitHub account while this repository stays
-private. Cutting a release is a tag:
+[Tucaen/toucan-releases](https://github.com/Tucaen/toucan-releases/releases/latest) repository
+(the `build.publish` block in `package.json` is the single source of truth for that
+destination), so anyone can download the installer without a GitHub account. Cutting a release:
 
 ```powershell
-npm version 0.2.0
-git push --follow-tags
+npm run release -- patch|minor|major
 ```
 
-The tag runs `.github/workflows/release.yml` on a Windows runner: it verifies the change with
-`npm run check`, builds, and only then packages and uploads both artifacts plus the
-`latest.yml` and `.blockmap` files that in-place updates will read. A failing check publishes
-nothing. Release notes are public - keep internal details out of them.
+`scripts/release.mjs` bumps the version, shows the change list since the previous tag, and on
+confirmation writes it into the tag annotation and pushes - the annotation is where the
+published release notes come from, so a bare `npm version` tag would publish the
+"Automated release." fallback instead. The tag runs `.github/workflows/release.yml` on a
+Windows runner: it verifies the change with `npm run check`, builds, and only then packages and
+uploads both artifacts plus the `latest.yml` and `.blockmap` files that in-place updates will
+read. A failing check publishes nothing. Release notes are public - keep internal details out
+of them.
 
 ## Architecture and project documentation
 
@@ -209,5 +213,5 @@ Documentation has deliberately separate roles:
   dependency boundaries.
 - [AGENTS.md](AGENTS.md) records non-obvious operational invariants and sharp edges for
   agents working in the repository.
-- `docs/brain-dumps` and `docs/research` preserve ideas and investigations; they are not
-  claims about current behavior unless promoted into the README or architecture map.
+- `docs/research` preserves ideas and investigations; they are not claims about current
+  behavior unless promoted into the README or architecture map.

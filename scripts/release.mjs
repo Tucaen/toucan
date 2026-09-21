@@ -12,8 +12,12 @@ import { nextVersion, releaseNotes } from './release-notes.mjs'
 //
 //   npm run release -- patch|minor|major|<x.y.z> [--yes] [--dry-run]
 
-const RELEASES_URL = 'https://github.com/Tucaen/toucan-releases/releases/tag/'
-const ACTIONS_URL = 'https://github.com/Tucaen/ade/actions/workflows/release.yml'
+// `build.publish` is the one source of truth for where releases land (electron-builder,
+// electron-updater and the workflow all read it); `repository` names this source repo.
+const manifest = JSON.parse(readFileSync('package.json', 'utf8'))
+const publish = manifest.build.publish
+const RELEASES_URL = `https://github.com/${publish.owner}/${publish.repo}/releases/tag/`
+const ACTIONS_URL = `${manifest.repository.url.replace(/\.git$/, '')}/actions/workflows/release.yml`
 
 function git(...args) {
   return execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] }).trimEnd()
@@ -50,7 +54,7 @@ const subjects = git('log', '--no-merges', '--format=%s', previousTag ? `${previ
   .filter((line) => line.length > 0)
 if (subjects.length === 0) fail(`nothing has changed since ${previousTag}.`)
 
-const current = JSON.parse(readFileSync('package.json', 'utf8')).version
+const current = manifest.version
 const version = nextVersion(current, bump)
 const tag = `v${version}`
 if (git('tag', '-l', tag)) fail(`${tag} already exists.`)

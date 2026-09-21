@@ -7,6 +7,8 @@ import { test } from 'node:test'
 
 interface PackageManifest {
   scripts?: Record<string, string>
+  repository?: { url?: string }
+  dependencies?: Record<string, string>
   build?: {
     files?: string[]
     publish?: { provider?: string; owner?: string; repo?: string; releaseType?: string }
@@ -23,13 +25,43 @@ const stepIndex = (needle: string): number => {
   return index
 }
 
-test('publishes to a separate public repository so the source repository can stay private', () => {
+test('publishes to a separate public repository, never the source repository', () => {
   const publish = manifest.build?.publish
-  assert.ok(publish, 'build.publish is what electron-builder and electron-updater both read')
+  assert.ok(publish, 'build.publish is what electron-builder, electron-updater and the workflow all read')
   assert.equal(publish.provider, 'github')
-  assert.equal(publish.owner, 'Tucaen')
-  assert.equal(publish.repo, 'toucan-releases')
-  assert.notEqual(publish.repo, 'ade', 'releases must never land in the private source repository')
+  assert.ok(publish.owner, 'an owner must be configured')
+  assert.ok(publish.repo, 'a releases repo must be configured')
+  const source = manifest.repository?.url?.replace(/\.git$/, '')
+  assert.ok(source, 'package.json repository must name the source repository')
+  assert.notEqual(
+    `https://github.com/${publish.owner}/${publish.repo}`,
+    source,
+    'releases must never land in the source repository'
+  )
+})
+
+test('the workflow reads the releases repo from build.publish rather than hardcoding it', () => {
+  assert.match(workflow, /ConvertFrom-Json\)\.build\.publish/)
+  assert.doesNotMatch(
+    workflow,
+    /--repo [A-Za-z]/,
+    'a literal --repo owner/name in the workflow would drift from build.publish'
+  )
+})
+
+test('adapter and SDK dependencies are pinned exact', () => {
+  // What an ACP adapter does to a live resume is not something the suite can reach (AGENTS.md);
+  // upgrades are deliberate and verified by hand, so a range must never float one in.
+  for (const name of [
+    '@agentclientprotocol/claude-agent-acp',
+    '@agentclientprotocol/codex-acp',
+    '@agentclientprotocol/sdk',
+    '@anthropic-ai/claude-agent-sdk'
+  ]) {
+    const version = manifest.dependencies?.[name]
+    assert.ok(version, `${name} must be a dependency`)
+    assert.match(version, /^\d+\.\d+\.\d+$/, `${name} must be pinned exact, found "${version}"`)
+  }
 })
 
 test('publishes a real release rather than the provider default draft', () => {

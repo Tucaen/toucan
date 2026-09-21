@@ -232,8 +232,8 @@ runs `tests/**/*.dom.test.tsx` under Vitest/jsdom. Representative interfaces:
 - [`AGENTS.md`](../AGENTS.md) is durable project memory for non-obvious invariants and
   sharp edges that agents must preserve. It should point to authoritative code/tests and
   must not grow into a second architecture map.
-- `docs/brain-dumps` and `docs/research` preserve ideas and investigations; they are not
-  statements of current architecture unless promoted here or into code.
+- `docs/research` preserves ideas and investigations; they are not statements of current
+  architecture unless promoted here or into code.
 
 When a change alters user-visible capabilities, setup or verification commands, process
 boundaries, or module ownership, update the corresponding orientation document in the

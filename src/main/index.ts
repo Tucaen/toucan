@@ -419,6 +419,7 @@ void app.whenReady().then(async () => {
   const decisionProviderInstalled = (): boolean => isDecisionProviderInstalled(app.getPath('home'))
   const agentManager = createAcpSessionManager({
     appPath: app.getAppPath(),
+    appVersion: app.getVersion(),
     resolveAdapter: adapters.resolve,
     codexHome,
     environment: agentEnvironment,
@@ -532,7 +533,8 @@ void app.whenReady().then(async () => {
         homeDirectory: app.getPath('home'),
         environment: process.env,
         command: findCommand('codex'),
-        appPath: app.getAppPath()
+        appPath: app.getAppPath(),
+        appVersion: app.getVersion()
       })
     },
     ttlMs: PROVIDER_USAGE_TTL_MS

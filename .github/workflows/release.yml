@@ -44,12 +44,16 @@ jobs:
           $notes = (git tag -l --format='%(contents:body)' "${env:TAG}" | Out-String).Trim()
           if (-not $notes) { $notes = "Automated release." }
           Set-Content -Path release-notes.md -Value $notes -Encoding utf8
-          gh release view "${env:TAG}" --repo Tucaen/toucan-releases *> $null
+          # package.json build.publish is the one source of truth for the releases repo;
+          # electron-builder and electron-updater read the same block.
+          $publish = (Get-Content package.json -Raw | ConvertFrom-Json).build.publish
+          $releasesRepo = "$($publish.owner)/$($publish.repo)"
+          gh release view "${env:TAG}" --repo $releasesRepo *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create "${env:TAG}" --repo Tucaen/toucan-releases --title "Toucan ${env:TAG}" --notes-file release-notes.md
+            gh release create "${env:TAG}" --repo $releasesRepo --title "Toucan ${env:TAG}" --notes-file release-notes.md
           } else {
             # A re-run meets the release its first attempt claimed; the notes are still ours to write.
-            gh release edit "${env:TAG}" --repo Tucaen/toucan-releases --notes-file release-notes.md
+            gh release edit "${env:TAG}" --repo $releasesRepo --notes-file release-notes.md
           }
         env:
           GH_TOKEN: ${{ secrets.RELEASES_REPO_TOKEN }}

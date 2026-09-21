@@ -608,6 +608,8 @@ function simplifyModes(
 
 export interface AcpSessionManagerOptions {
   appPath: string
+  /** Toucan's own version, reported to adapters as `clientInfo.version`; absent reads as dev. */
+  appVersion?: string
   /** Chosen once per process; running sessions and their auth launches keep that installation. */
   resolveAdapter?: (provider: AgentCreateRequest['provider']) => string
   codexHome?: string
@@ -1268,7 +1270,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       const pendingApprovals = new Map<string, PendingApproval>()
       const pendingElicitations = new Map<string, PendingElicitation>()
       let running: RunningAgent
-      const app = client({ name: 'Toucan ACP prototype' })
+      const app = client({ name: 'Toucan' })
         .onNotification(methods.client.session.update, ({ params }) => {
           const update = params.update
           if (
@@ -1475,7 +1477,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
             // has nothing to show but prose. See `terminalChunkOf` in `shared/agent-activity.ts`.
             _meta: { terminal_output: true }
           },
-          clientInfo: { name: 'toucan', title: 'Toucan', version: '0.1.0' }
+          clientInfo: { name: 'toucan', title: 'Toucan', version: options.appVersion ?? '0.0.0-dev' }
         })
         running.authMethods = (initialized.authMethods ?? []).map(simplifyAuthMethod)
         running.imageSupport = initialized.agentCapabilities?.promptCapabilities?.image ?? false

@@ -54,7 +54,7 @@ command.
   command, hit the same block, and reported the task as "edits correct, not verified by
   execution" - the designed review layer doing its job, and a demonstrated worker
   prompt-adherence gap (a blocked verification should have been reported as blocked, not
-  inspected around). An earlier run against an 8.3 short path (`USER~1`) was write-blocked by
+  inspected around). An earlier run against an 8.3 short path (`USERNA~1`-style) was write-blocked by
   the CLI's suspicious-path guard; there the worker stopped and reported concise evidence instead
   of improvising, and no file changed - live evidence for the failed-verification/stop rule.
 - **Codex** (codex-acp 1.10.0 bin, CLI 0.153.4, parent gpt-6-astra, `--sandbox workspace-write`):

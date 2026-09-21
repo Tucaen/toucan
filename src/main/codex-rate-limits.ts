@@ -266,6 +266,8 @@ export interface CodexRateLimitReaderOptions {
   command?: string | null
   /** Application root, so the bundled Codex can answer when none is installed globally. */
   appPath?: string
+  /** Toucan's own version, reported as `clientInfo.version`; absent reads as dev. */
+  appVersion?: string
 }
 
 export interface CodexRateLimitReader {
@@ -347,7 +349,8 @@ export function resolveBundledCodexAppServerLaunch(
 
 async function requestRateLimitsViaAppServer(
   launch: CodexAppServerLaunch,
-  environment: NodeJS.ProcessEnv
+  environment: NodeJS.ProcessEnv,
+  appVersion: string
 ): Promise<unknown> {
   const child = spawn(
     launch.executable,
@@ -382,7 +385,7 @@ async function requestRateLimitsViaAppServer(
       `${JSON.stringify({
         id: 1,
         method: 'initialize',
-        params: { clientInfo: { name: 'toucan', version: '0.1.0' } }
+        params: { clientInfo: { name: 'toucan', version: appVersion } }
       })}\n`
     )
   })
@@ -420,7 +423,9 @@ export function createCodexRateLimitReader(options: CodexRateLimitReaderOptions)
       }
       for (const launch of launches) {
         try {
-          const live = codexRateLimitsFromAppServer(await requestRateLimitsViaAppServer(launch, options.environment))
+          const live = codexRateLimitsFromAppServer(
+            await requestRateLimitsViaAppServer(launch, options.environment, options.appVersion ?? '0.0.0-dev')
+          )
           if (live) return live
         } catch {
           // Older, missing, unauthenticated, or stalled CLIs fall through to the next candidate.

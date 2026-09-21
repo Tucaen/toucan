@@ -12,8 +12,8 @@ const REAL_STOP_HOOK_FEEDBACK =
   '<system-reminder>\n' +
   'Stop hook blocking error from command "Stop": firstmate watcher wake - one supervision event ' +
   'needs a handling turn now.\n' +
-  'signal: /home/tucaen/.local/share/ade/firstmate/home/state/ade-firstmate-panel-dropdown-overflow.status ' +
-  '/home/tucaen/.local/share/ade/firstmate/home/state/ade-firstmate-panel-dropdown-overflow.turn-ended\n' +
+  'signal: /home/user/.local/share/ade/firstmate/home/state/ade-firstmate-panel-dropdown-overflow.status ' +
+  '/home/user/.local/share/ade/firstmate/home/state/ade-firstmate-panel-dropdown-overflow.turn-ended\n' +
   'Run bin/fm-wake-drain.sh first, handle the wake, then run its exact WAKE_ACK_REQUIRED --ack-through ' +
   'command. Until that post-handling acknowledgement, interruption leaves the wake durable for idempotent ' +
   're-handling. This Stop hook owns watcher continuity: when the handling turn ends, the next needed cycle ' +

@@ -8,8 +8,7 @@ dist-out/
 src/renderer/public/models/
 *.tsbuildinfo
 .stow-notes.md
-docs/research/orca-comparison.md
-docs/toucan-overview.html
-docs/research/vicoa-comparison.md
+.claude/settings.local.json
+.claude/worktrees/
 .agents/skills/typesafe-ai/
 skills-lock.json
