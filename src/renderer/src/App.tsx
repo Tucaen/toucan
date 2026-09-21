@@ -1721,8 +1721,9 @@ function Canvas(): JSX.Element {
   /*
    * Main resolves a project's tickets folder from the *persisted* snapshot, so a board re-listed
    * the moment the setting changed would read the old folder and never hear about the new one.
-   * The revision therefore advances when the save lands, not when the user hits Save - and only
-   * for a folder change on the project already showing, so switching projects still costs the one
+   * Remembering the previous save status makes the revision advance only on the saving -> saved
+   * transition after that change, not in the render where the user hits Save. It advances only for
+   * a folder change on the project already showing, so switching projects still costs the one
    * listing the board does anyway.
    */
   const [ticketsFolderRevision, setTicketsFolderRevision] = useState(0)
@@ -1730,15 +1731,18 @@ function Canvas(): JSX.Element {
     ? `${activeProject.id}:${ticketsDirectoryOrDefault(activeProject.ticketsDirectory)}`
     : ''
   const savedTicketsFolder = useRef(activeTicketsFolder)
+  const previousSaveStatus = useRef(saveStatus)
   useEffect(() => {
     const persisted = savedTicketsFolder.current
+    const priorSaveStatus = previousSaveStatus.current
+    previousSaveStatus.current = saveStatus
     // Another project entirely: the board re-lists on the switch itself, so there is nothing to
     // advance - only the record of what that project's folder was when it was last written.
     if (persisted.split(':')[0] !== activeTicketsFolder.split(':')[0]) {
       savedTicketsFolder.current = activeTicketsFolder
       return
     }
-    if (saveStatus !== 'saved' || persisted === activeTicketsFolder) return
+    if (priorSaveStatus !== 'saving' || saveStatus !== 'saved' || persisted === activeTicketsFolder) return
     savedTicketsFolder.current = activeTicketsFolder
     setTicketsFolderRevision((current) => current + 1)
   }, [activeTicketsFolder, saveStatus])

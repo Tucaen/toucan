@@ -780,7 +780,16 @@ describe('where a project keeps its tickets', () => {
 
   test('the board re-reads only once the new folder is on disk, because main reads the snapshot', async () => {
     await openBoard()
+    await waitFor(() => expect(saved.length).toBeGreaterThan(0))
     const before = tickets.listCalls.length
+    let finishSave: ((result: { ok: true }) => void) | undefined
+    vi.mocked(window.terminalApi.saveWorkspace).mockImplementationOnce(
+      (snapshot: WorkspaceState) =>
+        new Promise((resolve) => {
+          saved.push(snapshot)
+          finishSave = resolve
+        })
+    )
     await openSettings()
 
     fireEvent.change(screen.getByLabelText('Tickets folder'), { target: { value: 'notes/tickets' } })
@@ -788,6 +797,10 @@ describe('where a project keeps its tickets', () => {
 
     // Nothing is re-read on the click itself: main would still resolve the old folder.
     expect(tickets.listCalls.length).toBe(before)
+    await waitFor(() => expect(finishSave).toBeTypeOf('function'))
+    expect(tickets.listCalls.length).toBe(before)
+
+    await act(async () => finishSave?.({ ok: true }))
     await waitFor(() => expect(tickets.listCalls.length).toBe(before + 1))
   })
 
