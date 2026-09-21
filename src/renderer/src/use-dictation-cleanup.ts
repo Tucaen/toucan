@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { DICTATION_CLEANUP_TIMEOUT_MS, type DictationCleanupResult } from '../../shared/dictation-cleanup'
+import {
+  claudeModelLabel,
+  DICTATION_CLEANUP_TIMEOUT_MS,
+  type DictationCleanupResult
+} from '../../shared/dictation-cleanup'
 import { withStallGuard } from '../../shared/stall-guard'
 import { errorMessage } from '../../shared/text'
 import { useDictationCleanupPreference } from './dictation-cleanup-context'
@@ -64,11 +68,14 @@ export function useDictationCleanup(): {
     }
     pending.current = null
     if (!mounted.current) return null
+    // A failure has no model to name: appending one read as though the model were the reason.
     const model = requestedModelId === 'haiku' ? 'Haiku' : 'Sonnet'
     setReport(
       result.status === 'cleaned'
-        ? `Polished with Claude (${model} requested, model unverified).`
-        : `Original dictation inserted. ${result.message ?? 'Cleanup did not run.'} Claude ${model} requested, model unverified.`
+        ? result.servedModel
+          ? `Polished with Claude ${claudeModelLabel(result.servedModel)}.`
+          : `Polished with Claude (${model} requested).`
+        : `Original dictation inserted. ${result.message ?? 'Cleanup did not run.'}`
     )
     return result.status === 'cleaned' ? result : { ...result, text }
   }

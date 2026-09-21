@@ -4,9 +4,21 @@ import { DICTATION_CLEANUP_TIMEOUT_MS, isDictationCleanupPreference } from '../s
 import { withStallGuard } from '../shared/stall-guard'
 import { runClaudeCleanup } from './claude-dictation-cleanup'
 
+/**
+ * `modelUsage` is keyed by the model ids the turn was billed to, so it names what actually ran
+ * rather than what `--model` asked for. A response without it leaves the model unreported.
+ */
+function servedModel(modelUsage: unknown): string | undefined {
+  if (!modelUsage || typeof modelUsage !== 'object') return undefined
+  const [id, usage] = Object.entries(modelUsage as Record<string, unknown>)[0] ?? []
+  if (typeof id !== 'string' || !id) return undefined
+  const canonical = (usage as { canonicalModel?: unknown } | undefined)?.canonicalModel
+  return typeof canonical === 'string' && canonical ? canonical : id
+}
+
 /** The CLI envelope must represent a successful, nonempty, transcript-only response. */
-function correctedTranscript(stdout: string, raw: string): string {
-  let output: { type?: unknown; subtype?: unknown; is_error?: unknown; result?: unknown }
+function correctedTranscript(stdout: string, raw: string): { text: string; servedModel?: string } {
+  let output: { type?: unknown; subtype?: unknown; is_error?: unknown; result?: unknown; modelUsage?: unknown }
   try {
     output = JSON.parse(stdout) as typeof output
   } catch {
@@ -29,7 +41,7 @@ function correctedTranscript(stdout: string, raw: string): string {
   ) {
     throw new Error('Claude returned an empty or unexpected transcript.')
   }
-  return text
+  return { text, servedModel: servedModel(output.modelUsage) }
 }
 
 interface CleanupOptions {
@@ -73,7 +85,7 @@ export function createDictationCleaner(options: CleanupOptions = {}): {
           options.timeoutMs ?? DICTATION_CLEANUP_TIMEOUT_MS,
           'Cleanup timed out.'
         )
-        return { status: 'cleaned', text: correctedTranscript(output, text), requestedModelId }
+        return { status: 'cleaned', ...correctedTranscript(output, text), requestedModelId }
       } catch (cause) {
         return { status: 'fallback', text, requestedModelId, message: errorMessage(cause) }
       } finally {

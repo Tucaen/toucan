@@ -30,7 +30,12 @@ beforeEach(() => {
     transcribe: async () => ({ ok: true, text: 'um our our options' })
   }
   window.dictationCleanupApi = {
-    clean: vi.fn(async () => ({ status: 'cleaned', text: 'Our options.', requestedModelId: 'haiku' })),
+    clean: vi.fn(async () => ({
+      status: 'cleaned',
+      text: 'Our options.',
+      requestedModelId: 'haiku',
+      servedModel: 'claude-haiku-4-5'
+    })),
     cancel: vi.fn(async () => {})
   }
 })
@@ -77,7 +82,7 @@ test('polishing can be cancelled to raw text and ignores a late cleaned result',
   expect(screen.getByRole('status')).toHaveTextContent(/cancelled/i)
 })
 
-test('successful cleanup inserts only the corrected transcript and reports the requested model', async () => {
+test('successful cleanup inserts only the corrected transcript and names the model that served it', async () => {
   render(<Composer />)
   await dictate()
   await waitFor(() => expect(screen.getByRole('textbox')).toHaveValue('Our options.'))
@@ -88,7 +93,19 @@ test('successful cleanup inserts only the corrected transcript and reports the r
       preference: { enabled: true }
     })
   )
-  expect(screen.getByRole('status')).toHaveTextContent('Haiku requested, model unverified')
+  expect(screen.getByRole('status')).toHaveTextContent('Polished with Claude Haiku 4.5.')
+})
+
+test('a response that never named its model says the model was requested, not that it ran', async () => {
+  vi.mocked(window.dictationCleanupApi.clean).mockResolvedValue({
+    status: 'cleaned',
+    text: 'Our options.',
+    requestedModelId: 'haiku'
+  })
+  render(<Composer />)
+  await dictate()
+  await waitFor(() => expect(screen.getByRole('textbox')).toHaveValue('Our options.'))
+  expect(screen.getByRole('status')).toHaveTextContent('Polished with Claude (Haiku requested).')
 })
 
 test('a failed cleanup or lost IPC reply inserts raw dictation and makes the reason visible', async () => {
@@ -96,7 +113,9 @@ test('a failed cleanup or lost IPC reply inserts raw dictation and makes the rea
   render(<Composer />)
   await dictate()
   await waitFor(() => expect(screen.getByRole('textbox')).toHaveValue('um our our options'))
+  // A failure names no model: the old wording appended one and read as though it were the cause.
   expect(screen.getByRole('status')).toHaveTextContent('Original dictation inserted. Connection lost')
+  expect(screen.getByRole('status').textContent).not.toMatch(/requested|unverified/i)
 })
 
 test('closing the composer during cleanup cancels its process', async () => {

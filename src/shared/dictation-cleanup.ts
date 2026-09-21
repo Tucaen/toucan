@@ -30,9 +30,23 @@ export function isDictationCleanupPreference(value: unknown): value is Dictation
 export interface DictationCleanupResult {
   status: 'off' | 'cleaned' | 'fallback'
   text: string
-  /** A CLI model selection is a request, not proof of which model served it. */
+  /** A CLI model selection is a request; `servedModel` is what the response says actually ran. */
   requestedModelId?: 'haiku' | 'sonnet'
+  /** The model id the CLI billed the turn to, absent if the response did not report one. */
+  servedModel?: string
   message?: string
+}
+
+/**
+ * A served model id reads as a version, not a build stamp: `claude-haiku-4-5-20251001` is "Haiku
+ * 4.5". An id that does not parse is shown verbatim rather than guessed at - the point of naming the
+ * model is that it is the one that ran.
+ */
+export function claudeModelLabel(id: string): string {
+  const parsed = /^claude-([a-z]+)-(\d+)(?:-(\d+))?(?:-|$)/.exec(id)
+  if (!parsed) return id
+  const family = parsed[1][0].toUpperCase() + parsed[1].slice(1)
+  return parsed[3] ? `${family} ${parsed[2]}.${parsed[3]}` : `${family} ${parsed[2]}`
 }
 
 export interface DictationCleanupRequest {

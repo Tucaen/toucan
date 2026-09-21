@@ -46,8 +46,10 @@ applies to desktop brain-dump dictation. Phone dictation is unchanged.
 
 After transcription, **Polishing…** has a **Use original dictation** button that immediately
 inserts the raw text. Cleanup has a 10-second deadline. A failure or timeout inserts the original
-dictation and shows the reason, while success reports the requested model as unverified. No
-dictation is sent as a message automatically.
+dictation and shows only the reason, while success names the model that actually served the turn -
+the CLI's `modelUsage` reports it, so **Polished with Claude Haiku 4.5** is a fact rather than the
+request being echoed back. An older CLI that reports no model falls back to naming the request
+("Haiku requested"). No dictation is sent as a message automatically.
 
 **Decision: cleanup runs with thinking off (`MAX_THINKING_TOKENS=0`).** Polishing is only worth
 waiting for if it beats typing the sentence by hand, and by default the model spent ~500 thinking

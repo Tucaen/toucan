@@ -1,6 +1,7 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
 import { createDictationCleaner } from '../src/main/dictation-cleanup'
+import { claudeModelLabel } from '../src/shared/dictation-cleanup'
 
 test('timeout and cancellation release a stalled cleanup and preserve the raw text', async () => {
   let launchedSignal: AbortSignal | undefined
@@ -76,7 +77,36 @@ test('opt-in requests the chosen model with context and accepts a successful tra
     {
       status: 'cleaned',
       text: 'Our options.',
-      requestedModelId: 'sonnet'
+      requestedModelId: 'sonnet',
+      servedModel: undefined
     }
   )
+})
+
+test('a cleaned result reports the model the response was billed to, not the one requested', async () => {
+  const envelope = (modelUsage: unknown): string =>
+    JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: 'Our options.', modelUsage })
+  const clean = async (modelUsage: unknown): Promise<string | undefined> =>
+    (
+      await createDictationCleaner({ run: async () => envelope(modelUsage) }).clean('um our our options', '', {
+        enabled: true
+      })
+    ).servedModel
+
+  // The canonical name is preferred over the dated build the turn was billed under.
+  assert.equal(
+    await clean({ 'claude-haiku-4-5-20251001': { canonicalModel: 'claude-haiku-4-5', outputTokens: 35 } }),
+    'claude-haiku-4-5'
+  )
+  assert.equal(await clean({ 'claude-sonnet-4-5-20250929': { outputTokens: 35 } }), 'claude-sonnet-4-5-20250929')
+  // Nothing to report is reported as nothing; the UI says "requested" rather than inventing a model.
+  for (const absent of [undefined, null, {}, 'claude-haiku-4-5']) assert.equal(await clean(absent), undefined)
+})
+
+test('a served model id is labelled as a version and an unparseable one is shown verbatim', () => {
+  assert.equal(claudeModelLabel('claude-haiku-4-5-20251001'), 'Haiku 4.5')
+  assert.equal(claudeModelLabel('claude-sonnet-4-5'), 'Sonnet 4.5')
+  assert.equal(claudeModelLabel('claude-opus-5'), 'Opus 5')
+  assert.equal(claudeModelLabel('claude-3-5-sonnet-20241022'), 'claude-3-5-sonnet-20241022')
+  assert.equal(claudeModelLabel(''), '')
 })
