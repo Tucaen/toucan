@@ -5,6 +5,13 @@ on:
     tags:
       - 'v*'
 
+# Two tags pushed close together must publish one after the other: the "Claim the release" step
+# guards the create/edit race within one run, but not across two concurrent runs against the
+# releases repo. Never cancel - a cancelled half-published release is the v0.3.1 incident again.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: windows-latest
