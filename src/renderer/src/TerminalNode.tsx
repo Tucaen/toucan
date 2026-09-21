@@ -207,7 +207,10 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
     const resizeObserver = new ResizeObserver(fit)
     resizeObserver.observe(hostRef.current)
 
-    requestAnimationFrame(() => {
+    // The frame can still fire after a teardown, and a spawn from a dead attachment would only have
+    // to be killed again on arrival - so the handle is cancelled and the callback checks it is current.
+    const startFrame = requestAnimationFrame(() => {
+      if (!active) return
       fit()
       void window.terminalApi
         .create({
@@ -246,6 +249,7 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
 
     return () => {
       active = false
+      cancelAnimationFrame(startFrame)
       resizeObserver.disconnect()
       removePointerCorrection()
       removeDataListener()
