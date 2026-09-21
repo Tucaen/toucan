@@ -11,3 +11,5 @@ src/renderer/public/models/
 docs/research/orca-comparison.md
 docs/toucan-overview.html
 docs/research/vicoa-comparison.md
+.agents/skills/typesafe-ai/
+skills-lock.json
