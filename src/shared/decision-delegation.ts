@@ -105,6 +105,15 @@ export function appliedDecisionDelegation(
  * delegation explicitly - the two policies are independent and a session may carry both - and
  * carries the restraint clause, because the trial publishes no pricing and every call is therefore
  * assumed billable.
+ *
+ * Two clauses exist because of an observed miss, not on principle. A session carrying the original
+ * wording was asked to rank open issues by user-visible impact - a textbook batch of judgments -
+ * and ranked them itself without reaching for the provider; the same prompt with an explicit nudge
+ * produced a well-designed provider call. The skill is the suspected cause: it is written for a
+ * reader *building* TypeSafe into an application, so a model answering a question does not
+ * recognize itself as the audience. Hence the audience clause (you are the caller) and the trigger
+ * clause (what a qualifying subtask looks like), which aim at propensity rather than capability.
+ * Wording only - nothing here enforces anything, and the policy stays requested, not confirmed.
  */
 export function decisionDelegationInstruction(): string {
   return [
@@ -112,8 +121,12 @@ export function decisionDelegationInstruction(): string {
     '',
     `Use the \`${DECISION_PROVIDER_SKILL_NAME}\` skill as a decision provider for decision-shaped subtasks: choosing between options, scoring candidates, routing an intent, and classifying against fixed labels. Read the skill before your first call and follow it; the verdict it returns is typed, so use it as data rather than re-deriving it in prose.`,
     '',
+    'The skill is written for a developer building TypeSafe into an application. Here you are the application: the judgments are for answers you are about to give the user. Reading the skill is not the delegation - the delegation is the request you send and the typed answer that comes back. If a decision-shaped subtask is finished and no provider answer is in your context, you decided it yourself.',
+    '',
+    'What qualifies: one judgment repeated over many items, or one judgment over a long piece of context. Ranking or triaging a list, sorting items into fixed buckets, scoring candidates on a described dimension, checking a set of claims against its evidence. Ranking N items by a described dimension is the clearest case - have the provider score each item on the dimensions that matter, then let code sort them. Ranking them yourself and crediting the provider for it is the failure this instruction exists to prevent.',
+    '',
     'Precedence over routine delegation: for a decision-shaped subtask prefer the decision provider over spawning a routine worker. Workers are for work that produces or edits files; the decision provider is for verdicts. Which a subtask is stays your own judgement - there is no separate classifier call and nothing stops you deciding it yourself.',
     '',
-    'Restraint: reach for it on genuine batches of decisions, not on a single trivial choice you can make from what is already in front of you. Assume every call is billable, so the answer has to be worth more than the call.'
+    'Restraint: reach for it on genuine batches of decisions, not on a single trivial choice you can make from what is already in front of you. Assume every call is billable, so the answer has to be worth more than the call. Several items or several judgments clears that bar; one does not. When you do use it, keep the raw judgments reusable and say which weights or thresholds are yours rather than ones the provider returned.'
   ].join('\n')
 }
