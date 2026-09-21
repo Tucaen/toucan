@@ -43,11 +43,12 @@ const baseChatViewProps: ChatViewProps = {
 
 test('dictation cleanup offers an explicit subscription opt-in and fixed Claude model choices', () => {
   const setPreference = vi.fn()
-  render(
+  const { container } = render(
     <DictationCleanupContext.Provider value={{ preference: { enabled: false }, setPreference }}>
       <ChatView {...baseChatViewProps} focusMode={false} setFocusMode={vi.fn()} />
     </DictationCleanupContext.Provider>
   )
+  fireEvent.click(container.querySelector('.composer-settings-button') as HTMLElement)
   fireEvent.click(screen.getByRole('button', { name: /Dictation cleanup/ }))
   expect(screen.getAllByText(/uses your Claude subscription/)).toHaveLength(2)
   fireEvent.click(screen.getByRole('option', { name: /Haiku/ }))
@@ -107,10 +108,11 @@ describe('the send-key preference', () => {
     expect(sent).toEqual(['first prompt'])
   })
 
-  test('the toolbar offers the preference and writes the chosen one back', () => {
+  test("the gear's panel offers the preference and writes the chosen one back", () => {
     const setSendKey = vi.fn()
-    renderChatView({}, 'enter', setSendKey)
+    const container = renderChatView({}, 'enter', setSendKey)
 
+    fireEvent.click(container.querySelector('.composer-settings-button') as HTMLElement)
     fireEvent.click(screen.getByRole('button', { name: /Enter sends/ }))
     fireEvent.click(screen.getByRole('option', { name: /Ctrl\+Enter sends/ }))
 
@@ -260,22 +262,21 @@ test('a resumed conversation can arrow back through the prompts already in its t
 })
 
 describe('the composer toolbar', () => {
-  test('gathers provider, model, effort, permissions, delegation and the send key into one row', () => {
-    const container = renderChatView({
-      models: { currentModelId: 'opus', availableModels: [{ id: 'opus', name: 'Opus' }] },
-      efforts: { currentEffortId: 'high', availableEfforts: [{ id: 'high', name: 'High' }] },
-      modes: { currentModeId: 'ask', availableModes: [{ id: 'ask', name: 'Ask first' }] },
-      selectModel: vi.fn(),
-      selectEffort: vi.fn(),
-      selectMode: vi.fn()
-    })
+  const selectors: Partial<ChatViewProps> = {
+    models: { currentModelId: 'opus', availableModels: [{ id: 'opus', name: 'Opus' }] },
+    efforts: { currentEffortId: 'high', availableEfforts: [{ id: 'high', name: 'High' }] },
+    modes: { currentModeId: 'ask', availableModes: [{ id: 'ask', name: 'Ask first' }] },
+    selectModel: vi.fn(),
+    selectEffort: vi.fn(),
+    selectMode: vi.fn()
+  }
+
+  test('keeps model, effort and permissions in the row, and nothing else', () => {
+    const container = renderChatView(selectors)
 
     const toolbar = container.querySelector('.composer-toolbar') as HTMLElement
     expect(toolbar).not.toBeNull()
-    expect(toolbar).toHaveTextContent('Claude')
-    // Model, effort, permissions, routine-work delegation (issue #179: Claude nodes too),
-    // decision delegation (issue #213), dictation cleanup (issue #215), send key.
-    expect(toolbar.querySelectorAll('.node-picker')).toHaveLength(7)
+    expect(toolbar.querySelectorAll('.node-picker')).toHaveLength(3)
     // Still inside the composer, not stranded in the node header.
     expect(toolbar.closest('.chat-composer')).not.toBeNull()
   })
@@ -283,8 +284,24 @@ describe('the composer toolbar', () => {
   test('a selector the adapter has not reported simply does not take up a slot', () => {
     const container = renderChatView({})
     const toolbar = container.querySelector('.composer-toolbar') as HTMLElement
-    // Workspace-wide routine delegation, decisions, dictation cleanup and send key remain.
-    expect(toolbar.querySelectorAll('.node-picker')).toHaveLength(4)
+    // The three are session-bound, so an adapter reporting none leaves the row with only the gear.
+    expect(toolbar.querySelectorAll('.node-picker')).toHaveLength(0)
+    expect(toolbar.querySelector('.composer-settings-button')).not.toBeNull()
+  })
+
+  test('the settings that are set once live behind the gear, not in the row', () => {
+    const container = renderChatView(selectors)
+    expect(container.querySelector('.composer-toolbar')).not.toHaveTextContent('Cleanup')
+
+    fireEvent.click(container.querySelector('.composer-settings-button') as HTMLElement)
+    const panel = screen.getByRole('group', { name: 'More settings' })
+    // Routine-work delegation (issue #179), decisions (#213), dictation cleanup (#215), send key.
+    expect(panel.querySelectorAll('.node-picker')).toHaveLength(4)
+  })
+
+  test('the provider is identity, so it reads in the node header rather than the picker row', () => {
+    const container = renderChatView(selectors)
+    expect(container.querySelector('.composer-toolbar')).not.toHaveTextContent('Claude')
   })
 })
 

@@ -11,26 +11,17 @@ import {
   type ReactNode,
   type RefObject
 } from 'react'
-import { createPortal } from 'react-dom'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import {
-  AtSign,
   BrainCircuit,
-  Check,
-  ChevronDown,
   CircleAlert,
-  Cpu,
   GitBranch,
-  Keyboard,
   ListChecks,
   ListPlus,
   LockKeyhole,
   Pencil,
-  Scale,
   SendHorizontal,
-  ShieldCheck,
   Square,
-  UsersRound,
   X
 } from 'lucide-react'
 import MarkdownMessage from './MarkdownMessage'
@@ -80,7 +71,8 @@ import NodeFitAction from './NodeFitAction'
 import { imageAttachmentSource, imageFilesFromClipboard, type AgentImageAttachment } from './image-attachment'
 import { classifyAssistantMessage, decisionQuestions, type DecisionOption } from './decision-message'
 import { pendingDecisionsFromMessages, type PendingDecision } from './pending-decisions'
-import { usePortalMenuPosition } from './use-portal-menu-position'
+import { SelectorPicker, pickerCopy } from './SelectorPicker'
+import ComposerSettingsMenu from './ComposerSettingsMenu'
 import NodeBorderResizer from './NodeBorderResizer'
 import UnreadToggle from './UnreadToggle'
 import SessionUsageBar from './SessionUsageBar'
@@ -90,21 +82,13 @@ import { describeGitBranch } from '../../shared/git-branch'
 import { ProviderRateLimitsContext } from './provider-rate-limits'
 import { describeSessionUsage } from '../../shared/session-usage'
 import VoiceInput from './VoiceInput'
-import { useDictationCleanupPreference } from './dictation-cleanup-context'
-import { DICTATION_CLEANUP_MODELS } from '../../shared/dictation-cleanup'
 import { dictationContext } from './voice-transcript'
 import { recentMentionPaths } from './file-mention-completion'
-import { composerSendKeyLabels, type ComposerSendKey } from './composer-keys'
+import { composerSendKeyLabels } from './composer-keys'
 import { useComposerSendKey } from './composer-send-key-context'
 import { useRoutineDelegation } from './routine-delegation-context'
-import { DELEGATION_OFF_OPTION, describeRoutineDelegation } from './routine-delegation-display'
-import {
-  routineDelegationRequest,
-  withWorkerSelection,
-  type AgentRoutineDelegation
-} from '../../shared/routine-delegation'
+import { routineDelegationRequest, type AgentRoutineDelegation } from '../../shared/routine-delegation'
 import { useDecisionDelegation } from './decision-delegation-context'
-import { DECISION_DELEGATION_ON_OPTION, describeDecisionDelegation } from './decision-delegation-display'
 import { decisionDelegationRequest, type AgentDecisionDelegation } from '../../shared/decision-delegation'
 import { usePromptEditor, type ComposerFileMentions } from './use-prompt-editor'
 import PromptTextarea from './PromptTextarea'
@@ -272,6 +256,8 @@ export interface ChatViewProps {
 
 const providerNames = { claude: 'Claude', codex: 'Codex' } as const
 
+const ProviderChipIcon = pickerCopy.provider.icon
+
 /** Mirrors `dispatchText`'s guard in use-agent-conversation.ts so a click can't silently no-op. */
 function isSendDisabled(status: FlatChatViewProps['status']): boolean {
   return status === 'starting' || status === 'auth_required' || status === 'exited'
@@ -286,163 +272,6 @@ function isSendDisabled(status: FlatChatViewProps['status']): boolean {
  */
 function isTypingDisabled(status: FlatChatViewProps['status']): boolean {
   return status === 'auth_required' || status === 'exited'
-}
-
-interface PickerOption {
-  id: string
-  name: string
-  description?: string
-  /**
-   * A single option that cannot be chosen while the rest of the menu stays usable - the picker's
-   * own trigger stays open, because opening is what re-checks whatever closed this option.
-   */
-  disabled?: boolean
-}
-
-const pickerCopy = {
-  provider: { icon: AtSign, heading: 'Provider', idle: 'Provider', hint: 'Choose the agent provider' },
-  permission: {
-    icon: ShieldCheck,
-    heading: 'Permission mode',
-    idle: 'Permissions',
-    hint: 'Set the permission mode for this agent'
-  },
-  model: { icon: Cpu, heading: 'Model', idle: 'Model', hint: 'Choose the model for this conversation' },
-  effort: {
-    icon: BrainCircuit,
-    heading: 'Thinking effort',
-    idle: 'Effort',
-    hint: 'Set the thinking effort for this conversation'
-  },
-  sendKey: { icon: Keyboard, heading: 'Send with', idle: 'Send key', hint: 'Choose which key sends a message' },
-  delegation: {
-    icon: UsersRound,
-    heading: 'Routine work',
-    idle: 'Delegation',
-    hint: 'Delegate routine work to an economical worker model'
-  },
-  decisions: {
-    icon: Scale,
-    heading: 'Decisions',
-    idle: 'Decisions',
-    hint: 'Let decision-shaped subtasks go to an installed decision-provider skill'
-  },
-  cleanup: {
-    icon: Pencil,
-    heading: 'Dictation cleanup',
-    idle: 'Cleanup',
-    hint: 'Polish dictation using your Claude subscription'
-  }
-} as const
-
-/** One dropdown shape for every agent-reported selector, so modes and models stay consistent. */
-export function SelectorPicker(props: {
-  kind: keyof typeof pickerCopy
-  options: PickerOption[]
-  selectedId?: string
-  disabled: boolean
-  /** Why it is closed, when there is a reason worth reading. Outranks the usual hover text. */
-  disabledHint?: string
-  /** Fired each time the menu is opened, for options whose availability can go stale. */
-  onOpen?(): void
-  select(optionId: string): void
-}): JSX.Element {
-  const [open, setOpen] = useState(false)
-  const containerRef = useRef<HTMLDivElement>(null)
-  const buttonRef = useRef<HTMLButtonElement>(null)
-  const menuRef = useRef<HTMLDivElement>(null)
-  const copy = pickerCopy[props.kind]
-  const PickerIcon = copy.icon
-  const selected = props.options.find((option) => option.id === props.selectedId)
-  const canOpen = props.options.length > 0 && !props.disabled
-
-  // The menu portals to <body> so it can escape ancestors (e.g. canvas nodes) that clip overflow.
-  const menuPosition = usePortalMenuPosition(
-    buttonRef,
-    menuRef,
-    open,
-    { width: 230, height: 0 },
-    undefined,
-    props.options
-  )
-
-  const closeUnlessFocusStaysInside = (relatedTarget: EventTarget | null): void => {
-    const next = relatedTarget as Node | null
-    if (containerRef.current?.contains(next) || menuRef.current?.contains(next)) return
-    setOpen(false)
-  }
-
-  const menu = open && (
-    <div
-      ref={menuRef}
-      className="node-picker-menu"
-      role="listbox"
-      aria-label={copy.heading}
-      style={{
-        position: 'fixed',
-        top: menuPosition?.top ?? 0,
-        left: menuPosition?.left ?? 0,
-        visibility: menuPosition ? 'visible' : 'hidden'
-      }}
-      onBlur={(event) => closeUnlessFocusStaysInside(event.relatedTarget)}
-      onClick={(event) => event.stopPropagation()}
-    >
-      <small>{copy.heading}</small>
-      {props.options.map((option) => (
-        <button
-          type="button"
-          role="option"
-          aria-selected={option.id === props.selectedId}
-          data-selected={option.id === props.selectedId}
-          // Closed on its own, with the rest of the menu still usable. No hover text: the reason
-          // travels in the option's description, which is rendered below as visible text.
-          disabled={option.disabled}
-          key={option.id}
-          onClick={() => {
-            props.select(option.id)
-            setOpen(false)
-          }}
-        >
-          <strong>
-            {option.name}
-            {option.id === props.selectedId && <Check className="node-picker-selected-marker" aria-hidden="true" />}
-          </strong>
-          {option.description && <span>{option.description}</span>}
-        </button>
-      ))}
-    </div>
-  )
-
-  return (
-    <div
-      ref={containerRef}
-      className="node-picker nodrag"
-      data-picker={props.kind}
-      onBlur={(event) => closeUnlessFocusStaysInside(event.relatedTarget)}
-      onClick={(event) => event.stopPropagation()}
-    >
-      <button
-        ref={buttonRef}
-        type="button"
-        className="node-picker-button"
-        aria-expanded={open}
-        aria-haspopup="listbox"
-        disabled={!canOpen}
-        title={props.disabledHint ?? selected?.description ?? selected?.name ?? copy.hint}
-        onClick={() =>
-          setOpen((current) => {
-            if (!current) props.onOpen?.()
-            return !current
-          })
-        }
-      >
-        <PickerIcon aria-hidden="true" />
-        {selected?.name ?? copy.idle}
-        <ChevronDown aria-hidden="true" />
-      </button>
-      {menu && createPortal(menu, document.body)}
-    </div>
-  )
 }
 
 function EmptyConversation({ provider }: Pick<FlatChatViewProps, 'provider'>): JSX.Element {
@@ -482,9 +311,11 @@ function AttachmentPreview(props: {
 }
 
 /**
- * The composer's own settings row: what the conversation runs as, and how Enter behaves. Grouped
- * into one toolbar rather than scattered across the node header so the pickers read as a set and
- * can wrap together when the node is narrow.
+ * The three pickers a conversation is steered with turn by turn - model, thinking effort and
+ * permission mode - plus the gear that holds everything set once and then left alone. The
+ * one-time settings moved into `ComposerSettingsMenu` once the row had grown to seven chips and
+ * buried the three that matter; the provider moved up into the node header, where the rest of the
+ * session's identity already lives.
  */
 function ComposerToolbar(
   props: Pick<
@@ -502,24 +333,9 @@ function ComposerToolbar(
     | 'selectEffort'
   >
 ): JSX.Element {
-  const { sendKey, setSendKey } = useComposerSendKey()
-  const routineDelegation = useRoutineDelegation()
-  const cleanup = useDictationCleanupPreference()
-  const delegation = describeRoutineDelegation(props.provider, routineDelegation.preference, props.routineDelegation)
-  const decisionDelegation = useDecisionDelegation()
-  const decisions = describeDecisionDelegation(
-    decisionDelegation.preference,
-    props.decisionDelegation,
-    decisionDelegation.skillInstalled
-  )
   const disabled = props.selectorsDisabled ?? false
-  const ProviderPickerIcon = pickerCopy.provider.icon
   return (
     <div className="composer-toolbar" role="group" aria-label="Conversation settings">
-      <span className="composer-toolbar-provider" title={`This conversation runs on ${providerNames[props.provider]}`}>
-        <ProviderPickerIcon aria-hidden="true" />
-        {providerNames[props.provider]}
-      </span>
       {props.models && props.selectModel && (
         <SelectorPicker
           kind="model"
@@ -550,59 +366,10 @@ function ComposerToolbar(
           select={props.selectMode}
         />
       )}
-      <SelectorPicker
-        kind="delegation"
-        options={delegation.options}
-        selectedId={delegation.selectedId}
-        // Never disabled, unlike the session-bound pickers: the preference is workspace-wide
-        // and only applies at the next safe session creation/resume anyway.
-        disabled={false}
-        select={(id) =>
-          routineDelegation.setPreference(
-            withWorkerSelection(
-              routineDelegation.preference,
-              props.provider,
-              id === DELEGATION_OFF_OPTION.id ? undefined : id
-            )
-          )
-        }
-      />
-      {delegation.note && <span className="composer-toolbar-note">{delegation.note}</span>}
-      <SelectorPicker
-        kind="decisions"
-        options={decisions.options}
-        selectedId={decisions.selectedId}
-        // Never closed, for the routine picker's reason plus one of its own: opening is what
-        // re-probes for the skill, so a picker that refused to open could never learn it arrived.
-        disabled={false}
-        onOpen={decisionDelegation.refreshAvailability}
-        select={(id) => decisionDelegation.setPreference({ enabled: id === DECISION_DELEGATION_ON_OPTION.id })}
-      />
-      {decisions.note && <span className="composer-toolbar-note">{decisions.note}</span>}
-      <SelectorPicker
-        kind="cleanup"
-        options={[
-          { id: 'off', name: 'Dictation cleanup off', description: 'Keep the local transcript; no subscription usage' },
-          ...DICTATION_CLEANUP_MODELS.map((model) => ({ ...model, name: `Cleanup: ${model.name}` }))
-        ]}
-        selectedId={cleanup.preference.enabled ? (cleanup.preference.claudeModelId ?? 'haiku') : 'off'}
-        disabled={false}
-        select={(id) => {
-          const model = DICTATION_CLEANUP_MODELS.find((option) => option.id === id)
-          cleanup.setPreference(
-            model ? { enabled: true, claudeModelId: model.id } : { ...cleanup.preference, enabled: false }
-          )
-        }}
-      />
-      <SelectorPicker
-        kind="sendKey"
-        options={(Object.keys(composerSendKeyLabels) as ComposerSendKey[]).map((id) => ({
-          id,
-          ...composerSendKeyLabels[id]
-        }))}
-        selectedId={sendKey}
-        disabled={false}
-        select={(id) => setSendKey(id as ComposerSendKey)}
+      <ComposerSettingsMenu
+        provider={props.provider}
+        routineDelegation={props.routineDelegation}
+        decisionDelegation={props.decisionDelegation}
       />
     </div>
   )
@@ -1640,9 +1407,13 @@ export default function ChatNode({ id, data, selected, width }: NodeProps<Termin
           {data.projectName}
         </span>
         <WorktreeBadge data={data} />
-        {/* Model, effort and permission pickers live in the composer's toolbar - see
-            ComposerToolbar - so the whole picker row reads as one set and the header keeps its
-            room for the node's identity. */}
+        {/* Which agent this conversation runs on is identity, not a setting: it is fixed for the
+            session's life, so it belongs here rather than among the composer's pickers. Model,
+            effort and permission stay in ComposerToolbar, where they are changed. */}
+        <span className="node-provider" title={`This conversation runs on ${providerNames[provider]}`}>
+          <ProviderChipIcon aria-hidden="true" />
+          {providerNames[provider]}
+        </span>
         <UnreadToggle unread={data.unread ?? 0} onToggle={reporting.toggleUnread} />
         <span className="node-status">{status.replace('_', ' ')}</span>
         {branchable && (

@@ -7,9 +7,10 @@ import {
 } from '../src/renderer/src/decision-delegation-context'
 import type { AgentDecisionDelegation, DecisionDelegationPreference } from '../src/shared/decision-delegation'
 
-// Issue #213: the "Decisions" picker beside the routine-delegation one. The trigger is always
-// openable - opening is what re-probes for the skill - and only the On option closes when the
-// skill is absent, with the reason readable in the menu rather than only on hover.
+// Issue #213: the "Decisions" picker, now behind the composer's gear rather than in the picker
+// row. The trigger is always openable - opening is what re-probes for the skill - and only the On
+// option closes when the skill is absent, with the reason readable in the menu rather than only
+// on hover.
 
 const baseChatViewProps: ChatViewProps = {
   provider: 'claude',
@@ -61,8 +62,17 @@ function renderComposer(
   return { container, setPreference }
 }
 
+/** The picker lives in the gear's portalled panel, so every case opens that first. */
+function openSettings(container: HTMLElement): HTMLElement {
+  fireEvent.click(container.querySelector('.composer-settings-button') as HTMLElement)
+  // Panels portal to <body>, so a case that renders two composers leaves both on screen; the
+  // one just opened is the last.
+  const panels = screen.getAllByRole('group', { name: 'More settings' })
+  return panels[panels.length - 1]
+}
+
 function openDecisions(container: HTMLElement): HTMLElement {
-  const picker = container.querySelector('[data-picker="decisions"]') as HTMLElement
+  const picker = openSettings(container).querySelector('[data-picker="decisions"]') as HTMLElement
   fireEvent.click(within(picker).getByRole('button'))
   return screen.getByRole('listbox', { name: 'Decisions' })
 }
@@ -97,9 +107,7 @@ describe('the decisions picker', () => {
 
   test('a session that has not launched under the preference says when it applies', () => {
     const { container } = renderComposer({ preference: { enabled: true } })
-    expect(container.querySelector('.composer-toolbar')).toHaveTextContent(
-      'Applies when this conversation next starts or resumes'
-    )
+    expect(openSettings(container)).toHaveTextContent('Applies when this conversation next starts or resumes')
   })
 
   test("a withheld policy reports main's own reason, Codex's scope included", () => {
@@ -109,6 +117,6 @@ describe('the decisions picker', () => {
         'Decision delegation applies to Claude sessions for now, so decision-shaped subtasks stay on the main model.'
     }
     const { container } = renderComposer({ preference: { enabled: true } }, { provider: 'codex', decisionDelegation })
-    expect(container.querySelector('.composer-toolbar')).toHaveTextContent('applies to Claude sessions for now')
+    expect(openSettings(container)).toHaveTextContent('applies to Claude sessions for now')
   })
 })

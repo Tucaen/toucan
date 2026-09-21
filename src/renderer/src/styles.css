@@ -1847,6 +1847,25 @@ button.global-status-chip:hover {
   margin-left: auto;
 }
 
+/* Which agent runs this conversation, beside the rest of the node's identity. */
+.node-provider {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px;
+  border: 1px solid #333c49;
+  border-radius: 6px;
+  color: #97a2b1;
+  background: #171c23;
+  font-size: 10px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.node-provider > .lucide {
+  color: var(--node-accent);
+}
+
 /* The model and permission pickers keep their width, so the title truncates first. */
 .chat-node-header > strong {
   min-width: 0;
@@ -3578,8 +3597,8 @@ button.global-status-chip:hover {
   background: #2a1e21;
 }
 
-/* Provider, model, effort, permissions and the send key as one wrapping row, so the pickers
-   stay reachable however narrow the node gets. */
+/* Model, effort and permissions as one wrapping row, so the pickers stay reachable however
+   narrow the node gets; the gear holding the one-time settings trails them. */
 .composer-footer {
   display: flex;
   align-items: flex-end;
@@ -3602,26 +3621,65 @@ button.global-status-chip:hover {
   gap: 5px;
 }
 
-.composer-toolbar-provider {
+/* The gear trails the session pickers, pinned to the row's end however the row wraps. */
+.composer-settings {
+  margin-left: auto;
+}
+
+.composer-settings-button {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 3px 6px;
+  padding: 4px;
   border: 1px solid #333c49;
   border-radius: 6px;
   color: #97a2b1;
   background: #171c23;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.composer-settings-button:hover,
+.composer-settings-button[aria-expanded='true'] {
+  color: #dfe4eb;
+  border-color: #46505f;
+}
+
+/* Same shell as a picker menu, but a column of pickers rather than a list of options. */
+.composer-settings-panel {
+  z-index: 1000;
+  width: 240px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid #3a4350;
+  border-radius: 9px;
+  background: #171c23;
+  box-shadow: 0 14px 35px rgba(0, 0, 0, 0.5);
+}
+
+.composer-settings-panel > small {
+  color: #717c8a;
   font-size: 10px;
-  font-weight: 750;
-  white-space: nowrap;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
-.composer-toolbar-provider > .lucide {
-  color: var(--node-accent);
+/* Inside the panel there is room for the full label, unlike in the composer row. */
+.composer-settings-panel .node-picker-button {
+  max-width: none;
+  width: 100%;
 }
 
-.node-picker[data-picker='sendKey'] {
-  margin-left: auto;
+.composer-settings-panel .node-picker {
+  width: 100%;
+}
+
+.composer-settings-panel .composer-toolbar-note {
+  max-width: 100%;
+  white-space: normal;
 }
 
 /* The delegation picker's per-session status: applied-vs-pending, or why it was withheld. */
@@ -3655,7 +3713,7 @@ button.global-status-chip:hover {
   border-color: color-mix(in srgb, var(--node-accent) 70%, #333c49);
 }
 
-.chat-composer button:not(.node-picker-button) {
+.chat-composer button:not(.node-picker-button):not(.composer-settings-button) {
   align-self: stretch;
   padding: 0 12px;
   border: 1px solid color-mix(in srgb, var(--node-accent) 55%, #34404e);
@@ -3667,7 +3725,7 @@ button.global-status-chip:hover {
   cursor: pointer;
 }
 
-.chat-composer button:not(.node-picker-button):disabled {
+.chat-composer button:not(.node-picker-button):not(.composer-settings-button):disabled {
   opacity: 0.35;
   cursor: default;
 }
