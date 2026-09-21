@@ -13,9 +13,9 @@ function project(overrides: Partial<WorkspaceProject> = {}): WorkspaceProject {
 
 const defaultFolder = resolve(PROJECT, DEFAULT_TICKETS_DIRECTORY)
 
-test('a project with no setting keeps the default folder, and so does an unknown project', () => {
+test('a registered project gets its default folder and an unknown project is refused', () => {
   assert.equal(ticketsDirectoryFor(PROJECT, [project()]), defaultFolder)
-  assert.equal(ticketsDirectoryFor(PROJECT, []), defaultFolder)
+  assert.throws(() => ticketsDirectoryFor(PROJECT, []), /not registered/)
 })
 
 test('a project may point at its own folder inside the checkout', () => {

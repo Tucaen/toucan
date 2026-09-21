@@ -5,6 +5,8 @@ import type { LocalFileOpenResult } from '../shared/local-file-link'
 import type { ProjectDirectory, WorkspaceLoadResult, WorkspaceSaveResult, WorkspaceState } from '../shared/terminal'
 import type { IpcRegistrar } from './ipc-registrar'
 import type { ProjectAvatarStore } from './project-avatar-store'
+import type { WorkspaceContainment } from './workspace-containment'
+import { openWebUrl } from './open-web-url'
 
 /**
  * Everything the project/shell/workspace channels are wired to. The Electron pieces - the folder
@@ -12,6 +14,7 @@ import type { ProjectAvatarStore } from './project-avatar-store'
  * leave the app, what a reveal is allowed to do) run under tests without a window.
  */
 export interface ProjectIpcDependencies {
+  containment: Pick<WorkspaceContainment, 'contains'>
   workspace: {
     load(): Promise<WorkspaceLoadResult>
     save(state: WorkspaceState): Promise<WorkspaceSaveResult>
@@ -61,20 +64,12 @@ export function registerProjectIpc(ipc: IpcRegistrar, deps: ProjectIpcDependenci
   // and never a shell-interpreted scheme. A local path is the separate `openLocalFile` below,
   // which is narrow about what it will hand to the OS.
   ipc.handle(SHELL_CHANNELS.openExternal, async (_event, url: unknown) => {
-    if (typeof url !== 'string') return
-    let parsed: URL
-    try {
-      parsed = new URL(url)
-    } catch {
-      return
-    }
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return
-    await deps.openExternal(parsed.toString())
+    await openWebUrl(url, deps.openExternal)
   })
   // A file-operation tool card offers to reveal the file it touched. This only ever selects a
   // path in the OS file manager - it never opens or executes it.
-  ipc.handle(SHELL_CHANNELS.showItemInFolder, (_event, path: unknown) => {
-    if (typeof path !== 'string' || !path.trim()) return
+  ipc.handle(SHELL_CHANNELS.showItemInFolder, async (_event, path: unknown) => {
+    if (typeof path !== 'string' || !path.trim() || !(await deps.containment.contains(path))) return
     deps.showItemInFolder(normalize(path))
   })
   // A Markdown link to an artifact the app has no view for - a generated image, an exported PDF -

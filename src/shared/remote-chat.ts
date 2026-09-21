@@ -260,6 +260,8 @@ export function parseRemoteChatClientMessage(raw: unknown): RemoteChatClientMess
     // A present-but-not-a-string option is a malformed frame, not a cancellation: reading it as
     // one would turn a version skew into a silently denied tool call.
     if (message.optionId !== undefined && typeof message.optionId !== 'string') return null
+    if (typeof message.optionId === 'string' &&
+      (message.optionId.length === 0 || message.optionId.length > REMOTE_CHAT_MODEL_ID_LIMIT)) return null
     return {
       type: 'approval',
       requestId: message.requestId,

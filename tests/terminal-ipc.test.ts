@@ -87,7 +87,8 @@ function harness(): Harness {
     manager,
     providers,
     scrollback,
-    liveness
+    liveness,
+    { contains: async (path) => path === 'D:/p' }
   )
   return { handlers, ons, calls, scrollbackRemoved, livenessRemoved }
 }
@@ -103,9 +104,9 @@ test('a preview needs a known provider and a string id; anything else is null', 
   assert.equal(handler(event, 'claude', 42), null)
 })
 
-test('create hands the request and the asking window to the manager', () => {
+test('create hands the request and the asking window to the manager', async () => {
   const { handlers, calls } = harness()
-  const result = handlers.get(TERMINAL_CHANNELS.create)!(event, {
+  const result = await handlers.get(TERMINAL_CHANNELS.create)!(event, {
     id: 'n-1',
     sessionId: 's-1',
     kind: 'terminal',
@@ -123,6 +124,30 @@ test('write, resize and kill forward both identity layers', () => {
   ons.get(TERMINAL_CHANNELS.resize)!(event, 's-1', 'inc-1', 120, 30)
   ons.get(TERMINAL_CHANNELS.kill)!(event, 's-1', 'inc-1', 'att-1')
   assert.deepEqual(calls, ['write:s-1:inc-1:ls\r', 'resize:s-1:inc-1:120x30', 'kill:s-1:inc-1:att-1'])
+})
+
+test('malformed terminal commands never reach the process', async () => {
+  const { handlers, ons, calls } = harness()
+  for (const size of [NaN, Infinity, 1.5, -1, '80']) {
+    ons.get(TERMINAL_CHANNELS.resize)!(event, 's-1', 'inc-1', size, 24)
+    ons.get(TERMINAL_CHANNELS.resize)!(event, 's-1', 'inc-1', 80, size)
+    const result = await handlers.get(TERMINAL_CHANNELS.create)!(event, {
+      id: 'n-1', kind: 'terminal', cols: size, rows: 24, cwd: 'D:/p'
+    })
+    assert.equal((result as { ok: boolean }).ok, false)
+  }
+  ons.get(TERMINAL_CHANNELS.write)!(event, 's-1', 'inc-1', {})
+  ons.get(TERMINAL_CHANNELS.kill)!(event, 's-1', 'inc-1', undefined)
+  assert.deepEqual(calls, [])
+})
+
+test('a terminal cannot launch in an unregistered directory', async () => {
+  const { handlers, calls } = harness()
+  const result = await handlers.get(TERMINAL_CHANNELS.create)!(event, {
+    id: 'n-1', kind: 'terminal', cwd: 'D:/outside', cols: 80, rows: 24
+  })
+  assert.equal((result as { ok: boolean }).ok, false)
+  assert.deepEqual(calls, [])
 })
 
 test('scrollback loads only for a string session id', () => {

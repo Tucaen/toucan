@@ -5,14 +5,7 @@ import { writeFile } from 'node:fs/promises'
 import { extname, join, normalize } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { spawn } from 'node-pty'
-import type { AgentCreateRequest, AgentDecisionResponseContent, AgentPromptContent } from '../shared/agent'
-import {
-  ADAPTER_CHANNELS,
-  AGENT_CHANNELS,
-  USAGE_CHANNELS,
-  WORKSPACE_CHANNELS,
-  WORKTREE_CHANNELS
-} from '../shared/ipc-channels'
+import { ADAPTER_CHANNELS, USAGE_CHANNELS } from '../shared/ipc-channels'
 import { autoUpdater } from 'electron-updater'
 import { createAcpSessionManager, type AcpSessionManager } from './acp-session-manager'
 import { createAgentModelCatalogueStore } from './agent-model-catalogue-store'
@@ -77,19 +70,14 @@ import { registerTerminalIpc } from './terminal-ipc'
 import { registerConversationIpc } from './conversation-ipc'
 import { createProjectAvatarStore } from './project-avatar-store'
 import { registerProjectIpc } from './project-ipc'
-import { createWorktreeManager, type WorktreeManager } from './git-worktree'
-import { createWorkspaceFileIndex, type WorkspaceFileIndexReader } from './workspace-file-index'
+import { createWorktreeManager } from './git-worktree'
+import { createWorkspaceFileIndex } from './workspace-file-index'
 import { createWorkspaceStore } from './workspace-store'
 import { projectFor, ticketsDirectoryFor, ticketsRelativeDirectoryFor } from './ticket-directory'
 import { githubStatusLabelsFor, type GithubStatusLabels } from '../shared/github-issues'
-import type {
-  WorktreeCreateRequest,
-  WorktreeDiscoverRequest,
-  WorktreeRemoveRequest,
-  WorktreeStatusRequest
-} from '../shared/worktree'
-import type { GitDiffRequest, GitFileDiffRequest } from '../shared/git-diff'
-import type { GitCheckoutRequest } from '../shared/git-branch'
+import { registerAgentIpc } from './register-agent-ipc'
+import { registerWorktreeIpc } from './worktree-ipc'
+import { registerWorkspaceFileIpc } from './workspace-file-ipc'
 
 // Has to run before the app is ready, which is why it is here and not inside a function. The
 // privileges are what make the packaged renderer's origin behave like an HTTP one - a secure
@@ -142,30 +130,6 @@ function findCommand(command: string): string | null {
   }
 }
 
-function registerWorktreeIpc(worktrees: WorktreeManager): void {
-  ipcMain.handle(WORKTREE_CHANNELS.create, (_event, request: WorktreeCreateRequest) => worktrees.create(request))
-  ipcMain.handle(WORKTREE_CHANNELS.status, (_event, request: WorktreeStatusRequest) => worktrees.status(request))
-  ipcMain.handle(WORKTREE_CHANNELS.remove, (_event, request: WorktreeRemoveRequest) => worktrees.remove(request))
-  ipcMain.handle(WORKTREE_CHANNELS.discover, (_event, request: WorktreeDiscoverRequest) => worktrees.discover(request))
-  ipcMain.handle(WORKTREE_CHANNELS.diff, (_event, request: GitDiffRequest) => worktrees.diff(request))
-  ipcMain.handle(WORKTREE_CHANNELS.diffFile, (_event, request: GitFileDiffRequest) => worktrees.diffFile(request))
-  ipcMain.handle(WORKTREE_CHANNELS.currentBranch, (_event, path: string) => worktrees.currentBranch(path))
-  ipcMain.handle(WORKTREE_CHANNELS.listBranches, (_event, path: string) => worktrees.listBranches(path))
-  ipcMain.handle(WORKTREE_CHANNELS.checkoutBranch, (_event, request: GitCheckoutRequest) =>
-    worktrees.checkoutBranch(request)
-  )
-}
-
-/**
- * The composer's `@` picker asks for this on every mention token, so the reader is deliberately
- * the cached one: an unbounded directory walk per keystroke is exactly what this must not become.
- */
-function registerWorkspaceFileIpc(files: WorkspaceFileIndexReader): void {
-  ipcMain.handle(WORKSPACE_CHANNELS.fileIndex, (_event, root: unknown) =>
-    files.read(typeof root === 'string' ? root : '')
-  )
-}
-
 function registerUsageIpc(usage: ProviderUsage): void {
   ipcMain.handle(USAGE_CHANNELS.rateLimits, (_event, options: unknown) => {
     const request = options as { force?: unknown; provider?: unknown } | undefined
@@ -175,34 +139,6 @@ function registerUsageIpc(usage: ProviderUsage): void {
       ...(provider === 'claude' || provider === 'codex' ? { provider } : {})
     })
   })
-}
-
-function registerAgentIpc(manager: AcpSessionManager): void {
-  ipcMain.handle(AGENT_CHANNELS.create, (event, request: AgentCreateRequest) => manager.create(request, event.sender))
-  ipcMain.handle(AGENT_CHANNELS.prompt, (_event, id: string, content: AgentPromptContent) =>
-    manager.prompt(id, content)
-  )
-  ipcMain.handle(AGENT_CHANNELS.promptWhenIdle, (_event, id: string, content: AgentPromptContent) =>
-    manager.promptWhenIdle(id, content)
-  )
-  ipcMain.handle(AGENT_CHANNELS.setMode, (_event, id: string, modeId: string) => manager.setMode(id, modeId))
-  ipcMain.handle(AGENT_CHANNELS.setModel, (_event, id: string, modelId: string) => manager.setModel(id, modelId))
-  ipcMain.handle(AGENT_CHANNELS.setEffort, (_event, id: string, effortId: string) => manager.setEffort(id, effortId))
-  ipcMain.handle(AGENT_CHANNELS.authenticate, (_event, id: string, methodId: string) =>
-    manager.authenticate(id, methodId)
-  )
-  ipcMain.handle(AGENT_CHANNELS.submitAuthCode, (_event, id: string, code: string) => manager.submitAuthCode(id, code))
-  ipcMain.handle(AGENT_CHANNELS.openAuthLink, (_event, url: string) => manager.openAuthLink(url))
-  ipcMain.on(AGENT_CHANNELS.approval, (_event, id: string, approvalId: string, optionId?: string) =>
-    manager.resolveApproval(id, approvalId, optionId)
-  )
-  ipcMain.on(
-    AGENT_CHANNELS.elicitation,
-    (_event, id: string, requestId: string, content?: AgentDecisionResponseContent) =>
-      manager.resolveElicitation(id, requestId, content)
-  )
-  ipcMain.on(AGENT_CHANNELS.cancel, (_event, id: string) => manager.cancel(id))
-  ipcMain.on(AGENT_CHANNELS.kill, (_event, id: string) => manager.kill(id))
 }
 
 /**
@@ -383,6 +319,14 @@ void app.whenReady().then(async () => {
     log: mainLog('agent models')
   })
   const workspace = createWorkspaceStore(join(app.getPath('userData'), 'prototype-workspace.json'))
+  // A file node may read anywhere inside a registered project or one of its worktrees and nowhere
+  // else. The roots come from the snapshot per call, so a project added a moment ago is readable
+  // and one removed a moment ago is not - fail closed, like brain-dump project assignment.
+  const workspaceRoots = async (): Promise<string[]> => {
+    const state = (await workspace.load()).state
+    return [...(state?.projects.map(({ path }) => path) ?? []), ...(state?.worktrees.map(({ path }) => path) ?? [])]
+  }
+  const containment = createWorkspaceContainment({ roots: workspaceRoots })
   const conversationTitles = createConversationTitleStore(join(app.getPath('userData'), 'conversation-titles.json'))
   // What each conversation was asked for and where it stands, extracted from the same transcript
   // snapshots the broker already keeps. No UI and no IPC by design: a later session asks an agent
@@ -449,8 +393,11 @@ void app.whenReady().then(async () => {
   // The snapshot is the only place a project's `ticketsDirectory` is recorded, so it is read per
   // call rather than cached: a project whose folder setting changed is read from the new folder on
   // the very next listing. Which folder that is, is decided in `ticket-directory.ts`.
-  const ticketsFolderFor = async (projectPath: string): Promise<string> =>
-    ticketsDirectoryFor(projectPath, (await workspace.load()).state?.projects ?? [])
+  const ticketsFolderFor = async (projectPath: string): Promise<string> => {
+    const folder = ticketsDirectoryFor(projectPath, (await workspace.load()).state?.projects ?? [])
+    if (!(await containment.contains(folder))) throw new Error('Tickets directory is outside the workspace.')
+    return folder
+  }
   // Same reasoning for the GitHub label mapping: a per-project workspace setting, read per listing.
   const githubLabelsFor = async (projectPath: string): Promise<GithubStatusLabels> =>
     githubStatusLabelsFor(
@@ -477,13 +424,6 @@ void app.whenReady().then(async () => {
     directoryFor: ticketsFolderFor,
     onChanged: (projectPath) => void ticketSteering.check(projectPath)
   })
-  // A file node may read anywhere inside a registered project or one of its worktrees and nowhere
-  // else. The roots come from the snapshot per call, so a project added a moment ago is readable
-  // and one removed a moment ago is not - fail closed, like brain-dump project assignment.
-  const workspaceRoots = async (): Promise<string[]> => {
-    const state = (await workspace.load()).state
-    return [...(state?.projects.map(({ path }) => path) ?? []), ...(state?.worktrees.map(({ path }) => path) ?? [])]
-  }
   const fileView = createFileView({
     roots: workspaceRoots,
     formatter: createPrettierFileFormatter({ roots: workspaceRoots })
@@ -491,7 +431,7 @@ void app.whenReady().then(async () => {
   // Opening an artifact with its associated application answers to the same roots, through the
   // same containment rule - it is the one path action that can run something.
   const openLocalFile = createLocalFileOpener({
-    contains: createWorkspaceContainment({ roots: workspaceRoots }).contains,
+    contains: containment.contains,
     openPath: (path) => shell.openPath(path)
   })
   // Spawning is the one remote operation main cannot perform alone: the canvas owns node identity,
@@ -582,8 +522,8 @@ void app.whenReady().then(async () => {
   // what the stored settings already asked for.
   await remote.start()
 
-  registerTerminalIpc(ipcMain, manager, providers, scrollback, liveness)
-  registerAgentIpc(agentManager)
+  registerTerminalIpc(ipcMain, manager, providers, scrollback, liveness, containment)
+  registerAgentIpc(ipcMain, agentManager, containment)
   registerTerminalContextIpc(ipcMain, terminalContextEdges)
   registerBrainDumpIpc(
     ipcMain,
@@ -598,12 +538,14 @@ void app.whenReady().then(async () => {
       environment: process.env,
       titles: conversationTitles
     }),
-    conversationTitles
+    conversationTitles,
+    containment
   )
   // One manager for both: the delete confirmation asks git the same question worktree discovery
   // does, so it asks the same object rather than shelling out on its own.
   const worktrees = createWorktreeManager()
   registerTicketIpc(ipcMain, {
+    containment,
     library: ticketLibrary,
     changes: ticketChanges,
     skill: ticketSkill,
@@ -613,13 +555,15 @@ void app.whenReady().then(async () => {
   registerDecisionDelegationIpc(ipcMain, decisionProviderInstalled)
   registerGithubIssuesIpc(
     ipcMain,
-    createGithubIssueReader({ resolveCommand: findCommand, statusLabelsFor: githubLabelsFor })
+    createGithubIssueReader({ resolveCommand: findCommand, statusLabelsFor: githubLabelsFor }),
+    containment
   )
-  registerWorktreeIpc(worktrees)
+  registerWorktreeIpc(ipcMain, worktrees, containment)
   registerFileViewIpc(ipcMain, fileView)
-  registerWorkspaceFileIpc(createWorkspaceFileIndex())
+  registerWorkspaceFileIpc(ipcMain, createWorkspaceFileIndex(), containment)
   registerUsageIpc(providerUsage)
   registerProjectIpc(ipcMain, {
+    containment,
     workspace,
     initialProjectPath: () => process.cwd(),
     pickProjectDirectory: async (sender) => {

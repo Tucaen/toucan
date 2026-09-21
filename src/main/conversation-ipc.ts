@@ -3,6 +3,7 @@ import { CONVERSATION_CHANNELS } from '../shared/ipc-channels'
 import type { ConversationHistory } from './conversation-history'
 import type { ConversationTitleStore } from './conversation-title-store'
 import type { IpcRegistrar } from './ipc-registrar'
+import type { WorkspaceContainment } from './workspace-containment'
 
 /**
  * The renderer's route to past conversations and their durable titles. Every argument is shape-
@@ -12,14 +13,21 @@ import type { IpcRegistrar } from './ipc-registrar'
 export function registerConversationIpc(
   ipc: IpcRegistrar,
   history: ConversationHistory,
-  titles: ConversationTitleStore
+  titles: ConversationTitleStore,
+  containment: Pick<WorkspaceContainment, 'contains'>
 ): void {
-  ipc.handle(CONVERSATION_CHANNELS.list, (_event, request: unknown) => {
+  ipc.handle(CONVERSATION_CHANNELS.list, async (_event, request: unknown) => {
     const directories = (request as ConversationListRequest | undefined)?.directories
     if (!Array.isArray(directories) || directories.some((entry) => typeof entry !== 'string')) {
       return EMPTY_CONVERSATION_PAGE
     }
     const { limit, offset } = request as ConversationListRequest
+    if ([limit, offset].some((value) =>
+      value !== undefined && (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0)
+    )) return EMPTY_CONVERSATION_PAGE
+    for (const directory of directories) {
+      if (!(await containment.contains(directory))) return EMPTY_CONVERSATION_PAGE
+    }
     return history.list({ directories, limit, offset })
   })
   // A transcript the user can see in the list may already be gone; opening one asks first so

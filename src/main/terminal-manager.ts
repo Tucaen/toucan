@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { isTerminalSize } from './ipc-validation'
 import { existsSync, statSync } from 'node:fs'
 import { normalize } from 'node:path'
 import type { TerminalCreateRequest, TerminalCreateResult, TerminalLiveness } from '../shared/terminal'
@@ -100,6 +101,7 @@ export function createTerminalManager(options: TerminalManagerOptions): Terminal
 
   return {
     create(request, owner): TerminalCreateResult {
+      if (!isTerminalSize(request.cols, request.rows)) return { ok: false, message: 'Invalid terminal size.' }
       const sessionId = request.sessionId ?? request.id
       const attachmentId = request.attachmentId ?? request.id
       const existing = terminals.get(sessionId)
@@ -187,7 +189,7 @@ export function createTerminalManager(options: TerminalManagerOptions): Terminal
       return true
     },
     resize(sessionId, incarnationId, cols, rows): boolean {
-      if (cols < 2 || rows < 1) return false
+      if (!isTerminalSize(cols, rows)) return false
       const terminal = matches(sessionId, incarnationId)
       if (!terminal) return false
       terminal.process.resize(cols, rows)

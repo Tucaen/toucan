@@ -1,6 +1,7 @@
 import { resolve } from 'node:path'
 import type { WorkspaceProject } from '../shared/terminal'
 import { ticketsDirectoryOrDefault } from '../shared/tickets'
+import { pathIdentity } from '../shared/paths'
 
 /**
  * The workspace entry for a checkout, if Toucan knows it. Windows paths differ only in case
@@ -10,7 +11,7 @@ import { ticketsDirectoryOrDefault } from '../shared/tickets'
 export function projectFor(projectPath: string, projects: readonly WorkspaceProject[]): WorkspaceProject | undefined {
   return (
     projects.find((candidate) => candidate.path === projectPath) ??
-    projects.find((candidate) => candidate.path.toLowerCase() === projectPath.toLowerCase())
+    projects.find((candidate) => pathIdentity(candidate.path) === pathIdentity(projectPath))
   )
 }
 
@@ -21,8 +22,7 @@ export function projectFor(projectPath: string, projects: readonly WorkspaceProj
  * rules themselves are `ticketsDirectoryOrDefault` in `shared/tickets.ts`, because the renderer
  * answers the same question for the board's live session cards.
  *
- * A project Toucan does not know is still answerable - the board may be pointed at a path before
- * the snapshot catches up, and the default folder is the right answer for it.
+ * Unknown projects are refused, including while a new snapshot is still being saved.
  */
 export function ticketsDirectoryFor(projectPath: string, projects: readonly WorkspaceProject[]): string {
   return resolve(projectPath, ticketsRelativeDirectoryFor(projectPath, projects))
@@ -35,5 +35,7 @@ export function ticketsDirectoryFor(projectPath: string, projects: readonly Work
  * second reading of the project's setting.
  */
 export function ticketsRelativeDirectoryFor(projectPath: string, projects: readonly WorkspaceProject[]): string {
-  return ticketsDirectoryOrDefault(projectFor(projectPath, projects)?.ticketsDirectory)
+  const project = projectFor(projectPath, projects)
+  if (!project) throw new Error('The project is not registered in this workspace.')
+  return ticketsDirectoryOrDefault(project.ticketsDirectory)
 }

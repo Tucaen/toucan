@@ -71,8 +71,10 @@ import { createPromptWakeGate, type PromptWakeGate } from './prompt-wake-gate'
 import type { TerminalContextMcp } from './terminal-context-mcp'
 import type { SessionOutcomeIndexer, SessionOutcomeWatch } from './session-outcome-indexer'
 import { AGENT_CHANNELS } from '../shared/ipc-channels'
+import { openWebUrl } from './open-web-url'
 
 interface PendingApproval {
+  optionIds: Set<string>
   resolve(response: RequestPermissionResponse): void
 }
 
@@ -1382,12 +1384,15 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
             options,
             activity: activityFromUpdate(params.toolCall)
           })
-          return new Promise((resolve) => pendingApprovals.set(approvalId, { resolve }))
+          return new Promise((resolve) =>
+            pendingApprovals.set(approvalId, { resolve, optionIds: new Set(options.map((option) => option.id)) })
+          )
         })
         .onRequest(methods.client.elicitation.create, async ({ params }) => {
           const elicitation = params as CreateElicitationRequest
           if (elicitation.mode === 'url' && 'url' in elicitation && typeof elicitation.url === 'string') {
-            await shell.openExternal(elicitation.url)
+            if (!(await openWebUrl(elicitation.url, (url) => shell.openExternal(url))))
+              return { action: 'decline' as const }
             send(running, { type: 'status', status: 'starting', message: elicitation.message })
             send(running, { type: 'auth_link', url: elicitation.url })
             return { action: 'accept' as const }
@@ -1674,7 +1679,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
               // this status line gets overwritten by the next chunk of CLI output.
               const url = extractLoginUrl(message)
               if (url) {
-                void shell.openExternal(url)
+                void openWebUrl(url, (target) => shell.openExternal(target))
                 send(running, { type: 'auth_link', url })
               }
             }
@@ -1702,7 +1707,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
     },
 
     async openAuthLink(url): Promise<void> {
-      await shell.openExternal(url)
+      await openWebUrl(url, (target) => shell.openExternal(target))
     },
 
     resolveApproval(id, approvalId, optionId): AgentPromptResult {
@@ -1710,6 +1715,8 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       if (!running) return SESSION_NOT_RUNNING
       const pending = running.pendingApprovals.get(approvalId)
       if (!pending) return REQUEST_ALREADY_ANSWERED
+      if (optionId !== undefined && !pending.optionIds.has(optionId))
+        return { ok: false, message: 'That option was not offered for this approval.' }
       running.pendingApprovals.delete(approvalId)
       pending.resolve({
         outcome: optionId ? { outcome: 'selected', optionId } : { outcome: 'cancelled' }
