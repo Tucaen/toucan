@@ -5,6 +5,8 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { createTerminalScrollbackStore } from '../src/main/terminal-scrollback-store'
 
+const fs = process.getBuiltinModule('node:fs')
+
 function manualClock(): {
   schedule: (run: () => void, delayMs: number) => { cancel(): void }
   scheduled: number
@@ -31,9 +33,20 @@ function manualClock(): {
   return clock
 }
 
-test('coalesces many appended chunks into one scheduled snapshot write', () => {
+test('coalesces many appended chunks into one scheduled snapshot write', (context) => {
   const directory = mkdtempSync(join(tmpdir(), 'toucan-scrollback-'))
   const clock = manualClock()
+  const writeFileSync = fs.writeFileSync
+  const writeSync = fs.writeSync
+  let fileWrites = 0
+  context.mock.method(fs, 'writeFileSync', (...args: Parameters<typeof writeFileSync>) => {
+    fileWrites += 1
+    return Reflect.apply(writeFileSync, fs, args)
+  })
+  context.mock.method(fs, 'writeSync', (...args: Parameters<typeof writeSync>) => {
+    fileWrites += 1
+    return Reflect.apply(writeSync, fs, args)
+  })
   const store = createTerminalScrollbackStore({
     directory,
     maxBytes: 1024,
@@ -42,15 +55,18 @@ test('coalesces many appended chunks into one scheduled snapshot write', () => {
   })
 
   store.begin('session', 'incarnation')
+  assert.equal(fileWrites, 2)
   store.append('session', 'incarnation', 'one')
   store.append('session', 'incarnation', ' two')
   store.append('session', 'incarnation', ' three')
 
+  assert.equal(fileWrites, 2)
   assert.equal(clock.scheduled, 1)
   assert.equal(createTerminalScrollbackStore({ directory }).load('session')?.data, '')
 
   clock.fire()
 
+  assert.equal(fileWrites, 4)
   assert.equal(clock.scheduled, 1)
   assert.equal(createTerminalScrollbackStore({ directory }).load('session')?.data, 'one two three')
 })
@@ -78,7 +94,9 @@ test('bounds UTF-8 output without splitting characters and makes truncation visi
   const store = createTerminalScrollbackStore({ directory, maxBytes: 7, maxAgeMs: 60_000, now: () => 100 })
 
   store.begin('session', 'inc-1')
-  store.append('session', 'inc-1', 'old🙂new')
+  store.append('session', 'inc-1', 'old')
+  store.append('session', 'inc-1', '🙂')
+  store.append('session', 'inc-1', 'new')
 
   const snapshot = store.load('session')
   assert.equal(snapshot?.data, '🙂new')

@@ -7,6 +7,7 @@ import { writeSnapshotAtomicallySync } from './durable-file'
 export const TERMINAL_SCROLLBACK_MAX_BYTES = 512 * 1024
 export const TERMINAL_SCROLLBACK_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
 export const TERMINAL_SCROLLBACK_FLUSH_DELAY_MS = 100
+const EMPTY_BUFFER = Buffer.alloc(0)
 
 interface StoredSnapshot extends TerminalScrollbackSnapshot {
   version: 1
@@ -31,7 +32,9 @@ export interface TerminalScrollbackStore {
 }
 
 interface CachedSnapshot {
-  snapshot: StoredSnapshot
+  metadata: Omit<StoredSnapshot, 'data'>
+  chunks: Buffer[]
+  head: number
   /** Tracked as chunks arrive so append never measures the whole retained string. */
   dataBytes: number
   dirty: boolean
@@ -52,9 +55,10 @@ function isStoredSnapshot(value: unknown): value is StoredSnapshot {
 }
 
 /**
- * The largest valid UTF-8 suffix within a byte limit. Shared with `terminal-output-tail.ts`,
- * which caps its retained tail the same way: a limit that splits a character would hand its
- * reader a replacement character where the process emitted a letter.
+ * The largest valid UTF-8 suffix within a byte limit. `terminal-output-tail.ts` uses this when
+ * it compacts its tail; the scrollback store enforces the same character boundary incrementally.
+ * A limit that splits a character would hand a reader a replacement character where the process
+ * emitted a letter.
  */
 export function boundedUtf8Suffix(data: string, maxBytes: number): string {
   const bytes = Buffer.from(data, 'utf8')
@@ -125,7 +129,15 @@ export function createTerminalScrollbackStore(options: TerminalScrollbackStoreOp
       // incarnation under the durable session just because it was the last successful write.
       if (pendingIncarnationId && pendingIncarnationId !== parsed.incarnationId) return null
       const snapshot = pendingIncarnationId ? { ...parsed, incomplete: true } : parsed
-      const entry = { snapshot, dataBytes: Buffer.byteLength(snapshot.data, 'utf8'), dirty: false }
+      const { data, ...metadata } = snapshot
+      const bytes = Buffer.from(data, 'utf8')
+      const entry = {
+        metadata,
+        chunks: bytes.length === 0 ? [] : [bytes],
+        head: 0,
+        dataBytes: bytes.length,
+        dirty: false
+      }
       snapshotsBySessionId.set(sessionId, entry)
       return entry
     } catch {
@@ -138,31 +150,21 @@ export function createTerminalScrollbackStore(options: TerminalScrollbackStoreOp
     scheduledFlushes.delete(sessionId)
   }
 
-  const boundedSnapshot = (entry: CachedSnapshot): StoredSnapshot => {
-    if (entry.dataBytes <= maxBytes) return entry.snapshot
-    return {
-      ...entry.snapshot,
-      data: boundedUtf8Suffix(entry.snapshot.data, maxBytes),
-      truncated: true,
-      incomplete: true
-    }
-  }
+  const snapshotFrom = (entry: CachedSnapshot): StoredSnapshot => ({
+    ...entry.metadata,
+    data: entry.dataBytes === 0 ? '' : Buffer.concat(entry.chunks.slice(entry.head), entry.dataBytes).toString('utf8')
+  })
 
   const flush = (sessionId: string, incarnationId: string): void => {
     const scheduled = scheduledFlushes.get(sessionId)
     if (scheduled?.incarnationId === incarnationId) cancelScheduledFlush(sessionId)
     const entry = snapshotsBySessionId.get(sessionId)
-    if (!entry || entry.snapshot.incarnationId !== incarnationId || !entry.dirty) return
-    const snapshot = boundedSnapshot(entry)
-    const dataBytes = Buffer.byteLength(snapshot.data, 'utf8')
+    if (!entry || entry.metadata.incarnationId !== incarnationId || !entry.dirty) return
+    const snapshot = snapshotFrom(entry)
     if (persist(snapshot)) {
-      snapshotsBySessionId.set(sessionId, { snapshot, dataBytes, dirty: false })
+      entry.dirty = false
     } else {
-      snapshotsBySessionId.set(sessionId, {
-        snapshot: { ...snapshot, incomplete: true },
-        dataBytes,
-        dirty: true
-      })
+      entry.metadata.incomplete = true
     }
   }
 
@@ -180,39 +182,56 @@ export function createTerminalScrollbackStore(options: TerminalScrollbackStoreOp
   return {
     begin(sessionId, incarnationId): void {
       cancelScheduledFlush(sessionId)
-      const snapshot: StoredSnapshot = {
+      const metadata: Omit<StoredSnapshot, 'data'> = {
         version: 1,
         sessionId,
         incarnationId,
-        data: '',
         capturedAt: now(),
         truncated: false,
         incomplete: false
       }
-      snapshotsBySessionId.set(sessionId, { snapshot, dataBytes: 0, dirty: true })
+      snapshotsBySessionId.set(sessionId, {
+        metadata,
+        chunks: [],
+        head: 0,
+        dataBytes: 0,
+        dirty: true
+      })
       flush(sessionId, incarnationId)
     },
     append(sessionId, incarnationId, data): void {
       const existing = read(sessionId)
-      if (!existing || existing.snapshot.incarnationId !== incarnationId) return
-      const addedBytes = Buffer.byteLength(data, 'utf8')
-      let combined = `${existing.snapshot.data}${data}`
-      let combinedBytes = existing.dataBytes + addedBytes
-      const wasTruncated = combinedBytes > maxBytes
-      // Match the in-memory terminal tail: pay for a whole-buffer trim once per retention's worth
-      // of output, rather than on every PTY chunk after the limit is first reached.
-      if (combinedBytes > maxBytes * 2) {
-        combined = boundedUtf8Suffix(combined, maxBytes)
-        combinedBytes = Buffer.byteLength(combined, 'utf8')
+      if (!existing || existing.metadata.incarnationId !== incarnationId) return
+      const added = Buffer.from(data, 'utf8')
+      if (added.length > 0) existing.chunks.push(added)
+      existing.dataBytes += added.length
+      const wasTruncated = existing.dataBytes > maxBytes
+      while (existing.dataBytes > maxBytes) {
+        const first = existing.chunks[existing.head]
+        const excess = existing.dataBytes - maxBytes
+        if (first.length <= excess) {
+          existing.dataBytes -= first.length
+          existing.chunks[existing.head] = EMPTY_BUFFER
+          existing.head += 1
+          continue
+        }
+        let start = excess
+        while (start < first.length && (first[start] & 0xc0) === 0x80) start += 1
+        existing.dataBytes -= start
+        if (start === first.length) existing.head += 1
+        else existing.chunks[existing.head] = Buffer.from(first.subarray(start))
       }
-      const snapshot: StoredSnapshot = {
-        ...existing.snapshot,
-        data: combined,
+      if (existing.head > 256 && existing.head * 2 >= existing.chunks.length) {
+        existing.chunks = existing.chunks.slice(existing.head)
+        existing.head = 0
+      }
+      existing.metadata = {
+        ...existing.metadata,
         capturedAt: now(),
-        truncated: existing.snapshot.truncated || wasTruncated,
-        incomplete: existing.snapshot.incomplete || wasTruncated
+        truncated: existing.metadata.truncated || wasTruncated,
+        incomplete: existing.metadata.incomplete || wasTruncated
       }
-      snapshotsBySessionId.set(sessionId, { snapshot, dataBytes: combinedBytes, dirty: true })
+      existing.dirty = true
       scheduleFlush(sessionId, incarnationId)
     },
     flush(sessionId, incarnationId): void {
@@ -221,7 +240,7 @@ export function createTerminalScrollbackStore(options: TerminalScrollbackStoreOp
     load(sessionId): TerminalScrollbackSnapshot | null {
       const entry = read(sessionId)
       if (!entry) return null
-      const snapshot = boundedSnapshot(entry)
+      const snapshot = snapshotFrom(entry)
       if (now() - snapshot.capturedAt > maxAgeMs) {
         cancelScheduledFlush(sessionId)
         snapshotsBySessionId.delete(sessionId)
