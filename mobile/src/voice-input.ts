@@ -6,11 +6,11 @@
  * A phone has two ways to turn speech into text, and this module decides which:
  *
  * - **The browser's own recognizer** (`SpeechRecognition`), where the browser has one. It is free,
- *   runs in the phone's language, and on Android it is the same recognizer the keyboard uses. This
- *   is also the only path on which a non-English speaker gets a non-English transcript: Toucan's
- *   own model is English-only.
+ *   runs in the phone's language, and on Android it is the same recognizer the keyboard uses.
  * - **The host**, otherwise: record raw PCM and let the desktop's model transcribe it (see
- *   `src/shared/remote-voice.ts`). English only, but works in every browser with a microphone.
+ *   `src/shared/remote-voice.ts`). The desktop decodes with Whisper, which detects the language
+ *   itself, so this path is as multilingual as the recognizer one - it just answers slower,
+ *   because the whole recording crosses to the desktop first.
  *
  * Both need a microphone, and a browser only grants one to a secure page - so over plain HTTP the
  * button says what to do about it rather than failing on the first tap.
@@ -109,7 +109,7 @@ export function mobileVoiceLabel(state: MobileVoiceState, mode: VoiceInputMode):
       return mode === 'host' ? 'Transcribing on the desktop' : 'Finishing'
     case 'idle':
     case 'error':
-      return mode === 'host' ? 'Dictate in English (transcribed on the desktop)' : 'Dictate'
+      return mode === 'host' ? 'Dictate (transcribed on the desktop)' : 'Dictate'
   }
 }
 

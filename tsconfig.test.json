@@ -49,10 +49,12 @@
     "src/renderer/src/node-picker-menu-position.ts",
     "src/renderer/src/voice-transcript.ts",
     "src/renderer/src/use-refresh-flash.ts",
-    "src/main/remote/voice-transcription.ts",
+    "src/main/voice-transcription.ts",
     "src/main/voice-model-store.ts",
-    "src/main/voice-model-protocol.ts",
+    "src/main/voice-model-download.ts",
     "src/main/voice-model-ipc.ts",
+    "src/main/whisper-engine.ts",
+    "src/main/zip-extract.ts",
     "src/shared/**/*.ts"
   ]
 }

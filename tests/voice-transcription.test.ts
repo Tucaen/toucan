@@ -1,12 +1,13 @@
 import { strict as assert } from 'node:assert'
 import { describe, test } from 'node:test'
-import { createRemoteVoiceTranscriber, type VoiceEngine } from '../src/main/remote/voice-transcription'
+import { createVoiceTranscriber, type VoiceEngine, type VoiceTranscribeRequest } from '../src/main/voice-transcription'
 
 /**
- * The host side of phone dictation: one lazily loaded model shared by every request, transcriptions
- * run one at a time because the engine is single-threaded, a load that fails is retried on the next
- * request rather than poisoning the host, and a model nobody has used for a while is released.
- * The engine itself is injected; what the WASM does with audio is Moonshine's test suite, not ours.
+ * The policy around the speech engine, for the composer's dictation and phone dictation alike: one
+ * lazily loaded model shared by every request, transcriptions run one at a time because the engine
+ * decodes one utterance at a time, a load that fails is retried on the next request rather than
+ * poisoning the host, and a model nobody has used for a while is released. The engine itself is
+ * injected; what whisper.cpp does with audio is its own test suite, not ours.
  */
 
 function fakeEngine(
@@ -17,7 +18,7 @@ function fakeEngine(
     closed: false,
     busy: 0,
     overlap: 0,
-    transcribe(audio: Float32Array): string {
+    async transcribe(audio: Float32Array): Promise<string> {
       engine.calls += 1
       engine.busy += 1
       engine.overlap = Math.max(engine.overlap, engine.busy)
@@ -66,7 +67,7 @@ describe('remote voice transcriber', () => {
   test('loads the engine on the first request and reuses it afterwards', async () => {
     const engine = fakeEngine()
     let loads = 0
-    const transcriber = createRemoteVoiceTranscriber({
+    const transcriber = createVoiceTranscriber({
       loadEngine: async () => {
         loads += 1
         return engine
@@ -86,7 +87,7 @@ describe('remote voice transcriber', () => {
     const engine = fakeEngine()
     let loads = 0
     let release: (() => void) | undefined
-    const transcriber = createRemoteVoiceTranscriber({
+    const transcriber = createVoiceTranscriber({
       loadEngine: () =>
         new Promise<VoiceEngine>((resolve) => {
           loads += 1
@@ -110,7 +111,7 @@ describe('remote voice transcriber', () => {
   test('a failed load is reported and retried on the next request', async () => {
     let attempt = 0
     const engine = fakeEngine()
-    const transcriber = createRemoteVoiceTranscriber({
+    const transcriber = createVoiceTranscriber({
       loadEngine: async () => {
         attempt += 1
         if (attempt === 1) throw new Error('model files are missing')
@@ -130,7 +131,7 @@ describe('remote voice transcriber', () => {
   })
 
   test('a load that never settles is refused after the deadline, not waited on forever', async () => {
-    const transcriber = createRemoteVoiceTranscriber({
+    const transcriber = createVoiceTranscriber({
       loadEngine: () => new Promise<VoiceEngine>(() => {}),
       loadTimeoutMs: 5,
       schedule: manualClock().schedule
@@ -143,11 +144,11 @@ describe('remote voice transcriber', () => {
   test('an engine that throws refuses that request and stays loaded for the next', async () => {
     const engine = fakeEngine()
     let boom = true
-    engine.transcribe = (): string => {
+    engine.transcribe = async (): Promise<string> => {
       if (boom) throw new Error('decoder fault')
       return 'recovered'
     }
-    const transcriber = createRemoteVoiceTranscriber({
+    const transcriber = createVoiceTranscriber({
       loadEngine: async () => engine,
       schedule: manualClock().schedule
     })
@@ -158,8 +159,25 @@ describe('remote voice transcriber', () => {
     assert.deepEqual(await transcriber.transcribe(audio), { ok: true, text: 'recovered' })
   })
 
+  test('the dictation context and language reach the engine as the per-request options', async () => {
+    const seen: (VoiceTranscribeRequest | undefined)[] = []
+    const transcriber = createVoiceTranscriber({
+      loadEngine: async () => ({
+        transcribe: async (_audio, _rate, request) => {
+          seen.push(request)
+          return 'ok'
+        },
+        close: () => {}
+      }),
+      schedule: manualClock().schedule
+    })
+    await transcriber.transcribe(audio, { prompt: 'the draft being edited' })
+    await transcriber.transcribe(audio)
+    assert.deepEqual(seen, [{ prompt: 'the draft being edited' }, undefined])
+  })
+
   test('silence is an empty transcript, which is a success, not an error', async () => {
-    const transcriber = createRemoteVoiceTranscriber({
+    const transcriber = createVoiceTranscriber({
       loadEngine: async () => fakeEngine(),
       schedule: manualClock().schedule
     })
@@ -169,7 +187,7 @@ describe('remote voice transcriber', () => {
   test('the model is released after the idle period and reloaded on demand', async () => {
     const clock = manualClock()
     const engines: ReturnType<typeof fakeEngine>[] = []
-    const transcriber = createRemoteVoiceTranscriber({
+    const transcriber = createVoiceTranscriber({
       loadEngine: async () => {
         const engine = fakeEngine()
         engines.push(engine)
@@ -198,7 +216,7 @@ describe('remote voice transcriber', () => {
   test('shutdown closes the engine and refuses further requests', async () => {
     const clock = manualClock()
     const engine = fakeEngine()
-    const transcriber = createRemoteVoiceTranscriber({ loadEngine: async () => engine, schedule: clock.schedule })
+    const transcriber = createVoiceTranscriber({ loadEngine: async () => engine, schedule: clock.schedule })
     await transcriber.transcribe(audio)
     transcriber.shutdown()
     assert.equal(engine.closed, true)

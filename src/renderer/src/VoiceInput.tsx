@@ -1,37 +1,37 @@
 import { useEffect, useRef, useState, type RefObject } from 'react'
-import { MicTranscriber, ModelArch, Transcriber } from '@moonshine-ai/moonshine-wasm'
 import { LoaderCircle, Mic, Square, X } from 'lucide-react'
-import { VOICE_MODEL_ASSET_DIRECTORY, VOICE_MODEL_LANGUAGE } from '../../shared/remote-voice'
-import { voiceModelProgress, type VoiceModelStatus } from '../../shared/voice-model'
+import {
+  downmixToMono,
+  encodePcm16,
+  REMOTE_VOICE_MAX_SECONDS,
+  REMOTE_VOICE_SAMPLE_RATE,
+  resampleLinear
+} from '../../shared/remote-voice'
+import { voiceModelProgress } from '../../shared/voice-model'
 import { withStallGuard } from '../../shared/stall-guard'
 import { errorMessage } from '../../shared/text'
-import { fetchVoiceModelFiles } from './voice-model-files'
-import {
-  insertAtSelection,
-  joinTranscript,
-  voiceControlLabel,
-  voiceLivePreview,
-  type VoiceState
-} from './voice-transcript'
+import { insertAtSelection, meterLevel, voiceControlLabel, voiceLivePreview, type VoiceState } from './voice-transcript'
 
 export type { VoiceState } from './voice-transcript'
 
 /**
- * The composer's dictation control: local, streaming, English.
+ * The composer's dictation control: local, batch, multilingual.
  *
- * Speech runs entirely on this machine with Moonshine's Medium Streaming English model, the most
- * accurate streaming model it publishes. The model is not in the installer: the host downloads it
- * once on first use (see shared/voice-model.ts) and serves it from disk at LOCAL_MODEL_URL. Live
- * partial text is shown while speaking; the finished transcript is inserted at the cursor position
- * the microphone was pressed at, and it is never sent on its own - a transcript is a draft.
+ * The renderer only records. Raw PCM is captured off the microphone (the same WebAudio path the
+ * phone uses for its host fallback), and on Stop the whole utterance crosses to the main process,
+ * where whisper.cpp decodes it in one pass - full right-context, so a thinking pause is not a
+ * sentence boundary and punctuation comes from content rather than pause timing (#214). While
+ * recording there is deliberately no live text: the control shows a level meter and the elapsed
+ * time, and the transcript appears when the recording stops.
  *
- * Accuracy on the words a general model gets wrong - identifiers, file names, product words - comes
- * from `context`: the caller hands over the text the speaker is most likely talking about, and the
- * model is biased towards the terms in it for the duration of the dictation.
+ * The engine and model are not in the installer: the host downloads them once on first use (see
+ * shared/voice-model.ts) and the button reports that download with real byte counts. The finished
+ * transcript is inserted at the cursor position the microphone was pressed at, and it is never
+ * sent on its own - a transcript is a draft.
  *
- * The model understands English only. The control says so in its label and its preview rather
- * than letting another language come out as plausible-looking nonsense; a phone's own recognizer
- * (see `mobile/src/MobileVoiceInput.tsx`) is the multilingual path.
+ * Accuracy on the words a general model gets wrong - identifiers, file names, product words -
+ * comes from `context`: the caller hands over the text the speaker is most likely talking about,
+ * and the decoder is biased towards it as its initial prompt.
  */
 interface VoiceInputProps {
   draft: string
@@ -40,57 +40,54 @@ interface VoiceInputProps {
   setDraft(value: string): void
   /** Starts dictation as soon as the control mounts, for callers opened *by* a microphone action. */
   autoStart?: boolean
-  /** Text whose vocabulary the model should lean towards; see `dictationContext`. */
+  /** Text whose vocabulary the decoder should lean towards; see `dictationContext`. */
   context?: string
   /** Lets a surrounding surface show the same loading/listening/failure states this button owns. */
   onStateChange?(state: VoiceState, error: string): void
 }
 
-const LOCAL_MODEL_URL = new URL(`./${VOICE_MODEL_ASSET_DIRECTORY}/`, window.location.href).toString()
+/** Opening the microphone has no natural deadline of its own, only a wedge to distinguish from. */
+const MICROPHONE_STALL_TIMEOUT_MS = 60_000
 
-// By the time this runs the model is on disk (the host's download is awaited first), so this only
-// needs to absorb slow hardware - not a slow internet connection. It exists so a dependency that never
-// settles (see shared/stall-guard.ts) can't leave the "Preparing local speech model..." banner
-// stuck forever: a WASM worker that dies on startup never rejects its load promise.
-const VOICE_STALL_TIMEOUT_MS = 60_000
+/** Generous: a maximum-length recording decoded on a slow CPU is minutes, not seconds. */
+const DECODE_STALL_TIMEOUT_MS = 6 * 60_000
 
-/**
- * The renderer has to be cross-origin isolated or Moonshine's threaded WASM cannot have a
- * `SharedArrayBuffer`, and its pthread worker then fails its first `postMessage` inside a promise
- * that never settles - a stuck "Preparing local speech model...", not an error. The host serves
- * both origins with the isolation headers (`main/app-protocol.ts`, `electron.vite.config.ts`), so
- * this failing means something has been reconfigured, and saying so beats a timeout.
- */
-const ISOLATION_MESSAGE =
-  'This window is not cross-origin isolated, so the local speech model cannot run. Restart Toucan.'
+/** One recording in progress: the microphone, the graph, and what has been heard so far. */
+interface RecordingSession {
+  /** Stops the graph and returns the whole utterance as 16 kHz mono samples. */
+  finish(): Promise<Float32Array>
+  /** Stops the graph and keeps nothing. */
+  discard(): void
+}
 
 export default function VoiceInput(props: VoiceInputProps): JSX.Element {
   const [state, setState] = useState<VoiceState>('idle')
   const [progress, setProgress] = useState(0)
-  const [partial, setPartial] = useState('')
+  const [elapsed, setElapsed] = useState(0)
+  const [level, setLevel] = useState(0)
   const [error, setError] = useState('')
-  const transcriberRef = useRef<MicTranscriber>()
-  // Held apart from the microphone because the microphone does not own it: the model is built once
-  // from bytes and handed over, so closing it is this component's job, not `MicTranscriber.close`'s.
-  const modelRef = useRef<Transcriber>()
-  const completedLinesRef = useRef<string[]>([])
-  const partialRef = useRef('')
+  const sessionRef = useRef<RecordingSession | null>(null)
+  const levelRef = useRef(0)
   const insertionRef = useRef({ start: 0, end: 0 })
+  const contextRef = useRef(props.context)
+  contextRef.current = props.context
 
   const fail = (cause: unknown): void => {
+    sessionRef.current = null
     setError(errorMessage(cause))
     setState('error')
   }
 
   useEffect(
     () => () => {
-      const transcriber = transcriberRef.current
-      if (transcriber?.isRunning) void transcriber.stop()
-      transcriber?.close()
-      modelRef.current?.close()
+      sessionRef.current?.discard()
+      sessionRef.current = null
     },
     []
   )
+
+  // Read by the recording's own callbacks (the cap), which must see the state as it is then.
+  const finishRef = useRef<(keepTranscript: boolean) => Promise<void>>()
 
   const begin = async (): Promise<void> => {
     if (state !== 'idle' && state !== 'error') return
@@ -99,67 +96,43 @@ export default function VoiceInput(props: VoiceInputProps): JSX.Element {
       start: textarea?.selectionStart ?? props.draft.length,
       end: textarea?.selectionEnd ?? props.draft.length
     }
-    completedLinesRef.current = []
-    partialRef.current = ''
-    setPartial('')
     setError('')
     setProgress(0)
+    setElapsed(0)
+    levelRef.current = 0
+    setLevel(0)
 
     try {
-      let transcriber = transcriberRef.current
-      if (!transcriber) {
-        // The model is not in the installer: the host fetches it once, into its own data directory,
-        // and serves it at LOCAL_MODEL_URL from there. Until it is on disk the button reports the
-        // download, with the host's own byte counts, rather than a "preparing" that never moves.
-        setState('downloading')
-        const unsubscribe = window.voiceModelApi.onChange((status) => setProgress(voiceModelProgress(status)))
-        let model: VoiceModelStatus
-        try {
-          model = await window.voiceModelApi.ensure()
-        } finally {
-          unsubscribe()
-        }
-        if (model.phase !== 'ready') {
-          throw new Error(model.phase === 'error' ? model.message : 'The speech model is not available.')
-        }
-        setProgress(0)
+      // The engine and model are not in the installer: until they are on disk the button reports
+      // the download, with the host's own byte counts, rather than a "preparing" that never moves.
+      setState('downloading')
+      const unsubscribe = window.voiceModelApi.onChange((status) => setProgress(voiceModelProgress(status)))
+      let model
+      try {
+        model = await window.voiceModelApi.ensure()
+      } finally {
+        unsubscribe()
       }
+      if (model.phase !== 'ready') {
+        throw new Error(model.phase === 'error' ? model.message : 'The speech model is not available.')
+      }
+      setProgress(0)
       setState('loading')
-      if (!transcriber) {
-        if (!window.crossOriginIsolated) throw new Error(ISOLATION_MESSAGE)
-        // The host names the files; the renderer reads them off its own origin and hands the bytes
-        // to the loader. See `voice-model-files.ts` for why Moonshine's downloader is not used.
-        const listed = await window.voiceModelApi.files()
-        if (listed.length === 0) throw new Error('The speech model is not available.')
-        const bytes = await fetchVoiceModelFiles(listed, LOCAL_MODEL_URL, (fraction) => setProgress(fraction))
-        const model = await withStallGuard(
-          Transcriber.load({ files: bytes, modelArch: ModelArch.MediumStreaming }),
-          VOICE_STALL_TIMEOUT_MS,
-          'Local speech model timed out while loading.'
-        )
-        modelRef.current = model
-        transcriber = new MicTranscriber()
-          .useTranscriber(model)
-          .language(VOICE_MODEL_LANGUAGE)
-          .onText((text) => {
-            partialRef.current = text
-            setPartial(text)
-          })
-          .onLine((line) => {
-            completedLinesRef.current.push(line.text)
-            partialRef.current = ''
-            setPartial('')
-          })
-          .onError((cause) => {
-            setError(cause.message)
-            setState('error')
-          })
-        transcriberRef.current = transcriber
-      }
-      // Re-applied on every start rather than once: what the speaker is talking about changes
-      // between dictations, and an empty context clears the previous one instead of keeping it.
-      transcriber.setContext(props.context ?? '')
-      await withStallGuard(transcriber.start(), VOICE_STALL_TIMEOUT_MS, 'Local speech model timed out while starting.')
+      // Bounded because a microphone permission prompt that never settles, or an audio stack that
+      // wedges opening the device, would otherwise leave the button spinning without an error.
+      sessionRef.current = await withStallGuard(
+        startRecording({
+          onProgress: (seconds, peak) => {
+            levelRef.current = meterLevel(levelRef.current, peak)
+            setLevel(levelRef.current)
+            setElapsed(seconds)
+          },
+          // The recording reached the longest the transcriber accepts; keep what was said.
+          onLimit: () => void finishRef.current?.(true)
+        }),
+        MICROPHONE_STALL_TIMEOUT_MS,
+        'The microphone timed out while starting.'
+      )
       setState('listening')
     } catch (cause) {
       fail(cause)
@@ -182,28 +155,40 @@ export default function VoiceInput(props: VoiceInputProps): JSX.Element {
   }, [error, state])
 
   const finish = async (keepTranscript: boolean): Promise<void> => {
-    const transcriber = transcriberRef.current
-    if (!transcriber || state !== 'listening') return
+    const session = sessionRef.current
+    if (!session || state !== 'listening') return
+    sessionRef.current = null
+    if (!keepTranscript) {
+      session.discard()
+      setState('idle')
+      return
+    }
     setState('stopping')
     try {
-      await transcriber.stop()
-      if (keepTranscript) {
-        const transcript = joinTranscript(completedLinesRef.current, partialRef.current)
-        if (transcript) {
-          const { start, end } = insertionRef.current
-          props.setDraft(insertAtSelection(props.draft, transcript, start, end))
-          requestAnimationFrame(() => props.textareaRef.current?.focus())
-        }
+      const samples = await session.finish()
+      // The decode is bounded in main too, but a "Finishing…" that never ends must fail visibly
+      // even if the seam itself swallows a reply.
+      const result = await withStallGuard(
+        window.voiceModelApi.transcribe(encodePcm16(samples), contextRef.current ?? ''),
+        DECODE_STALL_TIMEOUT_MS,
+        'The transcription timed out.'
+      )
+      if (!result.ok) throw new Error(result.message)
+      const transcript = result.text.trim()
+      if (transcript) {
+        const { start, end } = insertionRef.current
+        props.setDraft(insertAtSelection(props.draft, transcript, start, end))
+        requestAnimationFrame(() => props.textareaRef.current?.focus())
       }
-      setPartial('')
       setState('idle')
     } catch (cause) {
       fail(cause)
     }
   }
+  finishRef.current = finish
 
   const label = voiceControlLabel(state, progress)
-  const preview = voiceLivePreview(state, progress, partial, error)
+  const preview = voiceLivePreview(state, progress, elapsed, error)
 
   return (
     <div className="voice-input">
@@ -235,6 +220,11 @@ export default function VoiceInput(props: VoiceInputProps): JSX.Element {
           <X aria-hidden="true" />
         </button>
       )}
+      {state === 'listening' && (
+        <span className="voice-level-meter" aria-hidden="true">
+          <span className="voice-level-fill" style={{ width: `${Math.round(level * 100)}%` }} />
+        </span>
+      )}
       {preview !== null && (
         <span
           className="voice-live-preview"
@@ -247,4 +237,68 @@ export default function VoiceInput(props: VoiceInputProps): JSX.Element {
       )}
     </div>
   )
+}
+
+/**
+ * Plain WebAudio capture, the same shape as the phone's host-fallback recorder. A
+ * `ScriptProcessorNode` rather than an `AudioWorklet`: it is deprecated but it runs without a
+ * second bundle entry, and a dictation is short enough that its main-thread cost does not show.
+ * Samples are kept at the device rate and resampled once at the end.
+ */
+async function startRecording(events: {
+  onProgress(elapsedSeconds: number, peak: number): void
+  onLimit(): void
+}): Promise<RecordingSession> {
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+  const context = new AudioContext()
+  const source = context.createMediaStreamSource(stream)
+  const processor = context.createScriptProcessor(4096, 1, 1)
+  const chunks: Float32Array[] = []
+  let captured = 0
+  const limit = context.sampleRate * REMOTE_VOICE_MAX_SECONDS
+  let stopped = false
+
+  processor.onaudioprocess = (event) => {
+    if (stopped) return
+    const channels: Float32Array[] = []
+    for (let channel = 0; channel < event.inputBuffer.numberOfChannels; channel += 1) {
+      channels.push(new Float32Array(event.inputBuffer.getChannelData(channel)))
+    }
+    const mono = downmixToMono(channels)
+    chunks.push(mono)
+    captured += mono.length
+    let peak = 0
+    for (const sample of mono) peak = Math.max(peak, Math.abs(sample))
+    events.onProgress(captured / context.sampleRate, peak)
+    if (captured >= limit) {
+      stopped = true
+      events.onLimit()
+    }
+  }
+  source.connect(processor)
+  // A ScriptProcessorNode only runs while it is connected to the graph's output.
+  processor.connect(context.destination)
+
+  const release = async (): Promise<void> => {
+    stopped = true
+    processor.disconnect()
+    source.disconnect()
+    for (const track of stream.getTracks()) track.stop()
+    await context.close()
+  }
+
+  return {
+    finish: async () => {
+      await release()
+      const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0)
+      const samples = new Float32Array(total)
+      let offset = 0
+      for (const chunk of chunks) {
+        samples.set(chunk, offset)
+        offset += chunk.length
+      }
+      return resampleLinear(samples, context.sampleRate, REMOTE_VOICE_SAMPLE_RATE)
+    },
+    discard: () => void release()
+  }
 }

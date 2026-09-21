@@ -76,13 +76,13 @@ test('claims the release before packaging, so the two targets cannot race to cre
 })
 
 test('neither downloads nor bundles the speech model, which the app fetches on first use', () => {
-  // The model is 291 MB that never changes between releases. Shipping it made every installer
-  // and every auto-update download over twice the size and cost six minutes of NSIS compression.
-  assert.match(workflow, /TOUCAN_SKIP_VOICE_MODEL: '1'/, 'the prebuild hook would otherwise fetch it for nothing')
-  assert.doesNotMatch(workflow, /prepare:voice-model/)
+  // The engine and checkpoint are 1.6 GB that never change between releases. Shipping the previous
+  // model made every installer and auto-update download over twice the size and cost six minutes
+  // of NSIS compression; the app downloads its speech assets into userData on first use instead.
+  assert.doesNotMatch(workflow, /voice-model|VOICE_MODEL/)
   assert.ok(
     manifest.build?.files?.includes('!out/renderer/models/**'),
-    'Vite copies public/ into out/renderer, so the prepared model of a dev run must be packaged out'
+    'Vite copies public/ into out/renderer, so a leftover dev model directory must be packaged out'
   )
 })
 

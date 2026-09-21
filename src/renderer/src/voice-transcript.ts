@@ -1,25 +1,17 @@
 /**
  * Pure decisions behind the composer's dictation control. `VoiceInput.tsx` owns the microphone and
- * the model; everything here is a function of strings and a state name, which is what makes the
- * transcript assembly, the insertion rule and the labels testable without an audio device.
+ * the recording; everything here is a function of numbers and a state name, which is what makes
+ * the labels, the recording readout and the insertion rule testable without an audio device.
+ *
+ * There is deliberately no live text: the model decodes the whole utterance at once when the
+ * recording stops (see #214 - a streaming decoder turned every thinking pause into a sentence
+ * boundary), so while speaking the control shows that it is *hearing* - a level meter and the
+ * elapsed time - and the transcript appears on Stop.
  */
+
+import { WHISPER_DOWNLOAD_GIGABYTES } from '../../shared/whisper-assets'
 
 export type VoiceState = 'idle' | 'downloading' | 'loading' | 'listening' | 'stopping' | 'error'
-
-/**
- * One transcript from the lines the model finished and the tail it was still revising. The tail
- * is dropped when it merely repeats the last finished line, which is what a stream that completed
- * a line and had not yet cleared its partial looks like.
- */
-export function joinTranscript(lines: readonly string[], partial: string): string {
-  const parts = [...lines]
-  const tail = partial.trim()
-  if (tail && parts.at(-1)?.trim() !== tail) parts.push(tail)
-  return parts
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .join(' ')
-}
 
 /** Replaces the selection with `text`, adding a space wherever it would otherwise touch a word. */
 export function insertAtSelection(value: string, text: string, start: number, end: number): string {
@@ -30,59 +22,58 @@ export function insertAtSelection(value: string, text: string, start: number, en
   return `${before}${prefix}${text}${suffix}${after}`
 }
 
-const LOADING_LABEL = 'Preparing local speech model'
-// The model is fetched on first use rather than shipped in the installer, and a first-time speaker
-// deserves to know the wait is a 291 MB download and not a hung button.
-const DOWNLOADING_LABEL = 'Downloading speech model (one-time, 291 MB)'
+// The engine is fetched on first use rather than shipped in the installer, and a first-time
+// speaker deserves to know the wait is a download and not a hung button.
+const DOWNLOADING_LABEL = `Downloading speech model (one-time, ${WHISPER_DOWNLOAD_GIGABYTES})`
 
 function progressLabel(label: string, progress: number): string {
   return progress > 0 ? `${label} ${Math.round(progress * 100)}%` : label
 }
 
-function loadingLabel(progress: number): string {
-  return progressLabel(LOADING_LABEL, progress)
-}
-
-/**
- * What the button does when pressed, which is also its accessible name. The idle label names the
- * language because the local model is English-only and the composer must say so before the user
- * has spoken a sentence it cannot transcribe, not after.
- */
+/** What the button does when pressed, which is also its accessible name. */
 export function voiceControlLabel(state: VoiceState, progress: number): string {
   switch (state) {
     case 'downloading':
       return progressLabel(DOWNLOADING_LABEL, progress)
     case 'loading':
-      return loadingLabel(progress)
+      return 'Starting microphone'
     case 'listening':
       return 'Stop dictation'
     case 'stopping':
       return 'Finishing...'
     case 'idle':
     case 'error':
-      return 'Dictate (English)'
+      return 'Dictate'
   }
 }
 
+/** Seconds as `m:ss`, the way every recorder counts. */
+export function formatElapsed(seconds: number): string {
+  const whole = Math.max(0, Math.floor(seconds))
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`
+}
+
 /**
- * The floating preview beside the button, or null when there is nothing to show. A failure belongs
- * here too: it is the only surface the composer's microphone has, and a button that silently
- * returns to idle is how a broken model reads as a click that did nothing.
+ * The floating readout beside the button, or null when there is nothing to show. While recording
+ * it is the elapsed time (the meter beside it is the other half of "I can hear you"); a failure
+ * belongs here too - it is the only surface the composer's microphone has, and a button that
+ * silently returns to idle is how a broken model reads as a click that did nothing.
  */
 export function voiceLivePreview(
   state: VoiceState,
   progress: number,
-  partial: string,
+  elapsedSeconds: number,
   error: string = ''
 ): string | null {
   switch (state) {
     case 'downloading':
       return `${progressLabel(DOWNLOADING_LABEL, progress)}…`
     case 'loading':
-      return `${loadingLabel(progress)}…`
+      return 'Starting microphone…'
     case 'listening':
+      return `Recording ${formatElapsed(elapsedSeconds)}`
     case 'stopping':
-      return partial || 'Listening (English only)…'
+      return 'Finishing…'
     case 'error':
       return error || 'Dictation could not start.'
     case 'idle':
@@ -90,25 +81,39 @@ export function voiceLivePreview(
   }
 }
 
-/** How much text the model is asked to mine for vocabulary; more costs decode time, not accuracy. */
-const CONTEXT_LIMIT = 4_000
+/**
+ * A peak sample folded into the meter's displayed level: attack is instant, release is a decay, so
+ * speech reads as movement rather than flicker. Both values are fractions in [0, 1].
+ */
+export function meterLevel(previous: number, peak: number): number {
+  const clamped = Math.max(0, Math.min(1, peak))
+  return Math.max(clamped, previous * 0.8)
+}
 
 /**
- * The text the speaker is most likely talking about, for the model to lean towards. Identifiers,
- * file names and product words are exactly what a general English model gets wrong, and they are
- * sitting in the composer draft and the newest exchange. Older turns are left out on purpose: a
- * conversation drifts, and biasing towards its whole history would pull words from topics that
+ * Whisper keeps only the last ~224 tokens of its initial prompt, roughly this many characters of
+ * English; anything above the bound would be silently cut, so the bound is held here where the
+ * ordering is decided.
+ */
+const CONTEXT_LIMIT = 1_000
+
+/**
+ * The text the speaker is most likely talking about, handed to the decoder as its initial prompt.
+ * Identifiers, file names and product words are exactly what a general model gets wrong, and they
+ * are sitting in the composer draft and the newest exchange. Older turns are left out on purpose:
+ * a conversation drifts, and biasing towards its whole history would pull words from topics that
  * are over. Thoughts are not conversation: they are the model's own scratch, not words the speaker
- * has read.
+ * has read. Order and clipping both point the same way: the decoder keeps the *tail* of the
+ * prompt, so the draft - the highest-value vocabulary - goes last and the clip drops the front.
  */
 export function dictationContext(draft: string, messages: readonly { role: string; text: string }[]): string {
   const recent = messages
     .filter((message) => message.role === 'user' || message.role === 'assistant')
     .slice(-2)
     .map((message) => message.text)
-  return [draft, ...recent.reverse()]
+  return [...recent, draft]
     .map((part) => part.trim())
     .filter(Boolean)
     .join('\n')
-    .slice(0, CONTEXT_LIMIT)
+    .slice(-CONTEXT_LIMIT)
 }

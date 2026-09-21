@@ -58,9 +58,8 @@ import { createRemoteAccessStore } from './remote/remote-access-store'
 import { forwardRemoteStateChanges, registerRemoteIpc } from './remote/remote-ipc'
 import { createRemoteCanvasRequests, type RemoteCanvasRequests } from './remote/canvas-requests'
 import { createRemoteAccessServer, type RemoteAccessServer } from './remote/remote-server'
-import { createRemoteVoiceTranscriber } from './remote/voice-transcription'
-import { loadMoonshineEngine } from './remote/voice-engine'
-import { VOICE_MODEL_ASSET_DIRECTORY } from '../shared/remote-voice'
+import { createVoiceTranscriber } from './voice-transcription'
+import { loadWhisperEngine, VOICE_MODEL_MISSING_MESSAGE } from './whisper-engine'
 import { createSessionOutcomeIndexer } from './session-outcome-indexer'
 import { createSessionOutcomeStore } from './session-outcome-store'
 import { createSessionProviders } from './session-providers'
@@ -255,7 +254,7 @@ function createWindow(
   // A download finishes minutes after the window last asked, so the header subscribes for as long
   // as the window exists rather than polling the release feed.
   const stopForwardingUpdates = forwardAppUpdateChanges(appUpdater, contents)
-  // A 291 MB model download outlives any single request, so progress is pushed for the window's lifetime.
+  // A 1.6 GB model download outlives any single request, so progress is pushed for the window's lifetime.
   const stopForwardingVoiceModel = forwardVoiceModelChanges(voiceModel, contents)
   // A phone's canvas requests - spawning a chat, reporting one read - are performed by a window,
   // so the window has to be reachable from the host, and detaching on destroy is what turns "the
@@ -308,19 +307,14 @@ function registerVoicePermissions(): void {
 }
 
 /**
- * Serves the packaged renderer, and the speech model beside it, on one cross-origin-isolated
- * origin. See `app-protocol.ts` for why this is not `file:`; the dev server sets the same two
- * isolation headers itself (`electron.vite.config.ts`), so both runs are isolated the same way.
+ * Serves the packaged renderer on one cross-origin-isolated origin. See `app-protocol.ts` for why
+ * this is not `file:`; the dev server sets the same two isolation headers itself
+ * (`electron.vite.config.ts`), so both runs are isolated the same way.
  */
-function registerAppProtocol(store: VoiceModelStore, rendererRoot: string): void {
+function registerAppProtocol(rendererRoot: string): void {
   protocol.handle(APP_SCHEME, async (request) => {
     const target = appRequestTarget(request.url)
-    const path =
-      target === null
-        ? null
-        : target.kind === 'model'
-          ? store.filePath(target.name)
-          : join(rendererRoot, ...target.path.split('/'))
+    const path = target === null ? null : join(rendererRoot, ...target.split('/'))
     if (!path) return new Response('Not found', { status: 404, headers: APP_ISOLATION_HEADERS })
     const response = await net.fetch(pathToFileURL(path).toString(), { bypassCustomProtocolHandlers: true })
     const headers = new Headers(response.headers)
@@ -500,27 +494,27 @@ void app.whenReady().then(async () => {
   // Spawning is the one remote operation main cannot perform alone: the canvas owns node identity,
   // geometry and working-directory resolution, so a phone's "New chat" is a request the desktop
   // window runs through its own add-node path and reports the verdict on.
-  // The speech model is not in the installer. A dev run finds the one `prepare:voice-model` put in
-  // the renderer's public root; an installed build downloads it into userData on first use and
-  // the `file:` handler below serves it from there at the URL the renderer has always asked for.
+  // The speech engine and its checkpoint are not in the installer: the store downloads both into
+  // userData the first time dictation is asked for (pins in `shared/whisper-assets.ts`).
   const voiceModel = createVoiceModelStore({
-    preparedDirectories: [join(app.getAppPath(), 'src', 'renderer', 'public', VOICE_MODEL_ASSET_DIRECTORY)],
-    downloadDirectory: join(app.getPath('userData'), VOICE_MODEL_ASSET_DIRECTORY),
+    rootDirectory: join(app.getPath('userData'), 'models', 'whisper'),
     port: createVoiceModelPort(),
     log: mainLog('voice model')
   })
-  registerVoiceModelIpc(ipcMain, voiceModel)
-  registerAppProtocol(voiceModel, join(__dirname, '..', 'renderer'))
+  registerAppProtocol(join(__dirname, '..', 'renderer'))
   const canvasRequests = createRemoteCanvasRequests()
-  // A phone whose browser cannot recognize speech sends its recording here, and main transcribes
-  // it with the same prepared model files the renderer dictates with - loaded lazily, because a
-  // 300 MB model is not paid for by a desktop nobody dictates to from a phone.
-  const voiceTranscriber = createRemoteVoiceTranscriber({
+  // Every recording lands here - the composer's over IPC, a phone's over `/api/transcribe` - and
+  // main decodes it with one whisper-server child, loaded lazily: a 1.6 GB model is not paid for
+  // by a desktop nobody dictates to.
+  const voiceTranscriber = createVoiceTranscriber({
     loadEngine: async () => {
       await voiceModel.ensure()
-      return loadMoonshineEngine(voiceModel.directory())
+      const paths = voiceModel.paths()
+      if (!paths) throw new Error(VOICE_MODEL_MISSING_MESSAGE)
+      return loadWhisperEngine({ ...paths, log: mainLog('speech engine') })
     }
   })
+  registerVoiceModelIpc(ipcMain, voiceModel, voiceTranscriber)
   // One usage cache for both surfaces. The desktop header polls it over IPC and the phone reads it
   // over `/api/usage`, so two clients asking about the same account still cost one provider read
   // per TTL rather than one per client - which is the whole reason this sits in main at all.

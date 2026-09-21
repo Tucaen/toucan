@@ -3728,6 +3728,23 @@ button.global-status-chip:hover {
   background: #241d20;
 }
 
+/* While recording there is no live text (the decode is batch); the meter is "I can hear you". */
+.voice-level-meter {
+  align-self: center;
+  width: 46px;
+  height: 6px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: #23303f;
+}
+
+.voice-level-fill {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: #7fb56a;
+}
+
 /*
  * Neutral on purpose. This box reports ordinary progress far more often than it reports a failure,
  * and a red one read as "something went wrong" every time the model was merely loading.

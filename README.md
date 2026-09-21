@@ -81,11 +81,10 @@ npm ci
 npm run dev
 ```
 
-The first launch prepares the English speech-to-text model the composer dictates with. This may
-download about 305 MB into the gitignored
-`src/renderer/public/models/moonshine-medium-streaming-en/` directory. See
-[docs/voice-input.md](docs/voice-input.md) for what runs where and how to measure accuracy on
-your own recordings.
+Dictation downloads its speech engine and model (whisper.cpp with large-v3-turbo, about 1.6 GB)
+into Toucan's user-data directory the first time the microphone is used; nothing is fetched at
+build or launch time. See [docs/voice-input.md](docs/voice-input.md) for what runs where and how
+to measure accuracy on your own recordings.
 
 Toucan opens the repository directory as its first project. Use **Add project** for more
 folders, select a project in the sidebar, then right-click the canvas to create a
@@ -146,8 +145,7 @@ npm run test:dom
 npm run build:mobile
 ```
 
-For packaging or voice-model changes, run the extended gate, which also verifies the local
-model assets and creates a production build:
+For packaging changes, run the extended gate, which also creates a production build:
 
 ```powershell
 npm run check:full

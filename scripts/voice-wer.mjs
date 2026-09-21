@@ -1,19 +1,26 @@
-import { readdir, readFile } from 'node:fs/promises'
+import { spawnSync } from 'node:child_process'
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { basename, extname, join } from 'node:path'
 
-import { Transcriber } from '@moonshine-ai/moonshine-wasm'
-import { STREAMING_ARCHS, ensureModelFiles, modelDirectory } from './voice-model-files.mjs'
+import { MODELS_ROOT, STREAMING_ARCHS, ensureModelFiles, modelDirectory } from './voice-model-files.mjs'
+import { ensureWhisperAssets } from './whisper-files.mjs'
 
 /**
  * Word error rate of Toucan's candidate speech models on *your* recordings.
  *
- *   npm run voice:wer -- <directory> [--models small,medium]
+ *   npm run voice:wer -- <directory> [--models medium,whisper]
  *
  * The directory holds pairs: `name.wav` (16-bit PCM WAV, any rate, mono or stereo) and `name.txt`
  * with what was actually said. Record the prompts you really dictate - identifiers, file names,
  * your microphone, your accent - because published benchmarks are read speech in a quiet room and
- * say little about that. Each model is downloaded on first use into the renderer's models directory,
- * so running this against `medium` also prepares the model Toucan ships with.
+ * say little about that.
+ *
+ * Candidates: the Moonshine streaming models Toucan used to dictate with (`tiny`, `small`,
+ * `medium`) and `whisper` - whisper.cpp with large-v3-turbo, the engine Toucan ships now, decoding
+ * each recording in one batch pass exactly as the app does on Stop. Each candidate is downloaded on
+ * first use. Whisper's per-file time includes its model load, because the CLI pays it per run; the
+ * app loads once and keeps the server resident.
  *
  * WER is Levenshtein distance over normalized words (lower-cased, punctuation stripped) divided by
  * the reference word count, as the benchmarks report it. One number per file, one per model.
@@ -22,15 +29,15 @@ import { STREAMING_ARCHS, ensureModelFiles, modelDirectory } from './voice-model
 const args = process.argv.slice(2)
 const directory = args.find((argument) => !argument.startsWith('--'))
 const modelsFlag = args.indexOf('--models')
-const modelNames = modelsFlag === -1 ? ['small', 'medium'] : args[modelsFlag + 1].split(',')
+const modelNames = modelsFlag === -1 ? ['medium', 'whisper'] : args[modelsFlag + 1].split(',')
 
 if (!directory) {
-  console.error('Usage: node scripts/voice-wer.mjs <directory-with-wav-and-txt-pairs> [--models small,medium]')
+  console.error('Usage: node scripts/voice-wer.mjs <directory-with-wav-and-txt-pairs> [--models medium,whisper]')
   process.exit(2)
 }
 for (const name of modelNames) {
-  if (!STREAMING_ARCHS[name]) {
-    console.error(`Unknown model "${name}". Choose from: ${Object.keys(STREAMING_ARCHS).join(', ')}`)
+  if (name !== 'whisper' && !STREAMING_ARCHS[name]) {
+    console.error(`Unknown model "${name}". Choose from: ${[...Object.keys(STREAMING_ARCHS), 'whisper'].join(', ')}`)
     process.exit(2)
   }
 }
@@ -43,18 +50,12 @@ if (samples.length === 0) {
 
 const rows = []
 for (const name of modelNames) {
-  const { arch } = STREAMING_ARCHS[name]
-  const modelPath = modelDirectory(name)
-  await ensureModelFiles(arch, modelPath, (message) => console.log(`[${name}] ${message}`))
-  const transcriber = await Transcriber.load({ files: await readModelFiles(modelPath), modelArch: arch })
+  const transcribe = name === 'whisper' ? await loadWhisper() : await loadMoonshine(name)
   let errors = 0
   let words = 0
   for (const sample of samples) {
     const started = performance.now()
-    const transcript = transcriber
-      .transcribe(sample.audio, { sampleRate: 16000 })
-      .lines.map((line) => line.text)
-      .join(' ')
+    const transcript = await transcribe.run(sample.audio)
     const elapsed = performance.now() - started
     const reference = normalize(sample.reference)
     const hypothesis = normalize(transcript)
@@ -70,7 +71,7 @@ for (const name of modelNames) {
       transcript
     })
   }
-  transcriber.close()
+  await transcribe.close()
   rows.push({ model: name, file: 'ALL', wer: words ? errors / words : 0, seconds: 0, elapsedMs: 0, transcript: '' })
 }
 
@@ -82,6 +83,50 @@ for (const row of rows) {
   const speed = row.seconds ? `${(row.elapsedMs / 1000 / row.seconds).toFixed(2)}x realtime` : ''
   console.log(`${row.model.padEnd(8)} ${row.file.padEnd(28)} WER ${(row.wer * 100).toFixed(1).padStart(5)}%  ${speed}`)
   console.log(`         heard: ${row.transcript}`)
+}
+
+/** The Moonshine streaming decoder Toucan used to ship, kept for before/after comparison. */
+async function loadMoonshine(name) {
+  const { Transcriber } = await import('@moonshine-ai/moonshine-wasm')
+  const { arch } = STREAMING_ARCHS[name]
+  const modelPath = modelDirectory(name)
+  await ensureModelFiles(arch, modelPath, (message) => console.log(`[${name}] ${message}`))
+  const transcriber = await Transcriber.load({ files: await readModelFiles(modelPath), modelArch: arch })
+  return {
+    run: (audio) =>
+      transcriber
+        .transcribe(audio, { sampleRate: 16000 })
+        .lines.map((line) => line.text)
+        .join(' '),
+    close: () => transcriber.close()
+  }
+}
+
+/** whisper.cpp large-v3-turbo, decoding each recording in one batch pass like the app does. */
+async function loadWhisper() {
+  const { cliPath, modelPath } = await ensureWhisperAssets(join(MODELS_ROOT, 'whisper'), (message) =>
+    console.log(`[whisper] ${message}`)
+  )
+  const workDirectory = await mkdtemp(join(tmpdir(), 'toucan-wer-'))
+  return {
+    run: async (audio) => {
+      const wavPath = join(workDirectory, 'sample.wav')
+      await writeFile(wavPath, wavBytes(audio))
+      // The same trimmed encoder context the app uses (whisperAudioContext in
+      // src/main/whisper-engine.ts), so the harness measures the shipped configuration.
+      const proportional = Math.ceil((audio.length / (16000 * 30)) * 1500)
+      const audioContext = audio.length >= 16000 * 30 ? 1500 : Math.min(1500, Math.max(256, proportional + 128))
+      const args = ['-m', modelPath, '-f', wavPath, '-nt', '-l', 'auto', '--suppress-nst', '-ac', String(audioContext)]
+      const result = spawnSync(cliPath, args, {
+        encoding: 'utf8',
+        windowsHide: true,
+        maxBuffer: 16 * 1024 * 1024
+      })
+      if (result.status !== 0) throw new Error(`whisper-cli failed: ${result.stderr?.slice(-500)}`)
+      return result.stdout.trim()
+    },
+    close: () => rm(workDirectory, { recursive: true, force: true })
+  }
 }
 
 async function loadSamples(root) {
@@ -109,6 +154,29 @@ async function readModelFiles(modelPath) {
     files[name] = new Uint8Array(await readFile(join(modelPath, name)))
   }
   return files
+}
+
+/** 16 kHz mono float samples back to a 16-bit PCM WAV for the whisper CLI. */
+function wavBytes(samples) {
+  const bytes = Buffer.alloc(44 + samples.length * 2)
+  bytes.write('RIFF', 0)
+  bytes.writeUInt32LE(36 + samples.length * 2, 4)
+  bytes.write('WAVE', 8)
+  bytes.write('fmt ', 12)
+  bytes.writeUInt32LE(16, 16)
+  bytes.writeUInt16LE(1, 20)
+  bytes.writeUInt16LE(1, 22)
+  bytes.writeUInt32LE(16000, 24)
+  bytes.writeUInt32LE(32000, 28)
+  bytes.writeUInt16LE(2, 32)
+  bytes.writeUInt16LE(16, 34)
+  bytes.write('data', 36)
+  bytes.writeUInt32LE(samples.length * 2, 40)
+  for (let index = 0; index < samples.length; index += 1) {
+    const clamped = Math.max(-1, Math.min(1, samples[index]))
+    bytes.writeInt16LE(Math.round(clamped * 32767), 44 + index * 2)
+  }
+  return bytes
 }
 
 /** 16-bit PCM WAV to 16 kHz mono float samples. Enough of RIFF for what recorders produce. */

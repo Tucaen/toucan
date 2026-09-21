@@ -1,13 +1,14 @@
 /**
  * The contract for dictating on a phone and transcribing on the desktop.
  *
- * A phone browser will not run Toucan's speech model - the WASM build wants a cross-origin-isolated
- * page, hundreds of megabytes of model and a desktop-class CPU - so when the phone has no speech
- * recognizer of its own it records and lets the host transcribe. What travels is deliberately the
- * dumbest possible audio: raw 16 kHz mono 16-bit PCM. Every browser can produce it from a
- * microphone with plain WebAudio, the host has no audio decoder and needs none, and the model
- * consumes exactly this. A container format (WebM, MP4) would put codec support on both ends and
- * differ by browser; this puts one multiply on the phone.
+ * A phone browser will not run Toucan's speech model - a 1.6 GB checkpoint and a desktop-class
+ * CPU - so when the phone has no speech recognizer of its own it records and lets the host
+ * transcribe. What travels is deliberately the dumbest possible audio: raw 16 kHz mono 16-bit PCM.
+ * Every browser can produce it from a microphone with plain WebAudio, the host has no audio
+ * decoder and needs none, and the model consumes exactly this. A container format (WebM, MP4)
+ * would put codec support on both ends and differ by browser; this puts one multiply on the phone.
+ * The desktop's own dictation sends the very same PCM over IPC, so both surfaces share one bound
+ * and one verdict shape.
  *
  * Both ends read their rules here, so what the phone sends is what the host accepts.
  */
@@ -23,12 +24,6 @@ export const REMOTE_VOICE_BODY_LIMIT = REMOTE_VOICE_SAMPLE_RATE * 2 * REMOTE_VOI
 
 /** `audio/L16` is the registered type for linear PCM (RFC 2586); the rate parameter is mandatory. */
 export const REMOTE_VOICE_CONTENT_TYPE = `audio/L16; rate=${REMOTE_VOICE_SAMPLE_RATE}; channels=1`
-
-/** The language Toucan's local model understands; the desktop says so rather than guessing at others. */
-export const VOICE_MODEL_LANGUAGE = 'en'
-
-/** Where the prepared model assets live, relative to the renderer's public root. */
-export const VOICE_MODEL_ASSET_DIRECTORY = 'models/moonshine-medium-streaming-en'
 
 /**
  * Whether a request body claims to be the PCM this contract wants. Matched on the parsed media type

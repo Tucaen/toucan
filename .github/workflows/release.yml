@@ -10,10 +10,6 @@ jobs:
     runs-on: windows-latest
     permissions:
       contents: read
-    env:
-      # The speech model is not in the installer (the app downloads it on first use), so the
-      # `prebuild` hook must not spend runner minutes fetching 291 MB that would be packaged out.
-      TOUCAN_SKIP_VOICE_MODEL: '1'
     steps:
       - uses: actions/checkout@v5
 

@@ -1,42 +1,47 @@
-import type { RemoteTranscriptionResult } from '../../shared/remote-voice'
-import { REMOTE_VOICE_SAMPLE_RATE } from '../../shared/remote-voice'
-import { withStallGuard } from '../../shared/stall-guard'
+import type { RemoteTranscriptionResult } from '../shared/remote-voice'
+import { REMOTE_VOICE_SAMPLE_RATE } from '../shared/remote-voice'
+import { withStallGuard } from '../shared/stall-guard'
 
 /**
- * Transcription for a phone that cannot transcribe itself.
+ * The policy around the speech engine, for every recording that reaches main: the desktop
+ * composer's dictation over IPC, and a phone that cannot transcribe itself over
+ * `POST /api/transcribe`.
  *
- * The desktop's speech model is a renderer concern for the desktop's own microphone, but a phone's
- * recording arrives over HTTP into the main process, and round-tripping it through a window would
- * make dictation depend on a window being open. So main loads the same model files itself - the
- * WASM runs under Node as it does in Chromium - and this module is the policy around that engine:
+ * The engine is one whisper-server child with a 1.6 GB checkpoint loaded (`whisper-engine.ts`
+ * decides *how*; this module decides *when*):
  *
- * - **Lazy and shared.** A 300 MB model is not loaded for a feature nobody may use; the first
- *   request pays for it and every concurrent one waits on the same load.
- * - **Serialized.** The engine is one native object; two transcriptions at once would interleave
- *   inside it. Requests queue, and a queue of dictations is short by construction.
+ * - **Lazy and shared.** The model is not loaded for a feature nobody may use; the first request
+ *   pays for it and every concurrent one waits on the same load.
+ * - **Serialized.** One helper process decodes one utterance at a time; two dictations at once
+ *   queue, and a queue of dictations is short by construction.
  * - **A failed load is not fatal.** It is reported to whoever was waiting and the next request
  *   tries again, so a model that finishes downloading after the first attempt just works.
- * - **Released when idle.** Hundreds of megabytes are not kept resident for a phone that dictated
+ * - **Released when idle.** A gigabyte and a half is not kept resident for a machine that dictated
  *   once this morning.
- *
- * The engine is injected. This file decides *when*; `voice-engine.ts` decides *how*.
  */
+export interface VoiceTranscribeRequest {
+  /** Text to bias the decoder towards: the dictation context. Whisper's `initial_prompt`. */
+  prompt?: string
+  /** ISO 639-1 code, defaulting to auto-detection - both surfaces are multilingual now. */
+  language?: string
+}
+
 export interface VoiceEngine {
   /** Transcribes one complete mono recording and returns its text, empty for silence. */
-  transcribe(audio: Float32Array, sampleRate: number): string
+  transcribe(audio: Float32Array, sampleRate: number, request?: VoiceTranscribeRequest): Promise<string>
   close(): void
 }
 
-export interface RemoteVoiceTranscriber {
-  /** Never rejects: every failure is an `ok: false` verdict the phone can show. */
-  transcribe(audio: Float32Array): Promise<RemoteTranscriptionResult>
+export interface VoiceTranscriber {
+  /** Never rejects: every failure is an `ok: false` verdict the caller can show. */
+  transcribe(audio: Float32Array, request?: VoiceTranscribeRequest): Promise<RemoteTranscriptionResult>
   loaded(): boolean
   shutdown(): void
 }
 
-export interface RemoteVoiceTranscriberOptions {
+export interface VoiceTranscriberOptions {
   loadEngine(): Promise<VoiceEngine>
-  /** How long a load may take before it is given up on. Reading 300 MB from a slow disk is slow. */
+  /** How long a load may take before it is given up on. Reading 1.6 GB from a slow disk is slow. */
   loadTimeoutMs?: number
   /** How long the model stays resident after its last use. */
   idleUnloadMs?: number
@@ -50,7 +55,7 @@ const DEFAULT_IDLE_UNLOAD_MS = 10 * 60_000
 const LOAD_TIMEOUT_MESSAGE = 'The desktop timed out while loading its speech model.'
 const SHUTDOWN_MESSAGE = 'The desktop is shutting down.'
 
-export function createRemoteVoiceTranscriber(options: RemoteVoiceTranscriberOptions): RemoteVoiceTranscriber {
+export function createVoiceTranscriber(options: VoiceTranscriberOptions): VoiceTranscriber {
   const loadTimeoutMs = options.loadTimeoutMs ?? DEFAULT_LOAD_TIMEOUT_MS
   const idleUnloadMs = options.idleUnloadMs ?? DEFAULT_IDLE_UNLOAD_MS
   const schedule =
@@ -105,7 +110,7 @@ export function createRemoteVoiceTranscriber(options: RemoteVoiceTranscriberOpti
     return loading
   }
 
-  const run = async (audio: Float32Array): Promise<RemoteTranscriptionResult> => {
+  const run = async (audio: Float32Array, request?: VoiceTranscribeRequest): Promise<RemoteTranscriptionResult> => {
     if (shutDown) return { ok: false, message: SHUTDOWN_MESSAGE }
     idleTimer?.cancel()
     idleTimer = null
@@ -116,7 +121,7 @@ export function createRemoteVoiceTranscriber(options: RemoteVoiceTranscriberOpti
       return { ok: false, message: `The desktop could not load its speech model: ${describe(cause)}` }
     }
     try {
-      const text = loaded.transcribe(audio, REMOTE_VOICE_SAMPLE_RATE).trim()
+      const text = (await loaded.transcribe(audio, REMOTE_VOICE_SAMPLE_RATE, request)).trim()
       return { ok: true, text }
     } catch (cause) {
       return { ok: false, message: `The desktop could not transcribe the recording: ${describe(cause)}` }
@@ -126,8 +131,8 @@ export function createRemoteVoiceTranscriber(options: RemoteVoiceTranscriberOpti
   }
 
   return {
-    transcribe(audio): Promise<RemoteTranscriptionResult> {
-      const next = queue.then(() => run(audio))
+    transcribe(audio, request): Promise<RemoteTranscriptionResult> {
+      const next = queue.then(() => run(audio, request))
       // The chain must never reject, or every later request would inherit the rejection.
       queue = next.catch(() => undefined)
       return next

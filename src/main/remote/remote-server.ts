@@ -51,7 +51,7 @@ import {
   routeRequiresPairing
 } from './remote-routes'
 import type { RemoteAccessStore } from './remote-access-store'
-import type { RemoteVoiceTranscriber } from './voice-transcription'
+import type { VoiceTranscriber } from '../voice-transcription'
 
 /**
  * Toucan's only network surface: an HTTP listener the phone talks to, off unless the user turned
@@ -139,7 +139,7 @@ export interface RemoteAccessServerOptions {
    * Transcribes a phone's recording with the desktop's own speech model, for phones whose browser
    * has no recognizer of its own. Absent, the route says the host does not transcribe.
    */
-  transcriber?: Pick<RemoteVoiceTranscriber, 'transcribe'>
+  transcriber?: Pick<VoiceTranscriber, 'transcribe'>
   addresses?: () => RemoteAccessAddress[]
   now?: () => number
 }

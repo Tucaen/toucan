@@ -105,11 +105,11 @@ describe('voiceStatusLine', () => {
 describe('mobileVoiceLabel', () => {
   test('says what the button does, and that a host transcription is what the wait is for', () => {
     assert.equal(mobileVoiceLabel('idle', 'platform'), 'Dictate')
-    assert.equal(mobileVoiceLabel('idle', 'host'), 'Dictate in English (transcribed on the desktop)')
+    assert.equal(mobileVoiceLabel('idle', 'host'), 'Dictate (transcribed on the desktop)')
     assert.equal(mobileVoiceLabel('loading', 'host'), 'Starting microphone')
     assert.equal(mobileVoiceLabel('listening', 'platform'), 'Stop dictation')
     assert.equal(mobileVoiceLabel('stopping', 'platform'), 'Finishing')
     assert.equal(mobileVoiceLabel('stopping', 'host'), 'Transcribing on the desktop')
-    assert.equal(mobileVoiceLabel('error', 'host'), 'Dictate in English (transcribed on the desktop)')
+    assert.equal(mobileVoiceLabel('error', 'host'), 'Dictate (transcribed on the desktop)')
   })
 })

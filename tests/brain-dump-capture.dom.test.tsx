@@ -13,47 +13,33 @@ import { createMockBrainDumpApi, topicFixture, type MockBrainDumpApi } from './d
 
 const speech = { failLoad: false, transcript: 'dictated words' }
 
-vi.mock('@moonshine-ai/moonshine-wasm', () => {
-  // The renderer builds the model from bytes it fetched itself and hands it to the microphone;
-  // see src/renderer/src/voice-model-files.ts for why Moonshine's own downloader is not used.
-  class Transcriber {
-    static async load(): Promise<Transcriber> {
-      return new Transcriber()
+/**
+ * The renderer only records: jsdom has no WebAudio, so the microphone and graph are stubbed, and
+ * the transcript comes back from the (stubbed) host seam - which is exactly where the real one
+ * comes from, whisper decoding the whole recording in main.
+ */
+function stubRecording(): void {
+  Object.defineProperty(navigator, 'mediaDevices', {
+    configurable: true,
+    value: {
+      getUserMedia: async () => {
+        if (speech.failLoad) throw new Error('The microphone could not be opened.')
+        return { getTracks: () => [] }
+      }
     }
-    close(): void {}
+  })
+  class FakeAudioContext {
+    sampleRate = 16_000
+    createMediaStreamSource(): { connect(): void; disconnect(): void } {
+      return { connect: () => {}, disconnect: () => {} }
+    }
+    createScriptProcessor(): { connect(): void; disconnect(): void; onaudioprocess: unknown } {
+      return { connect: () => {}, disconnect: () => {}, onaudioprocess: null }
+    }
+    async close(): Promise<void> {}
   }
-  class MicTranscriber {
-    isRunning = false
-    private line: ((value: { text: string }) => void) | undefined
-    useTranscriber(): this {
-      return this
-    }
-    language(): this {
-      return this
-    }
-    onText(): this {
-      return this
-    }
-    onLine(callback: (value: { text: string }) => void): this {
-      this.line = callback
-      return this
-    }
-    onError(): this {
-      return this
-    }
-    setContext(): void {}
-    async start(): Promise<void> {
-      if (speech.failLoad) throw new Error('The microphone could not be opened.')
-      this.isRunning = true
-      this.line?.({ text: speech.transcript })
-    }
-    async stop(): Promise<void> {
-      this.isRunning = false
-    }
-    close(): void {}
-  }
-  return { MicTranscriber, Transcriber, ModelArch: { MediumStreaming: 'medium-streaming' } }
-})
+  ;(window as unknown as { AudioContext: unknown }).AudioContext = FakeAudioContext
+}
 
 const projects: WorkspaceProject[] = [
   { id: 'toucan', name: 'Toucan', path: 'D:\\Development\\Toucan', color: '#71a9ff' }
@@ -91,15 +77,12 @@ describe('the review tray', () => {
     speech.failLoad = false
     speech.transcript = 'dictated words'
     api = createMockBrainDumpApi()
-    // The renderer only loads the model on a cross-origin-isolated page; jsdom is not one, so the
-    // guard that reports that has to be satisfied before the tray's own states are visible.
-    Object.defineProperty(window, 'crossOriginIsolated', { value: true, configurable: true })
-    window.fetch = vi.fn(async () => new Response(new Uint8Array(1))) as typeof fetch
+    stubRecording()
     // The host reports the speech model present, so the tray's states are the microphone's alone.
     window.voiceModelApi = {
       state: async () => ({ phase: 'ready' }),
       ensure: async () => ({ phase: 'ready' }),
-      files: async () => [{ name: 'streaming_config.json', size: 1 }],
+      transcribe: async () => ({ ok: true, text: speech.transcript }),
       onChange: () => () => undefined
     }
   })
@@ -134,7 +117,7 @@ describe('the review tray', () => {
     window.voiceModelApi = {
       state: async () => ({ phase: 'missing' }),
       ensure: async () => ({ phase: 'error', message: 'Speech model download failed: the network dropped.' }),
-      files: async () => [],
+      transcribe: async () => ({ ok: false, message: 'unreachable' }),
       onChange: () => () => undefined
     }
     renderPanel(api, { draft: 'partly typed already' })
