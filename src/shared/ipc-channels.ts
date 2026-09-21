@@ -160,3 +160,8 @@ export const VOICE_MODEL_CHANNELS = {
   transcribe: 'voice-model:transcribe',
   changed: 'voice-model:changed'
 } as const
+
+export const DICTATION_CLEANUP_CHANNELS = {
+  clean: 'dictation-cleanup:clean',
+  cancel: 'dictation-cleanup:cancel'
+} as const

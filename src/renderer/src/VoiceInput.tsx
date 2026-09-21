@@ -10,6 +10,7 @@ import {
 import { voiceModelProgress } from '../../shared/voice-model'
 import { withStallGuard } from '../../shared/stall-guard'
 import { errorMessage } from '../../shared/text'
+import { useDictationCleanup } from './use-dictation-cleanup'
 import { insertAtSelection, meterLevel, voiceControlLabel, voiceLivePreview, type VoiceState } from './voice-transcript'
 
 export type { VoiceState } from './voice-transcript'
@@ -61,6 +62,9 @@ interface RecordingSession {
 }
 
 export default function VoiceInput(props: VoiceInputProps): JSX.Element {
+  const cleanup = useDictationCleanup()
+  const propsRef = useRef(props)
+  propsRef.current = props
   const [state, setState] = useState<VoiceState>('idle')
   const [progress, setProgress] = useState(0)
   const [elapsed, setElapsed] = useState(0)
@@ -97,6 +101,7 @@ export default function VoiceInput(props: VoiceInputProps): JSX.Element {
       end: textarea?.selectionEnd ?? props.draft.length
     }
     setError('')
+    cleanup.clearReport()
     setProgress(0)
     setElapsed(0)
     levelRef.current = 0
@@ -174,10 +179,17 @@ export default function VoiceInput(props: VoiceInputProps): JSX.Element {
         'The transcription timed out.'
       )
       if (!result.ok) throw new Error(result.message)
-      const transcript = result.text.trim()
+      let transcript = result.text.trim()
       if (transcript) {
+        if (cleanup.enabled) {
+          setState('polishing')
+          const polished = await cleanup.clean(transcript, contextRef.current ?? '')
+          if (!polished) return
+          transcript = polished.text
+        }
         const { start, end } = insertionRef.current
-        props.setDraft(insertAtSelection(props.draft, transcript, start, end))
+        const current = cleanup.enabled ? propsRef.current : props
+        current.setDraft(insertAtSelection(current.draft, transcript, start, end))
         requestAnimationFrame(() => props.textareaRef.current?.focus())
       }
       setState('idle')
@@ -198,10 +210,16 @@ export default function VoiceInput(props: VoiceInputProps): JSX.Element {
         data-state={state}
         aria-label={label}
         title={error || label}
-        disabled={props.disabled || state === 'downloading' || state === 'loading' || state === 'stopping'}
+        disabled={
+          props.disabled ||
+          state === 'downloading' ||
+          state === 'loading' ||
+          state === 'stopping' ||
+          state === 'polishing'
+        }
         onClick={() => (state === 'listening' ? void finish(true) : void begin())}
       >
-        {state === 'downloading' || state === 'loading' || state === 'stopping' ? (
+        {state === 'downloading' || state === 'loading' || state === 'stopping' || state === 'polishing' ? (
           <LoaderCircle aria-hidden="true" />
         ) : state === 'listening' ? (
           <Square aria-hidden="true" />
@@ -209,6 +227,25 @@ export default function VoiceInput(props: VoiceInputProps): JSX.Element {
           <Mic aria-hidden="true" />
         )}
       </button>
+      {state === 'polishing' && (
+        <button
+          type="button"
+          className="voice-cancel-button"
+          title="Use original dictation"
+          aria-label="Use original dictation"
+          onClick={cleanup.cancel}
+        >
+          <X aria-hidden="true" />
+        </button>
+      )}
+      {state === 'idle' && cleanup.report && (
+        <span className="voice-live-preview voice-cleanup-report" role="status" title={cleanup.report}>
+          <span>{cleanup.report}</span>
+          <button type="button" aria-label="Dismiss cleanup status" onClick={cleanup.clearReport}>
+            <X aria-hidden="true" />
+          </button>
+        </span>
+      )}
       {state === 'listening' && (
         <button
           type="button"
@@ -230,7 +267,7 @@ export default function VoiceInput(props: VoiceInputProps): JSX.Element {
           className="voice-live-preview"
           data-state={state}
           title={preview}
-          role={state === 'error' ? 'alert' : undefined}
+          role={state === 'error' ? 'alert' : state === 'polishing' ? 'status' : undefined}
         >
           {preview}
         </span>

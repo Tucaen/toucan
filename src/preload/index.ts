@@ -17,6 +17,8 @@ import type { AdapterManagementApi, AdapterSnapshot } from '../shared/adapter-ma
 import type { TerminalContextApi } from '../shared/terminal-context'
 import type { ProjectAvatarApi } from '../shared/project-avatar'
 import type { DecisionDelegationApi } from '../shared/decision-delegation'
+import type { DictationCleanupApi } from '../shared/dictation-cleanup'
+import { DICTATION_CLEANUP_CHANNELS } from '../shared/ipc-channels'
 import {
   ADAPTER_CHANNELS,
   AGENT_CHANNELS,
@@ -258,3 +260,9 @@ const voiceModelApi: VoiceModelApi = {
 }
 
 contextBridge.exposeInMainWorld('voiceModelApi', voiceModelApi)
+
+const dictationCleanupApi: DictationCleanupApi = {
+  clean: (request) => ipcRenderer.invoke(DICTATION_CLEANUP_CHANNELS.clean, request),
+  cancel: (id) => ipcRenderer.invoke(DICTATION_CLEANUP_CHANNELS.cancel, id)
+}
+contextBridge.exposeInMainWorld('dictationCleanupApi', dictationCleanupApi)

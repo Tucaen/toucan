@@ -90,6 +90,8 @@ import { describeGitBranch } from '../../shared/git-branch'
 import { ProviderRateLimitsContext } from './provider-rate-limits'
 import { describeSessionUsage } from '../../shared/session-usage'
 import VoiceInput from './VoiceInput'
+import { useDictationCleanupPreference } from './dictation-cleanup-context'
+import { DICTATION_CLEANUP_MODELS } from '../../shared/dictation-cleanup'
 import { dictationContext } from './voice-transcript'
 import { recentMentionPaths } from './file-mention-completion'
 import { composerSendKeyLabels, type ComposerSendKey } from './composer-keys'
@@ -324,6 +326,12 @@ const pickerCopy = {
     heading: 'Decisions',
     idle: 'Decisions',
     hint: 'Let decision-shaped subtasks go to an installed decision-provider skill'
+  },
+  cleanup: {
+    icon: Pencil,
+    heading: 'Dictation cleanup',
+    idle: 'Cleanup',
+    hint: 'Polish dictation using your Claude subscription'
   }
 } as const
 
@@ -496,6 +504,7 @@ function ComposerToolbar(
 ): JSX.Element {
   const { sendKey, setSendKey } = useComposerSendKey()
   const routineDelegation = useRoutineDelegation()
+  const cleanup = useDictationCleanupPreference()
   const delegation = describeRoutineDelegation(props.provider, routineDelegation.preference, props.routineDelegation)
   const decisionDelegation = useDecisionDelegation()
   const decisions = describeDecisionDelegation(
@@ -570,6 +579,21 @@ function ComposerToolbar(
         select={(id) => decisionDelegation.setPreference({ enabled: id === DECISION_DELEGATION_ON_OPTION.id })}
       />
       {decisions.note && <span className="composer-toolbar-note">{decisions.note}</span>}
+      <SelectorPicker
+        kind="cleanup"
+        options={[
+          { id: 'off', name: 'Dictation cleanup off', description: 'Keep the local transcript; no subscription usage' },
+          ...DICTATION_CLEANUP_MODELS.map((model) => ({ ...model, name: `Cleanup: ${model.name}` }))
+        ]}
+        selectedId={cleanup.preference.enabled ? (cleanup.preference.claudeModelId ?? 'haiku') : 'off'}
+        disabled={false}
+        select={(id) => {
+          const model = DICTATION_CLEANUP_MODELS.find((option) => option.id === id)
+          cleanup.setPreference(
+            model ? { enabled: true, claudeModelId: model.id } : { ...cleanup.preference, enabled: false }
+          )
+        }}
+      />
       <SelectorPicker
         kind="sendKey"
         options={(Object.keys(composerSendKeyLabels) as ComposerSendKey[]).map((id) => ({

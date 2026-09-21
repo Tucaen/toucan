@@ -22,6 +22,8 @@ import { createVoiceModelStore, type VoiceModelStore } from './voice-model-store
 import { createMainLog } from './main-log'
 import { createVoiceModelPort } from './voice-model-download'
 import { forwardVoiceModelChanges, registerVoiceModelIpc } from './voice-model-ipc'
+import { createDictationCleaner } from './dictation-cleanup'
+import { registerDictationCleanupIpc } from './dictation-cleanup-ipc'
 import { APP_INDEX_URL, APP_ISOLATION_HEADERS, APP_SCHEME, appContentType, appRequestTarget } from './app-protocol'
 import { createAgentEventBroker } from './agent-event-broker'
 import { createBrainDumpLibrary } from './brain-dump-library'
@@ -515,6 +517,7 @@ void app.whenReady().then(async () => {
     }
   })
   registerVoiceModelIpc(ipcMain, voiceModel, voiceTranscriber)
+  const stopDictationCleanup = registerDictationCleanupIpc(ipcMain, createDictationCleaner())
   // One usage cache for both surfaces. The desktop header polls it over IPC and the phone reads it
   // over `/api/usage`, so two clients asking about the same account still cost one provider read
   // per TTL rather than one per client - which is the whole reason this sits in main at all.
@@ -716,6 +719,7 @@ void app.whenReady().then(async () => {
     fileView.shutdown()
     void remote.shutdown()
     voiceTranscriber.shutdown()
+    stopDictationCleanup()
   })
 })
 

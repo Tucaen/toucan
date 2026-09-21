@@ -36,6 +36,25 @@ newest exchange, `src/renderer/src/voice-transcript.ts`) to Whisper as its **ini
 identifiers, file names and product words that are already on screen are what the decoder leans
 towards.
 
+## Optional dictation cleanup
+
+The desktop composer's **Dictation cleanup** picker is off by default. Choose **Cleanup: Haiku**
+for fast polishing or **Cleanup: Sonnet** for difficult dictation. Both use your **Claude
+subscription**, regardless of which provider the conversation uses, and send the raw transcript
+plus the draft/newest-exchange context to Claude. The workspace remembers the choice; it also
+applies to desktop brain-dump dictation. Phone dictation is unchanged.
+
+After transcription, **Polishing…** has a **Use original dictation** button that immediately
+inserts the raw text. Cleanup has a 30-second deadline. A failure or timeout inserts the original
+dictation and shows the reason, while success reports the requested model as unverified. No
+dictation is sent as a message automatically.
+
+Cleanup runs a separate, hidden Claude CLI process with no tools, customizations or session
+persistence. It never enters the node's ACP session, conversation history, titles or outcome
+records. `dictation-cleanup.ts` owns fallback/deadlines, `claude-dictation-cleanup.ts` owns the
+process, and `use-dictation-cleanup.ts` retains the raw text even if IPC stops replying. Tests fake
+the process and IPC boundaries and spend no account tokens.
+
 ## Measuring accuracy on your own prompts
 
 Published WER is read speech in a quiet room. Toucan prompts are spontaneous, technical, and often

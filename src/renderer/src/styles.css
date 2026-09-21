@@ -3770,6 +3770,14 @@ button.global-status-chip:hover {
 }
 
 /* The one state that is worth alarming about. A failure is also worth reading in full. */
+.voice-cleanup-report {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  white-space: normal;
+  pointer-events: auto;
+}
+
 .voice-live-preview[data-state='error'] {
   border-color: #6b3a40;
   color: #e8c9cc;

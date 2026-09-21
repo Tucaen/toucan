@@ -11,7 +11,7 @@
 
 import { WHISPER_DOWNLOAD_GIGABYTES } from '../../shared/whisper-assets'
 
-export type VoiceState = 'idle' | 'downloading' | 'loading' | 'listening' | 'stopping' | 'error'
+export type VoiceState = 'idle' | 'downloading' | 'loading' | 'listening' | 'stopping' | 'polishing' | 'error'
 
 /** Replaces the selection with `text`, adding a space wherever it would otherwise touch a word. */
 export function insertAtSelection(value: string, text: string, start: number, end: number): string {
@@ -41,6 +41,8 @@ export function voiceControlLabel(state: VoiceState, progress: number): string {
       return 'Stop dictation'
     case 'stopping':
       return 'Finishing...'
+    case 'polishing':
+      return 'Polishing dictation'
     case 'idle':
     case 'error':
       return 'Dictate'
@@ -74,6 +76,8 @@ export function voiceLivePreview(
       return `Recording ${formatElapsed(elapsedSeconds)}`
     case 'stopping':
       return 'Finishing…'
+    case 'polishing':
+      return 'Polishing…'
     case 'error':
       return error || 'Dictation could not start.'
     case 'idle':

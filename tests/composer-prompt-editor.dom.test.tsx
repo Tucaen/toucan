@@ -3,6 +3,7 @@ import type { FormEvent, ReactElement } from 'react'
 import { describe, expect, test, vi } from 'vitest'
 import { TestChatView as ChatView, type TestChatViewProps as ChatViewProps } from './dom/chat-view-fixture'
 import { ComposerSendKeyContext } from '../src/renderer/src/composer-send-key-context'
+import { DictationCleanupContext } from '../src/renderer/src/dictation-cleanup-context'
 import type { ComposerSendKey } from '../src/renderer/src/composer-keys'
 
 // The composer as a prompt editor: the send-key preference, prompt history, the queued-prompt
@@ -39,6 +40,19 @@ const baseChatViewProps: ChatViewProps = {
   openAuthLink: vi.fn(),
   resolveApproval: vi.fn()
 }
+
+test('dictation cleanup offers an explicit subscription opt-in and fixed Claude model choices', () => {
+  const setPreference = vi.fn()
+  render(
+    <DictationCleanupContext.Provider value={{ preference: { enabled: false }, setPreference }}>
+      <ChatView {...baseChatViewProps} focusMode={false} setFocusMode={vi.fn()} />
+    </DictationCleanupContext.Provider>
+  )
+  fireEvent.click(screen.getByRole('button', { name: /Dictation cleanup/ }))
+  expect(screen.getAllByText(/uses your Claude subscription/)).toHaveLength(2)
+  fireEvent.click(screen.getByRole('option', { name: /Haiku/ }))
+  expect(setPreference).toHaveBeenCalledWith({ enabled: true, claudeModelId: 'haiku' })
+})
 
 function renderChatView(
   overrides: Partial<ChatViewProps>,
@@ -260,8 +274,8 @@ describe('the composer toolbar', () => {
     expect(toolbar).not.toBeNull()
     expect(toolbar).toHaveTextContent('Claude')
     // Model, effort, permissions, routine-work delegation (issue #179: Claude nodes too),
-    // decision delegation (issue #213), send key.
-    expect(toolbar.querySelectorAll('.node-picker')).toHaveLength(6)
+    // decision delegation (issue #213), dictation cleanup (issue #215), send key.
+    expect(toolbar.querySelectorAll('.node-picker')).toHaveLength(7)
     // Still inside the composer, not stranded in the node header.
     expect(toolbar.closest('.chat-composer')).not.toBeNull()
   })
@@ -269,9 +283,8 @@ describe('the composer toolbar', () => {
   test('a selector the adapter has not reported simply does not take up a slot', () => {
     const container = renderChatView({})
     const toolbar = container.querySelector('.composer-toolbar') as HTMLElement
-    // Only the three workspace-wide pickers remain: routine-work delegation, decisions and the
-    // send key - none of them is reported by an adapter.
-    expect(toolbar.querySelectorAll('.node-picker')).toHaveLength(3)
+    // Workspace-wide routine delegation, decisions, dictation cleanup and send key remain.
+    expect(toolbar.querySelectorAll('.node-picker')).toHaveLength(4)
   })
 })
 

@@ -17,6 +17,7 @@ const microphoneStateLabels: Record<VoiceState, string> = {
   loading: 'Preparing the local speech model',
   listening: 'Listening — speak now',
   stopping: 'Finishing the transcript',
+  polishing: 'Polishing the transcript',
   error: 'The microphone could not be used'
 }
 

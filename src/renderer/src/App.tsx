@@ -134,6 +134,8 @@ import {
 import { COMPOSER_SEND_KEY_DEFAULT } from './composer-keys'
 import { ComposerSendKeyContext } from './composer-send-key-context'
 import { RoutineDelegationContext } from './routine-delegation-context'
+import { DictationCleanupContext } from './dictation-cleanup-context'
+import type { DictationCleanupPreference } from '../../shared/dictation-cleanup'
 import { DecisionDelegationContext } from './decision-delegation-context'
 import type { RoutineDelegationPreference } from '../../shared/routine-delegation'
 import type { DecisionDelegationPreference } from '../../shared/decision-delegation'
@@ -328,6 +330,7 @@ function Canvas(): JSX.Element {
   const [agentPermissionModes, setAgentPermissionModes] = useState<AgentPermissionModes>({})
   const [composerSendKey, setComposerSendKey] = useState<ComposerSendKey>(COMPOSER_SEND_KEY_DEFAULT)
   const [routineDelegation, setRoutineDelegation] = useState<RoutineDelegationPreference>({ enabled: false })
+  const [dictationCleanup, setDictationCleanup] = useState<DictationCleanupPreference>({ enabled: false })
   const [decisionDelegation, setDecisionDelegation] = useState<DecisionDelegationPreference>({ enabled: false })
   // Undefined until a probe answers, which reads as "not known" rather than "not installed" - the
   // picker leaves its On option open on an unknown, since the launch-time probe, not this one,
@@ -1531,6 +1534,7 @@ function Canvas(): JSX.Element {
       setComposerSendKey(saved.composerSendKey ?? COMPOSER_SEND_KEY_DEFAULT)
       // Absent in older snapshots means off: existing workspaces migrate with delegation disabled.
       setRoutineDelegation(saved.routineDelegation ?? { enabled: false })
+      setDictationCleanup(saved.dictationCleanup ?? { enabled: false })
       setDecisionDelegation(saved.decisionDelegation ?? { enabled: false })
       setRecentlyClosedNodes(saved.recentlyClosedNodes ?? [])
       setLayoutSlots(pruneLayoutSlots(saved.layoutSlots ?? {}, new Set(restored.nodes.map((node) => node.id))))
@@ -1585,6 +1589,7 @@ function Canvas(): JSX.Element {
         : {}),
       // Same rule: absent until the user first turns it on, so older workspaces keep their shape.
       ...(decisionDelegation.enabled ? { decisionDelegation } : {}),
+      ...(dictationCleanup.enabled || dictationCleanup.claudeModelId ? { dictationCleanup } : {}),
       // One array per node kind, from the one table that knows how each is persisted - including
       // which of them stay absent from the snapshot rather than being written empty.
       ...serializeCanvasNodes(nodes, (node) => nodeBeforeTemporaryFit(node, nodeFit.state())),
@@ -1603,6 +1608,7 @@ function Canvas(): JSX.Element {
       brainDumpPanel,
       composerSendKey,
       decisionDelegation,
+      dictationCleanup,
       nodes,
       projectGroups,
       projects,
@@ -2400,6 +2406,10 @@ function Canvas(): JSX.Element {
     () => ({ preference: routineDelegation, setPreference: setRoutineDelegation }),
     [routineDelegation]
   )
+  const dictationCleanupSetting = useMemo(
+    () => ({ preference: dictationCleanup, setPreference: setDictationCleanup }),
+    [dictationCleanup]
+  )
 
   // No watcher and no poll: the answer only changes when the user installs a plugin. Asked once at
   // mount and again on every picker open - the mount probe is what stops a first open rendering
@@ -2423,7 +2433,7 @@ function Canvas(): JSX.Element {
     [decisionDelegation, decisionProviderInstalled, refreshDecisionProvider]
   )
 
-  return (
+  const workspace = (
     <ComposerSendKeyContext.Provider value={sendKeyPreference}>
       <RoutineDelegationContext.Provider value={routineDelegationSetting}>
         <DecisionDelegationContext.Provider value={decisionDelegationSetting}>
@@ -3205,6 +3215,9 @@ function Canvas(): JSX.Element {
         </DecisionDelegationContext.Provider>
       </RoutineDelegationContext.Provider>
     </ComposerSendKeyContext.Provider>
+  )
+  return (
+    <DictationCleanupContext.Provider value={dictationCleanupSetting}>{workspace}</DictationCleanupContext.Provider>
   )
 }
 

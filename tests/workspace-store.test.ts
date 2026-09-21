@@ -24,6 +24,13 @@ function makeState(marker: string): WorkspaceState {
   }
 }
 
+test('dictation cleanup remains opt-in and rejects models outside its fixed list', () => {
+  assert.equal(parseWorkspaceState(makeState('old'))?.dictationCleanup, undefined)
+  const state = { ...makeState('cleanup'), dictationCleanup: { enabled: true, claudeModelId: 'sonnet' } }
+  assert.deepEqual(parseWorkspaceState(state)?.dictationCleanup, state.dictationCleanup)
+  assert.equal(isWorkspaceState({ ...state, dictationCleanup: { enabled: true, claudeModelId: 'opus' } }), false)
+})
+
 test('loads a version 1 workspace as an empty version 3 canvas', () => {
   const migrated = parseWorkspaceState({
     version: 1,
