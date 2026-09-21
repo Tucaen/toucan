@@ -18,6 +18,9 @@ import { withStallGuard } from '../shared/stall-guard'
  *   tries again, so a model that finishes downloading after the first attempt just works.
  * - **Released when idle.** A gigabyte and a half is not kept resident for a machine that dictated
  *   once this morning.
+ * - **Never orphaned.** Giving up on a load - the deadline, or a quit - aborts it, because the
+ *   stall guard only abandons a promise while the helper process keeps loading; and an engine
+ *   whose process died is released rather than left pinned as "the engine".
  */
 export interface VoiceTranscribeRequest {
   /** Text to bias the decoder towards: the dictation context. Whisper's `initial_prompt`. */
@@ -29,6 +32,8 @@ export interface VoiceTranscribeRequest {
 export interface VoiceEngine {
   /** Transcribes one complete mono recording and returns its text, empty for silence. */
   transcribe(audio: Float32Array, sampleRate: number, request?: VoiceTranscribeRequest): Promise<string>
+  /** Whether the engine can still decode. False once its helper process is gone. */
+  alive(): boolean
   close(): void
 }
 
@@ -40,7 +45,11 @@ export interface VoiceTranscriber {
 }
 
 export interface VoiceTranscriberOptions {
-  loadEngine(): Promise<VoiceEngine>
+  /**
+   * Loads the engine. The signal is aborted when the load is given up on - the deadline below, or
+   * a shutdown - and the loader must take that as far as whatever it has already started.
+   */
+  loadEngine(signal: AbortSignal): Promise<VoiceEngine>
   /** How long a load may take before it is given up on. Reading 1.6 GB from a slow disk is slow. */
   loadTimeoutMs?: number
   /** How long the model stays resident after its last use. */
@@ -66,7 +75,8 @@ export function createVoiceTranscriber(options: VoiceTranscriberOptions): VoiceT
     })
 
   let engine: VoiceEngine | null = null
-  let loading: Promise<VoiceEngine> | null = null
+  // One fact, not two: a load in flight is its promise and the handle that abandons it.
+  let load: { engine: Promise<VoiceEngine>; abandon: AbortController } | null = null
   let idleTimer: { cancel(): void } | null = null
   let shutDown = false
   // The tail of the queue; each request chains onto it so the engine sees one at a time.
@@ -89,10 +99,11 @@ export function createVoiceTranscriber(options: VoiceTranscriberOptions): VoiceT
 
   const ensureEngine = (): Promise<VoiceEngine> => {
     if (engine) return Promise.resolve(engine)
-    if (!loading) {
-      loading = withStallGuard(options.loadEngine(), loadTimeoutMs, LOAD_TIMEOUT_MESSAGE).then(
+    if (!load) {
+      const abandon = new AbortController()
+      const loading = withStallGuard(options.loadEngine(abandon.signal), loadTimeoutMs, LOAD_TIMEOUT_MESSAGE).then(
         (loaded) => {
-          loading = null
+          load = null
           // A shutdown that raced the load owns the engine now, so it is closed rather than kept.
           if (shutDown) {
             loaded.close()
@@ -102,12 +113,16 @@ export function createVoiceTranscriber(options: VoiceTranscriberOptions): VoiceT
           return loaded
         },
         (cause: unknown) => {
-          loading = null
+          load = null
+          // The guard abandons this promise the moment the deadline passes; the signal is what
+          // still reaches the helper the loader started, so it is aborted with the same reason.
+          abandon.abort(cause)
           throw cause
         }
       )
+      load = { engine: loading, abandon }
     }
-    return loading
+    return load.engine
   }
 
   const run = async (audio: Float32Array, request?: VoiceTranscribeRequest): Promise<RemoteTranscriptionResult> => {
@@ -124,6 +139,9 @@ export function createVoiceTranscriber(options: VoiceTranscriberOptions): VoiceT
       const text = (await loaded.transcribe(audio, REMOTE_VOICE_SAMPLE_RATE, request)).trim()
       return { ok: true, text }
     } catch (cause) {
+      // A helper whose process died must not stay pinned as "the engine": every later dictation
+      // would fail the same way, and each failure would re-arm the idle release on a corpse.
+      if (engine === loaded && !loaded.alive()) release()
       return { ok: false, message: `The desktop could not transcribe the recording: ${describe(cause)}` }
     } finally {
       if (!shutDown && engine) armIdleRelease()
@@ -140,6 +158,7 @@ export function createVoiceTranscriber(options: VoiceTranscriberOptions): VoiceT
     loaded: () => engine !== null,
     shutdown(): void {
       shutDown = true
+      load?.abandon.abort(new Error(SHUTDOWN_MESSAGE))
       release()
     }
   }

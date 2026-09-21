@@ -12,13 +12,18 @@ import { createVoiceTranscriber, type VoiceEngine, type VoiceTranscribeRequest }
 
 function fakeEngine(
   text = 'hello world'
-): VoiceEngine & { calls: number; closed: boolean; busy: number; overlap: number } {
+): VoiceEngine & { calls: number; closed: boolean; busy: number; overlap: number; dead: boolean } {
   const engine = {
     calls: 0,
     closed: false,
     busy: 0,
     overlap: 0,
+    dead: false,
+    alive(): boolean {
+      return !engine.dead
+    },
     async transcribe(audio: Float32Array): Promise<string> {
+      if (engine.dead) throw new Error('The speech engine stopped responding.')
       engine.calls += 1
       engine.busy += 1
       engine.overlap = Math.max(engine.overlap, engine.busy)
@@ -167,6 +172,7 @@ describe('remote voice transcriber', () => {
           seen.push(request)
           return 'ok'
         },
+        alive: () => true,
         close: () => {}
       }),
       schedule: manualClock().schedule
@@ -210,6 +216,71 @@ describe('remote voice transcriber', () => {
     assert.equal(transcriber.loaded(), false)
 
     await transcriber.transcribe(audio)
+    assert.equal(engines.length, 2)
+  })
+
+  test('giving up on a load at the deadline aborts it, so the child behind it is not orphaned', async () => {
+    let seen: AbortSignal | undefined
+    const transcriber = createVoiceTranscriber({
+      loadEngine: (signal) => {
+        seen = signal
+        return new Promise<VoiceEngine>(() => {})
+      },
+      loadTimeoutMs: 5,
+      schedule: manualClock().schedule
+    })
+    const result = await transcriber.transcribe(audio)
+    assert.equal(result.ok, false)
+    // The stall guard only abandons the promise; the signal is the only thing that still reaches
+    // the 1.6 GB helper the abandoned load left running.
+    assert.equal(seen?.aborted, true)
+  })
+
+  test('shutdown aborts a load still in flight', async () => {
+    let seen: AbortSignal | undefined
+    const transcriber = createVoiceTranscriber({
+      // The real loader gives up when its signal is aborted, which is what settles the request.
+      loadEngine: (signal) => {
+        seen = signal
+        return new Promise<VoiceEngine>((_resolve, reject) => {
+          signal.addEventListener('abort', () => reject(signal.reason as Error), { once: true })
+        })
+      },
+      schedule: manualClock().schedule
+    })
+    const pending = transcriber.transcribe(audio)
+    await new Promise((resolve) => setImmediate(resolve))
+    transcriber.shutdown()
+    const result = await pending
+    assert.equal(result.ok, false)
+    assert.equal(seen?.aborted, true)
+  })
+
+  test('an engine whose process died is released, and the next request loads a fresh one', async () => {
+    const engines: ReturnType<typeof fakeEngine>[] = []
+    const transcriber = createVoiceTranscriber({
+      loadEngine: async () => {
+        const engine = fakeEngine()
+        engines.push(engine)
+        return engine
+      },
+      schedule: manualClock().schedule
+    })
+    await transcriber.transcribe(audio)
+    // The real engine learns its child is gone *as* the decode fails, not before it starts - so
+    // the release has to follow from this failure rather than from a flag set ahead of it.
+    engines[0].transcribe = async (): Promise<string> => {
+      engines[0].dead = true
+      throw new Error('The speech engine stopped responding.')
+    }
+    const failed = await transcriber.transcribe(audio)
+    assert.equal(failed.ok, false)
+    // A crashed helper must not stay pinned: otherwise every later dictation fails the same way
+    // and each failure re-arms the idle release on a process that is already gone.
+    assert.equal(transcriber.loaded(), false)
+    assert.equal(engines[0].closed, true)
+
+    assert.deepEqual(await transcriber.transcribe(audio), { ok: true, text: 'hello world' })
     assert.equal(engines.length, 2)
   })
 

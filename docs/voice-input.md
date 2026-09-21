@@ -102,9 +102,15 @@ keeps the server resident.
 - `src/main/whisper-engine.ts` spawns `whisper-server` (hidden, per the `background-process.ts`
   policy), polls `/health` until the model is loaded, and turns each recording into a multipart
   `/inference` request - `language=auto`, `temperature=0`, the dictation context as `prompt`, and
-  `--suppress-nst` so silence decodes to nothing rather than a literal `[BLANK_AUDIO]`.
+  `--suppress-nst` so silence decodes to nothing rather than a literal `[BLANK_AUDIO]`. The load
+  takes an `AbortSignal`: the stall guard only abandons a promise, so without one a load that
+  outlived its deadline - or a quit during one - would leave 1.6 GB of native process running with
+  no handle left to reach it. The engine also reports `alive()`, which is false once the child is
+  gone.
 - `src/main/voice-transcription.ts` is the policy around it: lazy shared load bounded by
   `withStallGuard`, serialized requests, retry after a failed load, release after ten idle minutes.
+  It aborts the load's signal at the deadline and on shutdown, and releases an engine whose process
+  died rather than leaving a corpse pinned as "the engine" for the rest of the idle period.
 - `src/main/voice-model-ipc.ts` is the renderer seam: model state/ensure plus `transcribe`, which
   re-checks the same PCM bounds the phone route enforces before decoding.
 - `src/shared/remote-voice.ts` is the recording contract both surfaces share: `audio/L16; rate=16000`,
@@ -129,7 +135,9 @@ because a custom scheme has no server to label a module script. `tests/app-proto
 the routing and the types.
 
 Tests: `tests/voice-transcript.test.ts`, `tests/voice-model-store.test.ts`,
-`tests/voice-transcription.test.ts`, `tests/whisper-assets.test.ts`, `tests/zip-extract.test.ts`,
+`tests/voice-model-download.test.ts`, `tests/voice-model-ipc.test.ts`,
+`tests/voice-transcription.test.ts`, `tests/whisper-engine.test.ts`, `tests/whisper-assets.test.ts`,
+`tests/zip-extract.test.ts`,
 `tests/remote-voice.test.ts`, the transcribe cases in `tests/remote-server.test.ts`,
 `tests/mobile-voice-input.test.ts`, `tests/mobile-voice-input.dom.test.tsx`, and the microphone
 capture path in `tests/brain-dump-capture.dom.test.tsx`.

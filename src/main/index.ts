@@ -509,11 +509,12 @@ void app.whenReady().then(async () => {
   // main decodes it with one whisper-server child, loaded lazily: a 1.6 GB model is not paid for
   // by a desktop nobody dictates to.
   const voiceTranscriber = createVoiceTranscriber({
-    loadEngine: async () => {
+    loadEngine: async (signal) => {
       await voiceModel.ensure()
       const paths = voiceModel.paths()
       if (!paths) throw new Error(VOICE_MODEL_MISSING_MESSAGE)
-      return loadWhisperEngine({ ...paths, log: mainLog('speech engine') })
+      // The signal is what reaches the child when the load is given up on or Toucan quits.
+      return loadWhisperEngine({ ...paths, log: mainLog('speech engine'), signal })
     }
   })
   registerVoiceModelIpc(ipcMain, voiceModel, voiceTranscriber)
