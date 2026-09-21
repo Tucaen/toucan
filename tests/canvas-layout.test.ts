@@ -2,12 +2,14 @@ import { deepEqual, equal } from 'node:assert/strict'
 import { test } from 'node:test'
 import {
   applyLayoutSlot,
+  canvasOverlayOpen,
   captureLayoutSlot,
   layoutKeyAction,
   matchNodeSizes,
   nextTileMode,
   pruneLayoutSlots,
   tileNodes,
+  type CanvasOverlays,
   type LayoutShortcutKey
 } from '../src/renderer/src/canvas-layout'
 
@@ -124,4 +126,23 @@ test('pruning drops ids that are gone and slots left with nothing', () => {
   const pruned = pruneLayoutSlots(slots, new Set(['a', 'c']))
   deepEqual(Object.keys(pruned), ['1'])
   deepEqual(Object.keys(pruned['1']).sort(), ['a', 'c'])
+})
+
+test('every surface that covers the canvas gates the shortcuts, one by one', () => {
+  // The bug this guards: the project settings dialog and the sidebar's context menu were missing
+  // from the expression this replaced, so Ctrl+N put a node on the canvas behind the modal.
+  const closed: CanvasOverlays = {
+    filePicker: false,
+    conversationHistory: false,
+    worktreeDraft: false,
+    worktreeRemoval: false,
+    remoteAccess: false,
+    adapterManagement: false,
+    projectSettings: false,
+    projectMenu: false
+  }
+  equal(canvasOverlayOpen(closed), false)
+  for (const surface of Object.keys(closed) as (keyof CanvasOverlays)[]) {
+    equal(canvasOverlayOpen({ ...closed, [surface]: true }), true, surface)
+  }
 })

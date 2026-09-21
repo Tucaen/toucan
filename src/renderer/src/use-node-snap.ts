@@ -18,8 +18,14 @@ export interface NodeSnapController<T extends Node> {
   toggle(nodeId: string): void
   /** One Alt+Arrow press: on two ids the pair is placed side by side or stacked, otherwise the first steps through Windows Snap. */
   snap(ids: readonly string[], arrow: SnapArrow): void
-  /** Forgets the snap state of the given nodes (all when omitted) without moving them; for layouts that place nodes themselves. */
-  release(ids?: readonly string[]): void
+  /**
+   * Forgets the snap state of the given nodes (all when omitted) without moving them; for layouts
+   * that place nodes themselves. Returns the released node array, which is the array such a layout
+   * must start from: `getNodes` still reads the pre-release one until React has applied this
+   * update, so a layout that re-read it would write the cleared `fittedToCanvas` flags straight
+   * back on while `state()` reported nothing snapped - a header offering "restore" that maximises.
+   */
+  release(ids?: readonly string[]): T[]
   /**
    * Must see every React Flow node change before it is applied: a drag or manual resize of a
    * snapped node releases it, and a removed node takes its snap state with it.
@@ -96,8 +102,10 @@ export function useNodeSnap<T extends Node>({
   )
 
   const release = useCallback(
-    (ids: readonly string[] = Object.keys(snaps.current)): void => {
-      apply(releaseSnaps(getNodes(), snaps.current, ids))
+    (ids: readonly string[] = Object.keys(snaps.current)): T[] => {
+      const result = releaseSnaps(getNodes(), snaps.current, ids)
+      apply(result)
+      return result.nodes
     },
     [apply, getNodes]
   )

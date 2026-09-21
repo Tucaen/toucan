@@ -20,6 +20,7 @@ import type { WorktreeHandoffPlan } from '../../shared/worktree-handoff'
 import type { ConversationTitleSource } from '../../shared/conversation-title'
 import type { TicketActivityReport } from './ticket-activity'
 import type { NodeGeometry } from './node-snap'
+import { launchModeOnOpen, type SessionLaunchMode } from './session-launch-mode'
 
 /** Re-exported so canvas modules keep one import site; the union itself is a shared contract. */
 export type { TerminalNodeStatus }
@@ -135,9 +136,9 @@ export interface TerminalNodeData
    * How the next session creation opens: fresh, loading `conversationId`, or forking the
    * conversation named by `branchedFrom`. `fork` lasts exactly until the child reports a
    * conversation id of its own, after which it rehydrates as an ordinary `resume` - the same
-   * one-shot life `new` has.
+   * one-shot life `new` has. `session-launch-mode.ts` owns both of those transitions.
    */
-  launchMode: 'new' | 'resume' | 'fork'
+  launchMode: SessionLaunchMode
   /** Which conversation this one was branched off; see conversation-lineage.ts. */
   branchedFrom?: ConversationLineage
   /**
@@ -684,10 +685,7 @@ function restoreTerminalCanvasNode(
       turnOutcomes: savedNode.kind === 'terminal' ? undefined : savedNode.turnOutcomes,
       dormant,
       branchedFrom: savedNode.branchedFrom,
-      // A branch that never got as far as its own conversation id is still a branch: it reopens as
-      // the fork it was launched as. Everything else resumes, which for an already-forked child
-      // means loading the conversation the fork produced.
-      launchMode: !savedNode.conversationId && savedNode.branchedFrom ? 'fork' : 'resume',
+      launchMode: launchModeOnOpen(savedNode),
       onStatusChange: callbacks.onStatusChange,
       onAttention: callbacks.onAttention,
       onTicketActivity: callbacks.onTicketActivity,

@@ -1,10 +1,37 @@
 /**
  * Layout commands that place nodes themselves - tiling, matching sizes, and remembered
- * arrangements - plus the keys that reach them and snap. Snap itself lives in `node-snap.ts`.
+ * arrangements - plus the keys that reach them and snap, and the overlay set that silences those
+ * keys. Snap itself lives in `node-snap.ts`.
  */
 import type { Node } from '@xyflow/react'
 import type { WorkspaceLayoutSlot } from '../../shared/terminal'
 import { nodeAtGeometry, renderedNodeGeometry, type NodeGeometry, type SnapArrow } from './node-snap'
+
+/**
+ * Every surface that covers the canvas rather than docking beside it. Named one by one rather than
+ * OR-ed together at the call site because the create and layout shortcuts are gated on this, and
+ * two overlays were once missing from that expression - Ctrl+N behind an open dialog put a node on
+ * the canvas the user could not see. A new overlay has to be added here to type-check, and
+ * `canvasOverlayOpen` then gates on it for free.
+ *
+ * Docked panels are deliberately absent: they take layout width, so a node created behind one is
+ * still visible.
+ */
+export interface CanvasOverlays {
+  filePicker: boolean
+  conversationHistory: boolean
+  worktreeDraft: boolean
+  worktreeRemoval: boolean
+  remoteAccess: boolean
+  adapterManagement: boolean
+  projectSettings: boolean
+  projectMenu: boolean
+}
+
+/** Whether anything is covering the canvas, so the create and layout shortcuts must stand down. */
+export function canvasOverlayOpen(overlays: CanvasOverlays): boolean {
+  return Object.values(overlays).some(Boolean)
+}
 
 export type TileMode = 'grid' | 'columns' | 'rows'
 export const TILE_MODES: readonly TileMode[] = ['grid', 'columns', 'rows']

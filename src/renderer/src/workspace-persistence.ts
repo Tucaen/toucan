@@ -63,9 +63,14 @@ export function useWorkspacePersistence({
     if (!ready) return
     setSaveStatus('saving')
     const timeout = setTimeout(() => {
-      void window.terminalApi.saveWorkspace(snapshot).then((result) => {
-        setSaveStatus(result.ok ? 'saved' : 'error')
-      })
+      void window.terminalApi
+        .saveWorkspace(snapshot)
+        .then((result) => {
+          setSaveStatus(result.ok ? 'saved' : 'error')
+        })
+        // A rejected save is the same news as a refused one: without this the status sat on
+        // 'saving' for the rest of the session and the header never reported unsaved work.
+        .catch(() => setSaveStatus('error'))
     }, saveDelayMs)
     return () => clearTimeout(timeout)
   }, [ready, saveDelayMs, snapshot])

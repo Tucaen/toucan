@@ -218,6 +218,18 @@ button {
   box-shadow: 0 0 9px rgba(224, 179, 79, 0.6);
 }
 
+/* The chip carries a short label; the sentence behind it is the button's title. */
+.global-status-chip[data-kind='notice'] {
+  color: #f4d38a;
+  border-color: #6a5324;
+  background: #2a2214;
+}
+
+.global-status-chip[data-kind='notice'] .global-status-dot {
+  background: #e0b34f;
+  box-shadow: 0 0 9px rgba(224, 179, 79, 0.6);
+}
+
 /* The dismissible chip is a button; nothing about it should look like one. */
 button.global-status-chip {
   cursor: pointer;
