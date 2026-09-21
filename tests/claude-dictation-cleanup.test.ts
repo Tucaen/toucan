@@ -7,13 +7,17 @@ import { runClaudeCleanup } from '../src/main/claude-dictation-cleanup'
 test('cleanup launches a hidden, nonpersistent, tool-free Claude turn with subscription auth', async (t) => {
   const oldKey = process.env.ANTHROPIC_API_KEY
   const oldRoute = process.env.CLAUDE_CODE_USE_BEDROCK
+  const oldThinking = process.env.MAX_THINKING_TOKENS
   process.env.ANTHROPIC_API_KEY = 'must-not-use-api-billing'
   process.env.CLAUDE_CODE_USE_BEDROCK = '1'
+  process.env.MAX_THINKING_TOKENS = '31999'
   t.after(() => {
     if (oldKey === undefined) delete process.env.ANTHROPIC_API_KEY
     else process.env.ANTHROPIC_API_KEY = oldKey
     if (oldRoute === undefined) delete process.env.CLAUDE_CODE_USE_BEDROCK
     else process.env.CLAUDE_CODE_USE_BEDROCK = oldRoute
+    if (oldThinking === undefined) delete process.env.MAX_THINKING_TOKENS
+    else process.env.MAX_THINKING_TOKENS = oldThinking
   })
   let input = ''
   const signal = new AbortController().signal
@@ -29,6 +33,9 @@ test('cleanup launches a hidden, nonpersistent, tool-free Claude turn with subsc
     assert.equal(options.killSignal, 'SIGKILL')
     assert.equal(options.env?.ANTHROPIC_API_KEY, undefined)
     assert.equal(options.env?.CLAUDE_CODE_USE_BEDROCK, undefined)
+    // Thinking triples the wall clock on a task that is not reasoning; the cleanup deadline assumes
+    // it stays off, and an inherited value must not win.
+    assert.equal(options.env?.MAX_THINKING_TOKENS, '0')
     for (const flag of [
       '-p',
       '--safe-mode',

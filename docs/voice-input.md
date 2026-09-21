@@ -45,9 +45,17 @@ plus the draft/newest-exchange context to Claude. The workspace remembers the ch
 applies to desktop brain-dump dictation. Phone dictation is unchanged.
 
 After transcription, **Polishing…** has a **Use original dictation** button that immediately
-inserts the raw text. Cleanup has a 30-second deadline. A failure or timeout inserts the original
+inserts the raw text. Cleanup has a 10-second deadline. A failure or timeout inserts the original
 dictation and shows the reason, while success reports the requested model as unverified. No
 dictation is sent as a message automatically.
+
+**Decision: cleanup runs with thinking off (`MAX_THINKING_TOKENS=0`).** Polishing is only worth
+waiting for if it beats typing the sentence by hand, and by default the model spent ~500 thinking
+tokens restating the instruction before emitting a ~35-token transcript. Measured on Haiku with the
+shipped arguments, disabling it took a cleanup from ~6.5s to ~2.2s - of which ~1.3s is the CLI
+spawn, so the turn itself is now about a second. Repairing a transcript is not a reasoning task, and
+the deadline above assumes this stays off, so `claude-dictation-cleanup.ts` sets the variable rather
+than inheriting it and `tests/claude-dictation-cleanup.test.ts` fails if an inherited value wins.
 
 Cleanup runs a separate, hidden Claude CLI process with no tools, customizations or session
 persistence. It never enters the node's ACP session, conversation history, titles or outcome

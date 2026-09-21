@@ -9,7 +9,13 @@ export const DICTATION_CLEANUP_MODELS = [
   { id: 'sonnet', name: 'Sonnet', description: 'For difficult dictation; slower — uses your Claude subscription' }
 ] as const
 
-export const DICTATION_CLEANUP_TIMEOUT_MS = 30_000
+/**
+ * Polishing has to beat typing the sentence by hand or it is not worth waiting for. A thinking-free
+ * Haiku turn measures ~2.2s end to end, ~1.3s of which is the CLI spawn, so this is about four
+ * times the median: long enough to absorb a slow turn, short enough that a hung one hands the raw
+ * dictation back while it is still the sentence the speaker has in mind.
+ */
+export const DICTATION_CLEANUP_TIMEOUT_MS = 10_000
 
 export function isDictationCleanupPreference(value: unknown): value is DictationCleanupPreference {
   if (!value || typeof value !== 'object') return false
