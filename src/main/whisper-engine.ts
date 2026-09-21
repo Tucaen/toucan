@@ -28,7 +28,8 @@ import type { VoiceEngine } from './voice-transcription'
  * Whisper is a batch model decoding the whole utterance with full right-context, which is the
  * point of #214: punctuation comes from content rather than pause timing, and a thinking pause is
  * not a sentence boundary. `language=auto` makes both surfaces multilingual; `prompt` biases the
- * decoder towards the dictation context the way Moonshine's `setContext` used to.
+ * decoder towards the dictation context, so identifiers and file names already on screen are what
+ * it leans towards.
  */
 
 export const VOICE_MODEL_MISSING_MESSAGE = 'The desktop has not downloaded its speech model yet.'

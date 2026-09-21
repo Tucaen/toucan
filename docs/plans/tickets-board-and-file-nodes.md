@@ -1,8 +1,8 @@
 ---
 title: Ticket board and file nodes plan
 created: 2026-09-04
-updated: 2026-09-04
-status: draft plan (from a NodeTerm feature review, 2026-09-04)
+updated: 2026-09-21
+status: shipped v0.2.0 (from a NodeTerm feature review, 2026-09-04)
 ---
 
 # Ticket board and file nodes plan

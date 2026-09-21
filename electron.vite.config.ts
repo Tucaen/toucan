@@ -10,15 +10,12 @@ export default defineConfig({
   },
   renderer: {
     plugins: [react()],
-    optimizeDeps: {
-      // Keep Emscripten's generated module beside its moonshine.wasm sibling.
-      exclude: ['@moonshine-ai/moonshine-wasm']
-    },
     worker: {
       format: 'es'
     },
     server: {
-      // Moonshine's threaded WASM build requires SharedArrayBuffer; see registerVoiceCrossOriginIsolation.
+      // Dev has to be cross-origin-isolated for the same reason the packaged origin is: see
+      // APP_ISOLATION_HEADERS in src/main/app-protocol.ts, which these two must keep matching.
       headers: {
         'Cross-Origin-Opener-Policy': 'same-origin',
         'Cross-Origin-Embedder-Policy': 'require-corp'

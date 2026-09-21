@@ -77,7 +77,8 @@ npm run voice:wer -- <directory> --models medium,whisper
 The directory holds pairs of `name.wav` (16-bit PCM, any rate) and `name.txt` with what was said.
 `medium` is the retired Moonshine streaming model (kept as the baseline any new engine has to
 beat), `whisper` is the shipped large-v3-turbo, decoded in batch exactly as the app does on Stop.
-Each candidate downloads on first use into the gitignored `src/renderer/public/models/`. Whisper's
+Each candidate downloads on first use into the gitignored `.cache/voice-models/`, outside the
+source tree so no build copies gigabytes of harness input into `out/`. Whisper's
 per-file time includes its model load, because the CLI pays it per run; the app loads once and
 keeps the server resident.
 

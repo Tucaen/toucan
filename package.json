@@ -48,7 +48,6 @@
     },
     "files": [
       "out/**/*",
-      "!out/renderer/models/**",
       ".agents/**/*"
     ],
     "asarUnpack": [

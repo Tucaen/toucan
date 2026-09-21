@@ -6,10 +6,11 @@ import { boundedUtf8Suffix, TERMINAL_SCROLLBACK_MAX_BYTES } from './terminal-scr
  * The output an agent may read through a terminal-context edge, and how far each agent has already
  * read (design in `docs/plans/terminal-context-edge.md`, slice 2).
  *
- * This is deliberately *not* the scrollback store. That store is display-only per AGENTS.md: its
- * file is write-debounced and unfsynced, so an agent reading it mid-build would get the previous
- * build's output and act on it. This keeps its own copy in memory, fed from the same `onData` the
- * renderer is fed from, so what a read returns is what the process has emitted by then.
+ * This is deliberately *not* the scrollback store. That store is display-only per AGENTS.md: it
+ * holds one snapshot per durable session, replaced wholesale by each new incarnation and deleted
+ * with the canvas node, so it has nowhere to put a per-agent cursor and nothing to say once the
+ * process has crashed. This keeps its own copy in memory, fed from the same `onData` the renderer
+ * is fed from, and outlives the incarnation, so a read after a crash still returns its output.
  *
  * Output is stored raw and stripped only when it is served: the renderer still wants the escape
  * sequences, and the byte offsets a cursor is expressed in have to mean the same thing on every

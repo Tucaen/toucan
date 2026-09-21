@@ -1,3 +1,10 @@
+---
+title: Cheap routine-work delegation plan
+created: 2026-09-10
+updated: 2026-09-21
+status: shipped v0.10.0 (#177-#181)
+---
+
 # Cheap routine-work delegation
 
 Usage visibility (#181): [transcript evidence, transport limits and measured workload comparison](delegation-evidence.md).

@@ -1,3 +1,10 @@
+---
+title: Delegation evidence plan
+created: 2026-09-10
+updated: 2026-09-21
+status: shipped v0.10.0 (#181)
+---
+
 # Delegation evidence (#181)
 
 The existing delegation card shows model requests separately from provider confirmation,

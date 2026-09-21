@@ -1,6 +1,8 @@
 import { strict as assert } from 'node:assert'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, test } from 'node:test'
-import { APP_INDEX_URL, appContentType, appRequestTarget } from '../src/main/app-protocol'
+import { APP_INDEX_URL, APP_ISOLATION_HEADERS, appContentType, appRequestTarget } from '../src/main/app-protocol'
 
 /**
  * The origin a packaged renderer runs on. Two things are load-bearing and easy to lose: nothing
@@ -48,5 +50,23 @@ describe('appContentType', () => {
   test('leaves unknown extensions to the default, which is all they need', () => {
     assert.equal(appContentType('font.ttf'), null)
     assert.equal(appContentType('README'), null)
+  })
+})
+
+describe('APP_ISOLATION_HEADERS', () => {
+  test('the dev server is isolated the same way the packaged origin is', () => {
+    // Two config blocks, two processes, one property: a renderer that only becomes
+    // cross-origin-isolated in one of them fails in whichever the author was not running.
+    // electron.vite.config.ts says these must keep matching, so something has to check it.
+    const config = readFileSync(join(process.cwd(), 'electron.vite.config.ts'), 'utf8')
+    for (const header of ['Cross-Origin-Opener-Policy', 'Cross-Origin-Embedder-Policy'] as const) {
+      assert.match(
+        config,
+        new RegExp(`'${header}': '${APP_ISOLATION_HEADERS[header]}'`),
+        `the dev server must serve ${header}: ${APP_ISOLATION_HEADERS[header]}`
+      )
+    }
+    // `require-corp` is what makes the other two load-bearing rather than decorative.
+    assert.equal(APP_ISOLATION_HEADERS['Cross-Origin-Embedder-Policy'], 'require-corp')
   })
 })

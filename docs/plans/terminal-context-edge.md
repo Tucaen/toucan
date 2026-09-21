@@ -1,3 +1,10 @@
+---
+title: Terminal-context edge plan
+created: 2026-09-17
+updated: 2026-09-21
+status: shipped v0.15.0 (#199, #202, #203)
+---
+
 # Terminal-context edge: an agent reads a connected terminal's output
 
 Plan for [issue #199](https://github.com/Tucaen/ade/issues/199). Decisions resolved in the issue
