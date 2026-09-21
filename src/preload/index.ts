@@ -16,6 +16,7 @@ import type { VoiceModelApi, VoiceModelStatus } from '../shared/voice-model'
 import type { AdapterManagementApi, AdapterSnapshot } from '../shared/adapter-management'
 import type { TerminalContextApi } from '../shared/terminal-context'
 import type { ProjectAvatarApi } from '../shared/project-avatar'
+import type { DecisionDelegationApi } from '../shared/decision-delegation'
 import {
   ADAPTER_CHANNELS,
   AGENT_CHANNELS,
@@ -23,6 +24,7 @@ import {
   BRAIN_DUMP_CHANNELS,
   CONVERSATION_CHANNELS,
   FILE_VIEW_CHANNELS,
+  DECISION_DELEGATION_CHANNELS,
   GITHUB_ISSUES_CHANNELS,
   PROJECT_CHANNELS,
   REMOTE_CHANNELS,
@@ -214,6 +216,12 @@ const ticketSkillApi: TicketSkillApi = {
 }
 
 contextBridge.exposeInMainWorld('ticketSkillApi', ticketSkillApi)
+
+const decisionDelegationApi: DecisionDelegationApi = {
+  availability: () => ipcRenderer.invoke(DECISION_DELEGATION_CHANNELS.availability)
+}
+
+contextBridge.exposeInMainWorld('decisionDelegationApi', decisionDelegationApi)
 
 const githubIssuesApi: TicketGithubApi = {
   availability: (projectPath) => ipcRenderer.invoke(GITHUB_ISSUES_CHANNELS.availability, projectPath),

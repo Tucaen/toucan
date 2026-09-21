@@ -26,6 +26,7 @@ import {
   ListPlus,
   LockKeyhole,
   Pencil,
+  Scale,
   SendHorizontal,
   ShieldCheck,
   Square,
@@ -100,6 +101,9 @@ import {
   withWorkerSelection,
   type AgentRoutineDelegation
 } from '../../shared/routine-delegation'
+import { useDecisionDelegation } from './decision-delegation-context'
+import { DECISION_DELEGATION_ON_OPTION, describeDecisionDelegation } from './decision-delegation-display'
+import { decisionDelegationRequest, type AgentDecisionDelegation } from '../../shared/decision-delegation'
 import { usePromptEditor, type ComposerFileMentions } from './use-prompt-editor'
 import PromptTextarea from './PromptTextarea'
 import ComposerQueue from './ComposerQueue'
@@ -176,6 +180,8 @@ interface FlatChatViewProps {
   efforts?: AgentEffortState | null
   /** What the running session's adapter actually launched with; the preference is only a request. */
   routineDelegation?: AgentRoutineDelegation | null
+  /** What the running session carries for decision delegation; the preference is only a request. */
+  decisionDelegation?: AgentDecisionDelegation | null
   selectorsDisabled?: boolean
   /** Why the model picker alone is closed (a turn in flight), in the words `setModel` would refuse with. */
   modelChangeBlocked?: string | null
@@ -208,6 +214,7 @@ export type ChatComposerProps = Pick<
   | 'models'
   | 'efforts'
   | 'routineDelegation'
+  | 'decisionDelegation'
   | 'selectorsDisabled'
   | 'modelChangeBlocked'
   | 'selectMode'
@@ -283,6 +290,11 @@ interface PickerOption {
   id: string
   name: string
   description?: string
+  /**
+   * A single option that cannot be chosen while the rest of the menu stays usable - the picker's
+   * own trigger stays open, because opening is what re-checks whatever closed this option.
+   */
+  disabled?: boolean
 }
 
 const pickerCopy = {
@@ -306,6 +318,12 @@ const pickerCopy = {
     heading: 'Routine work',
     idle: 'Delegation',
     hint: 'Delegate routine work to an economical worker model'
+  },
+  decisions: {
+    icon: Scale,
+    heading: 'Decisions',
+    idle: 'Decisions',
+    hint: 'Let decision-shaped subtasks go to an installed decision-provider skill'
   }
 } as const
 
@@ -317,6 +335,8 @@ export function SelectorPicker(props: {
   disabled: boolean
   /** Why it is closed, when there is a reason worth reading. Outranks the usual hover text. */
   disabledHint?: string
+  /** Fired each time the menu is opened, for options whose availability can go stale. */
+  onOpen?(): void
   select(optionId: string): void
 }): JSX.Element {
   const [open, setOpen] = useState(false)
@@ -366,6 +386,9 @@ export function SelectorPicker(props: {
           role="option"
           aria-selected={option.id === props.selectedId}
           data-selected={option.id === props.selectedId}
+          // Closed on its own, with the rest of the menu still usable. No hover text: the reason
+          // travels in the option's description, which is rendered below as visible text.
+          disabled={option.disabled}
           key={option.id}
           onClick={() => {
             props.select(option.id)
@@ -398,7 +421,12 @@ export function SelectorPicker(props: {
         aria-haspopup="listbox"
         disabled={!canOpen}
         title={props.disabledHint ?? selected?.description ?? selected?.name ?? copy.hint}
-        onClick={() => setOpen((current) => !current)}
+        onClick={() =>
+          setOpen((current) => {
+            if (!current) props.onOpen?.()
+            return !current
+          })
+        }
       >
         <PickerIcon aria-hidden="true" />
         {selected?.name ?? copy.idle}
@@ -458,6 +486,7 @@ function ComposerToolbar(
     | 'models'
     | 'efforts'
     | 'routineDelegation'
+    | 'decisionDelegation'
     | 'selectorsDisabled'
     | 'modelChangeBlocked'
     | 'selectMode'
@@ -468,6 +497,12 @@ function ComposerToolbar(
   const { sendKey, setSendKey } = useComposerSendKey()
   const routineDelegation = useRoutineDelegation()
   const delegation = describeRoutineDelegation(props.provider, routineDelegation.preference, props.routineDelegation)
+  const decisionDelegation = useDecisionDelegation()
+  const decisions = describeDecisionDelegation(
+    decisionDelegation.preference,
+    props.decisionDelegation,
+    decisionDelegation.skillInstalled
+  )
   const disabled = props.selectorsDisabled ?? false
   const ProviderPickerIcon = pickerCopy.provider.icon
   return (
@@ -524,6 +559,17 @@ function ComposerToolbar(
         }
       />
       {delegation.note && <span className="composer-toolbar-note">{delegation.note}</span>}
+      <SelectorPicker
+        kind="decisions"
+        options={decisions.options}
+        selectedId={decisions.selectedId}
+        // Never closed, for the routine picker's reason plus one of its own: opening is what
+        // re-probes for the skill, so a picker that refused to open could never learn it arrived.
+        disabled={false}
+        onOpen={decisionDelegation.refreshAvailability}
+        select={(id) => decisionDelegation.setPreference({ enabled: id === DECISION_DELEGATION_ON_OPTION.id })}
+      />
+      {decisions.note && <span className="composer-toolbar-note">{decisions.note}</span>}
       <SelectorPicker
         kind="sendKey"
         options={(Object.keys(composerSendKeyLabels) as ComposerSendKey[]).map((id) => ({
@@ -1261,6 +1307,7 @@ export function ChatView(groups: ChatViewProps): JSX.Element {
 export default function ChatNode({ id, data, selected, width }: NodeProps<TerminalCanvasNode>): JSX.Element {
   const provider = data.kind === 'claude' ? 'claude' : 'codex'
   const routineDelegationPreference = useRoutineDelegation().preference
+  const decisionDelegationPreference = useDecisionDelegation().preference
   const conversation = useAgentConversation({
     id,
     provider,
@@ -1274,6 +1321,9 @@ export default function ChatNode({ id, data, selected, width }: NodeProps<Termin
     // Read at session creation, so a change applies on the next safe creation or resume and
     // never cancels a turn already running under the old policy.
     routineDelegation: routineDelegationRequest(provider, routineDelegationPreference),
+    // Read at session creation for the same reason, and carried for Codex too: main records the
+    // request and reports back why it was withheld, rather than the node quietly dropping it.
+    decisionDelegation: decisionDelegationRequest(decisionDelegationPreference),
     // Bumped when a terminal-context edge is adopted mid-session: the restart resumes this same
     // conversation with the read tool included (terminal-context-edges.ts).
     restartKey: data.terminalContextNonce,

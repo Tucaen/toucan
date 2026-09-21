@@ -535,6 +535,39 @@ test('rejects a routine-delegation preference of the wrong shape', () => {
   assert.ok(parseWorkspaceState({ ...base, routineDelegation: { enabled: false } }))
 })
 
+test('the decision-delegation preference persists and is validated on its own (issue #213)', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'toucan-workspace-test-'))
+  const store = createWorkspaceStore(join(directory, 'workspace.json'))
+  const state = makeState('decisions')
+  // Independent of routine delegation: one may be on without the other.
+  state.decisionDelegation = { enabled: true }
+
+  assert.equal((await store.save(state)).ok, true)
+  const loaded = await store.load()
+  assert.deepEqual(loaded.state?.decisionDelegation, { enabled: true })
+  assert.equal(loaded.state?.routineDelegation, undefined)
+
+  // Absent is the off state, so a workspace saved before the preference existed migrates by
+  // doing nothing.
+  assert.equal((await store.save(makeState('pre-decisions'))).ok, true)
+  assert.equal((await store.load()).state?.decisionDelegation, undefined)
+})
+
+test('rejects a decision-delegation preference of the wrong shape', () => {
+  const base = {
+    version: 3,
+    projects: [{ id: 'project-1', name: 'Toucan', path: 'D:\Development\Toucan', color: '#71a9ff' }],
+    activeProjectId: 'project-1',
+    sidebarCollapsed: false,
+    nodes: [],
+    worktrees: []
+  }
+  assert.equal(parseWorkspaceState({ ...base, decisionDelegation: { enabled: 'yes' } }), null)
+  assert.equal(parseWorkspaceState({ ...base, decisionDelegation: 'on' }), null)
+  assert.equal(parseWorkspaceState({ ...base, decisionDelegation: {} }), null)
+  assert.ok(parseWorkspaceState({ ...base, decisionDelegation: { enabled: false } }))
+})
+
 test('unread attention records survive a restart, and stale ones are pruned on the way back in', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'toucan-workspace-test-'))
   const store = createWorkspaceStore(join(directory, 'workspace.json'))

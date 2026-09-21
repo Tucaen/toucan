@@ -7,6 +7,7 @@ import type { ProjectRunCommand } from './project-run-commands'
 import type { WorkspaceDiffNode } from './git-diff'
 import type { WorkspaceWorktree } from './worktree'
 import type { ConversationTitleSource } from './conversation-title'
+import type { DecisionDelegationPreference } from './decision-delegation'
 import type { RoutineDelegationPreference } from './routine-delegation'
 
 export type TerminalKind = 'terminal' | 'claude' | 'codex'
@@ -234,6 +235,12 @@ export interface WorkspaceState {
    * migrate by doing nothing and keep their sessions' behavior unchanged.
    */
   routineDelegation?: RoutineDelegationPreference
+  /**
+   * The "delegate decisions" preference (see `shared/decision-delegation.ts`). Independent of
+   * `routineDelegation` and absent by the same rule: a snapshot written before it existed is the
+   * off state, so existing workspaces migrate by doing nothing.
+   */
+  decisionDelegation?: DecisionDelegationPreference
   nodes: WorkspaceTerminalNode[]
   /** Bounded LIFO history used by Ctrl+Shift+T; callbacks are rebuilt when an entry is reopened. */
   recentlyClosedNodes?: WorkspaceTerminalNode[]

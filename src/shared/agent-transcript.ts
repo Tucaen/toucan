@@ -22,6 +22,7 @@ import {
   settleReplayedAssistantTurns
 } from './assistant-presentation'
 import { mergeSessionUsage, type SessionUsageInput } from './session-usage'
+import type { AgentDecisionDelegation } from './decision-delegation'
 import type { AgentRoutineDelegation } from './routine-delegation'
 
 /**
@@ -138,6 +139,8 @@ export interface AgentTranscriptState {
   commands: AgentCommand[]
   /** The routine-delegation policy this session's adapter launched with, from the create result. */
   routineDelegation: AgentRoutineDelegation | null
+  /** The decision-delegation policy this session launched with, from the same create result. */
+  decisionDelegation: AgentDecisionDelegation | null
   status: AgentChatStatus
   /**
    * Who last set `status`: `main` for anything that crossed the seam (a status event, a create or
@@ -170,6 +173,7 @@ export function initialAgentTranscriptState(): AgentTranscriptState {
     efforts: null,
     commands: [],
     routineDelegation: null,
+    decisionDelegation: null,
     status: 'starting',
     statusOrigin: 'main',
     usage: null,
@@ -463,6 +467,7 @@ export function applyAgentCreateResult(state: AgentTranscriptState, result: Agen
     ...(result.efforts ? { efforts: result.efforts } : {}),
     ...(result.commands ? { commands: result.commands } : {}),
     ...(result.routineDelegation ? { routineDelegation: result.routineDelegation } : {}),
+    ...(result.decisionDelegation ? { decisionDelegation: result.decisionDelegation } : {}),
     statusOrigin: 'main'
   }
   if (result.status === 'ready') {

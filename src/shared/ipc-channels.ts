@@ -130,6 +130,10 @@ export const TICKET_CHANNELS = {
   revealSkill: 'tickets:reveal-skill'
 } as const
 
+export const DECISION_DELEGATION_CHANNELS = {
+  availability: 'decision-delegation:availability'
+} as const
+
 export const GITHUB_ISSUES_CHANNELS = {
   availability: 'github-issues:availability',
   list: 'github-issues:list'

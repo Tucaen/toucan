@@ -1,4 +1,5 @@
 import type { AgentProvider } from './agent-provider'
+import type { AgentDecisionDelegation } from './decision-delegation'
 import type { AgentRoutineDelegation, RoutineDelegationRequest } from './routine-delegation'
 
 export type { AgentProvider }
@@ -31,6 +32,13 @@ export interface AgentCreateRequest {
    * takes effect on the next session creation or resume - never mid-turn.
    */
   routineDelegation?: RoutineDelegationRequest
+  /**
+   * The "delegate decisions" policy for this session, present only when the preference is enabled.
+   * Presence is the whole request - the decision provider lives behind an installed skill, so there
+   * is nothing to configure (see `shared/decision-delegation.ts`). Applied at session
+   * creation or resume like the routine policy, so a change never lands mid-turn.
+   */
+  decisionDelegation?: true
 }
 
 export interface AgentAuthMethod {
@@ -70,6 +78,12 @@ export interface AgentCreateResult {
    * launch does not alter. Absent when the request carried no policy.
    */
   routineDelegation?: AgentRoutineDelegation
+  /**
+   * The decision-delegation policy the session actually launched with - launch-time truth like
+   * `routineDelegation`, and `unavailable` where the instruction was withheld (a Codex session,
+   * or a machine without the provider's skill). Absent when the request carried no policy.
+   */
+  decisionDelegation?: AgentDecisionDelegation
   /**
    * True when the session was created with the terminal-context MCP server in its `mcpServers`
    * (a terminal edge stood at creation). Launch-time truth like `routineDelegation`: an edge

@@ -59,6 +59,11 @@ import {
   type ClaudeDelegationSessionMeta,
   type RoutineDelegationRequest
 } from '../shared/routine-delegation'
+import {
+  appliedDecisionDelegation,
+  decisionDelegationInstruction,
+  type AgentDecisionDelegation
+} from '../shared/decision-delegation'
 import { createAgentEventBroker, type AgentEventBroker } from './agent-event-broker'
 import { buildAgentProcessLaunch, spawnAgentProcess, type AgentProcessLaunch } from './agent-process'
 import { readCachedCodexModels } from './codex-model-cache'
@@ -276,6 +281,12 @@ interface RunningAgent {
    * preference. A Claude record can still turn `unavailable` once the session lists its models.
    */
   routineDelegation?: AgentRoutineDelegation
+  /**
+   * The decision-delegation policy this agent launched with, decided once at create from the
+   * availability probe. Fixed for the life of the agent like the routine record: a skill installed
+   * after launch reaches this session only when it is next created or resumed.
+   */
+  decisionDelegation?: AgentDecisionDelegation
   cachedModels?: AgentModelState
   /** Whether the agent's `initialize` handshake advertised `promptCapabilities.image`. */
   imageSupport: boolean
@@ -639,6 +650,12 @@ export interface AcpSessionManagerOptions {
    * throws - a listener that cannot bind costs the tool, not the session.
    */
   terminalContext?: Pick<TerminalContextMcp, 'serverFor'>
+  /**
+   * Whether the decision provider's agent skill is installed for Claude Code right now
+   * (`decision-provider.ts`). Asked once per session creation, because that is the moment the
+   * instruction is either carried or withheld; absent reads as not installed, which withholds it.
+   */
+  decisionProviderInstalled?: () => boolean
 }
 
 /**
@@ -938,6 +955,12 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         running.request.provider === 'claude' && sessionOutcomesDirectory
           ? withSessionInstruction(delegatingConfiguration, sessionOutcomeIndexInstruction(sessionOutcomesDirectory))
           : delegatingConfiguration
+      // The third and last instruction on the one `_meta.systemPrompt` a session gets. Order is
+      // immaterial - `withSessionInstruction` appends - so this simply layers on top.
+      const sessionConfiguration =
+        running.decisionDelegation?.status === 'configured'
+          ? withSessionInstruction(skillsConfiguration, decisionDelegationInstruction())
+          : skillsConfiguration
       // Included only when a terminal edge stands at this creation; a session without one carries
       // zero extra tokens. An edge drawn later is adopted by a canvas-driven restart at a safe
       // boundary, and removal forces nothing - the registry already refuses at call time.
@@ -957,7 +980,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
               sessionId: running.request.forkFromSessionId,
               cwd: running.request.cwd,
               mcpServers,
-              ...skillsConfiguration
+              ...sessionConfiguration
             })
           ).sessionId
         if (!loadSessionId) throw new Error('The agent did not return a session ID for the fork.')
@@ -975,7 +998,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
             sessionId: loadSessionId,
             cwd: running.request.cwd,
             mcpServers,
-            ...skillsConfiguration
+            ...sessionConfiguration
           })
         } finally {
           running.replayEvents = undefined
@@ -988,7 +1011,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         const response = await running.context.request(methods.agent.session.new, {
           cwd: running.request.cwd,
           mcpServers,
-          ...skillsConfiguration
+          ...sessionConfiguration
         })
         running.sessionId = response.sessionId
         configure(response)
@@ -1044,6 +1067,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         ...(efforts ? { efforts } : {}),
         ...(running.cachedCommands?.length ? { commands: running.cachedCommands } : {}),
         ...(running.routineDelegation ? { routineDelegation: running.routineDelegation } : {}),
+        ...(running.decisionDelegation ? { decisionDelegation: running.decisionDelegation } : {}),
         ...(terminalContextServer ? { terminalContext: true } : {}),
         ...(replay?.length ? { replay } : {})
       }
@@ -1064,7 +1088,8 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
           forkSupport: running.forkSupport,
           ...(models ? { models } : {}),
           ...(efforts ? { efforts } : {}),
-          ...(running.routineDelegation ? { routineDelegation: running.routineDelegation } : {})
+          ...(running.routineDelegation ? { routineDelegation: running.routineDelegation } : {}),
+          ...(running.decisionDelegation ? { decisionDelegation: running.decisionDelegation } : {})
         }
       }
       const message = errorMessage(error)
@@ -1220,6 +1245,11 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
               cachedModels?.availableModels.map((model) => model.id)
             )
           : appliedClaudeDelegation(request.routineDelegation, lastClaudeSessionModelIds, environment)
+      // Probed here, at the one moment the answer is authoritative for what this session carries.
+      // A Codex request is still recorded rather than dropped, so its node can say why.
+      const decisionDelegation = request.decisionDelegation
+        ? appliedDecisionDelegation(request.provider, options.decisionProviderInstalled?.())
+        : undefined
       const baseEnvironment = agentProcessEnvironment(environment, request.id)
       const delegatingEnvironment =
         request.provider === 'codex' && delegation?.status === 'configured'
@@ -1390,6 +1420,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         // and the running adapter cannot disagree about who this node is.
         environment: agentEnvironment,
         ...(delegation ? { routineDelegation: delegation } : {}),
+        ...(decisionDelegation ? { decisionDelegation } : {}),
         cachedModels,
         pendingApprovals,
         pendingElicitations,

@@ -259,8 +259,9 @@ describe('the composer toolbar', () => {
     const toolbar = container.querySelector('.composer-toolbar') as HTMLElement
     expect(toolbar).not.toBeNull()
     expect(toolbar).toHaveTextContent('Claude')
-    // Model, effort, permissions, routine-work delegation (issue #179: Claude nodes too), send key.
-    expect(toolbar.querySelectorAll('.node-picker')).toHaveLength(5)
+    // Model, effort, permissions, routine-work delegation (issue #179: Claude nodes too),
+    // decision delegation (issue #213), send key.
+    expect(toolbar.querySelectorAll('.node-picker')).toHaveLength(6)
     // Still inside the composer, not stranded in the node header.
     expect(toolbar.closest('.chat-composer')).not.toBeNull()
   })
@@ -268,8 +269,9 @@ describe('the composer toolbar', () => {
   test('a selector the adapter has not reported simply does not take up a slot', () => {
     const container = renderChatView({})
     const toolbar = container.querySelector('.composer-toolbar') as HTMLElement
-    // Only the two workspace-wide pickers remain: routine-work delegation and the send key.
-    expect(toolbar.querySelectorAll('.node-picker')).toHaveLength(2)
+    // Only the three workspace-wide pickers remain: routine-work delegation, decisions and the
+    // send key - none of them is reported by an adapter.
+    expect(toolbar.querySelectorAll('.node-picker')).toHaveLength(3)
   })
 })
 

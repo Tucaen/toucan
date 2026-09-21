@@ -42,6 +42,8 @@ import { registerFileViewIpc } from './file-view-ipc'
 import { createPrettierFileFormatter } from './file-formatter'
 import { createGithubIssueReader } from './github-issues'
 import { registerGithubIssuesIpc } from './github-issues-ipc'
+import { registerDecisionDelegationIpc } from './decision-delegation-ipc'
+import { isDecisionProviderInstalled } from './decision-provider'
 import { registerTicketIpc } from './ticket-ipc'
 import { createTicketLibrary } from './ticket-library'
 import { createTicketSkillScaffold } from './ticket-skill-scaffold'
@@ -415,6 +417,10 @@ void app.whenReady().then(async () => {
       manager.readOutput(agentId, terminalSessionId, readOptions),
     log: mainLog('terminal context')
   })
+  // One probe, both readers: the session manager decides what a launch carries, the picker's
+  // channel decides what the menu offers. Neither caches - the user may install the skill while
+  // Toucan is running.
+  const decisionProviderInstalled = (): boolean => isDecisionProviderInstalled(app.getPath('home'))
   const agentManager = createAcpSessionManager({
     appPath: app.getAppPath(),
     resolveAdapter: adapters.resolve,
@@ -424,7 +430,8 @@ void app.whenReady().then(async () => {
     onModelsAdvertised: (provider, models) => modelCatalogue.record(provider, models),
     sessionOutcomes,
     sessionOutcomesDirectory,
-    terminalContext: terminalContextMcp
+    terminalContext: terminalContextMcp,
+    decisionProviderInstalled
   })
   const captureStore = createBrainDumpCaptureStore(join(app.getPath('userData'), 'brain-dump-capture.json'))
   const brainDumpCapture = createBrainDumpCaptureManager({
@@ -603,6 +610,7 @@ void app.whenReady().then(async () => {
     reveal: (path) => shell.showItemInFolder(normalize(path)),
     isGitRepository: (projectPath) => worktrees.isRepository(projectPath)
   })
+  registerDecisionDelegationIpc(ipcMain, decisionProviderInstalled)
   registerGithubIssuesIpc(
     ipcMain,
     createGithubIssueReader({ resolveCommand: findCommand, statusLabelsFor: githubLabelsFor })

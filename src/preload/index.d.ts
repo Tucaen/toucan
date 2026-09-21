@@ -13,6 +13,7 @@ import type { FileViewApi } from '../shared/file-view'
 import type { AdapterManagementApi } from '../shared/adapter-management'
 import type { ProjectAvatarApi } from '../shared/project-avatar'
 import type { TerminalContextApi } from '../shared/terminal-context'
+import type { DecisionDelegationApi } from '../shared/decision-delegation'
 
 /**
  * Only the `Window` augmentation lives here. Every `*Api` contract is a shared type that
@@ -34,6 +35,7 @@ declare global {
     ticketsApi: TicketFilesApi
     ticketSkillApi: TicketSkillApi
     githubIssuesApi: TicketGithubApi
+    decisionDelegationApi: DecisionDelegationApi
     fileViewApi: FileViewApi
     appUpdateApi: AppUpdateApi
     voiceModelApi: VoiceModelApi
