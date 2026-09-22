@@ -36,7 +36,7 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
 
   const copySelection = (): void => {
     const selection = terminalRef.current?.getSelection()
-    if (selection) window.terminalApi.copyText(selection)
+    if (selection) window.shellApi.copyText(selection)
   }
 
   useEffect(() => {
@@ -134,14 +134,14 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
       const copyShortcut =
         (event.ctrlKey && event.shiftKey && event.code === 'KeyC') || (event.ctrlKey && event.code === 'Insert')
       if (copyShortcut) {
-        if (terminal.hasSelection()) window.terminalApi.copyText(terminal.getSelection())
+        if (terminal.hasSelection()) window.shellApi.copyText(terminal.getSelection())
         return false
       }
 
       const pasteShortcut =
         (event.ctrlKey && event.shiftKey && event.code === 'KeyV') || (event.shiftKey && event.code === 'Insert')
       if (pasteShortcut) {
-        const clipboardText = window.terminalApi.readClipboardText()
+        const clipboardText = window.shellApi.readClipboardText()
         if (clipboardText && incarnationRef.current) {
           window.terminalApi.write(data.sessionId, incarnationRef.current, clipboardText)
         }

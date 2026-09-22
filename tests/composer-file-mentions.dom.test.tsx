@@ -11,7 +11,7 @@ import {
   restoreCanvasWorkspace,
   type TerminalCanvasNode
 } from '../src/renderer/src/canvas-workspace'
-import type { WorkspaceState } from '../src/shared/terminal'
+import type { WorkspaceState } from '../src/shared/workspace'
 import type { WorkspaceFileIndex } from '../src/shared/workspace-files'
 import { createMockAgentApi } from './dom/agent-api-mock'
 

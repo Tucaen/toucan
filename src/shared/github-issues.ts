@@ -158,7 +158,12 @@ export function parseGithubIssues(
   return { cards, diagnostics }
 }
 
-const GITHUB_REMOTE = /(?:https?:\/\/|ssh:\/\/)?(?:[^@\s/]+@)?github\.com[/:]([^\s/]+)\/([^\s/]+?)(?:\.git)?$/i
+/**
+ * Anchored at both ends on purpose: unanchored, any URL that merely *contains* `github.com` -
+ * `https://notgithub.com/o/r`, a mirror path like `https://host/mirrors/github.com/o/r` - yields an
+ * `owner/name` that would send `gh issue list -R` at an unrelated repository.
+ */
+const GITHUB_REMOTE = /^(?:https?:\/\/|ssh:\/\/)?(?:[^@\s/]+@)?github\.com[/:]([^\s/]+)\/([^\s/]+?)(?:\.git)?$/i
 
 /**
  * The `owner/name` of the first GitHub remote in `git remote -v` output, `origin` preferred, or

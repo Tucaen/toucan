@@ -6,7 +6,7 @@ import type {
   BrainDumpCollection,
   BrainDumpOutcome
 } from '../../shared/brain-dump'
-import type { BrainDumpPanelState, WorkspaceProject } from '../../shared/terminal'
+import type { BrainDumpPanelState, WorkspaceProject } from '../../shared/workspace'
 import {
   brainDumpPanelBounds,
   brainDumpPanelKeyAction,

@@ -62,7 +62,7 @@ function stubApis(result: FileReadResult, write?: (request: FileWriteRequest) =>
       }
     }
   })
-  Object.defineProperty(window, 'terminalApi', {
+  Object.defineProperty(window, 'shellApi', {
     configurable: true,
     writable: true,
     value: { copyText, showItemInFolder, openExternal: vi.fn(async () => undefined) }
@@ -72,7 +72,7 @@ function stubApis(result: FileReadResult, write?: (request: FileWriteRequest) =>
 
 afterEach(() => {
   Reflect.deleteProperty(window, 'fileViewApi')
-  Reflect.deleteProperty(window, 'terminalApi')
+  Reflect.deleteProperty(window, 'shellApi')
 })
 
 const ok = (content: string, extra: Partial<Extract<FileReadResult, { ok: true }>> = {}): FileReadResult => ({

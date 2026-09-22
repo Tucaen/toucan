@@ -45,7 +45,7 @@ import {
   type TerminalCanvasNode,
   type WorktreeCanvasNode
 } from '../src/renderer/src/canvas-workspace'
-import type { CanvasNodeStateField, WorkspaceState } from '../src/shared/terminal'
+import type { CanvasNodeStateField, WorkspaceState } from '../src/shared/workspace'
 
 const callbacks = {
   onStatusChange: () => undefined,

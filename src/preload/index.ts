@@ -1,6 +1,8 @@
 import { clipboard, contextBridge, ipcRenderer } from 'electron'
 import type { AgentApi, AgentEventEnvelope, UsageApi } from '../shared/agent'
 import type { TerminalApi, TerminalExit, TerminalOutput } from '../shared/terminal'
+import type { WorkspaceApi } from '../shared/workspace'
+import type { ShellApi } from '../shared/shell'
 import type { WorktreeApi } from '../shared/worktree'
 import type { ConversationApi } from '../shared/conversation'
 import type { WorkspaceFilesApi } from '../shared/workspace-files'
@@ -60,10 +62,26 @@ const adapterManagementApi: AdapterManagementApi = {
 }
 contextBridge.exposeInMainWorld('adapterManagementApi', adapterManagementApi)
 
-const terminalApi: TerminalApi = {
+const workspaceApi: WorkspaceApi = {
   pickProject: () => ipcRenderer.invoke(PROJECT_CHANNELS.pick),
   loadWorkspace: () => ipcRenderer.invoke(WORKSPACE_CHANNELS.load),
-  saveWorkspace: (state) => ipcRenderer.invoke(WORKSPACE_CHANNELS.save, state),
+  saveWorkspace: (state) => ipcRenderer.invoke(WORKSPACE_CHANNELS.save, state)
+}
+
+contextBridge.exposeInMainWorld('workspaceApi', workspaceApi)
+
+const shellApi: ShellApi = {
+  copyText: (text) => clipboard.writeText(text),
+  openExternal: (url) => ipcRenderer.invoke(SHELL_CHANNELS.openExternal, url),
+  showItemInFolder: (path) => ipcRenderer.invoke(SHELL_CHANNELS.showItemInFolder, path),
+  openLocalFile: (path) => ipcRenderer.invoke(SHELL_CHANNELS.openLocalFile, path),
+  saveImage: (request) => ipcRenderer.invoke(SHELL_CHANNELS.saveImage, request),
+  readClipboardText: () => clipboard.readText()
+}
+
+contextBridge.exposeInMainWorld('shellApi', shellApi)
+
+const terminalApi: TerminalApi = {
   create: (request) => ipcRenderer.invoke(TERMINAL_CHANNELS.create, request),
   write: (sessionId, incarnationId, data) => ipcRenderer.send(TERMINAL_CHANNELS.write, sessionId, incarnationId, data),
   resize: (sessionId, incarnationId, cols, rows) =>
@@ -72,12 +90,6 @@ const terminalApi: TerminalApi = {
     ipcRenderer.send(TERMINAL_CHANNELS.kill, sessionId, incarnationId, attachmentId),
   scrollback: (sessionId) => ipcRenderer.invoke(TERMINAL_CHANNELS.scrollback, sessionId),
   removeScrollback: (sessionId) => ipcRenderer.invoke(TERMINAL_CHANNELS.scrollbackRemove, sessionId),
-  copyText: (text) => clipboard.writeText(text),
-  openExternal: (url) => ipcRenderer.invoke(SHELL_CHANNELS.openExternal, url),
-  showItemInFolder: (path) => ipcRenderer.invoke(SHELL_CHANNELS.showItemInFolder, path),
-  openLocalFile: (path) => ipcRenderer.invoke(SHELL_CHANNELS.openLocalFile, path),
-  saveImage: (request) => ipcRenderer.invoke(SHELL_CHANNELS.saveImage, request),
-  readClipboardText: () => clipboard.readText(),
   onData: (sessionId, attachmentId, callback) =>
     subscribe(TERMINAL_CHANNELS.data, (output: TerminalOutput) => {
       if (output.sessionId === sessionId && output.attachmentId === attachmentId) callback(output)

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft } from 'lucide-react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import type { BrainDumpTopic } from '../../shared/brain-dump'
-import type { WorkspaceProject } from '../../shared/terminal'
+import type { WorkspaceProject } from '../../shared/workspace'
 import { classifyBrainDumpLink, linkifyBrainDumpReferences, parseBrainDumpReferences } from './brain-dump-links'
 import { resolveBrainDumpProject } from './brain-dump-topics'
 import { describeCalendarDate } from './relative-date'
@@ -109,8 +109,8 @@ export default function BrainDumpReader(props: BrainDumpReaderProps): JSX.Elemen
               if (link.kind === 'topic') openReferenceRef.current(link.slug)
               // A file: URL must never reach the web handler or navigate the Electron window; the
               // only safe local action is selecting the file in the OS file manager.
-              else if (link.kind === 'file') void window.terminalApi?.showItemInFolder?.(link.path)
-              else void window.terminalApi?.openExternal?.(link.url)
+              else if (link.kind === 'file') void window.shellApi?.showItemInFolder?.(link.path)
+              else void window.shellApi?.openExternal?.(link.url)
             }}
           >
             {anchorProps.children}

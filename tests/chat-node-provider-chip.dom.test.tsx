@@ -1,7 +1,7 @@
 import { ReactFlowProvider } from '@xyflow/react'
 import { render } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
-import type { WorkspaceState } from '../src/shared/terminal'
+import type { WorkspaceState } from '../src/shared/workspace'
 import ChatNode from '../src/renderer/src/ChatNode'
 import {
   isTerminalCanvasNode,

@@ -1,4 +1,5 @@
-import type { TerminalLiveness, WorkspaceState, WorkspaceTerminalNode } from '../shared/terminal'
+import type { TerminalLiveness } from '../shared/terminal'
+import type { WorkspaceState, WorkspaceTerminalNode } from '../shared/workspace'
 import { createDurableJsonStoreSync } from './durable-json-store'
 
 export const TERMINAL_LIVENESS_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000

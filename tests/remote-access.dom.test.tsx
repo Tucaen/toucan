@@ -3,7 +3,7 @@ import { describe, expect, test, vi } from 'vitest'
 import type { RemoteAccessState, RemoteWorkspaceProjection } from '../src/shared/remote-access'
 import type { RemoteChatSpawnRequest, RemoteChatSpawnResult } from '../src/shared/remote-spawn'
 import type { AgentApi } from '../src/shared/agent'
-import type { WorkspaceState } from '../src/shared/terminal'
+import type { WorkspaceState } from '../src/shared/workspace'
 import { attentionItemId, type AttentionItem } from '../src/shared/attention'
 import { createMockAgentApi } from './dom/agent-api-mock'
 import {
@@ -73,7 +73,7 @@ function remoteApis(
   reportRead = null
 
   return {
-    terminalApi: { copyText: vi.fn((text: string) => copied.push(text)) },
+    shellApi: { copyText: vi.fn((text: string) => copied.push(text)) },
     agentApi: createMockAgentApi(agentOverrides).api as unknown as Record<string, unknown>,
     remoteApi: {
       state: vi.fn(async () => initial),

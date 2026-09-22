@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import { vi } from 'vitest'
 import App from '../../src/renderer/src/App'
-import type { WorkspaceState } from '../../src/shared/terminal'
+import type { WorkspaceState } from '../../src/shared/workspace'
 import { createMockAppUpdateApi } from './app-update-api-mock'
 import { createMockBrainDumpApi } from './brain-dump-api-mock'
 import { createMockRemoteApi } from './remote-api-mock'
@@ -89,12 +89,19 @@ export function installWindowApis(options: AppHarnessOptions = {}): AppHarness {
   setWindowWidth(options.windowWidth ?? 1920)
 
   const defaults: Record<string, Record<string, unknown>> = {
-    terminalApi: {
+    workspaceApi: {
       loadWorkspace: vi.fn(async () => ({ state, recovered: false, unrecoverable: false })),
       saveWorkspace: vi.fn(async (snapshot: WorkspaceState) => {
         saved.push(snapshot)
         return { ok: true }
-      }),
+      })
+    },
+    shellApi: {
+      openExternal: vi.fn(),
+      showItemInFolder: vi.fn(),
+      copyText: vi.fn()
+    },
+    terminalApi: {
       create: vi.fn(async (request: { sessionId?: string }) => ({
         ok: true,
         sessionId: request.sessionId,
@@ -107,10 +114,7 @@ export function installWindowApis(options: AppHarnessOptions = {}): AppHarness {
       scrollback: vi.fn(async () => null),
       removeScrollback: vi.fn(async () => true),
       onData: () => () => undefined,
-      onExit: () => () => undefined,
-      openExternal: vi.fn(),
-      showItemInFolder: vi.fn(),
-      copyText: vi.fn()
+      onExit: () => () => undefined
     },
     usageApi: { rateLimits: vi.fn(async () => ({})) },
     worktreeApi: {

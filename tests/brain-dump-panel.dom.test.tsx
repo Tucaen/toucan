@@ -7,7 +7,7 @@ import {
   BRAIN_DUMP_PANEL_MAX_WIDTH,
   BRAIN_DUMP_PANEL_MIN_WIDTH
 } from '../src/renderer/src/brain-dump-panel-layout'
-import type { WorkspaceState } from '../src/shared/terminal'
+import type { WorkspaceState } from '../src/shared/workspace'
 import { createMockBrainDumpApi, topicFixture, type MockBrainDumpApi } from './dom/brain-dump-api-mock'
 import {
   DEFAULT_PROJECT as project,

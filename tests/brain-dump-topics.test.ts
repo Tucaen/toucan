@@ -1,7 +1,7 @@
 import { deepEqual, equal } from 'node:assert/strict'
 import { test } from 'vitest'
 import type { BrainDumpTopic } from '../src/shared/brain-dump'
-import type { WorkspaceProject } from '../src/shared/terminal'
+import type { WorkspaceProject } from '../src/shared/workspace'
 import {
   BRAIN_DUMP_UNASSIGNED_LABEL,
   BRAIN_DUMP_UNREGISTERED_NOTE,

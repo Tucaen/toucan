@@ -1,7 +1,7 @@
 import { ReactFlowProvider } from '@xyflow/react'
 import { render, screen } from '@testing-library/react'
 import { beforeEach, expect, test, vi } from 'vitest'
-import type { WorkspaceProject, WorkspaceState } from '../src/shared/terminal'
+import type { WorkspaceProject, WorkspaceState } from '../src/shared/workspace'
 import type {
   CanvasNode,
   TerminalCanvasNode,

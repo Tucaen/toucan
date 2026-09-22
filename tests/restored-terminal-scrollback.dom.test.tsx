@@ -21,6 +21,11 @@ beforeEach(() => {
 test('a dormant terminal restores display-only history without spawning or accepting input', async () => {
   const create = vi.fn()
   const write = vi.fn()
+  Object.defineProperty(window, 'shellApi', {
+    configurable: true,
+    writable: true,
+    value: { copyText: vi.fn(), readClipboardText: vi.fn(() => '') }
+  })
   Object.defineProperty(window, 'terminalApi', {
     configurable: true,
     value: {
@@ -33,8 +38,7 @@ test('a dormant terminal restores display-only history without spawning or accep
         capturedAt: 100,
         truncated: true,
         incomplete: true
-      }),
-      copyText: vi.fn()
+      })
     }
   })
 
@@ -83,9 +87,14 @@ test('a dormant terminal restores display-only history without spawning or accep
 })
 
 test('missing or corrupt retained history is visible without changing terminal state', async () => {
+  Object.defineProperty(window, 'shellApi', {
+    configurable: true,
+    writable: true,
+    value: { copyText: vi.fn(), readClipboardText: vi.fn(() => '') }
+  })
   Object.defineProperty(window, 'terminalApi', {
     configurable: true,
-    value: { scrollback: vi.fn().mockResolvedValue(null), copyText: vi.fn(), create: vi.fn(), write: vi.fn() }
+    value: { scrollback: vi.fn().mockResolvedValue(null), create: vi.fn(), write: vi.fn() }
   })
   render(
     <ReactFlowProvider>

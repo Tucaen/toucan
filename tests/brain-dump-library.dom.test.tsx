@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, test, vi } from 'vitest'
 import BrainDumpLibraryPanel from '../src/renderer/src/BrainDumpLibraryPanel'
 import { BRAIN_DUMP_WINDOW_THRESHOLD } from '../src/renderer/src/BrainDumpTopicList'
 import { BRAIN_DUMP_PANEL_DEFAULT_WIDTH, BRAIN_DUMP_PANEL_MIN_WIDTH } from '../src/renderer/src/brain-dump-panel-layout'
-import type { BrainDumpPanelState, WorkspaceProject } from '../src/shared/terminal'
+import type { BrainDumpPanelState, WorkspaceProject } from '../src/shared/workspace'
 import { createMockBrainDumpApi, topicFixture, type MockBrainDumpApi } from './dom/brain-dump-api-mock'
 
 /**

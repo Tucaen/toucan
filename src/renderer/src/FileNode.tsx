@@ -43,7 +43,7 @@ const components: Components = {
         href={href}
         onClick={(event) => {
           event.preventDefault()
-          void window.terminalApi?.openExternal?.(href)
+          void window.shellApi?.openExternal?.(href)
         }}
       >
         {props.children}
@@ -372,11 +372,11 @@ export default function FileNode({ id, data, selected }: NodeProps<FileCanvasNod
               </button>
             </span>
           )}
-          <button type="button" title={path} onMouseDown={stopDrag} onClick={() => window.terminalApi?.copyText(path)}>
+          <button type="button" title={path} onMouseDown={stopDrag} onClick={() => window.shellApi?.copyText(path)}>
             Copy path
           </button>
-          {window.terminalApi?.showItemInFolder && (
-            <button type="button" onMouseDown={stopDrag} onClick={() => void window.terminalApi.showItemInFolder(path)}>
+          {window.shellApi?.showItemInFolder && (
+            <button type="button" onMouseDown={stopDrag} onClick={() => void window.shellApi.showItemInFolder(path)}>
               Reveal
             </button>
           )}

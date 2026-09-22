@@ -26,6 +26,11 @@ beforeEach(() => {
 
 test('a node unmounted before its start frame fires never spawns a shell', () => {
   const create = vi.fn(async () => ({ ok: true, sessionId: 'session', incarnationId: 'incarnation' }))
+  Object.defineProperty(window, 'shellApi', {
+    configurable: true,
+    writable: true,
+    value: { copyText: vi.fn(), readClipboardText: vi.fn(() => '') }
+  })
   Object.defineProperty(window, 'terminalApi', {
     configurable: true,
     value: {
@@ -33,7 +38,6 @@ test('a node unmounted before its start frame fires never spawns a shell', () =>
       write: vi.fn(),
       resize: vi.fn(),
       kill: vi.fn(),
-      copyText: vi.fn(),
       onData: () => () => undefined,
       onExit: () => () => undefined
     }

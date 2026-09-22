@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Check, ChevronDown } from 'lucide-react'
-import type { WorkspaceProject } from '../../shared/terminal'
+import type { WorkspaceProject } from '../../shared/workspace'
 import { BRAIN_DUMP_UNASSIGNED_LABEL, type BrainDumpProjectIdentity } from './brain-dump-topics'
 import { pathIdentity } from '../../shared/paths'
 import { BrainDumpProjectChipContent } from './BrainDumpProjectChip'

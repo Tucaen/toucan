@@ -18,7 +18,7 @@ import {
   unreadAttentionByNode,
   type AttentionState
 } from '../src/shared/attention'
-import type { WorkspaceState } from '../src/shared/terminal'
+import type { WorkspaceState } from '../src/shared/workspace'
 import { createMockAgentApi, type MockAgentApi } from './dom/agent-api-mock'
 
 const NODE_ID = 'claude-node'

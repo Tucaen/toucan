@@ -58,13 +58,13 @@ function stubApi(
     diffFile: vi.fn(async (request: GitFileDiffRequest) => diffFile(request))
   }
   Object.defineProperty(window, 'worktreeApi', { configurable: true, writable: true, value: api })
-  Object.defineProperty(window, 'terminalApi', { configurable: true, writable: true, value: { copyText: vi.fn() } })
+  Object.defineProperty(window, 'shellApi', { configurable: true, writable: true, value: { copyText: vi.fn() } })
   return api
 }
 
 afterEach(() => {
   Reflect.deleteProperty(window, 'worktreeApi')
-  Reflect.deleteProperty(window, 'terminalApi')
+  Reflect.deleteProperty(window, 'shellApi')
 })
 
 function renderNode(data: Partial<DiffCanvasNode['data']> = {}): {

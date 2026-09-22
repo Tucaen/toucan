@@ -11,7 +11,8 @@ import {
   type RemoteWorkspaceSource
 } from '../src/shared/remote-access'
 import { recordAttention, type AttentionState } from '../src/shared/attention'
-import type { TerminalNodeStatus, WorkspaceTerminalNode } from '../src/shared/terminal'
+import type { TerminalNodeStatus } from '../src/shared/terminal'
+import type { WorkspaceTerminalNode } from '../src/shared/workspace'
 import { createRemoteAccessStore } from '../src/main/remote/remote-access-store'
 import { pairingTokenMatches, presentedPairingToken } from '../src/main/remote/pairing'
 import {

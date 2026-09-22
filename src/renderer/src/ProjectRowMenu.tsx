@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { computeNodePickerMenuPosition } from './node-picker-menu-position'
 import { Check, ChevronLeft, FolderMinus, FolderPlus, GitBranch, Palette, PencilLine, Play, Trash2 } from 'lucide-react'
 import { runnableCommands } from '../../shared/project-run-commands'
-import type { ProjectGroup, WorkspaceProject } from '../../shared/terminal'
+import type { ProjectGroup, WorkspaceProject } from '../../shared/workspace'
 import ProjectColorPicker from './ProjectColorPicker'
 import {
   describeBranchChoiceBlocker,

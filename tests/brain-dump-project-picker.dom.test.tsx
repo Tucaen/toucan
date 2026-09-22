@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import BrainDumpLibraryPanel from '../src/renderer/src/BrainDumpLibraryPanel'
 import { BRAIN_DUMP_PANEL_DEFAULT_WIDTH } from '../src/renderer/src/brain-dump-panel-layout'
-import type { WorkspaceProject } from '../src/shared/terminal'
+import type { WorkspaceProject } from '../src/shared/workspace'
 import { createMockBrainDumpApi, topicFixture, type MockBrainDumpApi } from './dom/brain-dump-api-mock'
 
 /**

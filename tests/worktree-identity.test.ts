@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'vitest'
-import type { WorkspaceState } from '../src/shared/terminal'
+import type { WorkspaceState } from '../src/shared/workspace'
 import { normalizeWorktreePath, worktreePathKey } from '../src/shared/worktree'
 import { normalizeWorkspaceWorktrees } from '../src/shared/worktree-identity'
 

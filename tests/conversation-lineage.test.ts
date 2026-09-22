@@ -18,7 +18,7 @@ import {
 } from '../src/renderer/src/conversation-lineage'
 import { launchModeAfterConversation, launchModeOnOpen } from '../src/renderer/src/session-launch-mode'
 import { isValidTerminalContextConnection } from '../src/renderer/src/terminal-context-edges'
-import type { WorkspaceState, WorkspaceTerminalNode } from '../src/shared/terminal'
+import type { WorkspaceState, WorkspaceTerminalNode } from '../src/shared/workspace'
 
 const callbacks = {
   onStatusChange: () => undefined,

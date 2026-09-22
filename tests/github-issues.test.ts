@@ -118,3 +118,11 @@ test('origin wins when a checkout has several remotes, and a non-GitHub host is 
   assert.equal(githubRemoteRepository('origin\thttps://gitlab.com/tucaen/toucan.git (fetch)\n'), null)
   assert.equal(githubRemoteRepository(''), null)
 })
+
+test('a host that merely contains github.com is not GitHub', () => {
+  // Each of these used to yield `o/r`, which would have pointed `gh issue list -R o/r` at an
+  // unrelated repository: the host has to *be* github.com, not merely contain or precede it.
+  assert.equal(githubRemoteRepository('origin\thttps://notgithub.com/o/r (fetch)\n'), null)
+  assert.equal(githubRemoteRepository('origin\thttps://gitlab.example/mirrors/github.com/o/r.git (fetch)\n'), null)
+  assert.equal(githubRemoteRepository('origin\thttps://github.com@evil.example/o/r.git (fetch)\n'), null)
+})

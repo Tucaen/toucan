@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { WorkspaceState } from '../../shared/terminal'
+import type { WorkspaceState } from '../../shared/workspace'
 
 export type WorkspaceSaveStatus = 'saving' | 'saved' | 'error'
 
@@ -36,7 +36,7 @@ export function useWorkspacePersistence({
   useEffect(() => {
     let active = true
     void (async () => {
-      const loaded = await window.terminalApi.loadWorkspace()
+      const loaded = await window.workspaceApi.loadWorkspace()
       if (!active) return
       setRecovered(loaded.recovered)
       if (loaded.state && loaded.state.projects.length > 0) {
@@ -59,7 +59,7 @@ export function useWorkspacePersistence({
     if (!ready) return
     setSaveStatus('saving')
     const timeout = setTimeout(() => {
-      void window.terminalApi
+      void window.workspaceApi
         .saveWorkspace(snapshot)
         .then((result) => {
           setSaveStatus(result.ok ? 'saved' : 'error')

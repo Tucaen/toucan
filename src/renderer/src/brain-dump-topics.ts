@@ -1,5 +1,5 @@
 import type { BrainDumpTopic } from '../../shared/brain-dump'
-import type { WorkspaceProject } from '../../shared/terminal'
+import type { WorkspaceProject } from '../../shared/workspace'
 import { pathIdentity } from '../../shared/paths'
 
 /**

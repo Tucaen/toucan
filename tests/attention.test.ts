@@ -11,6 +11,7 @@ import {
   forgetAttention,
   isAttentionItem,
   markAttentionRead,
+  normalizeAttentionItems,
   markAttentionUnread,
   pruneAttention,
   READ_ON_VIEW_KINDS,
@@ -18,6 +19,7 @@ import {
   resolveAttention,
   unreadAttentionByNode,
   unreadAttentionKinds,
+  type AttentionItem,
   type AttentionSignal,
   type AttentionState
 } from '../src/shared/attention'
@@ -247,6 +249,50 @@ describe('persistence validation', () => {
     assert.equal(isAttentionItem({ ...state[0], kind: 'nonsense' }), false)
     assert.equal(isAttentionItem({ ...state[0], read: 'yes' }), false)
     assert.equal(isAttentionItem(null), false)
+  })
+
+  test('rejects a record whose id does not derive from its own node, kind and key', () => {
+    // `recordAttention` coalesces on `id` alone, so a stale id would be a second unread badge for
+    // a condition that already has one - the one thing the module promises cannot happen.
+    const state = recordAttention([], approval('node-1', 'perm-7', T0))
+
+    assert.equal(isAttentionItem({ ...state[0], id: 'node-1 approval perm-7' }), false)
+    assert.equal(isAttentionItem({ ...state[0], nodeId: 'node-2' }), false)
+    assert.equal(isAttentionItem({ ...state[0], key: 'perm-8' }), false)
+    assert.equal(isAttentionItem({ ...state[0], kind: 'failure' }), false)
+    assert.equal(isAttentionItem({ ...state[0], id: attentionItemId('node-2', 'auth', 'x') }), false)
+  })
+
+  test('a drifted id is repaired on load rather than costing the record', () => {
+    const [item] = recordAttention([], approval('node-1', 'perm-7', T0))
+
+    const [repaired] = normalizeAttentionItems([{ ...item, id: 'node-1 approval perm-7' }])
+
+    assert.equal(repaired && isAttentionItem(repaired), true)
+    assert.deepEqual(repaired, item)
+  })
+
+  test('records that collide once their ids are repaired become one, and stay unread', () => {
+    const [item] = recordAttention([], approval('node-1', 'perm-7', T0))
+
+    const merged = normalizeAttentionItems([
+      { ...item, id: 'node-1 approval perm-7', read: true, readAt: T0 + 5, events: 2 },
+      { ...item, events: 3, updatedAt: T0 + 9 }
+    ]) as AttentionItem[]
+
+    assert.equal(merged.length, 1)
+    assert.equal(merged[0].id, attentionItemId('node-1', 'approval', 'perm-7'))
+    assert.equal(merged[0].read, false)
+    assert.equal(merged[0].readAt, undefined)
+    assert.equal(merged[0].events, 5)
+    assert.equal(merged[0].createdAt, T0)
+    assert.equal(merged[0].updatedAt, T0 + 9)
+  })
+
+  test('an entry with no recoverable identity is passed through for validation to refuse', () => {
+    const junk = { id: 'x', nodeId: 'node-1' }
+
+    assert.deepEqual(normalizeAttentionItems([junk]), [junk])
   })
 })
 

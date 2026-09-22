@@ -1,5 +1,6 @@
 import type { Edge } from '@xyflow/react'
-import type { ConversationLineage, TerminalKind } from '../../shared/terminal'
+import type { TerminalKind } from '../../shared/terminal'
+import type { ConversationLineage } from '../../shared/workspace'
 import {
   isChatCanvasNode,
   type CanvasNode,

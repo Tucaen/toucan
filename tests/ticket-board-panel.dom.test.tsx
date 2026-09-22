@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { projectSettingsTitle } from '../src/renderer/src/WorkspaceDialogs'
 import { TICKET_BOARD_DEFAULT_WIDTH, TICKET_BOARD_MAX_WIDTH } from '../src/renderer/src/ticket-board-layout'
 import { TICKET_DETAIL_DEFAULT_WIDTH } from '../src/renderer/src/ticket-board-panes'
-import type { WorkspaceState } from '../src/shared/terminal'
+import type { WorkspaceState } from '../src/shared/workspace'
 import {
   DEFAULT_PROJECT as project,
   renderApp as renderAppHarness,
@@ -567,7 +567,7 @@ describe('GitHub as a second source', () => {
     await screen.findByText('GitHub issues as a second source')
 
     await chooseCardAction('147', 'Open 147 in the browser')
-    expect(window.terminalApi.openExternal).toHaveBeenCalledWith('https://github.com/tucaen/toucan/issues/147')
+    expect(window.shellApi.openExternal).toHaveBeenCalledWith('https://github.com/tucaen/toucan/issues/147')
     expect(tickets.revealCalls).toEqual([])
   })
 
@@ -737,7 +737,7 @@ describe('where a project keeps its tickets', () => {
     await waitFor(() => expect(saved.length).toBeGreaterThan(0))
     const before = tickets.listCalls.length
     let finishSave: ((result: { ok: true }) => void) | undefined
-    vi.mocked(window.terminalApi.saveWorkspace).mockImplementationOnce(
+    vi.mocked(window.workspaceApi.saveWorkspace).mockImplementationOnce(
       (snapshot: WorkspaceState) =>
         new Promise((resolve) => {
           saved.push(snapshot)

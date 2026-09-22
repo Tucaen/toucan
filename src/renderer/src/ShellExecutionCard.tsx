@@ -112,7 +112,7 @@ export function ShellExecutionBody({
           <button
             type="button"
             className="tool-inline-button"
-            onClick={() => window.terminalApi?.copyText(execution.command ?? '')}
+            onClick={() => window.shellApi?.copyText(execution.command ?? '')}
           >
             Copy
           </button>

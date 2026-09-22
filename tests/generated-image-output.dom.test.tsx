@@ -116,7 +116,7 @@ describe('a tool call that produced images', () => {
   // offers is its own kind of silence.
   test('an undecodable image can still be saved, which is what its note tells the reader to do', async () => {
     const saveImage = vi.fn(async () => ({ status: 'saved' as const, path: 'D:\\pictures\\out.heic' }))
-    window.terminalApi = { saveImage } as unknown as typeof window.terminalApi
+    window.shellApi = { saveImage } as unknown as typeof window.shellApi
     renderChat({ activities: [generation([{ id: 'image-1#0', data: FIRST, mimeType: 'image/heic' }])] })
 
     fireEvent.click(screen.getByRole('button', { name: 'Save image' }))
@@ -146,7 +146,7 @@ describe('a tool call that produced images', () => {
 
   test('the enlarged view saves the bytes the transcript holds, and reports where they went', async () => {
     const saveImage = vi.fn(async () => ({ status: 'saved' as const, path: 'D:\\pictures\\dwarf.png' }))
-    window.terminalApi = { saveImage } as unknown as typeof window.terminalApi
+    window.shellApi = { saveImage } as unknown as typeof window.shellApi
     renderChat({ activities: [generation([{ id: 'image-1#0', data: FIRST, mimeType: 'image/png' }])] })
 
     fireEvent.click(screen.getByRole('button', { name: 'View generated image 1' }))
@@ -161,9 +161,9 @@ describe('a tool call that produced images', () => {
   })
 
   test('a refused save says so beside the button, so the click is never a silent no-op', async () => {
-    window.terminalApi = {
+    window.shellApi = {
       saveImage: vi.fn(async () => ({ status: 'refused' as const, message: 'EACCES: permission denied' }))
-    } as unknown as typeof window.terminalApi
+    } as unknown as typeof window.shellApi
     renderChat({ activities: [generation([{ id: 'image-1#0', data: FIRST, mimeType: 'image/png' }])] })
 
     fireEvent.click(screen.getByRole('button', { name: 'View generated image 1' }))

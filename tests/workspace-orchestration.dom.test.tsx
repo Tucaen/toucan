@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { useState } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { WorkspaceLayoutSlot, WorkspaceState } from '../src/shared/terminal'
+import type { WorkspaceLayoutSlot, WorkspaceState } from '../src/shared/workspace'
 import { useTicketsFolderRevision, type TicketsFolder } from '../src/renderer/src/use-tickets-folder-revision'
 import { useWorkspacePersistence, type WorkspaceSaveStatus } from '../src/renderer/src/workspace-persistence'
 import { useWorkspaceSnapshot, type WorkspaceSnapshotInput } from '../src/renderer/src/use-workspace-snapshot'
@@ -88,7 +88,7 @@ describe('workspace persistence orchestration', () => {
     vi.useRealTimers()
     loadWorkspace.mockReset()
     saveWorkspace.mockReset().mockResolvedValue({ ok: true })
-    window.terminalApi = { loadWorkspace, saveWorkspace } as unknown as Window['terminalApi']
+    window.workspaceApi = { loadWorkspace, saveWorkspace } as unknown as Window['workspaceApi']
   })
 
   it('restores a saved workspace and reports recovery before enabling persistence', async () => {

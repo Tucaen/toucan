@@ -55,7 +55,7 @@ export function FileOperationSummary({ operation }: { operation: FileOperation }
 function FilePathActions({ path }: { path: string }): JSX.Element {
   const roots = useContext(WorkspaceRootsContext)
   const openFile = useContext(OpenFileContext)
-  const reveal = window.terminalApi?.showItemInFolder
+  const reveal = window.shellApi?.showItemInFolder
   return (
     <div className="file-op-path">
       <code title={path}>{shortenFilePath(path, roots)}</code>
@@ -69,7 +69,7 @@ function FilePathActions({ path }: { path: string }): JSX.Element {
           Open
         </button>
       )}
-      <button type="button" className="tool-inline-button" onClick={() => window.terminalApi?.copyText(path)}>
+      <button type="button" className="tool-inline-button" onClick={() => window.shellApi?.copyText(path)}>
         Copy path
       </button>
       {reveal && (

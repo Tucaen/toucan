@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'vitest'
 import { applyRestoredTerminalLiveness, createTerminalLivenessStore } from '../src/main/terminal-liveness-store'
-import type { WorkspaceState, WorkspaceTerminalNode } from '../src/shared/terminal'
+import type { WorkspaceState, WorkspaceTerminalNode } from '../src/shared/workspace'
 
 function storePath(): string {
   return join(mkdtempSync(join(tmpdir(), 'toucan-liveness-')), 'terminal-liveness.json')

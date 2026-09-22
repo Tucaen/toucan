@@ -14,26 +14,26 @@ import { OpenFileContext } from '../src/renderer/src/open-file-context'
  * every path form an agent writes, and must say so when it cannot.
  */
 
-interface TerminalApiStub {
+interface ShellApiStub {
   copyText: ReturnType<typeof vi.fn>
   openExternal: ReturnType<typeof vi.fn>
   showItemInFolder: ReturnType<typeof vi.fn>
   openLocalFile: ReturnType<typeof vi.fn>
 }
 
-function stubTerminalApi(open: LocalFileOpenResult = { ok: true }): TerminalApiStub {
-  const stub: TerminalApiStub = {
+function stubShellApi(open: LocalFileOpenResult = { ok: true }): ShellApiStub {
+  const stub: ShellApiStub = {
     copyText: vi.fn(),
     openExternal: vi.fn(async () => undefined),
     showItemInFolder: vi.fn(async () => undefined),
     openLocalFile: vi.fn(async () => open)
   }
-  Object.defineProperty(window, 'terminalApi', { value: stub, configurable: true, writable: true })
+  Object.defineProperty(window, 'shellApi', { value: stub, configurable: true, writable: true })
   return stub
 }
 
 afterEach(() => {
-  Reflect.deleteProperty(window, 'terminalApi')
+  Reflect.deleteProperty(window, 'shellApi')
 })
 
 describe('markdown transcript rendering', () => {
@@ -81,7 +81,7 @@ describe('markdown transcript rendering', () => {
   })
 
   test('copying a code block copies its contents without the fence or language label', () => {
-    const api = stubTerminalApi()
+    const api = stubShellApi()
     render(<MarkdownMessage text={'```ts\nconst a = 1\nconst b = 2\n```'} />)
 
     fireEvent.click(screen.getByRole('button', { name: /copy ts block/i }))
@@ -91,7 +91,7 @@ describe('markdown transcript rendering', () => {
   })
 
   test('an unlabelled fence still renders and copies as plain text', () => {
-    const api = stubTerminalApi()
+    const api = stubShellApi()
     const { container } = render(<MarkdownMessage text={'```\nplain body\n```'} />)
 
     expect(within(container.querySelector('.code-block') as HTMLElement).getByText('text')).toBeInTheDocument()
@@ -107,7 +107,7 @@ describe('markdown transcript rendering', () => {
   })
 
   test('autolinks open externally instead of navigating the app window', () => {
-    const api = stubTerminalApi()
+    const api = stubShellApi()
     render(<MarkdownMessage text="see https://example.com/docs for more" />)
 
     const link = screen.getByRole('link', { name: 'https://example.com/docs' })
@@ -162,7 +162,7 @@ describe('local artifact links', () => {
 
   for (const [shape, destination, expected] of forms) {
     test(`${shape} opens the artifact it names`, () => {
-      const api = stubTerminalApi()
+      const api = stubShellApi()
       render(<MarkdownMessage text={`[open the comparison image here](${destination})`} />)
 
       fireEvent.click(screen.getByRole('link', { name: 'open the comparison image here' }))
@@ -173,7 +173,7 @@ describe('local artifact links', () => {
   }
 
   test('a target that cannot be opened reports why beside the link', async () => {
-    stubTerminalApi({ ok: false, reason: 'not-found', message: 'This file is not on disk any more.' })
+    stubShellApi({ ok: false, reason: 'not-found', message: 'This file is not on disk any more.' })
     render(<MarkdownMessage text="[the image](</D:/Projects/My Game/gone.png>)" />)
 
     fireEvent.click(screen.getByRole('link', { name: 'the image' }))
@@ -182,7 +182,7 @@ describe('local artifact links', () => {
   })
 
   test('a file Toucan can render itself opens as a node on the canvas, never through the OS', () => {
-    const api = stubTerminalApi()
+    const api = stubShellApi()
     const openFileNode = vi.fn()
     render(
       <OpenFileContext.Provider value={openFileNode}>
@@ -197,7 +197,7 @@ describe('local artifact links', () => {
   })
 
   test('a script the OS would execute is never handed to it, canvas or not', () => {
-    const api = stubTerminalApi()
+    const api = stubShellApi()
     render(<MarkdownMessage text="[the installer](</D:/Projects/My Game/setup.bat>)" />)
 
     fireEvent.click(screen.getByRole('link', { name: 'the installer' }))
@@ -208,7 +208,7 @@ describe('local artifact links', () => {
   })
 
   test('a link that resolves to nothing openable is inert text rather than a dead link', async () => {
-    const api = stubTerminalApi()
+    const api = stubShellApi()
     render(<MarkdownMessage text={'[relative](docs/plan.md) [anchor](#top) [script](javascript:alert(1))'} />)
 
     expect(screen.queryByRole('link')).toBeNull()
@@ -221,7 +221,7 @@ describe('local artifact links', () => {
   })
 
   test('a local link carries no href, so a middle-click cannot navigate the window to it', () => {
-    stubTerminalApi()
+    stubShellApi()
     render(<MarkdownMessage text="[the image](</D:/Projects/My Game/studies.png>) and [docs](https://example.com)" />)
 
     const local = screen.getByRole('link', { name: 'the image' })
@@ -232,7 +232,7 @@ describe('local artifact links', () => {
   })
 
   test('a web link is still a web link once local paths are recognized', () => {
-    const api = stubTerminalApi()
+    const api = stubShellApi()
     render(<MarkdownMessage text="[docs](https://example.com/docs)" />)
 
     fireEvent.click(screen.getByRole('link', { name: 'docs' }))

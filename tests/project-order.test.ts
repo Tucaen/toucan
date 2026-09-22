@@ -11,7 +11,7 @@ import {
   ungroupProjects,
   type MeasuredRow
 } from '../src/renderer/src/project-order'
-import type { ProjectGroup, WorkspaceProject } from '../src/shared/terminal'
+import type { ProjectGroup, WorkspaceProject } from '../src/shared/workspace'
 
 /**
  * The sidebar's ordering maths. Array order is display order everywhere here, so these tests are

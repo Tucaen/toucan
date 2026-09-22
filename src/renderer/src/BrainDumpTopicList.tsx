@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { BRAIN_DUMP_OUTCOME_LABELS, type BrainDumpTopic } from '../../shared/brain-dump'
-import type { WorkspaceProject } from '../../shared/terminal'
+import type { WorkspaceProject } from '../../shared/workspace'
 import { brainDumpTopicPreview, resolveBrainDumpProject } from './brain-dump-topics'
 import { describeCalendarDate } from './relative-date'
 import { BrainDumpProjectChip, brainDumpProjectDescription } from './BrainDumpProjectChip'

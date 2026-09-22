@@ -2,7 +2,7 @@ import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { describe, expect, test, vi } from 'vitest'
 import { projectSettingsTitle } from '../src/renderer/src/WorkspaceDialogs'
 import type { ProjectAvatarSetResult } from '../src/shared/project-avatar'
-import type { WorkspaceState } from '../src/shared/terminal'
+import type { WorkspaceState } from '../src/shared/workspace'
 import { renderApp as renderAppHarness, savedWorkspace as harnessWorkspace } from './dom/app-harness'
 
 /**

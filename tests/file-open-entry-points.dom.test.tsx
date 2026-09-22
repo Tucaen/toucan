@@ -12,14 +12,14 @@ import { OpenFileContext } from '../src/renderer/src/open-file-context'
  */
 
 afterEach(() => {
-  Reflect.deleteProperty(window, 'terminalApi')
+  Reflect.deleteProperty(window, 'shellApi')
   Reflect.deleteProperty(window, 'workspaceFilesApi')
 })
 
 const operation = { kind: 'read' as const, path: 'D:\\Development\\Toucan\\docs\\plan.md' }
 
 test('a file card offers Open only when something can open it', () => {
-  Object.defineProperty(window, 'terminalApi', { configurable: true, writable: true, value: { copyText: vi.fn() } })
+  Object.defineProperty(window, 'shellApi', { configurable: true, writable: true, value: { copyText: vi.fn() } })
   const { unmount } = render(<FileOperationBody operation={operation} blocks={[]} />)
   expect(screen.queryByRole('button', { name: 'Open' })).toBeNull()
   unmount()

@@ -16,7 +16,7 @@ import {
   type TicketSessionNode
 } from '../src/renderer/src/ticket-activity'
 import type { AgentActivity } from '../src/shared/agent'
-import type { WorkspaceState } from '../src/shared/terminal'
+import type { WorkspaceState } from '../src/shared/workspace'
 import type { TicketSource } from '../src/shared/ticket-source'
 import { createMockAgentApi, type MockAgentApi } from './dom/agent-api-mock'
 import { cardFixture, createMockTicketSkillApi } from './dom/tickets-api-mock'

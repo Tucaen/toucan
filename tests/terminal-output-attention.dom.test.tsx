@@ -84,6 +84,11 @@ beforeEach(() => {
     callback(0)
     return 0
   })
+  Object.defineProperty(window, 'shellApi', {
+    configurable: true,
+    writable: true,
+    value: { copyText: vi.fn(), readClipboardText: vi.fn(() => '') }
+  })
   Object.defineProperty(window, 'terminalApi', {
     configurable: true,
     value: {
@@ -91,7 +96,6 @@ beforeEach(() => {
       write: vi.fn(),
       resize: vi.fn(),
       kill: vi.fn(),
-      copyText: vi.fn(),
       scrollback: vi.fn().mockResolvedValue(null),
       onData: (_sessionId: string, _attachmentId: string, listener: (output: TerminalOutput) => void) => {
         emitOutput = listener

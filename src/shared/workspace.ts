@@ -1,0 +1,271 @@
+import type { AgentProvider, AgentTurnOutcome } from './agent'
+import type { AttentionItem } from './attention'
+import type { WorkspaceFileNode } from './file-view'
+import type { ProjectRunCommand } from './project-run-commands'
+import type { WorkspaceDiffNode } from './git-diff'
+import type { WorkspaceWorktree } from './worktree'
+import type { ConversationTitleSource } from './conversation-title'
+import type { DecisionDelegationPreference } from './decision-delegation'
+import type { RoutineDelegationPreference } from './routine-delegation'
+import type { DictationCleanupPreference } from './dictation-cleanup'
+import type { TerminalKind, TerminalLiveness } from './terminal'
+
+/**
+ * The persisted workspace: which projects the user has, what sits on the canvas, and the panel and
+ * preference state that has to survive a restart. Separate from `shared/terminal.ts` because a
+ * terminal is one kind of thing *on* a canvas, not the canvas itself - a reader following
+ * `saveWorkspace` should land here rather than in a session contract.
+ */
+
+export const RECENTLY_CLOSED_SESSION_LIMIT = 10
+
+export type AgentPermissionModes = Partial<Record<AgentProvider, string>>
+
+/**
+ * How the composer's Enter key behaves. One workspace-wide preference rather than a per-node one:
+ * it is muscle memory, so it has to mean the same thing in every composer.
+ */
+export const composerSendKeys = ['enter', 'mod-enter'] as const
+export type ComposerSendKey = (typeof composerSendKeys)[number]
+
+export function isComposerSendKey(value: unknown): value is ComposerSendKey {
+  return composerSendKeys.includes(value as ComposerSendKey)
+}
+
+export interface ProjectDirectory {
+  name: string
+  path: string
+}
+
+export interface WorkspaceProject extends ProjectDirectory {
+  id: string
+  /** Always stored as lowercase `#rrggbb`; see `isProjectColor` in `shared/project-colors.ts`. */
+  color: string
+  /**
+   * Shell command that makes a freshly created worktree usable (dependency install, env copy,
+   * first build). Optional: a worktree is created whether or not one is configured.
+   */
+  setupCommand?: string
+  /** The group this project sits in; absent means top level. Dangling ids are dropped on load. */
+  groupId?: string
+  /**
+   * Where this project keeps its Markdown tickets, relative to its root. Absent means
+   * `DEFAULT_TICKETS_DIRECTORY` in `shared/tickets.ts`.
+   */
+  ticketsDirectory?: string
+  /**
+   * The GitHub label that puts an open issue in the board's In progress column. Absent means
+   * `DEFAULT_GITHUB_STATUS_LABELS.inProgress` in `shared/github-issues.ts`.
+   */
+  githubInProgressLabel?: string
+  /**
+   * The named terminal commands that start this project ("API (watch)", "Web"). Array order is
+   * display order; absent or empty both mean the project configures none. See
+   * `shared/project-run-commands.ts`.
+   */
+  runCommands?: ProjectRunCommand[]
+  /**
+   * Set when the project has a custom avatar image stored by main's project-avatar store; the
+   * value only exists to change on every replacement so renderer caches re-read. Absent means the
+   * letter chip. The bytes themselves never live in the workspace snapshot - it is rewritten on
+   * every save. See `shared/project-avatar.ts`.
+   */
+  avatarVersion?: number
+}
+
+/**
+ * A collapsible sidebar folder. Groups are a desktop-sidebar affordance only: they never reach the
+ * canvas, the remote projection, or the phone.
+ */
+export interface ProjectGroup {
+  id: string
+  name: string
+  collapsed: boolean
+}
+
+/**
+ * Where a branched conversation came from: the canvas node it was taken at and that node's
+ * provider conversation, captured at branch time. Persisted on the *child*, which is what makes it
+ * a provenance record rather than a link - closing the parent removes the drawn lineage, never the
+ * fact. The canvas derives its lineage edge from this; nothing else reads it.
+ */
+export interface ConversationLineage {
+  nodeId: string
+  conversationId: string
+}
+
+export interface WorkspaceTerminalNode {
+  id: string
+  sessionId?: string
+  kind: TerminalKind
+  label: string
+  /** Why an agent node's label changed from its generic launch label. */
+  titleSource?: ConversationTitleSource
+  projectId: string
+  /**
+   * The worktree this node runs in. Absent means the node runs in the project checkout itself,
+   * which stays the default; a node references a worktree, it does not own one.
+   */
+  worktreeId?: string
+  /**
+   * A worktree this node started work in without running there: the session keeps its own
+   * working directory, so this is an association for the canvas, never a cwd.
+   */
+  activeWorktreeId?: string
+  position: { x: number; y: number }
+  width: number
+  height: number
+  conversationId?: string
+  /** Whether this node hides inline activity and reasoning, leaving only the dialogue. */
+  focusMode?: boolean
+  /** Legacy name read during migration; new snapshots never write it. */
+  worklogCollapsed?: boolean
+  /** The agent model this conversation last ran on, as reported by its ACP adapter. */
+  modelId?: string
+  /** Bounded local turn failures/cancellations that provider transcript replay cannot restore. */
+  turnOutcomes?: AgentTurnOutcome[]
+  terminalLiveness?: TerminalLiveness
+  /** Unsent composer text, kept so a draft survives resize, collapse, and an Toucan restart. */
+  draft?: string
+  /** The conversation this one was branched off, if any; the canvas draws the lineage from it. */
+  branchedFrom?: ConversationLineage
+}
+
+/**
+ * Whether a saved node hides its inline activity, reading the legacy field for a snapshot written
+ * before the choice was renamed. One function so the store's migration and the canvas's restore
+ * cannot disagree about what an older snapshot meant - the store rewrites the field on load, but a
+ * recently-closed record is stored as it was and still comes back through the canvas.
+ */
+export function nodeFocusMode(node: Pick<WorkspaceTerminalNode, 'focusMode' | 'worklogCollapsed'>): boolean {
+  return node.focusMode ?? node.worklogCollapsed ?? false
+}
+
+/**
+ * The docked brain-dump library's persisted shape. Everything here outlives a restart for the same
+ * reason a node's composer draft does: the user typed it, or sized it, and losing it would be a
+ * silent discard. Width is stored raw and clamped against the current window on load, so shrinking
+ * the application never permanently narrows the panel.
+ */
+export interface BrainDumpPanelState {
+  open: boolean
+  width: number
+  /** An unsent capture draft, cleared only by a confirmed capture or an explicit Discard. */
+  draft?: string
+  /** The project the draft is filed under; absent means the user chose Unassigned. */
+  draftProjectPath?: string
+  /** The last provider a capture succeeded with; absent falls back to Codex. */
+  provider?: AgentProvider
+}
+
+/**
+ * The board is a projection of files on disk, so there is nothing about a ticket worth persisting
+ * here - only where the panel sits and whether it is open.
+ */
+export interface TicketBoardPanelState {
+  open: boolean
+  width: number
+  /**
+   * How wide the detail pane is inside the board, when the panel is wide enough to show the ticket
+   * list and the detail side by side. Absent in every snapshot written before the three-pane
+   * layout, and folded back into the panel's current width on read: a width stored by a wider board
+   * must never squeeze the ticket list out of existence.
+   */
+  detailWidth?: number
+  /**
+   * Which optional ticket sources are switched on, keyed by project path. Only a choice is stored,
+   * never a listing: whether this checkout shows its GitHub issues is the user's answer, and the
+   * issues themselves are still read fresh from `gh` every time the board lists.
+   */
+  enabledSources?: Record<string, string[]>
+}
+
+export interface WorkspaceState {
+  version: 3
+  projects: WorkspaceProject[]
+  /**
+   * Absent in every snapshot written before groups existed. Array order is the order groups appear
+   * in the sidebar, exactly as `projects` order is the order projects appear.
+   */
+  projectGroups?: ProjectGroup[]
+  activeProjectId: string | null
+  sidebarCollapsed: boolean
+  agentPermissionModes?: AgentPermissionModes
+  composerSendKey?: ComposerSendKey
+  /**
+   * The "Delegate routine work cheaply" preference (see `shared/routine-delegation.ts`). Absent in
+   * every snapshot written before it existed, which is also the off state - so existing workspaces
+   * migrate by doing nothing and keep their sessions' behavior unchanged.
+   */
+  routineDelegation?: RoutineDelegationPreference
+  /** Absent means off: cleanup spends the user's Claude subscription only after opting in. */
+  dictationCleanup?: DictationCleanupPreference
+  /**
+   * The "delegate decisions" preference (see `shared/decision-delegation.ts`). Independent of
+   * `routineDelegation` and absent by the same rule: a snapshot written before it existed is the
+   * off state, so existing workspaces migrate by doing nothing.
+   */
+  decisionDelegation?: DecisionDelegationPreference
+  nodes: WorkspaceTerminalNode[]
+  /** Bounded LIFO history used by Ctrl+Shift+T; callbacks are rebuilt when an entry is reopened. */
+  recentlyClosedNodes?: WorkspaceTerminalNode[]
+  /**
+   * The durable unread model behind every attention count (see `shared/attention.ts`). Persisted
+   * so an approval, sign-in request, result, or failure is still waiting after a restart; records
+   * whose node no longer exists are pruned on load.
+   */
+  attention?: AttentionItem[]
+  worktrees: WorkspaceWorktree[]
+  /**
+   * File nodes on the canvas. Absent in every snapshot written before they existed, and written
+   * only when there is at least one, so a workspace without them keeps its old snapshot shape.
+   */
+  files?: WorkspaceFileNode[]
+  /** Diff nodes on the canvas, optional and written only when present for the same reason as `files`. */
+  diffs?: WorkspaceDiffNode[]
+  /** Absent in every snapshot written before the library existed; the panel starts closed there. */
+  brainDumpPanel?: BrainDumpPanelState
+  /** Absent in every snapshot written before the board existed; the panel starts closed there. */
+  ticketBoardPanel?: TicketBoardPanelState
+  /**
+   * Remembered canvas arrangements by slot number ('1'..'9'), written only when at least one is
+   * saved. A slot names nodes by id; ids that no longer exist are skipped when it is restored.
+   */
+  layoutSlots?: Record<string, WorkspaceLayoutSlot>
+}
+
+/**
+ * The `WorkspaceState` arrays that hold canvas nodes, one per node kind. Shared so the renderer's
+ * `CANVAS_NODE_KINDS` and the store's `CANVAS_NODE_VALIDATORS` name the same set of fields: a kind
+ * whose field is missing from one of those tables would be persisted without being validated, or
+ * validated without ever being written.
+ */
+export type CanvasNodeStateField = 'nodes' | 'worktrees' | 'files' | 'diffs'
+
+/** One remembered arrangement: where each node was, in flow coordinates, keyed by node id. */
+export type WorkspaceLayoutSlot = Record<string, { x: number; y: number; width: number; height: number }>
+
+export interface WorkspaceSaveResult {
+  ok: boolean
+  message?: string
+}
+
+export interface WorkspaceLoadResult {
+  state: WorkspaceState | null
+  /** True when the primary snapshot was missing/corrupt and this state came from the recovery copy. */
+  recovered: boolean
+  /**
+   * True when a primary and/or backup file exists on disk but neither could be validated, so
+   * `state` is null for reasons other than "no workspace has ever been saved." Callers must not
+   * treat this the same as a fresh install: silently seeding and saving a default workspace here
+   * would permanently destroy the last damaged-but-potentially-recoverable copy.
+   */
+  unrecoverable: boolean
+}
+
+/** Choosing a project directory and the snapshot round trip, seen from the renderer. */
+export interface WorkspaceApi {
+  pickProject(): Promise<ProjectDirectory | null>
+  loadWorkspace(): Promise<WorkspaceLoadResult>
+  saveWorkspace(state: WorkspaceState): Promise<WorkspaceSaveResult>
+}

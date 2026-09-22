@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { ProjectAvatar } from './ProjectAvatar'
 import { ArrowDown, ArrowUp, X } from 'lucide-react'
-import type { WorkspaceProject } from '../../shared/terminal'
+import type { WorkspaceProject } from '../../shared/workspace'
 import {
   moveRunCommand,
   normalizeRunCommands,

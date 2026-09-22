@@ -1,4 +1,4 @@
-import type { ComposerSendKey } from '../../shared/terminal'
+import type { ComposerSendKey } from '../../shared/workspace'
 
 export type { ComposerSendKey }
 

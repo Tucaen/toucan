@@ -3,7 +3,7 @@ import { test } from 'vitest'
 import { PROJECT_CHANNELS, SHELL_CHANNELS, WORKSPACE_CHANNELS } from '../src/shared/ipc-channels'
 import { registerProjectIpc, type ProjectIpcDependencies } from '../src/main/project-ipc'
 import type { ImageArtifactSaveRequest } from '../src/shared/image-artifact'
-import type { WorkspaceState } from '../src/shared/terminal'
+import type { WorkspaceState } from '../src/shared/workspace'
 
 interface Harness {
   handlers: Map<string, (...args: unknown[]) => unknown>

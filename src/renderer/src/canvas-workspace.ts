@@ -1,17 +1,15 @@
 import type { Node } from '@xyflow/react'
 import type { AttentionAction, AttentionKind } from '../../shared/attention'
 import type { AgentTurnOutcome } from '../../shared/agent'
+import type { TerminalLiveness, TerminalKind, TerminalNodeStatus } from '../../shared/terminal'
 import type {
   AgentPermissionModes,
   CanvasNodeStateField,
   ConversationLineage,
-  TerminalLiveness,
-  TerminalKind,
-  TerminalNodeStatus,
   WorkspaceState,
   WorkspaceTerminalNode
-} from '../../shared/terminal'
-import { nodeFocusMode, RECENTLY_CLOSED_SESSION_LIMIT, type WorkspaceProject } from '../../shared/terminal'
+} from '../../shared/workspace'
+import { nodeFocusMode, RECENTLY_CLOSED_SESSION_LIMIT, type WorkspaceProject } from '../../shared/workspace'
 import { defaultFileViewMode, type FileViewMode, type WorkspaceFileNode } from '../../shared/file-view'
 import type { WorkspaceDiffNode } from '../../shared/git-diff'
 import type { WorkspaceWorktree } from '../../shared/worktree'

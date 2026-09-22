@@ -1,4 +1,4 @@
-import type { WorkspaceState } from './terminal'
+import type { WorkspaceState } from './workspace'
 import { normalizeWorktreePath, worktreePathKey } from './worktree'
 
 /** First record wins, keeping its geometry and metadata; references follow the surviving id. */

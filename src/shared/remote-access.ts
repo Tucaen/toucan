@@ -15,7 +15,8 @@
  */
 
 import { dominantUnreadKind, unreadAttentionByNode, type AttentionKind, type AttentionState } from './attention'
-import type { TerminalNodeStatus, WorkspaceState } from './terminal'
+import type { TerminalNodeStatus } from './terminal'
+import type { WorkspaceState } from './workspace'
 import type { AgentProvider } from './agent-provider'
 
 /**

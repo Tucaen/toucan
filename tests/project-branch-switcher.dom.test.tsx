@@ -3,7 +3,7 @@ import { afterEach, describe, expect, test, vi } from 'vitest'
 import ProjectRowMenu from '../src/renderer/src/ProjectRowMenu'
 import ProjectBranchChip from '../src/renderer/src/ProjectBranchChip'
 import type { GitBranchListResult, GitCheckoutResult } from '../src/shared/git-branch'
-import type { WorkspaceProject } from '../src/shared/terminal'
+import type { WorkspaceProject } from '../src/shared/workspace'
 
 // A project's branch is switched from the sidebar row, never from a node: the row's chip opens
 // the row menu straight onto the branch page, and that page refuses what git would refuse.

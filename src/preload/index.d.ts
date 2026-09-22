@@ -1,5 +1,7 @@
 import type { AgentApi, UsageApi } from '../shared/agent'
 import type { TerminalApi } from '../shared/terminal'
+import type { WorkspaceApi } from '../shared/workspace'
+import type { ShellApi } from '../shared/shell'
 import type { WorktreeApi } from '../shared/worktree'
 import type { ConversationApi } from '../shared/conversation'
 import type { WorkspaceFilesApi } from '../shared/workspace-files'
@@ -24,6 +26,8 @@ declare global {
   interface Window {
     adapterManagementApi: AdapterManagementApi
     terminalApi: TerminalApi
+    workspaceApi: WorkspaceApi
+    shellApi: ShellApi
     terminalContextApi: TerminalContextApi
     projectAvatarApi: ProjectAvatarApi
     agentApi: AgentApi

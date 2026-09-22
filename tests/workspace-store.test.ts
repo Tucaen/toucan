@@ -11,7 +11,8 @@ import {
 } from '../src/main/workspace-store'
 import { CANVAS_NODE_KINDS } from '../src/renderer/src/canvas-workspace'
 import { AGENT_TURN_OUTCOME_LIMIT } from '../src/shared/agent'
-import type { WorkspaceState } from '../src/shared/terminal'
+import { attentionItemId } from '../src/shared/attention'
+import type { WorkspaceState } from '../src/shared/workspace'
 
 function makeState(marker: string): WorkspaceState {
   return {
@@ -590,7 +591,7 @@ test('unread attention records survive a restart, and stale ones are pruned on t
   ]
   state.attention = [
     {
-      id: 'node-1 approval perm-7',
+      id: attentionItemId('node-1', 'approval', 'perm-7'),
       nodeId: 'node-1',
       kind: 'approval',
       key: 'perm-7',
@@ -603,7 +604,7 @@ test('unread attention records survive a restart, and stale ones are pruned on t
     },
     {
       // A node that was closed before the snapshot was written; nothing can ever clear this.
-      id: 'gone result turn-a',
+      id: attentionItemId('gone', 'result', 'turn-a'),
       nodeId: 'gone',
       kind: 'result',
       key: 'turn-a',
@@ -646,6 +647,42 @@ test('rejects a workspace whose attention records are malformed', () => {
     null
   )
   assert.equal(parseWorkspaceState({ ...base, attention: {} }), null)
+})
+
+test('an attention record whose id drifted from its condition is repaired, never a lost workspace', () => {
+  const base = makeState('attention')
+  base.nodes = [
+    {
+      id: 'node-1',
+      kind: 'claude',
+      label: 'Claude 1',
+      projectId: 'project-1',
+      position: { x: 0, y: 0 },
+      width: 520,
+      height: 340
+    }
+  ]
+  const record = {
+    nodeId: 'node-1',
+    kind: 'approval' as const,
+    key: 'perm-7',
+    createdAt: 1,
+    updatedAt: 1,
+    events: 1,
+    read: false
+  }
+
+  // Two records for one condition, only because a hand-written id stopped matching its parts.
+  const parsed = parseWorkspaceState({
+    ...base,
+    attention: [
+      { ...record, id: 'node-1 approval perm-7' },
+      { ...record, id: attentionItemId('node-1', 'approval', 'perm-7') }
+    ]
+  })
+
+  assert.equal(parsed?.attention?.length, 1)
+  assert.equal(parsed?.attention?.[0].id, attentionItemId('node-1', 'approval', 'perm-7'))
 })
 
 test('substitutes a palette colour for a malformed one rather than refusing the workspace', () => {

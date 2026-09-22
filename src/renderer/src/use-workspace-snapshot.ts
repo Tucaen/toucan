@@ -13,7 +13,7 @@ import type {
   WorkspaceProject,
   WorkspaceState,
   WorkspaceTerminalNode
-} from '../../shared/terminal'
+} from '../../shared/workspace'
 import { serializeCanvasNodes, type CanvasNode } from './canvas-workspace'
 import { nodeBeforeTemporaryFit, type SnapStates } from './node-snap'
 

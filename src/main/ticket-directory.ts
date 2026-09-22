@@ -1,5 +1,5 @@
 import { resolve } from 'node:path'
-import type { WorkspaceProject } from '../shared/terminal'
+import type { WorkspaceProject } from '../shared/workspace'
 import { ticketsDirectoryOrDefault } from '../shared/tickets'
 import { pathWithinRoot } from '../shared/paths'
 

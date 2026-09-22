@@ -1,5 +1,5 @@
 import type { CSSProperties, ReactNode } from 'react'
-import type { WorkspaceProject } from '../../shared/terminal'
+import type { WorkspaceProject } from '../../shared/workspace'
 
 /**
  * The one project chip: the custom avatar image when the project has one, the project's first

@@ -11,7 +11,7 @@ import {
   withTerminalContextEdge,
   withoutEdgesTouchingNodes
 } from '../src/renderer/src/terminal-context-edges'
-import type { WorkspaceState } from '../src/shared/terminal'
+import type { WorkspaceState } from '../src/shared/workspace'
 
 const callbacks = {
   onStatusChange: () => undefined,

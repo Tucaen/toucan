@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { discardTempFileSync, writeFileDurably, writeSnapshotAtomically } from './durable-file'
 import { createSerialQueue } from './serial-queue'
 import { AGENT_TURN_OUTCOME_LIMIT } from '../shared/agent'
-import { isAttentionItem } from '../shared/attention'
+import { isAttentionItem, normalizeAttentionItems } from '../shared/attention'
 import { isFileViewMode, type WorkspaceFileNode } from '../shared/file-view'
 import type { WorkspaceDiffNode } from '../shared/git-diff'
 import { isProjectColor, paletteColorAt } from '../shared/project-colors'
@@ -21,7 +21,7 @@ import {
   type WorkspaceProject,
   type WorkspaceSaveResult,
   type WorkspaceState
-} from '../shared/terminal'
+} from '../shared/workspace'
 import { errorMessage } from '../shared/text'
 import { normalizeWorkspaceWorktrees } from '../shared/worktree-identity'
 import { isAgentProvider } from '../shared/agent-provider'
@@ -307,9 +307,21 @@ function normalizeProjectsAndGroups(value: unknown): unknown {
   return { ...state, projects, ...(groups ? { projectGroups: groups } : {}) }
 }
 
+/**
+ * Repairs attention record ids before the snapshot is validated, for the reason
+ * `normalizeAttentionItems` gives: a drifted id is a duplicate badge, and no id mistake is worth
+ * refusing a whole canvas over.
+ */
+function normalizeAttention(value: unknown): unknown {
+  if (!value || typeof value !== 'object') return value
+  const state = value as { attention?: unknown }
+  if (!Array.isArray(state.attention)) return value
+  return { ...state, attention: normalizeAttentionItems(state.attention) }
+}
+
 /** @internal exported for tests */
 export function parseWorkspaceState(candidate: unknown): WorkspaceState | null {
-  const value = normalizeProjectsAndGroups(candidate)
+  const value = normalizeAttention(normalizeProjectsAndGroups(candidate))
   if (!hasValidProjects(value)) return null
   const version = (value as Partial<WorkspaceState>).version
 

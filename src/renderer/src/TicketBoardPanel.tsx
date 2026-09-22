@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, ExternalLink, FolderOpen, GripVertical, MoreHorizontal, RefreshCw, Trash2, X } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
-import type { TicketBoardPanelState } from '../../shared/terminal'
+import type { TicketBoardPanelState } from '../../shared/workspace'
 import type { TicketCard, TicketSource } from '../../shared/ticket-source'
 import type { TicketSkillApi } from '../../shared/ticket-skill'
 import { ticketCardKey } from '../../shared/ticket-source'

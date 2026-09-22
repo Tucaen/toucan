@@ -42,7 +42,7 @@ const showItemInFolder = vi.fn()
 beforeEach(() => {
   copyText.mockClear()
   showItemInFolder.mockClear()
-  Object.defineProperty(window, 'terminalApi', {
+  Object.defineProperty(window, 'shellApi', {
     configurable: true,
     value: { copyText, showItemInFolder }
   })

@@ -57,6 +57,11 @@ function nodeData(label: string): Record<string, unknown> {
 test('renaming a node keeps the shell it already spawned', async () => {
   const create = vi.fn(async () => ({ ok: true, sessionId: 'session', incarnationId: 'incarnation' }))
   const kill = vi.fn()
+  Object.defineProperty(window, 'shellApi', {
+    configurable: true,
+    writable: true,
+    value: { copyText: vi.fn(), readClipboardText: vi.fn(() => '') }
+  })
   Object.defineProperty(window, 'terminalApi', {
     configurable: true,
     value: {
@@ -64,7 +69,6 @@ test('renaming a node keeps the shell it already spawned', async () => {
       kill,
       write: vi.fn(),
       resize: vi.fn(),
-      copyText: vi.fn(),
       onData: () => () => undefined,
       onExit: () => () => undefined
     }

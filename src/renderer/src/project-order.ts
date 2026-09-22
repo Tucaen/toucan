@@ -1,4 +1,4 @@
-import type { ProjectGroup, WorkspaceProject } from '../../shared/terminal'
+import type { ProjectGroup, WorkspaceProject } from '../../shared/workspace'
 
 /**
  * Everything the project sidebar's drag-to-reorder knows about geometry and ordering, kept out of

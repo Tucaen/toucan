@@ -1,4 +1,5 @@
-import type { ConversationLineage, TerminalKind } from '../../shared/terminal'
+import type { TerminalKind } from '../../shared/terminal'
+import type { ConversationLineage } from '../../shared/workspace'
 
 /**
  * How a session node's next launch opens, and the two decisions that settle it.

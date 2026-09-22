@@ -89,7 +89,7 @@ export function ImageAttachments(props: { images: AgentImageAttachment[]; label?
 function SaveImageButton(props: { image: AgentImageAttachment; label: string; position: number }): JSX.Element {
   const [note, setNote] = useState<string | null>(null)
   const save = async (): Promise<void> => {
-    const result = await window.terminalApi.saveImage({
+    const result = await window.shellApi.saveImage({
       data: props.image.data,
       mimeType: props.image.mimeType,
       suggestedName: `${props.label.toLowerCase().replace(/\s+/g, '-')}-${props.position + 1}`

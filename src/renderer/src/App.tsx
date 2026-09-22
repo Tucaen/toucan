@@ -40,6 +40,7 @@ import type { ConversationSummary } from '../../shared/conversation'
 import { normalizeConversationTitle, type ConversationTitleSource } from '../../shared/conversation-title'
 import { paletteColorAt } from '../../shared/project-colors'
 import { terminalRunInput } from '../../shared/project-run-commands'
+import type { TerminalKind, TerminalLiveness } from '../../shared/terminal'
 import type {
   AgentPermissionModes,
   BrainDumpPanelState,
@@ -47,14 +48,12 @@ import type {
   ConversationLineage,
   ProjectDirectory,
   ProjectGroup,
-  TerminalKind,
-  TerminalLiveness,
   TicketBoardPanelState,
   WorkspaceLayoutSlot,
   WorkspaceProject,
   WorkspaceState,
   WorkspaceTerminalNode
-} from '../../shared/terminal'
+} from '../../shared/workspace'
 import type { WorktreeRemovalBlocker } from '../../shared/worktree'
 import { worktreePathKey } from '../../shared/worktree'
 import type { FileViewMode } from '../../shared/file-view'
@@ -405,7 +404,7 @@ function Canvas(): JSX.Element {
   const ticketSources = useMemo(
     () => [
       createTicketFileSource(window.ticketsApi),
-      createTicketGithubSource(window.githubIssuesApi, (url) => void window.terminalApi.openExternal(url))
+      createTicketGithubSource(window.githubIssuesApi, (url) => void window.shellApi.openExternal(url))
     ],
     []
   )
@@ -1831,7 +1830,7 @@ function Canvas(): JSX.Element {
   }, [setNodes, workspaceReady, worktreeCallbacks])
 
   const addProject = useCallback(async (): Promise<void> => {
-    const directory = await window.terminalApi.pickProject()
+    const directory = await window.workspaceApi.pickProject()
     if (!directory) return
 
     const existing = projects.find((project) => pathWithinRoot(project.path, directory.path) === '')
@@ -3188,7 +3187,7 @@ function Canvas(): JSX.Element {
                   busy={remoteAccess.busy}
                   onApply={(settings) => void remoteAccess.applySettings(settings)}
                   onRegenerate={() => void remoteAccess.regenerateToken()}
-                  onCopyToken={(token) => window.terminalApi.copyText(token)}
+                  onCopyToken={(token) => window.shellApi.copyText(token)}
                   onClose={() => setRemoteAccessOpen(false)}
                 />
               )}

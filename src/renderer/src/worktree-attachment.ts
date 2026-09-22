@@ -1,4 +1,4 @@
-import type { WorkspaceProject } from '../../shared/terminal'
+import type { WorkspaceProject } from '../../shared/workspace'
 import type { WorktreeClaimMatch } from '../../shared/worktree'
 import { worktreePathKey } from '../../shared/worktree'
 import type { CanvasNode, TerminalNodeStatus, WorktreeCanvasNode } from './canvas-workspace'

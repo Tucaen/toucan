@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { WorkspaceProject } from '../../shared/terminal'
+import type { WorkspaceProject } from '../../shared/workspace'
 import VoiceInput, { type VoiceState } from './VoiceInput'
 import type { AgentProvider } from '../../shared/agent-provider'
 

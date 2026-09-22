@@ -35,7 +35,7 @@ function languageFromClassName(value: unknown): string | undefined {
 
 /** Renders lowlight's hast output; it only ever emits text and `<span class=...>` elements. */
 function copyToClipboard(text: string): void {
-  const bridge = window.terminalApi
+  const bridge = window.shellApi
   if (bridge?.copyText) {
     bridge.copyText(text)
     return
@@ -140,7 +140,7 @@ function MarkdownLink(props: { href?: string; children?: React.ReactNode }): JSX
 
   if (action.kind === 'none') return <span className="markdown-inert-link">{props.children}</span>
 
-  const bridge = window.terminalApi
+  const bridge = window.shellApi
   const open = (): void => {
     setProblem(undefined)
     if (action.kind === 'browser') {

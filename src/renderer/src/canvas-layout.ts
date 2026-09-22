@@ -4,7 +4,7 @@
  * keys. Snap itself lives in `node-snap.ts`.
  */
 import type { Node } from '@xyflow/react'
-import type { WorkspaceLayoutSlot } from '../../shared/terminal'
+import type { WorkspaceLayoutSlot } from '../../shared/workspace'
 import { nodeAtGeometry, renderedNodeGeometry, type NodeGeometry, type SnapArrow } from './node-snap'
 
 /**
