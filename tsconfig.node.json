@@ -5,6 +5,9 @@
     "moduleResolution": "Bundler",
     "target": "ES2022",
     "strict": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "verbatimModuleSyntax": true,
     "skipLibCheck": true,
     "types": ["node", "electron"]
   },

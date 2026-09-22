@@ -4,6 +4,8 @@
     "moduleResolution": "Node",
     "target": "ES2022",
     "strict": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
     "skipLibCheck": true,
     "types": ["node"],
     "outDir": ".test-out"
