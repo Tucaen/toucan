@@ -19,8 +19,6 @@ export interface ProjectIpcDependencies {
     load(): Promise<WorkspaceLoadResult>
     save(state: WorkspaceState): Promise<WorkspaceSaveResult>
   }
-  /** The directory the app was launched from; the default project a fresh workspace opens on. */
-  initialProjectPath(): string
   /** Shows the OS folder picker owned by the asking window; null when the user cancels. */
   pickProjectDirectory(sender: unknown): Promise<string | null>
   openExternal(url: string): Promise<void>
@@ -54,7 +52,6 @@ function projectDirectory(path: string): ProjectDirectory {
 }
 
 export function registerProjectIpc(ipc: IpcRegistrar, deps: ProjectIpcDependencies): void {
-  ipc.handle(PROJECT_CHANNELS.initial, () => projectDirectory(deps.initialProjectPath()))
   ipc.handle(PROJECT_CHANNELS.pick, async (event) => {
     const picked = await deps.pickProjectDirectory(event.sender)
     return picked ? projectDirectory(normalize(picked)) : null

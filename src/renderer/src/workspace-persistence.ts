@@ -6,7 +6,6 @@ export type WorkspaceSaveStatus = 'saving' | 'saved' | 'error'
 interface WorkspacePersistenceOptions {
   snapshot: WorkspaceState
   restore(saved: WorkspaceState): void
-  seedFresh(): Promise<void>
   saveDelayMs?: number
 }
 
@@ -15,7 +14,7 @@ interface WorkspacePersistence {
   recovered: boolean
   unrecoverable: boolean
   saveStatus: WorkspaceSaveStatus
-  acknowledgeUnrecoverable(): Promise<void>
+  acknowledgeUnrecoverable(): void
 }
 
 /**
@@ -25,7 +24,6 @@ interface WorkspacePersistence {
 export function useWorkspacePersistence({
   snapshot,
   restore,
-  seedFresh,
   saveDelayMs = 180
 }: WorkspacePersistenceOptions): WorkspacePersistence {
   const [ready, setReady] = useState(false)
@@ -33,9 +31,7 @@ export function useWorkspacePersistence({
   const [unrecoverable, setUnrecoverable] = useState(false)
   const [saveStatus, setSaveStatus] = useState<WorkspaceSaveStatus>('saving')
   const restoreRef = useRef(restore)
-  const seedFreshRef = useRef(seedFresh)
   restoreRef.current = restore
-  seedFreshRef.current = seedFresh
 
   useEffect(() => {
     let active = true
@@ -48,10 +44,10 @@ export function useWorkspacePersistence({
       } else if (loaded.unrecoverable) {
         setUnrecoverable(true)
         return
-      } else {
-        await seedFreshRef.current()
-        if (!active) return
       }
+      // Nothing saved yet is a first launch, and a first launch opens on an empty sidebar: the
+      // app has no business guessing which folder the user wants, and the directory it happened
+      // to be started from - its own install folder, for a shortcut - is never that folder.
       setReady(true)
     })()
     return () => {
@@ -75,11 +71,10 @@ export function useWorkspacePersistence({
     return () => clearTimeout(timeout)
   }, [ready, saveDelayMs, snapshot])
 
-  const acknowledgeUnrecoverable = useCallback(async (): Promise<void> => {
-    await seedFresh()
+  const acknowledgeUnrecoverable = useCallback((): void => {
     setUnrecoverable(false)
     setReady(true)
-  }, [seedFresh])
+  }, [])
 
   return { ready, recovered, unrecoverable, saveStatus, acknowledgeUnrecoverable }
 }

@@ -13,7 +13,6 @@ export const ADAPTER_CHANNELS = {
 } as const
 
 export const PROJECT_CHANNELS = {
-  initial: 'project:initial',
   pick: 'project:pick',
   avatarChoose: 'project:avatar-choose',
   avatarRead: 'project:avatar-read',

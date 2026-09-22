@@ -322,7 +322,6 @@ export interface TerminalExit {
  * seen from the renderer. Preload implements it; main answers the channels behind it.
  */
 export interface TerminalApi {
-  getInitialProject(): Promise<ProjectDirectory>
   pickProject(): Promise<ProjectDirectory | null>
   loadWorkspace(): Promise<WorkspaceLoadResult>
   saveWorkspace(state: WorkspaceState): Promise<WorkspaceSaveResult>

@@ -94,35 +94,28 @@ describe('workspace persistence orchestration', () => {
   it('restores a saved workspace and reports recovery before enabling persistence', async () => {
     loadWorkspace.mockResolvedValue({ state: savedWorkspace, recovered: true, unrecoverable: false })
     const restore = vi.fn()
-    const seedFresh = vi.fn()
 
-    const { result } = renderHook(() =>
-      useWorkspacePersistence({ snapshot: savedWorkspace, restore, seedFresh, saveDelayMs: 0 })
-    )
+    const { result } = renderHook(() => useWorkspacePersistence({ snapshot: savedWorkspace, restore, saveDelayMs: 0 }))
 
     await waitFor(() => expect(result.current.ready).toBe(true))
     expect(restore).toHaveBeenCalledWith(savedWorkspace)
-    expect(seedFresh).not.toHaveBeenCalled()
     expect(result.current.recovered).toBe(true)
     await waitFor(() => expect(saveWorkspace).toHaveBeenCalledWith(savedWorkspace))
   })
 
-  it('does not seed or save over an unrecoverable workspace until the user acknowledges it', async () => {
+  it('does not save over an unrecoverable workspace until the user acknowledges it', async () => {
     loadWorkspace.mockResolvedValue({ state: null, recovered: false, unrecoverable: true })
-    const seedFresh = vi.fn().mockResolvedValue(undefined)
 
     const { result } = renderHook(() =>
-      useWorkspacePersistence({ snapshot: savedWorkspace, restore: vi.fn(), seedFresh, saveDelayMs: 0 })
+      useWorkspacePersistence({ snapshot: savedWorkspace, restore: vi.fn(), saveDelayMs: 0 })
     )
 
     await waitFor(() => expect(result.current.unrecoverable).toBe(true))
     expect(result.current.ready).toBe(false)
-    expect(seedFresh).not.toHaveBeenCalled()
     expect(saveWorkspace).not.toHaveBeenCalled()
 
-    await act(() => result.current.acknowledgeUnrecoverable())
+    act(() => result.current.acknowledgeUnrecoverable())
 
-    expect(seedFresh).toHaveBeenCalledOnce()
     expect(result.current.ready).toBe(true)
     expect(result.current.unrecoverable).toBe(false)
     await waitFor(() => expect(saveWorkspace).toHaveBeenCalledWith(savedWorkspace))
@@ -138,7 +131,7 @@ describe('workspace persistence orchestration', () => {
     // Every other field is a stable reference, as it is in the canvas, so the layout slots are the
     // only thing that can give the snapshot a new identity.
     const snapshot = useWorkspaceSnapshot({ ...stableSnapshotInput, layoutSlots })
-    useWorkspacePersistence({ snapshot, restore: () => undefined, seedFresh: async () => undefined, saveDelayMs: 0 })
+    useWorkspacePersistence({ snapshot, restore: () => undefined, saveDelayMs: 0 })
     return { saveSlot: (slot) => setLayoutSlots((current) => ({ ...current, '1': slot })) }
   }
 
@@ -162,26 +155,19 @@ describe('workspace persistence orchestration', () => {
     loadWorkspace.mockResolvedValue({ state: null, recovered: false, unrecoverable: false })
     saveWorkspace.mockRejectedValue(new Error('the IPC channel is gone'))
     const { result } = renderHook(() =>
-      useWorkspacePersistence({
-        snapshot: savedWorkspace,
-        restore: () => undefined,
-        seedFresh: async () => undefined,
-        saveDelayMs: 0
-      })
+      useWorkspacePersistence({ snapshot: savedWorkspace, restore: () => undefined, saveDelayMs: 0 })
     )
 
     await waitFor(() => expect(result.current.saveStatus).toBe('error'))
   })
 
-  it('seeds a fresh workspace when no persisted files exist', async () => {
+  it('opens on an empty workspace when no persisted files exist, rather than guessing a project', async () => {
     loadWorkspace.mockResolvedValue({ state: null, recovered: false, unrecoverable: false })
-    const seedFresh = vi.fn().mockResolvedValue(undefined)
+    const restore = vi.fn()
 
-    const { result } = renderHook(() =>
-      useWorkspacePersistence({ snapshot: savedWorkspace, restore: vi.fn(), seedFresh, saveDelayMs: 0 })
-    )
+    const { result } = renderHook(() => useWorkspacePersistence({ snapshot: savedWorkspace, restore, saveDelayMs: 0 }))
 
     await waitFor(() => expect(result.current.ready).toBe(true))
-    expect(seedFresh).toHaveBeenCalledOnce()
+    expect(restore).not.toHaveBeenCalled()
   })
 })

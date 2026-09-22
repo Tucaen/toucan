@@ -552,7 +552,6 @@ void app.whenReady().then(async () => {
   registerProjectIpc(ipcMain, {
     containment,
     workspace,
-    initialProjectPath: () => process.cwd(),
     pickProjectDirectory: async (sender) => {
       const owner = BrowserWindow.fromWebContents(sender as Electron.WebContents)
       const options: Electron.OpenDialogOptions = {

@@ -32,7 +32,6 @@ function harness(overrides: Partial<ProjectIpcDependencies> = {}): Harness {
           return { ok: true }
         }
       },
-      initialProjectPath: () => 'D:\\projects\\toucan',
       pickProjectDirectory: async () => 'D:\\projects/other',
       openExternal: async (url) => void opened.push(url),
       showItemInFolder: (path) => void revealed.push(path),
@@ -56,14 +55,6 @@ function harness(overrides: Partial<ProjectIpcDependencies> = {}): Harness {
 }
 
 const event = { sender: {} }
-
-test('the initial project is the launch directory, displayed by its base name', async () => {
-  const { handlers } = harness()
-  assert.deepEqual(await handlers.get(PROJECT_CHANNELS.initial)!(event), {
-    name: 'toucan',
-    path: 'D:\\projects\\toucan'
-  })
-})
 
 test('a picked folder is normalized and named; a cancelled picker is null', async () => {
   const { handlers } = harness()

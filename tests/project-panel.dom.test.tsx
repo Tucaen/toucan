@@ -511,3 +511,17 @@ describe('running a saved project command', () => {
     expect(within(menu).getByRole('menuitem', { name: /^Web npm run dev/ })).toBeTruthy()
   })
 })
+
+describe('removing a project', () => {
+  test('the only project can be removed, leaving the sidebar empty and nothing active', async () => {
+    await renderApp(savedWorkspace({ projects: [alpha], activeProjectId: alpha.id }))
+
+    const remove: HTMLElement = sidebar().getByRole('button', { name: `Remove ${alpha.name}` })
+    expect(remove).toBeEnabled()
+    fireEvent.click(remove)
+
+    expect(sidebarOrder()).toEqual([])
+    await waitFor(() => expect(saved.at(-1)?.projects).toEqual([]))
+    expect(saved.at(-1)?.activeProjectId).toBeNull()
+  })
+})

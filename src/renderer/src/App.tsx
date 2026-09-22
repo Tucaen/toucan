@@ -1503,13 +1503,6 @@ function Canvas(): JSX.Element {
     [clearRecentlyClosedNodes, findWorktreeNode, removalPrompt, setNodes]
   )
 
-  const seedFreshWorkspace = useCallback(async (): Promise<void> => {
-    const directory = await window.terminalApi.getInitialProject()
-    const project = createProject(directory, 0)
-    setProjects([project])
-    setActiveProjectId(project.id)
-  }, [])
-
   const restoreWorkspace = useCallback(
     (saved: WorkspaceState): void => {
       const restored = restoreCanvasWorkspace(saved, {
@@ -1712,7 +1705,7 @@ function Canvas(): JSX.Element {
     unrecoverable: workspaceUnrecoverable,
     saveStatus,
     acknowledgeUnrecoverable: acknowledgeUnrecoverableWorkspace
-  } = useWorkspacePersistence({ snapshot: workspaceSnapshot, restore: restoreWorkspace, seedFresh: seedFreshWorkspace })
+  } = useWorkspacePersistence({ snapshot: workspaceSnapshot, restore: restoreWorkspace })
 
   /*
    * A recovery is reported once and then goes away for good on this launch: it is news the first
@@ -1866,14 +1859,16 @@ function Canvas(): JSX.Element {
 
   const removeProject = useCallback(
     (projectId: string): void => {
-      if (projects.length <= 1 || nodes.some((node) => node.data.projectId === projectId)) return
+      if (nodes.some((node) => node.data.projectId === projectId)) return
       const remaining = projects.filter((project) => project.id !== projectId)
       // The recently-closed stack is left alone: `reopenClosedSession` already skips an entry whose
       // project is gone, so wiping it would throw away every other project's undo as well.
       setProjects(remaining)
       // A removed project's stored avatar would otherwise sit orphaned in userData forever.
       void window.projectAvatarApi?.remove(projectId)
-      if (activeProjectId === projectId) setActiveProjectId(remaining[0].id)
+      // Removing the last project leaves the sidebar empty, the same state a first launch opens
+      // in, so there is nothing left to make active.
+      if (activeProjectId === projectId) setActiveProjectId(remaining[0]?.id ?? null)
       setMenu(null)
     },
     [activeProjectId, nodes, projects]
@@ -2447,7 +2442,7 @@ function Canvas(): JSX.Element {
                       The saved canvas and its backup were both damaged, likely by a crash or an interrupted write.
                       Nothing has been overwritten yet.
                     </p>
-                    <button type="button" onClick={() => void acknowledgeUnrecoverableWorkspace()}>
+                    <button type="button" onClick={() => acknowledgeUnrecoverableWorkspace()}>
                       Start a new workspace
                     </button>
                   </div>
@@ -2793,11 +2788,9 @@ function Canvas(): JSX.Element {
                                           title={
                                             nodeCount > 0
                                               ? 'Delete this project’s nodes first'
-                                              : projects.length === 1
-                                                ? 'Toucan needs at least one project'
-                                                : `Remove ${project.name}`
+                                              : `Remove ${project.name}`
                                           }
-                                          disabled={nodeCount > 0 || projects.length === 1}
+                                          disabled={nodeCount > 0}
                                           onClick={(event) => {
                                             event.stopPropagation()
                                             removeProject(project.id)

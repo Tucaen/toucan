@@ -61,7 +61,6 @@ const adapterManagementApi: AdapterManagementApi = {
 contextBridge.exposeInMainWorld('adapterManagementApi', adapterManagementApi)
 
 const terminalApi: TerminalApi = {
-  getInitialProject: () => ipcRenderer.invoke(PROJECT_CHANNELS.initial),
   pickProject: () => ipcRenderer.invoke(PROJECT_CHANNELS.pick),
   loadWorkspace: () => ipcRenderer.invoke(WORKSPACE_CHANNELS.load),
   saveWorkspace: (state) => ipcRenderer.invoke(WORKSPACE_CHANNELS.save, state),

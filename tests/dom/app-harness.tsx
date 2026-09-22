@@ -84,7 +84,6 @@ class ResizeObserverStub {
 export function installWindowApis(options: AppHarnessOptions = {}): AppHarness {
   const state = options.state ?? savedWorkspace()
   const saved: WorkspaceState[] = []
-  const firstProject = state.projects[0] ?? DEFAULT_PROJECT
 
   vi.stubGlobal('ResizeObserver', ResizeObserverStub)
   setWindowWidth(options.windowWidth ?? 1920)
@@ -96,7 +95,6 @@ export function installWindowApis(options: AppHarnessOptions = {}): AppHarness {
         saved.push(snapshot)
         return { ok: true }
       }),
-      getInitialProject: vi.fn(async () => ({ name: firstProject.name, path: firstProject.path })),
       create: vi.fn(async (request: { sessionId?: string }) => ({
         ok: true,
         sessionId: request.sessionId,
