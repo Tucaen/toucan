@@ -21,6 +21,24 @@
  */
 
 const FIELD = /^([A-Za-z][A-Za-z0-9_-]*):\s*(.*?)\s*$/
+
+/**
+ * `FIELD` read as what it means, rather than as a match object indexed by number. Both groups are
+ * unconditional, so a match always carries both - saying that once here is what lets every caller
+ * below have a plain `string` key and value instead of its own non-null assertion.
+ */
+function readField(line: string): { key: string; value: string } | undefined {
+  const match = FIELD.exec(line)
+  if (!match) return undefined
+  const [, key = '', value = ''] = match
+  return { key, value }
+}
+
+/** The first line of a document, which `String.split` always yields even for empty input. */
+function firstLine(lines: string[]): string {
+  const [first = ''] = lines
+  return first
+}
 /** A blank line or a `#` comment inside the block: present for humans, no field to read. */
 const IGNORABLE = /^(?:\s|#|$)/
 
@@ -64,7 +82,7 @@ function carriageReturn(lines: string[]): string {
 
 /** The delimiters alone, with no opinion about what is written between them. */
 function findBlock(lines: string[]): Delimited | undefined {
-  if (!DELIMITER.test(lines[0])) return undefined
+  if (!DELIMITER.test(firstLine(lines))) return undefined
   const closing = lines.findIndex((line, index) => index > 0 && DELIMITER.test(line))
   return closing < 0 ? undefined : { lines, closing }
 }
@@ -73,19 +91,19 @@ function readBlock(markdown: string, label: string): Block | { message: string }
   const lines = markdown.split('\n')
   const delimited = findBlock(lines)
   if (!delimited) {
-    if (!DELIMITER.test(lines[0])) return { message: `${label} must start with YAML frontmatter.` }
+    if (!DELIMITER.test(firstLine(lines))) return { message: `${label} must start with YAML frontmatter.` }
     return { message: `${label} frontmatter must have a closing --- delimiter.` }
   }
   const closing = delimited.closing
   const fields = new Map<string, string>()
-  for (let index = 1; index < closing; index += 1) {
-    const match = FIELD.exec(lines[index])
-    if (!match) {
-      if (IGNORABLE.test(lines[index])) continue
-      return { message: `Invalid frontmatter line ${index + 1}.` }
+  for (const [offset, line] of lines.slice(1, closing).entries()) {
+    const field = readField(line)
+    if (!field) {
+      if (IGNORABLE.test(line)) continue
+      return { message: `Invalid frontmatter line ${offset + 2}.` }
     }
-    if (fields.has(match[1])) return { message: `Duplicate frontmatter field "${match[1]}".` }
-    fields.set(match[1], match[2])
+    if (fields.has(field.key)) return { message: `Duplicate frontmatter field "${field.key}".` }
+    fields.set(field.key, field.value)
   }
   return { fields, lines, closing }
 }
@@ -119,9 +137,9 @@ function rewriteBlock(block: Delimited, updates: Record<string, string | undefin
   const remaining = new Map(Object.entries(updates))
   const replaced = new Set<string>()
   const carriage = carriageReturn(block.lines)
-  const output = [block.lines[0]]
-  for (let index = 1; index < block.closing; index += 1) {
-    const key = FIELD.exec(block.lines[index])?.[1]
+  const output = [firstLine(block.lines)]
+  for (const line of block.lines.slice(1, block.closing)) {
+    const key = readField(line)?.key
     if (key && remaining.has(key)) {
       const value = remaining.get(key)
       if (value !== undefined) output.push(`${key}: ${value}${carriage}`)
@@ -132,7 +150,7 @@ function rewriteBlock(block: Delimited, updates: Record<string, string | undefin
     // A later duplicate of a key this rewrite just set would otherwise outlive the value it
     // replaced, leaving the file saying two things about one field.
     if (key && replaced.has(key)) continue
-    output.push(block.lines[index])
+    output.push(line)
   }
   for (const [key, value] of remaining) if (value !== undefined) output.push(`${key}: ${value}${carriage}`)
   output.push(...block.lines.slice(block.closing))
@@ -150,9 +168,9 @@ function lenientBlock(lines: string[]): { fields: Map<string, string>; closing: 
   const delimited = findBlock(lines)
   if (!delimited) return undefined
   const fields = new Map<string, string>()
-  for (let index = 1; index < delimited.closing; index += 1) {
-    const match = FIELD.exec(lines[index])
-    if (match && !fields.has(match[1])) fields.set(match[1], match[2])
+  for (const line of lines.slice(1, delimited.closing)) {
+    const field = readField(line)
+    if (field && !fields.has(field.key)) fields.set(field.key, field.value)
   }
   return fields.size > 0 ? { fields, closing: delimited.closing } : undefined
 }
@@ -173,11 +191,11 @@ export type UpsertResult = { ok: true; markdown: string } | { ok: false; message
  * refusing to move it would take leniency back with the other hand.
  */
 function strandedField(lines: string[]): string | undefined {
-  if (!DELIMITER.test(lines[0]) || findBlock(lines)) return undefined
-  for (let index = 1; index < lines.length; index += 1) {
-    const match = FIELD.exec(lines[index])
-    if (match) return match[1]
-    if (!IGNORABLE.test(lines[index])) return undefined
+  if (!DELIMITER.test(firstLine(lines)) || findBlock(lines)) return undefined
+  for (const line of lines.slice(1)) {
+    const field = readField(line)
+    if (field) return field.key
+    if (!IGNORABLE.test(line)) return undefined
   }
   return undefined
 }
@@ -248,16 +266,15 @@ export function frontmatterForDisplay(markdown: string): DisplayedFrontmatter | 
   if (!delimited) return undefined
   const { lines, closing } = delimited
   const fields: FrontmatterField[] = []
-  for (let index = 1; index < closing; index += 1) {
-    const line = lines[index]
-    const match = FIELD.exec(line)
-    if (match) {
-      fields.push({ key: match[1], value: match[2] })
+  for (const line of lines.slice(1, closing)) {
+    const field = readField(line)
+    if (field) {
+      fields.push(field)
       continue
     }
     const content = line.trim()
     if (!content || content.startsWith('#')) continue
-    const previous = fields[fields.length - 1]
+    const previous = fields.at(-1)
     if (!previous) continue
     previous.value = previous.value ? `${previous.value}\n${content}` : content
   }

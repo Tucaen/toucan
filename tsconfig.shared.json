@@ -1,0 +1,12 @@
+{
+  // `src/shared` under `noUncheckedIndexedAccess` (#238). The flag is a whole-program setting, and
+  // turning it on for `src/main` and the renderer at once is a far larger change than it is worth
+  // here - but shared is pure data handling, where an out-of-range index or an absent regex group
+  // is exactly the bug the flag names. This config is the ratchet: shared holds the line while the
+  // rest of the tree does not yet.
+  "extends": "./tsconfig.node.json",
+  "compilerOptions": {
+    "noUncheckedIndexedAccess": true
+  },
+  "include": ["src/shared/**/*.ts"]
+}

@@ -35,7 +35,7 @@ function titleLine(text: string): string | null {
     .trim()
   const line =
     rawLine !== withoutRequest && withoutRequest
-      ? `${withoutRequest[0].toLocaleUpperCase()}${withoutRequest.slice(1)}`
+      ? `${withoutRequest.slice(0, 1).toLocaleUpperCase()}${withoutRequest.slice(1)}`
       : withoutRequest
   if (!line || GENERIC_PROMPT.test(line) || line.length < 12) return null
   if (line.length <= TITLE_LIMIT) return line
@@ -51,9 +51,9 @@ function titleLine(text: string): string | null {
 export function deriveConversationTitle(turns: ConversationTitleTurn[]): string | null {
   const assistantTurns = turns.filter((turn) => isFinalAssistantMessage(turn) && turn.text.trim())
   if (assistantTurns.length === 0) return null
-  for (let index = turns.length - 1; index >= 0; index -= 1) {
-    if (turns[index].role !== 'user') continue
-    const candidate = titleLine(turns[index].text)
+  for (const turn of turns.slice().reverse()) {
+    if (turn.role !== 'user') continue
+    const candidate = titleLine(turn.text)
     if (candidate) return candidate
   }
   // A bare "continue" can still reveal its subject through the resulting dialogue. Waiting for

@@ -72,7 +72,7 @@ export interface WorkerModel {
  * supports low effort.
  * @internal exported for tests
  */
-export const CODEX_WORKER_MODELS: readonly WorkerModel[] = [
+export const CODEX_WORKER_MODELS: readonly [WorkerModel, ...WorkerModel[]] = [
   {
     id: 'gpt-5.6-luna',
     name: 'GPT-5.6 Luna',
@@ -87,7 +87,7 @@ export const CODEX_WORKER_MODELS: readonly WorkerModel[] = [
  * offers this account; it advertises no effort levels, so the worker carries none.
  * @internal exported for tests
  */
-export const CLAUDE_WORKER_MODELS: readonly WorkerModel[] = [
+export const CLAUDE_WORKER_MODELS: readonly [WorkerModel, ...WorkerModel[]] = [
   {
     id: 'haiku',
     name: 'Haiku',
@@ -95,7 +95,7 @@ export const CLAUDE_WORKER_MODELS: readonly WorkerModel[] = [
   }
 ]
 
-export const WORKER_MODELS: Record<AgentProvider, readonly WorkerModel[]> = {
+export const WORKER_MODELS: Record<AgentProvider, readonly [WorkerModel, ...WorkerModel[]]> = {
   codex: CODEX_WORKER_MODELS,
   claude: CLAUDE_WORKER_MODELS
 }
@@ -118,6 +118,8 @@ export function isRoutineDelegationPreference(value: unknown): value is RoutineD
 /** The worker a preference names for a provider, falling back to that provider's default. */
 export function workerFromPreference(provider: AgentProvider, preference: RoutineDelegationPreference): WorkerModel {
   const models = WORKER_MODELS[provider]
+  // The lists are typed non-empty, so the default worker is the first entry by construction rather
+  // than by a check no caller could sensibly answer.
   return models.find((model) => model.id === preference[WORKER_PREFERENCE_KEY[provider]]) ?? models[0]
 }
 

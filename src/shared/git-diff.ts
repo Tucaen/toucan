@@ -98,7 +98,7 @@ export function parseNameStatus(stdout: string): GitChangedFile[] {
   const fields = nulFields(stdout)
   const files: GitChangedFile[] = []
   for (let index = 0; index < fields.length;) {
-    const letter = fields[index][0]
+    const letter = fields[index]?.[0] ?? ''
     const status = STATUS_BY_LETTER[letter] ?? 'modified'
     if (letter === 'R' || letter === 'C') {
       const oldPath = fields[index + 1]
@@ -131,12 +131,15 @@ export function parseNumstat(stdout: string): Map<string, GitLineCounts> {
   const counts = new Map<string, GitLineCounts>()
   const fields = nulFields(stdout)
   for (let index = 0; index < fields.length; index += 1) {
-    const match = /^(-|\d+)\t(-|\d+)\t(.*)$/s.exec(fields[index])
+    const field = fields[index]
+    if (field === undefined) break
+    const match = /^(-|\d+)\t(-|\d+)\t(.*)$/s.exec(field)
     if (!match) continue
-    const binary = match[1] === '-'
-    const entry = { added: binary ? 0 : Number(match[1]), deleted: binary ? 0 : Number(match[2]), binary }
-    if (match[3]) {
-      counts.set(match[3], entry)
+    const [, addedField, deletedField, path] = match
+    const binary = addedField === '-'
+    const entry = { added: binary ? 0 : Number(addedField), deleted: binary ? 0 : Number(deletedField), binary }
+    if (path) {
+      counts.set(path, entry)
     } else {
       // Rename: the record carries no path, the next two fields are old then new.
       const path = fields[index + 2]
@@ -158,7 +161,7 @@ export function parseUntrackedPaths(stdout: string): string[] {
   const untracked: string[] = []
   for (let index = 0; index < fields.length; index += 1) {
     const entry = fields[index]
-    if (entry.length < 4) continue
+    if (entry === undefined || entry.length < 4) continue
     const code = entry.slice(0, 2)
     if (code === '??') untracked.push(entry.slice(3))
     if (code[0] === 'R' || code[0] === 'C' || code[1] === 'R' || code[1] === 'C') index += 1

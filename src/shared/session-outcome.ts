@@ -235,8 +235,7 @@ function firstUserText(snapshot: AgentTranscriptState): string {
  */
 function lastAssistantText(snapshot: AgentTranscriptState): string {
   let progress = ''
-  for (let index = snapshot.messages.length - 1; index >= 0; index -= 1) {
-    const message = snapshot.messages[index]
+  for (const message of snapshot.messages.slice().reverse()) {
     if (message.role !== 'assistant' || !message.text.trim()) continue
     if (isFinalAssistantMessage(message)) return message.text
     if (!progress) progress = message.text
@@ -252,8 +251,7 @@ function lastAssistantText(snapshot: AgentTranscriptState): string {
  * be the index lying about the one thing a later reader is asking it.
  */
 export function answeredLatestAsk(snapshot: AgentTranscriptState): boolean {
-  for (let index = snapshot.messages.length - 1; index >= 0; index -= 1) {
-    const message = snapshot.messages[index]
+  for (const message of snapshot.messages.slice().reverse()) {
     if (message.role === 'user') return false
     if (isFinalAssistantMessage(message) && message.text.trim()) return true
   }
@@ -551,8 +549,9 @@ export function parseSessionOutcome(markdown: string): SessionOutcomeRecord | nu
   const failures: AgentTurnOutcome[] = []
   for (const item of listItems(body, 'Failures')) {
     const match = FAILURE_LINE.exec(item)
-    if (match)
-      failures.push({ id: match[2], status: match[1] === 'failed' ? 'failed' : 'cancelled', message: match[3] })
+    if (!match) continue
+    const [, outcome, id = '', message = ''] = match
+    failures.push({ id, status: outcome === 'failed' ? 'failed' : 'cancelled', message })
   }
   return {
     key: fields.get('key') || sessionOutcomeKey(provider, conversationId),

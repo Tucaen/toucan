@@ -22,8 +22,8 @@ export function parseMcpToolCall(activity: AgentActivity): McpToolCall | null {
   const named = activity.toolName ? /^mcp__(.+?)__(.+)$/.exec(activity.toolName) : null
   if (named)
     return {
-      server: named[1],
-      tool: named[2],
+      server: named[1] ?? '',
+      tool: named[2] ?? '',
       ...(activity.rawInput !== undefined ? { arguments: activity.rawInput } : {})
     }
   const input =
@@ -40,8 +40,8 @@ export function parseMcpToolCall(activity: AgentActivity): McpToolCall | null {
   const titled = activity.title ? /^mcp\.(.+?)\.(.+)$/.exec(activity.title) : null
   if (titled)
     return {
-      server: titled[1],
-      tool: titled[2],
+      server: titled[1] ?? '',
+      tool: titled[2] ?? '',
       ...(activity.rawInput !== undefined ? { arguments: activity.rawInput } : {})
     }
   return null

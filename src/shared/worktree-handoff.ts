@@ -49,7 +49,7 @@ export function invokesWorktreeSkill(text: string): boolean {
     .map((line) => line.trim())
     .find(Boolean)
   if (!firstLine) return false
-  const [command] = firstLine.split(/\s/)
+  const [command = ''] = firstLine.split(/\s/)
   return WORKTREE_SKILL_COMMAND.test(command)
 }
 

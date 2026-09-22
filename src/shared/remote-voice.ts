@@ -60,8 +60,8 @@ export function remoteVoiceBodyProblem(byteLength: number): string | null {
 export function encodePcm16(samples: Float32Array): Uint8Array<ArrayBuffer> {
   const bytes = new Uint8Array(samples.length * 2)
   const view = new DataView(bytes.buffer)
-  for (let index = 0; index < samples.length; index += 1) {
-    const clamped = Math.max(-1, Math.min(1, samples[index]))
+  for (const [index, sample] of samples.entries()) {
+    const clamped = Math.max(-1, Math.min(1, sample))
     view.setInt16(index * 2, Math.round(clamped * 32767), true)
   }
   return bytes
@@ -90,7 +90,7 @@ export function resampleLinear(input: Float32Array, inputRate: number, outputRat
     const left = Math.floor(position)
     const right = Math.min(left + 1, input.length - 1)
     const weight = position - left
-    output[index] = input[left] * (1 - weight) + input[right] * weight
+    output[index] = (input[left] ?? 0) * (1 - weight) + (input[right] ?? 0) * weight
   }
   return output
 }
@@ -100,11 +100,12 @@ export function resampleLinear(input: Float32Array, inputRate: number, outputRat
  * and digital silence on the other; reading only channel 0 would transcribe nothing, quietly.
  */
 export function downmixToMono(channels: readonly Float32Array[]): Float32Array {
-  if (channels.length === 0) return new Float32Array(0)
-  const length = channels[0].length
-  const mono = new Float32Array(length)
+  const [first] = channels
+  if (!first) return new Float32Array(0)
+  const mono = new Float32Array(first.length)
   for (const channel of channels) {
-    for (let index = 0; index < length; index += 1) mono[index] += channel[index] / channels.length
+    for (let index = 0; index < mono.length; index += 1)
+      mono[index] = (mono[index] ?? 0) + (channel[index] ?? 0) / channels.length
   }
   return mono
 }

@@ -45,8 +45,9 @@ export interface DictationCleanupResult {
 export function claudeModelLabel(id: string): string {
   const parsed = /^claude-([a-z]+)-(\d+)(?:-(\d+))?(?:-|$)/.exec(id)
   if (!parsed) return id
-  const family = parsed[1][0].toUpperCase() + parsed[1].slice(1)
-  return parsed[3] ? `${family} ${parsed[2]}.${parsed[3]}` : `${family} ${parsed[2]}`
+  const [, name = '', major, minor] = parsed
+  const family = name.slice(0, 1).toUpperCase() + name.slice(1)
+  return minor ? `${family} ${major}.${minor}` : `${family} ${major}`
 }
 
 export interface DictationCleanupRequest {

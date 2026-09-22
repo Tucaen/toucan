@@ -78,7 +78,7 @@ export function classifyMarkdownLink(href: string | undefined): MarkdownLinkTarg
   // Drive-letter forms are checked before any URL parse, because `new URL('D:/x')` succeeds with
   // the drive letter as its scheme and would classify the commonest local link as unsupported.
   const slashed = SLASHED_DRIVE_PATH.exec(bare)
-  if (slashed) return fileTarget(nativeDrivePath(slashed[1]))
+  if (slashed?.[1]) return fileTarget(nativeDrivePath(slashed[1]))
   if (DRIVE_PATH.test(bare)) return fileTarget(nativeDrivePath(bare))
   // A UNC path is only ever written with backslashes. `//host/x` is a protocol-relative URL and
   // deliberately not read as one: guessing wrong there would open a share for a web link.
@@ -99,7 +99,7 @@ export function classifyMarkdownLink(href: string | undefined): MarkdownLinkTarg
     // file:///D:/x yields "/D:/x"; file://host/share/x is a UNC path in two parts.
     if (url.host) return fileTarget(nativeDrivePath(`\\\\${url.host}${path}`))
     const drive = SLASHED_DRIVE_PATH.exec(path)
-    return drive ? fileTarget(nativeDrivePath(drive[1])) : fileTarget(path)
+    return drive?.[1] ? fileTarget(nativeDrivePath(drive[1])) : fileTarget(path)
   }
   // A bare absolute POSIX path is the last local form; a relative link has no resolvable base,
   // and a `//host/x` that got this far is the protocol-relative URL, not a share.

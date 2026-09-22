@@ -91,6 +91,7 @@ export function moveRunCommand(
   if (index < 0 || index >= list.length || target < 0 || target >= list.length) return list
   const next = [...list]
   const [moved] = next.splice(index, 1)
+  if (!moved) return list
   next.splice(target, 0, moved)
   return next
 }

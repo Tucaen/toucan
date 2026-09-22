@@ -18,14 +18,19 @@ export function initialAssistantPresentation(presentation: AgentMessagePresentat
 }
 
 function settleAssistantGroup<T extends AssistantPresentationMessage>(messages: T[], indices: readonly number[]): void {
-  const provisional = indices.filter((index) => messages[index].presentationProvisional === true)
-  const hasProviderFinal = indices.some(
-    (index) => messages[index].presentation === 'final' && messages[index].presentationProvisional !== true
-  )
-  const inferredFinal = hasProviderFinal ? undefined : provisional.at(-1)
-
-  for (const index of indices) {
+  // Every index here was produced by scanning `messages` itself, so none can miss; reading the
+  // group out once says that in one place instead of at each of the four accesses below.
+  const group = indices.flatMap((index) => {
     const message = messages[index]
+    return message ? [{ index, message }] : []
+  })
+  const provisional = group.filter(({ message }) => message.presentationProvisional === true)
+  const hasProviderFinal = group.some(
+    ({ message }) => message.presentation === 'final' && message.presentationProvisional !== true
+  )
+  const inferredFinal = hasProviderFinal ? undefined : provisional.at(-1)?.index
+
+  for (const { index, message } of group) {
     messages[index] = {
       ...message,
       complete: true,
@@ -58,8 +63,7 @@ export function settleReplayedAssistantTurns<T extends AssistantPresentationMess
     assistantIndices = []
   }
 
-  for (let index = 0; index < settled.length; index += 1) {
-    const message = settled[index]
+  for (const [index, message] of settled.entries()) {
     if (message.role === 'user') settle()
     else if (message.role === 'assistant') assistantIndices.push(index)
   }

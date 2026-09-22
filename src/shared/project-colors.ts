@@ -27,5 +27,7 @@ export function normalizeProjectColor(value: string): string | null {
 /** The palette colour a project at `index` is created with. */
 export function paletteColorAt(index: number): string {
   const size = PROJECT_COLOR_PALETTE.length
-  return PROJECT_COLOR_PALETTE[((index % size) + size) % size]
+  // The modulo keeps the read in range for any integer, including a negative one; the fallback is
+  // unreachable and exists so the palette's own emptiness could never be a crash.
+  return PROJECT_COLOR_PALETTE[((index % size) + size) % size] ?? PROJECT_COLOR_PALETTE[0]
 }

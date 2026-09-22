@@ -82,7 +82,7 @@ export function githubIssueStatus(
 /** The date part of an ISO timestamp; anything else is passed through for the board to show raw. */
 function calendarDay(updatedAt: string): string {
   const match = /^(\d{4}-\d{2}-\d{2})/.exec(updatedAt)
-  return match ? match[1] : updatedAt
+  return match?.[1] ?? updatedAt
 }
 
 /**
