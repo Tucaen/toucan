@@ -10,32 +10,44 @@ const mobile = '(^|/)mobile/'
 // These are the pure decision modules named by docs/architecture.md. The list is explicit because
 // other renderer .ts files intentionally own React contexts, browser APIs, or orchestration.
 const pureRendererFeatureNames = [
+  'agent-prompt-delivery',
   'brain-dump-links',
   'brain-dump-panel-layout',
   'brain-dump-topics',
   'chat-scroll-follow',
+  'completion-token',
   'composer-autosize',
   'composer-keys',
-  'completion-token',
+  'conversation-reporting',
+  'decision-delegation-display',
+  'decision-form',
   'decision-message',
   'diff-node',
   'file-mention-completion',
   'file-node',
   'file-operation',
   'image-attachment-contract',
+  'markdown-link-action',
   'mcp-tool-call',
   'node-picker-menu-position',
+  'node-search',
   'pending-decisions',
   'plan-update',
+  'project-order',
   'prompt-history',
   'prompt-outbox',
+  'reasoning-blocks',
+  'routine-delegation-display',
+  'scaled-pointer-coordinates',
   'search-navigation',
+  'session-launch-mode',
   'shell-execution',
   'slash-command-completion',
   'terminal-liveness',
   'ticket-activity',
   'ticket-board',
   'ticket-board-layout',
+  'ticket-board-panes',
   'ticket-file-source',
   'ticket-github-source',
   'tool-card',
@@ -44,6 +56,12 @@ const pureRendererFeatureNames = [
   'worklog-activities',
   'worktree-removal'
 ]
+// dependency-cruiser splits external packages by the manifest section they are declared in, so a
+// rule naming `npm` alone stops firing the moment a package moves to devDependencies - silently,
+// as a rule that matches nothing (#238). Renderer libraries live in devDependencies here precisely
+// because Vite inlines them, so every "may not reach for an external package" rule must name the
+// whole family.
+const externalPackage = ['npm', 'npm-dev', 'npm-optional', 'npm-peer', 'npm-no-pkg', 'npm-unknown']
 const rendererFeaturePattern = (names) => `${renderer}(${names.join('|')})\\.ts$`
 const pureRendererFeatures = rendererFeaturePattern(pureRendererFeatureNames)
 const pureRendererFeaturesExceptFileOperation = rendererFeaturePattern(
@@ -99,7 +117,7 @@ export default {
       comment: 'Electron is the sole runtime package required by the context-isolated bridge.',
       severity: 'error',
       from: { path: preload },
-      to: { dependencyTypes: ['npm'], pathNot: '(^|/)node_modules/electron/' }
+      to: { dependencyTypes: externalPackage, pathNot: '(^|/)node_modules/electron/' }
     },
     {
       name: 'renderer-does-not-import-privileged-layers',
@@ -129,14 +147,14 @@ export default {
       name: 'pure-renderer-features-do-not-import-externals',
       severity: 'error',
       from: { path: pureRendererFeaturesExceptFileOperation },
-      to: { dependencyTypes: ['npm'] }
+      to: { dependencyTypes: externalPackage }
     },
     {
       name: 'file-operation-only-imports-diff',
       comment: 'Exception: file-operation uses the browser-safe diff package for its pure presentation model.',
       severity: 'error',
       from: { path: `${renderer}file-operation\\.ts$` },
-      to: { dependencyTypes: ['npm'], pathNot: '(^|/)node_modules/diff/' }
+      to: { dependencyTypes: externalPackage, pathNot: '(^|/)node_modules/diff/' }
     },
     {
       name: 'mobile-only-imports-shared-contracts',

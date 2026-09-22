@@ -62,3 +62,46 @@ for (const [rule, importer, dependency] of cases) {
     match(fixtureOutput, new RegExp(dependency.replaceAll('.', '\\.')))
   })
 }
+
+/**
+ * `pureRendererFeatureNames` is hand-maintained, so every new pure module silently escapes the two
+ * rules built from it until someone remembers the list exists - which is how `node-search`,
+ * `decision-form`, `project-order` and nine others went unguarded (#238). This finds the drift
+ * mechanically: a renderer module whose every import already resolves into `src/shared` and which
+ * touches no browser global is a pure decision module by the list's own definition.
+ *
+ * Modules the list deliberately leaves out disqualify themselves here rather than needing a second
+ * list to maintain: `image-attachment` names browser APIs, `node-search-dom` imports a renderer
+ * sibling, and React contexts import React.
+ */
+const BROWSER_GLOBALS =
+  /\b(document|window|navigator|localStorage|sessionStorage|fetch|requestAnimationFrame|setTimeout|setInterval|HTMLElement|DOMRect|FileReader|Blob)\b/
+
+test('every pure renderer module is covered by pureRendererFeatureNames', async () => {
+  const { readdirSync } = await import('node:fs')
+  const config = readFileSync(join(process.cwd(), 'dependency-cruiser.config.mjs'), 'utf8')
+  const listed = new Set(
+    [...(/const pureRendererFeatureNames = \[([\s\S]*?)\n\]/.exec(config)?.[1] ?? '').matchAll(/'([^']+)'/g)].map(
+      (entry) => entry[1]
+    )
+  )
+  const directory = join(process.cwd(), 'src', 'renderer', 'src')
+  const missing = readdirSync(directory)
+    .filter((name) => name.endsWith('.ts') && !name.endsWith('.d.ts'))
+    .map((name) => name.slice(0, -'.ts'.length))
+    .filter((name) => !listed.has(name))
+    .filter((name) => {
+      const source = readFileSync(join(directory, `${name}.ts`), 'utf8')
+      if (BROWSER_GLOBALS.test(source.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, ''))) return false
+      const specifiers = [...source.matchAll(/^import[^'"]*['"]([^'"]+)['"]/gm)].map((entry) => entry[1])
+      return specifiers.length > 0 && specifiers.every((specifier) => specifier.includes('shared/'))
+    })
+
+  if (missing.length > 0) {
+    fail(
+      `these renderer modules import only src/shared and touch no browser global, so they are pure ` +
+        `decisions the architecture rules do not cover: ${missing.join(', ')}. Add them to ` +
+        `pureRendererFeatureNames in dependency-cruiser.config.mjs, or give the module a reason not to qualify.`
+    )
+  }
+})
