@@ -1,14 +1,16 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { beforeEach, describe, expect, test, vi } from 'vitest'
-import App from '../src/renderer/src/App'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { describe, expect, test, vi } from 'vitest'
 import type { RemoteAccessState, RemoteWorkspaceProjection } from '../src/shared/remote-access'
 import type { RemoteChatSpawnRequest, RemoteChatSpawnResult } from '../src/shared/remote-spawn'
 import type { AgentApi } from '../src/shared/agent'
 import type { WorkspaceState } from '../src/shared/terminal'
 import { attentionItemId, type AttentionItem } from '../src/shared/attention'
 import { createMockAgentApi } from './dom/agent-api-mock'
-import { createMockBrainDumpApi } from './dom/brain-dump-api-mock'
-import { createMockAppUpdateApi } from './dom/app-update-api-mock'
+import {
+  DEFAULT_PROJECT as project,
+  renderApp as renderAppHarness,
+  savedWorkspace as harnessWorkspace
+} from './dom/app-harness'
 
 /**
  * Remote access as the user meets it: a header control that says whether the host is listening, a
@@ -20,20 +22,8 @@ import { createMockAppUpdateApi } from './dom/app-update-api-mock'
  * covered in `tests/remote-access.test.ts`.
  */
 
-class ResizeObserverStub {
-  observe(): void {}
-  unobserve(): void {}
-  disconnect(): void {}
-}
-
-const project = { id: 'toucan', name: 'Toucan', path: 'D:\\Development\\Toucan', color: '#71a9ff' }
-
-function savedWorkspace(): WorkspaceState {
-  return {
-    version: 3,
-    projects: [project],
-    activeProjectId: project.id,
-    sidebarCollapsed: false,
+const savedWorkspace = (overrides: Partial<WorkspaceState> = {}): WorkspaceState =>
+  harnessWorkspace({
     nodes: [
       {
         id: 'chat-1',
@@ -45,9 +35,8 @@ function savedWorkspace(): WorkspaceState {
         height: 340
       }
     ],
-    worktrees: []
-  }
-}
+    ...overrides
+  })
 
 function remoteState(overrides: Partial<RemoteAccessState> = {}): RemoteAccessState {
   return {
@@ -70,11 +59,11 @@ let spawnResults: { requestId: string; result: RemoteChatSpawnResult; publishedB
 /** The host's side of a phone reporting that it read a chat. One way: there is nothing to answer. */
 let reportRead: ((chatId: string) => void) | null
 
-function installWindowApis(
-  state: WorkspaceState,
+/** The bridges this suite is actually about, over the harness defaults. */
+function remoteApis(
   initial: RemoteAccessState,
-  agentOverrides: Partial<AgentApi> = {}
-): void {
+  agentOverrides: Partial<AgentApi>
+): Record<string, Record<string, unknown>> {
   published = []
   applied = []
   copied = []
@@ -82,68 +71,49 @@ function installWindowApis(
   requestSpawn = null
   spawnResults = []
   reportRead = null
-  const define = (name: string, value: unknown): void =>
-    Object.defineProperty(window, name, { configurable: true, value })
 
-  define('terminalApi', {
-    loadWorkspace: vi.fn(async () => ({ state, recovered: false, unrecoverable: false })),
-    saveWorkspace: vi.fn(async () => ({ ok: true })),
-    getInitialProject: vi.fn(async () => ({ name: project.name, path: project.path })),
-    openExternal: vi.fn(),
-    showItemInFolder: vi.fn(),
-    copyText: vi.fn((text: string) => copied.push(text))
-  })
-  define('usageApi', { rateLimits: vi.fn(async () => ({})) })
-  define('worktreeApi', { discover: vi.fn(async () => ({ worktrees: [], claims: [] })) })
-  define('conversationApi', { setTitle: vi.fn(async () => null) })
-  define('agentApi', createMockAgentApi(agentOverrides).api)
-  define('terminalContextApi', { replaceEdges: vi.fn() })
-  define('brainDumpApi', createMockBrainDumpApi())
-  define('appUpdateApi', createMockAppUpdateApi())
-  define('remoteApi', {
-    state: vi.fn(async () => initial),
-    applySettings: vi.fn(async (settings: { enabled: boolean; port: number }) => {
-      applied.push(settings)
-      return remoteState({ settings, listening: settings.enabled, boundPort: settings.port })
-    }),
-    regenerateToken: vi.fn(async () => {
-      regenerated += 1
-      return remoteState({ token: 'a-new-token' })
-    }),
-    publishWorkspace: vi.fn((projection: RemoteWorkspaceProjection) => published.push(projection)),
-    onStateChange: () => () => undefined,
-    onSpawnChat: (callback: (requestId: string, request: RemoteChatSpawnRequest) => void) => {
-      requestSpawn = callback
-      return () => {
-        requestSpawn = null
-      }
-    },
-    // `publishedByThen` is recorded so a test can ask what the host had been handed at the moment
-    // it was answered - the ordering the phone's very next request depends on.
-    completeSpawn: (requestId: string, result: RemoteChatSpawnResult) =>
-      spawnResults.push({ requestId, result, publishedByThen: published.length }),
-    onMarkChatRead: (callback: (chatId: string) => void) => {
-      reportRead = callback
-      return () => {
-        reportRead = null
+  return {
+    terminalApi: { copyText: vi.fn((text: string) => copied.push(text)) },
+    agentApi: createMockAgentApi(agentOverrides).api as unknown as Record<string, unknown>,
+    remoteApi: {
+      state: vi.fn(async () => initial),
+      applySettings: vi.fn(async (settings: { enabled: boolean; port: number }) => {
+        applied.push(settings)
+        return remoteState({ settings, listening: settings.enabled, boundPort: settings.port })
+      }),
+      regenerateToken: vi.fn(async () => {
+        regenerated += 1
+        return remoteState({ token: 'a-new-token' })
+      }),
+      publishWorkspace: vi.fn((projection: RemoteWorkspaceProjection) => published.push(projection)),
+      onStateChange: () => () => undefined,
+      onSpawnChat: (callback: (requestId: string, request: RemoteChatSpawnRequest) => void) => {
+        requestSpawn = callback
+        return () => {
+          requestSpawn = null
+        }
+      },
+      // `publishedByThen` is recorded so a test can ask what the host had been handed at the
+      // moment it was answered - the ordering the phone's very next request depends on.
+      completeSpawn: (requestId: string, result: RemoteChatSpawnResult) =>
+        spawnResults.push({ requestId, result, publishedByThen: published.length }),
+      onMarkChatRead: (callback: (chatId: string) => void) => {
+        reportRead = callback
+        return () => {
+          reportRead = null
+        }
       }
     }
-  })
+  }
 }
 
 async function renderApp(
   initial: RemoteAccessState = remoteState(),
-  agentOverrides: Partial<AgentApi> = {}
+  agentOverrides: Partial<AgentApi> = {},
+  state: WorkspaceState = savedWorkspace()
 ): Promise<void> {
-  installWindowApis(savedWorkspace(), initial, agentOverrides)
-  render(<App />)
-  await screen.findByText('Add project')
+  await renderAppHarness({ state, apis: remoteApis(initial, agentOverrides) })
 }
-
-beforeEach(() => {
-  vi.stubGlobal('ResizeObserver', ResizeObserverStub)
-  Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: 1920 })
-})
 
 describe('the workspace projection a phone lists', () => {
   test('carries agent chats and never a plain terminal', async () => {
@@ -307,9 +277,7 @@ describe('a chat read on the phone', () => {
   })
 
   async function renderWithUnread(): Promise<void> {
-    installWindowApis({ ...savedWorkspace(), attention: [unreadRecord('result', 'r1')] }, remoteState())
-    render(<App />)
-    await screen.findByText('Add project')
+    await renderApp(remoteState(), {}, savedWorkspace({ attention: [unreadRecord('result', 'r1')] }))
     await waitFor(() => expect(published.length).toBeGreaterThan(0))
     expect(published[published.length - 1].chats[0].unread).toBe(1)
   }
@@ -324,12 +292,11 @@ describe('a chat read on the phone', () => {
   })
 
   test('does not retire a pending approval, because looking at one is not answering it', async () => {
-    installWindowApis(
-      { ...savedWorkspace(), attention: [unreadRecord('result', 'r1'), unreadRecord('approval', 'req-7')] },
-      remoteState()
+    await renderApp(
+      remoteState(),
+      {},
+      savedWorkspace({ attention: [unreadRecord('result', 'r1'), unreadRecord('approval', 'req-7')] })
     )
-    render(<App />)
-    await screen.findByText('Add project')
     await waitFor(() => expect(reportRead).not.toBeNull())
 
     reportRead!('chat-1')

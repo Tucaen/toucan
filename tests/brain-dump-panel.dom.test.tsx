@@ -1,7 +1,6 @@
 import { readFileSync } from 'node:fs'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { beforeEach, describe, expect, test, vi } from 'vitest'
-import App from '../src/renderer/src/App'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
+import { beforeEach, describe, expect, test } from 'vitest'
 import { projectSettingsTitle } from '../src/renderer/src/WorkspaceDialogs'
 import {
   BRAIN_DUMP_PANEL_DEFAULT_WIDTH,
@@ -10,8 +9,12 @@ import {
 } from '../src/renderer/src/brain-dump-panel-layout'
 import type { WorkspaceState } from '../src/shared/terminal'
 import { createMockBrainDumpApi, topicFixture, type MockBrainDumpApi } from './dom/brain-dump-api-mock'
-import { createMockAppUpdateApi } from './dom/app-update-api-mock'
-import { createMockRemoteApi } from './dom/remote-api-mock'
+import {
+  DEFAULT_PROJECT as project,
+  renderApp as renderAppHarness,
+  savedWorkspace,
+  setWindowWidth
+} from './dom/app-harness'
 
 const styles = readFileSync('src/renderer/src/styles.css', 'utf8')
 
@@ -21,67 +24,14 @@ const styles = readFileSync('src/renderer/src/styles.css', 'utf8')
  * width surviving a restart into a smaller window.
  */
 
-class ResizeObserverStub {
-  observe(): void {}
-  unobserve(): void {}
-  disconnect(): void {}
-}
-
-const project = { id: 'toucan', name: 'Toucan', path: 'D:\\Development\\Toucan', color: '#71a9ff' }
-
-function savedWorkspace(overrides: Partial<WorkspaceState> = {}): WorkspaceState {
-  return {
-    version: 3,
-    projects: [project],
-    activeProjectId: project.id,
-    sidebarCollapsed: false,
-    nodes: [],
-    worktrees: [],
-    ...overrides
-  }
-}
-
 let api: MockBrainDumpApi
 let saved: WorkspaceState[]
 
-function installWindowApis(state: WorkspaceState): void {
-  saved = []
-  const define = (name: string, value: unknown): void =>
-    Object.defineProperty(window, name, { configurable: true, value })
-  define('terminalApi', {
-    loadWorkspace: vi.fn(async () => ({ state, recovered: false, unrecoverable: false })),
-    saveWorkspace: vi.fn(async (snapshot: WorkspaceState) => {
-      saved.push(snapshot)
-      return { ok: true }
-    }),
-    getInitialProject: vi.fn(async () => ({ name: project.name, path: project.path })),
-    openExternal: vi.fn(),
-    showItemInFolder: vi.fn(),
-    copyText: vi.fn()
-  })
-  define('usageApi', { rateLimits: vi.fn(async () => ({})) })
-  define('worktreeApi', { discover: vi.fn(async () => ({ worktrees: [], claims: [] })) })
-  define('conversationApi', { setTitle: vi.fn(async () => null) })
-  define('agentApi', { onEvent: () => () => undefined })
-  define('terminalContextApi', { replaceEdges: vi.fn() })
-  define('appUpdateApi', createMockAppUpdateApi())
-  define('remoteApi', createMockRemoteApi())
-  define('brainDumpApi', api)
-}
-
-function setWindowWidth(width: number): void {
-  Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: width })
-}
-
-async function renderApp(state: WorkspaceState = savedWorkspace()): Promise<void> {
-  installWindowApis(state)
-  render(<App />)
-  await screen.findByText('Add project')
+async function renderApp(state: WorkspaceState = savedWorkspace(), windowWidth?: number): Promise<void> {
+  saved = (await renderAppHarness({ state, windowWidth, apis: { brainDumpApi: api } })).saved
 }
 
 beforeEach(() => {
-  vi.stubGlobal('ResizeObserver', ResizeObserverStub)
-  setWindowWidth(1920)
   api = createMockBrainDumpApi()
   api.collections.active.topics = [topicFixture({ slug: 'voice-input', title: 'Voice input' })]
 })
@@ -176,8 +126,7 @@ describe('persisted panel state', () => {
   })
 
   test('a width saved on a wider monitor is clamped into a smaller window', async () => {
-    setWindowWidth(900)
-    await renderApp(savedWorkspace({ brainDumpPanel: { open: true, width: BRAIN_DUMP_PANEL_MAX_WIDTH } }))
+    await renderApp(savedWorkspace({ brainDumpPanel: { open: true, width: BRAIN_DUMP_PANEL_MAX_WIDTH } }), 900)
     const panel = (await screen.findByRole('heading', { name: 'Brain dumps' })).closest('aside')
     expect(panel).toHaveStyle({ width: '630px' })
   })

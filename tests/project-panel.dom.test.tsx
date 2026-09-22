@@ -1,10 +1,8 @@
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { beforeEach, describe, expect, test, vi } from 'vitest'
-import App from '../src/renderer/src/App'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { describe, expect, test, vi } from 'vitest'
 import { projectSettingsTitle } from '../src/renderer/src/WorkspaceDialogs'
 import type { WorkspaceState } from '../src/shared/terminal'
-import { createMockAppUpdateApi } from './dom/app-update-api-mock'
-import { createMockRemoteApi } from './dom/remote-api-mock'
+import { renderApp as renderAppHarness, savedWorkspace as harnessWorkspace } from './dom/app-harness'
 
 /**
  * The project sidebar as the user works it: recolouring a project, dragging rows into a new order,
@@ -17,77 +15,16 @@ import { createMockRemoteApi } from './dom/remote-api-mock'
 vi.mock('@xterm/xterm', async () => (await import('./dom/xterm-mock')).xtermModule())
 vi.mock('@xterm/addon-fit', async () => (await import('./dom/xterm-mock')).fitAddonModule())
 
-class ResizeObserverStub {
-  observe(): void {}
-  unobserve(): void {}
-  disconnect(): void {}
-}
+const alpha = { id: 'alpha', name: 'Alpha', path: 'D:\Alpha', color: '#71a9ff' }
+const beta = { id: 'beta', name: 'Beta', path: 'D:\Beta', color: '#e69a71' }
 
-const alpha = { id: 'alpha', name: 'Alpha', path: 'D:\\Alpha', color: '#71a9ff' }
-const beta = { id: 'beta', name: 'Beta', path: 'D:\\Beta', color: '#e69a71' }
-
-function savedWorkspace(overrides: Partial<WorkspaceState> = {}): WorkspaceState {
-  return {
-    version: 3,
-    projects: [alpha, beta],
-    activeProjectId: alpha.id,
-    sidebarCollapsed: false,
-    nodes: [],
-    worktrees: [],
-    ...overrides
-  }
-}
+const savedWorkspace = (overrides: Partial<WorkspaceState> = {}): WorkspaceState =>
+  harnessWorkspace({ projects: [alpha, beta], activeProjectId: alpha.id, ...overrides })
 
 let saved: WorkspaceState[]
 
-function installWindowApis(state: WorkspaceState): void {
-  saved = []
-  const define = (name: string, value: unknown): void =>
-    Object.defineProperty(window, name, { configurable: true, value })
-  define('terminalApi', {
-    loadWorkspace: vi.fn(async () => ({ state, recovered: false, unrecoverable: false })),
-    saveWorkspace: vi.fn(async (snapshot: WorkspaceState) => {
-      saved.push(snapshot)
-      return { ok: true }
-    }),
-    getInitialProject: vi.fn(async () => ({ name: alpha.name, path: alpha.path })),
-    create: vi.fn(async (request: { sessionId?: string }) => ({
-      ok: true,
-      sessionId: request.sessionId,
-      incarnationId: `incarnation-${request.sessionId}`,
-      liveness: 'live'
-    })),
-    write: vi.fn(),
-    resize: vi.fn(),
-    kill: vi.fn(),
-    scrollback: vi.fn(async () => null),
-    removeScrollback: vi.fn(async () => true),
-    onData: () => () => undefined,
-    onExit: () => () => undefined,
-    openExternal: vi.fn(),
-    showItemInFolder: vi.fn(),
-    copyText: vi.fn()
-  })
-  define('usageApi', { rateLimits: vi.fn(async () => ({})) })
-  define('worktreeApi', {
-    discover: vi.fn(async () => ({ worktrees: [], claims: [] })),
-    status: vi.fn(async () => null)
-  })
-  define('conversationApi', { setTitle: vi.fn(async () => null) })
-  define('agentApi', { onEvent: () => () => undefined })
-  define('terminalContextApi', { replaceEdges: vi.fn() })
-  define('appUpdateApi', createMockAppUpdateApi())
-  define('remoteApi', createMockRemoteApi())
-  define('brainDumpApi', {
-    list: vi.fn(async () => ({ topics: [] })),
-    onChanged: () => () => undefined
-  })
-}
-
 async function renderApp(state: WorkspaceState = savedWorkspace()): Promise<void> {
-  installWindowApis(state)
-  render(<App />)
-  await screen.findByText('Add project')
+  saved = (await renderAppHarness({ state })).saved
 }
 
 const ROW_HEIGHT = 40
@@ -144,10 +81,6 @@ function openRowMenu(name: string): void {
   const row = sidebar().getByText(name).closest('.project-row, .project-group-header') as HTMLElement
   fireEvent.contextMenu(row, { clientX: 40, clientY: 60 })
 }
-
-beforeEach(() => {
-  vi.stubGlobal('ResizeObserver', ResizeObserverStub)
-})
 
 describe('project path', () => {
   test('is hidden from the row and shown as the project title tooltip', async () => {

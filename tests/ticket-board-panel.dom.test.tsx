@@ -1,13 +1,14 @@
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
-import App from '../src/renderer/src/App'
 import { projectSettingsTitle } from '../src/renderer/src/WorkspaceDialogs'
 import { TICKET_BOARD_DEFAULT_WIDTH, TICKET_BOARD_MAX_WIDTH } from '../src/renderer/src/ticket-board-layout'
 import { TICKET_DETAIL_DEFAULT_WIDTH } from '../src/renderer/src/ticket-board-panes'
 import type { WorkspaceState } from '../src/shared/terminal'
-import { createMockBrainDumpApi } from './dom/brain-dump-api-mock'
-import { createMockAppUpdateApi } from './dom/app-update-api-mock'
-import { createMockRemoteApi } from './dom/remote-api-mock'
+import {
+  DEFAULT_PROJECT as project,
+  renderApp as renderAppHarness,
+  savedWorkspace as harnessWorkspace
+} from './dom/app-harness'
 import {
   cardFixture,
   createMockGithubIssuesApi,
@@ -25,68 +26,24 @@ import {
  * a card moves when the files say it moved, not when the pointer was released.
  */
 
-class ResizeObserverStub {
-  observe(): void {}
-  unobserve(): void {}
-  disconnect(): void {}
-}
+const other = { id: 'atlas', name: 'Atlas', path: 'D:\Development\Atlas', color: '#8ad1a0' }
 
-const project = { id: 'toucan', name: 'Toucan', path: 'D:\\Development\\Toucan', color: '#71a9ff' }
-const other = { id: 'atlas', name: 'Atlas', path: 'D:\\Development\\Atlas', color: '#8ad1a0' }
-
-function savedWorkspace(overrides: Partial<WorkspaceState> = {}): WorkspaceState {
-  return {
-    version: 3,
-    projects: [project, other],
-    activeProjectId: project.id,
-    sidebarCollapsed: false,
-    nodes: [],
-    worktrees: [],
-    ...overrides
-  }
-}
+const savedWorkspace = (overrides: Partial<WorkspaceState> = {}): WorkspaceState =>
+  harnessWorkspace({ projects: [project, other], ...overrides })
 
 let tickets: MockTicketsApi
 let github: MockGithubIssuesApi
 let ticketSkill: MockTicketSkillApi
 let saved: WorkspaceState[]
 
-function installWindowApis(state: WorkspaceState): void {
-  saved = []
-  const define = (name: string, value: unknown): void =>
-    Object.defineProperty(window, name, { configurable: true, value })
-  define('terminalApi', {
-    loadWorkspace: vi.fn(async () => ({ state, recovered: false, unrecoverable: false })),
-    saveWorkspace: vi.fn(async (snapshot: WorkspaceState) => {
-      saved.push(snapshot)
-      return { ok: true }
-    }),
-    getInitialProject: vi.fn(async () => ({ name: project.name, path: project.path })),
-    openExternal: vi.fn(),
-    showItemInFolder: vi.fn(),
-    copyText: vi.fn()
-  })
-  define('usageApi', { rateLimits: vi.fn(async () => ({})) })
-  define('worktreeApi', { discover: vi.fn(async () => ({ worktrees: [], claims: [] })) })
-  define('conversationApi', { setTitle: vi.fn(async () => null) })
-  define('agentApi', { onEvent: () => () => undefined })
-  define('terminalContextApi', { replaceEdges: vi.fn() })
-  define('appUpdateApi', createMockAppUpdateApi())
-  define('remoteApi', createMockRemoteApi())
-  define('brainDumpApi', createMockBrainDumpApi())
-  define('ticketsApi', tickets)
-  define('ticketSkillApi', ticketSkill)
-  define('githubIssuesApi', github)
-}
-
-function setWindowWidth(width: number): void {
-  Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: width })
-}
-
-async function renderApp(state: WorkspaceState = savedWorkspace()): Promise<void> {
-  installWindowApis(state)
-  render(<App />)
-  await screen.findByText('Add project')
+async function renderApp(state: WorkspaceState = savedWorkspace(), windowWidth?: number): Promise<void> {
+  saved = (
+    await renderAppHarness({
+      state,
+      windowWidth,
+      apis: { ticketsApi: tickets, ticketSkillApi: ticketSkill, githubIssuesApi: github }
+    })
+  ).saved
 }
 
 async function openBoard(state?: WorkspaceState): Promise<void> {
@@ -167,8 +124,6 @@ function dragCard(cardTitle: string, toStateIndex: number, options: { cancel?: b
 }
 
 beforeEach(() => {
-  vi.stubGlobal('ResizeObserver', ResizeObserverStub)
-  setWindowWidth(1920)
   tickets = createMockTicketsApi()
   github = createMockGithubIssuesApi()
   ticketSkill = createMockTicketSkillApi()
@@ -529,8 +484,7 @@ describe('persisted panel state', () => {
   })
 
   test('a reopened board restores its width, clamped into the current window', async () => {
-    setWindowWidth(1000)
-    await renderApp(savedWorkspace({ ticketBoardPanel: { open: true, width: TICKET_BOARD_MAX_WIDTH } }))
+    await renderApp(savedWorkspace({ ticketBoardPanel: { open: true, width: TICKET_BOARD_MAX_WIDTH } }), 1000)
     const panel = (await screen.findByRole('heading', { name: 'Tickets' })).closest('aside')
     expect(panel).toHaveStyle({ width: '700px' })
   })
