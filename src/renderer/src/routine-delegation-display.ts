@@ -1,4 +1,5 @@
 import type { AgentProvider } from '../../shared/agent'
+import { launchPolicyNote, type LaunchedDelegation } from '../../shared/launch-policy-note'
 import {
   WORKER_MODELS,
   workerFromPreference,
@@ -24,9 +25,9 @@ export interface RoutineDelegationDisplay {
  * workspace-wide but the worker list and the note are per provider and per session: the policy is
  * fixed at session creation or resume, so a session launched before the preference changed keeps
  * its launch-time policy until it is recreated or resumed. The note only ever reports a
- * disagreement - when the session already runs the selected policy there is nothing to say, and the
- * option's own wording ("may run on") already carries that a worker is requested, never enforced.
- * Both providers share this one contract.
+ * disagreement, in the wording `launchPolicyNote` gives every delegation picker - the option's own
+ * wording ("may run on") already carries that a worker is requested, never enforced. Both
+ * providers share this one contract.
  */
 export function describeRoutineDelegation(
   provider: AgentProvider,
@@ -44,11 +45,11 @@ export function describeRoutineDelegation(
     }))
   ]
   const selectedId = preference.enabled ? workerFromPreference(provider, preference).id : DELEGATION_OFF_OPTION.id
-  if (applied?.status === 'unavailable') return { options, selectedId, note: applied.message }
-  const appliedModelId = applied?.status === 'configured' ? applied.workerModelId : undefined
-  if (preference.enabled && appliedModelId !== selectedId)
-    return { options, selectedId, note: 'Applies when this conversation next starts or resumes' }
-  if (!preference.enabled && appliedModelId)
-    return { options, selectedId, note: 'Still delegating until this conversation restarts' }
-  return { options, selectedId }
+  const launched: LaunchedDelegation =
+    applied?.status === 'unavailable'
+      ? { status: 'unavailable', message: applied.message }
+      : applied?.status === 'configured'
+        ? { status: 'delegating', matchesSelection: applied.workerModelId === selectedId }
+        : { status: 'off' }
+  return { options, selectedId, note: launchPolicyNote(preference.enabled, launched) }
 }

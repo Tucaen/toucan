@@ -3,6 +3,7 @@ import {
   type AgentDecisionDelegation,
   type DecisionDelegationPreference
 } from '../../shared/decision-delegation'
+import { launchPolicyNote, type LaunchedDelegation } from '../../shared/launch-policy-note'
 
 /** @internal exported for tests */
 export const DECISION_DELEGATION_OFF_OPTION = {
@@ -26,8 +27,8 @@ export interface DecisionDelegationDisplay {
 }
 
 /**
- * The decisions picker's options and status note for one node. Mirrors
- * `routine-delegation-display.ts`, and for the same reason: the preference is workspace-wide, but
+ * The decisions picker's options and status note for one node. The note itself comes from
+ * `launchPolicyNote`, which every delegation picker shares: the preference is workspace-wide, but
  * the policy is fixed at session creation or resume, so the note is the honesty layer that reports
  * a disagreement between what is selected and what the running session actually launched with.
  *
@@ -51,11 +52,13 @@ export function describeDecisionDelegation(
       : DECISION_DELEGATION_ON_OPTION
   ]
   const selectedId = preference.enabled ? DECISION_DELEGATION_ON_OPTION.id : DECISION_DELEGATION_OFF_OPTION.id
-  if (applied?.status === 'unavailable') return { options, selectedId, note: applied.message }
-  const configured = applied?.status === 'configured'
-  if (preference.enabled && !configured)
-    return { options, selectedId, note: 'Applies when this conversation next starts or resumes' }
-  if (!preference.enabled && configured)
-    return { options, selectedId, note: 'Still delegating decisions until this conversation restarts' }
-  return { options, selectedId }
+  const launched: LaunchedDelegation =
+    applied?.status === 'unavailable'
+      ? { status: 'unavailable', message: applied.message }
+      : applied?.status === 'configured'
+        ? // An on/off policy matches whenever the session is delegating at all: there is no second
+          // shape of "on" it could have launched with.
+          { status: 'delegating', matchesSelection: true }
+        : { status: 'off' }
+  return { options, selectedId, note: launchPolicyNote(preference.enabled, launched, 'decisions') }
 }
