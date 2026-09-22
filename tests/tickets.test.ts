@@ -5,6 +5,7 @@ import {
   DEFAULT_TICKET_STATUSES,
   TICKET_STATUS,
   isTicketSlug,
+  ticketsDirectoryOrDefault,
   readTicket
 } from '../src/shared/tickets'
 
@@ -161,4 +162,20 @@ test('slugs are lowercase kebab-case, which is also what the filename must be', 
   for (const slug of ['a', 'ticket-board', 'issue-142']) equal(isTicketSlug(slug), true, slug)
   for (const slug of ['Ticket-Board', 'ticket_board', 'ticket--board', '-ticket', 'ticket-', '', 'ticket board'])
     equal(isTicketSlug(slug), false, slug)
+})
+
+test('a project keeps tickets where it said, unless where it said leaves the checkout', () => {
+  equal(ticketsDirectoryOrDefault('docs/board'), 'docs/board')
+  equal(ticketsDirectoryOrDefault('  docs/board  '), 'docs/board')
+  equal(ticketsDirectoryOrDefault('tickets'), 'tickets')
+
+  // Absent, blank, escaping, or absolute all mean the default: a configured value that leaves the
+  // checkout is ignored rather than obeyed, so no project setting can point the board at the disk.
+  equal(ticketsDirectoryOrDefault(), DEFAULT_TICKETS_DIRECTORY)
+  equal(ticketsDirectoryOrDefault(''), DEFAULT_TICKETS_DIRECTORY)
+  equal(ticketsDirectoryOrDefault('   '), DEFAULT_TICKETS_DIRECTORY)
+  equal(ticketsDirectoryOrDefault('../elsewhere'), DEFAULT_TICKETS_DIRECTORY)
+  equal(ticketsDirectoryOrDefault('docs/../../escape'), DEFAULT_TICKETS_DIRECTORY)
+  equal(ticketsDirectoryOrDefault('/etc'), DEFAULT_TICKETS_DIRECTORY)
+  equal(ticketsDirectoryOrDefault('D:\\Development'), DEFAULT_TICKETS_DIRECTORY)
 })

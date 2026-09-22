@@ -25,7 +25,7 @@ test('derives a concise subject from substantive dialogue instead of injected or
   )
 })
 
-test('uses the first meaningful line of a pasted prompt and caps the title length', () => {
+test('uses the last meaningful line of a pasted prompt and caps the title length', () => {
   assert.equal(
     deriveConversationTitle([
       {

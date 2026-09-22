@@ -28,6 +28,8 @@ function titleLine(text: string): string | null {
     .map((line) => line.replace(/^[-*#>\s]+/, '').trim())
     .filter(Boolean)
     .filter((line) => !line.startsWith('<') && !line.endsWith(':'))
+  // The *last* meaningful line, not the first: a pasted prompt leads with context and background
+  // and ends with the ask, so the ask is the line that names the conversation.
   const rawLine = lines.at(-1)
   const withoutRequest = rawLine
     ?.replace(LEADING_REQUEST, '')

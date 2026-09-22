@@ -28,37 +28,27 @@ export const SESSION_OUTCOME_TITLE_LIMIT = 72
 
 /**
  * How many written files a record keeps, newest last. The write set is the one field that is
- * accumulated rather than re-derived, so it is also the one that could grow without bound - a
- * refactor touching three hundred files would otherwise cost every other record's share of the
- * reader's context window. The most recent writes are kept because they are the ones a later
- * session is likely asking about. Tightened from 24 when the retrieval budget was measured
- * end-to-end (#190): the file list was the worst case's single biggest line item, and it is the
- * one an agent re-derives from git for free once it knows which conversation to ask about.
+ * accumulated rather than re-derived, so it is the one that could grow without bound - a refactor
+ * touching three hundred files would otherwise cost every other record's share of the reader's
+ * context window. The newest are kept because they are what a later session asks about, and the
+ * rest an agent re-derives from git for free once it knows which conversation to ask about.
  *
- * A list that hit the cap says so (#198). Without that marker a truncated record is
- * indistinguishable from a complete one, and the file list is precisely what a later session
- * trusts to answer "has anything already touched this area?" - so a silent truncation answers
- * "no" for a file this conversation in fact rewrote.
+ * A list that hit the cap must say so: the file list is what a later session trusts to answer "has
+ * anything already touched this area?", and a silent truncation answers "no" for a file this
+ * conversation in fact rewrote.
  * @internal exported for tests
  */
 export const SESSION_OUTCOME_FILES_LIMIT = 16
 
 /**
- * The line a truncated file list ends on. "At least" because the number is a floor, not a census:
- * a record keeps only the paths it lists, so a *later process* merging its own writes into one
- * cannot tell whether they are files an earlier process already dropped and counted. Within one
- * process it is exact; across a restart it can only understate - which is the safe direction,
- * since the claim the reader needs is "this list is partial", and that is never wrong.
+ * The line a truncated file list ends on. "At least" because the count is a floor: a record keeps
+ * only the paths it lists, so a later process cannot tell which files an earlier one already
+ * dropped. Understating is the safe direction - the claim the reader needs is "this list is
+ * partial", and that is never wrong.
  *
- * The one way it can over-count is the artefact `SESSION_OUTCOME_PATH_LIMIT` already documents:
- * a path longer than that cap, written across two boundaries, is recorded as two clipped entries -
- * so where the pair falls past the cap the marker counts a file twice. Both alternatives are worse
- * than a marker one too high: deduping on the clipped form would let two deep files sharing a long
- * prefix collapse, which is the record claiming one of them was never written.
- *
- * Written as a list item so the section stays one flat list, and recognised on the way back in so
- * the reader never mistakes it for a path. Nothing else in the list can collide with it: a clipped
- * path carries its ellipsis at the end (`sessionOutcomeExcerpt`), never at the start.
+ * Written as a list item so the section stays one flat list, and anchored on the way back in so a
+ * path is never mistaken for it: a clipped path carries its ellipsis at the end, never at the
+ * start (`SESSION_OUTCOME_PATH_LIMIT`).
  * @internal exported for tests
  */
 export function sessionOutcomeFilesOmittedMarker(count: number): string {

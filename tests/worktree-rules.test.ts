@@ -30,14 +30,30 @@ test('branch names collapse to one safe directory segment', () => {
 test('obviously invalid branch names are rejected before any process starts', () => {
   assert.equal(branchNameProblem('feature/login'), null)
   assert.equal(branchNameProblem('fix-123'), null)
-  assert.ok(branchNameProblem(''))
-  assert.ok(branchNameProblem('has space'))
-  assert.ok(branchNameProblem('back..track'))
-  assert.ok(branchNameProblem('/leading'))
-  assert.ok(branchNameProblem('trailing/'))
-  assert.ok(branchNameProblem('-dashed'))
-  assert.ok(branchNameProblem('locked.lock'))
-  assert.ok(branchNameProblem('caret^here'))
+  // The reason is the whole point - it is what the dialog shows - so each case pins its own,
+  // which is also the only way an earlier rule silently swallowing a later one would show up.
+  assert.equal(branchNameProblem(''), 'Enter a branch name')
+  assert.equal(branchNameProblem(' padded '), 'Branch names cannot start or end with whitespace')
+  const characters = 'Branch names cannot contain whitespace or ~ ^ : ? * [ backslash .. @{'
+  assert.equal(branchNameProblem('has space'), characters)
+  assert.equal(branchNameProblem('back..track'), characters)
+  assert.equal(branchNameProblem('caret^here'), characters)
+  assert.equal(branchNameProblem('tilde~here'), characters)
+  assert.equal(branchNameProblem('colon:here'), characters)
+  assert.equal(branchNameProblem('at@{here'), characters)
+  assert.equal(branchNameProblem('back\\slash'), characters)
+  const slashes = 'Branch names cannot start, end, or double up on /'
+  assert.equal(branchNameProblem('/leading'), slashes)
+  assert.equal(branchNameProblem('trailing/'), slashes)
+  assert.equal(branchNameProblem('double//slash'), slashes)
+  const edges = 'Branch names cannot start with - or . or end with .'
+  assert.equal(branchNameProblem('-dashed'), edges)
+  assert.equal(branchNameProblem('.dotted'), edges)
+  assert.equal(branchNameProblem('trailing.'), edges)
+  assert.equal(branchNameProblem('locked.lock'), 'Branch names cannot end with .lock')
+  assert.equal(branchNameProblem('@'), '@ is not a valid branch name')
+  assert.equal(branchNameProblem('///'), slashes)
+  assert.equal(branchNameProblem('+++'), 'Branch name has no usable characters')
 })
 
 test('identity blockers can never be forced, unsaved-work blockers can', () => {

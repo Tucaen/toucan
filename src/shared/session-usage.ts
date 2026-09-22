@@ -32,18 +32,15 @@ export function mergeSessionUsage(previous: SessionUsageInput | null, update: Se
 }
 
 /**
- * Every decision behind a usage readout (issue #99): how full the context window is, what the
- * conversation has cost, and which account window is closest to biting. Toucan already collects
- * all three - ACP's `usage_update` for the first two, `src/main/provider-usage.ts` for the third -
- * so the only thing missing was somewhere to decide what they mean. Keeping that here means every
- * bar and chip is markup, and the thresholds have one home.
+ * Every decision behind a usage readout: how full the context window is, what the conversation has
+ * cost, and which account window is closest to biting. The readings themselves come from ACP's
+ * `usage_update` and `src/main/provider-usage.ts`; deciding what they *mean* happens only here, so
+ * every bar and chip is markup and the thresholds have one home.
  *
- * It is *shared* rather than renderer-only because there are now three surfaces (issue #195): the
- * chat node's bar, the desktop header's account chips, and the phone - which imports `src/shared`
- * and nothing else of Toucan's. Two surfaces deriving the same window separately is exactly how a
- * window comes to read as `critical` on one device and `warning` on the other, and a reader who
- * checks the phone precisely *because* they are away from the desk has no way to tell which one
- * lied. Nothing here touches the DOM, React or a runtime API, so the move costs nothing.
+ * Shared rather than renderer-only because three surfaces show the same windows - the chat node's
+ * bar, the desktop header's chips, and the phone, which imports `src/shared` and nothing else of
+ * Toucan's. Two surfaces deriving one window separately is how it comes to read `critical` on one
+ * device and `warning` on the other, with no way for the reader to tell which lied.
  */
 
 /** Percent of a window consumed, in the three bands the UI colours. */
@@ -65,6 +62,20 @@ export function usageLevel(percent: number): UsageLevel {
  */
 function groupDigits(value: number): string {
   return String(Math.round(value)).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+}
+
+function pad(value: number): string {
+  return String(value).padStart(2, '0')
+}
+
+/**
+ * Local wall-clock `HH:MM`. Hand-rolled for the same reason `groupDigits` is: a locale formatter
+ * would make one tooltip read `14:05` beside another reading `2:05 PM`, and the same string
+ * untestable between machines.
+ */
+function clockTime(at: number): string {
+  const moment = new Date(at)
+  return `${pad(moment.getHours())}:${pad(moment.getMinutes())}`
 }
 
 /** What any bar or percentage label may show, whatever the provider reported. */
@@ -114,8 +125,7 @@ export function formatResetsAt(resetsAt: number, now: number = Date.now()): stri
         ? `${hours}h ${remainingMinutes}m`
         : `${hours}h`
   const reset = new Date(resetsAt)
-  const pad = (value: number): string => String(value).padStart(2, '0')
-  const clock = `${pad(reset.getHours())}:${pad(reset.getMinutes())}`
+  const clock = clockTime(resetsAt)
   const stamp = beyondADay ? `${pad(reset.getDate())}.${pad(reset.getMonth() + 1)}. - ${clock}` : clock
   return `${duration} | ${stamp}`
 }
@@ -257,7 +267,7 @@ export function providerUsageLabel(provider: AgentProvider): string {
  * read, a refresh that worked and a refresh that silently failed are the same pixels.
  */
 export function describeUsageFreshness(entry: ProviderUsageEntry): string {
-  const clock = new Date(entry.readAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+  const clock = clockTime(entry.readAt)
   // Worded about the reading rather than the click: the poll can fail here too, and the host backs
   // off after a failure, so this line outlives the refresh that first raised it.
   return entry.stale ? `Last read failed - showing the reading from ${clock}` : `Updated ${clock}`

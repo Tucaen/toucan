@@ -67,6 +67,10 @@ test('worktree paths normalize UNC, drive roots and trailing separators', () => 
   assert.equal(normalizeWorktreePath('d:/'), 'D:\\')
   assert.equal(normalizeWorktreePath('//Build/Share/Toucan/'), '\\\\Build\\Share\\Toucan')
   assert.equal(normalizeWorktreePath('/home/dev/toucan/'), '/home/dev/toucan')
+  // The POSIX root is the one path whose trailing separator *is* the path.
+  assert.equal(normalizeWorktreePath('/'), '/')
+  assert.equal(normalizeWorktreePath('D:\\'), 'D:\\')
+  assert.equal(worktreePathKey('/'), '/')
 })
 
 test('worktree path keys use the shared path identity rule', () => {

@@ -1,10 +1,12 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'vitest'
+import { keptAsStale } from '../src/shared/agent'
 import {
   accountUsageLevel,
   describeRateLimitWindow,
   describeRateLimitWindows,
   describeSessionUsage,
+  describeUsageFreshness,
   formatResetsAt,
   formatTokens,
   mergeSessionUsage,
@@ -279,4 +281,36 @@ test('the surfaced account window carries its reset phrase out of the tooltip', 
   // A provider that named no reset moment is not given one.
   const noReset = describeSessionUsage({ rateLimits: { weekly: { usedPercent: 50 } }, now: 0 })
   assert.equal(noReset.limit?.resets, undefined)
+})
+
+test('the chip dates its own reading, and says so when the reading is a kept fallback', () => {
+  // Plan utilization barely moves, so a successful refresh usually re-renders identical numbers;
+  // without this line a refresh that worked and one that silently failed are the same pixels.
+  const readAt = new Date(2026, 8, 21, 14, 5).getTime()
+
+  assert.equal(describeUsageFreshness({ status: {}, readAt, stale: false }), 'Updated 14:05')
+  assert.equal(
+    describeUsageFreshness({ status: {}, readAt, stale: true }),
+    'Last read failed - showing the reading from 14:05'
+  )
+})
+
+test('both clocks in this module read the same way, whatever locale the renderer runs under', () => {
+  // `formatResetsAt` hand-rolls HH:MM on purpose; the freshness line must not drift to a locale
+  // formatter, or one tooltip would read `14:05` beside another reading `2:05 PM`.
+  const at = new Date(2026, 8, 21, 9, 7).getTime()
+
+  assert.equal(describeUsageFreshness({ status: {}, readAt: at, stale: false }), 'Updated 09:07')
+  assert.match(formatResetsAt(at, at - 60_000), /09:07$/)
+})
+
+test('a failed refresh keeps the reading it has and marks it stale, on either side of the boundary', () => {
+  const entry = { status: { rejected: true }, readAt: 1_700_000_000_000, stale: false }
+
+  // The reading and its timestamp are deliberately untouched: a failed read has nothing newer to
+  // put there, and blanking them would read as "the limit went away".
+  assert.deepEqual(keptAsStale(entry), { ...entry, stale: true })
+  assert.equal(keptAsStale(entry)?.readAt, entry.readAt)
+  assert.equal(entry.stale, false, 'the caller entry must not be mutated')
+  assert.equal(keptAsStale(undefined), undefined)
 })

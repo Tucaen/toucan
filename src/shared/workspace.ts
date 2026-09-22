@@ -24,6 +24,7 @@ export type AgentPermissionModes = Partial<Record<AgentProvider, string>>
 /**
  * How the composer's Enter key behaves. One workspace-wide preference rather than a per-node one:
  * it is muscle memory, so it has to mean the same thing in every composer.
+ * @internal exported for tests; production reaches the list through `isComposerSendKey`.
  */
 export const composerSendKeys = ['enter', 'mod-enter'] as const
 export type ComposerSendKey = (typeof composerSendKeys)[number]
