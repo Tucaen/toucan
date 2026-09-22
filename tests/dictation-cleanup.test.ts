@@ -110,3 +110,58 @@ test('a served model id is labelled as a version and an unparseable one is shown
   assert.equal(claudeModelLabel('claude-3-5-sonnet-20241022'), 'claude-3-5-sonnet-20241022')
   assert.equal(claudeModelLabel(''), '')
 })
+
+test('a transcript that itself begins like a preamble is kept, not rejected as one', async () => {
+  const cleaned = async (raw: string, result: string): Promise<{ status: string; text: string }> =>
+    createDictationCleaner({
+      run: async () => JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result })
+    }).clean(raw, '', { enabled: true })
+
+  // #221: the speaker really did start with "Here's" - polishing that sentence must not fail.
+  for (const [raw, polished] of [
+    ["here's what I want you to change um in the composer", "Here's what I want you to change in the composer."],
+    ['sure, go ahead and and rename it', 'Sure, go ahead and rename it.'],
+    ['Here is the corrected transcript I promised', 'Here is the corrected transcript I promised.']
+  ]) {
+    const result = await cleaned(raw, polished)
+    assert.equal(result.status, 'cleaned')
+    assert.equal(result.text, polished)
+  }
+  // A preamble the speaker never uttered is still a rejected response.
+  const invented = await cleaned('um our our options', "Sure! Here's the corrected transcript: Our options.")
+  assert.equal(invented.status, 'fallback')
+  assert.equal(invented.text, 'um our our options')
+})
+
+test('the served model is the entry that did the work, not whichever key came first', async () => {
+  const clean = async (modelUsage: unknown, claudeModelId: 'haiku' | 'sonnet' = 'haiku'): Promise<string | undefined> =>
+    (
+      await createDictationCleaner({
+        run: async () =>
+          JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: 'Our options.', modelUsage })
+      }).clean('um our our options', '', { enabled: true, claudeModelId })
+    ).servedModel
+
+  // A single -p turn bills more than one model (docs/plans/delegation-evidence.md); the one that
+  // emitted the transcript is the one that served it.
+  const twoModels = {
+    'claude-sonnet-4-5-20250929': { canonicalModel: 'claude-sonnet-4-5', outputTokens: 3 },
+    'claude-haiku-4-5-20251001': { canonicalModel: 'claude-haiku-4-5', outputTokens: 41 }
+  }
+  assert.equal(await clean(twoModels), 'claude-haiku-4-5')
+  // Tied or unreported token counts fall back to the requested family, and to "requested" when
+  // even that cannot single one out.
+  const tied = {
+    'claude-sonnet-4-5-20250929': { outputTokens: 7 },
+    'claude-haiku-4-5-20251001': { outputTokens: 7 }
+  }
+  assert.equal(await clean(tied, 'sonnet'), 'claude-sonnet-4-5-20250929')
+  assert.equal(await clean({ 'claude-sonnet-4-5': {}, 'claude-sonnet-4-5-20250929': {} }, 'sonnet'), undefined)
+  assert.equal(await clean(tied, 'haiku'), 'claude-haiku-4-5-20251001')
+  // The family is looked for in the name that would be shown, so an alias key still resolves.
+  const aliased = {
+    'claude-sonnet-4-5-20250929': { outputTokens: 7 },
+    'anthropic.internal-alias': { canonicalModel: 'claude-haiku-4-5', outputTokens: 7 }
+  }
+  assert.equal(await clean(aliased, 'haiku'), 'claude-haiku-4-5')
+})

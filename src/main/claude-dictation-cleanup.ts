@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { hiddenProcessOptions } from './background-process'
+import { claudeConfigRoot } from './claude-config'
 import { resolveClaudeExecutable } from './claude-usage'
 
 const CLEANUP_INSTRUCTION = [
@@ -24,11 +25,13 @@ export function runClaudeCleanup(input: string, model: 'haiku' | 'sonnet', signa
         const name = key.toUpperCase()
         return (
           (!name.startsWith('ANTHROPIC_') && !name.startsWith('CLAUDE_') && name !== 'CLAUDECODE') ||
-          name === 'CLAUDE_CONFIG_DIR' ||
           name === 'CLAUDE_CODE_OAUTH_TOKEN'
         )
       })
     ),
+    // Restated through the shared resolver rather than forwarded by the filter above, so this turn
+    // and the availability probe that decides what is installed read the same config root (#221).
+    CLAUDE_CONFIG_DIR: claudeConfigRoot(homedir()),
     // Thinking dominates this turn: the model restates the instruction for ~500 tokens before
     // emitting a ~35-token transcript, tripling the wall clock (6.5s down to 2.2s, measured on
     // Haiku). Repairing a transcript is not a reasoning task. Set here rather than left to the

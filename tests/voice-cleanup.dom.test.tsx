@@ -40,8 +40,8 @@ beforeEach(() => {
   }
 })
 
-function Composer({ enabled = true }: { enabled?: boolean }) {
-  const [draft, setDraft] = useState('')
+function Composer({ enabled = true, initial = '' }: { enabled?: boolean; initial?: string }) {
+  const [draft, setDraft] = useState(initial)
   const ref = useRef<HTMLTextAreaElement>(null)
   return (
     <DictationCleanupContext.Provider value={{ preference: { enabled }, setPreference: () => {} }}>
@@ -148,4 +148,59 @@ test('a cleanup IPC call that never replies cannot hang the composer', async () 
   } finally {
     vi.useRealTimers()
   }
+})
+
+test('text typed between Stop and the transcript arriving is not overwritten', async () => {
+  // #221: the decode takes seconds and the textarea stays enabled. Insertion has to read the draft
+  // as it is then, not the one the render that handled the click closed over.
+  for (const enabled of [false, true]) {
+    let finishDecode: ((result: { ok: true; text: string }) => void) | undefined
+    window.voiceModelApi.transcribe = () =>
+      new Promise<{ ok: true; text: string }>((resolve) => {
+        finishDecode = resolve
+      })
+    const view = render(<Composer enabled={enabled} />)
+    await dictate()
+    await waitFor(() => expect(finishDecode).toBeDefined())
+    const textarea = screen.getByRole('textbox')
+    fireEvent.change(textarea, { target: { value: 'typed while waiting' } })
+    finishDecode!({ ok: true, text: 'um our our options' })
+    const transcript = enabled ? 'Our options.' : 'um our our options'
+    await waitFor(() => expect(textarea).toHaveValue(`${transcript} typed while waiting`))
+    view.unmount()
+  }
+})
+
+test('a transcript lands at the caret the microphone was pressed at, inside the draft as it is then', async () => {
+  // #221: the offsets belong to an older draft, so they are clamped - but they are still the
+  // speaker's caret, and text typed meanwhile has to survive on both sides of it.
+  let finishDecode: ((result: { ok: true; text: string }) => void) | undefined
+  window.voiceModelApi.transcribe = () =>
+    new Promise<{ ok: true; text: string }>((resolve) => {
+      finishDecode = resolve
+    })
+  render(<Composer enabled={false} initial="alpha beta" />)
+  const textarea = screen.getByRole('textbox') as HTMLTextAreaElement
+  textarea.setSelectionRange(5, 5)
+  await dictate()
+  await waitFor(() => expect(finishDecode).toBeDefined())
+  fireEvent.change(textarea, { target: { value: 'alpha beta gamma' } })
+  finishDecode!({ ok: true, text: 'um our our options' })
+  await waitFor(() => expect(textarea).toHaveValue('alpha um our our options beta gamma'))
+})
+
+test('a caret past the end of a shortened draft is clamped instead of dropping the transcript', async () => {
+  let finishDecode: ((result: { ok: true; text: string }) => void) | undefined
+  window.voiceModelApi.transcribe = () =>
+    new Promise<{ ok: true; text: string }>((resolve) => {
+      finishDecode = resolve
+    })
+  render(<Composer enabled={false} initial="alpha beta" />)
+  const textarea = screen.getByRole('textbox') as HTMLTextAreaElement
+  textarea.setSelectionRange(10, 10)
+  await dictate()
+  await waitFor(() => expect(finishDecode).toBeDefined())
+  fireEvent.change(textarea, { target: { value: 'a' } })
+  finishDecode!({ ok: true, text: 'um our our options' })
+  await waitFor(() => expect(textarea).toHaveValue('a um our our options'))
 })

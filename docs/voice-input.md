@@ -45,11 +45,16 @@ plus the draft/newest-exchange context to Claude. The workspace remembers the ch
 applies to desktop brain-dump dictation. Phone dictation is unchanged.
 
 After transcription, **Polishing…** has a **Use original dictation** button that immediately
-inserts the raw text. Cleanup has a 10-second deadline. A failure or timeout inserts the original
+inserts the raw text. A response that opens with a preamble ("Here's the corrected transcript:")
+is rejected as chatter - unless the dictation opened the same way itself, since "Here's what I
+want you to change…" is an ordinary thing to say out loud. The draft stays editable throughout:
+anything typed while the decode runs survives the transcript landing at the cursor. Cleanup has a 10-second deadline. A failure or timeout inserts the original
 dictation and shows only the reason, while success names the model that actually served the turn -
 the CLI's `modelUsage` reports it, so **Polished with Claude Haiku 4.5** is a fact rather than the
-request being echoed back. An older CLI that reports no model falls back to naming the request
-("Haiku requested"). No dictation is sent as a message automatically.
+request being echoed back. A single turn can be billed to more than one model, so the name comes
+from the entry that emitted the output tokens, and a CLI that reports no model - or reports several
+the token counts cannot separate - falls back to naming the request ("Haiku requested"). No
+dictation is sent as a message automatically.
 
 **Decision: cleanup runs with thinking off (`MAX_THINKING_TOKENS=0`).** Polishing is only worth
 waiting for if it beats typing the sentence by hand, and by default the model spent ~500 thinking

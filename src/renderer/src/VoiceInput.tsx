@@ -187,10 +187,12 @@ export default function VoiceInput(props: VoiceInputProps): JSX.Element {
           if (!polished) return
           transcript = polished.text
         }
+        // The draft as it is now, never the render Stop was clicked in, whose closure would
+        // overwrite whatever was typed while the decode ran (#221).
         const { start, end } = insertionRef.current
-        const current = cleanup.enabled ? propsRef.current : props
+        const current = propsRef.current
         current.setDraft(insertAtSelection(current.draft, transcript, start, end))
-        requestAnimationFrame(() => props.textareaRef.current?.focus())
+        requestAnimationFrame(() => propsRef.current.textareaRef.current?.focus())
       }
       setState('idle')
     } catch (cause) {

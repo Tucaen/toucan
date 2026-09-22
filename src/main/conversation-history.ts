@@ -6,6 +6,7 @@ import type {
   ConversationProvider,
   ConversationSummary
 } from '../shared/conversation'
+import { claudeConfigRoot } from './claude-config'
 import type { ConversationTitleStore } from './conversation-title-store'
 
 export interface ConversationHistoryOptions {
@@ -256,8 +257,7 @@ export function createConversationHistory(options: ConversationHistoryOptions): 
   const codexMeta = new Map<string, CodexMeta | null>()
   const details = new Map<string, { mtimeMs: number; size: number; detail: Detail }>()
 
-  const claudeRoot = (): string =>
-    join(options.environment.CLAUDE_CONFIG_DIR ?? join(options.homeDirectory, '.claude'), 'projects')
+  const claudeRoot = (): string => join(claudeConfigRoot(options.homeDirectory, options.environment), 'projects')
   const codexRoot = (): string =>
     join(options.environment.CODEX_HOME ?? join(options.homeDirectory, '.codex'), 'sessions')
 

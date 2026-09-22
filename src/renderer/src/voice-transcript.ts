@@ -13,10 +13,18 @@ import { WHISPER_DOWNLOAD_GIGABYTES } from '../../shared/whisper-assets'
 
 export type VoiceState = 'idle' | 'downloading' | 'loading' | 'listening' | 'stopping' | 'polishing' | 'error'
 
-/** Replaces the selection with `text`, adding a space wherever it would otherwise touch a word. */
+/**
+ * Replaces the selection with `text`, adding a space wherever it would otherwise touch a word.
+ *
+ * The offsets were recorded when the microphone was pressed and the draft stays editable for the
+ * seconds the decode takes, so they are clamped to the value they actually land in (#221) - an
+ * out-of-range `slice` would otherwise silently drop or duplicate what was typed meanwhile.
+ */
 export function insertAtSelection(value: string, text: string, start: number, end: number): string {
-  const before = value.slice(0, start)
-  const after = value.slice(end)
+  const from = Math.min(Math.max(start, 0), value.length)
+  const to = Math.min(Math.max(end, from), value.length)
+  const before = value.slice(0, from)
+  const after = value.slice(to)
   const prefix = before && !/\s$/.test(before) ? ' ' : ''
   const suffix = after && !/^\s/.test(after) ? ' ' : ''
   return `${before}${prefix}${text}${suffix}${after}`

@@ -23,6 +23,16 @@ describe('insertAtSelection', () => {
     assert.equal(insertAtSelection('hello  world', 'X', 6, 6), 'hello X world')
     assert.equal(insertAtSelection('', 'X', 0, 0), 'X')
   })
+
+  test('a selection recorded against an older draft is clamped to the text it lands in', () => {
+    // #221: the draft can be edited while the decode runs, so the offsets the microphone recorded
+    // may point past the end of the value the transcript is inserted into.
+    assert.equal(insertAtSelection('hi', 'X', 40, 40), 'hi X')
+    assert.equal(insertAtSelection('hello', 'X', 3, 40), 'hel X')
+    assert.equal(insertAtSelection('hello', 'X', -5, -5), 'X hello')
+    // An inverted selection collapses to a caret at `start` rather than deleting backwards.
+    assert.equal(insertAtSelection('hello', 'X', 4, 2), 'hell X o')
+  })
 })
 
 describe('voiceControlLabel', () => {

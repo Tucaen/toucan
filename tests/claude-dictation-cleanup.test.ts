@@ -1,5 +1,7 @@
 import { strict as assert } from 'node:assert'
 import * as childProcess from 'node:child_process'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
 import { test } from 'node:test'
 import { runClaudeCleanup } from '../src/main/claude-dictation-cleanup'
@@ -57,4 +59,55 @@ test('cleanup launches a hidden, nonpersistent, tool-free Claude turn with subsc
   }) as unknown as typeof childProcess.execFile)
   assert.equal(await runClaudeCleanup('private dictation', 'haiku', signal), 'response')
   assert.equal(input, 'private dictation')
+})
+
+test('a failed launch reports a cancellation or a sign-in problem, never the command', async (t) => {
+  for (const [aborted, expected] of [
+    [false, /sign-in and allowance/],
+    [true, /^Cleanup cancelled\.$/]
+  ] as const) {
+    const controller = new AbortController()
+    if (aborted) controller.abort()
+    t.mock.method(childProcess, 'execFile', ((
+      _file: string,
+      _args: string[],
+      _options: childProcess.ExecFileOptions,
+      done: (error: Error, stdout: string) => void
+    ) => {
+      const stdin = new PassThrough()
+      // execFile hands back an error whose message carries the whole command line, system prompt
+      // and all; the rejection the renderer shows must not be built from it.
+      stdin.on('finish', () => done(new Error('Command failed: claude -p --system-prompt Polish the...'), ''))
+      return { stdin }
+    }) as unknown as typeof childProcess.execFile)
+    await assert.rejects(runClaudeCleanup('private dictation', 'haiku', controller.signal), (error: Error) => {
+      assert.match(error.message, expected)
+      assert.equal(error.message.includes('private dictation'), false)
+      assert.equal(/system-prompt|Polish/.test(error.message), false)
+      return true
+    })
+  }
+})
+
+test('the relocated Claude config root reaches the turn that has to find the same install', async (t) => {
+  const old = process.env.CLAUDE_CONFIG_DIR
+  process.env.CLAUDE_CONFIG_DIR = join(tmpdir(), 'relocated-claude')
+  t.after(() => {
+    if (old === undefined) delete process.env.CLAUDE_CONFIG_DIR
+    else process.env.CLAUDE_CONFIG_DIR = old
+  })
+  let configRoot: string | undefined
+  t.mock.method(childProcess, 'execFile', ((
+    _file: string,
+    _args: string[],
+    options: childProcess.ExecFileOptions,
+    done: (error: null, stdout: string) => void
+  ) => {
+    configRoot = options.env?.CLAUDE_CONFIG_DIR
+    const stdin = new PassThrough()
+    stdin.on('finish', () => done(null, 'response'))
+    return { stdin }
+  }) as unknown as typeof childProcess.execFile)
+  await runClaudeCleanup('private dictation', 'haiku', new AbortController().signal)
+  assert.equal(configRoot, join(tmpdir(), 'relocated-claude'))
 })
