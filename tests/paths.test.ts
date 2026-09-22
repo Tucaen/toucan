@@ -1,6 +1,6 @@
 import { equal, notEqual, ok } from 'node:assert/strict'
 import { test } from 'vitest'
-import { isAbsolutePath, pathIdentity } from '../src/shared/paths'
+import { isAbsolutePath, pathIdentity, pathWithinRoot } from '../src/shared/paths'
 
 /**
  * "Are these two strings the same file?" is asked by the ticket board's attribution, the file
@@ -25,6 +25,30 @@ test('a run of separators is one separator, whichever way they lean', () => {
 test('a UNC share keeps its leading pair, so it cannot collide with an absolute path', () => {
   equal(pathIdentity('\\\\build\\share\\Toucan'), '//build/share/toucan')
   notEqual(pathIdentity('\\\\build\\share\\Toucan'), pathIdentity('/build/share/Toucan'))
+})
+
+test('POSIX path identity preserves case while Windows identity folds it', () => {
+  notEqual(pathIdentity('/home/Morgan/notes.md'), pathIdentity('/home/morgan/notes.md'))
+  equal(pathIdentity('D:/Development/Toucan'), pathIdentity('d:/development/toucan'))
+  equal(pathIdentity('\\\\Build\\Share\\Toucan'), pathIdentity('//build/share/toucan'))
+})
+
+test('drive and POSIX roots keep one identity with or without trailing separators', () => {
+  equal(pathIdentity('D:\\'), pathIdentity('d:/'))
+  equal(pathIdentity('/'), pathIdentity('///'))
+  equal(pathIdentity('/home/morgan/'), pathIdentity('/home/morgan'))
+})
+
+test('a path within a root returns its original relative remainder', () => {
+  equal(pathWithinRoot('D:\\Development\\Toucan\\src\\main.ts', 'd:/development/toucan/'), 'src/main.ts')
+  equal(pathWithinRoot('D:\\Development\\Toucan', 'd:/development/toucan/'), '')
+  equal(pathWithinRoot('\\\\Build\\Share\\Toucan\\src', '//build/share/toucan'), 'src')
+  equal(pathWithinRoot('/home/Morgan/project/src', '/home/Morgan/project'), 'src')
+})
+
+test('path containment respects segment boundaries and POSIX case', () => {
+  equal(pathWithinRoot('D:/Development/Toucan-old/a.ts', 'D:/Development/Toucan'), undefined)
+  equal(pathWithinRoot('/home/morgan/project/src', '/home/Morgan/project'), undefined)
 })
 
 test('the locale is pinned, so a Turkish host still matches a drive letter', () => {

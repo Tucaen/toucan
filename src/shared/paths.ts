@@ -26,14 +26,33 @@ export function isAbsolutePath(value: string): boolean {
  * letter matching. A leading UNC pair survives the separator collapse, because `//host/share`
  * flattened to `/host/share` is a different path that a POSIX absolute one could collide with.
  */
-export function pathIdentity(path: string): string {
+function normalizedPathShape(path: string): string {
   const unc = /^[\\/]{2}[^\\/]/.test(path)
-  return (
+  const normalized =
     (unc ? '//' : '') +
     path
       .slice(unc ? 2 : 0)
       .replace(/[\\/]+/g, '/')
-      .replace(/\/+$/, '')
-      .toLocaleLowerCase('en-US')
-  )
+  return normalized === '/' ? normalized : normalized.replace(/\/+$/, '')
+}
+
+export function pathIdentity(path: string): string {
+  const normalized = normalizedPathShape(path)
+  return /^(?:[a-z]:|\/\/[^/])/i.test(normalized) ? normalized.toLocaleLowerCase('en-US') : normalized
+}
+
+/**
+ * The part of `path` below `root`, in forward-slash form; `''` when both name the root itself,
+ * and `undefined` when the path is outside it. This is display/string containment only: like
+ * `pathIdentity`, it deliberately resolves neither links nor `..` segments.
+ */
+export function pathWithinRoot(path: string, root: string): string | undefined {
+  const normalizedPath = normalizedPathShape(path)
+  const normalizedRoot = normalizedPathShape(root)
+  const pathKey = pathIdentity(normalizedPath)
+  const rootKey = pathIdentity(normalizedRoot)
+  if (pathKey === rootKey) return ''
+  const prefix = rootKey === '/' ? rootKey : `${rootKey}/`
+  if (!pathKey.startsWith(prefix)) return undefined
+  return normalizedPath.slice(normalizedRoot === '/' ? 1 : normalizedRoot.length + 1)
 }

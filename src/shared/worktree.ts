@@ -7,6 +7,7 @@
 
 import type { GitBranchListResult, GitBranchState, GitCheckoutRequest, GitCheckoutResult } from './git-branch'
 import type { GitDiffRequest, GitDiffSummary, GitFileDiff, GitFileDiffRequest } from './git-diff'
+import { pathIdentity } from './paths'
 
 export interface WorkspaceWorktree {
   id: string
@@ -241,8 +242,7 @@ export function normalizeWorktreePath(value: string): string {
 }
 
 export function worktreePathKey(value: string): string {
-  const path = normalizeWorktreePath(value)
-  return /^[a-z]:\\|^\\\\/i.test(path) ? path.toLowerCase() : path
+  return pathIdentity(normalizeWorktreePath(value))
 }
 
 /**
