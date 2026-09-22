@@ -1,7 +1,7 @@
 import { resolve } from 'node:path'
 import type { WorkspaceProject } from '../shared/terminal'
 import { ticketsDirectoryOrDefault } from '../shared/tickets'
-import { pathIdentity } from '../shared/paths'
+import { pathWithinRoot } from '../shared/paths'
 
 /**
  * The workspace entry for a checkout, if Toucan knows it. Windows paths differ only in case
@@ -9,10 +9,7 @@ import { pathIdentity } from '../shared/paths'
  * case-insensitive one accepted.
  */
 export function projectFor(projectPath: string, projects: readonly WorkspaceProject[]): WorkspaceProject | undefined {
-  return (
-    projects.find((candidate) => candidate.path === projectPath) ??
-    projects.find((candidate) => pathIdentity(candidate.path) === pathIdentity(projectPath))
-  )
+  return projects.find((candidate) => pathWithinRoot(candidate.path, projectPath) === '')
 }
 
 /**

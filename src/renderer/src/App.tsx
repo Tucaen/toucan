@@ -58,7 +58,7 @@ import type {
 import type { WorktreeRemovalBlocker } from '../../shared/worktree'
 import { worktreePathKey } from '../../shared/worktree'
 import type { FileViewMode } from '../../shared/file-view'
-import { pathIdentity } from '../../shared/paths'
+import { pathIdentity, pathWithinRoot } from '../../shared/paths'
 import toucanLogo from './assets/toucan-logo.svg'
 import { placeholderBranchName, type WorktreeHandoffPlan } from '../../shared/worktree-handoff'
 import {
@@ -703,7 +703,7 @@ function Canvas(): JSX.Element {
       ...projectWorktrees.map((candidate) => ({ projectId: project.id, root: candidate.data.path }))
     ])
     const root = owner?.root ?? project.path
-    const worktree = projectWorktrees.find((candidate) => pathIdentity(candidate.data.path) === pathIdentity(root))
+    const worktree = projectWorktrees.find((candidate) => pathWithinRoot(candidate.data.path, root) === '')
 
     return new Promise((resolve) => {
       filePickerResolver.current = resolve
@@ -1834,7 +1834,7 @@ function Canvas(): JSX.Element {
     const directory = await window.terminalApi.pickProject()
     if (!directory) return
 
-    const existing = projects.find((project) => project.path.toLocaleLowerCase() === directory.path.toLocaleLowerCase())
+    const existing = projects.find((project) => pathWithinRoot(project.path, directory.path) === '')
     if (existing) {
       setActiveProjectId(existing.id)
       setMenu(null)
@@ -1926,9 +1926,9 @@ function Canvas(): JSX.Element {
 
   const historyDirectoryLabels = useMemo(() => {
     const labelsByPath: Record<string, string> = {}
-    if (activeProject) labelsByPath[activeProject.path.toLocaleLowerCase()] = activeProject.name
+    if (activeProject) labelsByPath[pathIdentity(activeProject.path)] = activeProject.name
     for (const node of nodes.filter(isWorktreeCanvasNode)) {
-      labelsByPath[node.data.path.toLocaleLowerCase()] = node.data.branch
+      labelsByPath[pathIdentity(node.data.path)] = node.data.branch
     }
     return labelsByPath
   }, [activeProject, nodes])
@@ -2125,7 +2125,7 @@ function Canvas(): JSX.Element {
       if (!project || !historyDrop) return
       const worktreeNode = nodesRef.current
         .filter(isWorktreeCanvasNode)
-        .find((node) => node.data.path.toLocaleLowerCase() === entry.cwd.toLocaleLowerCase())
+        .find((node) => pathWithinRoot(node.data.path, entry.cwd) === '')
       const opened = addSessionNode({
         kind: entry.provider,
         project,
@@ -2149,9 +2149,8 @@ function Canvas(): JSX.Element {
    */
   const openBrainDumpSession = useCallback(
     (conversation: { provider: TerminalKind; conversationId: string; cwd: string }): void => {
-      const identity = pathIdentity(conversation.cwd)
       const project =
-        projectsRef.current.find((candidate) => pathIdentity(candidate.path) === identity) ??
+        projectsRef.current.find((candidate) => pathWithinRoot(candidate.path, conversation.cwd) === '') ??
         projectsRef.current.find((candidate) => candidate.id === activeProjectId) ??
         projectsRef.current[0]
       if (!project) return

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Folder } from 'lucide-react'
 import type { ConversationSummary } from '../../shared/conversation'
+import { pathIdentity } from '../../shared/paths'
 import { formatRelativeTime } from './relative-date'
 import SessionKindIcon from './SessionKindIcon'
 
@@ -11,7 +12,7 @@ export interface ConversationHistoryDialogProps {
   projectName: string
   /** The project checkout plus its worktrees: every directory whose transcripts belong here. */
   directories: string[]
-  /** Lowercased directory path to the name shown for it, so a worktree reads as its branch. */
+  /** Directory identity to the name shown for it, so a worktree reads as its branch. */
   directoryLabels: Record<string, string>
   onCancel(): void
   onOpen(entry: ConversationSummary): void
@@ -128,7 +129,7 @@ export default function ConversationHistoryDialog({
                       {entry.messageCount} {entry.messageCount === 1 ? 'message' : 'messages'}
                       {' · '}
                       <Folder aria-hidden="true" className="conversation-history-directory-icon" />
-                      {directoryLabels[entry.cwd.toLocaleLowerCase()] ?? entry.cwd}
+                      {directoryLabels[pathIdentity(entry.cwd)] ?? entry.cwd}
                     </small>
                     {unavailable && (
                       <small className="conversation-history-missing" role="alert">

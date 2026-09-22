@@ -146,6 +146,7 @@ test('paths are shortened against the workspace or worktree root, case- and sepa
   // A file outside every root keeps its full path rather than a misleading relative one.
   assert.equal(shortenFilePath('C:\\other\\a.ts', roots), 'C:/other/a.ts')
   assert.equal(shortenFilePath('/repo/a.ts', []), '/repo/a.ts')
+  assert.equal(shortenFilePath('/home/Morgan/repo/a.ts', ['/home/morgan/repo']), '/home/Morgan/repo/a.ts')
 })
 
 test('a read excerpt is numbered from the start of the range', () => {

@@ -1,4 +1,5 @@
 import type { FileReadFailure, FileReadResult, FileWriteFailure } from '../../shared/file-view'
+import { pathWithinRoot } from '../../shared/paths'
 
 /**
  * The decisions behind the file node that are worth pinning down without a DOM: how a picked
@@ -125,12 +126,11 @@ export function workspaceRootOwningPath(
   path: string,
   roots: readonly { projectId: string; root: string }[]
 ): { projectId: string; root: string } | undefined {
-  const haystack = path.replace(/\\/g, '/').toLowerCase()
   let best: { projectId: string; root: string; length: number } | undefined
   for (const { projectId, root } of roots) {
-    const prefix = root.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
-    if (!prefix || !haystack.startsWith(`${prefix}/`)) continue
-    if (!best || prefix.length > best.length) best = { projectId, root, length: prefix.length }
+    if (!pathWithinRoot(path, root)) continue
+    const length = root.replace(/[\\/]+$/, '').length
+    if (!best || length > best.length) best = { projectId, root, length }
   }
   return best
 }

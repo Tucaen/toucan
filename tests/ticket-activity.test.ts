@@ -136,6 +136,13 @@ test('anything that is not a flat ticket file in the folder is ignored', () => {
   assert.equal(outside(`${PROJECT}/docs/tickets/nested/x.md`), undefined)
   assert.equal(outside(`${PROJECT}/docs/tickets/x.txt`), undefined)
   assert.equal(outside(`${PROJECT}/docs/tickets/Not A Slug.md`), undefined)
+  assert.equal(
+    ticketSlugFor('/home/morgan/project/docs/tickets/x.md', {
+      roots: ['/home/Morgan/project/docs/tickets'],
+      workingDirectory: '/home/Morgan/project'
+    }),
+    undefined
+  )
 })
 
 const ACTIVE = { id: 'project-1', path: PROJECT }

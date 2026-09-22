@@ -1,4 +1,5 @@
 import type { AgentActivity } from '../../shared/agent'
+import { pathWithinRoot } from '../../shared/paths'
 import { normalizeTerminalOutput } from '../../shared/terminal-output'
 import { asRecord, asText, memoizePerActivity, normalizeToolName } from './tool-input'
 
@@ -166,13 +167,11 @@ export function shellWorkingDirectoryLabel(
 ): string | undefined {
   if (!cwd) return undefined
   const normalized = cwd.replace(/\\/g, '/').replace(/\/+$/, '')
-  const haystack = normalized.toLowerCase()
-  const nodeRoot = roots[0]?.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
-  if (nodeRoot && haystack === nodeRoot) return undefined
+  if (roots[0] && pathWithinRoot(cwd, roots[0]) === '') return undefined
   for (const root of roots) {
-    const prefix = root?.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
-    if (!prefix || !haystack.startsWith(`${prefix}/`)) continue
-    return normalized.slice(prefix.length + 1)
+    if (!root) continue
+    const relative = pathWithinRoot(cwd, root)
+    if (relative) return relative
   }
   return normalized
 }

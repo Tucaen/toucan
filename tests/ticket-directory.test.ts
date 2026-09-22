@@ -30,6 +30,10 @@ test('the project is found even when the snapshot disagrees about the drive lett
     ticketsDirectoryFor('d:\\development\\toucan', [project({ ticketsDirectory: 'notes/tickets' })]),
     resolve('d:\\development\\toucan', 'notes/tickets')
   )
+  assert.equal(
+    ticketsDirectoryFor('d:/development/toucan', [project({ ticketsDirectory: 'notes/tickets' })]),
+    resolve('d:/development/toucan', 'notes/tickets')
+  )
 })
 
 test('a setting that escapes the checkout is ignored rather than obeyed', () => {

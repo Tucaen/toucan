@@ -2,9 +2,9 @@ import type { AgentActivity } from '../../shared/agent'
 import type { AgentTranscriptEntry } from '../../shared/agent-transcript'
 import type { TerminalKind } from '../../shared/terminal'
 import { TICKET_FILES_SOURCE_ID, ticketCardKey } from '../../shared/ticket-source'
-import { isAbsolutePath } from '../../shared/paths'
+import { isAbsolutePath, pathWithinRoot } from '../../shared/paths'
 import { isTicketSlug, ticketsDirectoryOrDefault } from '../../shared/tickets'
-import { fileOperationFor, shortenFilePath } from './file-operation'
+import { fileOperationFor } from './file-operation'
 
 /**
  * Which session is working on which ticket, decided from what the sessions actually did rather
@@ -128,9 +128,11 @@ export function ticketSlugFor(path: string, scope: TicketPathScope): string | un
   const absolute = isAbsolutePath(path)
     ? path
     : `${normalizeDirectory(scope.workingDirectory)}/${path.replace(/\\/g, '/')}`
-  const relative = shortenFilePath(absolute, scope.roots)
-  // Under no root, `shortenFilePath` hands back the whole path - which always still has a slash.
-  if (relative.includes('/') || !relative.endsWith('.md')) return undefined
+  const relative = scope.roots.flatMap((root) => {
+    const remainder = pathWithinRoot(absolute, root)
+    return remainder === undefined ? [] : [remainder]
+  })[0]
+  if (!relative || relative.includes('/') || !relative.endsWith('.md')) return undefined
   const slug = relative.slice(0, -'.md'.length)
   return isTicketSlug(slug) ? slug : undefined
 }

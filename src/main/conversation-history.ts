@@ -6,6 +6,7 @@ import type {
   ConversationProvider,
   ConversationSummary
 } from '../shared/conversation'
+import { pathIdentity } from '../shared/paths'
 import { claudeConfigRoot } from './claude-config'
 import type { ConversationTitleStore } from './conversation-title-store'
 
@@ -293,7 +294,7 @@ export function createConversationHistory(options: ConversationHistoryOptions): 
 
   async function codexCandidates(directories: string[]): Promise<Candidate[]> {
     const root = codexRoot()
-    const wanted = new Map(directories.map((directory) => [directory.toLocaleLowerCase(), directory]))
+    const wanted = new Map(directories.map((directory) => [pathIdentity(directory), directory]))
     const files: string[] = []
     for (const year of await listSubdirectories(root)) {
       const yearPath = join(root, year)
@@ -322,7 +323,7 @@ export function createConversationHistory(options: ConversationHistoryOptions): 
     for (const entry of metas) {
       const meta = entry.meta
       if (!meta || meta.subagent) continue
-      const directory = wanted.get(meta.cwd.toLocaleLowerCase())
+      const directory = wanted.get(pathIdentity(meta.cwd))
       if (!directory) continue
       let sortAt: number
       try {

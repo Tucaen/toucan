@@ -1,4 +1,5 @@
 import type { AgentActivity } from '../../shared/agent'
+import { pathWithinRoot } from '../../shared/paths'
 import { diffLines } from 'diff'
 import { asRecord, asText, memoizePerActivity, normalizeToolName } from './tool-input'
 
@@ -165,13 +166,11 @@ export const fileOperationFor = memoizePerActivity(parseFileOperation)
  */
 export function shortenFilePath(path: string, roots: readonly (string | undefined)[]): string {
   const normalized = path.replace(/\\/g, '/')
-  const haystack = normalized.toLowerCase()
   let shortest: string | undefined
   for (const root of roots) {
-    const prefix = root?.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
-    if (!prefix) continue
-    if (!haystack.startsWith(`${prefix}/`)) continue
-    const relative = normalized.slice(prefix.length + 1)
+    if (!root) continue
+    const relative = pathWithinRoot(path, root)
+    if (!relative) continue
     if (shortest === undefined || relative.length < shortest.length) shortest = relative
   }
   return shortest ?? normalized

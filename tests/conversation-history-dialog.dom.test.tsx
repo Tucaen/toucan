@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import type { ConversationSummary } from '../src/shared/conversation'
+import { pathIdentity } from '../src/shared/paths'
 import ConversationHistoryDialog from '../src/renderer/src/ConversationHistoryDialog'
 
 // Covers the browsing surface's contract: it reads one page at a time, labels the worktree a
@@ -34,7 +35,7 @@ function renderDialog(onOpen = vi.fn()): { onOpen: ReturnType<typeof vi.fn> } {
     <ConversationHistoryDialog
       projectName="Toucan"
       directories={[PROJECT, WORKTREE]}
-      directoryLabels={{ [PROJECT.toLocaleLowerCase()]: 'Toucan', [WORKTREE.toLocaleLowerCase()]: 'feature' }}
+      directoryLabels={{ [pathIdentity(PROJECT)]: 'Toucan', [pathIdentity(WORKTREE)]: 'feature' }}
       onCancel={vi.fn()}
       onOpen={onOpen}
     />
