@@ -6,7 +6,6 @@ import {
   BRAIN_DUMP_UNASSIGNED_LABEL,
   BRAIN_DUMP_UNREGISTERED_NOTE,
   brainDumpTopicPreview,
-  describeBrainDumpDate,
   nextBrainDumpSelection,
   resolveBrainDumpProject,
   searchBrainDumpTopics
@@ -77,14 +76,6 @@ test('a preview reads as prose, not as frontmatter and Markdown syntax', () => {
     '```'
   ].join('\n')
   equal(brainDumpTopicPreview(markdown), 'Local dictation feels good; see node-resize-handles and the docs.')
-})
-
-test('recent dates read as days, and older ones stay exact', () => {
-  equal(describeBrainDumpDate('2026-08-31', '2026-08-31'), 'today')
-  equal(describeBrainDumpDate('2026-08-30', '2026-08-31'), 'yesterday')
-  equal(describeBrainDumpDate('2026-08-28', '2026-08-31'), '3 days ago')
-  equal(describeBrainDumpDate('2026-08-01', '2026-08-31'), '2026-08-01')
-  equal(describeBrainDumpDate('not-a-date', '2026-08-31'), 'not-a-date')
 })
 
 test('an empty query keeps every row in library order', () => {

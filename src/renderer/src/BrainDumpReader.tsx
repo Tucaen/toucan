@@ -4,7 +4,8 @@ import ReactMarkdown, { type Components } from 'react-markdown'
 import type { BrainDumpTopic } from '../../shared/brain-dump'
 import type { WorkspaceProject } from '../../shared/terminal'
 import { classifyBrainDumpLink, linkifyBrainDumpReferences, parseBrainDumpReferences } from './brain-dump-links'
-import { describeBrainDumpDate, resolveBrainDumpProject } from './brain-dump-topics'
+import { resolveBrainDumpProject } from './brain-dump-topics'
+import { describeCalendarDate } from './relative-date'
 import { BrainDumpProjectChip } from './BrainDumpProjectChip'
 import BrainDumpProjectPicker from './BrainDumpProjectPicker'
 import { keepHref, markdownBlockComponents, remarkPlugins } from './MarkdownMessage'
@@ -148,7 +149,7 @@ export default function BrainDumpReader(props: BrainDumpReaderProps): JSX.Elemen
           ) : (
             <BrainDumpProjectChip project={project} />
           )}
-          <span className="brain-dump-reader-date">Updated {describeBrainDumpDate(topic.updated, props.today)}</span>
+          <span className="brain-dump-reader-date">Updated {describeCalendarDate(topic.updated, props.today)}</span>
         </div>
         <div className="brain-dump-reader-actions">
           {topic.collection === 'active' && (

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { BRAIN_DUMP_OUTCOME_LABELS, type BrainDumpTopic } from '../../shared/brain-dump'
 import type { WorkspaceProject } from '../../shared/terminal'
-import { brainDumpTopicPreview, describeBrainDumpDate, resolveBrainDumpProject } from './brain-dump-topics'
+import { brainDumpTopicPreview, resolveBrainDumpProject } from './brain-dump-topics'
+import { describeCalendarDate } from './relative-date'
 import { BrainDumpProjectChip, brainDumpProjectDescription } from './BrainDumpProjectChip'
 
 /**
@@ -122,7 +123,7 @@ export default function BrainDumpTopicList(props: BrainDumpTopicListProps): JSX.
                     <BrainDumpProjectChip project={project} />
                   </span>
                   <span className="brain-dump-row-date">
-                    Updated {describeBrainDumpDate(topic.updated, props.today)}
+                    Updated {describeCalendarDate(topic.updated, props.today)}
                   </span>
                   {topic.outcome && (
                     <span className="brain-dump-row-outcome">{BRAIN_DUMP_OUTCOME_LABELS[topic.outcome]}</span>

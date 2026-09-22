@@ -4,7 +4,6 @@ import type { TicketCard, TicketSourceListResult } from '../src/shared/ticket-so
 import { ticketCardKey } from '../src/shared/ticket-source'
 import {
   DONE_COLUMN_RECENT_DAYS,
-  describeTicketDate,
   staleDoneCards,
   ticketBlockers,
   ticketBoardColumns,
@@ -154,13 +153,6 @@ test('a blocker only resolves against its own source', () => {
 test('an unknown status is titled from its own words', () => {
   assert.equal(ticketStatusLabel('in-progress'), 'In progress')
   assert.equal(ticketStatusLabel('needs-review'), 'Needs review')
-})
-
-test('a card date reads as a calendar day, relative only while it is recent', () => {
-  assert.equal(describeTicketDate(TODAY, TODAY), 'today')
-  assert.equal(describeTicketDate('2026-09-03', TODAY), 'yesterday')
-  assert.equal(describeTicketDate('2026-09-01', TODAY), '3 days ago')
-  assert.equal(describeTicketDate('2026-07-01', TODAY), '2026-07-01')
 })
 
 test('a keyboard move steps one column and stops at either end of the board', () => {

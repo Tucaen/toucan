@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import type { ConversationSummary } from '../src/shared/conversation'
-import ConversationHistoryDialog, { formatRelativeTime } from '../src/renderer/src/ConversationHistoryDialog'
+import ConversationHistoryDialog from '../src/renderer/src/ConversationHistoryDialog'
 
 // Covers the browsing surface's contract: it reads one page at a time, labels the worktree a
 // conversation ran in, and refuses honestly when a transcript has vanished since it was listed.
@@ -41,15 +41,6 @@ function renderDialog(onOpen = vi.fn()): { onOpen: ReturnType<typeof vi.fn> } {
   )
   return { onOpen }
 }
-
-test('formats how long ago a conversation was last touched', () => {
-  const now = Date.parse('2026-08-28T12:00:00.000Z')
-  expect(formatRelativeTime('2026-08-28T11:59:30.000Z', now)).toBe('just now')
-  expect(formatRelativeTime('2026-08-28T11:30:00.000Z', now)).toBe('30m ago')
-  expect(formatRelativeTime('2026-08-28T09:00:00.000Z', now)).toBe('3h ago')
-  expect(formatRelativeTime('2026-08-25T12:00:00.000Z', now)).toBe('3d ago')
-  expect(formatRelativeTime('not a date', now)).toBe('unknown')
-})
 
 test('shows what a conversation was, when it ran, and where', async () => {
   installConversationApi(

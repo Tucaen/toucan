@@ -1,25 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Folder } from 'lucide-react'
 import type { ConversationSummary } from '../../shared/conversation'
+import { formatRelativeTime } from './relative-date'
 import SessionKindIcon from './SessionKindIcon'
 
 /** One page is what a single open reads off disk; the rest of a long history stays unopened. */
 export const CONVERSATION_PAGE_SIZE = 25
-
-/** @internal exported for tests */
-export function formatRelativeTime(iso: string, now: number = Date.now()): string {
-  const at = Date.parse(iso)
-  if (!Number.isFinite(at)) return 'unknown'
-  const seconds = Math.round((now - at) / 1000)
-  if (seconds < 60) return 'just now'
-  const minutes = Math.round(seconds / 60)
-  if (minutes < 60) return `${minutes}m ago`
-  const hours = Math.round(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
-  const days = Math.round(hours / 24)
-  if (days < 30) return `${days}d ago`
-  return new Date(at).toLocaleDateString()
-}
 
 export interface ConversationHistoryDialogProps {
   projectName: string

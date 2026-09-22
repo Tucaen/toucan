@@ -1,5 +1,6 @@
 import { DEFAULT_TICKET_STATUSES, TICKET_STATUS } from '../../shared/tickets'
 import type { TicketCard, TicketSource, TicketSourceListResult } from '../../shared/ticket-source'
+import { calendarDaysBetween } from './relative-date'
 
 /**
  * Everything the ticket board decides before anything is drawn: which columns exist, which cards
@@ -13,8 +14,6 @@ import type { TicketCard, TicketSource, TicketSourceListResult } from '../../sha
 
 /** A Done card older than this is folded away, because a closed ticket stops being news. */
 export const DONE_COLUMN_RECENT_DAYS = 30
-
-const DAY_MS = 86_400_000
 
 export type TicketBlockerState = 'done' | 'pending' | 'missing'
 
@@ -39,30 +38,10 @@ export interface TicketBoardInput {
   showAllDone: boolean
 }
 
-function calendarDaysBetween(from: string, to: string): number | null {
-  const start = Date.parse(`${from}T00:00:00Z`)
-  const end = Date.parse(`${to}T00:00:00Z`)
-  if (Number.isNaN(start) || Number.isNaN(end)) return null
-  return Math.round((end - start) / DAY_MS)
-}
-
 /** `in-progress` reads as "In progress"; an invented status is titled from its own words. */
 export function ticketStatusLabel(status: string): string {
   const words = status.split('-').filter(Boolean).join(' ')
   return words ? words.charAt(0).toLocaleUpperCase() + words.slice(1) : status
-}
-
-/**
- * A card's `updated` relative to `today`, both calendar dates. Beyond a week the exact date says
- * more than a widening count of days.
- */
-export function describeTicketDate(updated: string, today: string): string {
-  if (updated === today) return 'today'
-  const elapsed = calendarDaysBetween(updated, today)
-  if (elapsed === null) return updated
-  if (elapsed === 1) return 'yesterday'
-  if (elapsed > 1 && elapsed < 7) return `${elapsed} days ago`
-  return updated
 }
 
 /**

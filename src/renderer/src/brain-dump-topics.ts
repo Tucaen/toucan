@@ -76,22 +76,6 @@ export function brainDumpTopicPreview(markdown: string): string {
 }
 
 /**
- * A topic's `updated` date relative to `today`, both as calendar dates (`YYYY-MM-DD`). The library
- * records days, not instants, so "today" here means the same calendar day rather than 24 hours.
- */
-export function describeBrainDumpDate(updated: string, today: string): string {
-  if (updated === today) return 'today'
-  const day = 86_400_000
-  const parsed = Date.parse(`${updated}T00:00:00Z`)
-  const reference = Date.parse(`${today}T00:00:00Z`)
-  if (Number.isNaN(parsed) || Number.isNaN(reference)) return updated
-  const elapsed = Math.round((reference - parsed) / day)
-  if (elapsed === 1) return 'yesterday'
-  if (elapsed > 1 && elapsed < 7) return `${elapsed} days ago`
-  return updated
-}
-
-/**
  * Rows matching `query` in title, slug, body, or resolved project identity, in the order the
  * library returned them. An empty query keeps every row.
  */

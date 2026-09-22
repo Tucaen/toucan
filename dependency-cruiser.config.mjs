@@ -37,6 +37,7 @@ const pureRendererFeatureNames = [
   'prompt-history',
   'prompt-outbox',
   'reasoning-blocks',
+  'relative-date',
   'routine-delegation-display',
   'scaled-pointer-coordinates',
   'search-navigation',

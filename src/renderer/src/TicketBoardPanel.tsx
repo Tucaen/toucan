@@ -7,18 +7,13 @@ import type { TicketSkillApi } from '../../shared/ticket-skill'
 import { ticketCardKey } from '../../shared/ticket-source'
 import { TICKET_STATUS, ticketsDirectoryOrDefault } from '../../shared/tickets'
 import { markdownBlockComponents, remarkPlugins } from './MarkdownMessage'
+import { describeCalendarDate } from './relative-date'
 import SessionKindIcon from './SessionKindIcon'
 import TicketDeleteDialog from './TicketDeleteDialog'
 import TicketFormatPrimer from './TicketFormatPrimer'
 import TicketSkillSetup, { TicketSkillHeaderButton } from './TicketSkillSetup'
 import type { TicketSessionChip } from './ticket-activity'
-import {
-  DONE_COLUMN_RECENT_DAYS,
-  describeTicketDate,
-  ticketBlockers,
-  ticketStatusBeside,
-  type TicketBoardColumn
-} from './ticket-board'
+import { DONE_COLUMN_RECENT_DAYS, ticketBlockers, ticketStatusBeside, type TicketBoardColumn } from './ticket-board'
 import {
   clampTicketBoardWidth,
   ticketBoardBounds,
@@ -375,7 +370,7 @@ export default function TicketBoardPanel(props: TicketBoardPanelProps): JSX.Elem
     <div className="ticket-card-meta">
       <code>{card.id}</code>
       {/* No date at all rather than a guessed one: a file that never wrote one has nothing to show. */}
-      {card.updated && <span>{describeTicketDate(card.updated, today)}</span>}
+      {card.updated && <span>{describeCalendarDate(card.updated, today)}</span>}
       {showSourceBadges && <span className="ticket-card-source">{sourceLabels.get(card.sourceId)}</span>}
     </div>
   )
