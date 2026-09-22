@@ -37,7 +37,8 @@ function harness(): Harness {
   registerConversationIpc(
     { handle: (channel, listener) => void handlers.set(channel, listener as (...args: unknown[]) => unknown) },
     history,
-    store
+    store,
+    { contains: async (path) => path.startsWith('D:/p') }
   )
   return { handlers, listed, titles }
 }
@@ -61,6 +62,11 @@ test('a malformed listing request is answered with the empty page, not a rejecti
   assert.deepEqual(await handler(event, undefined), EMPTY_CONVERSATION_PAGE)
   assert.deepEqual(await handler(event, { directories: 'D:/p' }), EMPTY_CONVERSATION_PAGE)
   assert.deepEqual(await handler(event, { directories: ['D:/p', 42] }), EMPTY_CONVERSATION_PAGE)
+  assert.deepEqual(await handler(event, { directories: ['C:/outside'] }), EMPTY_CONVERSATION_PAGE)
+  for (const value of [NaN, Infinity, -1, 1.5, '20', null]) {
+    assert.deepEqual(await handler(event, { directories: ['D:/p'], limit: value }), EMPTY_CONVERSATION_PAGE)
+    assert.deepEqual(await handler(event, { directories: ['D:/p'], offset: value }), EMPTY_CONVERSATION_PAGE)
+  }
   assert.deepEqual(listed, [])
 })
 

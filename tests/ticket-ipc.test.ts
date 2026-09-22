@@ -61,6 +61,7 @@ function harness(library: Partial<TicketLibrary> = {}): Harness {
       },
       changes,
       skill,
+      containment: { contains: async (path) => !path.includes('outside') },
       reveal: (path) => revealed.push(path),
       isGitRepository: async (projectPath) => projectPath === 'D:\\p'
     }
@@ -75,6 +76,22 @@ test('listing a project subscribes the window and starts watching that project',
   assert.deepEqual(await handlers.get('tickets:list')!(event, 'D:\\p'), { cards: [], diagnostics: [] })
   assert.deepEqual(watched, ['D:\\p'])
   assert.deepEqual(subscribed, [event.sender])
+})
+
+test('outside project paths cannot watch, mutate, scaffold, or reveal tickets', async () => {
+  const { handlers, watched, subscribed, revealed, statuses, removals, skillWrites } = harness()
+  const path = 'D:/outside'
+  assert.deepEqual(await handlers.get('tickets:list')!(event, path), { cards: [], diagnostics: [] })
+  for (const [channel, args] of [
+    ['tickets:set-status', [path, 'ticket-board', 'done']],
+    ['tickets:remove', [path, 'ticket-board']],
+    ['tickets:write-skill', [path]]
+  ] as const)
+    assert.equal(((await handlers.get(channel)!(event, ...args)) as { ok: boolean }).ok, false)
+  await handlers.get('tickets:reveal')!(event, path, 'ticket-board')
+  await handlers.get('tickets:reveal-skill')!(event, path)
+  assert.equal(await handlers.get('tickets:is-git-repository')!(event, path), false)
+  assert.deepEqual([watched, subscribed, revealed, statuses, removals, skillWrites], [[], [], [], [], [], []])
 })
 
 test('a request without a project path is answered empty and watches nothing', async () => {
@@ -106,6 +123,18 @@ test('a malformed status request never reaches the files', async () => {
   })
   await handlers.get('tickets:set-status')!(event, 'D:\\p', 'ticket-board', 'done')
   assert.deepEqual(statuses, [['D:\\p', 'ticket-board', 'done']])
+})
+
+test('a ticket destination outside the workspace cannot be mutated or revealed', async () => {
+  const { handlers, statuses, removals, revealed } = harness({
+    pathFor: async () => 'D:/outside/ticket-board.md'
+  })
+  for (const channel of ['tickets:set-status', 'tickets:remove']) {
+    const result = await handlers.get(channel)!(event, 'D:/p', 'ticket-board', 'done')
+    assert.equal((result as { ok: boolean }).ok, false)
+  }
+  await handlers.get('tickets:reveal')!(event, 'D:/p', 'ticket-board')
+  assert.deepEqual([statuses, removals, revealed], [[], [], []])
 })
 
 test('reveal only ever hands the shell a path the library resolved', async () => {

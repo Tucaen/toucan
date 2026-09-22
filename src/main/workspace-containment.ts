@@ -56,6 +56,7 @@ export function createWorkspaceContainment(options: WorkspaceContainmentOptions)
   }
 
   const contains = async (path: string): Promise<boolean> => {
+    if (typeof path !== 'string' || !path.trim() || path.includes('\0') || !isAbsolute(path)) return false
     const target = comparable(await realPathOf(resolve(path)))
     for (const root of await options.roots()) {
       // An empty relative path means the target *is* the root, which is inside the workspace: the

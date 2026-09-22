@@ -191,6 +191,17 @@ shared code. They are compilation partitions, not permission to bypass the rules
 
 ## Verification
 
+Renderer-supplied project paths cross the shared `WorkspaceContainment` gate before agent or
+terminal creation, ticket operations, Git operations, conversation listing, file indexing, or
+file-manager reveal. The roots are the persisted projects and worktrees, read per call;
+relative paths and symlinks escaping those roots are refused. Agent sandbox additions from IPC
+use the same gate; main-owned background jobs retain their explicitly assigned library directories.
+New worktree destinations remain derived by the worktree manager from an allowed project.
+The Electron-free `register-agent-ipc.ts`, `terminal-ipc.ts`, and `worktree-ipc.ts` modules
+validate request shapes before dispatch. Approval choices are checked against the pending
+request's offered ids inside the session manager, covering desktop and remote clients alike.
+All external URL opens use `openWebUrl`, which admits only HTTP and HTTPS.
+
 Canonical repository checks are:
 
 ```sh

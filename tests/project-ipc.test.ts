@@ -24,6 +24,7 @@ function harness(overrides: Partial<ProjectIpcDependencies> = {}): Harness {
   registerProjectIpc(
     { handle: (channel, listener) => void handlers.set(channel, listener as (...args: unknown[]) => unknown) },
     {
+      containment: { contains: async (path) => path.startsWith('D:/projects/toucan') },
       workspace: {
         load: async () => ({ state: null, recovered: false, unrecoverable: false }),
         save: async (state) => {
@@ -94,6 +95,7 @@ test('shell:show-item-in-folder normalizes the path and ignores anything blank o
   await reveal(event, 'D:/projects/toucan/README.md')
   await reveal(event, '   ')
   await reveal(event, undefined)
+  await reveal(event, 'C:/Windows/System32')
   assert.deepEqual(revealed, ['D:\\projects\\toucan\\README.md'])
 })
 

@@ -70,7 +70,7 @@ lines.on('line', (line) => {
  * An adapter whose prompt turn parks on a form elicitation instead of a permission request, so a
  * structured question set can be answered against a real session rather than a stub.
  */
-function elicitingAdapter(appPath: string): void {
+function elicitingAdapter(appPath: string, url?: string): void {
   const directory = join(appPath, 'node_modules', '@agentclientprotocol', 'claude-agent-acp', 'dist')
   mkdirSync(directory, { recursive: true })
   writeFileSync(
@@ -88,6 +88,13 @@ lines.on('line', (line) => {
     send({ jsonrpc: '2.0', id: request.id, result: { sessionId: 'live-session' } })
   } else if (request.method === 'session/prompt') {
     pendingPrompt = request.id
+    if ('${url ?? ''}') {
+      send({ jsonrpc: '2.0', id: 901, method: 'elicitation/create', params: {
+        mode: 'url', url: '${url ?? ''}', message: 'Open this link',
+        sessionId: request.params.sessionId, elicitationId: 'link-1'
+      } })
+      return
+    }
     send({ jsonrpc: '2.0', id: 901, method: 'elicitation/create', params: {
       mode: 'form',
       sessionId: request.params.sessionId,
@@ -106,6 +113,10 @@ lines.on('line', (line) => {
       }
     } })
   } else if (request.method === undefined && request.id === 901) {
+    send({ jsonrpc: '2.0', method: 'session/update', params: {
+      sessionId: 'live-session',
+      update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: JSON.stringify(request.result) } }
+    } })
     send({ jsonrpc: '2.0', id: pendingPrompt, result: { stopReason: 'end_turn' } })
   }
 })
@@ -122,6 +133,29 @@ async function until<T>(get: () => T | undefined): Promise<T> {
   }
   throw new Error('condition not reached')
 }
+
+test('a non-web URL elicitation is declined without opening an auth link', async () => {
+  const appPath = mkdtempSync(join(tmpdir(), 'toucan-unsafe-url-'))
+  elicitingAdapter(appPath, 'file:///C:/outside.txt')
+  const events: AgentEvent[] = []
+  const owner = {
+    isDestroyed: () => false,
+    send: (_channel: string, envelope: AgentEventEnvelope) => events.push(envelope.event)
+  } as unknown as WebContents
+  const manager = createAcpSessionManager({ appPath })
+  try {
+    assert.equal((await manager.create({ id: 'node', provider: 'claude', cwd: appPath }, owner)).ok, true)
+    assert.equal((await manager.prompt('node', 'open link')).ok, true)
+    assert.equal(
+      events.some((event) => event.type === 'auth_link'),
+      false
+    )
+    assert.ok(events.some((event) => event.type === 'message' && event.text.includes('decline')))
+    await manager.openAuthLink('custom-app:launch')
+  } finally {
+    manager.killAll()
+  }
+})
 
 test('agent events fan out to broker subscribers, the owning renderer among them', async () => {
   const appPath = mkdtempSync(join(tmpdir(), 'toucan-broker-fanout-'))
@@ -169,6 +203,11 @@ test('an approval answered via one client is reflected in every subscriber strea
       remote.find((event): event is Extract<AgentEvent, { type: 'approval' }> => event.type === 'approval')
     )
     assert.equal(broker.snapshot('node-1')?.approval?.id, approval.approvalId)
+
+    for (const optionId of ['allow_always', '', 'x'.repeat(1025)]) {
+      assert.equal(manager.resolveApproval('node-1', approval.approvalId, optionId).ok, false)
+      assert.equal(broker.snapshot('node-1')?.approval?.id, approval.approvalId)
+    }
 
     // Answered here on behalf of "another client": the same operation IPC delegates to.
     manager.resolveApproval('node-1', approval.approvalId, 'allow')
