@@ -1,18 +1,5 @@
-import { useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
-import {
-  AtSign,
-  BrainCircuit,
-  Check,
-  ChevronDown,
-  Cpu,
-  Keyboard,
-  Pencil,
-  Scale,
-  ShieldCheck,
-  UsersRound
-} from 'lucide-react'
-import { usePortalMenuPosition } from './use-portal-menu-position'
+import { AtSign, BrainCircuit, ChevronDown, Cpu, Keyboard, Pencil, Scale, ShieldCheck, UsersRound } from 'lucide-react'
+import { ListboxPicker } from './ListboxPicker'
 
 export interface PickerOption {
   id: string
@@ -61,7 +48,11 @@ export const pickerCopy = {
   }
 } as const
 
-/** One dropdown shape for every agent-reported selector, so modes and models stay consistent. */
+/**
+ * One dropdown shape for every agent-reported selector, so modes and models stay consistent.
+ * The popup itself - portal, position, keyboard model - is `ListboxPicker`; this wrapper only
+ * knows the composer's copy table and trigger chrome.
+ */
 export function SelectorPicker(props: {
   kind: keyof typeof pickerCopy
   options: PickerOption[]
@@ -73,100 +64,38 @@ export function SelectorPicker(props: {
   onOpen?(): void
   select(optionId: string): void
 }): JSX.Element {
-  const [open, setOpen] = useState(false)
-  const containerRef = useRef<HTMLDivElement>(null)
-  const buttonRef = useRef<HTMLButtonElement>(null)
-  const menuRef = useRef<HTMLDivElement>(null)
   const copy = pickerCopy[props.kind]
   const PickerIcon = copy.icon
   const selected = props.options.find((option) => option.id === props.selectedId)
   const canOpen = props.options.length > 0 && !props.disabled
 
-  // The menu portals to <body> so it can escape ancestors (e.g. canvas nodes) that clip overflow.
-  const menuPosition = usePortalMenuPosition(
-    buttonRef,
-    menuRef,
-    open,
-    { width: 230, height: 0 },
-    undefined,
-    props.options
-  )
-
-  const closeUnlessFocusStaysInside = (relatedTarget: EventTarget | null): void => {
-    const next = relatedTarget as Node | null
-    if (containerRef.current?.contains(next) || menuRef.current?.contains(next)) return
-    setOpen(false)
-  }
-
-  const menu = open && (
-    <div
-      ref={menuRef}
-      className="node-picker-menu"
-      role="listbox"
-      aria-label={copy.heading}
-      style={{
-        position: 'fixed',
-        top: menuPosition?.top ?? 0,
-        left: menuPosition?.left ?? 0,
-        visibility: menuPosition ? 'visible' : 'hidden'
-      }}
-      onBlur={(event) => closeUnlessFocusStaysInside(event.relatedTarget)}
-      onClick={(event) => event.stopPropagation()}
-    >
-      <small>{copy.heading}</small>
-      {props.options.map((option) => (
-        <button
-          type="button"
-          role="option"
-          aria-selected={option.id === props.selectedId}
-          data-selected={option.id === props.selectedId}
-          // Closed on its own, with the rest of the menu still usable. No hover text: the reason
-          // travels in the option's description, which is rendered below as visible text.
-          disabled={option.disabled}
-          key={option.id}
-          onClick={() => {
-            props.select(option.id)
-            setOpen(false)
-          }}
-        >
-          <strong>
-            {option.name}
-            {option.id === props.selectedId && <Check className="node-picker-selected-marker" aria-hidden="true" />}
-          </strong>
-          {option.description && <span>{option.description}</span>}
-        </button>
-      ))}
-    </div>
-  )
-
   return (
-    <div
-      ref={containerRef}
-      className="node-picker nodrag"
-      data-picker={props.kind}
-      onBlur={(event) => closeUnlessFocusStaysInside(event.relatedTarget)}
-      onClick={(event) => event.stopPropagation()}
-    >
-      <button
-        ref={buttonRef}
-        type="button"
-        className="node-picker-button"
-        aria-expanded={open}
-        aria-haspopup="listbox"
-        disabled={!canOpen}
-        title={props.disabledHint ?? selected?.description ?? selected?.name ?? copy.hint}
-        onClick={() =>
-          setOpen((current) => {
-            if (!current) props.onOpen?.()
-            return !current
-          })
-        }
-      >
-        <PickerIcon aria-hidden="true" />
-        {selected?.name ?? copy.idle}
-        <ChevronDown aria-hidden="true" />
-      </button>
-      {menu && createPortal(menu, document.body)}
-    </div>
+    <ListboxPicker
+      options={props.options.map((option) => ({
+        id: option.id,
+        content: option.name,
+        description: option.description,
+        selected: option.id === props.selectedId,
+        disabled: option.disabled
+      }))}
+      heading={copy.heading}
+      menuWidth={230}
+      containerClassName="node-picker nodrag"
+      containerData={{ 'data-picker': props.kind }}
+      trigger={{
+        className: 'node-picker-button',
+        title: props.disabledHint ?? selected?.description ?? selected?.name ?? copy.hint,
+        disabled: !canOpen,
+        content: (
+          <>
+            <PickerIcon aria-hidden="true" />
+            {selected?.name ?? copy.idle}
+            <ChevronDown aria-hidden="true" />
+          </>
+        )
+      }}
+      onOpen={props.onOpen}
+      select={props.select}
+    />
   )
 }

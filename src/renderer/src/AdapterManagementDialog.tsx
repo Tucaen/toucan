@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { AgentProvider } from '../../shared/agent'
 import type { AdapterSnapshot, AdapterState } from '../../shared/adapter-management'
 import { AGENT_PROVIDERS } from '../../shared/agent-provider'
+import { ModalDialog } from './ModalDialog'
 
 function AdapterChoice({
   provider,
@@ -83,10 +84,7 @@ function AdapterChoice({
 export function AdapterManagementDialog({ onClose }: { onClose(): void }): JSX.Element {
   const [snapshot, setSnapshot] = useState<AdapterSnapshot | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const dialog = useRef<HTMLDivElement>(null)
   useEffect(() => {
-    const previousFocus = document.activeElement
-    dialog.current?.focus()
     let active = true
     let receivedEvent = false
     const unsubscribe = window.adapterManagementApi.onChange((state) => {
@@ -104,7 +102,6 @@ export function AdapterManagementDialog({ onClose }: { onClose(): void }): JSX.E
     return () => {
       active = false
       unsubscribe()
-      if (previousFocus instanceof HTMLElement) previousFocus.focus()
     }
   }, [])
   const act = async (operation: Promise<AdapterSnapshot>): Promise<void> => {
@@ -116,33 +113,7 @@ export function AdapterManagementDialog({ onClose }: { onClose(): void }): JSX.E
     }
   }
   return (
-    <div
-      className="dialog-overlay"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="adapter-management-title"
-      ref={dialog}
-      tabIndex={-1}
-      onClick={(event) => event.stopPropagation()}
-      onKeyDown={(event) => {
-        event.stopPropagation()
-        if (event.key === 'Escape') onClose()
-        if (event.key === 'Tab') {
-          const controls = [
-            ...(dialog.current?.querySelectorAll<HTMLElement>('button:not(:disabled), select:not(:disabled)') ?? [])
-          ]
-          const first = controls[0]
-          const last = controls.at(-1)
-          if (event.shiftKey && (document.activeElement === first || document.activeElement === dialog.current)) {
-            event.preventDefault()
-            last?.focus()
-          } else if (!event.shiftKey && document.activeElement === last) {
-            event.preventDefault()
-            first?.focus()
-          }
-        }
-      }}
-    >
+    <ModalDialog labelledBy="adapter-management-title" onClose={onClose}>
       <div className="dialog adapter-management-dialog">
         <strong id="adapter-management-title">Agent adapters</strong>
         <p>
@@ -176,6 +147,6 @@ export function AdapterManagementDialog({ onClose }: { onClose(): void }): JSX.E
           </button>
         </div>
       </div>
-    </div>
+    </ModalDialog>
   )
 }

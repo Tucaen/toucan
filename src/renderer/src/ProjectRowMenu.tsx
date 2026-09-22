@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { computeNodePickerMenuPosition } from './node-picker-menu-position'
+import { useMenuNavigation, useOutsidePointerClose } from './menu-keyboard'
 import { Check, ChevronLeft, FolderMinus, FolderPlus, GitBranch, Palette, PencilLine, Play, Trash2 } from 'lucide-react'
 import { runnableCommands } from '../../shared/project-run-commands'
 import type { ProjectGroup, WorkspaceProject } from '../../shared/workspace'
@@ -56,40 +57,45 @@ export default function ProjectRowMenu(props: ProjectRowMenuProps): JSX.Element 
 
   /*
    * The pointer is the anchor, and the menu changes height when it turns into the colour or group
-   * page - so it is re-measured and re-clamped per page, or a right-click near the bottom of the
-   * window would push the swatch row off-screen.
+   * page - so it is re-measured and re-clamped per page, and again whenever the menu's own size
+   * changes under a fixed page: the branch list arrives async, well after the page's first layout,
+   * and a "Switch branch" clamped for a 40px box would otherwise grow off the bottom of the window.
    */
   const [position, setPosition] = useState<{ top: number; left: number } | null>(null)
   useLayoutEffect(() => {
-    const menu = menuRef.current?.getBoundingClientRect()
-    setPosition(
-      computeNodePickerMenuPosition(
-        { top: props.y, bottom: props.y, left: props.x, right: props.x },
-        { width: menu?.width || 220, height: menu?.height ?? 0 },
-        { width: window.innerWidth, height: window.innerHeight },
-        { align: 'start', gap: 0 }
+    const reposition = (): void => {
+      const menu = menuRef.current?.getBoundingClientRect()
+      setPosition(
+        computeNodePickerMenuPosition(
+          { top: props.y, bottom: props.y, left: props.x, right: props.x },
+          { width: menu?.width || 220, height: menu?.height ?? 0 },
+          { width: window.innerWidth, height: window.innerHeight },
+          { align: 'start', gap: 0 }
+        )
       )
-    )
+    }
+    reposition()
+    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(reposition) : null
+    if (menuRef.current) observer?.observe(menuRef.current)
+    return () => observer?.disconnect()
   }, [page, props.x, props.y])
 
   const { onClose } = props
+  useOutsidePointerClose([menuRef], true, onClose)
+  // The window listener is the one owner of Escape: it hears the key wherever focus sits, inside
+  // the menu (keydown bubbles up) or anywhere else while a context menu is open.
   useEffect(() => {
-    const onPointerDown = (event: PointerEvent): void => {
-      if (menuRef.current?.contains(event.target as Node)) return
-      onClose()
-    }
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key !== 'Escape') return
       event.stopPropagation()
       onClose()
     }
-    window.addEventListener('pointerdown', onPointerDown, true)
     window.addEventListener('keydown', onKeyDown)
-    return () => {
-      window.removeEventListener('pointerdown', onPointerDown, true)
-      window.removeEventListener('keydown', onKeyDown)
-    }
+    return () => window.removeEventListener('keydown', onKeyDown)
   }, [onClose])
+
+  // The keyboard contract of the `menu` role: focus lands on the first item of every page.
+  const navigation = useMenuNavigation(menuRef, page, { focusOnOpen: true })
 
   const project = props.target.kind === 'project' ? props.target.project : null
   const group = props.target.kind === 'group' ? props.target.group : null
@@ -248,7 +254,9 @@ export default function ProjectRowMenu(props: ProjectRowMenuProps): JSX.Element 
       <>
         {project && commands.length > 0 && (
           <>
-            <p className="project-menu-section">Run</p>
+            <p className="project-menu-section" role="presentation">
+              Run
+            </p>
             {commands.map((entry) => (
               <button
                 key={entry.id}
@@ -317,8 +325,9 @@ export default function ProjectRowMenu(props: ProjectRowMenuProps): JSX.Element 
       }}
       onClick={(event) => event.stopPropagation()}
       onContextMenu={(event) => event.preventDefault()}
+      onKeyDown={navigation.onKeyDown}
     >
-      <p>{project?.name ?? group?.name}</p>
+      <p role="presentation">{project?.name ?? group?.name}</p>
       {body}
     </div>,
     document.body
@@ -377,19 +386,36 @@ function BranchPage({
     }
   }
 
-  if (!listing) return <p className="project-menu-note">Reading branches…</p>
-  if (!listing.ok) return <p className="project-menu-note">{listing.message ?? 'Could not read branches'}</p>
-  if (listing.branches.length === 0) return <p className="project-menu-note">No local branches</p>
+  if (!listing)
+    return (
+      <p className="project-menu-note" role="presentation">
+        Reading branches…
+      </p>
+    )
+  if (!listing.ok)
+    return (
+      <p className="project-menu-note" role="presentation">
+        {listing.message ?? 'Could not read branches'}
+      </p>
+    )
+  if (listing.branches.length === 0)
+    return (
+      <p className="project-menu-note" role="presentation">
+        No local branches
+      </p>
+    )
 
   return (
     <>
-      <p className="project-menu-section">Local branches</p>
+      <p className="project-menu-section" role="presentation">
+        Local branches
+      </p>
       {workingSessions > 0 && (
-        <p className="project-menu-note" data-tone="warning">
+        <p className="project-menu-note" data-tone="warning" role="presentation">
           {describeBranchChoiceBlocker({ name: '', current: false }, { workingSessions })}
         </p>
       )}
-      <div className="project-branch-list">
+      <div className="project-branch-list" role="group" aria-label="Local branches">
         {listing.branches.map((branch) => {
           const blocker = describeBranchChoiceBlocker(branch, { workingSessions })
           return (

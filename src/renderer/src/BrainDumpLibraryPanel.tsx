@@ -21,6 +21,7 @@ import BrainDumpLifecycleDialog from './BrainDumpLifecycleDialog'
 import BrainDumpPermissionDialog from './BrainDumpPermissionDialog'
 import BrainDumpReader from './BrainDumpReader'
 import BrainDumpTopicList from './BrainDumpTopicList'
+import { useMenuNavigation } from './menu-keyboard'
 import { useBrainDumpLibrary } from './use-brain-dump-library'
 
 /**
@@ -55,6 +56,7 @@ export default function BrainDumpLibraryPanel(props: BrainDumpLibraryPanelProps)
   const { open, width } = panel
   const headingId = useId()
   const searchId = useId()
+  const bodyId = useId()
   const [tray, setTray] = useState<CaptureTray>({ open: false, microphone: false })
   const [archiveTarget, setArchiveTarget] = useState<string | null>(null)
   const [startError, setStartError] = useState<string | undefined>(undefined)
@@ -70,6 +72,12 @@ export default function BrainDumpLibraryPanel(props: BrainDumpLibraryPanelProps)
   const searchRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const readerRef = useRef<HTMLDivElement>(null)
+  const tabsRef = useRef<HTMLDivElement>(null)
+  // Tabs follow focus: an arrow both moves and selects, the TicketBoardPanel model.
+  const tabNavigation = useMenuNavigation(tabsRef, true, {
+    orientation: 'horizontal',
+    onMove: (tab) => tab.click()
+  })
   /** Whatever opened the archive dialog, so closing it returns focus exactly there. */
   const archiveInvoker = useRef<HTMLElement | null>(null)
   const scrollMemory = useRef<Record<BrainDumpCollection, { list: number; reader: number }>>({
@@ -286,7 +294,13 @@ export default function BrainDumpLibraryPanel(props: BrainDumpLibraryPanelProps)
           placeholder="Search titles, text, and projects"
           onChange={(event) => library.setQuery(event.target.value)}
         />
-        <div className="brain-dump-tabs" role="tablist" aria-label="Topic collection">
+        <div
+          ref={tabsRef}
+          className="brain-dump-tabs"
+          role="tablist"
+          aria-label="Topic collection"
+          onKeyDown={tabNavigation.onKeyDown}
+        >
           {(['active', 'archived'] as const).map((candidate) => {
             const state = candidate === 'active' ? library.active : library.archived
             const counted = state.status === 'ready'
@@ -296,6 +310,8 @@ export default function BrainDumpLibraryPanel(props: BrainDumpLibraryPanelProps)
                 type="button"
                 role="tab"
                 aria-selected={collection === candidate}
+                aria-controls={bodyId}
+                tabIndex={collection === candidate ? 0 : -1}
                 title={counted ? undefined : 'Open this collection to count its topics'}
                 onClick={() => {
                   rememberScroll()
@@ -328,7 +344,7 @@ export default function BrainDumpLibraryPanel(props: BrainDumpLibraryPanelProps)
         />
       )}
 
-      <div className="brain-dump-panel-body" data-showing={showReader && !showList ? 'reader' : 'list'}>
+      <div id={bodyId} className="brain-dump-panel-body" data-showing={showReader && !showList ? 'reader' : 'list'}>
         {showList && (
           <div className="brain-dump-list-column">
             {current.status === 'loading' && <p className="brain-dump-state">Reading the brain-dump library…</p>}

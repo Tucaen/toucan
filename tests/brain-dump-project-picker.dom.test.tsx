@@ -122,6 +122,22 @@ describe('assigning a project to an existing topic', () => {
     await waitFor(() => expect(api.assignProject).toHaveBeenCalledWith('canvas', 'D:\\Development\\Toucan'))
   })
 
+  test('the picker popup speaks the shared listbox keyboard model (#231)', async () => {
+    await openTopic(api, 'Voice input')
+    const trigger = screen.getByRole('button', { name: /Unassigned/ })
+    fireEvent.click(trigger)
+
+    // Focus lands on the current option, arrows rove, Escape closes and refocuses the trigger.
+    const menu = screen.getByRole('listbox', { name: 'File this topic under a project' })
+    const options = within(menu).getAllByRole('option')
+    expect(options[0]).toHaveFocus()
+    fireEvent.keyDown(options[0], { key: 'ArrowDown' })
+    expect(options[1]).toHaveFocus()
+    fireEvent.keyDown(options[1], { key: 'Escape' })
+    expect(screen.queryByRole('listbox', { name: 'File this topic under a project' })).toBeNull()
+    expect(trigger).toHaveFocus()
+  })
+
   test('an archived topic reports its project without offering to change it', async () => {
     api.collections.archived.topics = [
       topicFixture({

@@ -104,6 +104,104 @@ describe('the branch page of the project row menu', () => {
   })
 })
 
+describe('the row menu keyboard and clamping contract (#231)', () => {
+  test('focus lands on the first item of every page and arrows rove over the items', async () => {
+    render(
+      <ProjectRowMenu
+        x={10}
+        y={10}
+        target={{ kind: 'project', project }}
+        groups={[]}
+        onClose={vi.fn()}
+        onColorChange={vi.fn()}
+        onMoveToGroup={vi.fn()}
+        onCreateGroup={vi.fn()}
+        onRunCommand={vi.fn()}
+        onRenameGroup={vi.fn()}
+        onDeleteGroup={vi.fn()}
+        onListBranches={vi.fn(async () => listing)}
+        onSwitchBranch={vi.fn(async () => ({ ok: true }))}
+        workingSessions={() => 0}
+      />
+    )
+
+    const first = screen.getByRole('menuitem', { name: /Switch branch/ })
+    expect(first).toHaveFocus()
+
+    fireEvent.keyDown(first, { key: 'ArrowDown' })
+    expect(screen.getByRole('menuitem', { name: /Change colour/ })).toHaveFocus()
+    fireEvent.keyDown(document.activeElement!, { key: 'End' })
+    expect(screen.getByRole('menuitem', { name: /Move to group/ })).toHaveFocus()
+
+    // Entering a page moves focus onto that page's first item (Back), not a stale root button.
+    fireEvent.click(screen.getByRole('menuitem', { name: /Switch branch/ }))
+    await screen.findByRole('menuitemradio', { name: /main/ })
+    expect(screen.getByRole('menuitem', { name: /Back/ })).toHaveFocus()
+  })
+
+  test('re-clamps its position when the menu grows after opening (the async branch list)', async () => {
+    const observers: Array<() => void> = []
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(callback: () => void) {
+          observers.push(callback)
+        }
+        observe(): void {}
+        disconnect(): void {}
+      }
+    )
+    let menuHeight = 40
+    const rect = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(
+      () =>
+        ({
+          top: 0,
+          bottom: menuHeight,
+          left: 0,
+          right: 220,
+          width: 220,
+          height: menuHeight,
+          x: 0,
+          y: 0,
+          toJSON: () => ({})
+        }) as DOMRect
+    )
+    try {
+      render(
+        <ProjectRowMenu
+          x={10}
+          y={700}
+          target={{ kind: 'project', project }}
+          initialPage="branches"
+          groups={[]}
+          onClose={vi.fn()}
+          onColorChange={vi.fn()}
+          onMoveToGroup={vi.fn()}
+          onCreateGroup={vi.fn()}
+          onRunCommand={vi.fn()}
+          onRenameGroup={vi.fn()}
+          onDeleteGroup={vi.fn()}
+          onListBranches={vi.fn(async () => listing)}
+          onSwitchBranch={vi.fn(async () => ({ ok: true }))}
+          workingSessions={() => 0}
+        />
+      )
+      await screen.findByRole('menuitemradio', { name: /main/ })
+      const menu = screen.getByRole('menu')
+      // Right-clicked near the bottom edge: a 40px menu still fits below the pointer.
+      expect(menu.style.top).toBe('700px')
+
+      // The branch list arrives and the menu grows; the ResizeObserver re-clamps it upward.
+      menuHeight = 400
+      act(() => observers.forEach((notify) => notify()))
+      expect(menu.style.top).toBe('300px')
+    } finally {
+      rect.mockRestore()
+      vi.unstubAllGlobals()
+    }
+  })
+})
+
 describe('the project row branch chip', () => {
   test('names the checkout branch and opens the switcher anchored to itself', async () => {
     Object.defineProperty(window, 'worktreeApi', {

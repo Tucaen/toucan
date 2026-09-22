@@ -179,6 +179,27 @@ test('selecting a file reads only that file and renders its hunk with both line 
   expect(screen.getByTitle(`${WORKTREE}\\src\\a.ts`)).toBeInTheDocument()
 })
 
+test('the rail is one tab stop with arrow navigation, not a run of tabbable buttons (#231)', async () => {
+  stubApi(summary)
+  const { rerender } = renderNode()
+  await waitFor(() => expect(screen.getAllByRole('option')).toHaveLength(3))
+
+  // Nothing selected yet: the first file is the single tab stop.
+  const options = screen.getAllByRole('option')
+  expect(options.map((option) => option.tabIndex)).toEqual([0, -1, -1])
+
+  options[0].focus()
+  fireEvent.keyDown(options[0], { key: 'ArrowDown' })
+  expect(options[1]).toHaveFocus()
+  fireEvent.keyDown(options[1], { key: 'End' })
+  expect(options[2]).toHaveFocus()
+
+  // Selecting moves the tab stop to the selected file.
+  rerender({ selectedPath: 'src/a.ts' })
+  expect(screen.getByRole('option', { name: /src\/a\.ts/ }).tabIndex).toBe(0)
+  expect(screen.getByRole('option', { name: /docs\/notes\.md/ }).tabIndex).toBe(-1)
+})
+
 test('a binary file says so instead of showing hunks', async () => {
   stubApi(summary, () => ({ ok: true, binary: true, hunks: [] }))
   renderNode({ selectedPath: 'img.png' })

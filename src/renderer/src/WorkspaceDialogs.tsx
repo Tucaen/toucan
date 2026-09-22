@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { ModalDialog } from './ModalDialog'
 import { ProjectAvatar } from './ProjectAvatar'
 import { ArrowDown, ArrowUp, X } from 'lucide-react'
 import type { WorkspaceProject } from '../../shared/workspace'
@@ -48,13 +49,7 @@ export function WorktreeCreateDialog({
   const directory = problem ? null : deriveWorktreeDirectory(project.path, draft.branch)
 
   return (
-    <div
-      className="dialog-overlay"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="worktree-create-title"
-      onClick={(event) => event.stopPropagation()}
-    >
+    <ModalDialog labelledBy="worktree-create-title" onClose={draft.busy ? undefined : onCancel}>
       <form
         className="dialog"
         onSubmit={(event) => {
@@ -98,7 +93,7 @@ export function WorktreeCreateDialog({
           </button>
         </div>
       </form>
-    </div>
+    </ModalDialog>
   )
 }
 
@@ -113,13 +108,7 @@ export function WorktreeRemoveDialog({
 }): JSX.Element {
   const { plan } = prompt
   return (
-    <div
-      className="dialog-overlay"
-      role="alertdialog"
-      aria-modal="true"
-      aria-labelledby="worktree-remove-title"
-      onClick={(event) => event.stopPropagation()}
-    >
+    <ModalDialog role="alertdialog" labelledBy="worktree-remove-title" onClose={prompt.busy ? undefined : onCancel}>
       <div className="dialog">
         <strong id="worktree-remove-title">Remove worktree {prompt.branch}?</strong>
         <p className="dialog-path" title={prompt.path}>
@@ -166,7 +155,7 @@ export function WorktreeRemoveDialog({
           )}
         </div>
       </div>
-    </div>
+    </ModalDialog>
   )
 }
 
@@ -230,13 +219,7 @@ export function ProjectSettingsDialog({
   const patchRunCommand = (id: string, patch: Partial<ProjectRunCommand>): void =>
     setRunCommands((current) => current.map((entry) => (entry.id === id ? { ...entry, ...patch } : entry)))
   return (
-    <div
-      className="dialog-overlay"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="project-settings-title"
-      onClick={(event) => event.stopPropagation()}
-    >
+    <ModalDialog labelledBy="project-settings-title" onClose={onCancel}>
       <form
         className="dialog"
         onSubmit={(event) => {
@@ -360,6 +343,6 @@ export function ProjectSettingsDialog({
           </button>
         </div>
       </form>
-    </div>
+    </ModalDialog>
   )
 }

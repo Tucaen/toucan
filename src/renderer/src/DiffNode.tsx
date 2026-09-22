@@ -14,6 +14,7 @@ import {
 } from './diff-node'
 import { joinWorkspacePath } from './file-node'
 import { FileOperationBlockView } from './FileOperationCard'
+import { useMenuNavigation } from './menu-keyboard'
 import FindBar, { useMutationContentKey } from './FindBar'
 import NodeBorderResizer from './NodeBorderResizer'
 import NodeFitAction from './NodeFitAction'
@@ -72,6 +73,9 @@ export default function DiffNode({ id, data, selected }: NodeProps<DiffCanvasNod
   const selectedRef = useRef(selectedPath)
   selectedRef.current = selectedPath
   const paneRef = useRef<HTMLDivElement>(null)
+  const railRef = useRef<HTMLDivElement>(null)
+  // The rail is a listbox: one tab stop (the selected file), arrows to move, click/Enter to open.
+  const railNavigation = useMenuNavigation(railRef, true)
   const [findBar, setFindBar] = useState<{ open: boolean; signal: number }>({ open: false, signal: 0 })
   useNodeSearchRequest(
     id,
@@ -195,16 +199,24 @@ export default function DiffNode({ id, data, selected }: NodeProps<DiffCanvasNod
         )}
         {summary?.ok && files.length > 0 && (
           <>
-            <div className="diff-node-rail" role="listbox" aria-label="Changed files">
-              {files.map((file) => {
+            <div
+              ref={railRef}
+              className="diff-node-rail"
+              role="listbox"
+              aria-label="Changed files"
+              onKeyDown={railNavigation.onKeyDown}
+            >
+              {files.map((file, index) => {
                 const counts = diffCountsLabel(file)
+                const selected = file.path === selectedPath
                 return (
                   <button
                     type="button"
                     role="option"
                     key={file.path}
                     className="diff-node-file"
-                    aria-selected={file.path === selectedPath}
+                    aria-selected={selected}
+                    tabIndex={selected || (!selectedFile && index === 0) ? 0 : -1}
                     title={file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}
                     onMouseDown={stopDrag}
                     onClick={() => select(file)}

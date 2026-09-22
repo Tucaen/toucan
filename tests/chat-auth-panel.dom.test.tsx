@@ -54,14 +54,17 @@ describe('AuthPanel rendering', () => {
     expect(screen.getByRole('button', { name: 'Claude Subscription' })).toBeInTheDocument()
   })
 
-  test('blocks the FirstMate chat with an unmistakable modal while authentication is required', () => {
+  test('announces itself as a labelled region, not a modal it never was (#231)', () => {
     renderChatView({
       status: 'auth_required',
       authMethods: [{ id: 'claude-ai-login', name: 'Claude Subscription', type: 'terminal' }]
     })
 
-    const dialog = screen.getByRole('dialog', { name: /sign in to claude/i })
-    expect(dialog).toHaveAttribute('aria-modal', 'true')
+    // The panel is inline in the node and the canvas stays usable around it, so claiming
+    // `aria-modal` would promise focus containment nothing here delivers.
+    expect(screen.queryByRole('dialog')).toBeNull()
+    const region = screen.getByRole('region', { name: /sign in to claude/i })
+    expect(region).not.toHaveAttribute('aria-modal')
   })
 
   test(
@@ -330,7 +333,7 @@ describe('useAgentConversation prompt failure status', () => {
     expect(result.current.status).toBe('auth_required')
 
     renderChatView({ status: result.current.status, authMethods: result.current.authMethods })
-    expect(screen.getByRole('dialog', { name: /sign in to claude/i })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: /sign in to claude/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Claude Subscription' })).toBeInTheDocument()
   })
 

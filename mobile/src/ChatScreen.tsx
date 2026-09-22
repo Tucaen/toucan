@@ -45,6 +45,7 @@ import {
   setTextAnswer,
   submitDecisionProblem
 } from './decision-answers'
+import ChatKindBadge from './ChatKindBadge'
 import type { SavedHost } from './hosts'
 import MobileVoiceInput from './MobileVoiceInput'
 import { fetchWorkspace } from './remote-client'
@@ -161,21 +162,28 @@ export default function ChatScreen({
             </span>
           )}
         </div>
-        {summary && (
-          <span className="chat-kind" data-kind={summary.kind}>
-            {summary.kind === 'claude' ? 'CL' : 'CX'}
-          </span>
-        )}
+        {summary && <ChatKindBadge kind={summary.kind} />}
       </header>
 
       <ModelBar connection={connection} />
       <SessionUsageRow readout={usageReadout} limitFreshness={providerUsage} />
 
-      {/* A transcript that is not live must say so; a silently stale one is the failure mode. */}
-      {connection.phase === 'connecting' && <p className="connection-banner">Connecting…</p>}
-      {connection.phase === 'reconnecting' && <p className="connection-banner stale">Disconnected — reconnecting…</p>}
+      {/* A transcript that is not live must say so; a silently stale one is the failure mode.
+          `role="status"` makes the change of phase announced, not just painted. */}
+      {connection.phase === 'connecting' && (
+        <p className="connection-banner" role="status">
+          Connecting…
+        </p>
+      )}
+      {connection.phase === 'reconnecting' && (
+        <p className="connection-banner stale" role="status">
+          Disconnected — reconnecting…
+        </p>
+      )}
       {connection.phase === 'gone' && (
-        <p className="connection-banner gone">This chat is no longer open on the desktop.</p>
+        <p className="connection-banner gone" role="status">
+          This chat is no longer open on the desktop.
+        </p>
       )}
 
       <div className="transcript" data-stale={connection.phase === 'reconnecting' || undefined}>

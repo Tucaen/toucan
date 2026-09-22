@@ -14,6 +14,7 @@ import {
   groupChatsByProject,
   isAwaitingDesktop
 } from './chat-list'
+import ChatKindBadge from './ChatKindBadge'
 import ChatScreen from './ChatScreen'
 import {
   hostBlockedByPageScheme,
@@ -566,9 +567,7 @@ function ChatListScreen({
                   data-needs-approval={chatNeedsApproval(chat) || undefined}
                   onClick={() => onOpenChat(chat)}
                 >
-                  <span className="chat-kind" data-kind={chat.kind}>
-                    {chat.kind === 'claude' ? 'CL' : 'CX'}
-                  </span>
+                  <ChatKindBadge kind={chat.kind} />
                   <span className="chat-copy">
                     <strong>{chat.title}</strong>
                     <small>{chatNeedsApproval(chat) ? 'Needs approval' : chatStatusLabel(chat.status)}</small>

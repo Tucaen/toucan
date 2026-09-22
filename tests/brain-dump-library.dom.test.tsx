@@ -69,6 +69,24 @@ describe('collections and search', () => {
     }
   })
 
+  test('the collection tabs are a real tablist: one tab stop, arrows switch, panel is controlled (#231)', async () => {
+    renderPanel(api)
+    await screen.findByText('Voice input')
+
+    const active = screen.getByRole('tab', { name: /Active/ })
+    const archived = screen.getByRole('tab', { name: /Archived/ })
+    expect(active.tabIndex).toBe(0)
+    expect(archived.tabIndex).toBe(-1)
+    expect(active).toHaveAttribute('aria-controls')
+
+    // Tabs follow focus: the arrow both moves and selects, like the ticket board's states.
+    active.focus()
+    fireEvent.keyDown(active, { key: 'ArrowRight' })
+    expect(archived).toHaveFocus()
+    await screen.findByText('Old idea')
+    expect(archived).toHaveAttribute('aria-selected', 'true')
+  })
+
   test('active topics load first and archived ones only when asked for', async () => {
     renderPanel(api)
     await screen.findByText('Voice input')

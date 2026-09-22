@@ -3,6 +3,7 @@ import { Folder } from 'lucide-react'
 import type { ConversationSummary } from '../../shared/conversation'
 import { pathIdentity } from '../../shared/paths'
 import { formatRelativeTime } from './relative-date'
+import { ModalDialog } from './ModalDialog'
 import SessionKindIcon from './SessionKindIcon'
 
 /** One page is what a single open reads off disk; the rest of a long history stays unopened. */
@@ -87,13 +88,7 @@ export default function ConversationHistoryDialog({
   )
 
   return (
-    <div
-      className="dialog-overlay"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="conversation-history-title"
-      onClick={(event) => event.stopPropagation()}
-    >
+    <ModalDialog labelledBy="conversation-history-title" onClose={onCancel}>
       <div className="dialog conversation-history-dialog">
         <strong id="conversation-history-title">Past conversations in {projectName}</strong>
         <p>
@@ -159,6 +154,6 @@ export default function ConversationHistoryDialog({
           </button>
         </div>
       </div>
-    </div>
+    </ModalDialog>
   )
 }

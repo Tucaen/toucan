@@ -485,10 +485,11 @@ function AuthPanel(
   const [authCode, setAuthCode] = useState('')
   const [submittingCode, setSubmittingCode] = useState(false)
   const [codeError, setCodeError] = useState<string>()
+  // Deliberately not a dialog: the panel sits inline in the node and the canvas around it stays
+  // usable, so `aria-modal` would promise a modality (focus containment, background inertness)
+  // nothing here delivers (#231). A labelled region announces itself without lying about it.
   const dialogProps = {
     className: 'chat-auth-panel nodrag nopan',
-    role: 'dialog',
-    'aria-modal': true,
     'aria-labelledby': titleId,
     'aria-describedby': descriptionId
   } as const

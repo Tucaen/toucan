@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Copy, RefreshCw } from 'lucide-react'
+import { ModalDialog } from './ModalDialog'
 import { remoteAccessPortProblem, type RemoteAccessSettings, type RemoteAccessState } from '../../shared/remote-access'
 
 /**
@@ -38,13 +39,7 @@ export function RemoteAccessDialog({
   )
 
   return (
-    <div
-      className="dialog-overlay"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="remote-access-title"
-      onClick={(event) => event.stopPropagation()}
-    >
+    <ModalDialog labelledBy="remote-access-title" onClose={busy ? undefined : onClose}>
       <form
         className="dialog remote-dialog"
         onSubmit={(event) => {
@@ -149,6 +144,6 @@ export function RemoteAccessDialog({
           </button>
         </div>
       </form>
-    </div>
+    </ModalDialog>
   )
 }

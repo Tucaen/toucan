@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { BRAIN_DUMP_OUTCOME_LABELS, BRAIN_DUMP_OUTCOMES, type BrainDumpOutcome } from '../../shared/brain-dump'
+import { ModalDialog } from './ModalDialog'
 
 /**
  * Archiving asks for one thing the library cannot infer: why the topic is done. The dialog keeps
@@ -19,21 +20,11 @@ export default function BrainDumpLifecycleDialog(props: BrainDumpLifecycleDialog
   const [outcome, setOutcome] = useState<BrainDumpOutcome>('implemented')
   const firstOption = useRef<HTMLInputElement>(null)
 
-  useEffect(() => {
-    firstOption.current?.focus()
-  }, [])
-
   return (
-    <div
-      className="dialog-overlay"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="brain-dump-archive-title"
-      onKeyDown={(event) => {
-        if (event.key !== 'Escape') return
-        event.stopPropagation()
-        if (!props.pending) props.onCancel()
-      }}
+    <ModalDialog
+      labelledBy="brain-dump-archive-title"
+      initialFocus={firstOption}
+      onClose={props.pending ? undefined : props.onCancel}
     >
       <form
         className="dialog dialog-compact"
@@ -77,6 +68,6 @@ export default function BrainDumpLifecycleDialog(props: BrainDumpLifecycleDialog
           </button>
         </div>
       </form>
-    </div>
+    </ModalDialog>
   )
 }

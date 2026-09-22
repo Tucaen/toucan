@@ -1,6 +1,7 @@
-import { useEffect, useId, useRef } from 'react'
+import { useId, useRef } from 'react'
 import type { TicketCard } from '../../shared/ticket-source'
 import { ticketCardKey } from '../../shared/ticket-source'
+import { ModalDialog } from './ModalDialog'
 
 /**
  * The confirmation a deletion always goes through - one card from the board, or everything the Done
@@ -29,26 +30,17 @@ export interface TicketDeleteDialogProps {
 export default function TicketDeleteDialog(props: TicketDeleteDialogProps): JSX.Element {
   const { cards } = props
   const titleId = useId()
-  const cancel = useRef<HTMLButtonElement>(null)
-
   // Cancel takes the focus, not Delete: the safe action is the one an accidental Enter should hit.
-  useEffect(() => {
-    cancel.current?.focus()
-  }, [])
+  const cancel = useRef<HTMLButtonElement>(null)
 
   const single = cards.length === 1 ? cards[0] : undefined
 
   return (
-    <div
-      className="dialog-overlay"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby={titleId}
-      onKeyDown={(event) => {
-        if (event.key !== 'Escape') return
-        event.stopPropagation()
-        if (!props.pending) props.onCancel()
-      }}
+    <ModalDialog
+      role="alertdialog"
+      labelledBy={titleId}
+      initialFocus={cancel}
+      onClose={props.pending ? undefined : props.onCancel}
     >
       <form
         className="dialog dialog-compact ticket-delete-dialog"
@@ -90,6 +82,6 @@ export default function TicketDeleteDialog(props: TicketDeleteDialogProps): JSX.
           </button>
         </div>
       </form>
-    </div>
+    </ModalDialog>
   )
 }

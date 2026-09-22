@@ -1025,6 +1025,24 @@ body {
   color: var(--ink);
 }
 
+/* The chips are labels around real radio inputs; the input is hidden but keeps its focus and
+   keyboard semantics, and the label shows where that focus is. */
+.new-chat-project input,
+.new-chat-kind input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.new-chat-project:focus-within,
+.new-chat-kind:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .new-chat-input {
   display: grid;
   gap: 7px;

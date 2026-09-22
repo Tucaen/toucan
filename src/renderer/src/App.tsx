@@ -139,6 +139,7 @@ import { AdapterManagementDialog } from './AdapterManagementDialog'
 import { useRemoteAccess } from './use-remote-access'
 import type { RemoteChatSpawnRequest, RemoteChatSpawnResult } from '../../shared/remote-spawn'
 import ConversationHistoryDialog from './ConversationHistoryDialog'
+import { ModalDialog } from './ModalDialog'
 import FileNode from './FileNode'
 import DiffNode from './DiffNode'
 import FilePickerDialog from './FilePickerDialog'
@@ -2428,12 +2429,8 @@ function Canvas(): JSX.Element {
           <ProviderRateLimitsContext.Provider value={providerRateLimits.limits}>
             <main className="app-shell" onClick={() => setMenu(null)}>
               {workspaceUnrecoverable && (
-                <div
-                  className="dialog-overlay"
-                  role="alertdialog"
-                  aria-modal="true"
-                  aria-labelledby="unrecoverable-workspace-title"
-                >
+                // Deliberately no onClose: this dialog is only acknowledged, never dismissed.
+                <ModalDialog role="alertdialog" labelledBy="unrecoverable-workspace-title">
                   <div className="dialog dialog-compact workspace-recovery-dialog">
                     <strong id="unrecoverable-workspace-title">Your saved workspace could not be recovered</strong>
                     <p>
@@ -2448,7 +2445,7 @@ function Canvas(): JSX.Element {
                       Start a new workspace
                     </button>
                   </div>
-                </div>
+                </ModalDialog>
               )}
               <header className="app-header">
                 <div>

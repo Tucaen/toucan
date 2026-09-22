@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import type { BrainDumpCaptureApproval } from '../../shared/brain-dump'
+import { ModalDialog } from './ModalDialog'
 
 export interface BrainDumpPermissionDialogProps {
   approval: BrainDumpCaptureApproval
@@ -10,22 +11,14 @@ export interface BrainDumpPermissionDialogProps {
 export default function BrainDumpPermissionDialog(props: BrainDumpPermissionDialogProps): JSX.Element {
   const firstOption = useRef<HTMLButtonElement>(null)
 
+  // The dialog stays mounted while one approval replaces another, so the shell's focus-on-open
+  // is not enough: each new approval moves focus back to its own first option.
   useEffect(() => {
     firstOption.current?.focus()
   }, [props.approval.id])
 
   return (
-    <div
-      className="dialog-overlay"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="brain-dump-permission-title"
-      onKeyDown={(event) => {
-        if (event.key !== 'Escape') return
-        event.stopPropagation()
-        props.onResolve()
-      }}
-    >
+    <ModalDialog labelledBy="brain-dump-permission-title" initialFocus={firstOption} onClose={() => props.onResolve()}>
       <section className="dialog dialog-compact brain-dump-permission-dialog">
         <strong id="brain-dump-permission-title">Permission required</strong>
         <p>Toucan needs permission to update your brain-dump library.</p>
@@ -48,6 +41,6 @@ export default function BrainDumpPermissionDialog(props: BrainDumpPermissionDial
           ))}
         </div>
       </section>
-    </div>
+    </ModalDialog>
   )
 }

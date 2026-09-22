@@ -612,18 +612,18 @@ describe('deleting tickets', () => {
     await screen.findByText('File node')
 
     await chooseCardAction('file-node', 'Delete file-node')
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('alertdialog')
     expect(within(dialog).getByText('Delete “File node”?')).toBeTruthy()
     expect(tickets.removeCalls).toEqual([])
 
     // Cancel is not a deletion, and it leaves the card exactly where it was.
     fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
     expect(tickets.removeCalls).toEqual([])
     expect(screen.getByText('File node')).toBeTruthy()
 
     await chooseCardAction('file-node', 'Delete file-node')
-    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Delete' }))
+    fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Delete' }))
     await waitFor(() => expect(screen.queryByText('File node')).toBeNull())
     expect(tickets.removeCalls).toEqual([[project.path, 'file-node']])
     // Disk is truth here too: the card left because the re-read no longer listed it.
@@ -634,7 +634,7 @@ describe('deleting tickets', () => {
     await openBoard()
     await screen.findByText('File node')
     await chooseCardAction('file-node', 'Delete file-node')
-    expect(within(await screen.findByRole('dialog')).getByText(/Git history keeps it/)).toBeTruthy()
+    expect(within(await screen.findByRole('alertdialog')).getByText(/Git history keeps it/)).toBeTruthy()
   })
 
   test('a project that is not a checkout is told the deletion is final', async () => {
@@ -642,7 +642,7 @@ describe('deleting tickets', () => {
     await openBoard()
     await screen.findByText('File node')
     await chooseCardAction('file-node', 'Delete file-node')
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('alertdialog')
     expect(within(dialog).getByText(/not a git checkout, so this is final/)).toBeTruthy()
     expect(within(dialog).queryByText(/Git history keeps it/)).toBeNull()
   })
@@ -662,7 +662,7 @@ describe('deleting tickets', () => {
     column('Done')
 
     fireEvent.click(screen.getByRole('button', { name: 'Delete done tickets older than 30 days' }))
-    const dialog = await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('alertdialog')
     expect(within(dialog).getByText('Delete 2 done tickets?')).toBeTruthy()
     expect(within(dialog).getByText('also-long-ago')).toBeTruthy()
     expect(within(dialog).getByText('closed-long-ago')).toBeTruthy()
@@ -670,7 +670,7 @@ describe('deleting tickets', () => {
     expect(within(dialog).queryByText('still-open')).toBeNull()
 
     fireEvent.click(within(dialog).getByRole('button', { name: 'Delete' }))
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
     // One call per slug, and only for the slugs the confirmation listed.
     expect(tickets.removeCalls).toEqual([
       [project.path, 'also-long-ago'],
@@ -706,8 +706,8 @@ describe('deleting tickets', () => {
     await screen.findByText('File node')
 
     await chooseCardAction('file-node', 'Delete file-node')
-    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Delete' }))
-    const dialog = await screen.findByRole('dialog')
+    fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Delete' }))
+    const dialog = await screen.findByRole('alertdialog')
     expect(await within(dialog).findByText(/EPERM: denied/)).toBeTruthy()
     expect(within(dialog).getByRole('button', { name: 'Retry' })).toBeTruthy()
     expect(screen.getByText('File node')).toBeTruthy()
@@ -975,5 +975,39 @@ describe('scaffolding the project its own tickets skill', () => {
 
     await waitFor(() => expect(ticketSkill.state).toHaveBeenCalled())
     expect(screen.queryByRole('button', { name: 'Set up ticket skill' })).toBeNull()
+  })
+})
+
+describe('the card menu keyboard contract (#231)', () => {
+  test('opening the menu focuses its first item, arrows rove, Escape returns focus to the trigger', async () => {
+    await openBoard()
+    await screen.findByText('File node')
+
+    const trigger = screen.getByRole('button', { name: 'Actions for file-node' })
+    fireEvent.click(trigger)
+    const menu = await screen.findByRole('menu', { name: 'Actions for file-node' })
+    const items = within(menu).getAllByRole('menuitem')
+    expect(items[0]).toHaveFocus()
+
+    fireEvent.keyDown(items[0], { key: 'ArrowDown' })
+    expect(items[1]).toHaveFocus()
+
+    fireEvent.keyDown(items[1], { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('menu', { name: 'Actions for file-node' })).toBeNull())
+    expect(trigger).toHaveFocus()
+  })
+
+  test('cancelling the delete confirmation puts focus back on the card menu trigger, not <body>', async () => {
+    await openBoard()
+    await screen.findByText('File node')
+
+    await chooseCardAction('file-node', 'Delete file-node')
+    const dialog = await screen.findByRole('alertdialog')
+    // Cancel takes the focus, not Delete: the safe action is the one an accidental Enter hits.
+    expect(within(dialog).getByRole('button', { name: 'Cancel' })).toHaveFocus()
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).toBeNull())
+    expect(screen.getByRole('button', { name: 'Actions for file-node' })).toHaveFocus()
   })
 })

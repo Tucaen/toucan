@@ -32,6 +32,7 @@ import {
   type TicketPane,
   type TicketPaneSelection
 } from './ticket-board-panes'
+import { useMenuNavigation, useOutsidePointerClose } from './menu-keyboard'
 import { useTicketBoard } from './use-ticket-board'
 import { useTicketSkill } from './use-ticket-skill'
 
@@ -303,67 +304,17 @@ export default function TicketBoardPanel(props: TicketBoardPanelProps): JSX.Elem
     if (done) setDeleting(null)
   }
 
-  const renderCardMenu = (card: TicketCard, key: string): JSX.Element => {
-    const menuOpen = menuFor === key
-    const menuId = `${headingId}-menu-${key}`
-    // A card that names somewhere on the web is opened there; one that does not is a file, and
-    // the only place to open a file is the folder it lives in.
-    const revealLabel = card.url ? `Open ${card.id} in the browser` : `Show ${card.id} in the folder`
-    return (
-      <div className="ticket-card-menu">
-        <button
-          type="button"
-          className="ticket-card-menu-button"
-          title={`Actions for ${card.id}`}
-          aria-label={`Actions for ${card.id}`}
-          aria-haspopup="menu"
-          aria-expanded={menuOpen}
-          aria-controls={menuOpen ? menuId : undefined}
-          onClick={() => setMenuFor(menuOpen ? null : key)}
-        >
-          <MoreHorizontal aria-hidden="true" />
-        </button>
-        {menuOpen && (
-          <div
-            id={menuId}
-            className="ticket-card-menu-list"
-            role="menu"
-            aria-label={`Actions for ${card.id}`}
-            onKeyDown={(event) => {
-              if (event.key !== 'Escape') return
-              event.stopPropagation()
-              setMenuFor(null)
-            }}
-          >
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setMenuFor(null)
-                board.reveal(card)
-              }}
-            >
-              {card.url ? <ExternalLink aria-hidden="true" /> : <FolderOpen aria-hidden="true" />}
-              <span>{revealLabel}</span>
-            </button>
-            {/* Offered for any status, not just Done: a ticket that turned out to be the wrong idea
-                is deleted where it stands. The confirmation is what makes an errant click harmless. */}
-            {board.canRemove(card) && (
-              <button
-                type="button"
-                role="menuitem"
-                className="ticket-card-menu-delete"
-                onClick={() => void askToDelete([card])}
-              >
-                <Trash2 aria-hidden="true" />
-                <span>{`Delete ${card.id}`}</span>
-              </button>
-            )}
-          </div>
-        )}
-      </div>
-    )
-  }
+  const renderCardMenu = (card: TicketCard, key: string): JSX.Element => (
+    <TicketCardMenu
+      card={card}
+      menuId={`${headingId}-menu-${key}`}
+      open={menuFor === key}
+      canRemove={board.canRemove(card)}
+      setOpen={(open) => setMenuFor(open ? key : null)}
+      onReveal={() => board.reveal(card)}
+      onDelete={() => void askToDelete([card])}
+    />
+  )
 
   /** Id, age and source badge, shared by the compact card and the detail's own head. */
   const renderMeta = (card: TicketCard): JSX.Element => (
@@ -826,5 +777,92 @@ export default function TicketBoardPanel(props: TicketBoardPanelProps): JSX.Elem
         {board.announcement}
       </div>
     </aside>
+  )
+}
+
+/**
+ * A card's "…" menu, with the shared menu keyboard model: focus moves onto the first item when it
+ * opens, arrows rove, Escape and any outside pointer close it, and closing puts focus back on the
+ * trigger - which is also what lets the delete confirmation restore focus somewhere real instead
+ * of dropping it on `<body>` (#231).
+ */
+function TicketCardMenu(props: {
+  card: TicketCard
+  menuId: string
+  open: boolean
+  canRemove: boolean
+  setOpen(open: boolean): void
+  onReveal(): void
+  onDelete(): void
+}): JSX.Element {
+  const { card, open, setOpen } = props
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  const close = useCallback((): void => {
+    setOpen(false)
+    triggerRef.current?.focus()
+  }, [setOpen])
+
+  const navigation = useMenuNavigation(menuRef, open, { focusOnOpen: true, onClose: close })
+  useOutsidePointerClose([triggerRef, menuRef], open, close)
+
+  // A card that names somewhere on the web is opened there; one that does not is a file, and
+  // the only place to open a file is the folder it lives in.
+  const revealLabel = card.url ? `Open ${card.id} in the browser` : `Show ${card.id} in the folder`
+  return (
+    <div className="ticket-card-menu">
+      <button
+        ref={triggerRef}
+        type="button"
+        className="ticket-card-menu-button"
+        title={`Actions for ${card.id}`}
+        aria-label={`Actions for ${card.id}`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-controls={open ? props.menuId : undefined}
+        onClick={() => setOpen(!open)}
+      >
+        <MoreHorizontal aria-hidden="true" />
+      </button>
+      {open && (
+        <div
+          id={props.menuId}
+          ref={menuRef}
+          className="ticket-card-menu-list"
+          role="menu"
+          aria-label={`Actions for ${card.id}`}
+          onKeyDown={navigation.onKeyDown}
+        >
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              close()
+              props.onReveal()
+            }}
+          >
+            {card.url ? <ExternalLink aria-hidden="true" /> : <FolderOpen aria-hidden="true" />}
+            <span>{revealLabel}</span>
+          </button>
+          {/* Offered for any status, not just Done: a ticket that turned out to be the wrong idea
+              is deleted where it stands. The confirmation is what makes an errant click harmless. */}
+          {props.canRemove && (
+            <button
+              type="button"
+              role="menuitem"
+              className="ticket-card-menu-delete"
+              onClick={() => {
+                close()
+                props.onDelete()
+              }}
+            >
+              <Trash2 aria-hidden="true" />
+              <span>{`Delete ${card.id}`}</span>
+            </button>
+          )}
+        </div>
+      )}
+    </div>
   )
 }

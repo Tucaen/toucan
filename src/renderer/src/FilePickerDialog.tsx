@@ -3,6 +3,7 @@ import { FileText } from 'lucide-react'
 import type { WorkspaceFileIndex } from '../../shared/workspace-files'
 import { fileMentionExclusionNote, rankFileMentions } from './file-mention-completion'
 import { joinWorkspacePath } from './file-node'
+import { ModalDialog } from './ModalDialog'
 
 export interface FilePickerDialogProps {
   projectName: string
@@ -46,13 +47,7 @@ export default function FilePickerDialog({ projectName, root, onCancel, onOpen }
   const open = (relativePath: string): void => onOpen(joinWorkspacePath(root, relativePath))
 
   return (
-    <div
-      className="dialog-overlay"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="file-picker-title"
-      onClick={(event) => event.stopPropagation()}
-    >
+    <ModalDialog labelledBy="file-picker-title" onClose={onCancel}>
       <div className="dialog file-picker-dialog">
         <strong id="file-picker-title">Choose a file from {projectName}</strong>
         <p>Markdown opens rendered; anything else opens as highlighted text. The node updates as the file changes.</p>
@@ -77,9 +72,6 @@ export default function FilePickerDialog({ projectName, root, onCancel, onOpen }
             } else if (event.key === 'Enter' && matches[activeIndex]) {
               event.preventDefault()
               open(matches[activeIndex].path)
-            } else if (event.key === 'Escape') {
-              event.preventDefault()
-              onCancel()
             }
           }}
         />
@@ -115,6 +107,6 @@ export default function FilePickerDialog({ projectName, root, onCancel, onOpen }
           </button>
         </div>
       </div>
-    </div>
+    </ModalDialog>
   )
 }

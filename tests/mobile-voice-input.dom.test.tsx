@@ -142,7 +142,9 @@ describe('mobile dictation with the phone recognizer', () => {
     expect(recognition.interimResults).toBe(true)
 
     act(() => recognition.hear({ text: 'Bitte den Parser', final: true }, { text: 'reparieren', final: false }))
-    expect(screen.getByRole('status')).toHaveTextContent('Bitte den Parser reparieren')
+    // The connection banner is a status region too (#231), so the voice line is picked by class.
+    const voiceStatus = screen.getAllByRole('status').find((element) => element.classList.contains('voice-status'))
+    expect(voiceStatus).toHaveTextContent('Bitte den Parser reparieren')
 
     fireEvent.click(screen.getByRole('button', { name: 'Stop dictation' }))
     await waitFor(() => expect(screen.getByRole('button', { name: 'Dictate' })).toBeInTheDocument())

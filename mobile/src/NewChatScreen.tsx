@@ -123,40 +123,48 @@ export default function NewChatScreen({
           {snapshot !== null && snapshot.projects.length === 0 && (
             <p className="empty">No projects are registered on the desktop.</p>
           )}
-          <div className="new-chat-projects" role="radiogroup" aria-label="Project">
+          {/* Real radio inputs (#231): the platform brings the group and arrow-key semantics, so
+              nothing here has to re-implement what role="radio" on a button only promised. */}
+          <div className="new-chat-projects">
             {(snapshot?.projects ?? []).map((project) => (
-              <button
+              <label
                 key={project.id}
-                type="button"
-                role="radio"
-                aria-checked={form.projectId === project.id}
                 className="new-chat-project"
                 data-selected={form.projectId === project.id || undefined}
-                onClick={() => setForm((current) => ({ ...current, projectId: project.id }))}
               >
+                <input
+                  type="radio"
+                  name="new-chat-project"
+                  value={project.id}
+                  checked={form.projectId === project.id}
+                  onChange={() => setForm((current) => ({ ...current, projectId: project.id }))}
+                />
                 <span className="project-dot" style={{ background: project.color }} />
                 {project.name}
-              </button>
+              </label>
             ))}
           </div>
         </fieldset>
 
         <fieldset disabled={busy}>
           <legend>Agent</legend>
-          <div className="new-chat-kinds" role="radiogroup" aria-label="Agent">
+          <div className="new-chat-kinds">
             {NEW_CHAT_KINDS.map((option) => (
-              <button
+              <label
                 key={option.kind}
-                type="button"
-                role="radio"
-                aria-checked={form.kind === option.kind}
                 className="new-chat-kind"
                 data-kind={option.kind}
                 data-selected={form.kind === option.kind || undefined}
-                onClick={() => setForm((current) => withNewChatKind(current, option.kind))}
               >
+                <input
+                  type="radio"
+                  name="new-chat-kind"
+                  value={option.kind}
+                  checked={form.kind === option.kind}
+                  onChange={() => setForm((current) => withNewChatKind(current, option.kind))}
+                />
                 {option.label}
-              </button>
+              </label>
             ))}
           </div>
         </fieldset>
