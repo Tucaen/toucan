@@ -235,8 +235,11 @@ function firstUserText(snapshot: AgentTranscriptState): string {
  */
 function lastAssistantText(snapshot: AgentTranscriptState): string {
   let progress = ''
-  for (const message of snapshot.messages.slice().reverse()) {
-    if (message.role !== 'assistant' || !message.text.trim()) continue
+  // Walked backwards by index rather than over a reversed copy: this runs per turn boundary on a
+  // transcript that only grows, and the answer is usually in the last message or two.
+  for (let index = snapshot.messages.length - 1; index >= 0; index -= 1) {
+    const message = snapshot.messages[index]
+    if (message === undefined || message.role !== 'assistant' || !message.text.trim()) continue
     if (isFinalAssistantMessage(message)) return message.text
     if (!progress) progress = message.text
   }
@@ -251,7 +254,9 @@ function lastAssistantText(snapshot: AgentTranscriptState): string {
  * be the index lying about the one thing a later reader is asking it.
  */
 export function answeredLatestAsk(snapshot: AgentTranscriptState): boolean {
-  for (const message of snapshot.messages.slice().reverse()) {
+  for (let index = snapshot.messages.length - 1; index >= 0; index -= 1) {
+    const message = snapshot.messages[index]
+    if (message === undefined) continue
     if (message.role === 'user') return false
     if (isFinalAssistantMessage(message) && message.text.trim()) return true
   }

@@ -51,8 +51,9 @@ function titleLine(text: string): string | null {
 export function deriveConversationTitle(turns: ConversationTitleTurn[]): string | null {
   const assistantTurns = turns.filter((turn) => isFinalAssistantMessage(turn) && turn.text.trim())
   if (assistantTurns.length === 0) return null
-  for (const turn of turns.slice().reverse()) {
-    if (turn.role !== 'user') continue
+  for (let index = turns.length - 1; index >= 0; index -= 1) {
+    const turn = turns[index]
+    if (turn === undefined || turn.role !== 'user') continue
     const candidate = titleLine(turn.text)
     if (candidate) return candidate
   }

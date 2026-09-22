@@ -104,6 +104,8 @@ export function downmixToMono(channels: readonly Float32Array[]): Float32Array {
   if (!first) return new Float32Array(0)
   const mono = new Float32Array(first.length)
   for (const channel of channels) {
+    // A channel shorter than the first contributes silence rather than `NaN`: one ragged channel
+    // must not poison every sample of the mix, which is what an undefined read used to do.
     for (let index = 0; index < mono.length; index += 1)
       mono[index] = (mono[index] ?? 0) + (channel[index] ?? 0) / channels.length
   }

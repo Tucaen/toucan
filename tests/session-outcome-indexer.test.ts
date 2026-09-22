@@ -737,7 +737,7 @@ test('a conversation resumed while its previous session is still finalizing keep
     await session.settle()
 
     const other = session.watch('node-3', 'conv-2')
-    other.write('D:\Development\ADE\src\b.ts')
+    other.write('D:\\Development\\ADE\\src\\b.ts')
     other.publish(user('u1', 'Start a second conversation past the cap.'), assistant('a1', 'Started.'), {
       type: 'turn_complete',
       stopReason: 'end_turn'

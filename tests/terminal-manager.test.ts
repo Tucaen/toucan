@@ -348,7 +348,7 @@ test('a read after the process crashed still returns its output, labelled with t
     kind: 'terminal' as const,
     cols: 80,
     rows: 24,
-    cwd: 'D:\Toucan'
+    cwd: 'D:\\Toucan'
   }
   manager.create(request, owner)
   datas[0]('\u001B[31mError\u001B[0m: build failed\n')
@@ -400,7 +400,7 @@ test('a terminal this manager never started reads as nothing, and a retired one 
   assert.equal(manager.readOutput('agent-1', 'never-started'), undefined)
 
   manager.create(
-    { id: 'node', sessionId: 'shell', kind: 'terminal', cols: 80, rows: 24, cwd: 'D:\Toucan' },
+    { id: 'node', sessionId: 'shell', kind: 'terminal', cols: 80, rows: 24, cwd: 'D:\\Toucan' },
     { isDestroyed: () => false, send: () => undefined }
   )
   datas[0]('hello\n')

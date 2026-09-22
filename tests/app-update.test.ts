@@ -66,7 +66,7 @@ test('a newer package replaces the one already downloaded', () => {
 test('development and portable runs are the two that never contact the feed', () => {
   assert.equal(appUpdateSkipReason({ packaged: false, environment: {} }), 'development')
   assert.equal(
-    appUpdateSkipReason({ packaged: true, environment: { PORTABLE_EXECUTABLE_DIR: 'D:\Downloads' } }),
+    appUpdateSkipReason({ packaged: true, environment: { PORTABLE_EXECUTABLE_DIR: 'D:\\Downloads' } }),
     'portable'
   )
   // An empty value is what a non-portable build inherits from a shell that exported the name.

@@ -38,6 +38,13 @@ export default tseslint.config(
        * the cases that would actually break.
        */
       '@typescript-eslint/unbound-method': 'off',
+      /**
+       * `prefer-const` is on at full strength (#238 deleted the `off` that made it dead), with one
+       * option: a `let` that a closure reads before the assignment stays a `let`. Two sites need it
+       * and neither can be written any other way - `acp-session-manager.ts`'s `running` and
+       * `whisper-engine.ts`'s `sleep` timer are both handlers defined above the value they close
+       * over, which is circular by construction, not sloppiness the rule should keep pointing at.
+       */
       'prefer-const': ['error', { ignoreReadBeforeAssign: true }],
       'require-yield': 'off',
       '@typescript-eslint/no-unused-vars': [

@@ -71,9 +71,9 @@ describe('tickets folder revision', () => {
 
   it('reads a Windows directory whole, colon and all', () => {
     // A packed `<id>:<folder>` key would split this on the drive letter's colon.
-    const { result, rerender } = renderRevision({ projectId: 'project-1', directory: 'D:\work\tickets' })
+    const { result, rerender } = renderRevision({ projectId: 'project-1', directory: 'D:\\work\tickets' })
 
-    const moved = { projectId: 'project-1', directory: 'D:\work\board' }
+    const moved = { projectId: 'project-1', directory: 'D:\\work\\board' }
     rerender({ folder: moved, status: 'saving' })
     rerender({ folder: moved, status: 'saved' })
     expect(result.current).toBe(1)

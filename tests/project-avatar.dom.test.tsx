@@ -17,8 +17,8 @@ vi.mock('@xterm/addon-fit', async () => (await import('./dom/xterm-mock')).fitAd
 
 const AVATAR_URL = 'data:image/png;base64,QVZBVEFS'
 
-const alpha = { id: 'alpha', name: 'Alpha', path: 'D:\Alpha', color: '#71a9ff', avatarVersion: 1 }
-const beta = { id: 'beta', name: 'Beta', path: 'D:\Beta', color: '#e69a71' }
+const alpha = { id: 'alpha', name: 'Alpha', path: 'D:\\Alpha', color: '#71a9ff', avatarVersion: 1 }
+const beta = { id: 'beta', name: 'Beta', path: 'D:\\Beta', color: '#e69a71' }
 
 const savedWorkspace = (): WorkspaceState => harnessWorkspace({ projects: [alpha, beta], activeProjectId: alpha.id })
 

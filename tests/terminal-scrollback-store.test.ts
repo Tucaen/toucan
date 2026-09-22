@@ -5,11 +5,7 @@ import { join } from 'node:path'
 import { test, vi } from 'vitest'
 import { createTerminalScrollbackStore } from '../src/main/terminal-scrollback-store'
 
-/**
- * The writes are counted at the module boundary rather than by patching a namespace object: the
- * store holds direct `node:fs` bindings, and an ES module namespace cannot be redefined in place.
- * `writes.count` is a hook the mock calls, so the counter can stay per-test.
- */
+/** Counted at the module boundary (see AGENTS.md on replacing a builtin); the hook keeps it per-test. */
 const writes = vi.hoisted(() => ({ count: (): void => {} }))
 vi.mock('node:fs', async (importActual) => {
   const actual = await importActual<typeof import('node:fs')>()

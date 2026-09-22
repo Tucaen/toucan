@@ -28,7 +28,7 @@ export interface HarnessProject {
 export const DEFAULT_PROJECT: HarnessProject = {
   id: 'toucan',
   name: 'Toucan',
-  path: 'D:\Development\Toucan',
+  path: 'D:\\Development\\Toucan',
   color: '#71a9ff'
 }
 

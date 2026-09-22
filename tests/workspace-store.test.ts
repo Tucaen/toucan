@@ -261,7 +261,7 @@ test('saves and loads a valid workspace through the store', async () => {
 test('drops the conversation preview an older workspace cached on its nodes', () => {
   const parsed = parseWorkspaceState({
     version: 2,
-    projects: [{ id: 'project-1', name: 'Toucan', path: 'D:\Development\Toucan', color: '#71a9ff' }],
+    projects: [{ id: 'project-1', name: 'Toucan', path: 'D:\\Development\\Toucan', color: '#71a9ff' }],
     activeProjectId: 'project-1',
     sidebarCollapsed: false,
     nodes: [
@@ -473,7 +473,7 @@ test('an unsent composer draft round-trips through the store, so it survives an 
 test('rejects a workspace whose draft or send-key preference is the wrong shape', () => {
   const base = {
     version: 3,
-    projects: [{ id: 'project-1', name: 'Toucan', path: 'D:\Development\Toucan', color: '#71a9ff' }],
+    projects: [{ id: 'project-1', name: 'Toucan', path: 'D:\\Development\\Toucan', color: '#71a9ff' }],
     activeProjectId: 'project-1',
     sidebarCollapsed: false,
     nodes: [],
@@ -528,7 +528,7 @@ test('the routine-delegation preference survives a restart, and absent means off
 test('rejects a routine-delegation preference of the wrong shape', () => {
   const base = {
     version: 3,
-    projects: [{ id: 'project-1', name: 'Toucan', path: 'D:\Development\Toucan', color: '#71a9ff' }],
+    projects: [{ id: 'project-1', name: 'Toucan', path: 'D:\\Development\\Toucan', color: '#71a9ff' }],
     activeProjectId: 'project-1',
     sidebarCollapsed: false,
     nodes: [],
@@ -561,7 +561,7 @@ test('the decision-delegation preference persists and is validated on its own (i
 test('rejects a decision-delegation preference of the wrong shape', () => {
   const base = {
     version: 3,
-    projects: [{ id: 'project-1', name: 'Toucan', path: 'D:\Development\Toucan', color: '#71a9ff' }],
+    projects: [{ id: 'project-1', name: 'Toucan', path: 'D:\\Development\\Toucan', color: '#71a9ff' }],
     activeProjectId: 'project-1',
     sidebarCollapsed: false,
     nodes: [],
@@ -652,9 +652,9 @@ test('substitutes a palette colour for a malformed one rather than refusing the 
   const loaded = parseWorkspaceState({
     ...makeState('colours'),
     projects: [
-      { id: 'project-1', name: 'One', path: 'D:\One', color: 'rebeccapurple' },
-      { id: 'project-2', name: 'Two', path: 'D:\Two', color: '#71A9FF' },
-      { id: 'project-3', name: 'Three', path: 'D:\Three', color: '#74d8a2' }
+      { id: 'project-1', name: 'One', path: 'D:\\One', color: 'rebeccapurple' },
+      { id: 'project-2', name: 'Two', path: 'D:\\Two', color: '#71A9FF' },
+      { id: 'project-3', name: 'Three', path: 'D:\\Three', color: '#74d8a2' }
     ]
   })
 
@@ -668,8 +668,8 @@ test('keeps project groups and prunes the memberships that name no group', () =>
   const loaded = parseWorkspaceState({
     ...makeState('groups'),
     projects: [
-      { id: 'project-1', name: 'One', path: 'D:\One', color: '#71a9ff', groupId: 'group-1' },
-      { id: 'project-2', name: 'Two', path: 'D:\Two', color: '#e69a71', groupId: 'ghost' }
+      { id: 'project-1', name: 'One', path: 'D:\\One', color: '#71a9ff', groupId: 'group-1' },
+      { id: 'project-2', name: 'Two', path: 'D:\\Two', color: '#e69a71', groupId: 'ghost' }
     ],
     projectGroups: [
       { id: 'group-1', name: 'Work', collapsed: true },
@@ -702,7 +702,7 @@ test('saves a workspace carrying project groups', async () => {
   const store = createWorkspaceStore(path)
   const state: WorkspaceState = {
     ...makeState('groups'),
-    projects: [{ id: 'project-1', name: 'One', path: 'D:\One', color: '#c992ff', groupId: 'group-1' }],
+    projects: [{ id: 'project-1', name: 'One', path: 'D:\\One', color: '#c992ff', groupId: 'group-1' }],
     projectGroups: [{ id: 'group-1', name: 'Work', collapsed: false }]
   }
 
@@ -941,7 +941,7 @@ test("a branch's provenance round-trips, and a malformed one is refused at the s
   // `agent:create`, so a half-shaped record must not survive the crossing.
   const base = {
     version: 3,
-    projects: [{ id: 'project-1', name: 'Toucan', path: 'D:\Development\Toucan', color: '#71a9ff' }],
+    projects: [{ id: 'project-1', name: 'Toucan', path: 'D:\\Development\\Toucan', color: '#71a9ff' }],
     activeProjectId: 'project-1',
     sidebarCollapsed: false,
     nodes: [],

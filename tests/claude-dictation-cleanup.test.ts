@@ -6,11 +6,7 @@ import { PassThrough } from 'node:stream'
 import { test, vi } from 'vitest'
 import { runClaudeCleanup } from '../src/main/claude-dictation-cleanup'
 
-/**
- * `execFile` is replaced at the module boundary rather than spied on the namespace object: an ESM
- * namespace is not configurable, so `vi.spyOn(childProcess, 'execFile')` throws, and the module
- * under test holds a direct binding a namespace patch would not reach anyway.
- */
+/** Replaced at the module boundary, not spied on the namespace (see AGENTS.md on replacing a builtin). */
 const execFile = vi.hoisted(() => vi.fn())
 vi.mock('node:child_process', async (importActual) => ({
   ...(await importActual<typeof childProcess>()),

@@ -26,7 +26,7 @@ import {
  * a card moves when the files say it moved, not when the pointer was released.
  */
 
-const other = { id: 'atlas', name: 'Atlas', path: 'D:\Development\Atlas', color: '#8ad1a0' }
+const other = { id: 'atlas', name: 'Atlas', path: 'D:\\Development\\Atlas', color: '#8ad1a0' }
 
 const savedWorkspace = (overrides: Partial<WorkspaceState> = {}): WorkspaceState =>
   harnessWorkspace({ projects: [project, other], ...overrides })
@@ -596,7 +596,7 @@ describe('remembered GitHub choices', () => {
         ticketBoardPanel: {
           open: true,
           width: TICKET_BOARD_DEFAULT_WIDTH,
-          enabledSources: { [project.path]: ['github'], 'D:\Development\Gone': ['github'] }
+          enabledSources: { [project.path]: ['github'], 'D:\\Development\\Gone': ['github'] }
         }
       })
     )

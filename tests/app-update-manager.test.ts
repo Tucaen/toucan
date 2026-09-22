@@ -103,7 +103,7 @@ test('an error the updater emits after the check resolved is caught the same way
 test('development and portable runs never subscribe, never check and never offer an install', async () => {
   for (const [environment, packaged, reason] of [
     [{}, false, 'development'],
-    [{ PORTABLE_EXECUTABLE_DIR: 'D:\Downloads' }, true, 'portable']
+    [{ PORTABLE_EXECUTABLE_DIR: 'D:\\Downloads' }, true, 'portable']
   ] as const) {
     const updater = fakeUpdater()
     const logged: string[] = []

@@ -1,9 +1,11 @@
 {
   // Not a test compile any more: the suites run as ES modules under Vitest (#238). What survives is
-  // `.test-out`, the CommonJS build the two manual live-verification scripts load -
-  // `scripts/verify-outcome-retrieval.mjs` and `scripts/verify-session-fork.mjs` `await import()`
-  // these entry points, and extensionless relative specifiers resolve only under CommonJS. The
-  // include list is those two entries and nothing else; `tsc` pulls in whatever they import.
+  // `.test-out`, the CommonJS build the three manual scripts outside `npm test` load -
+  // `scripts/verify-outcome-retrieval.mjs`, `scripts/verify-session-fork.mjs` and
+  // `docs/plans/compare-routine-delegation.mjs` `await import()` from it, and extensionless
+  // relative specifiers resolve only under CommonJS. The include list is exactly the entry points
+  // those three name; `tsc` pulls in whatever they import. Adding a script that reads `.test-out`
+  // means adding its entry point here, or its import resolves against a file that was never built.
   "compilerOptions": {
     "module": "CommonJS",
     "moduleResolution": "Node",
@@ -18,5 +20,10 @@
     "rootDir": ".",
     "outDir": ".test-out"
   },
-  "include": ["src/main/acp-session-manager.ts", "src/shared/agent-transcript.ts"]
+  "include": [
+    "src/main/acp-session-manager.ts",
+    "src/main/background-process.ts",
+    "src/shared/agent-transcript.ts",
+    "src/shared/routine-delegation.ts"
+  ]
 }

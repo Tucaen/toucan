@@ -15,8 +15,8 @@ import { renderApp as renderAppHarness, savedWorkspace as harnessWorkspace } fro
 vi.mock('@xterm/xterm', async () => (await import('./dom/xterm-mock')).xtermModule())
 vi.mock('@xterm/addon-fit', async () => (await import('./dom/xterm-mock')).fitAddonModule())
 
-const alpha = { id: 'alpha', name: 'Alpha', path: 'D:\Alpha', color: '#71a9ff' }
-const beta = { id: 'beta', name: 'Beta', path: 'D:\Beta', color: '#e69a71' }
+const alpha = { id: 'alpha', name: 'Alpha', path: 'D:\\Alpha', color: '#71a9ff' }
+const beta = { id: 'beta', name: 'Beta', path: 'D:\\Beta', color: '#e69a71' }
 
 const savedWorkspace = (overrides: Partial<WorkspaceState> = {}): WorkspaceState =>
   harnessWorkspace({ projects: [alpha, beta], activeProjectId: alpha.id, ...overrides })
