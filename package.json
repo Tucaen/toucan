@@ -22,7 +22,7 @@
     "build": "electron-vite build && npm run build:mobile",
     "start": "electron-vite preview",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"mobile/**/*.{ts,tsx,css}\" \"tests/**/*.{ts,tsx}\" \"*.{ts,json,mjs}\" \"scripts/**/*.mjs\"",
-    "lint": "eslint src tests mobile *.ts --max-warnings 0",
+    "lint": "eslint src tests mobile scripts *.ts *.mjs --max-warnings 0",
     "check:architecture": "depcruise --config dependency-cruiser.config.mjs src mobile",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.mobile.json",
     "pretest": "node -e \"fs.rmSync('.test-out',{recursive:true,force:true})\"",

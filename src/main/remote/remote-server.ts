@@ -692,7 +692,7 @@ function frameText(data: unknown): string | null {
   if (typeof data === 'string') return data
   if (Buffer.isBuffer(data)) return data.toString('utf8')
   if (Array.isArray(data) && data.every((part) => Buffer.isBuffer(part))) {
-    return Buffer.concat(data as Buffer[]).toString('utf8')
+    return Buffer.concat(data).toString('utf8')
   }
   return null
 }

@@ -25,10 +25,7 @@ export function isDecisionProviderInstalled(
 ): boolean {
   try {
     const registry = JSON.parse(
-      readFile(
-        join(claudeConfigRoot(homeDirectory, environment), 'plugins', 'installed_plugins.json'),
-        'utf8'
-      ) as string
+      readFile(join(claudeConfigRoot(homeDirectory, environment), 'plugins', 'installed_plugins.json'), 'utf8')
     ) as { plugins?: Record<string, unknown> }
     const installs = registry.plugins?.[DECISION_PROVIDER_PLUGIN_ID]
     return Array.isArray(installs) && installs.length > 0

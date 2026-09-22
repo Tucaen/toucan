@@ -56,6 +56,10 @@ export function usePortalMenuPosition(
       window.removeEventListener('scroll', reposition, true)
       observer?.disconnect()
     }
+    // `fallback` and `options` are object literals at every call site, so listing them would tear
+    // down and re-attach the listeners and the ResizeObserver on every render. `reposition` reads
+    // both at measure time, so the current values are always the ones used.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [anchorRef, enabled, menuRef, remeasureOn])
 
   return position

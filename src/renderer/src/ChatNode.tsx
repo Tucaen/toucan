@@ -897,6 +897,9 @@ function useStickToBottom(followDeps: readonly unknown[]): {
   useLayoutEffect(() => {
     const element = ref.current
     if (element && stickToBottomRef.current) element.scrollTop = element.scrollHeight
+    // The dependency list is the caller's: what "new content" means differs per chat node, and the
+    // rule can only verify a list written out at the hook call site.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, followDeps)
 
   return {

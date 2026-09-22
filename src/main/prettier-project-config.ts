@@ -139,7 +139,7 @@ function asOptions(parsed: unknown, what: string): Options {
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
     throw new Error(`${what} is not a list of settings`)
   }
-  return parsed as Options
+  return parsed
 }
 
 function json5Config(text: string): Options {
@@ -147,7 +147,7 @@ function json5Config(text: string): Options {
 }
 
 function yamlConfig(text: string): Options {
-  return parseFlatYaml(text) as Options
+  return parseFlatYaml(text)
 }
 
 /** Extension-less, so the file itself says which of the two it is - by parsing as one of them. */

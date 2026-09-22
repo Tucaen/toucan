@@ -370,6 +370,7 @@ export function useBrainDumpLibrary(options: BrainDumpLibraryOptions): BrainDump
     }),
     [
       announcement,
+      api,
       archive,
       assignProject,
       assignment,

@@ -21,11 +21,7 @@ import { APP_INDEX_URL, APP_ISOLATION_HEADERS, APP_SCHEME, appContentType, appRe
 import { createAgentEventBroker } from './agent-event-broker'
 import { createBrainDumpLibrary } from './brain-dump-library'
 import { hiddenProcessOptions } from './background-process'
-import {
-  createBrainDumpCaptureManager,
-  type BrainDumpCaptureManager,
-  type BrainDumpCaptureOwner
-} from './brain-dump-capture'
+import { createBrainDumpCaptureManager, type BrainDumpCaptureManager } from './brain-dump-capture'
 import { createBrainDumpCaptureStore } from './brain-dump-capture-store'
 import { registerBrainDumpIpc } from './brain-dump-ipc'
 import { createBrainDumpChangeWatcher, type BrainDumpChangeWatcher } from './brain-dump-watcher'
@@ -207,7 +203,7 @@ function createWindow(
     detachCanvasWindow()
     terminalManager.disconnectOwner(contents)
     agentManager.killOwned(contents)
-    brainDumpCapture.disconnectOwner(contents as unknown as BrainDumpCaptureOwner)
+    brainDumpCapture.disconnectOwner(contents)
     brainDumpChanges.disconnectOwner(contents)
     ticketChanges.disconnectOwner(contents)
     fileView.disconnectOwner(contents)

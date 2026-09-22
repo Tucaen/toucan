@@ -489,7 +489,7 @@ export async function deliverSteeredPrompt(
   try {
     const response = await request('_session/steering', {
       sessionId,
-      prompt: toPromptBlocks(content) as ContentBlock[],
+      prompt: toPromptBlocks(content),
       _meta: STEERING_IDLE_BEHAVIOR
     })
     if (response.outcome === 'injected') return { outcome: 'injected' }
@@ -1262,7 +1262,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         crypto.randomUUID(),
         running.context.request(methods.agent.session.prompt, {
           sessionId,
-          prompt: blocks as ContentBlock[]
+          prompt: blocks
         }),
         running.authMethods
       )
@@ -1483,7 +1483,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
           )
         })
         .onRequest(methods.client.elicitation.create, async ({ params }) => {
-          const elicitation = params as CreateElicitationRequest
+          const elicitation = params
           if (elicitation.mode === 'url' && 'url' in elicitation && typeof elicitation.url === 'string') {
             if (!(await openWebUrl(elicitation.url, (url) => shell.openExternal(url))))
               return { action: 'decline' as const }
@@ -1505,7 +1505,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         })
 
       const stream = ndJsonStream(
-        Writable.toWeb(child.stdin) as unknown as WritableStream<Uint8Array>,
+        Writable.toWeb(child.stdin),
         Readable.toWeb(child.stdout) as unknown as ReadableStream<Uint8Array>
       )
       const connection = app.connect(stream)

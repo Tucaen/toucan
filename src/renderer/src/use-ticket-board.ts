@@ -179,6 +179,7 @@ export function useTicketBoard(options: TicketBoardOptions): TicketBoard {
     },
     // `revision` is not read in the body: it is here so a folder change re-lists, exactly as a
     // project change does.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [projectPath, revision, sources]
   )
 

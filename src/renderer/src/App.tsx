@@ -894,7 +894,9 @@ function Canvas(): JSX.Element {
   const canvasEdges = useMemo(
     () => [...edges, ...lineageEdges(nodesRef.current)],
     // `lineage` stands in for `nodes` deliberately: it changes only when a node or a `branchedFrom`
-    // does, so dragging a node does not rebuild the projection on every pointer frame.
+    // does, so dragging a node does not rebuild the projection on every pointer frame. The rule
+    // cannot see that, because the memo reads `nodesRef.current` rather than `nodes`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [edges, lineage]
   )
 
@@ -953,6 +955,7 @@ function Canvas(): JSX.Element {
   }, [
     dispatchWorktreeHandoff,
     dispatchBranch,
+    handleAttention,
     handleConversationId,
     handleDraftChange,
     handleFocusModeChange,
@@ -1105,6 +1108,9 @@ function Canvas(): JSX.Element {
       return id
     },
     [
+      dispatchBranch,
+      dispatchWorktreeHandoff,
+      handleAttention,
       handleConversationId,
       handleDraftChange,
       handleFocusModeChange,
@@ -1115,7 +1121,6 @@ function Canvas(): JSX.Element {
       handleTicketActivity,
       handleTerminalContext,
       handleForkSupport,
-      dispatchBranch,
       handleTerminalLiveness,
       handleTitleChange,
       resumeNode,
@@ -1570,6 +1575,9 @@ function Canvas(): JSX.Element {
       )
     },
     [
+      dispatchBranch,
+      dispatchWorktreeHandoff,
+      handleAttention,
       handleConversationId,
       handleDraftChange,
       handleFilePathChange,
@@ -1584,7 +1592,6 @@ function Canvas(): JSX.Element {
       handleTicketActivity,
       handleTerminalContext,
       handleForkSupport,
-      dispatchBranch,
       handleTerminalLiveness,
       handleTitleChange,
       resumeNode,

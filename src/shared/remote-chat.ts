@@ -164,7 +164,7 @@ function parseDecisionValue(raw: unknown): AgentDecisionValue | null {
   if (typeof raw === 'string' || typeof raw === 'boolean') return raw
   if (typeof raw === 'number') return Number.isFinite(raw) ? raw : null
   if (Array.isArray(raw)) {
-    return raw.every((entry) => typeof entry === 'string') ? (raw as string[]) : null
+    return raw.every((entry) => typeof entry === 'string') ? raw : null
   }
   return null
 }

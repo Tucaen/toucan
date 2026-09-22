@@ -167,6 +167,9 @@ export default function TicketBoardPanel(props: TicketBoardPanelProps): JSX.Elem
   useEffect(() => {
     if (open && !wasOpen.current) void board.refresh({ quiet: true })
     wasOpen.current = open
+    // The trigger is the open/closed transition, nothing about the board itself. `board` is rebuilt
+    // on every render, so listing it would run this on every render and rely on the ref guard alone.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
   const toggleSource = (sourceId: string, on: boolean): void => {

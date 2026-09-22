@@ -39,6 +39,10 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
   useEffect(() => {
     if (!selected) unreadHoldRef.current = false
     if (selected && !data.dormant) acknowledgeActivity()
+    // `acknowledgeActivity` is rebuilt every render, so listing it would fire this on every render
+    // rather than on a selection change - which is the whole trigger. Selection and dormancy are
+    // the only inputs the effect reacts to; everything else it touches, it reads at call time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data.dormant, selected])
 
   useEffect(() => {
@@ -261,6 +265,11 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
       terminalRef.current = null
       terminal.dispose()
     }
+    // This effect owns the xterm instance and the PTY attachment: re-running it disposes the
+    // terminal and kills the shell. Only the fields naming *which* terminal this is may trigger
+    // that. `data` as a whole and the render-fresh `acknowledgeActivity` change on every keystroke
+    // the node re-renders for, and are read at call time instead.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     data.dormant,
     data.label,

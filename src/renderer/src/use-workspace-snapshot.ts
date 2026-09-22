@@ -88,9 +88,9 @@ function buildWorkspaceSnapshot(input: WorkspaceSnapshotInput): WorkspaceState {
  * The dependency list is derived from the input object rather than written out, because a
  * hand-written one is exactly what drifted: `layoutSlots` was spread into the snapshot while the
  * list never mentioned it, so saving a layout slot produced no new snapshot, no autosave, and a
- * slot that was gone on the next launch. `react-hooks/exhaustive-deps` is off in this repo, so
- * nothing would have caught it. With the input built as one literal, adding a field to the
- * snapshot necessarily adds it to the memo.
+ * slot that was gone on the next launch. With the input built as one literal, adding a field to the
+ * snapshot necessarily adds it to the memo. The rule cannot verify a list it cannot see written
+ * out; the type does that job here instead.
  *
  * Two things keep that safe as a dependency list, which React requires to be the same length and
  * order on every render: every field of `WorkspaceSnapshotInput` is required, so the type itself
@@ -103,5 +103,6 @@ function buildWorkspaceSnapshot(input: WorkspaceSnapshotInput): WorkspaceState {
  */
 export function useWorkspaceSnapshot(input: WorkspaceSnapshotInput): WorkspaceState {
   const dependencies = (Object.keys(input) as (keyof WorkspaceSnapshotInput)[]).sort().map((key) => input[key])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   return useMemo(() => buildWorkspaceSnapshot(input), dependencies)
 }

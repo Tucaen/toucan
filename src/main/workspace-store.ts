@@ -287,7 +287,7 @@ function normalizeProjectsAndGroups(value: unknown): unknown {
   const declared = state.projectGroups
   const groups =
     Array.isArray(declared) && declared.every(isProjectGroup)
-      ? (declared as ProjectGroup[]).filter((group) => {
+      ? declared.filter((group) => {
           if (seen.has(group.id)) return false
           seen.add(group.id)
           return true
@@ -313,8 +313,8 @@ export function parseWorkspaceState(candidate: unknown): WorkspaceState | null {
   const version = (value as Partial<WorkspaceState>).version
 
   if (version === 3) {
-    if (!isWorkspaceState(value as WorkspaceState)) return null
-    const state = normalizeWorkspaceWorktrees(value as WorkspaceState)
+    if (!isWorkspaceState(value)) return null
+    const state = normalizeWorkspaceWorktrees(value)
     // Attention records name canvas nodes, so a record whose node is gone can never be reached
     // or cleared; dropping it here keeps every count derived from records that still exist.
     const liveNodeIds = new Set(state.nodes.map((node) => node.id))

@@ -1,4 +1,4 @@
-import type { BrainDumpCollection, BrainDumpLibraryApi, BrainDumpOutcome } from '../shared/brain-dump'
+import type { BrainDumpLibraryApi, BrainDumpOutcome } from '../shared/brain-dump'
 import type { BrainDumpCaptureManager, BrainDumpCaptureOwner } from './brain-dump-capture'
 import type { BrainDumpChangeWatcher } from './brain-dump-watcher'
 import type { IpcRegistrar } from './ipc-registrar'
@@ -25,7 +25,7 @@ export function registerBrainDumpIpc(
   ipc.handle(BRAIN_DUMP_CHANNELS.list, (event, collection: unknown) => {
     changes.subscribe(event.sender)
     return collection === 'active' || collection === 'archived'
-      ? library.list(collection as BrainDumpCollection)
+      ? library.list(collection)
       : { topics: [], diagnostics: [{ path: '', code: 'invalid-collection', message: 'Collection is invalid.' }] }
   })
   ipc.handle(BRAIN_DUMP_CHANNELS.resolve, (_event, slug: unknown) =>

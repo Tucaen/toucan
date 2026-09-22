@@ -132,12 +132,12 @@ export function createBrainDumpCaptureManager(options: BrainDumpCaptureManagerOp
     send: (channel, value) => {
       const envelope = value as { id?: string; event?: AgentEvent }
       if (channel !== AGENT_CHANNELS.event || envelope.id !== activeId || !envelope.event) return
-      const event = envelope.event as AgentEvent
+      const event = envelope.event
       if (event.type === 'session' && conversation) conversation = { ...conversation, conversationId: event.sessionId }
       if (event.type === 'approval' && state?.status === 'working') {
         setState({
           status: 'working',
-          jobId: envelope.id!,
+          jobId: envelope.id,
           approval: {
             id: event.approvalId,
             title: event.title,
@@ -150,7 +150,7 @@ export function createBrainDumpCaptureManager(options: BrainDumpCaptureManagerOp
         const text = `${assistantMessages.get(event.messageId) ?? ''}${event.text}`
         assistantMessages.set(event.messageId, text)
         summary = text.trim()
-        if (event.presentation === 'final') completeAfterFinalAnswer(envelope.id!)
+        if (event.presentation === 'final') completeAfterFinalAnswer(envelope.id)
       }
     }
   }

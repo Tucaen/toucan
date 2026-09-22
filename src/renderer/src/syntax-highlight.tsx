@@ -40,16 +40,14 @@ function renderHast(nodes: RootContent[], keyPrefix = 'h'): ReactNode[] {
     const className = node.properties?.className
     return (
       <span key={key} className={Array.isArray(className) ? className.join(' ') : undefined}>
-        {renderHast(node.children as RootContent[], key)}
+        {renderHast(node.children, key)}
       </span>
     )
   })
 }
 
 export function highlightedCode(code: string, language?: string): ReactNode {
-  return language && lowlight.registered(language)
-    ? renderHast(lowlight.highlight(language, code).children as RootContent[])
-    : code
+  return language && lowlight.registered(language) ? renderHast(lowlight.highlight(language, code).children) : code
 }
 
 export function languageForPath(path: string): string | undefined {
@@ -73,7 +71,7 @@ function splitHighlightedNodes(nodes: RootContent[], keyPrefix = 'l'): ReactNode
       return
     }
     if (node.type !== 'element') return
-    const childLines = splitHighlightedNodes(node.children as RootContent[], `${keyPrefix}-${index}`)
+    const childLines = splitHighlightedNodes(node.children, `${keyPrefix}-${index}`)
     const className = Array.isArray(node.properties?.className) ? node.properties.className.join(' ') : undefined
     childLines.forEach((children, childIndex) => {
       if (childIndex > 0) lines.push([])
@@ -91,7 +89,7 @@ function splitHighlightedNodes(nodes: RootContent[], keyPrefix = 'l'): ReactNode
 export function highlightedCodeLines(lines: string[], path: string): ReactNode[][] {
   const language = languageForPath(path)
   if (!language || !lowlight.registered(language)) return lines.map((line) => [line])
-  const root = lowlight.highlight(language, lines.join('\n')).children as RootContent[]
+  const root = lowlight.highlight(language, lines.join('\n')).children
   const highlighted = splitHighlightedNodes(root)
   while (highlighted.length < lines.length) highlighted.push([])
   return highlighted.slice(0, lines.length)

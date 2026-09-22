@@ -189,6 +189,10 @@ function useCompletionTokenMemory<State>(
 ): void {
   useEffect(
     () => setState((current) => completionMemoryForToken(token, current, empty, resetHighlight)),
+    // The token's identity - its query and its position - is the whole trigger, as the doc above
+    // says. `empty`, `resetHighlight` and `setState` are the caller's fixed wiring, and listing the
+    // `token` object itself would re-run this on every keystroke that rebuilt an equal token.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [token?.query, token?.start]
   )
 }

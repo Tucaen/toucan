@@ -107,7 +107,7 @@ interface TerminalMeta {
 }
 
 function terminalMetaOf(update: ToolCallSessionUpdate): TerminalMeta {
-  return (update._meta ?? {}) as TerminalMeta
+  return update._meta ?? {}
 }
 
 function asFiniteNumber(value: unknown): number | undefined {

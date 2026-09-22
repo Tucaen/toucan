@@ -140,7 +140,9 @@ export function useChatConnection(host: SavedHost, chatId: string, onUnauthorize
       socket?.close()
     }
     // Re-addressing or re-pairing the host is a different connection, so it tears this one down and
-    // starts over rather than leaving a socket authorized by a token that is gone.
+    // starts over rather than leaving a socket authorized by a token that is gone. The three fields
+    // are listed rather than `host`, which the caller rebuilds on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [host.id, host.origin, host.token, chatId])
 
   /**

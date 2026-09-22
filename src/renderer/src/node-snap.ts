@@ -135,7 +135,7 @@ export function nodeBeforeTemporaryFit<T extends Node>(node: T, snaps: SnapState
 /** The header action reads this flag; it is presentation only and never serialized. */
 function nodeWithFitFlag<T extends Node>(node: T, fitted: boolean): T {
   if ((node.data as { fittedToCanvas?: boolean }).fittedToCanvas === fitted) return node
-  return { ...node, data: { ...node.data, fittedToCanvas: fitted } } as T
+  return { ...node, data: { ...node.data, fittedToCanvas: fitted } }
 }
 
 function nodeSnapped<T extends Node>(node: T, slice: SnapSlice, geometry: NodeGeometry): T {

@@ -89,7 +89,7 @@ export const markdownBlockComponents: Components = {
    * fence, no language label, and no trailing newline the parser added.
    */
   pre(props) {
-    const node = props.node as HastElement | undefined
+    const node = props.node
     const code = node?.children.find(
       (child): child is HastElement => child.type === 'element' && child.tagName === 'code'
     )

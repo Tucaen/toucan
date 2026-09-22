@@ -346,6 +346,11 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
       for (const entry of pendingSentRef.current) clearTimeout(entry.timer)
       pendingSentRef.current = []
     }
+    // Deliberately the identity of the session, not its settings: the remaining `options` fields
+    // are launch arguments read once inside `create()`, and listing them would kill and respawn the
+    // adapter whenever the user picked another model, effort or permission mode. A change that must
+    // restart the session goes through `restartKey`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [options.cwd, options.enabled, options.id, options.provider, options.restartKey, options.scope])
 
   /** Shared by `submit` (composer text + attachments) and `sendMessage` (a plain string, e.g. a clicked decision option). */
@@ -478,6 +483,10 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
   useEffect(() => {
     if (status !== 'ready' || queued.length === 0) return
     dispatchQueued()
+    // The drain is triggered by the turn going idle with something queued, not by `dispatchQueued`,
+    // which is rebuilt every render; it claims out of `queuedRef`, so the fresh closure is the one
+    // that runs either way.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status, queued])
 
   const sendMessage = (text: string): void => {

@@ -262,7 +262,7 @@ export function createTerminalContextMcp(options: TerminalContextMcpOptions): Te
       // Batches predate the 2025-03-26 revision but cost one flatMap to keep honouring.
       const messages = (Array.isArray(parsed) ? parsed : [parsed]).map((entry) => record(entry) ?? {})
       const responses = messages.flatMap((message) => {
-        const answered = handleMessage(agentId, message as JsonRpcMessage)
+        const answered = handleMessage(agentId, message)
         return answered ? [answered] : []
       })
       if (responses.length === 0) {

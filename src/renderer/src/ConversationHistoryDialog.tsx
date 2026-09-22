@@ -77,6 +77,9 @@ export default function ConversationHistoryDialog({
         setLoading(false)
       }
     },
+    // `directoryKey` stands in for `directoriesRef.current`, which the loader reads at call time so
+    // an in-flight page can never be answered against a stale directory set.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [directoryKey]
   )
 
