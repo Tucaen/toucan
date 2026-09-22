@@ -135,7 +135,7 @@ test('the status pill reads working, idle, sign-in and exited from the reducer s
     label: 'Working',
     tone: 'working'
   })
-  assert.deepEqual(chatStatusSummary(foldAll([{ type: 'status', status: 'idle' }])), { label: 'Idle', tone: 'idle' })
+  assert.deepEqual(chatStatusSummary(foldAll([{ type: 'status', status: 'ready' }])), { label: 'Idle', tone: 'idle' })
   assert.deepEqual(chatStatusSummary(foldAll([{ type: 'status', status: 'auth_required' }])), {
     label: 'Needs sign-in',
     tone: 'attention'

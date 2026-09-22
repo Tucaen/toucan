@@ -11,7 +11,7 @@ import type { DecisionDelegationPreference } from './decision-delegation'
 import type { RoutineDelegationPreference } from './routine-delegation'
 import type { DictationCleanupPreference } from './dictation-cleanup'
 
-export type TerminalKind = 'terminal' | 'claude' | 'codex'
+export type TerminalKind = 'terminal' | AgentProvider
 export type TerminalLiveness = 'live' | 'unverifiable' | 'exited'
 
 /**
@@ -177,7 +177,7 @@ export interface BrainDumpPanelState {
   /** The project the draft is filed under; absent means the user chose Unassigned. */
   draftProjectPath?: string
   /** The last provider a capture succeeded with; absent falls back to Codex. */
-  provider?: 'claude' | 'codex'
+  provider?: AgentProvider
 }
 
 /**

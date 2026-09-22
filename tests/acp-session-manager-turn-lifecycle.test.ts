@@ -25,7 +25,7 @@ test('a provider turn has no wall-clock deadline', async (context) => {
   const result = await lifecycle
   assert.deepEqual(result.events, [
     { type: 'turn_complete', stopReason: 'end_turn' },
-    { type: 'status', status: 'idle' }
+    { type: 'status', status: 'ready' }
   ])
   assert.deepEqual(result.result, { ok: true })
 })
@@ -35,7 +35,7 @@ test('an explicit provider cancellation has its own terminal outcome', async () 
 
   assert.deepEqual(result.events, [
     { type: 'turn_cancelled', turnId: 'cancelled-turn', message: 'Stopped by you.' },
-    { type: 'status', status: 'idle' }
+    { type: 'status', status: 'ready' }
   ])
   assert.deepEqual(result.result, { ok: true })
 })

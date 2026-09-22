@@ -1,8 +1,9 @@
-import type { AgentProvider } from './agent-provider'
+import { AGENT_PROVIDERS, isAgentProvider, type AgentProvider } from './agent-provider'
 import type { AgentDecisionDelegation } from './decision-delegation'
 import type { AgentRoutineDelegation, RoutineDelegationRequest } from './routine-delegation'
 
 export type { AgentProvider }
+export { AGENT_PROVIDERS, isAgentProvider }
 
 export interface AgentCreateRequest {
   id: string
@@ -142,22 +143,29 @@ export type AgentImageContent = Omit<AgentImageAttachment, 'id'>
 /** What a prompt submission can carry: plain text (the common case) or content blocks mixing text and images. */
 export type AgentPromptContent = string | AgentPromptBlock[]
 
-export interface AgentMode {
-  id: string
-  name: string
-  description?: string
-}
+/** One mode the connected session can run in. */
+export type AgentMode = AgentOption
 
 export interface AgentModeState {
   currentModeId: string
   availableModes: AgentMode[]
 }
 
-export interface AgentModel {
+/**
+ * One choice in a session selector, as a picker renders it. Models, effort levels and modes are the
+ * same three fields because ACP advertises them all as the same `select` shape, so `shared/
+ * agent-session-config.ts` reads them with one function and every picker renders them with one
+ * shape. The aliases below are documentation rather than a guarantee: they are structurally
+ * identical, so nothing stops an effort being passed where a model is wanted.
+ */
+export interface AgentOption {
   id: string
   name: string
   description?: string
 }
+
+/** One model a conversation can run on. */
+export type AgentModel = AgentOption
 
 export interface AgentModelState {
   currentModelId: string
@@ -181,7 +189,7 @@ export const MODEL_CHANGE_WHILE_BUSY = 'Finish the turn first - a conversation k
 
 export interface AgentEffortState {
   currentEffortId: string
-  availableEfforts: AgentModel[]
+  availableEfforts: AgentOption[]
 }
 
 /**
@@ -424,7 +432,7 @@ export function isFinalAssistantMessage<
 }
 
 export type AgentEvent =
-  | { type: 'status'; status: 'starting' | 'ready' | 'working' | 'idle' | 'auth_required' | 'exited'; message?: string }
+  | { type: 'status'; status: 'starting' | 'ready' | 'working' | 'auth_required' | 'exited'; message?: string }
   | { type: 'session'; sessionId: string }
   | {
       type: 'message'

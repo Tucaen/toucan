@@ -346,7 +346,7 @@ describe('useAgentConversation prompt failure status', () => {
 
     act(() => {
       emit('session-turn-failed', { type: 'turn_failed', turnId: 'turn-1', message: 'The provider rejected the turn.' })
-      emit('session-turn-failed', { type: 'status', status: 'idle' })
+      emit('session-turn-failed', { type: 'status', status: 'ready' })
     })
     await act(async () => {
       turn.settle({ ok: false, message: 'The provider rejected the turn.' })

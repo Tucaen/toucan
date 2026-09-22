@@ -1,5 +1,6 @@
 import type { AgentModel } from './agent'
 import type { AgentProvider } from './agent-provider'
+import { AGENT_PROVIDERS } from './agent-provider'
 
 /**
  * The models each provider was last seen to offer, and the *only* answer available to the question
@@ -48,7 +49,7 @@ function isModel(value: unknown): value is AgentModel {
 export function parseAgentModelCatalogue(value: unknown): AgentModelCatalogue | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   const catalogue: AgentModelCatalogue = {}
-  for (const provider of ['claude', 'codex'] as const) {
+  for (const provider of AGENT_PROVIDERS) {
     const models = (value as Record<string, unknown>)[provider]
     if (!Array.isArray(models)) continue
     const valid = models.filter(isModel).slice(0, AGENT_MODEL_CATALOGUE_LIMIT)

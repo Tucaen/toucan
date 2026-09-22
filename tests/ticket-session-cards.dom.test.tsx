@@ -144,7 +144,7 @@ describe('a chat node reporting which tickets it is writing', () => {
 
     await act(async () => {
       mock.emit(NODE_ID, { type: 'turn_complete', stopReason: 'end_turn' })
-      mock.emit(NODE_ID, { type: 'status', status: 'idle' })
+      mock.emit(NODE_ID, { type: 'status', status: 'ready' })
     })
 
     // The last completed turn still counts: what the session just wrote stays on the card.

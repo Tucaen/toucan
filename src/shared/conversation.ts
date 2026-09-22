@@ -1,6 +1,8 @@
 import type { ConversationTitle, ConversationTitleSource } from './conversation-title'
+import type { AgentProvider } from './agent-provider'
 
-export type ConversationProvider = 'claude' | 'codex'
+/** The provider a conversation ran on; the agent contract's `AgentProvider` under this module's name. */
+export type ConversationProvider = AgentProvider
 
 export interface ConversationSummary {
   /** The provider's own conversation ID - what `launchMode: 'resume'` is handed. */

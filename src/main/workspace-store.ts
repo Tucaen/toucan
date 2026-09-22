@@ -24,6 +24,7 @@ import {
 } from '../shared/terminal'
 import { errorMessage } from '../shared/text'
 import { normalizeWorkspaceWorktrees } from '../shared/worktree-identity'
+import { isAgentProvider } from '../shared/agent-provider'
 
 interface WorkspaceStateV1 {
   version: 1
@@ -138,7 +139,7 @@ function isWorkspaceTerminalNode(value: unknown): boolean {
     typeof node.id === 'string' &&
     (node.sessionId === undefined || typeof node.sessionId === 'string') &&
     node.kind !== undefined &&
-    ['terminal', 'claude', 'codex'].includes(node.kind) &&
+    (node.kind === 'terminal' || isAgentProvider(node.kind)) &&
     typeof node.label === 'string' &&
     (node.titleSource === undefined || node.titleSource === 'generated' || node.titleSource === 'manual') &&
     typeof node.projectId === 'string' &&
@@ -171,7 +172,7 @@ function isBrainDumpPanelState(value: unknown): boolean {
     Number.isFinite(panel.width) &&
     (panel.draft === undefined || typeof panel.draft === 'string') &&
     (panel.draftProjectPath === undefined || typeof panel.draftProjectPath === 'string') &&
-    (panel.provider === undefined || panel.provider === 'claude' || panel.provider === 'codex')
+    (panel.provider === undefined || isAgentProvider(panel.provider))
   )
 }
 

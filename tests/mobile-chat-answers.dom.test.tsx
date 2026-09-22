@@ -240,12 +240,12 @@ describe('reporting a read from the phone', () => {
     socket.sent.map((raw) => JSON.parse(raw) as { type?: unknown }).filter((message) => message.type === 'read')
 
   test('arriving at a live chat reports one read', () => {
-    const socket = open([{ type: 'status', status: 'idle' }])
+    const socket = open([{ type: 'status', status: 'ready' }])
     expect(reads(socket)).toEqual([{ type: 'read' }])
   })
 
   test('a streaming turn reports no read per chunk, and its ending reports one', () => {
-    const socket = open([{ type: 'status', status: 'idle' }])
+    const socket = open([{ type: 'status', status: 'ready' }])
     const onArrival = reads(socket).length
 
     deliver(socket, { type: 'event', event: { type: 'status', status: 'working' } })
@@ -255,7 +255,7 @@ describe('reporting a read from the phone', () => {
     const midTurn = reads(socket).length
 
     deliver(socket, { type: 'event', event: { type: 'turn_complete', stopReason: 'end_turn' } })
-    deliver(socket, { type: 'event', event: { type: 'status', status: 'idle' } })
+    deliver(socket, { type: 'event', event: { type: 'status', status: 'ready' } })
 
     // The turn's start is worth one frame; nothing it streamed after that is.
     expect(midTurn).toBe(onArrival + 1)

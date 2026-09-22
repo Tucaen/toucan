@@ -64,7 +64,7 @@ const AVAILABLE = [
 
 const MODELS: AgentEvent = { type: 'models', models: { currentModelId: 'sonnet', availableModels: AVAILABLE } }
 
-const IDLE: AgentEvent = { type: 'status', status: 'idle' }
+const IDLE: AgentEvent = { type: 'status', status: 'ready' }
 
 function snapshotFrame(events: readonly AgentEvent[]): RemoteChatServerMessage {
   return {

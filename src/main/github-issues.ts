@@ -42,7 +42,7 @@ export interface GithubIssueReaderOptions {
    * answer is the user's machine, and because resolving it is how "no `gh`" stays a reason rather
    * than an ENOENT thrown out of a subprocess.
    */
-  resolveCommand(command: string): string | null
+  resolveCommand(command: string): Promise<string | null>
   run?: GithubCommandRunner
   limit?: number
   pathExists?(path: string): boolean
@@ -113,10 +113,10 @@ export function createGithubIssueReader(options: GithubIssueReaderOptions): Gith
    * increasing cost, each answered only when the cheaper ones said yes.
    */
   async function probeOnce(projectPath: string): Promise<GithubProbe> {
-    const resolved = options.resolveCommand('gh')
+    const resolved = await options.resolveCommand('gh')
     if (!resolved) return NO_CLI
     const gh = nativeCommand(resolved, exists)
-    const git = nativeCommand(options.resolveCommand('git') ?? 'git', exists)
+    const git = nativeCommand((await options.resolveCommand('git')) ?? 'git', exists)
     const remotes = await run(git, ['remote', '-v'], projectPath)
     // A folder git refuses to read is a folder with no GitHub remote: the distinction changes
     // nothing the user can act on from a ticket board.

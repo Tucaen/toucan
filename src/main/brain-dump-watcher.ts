@@ -3,13 +3,12 @@ import { join } from 'node:path'
 import type { BrainDumpCollection } from '../shared/brain-dump'
 import { BRAIN_DUMP_CHANNELS } from '../shared/ipc-channels'
 import { createWatchedDirectories, type WatchDirectory } from './watched-directories'
+import type { WebContentsOwner } from './web-contents-owner'
 
 const COLLECTIONS: readonly BrainDumpCollection[] = ['active', 'archived']
 
-export interface BrainDumpChangeOwner {
-  isDestroyed(): boolean
-  send(channel: string, collection: BrainDumpCollection): void
-}
+/** A renderer watching the brain-dump library; the payload is the collection that changed. */
+export type BrainDumpChangeOwner = WebContentsOwner<BrainDumpCollection>
 
 export interface BrainDumpChangeWatcher {
   subscribe(owner: BrainDumpChangeOwner): void

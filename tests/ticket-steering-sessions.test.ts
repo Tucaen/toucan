@@ -8,6 +8,7 @@ import { createAcpSessionManager } from '../src/main/acp-session-manager'
 import { createTicketLibrary } from '../src/main/ticket-library'
 import { createTicketSteering } from '../src/main/ticket-steering'
 import type { AgentEvent, AgentEventEnvelope } from '../src/shared/agent'
+import type { AgentProvider } from '../src/shared/agent-provider'
 
 /**
  * The whole loop against a live ACP session: an agent writes a file the ticket board cannot show,
@@ -23,7 +24,7 @@ import type { AgentEvent, AgentEventEnvelope } from '../src/shared/agent'
  * An adapter that reports two writes and one read during a turn it then parks on an approval, and
  * echoes any follow-up it is given back as assistant text so the test can read what it received.
  */
-function writingAdapter(appPath: string, provider: 'claude' | 'codex', steering: boolean): void {
+function writingAdapter(appPath: string, provider: AgentProvider, steering: boolean): void {
   const module = provider === 'codex' ? 'codex-acp' : 'claude-agent-acp'
   const directory = join(appPath, 'node_modules', '@agentclientprotocol', module, 'dist')
   mkdirSync(directory, { recursive: true })

@@ -157,7 +157,7 @@ test('submit() delivers directly while ready, and holds the next one locally onc
   expect(result.current.messages).toHaveLength(1)
 
   // Once the turn finishes, the outbox drains through the ordinary direct API.
-  emit('session-1', { type: 'status', status: 'idle' })
+  emit('session-1', { type: 'status', status: 'ready' })
   await waitFor(() => expect(api.prompt).toHaveBeenCalledWith('session-1', 'second message'))
   await waitFor(() => expect(result.current.queued).toEqual([]))
   await waitFor(() =>
@@ -199,7 +199,7 @@ test('a queued follow-up can be withdrawn, and the agent never sees it', async (
   expect(result.current.queued).toEqual([])
 
   // The turn ends: there is nothing left to drain, so the withdrawn text is never delivered.
-  emit('session-withdraw', { type: 'status', status: 'idle' })
+  emit('session-withdraw', { type: 'status', status: 'ready' })
   await waitFor(() => expect(result.current.status).toBe('ready'))
   expect(api.prompt).not.toHaveBeenCalledWith('session-withdraw', 'please also refactor everything')
   expect(api.promptWhenIdle).not.toHaveBeenCalled()
@@ -232,7 +232,7 @@ test('a queued follow-up can be rewritten before it is sent, and only the rewrit
   })
   act(() => result.current.editQueued(result.current.queued[0].id, 'the follow-up I actually meant'))
 
-  emit('session-edit', { type: 'status', status: 'idle' })
+  emit('session-edit', { type: 'status', status: 'ready' })
   await waitFor(() => expect(api.prompt).toHaveBeenCalledWith('session-edit', 'the follow-up I actually meant'))
   expect(api.prompt).not.toHaveBeenCalledWith('session-edit', 'first draft of the follow-up')
 })

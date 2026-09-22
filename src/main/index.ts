@@ -1,8 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, nativeImage, net, protocol, session, shell } from 'electron'
-import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
-import { extname, join, normalize } from 'node:path'
+import { join, normalize } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { spawn } from 'node-pty'
 import { ADAPTER_CHANNELS, USAGE_CHANNELS } from '../shared/ipc-channels'
@@ -12,6 +11,7 @@ import { createAgentModelCatalogueStore } from './agent-model-catalogue-store'
 import { createAppUpdater, type AppUpdater } from './app-update'
 import { forwardAppUpdateChanges, registerAppUpdateIpc } from './app-update-ipc'
 import { createVoiceModelStore, type VoiceModelStore } from './voice-model-store'
+import { createCommandLookup } from './command-lookup'
 import { createMainLog } from './main-log'
 import { createVoiceModelPort } from './voice-model-download'
 import { forwardVoiceModelChanges, registerVoiceModelIpc } from './voice-model-ipc'
@@ -20,7 +20,6 @@ import { registerDictationCleanupIpc } from './dictation-cleanup-ipc'
 import { APP_INDEX_URL, APP_ISOLATION_HEADERS, APP_SCHEME, appContentType, appRequestTarget } from './app-protocol'
 import { createAgentEventBroker } from './agent-event-broker'
 import { createBrainDumpLibrary } from './brain-dump-library'
-import { hiddenProcessOptions } from './background-process'
 import { createBrainDumpCaptureManager, type BrainDumpCaptureManager } from './brain-dump-capture'
 import { createBrainDumpCaptureStore } from './brain-dump-capture-store'
 import { registerBrainDumpIpc } from './brain-dump-ipc'
@@ -75,6 +74,7 @@ import { githubStatusLabelsFor, type GithubStatusLabels } from '../shared/github
 import { registerAgentIpc } from './register-agent-ipc'
 import { registerWorktreeIpc } from './worktree-ipc'
 import { registerWorkspaceFileIpc } from './workspace-file-ipc'
+import { isAgentProvider } from '../shared/agent-provider'
 
 // Has to run before the app is ready, which is why it is here and not inside a function. The
 // privileges are what make the packaged renderer's origin behave like an HTTP one - a secure
@@ -100,40 +100,13 @@ function localCalendarDate(): string {
   return `${year}-${month}-${day}`
 }
 
-function findCommand(command: string): string | null {
-  const fallbacks = [
-    join(process.env.APPDATA ?? '', 'npm', `${command}.cmd`),
-    join(process.env.APPDATA ?? '', 'npm', `${command}.exe`),
-    join(app.getPath('home'), '.local', 'bin', `${command}.exe`),
-    join(app.getPath('home'), '.local', 'bin', `${command}.cmd`)
-  ]
-  try {
-    const output = execFileSync('where.exe', [command], hiddenProcessOptions({ encoding: 'utf8' }))
-    const matches = [
-      ...fallbacks.filter((path) => path && existsSync(path)),
-      ...output
-        .split(/\r?\n/)
-        .filter(Boolean)
-        .map((path) => path.trim())
-    ]
-    return (
-      matches.find((path) => {
-        if (path.includes('\\WindowsApps\\OpenAI.Codex_')) return false
-        return ['.exe', '.cmd', '.bat'].includes(extname(path).toLowerCase())
-      }) ?? null
-    )
-  } catch {
-    return fallbacks.find((path) => path && existsSync(path)) ?? null
-  }
-}
-
 function registerUsageIpc(usage: ProviderUsage): void {
   ipcMain.handle(USAGE_CHANNELS.rateLimits, (_event, options: unknown) => {
     const request = options as { force?: unknown; provider?: unknown } | undefined
     const provider = request?.provider
     return usage.read({
       force: Boolean(request?.force),
-      ...(provider === 'claude' || provider === 'codex' ? { provider } : {})
+      ...(isAgentProvider(provider) ? { provider } : {})
     })
   })
 }
@@ -269,9 +242,13 @@ void app.whenReady().then(async () => {
   const codexHome = process.env.CODEX_HOME ?? join(app.getPath('home'), '.codex')
   const brainDumpDirectory = join(app.getPath('userData'), 'brain-dumps')
   const agentEnvironment = { ...process.env, TOUCAN_BRAIN_DUMPS_DIR: brainDumpDirectory }
+  const commands = createCommandLookup({
+    fallbackDirectories: [join(process.env.APPDATA ?? '', 'npm'), join(app.getPath('home'), '.local', 'bin')]
+  })
   const terminalShell = createTerminalShell({
     environment: process.env,
-    resolveCommand: findCommand
+    // The one caller that cannot await: a shell is chosen inside a synchronous terminal create.
+    resolveCommand: (command) => commands.findSync(command)
   })
   const scrollback = createTerminalScrollbackStore({
     directory: join(app.getPath('userData'), 'terminal-scrollback')
@@ -381,7 +358,7 @@ void app.whenReady().then(async () => {
   )
   const brainDumpCapture = createBrainDumpCaptureManager({
     agent: {
-      create: (request, owner) => agentManager.create(request, owner as unknown as Electron.WebContents),
+      create: (request, owner) => agentManager.create(request, owner),
       prompt: (id, content) => agentManager.prompt(id, content),
       resolveApproval: (id, approvalId, optionId) => agentManager.resolveApproval(id, approvalId, optionId),
       cancel: (id) => agentManager.cancel(id),
@@ -478,7 +455,7 @@ void app.whenReady().then(async () => {
       codex: createCodexRateLimitReader({
         homeDirectory: app.getPath('home'),
         environment: process.env,
-        command: findCommand('codex'),
+        command: await commands.find('codex'),
         appPath: app.getAppPath(),
         appVersion: app.getVersion(),
         log: mainLog('codex usage')
@@ -565,7 +542,7 @@ void app.whenReady().then(async () => {
   registerDecisionDelegationIpc(ipcMain, decisionProviderInstalled)
   registerGithubIssuesIpc(
     ipcMain,
-    createGithubIssueReader({ resolveCommand: findCommand, statusLabelsFor: githubLabelsFor }),
+    createGithubIssueReader({ resolveCommand: (command) => commands.find(command), statusLabelsFor: githubLabelsFor }),
     containment
   )
   registerWorktreeIpc(ipcMain, worktrees, containment)

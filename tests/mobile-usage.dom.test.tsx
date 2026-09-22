@@ -194,7 +194,7 @@ describe('this conversation’s own usage', () => {
     })
   }
 
-  const IDLE: AgentEvent = { type: 'status', status: 'idle' }
+  const IDLE: AgentEvent = { type: 'status', status: 'ready' }
 
   beforeEach(() => {
     stubHost(USAGE)

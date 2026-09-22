@@ -2,7 +2,7 @@ import type { ChildProcessWithoutNullStreams } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { Readable, Writable } from 'node:stream'
-import { shell, type WebContents } from 'electron'
+import { shell } from 'electron'
 import {
   client,
   methods,
@@ -27,6 +27,7 @@ import type {
   AgentDecisionResponseContent,
   AgentEffortState,
   AgentEvent,
+  AgentEventEnvelope,
   AgentModeState,
   AgentMessagePresentation,
   AgentModelState,
@@ -72,6 +73,7 @@ import type { TerminalContextMcp } from './terminal-context-mcp'
 import type { SessionOutcomeIndexer, SessionOutcomeWatch } from './session-outcome-indexer'
 import { AGENT_CHANNELS } from '../shared/ipc-channels'
 import { openWebUrl } from './open-web-url'
+import type { WebContentsOwner } from './web-contents-owner'
 
 interface PendingApproval {
   optionIds: Set<string>
@@ -271,7 +273,7 @@ export function withSessionInstruction(
 
 interface RunningAgent {
   request: AgentCreateRequest
-  owner: WebContents
+  owner: AgentEventOwner
   process: ChildProcessWithoutNullStreams
   connection: ClientConnection
   context: ClientContext
@@ -765,7 +767,7 @@ export function promptFailure(
   return {
     events: [
       { type: 'turn_failed', turnId, message },
-      { type: 'status', status: 'idle' }
+      { type: 'status', status: 'ready' }
     ],
     result: { ok: false, message }
   }
@@ -789,7 +791,7 @@ export async function settleAgentTurn(
         response.stopReason === 'cancelled'
           ? { type: 'turn_cancelled', turnId, message: 'Stopped by you.' }
           : { type: 'turn_complete', stopReason: response.stopReason },
-        { type: 'status', status: 'idle' }
+        { type: 'status', status: 'ready' }
       ],
       result: { ok: true },
       authRequired: false
@@ -799,8 +801,11 @@ export async function settleAgentTurn(
   }
 }
 
+/** The renderer (or in-process stand-in) a live session pushes its event stream to. */
+export type AgentEventOwner = WebContentsOwner<AgentEventEnvelope>
+
 export interface AcpSessionManager {
-  create(request: AgentCreateRequest, owner: WebContents): Promise<AgentCreateResult>
+  create(request: AgentCreateRequest, owner: AgentEventOwner): Promise<AgentCreateResult>
   prompt(id: string, content: AgentPromptContent): Promise<AgentPromptResult>
   /**
    * Accepts or refuses a prompt without waiting for the turn it starts. `prompt`'s promise settles
@@ -834,7 +839,7 @@ export interface AcpSessionManager {
   recentWrites(): AgentFileWrite[]
   cancel(id: string): void
   kill(id: string): void
-  killOwned(owner: WebContents): void
+  killOwned(owner: AgentEventOwner): void
   killAll(): void
 }
 

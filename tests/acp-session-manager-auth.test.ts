@@ -53,7 +53,7 @@ test('does not treat an unrelated internal error carrying a different errorKind 
 
   assert.deepEqual(failure.events, [
     { type: 'turn_failed', turnId: 'rate-limit-turn', message: 'Internal error: rate limited' },
-    { type: 'status', status: 'idle' }
+    { type: 'status', status: 'ready' }
   ])
 })
 
@@ -62,7 +62,7 @@ test('keeps ordinary prompt failures visible and returns the conversation to idl
 
   assert.deepEqual(failure.events, [
     { type: 'turn_failed', turnId: 'provider-turn', message: 'Provider unavailable' },
-    { type: 'status', status: 'idle' }
+    { type: 'status', status: 'ready' }
   ])
   assert.deepEqual(failure.result, { ok: false, message: 'Provider unavailable' })
 })

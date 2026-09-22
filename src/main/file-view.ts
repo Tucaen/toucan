@@ -1,5 +1,5 @@
-import { open, rename, stat, unlink } from 'node:fs/promises'
-import { basename, dirname, join, resolve } from 'node:path'
+import { open, stat } from 'node:fs/promises'
+import { basename, dirname, resolve } from 'node:path'
 import { FILE_VIEW_CHANNELS } from '../shared/ipc-channels'
 import {
   FILE_VIEW_MAX_BYTES,
@@ -10,15 +10,15 @@ import {
 import { applyLineEnding, dominantLineEnding } from '../shared/line-endings'
 import { createWatchedDirectories, type WatchDirectory } from './watched-directories'
 import { createWorkspaceContainment, type WorkspaceContainmentOptions } from './workspace-containment'
+import { writeThroughTemporary } from './durable-file'
+import type { WebContentsOwner } from './web-contents-owner'
 import type { FileFormatResult, FileFormatter } from './file-formatter'
 
 /** How many leading bytes decide whether a file is text: a NUL in them means it is not. */
 const BINARY_PROBE_BYTES = 8 * 1024
 
-export interface FileViewOwner {
-  isDestroyed(): boolean
-  send(channel: string, path: string): void
-}
+/** A renderer watching open files; the payload is the path that changed. */
+export type FileViewOwner = WebContentsOwner<string>
 
 export interface FileView {
   read(path: string): Promise<FileReadResult>
@@ -206,18 +206,11 @@ export function createFileView(options: FileViewOptions): FileView {
         message: 'This file changed on disk while you were editing it, so your version was not written over it.'
       }
     }
-    const temporary = join(dirname(resolved), `.${basename(resolved)}.${process.pid}.${Date.now()}.tmp`)
     try {
-      const handle = await open(temporary, 'w', beforeWrite.mode)
-      try {
-        await handle.writeFile(output, 'utf8')
-        await handle.sync()
-      } finally {
-        await handle.close()
-      }
-      await rename(temporary, resolved)
+      // The mode carries the file's own permissions onto the replacement: a temp file created with
+      // the default would silently widen or narrow what the user had set on the file they edited.
+      await writeThroughTemporary(resolved, output, { mode: beforeWrite.mode })
     } catch (error) {
-      await unlink(temporary).catch(() => {})
       return { ok: false, reason: 'unwritable', message: (error as Error).message }
     }
     const written = await stat(resolved)

@@ -105,9 +105,10 @@ import {
   type AgentChatMessage,
   type AgentTranscriptEntry
 } from './use-agent-conversation'
+import type { AgentProvider } from '../../shared/agent-provider'
 
 interface FlatChatViewProps {
-  provider: 'claude' | 'codex'
+  provider: AgentProvider
   messages: AgentChatMessage[]
   activities: AgentActivity[]
   outcomes?: AgentTurnOutcome[]

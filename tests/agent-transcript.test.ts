@@ -39,7 +39,7 @@ test('folds a live turn: chunk accumulation, activity order, and final-message p
     { type: 'activity', activity: { id: 'call1', status: 'completed' } },
     message('assistant', 'a2', 'Fixed it.'),
     { type: 'turn_complete', stopReason: 'end_turn' },
-    { type: 'status', status: 'idle' }
+    { type: 'status', status: 'ready' }
   ])
 
   assert.equal(state.status, 'ready')
@@ -311,7 +311,7 @@ test('a stale approval_resolved does not clear a newer pending approval', () => 
 // precedence rule has one home: main wins for anything that crossed the seam.
 
 test('an optimistic prompt start is undone by its own failure when no main status event landed', () => {
-  const started = fold([{ type: 'status', status: 'idle' }, { type: 'local_prompt_started' }])
+  const started = fold([{ type: 'status', status: 'ready' }, { type: 'local_prompt_started' }])
   assert.equal(started.status, 'working')
 
   const failed = fold([{ type: 'local_prompt_failed', message: 'Could not read the workspace context.' }], started)
@@ -322,7 +322,7 @@ test('an optimistic prompt start is undone by its own failure when no main statu
 test('main status events outrank the optimistic working when the prompt failure settles (issue #156)', () => {
   const methods = [{ id: 'claude-ai-login', name: 'Claude Subscription', type: 'terminal' as const }]
   const authRequired = fold([
-    { type: 'status', status: 'idle' },
+    { type: 'status', status: 'ready' },
     { type: 'local_prompt_started' },
     { type: 'auth', methods },
     { type: 'status', status: 'auth_required', message: 'OAuth session expired' },
@@ -335,7 +335,7 @@ test('main status events outrank the optimistic working when the prompt failure 
   // Main can even re-report 'working' (the turn genuinely started); a late local failure verdict
   // must not undo a status main owns.
   const mainWorking = fold([
-    { type: 'status', status: 'idle' },
+    { type: 'status', status: 'ready' },
     { type: 'local_prompt_started' },
     { type: 'status', status: 'working' },
     { type: 'local_prompt_failed', message: 'turn failed late' }
@@ -346,10 +346,10 @@ test('main status events outrank the optimistic working when the prompt failure 
 
 test('an optimistic working then a main ready lands ready and stays there through the failure fold', () => {
   const state = fold([
-    { type: 'status', status: 'idle' },
+    { type: 'status', status: 'ready' },
     { type: 'local_prompt_started' },
     { type: 'turn_failed', turnId: 'turn-1', message: 'The provider rejected the turn.' },
-    { type: 'status', status: 'idle' },
+    { type: 'status', status: 'ready' },
     { type: 'local_prompt_failed', message: 'The provider rejected the turn.' }
   ])
   assert.equal(state.status, 'ready')
@@ -468,7 +468,7 @@ test('a main status reporting the session past auth clears stale methods and lin
   assert.equal(stillWaiting.authMethods.length, 1)
   assert.equal(stillWaiting.authLink, 'https://claude.ai/oauth/authorize?client_id=abc')
 
-  const recovered = fold([{ type: 'status', status: 'idle' }], waiting)
+  const recovered = fold([{ type: 'status', status: 'ready' }], waiting)
   assert.deepEqual(recovered.authMethods, [])
   assert.equal(recovered.authLink, null)
 })

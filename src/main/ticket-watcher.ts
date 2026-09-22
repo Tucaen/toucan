@@ -1,10 +1,9 @@
 import { TICKET_CHANNELS } from '../shared/ipc-channels'
 import { createWatchedDirectories, type WatchDirectory } from './watched-directories'
+import type { WebContentsOwner } from './web-contents-owner'
 
-export interface TicketChangeOwner {
-  isDestroyed(): boolean
-  send(channel: string, projectPath: string): void
-}
+/** A renderer watching ticket folders; the payload is the project path whose folder changed. */
+export type TicketChangeOwner = WebContentsOwner<string>
 
 export interface TicketChangeWatcher {
   /** Starts watching a project's tickets folder. Idempotent: the board calls it on every list. */

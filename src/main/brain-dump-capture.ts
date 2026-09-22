@@ -3,7 +3,7 @@ import { normalize, win32 } from 'node:path'
 import type {
   AgentCreateRequest,
   AgentCreateResult,
-  AgentEvent,
+  AgentEventEnvelope,
   AgentPromptContent,
   AgentPromptResult
 } from '../shared/agent'
@@ -16,14 +16,13 @@ import type {
   BrainDumpCaptureStartResult,
   BrainDumpCaptureState
 } from '../shared/brain-dump'
+import type { WebContentsOwner } from './web-contents-owner'
 
-export interface BrainDumpCaptureOwner {
-  isDestroyed(): boolean
-  send(channel: string, ...args: unknown[]): void
-}
+/** A renderer following a capture in flight; the payload is the capture state it renders. */
+export type BrainDumpCaptureOwner = WebContentsOwner<BrainDumpCaptureState>
 
 export interface BrainDumpCaptureAgent {
-  create(request: AgentCreateRequest, owner: BrainDumpCaptureOwner): Promise<AgentCreateResult>
+  create(request: AgentCreateRequest, owner: WebContentsOwner<AgentEventEnvelope>): Promise<AgentCreateResult>
   prompt(id: string, content: AgentPromptContent): Promise<AgentPromptResult>
   resolveApproval(id: string, approvalId: string, optionId?: string): void
   cancel(id: string): void
@@ -127,10 +126,9 @@ export function createBrainDumpCaptureManager(options: BrainDumpCaptureManagerOp
     }, options.finalAnswerGraceMs ?? DEFAULT_FINAL_ANSWER_GRACE_MS)
   }
 
-  const agentOwner: BrainDumpCaptureOwner = {
+  const agentOwner: WebContentsOwner<AgentEventEnvelope> = {
     isDestroyed: () => false,
-    send: (channel, value) => {
-      const envelope = value as { id?: string; event?: AgentEvent }
+    send: (channel, envelope) => {
       if (channel !== AGENT_CHANNELS.event || envelope.id !== activeId || !envelope.event) return
       const event = envelope.event
       if (event.type === 'session' && conversation) conversation = { ...conversation, conversationId: event.sessionId }

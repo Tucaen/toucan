@@ -296,14 +296,13 @@ export function foldAgentEvent(
 ): AgentTranscriptState {
   switch (event.type) {
     case 'status': {
-      const status = event.status === 'idle' ? 'ready' : event.status
       // A session main reports past auth ('ready'/'working') has no live sign-in cycle left; clear
       // its methods and link so no reader shows a stale panel. 'starting' must not clear them: it
       // is also the transient state mid-reauth, while the sign-in link has to stay actionable.
-      const authOver = status === 'ready' || status === 'working'
+      const authOver = event.status === 'ready' || event.status === 'working'
       return {
         ...state,
-        status,
+        status: event.status,
         statusOrigin: 'main',
         detail: event.message,
         ...(authOver ? { authMethods: [], authLink: null } : {})

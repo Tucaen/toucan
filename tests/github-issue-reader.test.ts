@@ -44,7 +44,7 @@ function reader(
     calls,
     reader: createGithubIssueReader({
       run,
-      resolveCommand: options.resolves ?? ((command) => command),
+      resolveCommand: async (command) => (options.resolves ?? ((name: string) => name))(command),
       pathExists: options.exists ?? (() => false),
       // Every test wants the commands it stubbed to actually run, not a probe cached by its neighbour.
       probeTtlMs: 0
@@ -144,7 +144,7 @@ test("the project's own in-progress label decides the column its issues land in"
   ])
   const asked: string[] = []
   const github = createGithubIssueReader({
-    resolveCommand: (command) => command,
+    resolveCommand: async (command) => command,
     pathExists: () => false,
     probeTtlMs: 0,
     run: async (_command, args) => ({ code: 0, stdout: args[0] === 'remote' ? REMOTES : labelled, stderr: '' }),
@@ -213,7 +213,7 @@ test('a shim with no native sibling is still tried, because refusing outright he
 test('a listing straight after a probe reuses it instead of re-asking the machine', async () => {
   const calls: Call[] = []
   const github = createGithubIssueReader({
-    resolveCommand: (command) => command,
+    resolveCommand: async (command) => command,
     pathExists: () => false,
     run: async (command, args, cwd) => {
       calls.push({ command, args, cwd })

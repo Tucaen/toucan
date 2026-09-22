@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, rename, rm, stat } from 'node:fs/promises'
+import { readFile, readdir, rm, stat } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { upsertFrontmatter } from '../shared/frontmatter'
 import type { TicketMutationResult, TicketRemovalResult, TicketSourceListResult } from '../shared/ticket-source'
@@ -6,7 +6,7 @@ import { EMPTY_TICKET_LISTING, ticketCard } from '../shared/ticket-source'
 import { errorMessage } from '../shared/text'
 import type { Ticket, TicketDiagnostic } from '../shared/tickets'
 import { isTicketSlug, isTicketStatus, readTicket } from '../shared/tickets'
-import { syncPromotedFile, writeNewFileDurably } from './durable-file'
+import { writeThroughTemporary } from './durable-file'
 
 /**
  * The files ticket source: it reads and writes the Markdown files in a project's tickets folder,
@@ -15,9 +15,10 @@ import { syncPromotedFile, writeNewFileDurably } from './durable-file'
  * an agent, an editor and the board all write the same folder without a reconciliation step.
  *
  * Deliberately not built on `brain-dump-library.ts`: that module knows about two collections, an
- * immutable archive and capture jobs, none of which a ticket has. The shape is copied; the code is
- * not shared. What *is* shared is `shared/frontmatter.ts` - through `readTicket` when listing, and
- * through `upsertFrontmatter` when writing a status back.
+ * immutable archive and capture jobs, none of which a ticket has. What the two do share is spelled
+ * as code rather than copied - `writeThroughTemporary` in `durable-file.ts` for the write, and
+ * `shared/frontmatter.ts` through `readTicket` when listing and `upsertFrontmatter` when writing a
+ * status back.
  *
  * Reading a file here cannot fail (see `shared/tickets.ts`), so the only diagnostics this source
  * ever produces are about the file rather than its contents: a name that is not an id, or bytes it
@@ -113,25 +114,6 @@ export function createTicketLibrary(options: TicketLibraryOptions): TicketLibrar
   }
 
   /**
-   * Writes beside the destination and promotes with a replacing rename, so a reader either sees
-   * the file as it was or as it now is - never a half-written one - and a failure anywhere leaves
-   * the folder exactly as it was found.
-   */
-  async function writeThroughTemporary(folder: string, slug: string, contents: string): Promise<void> {
-    const destination = join(folder, `${slug}.md`)
-    await mkdir(folder, { recursive: true })
-    const temporary = join(folder, `.${slug}.${process.pid}.${Date.now()}.tmp`)
-    try {
-      await writeNewFileDurably(temporary, contents)
-      await rename(temporary, destination)
-      await syncPromotedFile(destination, folder)
-    } catch (error) {
-      await rm(temporary, { force: true }).catch(() => {})
-      throw error
-    }
-  }
-
-  /**
    * Path identity rather than string equality: what may be deleted is a direct `.md` child of this
    * project's tickets folder, decided by resolving both ends - so no slug, however it was spelled
    * or normalized on the way in, can name a file anywhere else.
@@ -174,7 +156,7 @@ export function createTicketLibrary(options: TicketLibraryOptions): TicketLibrar
     const contents = upserted.markdown
     const rewritten: Ticket = readTicket(contents, slug)
     try {
-      await writeThroughTemporary(folder, slug, contents)
+      await writeThroughTemporary(join(folder, `${slug}.md`), contents)
     } catch (error) {
       return { ok: false, code: 'write-failed', message: errorMessage(error) }
     }

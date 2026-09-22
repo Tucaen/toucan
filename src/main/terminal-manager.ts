@@ -2,14 +2,23 @@ import { randomUUID } from 'node:crypto'
 import { isTerminalSize } from './ipc-validation'
 import { existsSync, statSync } from 'node:fs'
 import { normalize } from 'node:path'
-import type { TerminalCreateRequest, TerminalCreateResult, TerminalLiveness } from '../shared/terminal'
+import type {
+  TerminalCreateRequest,
+  TerminalCreateResult,
+  TerminalExit,
+  TerminalLiveness,
+  TerminalOutput
+} from '../shared/terminal'
 import type { ShellLaunch, TerminalShell } from './terminal-shell'
-import { sendTerminalEvent, type TerminalEventOwner } from './terminal-events'
+import { sendToOwner, type WebContentsOwner } from './web-contents-owner'
 import { errorMessage } from '../shared/text'
 import type { TerminalScrollbackStore } from './terminal-scrollback-store'
 import type { TerminalLivenessStore } from './terminal-liveness-store'
 import { TERMINAL_CHANNELS } from '../shared/ipc-channels'
 import { createTerminalOutputTails, type TerminalOutputRead, type TerminalReadOptions } from './terminal-output-tail'
+
+/** A renderer attached to a terminal; the payloads are the two events a session pushes at it. */
+export type TerminalEventOwner = WebContentsOwner<TerminalOutput | TerminalExit>
 
 export interface TerminalProcess {
   onData(listener: (data: string) => void): unknown
@@ -150,7 +159,7 @@ export function createTerminalManager(options: TerminalManagerOptions): Terminal
             outputTails.append(sessionId, incarnationId, data)
           }
           if (terminals.get(sessionId) === running && running.owner) {
-            sendTerminalEvent(running.owner, TERMINAL_CHANNELS.data, {
+            sendToOwner(running.owner, TERMINAL_CHANNELS.data, {
               sessionId,
               incarnationId,
               attachmentId: running.attachmentId,
@@ -166,7 +175,7 @@ export function createTerminalManager(options: TerminalManagerOptions): Terminal
           remember(sessionId, incarnationId, 'exited')
           options.scrollback?.flush(sessionId, incarnationId)
           if (running.owner)
-            sendTerminalEvent(running.owner, TERMINAL_CHANNELS.exit, {
+            sendToOwner(running.owner, TERMINAL_CHANNELS.exit, {
               sessionId,
               incarnationId,
               attachmentId: running.attachmentId,

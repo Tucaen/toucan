@@ -342,7 +342,7 @@ test('startPrompt reports delivery immediately and refuses a second prompt while
     manager.resolveApproval('node-1', approval.approvalId, 'allow')
     // The turn's own outcome arrives as events, which is the only channel a remote client has.
     await until(() => remote.find((event) => event.type === 'turn_complete'))
-    await until(() => remote.some((event) => event.type === 'status' && event.status === 'idle') || undefined)
+    await until(() => remote.some((event) => event.type === 'status' && event.status === 'ready') || undefined)
 
     // Idle again, so the same session accepts the next prompt.
     assert.deepEqual(manager.startPrompt('node-1', 'now this'), { ok: true })

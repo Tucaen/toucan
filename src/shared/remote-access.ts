@@ -16,6 +16,7 @@
 
 import { dominantUnreadKind, unreadAttentionByNode, type AttentionKind, type AttentionState } from './attention'
 import type { TerminalNodeStatus, WorkspaceState } from './terminal'
+import type { AgentProvider } from './agent-provider'
 
 /**
  * Well above the ephemeral range and unassigned by IANA, so it rarely collides on a dev machine.
@@ -75,7 +76,8 @@ export interface RemoteAccessAddress {
   host: string
 }
 
-export type RemoteChatKind = 'claude' | 'codex'
+/** A phone only ever sees agent chats, so a chat's kind is exactly its provider. */
+export type RemoteChatKind = AgentProvider
 
 /**
  * One agent chat as a phone shows it. Terminal nodes are excluded by design: a PTY stream is not

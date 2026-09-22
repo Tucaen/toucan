@@ -3,6 +3,7 @@ import type { AgentTranscriptState } from './agent-transcript'
 import type { ConversationProvider } from './conversation'
 import { generatedConversationTitle } from './conversation-title'
 import { parseFrontmatter } from './frontmatter'
+import { isAgentProvider } from './agent-provider'
 
 /**
  * The session outcome index's record: one compact Markdown file per conversation, describing what
@@ -547,7 +548,7 @@ export function parseSessionOutcome(markdown: string): SessionOutcomeRecord | nu
   const turns = Number(fields.get('turns'))
   const startedAt = fields.get('started')
   const updatedAt = fields.get('updated')
-  if ((provider !== 'claude' && provider !== 'codex') || !conversationId || !project) return null
+  if (!isAgentProvider(provider) || !conversationId || !project) return null
   if (!Number.isInteger(turns) || turns < 0 || !startedAt || !updatedAt) return null
   const worktreeId = fields.get('worktree')
   const status = fields.get('status')

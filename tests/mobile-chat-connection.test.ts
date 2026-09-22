@@ -178,7 +178,7 @@ function live(events: readonly AgentEvent[] = []): ChatConnectionState {
   return applyFrames(initialChatConnectionState(), [frame({ type: 'snapshot', state: foldAll(events) })])
 }
 
-const READY: AgentEvent[] = [{ type: 'status', status: 'idle' }]
+const READY: AgentEvent[] = [{ type: 'status', status: 'ready' }]
 
 test('an idle live session accepts a draft and clears it once the host confirms the turn', () => {
   const typed = draftChanged(live(READY), 'ship it')
@@ -530,7 +530,7 @@ test('arriving at a live chat is worth reporting, and a stream of chunks is not'
   // The turn ending is what raises a result on the canvas, so it is what a reader present for it
   // has to clear - and it is not the key they arrived on either, because the turn left something
   // behind that a reader arriving now would not have seen.
-  const finished = applyFrames(streaming, [frame({ type: 'event', event: { type: 'status', status: 'idle' } })])
+  const finished = applyFrames(streaming, [frame({ type: 'event', event: { type: 'status', status: 'ready' } })])
   assert.notEqual(readReportKey(finished), midTurn)
   assert.notEqual(readReportKey(finished), arrived)
 })
@@ -565,7 +565,7 @@ test('a whole turn that ran while the socket was down is not mistaken for nothin
       { type: 'status', status: 'working' },
       { type: 'message', role: 'assistant', messageId: 'a1', text: 'done while you were away' },
       { type: 'turn_complete', stopReason: 'end_turn' },
-      { type: 'status', status: 'idle' }
+      { type: 'status', status: 'ready' }
     ],
     foldAll(READY)
   )

@@ -1,11 +1,10 @@
 import { watch } from 'node:fs'
+import type { WebContentsOwner } from './web-contents-owner'
 
 const DEFAULT_DEBOUNCE_MS = 100
 
-export interface DirectoryChangeOwner {
-  isDestroyed(): boolean
-  send(channel: string, payload: string): void
-}
+/** A renderer watching folders; the payload is the path (or project path) that changed. */
+export type DirectoryChangeOwner = WebContentsOwner<string>
 
 export interface DirectoryWatcher {
   close(): void

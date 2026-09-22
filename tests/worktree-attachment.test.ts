@@ -8,6 +8,7 @@ import {
   adoptClaimedWorktrees,
   planWorktreeAdoptions
 } from '../src/renderer/src/worktree-attachment'
+import type { AgentProvider } from '../src/shared/agent-provider'
 
 const callbacks = {
   onStatusChange: () => {},
@@ -25,7 +26,7 @@ const WORKTREE_PATH = 'D:\\Development\\ADE-worktrees\\feature-thinking-final-pr
 function sessionNode(
   id: string,
   overrides: {
-    kind?: 'claude' | 'codex' | 'terminal'
+    kind?: AgentProvider | 'terminal'
     worktreeId?: string
     activeWorktreeId?: string
     activeWorktreeBranch?: string

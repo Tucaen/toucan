@@ -1,4 +1,5 @@
 import type { AgentActivity, AgentPermissionOption } from './agent'
+import type { AgentProvider } from './agent-provider'
 
 export type BrainDumpCollection = 'active' | 'archived'
 export type BrainDumpOutcome = 'implemented' | 'resolved' | 'rejected' | 'obsolete'
@@ -28,12 +29,12 @@ export interface BrainDumpListResult {
 
 export interface BrainDumpCaptureRequest {
   content: string
-  provider: 'claude' | 'codex'
+  provider: AgentProvider
   projectPath?: string
 }
 
 export interface BrainDumpCaptureConversation {
-  provider: 'claude' | 'codex'
+  provider: AgentProvider
   conversationId: string
   cwd: string
 }

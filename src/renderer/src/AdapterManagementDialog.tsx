@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { AgentProvider } from '../../shared/agent'
 import type { AdapterSnapshot, AdapterState } from '../../shared/adapter-management'
+import { AGENT_PROVIDERS } from '../../shared/agent-provider'
 
 function AdapterChoice({
   provider,
@@ -150,7 +151,7 @@ export function AdapterManagementDialog({ onClose }: { onClose(): void }): JSX.E
         </p>
         {!snapshot && !error && <p role="status">Reading adapter settings…</p>}
         {snapshot &&
-          (['claude', 'codex'] as const).map((provider) => (
+          AGENT_PROVIDERS.map((provider) => (
             <AdapterChoice
               key={provider}
               provider={provider}

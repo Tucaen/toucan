@@ -138,7 +138,7 @@ async function finishTurn(answer: string): Promise<void> {
   await act(async () => {
     mock.emit(NODE_ID, { type: 'message', role: 'assistant', messageId: 'assistant-current', text: answer })
     mock.emit(NODE_ID, { type: 'turn_complete', stopReason: 'end_turn' })
-    mock.emit(NODE_ID, { type: 'status', status: 'idle' })
+    mock.emit(NODE_ID, { type: 'status', status: 'ready' })
   })
 }
 
@@ -210,7 +210,7 @@ describe('chat node attention wiring', () => {
         text: 'Archiving notes.'
       })
       mock.emit(NODE_ID, { type: 'turn_complete', stopReason: 'end_turn' })
-      mock.emit(NODE_ID, { type: 'status', status: 'idle' })
+      mock.emit(NODE_ID, { type: 'status', status: 'ready' })
     })
 
     await waitFor(() => expect(countUnreadAttention(workspace.state())).toBe(1))
@@ -235,7 +235,7 @@ describe('chat node attention wiring', () => {
         text: 'Still working.'
       })
       mock.emit(NODE_ID, { type: 'turn_complete', stopReason: 'end_turn' })
-      mock.emit(NODE_ID, { type: 'status', status: 'idle' })
+      mock.emit(NODE_ID, { type: 'status', status: 'ready' })
     })
 
     expect(workspace.state()).toHaveLength(0)
@@ -264,7 +264,7 @@ describe('chat node attention wiring', () => {
         text: 'Still working.'
       })
       mock.emit(NODE_ID, { type: 'turn_complete', stopReason: 'end_turn' })
-      mock.emit(NODE_ID, { type: 'status', status: 'idle' })
+      mock.emit(NODE_ID, { type: 'status', status: 'ready' })
     })
 
     expect(reportAttention).not.toHaveBeenCalledWith(
@@ -358,7 +358,7 @@ describe('chat node attention wiring', () => {
     expect(workspace.state()[0].kind).toBe('auth')
 
     await act(async () => {
-      mock.emit(NODE_ID, { type: 'status', status: 'idle' })
+      mock.emit(NODE_ID, { type: 'status', status: 'ready' })
     })
     await waitFor(() => expect(workspace.state()).toHaveLength(0))
   })
@@ -399,7 +399,7 @@ describe('chat node attention wiring', () => {
         turnId: 'failed-turn',
         message: 'The provider connection closed before the turn completed.'
       })
-      mock.emit(NODE_ID, { type: 'status', status: 'idle' })
+      mock.emit(NODE_ID, { type: 'status', status: 'ready' })
     })
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Turn failed')
@@ -427,7 +427,7 @@ describe('chat node attention wiring', () => {
         turnId: 'cancelled-turn',
         message: 'Stopped by you.'
       })
-      mock.emit(NODE_ID, { type: 'status', status: 'idle' })
+      mock.emit(NODE_ID, { type: 'status', status: 'ready' })
     })
 
     expect(await screen.findByText('Turn cancelled')).toBeInTheDocument()

@@ -28,6 +28,8 @@ import { ADOPTION_BOUNDARY } from './worktree-attachment'
  * so the action stays behind an allow-list until each provider is verified - both by
  * `scripts/verify-session-fork.mjs <provider>` (Claude for #200, Codex for #205).
  */
+// Deliberately not `AGENT_PROVIDERS`: this list is the verification record, so a provider Toucan
+// gains is unbranchable until someone has run the script against it and added it here.
 export const BRANCHABLE_PROVIDERS: readonly TerminalKind[] = ['claude', 'codex']
 
 /** The little of a node this decision reads, so a rendering node can ask without being one. */

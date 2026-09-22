@@ -1,4 +1,4 @@
-import { link, mkdir, readFile, readdir, rename, rm, unlink } from 'node:fs/promises'
+import { link, readFile, readdir, unlink } from 'node:fs/promises'
 import { isAbsolute, join, normalize, win32 } from 'node:path'
 import type {
   BrainDumpLibraryApi,
@@ -11,7 +11,7 @@ import type {
 } from '../shared/brain-dump'
 import { BRAIN_DUMP_OUTCOMES, isBrainDumpSlug } from '../shared/brain-dump'
 import { parseFrontmatter, rewriteFrontmatter } from '../shared/frontmatter'
-import { pathExists, syncPromotedFile, writeNewFileDurably } from './durable-file'
+import { pathExists, writeThroughTemporary } from './durable-file'
 
 export interface BrainDumpLibraryOptions {
   rootDirectory: string
@@ -147,32 +147,6 @@ export function createBrainDumpLibrary(options: BrainDumpLibraryOptions): BrainD
     return transformed
   }
 
-  /**
-   * Writes `contents` beside its destination and hands the finished temp file to `promote`, which
-   * is the only thing the two mutation shapes disagree about: a move between collections must
-   * refuse a destination that already exists, an in-place rewrite must replace one. A failure at
-   * any point leaves no temp file behind and the destination as it was.
-   */
-  async function writeThroughTemporary(
-    collection: BrainDumpCollection,
-    slug: string,
-    contents: string,
-    promote: (temporary: string, destination: string) => Promise<void>
-  ): Promise<void> {
-    const folder = directory(collection)
-    const destination = pathFor(collection, slug)
-    await mkdir(folder, { recursive: true })
-    const temporary = join(folder, `.${slug}.${process.pid}.${Date.now()}.tmp`)
-    try {
-      await writeNewFileDurably(temporary, contents)
-      await promote(temporary, destination)
-      await syncPromotedFile(destination, folder)
-    } catch (error) {
-      await rm(temporary, { force: true }).catch(() => {})
-      throw error
-    }
-  }
-
   async function move(
     slug: string,
     sourceCollection: BrainDumpCollection,
@@ -193,11 +167,13 @@ export function createBrainDumpLibrary(options: BrainDumpLibraryOptions): BrainD
       return { ok: false, code: 'malformed-source', message: (error as Error).message }
     }
     try {
-      await writeThroughTemporary(destinationCollection, slug, transformed, async (temporary, destination) => {
-        // A hard-link promotion is atomic and refuses an externally-created destination. A plain
-        // rename would overwrite on POSIX, defeating the conflict guarantee between check and move.
-        await link(temporary, destination)
-        await unlink(temporary)
+      await writeThroughTemporary(pathFor(destinationCollection, slug), transformed, {
+        promote: async (temporary, destination) => {
+          // A hard-link promotion is atomic and refuses an externally-created destination. A plain
+          // rename would overwrite on POSIX, defeating the conflict guarantee between check and move.
+          await link(temporary, destination)
+          await unlink(temporary)
+        }
       })
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code === 'EEXIST' ? 'destination-exists' : 'write-failed'
@@ -231,9 +207,7 @@ export function createBrainDumpLibrary(options: BrainDumpLibraryOptions): BrainD
       return { ok: false, code: 'malformed-source', message: (error as Error).message }
     }
     try {
-      await writeThroughTemporary('active', slug, transformed, (temporary, destination) =>
-        rename(temporary, destination)
-      )
+      await writeThroughTemporary(pathFor('active', slug), transformed)
     } catch (error) {
       return { ok: false, code: 'write-failed', message: (error as Error).message }
     }

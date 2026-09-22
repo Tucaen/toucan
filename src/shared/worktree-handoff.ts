@@ -1,4 +1,5 @@
 import type { AgentMessagePresentation } from './agent'
+import type { AgentProvider } from './agent-provider'
 
 /**
  * The rule that decides whether a submitted prompt should start its own worktree instead of
@@ -59,7 +60,7 @@ export function planWorktreeHandoff(
     hasHistory: boolean
     /** A session already running in a worktree is where this work belongs; it stays put. */
     alreadyInWorktree: boolean
-    provider: 'claude' | 'codex'
+    provider: AgentProvider
   }
 ): WorktreeHandoffPlan | null {
   if (context.alreadyInWorktree) return null

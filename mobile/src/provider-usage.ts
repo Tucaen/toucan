@@ -1,4 +1,4 @@
-import type { AgentProvider, ProviderUsageReport } from '../../src/shared/agent'
+import { AGENT_PROVIDERS, type AgentProvider, type ProviderUsageReport } from '../../src/shared/agent'
 import {
   accountUsageLevel,
   describeRateLimitWindows,
@@ -49,7 +49,7 @@ export interface ProviderUsageCard {
 }
 
 /** Fixed, so a poll that drops and restores a provider never reshuffles the row under a thumb. */
-const PROVIDER_ORDER: readonly AgentProvider[] = ['claude', 'codex']
+const PROVIDER_ORDER = AGENT_PROVIDERS
 
 export function describeProviderUsage(report: ProviderUsageReport, now: number = Date.now()): ProviderUsageCard[] {
   const cards: ProviderUsageCard[] = []

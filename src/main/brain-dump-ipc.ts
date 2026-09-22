@@ -1,23 +1,24 @@
 import type { BrainDumpLibraryApi, BrainDumpOutcome } from '../shared/brain-dump'
 import type { BrainDumpCaptureManager, BrainDumpCaptureOwner } from './brain-dump-capture'
-import type { BrainDumpChangeWatcher } from './brain-dump-watcher'
+import type { BrainDumpChangeOwner, BrainDumpChangeWatcher } from './brain-dump-watcher'
 import type { IpcRegistrar } from './ipc-registrar'
 import { BRAIN_DUMP_CHANNELS } from '../shared/ipc-channels'
+import { isAgentProvider, type AgentProvider } from '../shared/agent-provider'
 
-function captureRequest(
-  value: unknown
-): value is { content: string; provider: 'claude' | 'codex'; projectPath?: string } {
+function captureRequest(value: unknown): value is { content: string; provider: AgentProvider; projectPath?: string } {
   if (!value || typeof value !== 'object') return false
   const request = value as Record<string, unknown>
   return (
     typeof request.content === 'string' &&
-    (request.provider === 'claude' || request.provider === 'codex') &&
+    isAgentProvider(request.provider) &&
     (request.projectPath === undefined || typeof request.projectPath === 'string')
   )
 }
 
 export function registerBrainDumpIpc(
-  ipc: IpcRegistrar<BrainDumpCaptureOwner>,
+  // This surface pushes two different payloads at the same renderer: capture state and the
+  // collection a watcher saw change. Both, so neither call site needs a cast.
+  ipc: IpcRegistrar<BrainDumpCaptureOwner & BrainDumpChangeOwner>,
   library: BrainDumpLibraryApi,
   capture: BrainDumpCaptureManager,
   changes: BrainDumpChangeWatcher

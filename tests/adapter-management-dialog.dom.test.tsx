@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { describe, expect, it, vi } from 'vitest'
 import type { AdapterSnapshot } from '../src/shared/adapter-management'
 import { AdapterManagementDialog } from '../src/renderer/src/AdapterManagementDialog'
+import type { AgentProvider } from '../src/shared/agent-provider'
 
 describe('adapter management', () => {
   it('checks published versions, explicitly selects one, and offers the bundled fallback', async () => {
@@ -9,7 +10,7 @@ describe('adapter management', () => {
       claude: { bundledVersion: '0.73.0', selectedVersion: null, installedVersions: [], phase: 'idle' },
       codex: { bundledVersion: '1.8.0', selectedVersion: null, installedVersions: [], phase: 'idle' }
     }
-    const select = vi.fn(async (provider: 'claude' | 'codex', version: string | null) => {
+    const select = vi.fn(async (provider: AgentProvider, version: string | null) => {
       state[provider].selectedVersion = version
       return structuredClone(state)
     })

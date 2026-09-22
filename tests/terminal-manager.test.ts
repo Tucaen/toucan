@@ -409,3 +409,42 @@ test('a terminal this manager never started reads as nothing, and a retired one 
   manager.forgetSession('shell')
   assert.equal(manager.readOutput('agent-1', 'shell'), undefined)
 })
+
+test('a renderer that has been destroyed is never sent terminal output or an exit', () => {
+  const processes: Array<{ data?: (value: string) => void; exit?: (event: { exitCode: number }) => void }> = []
+  let sendCount = 0
+  const manager = createTerminalManager({
+    shell: createTerminalShell({ environment: {}, resolveCommand: () => 'pwsh.exe' }),
+    pathExists: () => true,
+    pathIsDirectory: () => true,
+    createIncarnationId: () => 'inc-1',
+    spawn: () => {
+      const record: (typeof processes)[number] = {}
+      processes.push(record)
+      return {
+        onData: (listener) => {
+          record.data = listener
+        },
+        onExit: (listener) => {
+          record.exit = listener
+        },
+        write: () => undefined,
+        resize: () => undefined,
+        kill: () => undefined
+      }
+    }
+  })
+  // A destroyed `WebContents` throws on `send` rather than ignoring it, so this stands in for one.
+  const owner = {
+    isDestroyed: () => true,
+    send: () => {
+      sendCount += 1
+      throw new TypeError('Object has been destroyed')
+    }
+  }
+
+  manager.create({ id: 'node', sessionId: 'session', kind: 'terminal', cols: 80, rows: 24, cwd: 'D:\\Toucan' }, owner)
+  assert.doesNotThrow(() => processes[0].data?.('late output'))
+  assert.doesNotThrow(() => processes[0].exit?.({ exitCode: 0 }))
+  assert.equal(sendCount, 0)
+})

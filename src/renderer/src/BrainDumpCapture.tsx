@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { WorkspaceProject } from '../../shared/terminal'
 import VoiceInput, { type VoiceState } from './VoiceInput'
+import type { AgentProvider } from '../../shared/agent-provider'
 
 /**
  * The shared review tray. Both capture buttons land here and differ only in how the first words
@@ -24,7 +25,7 @@ const microphoneStateLabels: Record<VoiceState, string> = {
 export interface BrainDumpCaptureProps {
   draft: string
   projectPath?: string
-  provider: 'claude' | 'codex'
+  provider: AgentProvider
   projects: readonly WorkspaceProject[]
   /** True when the tray was opened by the microphone button, which starts dictation immediately. */
   microphone: boolean
@@ -35,7 +36,7 @@ export interface BrainDumpCaptureProps {
   focusSignal: number
   onDraftChange(text: string): void
   onProjectChange(projectPath: string | undefined): void
-  onProviderChange(provider: 'claude' | 'codex'): void
+  onProviderChange(provider: AgentProvider): void
   onSubmit(): void
   onDiscard(): void
   onClose(): void
