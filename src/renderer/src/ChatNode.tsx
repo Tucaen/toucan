@@ -1321,7 +1321,7 @@ export default function ChatNode({ id, data, selected, width }: NodeProps<Termin
       className={`terminal-node chat-node ${selected ? 'selected' : ''}`}
       style={
         {
-          '--node-accent': provider === 'claude' ? 'var(--claude)' : '#71a9ff',
+          '--node-accent': provider === 'claude' ? 'var(--claude)' : 'var(--codex)',
           '--project-color': data.projectColor
         } as React.CSSProperties
       }
