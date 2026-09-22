@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { describe, test } from 'node:test'
+import { isDeepStrictEqual } from 'node:util'
 import { createAgentModelCatalogueStore } from '../src/main/agent-model-catalogue-store'
 import {
   catalogueOffers,
@@ -25,21 +26,38 @@ const CLAUDE = [
   { id: 'sonnet', name: 'Sonnet' },
   { id: 'opus', name: 'Opus', description: 'The slow careful one' }
 ]
+const CODEX = [{ id: 'gpt-5-codex', name: 'GPT-5 Codex' }]
 
 function storePath(): string {
   return join(mkdtempSync(join(tmpdir(), 'toucan-model-catalogue-')), 'agent-models.json')
 }
 
-/** The store writes behind a promise it does not hand back; this waits for the file to appear. */
-async function settled(path: string): Promise<unknown> {
-  for (let attempt = 0; attempt < 50; attempt += 1) {
+/**
+ * Polls `read` until it equals `expected`. The store writes and loads behind promises it does not
+ * hand back, so there is nothing to await - but waiting for the *value* is a settle condition,
+ * where a fixed sleep only decides how often the suite is wrong on a loaded machine.
+ */
+async function settlesTo(read: () => unknown, expected: unknown): Promise<void> {
+  let last: unknown = 'nothing readable yet'
+  for (let attempt = 0; attempt < 400; attempt += 1) {
     try {
-      return JSON.parse(readFileSync(path, 'utf8')) as unknown
+      last = read()
+      if (isDeepStrictEqual(last, expected)) return
     } catch {
-      await delay(10)
+      // No file yet, or a write mid-rename; both are answered by looking again.
     }
+    await delay(5)
   }
-  throw new Error(`nothing was written to ${path}`)
+  // Assert rather than throw, so a timeout reports both sides instead of only the deadline.
+  assert.deepEqual(last, expected)
+}
+
+/**
+ * The file is the observable that lags: a `record` updates the in-memory mirror synchronously, so
+ * once the read-modify-write has landed on disk the store's own load has resolved too.
+ */
+function fileSettlesTo(path: string, expected: unknown): Promise<void> {
+  return settlesTo(() => JSON.parse(readFileSync(path, 'utf8')) as unknown, expected)
 }
 
 describe('reading a catalogue', () => {
@@ -88,31 +106,37 @@ describe('remembering what a session advertised', () => {
   test('what one session advertised outlives it, and outlives the process', async () => {
     const path = storePath()
     createAgentModelCatalogueStore({ path }).record('claude', CLAUDE)
-    assert.deepEqual(await settled(path), { claude: CLAUDE })
+    await fileSettlesTo(path, { claude: CLAUDE })
 
-    // The whole reason this is on disk: a phone asks a desktop that has restarted since.
+    // The whole reason this is on disk: a phone asks a desktop that has restarted since. Here the
+    // mirror is what lags - a reopened store has no write of its own to wait for.
     const reopened = createAgentModelCatalogueStore({ path })
-    await delay(20)
-    assert.deepEqual(reopened.read(), { claude: CLAUDE })
+    await settlesTo(() => reopened.read(), { claude: CLAUDE })
   })
 
   test('a session that advertised nothing is not evidence the provider offers nothing', async () => {
     const path = storePath()
     const store = createAgentModelCatalogueStore({ path })
     store.record('claude', CLAUDE)
-    await settled(path)
+    await fileSettlesTo(path, { claude: CLAUDE })
+
+    // An empty list is dropped where it arrives, so the mirror is right on the next line already.
     store.record('claude', [])
-    await delay(20)
     assert.deepEqual(store.read(), { claude: CLAUDE })
+    // Nothing can be awaited for a write that must never happen, so a later record is the barrier:
+    // once codex is on disk, anything the empty list might have written would have landed first.
+    store.record('codex', CODEX)
+    await fileSettlesTo(path, { claude: CLAUDE, codex: CODEX })
   })
 
   test('one provider advertising does not disturb the other', async () => {
     const path = storePath()
     const store = createAgentModelCatalogueStore({ path })
     store.record('claude', CLAUDE)
-    store.record('codex', [{ id: 'gpt-5-codex', name: 'GPT-5 Codex' }])
-    await delay(20)
-    assert.deepEqual(store.read(), { claude: CLAUDE, codex: [{ id: 'gpt-5-codex', name: 'GPT-5 Codex' }] })
+    store.record('codex', CODEX)
+
+    assert.deepEqual(store.read(), { claude: CLAUDE, codex: CODEX })
+    await fileSettlesTo(path, { claude: CLAUDE, codex: CODEX })
   })
 
   test('a record that lands before the first disk read keeps the other provider on disk', async () => {
@@ -122,25 +146,25 @@ describe('remembering what a session advertised', () => {
     // read-modify-write against the file for that reason.
     const path = storePath()
     const seeded = createAgentModelCatalogueStore({ path })
-    seeded.record('codex', [{ id: 'gpt-5-codex', name: 'GPT-5 Codex' }])
-    await settled(path)
+    seeded.record('codex', CODEX)
+    await fileSettlesTo(path, { codex: CODEX })
 
     const store = createAgentModelCatalogueStore({ path })
     store.record('claude', CLAUDE)
-    await delay(20)
-    assert.deepEqual(await settled(path), { codex: [{ id: 'gpt-5-codex', name: 'GPT-5 Codex' }], claude: CLAUDE })
-    assert.deepEqual(store.read(), { codex: [{ id: 'gpt-5-codex', name: 'GPT-5 Codex' }], claude: CLAUDE })
+    await fileSettlesTo(path, { codex: CODEX, claude: CLAUDE })
+    assert.deepEqual(store.read(), { codex: CODEX, claude: CLAUDE })
   })
 
   test('a record that lands before the first disk read is the newer one and wins', async () => {
     const path = storePath()
     createAgentModelCatalogueStore({ path }).record('claude', [{ id: 'old', name: 'Old' }])
-    await settled(path)
+    await fileSettlesTo(path, { claude: [{ id: 'old', name: 'Old' }] })
 
     // A fresh store is constructed and written to in the same tick, before its own load resolves.
+    // The file reaching the new list is what proves that load has since resolved and lost.
     const store = createAgentModelCatalogueStore({ path })
     store.record('claude', CLAUDE)
-    await delay(20)
+    await fileSettlesTo(path, { claude: CLAUDE })
     assert.deepEqual(store.read(), { claude: CLAUDE })
   })
 })
