@@ -115,6 +115,23 @@ describe('remembering what a session advertised', () => {
     assert.deepEqual(store.read(), { claude: CLAUDE, codex: [{ id: 'gpt-5-codex', name: 'GPT-5 Codex' }] })
   })
 
+  test('a record that lands before the first disk read keeps the other provider on disk', async () => {
+    // The mirror `read` answers from is empty until the first load resolves, so writing it whole
+    // in that window would publish a file holding only the provider just recorded - the other
+    // one's list gone from disk until something happened to re-record it. The write is a
+    // read-modify-write against the file for that reason.
+    const path = storePath()
+    const seeded = createAgentModelCatalogueStore({ path })
+    seeded.record('codex', [{ id: 'gpt-5-codex', name: 'GPT-5 Codex' }])
+    await settled(path)
+
+    const store = createAgentModelCatalogueStore({ path })
+    store.record('claude', CLAUDE)
+    await delay(20)
+    assert.deepEqual(await settled(path), { codex: [{ id: 'gpt-5-codex', name: 'GPT-5 Codex' }], claude: CLAUDE })
+    assert.deepEqual(store.read(), { codex: [{ id: 'gpt-5-codex', name: 'GPT-5 Codex' }], claude: CLAUDE })
+  })
+
   test('a record that lands before the first disk read is the newer one and wins', async () => {
     const path = storePath()
     createAgentModelCatalogueStore({ path }).record('claude', [{ id: 'old', name: 'Old' }])

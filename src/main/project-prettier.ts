@@ -3,7 +3,7 @@ import { access } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { LineEnding } from '../shared/line-endings'
 import { withStallGuard } from '../shared/stall-guard'
-import { hiddenWindowsPreloadOption } from './agent-process'
+import { agentRuntimeEnvironment, hiddenWindowsPreloadOption } from './agent-process'
 import { hiddenProcessOptions } from './background-process'
 import { directoriesUpTo } from './workspace-containment'
 
@@ -87,13 +87,10 @@ export function createProjectPrettier(options: ProjectPrettierOptions = {}): Pro
       ['-e', CHILD_PROGRAM, installed, path, lineEnding],
       hiddenProcessOptions({
         cwd: installed,
-        env: {
-          ...process.env,
-          // `ELECTRON_RUN_AS_NODE` is what makes Toucan's own binary usable as the Node the
-          // project's Prettier runs on, so this needs nothing installed beside the app.
-          ELECTRON_RUN_AS_NODE: '1',
-          NODE_OPTIONS: [process.env.NODE_OPTIONS?.trim(), hiddenWindowsPreloadOption].filter(Boolean).join(' ')
-        },
+        // The adapter runtime, for the same two reasons an ACP adapter needs it: Toucan's own
+        // binary has to run as Node (so this needs nothing installed beside the app), and the
+        // hidden-window policy has to reach whatever the configuration spawns itself.
+        env: agentRuntimeEnvironment(process.env, hiddenWindowsPreloadOption),
         stdio: ['pipe', 'pipe', 'pipe'] as ['pipe', 'pipe', 'pipe']
       })
     )

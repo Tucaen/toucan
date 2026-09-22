@@ -369,8 +369,10 @@ button.global-status-chip:hover {
 }
 
 /* Where "now" sits between the window's start and its reset: the marker walks left to right and
-   reaches the right edge when the reset is due. It overshoots the track on both sides on purpose,
-   and carries a dark outline so it stays visible on the warning/critical fills too. */
+   reaches the right edge when the reset is due. It overshoots the track on both sides on purpose.
+   No outline ring: it only rendered where the marker overlapped the fill, which made the very same
+   2px marker read as noticeably thicker on some windows than on others. The light marker colour
+   carries enough contrast against the warning/critical fills on its own. */
 .usage-window-reset {
   position: absolute;
   top: -3px;
@@ -378,7 +380,6 @@ button.global-status-chip:hover {
   width: 2px;
   border-radius: 1px;
   background: #c8d2e0;
-  box-shadow: 0 0 0 1px rgba(10, 13, 18, 0.55);
   transform: translateX(-50%);
   pointer-events: none;
 }

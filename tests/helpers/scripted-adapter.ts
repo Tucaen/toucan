@@ -1,5 +1,7 @@
+import type { ChildProcessWithoutNullStreams } from 'node:child_process'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { PassThrough } from 'node:stream'
 
 export type AdapterPackage = 'claude-agent-acp' | 'codex-acp'
 
@@ -15,6 +17,22 @@ export function installAdapterStub(appPath: string, adapter: AdapterPackage): vo
   writeFileSync(join(adapterDistDirectory(appPath, adapter), 'index.js'), '')
 }
 
+/**
+ * A child process that is wired but answers nothing: `create` gets its three streams, spawns, and
+ * then parks on the `initialize` handshake forever. That parked state is the window a launch is
+ * observable in, and the window a spawn failure lands in.
+ */
+export function stubAdapterChild(): ChildProcessWithoutNullStreams {
+  const child = new PassThrough() as unknown as ChildProcessWithoutNullStreams & { kill(): boolean }
+  Object.assign(child, {
+    stdin: new PassThrough(),
+    stdout: new PassThrough(),
+    stderr: new PassThrough(),
+    kill: () => true
+  })
+  return child
+}
+
 export interface ScriptedAdapter {
   /** JavaScript run once at start-up, after `send` is defined and before any request arrives. */
   prelude?: string
@@ -22,6 +40,8 @@ export interface ScriptedAdapter {
   handleRequest: string
   /** Extra `agentCapabilities` merged into the `initialize` answer; `loadSession: true` stays. */
   agentCapabilities?: Record<string, unknown>
+  /** The `initialize` answer's top-level `_meta`, where the steering extension is advertised. */
+  meta?: Record<string, unknown>
 }
 
 /**
@@ -46,7 +66,8 @@ lines.on('line', (line) => {
     send({ jsonrpc: '2.0', id: request.id, result: {
       protocolVersion: 1,
       agentCapabilities: Object.assign({ loadSession: true }, ${JSON.stringify(script.agentCapabilities ?? {})}),
-      authMethods: []
+      authMethods: [],
+      _meta: ${JSON.stringify(script.meta ?? {})}
     } })
   } else {
     handleRequest(request)

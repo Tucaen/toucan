@@ -303,7 +303,17 @@ interface RunningAgent {
   forkSupport: boolean
   /** Whether the adapter can inject a prompt into the active turn at its own safe boundary. */
   steeringSupport: boolean
+  /** The conversation this agent is *running*: set only once `session/new` or `session/load` has
+   *  answered, because every caller reads it as "there is a session to prompt". */
   sessionId?: string
+  /**
+   * The child `session/fork` produced, which is a transcript on disk rather than a live session -
+   * so it is deliberately not `sessionId`. Kept because the load that follows can fail (needing an
+   * account is the normal way), and the reopen must load this child rather than copy the parent
+   * again: two forked transcripts, the first orphaned, and a node on a conversation id nobody was
+   * told about. Only the fork branch of `openSession` reads it.
+   */
+  forkedSessionId?: string
   modelConfigId?: string
   effortConfigId?: string
   cachedEfforts?: AgentEffortState
@@ -427,26 +437,67 @@ export function promptGuard(running: { authRequired: boolean }): AgentPromptResu
   return { ok: false, message: 'Sign in to Claude to continue this conversation.' }
 }
 
-type SteeringResponse = { outcome?: 'injected' | 'startedNewTurn' | 'failed' }
+type SteeringResponse = { outcome?: 'injected' | 'startedNewTurn' | 'promptRequired' | 'failed' }
+
+/**
+ * Toucan's answer to the race inherent in steering: the turn can end between `promptWhenIdle`'s
+ * `running.busy` check and the steering round trip. This opt-in asks the adapter to leave such a
+ * follow-up host-owned - claude-agent-acp answers `promptRequired` without pushing the content
+ * anywhere - so the prompt can go back through the one path that owns a turn lifecycle. An adapter
+ * that does not honour it (codex-acp ignores the `_meta` entirely) starts a detached turn instead
+ * and answers `startedNewTurn`.
+ */
+const STEERING_IDLE_BEHAVIOR = { steering: { idleBehavior: 'promptRequired' } } as const
+
+/**
+ * The refusal for a steering call the adapter answered by starting a turn of its own. It is a
+ * delivery *failure* rather than an `ok`, because Toucan owns no part of that turn: there is no
+ * `session/prompt` response for `settleAgentTurn` to wait on and neither adapter notifies a turn
+ * boundary, so accepting it would leave `running.busy` false, publish no `status: 'working'` and
+ * no `turn_complete` - both surfaces reading ready for the whole turn, the outcome indexer missing
+ * the boundary, and `beginTurn` free to accept a second concurrent prompt. Re-running it through
+ * `runPrompt` is not available either: the content was already delivered, so the wording says so
+ * and leaves the resend to the user.
+ */
+const STEERING_STARTED_NEW_TURN: AgentPromptResult = {
+  ok: false,
+  message:
+    'The turn ended before this could be queued, and the agent started a new turn with it that Toucan is not tracking. Check the transcript before sending it again.'
+}
+
+/**
+ * What one steering round trip settled on. Three outcomes rather than a boolean, because the
+ * continuations genuinely differ: an injected message is accepted here, a host-owned one has to be
+ * re-run as a turn of its own, and everything else is a refusal whose wording a phone shows
+ * verbatim.
+ */
+type SteeredDelivery =
+  { outcome: 'injected' } | { outcome: 'promptRequired' } | { outcome: 'refused'; result: AgentPromptResult }
 
 /**
  * Injects a queued message into an in-flight ACP turn via the adapter's steering extension.
  * @internal exported for tests
  */
 export async function deliverSteeredPrompt(
-  request: (method: string, params: { sessionId: string; prompt: ContentBlock[] }) => Promise<SteeringResponse>,
+  request: (
+    method: string,
+    params: { sessionId: string; prompt: ContentBlock[]; _meta: typeof STEERING_IDLE_BEHAVIOR }
+  ) => Promise<SteeringResponse>,
   sessionId: string,
   content: AgentPromptContent
-): Promise<AgentPromptResult> {
+): Promise<SteeredDelivery> {
   try {
     const response = await request('_session/steering', {
       sessionId,
-      prompt: toPromptBlocks(content) as ContentBlock[]
+      prompt: toPromptBlocks(content) as ContentBlock[],
+      _meta: STEERING_IDLE_BEHAVIOR
     })
-    if (response.outcome === 'injected' || response.outcome === 'startedNewTurn') return { ok: true }
-    return { ok: false, message: 'The agent could not accept the queued message.' }
+    if (response.outcome === 'injected') return { outcome: 'injected' }
+    if (response.outcome === 'promptRequired') return { outcome: 'promptRequired' }
+    if (response.outcome === 'startedNewTurn') return { outcome: 'refused', result: STEERING_STARTED_NEW_TURN }
+    return { outcome: 'refused', result: { ok: false, message: 'The agent could not accept the queued message.' } }
   } catch (error) {
-    return { ok: false, message: errorMessage(error) }
+    return { outcome: 'refused', result: { ok: false, message: errorMessage(error) } }
   }
 }
 
@@ -775,9 +826,10 @@ export interface AcpSessionManager {
   resolveApproval(id: string, approvalId: string, optionId?: string): AgentPromptResult
   resolveElicitation(id: string, requestId: string, content?: AgentDecisionResponseContent): AgentPromptResult
   /**
-   * Which live session recently changed which file, newest last per session. Toucan observes every
-   * tool call anyway, so this is the one record of authorship it can keep; `ticket-steering.ts`
-   * reads it to decide whose ticket file the board could not parse.
+   * Every live session's `AgentFileWrite`s (that type's docblock carries what one is), newest last
+   * per session and bounded per session by `RECENT_WRITE_LIMIT`. Live writes only: a `session/load`
+   * replay describes what a conversation once did, not what is on disk now. `ticket-steering.ts`
+   * reads this to decide whose ticket file the board could not parse.
    */
   recentWrites(): AgentFileWrite[]
   cancel(id: string): void
@@ -821,11 +873,19 @@ function recordWrittenLocations(
   update: { kind?: string | null; locations?: ReadonlyArray<{ path: string }> | null }
 ): string[] {
   if (!isFileWritingToolKind(update.kind) || !update.locations?.length) return []
-  const at = nextWriteStamp()
   const written = update.locations.map((location) => resolve(running.request.cwd, location.path))
-  for (const path of written) running.recentWrites.push({ path, at })
-  if (running.recentWrites.length > RECENT_WRITE_LIMIT) {
-    running.recentWrites.splice(0, running.recentWrites.length - RECENT_WRITE_LIMIT)
+  // The ring is read as "this session produced what is on disk right now", inside a window
+  // (`lastWriterOf` in `shared/ticket-conformance.ts`). A `session/load` replay reports every
+  // write the conversation ever made, so stamping those with the resume's wall clock would have a
+  // hand edit of a file written days ago steered at the session that merely resumed. The returned
+  // paths are deliberately unaffected: the outcome index wants the whole write set, replay
+  // included, because it is a record of the conversation rather than an attribution window.
+  if (!running.replayEvents) {
+    const at = nextWriteStamp()
+    for (const path of written) running.recentWrites.push({ path, at })
+    if (running.recentWrites.length > RECENT_WRITE_LIMIT) {
+      running.recentWrites.splice(0, running.recentWrites.length - RECENT_WRITE_LIMIT)
+    }
   }
   return written
 }
@@ -1003,7 +1063,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       let loadSessionId = running.request.sessionId
       if (running.request.forkFromSessionId) {
         loadSessionId =
-          running.sessionId ??
+          running.forkedSessionId ??
           (
             await running.context.request(methods.agent.session.fork, {
               sessionId: running.request.forkFromSessionId,
@@ -1013,6 +1073,10 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
             })
           ).sessionId
         if (!loadSessionId) throw new Error('The agent did not return a session ID for the fork.')
+        // Recorded *before* the load, which is the only order the reopen above can rely on - and
+        // onto `forkedSessionId`, not `sessionId`, because what exists at this point is a
+        // transcript the adapter copied, not a session anything may be prompted through.
+        running.forkedSessionId = loadSessionId
       }
       let resumed = false
       let replay: AgentEvent[] | undefined
@@ -1397,7 +1461,9 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         })
         .onRequest(methods.client.session.requestPermission, ({ params }) => {
           const approvalId = crypto.randomUUID()
-          const options: AgentPermissionOption[] = params.options.map((option) => ({
+          // Not `options`: that is the manager's own construction argument in every enclosing
+          // scope here, and shadowing it hides the very seam these handlers are injected through.
+          const permissionOptions: AgentPermissionOption[] = params.options.map((option) => ({
             id: option.optionId,
             label: option.name,
             kind: option.kind
@@ -1406,11 +1472,14 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
             type: 'approval',
             approvalId,
             title: agentPermissionTitle(params.toolCall),
-            options,
+            options: permissionOptions,
             activity: activityFromUpdate(params.toolCall)
           })
           return new Promise((resolve) =>
-            pendingApprovals.set(approvalId, { resolve, optionIds: new Set(options.map((option) => option.id)) })
+            pendingApprovals.set(approvalId, {
+              resolve,
+              optionIds: new Set(permissionOptions.map((option) => option.id))
+            })
           )
         })
         .onRequest(methods.client.elicitation.create, async ({ params }) => {
@@ -1478,6 +1547,18 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         const message = startingProgressFrom(data)
         if (message) send(running, { type: 'status', status: 'starting', message })
       })
+      // `ChildProcess` emits `'error'` for a spawn that never happened (EMFILE/EAGAIN/EACCES) and
+      // for a `kill()` the OS refused. `src/main` installs no `uncaughtException` handler, so an
+      // unlistened emit is a crash dialog over the whole app rather than one node reporting that
+      // its adapter could not start - and `'exit'` does not necessarily follow, so this reports
+      // and tears down itself.
+      child.on('error', (error) => {
+        // No `stopping` guard of its own: `send` already drops a publish onto a retired channel
+        // and `stop` is idempotent, so a `kill()` the OS refused during teardown costs one
+        // no-op rather than a second error in the transcript.
+        send(running, { type: 'error', message: errorMessage(error) })
+        stop(request.id)
+      })
       child.on('exit', (code) => {
         if (agents.get(request.id) === running) agents.delete(request.id)
         // An adapter that fell over on its own retires no broker channel, so this is the only
@@ -1544,7 +1625,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       if (!running.wakeGate) return runPrompt(id, content)
       if (!running.busy) return runPrompt(id, content)
       if (running.steeringSupport) {
-        const result = await deliverSteeredPrompt(
+        const delivery = await deliverSteeredPrompt(
           (method, params) => running.context.request<SteeringResponse, typeof params>(method, params),
           running.sessionId,
           content
@@ -1553,8 +1634,24 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         // only once the adapter has said so, since a published message cannot be taken back. The
         // cost is that assistant text streamed during that round trip lands ahead of it in the
         // shared transcript, where the desktop's optimistic bubble sits before it.
-        if (result.ok) publishUserMessage(running, content)
-        return result
+        if (delivery.outcome === 'injected') {
+          publishUserMessage(running, content)
+          return { ok: true }
+        }
+        // The adapter kept its hands off the content because the turn it was meant for had ended,
+        // so this is no longer a follow-up to anything: it is an ordinary prompt, and it has to go
+        // through the one path that marks the session busy, publishes the message and settles a
+        // turn. It cannot call `runPrompt` outright, though - Toucan's own `session/prompt`
+        // response travels the same stream and may be a microtask behind this one, leaving `busy`
+        // briefly still set - so it parks on the same wake gate a steering-less adapter uses, and
+        // is flushed from here too for the case where the boundary has already passed. `flush` is
+        // a no-op while a delivery is in flight, so the two cannot double-send.
+        if (delivery.outcome === 'promptRequired') {
+          const queued = running.wakeGate.enqueue(content)
+          if (!running.busy) running.wakeGate.flush()
+          return queued
+        }
+        return delivery.result
       }
       return running.wakeGate.enqueue(content)
     },

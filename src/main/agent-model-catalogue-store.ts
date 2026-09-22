@@ -62,10 +62,16 @@ export function createAgentModelCatalogueStore(options: AgentModelCatalogueStore
       const bounded = models.slice(0, AGENT_MODEL_CATALOGUE_LIMIT)
       if (sameModels(current[provider], bounded)) return
       current = { ...current, [provider]: bounded }
-      void store.save(current).catch((error: unknown) => {
-        // Losing the write costs a picker that is one restart out of date, never a broken spawn.
-        options.log?.(`Could not record the ${provider} model list: ${String(error)}`)
-      })
+      // `update` rather than `save(current)`: the mirror is empty until the first load resolves,
+      // so writing it whole inside that window would publish a file holding only this provider
+      // and drop the other one's stored list. The read-modify-write runs against the file, which
+      // is also what makes two records in flight at once safe to merge.
+      void store
+        .update((stored) => ({ value: { ...stored, [provider]: bounded }, result: undefined }))
+        .catch((error: unknown) => {
+          // Losing the write costs a picker that is one restart out of date, never a broken spawn.
+          options.log?.(`Could not record the ${provider} model list: ${String(error)}`)
+        })
     }
   }
 }
