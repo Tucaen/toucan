@@ -1,11 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import {
-  downmixToMono,
-  encodePcm16,
-  REMOTE_VOICE_MAX_SECONDS,
-  REMOTE_VOICE_SAMPLE_RATE,
-  resampleLinear
-} from '../../src/shared/remote-voice'
+import { startPcmRecording } from '../../src/shared/pcm-recorder'
+import { encodePcm16 } from '../../src/shared/remote-voice'
 import type { HostEndpoint } from './hosts'
 import { transcribeRecording } from './remote-client'
 import {
@@ -259,69 +254,23 @@ function startRecognition(events: SessionEvents): DictationSession {
 }
 
 /**
- * Plain WebAudio capture for browsers without a recognizer. A `ScriptProcessorNode` rather than an
- * `AudioWorklet`: it is deprecated but it runs everywhere without a second bundle entry, and a
- * dictation is short enough that its main-thread cost does not show. Samples are kept at the
- * device rate and resampled once at the end.
+ * The host-fallback engine: record here, transcribe on the desktop. The capture itself is
+ * `startPcmRecording`, shared with the desktop control; what is this client's own is where the
+ * bytes go and how a refused pairing reads.
  */
 async function startRecording(host: HostEndpoint, events: SessionEvents): Promise<DictationSession> {
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-  const context = new AudioContext()
-  const source = context.createMediaStreamSource(stream)
-  const processor = context.createScriptProcessor(4096, 1, 1)
-  const chunks: Float32Array[] = []
-  let captured = 0
-  const limit = context.sampleRate * REMOTE_VOICE_MAX_SECONDS
-  let stopped = false
-
-  processor.onaudioprocess = (event) => {
-    if (stopped) return
-    const channels: Float32Array[] = []
-    for (let channel = 0; channel < event.inputBuffer.numberOfChannels; channel += 1) {
-      channels.push(new Float32Array(event.inputBuffer.getChannelData(channel)))
-    }
-    const mono = downmixToMono(channels)
-    chunks.push(mono)
-    captured += mono.length
-    if (captured >= limit) {
-      stopped = true
-      events.onLimit()
-    }
-  }
-  source.connect(processor)
-  // A ScriptProcessorNode only runs while it is connected to the graph's output.
-  processor.connect(context.destination)
-
-  const release = async (): Promise<void> => {
-    stopped = true
-    processor.disconnect()
-    source.disconnect()
-    for (const track of stream.getTracks()) track.stop()
-    await context.close()
-  }
-
+  // No `onPeak`: this control shows neither an elapsed count nor a level meter, so scanning every
+  // block for its peak would buy nothing on the phone's main thread.
+  const recording = await startPcmRecording({ onLimit: events.onLimit })
   return {
     finish: async () => {
-      await release()
-      const samples = concat(chunks)
-      const pcm = encodePcm16(resampleLinear(samples, context.sampleRate, REMOTE_VOICE_SAMPLE_RATE))
+      const pcm = encodePcm16(await recording.finish())
       const result = await transcribeRecording(host, pcm)
       if (result.ok) events.onText(result.value)
       else events.onError(result.kind === 'unauthorized' ? 'This host no longer accepts the pairing.' : result.message)
     },
-    discard: () => void release()
+    discard: () => recording.discard()
   }
-}
-
-function concat(chunks: readonly Float32Array[]): Float32Array {
-  const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0)
-  const joined = new Float32Array(total)
-  let offset = 0
-  for (const chunk of chunks) {
-    joined.set(chunk, offset)
-    offset += chunk.length
-  }
-  return joined
 }
 
 function MicGlyph(): JSX.Element {

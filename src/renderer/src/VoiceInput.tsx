@@ -1,12 +1,7 @@
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import { LoaderCircle, Mic, Square, X } from 'lucide-react'
-import {
-  downmixToMono,
-  encodePcm16,
-  REMOTE_VOICE_MAX_SECONDS,
-  REMOTE_VOICE_SAMPLE_RATE,
-  resampleLinear
-} from '../../shared/remote-voice'
+import { startPcmRecording, type PcmRecording } from '../../shared/pcm-recorder'
+import { encodePcm16 } from '../../shared/remote-voice'
 import { voiceModelProgress } from '../../shared/voice-model'
 import { withStallGuard } from '../../shared/stall-guard'
 import { errorMessage } from '../../shared/text'
@@ -53,14 +48,6 @@ const MICROPHONE_STALL_TIMEOUT_MS = 60_000
 /** Generous: a maximum-length recording decoded on a slow CPU is minutes, not seconds. */
 const DECODE_STALL_TIMEOUT_MS = 6 * 60_000
 
-/** One recording in progress: the microphone, the graph, and what has been heard so far. */
-interface RecordingSession {
-  /** Stops the graph and returns the whole utterance as 16 kHz mono samples. */
-  finish(): Promise<Float32Array>
-  /** Stops the graph and keeps nothing. */
-  discard(): void
-}
-
 export default function VoiceInput(props: VoiceInputProps): JSX.Element {
   const cleanup = useDictationCleanup()
   const propsRef = useRef(props)
@@ -70,7 +57,7 @@ export default function VoiceInput(props: VoiceInputProps): JSX.Element {
   const [elapsed, setElapsed] = useState(0)
   const [level, setLevel] = useState(0)
   const [error, setError] = useState('')
-  const sessionRef = useRef<RecordingSession | null>(null)
+  const sessionRef = useRef<PcmRecording | null>(null)
   const levelRef = useRef(0)
   const insertionRef = useRef({ start: 0, end: 0 })
   const contextRef = useRef(props.context)
@@ -126,8 +113,8 @@ export default function VoiceInput(props: VoiceInputProps): JSX.Element {
       // Bounded because a microphone permission prompt that never settles, or an audio stack that
       // wedges opening the device, would otherwise leave the button spinning without an error.
       sessionRef.current = await withStallGuard(
-        startRecording({
-          onProgress: (seconds, peak) => {
+        startPcmRecording({
+          onPeak: (seconds, peak) => {
             levelRef.current = meterLevel(levelRef.current, peak)
             setLevel(levelRef.current)
             setElapsed(seconds)
@@ -276,68 +263,4 @@ export default function VoiceInput(props: VoiceInputProps): JSX.Element {
       )}
     </div>
   )
-}
-
-/**
- * Plain WebAudio capture, the same shape as the phone's host-fallback recorder. A
- * `ScriptProcessorNode` rather than an `AudioWorklet`: it is deprecated but it runs without a
- * second bundle entry, and a dictation is short enough that its main-thread cost does not show.
- * Samples are kept at the device rate and resampled once at the end.
- */
-async function startRecording(events: {
-  onProgress(elapsedSeconds: number, peak: number): void
-  onLimit(): void
-}): Promise<RecordingSession> {
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-  const context = new AudioContext()
-  const source = context.createMediaStreamSource(stream)
-  const processor = context.createScriptProcessor(4096, 1, 1)
-  const chunks: Float32Array[] = []
-  let captured = 0
-  const limit = context.sampleRate * REMOTE_VOICE_MAX_SECONDS
-  let stopped = false
-
-  processor.onaudioprocess = (event) => {
-    if (stopped) return
-    const channels: Float32Array[] = []
-    for (let channel = 0; channel < event.inputBuffer.numberOfChannels; channel += 1) {
-      channels.push(new Float32Array(event.inputBuffer.getChannelData(channel)))
-    }
-    const mono = downmixToMono(channels)
-    chunks.push(mono)
-    captured += mono.length
-    let peak = 0
-    for (const sample of mono) peak = Math.max(peak, Math.abs(sample))
-    events.onProgress(captured / context.sampleRate, peak)
-    if (captured >= limit) {
-      stopped = true
-      events.onLimit()
-    }
-  }
-  source.connect(processor)
-  // A ScriptProcessorNode only runs while it is connected to the graph's output.
-  processor.connect(context.destination)
-
-  const release = async (): Promise<void> => {
-    stopped = true
-    processor.disconnect()
-    source.disconnect()
-    for (const track of stream.getTracks()) track.stop()
-    await context.close()
-  }
-
-  return {
-    finish: async () => {
-      await release()
-      const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0)
-      const samples = new Float32Array(total)
-      let offset = 0
-      for (const chunk of chunks) {
-        samples.set(chunk, offset)
-        offset += chunk.length
-      }
-      return resampleLinear(samples, context.sampleRate, REMOTE_VOICE_SAMPLE_RATE)
-    },
-    discard: () => void release()
-  }
 }
