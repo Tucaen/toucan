@@ -75,6 +75,13 @@ test('a file node changes files within the deepest checkout or worktree root tha
     workspaceRootOwningPath('/home/Morgan/project/a.ts', [{ projectId: 'wrong-case', root: '/home/morgan/project' }]),
     undefined
   )
+  assert.equal(
+    workspaceRootOwningPath('D:\\Development\\Toucan\\src\\a.ts', [
+      { projectId: 'shallow', root: 'D:\\Development\\\\Toucan' },
+      { projectId: 'deep', root: 'D:\\Development\\Toucan\\src' }
+    ])?.projectId,
+    'deep'
+  )
 })
 
 test('every failure has words', () => {

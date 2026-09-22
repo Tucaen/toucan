@@ -128,9 +128,9 @@ export function workspaceRootOwningPath(
 ): { projectId: string; root: string } | undefined {
   let best: { projectId: string; root: string; length: number } | undefined
   for (const { projectId, root } of roots) {
-    if (!pathWithinRoot(path, root)) continue
-    const length = root.replace(/[\\/]+$/, '').length
-    if (!best || length > best.length) best = { projectId, root, length }
+    const relative = pathWithinRoot(path, root)
+    if (!relative) continue
+    if (!best || relative.length < best.length) best = { projectId, root, length: relative.length }
   }
   return best
 }

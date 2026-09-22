@@ -21,9 +21,9 @@ export function isAbsolutePath(value: string): boolean {
  * which canonicalizes through `realpath` because it guards a privilege boundary - and the two read
  * alike at a call site, which is exactly why this says so here.
  *
- * The locale is pinned rather than left to the host: `toLowerCase()` is locale-sensitive, and
- * under a Turkish default `I` lowercases to `ı`, which would stop two spellings of one drive
- * letter matching. A leading UNC pair survives the separator collapse, because `//host/share`
+ * The locale is pinned rather than left to the host: `toLocaleLowerCase()` without one uses the
+ * host locale, and under a Turkish default `I` lowercases to `ı`, which would stop two spellings
+ * of one drive letter matching. A leading UNC pair survives the separator collapse, because `//host/share`
  * flattened to `/host/share` is a different path that a POSIX absolute one could collide with.
  */
 function normalizedPathShape(path: string): string {
