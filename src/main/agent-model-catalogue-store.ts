@@ -45,15 +45,21 @@ export function createAgentModelCatalogueStore(options: AgentModelCatalogueStore
   const store = createDurableJsonStore<AgentModelCatalogue>({
     path: options.path,
     parse: parseAgentModelCatalogue,
-    fallback: () => ({})
+    fallback: () => ({}),
+    log: options.log
   })
   // Read through a synchronously-available mirror: the remote server answers a route from this and
   // an HTTP handler cannot await a first disk read without turning every cold request into a stall.
   let current: AgentModelCatalogue = {}
-  void store.load().then((loaded) => {
-    // A record that landed before the first read wins: it is newer than the file by construction.
-    current = { ...loaded, ...current }
-  })
+  void store
+    .load()
+    .then((loaded) => {
+      // A record that landed before the first read wins: it is newer than the file by construction.
+      current = { ...loaded, ...current }
+    })
+    // An unreadable file is already logged by the store; the picker simply starts empty, and the
+    // first `record` retries the read rather than writing this provider's list over the file.
+    .catch(() => undefined)
 
   return {
     read: () => current,

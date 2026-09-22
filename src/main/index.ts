@@ -281,7 +281,8 @@ void app.whenReady().then(async () => {
     directory: join(app.getPath('userData'), 'terminal-scrollback')
   })
   const liveness = createTerminalLivenessStore({
-    path: join(app.getPath('userData'), 'terminal-liveness.json')
+    path: join(app.getPath('userData'), 'terminal-liveness.json'),
+    log: mainLog('terminal liveness')
   })
   const manager = createTerminalManager({
     shell: terminalShell,
@@ -303,7 +304,8 @@ void app.whenReady().then(async () => {
   const adapters = await createAdapterManager({
     appPath: app.getAppPath(),
     directory: adapterDirectory,
-    installer: createAdapterInstaller({ directory: join(adapterDirectory, 'installer') })
+    installer: createAdapterInstaller({ directory: join(adapterDirectory, 'installer') }),
+    log: mainLog('adapters')
   })
   registerAdapterManagementIpc(ipcMain, adapters)
   adapters.onChange((snapshot) => {
@@ -327,7 +329,10 @@ void app.whenReady().then(async () => {
     return [...(state?.projects.map(({ path }) => path) ?? []), ...(state?.worktrees.map(({ path }) => path) ?? [])]
   }
   const containment = createWorkspaceContainment({ roots: workspaceRoots })
-  const conversationTitles = createConversationTitleStore(join(app.getPath('userData'), 'conversation-titles.json'))
+  const conversationTitles = createConversationTitleStore(
+    join(app.getPath('userData'), 'conversation-titles.json'),
+    mainLog('conversation titles')
+  )
   // What each conversation was asked for and where it stands, extracted from the same transcript
   // snapshots the broker already keeps. No UI and no IPC by design: a later session asks an agent
   // to read the folder (see `docs/plans/session-outcome-index.md`).
@@ -374,7 +379,10 @@ void app.whenReady().then(async () => {
     terminalContext: terminalContextMcp,
     decisionProviderInstalled
   })
-  const captureStore = createBrainDumpCaptureStore(join(app.getPath('userData'), 'brain-dump-capture.json'))
+  const captureStore = createBrainDumpCaptureStore(
+    join(app.getPath('userData'), 'brain-dump-capture.json'),
+    mainLog('brain dump capture')
+  )
   const brainDumpCapture = createBrainDumpCaptureManager({
     agent: {
       create: (request, owner) => agentManager.create(request, owner as unknown as Electron.WebContents),
@@ -386,7 +394,9 @@ void app.whenReady().then(async () => {
     homeDirectory: app.getPath('home'),
     libraryDirectory: brainDumpDirectory,
     registeredProjectPaths: async () => (await workspace.load()).state?.projects.map(({ path }) => path) ?? [],
-    initialState: await captureStore.load(),
+    // A capture file that cannot be read must not hold up startup; the store logged why, stays
+    // read-only until it can read it, and the manager simply starts with no capture in flight.
+    initialState: await captureStore.load().catch(() => null),
     publish: (state) => void captureStore.save(state).catch(() => {})
   })
   const brainDumpChanges = await createBrainDumpChangeWatcher({ rootDirectory: brainDumpDirectory })
@@ -474,13 +484,17 @@ void app.whenReady().then(async () => {
         environment: process.env,
         command: findCommand('codex'),
         appPath: app.getAppPath(),
-        appVersion: app.getVersion()
+        appVersion: app.getVersion(),
+        log: mainLog('codex usage')
       })
     },
     ttlMs: PROVIDER_USAGE_TTL_MS
   })
   const remote = createRemoteAccessServer({
-    store: createRemoteAccessStore({ path: join(app.getPath('userData'), 'remote-access.json') }),
+    store: createRemoteAccessStore({
+      path: join(app.getPath('userData'), 'remote-access.json'),
+      log: mainLog('remote access')
+    }),
     // The mobile client is built beside the main and renderer bundles, so the same path resolves
     // in `electron-vite dev` and inside a packaged build.
     clientRoot: join(app.getAppPath(), 'out', 'mobile'),

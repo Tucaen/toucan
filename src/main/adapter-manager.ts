@@ -22,6 +22,8 @@ export interface AdapterManagerOptions {
   appPath: string
   directory: string
   installer: AdapterInstaller
+  /** Injectable so an unreadable or unwritable selection file is reported rather than swallowed. */
+  log?: (message: string) => void
 }
 
 function readAdapter(root: string, provider: AgentProvider): { version: string; entry: string } {
@@ -82,7 +84,8 @@ export async function createAdapterManager(options: AdapterManagerOptions): Prom
     path: selectionPath,
     parse: (value) =>
       value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null,
-    fallback: () => null
+    fallback: () => null,
+    log: options.log
   })
   await mkdir(options.directory, { recursive: true })
   for (const provider of providers) {
@@ -98,7 +101,9 @@ export async function createAdapterManager(options: AdapterManagerOptions): Prom
     }
   }
   if (existsSync(selectionPath)) {
-    const saved = await selectionStore.load()
+    // A file that exists but cannot be read is not a damaged one: the store keeps itself read-only
+    // until it can read it, so the bundled adapters stand in without the selection being rewritten.
+    const saved = await selectionStore.load().catch(() => null)
     if (saved === null) {
       for (const provider of providers)
         state[provider].error = 'Could not read adapter settings. Using bundled adapters.'

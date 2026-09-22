@@ -15,7 +15,10 @@ import { createPairingToken } from './pairing'
  * window exists.
  *
  * A file that cannot be read is treated as a fresh install with a *new* token, never as an open
- * door: losing the token costs one re-pair, whereas defaulting to a known value would not.
+ * door: losing the token costs one re-pair, whereas defaulting to a known value would not. That
+ * re-pair is this run only, though - the store writes nothing over a file it could not read, so a
+ * record held shut by an antivirus at startup is still there for the next one (#223), and only a
+ * genuinely damaged record makes the new token permanent.
  */
 export interface RemoteAccessRecord {
   settings: RemoteAccessSettings
@@ -38,6 +41,8 @@ export interface RemoteAccessStoreOptions {
   path: string
   now?: () => number
   createToken?: () => string
+  /** Injectable so a record that could not be read leaves a trace rather than a silent re-pair. */
+  log?: (message: string) => void
 }
 
 function parseStoredRecord(value: unknown, now: () => number): StoredRecord | null {
@@ -67,7 +72,8 @@ export function createRemoteAccessStore(options: RemoteAccessStoreOptions): Remo
       settings: { ...REMOTE_ACCESS_DEFAULT_SETTINGS },
       token: mintToken(),
       tokenUpdatedAt: now()
-    })
+    }),
+    log: options.log
   })
   const { version: _version, ...initial } = store.read()
   let record: RemoteAccessRecord = initial

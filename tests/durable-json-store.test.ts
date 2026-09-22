@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -110,4 +110,71 @@ test('a sync save that cannot reach disk keeps the in-memory value in force', ()
 
   store.save({ count: 5 })
   assert.deepEqual(store.read(), { count: 5 })
+})
+
+test('a file that exists but cannot be read rejects instead of quietly becoming the fallback', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'toucan-json-store-'))
+  // A directory where the file should be is readable-but-not-a-file: EISDIR, never ENOENT.
+  const path = join(directory, 'store.json')
+  mkdirSync(path)
+  const logged: string[] = []
+  const store = createDurableJsonStore<Counter>({
+    path,
+    parse: parseCounter,
+    fallback: () => ({ count: 0 }),
+    log: (message) => logged.push(message)
+  })
+
+  await assert.rejects(store.load())
+  await assert.rejects(store.save({ count: 1 }))
+  await assert.rejects(store.update((current) => ({ value: { count: current.count + 1 }, result: null })))
+  // The obstruction is still there: nothing replaced it with a defaulted file.
+  assert.equal(statSync(path).isDirectory(), true)
+  assert.equal(logged.length, 3)
+  assert.match(logged[0], /^could not read /)
+})
+
+test('an unreadable store recovers on the next read and saves again', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'toucan-json-store-'))
+  const path = join(directory, 'store.json')
+  mkdirSync(path)
+  const store = counterStore(path)
+
+  await assert.rejects(store.load())
+  rmSync(path, { recursive: true })
+  writeFileSync(path, JSON.stringify({ count: 4 }), 'utf8')
+
+  assert.deepEqual(await store.load(), { count: 4 })
+  await store.save({ count: 5 })
+  assert.deepEqual(await counterStore(path).load(), { count: 5 })
+})
+
+test('a sync store that cannot read its file never writes over it, even once it becomes readable', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'toucan-json-store-'))
+  const path = join(directory, 'store.json')
+  mkdirSync(path)
+  const logged: string[] = []
+  const store = createDurableJsonStoreSync<Counter>({
+    path,
+    parse: parseCounter,
+    fallback: () => ({ count: 0 }),
+    log: (message) => logged.push(message)
+  })
+
+  assert.deepEqual(store.read(), { count: 0 })
+  store.save({ count: 1 })
+  assert.equal(statSync(path).isDirectory(), true)
+  assert.match(logged[0], /^could not read /)
+
+  // Its callers mirror `read()` once and then persist their whole state, so recovering mid-life
+  // would only hand the next save a fallback-derived value to write over the file it just read.
+  rmSync(path, { recursive: true })
+  writeFileSync(path, JSON.stringify({ count: 8 }), 'utf8')
+  store.save({ count: 2 })
+  assert.deepEqual(JSON.parse(readFileSync(path, 'utf8')) as Counter, { count: 8 })
+
+  // A reopen is the re-read that lets the store out of it.
+  const reopened = createDurableJsonStoreSync<Counter>({ path, parse: parseCounter, fallback: () => ({ count: 0 }) })
+  reopened.save({ count: 9 })
+  assert.deepEqual(JSON.parse(readFileSync(path, 'utf8')) as Counter, { count: 9 })
 })

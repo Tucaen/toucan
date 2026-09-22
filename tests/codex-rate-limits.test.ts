@@ -92,7 +92,8 @@ test('reads live Codex account limits instead of showing a stale transcript valu
         primary: { usedPercent: 7, windowDurationMins: 300, resetsAt: 1787943590 },
         secondary: { usedPercent: 1, windowDurationMins: 10080, resetsAt: 1788505836 }
       }
-    })
+    }),
+    log: () => {}
   })
 
   assert.deepEqual(await reader.read(), {
@@ -210,4 +211,29 @@ test('a platform Codex does not bundle has no launch to fall back to', () => {
     resolveBundledCodexAppServerLaunch('C:\\app', 'ia32', () => true),
     null
   )
+})
+
+test('a failed live read is reported through the log rather than silently cached', async () => {
+  const messages: string[] = []
+  const reader = createCodexRateLimitReader({
+    homeDirectory: 'C:\\Users\\nobody',
+    environment: { CODEX_HOME: 'C:\\Users\\nobody\\.codex-missing' },
+    requestRateLimits: () => Promise.reject(new Error('not authenticated')),
+    log: (message) => messages.push(message)
+  })
+
+  assert.equal(await reader.read(), null)
+  assert.deepEqual(messages, ['injected rate-limit read failed: not authenticated'])
+})
+
+test('a reader with no Codex to launch says so instead of falling through in silence', async () => {
+  const messages: string[] = []
+  const reader = createCodexRateLimitReader({
+    homeDirectory: 'C:\\Users\\nobody',
+    environment: { CODEX_HOME: 'C:\\Users\\nobody\\.codex-missing' },
+    log: (message) => messages.push(message)
+  })
+
+  assert.equal(await reader.read(), null)
+  assert.deepEqual(messages, ['no Codex app-server could be resolved from PATH or the bundled copy'])
 })

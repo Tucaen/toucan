@@ -7,11 +7,12 @@ function isState(value: unknown): value is BrainDumpCaptureState {
   return typeof state.jobId === 'string' && ['working', 'completed', 'failed'].includes(state.status ?? '')
 }
 
-export function createBrainDumpCaptureStore(path: string) {
+export function createBrainDumpCaptureStore(path: string, log?: (message: string) => void) {
   const store = createDurableJsonStore<BrainDumpCaptureState | null>({
     path,
     parse: (value) => (isState(value) ? value : null),
-    fallback: () => null
+    fallback: () => null,
+    log
   })
   return {
     load: (): Promise<BrainDumpCaptureState | null> => store.load(),

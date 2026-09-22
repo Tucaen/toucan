@@ -18,6 +18,8 @@ export interface TerminalLivenessStoreOptions {
   path: string
   maxAgeMs?: number
   now?: () => number
+  /** Injectable so a journal that could not be read is reported rather than silently empty. */
+  log?: (message: string) => void
 }
 
 /**
@@ -68,7 +70,8 @@ export function createTerminalLivenessStore(options: TerminalLivenessStoreOption
   const store = createDurableJsonStoreSync<StoredJournal>({
     path: options.path,
     parse: parseJournal,
-    fallback: () => ({ version: 1, sessions: {} })
+    fallback: () => ({ version: 1, sessions: {} }),
+    log: options.log
   })
   const sessions = new Map(Object.entries(store.read().sessions))
 

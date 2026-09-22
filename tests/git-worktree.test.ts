@@ -1,6 +1,11 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
-import { createWorktreeManager, type GitResult } from '../src/main/git-worktree'
+import {
+  GIT_LAUNCH_FAILED,
+  createWorktreeManager,
+  gitResultFromExecFile,
+  type GitResult
+} from '../src/main/git-worktree'
 
 const PROJECT = 'D:\\Development\\Toucan'
 const WORKTREE = 'D:\\Development\\Toucan-worktrees\\feature-login'
@@ -495,4 +500,82 @@ test('checking out a branch verifies it is local first and surfaces the refusal 
   const blocked = await dirty.checkoutBranch({ path: PROJECT, branch: 'feature/login' })
   assert.equal(blocked.ok, false)
   assert.match(blocked.message ?? '', /would be overwritten/)
+})
+
+test('a git that cannot be launched is a distinct result, not a numeric exit code', () => {
+  // `execFile` reports a missing binary as a *string* `code`, which is not an exit status at all.
+  assert.deepEqual(gitResultFromExecFile({ code: 'ENOENT', message: 'spawn git ENOENT' }, '', ''), {
+    code: GIT_LAUNCH_FAILED,
+    stdout: '',
+    stderr: 'spawn git ENOENT'
+  })
+  assert.deepEqual(
+    gitResultFromExecFile({ code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER', message: 'stdout maxBuffer exceeded' }, '', ''),
+    { code: GIT_LAUNCH_FAILED, stdout: '', stderr: 'stdout maxBuffer exceeded' }
+  )
+  assert.deepEqual(gitResultFromExecFile({ code: 128, message: 'fatal' }, '', 'fatal: bad'), {
+    code: 128,
+    stdout: '',
+    stderr: 'fatal: bad'
+  })
+  assert.deepEqual(gitResultFromExecFile(null, 'main\n', ''), { code: 0, stdout: 'main\n', stderr: '' })
+})
+
+test('a git that will not run says so rather than claiming the checkout is not a repository', async () => {
+  const unavailable = async (): Promise<GitResult> => ({
+    code: GIT_LAUNCH_FAILED,
+    stdout: '',
+    stderr: 'spawn git ENOENT'
+  })
+  const manager = createWorktreeManager({ runGit: unavailable, pathExists: () => true })
+
+  const created = await manager.create({ projectPath: PROJECT, branch: 'feature/login' })
+  assert.deepEqual(created, { ok: false, message: 'git could not be run: spawn git ENOENT' })
+
+  const status = await manager.status({ path: WORKTREE, branch: 'feature/login', baseRef: 'main' })
+  assert.equal(status.message, 'git could not be run: spawn git ENOENT')
+
+  const branches = await manager.listBranches(PROJECT)
+  assert.deepEqual(branches, { ok: false, branches: [], message: 'git could not be run: spawn git ENOENT' })
+
+  const diff = await manager.diff({ path: WORKTREE, baseRef: 'main' })
+  assert.deepEqual(diff, { ok: false, reason: 'failed', message: 'git could not be run: spawn git ENOENT' })
+
+  const removed = await manager.remove({
+    projectPath: PROJECT,
+    path: WORKTREE,
+    branch: 'feature/login',
+    baseRef: 'main'
+  })
+  assert.deepEqual(removed, {
+    ok: false,
+    blockers: [{ kind: 'inspection-failed', detail: 'git could not be run: spawn git ENOENT' }]
+  })
+
+  const discovered = await manager.discover({ projectPath: PROJECT, known: [] })
+  assert.equal(discovered.message, 'git could not be run: spawn git ENOENT')
+})
+
+test('a runner that rejects outright still answers with git’s own reason', async () => {
+  // The real runner resolves every outcome, but an injected one - or a future runner that awaits
+  // something of its own - can reject; no method may turn that into a healthy-looking answer.
+  const rejecting = (): Promise<GitResult> =>
+    Promise.reject(Object.assign(new Error('spawn git ENOENT'), { code: 'ENOENT' }))
+  const manager = createWorktreeManager({ runGit: rejecting, pathExists: () => true })
+
+  assert.deepEqual(await manager.create({ projectPath: PROJECT, branch: 'feature/login' }), {
+    ok: false,
+    message: 'spawn git ENOENT'
+  })
+  assert.equal(
+    (await manager.status({ path: WORKTREE, branch: 'feature/login', baseRef: 'main' })).message,
+    'spawn git ENOENT'
+  )
+  assert.deepEqual(await manager.listBranches(PROJECT), {
+    ok: false,
+    branches: [],
+    message: 'spawn git ENOENT'
+  })
+  assert.deepEqual(await manager.currentBranch(PROJECT), { isRepository: false })
+  assert.equal(await manager.isRepository(PROJECT), false)
 })

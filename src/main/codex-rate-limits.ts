@@ -5,6 +5,7 @@ import { extname, join, win32 } from 'node:path'
 import { createInterface } from 'node:readline'
 import type { AgentModelRateLimitWindow, AgentRateLimitStatus, AgentRateLimitWindow } from '../shared/agent'
 import { withStallGuard } from '../shared/stall-guard'
+import { errorMessage } from '../shared/text'
 
 /**
  * Codex app-server exposes account limits without starting a turn or spending tokens. Rollout
@@ -272,6 +273,12 @@ export interface CodexRateLimitReaderOptions {
   appPath?: string
   /** Toucan's own version, reported as `clientInfo.version`; absent reads as dev. */
   appVersion?: string
+  /**
+   * Receives the reason a live read failed, so degrading to the transcript cache leaves a trace.
+   * Required for the same reason `createClaudeUsageReader`'s is: a blank header with nothing in
+   * `main.log` is how a resolution bug shipped unnoticed (#157).
+   */
+  log(message: string): void
 }
 
 export interface CodexRateLimitReader {
@@ -419,13 +426,19 @@ export function createCodexRateLimitReader(options: CodexRateLimitReaderOptions)
   const launches = options.requestRateLimits ? [] : appServerLaunches(options)
   return {
     async read(): Promise<AgentRateLimitStatus | null> {
+      // Every fall-through below is logged with the candidate that produced it: an older, missing,
+      // unauthenticated or stalled CLI still degrades to the transcript cache, but a permanent
+      // degradation is now visible in `main.log` rather than looking like a quiet plan with no
+      // limits.
       if (options.requestRateLimits) {
         try {
           const live = codexRateLimitsFromAppServer(await options.requestRateLimits())
           if (live) return live
-        } catch {
-          // Older, missing, unauthenticated, or stalled CLIs fall through to the transcript cache.
+        } catch (error) {
+          options.log(`injected rate-limit read failed: ${errorMessage(error)}`)
         }
+      } else if (launches.length === 0) {
+        options.log('no Codex app-server could be resolved from PATH or the bundled copy')
       }
       for (const launch of launches) {
         try {
@@ -433,8 +446,8 @@ export function createCodexRateLimitReader(options: CodexRateLimitReaderOptions)
             await requestRateLimitsViaAppServer(launch, options.environment, options.appVersion ?? '0.0.0-dev')
           )
           if (live) return live
-        } catch {
-          // Older, missing, unauthenticated, or stalled CLIs fall through to the next candidate.
+        } catch (error) {
+          options.log(`rate-limit read via ${launch.executable} failed: ${errorMessage(error)}`)
         }
       }
       const root = join(options.environment.CODEX_HOME ?? join(options.homeDirectory, '.codex'), 'sessions')
@@ -442,7 +455,8 @@ export function createCodexRateLimitReader(options: CodexRateLimitReaderOptions)
         const reference = now()
         const transcript = newestTranscript(root, reference)
         return transcript ? parseCodexRateLimits(readTail(transcript), reference.getTime()) : null
-      } catch {
+      } catch (error) {
+        options.log(`transcript rate-limit read failed: ${errorMessage(error)}`)
         return null
       }
     }

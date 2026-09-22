@@ -33,8 +33,8 @@ function parseTitles(value: unknown): StoredTitles | null {
   return Object.fromEntries(Object.entries(value).filter(([, title]) => isConversationTitle(title)))
 }
 
-export function createConversationTitleStore(path: string): ConversationTitleStore {
-  const store = createDurableJsonStore<StoredTitles>({ path, parse: parseTitles, fallback: () => ({}) })
+export function createConversationTitleStore(path: string, log?: (message: string) => void): ConversationTitleStore {
+  const store = createDurableJsonStore<StoredTitles>({ path, parse: parseTitles, fallback: () => ({}), log })
 
   return {
     async get(provider, conversationId) {

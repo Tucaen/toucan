@@ -59,9 +59,54 @@ function readClaims(path: string): WorktreeClaim[] {
 }
 
 export interface GitResult {
+  /** A git exit status, or `GIT_LAUNCH_FAILED` when git never ran at all. */
   code: number
   stdout: string
   stderr: string
+}
+
+/**
+ * git never ran: the binary is missing from PATH, the spawn was refused, or the child died
+ * outside an exit status. `execFile` reports all of those as a *string* `error.code`
+ * (`ENOENT`, `ERR_CHILD_PROCESS_STDIO_MAXBUFFER`), which is not an exit status, so folding them
+ * into `1` made every caller answer "not a git repository" for a git that was simply absent.
+ *
+ * Every caller inside this module reports it as prose, so nothing outside needs the code itself.
+ * @internal exported for tests
+ */
+export const GIT_LAUNCH_FAILED = -1
+
+/**
+ * Turns one `execFile` callback into a `GitResult`.
+ * @internal exported for tests
+ */
+export function gitResultFromExecFile(
+  error: { code?: unknown; message?: string } | null,
+  stdout: string,
+  stderr: string
+): GitResult {
+  if (!error) return { code: 0, stdout: stdout ?? '', stderr: stderr ?? '' }
+  if (typeof error.code === 'number') return { code: error.code, stdout: stdout ?? '', stderr: stderr ?? '' }
+  return { code: GIT_LAUNCH_FAILED, stdout: stdout ?? '', stderr: (stderr ?? '').trim() || (error.message ?? '') }
+}
+
+/**
+ * The message for a git that never ran, or null when it ran and merely failed. Separate from
+ * `gitFailureMessage` because several callers have a precise thing to say about a *failed* git
+ * ("not a local branch", "is not a git repository") that would be a lie about an absent one.
+ */
+function gitUnavailable(result: GitResult): string | null {
+  if (result.code !== GIT_LAUNCH_FAILED) return null
+  return `git could not be run: ${result.stderr.trim() || 'unknown error'}`
+}
+
+/**
+ * The one message for a failed git run: a launch failure names itself so the reader knows the
+ * answer is about their machine and not about their checkout, and everything else keeps git's
+ * own words.
+ */
+function gitFailureMessage(result: GitResult, fallback: string): string {
+  return gitUnavailable(result) || result.stderr.trim() || result.stdout.trim() || fallback
 }
 
 export type GitRunner = (args: string[], cwd: string) => Promise<GitResult>
@@ -123,13 +168,7 @@ const GIT_MAX_BUFFER = 8 * 1024 * 1024
 const runGitWithExecFile: GitRunner = (args, cwd) =>
   new Promise<GitResult>((resolve) => {
     execFile('git', args, hiddenProcessOptions({ cwd, maxBuffer: GIT_MAX_BUFFER }), (error, stdout, stderr) => {
-      const code =
-        error && typeof (error as { code?: unknown }).code === 'number'
-          ? (error as { code: number }).code
-          : error
-            ? 1
-            : 0
-      resolve({ code, stdout: stdout ?? '', stderr: stderr ?? '' })
+      resolve(gitResultFromExecFile(error, stdout, stderr))
     })
   })
 
@@ -200,9 +239,15 @@ export function createWorktreeManager(options: WorktreeManagerOptions = {}): Wor
   const runGit = options.runGit ?? runGitWithExecFile
   const pathExists = options.pathExists ?? existsSync
 
-  const readCommonDir = async (cwd: string): Promise<string | null> => {
+  /**
+   * `path` is null both for a directory that is no checkout and for a git that would not start;
+   * `unavailable` is what tells those apart, and is the message a caller should prefer.
+   */
+  const readCommonDir = async (cwd: string): Promise<{ path: string | null; unavailable?: string }> => {
     const result = await runGit(['rev-parse', '--path-format=absolute', '--git-common-dir'], cwd)
-    return result.code === 0 && result.stdout.trim() ? normalizeGitPath(result.stdout) : null
+    const unavailable = gitUnavailable(result)
+    if (unavailable) return { path: null, unavailable }
+    return { path: result.code === 0 && result.stdout.trim() ? normalizeGitPath(result.stdout) : null }
   }
 
   const resolveBaseRef = async (projectPath: string): Promise<string> => {
@@ -217,7 +262,7 @@ export function createWorktreeManager(options: WorktreeManagerOptions = {}): Wor
 
     const status = await runGit(['status', '--porcelain=v2', '--branch', '--untracked-files=all'], request.path)
     if (status.code !== 0) {
-      return { ...emptyStatus(status.stderr.trim() || 'git status failed'), exists: true }
+      return { ...emptyStatus(gitFailureMessage(status, 'git status failed')), exists: true }
     }
 
     const parsed = parsePorcelainStatus(status.stdout)
@@ -242,10 +287,14 @@ export function createWorktreeManager(options: WorktreeManagerOptions = {}): Wor
 
       try {
         const commonDir = await readCommonDir(request.projectPath)
-        if (!commonDir) return { ok: false, message: `${request.projectPath} is not a git repository` }
+        if (!commonDir.path) {
+          return { ok: false, message: commonDir.unavailable ?? `${request.projectPath} is not a git repository` }
+        }
 
         const format = await runGit(['check-ref-format', `refs/heads/${request.branch}`], request.projectPath)
-        if (format.code !== 0) return { ok: false, message: `git rejected the branch name "${request.branch}"` }
+        if (format.code !== 0) {
+          return { ok: false, message: gitUnavailable(format) ?? `git rejected the branch name "${request.branch}"` }
+        }
 
         const existingBranch = await runGit(
           ['show-ref', '--verify', '--quiet', `refs/heads/${request.branch}`],
@@ -261,7 +310,7 @@ export function createWorktreeManager(options: WorktreeManagerOptions = {}): Wor
         const baseRef = request.baseRef?.trim() || (await resolveBaseRef(request.projectPath))
         const added = await runGit(['worktree', 'add', '-b', request.branch, directory, baseRef], request.projectPath)
         if (added.code !== 0) {
-          return { ok: false, message: added.stderr.trim() || added.stdout.trim() || 'git worktree add failed' }
+          return { ok: false, message: gitFailureMessage(added, 'git worktree add failed') }
         }
 
         return { ok: true, worktree: { path: directory, branch: request.branch, baseRef } }
@@ -289,13 +338,17 @@ export function createWorktreeManager(options: WorktreeManagerOptions = {}): Wor
 
         const projectCommonDir = await readCommonDir(request.projectPath)
         const worktreeCommonDir = await readCommonDir(request.path)
-        if (!projectCommonDir || !worktreeCommonDir) {
+        // A git that will not start is no evidence about this worktree, so it blocks removal as a
+        // failed inspection rather than as the verdict "this is not a worktree".
+        const unavailable = projectCommonDir.unavailable ?? worktreeCommonDir.unavailable
+        if (unavailable) return { ok: false, blockers: [{ kind: 'inspection-failed', detail: unavailable }] }
+        if (!projectCommonDir.path || !worktreeCommonDir.path) {
           return {
             ok: false,
             blockers: [{ kind: 'not-a-worktree', detail: 'no git repository found' }]
           }
         }
-        if (projectCommonDir !== worktreeCommonDir) {
+        if (projectCommonDir.path !== worktreeCommonDir.path) {
           return {
             ok: false,
             blockers: [{ kind: 'not-a-worktree', detail: 'it belongs to a different repository' }]
@@ -304,10 +357,11 @@ export function createWorktreeManager(options: WorktreeManagerOptions = {}): Wor
 
         const gitDir = await runGit(['rev-parse', '--path-format=absolute', '--git-dir'], request.path)
         if (gitDir.code !== 0) {
-          return { ok: false, blockers: [{ kind: 'inspection-failed', detail: 'git rev-parse --git-dir failed' }] }
+          const detail = gitFailureMessage(gitDir, 'git rev-parse --git-dir failed')
+          return { ok: false, blockers: [{ kind: 'inspection-failed', detail }] }
         }
         // A linked worktree has its own git dir under the common dir; the primary shares it.
-        if (normalizeGitPath(gitDir.stdout) === worktreeCommonDir) {
+        if (normalizeGitPath(gitDir.stdout) === worktreeCommonDir.path) {
           return { ok: false, blockers: [{ kind: 'primary-worktree' }] }
         }
 
@@ -333,7 +387,7 @@ export function createWorktreeManager(options: WorktreeManagerOptions = {}): Wor
           return {
             ok: false,
             blockers: [],
-            message: removed.stderr.trim() || removed.stdout.trim() || 'git worktree remove failed'
+            message: gitFailureMessage(removed, 'git worktree remove failed')
           }
         }
 
@@ -348,10 +402,10 @@ export function createWorktreeManager(options: WorktreeManagerOptions = {}): Wor
       try {
         const listed = await runGit(['worktree', 'list', '--porcelain'], request.projectPath)
         if (listed.code !== 0) {
-          return { worktrees: [], claims: [], message: listed.stderr.trim() || 'git worktree list failed' }
+          return { worktrees: [], claims: [], message: gitFailureMessage(listed, 'git worktree list failed') }
         }
 
-        const commonDir = await readCommonDir(request.projectPath)
+        const commonDir = (await readCommonDir(request.projectPath)).path
         const claims = commonDir ? readClaims(join(commonDir, WORKTREE_CLAIMS_FILE)) : []
         const defaultBranch = await resolveBaseRef(request.projectPath)
         const entries = parseWorktreeList(listed.stdout)
@@ -391,7 +445,9 @@ export function createWorktreeManager(options: WorktreeManagerOptions = {}): Wor
         if (!pathExists(request.path)) {
           return { ok: false, reason: 'missing', message: `${request.path} is not on disk` }
         }
-        if ((await readCommonDir(request.path)) === null) {
+        const commonDir = await readCommonDir(request.path)
+        if (commonDir.unavailable) return { ok: false, reason: 'failed', message: commonDir.unavailable }
+        if (commonDir.path === null) {
           return { ok: false, reason: 'not-a-repository', message: `${request.path} is not a git repository` }
         }
         const [nameStatus, numstat, status, symbolic] = await Promise.all([
@@ -402,7 +458,7 @@ export function createWorktreeManager(options: WorktreeManagerOptions = {}): Wor
         ])
         const failure = [nameStatus, numstat, status].find((result) => result.code !== 0)
         if (failure) {
-          return { ok: false, reason: 'failed', message: failure.stderr.trim() || 'git diff failed' }
+          return { ok: false, reason: 'failed', message: gitFailureMessage(failure, 'git diff failed') }
         }
         const branch = symbolic.code === 0 ? symbolic.stdout.trim() || undefined : undefined
         return {
@@ -428,7 +484,7 @@ export function createWorktreeManager(options: WorktreeManagerOptions = {}): Wor
                 request.path
               )
         const accepted = result.code === 0 || (file.status === 'untracked' && result.code === 1)
-        if (!accepted) return { ok: false, message: result.stderr.trim() || 'git diff failed' }
+        if (!accepted) return { ok: false, message: gitFailureMessage(result, 'git diff failed') }
         return { ok: true, ...parseUnifiedDiff(result.stdout) }
       } catch (error) {
         return { ok: false, message: errorMessage(error) }
@@ -436,8 +492,12 @@ export function createWorktreeManager(options: WorktreeManagerOptions = {}): Wor
     },
 
     async currentBranch(path): Promise<GitBranchState> {
+      // Like `isRepository`, a git that will not run answers `isRepository: false` - `GitBranchState`
+      // feeds a branch indicator with nowhere to put a message, and hiding the row is the honest
+      // display for "this cannot be determined". The surfaces that must explain themselves -
+      // `create`, `status`, `listBranches`, `diff`, `remove` - all carry the message instead.
       try {
-        if (!pathExists(path) || (await readCommonDir(path)) === null) return { isRepository: false }
+        if (!pathExists(path) || (await readCommonDir(path)).path === null) return { isRepository: false }
         const symbolic = await runGit(['symbolic-ref', '--quiet', '--short', 'HEAD'], path)
         if (symbolic.code === 0 && symbolic.stdout.trim()) return { isRepository: true, branch: symbolic.stdout.trim() }
         // No symbolic ref means a detached HEAD - or a repository with no commits yet, where
@@ -452,11 +512,15 @@ export function createWorktreeManager(options: WorktreeManagerOptions = {}): Wor
 
     async listBranches(path): Promise<GitBranchListResult> {
       try {
-        if (!pathExists(path) || (await readCommonDir(path)) === null) {
-          return { ok: false, branches: [], message: 'Not a git repository' }
+        if (!pathExists(path)) return { ok: false, branches: [], message: 'Not a git repository' }
+        const commonDir = await readCommonDir(path)
+        if (commonDir.path === null) {
+          return { ok: false, branches: [], message: commonDir.unavailable ?? 'Not a git repository' }
         }
         const listed = await runGit(['branch', '--list', `--format=${LOCAL_BRANCH_FORMAT}`], path)
-        if (listed.code !== 0) return { ok: false, branches: [], message: listed.stderr.trim() || 'git branch failed' }
+        if (listed.code !== 0) {
+          return { ok: false, branches: [], message: gitFailureMessage(listed, 'git branch failed') }
+        }
         return { ok: true, branches: parseLocalBranches(listed.stdout) }
       } catch (error) {
         return { ok: false, branches: [], message: errorMessage(error) }
@@ -468,10 +532,13 @@ export function createWorktreeManager(options: WorktreeManagerOptions = {}): Wor
         const branch = request.branch.trim()
         if (!branch) return { ok: false, message: 'No branch named' }
         const exists = await runGit(['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], request.path)
-        if (exists.code !== 0) return { ok: false, message: `${branch} is not a local branch` }
+        if (exists.code !== 0) {
+          return { ok: false, message: gitUnavailable(exists) ?? `${branch} is not a local branch` }
+        }
         const checkout = await runGit(['checkout', branch, '--'], request.path)
-        if (checkout.code !== 0)
-          return { ok: false, message: checkout.stderr.trim() || `git checkout ${branch} failed` }
+        if (checkout.code !== 0) {
+          return { ok: false, message: gitFailureMessage(checkout, `git checkout ${branch} failed`) }
+        }
         return { ok: true }
       } catch (error) {
         return { ok: false, message: errorMessage(error) }
@@ -482,7 +549,7 @@ export function createWorktreeManager(options: WorktreeManagerOptions = {}): Wor
       // Anything that is not a repository - a missing path, a git that will not run - is `false`,
       // because every caller uses this to decide whether it may promise history keeps something.
       try {
-        return pathExists(path) && (await readCommonDir(path)) !== null
+        return pathExists(path) && (await readCommonDir(path)).path !== null
       } catch {
         return false
       }
