@@ -9,8 +9,8 @@
  * SHA-256 pinned here - the engine is an executable, so a pin is not optional hygiene but the
  * difference between running what was reviewed and running whatever a CDN answered with.
  *
- * `scripts/whisper-files.mjs` carries the same pins for the WER harness, which cannot import
- * TypeScript; `tests/whisper-assets.test.ts` holds the two files to the same values.
+ * `scripts/whisper-files.mjs` reads these very constants out of `.test-out`, so the WER harness
+ * cannot measure a different engine than the one Toucan dictates with.
  */
 
 /** The whisper.cpp release build the Windows CPU binaries are taken from. */

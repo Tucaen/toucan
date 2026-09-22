@@ -18,7 +18,7 @@
     "repair-electron": "node node_modules/electron/install.js",
     "icon:generate": "node scripts/generate-app-icon.mjs",
     "icon:mobile": "node scripts/generate-mobile-icons.mjs",
-    "voice:wer": "node scripts/voice-wer.mjs",
+    "voice:wer": "npm run build:test-out && node scripts/voice-wer.mjs",
     "build": "electron-vite build && npm run build:mobile",
     "start": "electron-vite preview",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"mobile/**/*.{ts,tsx,css}\" \"tests/**/*.{ts,tsx}\" \"*.{ts,json,mjs}\" \"scripts/**/*.mjs\"",

@@ -1,11 +1,12 @@
 {
   // Not a test compile any more: the suites run as ES modules under Vitest (#238). What survives is
   // `.test-out`, the CommonJS build the three manual scripts outside `npm test` load -
-  // `scripts/verify-outcome-retrieval.mjs`, `scripts/verify-session-fork.mjs` and
-  // `docs/plans/compare-routine-delegation.mjs` `await import()` from it, and extensionless
-  // relative specifiers resolve only under CommonJS. The include list is exactly the entry points
-  // those three name; `tsc` pulls in whatever they import. Adding a script that reads `.test-out`
-  // means adding its entry point here, or its import resolves against a file that was never built.
+  // `scripts/verify-outcome-retrieval.mjs`, `scripts/verify-session-fork.mjs`,
+  // `docs/plans/compare-routine-delegation.mjs` and the WER harness (`scripts/voice-wer.mjs` with
+  // `scripts/whisper-files.mjs`) `await import()` from it, and extensionless relative specifiers
+  // resolve only under CommonJS. The include list is exactly the entry points those scripts name;
+  // `tsc` pulls in whatever they import. Adding a script that reads `.test-out` means adding its
+  // entry point here, or its import resolves against a file that was never built.
   "compilerOptions": {
     "module": "CommonJS",
     "moduleResolution": "Node",
@@ -23,7 +24,11 @@
   "include": [
     "src/main/acp-session-manager.ts",
     "src/main/background-process.ts",
+    "src/main/whisper-engine.ts",
+    "src/main/zip-extract.ts",
     "src/shared/agent-transcript.ts",
-    "src/shared/routine-delegation.ts"
+    "src/shared/remote-voice.ts",
+    "src/shared/routine-delegation.ts",
+    "src/shared/whisper-assets.ts"
   ]
 }

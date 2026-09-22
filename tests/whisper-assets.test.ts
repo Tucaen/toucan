@@ -1,10 +1,7 @@
 import { strict as assert } from 'node:assert'
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { describe, test } from 'vitest'
 import {
   WHISPER_DOWNLOAD_GIGABYTES,
-  WHISPER_ENGINE_BUILD,
   WHISPER_ENGINE_ENTRIES,
   WHISPER_ENGINE_ZIP,
   WHISPER_MODEL
@@ -12,31 +9,12 @@ import {
 import { wavBytes, whisperAudioContext } from '../src/main/whisper-engine'
 
 /**
- * The pinned speech assets. The app reads its pins from `shared/whisper-assets.ts`; the WER
- * harness cannot import TypeScript, so `scripts/whisper-files.mjs` restates them - and this test is
- * what keeps the two files the same, so the harness never measures a different engine than the one
- * Toucan dictates with.
+ * The pinned speech assets. There is one copy of the pins now - `scripts/whisper-files.mjs` loads
+ * these very constants out of `.test-out` - so what is left to check is that the values say what
+ * they are meant to say, not that a second file still agrees with them (#230).
  */
 
-const harness = readFileSync(join(process.cwd(), 'scripts', 'whisper-files.mjs'), 'utf8')
-
 describe('whisper asset pins', () => {
-  test('the WER harness carries the same engine and model pins as the app', () => {
-    for (const value of [
-      WHISPER_ENGINE_BUILD,
-      WHISPER_ENGINE_ZIP.sha256,
-      String(WHISPER_ENGINE_ZIP.size),
-      WHISPER_MODEL.url,
-      WHISPER_MODEL.sha256,
-      String(WHISPER_MODEL.size)
-    ]) {
-      assert.ok(harness.includes(value), `scripts/whisper-files.mjs is missing the pinned value ${value}`)
-    }
-    for (const entry of WHISPER_ENGINE_ENTRIES) {
-      assert.ok(harness.includes(`'${entry}'`), `scripts/whisper-files.mjs is missing the engine entry ${entry}`)
-    }
-  })
-
   test('the extraction list names the binaries the engine actually needs', () => {
     assert.ok(WHISPER_ENGINE_ENTRIES.includes('whisper-server.exe'), 'dictation decodes through the server')
     assert.ok(WHISPER_ENGINE_ENTRIES.includes('whisper-cli.exe'), 'the WER harness scores through the CLI')

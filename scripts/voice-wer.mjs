@@ -2,9 +2,17 @@ import { spawnSync } from 'node:child_process'
 import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, extname, join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 
 import { MODELS_ROOT, STREAMING_ARCHS, ensureModelFiles, modelDirectory } from './voice-model-files.mjs'
 import { ensureWhisperAssets } from './whisper-files.mjs'
+
+// The app's own WAV header, encoder-context rule and resampler, from the CommonJS build
+// `npm run voice:wer` emits first - so the harness measures the shipped configuration rather than
+// a copy of it that has to be kept honest by hand.
+const out = (path) => pathToFileURL(join(process.cwd(), '.test-out', path)).href
+const { wavBytes, whisperAudioContext } = await import(out('src/main/whisper-engine.js'))
+const { resampleLinear } = await import(out('src/shared/remote-voice.js'))
 
 /**
  * Word error rate of Toucan's candidate speech models on *your* recordings.
@@ -26,13 +34,20 @@ import { ensureWhisperAssets } from './whisper-files.mjs'
  * the reference word count, as the benchmarks report it. One number per file, one per model.
  */
 
+const usage = 'Usage: node scripts/voice-wer.mjs <directory-with-wav-and-txt-pairs> [--models medium,whisper]'
 const args = process.argv.slice(2)
 const directory = args.find((argument) => !argument.startsWith('--'))
 const modelsFlag = args.indexOf('--models')
+// `--models` as the last argument is a typo, not a request for the default list: reading past the
+// end of the arguments used to throw a TypeError at the user instead of saying so.
+if (modelsFlag !== -1 && args[modelsFlag + 1] === undefined) {
+  console.error(`--models needs a comma-separated list after it.\n${usage}`)
+  process.exit(2)
+}
 const modelNames = modelsFlag === -1 ? ['medium', 'whisper'] : args[modelsFlag + 1].split(',')
 
 if (!directory) {
-  console.error('Usage: node scripts/voice-wer.mjs <directory-with-wav-and-txt-pairs> [--models medium,whisper]')
+  console.error(usage)
   process.exit(2)
 }
 for (const name of modelNames) {
@@ -112,11 +127,11 @@ async function loadWhisper() {
     run: async (audio) => {
       const wavPath = join(workDirectory, 'sample.wav')
       await writeFile(wavPath, wavBytes(audio))
-      // The same trimmed encoder context the app uses (whisperAudioContext in
-      // src/main/whisper-engine.ts), so the harness measures the shipped configuration.
-      const proportional = Math.ceil((audio.length / (16000 * 30)) * 1500)
-      const audioContext = audio.length >= 16000 * 30 ? 1500 : Math.min(1500, Math.max(256, proportional + 128))
-      const args = ['-m', modelPath, '-f', wavPath, '-nt', '-l', 'auto', '--suppress-nst', '-ac', String(audioContext)]
+      const args = [
+        ...['-m', modelPath, '-f', wavPath, '-nt', '-l', 'auto', '--suppress-nst'],
+        // The app's own trimmed encoder context, so the harness measures what ships.
+        ...['-ac', String(whisperAudioContext(audio.length))]
+      ]
       const result = spawnSync(cliPath, args, {
         encoding: 'utf8',
         windowsHide: true,
@@ -156,29 +171,6 @@ async function readModelFiles(modelPath) {
   return files
 }
 
-/** 16 kHz mono float samples back to a 16-bit PCM WAV for the whisper CLI. */
-function wavBytes(samples) {
-  const bytes = Buffer.alloc(44 + samples.length * 2)
-  bytes.write('RIFF', 0)
-  bytes.writeUInt32LE(36 + samples.length * 2, 4)
-  bytes.write('WAVE', 8)
-  bytes.write('fmt ', 12)
-  bytes.writeUInt32LE(16, 16)
-  bytes.writeUInt16LE(1, 20)
-  bytes.writeUInt16LE(1, 22)
-  bytes.writeUInt32LE(16000, 24)
-  bytes.writeUInt32LE(32000, 28)
-  bytes.writeUInt16LE(2, 32)
-  bytes.writeUInt16LE(16, 34)
-  bytes.write('data', 36)
-  bytes.writeUInt32LE(samples.length * 2, 40)
-  for (let index = 0; index < samples.length; index += 1) {
-    const clamped = Math.max(-1, Math.min(1, samples[index]))
-    bytes.writeInt16LE(Math.round(clamped * 32767), 44 + index * 2)
-  }
-  return bytes
-}
-
 /** 16-bit PCM WAV to 16 kHz mono float samples. Enough of RIFF for what recorders produce. */
 function decodeWav(buffer) {
   const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength)
@@ -214,21 +206,7 @@ function decodeWav(buffer) {
     }
     mono[frame] = sum / channels
   }
-  return resample(mono, sampleRate, 16000)
-}
-
-function resample(input, inputRate, outputRate) {
-  if (inputRate === outputRate) return input
-  const ratio = inputRate / outputRate
-  const output = new Float32Array(Math.floor(input.length / ratio))
-  for (let index = 0; index < output.length; index += 1) {
-    const position = index * ratio
-    const left = Math.floor(position)
-    const right = Math.min(left + 1, input.length - 1)
-    const weight = position - left
-    output[index] = input[left] * (1 - weight) + input[right] * weight
-  }
-  return output
+  return resampleLinear(mono, sampleRate, 16000)
 }
 
 function normalize(text) {
