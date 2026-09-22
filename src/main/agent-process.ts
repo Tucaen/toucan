@@ -36,7 +36,13 @@ const hiddenWindowsPreload = [
   'syncBuiltinESMExports()'
 ].join(';')
 
-const hiddenWindowsPreloadOption = `--import=data:text/javascript,${encodeURIComponent(hiddenWindowsPreload)}`
+/**
+ * `NODE_OPTIONS` that make a Node child apply the hidden-window policy to everything *it* spawns.
+ * Exported because an ACP adapter is not the only untrusted thing Toucan runs on Node: a project's
+ * Prettier configuration is a checkout's own code too, and it may spawn as freely as an adapter's
+ * provider CLI does.
+ */
+export const hiddenWindowsPreloadOption = `--import=data:text/javascript,${encodeURIComponent(hiddenWindowsPreload)}`
 
 export function buildAgentProcessLaunch(
   executable: string,

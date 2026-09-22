@@ -15,15 +15,23 @@ import { directoriesUpTo } from './workspace-containment'
  * So every name Prettier reads is listed here, and each is either read or *refused by name*.
  * Refused covers the executable forms (`.prettierrc.js`, `prettier.config.ts`, ...), which a
  * privileged main process must not run for an untrusted checkout, and `.prettierrc.toml`, which
- * Toucan has no reader for. A refusal is not silence: it stops the save being formatted at all
- * and hands the reason back, because formatting with defaults is the damage.
+ * Toucan has no reader for. A refusal is not silence: it names itself, so `file-formatter.ts` can
+ * hand those settings to the project's own Prettier instead, and only tell the reader the file
+ * went through unformatted once that has failed too. What it must never do is fall through to
+ * Prettier's defaults, because formatting with defaults is the damage.
  */
 export interface ProjectFormatting {
   /** Prettier options to format with, `.editorconfig` underneath the project's Prettier file. */
   config: Options
   /** The nearest `.prettierignore`, if the project has one. */
   ignorePath?: string
-  /** A configuration file exists but was not read. The save must go through unformatted. */
+  /**
+   * A configuration file exists but was not read, as a clause naming it: "`X` is configuration
+   * Toucan does not read". Not a finished sentence, because what happens next is not this
+   * module's to say - the caller can still honour those settings by running the project's own
+   * Prettier, and only it knows whether that worked. `savedUnformatted` is how it ends the
+   * sentence when it did not.
+   */
   unreadable?: string
 }
 
@@ -57,8 +65,8 @@ const CONFIG_NAMES: ReadonlyArray<readonly [name: string, read: Reader | null]> 
 ]
 
 /** The one sentence a reader sees when their project's settings could not be honoured. */
-function savedUnformatted(name: string, why: string): string {
-  return `${name} ${why}, so this file was saved exactly as you typed it.`
+export function savedUnformatted(reason: string): string {
+  return `${reason}, so this file was saved exactly as you typed it.`
 }
 
 export async function projectFormatting(path: string, root: string): Promise<ProjectFormatting> {
@@ -74,13 +82,13 @@ export async function projectFormatting(path: string, root: string): Promise<Pro
       const candidate = join(directory, name)
       if (!(await existing(candidate))) continue
       if (!read) {
-        unreadable = savedUnformatted(name, 'is configuration Toucan does not read')
+        unreadable = `${name} is configuration Toucan does not read`
         break
       }
       const parsed = await readConfig(candidate, read)
       if (parsed === NOT_CONFIGURED) continue
       if (typeof parsed === 'string') {
-        unreadable = savedUnformatted(name, `could not be read (${parsed})`)
+        unreadable = `${name} could not be read (${parsed})`
         break
       }
       found = parsed
@@ -98,7 +106,7 @@ export async function projectFormatting(path: string, root: string): Promise<Pro
     return {
       config: {},
       ignorePath,
-      unreadable: savedUnformatted('.editorconfig', `could not be read (${(error as Error).message})`)
+      unreadable: `.editorconfig could not be read (${(error as Error).message})`
     }
   }
   return { config: { ...editorConfig, ...found }, ignorePath }

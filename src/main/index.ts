@@ -70,6 +70,7 @@ import { registerTerminalIpc } from './terminal-ipc'
 import { registerConversationIpc } from './conversation-ipc'
 import { createProjectAvatarStore } from './project-avatar-store'
 import { registerProjectIpc } from './project-ipc'
+import { createProjectPrettier } from './project-prettier'
 import { createWorktreeManager } from './git-worktree'
 import { createWorkspaceFileIndex } from './workspace-file-index'
 import { createWorkspaceStore } from './workspace-store'
@@ -425,7 +426,7 @@ void app.whenReady().then(async () => {
   })
   const fileView = createFileView({
     roots: workspaceRoots,
-    formatter: createPrettierFileFormatter({ roots: workspaceRoots })
+    formatter: createPrettierFileFormatter({ roots: workspaceRoots, projectPrettier: createProjectPrettier() })
   })
   // Opening an artifact with its associated application answers to the same roots, through the
   // same containment rule - it is the one path action that can run something.
