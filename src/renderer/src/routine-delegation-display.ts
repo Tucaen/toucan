@@ -48,7 +48,7 @@ export function describeRoutineDelegation(
   const launched: LaunchedDelegation =
     applied?.status === 'unavailable'
       ? { status: 'unavailable', message: applied.message }
-      : applied?.status === 'configured'
+      : applied?.status === 'configured' && applied.workerModelId
         ? { status: 'delegating', matchesSelection: applied.workerModelId === selectedId }
         : { status: 'off' }
   return { options, selectedId, note: launchPolicyNote(preference.enabled, launched) }

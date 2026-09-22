@@ -97,8 +97,9 @@ keeps the server resident.
 - `src/shared/whisper-assets.ts` pins the engine build and the checkpoint - URL, size and SHA-256
   each. whisper.cpp is MIT; the `large-v3-turbo` checkpoint is MIT (converted to GGML by
   ggerganov/whisper.cpp on Hugging Face). The pin is what makes "downloaded" mean "reviewed": one of
-  these files is an executable. `scripts/whisper-files.mjs` restates the pins for the WER harness
-  (plain node cannot import TypeScript) and `tests/whisper-assets.test.ts` holds the two identical.
+  these files is an executable. There is one copy of the pins: `scripts/whisper-files.mjs` imports
+  these very constants - and `zip-extract.ts` itself - out of `.test-out` for the WER harness, so
+  `npm run voice:wer` runs `build:test-out` first (#230).
 - `src/main/voice-model-store.ts` owns the assets on disk under `<userData>/models/whisper/`: the
   engine zip is downloaded, verified, and its pinned entries extracted into `bin/` (a marker file
   naming the build is written last, so its presence proves the binaries; a bumped pin re-downloads),

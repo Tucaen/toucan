@@ -2,17 +2,16 @@ import { spawnSync } from 'node:child_process'
 import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, extname, join } from 'node:path'
-import { pathToFileURL } from 'node:url'
 
+import { testOut } from './test-out.mjs'
 import { MODELS_ROOT, STREAMING_ARCHS, ensureModelFiles, modelDirectory } from './voice-model-files.mjs'
 import { ensureWhisperAssets } from './whisper-files.mjs'
 
 // The app's own WAV header, encoder-context rule and resampler, from the CommonJS build
 // `npm run voice:wer` emits first - so the harness measures the shipped configuration rather than
 // a copy of it that has to be kept honest by hand.
-const out = (path) => pathToFileURL(join(process.cwd(), '.test-out', path)).href
-const { wavBytes, whisperAudioContext } = await import(out('src/main/whisper-engine.js'))
-const { resampleLinear } = await import(out('src/shared/remote-voice.js'))
+const { wavBytes, whisperAudioContext } = await import(testOut('src/main/whisper-engine.js'))
+const { resampleLinear } = await import(testOut('src/shared/remote-voice.js'))
 
 /**
  * Word error rate of Toucan's candidate speech models on *your* recordings.
@@ -34,7 +33,9 @@ const { resampleLinear } = await import(out('src/shared/remote-voice.js'))
  * the reference word count, as the benchmarks report it. One number per file, one per model.
  */
 
-const usage = 'Usage: node scripts/voice-wer.mjs <directory-with-wav-and-txt-pairs> [--models medium,whisper]'
+// Always the npm script: it runs `build:test-out`, which this file imports the app's own WAV
+// header and encoder-context rule from. A bare `node scripts/voice-wer.mjs` fails at import.
+const usage = 'Usage: npm run voice:wer -- <directory-with-wav-and-txt-pairs> [--models medium,whisper]'
 const args = process.argv.slice(2)
 const directory = args.find((argument) => !argument.startsWith('--'))
 const modelsFlag = args.indexOf('--models')
@@ -127,11 +128,9 @@ async function loadWhisper() {
     run: async (audio) => {
       const wavPath = join(workDirectory, 'sample.wav')
       await writeFile(wavPath, wavBytes(audio))
-      const args = [
-        ...['-m', modelPath, '-f', wavPath, '-nt', '-l', 'auto', '--suppress-nst'],
-        // The app's own trimmed encoder context, so the harness measures what ships.
-        ...['-ac', String(whisperAudioContext(audio.length))]
-      ]
+      // `-ac` is the app's own trimmed encoder context, so the harness measures what ships.
+      const audioContext = String(whisperAudioContext(audio.length))
+      const args = ['-m', modelPath, '-f', wavPath, '-nt', '-l', 'auto', '--suppress-nst', '-ac', audioContext]
       const result = spawnSync(cliPath, args, {
         encoding: 'utf8',
         windowsHide: true,

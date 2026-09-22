@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto'
 import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+
+import { testOut } from './test-out.mjs'
 
 /**
  * The whisper.cpp engine and checkpoint for the WER harness - the app's own pins and the app's own
@@ -15,11 +16,10 @@ import { pathToFileURL } from 'node:url'
  * exactly the drift the identity test guarding it could not see (#230).
  */
 
-const out = (path) => pathToFileURL(join(process.cwd(), '.test-out', path)).href
 const { WHISPER_ENGINE_BUILD, WHISPER_ENGINE_ENTRIES, WHISPER_ENGINE_ZIP, WHISPER_MODEL } = await import(
-  out('src/shared/whisper-assets.js')
+  testOut('src/shared/whisper-assets.js')
 )
-const { readZipEntries } = await import(out('src/main/zip-extract.js'))
+const { readZipEntries } = await import(testOut('src/main/zip-extract.js'))
 
 async function fileHasSize(path, expectedSize) {
   try {

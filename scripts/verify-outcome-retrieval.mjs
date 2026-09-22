@@ -22,12 +22,12 @@
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, win32 } from 'node:path'
-import { pathToFileURL } from 'node:url'
 
-const out = (path) => pathToFileURL(join(process.cwd(), '.test-out', path)).href
-const { createAcpSessionManager } = await import(out('src/main/acp-session-manager.js'))
+import { testOut } from './test-out.mjs'
+
+const { createAcpSessionManager } = await import(testOut('src/main/acp-session-manager.js'))
 // The same reducer every host runs, so the printed answer is the transcript's, not a raw chunk.
-const { foldAgentEvent, initialAgentTranscriptState } = await import(out('src/shared/agent-transcript.js'))
+const { foldAgentEvent, initialAgentTranscriptState } = await import(testOut('src/shared/agent-transcript.js'))
 
 const provider = process.argv[2] === 'codex' ? 'codex' : 'claude'
 // Normalized to backslashes on Windows so the records' `project:` lines carry the separators the
