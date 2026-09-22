@@ -93,6 +93,7 @@ test('every failure has words', () => {
 const disk = (content: string, mtime: string): Extract<FileReadResult, { ok: true }> => ({
   ok: true,
   content,
+  lineEnding: 'lf',
   truncated: false,
   size: content.length,
   mtime,

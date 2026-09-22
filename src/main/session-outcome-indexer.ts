@@ -1,4 +1,5 @@
-import { isAbsolute, relative } from 'node:path'
+import { relative } from 'node:path'
+import { isWithin } from './workspace-containment'
 import type { AgentEvent } from '../shared/agent'
 import type { AgentTranscriptState } from '../shared/agent-transcript'
 import type { ConversationProvider } from '../shared/conversation'
@@ -135,7 +136,7 @@ function turnBoundary(event: AgentEvent): SessionOutcomeEnding | null {
 function displayPath(path: string, projectPath: string | undefined): string {
   if (!projectPath) return path
   const within = relative(projectPath, path)
-  if (!within || within.startsWith('..') || isAbsolute(within)) return path
+  if (!within || !isWithin(projectPath, path)) return path
   return within.replace(/\\/g, '/')
 }
 

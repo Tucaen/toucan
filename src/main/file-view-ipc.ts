@@ -1,4 +1,5 @@
 import type { FileReadResult, FileWriteRequest, FileWriteResult } from '../shared/file-view'
+import { isLineEnding } from '../shared/line-endings'
 import { FILE_VIEW_CHANNELS } from '../shared/ipc-channels'
 import type { IpcRegistrar } from './ipc-registrar'
 import type { FileView, FileViewOwner } from './file-view'
@@ -12,8 +13,14 @@ const BAD_WRITE: FileWriteResult = {
 
 function isWriteRequest(value: unknown): value is FileWriteRequest {
   if (typeof value !== 'object' || value === null) return false
-  const { path, content, baseMtime } = value as Record<string, unknown>
-  return typeof path === 'string' && path.length > 0 && typeof content === 'string' && typeof baseMtime === 'string'
+  const { path, content, baseMtime, lineEnding } = value as Record<string, unknown>
+  return (
+    typeof path === 'string' &&
+    path.length > 0 &&
+    typeof content === 'string' &&
+    typeof baseMtime === 'string' &&
+    (lineEnding === undefined || isLineEnding(lineEnding))
+  )
 }
 
 /**

@@ -1,5 +1,36 @@
 import { realpath } from 'node:fs/promises'
-import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+
+/**
+ * Whether `path` is the root or lies under it, by name alone. The step out of a root is the `..`
+ * *segment*, never the two characters: a `..config` directory is an ordinary name, and reading it
+ * as an escape refuses a legitimate file. Links are not resolved here, so this is the rule to
+ * reuse only where the paths are already canonical or where names are all there is to compare -
+ * `contains` below is what decides whether the renderer may touch a path.
+ */
+export function isWithin(root: string, path: string): boolean {
+  const between = relative(resolve(root), resolve(path))
+  return between === '' || (between !== '..' && !between.startsWith(`..${sep}`) && !isAbsolute(between))
+}
+
+/**
+ * `path`'s own directory and every directory above it up to and including `boundary`, nearest
+ * first. This is how a project file is asked what its checkout says about it - which
+ * `.prettierrc`, which `.editorconfig`, which `.prettierignore` apply - and it exists once so
+ * every such search stops in the same three places: at the boundary, at a filesystem root, and
+ * immediately for a path that was never inside the boundary at all.
+ */
+export function* directoriesUpTo(path: string, boundary: string): Generator<string> {
+  const stop = resolve(boundary)
+  let directory = dirname(resolve(path))
+  while (isWithin(stop, directory)) {
+    yield directory
+    if (directory === stop) return
+    const parent = dirname(directory)
+    if (parent === directory) return
+    directory = parent
+  }
+}
 
 /**
  * The one answer to "may the renderer touch this path at all": it is inside a registered project
@@ -61,8 +92,7 @@ export function createWorkspaceContainment(options: WorkspaceContainmentOptions)
     for (const root of await options.roots()) {
       // An empty relative path means the target *is* the root, which is inside the workspace: the
       // caller then refuses it for what it is (a folder), not as an escape attempt.
-      const between = relative(comparable(await realPathOf(resolve(root))), target)
-      if (!between.startsWith('..') && !isAbsolute(between)) return true
+      if (isWithin(comparable(await realPathOf(resolve(root))), target)) return true
     }
     return false
   }

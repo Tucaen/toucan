@@ -65,3 +65,145 @@ test('returns the original content and a warning when supported content cannot b
     assert.match(result.warning ?? '', /Unclosed block|CssSyntaxError/i)
   })
 })
+
+test('honours every static configuration file name Prettier itself resolves', async () => {
+  const cases: Array<[name: string, text: string]> = [
+    ['.prettierrc', '{"semi":false,"singleQuote":true}'],
+    ['.prettierrc', 'semi: false\nsingleQuote: true\n'],
+    ['.prettierrc.yaml', 'semi: false\nsingleQuote: true\n'],
+    ['.prettierrc.yml', '# style\nsemi: false\nsingleQuote: true\n'],
+    ['.prettierrc.json5', '{\n  // style\n  semi: false,\n  singleQuote: true,\n}'],
+    ['package.json', '{"name":"x","prettier":{"semi":false,"singleQuote":true}}']
+  ]
+  for (const [name, text] of cases) {
+    await withRoot(async (root) => {
+      await writeFile(join(root, name), text, 'utf8')
+      const formatter = createPrettierFileFormatter({ roots: async () => [root] })
+
+      const result = await formatter(join(root, 'index.ts'), 'const message = "hello";')
+
+      assert.equal(result.warning, undefined, `${name} produced a warning`)
+      assert.equal(result.content, "const message = 'hello'\n", `${name} was not honoured`)
+    })
+  }
+})
+
+test('a package.json with no prettier field does not stop the search at that directory', async () => {
+  await withRoot(async (root) => {
+    await mkdir(join(root, 'app'), { recursive: true })
+    await writeFile(join(root, 'app', 'package.json'), '{"name":"app"}', 'utf8')
+    await writeFile(join(root, '.prettierrc.yaml'), 'semi: false\nsingleQuote: true\n', 'utf8')
+    const formatter = createPrettierFileFormatter({ roots: async () => [root] })
+
+    const result = await formatter(join(root, 'app', 'index.ts'), 'const message = "hello";')
+
+    assert.equal(result.content, "const message = 'hello'\n")
+  })
+})
+
+test('a configuration file that cannot be parsed saves unformatted with a warning', async () => {
+  await withRoot(async (root) => {
+    await writeFile(join(root, '.prettierrc.yaml'), 'overrides:\n  - files: "*.ts"\n', 'utf8')
+    const formatter = createPrettierFileFormatter({ roots: async () => [root] })
+    const typed = 'const message = "hello";'
+
+    const result = await formatter(join(root, 'index.ts'), typed)
+
+    assert.equal(result.content, typed)
+    assert.match(result.warning ?? '', /\.prettierrc\.yaml could not be read/)
+  })
+})
+
+test('configuration Toucan will not run saves unformatted with a warning, never with defaults', async () => {
+  for (const name of ['.prettierrc.js', 'prettier.config.mjs', '.prettierrc.toml']) {
+    await withRoot(async (root) => {
+      await writeFile(join(root, name), 'module.exports = { semi: false }\n', 'utf8')
+      const formatter = createPrettierFileFormatter({ roots: async () => [root] })
+      const typed = 'const message = "hello"'
+
+      const result = await formatter(join(root, 'index.ts'), typed)
+
+      assert.equal(result.content, typed, `${name} was formatted with Prettier defaults`)
+      assert.match(
+        result.warning ?? '',
+        new RegExp(`${name.replace(/\./g, '\.')} is configuration Toucan does not read`)
+      )
+    })
+  }
+})
+
+test('an ignored file is still passed through quietly when the project configuration is unreadable', async () => {
+  await withRoot(async (root) => {
+    await mkdir(join(root, 'generated'), { recursive: true })
+    await writeFile(join(root, '.prettierrc.js'), 'module.exports = {}\n', 'utf8')
+    await writeFile(join(root, '.prettierignore'), 'generated/\n', 'utf8')
+    const formatter = createPrettierFileFormatter({ roots: async () => [root] })
+
+    const result = await formatter(join(root, 'generated', 'styles.css'), 'a{color:red}')
+
+    assert.equal(result.content, 'a{color:red}')
+    assert.equal(result.warning, undefined)
+  })
+})
+
+test('honours .editorconfig, and lets the project Prettier file override it key by key', async () => {
+  await withRoot(async (root) => {
+    await writeFile(
+      join(root, '.editorconfig'),
+      'root = true\n\n[*]\nindent_style = space\nindent_size = 8\nmax_line_length = 40\n\n[*.ts]\nquote_type = single\n',
+      'utf8'
+    )
+    const formatter = createPrettierFileFormatter({ roots: async () => [root] })
+
+    const only = await formatter(join(root, 'index.ts'), 'const values = { first: "a", second: "b", third: "c" }')
+    assert.equal(only.warning, undefined)
+    assert.equal(only.content, "const values = {\n        first: 'a',\n        second: 'b',\n        third: 'c',\n};\n")
+
+    // The project's own Prettier file wins where the two disagree, and only there.
+    await writeFile(join(root, '.prettierrc.json'), '{"tabWidth":2}', 'utf8')
+    const both = await formatter(join(root, 'index.ts'), 'const values = { first: "a", second: "b", third: "c" }')
+    assert.equal(both.content, "const values = {\n  first: 'a',\n  second: 'b',\n  third: 'c',\n};\n")
+  })
+})
+
+test('a .editorconfig section that does not match the file is not applied to it', async () => {
+  await withRoot(async (root) => {
+    await writeFile(join(root, '.editorconfig'), 'root = true\n\n[*.md]\nmax_line_length = 20\n', 'utf8')
+    const formatter = createPrettierFileFormatter({ roots: async () => [root] })
+
+    const result = await formatter(join(root, 'index.ts'), 'const values = { first: 1, second: 2 }')
+
+    assert.equal(result.content, 'const values = { first: 1, second: 2 };\n')
+  })
+})
+
+test('an .editorconfig that exists but cannot be read stops the save being formatted', async () => {
+  await withRoot(async (root) => {
+    // Present where the file should be, and not readable as one.
+    await mkdir(join(root, '.editorconfig'), { recursive: true })
+    const formatter = createPrettierFileFormatter({ roots: async () => [root] })
+    const typed = 'const message = "hello"'
+
+    const result = await formatter(join(root, 'index.ts'), typed)
+
+    assert.equal(result.content, typed)
+    assert.match(result.warning ?? '', /\.editorconfig could not be read/)
+  })
+})
+
+test('a package.yaml is read far enough to know whether it configures Prettier at all', async () => {
+  await withRoot(async (root) => {
+    await writeFile(join(root, 'package.yaml'), 'name: app\nversion: 1.0.0\n', 'utf8')
+    await writeFile(join(root, '.prettierrc.yml'), 'semi: false\nsingleQuote: true\n', 'utf8')
+    const formatter = createPrettierFileFormatter({ roots: async () => [root] })
+
+    // No `prettier` block: not this project's configuration, so the search goes on past it.
+    assert.equal((await formatter(join(root, 'index.ts'), 'const m = "x";')).content, "const m = 'x'\n")
+
+    // With one, it is configuration Toucan cannot read - refused rather than silently skipped.
+    await writeFile(join(root, 'package.yaml'), 'name: app\nprettier:\n  semi: false\n', 'utf8')
+    const refused = await formatter(join(root, 'index.ts'), 'const m = "x";')
+    assert.equal(refused.content, 'const m = "x";')
+    assert.match(refused.warning ?? '', /package\.yaml could not be read/)
+  })
+})

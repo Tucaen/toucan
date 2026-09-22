@@ -1,9 +1,9 @@
 import { strict as assert } from 'node:assert'
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { after, test } from 'node:test'
-import { createWorkspaceContainment } from '../src/main/workspace-containment'
+import { createWorkspaceContainment, directoriesUpTo, isWithin } from '../src/main/workspace-containment'
 
 /*
  * The privilege gate every path operation the renderer can ask for passes through: a file node's
@@ -82,4 +82,29 @@ test('the case rule decides how two spellings of one path are compared', async (
   // Either way a real path under the root is contained: `realpath` already canonicalizes the
   // spelling of every part that exists, which is most of why the flag rarely shows.
   assert.equal(await insensitive.contains(join(root.toUpperCase(), 'a.png')), true)
+})
+
+test('a directory whose name merely begins with dots is inside the root', async () => {
+  const root = await directory()
+  await mkdir(join(root, '..config'), { recursive: true })
+  await writeFile(join(root, '..config', 'settings.json'), '{}')
+  const containment = createWorkspaceContainment({ roots: () => [root] })
+
+  assert.equal(await containment.contains(join(root, '..config', 'settings.json')), true)
+  assert.equal(isWithin(root, join(root, '..config', 'settings.json')), true)
+  // The one step out that the leading dots must not be mistaken for.
+  assert.equal(isWithin(root, join(root, '..')), false)
+  assert.equal(isWithin(root, join(root, '..', 'sibling.txt')), false)
+  assert.equal(isWithin(root, root), true)
+})
+
+test('the walk up to a boundary stops at it, and never starts outside it', () => {
+  const root = resolve('/', 'work', 'project')
+  assert.deepEqual(
+    [...directoriesUpTo(join(root, 'src', 'deep', 'a.ts'), root)],
+    [join(root, 'src', 'deep'), join(root, 'src'), root]
+  )
+  assert.deepEqual([...directoriesUpTo(join(root, 'a.ts'), root)], [root])
+  // A file that was never under the boundary has nothing to ask, rather than climbing to the root.
+  assert.deepEqual([...directoriesUpTo(resolve('/', 'work', 'other', 'a.ts'), root)], [])
 })

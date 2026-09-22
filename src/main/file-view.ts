@@ -7,6 +7,7 @@ import {
   type FileWriteRequest,
   type FileWriteResult
 } from '../shared/file-view'
+import { applyLineEnding, dominantLineEnding } from '../shared/line-endings'
 import { createWatchedDirectories, type WatchDirectory } from './watched-directories'
 import { createWorkspaceContainment, type WorkspaceContainmentOptions } from './workspace-containment'
 import type { FileFormatResult, FileFormatter } from './file-formatter'
@@ -107,9 +108,15 @@ export function createFileView(options: FileViewOptions): FileView {
         }
         const bytes = buffer.subarray(0, filled)
         const binary = bytes.subarray(0, BINARY_PROBE_BYTES).includes(0)
+        const text = binary ? '' : bytes.toString('utf8')
+        const lineEnding = dominantLineEnding(text)
         return {
           ok: true,
-          content: binary ? '' : bytes.toString('utf8'),
+          // Text travels as LF and `lineEnding` says what disk speaks. The editor cannot hold the
+          // distinction anyway, and handing it the raw bytes made every CRLF file read as edited:
+          // the draft it gives back has LF endings and would never compare equal to disk again.
+          content: applyLineEnding(text, 'lf'),
+          lineEnding,
           truncated: size > maxBytes,
           size,
           mtime: info.mtime.toISOString(),
@@ -127,7 +134,7 @@ export function createFileView(options: FileViewOptions): FileView {
     }
   }
 
-  const write = async ({ path, content, baseMtime }: FileWriteRequest): Promise<FileWriteResult> => {
+  const write = async ({ path, content, baseMtime, lineEnding }: FileWriteRequest): Promise<FileWriteResult> => {
     if (!(await insideWorkspace(path))) {
       return {
         ok: false,
@@ -162,12 +169,19 @@ export function createFileView(options: FileViewOptions): FileView {
         message: 'This file changed on disk while you were editing it, so your version was not written over it.'
       }
     }
+    // The file keeps the line ending it was read with. Both halves are needed: the formatter is
+    // told, so a project configuration saying `endOfLine` cannot convert the file behind the
+    // reader's back, and the result is converted anyway, because an unsupported or unformatted
+    // file arrives from the editor with every line ending already flattened to LF.
+    const ending = lineEnding ?? dominantLineEnding(content)
     let formatted: FileFormatResult = { content }
     try {
-      if (options.formatter) formatted = await options.formatter(path, content)
+      if (options.formatter) formatted = await options.formatter(path, content, ending)
     } catch (error) {
       formatted = { content, warning: (error as Error).message }
     }
+    const output = applyLineEnding(formatted.content, ending)
+    const asRead = applyLineEnding(formatted.content, 'lf')
     // Formatting is asynchronous and makes the old stat-to-rename race large enough to matter.
     // Re-check the base immediately before creating the replacement so formatter work can never
     // give an external writer a window in which its newer contents are silently overwritten.
@@ -196,7 +210,7 @@ export function createFileView(options: FileViewOptions): FileView {
     try {
       const handle = await open(temporary, 'w', beforeWrite.mode)
       try {
-        await handle.writeFile(formatted.content, 'utf8')
+        await handle.writeFile(output, 'utf8')
         await handle.sync()
       } finally {
         await handle.close()
@@ -211,7 +225,7 @@ export function createFileView(options: FileViewOptions): FileView {
       ok: true,
       mtime: written.mtime.toISOString(),
       size: written.size,
-      content: formatted.content,
+      content: asRead,
       formatWarning: formatted.warning
     }
   }

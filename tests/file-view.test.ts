@@ -480,3 +480,58 @@ test('a file that vanished or turned into a folder is not recreated by a save', 
     assert.equal(!folder.ok && folder.reason, 'directory')
   })
 })
+
+test('a CRLF file survives a round trip through the editor, formatted or not', async () => {
+  await withRoot(async (root) => {
+    const project = join(root, 'project')
+    await mkdir(project, { recursive: true })
+    const notes = join(project, 'notes.txt')
+    await writeFile(notes, 'one\r\ntwo\r\nthree\r\n', 'utf8')
+    // Prettier itself defaults to LF, so a formatted file is the case that would silently convert.
+    const view = createFileView({
+      roots: async () => [project],
+      formatter: async (_path, content, lineEnding) => ({
+        content: content.replace(/\r?\n/g, lineEnding === 'crlf' ? '\r\n' : '\n')
+      })
+    })
+
+    const read = await view.read(notes)
+    assert.ok(read.ok)
+    assert.equal(read.lineEnding, 'crlf')
+
+    // What the editor hands back: the same text with every line ending flattened to LF.
+    const written = await view.write({
+      path: notes,
+      content: 'one\nTWO\nthree\n',
+      baseMtime: read.mtime,
+      lineEnding: read.lineEnding
+    })
+    assert.ok(written.ok)
+    assert.equal(await readFile(notes, 'utf8'), 'one\r\nTWO\r\nthree\r\n')
+    // The editor adopts what was saved in the form it reads in, so an untouched file is not dirty.
+    assert.equal(written.content, 'one\nTWO\nthree\n')
+  })
+})
+
+test('an LF file is left with LF endings even when the submitted draft carries carriage returns', async () => {
+  await withRoot(async (root) => {
+    const project = join(root, 'project')
+    await mkdir(project, { recursive: true })
+    const notes = join(project, 'notes.txt')
+    await writeFile(notes, 'one\ntwo\n', 'utf8')
+    const view = createFileView({ roots: async () => [project] })
+
+    const read = await view.read(notes)
+    assert.ok(read.ok)
+    assert.equal(read.lineEnding, 'lf')
+
+    const written = await view.write({
+      path: notes,
+      content: 'one\r\ntwo\r\nthree\r\n',
+      baseMtime: read.mtime,
+      lineEnding: read.lineEnding
+    })
+    assert.ok(written.ok)
+    assert.equal(await readFile(notes, 'utf8'), 'one\ntwo\nthree\n')
+  })
+})

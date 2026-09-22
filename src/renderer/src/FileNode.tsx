@@ -193,7 +193,14 @@ export default function FileNode({ id, data, selected }: NodeProps<FileCanvasNod
     savingRef.current = true
     setSaving(true)
     const written = await window.fileViewApi
-      .write({ path, content: state.draft, baseMtime: state.baseMtime })
+      // The editor flattened every line ending to LF; the read said what the file speaks, and main
+      // puts it back, so saving one character does not rewrite every line of a CRLF file.
+      .write({
+        path,
+        content: state.draft,
+        baseMtime: state.baseMtime,
+        lineEnding: resultRef.current?.ok ? resultRef.current.lineEnding : undefined
+      })
       .catch((error: unknown): FileWriteResult => ({
         ok: false,
         reason: 'unwritable',

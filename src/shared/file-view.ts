@@ -4,6 +4,8 @@
  * how the renderer reaches the file. Nothing here touches the filesystem.
  */
 
+import type { LineEnding } from './line-endings'
+
 export type FileViewMode = 'rendered' | 'raw'
 
 /** How a file node persists: geometry plus which way the reader last chose to look at the file. */
@@ -31,13 +33,22 @@ export type FileReadFailure =
 export type FileReadResult =
   | {
       ok: true
-      /** UTF-8 text, cut at the byte cap when `truncated`; empty for a binary file. */
+      /**
+       * UTF-8 text, cut at the byte cap when `truncated`; empty for a binary file. Line breaks
+       * are always LF, whatever the file speaks - `lineEnding` carries that, and a write puts it
+       * back - so the editor's text and this can be compared at all.
+       */
       content: string
       truncated: boolean
       /** Total size on disk in bytes, so a truncated view can say how much it left out. */
       size: number
       /** Last modification time as an ISO timestamp. */
       mtime: string
+      /**
+       * The line ending the file on disk speaks. The editor cannot carry it - CodeMirror re-joins
+       * every document with LF - so it travels beside the text and comes back on the write.
+       */
+      lineEnding: LineEnding
       /** The bytes do not read as text, so only the size is worth showing. */
       binary: boolean
     }
@@ -61,6 +72,11 @@ export interface FileWriteRequest {
    * the file on disk has a different one, so an external change is never overwritten silently.
    */
   baseMtime: string
+  /**
+   * The `lineEnding` of that read, put back on `content` before the file is replaced. Absent
+   * means the submitted text already speaks the ending it should be saved with.
+   */
+  lineEnding?: LineEnding
 }
 
 export type FileWriteResult =
@@ -69,7 +85,11 @@ export type FileWriteResult =
       /** The written file's modification time, the base for the next edit. */
       mtime: string
       size: number
-      /** The bytes main actually wrote; format-on-save may have changed the submitted draft. */
+      /**
+       * What was saved, in the same LF form a read returns, so the editor can adopt it directly;
+       * format-on-save may have changed the submitted draft. The file on disk has the line
+       * endings it was read with.
+       */
       content: string
       /** Present when a supported file had to be saved unchanged because formatting failed. */
       formatWarning?: string

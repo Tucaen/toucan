@@ -21,7 +21,15 @@ function harness(): Harness {
   const view: FileView = {
     read: async (path) => {
       reads.push(path)
-      return { ok: true, content: 'x', truncated: false, size: 1, mtime: '2026-09-05T00:00:00.000Z', binary: false }
+      return {
+        ok: true,
+        content: 'x',
+        lineEnding: 'lf',
+        truncated: false,
+        size: 1,
+        mtime: '2026-09-05T00:00:00.000Z',
+        binary: false
+      }
     },
     write: async (request) => {
       writes.push(request)

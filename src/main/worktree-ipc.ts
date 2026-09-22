@@ -3,8 +3,8 @@ import type { GitChangedFile } from '../shared/git-diff'
 import type { WorktreeManager } from './git-worktree'
 import type { IpcRegistrar } from './ipc-registrar'
 import { isRecord, isString, optionalString } from './ipc-validation'
-import type { WorkspaceContainment } from './workspace-containment'
-import { isAbsolute, resolve, relative } from 'node:path'
+import { isWithin, type WorkspaceContainment } from './workspace-containment'
+import { isAbsolute, resolve } from 'node:path'
 
 const MESSAGE = 'Invalid worktree request or path outside the workspace.'
 const REFUSED = { ok: false, message: MESSAGE }
@@ -113,9 +113,7 @@ export function registerWorktreeIpc(
     for (const file of [request.file.path, request.file.oldPath]) {
       if (file === undefined) continue
       const target = resolve(request.path, file)
-      const between = relative(request.path, target)
-      if (isAbsolute(file) || between.startsWith('..') || isAbsolute(between) || !(await allowed(target)))
-        return REFUSED
+      if (isAbsolute(file) || !isWithin(request.path, target) || !(await allowed(target))) return REFUSED
     }
     return worktrees.diffFile({ path: request.path, baseRef: request.baseRef, file: request.file })
   })
