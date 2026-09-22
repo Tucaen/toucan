@@ -27,6 +27,7 @@ import {
   type ChatConnectionState
 } from './chat-connection'
 import { hostSocketUrl, type SavedHost } from './hosts'
+import { newLocalId } from './local-id'
 import { fetchWorkspace, rememberDraft, storedDraft } from './remote-client'
 
 /**
@@ -171,7 +172,7 @@ export function useChatConnection(host: SavedHost, chatId: string, onUnauthorize
   const onSend = useCallback(() => {
     // `plannedSend` is the gate: null means the composer had nothing to offer or the session was
     // not a send target, and nothing must reach the socket in that case.
-    const planned = plannedSend(stateRef.current, newRequestId())
+    const planned = plannedSend(stateRef.current, newLocalId())
     if (!planned) return
     const message: RemoteChatClientMessage = { type: 'prompt', requestId: planned.requestId, text: planned.text }
     const delivered = writeToSocket(live.current, message)
@@ -192,7 +193,7 @@ export function useChatConnection(host: SavedHost, chatId: string, onUnauthorize
     (build: (requestId: string, target: string) => RemoteChatClientMessage | null): void => {
       const target = pendingRequest(stateRef.current)
       if (!target) return
-      const requestId = newRequestId()
+      const requestId = newLocalId()
       const planned = plannedAnswer(stateRef.current, requestId, target.id)
       if (!planned) return
       const message = build(requestId, target.id)
@@ -229,7 +230,7 @@ export function useChatConnection(host: SavedHost, chatId: string, onUnauthorize
   const onSelectModel = useCallback((modelId: string) => {
     // Same shape as a send: plan against the newest committed state, write once, then apply the
     // decision already made rather than re-deciding it against whatever landed in the same tick.
-    const planned = plannedModelChange(stateRef.current, newRequestId(), modelId)
+    const planned = plannedModelChange(stateRef.current, newLocalId(), modelId)
     if (!planned) return
     const delivered = writeToSocket(live.current, {
       type: 'set_model',
@@ -243,11 +244,6 @@ export function useChatConnection(host: SavedHost, chatId: string, onUnauthorize
   }, [])
 
   return { ...state, onDraftChange, onSend, onApprove, onAnswerDecision, onSelectModel }
-}
-
-/** Correlates one send with its verdict. Only uniqueness matters, so no crypto API is required. */
-function newRequestId(): string {
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
 }
 
 /** True only if the frame actually went out; a closed or throwing socket is a failed send. */

@@ -8,11 +8,11 @@ import {
   EMPTY_HOST_DIRECTORY,
   hostApiUrl,
   migratedHostDirectory,
-  newHostId,
   parseHostDirectory,
   type HostDirectory,
   type HostEndpoint
 } from './hosts'
+import { newLocalId } from './local-id'
 
 /**
  * The phone's side of talking to a host. Every request is addressed to one saved host and carries
@@ -59,7 +59,7 @@ export function rememberHostDirectory(directory: HostDirectory): void {
 function migratedLegacyPairing(): HostDirectory {
   const token = window.localStorage.getItem(LEGACY_TOKEN_KEY)
   if (token === null || token.length === 0) return EMPTY_HOST_DIRECTORY
-  const migrated = migratedHostDirectory(token, window.location.origin, newHostId())
+  const migrated = migratedHostDirectory(token, window.location.origin, newLocalId())
   rememberHostDirectory(migrated)
   try {
     window.localStorage.removeItem(LEGACY_TOKEN_KEY)

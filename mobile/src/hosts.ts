@@ -15,6 +15,8 @@
  * which is why `revokedHostToken` is a list operation and never a reason to forget anything else.
  */
 
+import { isRecord } from '../../src/shared/record'
+
 export interface SavedHost {
   /** Stable across renames and re-pairings, because screens and retained drafts are keyed on it. */
   id: string
@@ -44,15 +46,6 @@ export interface HostDraft {
   name: string
   origin: string
   token: string
-}
-
-/**
- * Identifies a saved host for as long as it is saved - which is why every list operation takes the
- * id rather than minting one: the operations stay pure and testable, and this is the one impure
- * corner. Only uniqueness matters, so no crypto API is required.
- */
-export function newHostId(): string {
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
 }
 
 export function selectedHost(directory: HostDirectory): SavedHost | null {
@@ -241,8 +234,4 @@ export function parseHostDirectory(raw: unknown): HostDirectory {
  */
 export function migratedHostDirectory(token: string, origin: string, id: string): HostDirectory {
   return addHost(EMPTY_HOST_DIRECTORY, { name: '', origin, token }, id)
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null
 }

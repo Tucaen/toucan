@@ -1,7 +1,8 @@
-/** Runtime narrowing for values crossing an untrusted IPC boundary. */
-export function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-}
+/**
+ * Runtime narrowing for values crossing an untrusted IPC boundary. `isRecord` is the shared guard,
+ * re-exported here so a validator reads as one vocabulary rather than two imports.
+ */
+export { isRecord } from '../shared/record'
 
 export function isString(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0 && !value.includes('\0')

@@ -6,6 +6,7 @@ import {
   type ProviderUsageEntry,
   type ProviderUsageReport
 } from './agent'
+import { isRecord } from './record'
 
 /**
  * `GET /api/usage`: what the account behind each provider has left, for a phone (issue #195).
@@ -43,10 +44,6 @@ export const PROVIDER_USAGE_POLL_MS = 60_000
 
 /** Every provider whose usage may appear on the wire; an unknown key is dropped, never rendered. */
 const PROVIDERS = AGENT_PROVIDERS
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
 
 /**
  * One window, or nothing. `usedPercent` is the window's whole point, so a window without a usable

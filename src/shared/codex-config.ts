@@ -10,6 +10,8 @@
  * rather than overwrite each other, and so a value the user set themselves survives all of them.
  */
 
+import { isRecord } from './record'
+
 /**
  * Layers one config object into an environment's `CODEX_CONFIG`. Nested tables merge key by key,
  * so a caller setting `agents.max_depth` cannot drop a sibling another caller set; scalars are
@@ -42,10 +44,6 @@ function appendedInstructions(existing: unknown, addition: unknown): string | un
   if (typeof addition !== 'string' || !addition.trim()) return undefined
   if (typeof existing !== 'string' || !existing.trim()) return addition
   return `${existing}\n\n${addition}`
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === 'object' && !Array.isArray(value)
 }
 
 function mergeConfig(base: Record<string, unknown>, addition: Record<string, unknown>): Record<string, unknown> {

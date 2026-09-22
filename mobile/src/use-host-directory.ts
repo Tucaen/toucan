@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   addHost,
-  newHostId,
   removeHost as removeFromDirectory,
   renameHost as renameInDirectory,
   revokedHostToken,
@@ -11,6 +10,7 @@ import {
   type HostDraft,
   type SavedHost
 } from './hosts'
+import { newLocalId } from './local-id'
 import {
   appliedHostProbe,
   notedHostOutcome,
@@ -73,7 +73,7 @@ export function useHostDirectory(): HostDirectoryController {
   }, [])
 
   const pairHost = useCallback(
-    (draft: HostDraft) => mutate((current) => addHost(current, draft, newHostId())),
+    (draft: HostDraft) => mutate((current) => addHost(current, draft, newLocalId())),
     [mutate]
   )
   const renameHost = useCallback(
