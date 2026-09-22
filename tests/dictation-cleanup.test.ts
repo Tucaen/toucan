@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { createDictationCleaner } from '../src/main/dictation-cleanup'
 import { claudeModelLabel } from '../src/shared/dictation-cleanup'
 

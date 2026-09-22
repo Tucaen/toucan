@@ -2,7 +2,7 @@ import { strict as assert } from 'node:assert'
 import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { createFileView } from '../src/main/file-view'
 
 type WatchListener = (eventType: string, filename: string | Buffer | null) => void

@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import type { CanvasNode, TerminalNodeCallbacks, TerminalNodeStatus } from '../src/renderer/src/canvas-workspace'
 import { isTerminalCanvasNode, isWorktreeCanvasNode } from '../src/renderer/src/canvas-workspace'
 import {

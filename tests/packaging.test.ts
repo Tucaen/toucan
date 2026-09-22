@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert'
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { minimatch } from 'minimatch'
 import { PROJECT_SKILLS_MANIFEST_SEGMENTS, projectSkillFileSegments } from '../src/shared/project-skills'
 

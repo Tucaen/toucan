@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { sendTerminalEvent, type TerminalEventOwner } from '../src/main/terminal-events'
 
 test('ignores terminal events after the renderer owner is destroyed', () => {

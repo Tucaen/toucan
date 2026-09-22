@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, wr
 import { readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { createDurableJsonStore, createDurableJsonStoreSync } from '../src/main/durable-json-store'
 
 interface Counter {

@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { registerDecisionDelegationIpc } from '../src/main/decision-delegation-ipc'
 import { DECISION_DELEGATION_CHANNELS } from '../src/shared/ipc-channels'
 

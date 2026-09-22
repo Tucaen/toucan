@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { deliverAgentPrompt } from '../src/renderer/src/agent-prompt-delivery'
 
 test('does not send a fallback prompt when request composition fails and recovers on the same delivery seam', async () => {

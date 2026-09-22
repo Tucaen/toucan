@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { unscalePointerCoordinates } from '../src/renderer/src/scaled-pointer-coordinates'
 
 test('maps viewport pointer coordinates back into a uniformly scaled terminal', () => {

@@ -2,7 +2,7 @@ import { strict as assert } from 'node:assert'
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { after, test } from 'node:test'
+import { afterAll as after, test } from 'vitest'
 import { createWorkspaceContainment, directoriesUpTo, isWithin } from '../src/main/workspace-containment'
 
 /*

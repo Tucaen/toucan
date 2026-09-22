@@ -2,7 +2,7 @@ import { strict as assert } from 'node:assert'
 import { mkdtemp, mkdir, rm, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import type { WebContents } from 'electron'
 import { createWorkspaceContainment } from '../src/main/workspace-containment'
 import { registerAgentIpc } from '../src/main/register-agent-ipc'
@@ -145,7 +145,7 @@ test('file indexes and GitHub queries cannot name an outside checkout', async ()
 
 test('workspace gates reject relative paths and junction escapes, and accept registered worktrees', async (t) => {
   const directory = await mkdtemp(join(tmpdir(), 'toucan-privilege-'))
-  t.after(() => rm(directory, { recursive: true, force: true }))
+  t.onTestFinished(() => rm(directory, { recursive: true, force: true }))
   const project = join(directory, 'project')
   const worktree = join(directory, 'worktree')
   const outside = join(directory, 'outside')

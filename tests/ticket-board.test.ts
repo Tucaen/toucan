@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import type { TicketCard, TicketSourceListResult } from '../src/shared/ticket-source'
 import { ticketCardKey } from '../src/shared/ticket-source'
 import {

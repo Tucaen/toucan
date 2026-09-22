@@ -2,7 +2,7 @@ import { strict as assert } from 'node:assert'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { after, test } from 'node:test'
+import { afterAll as after, test } from 'vitest'
 import { createLocalFileOpener } from '../src/main/local-file-open'
 
 /*

@@ -3,8 +3,8 @@ import { spawnSync, type SpawnSyncReturns } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
-import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { test } from 'vitest'
 import { hiddenProcessOptions } from '../src/main/background-process'
 import {
   claudeRateLimitsFromUsage,

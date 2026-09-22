@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { describe, test } from 'node:test'
+import { describe, test } from 'vitest'
 import { createRemoteCanvasRequests, type DesktopWindow } from '../src/main/remote/canvas-requests'
 import { REMOTE_CHANNELS } from '../src/shared/ipc-channels'
 import type { RemoteChatSpawnRequest } from '../src/shared/remote-spawn'

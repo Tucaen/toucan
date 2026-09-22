@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { discoverWorktrees, matchWorktreeClaims, parseWorktreeList, type WorktreeClaim } from '../src/shared/worktree'
 
 const PROJECT = 'D:\\Development\\Toucan'

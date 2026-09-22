@@ -4,7 +4,7 @@ import { once } from 'node:events'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { createVoiceTranscriber } from '../src/main/voice-transcription'
 import { loadWhisperEngine } from '../src/main/whisper-engine'
 
@@ -27,7 +27,7 @@ interface Fixture {
 async function fixture(t: { after(fn: () => unknown): void }, source: string): Promise<Fixture> {
   const root = await mkdtemp(join(tmpdir(), 'toucan-whisper-'))
   const launched: Fixture['launched'] = []
-  t.after(async () => {
+  t.onTestFinished(async () => {
     for (const { child } of launched) child.kill()
     await rm(root, { recursive: true, force: true })
   })
@@ -117,7 +117,7 @@ test('a child that dies during the load rejects rather than polling a corpse', a
 
 test('a helper that cannot be started says why, rather than "exited"', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'toucan-whisper-'))
-  t.after(() => rm(root, { recursive: true, force: true }))
+  t.onTestFinished(() => rm(root, { recursive: true, force: true }))
   const logged: string[] = []
   // No injected launcher: the spawn failure this reports only exists on the real one.
   await assert.rejects(

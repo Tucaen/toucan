@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { StallTimeoutError, withStallGuard } from '../src/shared/stall-guard'
 
 test('resolves with the value once the wrapped promise resolves before the deadline', async () => {

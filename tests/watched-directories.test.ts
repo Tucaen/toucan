@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { createWatchedDirectories } from '../src/main/watched-directories'
 
 type WatchListener = (eventType: string, filename: string | Buffer | null) => void

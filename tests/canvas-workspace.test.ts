@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert'
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import {
   CANVAS_NODE_KINDS,
   canvasNodeKind,

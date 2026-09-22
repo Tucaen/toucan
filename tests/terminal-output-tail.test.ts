@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { createTerminalOutputTails } from '../src/main/terminal-output-tail'
 
 test('a first read returns the whole retained tail and is labelled as such', () => {

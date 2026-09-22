@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert'
 import { readFileSync, readdirSync } from 'node:fs'
 import { join, relative } from 'node:path'
-import { test } from 'node:test'
+import { test } from 'vitest'
 
 /**
  * An export no production code imports reads exactly like one that does, so a symbol kept alive

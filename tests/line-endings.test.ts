@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { applyLineEnding, dominantLineEnding } from '../src/shared/line-endings'
 
 test('a file speaks one line ending, and the one it speaks most is the one it keeps', () => {

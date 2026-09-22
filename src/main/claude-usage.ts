@@ -18,7 +18,12 @@ import { resolveUnpackedExecutable } from './agent-process'
  * The SDK is ESM-only while this process is bundled to CommonJS, and esbuild rewrites a literal
  * `import()` in CommonJS output into `require()`, which cannot load an ESM package. Constructing the
  * import through `Function` keeps it opaque to the bundler so it survives as a real dynamic import.
+ *
+ * This is the one `Function` constructor in the app, and the rule is disabled for this line alone
+ * rather than repo-wide (#238): the string is a compile-time literal that takes no input, and the
+ * alternative is shipping a main bundle that cannot read Claude usage at all.
  */
+// eslint-disable-next-line @typescript-eslint/no-implied-eval -- see above; a fixed, input-free literal
 const importEsm = new Function('specifier', 'return import(specifier)') as (specifier: string) => Promise<unknown>
 
 const SDK_PACKAGE = '@anthropic-ai/claude-agent-sdk'

@@ -3,7 +3,7 @@ import { copyFileSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { buildAgentProcessLaunch } from '../src/main/agent-process'
 import { hiddenProcessOptions } from '../src/main/background-process'
 

@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { effortSelectorFromConfigOptions } from '../src/shared/agent-effort'
 
 test('reads only the effort values advertised for the selected provider/model', () => {

@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { VOICE_MODEL_CHANNELS } from '../src/shared/ipc-channels'
 import { REMOTE_VOICE_BODY_LIMIT, encodePcm16 } from '../src/shared/remote-voice'
 import type { IpcRegistrar } from '../src/main/ipc-registrar'

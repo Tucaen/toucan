@@ -1,5 +1,5 @@
 import { equal, notEqual, ok } from 'node:assert/strict'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { isAbsolutePath, pathIdentity } from '../src/shared/paths'
 
 /**

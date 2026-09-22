@@ -2,7 +2,7 @@ import { strict as assert } from 'node:assert'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { createBrainDumpCaptureStore } from '../src/main/brain-dump-capture-store'
 
 test('capture store persists terminal conversation identity independently of workspace nodes', async () => {

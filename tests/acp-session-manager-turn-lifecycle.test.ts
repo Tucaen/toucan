@@ -1,9 +1,10 @@
 import { strict as assert } from 'node:assert'
-import { test } from 'node:test'
+import { test, vi } from 'vitest'
 import { settleAgentTurn } from '../src/main/acp-session-manager'
 
 test('a provider turn has no wall-clock deadline', async (context) => {
-  context.mock.timers.enable({ apis: ['setTimeout'] })
+  vi.useFakeTimers()
+  context.onTestFinished(() => vi.useRealTimers())
   let resolveTurn!: (response: { stopReason: string }) => void
   const providerTurn = new Promise<{ stopReason: string }>((resolve) => {
     resolveTurn = resolve
@@ -16,7 +17,7 @@ test('a provider turn has no wall-clock deadline', async (context) => {
   })
   await Promise.resolve()
 
-  context.mock.timers.tick(24 * 60 * 60_000)
+  vi.advanceTimersByTime(24 * 60 * 60_000)
   await Promise.resolve()
   assert.equal(settled, false, 'elapsed time alone must never end a provider turn')
 

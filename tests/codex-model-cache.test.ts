@@ -2,7 +2,7 @@ import { strict as assert } from 'node:assert'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { readCachedCodexModels } from '../src/main/codex-model-cache'
 
 test('reads model choices from the shared Codex cache without requiring a session', () => {

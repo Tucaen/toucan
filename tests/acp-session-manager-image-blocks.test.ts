@@ -2,7 +2,7 @@ import { strict as assert } from 'node:assert'
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import type { WebContents } from 'electron'
 import {
   createAcpSessionManager,

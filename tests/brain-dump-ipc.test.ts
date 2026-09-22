@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import type { BrainDumpLibraryApi } from '../src/shared/brain-dump'
 import { registerBrainDumpIpc } from '../src/main/brain-dump-ipc'
 

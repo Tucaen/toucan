@@ -2,7 +2,7 @@ import { strict as assert } from 'node:assert'
 import { existsSync, mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { createMainLog } from '../src/main/main-log'
 
 const scratchDirectory = (): string => mkdtempSync(join(tmpdir(), 'toucan-main-log-'))

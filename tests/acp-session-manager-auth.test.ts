@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert'
-import { test } from 'node:test'
 import { Writable } from 'node:stream'
+import { test } from 'vitest'
 import type { AgentPromptResult } from '../src/shared/agent'
 import { createPromptWakeGate } from '../src/main/prompt-wake-gate'
 import { extractLoginUrl, promptFailure, promptGuard, writeAuthCode } from '../src/main/acp-session-manager'

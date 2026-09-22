@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { activityFromUpdate } from '../src/shared/agent-activity'
 import { delegationEvidenceFrom, delegationEvidenceRows } from '../src/shared/delegation-evidence'
 import { foldAgentEvent, initialAgentTranscriptState } from '../src/shared/agent-transcript'

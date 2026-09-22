@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { computeNodePickerMenuPosition } from '../src/renderer/src/node-picker-menu-position'
 
 test('opens below the trigger, right-aligned, when there is room', () => {

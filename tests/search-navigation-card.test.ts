@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { parseSearchNavigation, searchNavigationSummary } from '../src/renderer/src/search-navigation'
 
 test('a grep result is grouped by file with line numbers and an aggregate count', () => {

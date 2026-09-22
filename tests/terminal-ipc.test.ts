@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { TERMINAL_CHANNELS } from '../src/shared/ipc-channels'
 import { registerTerminalIpc } from '../src/main/terminal-ipc'
 import type { TerminalEventOwner } from '../src/main/terminal-events'

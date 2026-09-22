@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { createGithubIssueReader, type GithubCommandRunner } from '../src/main/github-issues'
 import { GITHUB_ISSUE_FIELDS } from '../src/shared/github-issues'
 

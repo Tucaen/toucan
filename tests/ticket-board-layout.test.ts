@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import {
   TICKET_BOARD_DEFAULT_WIDTH,
   TICKET_BOARD_MAX_WIDTH,

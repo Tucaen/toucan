@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { describe, test } from 'node:test'
+import { describe, test } from 'vitest'
 import { APP_INDEX_URL, APP_ISOLATION_HEADERS, appContentType, appRequestTarget } from '../src/main/app-protocol'
 
 /**

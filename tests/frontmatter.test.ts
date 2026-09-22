@@ -1,5 +1,5 @@
 import { deepEqual, equal, match, throws } from 'node:assert/strict'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import {
   frontmatterForDisplay,
   lenientFrontmatter,

@@ -142,7 +142,6 @@ npm run lint
 npm run check:architecture
 npm run typecheck
 npm test
-npm run test:dom
 npm run build:mobile
 ```
 

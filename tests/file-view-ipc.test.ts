@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { registerFileViewIpc } from '../src/main/file-view-ipc'
 import type { FileView, FileViewOwner } from '../src/main/file-view'
 import type { FileWriteRequest } from '../src/shared/file-view'

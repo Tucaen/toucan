@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { PROJECT_CHANNELS, SHELL_CHANNELS, WORKSPACE_CHANNELS } from '../src/shared/ipc-channels'
 import { registerProjectIpc, type ProjectIpcDependencies } from '../src/main/project-ipc'
 import type { ImageArtifactSaveRequest } from '../src/shared/image-artifact'

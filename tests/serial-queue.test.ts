@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { createSerialQueue } from '../src/main/serial-queue'
 
 test('tasks run one at a time in submission order', async () => {

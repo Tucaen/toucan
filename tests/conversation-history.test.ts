@@ -2,7 +2,7 @@ import { strict as assert } from 'node:assert'
 import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { createConversationHistory, encodeClaudeProjectDirectory } from '../src/main/conversation-history'
 import { createConversationTitleStore } from '../src/main/conversation-title-store'
 

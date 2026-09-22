@@ -2,10 +2,29 @@ import { strict as assert } from 'node:assert'
 import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { test } from 'node:test'
+import { test, vi } from 'vitest'
 import { createTerminalScrollbackStore } from '../src/main/terminal-scrollback-store'
 
-const fs = process.getBuiltinModule('node:fs')
+/**
+ * The writes are counted at the module boundary rather than by patching a namespace object: the
+ * store holds direct `node:fs` bindings, and an ES module namespace cannot be redefined in place.
+ * `writes.count` is a hook the mock calls, so the counter can stay per-test.
+ */
+const writes = vi.hoisted(() => ({ count: (): void => {} }))
+vi.mock('node:fs', async (importActual) => {
+  const actual = await importActual<typeof import('node:fs')>()
+  return {
+    ...actual,
+    writeFileSync: (...args: Parameters<typeof actual.writeFileSync>) => {
+      writes.count()
+      return actual.writeFileSync(...args)
+    },
+    writeSync: (...args: Parameters<typeof actual.writeSync>) => {
+      writes.count()
+      return actual.writeSync(...args)
+    }
+  }
+})
 
 function manualClock(): {
   schedule: (run: () => void, delayMs: number) => { cancel(): void }
@@ -36,16 +55,12 @@ function manualClock(): {
 test('coalesces many appended chunks into one scheduled snapshot write', (context) => {
   const directory = mkdtempSync(join(tmpdir(), 'toucan-scrollback-'))
   const clock = manualClock()
-  const writeFileSync = fs.writeFileSync
-  const writeSync = fs.writeSync
   let fileWrites = 0
-  context.mock.method(fs, 'writeFileSync', (...args: Parameters<typeof writeFileSync>) => {
+  writes.count = (): void => {
     fileWrites += 1
-    return Reflect.apply(writeFileSync, fs, args)
-  })
-  context.mock.method(fs, 'writeSync', (...args: Parameters<typeof writeSync>) => {
-    fileWrites += 1
-    return Reflect.apply(writeSync, fs, args)
+  }
+  context.onTestFinished(() => {
+    writes.count = (): void => {}
   })
   const store = createTerminalScrollbackStore({
     directory,

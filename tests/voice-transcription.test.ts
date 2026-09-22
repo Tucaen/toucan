@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { describe, test } from 'node:test'
+import { describe, test } from 'vitest'
 import { createVoiceTranscriber, type VoiceEngine, type VoiceTranscribeRequest } from '../src/main/voice-transcription'
 
 /**

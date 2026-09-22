@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import {
   DECISION_PROVIDER_PLUGIN_ID,
   DECISION_PROVIDER_SKILL_NAME,

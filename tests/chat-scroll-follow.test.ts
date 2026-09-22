@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { isNearScrollBottom, STICK_TO_BOTTOM_THRESHOLD_PX } from '../src/renderer/src/chat-scroll-follow'
 
 test('scrolled exactly to the bottom counts as near the bottom', () => {

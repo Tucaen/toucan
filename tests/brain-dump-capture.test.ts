@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { test } from 'node:test'
+import { describe, test } from 'vitest'
 import type {
   AgentCreateRequest,
   AgentCreateResult,
@@ -242,8 +242,8 @@ test('a streamed final answer completes capture when the ACP prompt never settle
   assert.deepEqual(agent.cancellations, ['job-1'])
 })
 
-test('startup, authentication, prompt, timeout, and cancellation become structured resumable failures', async (t) => {
-  await t.test('startup', async () => {
+describe('startup, authentication, prompt, timeout, and cancellation become structured resumable failures', () => {
+  test('startup', async () => {
     const agent = new FakeAgent()
     agent.createResult = { ok: false, status: 'error', message: 'missing adapter' }
     const capture = manager(agent)
@@ -251,7 +251,7 @@ test('startup, authentication, prompt, timeout, and cancellation become structur
     const state = capture.current()
     assert.equal(state?.status === 'failed' && state.code, 'startup')
   })
-  await t.test('authentication', async () => {
+  test('authentication', async () => {
     const agent = new FakeAgent()
     agent.createResult = { ok: false, status: 'auth_required', sessionId: 'auth-session', message: 'sign in' }
     const capture = manager(agent)
@@ -260,7 +260,7 @@ test('startup, authentication, prompt, timeout, and cancellation become structur
     assert.equal(state?.status === 'failed' && state.code, 'auth')
     assert.equal(state?.status === 'failed' && state.conversation?.conversationId, 'auth-session')
   })
-  await t.test('prompt and timeout', async () => {
+  test('prompt and timeout', async () => {
     for (const message of ['skill failed', 'The agent turn stalled after 10ms.']) {
       const agent = new FakeAgent()
       agent.promptResult = Promise.resolve({ ok: false, message })
@@ -272,7 +272,7 @@ test('startup, authentication, prompt, timeout, and cancellation become structur
       assert.equal(state?.status === 'failed' && state.conversation?.conversationId, 'conversation-1')
     }
   })
-  await t.test('cancellation', async () => {
+  test('cancellation', async () => {
     const agent = new FakeAgent()
     agent.promptResult = deferred<AgentPromptResult>().promise
     const capture = manager(agent)

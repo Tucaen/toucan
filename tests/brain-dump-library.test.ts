@@ -2,7 +2,7 @@ import { strict as assert } from 'node:assert'
 import { mkdtemp, mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { createBrainDumpLibrary } from '../src/main/brain-dump-library'
 
 const active = `---\ntitle: Active topic\ncreated: 2026-08-29\nupdated: 2026-08-30\nowner: me\n---\n\n# Active topic\n\nSee [[other-topic]].\n`

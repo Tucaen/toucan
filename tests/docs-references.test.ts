@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { dirname, join, posix, resolve } from 'node:path'
-import { test } from 'node:test'
+import { test } from 'vitest'
 
 // AGENTS.md is the file CLAUDE.md tells every agent to read first, and the docs beside it are the
 // next stop. A path that no longer resolves is worse than no path at all: it sends the reader

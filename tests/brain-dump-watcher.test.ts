@@ -2,7 +2,7 @@ import { strict as assert } from 'node:assert'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { createBrainDumpChangeWatcher } from '../src/main/brain-dump-watcher'
 import type { BrainDumpCollection } from '../src/shared/brain-dump'
 

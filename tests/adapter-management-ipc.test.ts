@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { registerAdapterManagementIpc } from '../src/main/adapter-management-ipc'
 import type { AdapterManager } from '../src/main/adapter-manager'
 

@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { createTerminalShell } from '../src/main/terminal-shell'
 
 test('prefers PowerShell 7 for a plain terminal', () => {

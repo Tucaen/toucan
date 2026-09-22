@@ -1,4 +1,9 @@
 {
+  // Not a test compile any more: the suites run as ES modules under Vitest (#238). What survives is
+  // `.test-out`, the CommonJS build the two manual live-verification scripts load -
+  // `scripts/verify-outcome-retrieval.mjs` and `scripts/verify-session-fork.mjs` `await import()`
+  // these entry points, and extensionless relative specifiers resolve only under CommonJS. The
+  // include list is those two entries and nothing else; `tsc` pulls in whatever they import.
   "compilerOptions": {
     "module": "CommonJS",
     "moduleResolution": "Node",
@@ -8,54 +13,10 @@
     "noFallthroughCasesInSwitch": true,
     "skipLibCheck": true,
     "types": ["node"],
+    // `rootDir` is pinned so the emitted layout stays `.test-out/src/...`; tsc would otherwise infer
+    // it from the common root of the include list and flatten the `src/` level the scripts name.
+    "rootDir": ".",
     "outDir": ".test-out"
   },
-  "include": [
-    "tests/**/*.test.ts",
-    "tests/helpers/**/*.ts",
-    "src/main/agent-process.ts",
-    "src/main/brain-dump-library.ts",
-    "src/main/brain-dump-capture.ts",
-    "src/main/brain-dump-capture-store.ts",
-    "src/main/brain-dump-ipc.ts",
-    "src/main/brain-dump-watcher.ts",
-    "src/main/durable-file.ts",
-    "src/main/file-view.ts",
-    "src/main/file-formatter.ts",
-    "src/main/file-view-ipc.ts",
-    "src/main/codex-model-cache.ts",
-    "src/main/codex-rate-limits.ts",
-    "src/main/claude-usage.ts",
-    "src/main/provider-usage.ts",
-    "src/main/prompt-wake-gate.ts",
-    "src/main/terminal-context-registry.ts",
-    "src/main/terminal-context-mcp.ts",
-    "src/main/terminal-output-tail.ts",
-    "src/main/terminal-events.ts",
-    "src/main/terminal-shell.ts",
-    "src/main/terminal-manager.ts",
-    "src/main/workspace-store.ts",
-    "src/main/remote/host-addresses.ts",
-    "src/main/remote/pairing.ts",
-    "src/main/remote/remote-access-store.ts",
-    "src/main/remote/remote-routes.ts",
-    "src/main/remote/remote-server.ts",
-    "mobile/src/chat-list.ts",
-    "mobile/src/chat-connection.ts",
-    "mobile/src/chat-view.ts",
-    "mobile/src/voice-input.ts",
-    "src/renderer/src/canvas-workspace.ts",
-    "src/renderer/src/terminal-context-edges.ts",
-    "src/renderer/src/file-node.ts",
-    "src/renderer/src/node-picker-menu-position.ts",
-    "src/renderer/src/voice-transcript.ts",
-    "src/renderer/src/use-refresh-flash.ts",
-    "src/main/voice-transcription.ts",
-    "src/main/voice-model-store.ts",
-    "src/main/voice-model-download.ts",
-    "src/main/voice-model-ipc.ts",
-    "src/main/whisper-engine.ts",
-    "src/main/zip-extract.ts",
-    "src/shared/**/*.ts"
-  ]
+  "include": ["src/main/acp-session-manager.ts", "src/shared/agent-transcript.ts"]
 }

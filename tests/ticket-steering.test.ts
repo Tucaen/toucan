@@ -1,5 +1,5 @@
 import { deepEqual, equal, ok } from 'node:assert/strict'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { createTicketSteering } from '../src/main/ticket-steering'
 import type { AgentFileWrite } from '../src/shared/agent-activity'
 import type { TicketDiagnostic } from '../src/shared/tickets'

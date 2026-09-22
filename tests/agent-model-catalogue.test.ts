@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
-import { describe, test } from 'node:test'
+import { describe, test } from 'vitest'
 import { isDeepStrictEqual } from 'node:util'
 import { createAgentModelCatalogueStore } from '../src/main/agent-model-catalogue-store'
 import {

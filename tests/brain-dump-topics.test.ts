@@ -1,5 +1,5 @@
 import { deepEqual, equal } from 'node:assert/strict'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import type { BrainDumpTopic } from '../src/shared/brain-dump'
 import type { WorkspaceProject } from '../src/shared/terminal'
 import {

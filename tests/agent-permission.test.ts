@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { agentPermissionTitle } from '../src/shared/agent-permission'
 
 test('Codex command approvals describe the command instead of showing only a generic permission label', () => {

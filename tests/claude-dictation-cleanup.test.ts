@@ -1,10 +1,21 @@
 import { strict as assert } from 'node:assert'
-import * as childProcess from 'node:child_process'
+import type * as childProcess from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
-import { test } from 'node:test'
+import { test, vi } from 'vitest'
 import { runClaudeCleanup } from '../src/main/claude-dictation-cleanup'
+
+/**
+ * `execFile` is replaced at the module boundary rather than spied on the namespace object: an ESM
+ * namespace is not configurable, so `vi.spyOn(childProcess, 'execFile')` throws, and the module
+ * under test holds a direct binding a namespace patch would not reach anyway.
+ */
+const execFile = vi.hoisted(() => vi.fn())
+vi.mock('node:child_process', async (importActual) => ({
+  ...(await importActual<typeof childProcess>()),
+  execFile
+}))
 
 test('cleanup launches a hidden, nonpersistent, tool-free Claude turn with subscription auth', async (t) => {
   const oldKey = process.env.ANTHROPIC_API_KEY
@@ -13,7 +24,7 @@ test('cleanup launches a hidden, nonpersistent, tool-free Claude turn with subsc
   process.env.ANTHROPIC_API_KEY = 'must-not-use-api-billing'
   process.env.CLAUDE_CODE_USE_BEDROCK = '1'
   process.env.MAX_THINKING_TOKENS = '31999'
-  t.after(() => {
+  t.onTestFinished(() => {
     if (oldKey === undefined) delete process.env.ANTHROPIC_API_KEY
     else process.env.ANTHROPIC_API_KEY = oldKey
     if (oldRoute === undefined) delete process.env.CLAUDE_CODE_USE_BEDROCK
@@ -23,7 +34,7 @@ test('cleanup launches a hidden, nonpersistent, tool-free Claude turn with subsc
   })
   let input = ''
   const signal = new AbortController().signal
-  t.mock.method(childProcess, 'execFile', ((
+  execFile.mockImplementation(((
     file: string,
     args: string[],
     options: childProcess.ExecFileOptions,
@@ -61,14 +72,14 @@ test('cleanup launches a hidden, nonpersistent, tool-free Claude turn with subsc
   assert.equal(input, 'private dictation')
 })
 
-test('a failed launch reports a cancellation or a sign-in problem, never the command', async (t) => {
+test('a failed launch reports a cancellation or a sign-in problem, never the command', async () => {
   for (const [aborted, expected] of [
     [false, /sign-in and allowance/],
     [true, /^Cleanup cancelled\.$/]
   ] as const) {
     const controller = new AbortController()
     if (aborted) controller.abort()
-    t.mock.method(childProcess, 'execFile', ((
+    execFile.mockImplementation(((
       _file: string,
       _args: string[],
       _options: childProcess.ExecFileOptions,
@@ -92,12 +103,12 @@ test('a failed launch reports a cancellation or a sign-in problem, never the com
 test('the relocated Claude config root reaches the turn that has to find the same install', async (t) => {
   const old = process.env.CLAUDE_CONFIG_DIR
   process.env.CLAUDE_CONFIG_DIR = join(tmpdir(), 'relocated-claude')
-  t.after(() => {
+  t.onTestFinished(() => {
     if (old === undefined) delete process.env.CLAUDE_CONFIG_DIR
     else process.env.CLAUDE_CONFIG_DIR = old
   })
   let configRoot: string | undefined
-  t.mock.method(childProcess, 'execFile', ((
+  execFile.mockImplementation(((
     _file: string,
     _args: string[],
     options: childProcess.ExecFileOptions,

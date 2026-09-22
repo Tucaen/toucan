@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import type { AgentActivity } from '../src/shared/agent'
 import { mcpArgumentLines, mcpResultText, parseMcpToolCall } from '../src/renderer/src/mcp-tool-call'
 import { isPlanUpdateFoldedIntoRail, parsePlanUpdate, planUpdateSummary } from '../src/renderer/src/plan-update'

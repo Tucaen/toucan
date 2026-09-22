@@ -2,12 +2,12 @@ import { strict as assert } from 'node:assert'
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { createAdapterManager, type AdapterInstaller } from '../src/main/adapter-manager'
 
 test('a fresh installation resolves bundled adapters without contacting the registry', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'toucan-adapters-'))
-  t.after(() => rm(root, { recursive: true, force: true }))
+  t.onTestFinished(() => rm(root, { recursive: true, force: true }))
   for (const [name, version] of [
     ['codex-acp', '1.8.0'],
     ['claude-agent-acp', '0.73.0']
@@ -39,7 +39,7 @@ test('a fresh installation resolves bundled adapters without contacting the regi
 
 async function fixture(t: { after(fn: () => Promise<void>): void }) {
   const root = await mkdtemp(join(tmpdir(), 'toucan-adapters-'))
-  t.after(() => rm(root, { recursive: true, force: true }))
+  t.onTestFinished(() => rm(root, { recursive: true, force: true }))
   const install: AdapterInstaller['install'] = async (provider, version, directory) => {
     const name = provider === 'codex' ? 'codex-acp' : 'claude-agent-acp'
     const pkg = join(directory, 'node_modules', '@agentclientprotocol', name)

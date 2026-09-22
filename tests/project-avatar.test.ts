@@ -1,9 +1,9 @@
 import { strict as assert } from 'node:assert'
-import { describe, test } from 'node:test'
 import { mkdtempSync } from 'node:fs'
 import { readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { describe, test } from 'vitest'
 import { centerSquareCrop, PROJECT_AVATAR_PIXEL_SIZE, projectAvatarFileName } from '../src/shared/project-avatar'
 import {
   createProjectAvatarStore,

@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { createImageArtifactSaver, imageArtifactBytes } from '../src/main/image-save'
 import {
   imageArtifactFileName,

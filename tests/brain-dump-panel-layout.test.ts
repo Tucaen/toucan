@@ -1,5 +1,5 @@
 import { deepEqual, equal } from 'node:assert/strict'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import {
   BRAIN_DUMP_PANEL_DEFAULT_WIDTH,
   BRAIN_DUMP_PANEL_MAX_WIDTH,

@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import type { WebContents } from 'electron'
 import { forwardAppUpdateChanges, registerAppUpdateIpc } from '../src/main/app-update-ipc'
 import type { AppUpdater } from '../src/main/app-update'

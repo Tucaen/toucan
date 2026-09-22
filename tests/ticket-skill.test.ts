@@ -1,5 +1,5 @@
 import { deepEqual, equal, match, ok } from 'node:assert/strict'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { TICKET_FIELDS } from '../src/shared/ticket-format'
 import { TICKET_SKILL_NAME, ticketSkillMarkdown } from '../src/shared/ticket-skill'
 import { projectSkillPath } from '../src/shared/project-skills'

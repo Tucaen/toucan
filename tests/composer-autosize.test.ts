@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { COMPOSER_MAX_HEIGHT, COMPOSER_MIN_HEIGHT, composerTextareaSize } from '../src/renderer/src/composer-autosize'
 
 test('a short prompt keeps the composer at its resting height', () => {

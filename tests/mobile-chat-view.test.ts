@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { activitySummaryLine, chatStatusSummary, deriveChatViewItems } from '../mobile/src/chat-view'
 import type { AgentEvent } from '../src/shared/agent'
 import {

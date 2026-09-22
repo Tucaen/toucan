@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import type { CreateElicitationRequest } from '@agentclientprotocol/sdk'
 import { decisionQuestions } from '../src/main/acp-session-manager'
 

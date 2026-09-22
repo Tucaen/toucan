@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { activityFromUpdate, activityTitle, imageContentFrom, mergeActivity } from '../src/shared/agent-activity'
 
 test('tool completion patches preserve the descriptive title from the initial event', () => {

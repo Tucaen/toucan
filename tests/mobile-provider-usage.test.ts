@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { describe, test } from 'node:test'
+import { describe, test } from 'vitest'
 import { describeProviderUsage } from '../mobile/src/provider-usage'
 import type { ProviderUsageReport } from '../src/shared/agent'
 

@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { CONVERSATION_CHANNELS } from '../src/shared/ipc-channels'
 import { EMPTY_CONVERSATION_PAGE } from '../src/shared/conversation'
 import { registerConversationIpc } from '../src/main/conversation-ipc'

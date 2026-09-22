@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import {
   createTerminalContextMcp,
   renderTerminalRead,
@@ -83,7 +83,7 @@ const callRead = (args: Record<string, unknown> = {}): unknown => ({
 
 test('no edge means no server entry and no listener at all', async (t) => {
   const { mcp, registry } = harness()
-  t.after(() => void mcp.close())
+  t.onTestFinished(() => void mcp.close())
   registry.replaceEdges([])
   assert.equal(await mcp.serverFor('agent-1'), undefined)
   // The >90% case pays nothing: no tokens in the session, and no port bound on the machine.
@@ -92,7 +92,7 @@ test('no edge means no server entry and no listener at all', async (t) => {
 
 test('an edge yields an HTTP entry whose bearer token identifies the agent', async (t) => {
   const { mcp, registry } = harness(outputRead())
-  t.after(() => void mcp.close())
+  t.onTestFinished(() => void mcp.close())
   registry.replaceEdges([
     { terminalSessionId: 'shell-1', agentId: 'agent-1' },
     { terminalSessionId: 'shell-2', agentId: 'agent-2' }
@@ -113,7 +113,7 @@ test('an edge yields an HTTP entry whose bearer token identifies the agent', asy
 
 test('speaks enough MCP for both adapters: initialize, notifications, tools/list, ping', async (t) => {
   const { mcp, registry } = harness(outputRead())
-  t.after(() => void mcp.close())
+  t.onTestFinished(() => void mcp.close())
   registry.replaceEdges([{ terminalSessionId: 'shell-1', agentId: 'agent-1' }])
   const server = (await mcp.serverFor('agent-1'))!
 
@@ -148,7 +148,7 @@ test('speaks enough MCP for both adapters: initialize, notifications, tools/list
 
 test('a token is the whole authorization story: absent, wrong, or non-POST is refused', async (t) => {
   const { mcp, registry } = harness(outputRead())
-  t.after(() => void mcp.close())
+  t.onTestFinished(() => void mcp.close())
   registry.replaceEdges([{ terminalSessionId: 'shell-1', agentId: 'agent-1' }])
   const server = (await mcp.serverFor('agent-1'))!
 
@@ -163,7 +163,7 @@ test('a token is the whole authorization story: absent, wrong, or non-POST is re
 
 test('a read serves the tail, labelled with liveness and reach, through the caller identity', async (t) => {
   const state = harness(outputRead())
-  t.after(() => void state.mcp.close())
+  t.onTestFinished(() => void state.mcp.close())
   state.registry.replaceEdges([{ terminalSessionId: 'shell-1', agentId: 'agent-1' }])
   const server = (await state.mcp.serverFor('agent-1'))!
 
@@ -190,7 +190,7 @@ test('a read serves the tail, labelled with liveness and reach, through the call
 
 test('the tool definition grants nothing: a revoked edge refuses at call time', async (t) => {
   const state = harness(outputRead())
-  t.after(() => void state.mcp.close())
+  t.onTestFinished(() => void state.mcp.close())
   state.registry.replaceEdges([{ terminalSessionId: 'shell-1', agentId: 'agent-1' }])
   const server = (await state.mcp.serverFor('agent-1'))!
 
@@ -203,7 +203,7 @@ test('the tool definition grants nothing: a revoked edge refuses at call time', 
 
 test('several terminals need a selector, and only the agent’s own terminals are selectable', async (t) => {
   const state = harness(outputRead({ terminalSessionId: 'shell-2' }))
-  t.after(() => void state.mcp.close())
+  t.onTestFinished(() => void state.mcp.close())
   state.registry.replaceEdges([
     { terminalSessionId: 'shell-1', agentId: 'agent-1' },
     { terminalSessionId: 'shell-2', agentId: 'agent-1' },
@@ -228,7 +228,7 @@ test('several terminals need a selector, and only the agent’s own terminals ar
 
 test('a terminal with no tail is an actionable refusal, not a protocol error', async (t) => {
   const state = harness(undefined)
-  t.after(() => void state.mcp.close())
+  t.onTestFinished(() => void state.mcp.close())
   state.registry.replaceEdges([{ terminalSessionId: 'shell-1', agentId: 'agent-1' }])
   const server = (await state.mcp.serverFor('agent-1'))!
 

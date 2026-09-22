@@ -2,7 +2,7 @@ import { strict as assert } from 'node:assert'
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { createWorkspaceFileIndex } from '../src/main/workspace-file-index'
 
 const listing = (paths: string[]) => async () => ({ ok: true, paths })

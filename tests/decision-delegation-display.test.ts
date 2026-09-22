@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import {
   DECISION_DELEGATION_OFF_OPTION,
   DECISION_DELEGATION_ON_OPTION,

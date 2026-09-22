@@ -1,5 +1,5 @@
 import { deepEqual, equal, match, ok } from 'node:assert/strict'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import {
   TICKET_FIELDS,
   TICKET_FORMAT_BLOCKED_BY,

@@ -1,5 +1,5 @@
 import { deepEqual, doesNotMatch, equal, match, ok } from 'node:assert/strict'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import type { AgentFileWrite } from '../src/shared/agent-activity'
 import { RECENT_WRITE_WINDOW_MS, reportedTicketKey, ticketConformanceSteers } from '../src/shared/ticket-conformance'
 import type { TicketDiagnostic } from '../src/shared/tickets'

@@ -1,18 +1,17 @@
 import * as assert from 'node:assert/strict'
-import { test } from 'node:test'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { test } from 'vitest'
 
 interface ReleaseNotesModule {
   releaseNotes(previousTag: string | null, subjects: string[]): string
   nextVersion(current: string, bump: string): string
 }
 
-// The tests compile to CommonJS, where tsc would rewrite `import()` into `require()`, which
-// cannot load an ES module. Going through Function keeps a real dynamic import.
-const load = new Function('specifier', 'return import(specifier)') as (specifier: string) => Promise<unknown>
-const notesModule = load(
-  pathToFileURL(join(process.cwd(), 'scripts/release-notes.mjs')).href
+// A file URL rather than a relative specifier, because the script under test lives outside the
+// test's own directory tree and is plain `.mjs` with no types to import from.
+const notesModule = import(
+  /* @vite-ignore */ pathToFileURL(join(process.cwd(), 'scripts/release-notes.mjs')).href
 ) as Promise<ReleaseNotesModule>
 
 test('groups conventional commits into features, fixes and other changes', async () => {

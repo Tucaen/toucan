@@ -2,7 +2,7 @@ import { strict as assert } from 'node:assert'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { createConversationTitleStore } from '../src/main/conversation-title-store'
 
 test('generated titles are stable and a manual rename wins permanently', async () => {

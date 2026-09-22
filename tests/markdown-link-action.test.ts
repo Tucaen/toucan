@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { markdownLinkAction } from '../src/renderer/src/markdown-link-action'
 
 /*

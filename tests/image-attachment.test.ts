@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { isSaveableImage, unavailableImageNote } from '../src/renderer/src/image-attachment'
 
 test('an image with bytes in a type the browser paints has nothing to explain', () => {

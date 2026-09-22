@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert'
 import { resolve } from 'node:path'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { ticketsDirectoryFor } from '../src/main/ticket-directory'
 import type { WorkspaceProject } from '../src/shared/terminal'
 import { DEFAULT_TICKETS_DIRECTORY, isTicketsDirectory } from '../src/shared/tickets'

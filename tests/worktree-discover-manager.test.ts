@@ -1,8 +1,8 @@
 import { strict as assert } from 'node:assert'
-import { test } from 'node:test'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { test } from 'vitest'
 import { createWorktreeManager, type GitResult } from '../src/main/git-worktree'
 
 const PROJECT = 'D:\\Development\\Toucan'

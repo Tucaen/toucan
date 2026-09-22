@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { strict as assert } from 'node:assert'
-import { test } from 'node:test'
+import { test } from 'vitest'
 
 /**
  * One scrollbar for the whole app. `scrollbar-color` and `scrollbar-width` are inherited

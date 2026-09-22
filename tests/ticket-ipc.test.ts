@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { registerTicketIpc } from '../src/main/ticket-ipc'
 import type { TicketLibrary } from '../src/main/ticket-library'
 import type { TicketSkillScaffold } from '../src/main/ticket-skill-scaffold'

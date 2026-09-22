@@ -2,7 +2,7 @@ import { fail, match } from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { test } from 'node:test'
+import { test } from 'vitest'
 
 /**
  * The cruiser runs as its own JS entry point under the current node binary, never through

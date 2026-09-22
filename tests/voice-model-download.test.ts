@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { createVoiceModelPort } from '../src/main/voice-model-download'
 import type { VoiceAssetFile } from '../src/main/voice-model-store'
 
@@ -68,7 +68,7 @@ async function harness(t: { after(fn: () => unknown): void }, reply: Reply): Pro
     reply(request, response, BODY)
   })
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
-  t.after(async () => {
+  t.onTestFinished(async () => {
     await new Promise((resolve) => server.close(resolve))
     await rm(root, { recursive: true, force: true })
   })

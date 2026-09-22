@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { deriveConversationTitle } from '../src/shared/conversation-title'
 
 test('waits for a real exchange before deriving a conversation title', () => {

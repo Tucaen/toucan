@@ -2,7 +2,7 @@ import { strict as assert } from 'node:assert'
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { createProjectPrettier } from '../src/main/project-prettier'
 
 /**

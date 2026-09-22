@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { describeBranchChoiceBlocker, parseLocalBranches } from '../src/shared/git-branch'
 
 // The switcher only ever offers what git can actually check out in the project checkout, and it

@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert'
 import { EventEmitter } from 'node:events'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { registerDictationCleanupIpc } from '../src/main/dictation-cleanup-ipc'
 import { createDictationCleaner } from '../src/main/dictation-cleanup'
 import { DICTATION_CLEANUP_CHANNELS } from '../src/shared/ipc-channels'

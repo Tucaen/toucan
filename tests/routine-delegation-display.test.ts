@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { DELEGATION_OFF_OPTION, describeRoutineDelegation } from '../src/renderer/src/routine-delegation-display'
 
 // Issues #178/#179: the picker's note is the honesty layer - the workspace preference is a request

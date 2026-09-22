@@ -2,7 +2,7 @@
  * Live check for issues #200/#205: does fork-on-resume branch a *real* conversation?
  *
  * Not part of `npm test` - it launches real ACP adapters and spends account tokens. Run it by hand
- * after `tsc -p tsconfig.test.json`:
+ * after `npm run build:test-out`, which emits the CommonJS build it loads from `.test-out`:
  *
  *   node scripts/verify-session-fork.mjs [claude|codex]
  *

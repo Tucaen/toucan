@@ -2,12 +2,12 @@ import { strict as assert } from 'node:assert'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { createAdapterInstaller } from '../src/main/adapter-installer'
 
 test('validation accepts an ACP handshake without opening a conversation', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'toucan-adapter-probe-'))
-  t.after(() => rm(root, { recursive: true, force: true }))
+  t.onTestFinished(() => rm(root, { recursive: true, force: true }))
   const entry = join(root, 'adapter.cjs')
   await writeFile(
     entry,
@@ -33,7 +33,7 @@ test('validation accepts an ACP handshake without opening a conversation', async
 
 test('an adapter that never answers cannot hang an update', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'toucan-adapter-probe-'))
-  t.after(() => rm(root, { recursive: true, force: true }))
+  t.onTestFinished(() => rm(root, { recursive: true, force: true }))
   const entry = join(root, 'silent.cjs')
   await writeFile(entry, 'setInterval(() => {}, 1000)')
   await assert.rejects(
@@ -44,7 +44,7 @@ test('an adapter that never answers cannot hang an update', async (t) => {
 
 test('an incompatible ACP protocol is rejected', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'toucan-adapter-probe-'))
-  t.after(() => rm(root, { recursive: true, force: true }))
+  t.onTestFinished(() => rm(root, { recursive: true, force: true }))
   const entry = join(root, 'incompatible.cjs')
   await writeFile(
     entry,

@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert'
-import { describe, test } from 'node:test'
 import { deflateRawSync } from 'node:zlib'
+import { describe, test } from 'vitest'
 import { readZipEntries } from '../src/main/zip-extract'
 
 /**

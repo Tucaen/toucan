@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { createPromptWakeGate } from '../src/main/prompt-wake-gate'
 import type { AgentPromptResult } from '../src/shared/agent'
 

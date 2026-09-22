@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { createAppUpdater, type AppUpdaterPort } from '../src/main/app-update'
 import type { AppUpdateSnapshot } from '../src/shared/app-update'
 

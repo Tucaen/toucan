@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import { normalizeTerminalOutput } from '../src/shared/terminal-output'
 
 const ESC = String.fromCharCode(0x1b)

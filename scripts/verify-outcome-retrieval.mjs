@@ -3,7 +3,7 @@
  * a permission prompt, and answer "what happened here before?" from it alone?
  *
  * Not part of `npm test` - it launches a real ACP adapter and spends account tokens. Run it by hand
- * after `tsc -p tsconfig.test.json`:
+ * after `npm run build:test-out`, which emits the CommonJS build it loads from `.test-out`:
  *
  *   node scripts/verify-outcome-retrieval.mjs [claude|codex]
  *

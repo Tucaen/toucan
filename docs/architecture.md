@@ -221,8 +221,10 @@ identified by its URL, so a fingerprinted one would never replace its predecesso
 one) from the same logo through the shared rasteriser in
 [`scripts/rasterise-logo.mjs`](../scripts/rasterise-logo.mjs).
 
-`npm test` first compiles and runs `tests/**/*.test.ts` with Node's test runner, then
-runs `tests/**/*.dom.test.tsx` under Vitest/jsdom. Representative interfaces:
+`npm test` is `vitest run` over two projects declared in [`vitest.config.ts`](../vitest.config.ts):
+`node` covers `tests/**/*.test.ts` in Node's environment, `dom` renders `tests/**/*.dom.test.tsx`
+into jsdom. Both run as ES modules; the node suite still asserts with `node:assert`. Representative
+interfaces:
 
 - process and protocol lifecycle: [`acp-session-manager-steering.test.ts`](../tests/acp-session-manager-steering.test.ts), [`terminal-manager.test.ts`](../tests/terminal-manager.test.ts)
 - persistence and recovery: [`workspace-store.test.ts`](../tests/workspace-store.test.ts), [`terminal-scrollback-store.test.ts`](../tests/terminal-scrollback-store.test.ts)

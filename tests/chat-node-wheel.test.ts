@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { test } from 'node:test'
+import { test } from 'vitest'
 
 // The canvas only zooms on Ctrl/Cmd + wheel (see App.tsx's ReactFlow props), so a plain wheel over a
 // chat node is already the node's own to scroll with - nothing inside one has to fight the canvas

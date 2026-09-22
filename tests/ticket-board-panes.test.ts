@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { test } from 'node:test'
+import { test } from 'vitest'
 import type { TicketBoardColumn } from '../src/renderer/src/ticket-board'
 import {
   TICKET_DETAIL_DEFAULT_WIDTH,
