@@ -88,13 +88,13 @@ export default function ConversationHistoryDialog({
 
   return (
     <div
-      className="worktree-dialog-overlay"
+      className="dialog-overlay"
       role="dialog"
       aria-modal="true"
       aria-labelledby="conversation-history-title"
       onClick={(event) => event.stopPropagation()}
     >
-      <div className="worktree-dialog conversation-history-dialog">
+      <div className="dialog conversation-history-dialog">
         <strong id="conversation-history-title">Past conversations in {projectName}</strong>
         <p>
           Every transcript this project and its worktrees recorded, newest first.
@@ -102,7 +102,7 @@ export default function ConversationHistoryDialog({
           model tokens or account budget.
         </p>
 
-        {error && <p className="worktree-dialog-error">{error}</p>}
+        {error && <p className="dialog-error">{error}</p>}
 
         <ul className="conversation-history-list">
           {entries.map((entry) => {
@@ -148,7 +148,7 @@ export default function ConversationHistoryDialog({
         )}
         {loading && <p className="conversation-history-empty">Reading transcripts…</p>}
 
-        <div className="worktree-dialog-actions">
+        <div className="dialog-actions">
           {hasMore && (
             <button type="button" disabled={loading} onClick={() => void loadPage(entries.length)}>
               Load more

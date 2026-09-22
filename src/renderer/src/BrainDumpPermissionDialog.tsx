@@ -16,7 +16,7 @@ export default function BrainDumpPermissionDialog(props: BrainDumpPermissionDial
 
   return (
     <div
-      className="brain-dump-dialog-overlay"
+      className="dialog-overlay"
       role="dialog"
       aria-modal="true"
       aria-labelledby="brain-dump-permission-title"
@@ -26,11 +26,11 @@ export default function BrainDumpPermissionDialog(props: BrainDumpPermissionDial
         props.onResolve()
       }}
     >
-      <section className="brain-dump-dialog brain-dump-permission-dialog">
+      <section className="dialog dialog-compact brain-dump-permission-dialog">
         <strong id="brain-dump-permission-title">Permission required</strong>
         <p>Toucan needs permission to update your brain-dump library.</p>
         <code>{props.approval.title}</code>
-        <div className="brain-dump-dialog-actions">
+        <div className="dialog-actions">
           <button type="button" onClick={() => props.onResolve()}>
             Cancel
           </button>

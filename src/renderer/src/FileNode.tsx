@@ -485,7 +485,7 @@ export default function FileNode({ id, data, selected }: NodeProps<FileCanvasNod
       {pendingPath &&
         createPortal(
           <div
-            className={'worktree-dialog-overlay'}
+            className={'dialog-overlay'}
             role={'dialog'}
             aria-modal={true}
             aria-labelledby={pendingFileChangeTitleId}
@@ -499,10 +499,10 @@ export default function FileNode({ id, data, selected }: NodeProps<FileCanvasNod
               trapPendingFileChangeFocus(event)
             }}
           >
-            <div ref={pendingDialogRef} className={'worktree-dialog'} tabIndex={-1}>
+            <div ref={pendingDialogRef} className={'dialog'} tabIndex={-1}>
               <strong id={pendingFileChangeTitleId}>Unsaved changes</strong>
               <p>Choose what happens to the pending edits before displaying {fileNodeName(pendingPath)}.</p>
-              <div className={'worktree-dialog-actions'}>
+              <div className={'dialog-actions'}>
                 <button type={'button'} disabled={saving} onClick={() => setPendingPath(null)}>
                   Abort
                 </button>

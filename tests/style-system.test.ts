@@ -1,9 +1,13 @@
 import { strict as assert } from 'node:assert'
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { test } from 'vitest'
 
 const styles = readFileSync('src/renderer/src/styles.css', 'utf8')
 const chatNode = readFileSync('src/renderer/src/ChatNode.tsx', 'utf8')
+const rendererSource = readdirSync('src/renderer/src')
+  .filter((path) => path.endsWith('.tsx'))
+  .map((path) => readFileSync(`src/renderer/src/${path}`, 'utf8'))
+  .join('\n')
 
 function rootBlock(): string {
   const match = /:root \{([^}]*)\}/.exec(styles)
@@ -41,4 +45,13 @@ test('provider accents are consumed through their CSS tokens', () => {
   assert.doesNotMatch(componentStyles, /#71a9ff|#74d8a2/i)
   assert.doesNotMatch(chatNode, /#71a9ff/i)
   assert.match(chatNode, /provider === 'claude' \? 'var\(--claude\)' : 'var\(--codex\)'/)
+})
+
+test('every modal uses the shared dialog shell without specificity overrides', () => {
+  for (const selector of ['.dialog-overlay {', '.dialog {', '.dialog-actions {', '.dialog-error {']) {
+    assert.ok(styles.includes(selector), `${selector} must define the shared shell`)
+  }
+  assert.doesNotMatch(styles, /\.(?:unrecoverable-workspace|worktree|app|brain-dump)-dialog(?:\b|-)/)
+  assert.doesNotMatch(rendererSource, /(?:unrecoverable-workspace|worktree|app|brain-dump)-dialog(?:\b|-)/)
+  assert.doesNotMatch(styles, /!important/)
 })

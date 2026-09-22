@@ -49,14 +49,14 @@ export function WorktreeCreateDialog({
 
   return (
     <div
-      className="worktree-dialog-overlay"
+      className="dialog-overlay"
       role="dialog"
       aria-modal="true"
       aria-labelledby="worktree-create-title"
       onClick={(event) => event.stopPropagation()}
     >
       <form
-        className="worktree-dialog"
+        className="dialog"
         onSubmit={(event) => {
           event.preventDefault()
           if (!problem && !draft.busy) onConfirm()
@@ -83,13 +83,13 @@ export function WorktreeCreateDialog({
           />
         </label>
         {directory && (
-          <p className="worktree-dialog-path" title={directory}>
+          <p className="dialog-path" title={directory}>
             Directory: {directory}
           </p>
         )}
-        {problem && draft.branch.length > 0 && <p className="worktree-dialog-error">{problem}</p>}
-        {draft.error && <p className="worktree-dialog-error">{draft.error}</p>}
-        <div className="worktree-dialog-actions">
+        {problem && draft.branch.length > 0 && <p className="dialog-error">{problem}</p>}
+        {draft.error && <p className="dialog-error">{draft.error}</p>}
+        <div className="dialog-actions">
           <button type="button" disabled={draft.busy} onClick={onCancel}>
             Cancel
           </button>
@@ -114,15 +114,15 @@ export function WorktreeRemoveDialog({
   const { plan } = prompt
   return (
     <div
-      className="worktree-dialog-overlay"
+      className="dialog-overlay"
       role="alertdialog"
       aria-modal="true"
       aria-labelledby="worktree-remove-title"
       onClick={(event) => event.stopPropagation()}
     >
-      <div className="worktree-dialog">
+      <div className="dialog">
         <strong id="worktree-remove-title">Remove worktree {prompt.branch}?</strong>
-        <p className="worktree-dialog-path" title={prompt.path}>
+        <p className="dialog-path" title={prompt.path}>
           {prompt.path}
         </p>
         {plan.decision === 'ready' && !prompt.busy && (
@@ -146,11 +146,11 @@ export function WorktreeRemoveDialog({
                 <li key={`${blocker.kind}-${index}`}>{describeWorktreeBlocker(blocker)}</li>
               ))}
             </ul>
-            <p className="worktree-dialog-cost">{describeForcedRemovalCost(plan.forcible)}</p>
+            <p className="dialog-cost">{describeForcedRemovalCost(plan.forcible)}</p>
           </>
         )}
-        {prompt.error && <p className="worktree-dialog-error">{prompt.error}</p>}
-        <div className="worktree-dialog-actions">
+        {prompt.error && <p className="dialog-error">{prompt.error}</p>}
+        <div className="dialog-actions">
           <button type="button" disabled={prompt.busy} onClick={onCancel}>
             {plan.decision === 'blocked' ? 'Close' : 'Cancel'}
           </button>
@@ -231,14 +231,14 @@ export function ProjectSettingsDialog({
     setRunCommands((current) => current.map((entry) => (entry.id === id ? { ...entry, ...patch } : entry)))
   return (
     <div
-      className="worktree-dialog-overlay"
+      className="dialog-overlay"
       role="dialog"
       aria-modal="true"
       aria-labelledby="project-settings-title"
       onClick={(event) => event.stopPropagation()}
     >
       <form
-        className="worktree-dialog"
+        className="dialog"
         onSubmit={(event) => {
           event.preventDefault()
           if (ticketsError || runCommandsError) return
@@ -270,7 +270,7 @@ export function ProjectSettingsDialog({
           Shown instead of the letter in the sidebar. The image is copied, center-cropped square and stored by Toucan;
           changes apply immediately.
         </p>
-        {avatarError && <p className="worktree-dialog-error">{avatarError}</p>}
+        {avatarError && <p className="dialog-error">{avatarError}</p>}
         <label>
           <span>Setup command</span>
           <input
@@ -294,7 +294,7 @@ export function ProjectSettingsDialog({
           Where this project's ticket Markdown files live, relative to the checkout. Leave empty for{' '}
           {DEFAULT_TICKETS_DIRECTORY}.
         </p>
-        {ticketsError && <p className="worktree-dialog-error">The tickets folder must stay inside the checkout.</p>}
+        {ticketsError && <p className="dialog-error">The tickets folder must stay inside the checkout.</p>}
         <div className="project-run-commands">
           <span className="project-run-commands-label">Run commands</span>
           {runCommands.map((entry, index) => (
@@ -350,10 +350,8 @@ export function ProjectSettingsDialog({
           Named commands that start this project, run in its checkout. Order is the order they are listed in; leave the
           list empty for none.
         </p>
-        {runCommandsError && (
-          <p className="worktree-dialog-error">Every run command needs a name and a command line.</p>
-        )}
-        <div className="worktree-dialog-actions">
+        {runCommandsError && <p className="dialog-error">Every run command needs a name and a command line.</p>}
+        <div className="dialog-actions">
           <button type="button" onClick={onCancel}>
             Cancel
           </button>

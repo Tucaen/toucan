@@ -303,7 +303,7 @@ test('a file-change prompt opened during a save keeps keyboard focus inside unti
 
   fireEvent.click(screen.getByRole('button', { name: 'Change displayed file' }))
   await screen.findByRole('dialog', { name: 'Unsaved changes' })
-  const panel = document.querySelector('.worktree-dialog') as HTMLElement
+  const panel = document.querySelector('.dialog') as HTMLElement
   await waitFor(() => expect(panel).toHaveFocus())
   fireEvent.keyDown(panel, { key: 'Tab' })
   expect(panel).toHaveFocus()
@@ -327,7 +327,7 @@ test('edits made while save-and-switch is writing must be saved before the node 
   await screen.findByRole('dialog', { name: 'Unsaved changes' })
   fireEvent.click(screen.getByRole('button', { name: 'Save and switch' }))
   await waitFor(() => expect(stub.write).toHaveBeenCalledTimes(1))
-  await waitFor(() => expect(document.querySelector('.worktree-dialog')).toHaveFocus())
+  await waitFor(() => expect(document.querySelector('.dialog')).toHaveFocus())
 
   type(view, 'new\n')
   await act(async () => finish({ ok: true, mtime: 'saved-once', size: 12, content: 'old\npending\n' }))

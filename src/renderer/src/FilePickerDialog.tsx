@@ -47,13 +47,13 @@ export default function FilePickerDialog({ projectName, root, onCancel, onOpen }
 
   return (
     <div
-      className="worktree-dialog-overlay"
+      className="dialog-overlay"
       role="dialog"
       aria-modal="true"
       aria-labelledby="file-picker-title"
       onClick={(event) => event.stopPropagation()}
     >
-      <div className="worktree-dialog file-picker-dialog">
+      <div className="dialog file-picker-dialog">
         <strong id="file-picker-title">Choose a file from {projectName}</strong>
         <p>Markdown opens rendered; anything else opens as highlighted text. The node updates as the file changes.</p>
         <input
@@ -84,7 +84,7 @@ export default function FilePickerDialog({ projectName, root, onCancel, onOpen }
           }}
         />
 
-        {error && <p className="worktree-dialog-error">{error}</p>}
+        {error && <p className="dialog-error">{error}</p>}
 
         <ul className="file-picker-list" role="listbox" aria-label="Files">
           {matches.map((entry, position) => (
@@ -109,7 +109,7 @@ export default function FilePickerDialog({ projectName, root, onCancel, onOpen }
         {!index && !error && <p className="conversation-history-empty">Listing files…</p>}
         {note && <p className="file-picker-note">{note}</p>}
 
-        <div className="worktree-dialog-actions">
+        <div className="dialog-actions">
           <button type="button" onClick={onCancel}>
             Cancel
           </button>

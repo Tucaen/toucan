@@ -39,7 +39,7 @@ function AdapterChoice({
           ))}
         </select>
       </label>
-      <div className="worktree-dialog-actions">
+      <div className="dialog-actions">
         <button type="button" onClick={onCheck}>
           Check for updates
         </button>
@@ -72,7 +72,7 @@ function AdapterChoice({
         </p>
       )}
       {state.error && (
-        <p role="alert" className="worktree-dialog-error">
+        <p role="alert" className="dialog-error">
           {state.error}
         </p>
       )}
@@ -117,7 +117,7 @@ export function AdapterManagementDialog({ onClose }: { onClose(): void }): JSX.E
   }
   return (
     <div
-      className="worktree-dialog-overlay"
+      className="dialog-overlay"
       role="dialog"
       aria-modal="true"
       aria-labelledby="adapter-management-title"
@@ -143,7 +143,7 @@ export function AdapterManagementDialog({ onClose }: { onClose(): void }): JSX.E
         }
       }}
     >
-      <div className="worktree-dialog adapter-management-dialog">
+      <div className="dialog adapter-management-dialog">
         <strong id="adapter-management-title">Agent adapters</strong>
         <p>
           Update Claude and Codex adapters independently of Toucan. Updates are installed only when you choose a
@@ -161,7 +161,7 @@ export function AdapterManagementDialog({ onClose }: { onClose(): void }): JSX.E
             />
           ))}
         {error && (
-          <p role="alert" className="worktree-dialog-error">
+          <p role="alert" className="dialog-error">
             {error}
           </p>
         )}
@@ -170,7 +170,7 @@ export function AdapterManagementDialog({ onClose }: { onClose(): void }): JSX.E
           Other versions may change model availability and conversation compatibility. You can return to the bundled
           version at any time.
         </p>
-        <div className="worktree-dialog-actions">
+        <div className="dialog-actions">
           <button type="button" onClick={onClose}>
             Close
           </button>

@@ -39,14 +39,14 @@ export function RemoteAccessDialog({
 
   return (
     <div
-      className="worktree-dialog-overlay"
+      className="dialog-overlay"
       role="dialog"
       aria-modal="true"
       aria-labelledby="remote-access-title"
       onClick={(event) => event.stopPropagation()}
     >
       <form
-        className="worktree-dialog remote-dialog"
+        className="dialog remote-dialog"
         onSubmit={(event) => {
           event.preventDefault()
           if (draft && !portProblem && !busy) onApply({ enabled: draft.enabled, port: Number(draft.port) })
@@ -80,8 +80,8 @@ export function RemoteAccessDialog({
                 onChange={(event) => setDraft({ ...draft, port: event.target.value.replace(/[^0-9]/g, '') })}
               />
             </label>
-            {portProblem && <p className="worktree-dialog-error">{portProblem}</p>}
-            {state?.error && <p className="worktree-dialog-error">{state.error}</p>}
+            {portProblem && <p className="dialog-error">{portProblem}</p>}
+            {state?.error && <p className="dialog-error">{state.error}</p>}
 
             <div className="remote-dialog-status" role="status">
               {state?.listening ? (
@@ -140,7 +140,7 @@ export function RemoteAccessDialog({
           </>
         )}
 
-        <div className="worktree-dialog-actions">
+        <div className="dialog-actions">
           <button type="button" disabled={busy} onClick={onClose}>
             Close
           </button>

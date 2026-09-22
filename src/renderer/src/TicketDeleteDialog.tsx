@@ -40,7 +40,7 @@ export default function TicketDeleteDialog(props: TicketDeleteDialogProps): JSX.
 
   return (
     <div
-      className="app-dialog-overlay"
+      className="dialog-overlay"
       role="dialog"
       aria-modal="true"
       aria-labelledby={titleId}
@@ -51,7 +51,7 @@ export default function TicketDeleteDialog(props: TicketDeleteDialogProps): JSX.
       }}
     >
       <form
-        className="app-dialog ticket-delete-dialog"
+        className="dialog dialog-compact ticket-delete-dialog"
         onSubmit={(event) => {
           event.preventDefault()
           if (!props.pending) props.onConfirm()
@@ -77,11 +77,11 @@ export default function TicketDeleteDialog(props: TicketDeleteDialogProps): JSX.
           </ul>
         )}
         {props.error && (
-          <p className="app-dialog-error" role="alert">
+          <p className="dialog-error" role="alert">
             {props.error}
           </p>
         )}
-        <div className="app-dialog-actions">
+        <div className="dialog-actions">
           <button type="button" ref={cancel} onClick={props.onCancel} disabled={props.pending}>
             Cancel
           </button>

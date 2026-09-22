@@ -1097,7 +1097,7 @@ button.global-status-chip:hover {
 
 /* A drag must track the pointer exactly, so row transitions are suppressed for its duration. */
 .project-list[data-dragging='true'] * {
-  transition: none !important;
+  transition: none;
 }
 
 .project-drop-indicator {
@@ -1265,41 +1265,160 @@ button.global-status-chip:hover {
   height: 16px;
 }
 
-.unrecoverable-workspace-overlay {
+.dialog-overlay {
   position: absolute;
   inset: 0;
   z-index: 100;
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 20px;
   background: rgba(12, 14, 18, 0.72);
 }
 
-.unrecoverable-workspace-dialog {
+.dialog {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  max-width: 420px;
+  gap: 12px;
+  width: min(520px, calc(100vw - 48px));
   padding: 20px 22px;
-  border: 1px solid #df737a;
+  border: 1px solid #3a3350;
   border-radius: 10px;
   background: #1b1e24;
   color: var(--neutral-100);
 }
 
-.unrecoverable-workspace-dialog strong {
+.dialog-compact {
+  width: min(420px, 100%);
+  padding: 18px 20px;
+}
+
+.dialog strong {
   color: #f0f2f5;
   font-size: 14px;
 }
 
-.unrecoverable-workspace-dialog p {
+.dialog p {
   margin: 0;
   color: #9aa3b0;
   font-size: 13px;
   line-height: 1.5;
 }
 
-.unrecoverable-workspace-dialog button {
+.dialog-compact p {
+  color: var(--neutral-300);
+  font-size: 12px;
+}
+
+.dialog label {
+  display: grid;
+  gap: 5px;
+}
+
+.dialog label span {
+  color: var(--neutral-600);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.dialog input {
+  padding: 8px 10px;
+  border: 1px solid #323a46;
+  border-radius: 6px;
+  background: #131720;
+  color: #e3e8ef;
+  font-family: Consolas, monospace;
+  font-size: 13px;
+}
+
+.dialog input:focus {
+  outline: none;
+  border-color: #c992ff;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* Every labelled button inside a dialog - footer actions, the run-command add, the avatar actions -
+   is the same outlined control, so it lives in one rule; only padding and placement vary per row. */
+.dialog-actions button,
+.project-run-command-add,
+.project-avatar-settings button {
+  padding: 7px 14px;
+  border: 1px solid #3a4250;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--neutral-100);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.dialog-actions button:hover:not(:disabled),
+.project-run-command-add:hover:not(:disabled),
+.project-avatar-settings button:hover:not(:disabled) {
+  border-color: #5d6675;
+  color: #f0f2f5;
+}
+
+.dialog-actions button:disabled,
+.project-run-command-add:disabled,
+.project-avatar-settings button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.dialog-actions .primary {
+  border-color: #c992ff;
+  color: #e6dcf7;
+}
+
+.dialog-actions .primary:hover:not(:disabled) {
+  background: rgba(201, 146, 255, 0.14);
+}
+
+.dialog-actions .danger {
+  border-color: #df737a;
+  color: #f0c2c5;
+}
+
+.dialog-actions .danger:hover:not(:disabled) {
+  background: rgba(223, 115, 122, 0.16);
+}
+
+.dialog-error {
+  color: #df737a;
+  font-size: 12px;
+}
+
+.dialog p.dialog-path {
+  overflow: hidden;
+  color: var(--neutral-600);
+  font-family: Consolas, monospace;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dialog p.dialog-cost {
+  padding: 9px 11px;
+  border-left: 2px solid #d9a441;
+  border-radius: 0 6px 6px 0;
+  background: rgba(217, 164, 65, 0.08);
+  color: #d9c08a;
+  font-size: 12px;
+}
+
+.workspace-recovery-dialog {
+  gap: 10px;
+  border-color: #df737a;
+}
+
+.workspace-recovery-confirm {
   align-self: flex-start;
   padding: 7px 14px;
   border: 1px solid #df737a;
@@ -1310,7 +1429,7 @@ button.global-status-chip:hover {
   cursor: pointer;
 }
 
-.unrecoverable-workspace-dialog button:hover {
+.workspace-recovery-confirm:hover {
   background: #df737a;
   color: #1b1e24;
 }
@@ -2597,9 +2716,9 @@ button.global-status-chip:hover {
   font-weight: 700;
 }
 
-.structured-decision-skip {
-  border-color: transparent !important;
-  background: transparent !important;
+.structured-decision footer button.structured-decision-skip {
+  border-color: transparent;
+  background: transparent;
 }
 
 @media (max-width: 620px) {
@@ -4306,17 +4425,7 @@ button.global-status-chip:hover {
   color: #c992ff;
 }
 
-.worktree-dialog-overlay {
-  position: absolute;
-  inset: 0;
-  z-index: 100;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(12, 14, 18, 0.72);
-}
-
-.worktree-dialog.adapter-management-dialog {
+.dialog.adapter-management-dialog {
   width: min(640px, calc(100vw - 32px));
   max-height: calc(100vh - 48px);
   overflow-y: auto;
@@ -4344,83 +4453,8 @@ button.global-status-chip:hover {
   border-radius: 6px;
 }
 
-.adapter-choice .worktree-dialog-actions {
+.adapter-choice .dialog-actions {
   flex-wrap: wrap;
-}
-
-.worktree-dialog {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  width: min(520px, calc(100vw - 48px));
-  padding: 20px 22px;
-  border: 1px solid #3a3350;
-  border-radius: 10px;
-  background: #1b1e24;
-  color: var(--neutral-100);
-}
-
-.worktree-dialog strong {
-  color: #f0f2f5;
-  font-size: 14px;
-}
-
-.worktree-dialog p {
-  margin: 0;
-  color: #9aa3b0;
-  font-size: 13px;
-  line-height: 1.5;
-}
-
-.worktree-dialog label {
-  display: grid;
-  gap: 5px;
-}
-
-.worktree-dialog label span {
-  color: var(--neutral-600);
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-}
-
-.worktree-dialog input {
-  padding: 8px 10px;
-  border: 1px solid #323a46;
-  border-radius: 6px;
-  background: #131720;
-  color: #e3e8ef;
-  font-family: Consolas, monospace;
-  font-size: 13px;
-}
-
-.worktree-dialog input:focus {
-  outline: none;
-  border-color: #c992ff;
-}
-
-.worktree-dialog-path {
-  overflow: hidden;
-  color: var(--neutral-600) !important;
-  font-family: Consolas, monospace;
-  font-size: 12px !important;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.worktree-dialog-error {
-  color: #df737a !important;
-  font-size: 12px !important;
-}
-
-.worktree-dialog-cost {
-  padding: 9px 11px;
-  border-left: 2px solid #d9a441;
-  border-radius: 0 6px 6px 0;
-  background: rgba(217, 164, 65, 0.08);
-  color: #d9c08a !important;
-  font-size: 12px !important;
 }
 
 .worktree-blockers {
@@ -4491,58 +4525,6 @@ button.global-status-chip:hover {
 .project-run-command button:disabled {
   opacity: 0.35;
   cursor: not-allowed;
-}
-
-.worktree-dialog-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-/* Every labelled button inside a dialog - footer actions, the run-command add, the avatar actions -
-   is the same outlined control, so it lives in one rule; only padding and placement vary per row. */
-.worktree-dialog-actions button,
-.project-run-command-add,
-.project-avatar-settings button {
-  padding: 7px 14px;
-  border: 1px solid #3a4250;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--neutral-100);
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.worktree-dialog-actions button:hover:not(:disabled),
-.project-run-command-add:hover:not(:disabled),
-.project-avatar-settings button:hover:not(:disabled) {
-  border-color: #5d6675;
-  color: #f0f2f5;
-}
-
-.worktree-dialog-actions button:disabled,
-.project-run-command-add:disabled,
-.project-avatar-settings button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.worktree-dialog-actions .primary {
-  border-color: #c992ff;
-  color: #e6dcf7;
-}
-
-.worktree-dialog-actions .primary:hover:not(:disabled) {
-  background: rgba(201, 146, 255, 0.14);
-}
-
-.worktree-dialog-actions .danger {
-  border-color: #df737a;
-  color: #f0c2c5;
-}
-
-.worktree-dialog-actions .danger:hover:not(:disabled) {
-  background: rgba(223, 115, 122, 0.16);
 }
 
 .project-run-command-add {
@@ -5678,9 +5660,7 @@ button.global-status-chip:hover {
   animation: brain-dump-spin 900ms linear infinite;
 }
 
-.brain-dump-capture-error,
-.app-dialog-error,
-.brain-dump-dialog-error {
+.brain-dump-capture-error {
   margin: 0;
   color: #e0787f;
   font-size: 12px;
@@ -5711,39 +5691,6 @@ button.global-status-chip:hover {
   text-transform: uppercase;
 }
 
-/* The shared modal shell. Neutral names because a dialog outside brain dumps - the ticket
-   board’s delete confirmation - wears the same frame and must not inherit another panel’s. */
-.app-dialog-overlay,
-.brain-dump-dialog-overlay {
-  position: absolute;
-  inset: 0;
-  z-index: 40;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-  background: rgba(12, 14, 18, 0.72);
-}
-
-.app-dialog,
-.brain-dump-dialog {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  width: min(420px, 100%);
-  padding: 18px 20px;
-  border: 1px solid #3a3350;
-  border-radius: 10px;
-  background: #1b1e24;
-}
-
-.app-dialog p,
-.brain-dump-dialog p {
-  margin: 0;
-  color: var(--neutral-300);
-  font-size: 12px;
-}
-
 .brain-dump-permission-dialog code {
   overflow-wrap: anywhere;
   color: #d7dde7;
@@ -5769,30 +5716,6 @@ button.global-status-chip:hover {
   align-items: center;
   gap: 8px;
   font-size: 13px;
-}
-
-.app-dialog-actions,
-.brain-dump-dialog-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.app-dialog-actions button,
-.brain-dump-dialog-actions button {
-  padding: 6px 13px;
-  border: 1px solid var(--neutral-750);
-  border-radius: 7px;
-  color: var(--neutral-100);
-  background: var(--neutral-925);
-  cursor: pointer;
-}
-
-.app-dialog-actions .primary,
-.brain-dump-dialog-actions .primary {
-  border-color: #3f5f96;
-  background: #24405f;
-  color: #e9eef6;
 }
 
 .sidebar-global-entry {
@@ -7557,9 +7480,9 @@ button.global-status-chip:hover {
   background: #23272f;
 }
 
-.file-picker-note {
-  color: var(--neutral-500) !important;
-  font-size: 11px !important;
+.dialog p.file-picker-note {
+  color: var(--neutral-500);
+  font-size: 11px;
 }
 
 .context-menu kbd {

@@ -25,7 +25,7 @@ export default function BrainDumpLifecycleDialog(props: BrainDumpLifecycleDialog
 
   return (
     <div
-      className="brain-dump-dialog-overlay"
+      className="dialog-overlay"
       role="dialog"
       aria-modal="true"
       aria-labelledby="brain-dump-archive-title"
@@ -36,7 +36,7 @@ export default function BrainDumpLifecycleDialog(props: BrainDumpLifecycleDialog
       }}
     >
       <form
-        className="brain-dump-dialog"
+        className="dialog dialog-compact"
         onSubmit={(event) => {
           event.preventDefault()
           if (!props.pending) props.onArchive(outcome)
@@ -64,11 +64,11 @@ export default function BrainDumpLifecycleDialog(props: BrainDumpLifecycleDialog
           ))}
         </fieldset>
         {props.error && (
-          <p className="brain-dump-dialog-error" role="alert">
+          <p className="dialog-error" role="alert">
             {props.error}
           </p>
         )}
-        <div className="brain-dump-dialog-actions">
+        <div className="dialog-actions">
           <button type="button" onClick={props.onCancel} disabled={props.pending}>
             Cancel
           </button>

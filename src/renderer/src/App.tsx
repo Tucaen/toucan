@@ -2430,18 +2430,22 @@ function Canvas(): JSX.Element {
             <main className="app-shell" onClick={() => setMenu(null)}>
               {workspaceUnrecoverable && (
                 <div
-                  className="unrecoverable-workspace-overlay"
+                  className="dialog-overlay"
                   role="alertdialog"
                   aria-modal="true"
                   aria-labelledby="unrecoverable-workspace-title"
                 >
-                  <div className="unrecoverable-workspace-dialog">
+                  <div className="dialog dialog-compact workspace-recovery-dialog">
                     <strong id="unrecoverable-workspace-title">Your saved workspace could not be recovered</strong>
                     <p>
                       The saved canvas and its backup were both damaged, likely by a crash or an interrupted write.
                       Nothing has been overwritten yet.
                     </p>
-                    <button type="button" onClick={() => acknowledgeUnrecoverableWorkspace()}>
+                    <button
+                      type="button"
+                      className="workspace-recovery-confirm"
+                      onClick={() => acknowledgeUnrecoverableWorkspace()}
+                    >
                       Start a new workspace
                     </button>
                   </div>
