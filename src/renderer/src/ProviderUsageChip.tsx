@@ -15,7 +15,12 @@ function UsageWindow({ window }: { window: RateLimitWindowReadout }): JSX.Elemen
       <span className="usage-window-bar">
         <span className="usage-window-fill" style={{ width: `${displayPercent}%` }} />
         {resetProgressPercent !== undefined && (
-          <span className="usage-window-reset" style={{ left: `${resetProgressPercent}%` }} />
+          // The stylesheet snaps this to a whole pixel, so it takes the position as a custom
+          // property rather than as `left` itself.
+          <span
+            className="usage-window-reset"
+            style={{ '--usage-reset-left': `${resetProgressPercent}%` } as CSSProperties}
+          />
         )}
       </span>
       <span className="usage-window-pct">{displayPercent}%</span>

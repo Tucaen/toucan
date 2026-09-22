@@ -1318,12 +1318,16 @@ body {
   transition: width 0.4s ease;
 }
 
-/* Where "now" sits inside the window, so how close relief is reads off the same bar. */
+/* Where "now" sits inside the window, so how close relief is reads off the same bar. The position
+   snaps to whole pixels: a percentage of the track lands on a fraction of one, and a 2px line
+   rasterised across three pixels reads visibly thicker than the same line that lands on two. */
 .usage-window-reset {
   position: absolute;
+  left: round(var(--usage-reset-left), 1px);
   top: -3px;
   bottom: -3px;
   width: 2px;
+  margin-left: -1px;
   border-radius: 1px;
   background: var(--ink-dim);
 }

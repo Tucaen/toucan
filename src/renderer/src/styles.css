@@ -370,17 +370,24 @@ button.global-status-chip:hover {
 
 /* Where "now" sits between the window's start and its reset: the marker walks left to right and
    reaches the right edge when the reset is due. It overshoots the track on both sides on purpose.
-   No outline ring: it only rendered where the marker overlapped the fill, which made the very same
-   2px marker read as noticeably thicker on some windows than on others. The light marker colour
-   carries enough contrast against the warning/critical fills on its own. */
+
+   The position has to snap to whole pixels. A percentage of a 34-56px track lands on a fraction of
+   a pixel, and a 2px line starting at x.4 is rasterised across three pixels while the same line at
+   x.9 is nearly two - so one window's marker looks half again as thick as its neighbour's with no
+   style difference between them. `round()` removes the fractional part, and the half-width offset
+   is a static -1px margin rather than a translate so it cannot reintroduce one.
+
+   No outline ring either: the dark ring only showed where the marker overlapped the fill, which
+   added a second way for identical markers to render at different weights. */
 .usage-window-reset {
   position: absolute;
+  left: round(var(--usage-reset-left), 1px);
   top: -3px;
   bottom: -3px;
   width: 2px;
+  margin-left: -1px;
   border-radius: 1px;
   background: #c8d2e0;
-  transform: translateX(-50%);
   pointer-events: none;
 }
 

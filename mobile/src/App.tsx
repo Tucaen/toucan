@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { CSSProperties } from 'react'
 import type { ProviderUsageReport } from '../../src/shared/agent'
 import {
   EMPTY_REMOTE_WORKSPACE_SNAPSHOT,
@@ -638,7 +639,12 @@ function ProviderUsagePanel({ cards }: { cards: ProviderUsageCard[] }): JSX.Elem
               <span className="usage-window-bar">
                 <span className="usage-window-fill" style={{ width: `${window.displayPercent}%` }} />
                 {window.resetProgressPercent !== undefined && (
-                  <span className="usage-window-reset" style={{ left: `${window.resetProgressPercent}%` }} />
+                  // The stylesheet snaps this to a whole pixel, so it takes the position as a
+                  // custom property rather than as `left` itself.
+                  <span
+                    className="usage-window-reset"
+                    style={{ '--usage-reset-left': `${window.resetProgressPercent}%` } as CSSProperties}
+                  />
                 )}
               </span>
               <span className="usage-window-pct">{window.displayPercent}%</span>

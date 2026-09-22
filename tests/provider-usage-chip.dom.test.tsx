@@ -140,7 +140,8 @@ describe('the provider usage chip', () => {
     const chip = screen.getByRole('button', { name: /Claude/ })
     const markers = chip.querySelectorAll('.usage-window-reset')
     expect(markers).toHaveLength(1)
-    expect((markers[0] as HTMLElement).style.left).toBe('20%')
+    // The stylesheet reads the position from this property so it can snap it to a whole pixel.
+    expect((markers[0] as HTMLElement).style.getPropertyValue('--usage-reset-left')).toBe('20%')
   })
 
   test('renders only the windows the provider reported', () => {
