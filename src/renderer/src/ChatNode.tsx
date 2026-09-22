@@ -773,7 +773,7 @@ function ActivityCard({ activity }: { activity: AgentActivity }): JSX.Element {
         onClick={() => setChoice({ expanded: !expanded, status: activity.status })}
       >
         <span className="activity-icon">{family.icon(activity)}</span>
-        <strong>{family.summary(activity)}</strong>
+        <strong className="tool-summary">{family.summary(activity)}</strong>
         {duration && <small className="activity-duration">{duration}</small>}
         <span className="activity-state">{toolCardStatusLabel(activity.status)}</span>
       </button>

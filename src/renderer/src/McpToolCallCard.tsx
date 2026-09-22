@@ -8,11 +8,11 @@ import type { McpToolCall } from './mcp-tool-call'
  */
 export function McpToolCallSummary({ call }: { call: McpToolCall }): JSX.Element {
   return (
-    <span className="mcp-summary">
+    <>
       <span className="mcp-server">{call.server}</span>
       <span className="mcp-tool">{call.tool}</span>
       <span className="external-source-badge">MCP</span>
-    </span>
+    </>
   )
 }
 

@@ -55,3 +55,24 @@ test('every modal uses the shared dialog shell without specificity overrides', (
   assert.doesNotMatch(rendererSource, /(?:unrecoverable-workspace|worktree|app|brain-dump)-dialog(?:\b|-)/)
   assert.doesNotMatch(styles, /!important/)
 })
+
+test('tool cards emit one shared chrome vocabulary', () => {
+  for (const selector of [
+    '.tool-summary {',
+    '.tool-block-label {',
+    '.tool-inline-button {',
+    '.tool-line-number {',
+    '.eyebrow-label {'
+  ]) {
+    assert.ok(styles.includes(selector), `${selector} must define shared chrome`)
+    assert.ok(rendererSource.includes(`className="${selector.slice(1, -2)}"`), `${selector} must be emitted`)
+  }
+
+  assert.doesNotMatch(
+    styles,
+    /\.(?:file-op-summary|shell-summary|search-navigation-summary|subagent-summary|mcp-summary|skill-summary)\s*[,\{]/
+  )
+  assert.doesNotMatch(styles, /\.(?:file-op|shell)-block-label\b/)
+  assert.doesNotMatch(styles, /\.(?:file-op|search-result)-line-number\b/)
+  assert.doesNotMatch(styles, /\.(?:file-op-path|shell-command) button/)
+})

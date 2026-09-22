@@ -72,7 +72,7 @@ export function RemoteAccessDialog({
               <span>Serve the mobile companion</span>
             </label>
             <label>
-              <span>Port</span>
+              <span className="eyebrow-label">Port</span>
               <input
                 inputMode="numeric"
                 value={draft.port}
@@ -99,7 +99,7 @@ export function RemoteAccessDialog({
 
             {state?.listening && state.addresses.length > 0 && (
               <div className="remote-dialog-addresses">
-                <span>Open on your phone</span>
+                <span className="eyebrow-label">Open on your phone</span>
                 {state.addresses.map((address) => (
                   <code key={address.host} data-kind={address.kind}>
                     http://{address.host}:{state.boundPort ?? state.settings.port}
@@ -111,7 +111,7 @@ export function RemoteAccessDialog({
 
             {state && (
               <label>
-                <span>Pairing token</span>
+                <span className="eyebrow-label">Pairing token</span>
                 <div className="remote-dialog-token">
                   <code>{state.token}</code>
                   <button

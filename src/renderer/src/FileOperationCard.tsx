@@ -37,12 +37,12 @@ export function FileOperationSummary({ operation }: { operation: FileOperation }
   const roots = useContext(WorkspaceRootsContext)
   const detail = summaryDetail(operation)
   return (
-    <span className="file-op-summary">
+    <>
       <span className="file-op-summary-path" title={operation.path}>
         {fileOperationLabel(operation, roots)}
       </span>
       {detail && <span className="file-op-summary-detail">{detail}</span>}
-    </span>
+    </>
   )
 }
 
@@ -60,15 +60,20 @@ function FilePathActions({ path }: { path: string }): JSX.Element {
     <div className="file-op-path">
       <code title={path}>{shortenFilePath(path, roots)}</code>
       {openFile && (
-        <button type="button" title="Open this file as a node on the canvas" onClick={() => openFile(path)}>
+        <button
+          type="button"
+          className="tool-inline-button"
+          title="Open this file as a node on the canvas"
+          onClick={() => openFile(path)}
+        >
           Open
         </button>
       )}
-      <button type="button" onClick={() => window.terminalApi?.copyText(path)}>
+      <button type="button" className="tool-inline-button" onClick={() => window.terminalApi?.copyText(path)}>
         Copy path
       </button>
       {reveal && (
-        <button type="button" onClick={() => void reveal(path)}>
+        <button type="button" className="tool-inline-button" onClick={() => void reveal(path)}>
           Reveal
         </button>
       )}
@@ -91,16 +96,16 @@ export function FileOperationBlockView({
   return (
     <div className={`file-op-block${block.path ? ' file-op-hunk' : ''}`}>
       {showPath && block.path && <FilePathActions path={block.path} />}
-      {block.label && <small className="file-op-block-label">{block.label}</small>}
+      {block.label && <small className="tool-block-label">{block.label}</small>}
       <div className="file-op-lines">
         {block.lines.map((line, index) => (
           <div className="file-op-line" data-tone={line.tone} key={index}>
             {block.path ? (
               <>
-                <span className="file-op-line-number" aria-hidden="true">
+                <span className="tool-line-number" aria-hidden="true">
                   {line.oldNumber ?? ''}
                 </span>
-                <span className="file-op-line-number" aria-hidden="true">
+                <span className="tool-line-number" aria-hidden="true">
                   {line.newNumber ?? ''}
                 </span>
                 <span className="file-op-line-mark" aria-hidden="true">
@@ -108,7 +113,7 @@ export function FileOperationBlockView({
                 </span>
               </>
             ) : (
-              <span className="file-op-line-number" aria-hidden="true">
+              <span className="tool-line-number" aria-hidden="true">
                 {line.tone === 'old' ? '-' : line.tone === 'new' ? '+' : line.number}
               </span>
             )}

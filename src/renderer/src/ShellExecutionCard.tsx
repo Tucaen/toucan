@@ -54,7 +54,7 @@ export function ShellExecutionSummary({
   const tone = shellExitTone(execution, status)
   const cwd = shellWorkingDirectoryLabel(execution.cwd, roots)
   return (
-    <span className="shell-summary">
+    <>
       {execution.kind === 'run' ? (
         <code className="shell-summary-command" title={execution.command}>
           {shellCommandLine(execution.command ?? '')}
@@ -75,7 +75,7 @@ export function ShellExecutionSummary({
           {exit}
         </span>
       )}
-    </span>
+    </>
   )
 }
 
@@ -89,7 +89,7 @@ function ShellOutputBlockView({ block }: { block: ShellOutputBlock }): JSX.Eleme
   const label = STREAM_LABELS[block.stream]
   return (
     <div className="shell-block" data-stream={block.stream}>
-      {label && <small className="shell-block-label">{label}</small>}
+      {label && <small className="tool-block-label">{label}</small>}
       <pre className="shell-lines">{block.lines.join('\n')}</pre>
     </div>
   )
@@ -109,7 +109,11 @@ export function ShellExecutionBody({
       {execution.kind === 'run' && execution.command && (
         <div className="shell-command">
           <code title={execution.command}>{execution.command}</code>
-          <button type="button" onClick={() => window.terminalApi?.copyText(execution.command ?? '')}>
+          <button
+            type="button"
+            className="tool-inline-button"
+            onClick={() => window.terminalApi?.copyText(execution.command ?? '')}
+          >
             Copy
           </button>
         </div>

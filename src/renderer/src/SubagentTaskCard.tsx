@@ -19,11 +19,11 @@ export function SubagentTaskSummary({ task, activity }: { task: SubagentTask; ac
   const children = useContext(SubagentActivitiesContext).get(activity.id) ?? []
   const progress = subagentProgress(children)
   return (
-    <span className="subagent-summary">
+    <>
       {task.agentType && <span className="subagent-agent-type">{task.agentType}</span>}
       <span className="subagent-summary-label">{subagentTaskSummary(task, activity)}</span>
       {progress && <span className="subagent-progress">{subagentProgressLabel(progress)}</span>}
-    </span>
+    </>
   )
 }
 

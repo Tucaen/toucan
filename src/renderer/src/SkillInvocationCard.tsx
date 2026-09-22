@@ -9,10 +9,10 @@ import {
 
 export function SkillInvocationSummary({ invocation }: { invocation: SkillInvocation }): JSX.Element {
   return (
-    <span className="skill-summary">
+    <>
       <span className="skill-name">{skillInvocationSummary(invocation)}</span>
       <span className="skill-badge">Skill</span>
-    </span>
+    </>
   )
 }
 

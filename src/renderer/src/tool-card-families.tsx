@@ -216,7 +216,7 @@ function subagentStepRow(step: AgentActivity): ReactNode {
   return (
     <div className="subagent-step" data-status={step.status ?? 'in_progress'} key={step.id}>
       <span className="activity-icon">{family.icon(step)}</span>
-      <strong>{family.summary(step)}</strong>
+      <strong className="tool-summary">{family.summary(step)}</strong>
       <span className="activity-state">{toolCardStatusLabel(step.status)}</span>
     </div>
   )

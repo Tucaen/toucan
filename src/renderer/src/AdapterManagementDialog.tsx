@@ -26,7 +26,7 @@ function AdapterChoice({
         Selected for new sessions: <strong>{state.selectedVersion ?? 'Bundled with Toucan'}</strong>
       </p>
       <label>
-        <span>Adapter version</span>
+        <span className="eyebrow-label">Adapter version</span>
         <select value={chosen} onChange={(event) => setDraft(event.target.value)}>
           <option value="">Choose a version</option>
           {versions.map((version) => (

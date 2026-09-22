@@ -90,11 +90,11 @@ export default function WorktreeNode({ id, data, selected }: NodeProps<WorktreeC
       <div className="worktree-body nodrag">
         <dl className="worktree-facts">
           <div>
-            <dt>Directory</dt>
+            <dt className="eyebrow-label">Directory</dt>
             <dd title={path}>{path}</dd>
           </div>
           <div>
-            <dt>Branched from</dt>
+            <dt className="eyebrow-label">Branched from</dt>
             <dd>{baseRef}</dd>
           </div>
         </dl>
@@ -106,7 +106,7 @@ export default function WorktreeNode({ id, data, selected }: NodeProps<WorktreeC
 
       <footer className="worktree-actions nodrag">
         <div className="worktree-open-group">
-          <span>Open here</span>
+          <span className="eyebrow-label">Open here</span>
           <button
             type="button"
             title="New terminal in this worktree"

@@ -1315,7 +1315,7 @@ button.global-status-chip:hover {
   gap: 5px;
 }
 
-.dialog label span {
+.eyebrow-label {
   color: var(--neutral-600);
   font-size: 10px;
   font-weight: 800;
@@ -2815,12 +2815,22 @@ button.global-status-chip:hover {
 }
 
 .activity-header strong {
-  display: block;
   overflow: hidden;
   color: var(--neutral-100);
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.activity-header strong:not(.tool-summary) {
+  display: block;
+}
+
+.tool-summary {
+  display: flex;
+  gap: 7px;
+  align-items: baseline;
+  min-width: 0;
 }
 
 .activity-duration {
@@ -2850,7 +2860,7 @@ button.global-status-chip:hover {
   white-space: pre-wrap;
 }
 
-.activity-body small {
+.activity-body small:not(.tool-block-label) {
   display: block;
   margin-top: 3px;
   overflow: hidden;
@@ -2871,15 +2881,40 @@ button.global-status-chip:hover {
   color: #d98088;
 }
 
-/* File-operation cards: the path leads, and it is the part that must survive the squeeze, so
-   the detail chip never takes room from it. */
-.file-op-summary {
-  display: flex;
-  gap: 7px;
-  align-items: baseline;
-  min-width: 0;
+.tool-inline-button {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border: 1px solid #35404e;
+  border-radius: 5px;
+  color: #9ba6b5;
+  background: #1d232c;
+  font-size: 9px;
+  cursor: pointer;
 }
 
+.tool-inline-button:hover {
+  color: var(--neutral-100);
+  background: #232a34;
+}
+
+.tool-block-label {
+  display: block;
+  margin-top: 7px;
+  color: var(--neutral-500);
+  font-size: 9px;
+  font-weight: 750;
+  text-transform: uppercase;
+}
+
+.tool-line-number {
+  color: #5b6473;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  user-select: none;
+}
+
+/* File-operation cards: the path leads, and it is the part that must survive the squeeze, so
+   the detail chip never takes room from it. */
 .file-op-summary-path {
   overflow: hidden;
   font-family: Consolas, monospace;
@@ -2909,31 +2944,6 @@ button.global-status-chip:hover {
     monospace;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.file-op-path button {
-  flex: 0 0 auto;
-  padding: 1px 6px;
-  border: 1px solid #35404e;
-  border-radius: 5px;
-  color: #9ba6b5;
-  background: #1d232c;
-  font-size: 9px;
-  cursor: pointer;
-}
-
-.file-op-path button:hover {
-  color: var(--neutral-100);
-  background: #232a34;
-}
-
-.file-op-block-label {
-  display: block;
-  margin-top: 7px;
-  color: var(--neutral-500);
-  font-size: 9px;
-  font-weight: 750;
-  text-transform: uppercase;
 }
 
 .file-op-lines {
@@ -2968,13 +2978,6 @@ button.global-status-chip:hover {
   font: inherit;
 }
 
-.file-op-line-number {
-  color: #5b6473;
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-  user-select: none;
-}
-
 .file-op-line[data-tone='old'] {
   color: #d98088;
   background: rgba(122, 59, 64, 0.16);
@@ -2988,13 +2991,6 @@ button.global-status-chip:hover {
 /* Shell-execution cards: the command leads and is the part that must survive the squeeze, so the
    exit chip, the cwd and the bg flag never take room from it - a truncated command is still
    recognizable, a truncated exit code is not. */
-.shell-summary {
-  display: flex;
-  gap: 7px;
-  align-items: baseline;
-  min-width: 0;
-}
-
 .shell-summary-command {
   overflow: hidden;
   font: inherit;
@@ -3065,32 +3061,7 @@ button.global-status-chip:hover {
   white-space: pre-wrap;
 }
 
-.shell-command button {
-  flex: 0 0 auto;
-  padding: 1px 6px;
-  border: 1px solid #35404e;
-  border-radius: 5px;
-  color: #9ba6b5;
-  background: #1d232c;
-  font-size: 9px;
-  cursor: pointer;
-}
-
-.shell-command button:hover {
-  color: var(--neutral-100);
-  background: #232a34;
-}
-
-.shell-block-label {
-  display: block;
-  margin-top: 7px;
-  color: var(--neutral-500);
-  font-size: 9px;
-  font-weight: 750;
-  text-transform: uppercase;
-}
-
-.shell-block[data-stream='stderr'] .shell-block-label,
+.shell-block[data-stream='stderr'] .tool-block-label,
 .shell-block[data-stream='stderr'] .shell-lines {
   color: #d98088;
 }
@@ -3105,16 +3076,9 @@ button.global-status-chip:hover {
   white-space: pre-wrap;
 }
 
-.search-navigation-summary {
-  display: flex;
-  gap: 7px;
-  align-items: baseline;
-  min-width: 0;
-  font-family: Consolas, monospace;
-}
-
 .search-navigation-summary-label {
   overflow: hidden;
+  font-family: Consolas, monospace;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -3168,13 +3132,6 @@ button.global-status-chip:hover {
   white-space: pre-wrap;
 }
 
-.search-result-line-number {
-  color: #5b6473;
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-  user-select: none;
-}
-
 .search-zero-result {
   margin: 7px 0 0;
   color: #d6a867;
@@ -3216,17 +3173,6 @@ button.global-status-chip:hover {
     monospace;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-/* Delegation, plan, skill and MCP summaries all lead with a label that must survive the squeeze
-   and trail chips that must not take room from it - the file-op summary's split, reused. */
-.subagent-summary,
-.mcp-summary,
-.skill-summary {
-  display: flex;
-  gap: 7px;
-  align-items: baseline;
-  min-width: 0;
 }
 
 .subagent-summary-label,
@@ -4278,14 +4224,6 @@ button.global-status-chip:hover {
   gap: 2px;
 }
 
-.worktree-facts dt {
-  color: var(--neutral-600);
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-}
-
 .worktree-facts dd {
   margin: 0;
   overflow: hidden;
@@ -4356,11 +4294,6 @@ button.global-status-chip:hover {
 
 .worktree-open-group span {
   margin-right: 3px;
-  color: var(--neutral-600);
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
 }
 
 .worktree-actions button {
@@ -4481,14 +4414,6 @@ button.global-status-chip:hover {
 .project-run-commands {
   display: grid;
   gap: 6px;
-}
-
-.project-run-commands-label {
-  color: var(--neutral-600);
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
 }
 
 .project-run-command {
@@ -6014,14 +5939,6 @@ button.global-status-chip:hover {
 .remote-dialog-addresses {
   display: grid;
   gap: 5px;
-}
-
-.remote-dialog-addresses > span {
-  color: var(--neutral-600);
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
 }
 
 .remote-dialog-addresses code {
@@ -7744,7 +7661,7 @@ button.global-status-chip:hover {
 }
 
 .diff-node-pane .file-op-path code,
-.diff-node-pane .file-op-block-label {
+.diff-node-pane .tool-block-label {
   font-size: 11px;
 }
 

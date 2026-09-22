@@ -64,7 +64,7 @@ export function WorktreeCreateDialog({
       >
         <strong id="worktree-create-title">New worktree in {project.name}</strong>
         <label>
-          <span>Branch name</span>
+          <span className="eyebrow-label">Branch name</span>
           <input
             autoFocus
             value={draft.branch}
@@ -74,7 +74,7 @@ export function WorktreeCreateDialog({
           />
         </label>
         <label>
-          <span>Branch from</span>
+          <span className="eyebrow-label">Branch from</span>
           <input
             value={draft.baseRef}
             placeholder="current HEAD"
@@ -272,7 +272,7 @@ export function ProjectSettingsDialog({
         </p>
         {avatarError && <p className="dialog-error">{avatarError}</p>}
         <label>
-          <span>Setup command</span>
+          <span className="eyebrow-label">Setup command</span>
           <input
             autoFocus
             value={command}
@@ -282,7 +282,7 @@ export function ProjectSettingsDialog({
         </label>
         <p>Run in a terminal node inside a new worktree to make it usable. Leave empty for none.</p>
         <label>
-          <span>Tickets folder</span>
+          <span className="eyebrow-label">Tickets folder</span>
           <input
             value={tickets}
             placeholder={DEFAULT_TICKETS_DIRECTORY}
@@ -296,7 +296,7 @@ export function ProjectSettingsDialog({
         </p>
         {ticketsError && <p className="dialog-error">The tickets folder must stay inside the checkout.</p>}
         <div className="project-run-commands">
-          <span className="project-run-commands-label">Run commands</span>
+          <span className="eyebrow-label">Run commands</span>
           {runCommands.map((entry, index) => (
             <div className="project-run-command" key={entry.id}>
               <input

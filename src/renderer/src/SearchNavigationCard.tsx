@@ -13,7 +13,7 @@ import { WorkspaceRootsContext } from './workspace-root'
 export function SearchNavigationSummary({ search }: { search: SearchNavigation }): JSX.Element {
   const external = search.kind === 'web-search' || search.kind === 'web-fetch'
   return (
-    <span className="search-navigation-summary">
+    <>
       <span className="search-navigation-summary-label">{searchNavigationSummary(search)}</span>
       {search.kind === 'web-search' && search.results.length > 0 && (
         <span className="search-navigation-summary-detail">
@@ -21,7 +21,7 @@ export function SearchNavigationSummary({ search }: { search: SearchNavigation }
         </span>
       )}
       {external && <span className="external-source-badge">External source</span>}
-    </span>
+    </>
   )
 }
 
@@ -75,7 +75,7 @@ export function SearchNavigationBody({ search }: { search: SearchNavigation }): 
           <div className="search-result-lines">
             {group.matches.map((match, index) => (
               <div className="search-result-line" key={`${match.line ?? 'result'}-${index}`}>
-                <span className="search-result-line-number" aria-hidden="true">
+                <span className="tool-line-number" aria-hidden="true">
                   {match.line}
                 </span>
                 <span>{match.text}</span>

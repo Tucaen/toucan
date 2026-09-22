@@ -171,7 +171,7 @@ test('selecting a file reads only that file and renders its hunk with both line 
   expect(lines[2]).toHaveAttribute('data-tone', 'new')
   // Removed lines number only the old side, added lines only the new side.
   const numbers = (line: Element): string[] =>
-    [...line.querySelectorAll('.file-op-line-number')].map((cell) => cell.textContent ?? '')
+    [...line.querySelectorAll('.tool-line-number')].map((cell) => cell.textContent ?? '')
   expect(numbers(lines[0])).toEqual(['1', '1'])
   expect(numbers(lines[1])).toEqual(['2', ''])
   expect(numbers(lines[2])).toEqual(['', '2'])
