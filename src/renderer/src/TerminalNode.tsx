@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
-import { FitAddon } from '@xterm/addon-fit'
-import { Terminal } from '@xterm/xterm'
+import type { Terminal } from '@xterm/xterm'
+import { createCanvasTerminal, TERMINAL_ACCENT } from './canvas-terminal'
 import type { TerminalCanvasNode } from './canvas-workspace'
 import { READ_ON_VIEW_KINDS } from '../../shared/attention'
 import NodeBorderResizer from './NodeBorderResizer'
@@ -10,7 +10,6 @@ import SessionKindIcon from './SessionKindIcon'
 import UnreadToggle from './UnreadToggle'
 import { CanvasTerminalLiveness } from './TerminalLivenessPresentation'
 import WorktreeBadge from './WorktreeBadge'
-import { correctScaledTerminalPointerCoordinates } from './scaled-pointer-coordinates'
 
 export default function TerminalNode({ id, data, selected }: NodeProps<TerminalCanvasNode>): JSX.Element {
   const hostRef = useRef<HTMLDivElement>(null)
@@ -18,6 +17,10 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
   const exitedRef = useRef(false)
   const incarnationRef = useRef<string | null>(null)
   const unreadHoldRef = useRef(false)
+  // Read at call time by the PTY effect, which must not re-run - and so kill and respawn the shell
+  // - just because the node was renamed.
+  const labelRef = useRef(data.label)
+  labelRef.current = data.label
   const [hasSelection, setHasSelection] = useState(false)
   const [scrollbackState, setScrollbackState] = useState<'loading' | 'available' | 'missing'>('loading')
   const hasRestoredScrollback = scrollbackState === 'available'
@@ -50,42 +53,8 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
 
     let active = true
     setScrollbackState('loading')
-    const terminal = new Terminal({
-      cursorBlink: false,
-      cursorStyle: 'bar',
-      fontFamily: 'Cascadia Code, CaskaydiaCove Nerd Font, Consolas, monospace',
-      fontSize: 15,
-      lineHeight: 1.18,
-      scrollback: 5000,
-      disableStdin: true,
-      theme: {
-        background: '#101319',
-        foreground: '#d9dee8',
-        cursor: '#101319',
-        selectionBackground: '#394456'
-      }
-    })
+    const { terminal, dispose } = createCanvasTerminal(hostRef.current, { interactive: false })
     terminalRef.current = terminal
-    const fitAddon = new FitAddon()
-    terminal.loadAddon(fitAddon)
-    terminal.open(hostRef.current)
-    const removePointerCorrection = correctScaledTerminalPointerCoordinates(
-      terminal.element,
-      terminal.element?.querySelector<HTMLElement>('.xterm-screen')
-    )
-    const resizeObserver = new ResizeObserver(() => {
-      try {
-        fitAddon.fit()
-      } catch {
-        /* The canvas may be between layout frames. */
-      }
-    })
-    resizeObserver.observe(hostRef.current)
-    try {
-      fitAddon.fit()
-    } catch {
-      /* The node may not have completed layout. */
-    }
 
     const historyRequest = window.terminalApi.scrollback?.(data.sessionId)
     if (historyRequest !== undefined)
@@ -109,10 +78,8 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
 
     return () => {
       active = false
-      resizeObserver.disconnect()
-      removePointerCorrection()
       terminalRef.current = null
-      terminal.dispose()
+      dispose()
     }
   }, [data.dormant, data.sessionId])
 
@@ -122,39 +89,14 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
     let active = true
     let started = false
     const attachmentId = crypto.randomUUID()
-    const terminal = new Terminal({
-      cursorBlink: true,
-      cursorStyle: 'bar',
-      fontFamily: 'Cascadia Code, CaskaydiaCove Nerd Font, Consolas, monospace',
-      fontSize: 15,
-      lineHeight: 1.18,
-      scrollback: 5000,
-      theme: {
-        background: '#101319',
-        foreground: '#d9dee8',
-        cursor: '#74d8a2',
-        selectionBackground: '#394456'
+    const { terminal, fit, dispose } = createCanvasTerminal(hostRef.current, {
+      interactive: true,
+      onFit: (fitted) => {
+        if (started && incarnationRef.current)
+          window.terminalApi.resize(data.sessionId, incarnationRef.current, fitted.cols, fitted.rows)
       }
     })
     terminalRef.current = terminal
-    const fitAddon = new FitAddon()
-    terminal.loadAddon(fitAddon)
-    terminal.open(hostRef.current)
-    const removePointerCorrection = correctScaledTerminalPointerCoordinates(
-      terminal.element,
-      terminal.element?.querySelector<HTMLElement>('.xterm-screen')
-    )
-
-    const fit = (): void => {
-      try {
-        fitAddon.fit()
-        if (started && incarnationRef.current) {
-          window.terminalApi.resize(data.sessionId, incarnationRef.current, terminal.cols, terminal.rows)
-        }
-      } catch {
-        // The canvas may be between layout frames while a node is being resized.
-      }
-    }
 
     exitedRef.current = false
     const removeDataListener = window.terminalApi.onData(data.sessionId, attachmentId, (output) => {
@@ -175,7 +117,7 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
             kind: 'failure',
             key: `exit:${result.incarnationId}:${result.exitCode}`,
             sourceId: data.sessionId,
-            summary: `${data.label} exited with code ${result.exitCode}`
+            summary: `${labelRef.current} exited with code ${result.exitCode}`
           }
         })
       }
@@ -208,9 +150,6 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
 
       return true
     })
-    const resizeObserver = new ResizeObserver(fit)
-    resizeObserver.observe(hostRef.current)
-
     // The frame can still fire after a teardown, and a spawn from a dead attachment would only have
     // to be killed again on arrival - so the handle is cancelled and the callback checks it is current.
     const startFrame = requestAnimationFrame(() => {
@@ -246,7 +185,7 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
           } else {
             data.onTerminalLiveness?.(id, 'unverifiable')
             data.onStatusChange(id, 'exited')
-            terminal.write(`\x1b[31;1mCould not start ${data.label}.\x1b[0m\r\n${result.message}\r\n`)
+            terminal.write(`\x1b[31;1mCould not start ${labelRef.current}.\x1b[0m\r\n${result.message}\r\n`)
           }
         })
     })
@@ -254,8 +193,6 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
     return () => {
       active = false
       cancelAnimationFrame(startFrame)
-      resizeObserver.disconnect()
-      removePointerCorrection()
       removeDataListener()
       removeExitListener()
       inputSubscription.dispose()
@@ -263,16 +200,16 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
       if (incarnationRef.current) window.terminalApi.kill(data.sessionId, incarnationRef.current, attachmentId)
       incarnationRef.current = null
       terminalRef.current = null
-      terminal.dispose()
+      dispose()
     }
     // This effect owns the xterm instance and the PTY attachment: re-running it disposes the
     // terminal and kills the shell. Only the fields naming *which* terminal this is may trigger
     // that. `data` as a whole and the render-fresh `acknowledgeActivity` change on every keystroke
-    // the node re-renders for, and are read at call time instead.
+    // the node re-renders for, and are read at call time instead - and so is `data.label`, through
+    // `labelRef`, because renaming a node must not respawn its shell.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     data.dormant,
-    data.label,
     data.onAttention,
     data.onStatusChange,
     data.onTerminalLiveness,
@@ -286,7 +223,7 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
       className={`terminal-node ${selected ? 'selected' : ''}`}
       style={
         {
-          '--node-accent': '#74d8a2',
+          '--node-accent': TERMINAL_ACCENT,
           '--project-color': data.projectColor
         } as React.CSSProperties
       }
