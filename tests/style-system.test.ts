@@ -54,6 +54,8 @@ test('every modal uses the shared dialog shell without specificity overrides', (
   assert.doesNotMatch(styles, /\.(?:unrecoverable-workspace|worktree|app|brain-dump)-dialog(?:\b|-)/)
   assert.doesNotMatch(rendererSource, /(?:unrecoverable-workspace|worktree|app|brain-dump)-dialog(?:\b|-)/)
   assert.doesNotMatch(styles, /!important/)
+  assert.match(styles, /\.dialog :where\(p\)/)
+  assert.match(styles, /\.dialog-compact :where\(p\)/)
 })
 
 test('tool cards emit one shared chrome vocabulary', () => {

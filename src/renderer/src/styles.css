@@ -1304,14 +1304,14 @@ button.global-status-chip:hover {
   font-size: 14px;
 }
 
-.dialog p {
+.dialog :where(p) {
   margin: 0;
   color: #9aa3b0;
   font-size: 13px;
   line-height: 1.5;
 }
 
-.dialog-compact p {
+.dialog-compact :where(p) {
   color: var(--neutral-300);
   font-size: 12px;
 }
