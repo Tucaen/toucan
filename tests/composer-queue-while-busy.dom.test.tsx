@@ -24,7 +24,6 @@ const baseChatViewProps: ChatViewProps = {
   draft: '',
   imageSupport: false,
   attachments: [],
-  setDraft: vi.fn(),
   addImages: vi.fn(),
   removeAttachment: vi.fn(),
   submit: vi.fn(),
@@ -134,9 +133,8 @@ test('submit() delivers directly while ready, and holds the next one locally onc
 
   await waitFor(() => expect(result.current.status).toBe('ready'))
 
-  act(() => result.current.setDraft('first message'))
   act(() => {
-    result.current.submit(fakeSubmitEvent())
+    result.current.submit(fakeSubmitEvent(), 'first message')
   })
 
   await waitFor(() => expect(result.current.status).toBe('working'))
@@ -149,9 +147,8 @@ test('submit() delivers directly while ready, and holds the next one locally onc
 
   // A follow-up submitted mid-turn is parked in the local outbox: nothing crosses into the
   // adapter, which is exactly what makes it withdrawable.
-  act(() => result.current.setDraft('second message'))
   act(() => {
-    result.current.submit(fakeSubmitEvent())
+    result.current.submit(fakeSubmitEvent(), 'second message')
   })
 
   expect(result.current.queued.map((entry) => entry.text)).toEqual(['second message'])
@@ -188,15 +185,13 @@ test('a queued follow-up can be withdrawn, and the agent never sees it', async (
   )
 
   await waitFor(() => expect(result.current.status).toBe('ready'))
-  act(() => result.current.setDraft('go ready-to-working'))
   act(() => {
-    result.current.submit(fakeSubmitEvent())
+    result.current.submit(fakeSubmitEvent(), 'go ready-to-working')
   })
   await waitFor(() => expect(result.current.status).toBe('working'))
 
-  act(() => result.current.setDraft('please also refactor everything'))
   act(() => {
-    result.current.submit(fakeSubmitEvent())
+    result.current.submit(fakeSubmitEvent(), 'please also refactor everything')
   })
   const [entry] = result.current.queued
   act(() => result.current.withdrawQueued(entry.id))
@@ -227,15 +222,13 @@ test('a queued follow-up can be rewritten before it is sent, and only the rewrit
   )
 
   await waitFor(() => expect(result.current.status).toBe('ready'))
-  act(() => result.current.setDraft('go ready-to-working'))
   act(() => {
-    result.current.submit(fakeSubmitEvent())
+    result.current.submit(fakeSubmitEvent(), 'go ready-to-working')
   })
   await waitFor(() => expect(result.current.status).toBe('working'))
 
-  act(() => result.current.setDraft('first draft of the follow-up'))
   act(() => {
-    result.current.submit(fakeSubmitEvent())
+    result.current.submit(fakeSubmitEvent(), 'first draft of the follow-up')
   })
   act(() => result.current.editQueued(result.current.queued[0].id, 'the follow-up I actually meant'))
 
@@ -261,15 +254,13 @@ test('sendQueuedNow hands one queued prompt to the running turn through promptWh
   )
 
   await waitFor(() => expect(result.current.status).toBe('ready'))
-  act(() => result.current.setDraft('go ready-to-working'))
   act(() => {
-    result.current.submit(fakeSubmitEvent())
+    result.current.submit(fakeSubmitEvent(), 'go ready-to-working')
   })
   await waitFor(() => expect(result.current.status).toBe('working'))
 
-  act(() => result.current.setDraft('steer the running turn'))
   act(() => {
-    result.current.submit(fakeSubmitEvent())
+    result.current.submit(fakeSubmitEvent(), 'steer the running turn')
   })
   act(() => result.current.sendQueuedNow(result.current.queued[0].id))
 
@@ -294,9 +285,8 @@ test('a decision answer given mid-turn still goes straight into the running turn
   )
 
   await waitFor(() => expect(result.current.status).toBe('ready'))
-  act(() => result.current.setDraft('go ready-to-working'))
   act(() => {
-    result.current.submit(fakeSubmitEvent())
+    result.current.submit(fakeSubmitEvent(), 'go ready-to-working')
   })
   await waitFor(() => expect(result.current.status).toBe('working'))
 
@@ -329,9 +319,8 @@ test('the host-authored user message consumes the optimistic bubble for composed
   )
 
   await waitFor(() => expect(result.current.status).toBe('ready'))
-  act(() => result.current.setDraft('typed on the desktop'))
   act(() => {
-    result.current.submit(fakeSubmitEvent())
+    result.current.submit(fakeSubmitEvent(), 'typed on the desktop')
   })
   await waitFor(() =>
     expect(api.prompt).toHaveBeenCalledWith('session-host-echo', '[with context] typed on the desktop')
@@ -383,9 +372,8 @@ test('each accepted queued send is acknowledged independently and later echoes a
 
   await waitFor(() => expect(result.current.status).toBe('ready'))
 
-  act(() => result.current.setDraft('go ready-to-working'))
   act(() => {
-    result.current.submit(fakeSubmitEvent())
+    result.current.submit(fakeSubmitEvent(), 'go ready-to-working')
   })
   await waitFor(() => expect(result.current.status).toBe('working'))
 
@@ -438,9 +426,8 @@ test('a missing echo for an earlier queued message does not block a later messag
 
   await waitFor(() => expect(result.current.status).toBe('ready'))
 
-  act(() => result.current.setDraft('go ready-to-working'))
   act(() => {
-    result.current.submit(fakeSubmitEvent())
+    result.current.submit(fakeSubmitEvent(), 'go ready-to-working')
   })
   await waitFor(() => expect(result.current.status).toBe('working'))
 
@@ -482,9 +469,8 @@ test('a queued message whose echo never arrives at all still clears its badge vi
 
   await waitFor(() => expect(result.current.status).toBe('ready'))
 
-  act(() => result.current.setDraft('go ready-to-working'))
   act(() => {
-    result.current.submit(fakeSubmitEvent())
+    result.current.submit(fakeSubmitEvent(), 'go ready-to-working')
   })
   await waitFor(() => expect(result.current.status).toBe('working'))
 
@@ -522,9 +508,8 @@ test('a queued send that expires in the wake gate before reaching the agent rend
 
   await waitFor(() => expect(result.current.status).toBe('ready'))
 
-  act(() => result.current.setDraft('go ready-to-working'))
   act(() => {
-    result.current.submit(fakeSubmitEvent())
+    result.current.submit(fakeSubmitEvent(), 'go ready-to-working')
   })
   await waitFor(() => expect(result.current.status).toBe('working'))
 
@@ -576,9 +561,8 @@ test('a turn failure after ACP echoed the user message does not relabel the acce
 
   await waitFor(() => expect(result.current.status).toBe('ready'))
 
-  act(() => result.current.setDraft('/$toucan-project-skills:implement-in-worktree the idea written down in…'))
   act(() => {
-    result.current.submit(fakeSubmitEvent())
+    result.current.submit(fakeSubmitEvent(), '/$toucan-project-skills:implement-in-worktree the idea written down in…')
   })
   await waitFor(() => expect(result.current.messages).toHaveLength(1))
 
@@ -627,9 +611,8 @@ test('a queued send does not fire its echo fallback while promptWhenIdle is stil
 
   await waitFor(() => expect(result.current.status).toBe('ready'))
 
-  act(() => result.current.setDraft('go ready-to-working'))
   act(() => {
-    result.current.submit(fakeSubmitEvent())
+    result.current.submit(fakeSubmitEvent(), 'go ready-to-working')
   })
   await waitFor(() => expect(result.current.status).toBe('working'))
 

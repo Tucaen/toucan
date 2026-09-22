@@ -28,7 +28,8 @@ import type { VoiceEngine } from './voice-transcription'
  * Whisper is a batch model decoding the whole utterance with full right-context, which is the
  * point of #214: punctuation comes from content rather than pause timing, and a thinking pause is
  * not a sentence boundary. `language=auto` makes both surfaces multilingual; `prompt` biases the
- * decoder towards the dictation context the way Moonshine's `setContext` used to.
+ * decoder towards the dictation context, so identifiers and file names already on screen are what
+ * it leans towards.
  */
 
 export const VOICE_MODEL_MISSING_MESSAGE = 'The desktop has not downloaded its speech model yet.'
@@ -204,6 +205,7 @@ const FULL_WINDOW_SAMPLES = REMOTE_VOICE_SAMPLE_RATE * 30
  * speech unless the context is trimmed to the audio - which is the difference between ~15 s and
  * ~3 s per decode on a desktop CPU. The floor and the headroom are what keep it from hallucinating
  * on very short clips; measured in #214, and re-measurable with `npm run voice:wer`.
+ * @internal exported for tests
  */
 export function whisperAudioContext(sampleCount: number): number {
   if (sampleCount >= FULL_WINDOW_SAMPLES) return FULL_AUDIO_CONTEXT
@@ -228,7 +230,10 @@ function freePort(): Promise<number> {
   })
 }
 
-/** A minimal 16 kHz mono 16-bit PCM WAV around the samples; whisper-server reads nothing else raw. */
+/**
+ * A minimal 16 kHz mono 16-bit PCM WAV around the samples; whisper-server reads nothing else raw.
+ * @internal exported for tests
+ */
 export function wavBytes(samples: Float32Array): Uint8Array<ArrayBuffer> {
   const pcm = encodePcm16(samples)
   const bytes = new Uint8Array(44 + pcm.byteLength)

@@ -121,6 +121,7 @@ function SaveImageButton(props: { image: AgentImageAttachment; label: string; po
  * same way the brain-dump dialogs do it: a portal's events still bubble through the React tree,
  * so a chat node's own Escape (dismiss a completion menu, cancel a turn) would otherwise fire
  * alongside this one, and only `stopPropagation` on the way up can stop it.
+ * @internal exported for tests
  */
 export function ImageAttachmentViewer(props: {
   images: AgentImageAttachment[]

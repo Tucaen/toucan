@@ -22,9 +22,12 @@ export function registerConversationIpc(
       return EMPTY_CONVERSATION_PAGE
     }
     const { limit, offset } = request as ConversationListRequest
-    if ([limit, offset].some((value) =>
-      value !== undefined && (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0)
-    )) return EMPTY_CONVERSATION_PAGE
+    if (
+      [limit, offset].some(
+        (value) => value !== undefined && (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0)
+      )
+    )
+      return EMPTY_CONVERSATION_PAGE
     for (const directory of directories) {
       if (!(await containment.contains(directory))) return EMPTY_CONVERSATION_PAGE
     }

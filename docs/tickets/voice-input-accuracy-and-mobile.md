@@ -1,8 +1,8 @@
 ---
 title: Make voice input accurate enough to use, and add it to the mobile companion
-status: done
+status: superseded
 created: 2026-09-05
-updated: 2026-09-05
+updated: 2026-09-21
 ---
 
 ## Problem
@@ -50,6 +50,15 @@ Two outcomes, one ticket because they share the decision on where transcription 
 - **Remaining before this closes:** record a handful of real prompts and run `npm run voice:wer`
   to confirm the two-sentence acceptance criterion on the medium model; the model choice so far
   rests on Moonshine's published numbers.
+
+## Superseded (2026-09-21)
+
+Issue [#214](https://github.com/Tucaen/ade/issues/214) replaced the whole engine decision above.
+Dictation is now a batch decode of whisper.cpp `large-v3-turbo` in the main process, so the
+Outcome's "Desktop stays local, on Moonshine 0.1.5" and everything resting on Moonshine's
+streaming models - the context-biasing `setContext` call, the English-only wording, the WASM
+model in the renderer - describe code that no longer exists. `docs/voice-input.md` is the current
+account; the Moonshine models survive only as the baseline in `npm run voice:wer`.
 
 ## Notes
 

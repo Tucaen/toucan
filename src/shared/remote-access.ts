@@ -17,7 +17,10 @@
 import { dominantUnreadKind, unreadAttentionByNode, type AttentionKind, type AttentionState } from './attention'
 import type { TerminalNodeStatus, WorkspaceState } from './terminal'
 
-/** Well above the ephemeral range and unassigned by IANA, so it rarely collides on a dev machine. */
+/**
+ * Well above the ephemeral range and unassigned by IANA, so it rarely collides on a dev machine.
+ * @internal exported for tests
+ */
 export const REMOTE_ACCESS_DEFAULT_PORT = 7391
 
 export interface RemoteAccessSettings {

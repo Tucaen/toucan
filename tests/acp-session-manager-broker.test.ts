@@ -90,7 +90,8 @@ lines.on('line', (line) => {
     pendingPrompt = request.id
     if ('${url ?? ''}') {
       send({ jsonrpc: '2.0', id: 901, method: 'elicitation/create', params: {
-        mode: 'url', url: '${url ?? ''}', message: 'Open this link'
+        mode: 'url', url: '${url ?? ''}', message: 'Open this link',
+        sessionId: request.params.sessionId, elicitationId: 'link-1'
       } })
       return
     }
@@ -137,14 +138,18 @@ test('a non-web URL elicitation is declined without opening an auth link', async
   const appPath = mkdtempSync(join(tmpdir(), 'toucan-unsafe-url-'))
   elicitingAdapter(appPath, 'file:///C:/outside.txt')
   const events: AgentEvent[] = []
-  const owner = { isDestroyed: () => false,
+  const owner = {
+    isDestroyed: () => false,
     send: (_channel: string, envelope: AgentEventEnvelope) => events.push(envelope.event)
   } as unknown as WebContents
   const manager = createAcpSessionManager({ appPath })
   try {
     assert.equal((await manager.create({ id: 'node', provider: 'claude', cwd: appPath }, owner)).ok, true)
     assert.equal((await manager.prompt('node', 'open link')).ok, true)
-    assert.equal(events.some((event) => event.type === 'auth_link'), false)
+    assert.equal(
+      events.some((event) => event.type === 'auth_link'),
+      false
+    )
     assert.ok(events.some((event) => event.type === 'message' && event.text.includes('decline')))
     await manager.openAuthLink('custom-app:launch')
   } finally {

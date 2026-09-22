@@ -219,9 +219,10 @@ export default function App(): JSX.Element {
  * Adding a host: where it is, and the token that authorizes driving it.
  *
  * The origin is prefilled with whatever served this page, because the overwhelmingly common first
- * pairing is with the host the QR code came from - and typing a URL on a phone is the worst part of
- * this flow. `normalizeHostOrigin` is forgiving on purpose (a scheme may be left off, a pasted deep
- * link is trimmed back to its host), so the field accepts what a reader would actually paste.
+ * pairing is with the host that served it - the URL is already in the address bar, and typing one
+ * on a phone is the worst part of this flow. `normalizeHostOrigin` is forgiving on purpose (a
+ * scheme may be left off, a pasted deep link is trimmed back to its host), so the field accepts
+ * what a reader would actually paste.
  */
 function PairingScreen({
   onPaired,

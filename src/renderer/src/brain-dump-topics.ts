@@ -24,6 +24,7 @@ export interface BrainDumpProjectIdentity {
 }
 
 export const BRAIN_DUMP_UNASSIGNED_LABEL = 'Unassigned'
+/** @internal exported for tests */
 export const BRAIN_DUMP_UNREGISTERED_NOTE = 'Project not in workspace'
 
 function basename(path: string): string {

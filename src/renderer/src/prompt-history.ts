@@ -11,6 +11,7 @@ export interface PromptHistoryState {
 /**
  * A session's history is a convenience, not a record, so it is bounded: a long-lived node cannot
  * grow it without limit, and nobody is going to arrow past a hundred prompts anyway.
+ * @internal exported for tests
  */
 export const PROMPT_HISTORY_LIMIT = 100
 

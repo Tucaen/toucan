@@ -106,6 +106,7 @@ export function promptTextProblem(text: string): string | null {
  * worst case still fits inside the frame size `ws` is configured to accept.
  */
 export const REMOTE_CHAT_ANSWER_FIELD_LIMIT = 16
+/** @internal exported for tests */
 export const REMOTE_CHAT_ANSWER_VALUE_LIMIT = 2_000
 /** How many options one multi-select question may carry an answer for. */
 export const REMOTE_CHAT_ANSWER_OPTION_LIMIT = 32
@@ -260,8 +261,11 @@ export function parseRemoteChatClientMessage(raw: unknown): RemoteChatClientMess
     // A present-but-not-a-string option is a malformed frame, not a cancellation: reading it as
     // one would turn a version skew into a silently denied tool call.
     if (message.optionId !== undefined && typeof message.optionId !== 'string') return null
-    if (typeof message.optionId === 'string' &&
-      (message.optionId.length === 0 || message.optionId.length > REMOTE_CHAT_MODEL_ID_LIMIT)) return null
+    if (
+      typeof message.optionId === 'string' &&
+      (message.optionId.length === 0 || message.optionId.length > REMOTE_CHAT_MODEL_ID_LIMIT)
+    )
+      return null
     return {
       type: 'approval',
       requestId: message.requestId,

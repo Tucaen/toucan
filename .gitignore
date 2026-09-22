@@ -5,7 +5,7 @@ out/
 dist/
 dist-out/
 .test-out/
-src/renderer/public/models/
+.cache/
 *.tsbuildinfo
 .stow-notes.md
 .claude/settings.local.json

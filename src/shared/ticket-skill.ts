@@ -28,7 +28,10 @@ import { DEFAULT_TICKET_STATUSES, TICKET_STATUS } from './tickets'
  * Pure: it builds a string. Writing it to a checkout is `main/ticket-skill-scaffold.ts`.
  */
 
-/** The skill's name, which is also its directory and how an agent invokes it. */
+/**
+ * The skill's name, which is also its directory and how an agent invokes it.
+ * @internal exported for tests
+ */
 export const TICKET_SKILL_NAME = 'tickets'
 
 /** Where the scaffolded skill lands, relative to the project checkout, with forward slashes. */

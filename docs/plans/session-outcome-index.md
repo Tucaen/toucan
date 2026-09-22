@@ -1,3 +1,10 @@
+---
+title: Session outcome index plan
+created: 2026-09-13
+updated: 2026-09-21
+status: shipped v0.13.0 (#188, #189)
+---
+
 # Session outcome index
 
 A persistent, structured record of what each agent conversation actually did — task, approach, files touched, result, failures — queryable by later sessions so they stop re-deriving context and re-exploring dead ends.

@@ -26,6 +26,7 @@ export type ImageArtifactSaveResult =
  * A ceiling on what one save may carry across the seam. Generated images run to a few megabytes;
  * anything past this is a renderer sending something that is not an image, and decoding it first
  * to find that out is the expensive way to learn it.
+ * @internal exported for tests
  */
 export const MAX_IMAGE_ARTIFACT_BYTES = 64 * 1024 * 1024
 

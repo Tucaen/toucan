@@ -43,6 +43,7 @@ function isTerminalContextPair(source: CanvasNode, target: CanvasNode): source i
 /**
  * Deterministic per pair, so drawing the same connection twice collapses onto one edge instead of
  * stacking a second identical grant the reader cannot see.
+ * @internal exported for tests
  */
 export function terminalContextEdgeId(source: string, target: string): string {
   return `terminal-context:${source}->${target}`

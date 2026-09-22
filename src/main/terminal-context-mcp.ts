@@ -38,6 +38,7 @@ export interface AcpMcpHttpServer {
   headers: Array<{ name: string; value: string }>
 }
 
+/** @internal exported for tests */
 export const TERMINAL_CONTEXT_MCP_SERVER_NAME = 'toucan-terminal'
 export const TERMINAL_CONTEXT_MCP_PATH = '/mcp'
 
@@ -64,6 +65,7 @@ export interface TerminalContextMcp {
 const KNOWN_PROTOCOL_VERSIONS = ['2024-11-05', '2025-03-26', '2025-06-18']
 const LATEST_PROTOCOL_VERSION = '2025-06-18'
 
+/** @internal exported for tests */
 export const READ_TERMINAL_OUTPUT_TOOL = {
   name: 'read_terminal_output',
   description:
@@ -116,7 +118,10 @@ function livenessLabel(liveness: TerminalOutputRead['liveness']): string {
   return liveness === 'live' ? 'process running' : liveness === 'exited' ? 'process exited' : 'process state unknown'
 }
 
-/** The plain-text shape one read returns to the model; exported so tests pin the wording once. */
+/**
+ * The plain-text shape one read returns to the model; exported so tests pin the wording once.
+ * @internal exported for tests
+ */
 export function renderTerminalRead(read: TerminalOutputRead): string {
   const span = read.delta ? 'output since your last read' : 'most recent output'
   const skipped = read.skippedBytes > 0 ? `; ${read.skippedBytes} bytes skipped (read sooner or raise maxBytes)` : ''

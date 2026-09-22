@@ -122,6 +122,7 @@ export interface TicketPathScope {
  * `.md` file directly inside one of the scope's roots whose name is a slug, so a file in a
  * subfolder, a plan next door, or a folder whose name merely starts the same way are all not
  * tickets.
+ * @internal exported for tests
  */
 export function ticketSlugFor(path: string, scope: TicketPathScope): string | undefined {
   const absolute = isAbsolutePath(path)

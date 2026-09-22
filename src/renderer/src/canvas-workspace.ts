@@ -5,7 +5,6 @@ import type {
   AgentPermissionModes,
   CanvasNodeStateField,
   ConversationLineage,
-  ConversationPreview,
   TerminalLiveness,
   TerminalKind,
   TerminalNodeStatus,
@@ -21,6 +20,7 @@ import type { WorktreeHandoffPlan } from '../../shared/worktree-handoff'
 import type { ConversationTitleSource } from '../../shared/conversation-title'
 import type { TicketActivityReport } from './ticket-activity'
 import type { NodeGeometry } from './node-snap'
+import { launchModeOnOpen, type SessionLaunchMode } from './session-launch-mode'
 
 /** Re-exported so canvas modules keep one import site; the union itself is a shared contract. */
 export type { TerminalNodeStatus }
@@ -44,7 +44,6 @@ export interface TerminalNodeCallbacks {
   onTicketActivity?(nodeId: string, report: TicketActivityReport): void
   onConversationId(nodeId: string, conversationId: string): void
   onTitleChange(nodeId: string, title: string, source: ConversationTitleSource): Promise<boolean>
-  onPreview(nodeId: string, preview: ConversationPreview): void
   onFocusModeChange(nodeId: string, enabled: boolean): void
   /** Persists unsent composer text so a draft outlives resize, collapse, and a workspace reload. */
   onDraftChange(nodeId: string, draft: string): void
@@ -119,7 +118,6 @@ export interface TerminalNodeData
   /** True when a restored node's worktree record is gone, so it must not silently run elsewhere. */
   detachedFromWorktree?: boolean
   conversationId?: string
-  preview?: ConversationPreview
   focusMode: boolean
   /** Unsent composer text, restored into the composer when the node comes back. */
   draft?: string
@@ -138,9 +136,9 @@ export interface TerminalNodeData
    * How the next session creation opens: fresh, loading `conversationId`, or forking the
    * conversation named by `branchedFrom`. `fork` lasts exactly until the child reports a
    * conversation id of its own, after which it rehydrates as an ordinary `resume` - the same
-   * one-shot life `new` has.
+   * one-shot life `new` has. `session-launch-mode.ts` owns both of those transitions.
    */
-  launchMode: 'new' | 'resume' | 'fork'
+  launchMode: SessionLaunchMode
   /** Which conversation this one was branched off; see conversation-lineage.ts. */
   branchedFrom?: ConversationLineage
   /**
@@ -227,7 +225,10 @@ export const NODE_DRAG_HANDLE = '.node-header'
 /** Every callback bag a canvas node kind may need handed to it when it is built or restored. */
 export type CanvasNodeCallbacks = TerminalNodeCallbacks & WorktreeNodeCallbacks & FileNodeCallbacks & DiffNodeCallbacks
 
-/** Enough accidental closes to be useful without letting a workspace snapshot grow forever. */
+/**
+ * Enough accidental closes to be useful without letting a workspace snapshot grow forever.
+ * @internal exported for tests
+ */
 export const CLOSED_SESSION_STACK_LIMIT = RECENTLY_CLOSED_SESSION_LIMIT
 
 /**
@@ -242,9 +243,15 @@ const DEFAULT_TERMINAL_SIZE = { width: 520, height: 340 }
  */
 export const NEW_SESSION_NODE_SIZE = { width: 750, height: 660 }
 export const DEFAULT_WORKTREE_SIZE = { width: 360, height: 232 }
-/** Taller than wide: a file node is for reading a document, and prose is read downward. */
+/**
+ * Taller than wide: a file node is for reading a document, and prose is read downward.
+ * @internal exported for tests
+ */
 export const DEFAULT_FILE_NODE_SIZE = { width: 480, height: 560 }
-/** Wide enough for a file rail beside hunks that keep their line numbers readable. */
+/**
+ * Wide enough for a file rail beside hunks that keep their line numbers readable.
+ * @internal exported for tests
+ */
 export const DEFAULT_DIFF_NODE_SIZE = { width: 760, height: 560 }
 
 /** The subset of `KeyboardEvent` the canvas shortcuts read, so callers can test without a DOM. */
@@ -438,6 +445,7 @@ export function isDiffCanvasNode(node: CanvasNode): node is DiffCanvasNode {
  * undoing, so they never enter the recently-closed stack - and never wipe it either. That rule is
  * enforced in exactly one place, `rememberClosedSessionNodes`; a caller must never pre-filter
  * removed nodes on its own, or the two halves can disagree about what a close means.
+ * @internal exported for tests
  */
 export function isLayoutCanvasNode(node: CanvasNode): node is FileCanvasNode | DiffCanvasNode {
   return isFileCanvasNode(node) || isDiffCanvasNode(node)
@@ -577,6 +585,7 @@ function measured(node: CanvasNode, fallback: { width: number; height: number })
   }
 }
 
+/** @internal exported for tests */
 export function serializeCanvasNode(node: TerminalCanvasNode): WorkspaceTerminalNode {
   const size = measured(node, DEFAULT_TERMINAL_SIZE)
   return {
@@ -592,7 +601,6 @@ export function serializeCanvasNode(node: TerminalCanvasNode): WorkspaceTerminal
     width: size.width,
     height: size.height,
     ...(node.data.conversationId ? { conversationId: node.data.conversationId } : {}),
-    ...(node.data.preview ? { preview: node.data.preview } : {}),
     ...(node.data.modelId ? { modelId: node.data.modelId } : {}),
     ...(node.data.turnOutcomes?.length ? { turnOutcomes: node.data.turnOutcomes } : {}),
     ...(node.data.draft ? { draft: node.data.draft } : {}),
@@ -669,7 +677,6 @@ function restoreTerminalCanvasNode(
       workingDirectory: worktree?.path ?? project.path,
       detachedFromWorktree,
       conversationId: savedNode.conversationId,
-      preview: savedNode.preview,
       focusMode: nodeFocusMode(savedNode),
       draft: savedNode.draft,
       preferredPermissionMode:
@@ -678,16 +685,12 @@ function restoreTerminalCanvasNode(
       turnOutcomes: savedNode.kind === 'terminal' ? undefined : savedNode.turnOutcomes,
       dormant,
       branchedFrom: savedNode.branchedFrom,
-      // A branch that never got as far as its own conversation id is still a branch: it reopens as
-      // the fork it was launched as. Everything else resumes, which for an already-forked child
-      // means loading the conversation the fork produced.
-      launchMode: !savedNode.conversationId && savedNode.branchedFrom ? 'fork' : 'resume',
+      launchMode: launchModeOnOpen(savedNode),
       onStatusChange: callbacks.onStatusChange,
       onAttention: callbacks.onAttention,
       onTicketActivity: callbacks.onTicketActivity,
       onConversationId: callbacks.onConversationId,
       onTitleChange: callbacks.onTitleChange,
-      onPreview: callbacks.onPreview,
       onFocusModeChange: callbacks.onFocusModeChange,
       onDraftChange: callbacks.onDraftChange,
       onPermissionModeChange: callbacks.onPermissionModeChange,
@@ -807,6 +810,7 @@ export function createWorktreeCanvasNode(
   }
 }
 
+/** @internal exported for tests */
 export function serializeFileNode(node: FileCanvasNode): WorkspaceFileNode {
   const size = measured(node, DEFAULT_FILE_NODE_SIZE)
   return {
@@ -869,6 +873,7 @@ export function createFileCanvasNode(
   }
 }
 
+/** @internal exported for tests */
 export function serializeDiffNode(node: DiffCanvasNode): WorkspaceDiffNode {
   const size = measured(node, DEFAULT_DIFF_NODE_SIZE)
   return {
@@ -991,6 +996,7 @@ export interface CanvasNodeKindEntry {
   ): CanvasNode | null
 }
 
+/** @internal exported for tests */
 export function canvasNodeKind<Saved extends { projectId: string }, N extends CanvasNode>(
   kind: CanvasNodeKind<Saved, N>
 ): CanvasNodeKindEntry {

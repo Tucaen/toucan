@@ -2,12 +2,11 @@ import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
 import { TERMINAL_CHANNELS } from '../src/shared/ipc-channels'
 import { registerTerminalIpc } from '../src/main/terminal-ipc'
-import type { SessionProviders } from '../src/main/session-providers'
 import type { TerminalEventOwner } from '../src/main/terminal-events'
 import type { TerminalLivenessStore } from '../src/main/terminal-liveness-store'
 import type { TerminalManager } from '../src/main/terminal-manager'
 import type { TerminalScrollbackStore } from '../src/main/terminal-scrollback-store'
-import type { ConversationPreview, TerminalScrollbackSnapshot } from '../src/shared/terminal'
+import type { TerminalScrollbackSnapshot } from '../src/shared/terminal'
 
 interface Harness {
   handlers: Map<string, (...args: unknown[]) => unknown>
@@ -17,7 +16,6 @@ interface Harness {
   livenessRemoved: string[]
 }
 
-const preview: ConversationPreview = { user: 'hi', assistant: 'hello', updatedAt: '2026-09-08T00:00:00Z' }
 const snapshot: TerminalScrollbackSnapshot = {
   sessionId: 's-1',
   incarnationId: 'inc-1',
@@ -58,12 +56,6 @@ function harness(): Harness {
       calls.push(`forget:${sessionId}`)
     }
   }
-  const providers: SessionProviders = {
-    resolveLaunch: () => {
-      throw new Error('not used here')
-    },
-    getConversationPreview: (kind, conversationId) => (kind === 'claude' && conversationId === 'c-1' ? preview : null)
-  }
   const scrollback: TerminalScrollbackStore = {
     begin: () => {},
     append: () => {},
@@ -85,7 +77,6 @@ function harness(): Harness {
       on: (channel, listener) => void ons.set(channel, listener as (...args: unknown[]) => void)
     },
     manager,
-    providers,
     scrollback,
     liveness,
     { contains: async (path) => path === 'D:/p' }
@@ -95,14 +86,6 @@ function harness(): Harness {
 
 const owner: TerminalEventOwner = { isDestroyed: () => false, send: () => {} }
 const event = { sender: owner }
-
-test('a preview needs a known provider and a string id; anything else is null', () => {
-  const { handlers } = harness()
-  const handler = handlers.get(TERMINAL_CHANNELS.preview)!
-  assert.equal(handler(event, 'claude', 'c-1'), preview)
-  assert.equal(handler(event, 'gemini', 'c-1'), null)
-  assert.equal(handler(event, 'claude', 42), null)
-})
 
 test('create hands the request and the asking window to the manager', async () => {
   const { handlers, calls } = harness()
@@ -132,7 +115,11 @@ test('malformed terminal commands never reach the process', async () => {
     ons.get(TERMINAL_CHANNELS.resize)!(event, 's-1', 'inc-1', size, 24)
     ons.get(TERMINAL_CHANNELS.resize)!(event, 's-1', 'inc-1', 80, size)
     const result = await handlers.get(TERMINAL_CHANNELS.create)!(event, {
-      id: 'n-1', kind: 'terminal', cols: size, rows: 24, cwd: 'D:/p'
+      id: 'n-1',
+      kind: 'terminal',
+      cols: size,
+      rows: 24,
+      cwd: 'D:/p'
     })
     assert.equal((result as { ok: boolean }).ok, false)
   }
@@ -144,7 +131,11 @@ test('malformed terminal commands never reach the process', async () => {
 test('a terminal cannot launch in an unregistered directory', async () => {
   const { handlers, calls } = harness()
   const result = await handlers.get(TERMINAL_CHANNELS.create)!(event, {
-    id: 'n-1', kind: 'terminal', cwd: 'D:/outside', cols: 80, rows: 24
+    id: 'n-1',
+    kind: 'terminal',
+    cwd: 'D:/outside',
+    cols: 80,
+    rows: 24
   })
   assert.equal((result as { ok: boolean }).ok, false)
   assert.deepEqual(calls, [])

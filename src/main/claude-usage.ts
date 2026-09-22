@@ -29,6 +29,7 @@ const SDK_PACKAGE = '@anthropic-ai/claude-agent-sdk'
  * launched from - where no `node_modules` exists and the import fails. This module is CommonJS, so
  * `require.resolve` walks up from `out/main/index.js` and lands in `app.asar/node_modules`; the
  * package's `default` export condition names the ESM entry without executing it.
+ * @internal exported for tests
  */
 export function resolveClaudeSdkSpecifier(): string {
   return pathToFileURL(require.resolve(SDK_PACKAGE)).href
@@ -140,7 +141,10 @@ function toModelWindows(payload: SdkModelScopedWindow[] | null | undefined): Age
   return models
 }
 
-/** Exported for tests: maps one SDK usage response onto the shape the renderer displays. */
+/**
+ * Maps one SDK usage response onto the shape the renderer displays.
+ * @internal exported for tests
+ */
 export function claudeRateLimitsFromUsage(response: SdkUsageResponse | null | undefined): AgentRateLimitStatus | null {
   // Plan limits do not apply to API-key, Bedrock, or Vertex sessions, which report no windows.
   if (!response || response.rate_limits_available === false) return null
@@ -187,7 +191,10 @@ const liveDependencies: SdkRequestDependencies = {
   locateExecutable: () => resolveClaudeExecutable()
 }
 
-/** Exported for tests, which substitute the SDK so no CLI is spawned. */
+/**
+ * Takes its SDK dependencies as an argument so tests can substitute them and spawn no CLI.
+ * @internal exported for tests
+ */
 export async function requestUsageViaSdk(
   cwd: string,
   dependencies: SdkRequestDependencies = liveDependencies

@@ -10,6 +10,7 @@ export type SlashCompletionQuery = CompletionToken
  * menu anchored to the line start would refuse to help with exactly those. The agent CLI only
  * expands a command that *opens* the prompt, so `hoistSlashCommand` moves it there on send - the
  * affordance stays where it is typed and still fires.
+ * @internal exported for tests
  */
 export function slashCompletionQuery(draft: string, caret: number): SlashCompletionQuery | null {
   return tokenOpeningWord(draft, caret, '/')
@@ -19,6 +20,7 @@ export function slashCompletionQuery(draft: string, caret: number): SlashComplet
  * Narrows the agent's advertised commands to what is being typed. Prefix matches come first -
  * they are what the captain is almost always reaching for - and everything keeps the agent's own
  * ordering within its group, so the list never reshuffles for reasons the captain can't see.
+ * @internal exported for tests
  */
 export function filterSlashCommands(commands: AgentCommand[], query: string): AgentCommand[] {
   if (!query) return [...commands]

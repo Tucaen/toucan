@@ -113,8 +113,8 @@ test('neither downloads nor bundles the speech model, which the app fetches on f
   // of NSIS compression; the app downloads its speech assets into userData on first use instead.
   assert.doesNotMatch(workflow, /voice-model|VOICE_MODEL/)
   assert.ok(
-    manifest.build?.files?.includes('!out/renderer/models/**'),
-    'Vite copies public/ into out/renderer, so a leftover dev model directory must be packaged out'
+    !manifest.build?.files?.some((pattern) => /models/.test(pattern)),
+    'nothing stages a model under the source tree any more, so no exclude should be needed to undo it'
   )
 })
 

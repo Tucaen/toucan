@@ -6,6 +6,7 @@ import SessionKindIcon from './SessionKindIcon'
 /** One page is what a single open reads off disk; the rest of a long history stays unopened. */
 export const CONVERSATION_PAGE_SIZE = 25
 
+/** @internal exported for tests */
 export function formatRelativeTime(iso: string, now: number = Date.now()): string {
   const at = Date.parse(iso)
   if (!Number.isFinite(at)) return 'unknown'

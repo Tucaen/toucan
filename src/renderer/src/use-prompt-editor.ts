@@ -153,6 +153,7 @@ interface PickerView {
 /**
  * One word can hold both tokens (`/fo@o`), so the one starting closer to the caret is the one
  * being typed, and it takes the menu and the keys. Only ever one of them is open.
+ * @internal exported for tests
  */
 export function activePicker(slash: PickerView, mention: PickerView): 'slash' | 'mention' | null {
   const mentionActive =
@@ -169,6 +170,7 @@ export function activePicker(slash: PickerView, mention: PickerView): 'slash' | 
  * the memory would silently refuse to complete the next identical token typed in its place. While
  * a token is offered, only the highlight goes back to the top when the token itself changes.
  * Sharing one rule is what keeps the two pickers from drifting apart over it.
+ * @internal exported for tests
  */
 export function completionMemoryForToken<State>(
   token: CompletionToken | null,

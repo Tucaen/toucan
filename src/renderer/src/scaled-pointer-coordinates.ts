@@ -19,6 +19,7 @@ interface LayoutSize {
  * xterm measures cells in layout pixels, but MouseEvent coordinates and
  * getBoundingClientRect are in post-transform pixels. React Flow's viewport scale therefore has
  * to be removed before xterm maps a pointer to a cell.
+ * @internal exported for tests
  */
 export function unscalePointerCoordinates(
   pointer: PointerCoordinates,

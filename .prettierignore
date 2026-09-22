@@ -5,5 +5,5 @@ dist-out/
 node_modules/
 out/
 package-lock.json
-src/renderer/public/models/
+.cache/
 docs/toucan-overview.html

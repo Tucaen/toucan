@@ -5,15 +5,18 @@ import { fileURLToPath } from 'node:url'
 import { ModelArch, loadMoonshineModule } from '@moonshine-ai/moonshine-wasm'
 
 /**
- * Where Moonshine's English streaming models live on disk and how they get there. Shared by the
- * launch-time preparation (`prepare-voice-model.mjs`) and the accuracy harness (`voice-wer.mjs`),
- * so both agree on directory names and neither re-downloads what the other fetched.
+ * Where Moonshine's English streaming models live on disk and how they get there. Nothing ships
+ * them any more - Toucan dictates with whisper.cpp (#214) - so the only caller left is the accuracy
+ * harness (`voice-wer.mjs`), which keeps them as the baseline any new engine has to beat.
  */
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url))
 
-/** The renderer's public root, which `electron-vite` serves in development and copies when building. */
-export const MODELS_ROOT = join(scriptDirectory, '..', 'src', 'renderer', 'public', 'models')
+/**
+ * A build-output cache, deliberately outside the source tree. These are gigabytes of harness input,
+ * and anywhere under `src/` Vite would copy them into `out/renderer` on every build.
+ */
+export const MODELS_ROOT = join(scriptDirectory, '..', '.cache', 'voice-models')
 
 /** Streaming architectures by the short name the harness takes on its command line. */
 export const STREAMING_ARCHS = {

@@ -2,6 +2,7 @@ import { act, render } from '@testing-library/react'
 import type { Node, Viewport } from '@xyflow/react'
 import { useRef, useState } from 'react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
+import { tileNodes } from '../src/renderer/src/canvas-layout'
 import { NODE_FIT_INSET } from '../src/renderer/src/node-snap'
 import { useNodeSnap, type NodeSnapController } from '../src/renderer/src/use-node-snap'
 
@@ -42,11 +43,13 @@ describe('canvas snap mode', () => {
   let viewport: Viewport
   let controller: NodeSnapController<TestNode>
   let nodes: TestNode[]
+  let writeNodes: (next: TestNode[]) => void
 
   function Harness(): JSX.Element {
     const [current, setCurrent] = useState<TestNode[]>(initialNodes)
     const canvasRef = useRef<HTMLElement>(null)
     nodes = current
+    writeNodes = setCurrent
     controller = useNodeSnap<TestNode>({
       canvasRef,
       getNodes: () => current,
@@ -72,6 +75,9 @@ describe('canvas snap mode', () => {
   })
 
   afterEach(() => vi.unstubAllGlobals())
+
+  /** The usable canvas the stubbed `getBoundingClientRect` implies, as `visibleCanvasRegion` computes it. */
+  const region = { position: { x: NODE_FIT_INSET, y: NODE_FIT_INSET }, width: 968, height: 668 }
 
   function fit(nodeId: string): void {
     act(() => controller.toggle(nodeId))
@@ -225,5 +231,28 @@ describe('canvas snap mode', () => {
 
     resizeCanvas({ width: 600, height: 400 }, rect)
     expect(nodes[0].style).toEqual({ width: 476, height: 668 })
+  })
+
+  test('tiling after a maximise clears the fit flag, because it tiles the released array', () => {
+    // `tileCanvas` in App.tsx: release, then write whole nodes. Re-reading the node list in
+    // between is the bug - the release has not been applied yet, so the layout would carry
+    // `fittedToCanvas: true` back onto a node whose restore geometry is already forgotten,
+    // leaving a header that offers "restore" and maximises.
+    fit('a')
+    const beforeRelease = nodes
+    expect(beforeRelease[0].data.fittedToCanvas).toBe(true)
+
+    const ids = ['a', 'b']
+    act(() => {
+      const released = controller.release(ids)
+      // What a re-read would have handed `tileNodes`, still flagged as fitted.
+      expect(beforeRelease[0].data.fittedToCanvas).toBe(true)
+      writeNodes(tileNodes(released, ids, 'grid', region, NODE_FIT_INSET))
+    })
+
+    expect(controller.state()).toEqual({})
+    for (const node of nodes) expect(node.data.fittedToCanvas).toBe(false)
+    // Tiled, not left where the maximise put it.
+    expect(nodes[0].position).toEqual({ x: NODE_FIT_INSET, y: NODE_FIT_INSET })
   })
 })

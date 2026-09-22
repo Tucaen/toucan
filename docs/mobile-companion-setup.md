@@ -159,5 +159,5 @@ Consequences to keep in mind:
 | A host shows as blocked by the page scheme | The app is on HTTPS and that host is saved as `http://`. Run `tailscale serve` on it. |
 | A host asks to pair again | Its token was regenerated, or Toucan was reinstalled on that PC. |
 | The microphone button is greyed out and mentions HTTPS | The page is on plain HTTP. Run `tailscale serve` and open the `https://` URL. |
-| Dictation says the desktop has no prepared speech model | The phone's browser has no recognizer of its own, so the desktop transcribes; run `npm run prepare:voice-model` on that PC. |
+| Dictation says the desktop has no prepared speech model | The phone's browser has no recognizer of its own, so the desktop transcribes; press that PC's microphone button once and let the first-use download finish (1.6 GB, engine plus checkpoint, into userData). |
 | The host list is empty after reinstalling the app | Saved hosts live in browser storage for that origin; installing from a different origin starts a fresh list. |

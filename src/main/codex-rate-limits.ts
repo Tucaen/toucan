@@ -181,7 +181,10 @@ function modelWindowsFromAppServer(
   return models
 }
 
-/** Exported for tests: maps the live app-server response onto the renderer's provider shape. */
+/**
+ * Maps the live app-server response onto the renderer's provider shape.
+ * @internal exported for tests
+ */
 export function codexRateLimitsFromAppServer(response: unknown): AgentRateLimitStatus | null {
   if (!response || typeof response !== 'object') return null
   const payload = response as CodexAppServerResponse
@@ -229,6 +232,7 @@ function withoutExpiredWindows(status: AgentRateLimitStatus, now: number): Agent
 /**
  * Exported for tests: turns one transcript's lines into the newest usable rate-limit report, with
  * windows that have since reset reported as empty rather than at their cached fill.
+ * @internal exported for tests
  */
 export function parseCodexRateLimits(lines: string[], now: number = Date.now()): AgentRateLimitStatus | null {
   // Later records supersede earlier ones, so scan backwards and stop at the first usable report.
@@ -302,6 +306,7 @@ function nativeExecutablePath(target: CodexNativeTarget): string[] {
   return ['@openai', target.packageName, 'vendor', target.triple, 'bin', 'codex.exe']
 }
 
+/** @internal exported for tests */
 export function resolveCodexAppServerLaunch(
   command: string,
   architecture: NodeJS.Architecture = process.arch,
@@ -329,6 +334,7 @@ export function resolveCodexAppServerLaunch(
  * Toucan ships Codex itself, so a machine with no global `codex` on PATH still has a binary able to
  * answer `account/rateLimits/read`. Without this the reader has no live source at all there and
  * every poll silently lands on the transcript cache, which is what made the badge look frozen.
+ * @internal exported for tests
  */
 export function resolveBundledCodexAppServerLaunch(
   appPath: string,

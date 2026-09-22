@@ -35,6 +35,7 @@ export interface HostStatus {
 
 export type HostStatuses = Record<string, HostStatus>
 
+/** @internal exported for tests */
 export const UNKNOWN_HOST_STATUS: HostStatus = {
   reachability: 'unknown',
   message: null,
@@ -126,11 +127,19 @@ export function hostProbeDelayMs(status: HostStatus): number {
   return Math.min(HOST_RETRY_BASE_MS * 2 ** bounded, HOST_RETRY_CEILING_MS)
 }
 
-/** A host that answered is worth re-checking, but it is a background heartbeat, not a poll. */
+/**
+ * A host that answered is worth re-checking, but it is a background heartbeat, not a poll.
+ * @internal exported for tests
+ */
 export const HOST_PROBE_INTERVAL_MS = 15_000
-/** A revoked token does not fix itself; the next check is only there to catch a re-paired host. */
+/**
+ * A revoked token does not fix itself; the next check is only there to catch a re-paired host.
+ * @internal exported for tests
+ */
 export const HOST_UNPAIRED_PROBE_MS = 30_000
+/** @internal exported for tests */
 export const HOST_RETRY_BASE_MS = 1_000
+/** @internal exported for tests */
 export const HOST_RETRY_CEILING_MS = 15_000
 
 export function hostStatusLabel(status: HostStatus): string {

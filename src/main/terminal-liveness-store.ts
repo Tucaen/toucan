@@ -110,6 +110,7 @@ function sessionIdOf(node: WorkspaceTerminalNode): string {
  * Stamps each restored plain terminal with the last verdict its process owner recorded. Only a
  * durable `exited` restores as exited; anything else stays `unverifiable`, because a record still
  * reading `live` means the previous run ended without ever killing that terminal.
+ * @internal exported for tests
  */
 export function applyRestoredTerminalLiveness(
   state: WorkspaceState,

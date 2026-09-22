@@ -41,6 +41,7 @@ const WORKTREE_SKILL_COMMAND = new RegExp(`^/(?:\\$[A-Za-z0-9][A-Za-z0-9._-]*:)?
 /**
  * A prompt invokes the skill when its first non-empty line opens with the slash command.
  * Anything further into the message is the user talking *about* the skill, not calling it.
+ * @internal exported for tests
  */
 export function invokesWorktreeSkill(text: string): boolean {
   const firstLine = text

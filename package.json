@@ -1,6 +1,6 @@
 {
   "name": "toucan",
-  "version": "0.17.3",
+  "version": "0.17.4",
   "private": true,
   "description": "Toucan is a Windows-first agent development environment: a spatial canvas for terminal and coding-agent sessions.",
   "author": "Toucan contributors",
@@ -18,7 +18,6 @@
     "repair-electron": "node node_modules/electron/install.js",
     "icon:generate": "node scripts/generate-app-icon.mjs",
     "icon:mobile": "node scripts/generate-mobile-icons.mjs",
-    "migrate:brain-dumps": "tsc -p tsconfig.test.json && electron scripts/migrate-brain-dumps.mjs",
     "voice:wer": "node scripts/voice-wer.mjs",
     "build": "electron-vite build && npm run build:mobile",
     "start": "electron-vite preview",
@@ -49,7 +48,6 @@
     },
     "files": [
       "out/**/*",
-      "!out/renderer/models/**",
       ".agents/**/*"
     ],
     "asarUnpack": [

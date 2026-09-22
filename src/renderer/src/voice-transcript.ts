@@ -49,7 +49,10 @@ export function voiceControlLabel(state: VoiceState, progress: number): string {
   }
 }
 
-/** Seconds as `m:ss`, the way every recorder counts. */
+/**
+ * Seconds as `m:ss`, the way every recorder counts.
+ * @internal exported for tests
+ */
 export function formatElapsed(seconds: number): string {
   const whole = Math.max(0, Math.floor(seconds))
   return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`

@@ -5,7 +5,7 @@
  * checkpoint (both MIT; the checkpoint's card at
  * https://huggingface.co/openai/whisper-large-v3-turbo states its license, and the GGML conversion
  * below is ggerganov's own). Neither is in the installer: the host downloads both on first use into
- * userData, exactly like the Moonshine model before them, and every byte is verified against the
+ * userData, and every byte is verified against the
  * SHA-256 pinned here - the engine is an executable, so a pin is not optional hygiene but the
  * difference between running what was reviewed and running whatever a CDN answered with.
  *

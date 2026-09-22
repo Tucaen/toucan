@@ -35,6 +35,7 @@ export type ReasoningMergeEntry<E> = { kind: 'reasoning'; block: ReasoningBlock 
 /** Chars-per-token approximation; only ever shown prefixed with `~`. */
 const CHARS_PER_TOKEN = 4
 
+/** @internal exported for tests */
 export function estimateReasoningTokens(text: string): number {
   const trimmed = text.trim()
   if (!trimmed) return 0

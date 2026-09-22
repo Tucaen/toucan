@@ -30,6 +30,7 @@ function splitCommand(command: string): { name: string; args?: string } {
  * Recognizes a skill or slash-command call, excluding MCP calls for the same reason
  * `subagent-task.ts` does. Returns `null` when the call names no skill at all: a card whose whole
  * job is to say which skill ran has nothing to add over the generic one without that name.
+ * @internal exported for tests
  */
 export function parseSkillInvocation(activity: AgentActivity): SkillInvocation | null {
   const name = normalizeToolName(activity.toolName)

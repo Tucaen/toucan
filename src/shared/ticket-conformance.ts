@@ -31,6 +31,7 @@ export interface TicketConformanceSteer {
  * for a file it wrote an hour ago and has long since moved on from, which is exactly the hand-edit
  * case that must steer nobody. A session that really is still working on the file rewrites it, and
  * that write is fresh again.
+ * @internal exported for tests
  */
 export const RECENT_WRITE_WINDOW_MS = 10 * 60_000
 

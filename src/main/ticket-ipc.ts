@@ -37,14 +37,15 @@ export function registerTicketIpc(ipc: IpcRegistrar<TicketChangeOwner>, deps: Ti
     if (!(await allowed(project))) return false
     try {
       const path = await library.pathFor(project, slug)
-      return path === null || await allowed(path)
+      return path === null || (await allowed(path))
     } catch {
       return false
     }
   }
   const allowedSkill = async (project: string): Promise<boolean> =>
-    await allowed(project) && await allowed(skill.pathFor(project)) &&
-      await allowed(join(project, ...PROJECT_SKILLS_MANIFEST_SEGMENTS))
+    (await allowed(project)) &&
+    (await allowed(skill.pathFor(project))) &&
+    (await allowed(join(project, ...PROJECT_SKILLS_MANIFEST_SEGMENTS)))
 
   ipc.handle(TICKET_CHANNELS.list, async (event, projectPath: unknown) => {
     if (typeof projectPath !== 'string' || !(await allowed(projectPath))) return EMPTY_TICKET_LISTING
@@ -62,13 +63,19 @@ export function registerTicketIpc(ipc: IpcRegistrar<TicketChangeOwner>, deps: Ti
   })
 
   ipc.handle(TICKET_CHANNELS.setStatus, async (_event, projectPath: unknown, slug: unknown, status: unknown) =>
-    typeof projectPath === 'string' && typeof slug === 'string' && typeof status === 'string' && await allowedTicket(projectPath, slug)
+    typeof projectPath === 'string' &&
+    typeof slug === 'string' &&
+    typeof status === 'string' &&
+    (await allowedTicket(projectPath, slug))
       ? library.setStatus(projectPath, slug, status)
       : { ok: false, code: 'invalid-request', message: 'Project, ticket and status are required.' }
   )
 
   ipc.handle(TICKET_CHANNELS.remove, async (_event, projectPath: unknown, slug: unknown) =>
-    typeof projectPath === 'string' && projectPath && typeof slug === 'string' && await allowedTicket(projectPath, slug)
+    typeof projectPath === 'string' &&
+    projectPath &&
+    typeof slug === 'string' &&
+    (await allowedTicket(projectPath, slug))
       ? library.remove(projectPath, slug)
       : { ok: false, code: 'invalid-request', message: 'Project and ticket are required.' }
   )
@@ -76,7 +83,9 @@ export function registerTicketIpc(ipc: IpcRegistrar<TicketChangeOwner>, deps: Ti
   // The cautious answer for anything that cannot be probed: a confirmation must never promise that
   // history keeps a file it has no evidence is in a repository at all.
   ipc.handle(TICKET_CHANNELS.isGitRepository, async (_event, projectPath: unknown) =>
-    typeof projectPath === 'string' && await allowed(projectPath) ? isGitRepository(projectPath).catch(() => false) : false
+    typeof projectPath === 'string' && (await allowed(projectPath))
+      ? isGitRepository(projectPath).catch(() => false)
+      : false
   )
 
   ipc.handle(TICKET_CHANNELS.reveal, async (_event, projectPath: unknown, slug: unknown) => {
@@ -88,18 +97,18 @@ export function registerTicketIpc(ipc: IpcRegistrar<TicketChangeOwner>, deps: Ti
   // Without a project there is nothing to probe, and `unknown` is the honest answer rather than a
   // guess in either direction: the board then says nothing about a skill and offers no action.
   ipc.handle(TICKET_CHANNELS.skillState, async (_event, projectPath: unknown) =>
-    typeof projectPath === 'string' && await allowedSkill(projectPath)
+    typeof projectPath === 'string' && (await allowedSkill(projectPath))
       ? skill.state(projectPath)
       : { status: 'unknown', path: skill.relativePath }
   )
 
   ipc.handle(TICKET_CHANNELS.writeSkill, async (_event, projectPath: unknown) =>
-    typeof projectPath === 'string' && await allowedSkill(projectPath)
+    typeof projectPath === 'string' && (await allowedSkill(projectPath))
       ? skill.write(projectPath)
       : { ok: false, code: 'invalid-request', message: 'A project is required.' }
   )
 
   ipc.handle(TICKET_CHANNELS.revealSkill, async (_event, projectPath: unknown) => {
-    if (typeof projectPath === 'string' && await allowedSkill(projectPath)) reveal(skill.pathFor(projectPath))
+    if (typeof projectPath === 'string' && (await allowedSkill(projectPath))) reveal(skill.pathFor(projectPath))
   })
 }

@@ -55,6 +55,7 @@ function planEntries(input: Record<string, unknown>): AgentPlanEntry[] {
  * does: a third-party `mcp__notion__taskcreate` flattens to the same bare name. A read-only
  * `TaskList`/`TaskGet` is recognized too - it changes nothing, and its card should say so rather
  * than dumping the whole task list into the transcript a second time.
+ * @internal exported for tests
  */
 export function parsePlanUpdate(activity: AgentActivity): PlanUpdate | null {
   const name = normalizeToolName(activity.toolName)

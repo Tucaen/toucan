@@ -70,6 +70,7 @@ export interface WorkerModel {
  * account says nothing about what it costs. Extend it deliberately, with the price checked,
  * cheapest first. GPT-5.6 Luna: $0.2/M input, $1.2/M output (10x cheaper than GPT-5.6 Terra),
  * supports low effort.
+ * @internal exported for tests
  */
 export const CODEX_WORKER_MODELS: readonly WorkerModel[] = [
   {
@@ -84,6 +85,7 @@ export const CODEX_WORKER_MODELS: readonly WorkerModel[] = [
  * The Claude workers, cheapest first, by the CLI's picker alias so the id matches what the adapter
  * lists as available. Haiku 4.5 ($1/M input, $5/M output) is the cheapest model the installed CLI
  * offers this account; it advertises no effort levels, so the worker carries none.
+ * @internal exported for tests
  */
 export const CLAUDE_WORKER_MODELS: readonly WorkerModel[] = [
   {
@@ -242,6 +244,7 @@ export function codexDelegationInstruction(worker: RoutineDelegationRequest): st
  * The config-override object handed to Codex, TOML field names verbatim. `max_depth: 1` is the
  * native recursion bar and `max_concurrent_threads_per_session: 2` the native concurrency cap;
  * both are asserted here rather than left to the instruction.
+ * @internal exported for tests
  */
 export function codexDelegationConfig(worker: RoutineDelegationRequest): Record<string, unknown> {
   return {
@@ -255,7 +258,10 @@ export function codexDelegationConfig(worker: RoutineDelegationRequest): Record<
   }
 }
 
-/** The named subagent a delegating Claude session carries; the main model spawns it by this name. */
+/**
+ * The named subagent a delegating Claude session carries; the main model spawns it by this name.
+ * @internal exported for tests
+ */
 export const CLAUDE_ROUTINE_WORKER_NAME = 'routine-worker'
 
 /** The SDK's `AgentDefinition` fields Toucan sets, typed here so the meta needs no SDK import. */

@@ -77,6 +77,7 @@ export interface ChatConnectionState {
   model: ChatModelState
 }
 
+/** @internal exported for tests */
 export function initialChatConnectionState(): ChatConnectionState {
   return {
     transcript: null,
@@ -204,6 +205,7 @@ export function answerFailure(state: ChatConnectionState): string | null {
  * Why this answer cannot be sent right now, or null. Deliberately not a busy check: a pending
  * request is what a *working* turn is waiting on, so "the session is working" is never a reason to
  * refuse the one thing that would unblock it.
+ * @internal exported for tests
  */
 export function answerBlockedReason(state: ChatConnectionState, target: string): string | null {
   if (state.phase === 'gone') return 'This chat is no longer open on the desktop.'
@@ -233,7 +235,10 @@ export function currentModel(state: ChatConnectionState): AgentModel | null {
   return models.availableModels.find((model) => model.id === models.currentModelId) ?? null
 }
 
-/** Whether a model change is on the wire. The control is inert - not optimistic - while it is. */
+/**
+ * Whether a model change is on the wire. The control is inert - not optimistic - while it is.
+ * @internal exported for tests
+ */
 export function modelChangeInFlight(state: ChatConnectionState): boolean {
   return state.model.status === 'selecting'
 }
@@ -271,6 +276,7 @@ export function modelPickerBlockedReason(state: ChatConnectionState): string | n
  * Why *this* model cannot be picked, or null. The half that does not depend on which model is
  * `modelPickerBlockedReason`, so the control's disabled state and the gate on a tap are one rule
  * read at two granularities rather than two rules that can disagree.
+ * @internal exported for tests
  */
 export function modelChangeBlockedReason(state: ChatConnectionState, modelId: string): string | null {
   const blocked = modelPickerBlockedReason(state)
@@ -352,12 +358,15 @@ export function connectionLost(state: ChatConnectionState): ChatConnectionState 
   return { ...recoverDraft(dropped, dropped.send.text, DISCONNECTED_WHILE_SENDING), phase }
 }
 
+/** @internal exported for tests */
 export const DISCONNECTED_WHILE_SENDING =
   'Disconnected before the host confirmed the message. Check the transcript before sending it again.'
 
+/** @internal exported for tests */
 export const DISCONNECTED_WHILE_ANSWERING =
   'Disconnected before the host confirmed the answer. It is still pending if the card is still here.'
 
+/** @internal exported for tests */
 export const DISCONNECTED_WHILE_SWITCHING =
   'Disconnected before the host confirmed the model. The model shown once reconnected is the real one.'
 
@@ -443,7 +452,10 @@ export function withSend(state: ChatConnectionState, send: PendingSend): ChatCon
   return { ...state, draft: '', send }
 }
 
-/** Plan and apply in one step, for callers with nothing to do in between. */
+/**
+ * Plan and apply in one step, for callers with nothing to do in between.
+ * @internal exported for tests
+ */
 export function beginSend(state: ChatConnectionState, requestId: string): ChatConnectionState {
   const planned = plannedSend(state, requestId)
   return planned ? withSend(state, planned) : state

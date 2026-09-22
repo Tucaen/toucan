@@ -65,7 +65,6 @@ const terminalApi: TerminalApi = {
   pickProject: () => ipcRenderer.invoke(PROJECT_CHANNELS.pick),
   loadWorkspace: () => ipcRenderer.invoke(WORKSPACE_CHANNELS.load),
   saveWorkspace: (state) => ipcRenderer.invoke(WORKSPACE_CHANNELS.save, state),
-  getConversationPreview: (kind, conversationId) => ipcRenderer.invoke(TERMINAL_CHANNELS.preview, kind, conversationId),
   create: (request) => ipcRenderer.invoke(TERMINAL_CHANNELS.create, request),
   write: (sessionId, incarnationId, data) => ipcRenderer.send(TERMINAL_CHANNELS.write, sessionId, incarnationId, data),
   resize: (sessionId, incarnationId, cols, rows) =>

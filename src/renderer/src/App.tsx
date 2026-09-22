@@ -45,7 +45,6 @@ import type {
   BrainDumpPanelState,
   ComposerSendKey,
   ConversationLineage,
-  ConversationPreview,
   ProjectDirectory,
   ProjectGroup,
   TerminalKind,
@@ -102,7 +101,6 @@ import {
   reopenClosedSession,
   restoreCanvasWorkspace,
   selectDiffCanvasNodePath,
-  serializeCanvasNodes,
   serializeWorktreeNode,
   sessionNodeStatus,
   withoutWorktree,
@@ -123,14 +121,10 @@ import {
   withTerminalContextEdge,
   withoutEdgesTouchingNodes
 } from './terminal-context-edges'
-import {
-  branchBlockedReason,
-  launchModeAfterConversation,
-  lineageEdges,
-  lineageKey,
-  offersBranchAction,
-  planBranch
-} from './conversation-lineage'
+import { branchBlockedReason, lineageEdges, lineageKey, offersBranchAction, planBranch } from './conversation-lineage'
+import { launchModeAfterConversation, launchModeOnOpen } from './session-launch-mode'
+import { useTicketsFolderRevision } from './use-tickets-folder-revision'
+import { useWorkspaceSnapshot } from './use-workspace-snapshot'
 import { COMPOSER_SEND_KEY_DEFAULT } from './composer-keys'
 import { ComposerSendKeyContext } from './composer-send-key-context'
 import { RoutineDelegationContext } from './routine-delegation-context'
@@ -196,6 +190,7 @@ import WorktreeNode from './WorktreeNode'
 import {
   LAYOUT_SHORTCUT_LABELS,
   applyLayoutSlot,
+  canvasOverlayOpen,
   captureLayoutSlot,
   layoutKeyAction,
   matchNodeSizes,
@@ -302,8 +297,34 @@ function localCalendarDate(): string {
   return `${now.getFullYear()}-${month}-${`${now.getDate()}`.padStart(2, '0')}`
 }
 
-function worktreeRemovalErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : 'The worktree could not be removed.'
+const WORKTREE_CREATE_FAILED = 'The worktree could not be created.'
+const WORKTREE_REMOVE_FAILED = 'The worktree could not be removed.'
+
+/**
+ * A line for the header's notice chip. `text` is what the chip shows, so it has to fit one; the
+ * sentence that explains it goes in `detail` and is the chip's tooltip.
+ */
+interface CanvasNotice {
+  text: string
+  detail: string
+}
+
+/** One line however many terminals were closed at once, which is the point of a chip over an alert. */
+const SCROLLBACK_NOTICE: CanvasNotice = {
+  text: 'Retained output not removed',
+  detail:
+    'Toucan could not remove the retained output of one or more closed terminals. It may still exist in the app data folder.'
+}
+
+/** The one thing that can make the canvas refuse to create a session node. */
+const worktreeGoneNotice = (attempt: string): CanvasNotice => ({
+  text: 'Worktree no longer available',
+  detail: `That worktree is no longer on the canvas, so ${attempt}`
+})
+
+/** A rejected worktree IPC, said in the dialog that asked for it; `fallback` covers a non-Error. */
+function worktreeErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback
 }
 
 /** Drops the named node ids from a per-node record - closing a node and spending an adoption share it. */
@@ -341,6 +362,13 @@ function Canvas(): JSX.Element {
   const [worktreeDraft, setWorktreeDraft] = useState<WorktreeDraft | null>(null)
   const [removalPrompt, setRemovalPrompt] = useState<WorktreeRemovalPrompt | null>(null)
   const [setupProjectId, setSetupProjectId] = useState<string | null>(null)
+  /**
+   * One dismissible line in the header for a refusal or a partial failure the user should see but
+   * cannot act on where it happened - retained output a terminal could not delete, a node the
+   * canvas declined to create. It replaced `window.alert`, which blocked the whole window and
+   * fired once per terminal in a batch delete; the last message stands until it is dismissed.
+   */
+  const [notice, setNotice] = useState<CanvasNotice | null>(null)
   // The sidebar's own right-click menu, positioned at the pointer like the canvas one.
   const [projectMenu, setProjectMenu] = useState<{
     x: number
@@ -463,15 +491,23 @@ function Canvas(): JSX.Element {
 
   const handleConversationId = useCallback(
     (nodeId: string, conversationId: string): void => {
-      patchTerminalNode(nodeId, (data) => {
-        if (data.kind !== 'terminal' && data.launchMode === 'new' && data.titleSource) {
-          void window.conversationApi
-            .setTitle(data.kind, conversationId, data.label, data.titleSource)
-            .catch(() => undefined)
-        }
-        // A fork is a one-shot launch; `launchModeAfterConversation` says what it settles into.
-        return { conversationId, launchMode: launchModeAfterConversation(data.launchMode) }
-      })
+      // A title the user set before the node had a conversation was only ever stored on the node
+      // (`handleTitleChange` has nowhere to put it), so this is the moment it can reach the
+      // provider. Decided and sent out here rather than inside the updater below: a `setNodes`
+      // updater must stay pure, and React may run it twice.
+      const pending = nodesRef.current.find(
+        (candidate): candidate is TerminalCanvasNode => candidate.id === nodeId && isTerminalCanvasNode(candidate)
+      )?.data
+      if (pending && pending.kind !== 'terminal' && !pending.conversationId && pending.titleSource) {
+        void window.conversationApi
+          .setTitle(pending.kind, conversationId, pending.label, pending.titleSource)
+          .catch(() => undefined)
+      }
+      // A fork is a one-shot launch; `launchModeAfterConversation` says what it settles into.
+      patchTerminalNode(nodeId, (data) => ({
+        conversationId,
+        launchMode: launchModeAfterConversation(data.launchMode)
+      }))
     },
     [patchTerminalNode]
   )
@@ -516,20 +552,6 @@ function Canvas(): JSX.Element {
   const handleTerminalLiveness = useCallback(
     (nodeId: string, liveness: TerminalLiveness): void => {
       patchTerminalNode(nodeId, () => ({ terminalLiveness: liveness }))
-    },
-    [patchTerminalNode]
-  )
-
-  const handlePreview = useCallback(
-    (nodeId: string, preview: ConversationPreview): void => {
-      patchTerminalNode(nodeId, (data) => ({
-        preview: {
-          ...data.preview,
-          ...preview,
-          user: preview.user ?? data.preview?.user,
-          assistant: preview.assistant ?? data.preview?.assistant
-        }
-      }))
     },
     [patchTerminalNode]
   )
@@ -623,7 +645,9 @@ function Canvas(): JSX.Element {
               // Resuming a detached node is the user knowingly accepting the project checkout,
               // so the badge stops warning about a worktree that no longer exists.
               detachedFromWorktree: false,
-              launchMode: node.data.kind === 'terminal' || node.data.conversationId ? 'resume' : 'new'
+              // The same decision a restore makes, from the same place: re-deriving it here is how
+              // a branch that never forked yet came to resume as `new` and lose its parentage.
+              launchMode: launchModeOnOpen(node.data)
             }
           }
         })
@@ -741,8 +765,10 @@ function Canvas(): JSX.Element {
     const current = getCanvasNodes()
     const selected = current.filter((node) => node.selected).map((node) => node.id)
     const ids = selected.length >= 2 ? selected : current.map((node) => node.id)
-    nodeFit.release(ids)
-    setNodes(tileNodes(getCanvasNodes(), ids, tileMode, region, NODE_FIT_INSET))
+    // Tiling starts from what the release produced, not from `getCanvasNodes()` again: that still
+    // reads the pre-release array, so re-reading it would put `fittedToCanvas` back on a node the
+    // controller no longer holds a restore for - a "restore" header action that maximises instead.
+    setNodes(tileNodes(nodeFit.release(ids), ids, tileMode, region, NODE_FIT_INSET))
     setTileMode(nextTileMode(tileMode))
   }, [getCanvasNodes, nodeFit, setNodes, tileMode, visibleCanvasRegion])
 
@@ -766,9 +792,9 @@ function Canvas(): JSX.Element {
         case 'slot-restore': {
           const slot = layoutSlots[action.slot]
           if (!slot) return
-          // A restored arrangement places nodes itself, like tiling.
-          nodeFit.release()
-          setNodes(applyLayoutSlot(getCanvasNodes(), slot))
+          // A restored arrangement places nodes itself, like tiling - and starts from the same
+          // released array, for the same reason.
+          setNodes(applyLayoutSlot(nodeFit.release(), slot))
           return
         }
         case 'none':
@@ -819,17 +845,9 @@ function Canvas(): JSX.Element {
             void window.terminalApi
               .removeScrollback(node.data.sessionId)
               .then((removed) => {
-                if (!removed) {
-                  window.alert(
-                    'Toucan could not remove this terminal’s retained output. It may still exist in the app data folder.'
-                  )
-                }
+                if (!removed) setNotice(SCROLLBACK_NOTICE)
               })
-              .catch(() => {
-                window.alert(
-                  'Toucan could not verify removal of this terminal’s retained output. It may still exist in the app data folder.'
-                )
-              })
+              .catch(() => setNotice(SCROLLBACK_NOTICE))
           }
         }
         // Everything that was removed, unfiltered: what a close means for each kind - a reopen
@@ -911,7 +929,6 @@ function Canvas(): JSX.Element {
         onTicketActivity: handleTicketActivity,
         onConversationId: handleConversationId,
         onTitleChange: handleTitleChange,
-        onPreview: handlePreview,
         onFocusModeChange: handleFocusModeChange,
         onDraftChange: handleDraftChange,
         onPermissionModeChange: handlePermissionModeChange,
@@ -942,7 +959,6 @@ function Canvas(): JSX.Element {
     handleModelChange,
     handleTurnOutcome,
     handlePermissionModeChange,
-    handlePreview,
     handleStatusChange,
     handleTicketActivity,
     handleTerminalContext,
@@ -1009,8 +1025,9 @@ function Canvas(): JSX.Element {
       branchedFrom?: ConversationLineage
       /** The model to open on. Absent leaves it to the adapter's own default, as a click does. */
       modelId?: string
-      // Returns the canvas node id it minted, so a caller waiting on this session can find it.
-    }): string => {
+      // Returns the canvas node id it minted, or null when it refused to create one - the
+      // requested worktree is gone - so a caller waiting on this session knows there is none.
+    }): string | null => {
       const { kind, project, worktree: requestedWorktree, position, resumeConversationId, branchedFrom } = options
       const id = crypto.randomUUID()
       const label = options.label ?? `${labels[kind]} ${nextSessionNumber.current}`
@@ -1019,18 +1036,21 @@ function Canvas(): JSX.Element {
       const conversationId = branchedFrom
         ? undefined
         : (resumeConversationId ?? (kind === 'claude' ? crypto.randomUUID() : undefined))
+      // The refusal is decided here, not inside the updater: an updater that returned `current`
+      // still left this function recording a `starting` status for an id no node ever carried, and
+      // handing that id back to a caller waiting on the session.
+      const worktree = requestedWorktree
+        ? (nodesRef.current
+            .filter(isWorktreeCanvasNode)
+            .find(
+              (node) =>
+                node.data.projectId === project.id &&
+                worktreePathKey(node.data.path) === worktreePathKey(requestedWorktree.path)
+            )?.data ?? requestedWorktree)
+        : undefined
+      if (worktree?.unavailable) return null
       nextSessionNumber.current += 1
       setNodes((current) => {
-        const worktree = requestedWorktree
-          ? (current
-              .filter(isWorktreeCanvasNode)
-              .find(
-                (node) =>
-                  node.data.projectId === project.id &&
-                  worktreePathKey(node.data.path) === worktreePathKey(requestedWorktree.path)
-              )?.data ?? requestedWorktree)
-          : undefined
-        if (worktree?.unavailable) return current
         return [
           ...current.map((node) => ({ ...node, selected: false })),
           {
@@ -1065,7 +1085,6 @@ function Canvas(): JSX.Element {
               onTicketActivity: handleTicketActivity,
               onConversationId: handleConversationId,
               onTitleChange: handleTitleChange,
-              onPreview: handlePreview,
               onFocusModeChange: handleFocusModeChange,
               onDraftChange: handleDraftChange,
               onPermissionModeChange: handlePermissionModeChange,
@@ -1092,7 +1111,6 @@ function Canvas(): JSX.Element {
       handleModelChange,
       handleTurnOutcome,
       handlePermissionModeChange,
-      handlePreview,
       handleStatusChange,
       handleTicketActivity,
       handleTerminalContext,
@@ -1128,7 +1146,7 @@ function Canvas(): JSX.Element {
       const project = projectsRef.current.find((candidate) => candidate.id === node.data.projectId)
       if (!plan || !project) return
       const width = typeof node.style?.width === 'number' ? node.style.width : NEW_SESSION_NODE_SIZE.width
-      addSessionNode({
+      const branchId = addSessionNode({
         kind: plan.kind,
         project,
         worktree: plan.worktreeId ? findWorktreeNode(plan.worktreeId)?.data : undefined,
@@ -1139,6 +1157,9 @@ function Canvas(): JSX.Element {
         modelId: plan.modelId,
         branchedFrom: plan.branchedFrom
       })
+      // A branch runs in the parent's worktree by definition, so a worktree that has gone means
+      // there is nowhere to put the child - said out loud rather than a Branch click doing nothing.
+      if (!branchId) setNotice(worktreeGoneNotice('the chat could not be branched into it.'))
     },
     [addSessionNode, findWorktreeNode]
   )
@@ -1188,7 +1209,13 @@ function Canvas(): JSX.Element {
     (worktreeId: string, kind: TerminalKind, initialInput?: string): void => {
       const worktreeNode = findWorktreeNode(worktreeId)
       const project = projectsRef.current.find((candidate) => candidate.id === worktreeNode?.data.projectId)
-      if (!worktreeNode || worktreeNode.data.unavailable || !project) return
+      if (!worktreeNode || !project) return
+      // Checked here as well as in `addSessionNode`, so the gesture that was refused is the one
+      // that says so - the worktree node's own menu, rather than a click that did nothing.
+      if (worktreeNode.data.unavailable) {
+        setNotice(worktreeGoneNotice('nothing can be opened in it.'))
+        return
+      }
       const offset = worktreeNode.data.attachedNodeCount
       addSessionNode({
         kind,
@@ -1311,7 +1338,7 @@ function Canvas(): JSX.Element {
             path: worktreeNode.data.path,
             plan: planWorktreeRemoval(0, []),
             busy: false,
-            error: worktreeRemovalErrorMessage(error)
+            error: worktreeErrorMessage(error, WORKTREE_REMOVE_FAILED)
           })
         })
     },
@@ -1464,7 +1491,7 @@ function Canvas(): JSX.Element {
           setRemovalPrompt({
             ...prompt,
             busy: false,
-            error: worktreeRemovalErrorMessage(error)
+            error: worktreeErrorMessage(error, WORKTREE_REMOVE_FAILED)
           })
         })
     },
@@ -1486,7 +1513,6 @@ function Canvas(): JSX.Element {
         onTicketActivity: handleTicketActivity,
         onConversationId: handleConversationId,
         onTitleChange: handleTitleChange,
-        onPreview: handlePreview,
         onFocusModeChange: handleFocusModeChange,
         onDraftChange: handleDraftChange,
         onPermissionModeChange: handlePermissionModeChange,
@@ -1553,7 +1579,6 @@ function Canvas(): JSX.Element {
       handleModelChange,
       handleTurnOutcome,
       handlePermissionModeChange,
-      handlePreview,
       handleSelectDiffPath,
       handleStatusChange,
       handleTicketActivity,
@@ -1569,55 +1594,26 @@ function Canvas(): JSX.Element {
     ]
   )
 
-  // Snap state is read through a ref rather than listed as a dependency: every snap, restore,
-  // reflow and release also rewrites `nodes`, so the snapshot is already recomputed whenever it
-  // can differ - and a maximised node must never be persisted filling the canvas.
-  const workspaceSnapshot = useMemo<WorkspaceState>(
-    () => ({
-      version: 3,
-      projects,
-      // Absent rather than empty, so a workspace that never made a group keeps writing the same
-      // snapshot shape it wrote before groups existed.
-      ...(projectGroups.length > 0 ? { projectGroups } : {}),
-      activeProjectId,
-      sidebarCollapsed,
-      agentPermissionModes,
-      composerSendKey,
-      // Absent until the user first touches the preference, so older workspaces keep their shape.
-      ...(routineDelegation.enabled || routineDelegation.codexWorkerModelId || routineDelegation.claudeWorkerModelId
-        ? { routineDelegation }
-        : {}),
-      // Same rule: absent until the user first turns it on, so older workspaces keep their shape.
-      ...(decisionDelegation.enabled ? { decisionDelegation } : {}),
-      ...(dictationCleanup.enabled || dictationCleanup.claudeModelId ? { dictationCleanup } : {}),
-      // One array per node kind, from the one table that knows how each is persisted - including
-      // which of them stay absent from the snapshot rather than being written empty.
-      ...serializeCanvasNodes(nodes, (node) => nodeBeforeTemporaryFit(node, nodeFit.state())),
-      recentlyClosedNodes,
-      attention: [...attention],
-      // Absent rather than empty, like `projectGroups`, so a workspace that never saved a slot keeps
-      // its snapshot shape.
-      ...(Object.keys(layoutSlots).length > 0 ? { layoutSlots } : {}),
-      brainDumpPanel,
-      ticketBoardPanel
-    }),
-    [
-      activeProjectId,
-      agentPermissionModes,
-      attention,
-      brainDumpPanel,
-      composerSendKey,
-      decisionDelegation,
-      dictationCleanup,
-      nodes,
-      projectGroups,
-      projects,
-      recentlyClosedNodes,
-      routineDelegation,
-      sidebarCollapsed,
-      ticketBoardPanel
-    ]
-  )
+  // `useWorkspaceSnapshot` owns the memo, including why its dependency list is derived rather than
+  // written out. Snap state travels as a getter because the controller keeps it in a ref.
+  const workspaceSnapshot = useWorkspaceSnapshot({
+    projects,
+    projectGroups,
+    activeProjectId,
+    sidebarCollapsed,
+    agentPermissionModes,
+    composerSendKey,
+    routineDelegation,
+    decisionDelegation,
+    dictationCleanup,
+    nodes,
+    snaps: nodeFit.state,
+    recentlyClosedNodes,
+    attention,
+    layoutSlots,
+    brainDumpPanel,
+    ticketBoardPanel
+  })
 
   const [remoteAccessOpen, setRemoteAccessOpen] = useState(false)
   const [adapterManagementOpen, setAdapterManagementOpen] = useState(false)
@@ -1633,18 +1629,19 @@ function Canvas(): JSX.Element {
     (request: RemoteChatSpawnRequest): RemoteChatSpawnResult => {
       const project = projectsRef.current.find((candidate) => candidate.id === request.projectId)
       if (!project) return { ok: false, message: 'That project is no longer open on the desktop.' }
-      return {
-        ok: true,
-        chatId: addSessionNode({
-          kind: request.kind,
-          project,
-          position: centredDropPosition(NEW_SESSION_NODE_SIZE),
-          initialInput: request.input,
-          // A model the phone named travels as ordinary node data, so the session it opens is the
-          // same shape as one opened from a right-click that had a model remembered on it.
-          modelId: request.modelId
-        })
-      }
+      const chatId = addSessionNode({
+        kind: request.kind,
+        project,
+        position: centredDropPosition(NEW_SESSION_NODE_SIZE),
+        initialInput: request.input,
+        // A model the phone named travels as ordinary node data, so the session it opens is the
+        // same shape as one opened from a right-click that had a model remembered on it.
+        modelId: request.modelId
+      })
+      // A spawn names no worktree, so nothing should be able to refuse it - but the phone gets a
+      // refusal rather than an id it would then wait on forever.
+      if (!chatId) return { ok: false, message: 'The desktop could not open a chat for that project.' }
+      return { ok: true, chatId }
     },
     [addSessionNode, centredDropPosition]
   )
@@ -1718,34 +1715,10 @@ function Canvas(): JSX.Element {
    */
   const [recoveryDismissed, setRecoveryDismissed] = useState(false)
 
-  /*
-   * Main resolves a project's tickets folder from the *persisted* snapshot, so a board re-listed
-   * the moment the setting changed would read the old folder and never hear about the new one.
-   * Remembering the previous save status makes the revision advance only on the saving -> saved
-   * transition after that change, not in the render where the user hits Save. It advances only for
-   * a folder change on the project already showing, so switching projects still costs the one
-   * listing the board does anyway.
-   */
-  const [ticketsFolderRevision, setTicketsFolderRevision] = useState(0)
   const activeTicketsFolder = activeProject
-    ? `${activeProject.id}:${ticketsDirectoryOrDefault(activeProject.ticketsDirectory)}`
-    : ''
-  const savedTicketsFolder = useRef(activeTicketsFolder)
-  const previousSaveStatus = useRef(saveStatus)
-  useEffect(() => {
-    const persisted = savedTicketsFolder.current
-    const priorSaveStatus = previousSaveStatus.current
-    previousSaveStatus.current = saveStatus
-    // Another project entirely: the board re-lists on the switch itself, so there is nothing to
-    // advance - only the record of what that project's folder was when it was last written.
-    if (persisted.split(':')[0] !== activeTicketsFolder.split(':')[0]) {
-      savedTicketsFolder.current = activeTicketsFolder
-      return
-    }
-    if (priorSaveStatus !== 'saving' || saveStatus !== 'saved' || persisted === activeTicketsFolder) return
-    savedTicketsFolder.current = activeTicketsFolder
-    setTicketsFolderRevision((current) => current + 1)
-  }, [activeTicketsFolder, saveStatus])
+    ? { projectId: activeProject.id, directory: ticketsDirectoryOrDefault(activeProject.ticketsDirectory) }
+    : null
+  const ticketsFolderRevision = useTicketsFolderRevision(activeTicketsFolder, saveStatus)
 
   // One place decides how many nodes a worktree carries, so the count the teardown gate reads
   // and the count the node shows can never drift apart.
@@ -1888,14 +1861,15 @@ function Canvas(): JSX.Element {
     (projectId: string): void => {
       if (projects.length <= 1 || nodes.some((node) => node.data.projectId === projectId)) return
       const remaining = projects.filter((project) => project.id !== projectId)
-      clearRecentlyClosedNodes()
+      // The recently-closed stack is left alone: `reopenClosedSession` already skips an entry whose
+      // project is gone, so wiping it would throw away every other project's undo as well.
       setProjects(remaining)
       // A removed project's stored avatar would otherwise sit orphaned in userData forever.
       void window.projectAvatarApi?.remove(projectId)
       if (activeProjectId === projectId) setActiveProjectId(remaining[0].id)
       setMenu(null)
     },
-    [activeProjectId, clearRecentlyClosedNodes, nodes, projects]
+    [activeProjectId, nodes, projects]
   )
 
   const focusNode = useCallback(
@@ -2004,16 +1978,19 @@ function Canvas(): JSX.Element {
     [menu, runCreateAction]
   )
 
-  // While a picker, draft or dialog is open the create shortcuts do nothing, so a node cannot
-  // appear behind it. The panels are fine: they dock beside the canvas rather than cover it.
-  const dialogOpen = !!(
-    filePickerRequest ||
-    historyDrop ||
-    worktreeDraft ||
-    removalPrompt ||
-    remoteAccessOpen ||
-    adapterManagementOpen
-  )
+  // While anything covers the canvas the create and layout shortcuts do nothing, so a node cannot
+  // appear behind it. `CanvasOverlays` names the full set; this is only the mapping from this
+  // component's state to it.
+  const overlayOpen = canvasOverlayOpen({
+    filePicker: filePickerRequest !== null,
+    conversationHistory: historyDrop !== null,
+    worktreeDraft: worktreeDraft !== null,
+    worktreeRemoval: removalPrompt !== null,
+    remoteAccess: remoteAccessOpen,
+    adapterManagement: adapterManagementOpen,
+    projectSettings: setupProjectId !== null,
+    projectMenu: projectMenu !== null
+  })
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent): void => {
@@ -2037,7 +2014,7 @@ function Canvas(): JSX.Element {
         if (reopenLastClosedSession()) event.preventDefault()
         return
       }
-      if (nodeSearchKeyAction(event, { editingText, dialogOpen }) === 'open') {
+      if (nodeSearchKeyAction(event, { editingText, dialogOpen: overlayOpen }) === 'open') {
         const nodeId = searchTargetNodeId(target)
         if (nodeId) {
           event.preventDefault()
@@ -2047,14 +2024,14 @@ function Canvas(): JSX.Element {
       }
       const layoutAction = layoutKeyAction(event, { editingText, editingTextarea })
       if (layoutAction.kind !== 'none') {
-        if (dialogOpen) return
+        if (overlayOpen) return
         event.preventDefault()
         runLayoutAction(layoutAction)
         return
       }
       const editingTerminal = !!target?.closest('.terminal-host')
       const action = createNodeKeyAction(event, { editingTerminal })
-      if (action === 'none' || dialogOpen) return
+      if (action === 'none' || overlayOpen) return
       event.preventDefault()
       setMenu(null)
       runCreateAction(action, centredDropPosition(NEW_NODE_SIZE[action]))
@@ -2062,7 +2039,7 @@ function Canvas(): JSX.Element {
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [
-    dialogOpen,
+    overlayOpen,
     reopenLastClosedSession,
     runCreateAction,
     runLayoutAction,
@@ -2147,7 +2124,7 @@ function Canvas(): JSX.Element {
       const worktreeNode = nodesRef.current
         .filter(isWorktreeCanvasNode)
         .find((node) => node.data.path.toLocaleLowerCase() === entry.cwd.toLocaleLowerCase())
-      addSessionNode({
+      const opened = addSessionNode({
         kind: entry.provider,
         project,
         worktree: worktreeNode?.data,
@@ -2156,6 +2133,7 @@ function Canvas(): JSX.Element {
         titleSource: entry.titleSource,
         resumeConversationId: entry.id
       })
+      if (!opened) setNotice(worktreeGoneNotice('the conversation could not be reopened in it.'))
       setHistoryDrop(null)
     },
     [activeProjectId, addSessionNode, historyDrop]
@@ -2220,6 +2198,10 @@ function Canvas(): JSX.Element {
           )
         )
         setWorktreeDraft(null)
+      })
+      // Without this the dialog would sit on `busy: true` forever, with no way out but Cancel.
+      .catch((error: unknown) => {
+        setWorktreeDraft({ ...draft, busy: false, error: worktreeErrorMessage(error, WORKTREE_CREATE_FAILED) })
       })
   }, [projects, setNodes, worktreeDraft, worktreeCallbacks])
 
@@ -2475,6 +2457,7 @@ function Canvas(): JSX.Element {
                     statusSummary.stalled > 0 ||
                     unreadTotal > 0 ||
                     saveStatus === 'error' ||
+                    notice !== null ||
                     (workspaceRecovered && !recoveryDismissed)) && (
                     <div className="global-status-summary" role="status">
                       {statusSummary.working > 0 && (
@@ -2513,6 +2496,20 @@ function Canvas(): JSX.Element {
                           <span className="global-status-dot" />
                           Save failed
                         </span>
+                      )}
+                      {/* Whatever the canvas had to refuse or could not finish, said once and
+                  dismissible - the surface that replaced a `window.alert` per node. */}
+                      {notice !== null && (
+                        <button
+                          type="button"
+                          className="global-status-chip"
+                          data-kind="notice"
+                          title={`${notice.detail} Click to dismiss.`}
+                          onClick={() => setNotice(null)}
+                        >
+                          <span className="global-status-dot" />
+                          {notice.text}
+                        </button>
                       )}
                       {workspaceRecovered && !recoveryDismissed && (
                         <button

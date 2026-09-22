@@ -1,9 +1,13 @@
-/** The composer's resting height: one comfortable line plus its padding. */
+/**
+ * The composer's resting height: one comfortable line plus its padding.
+ * @internal exported for tests
+ */
 export const COMPOSER_MIN_HEIGHT = 46
 
 /**
  * How tall the composer may grow before it starts scrolling instead. Bounded so a long prompt
  * can never swallow the transcript it is being written against.
+ * @internal exported for tests
  */
 export const COMPOSER_MAX_HEIGHT = 168
 

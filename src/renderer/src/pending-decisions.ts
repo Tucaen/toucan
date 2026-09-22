@@ -22,26 +22,6 @@ export interface PendingDecision {
   state: 'actionable' | 'submitting'
 }
 
-export interface PendingDecisionState {
-  decisions: PendingDecision[]
-  closedIds: Set<string>
-}
-
-export interface DurableTaskClosureState {
-  closedTaskIds: Set<string>
-}
-
-export function durableTaskClosureState(
-  explicitlyClosedTaskIds: ReadonlySet<string> = new Set(),
-  activeTaskIds: ReadonlySet<string> = new Set(),
-  persistedClosedTaskIds: ReadonlySet<string> = new Set()
-): DurableTaskClosureState {
-  const closedTaskIds = new Set(persistedClosedTaskIds)
-  for (const id of activeTaskIds) if (!explicitlyClosedTaskIds.has(id)) closedTaskIds.delete(id)
-  for (const id of explicitlyClosedTaskIds) closedTaskIds.add(id)
-  return { closedTaskIds }
-}
-
 function tag(text: string, name: string): string | undefined {
   return new RegExp(`\\[${name}=([^\\]\\s]+)\\]`, 'i').exec(text)?.[1]
 }
@@ -62,7 +42,10 @@ function stableHash(text: string): string {
   return (value >>> 0).toString(36)
 }
 
-/** Stable across replay and repeated open-decision wakes, but scoped by task whenever possible. */
+/**
+ * Stable across replay and repeated open-decision wakes, but scoped by task whenever possible.
+ * @internal exported for tests
+ */
 export function decisionIdentity(message: Pick<DecisionTranscriptMessage, 'id' | 'text'>): string {
   const key = tag(message.text, 'key')
   const task = taskId(message.text)
@@ -75,13 +58,9 @@ export function decisionIdentity(message: Pick<DecisionTranscriptMessage, 'id' |
  * controls carry stable identity so simultaneous decisions cannot clear one another. Failed sends
  * restore actionability, while transport acceptance closes the matching decision.
  */
-export function pendingDecisionStateFromMessages(
-  messages: readonly DecisionTranscriptMessage[],
-  completedTaskIds: ReadonlySet<string> = new Set(),
-  persistedClosedIds: ReadonlySet<string> = new Set()
-): PendingDecisionState {
+export function pendingDecisionsFromMessages(messages: readonly DecisionTranscriptMessage[]): PendingDecision[] {
   const decisions = new Map<string, PendingDecision>()
-  const closed = new Set(persistedClosedIds)
+  const closed = new Set<string>()
   for (const message of messages) {
     if (
       isFinalAssistantMessage(message) &&
@@ -96,7 +75,7 @@ export function pendingDecisionStateFromMessages(
         decisions.delete(supersededId)
         closed.add(supersededId)
       }
-      if ((!task || !completedTaskIds.has(task)) && !closed.has(id)) {
+      if (!closed.has(id)) {
         decisions.set(id, {
           id,
           messageId: message.id,
@@ -124,16 +103,5 @@ export function pendingDecisionStateFromMessages(
       continue
     }
   }
-  return {
-    decisions: [...decisions.values()].filter((decision) => !decision.taskId || !completedTaskIds.has(decision.taskId)),
-    closedIds: closed
-  }
-}
-
-export function pendingDecisionsFromMessages(
-  messages: readonly DecisionTranscriptMessage[],
-  completedTaskIds: ReadonlySet<string> = new Set(),
-  persistedClosedIds: ReadonlySet<string> = new Set()
-): PendingDecision[] {
-  return pendingDecisionStateFromMessages(messages, completedTaskIds, persistedClosedIds).decisions
+  return [...decisions.values()]
 }

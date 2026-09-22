@@ -148,10 +148,9 @@ export interface AgentConversationController {
   failure: string | null
   /** Stable identity for a turn-scoped failure; generic session errors fall back to their text. */
   failureKey: string | null
-  draft: string
   /** Whether the running agent's ACP handshake advertised support for image content blocks. */
   imageSupport: boolean
-  /** Pasted images attached to the draft, shown as removable previews until the message is sent. */
+  /** Pasted images attached to the composer, shown as removable previews until the message is sent. */
   attachments: AgentImageAttachment[]
   /**
    * Follow-ups submitted while the agent was mid-turn, still held in the renderer. They are
@@ -171,11 +170,10 @@ export interface AgentConversationController {
    * deliberately not folded into `selectorsDisabled`.
    */
   modelChangeBlocked: string | null
-  setDraft(value: string): void
   addImages(files: File[] | FileList): Promise<void>
   removeAttachment(id: string): void
-  submit(event: FormEvent, draftOverride?: string, onPrepared?: () => void): void
-  /** Sends `text` as if the captain had typed and submitted it, bypassing the draft/attachments state entirely. */
+  submit(event: FormEvent, prompt: string, onPrepared?: () => void): void
+  /** Sends `text` as if the captain had typed and submitted it, bypassing the attachments state entirely. */
   sendMessage(text: string): void
   answerDecision(decisionId: string, text: string): void
   cancel(): void
@@ -194,13 +192,12 @@ export interface AgentConversationController {
  * write to conversation state - main's `AgentEvent`s, live or replayed, and this renderer's own
  * `LocalAgentEvent`s (optimistic prompt start, selections, answered requests, delivery flags) -
  * folds through `foldAgentEvent`, so this hook owns only what is genuinely renderer-local (the
- * composer draft and attachments, the prompt outbox, echo bookkeeping, and the IPC calls
+ * composer attachments, the prompt outbox, echo bookkeeping, and the IPC calls
  * themselves).
  */
 export function useAgentConversation(options: AgentConversationOptions): AgentConversationController {
   const [chat, setChat] = useState<AgentTranscriptState>(initialAgentTranscriptState)
   const [reauthenticating, setReauthenticating] = useState(false)
-  const [draft, setDraft] = useState('')
   const [imageSupport, setImageSupport] = useState(false)
   const [attachments, setAttachments] = useState<AgentImageAttachment[]>([])
   const [queued, setQueued] = useState<QueuedPrompt[]>([])
@@ -351,7 +348,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     }
   }, [options.cwd, options.enabled, options.id, options.provider, options.restartKey, options.scope])
 
-  /** Shared by `submit` (draft + attachments) and `sendMessage` (a plain string, e.g. a clicked decision option). */
+  /** Shared by `submit` (composer text + attachments) and `sendMessage` (a plain string, e.g. a clicked decision option). */
   const dispatchText = (
     text: string,
     images: AgentImageAttachment[],
@@ -439,11 +436,10 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
    * `promptWhenIdle` (and so straight into the running turn via steering), because those are
    * answers the agent is actively waiting on, not follow-ups the captain may still want back.
    */
-  const submit = (event: FormEvent, draftOverride?: string, onPrepared?: () => void): void => {
+  const submit = (event: FormEvent, prompt: string, onPrepared?: () => void): void => {
     event.preventDefault()
-    const text = (draftOverride ?? draft).trim()
+    const text = prompt.trim()
     const clearComposer = (): void => {
-      setDraft('')
       setAttachments([])
       onPrepared?.()
     }
@@ -604,7 +600,6 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     detail: chat.detail,
     failure: chat.failure,
     failureKey: chat.failureKey,
-    draft,
     imageSupport,
     attachments,
     queued,
@@ -617,7 +612,6 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     // next boundary, while a model swap costs the conversation its prompt cache and strands the
     // running turn's reasoning on the model that produced it.
     modelChangeBlocked: status === 'working' ? MODEL_CHANGE_WHILE_BUSY : null,
-    setDraft,
     addImages,
     removeAttachment,
     submit,

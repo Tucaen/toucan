@@ -35,6 +35,7 @@ export const DECISION_PROVIDER_PLUGIN_ID = 'typesafe@typesafe-ai'
  * How the main model names the skill when it invokes it. The skill's own name is `typesafe-ai`,
  * but it arrives inside a plugin, and Claude Code addresses a plugin's skill as `plugin:skill` -
  * so the bare name would not resolve. The plugin half is `typesafe`, from the plugin id above.
+ * @internal exported for tests
  */
 export const DECISION_PROVIDER_SKILL_NAME = 'typesafe:typesafe-ai'
 
@@ -77,7 +78,10 @@ export interface AgentDecisionDelegation {
   message?: string
 }
 
-/** The Codex half of the policy is a documented follow-up, not a silent omission; this says so. */
+/**
+ * The Codex half of the policy is a documented follow-up, not a silent omission; this says so.
+ * @internal exported for tests
+ */
 export const DECISION_DELEGATION_CLAUDE_ONLY_MESSAGE =
   'Decision delegation applies to Claude sessions for now, so decision-shaped subtasks stay on the main model.'
 

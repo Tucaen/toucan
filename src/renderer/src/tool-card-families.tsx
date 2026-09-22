@@ -313,6 +313,7 @@ export const mcpToolCallToolCardFamily: ToolCardFamily = {
  * tool's bare name can collide with any built-in's (`mcp__tracker__task`, `mcp__x__grep`), and
  * every other family's recognizer flattens the namespace away. Anything no family claims falls
  * through to the generic family.
+ * @internal exported for tests
  */
 export const toolCardFamilies: ToolCardFamily[] = [
   mcpToolCallToolCardFamily,

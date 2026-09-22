@@ -90,7 +90,6 @@ function callbacks(
     onTicketActivity,
     onConversationId: vi.fn(),
     onTitleChange: vi.fn(async () => true),
-    onPreview: vi.fn(),
     onFocusModeChange: vi.fn(),
     onDraftChange: vi.fn(),
     onPermissionModeChange: vi.fn(),

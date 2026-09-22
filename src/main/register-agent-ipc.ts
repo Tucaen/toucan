@@ -10,28 +10,52 @@ export function isAgentCreateRequest(value: unknown): value is AgentCreateReques
   if (!isRecord(value) || !isString(value.id) || !isString(value.cwd)) return false
   if (value.provider !== 'claude' && value.provider !== 'codex') return false
   if (value.scope !== undefined && value.scope !== 'project') return false
-  if (![value.sessionId, value.forkFromSessionId, value.permissionMode, value.modelId, value.effortId].every(optionalString))
+  if (
+    ![value.sessionId, value.forkFromSessionId, value.permissionMode, value.modelId, value.effortId].every(
+      optionalString
+    )
+  )
     return false
   if (value.sessionId !== undefined && value.forkFromSessionId !== undefined) return false
-  if (value.additionalDirectories !== undefined &&
-    (!Array.isArray(value.additionalDirectories) || !value.additionalDirectories.every(isString))) return false
-  if (value.routineDelegation !== undefined &&
-    (!isRecord(value.routineDelegation) || !isString(value.routineDelegation.workerModelId) ||
-      !optionalString(value.routineDelegation.workerEffortId))) return false
+  if (
+    value.additionalDirectories !== undefined &&
+    (!Array.isArray(value.additionalDirectories) || !value.additionalDirectories.every(isString))
+  )
+    return false
+  if (
+    value.routineDelegation !== undefined &&
+    (!isRecord(value.routineDelegation) ||
+      !isString(value.routineDelegation.workerModelId) ||
+      !optionalString(value.routineDelegation.workerEffortId))
+  )
+    return false
   return value.decisionDelegation === undefined || value.decisionDelegation === true
 }
 
 function isPrompt(value: unknown): value is AgentPromptContent {
-  return typeof value === 'string' || (Array.isArray(value) && value.every((block) =>
-    isRecord(block) && ((block.type === 'text' && typeof block.text === 'string') ||
-      (block.type === 'image' && typeof block.data === 'string' && isString(block.mimeType)))))
+  return (
+    typeof value === 'string' ||
+    (Array.isArray(value) &&
+      value.every(
+        (block) =>
+          isRecord(block) &&
+          ((block.type === 'text' && typeof block.text === 'string') ||
+            (block.type === 'image' && typeof block.data === 'string' && isString(block.mimeType)))
+      ))
+  )
 }
 
 function isDecision(value: unknown): value is AgentDecisionResponseContent {
-  return isRecord(value) && Object.values(value).every((entry) =>
-    typeof entry === 'string' || typeof entry === 'boolean' ||
-    (typeof entry === 'number' && Number.isFinite(entry)) ||
-    (Array.isArray(entry) && entry.every((item) => typeof item === 'string')))
+  return (
+    isRecord(value) &&
+    Object.values(value).every(
+      (entry) =>
+        typeof entry === 'string' ||
+        typeof entry === 'boolean' ||
+        (typeof entry === 'number' && Number.isFinite(entry)) ||
+        (Array.isArray(entry) && entry.every((item) => typeof item === 'string'))
+    )
+  )
 }
 
 const INVALID_REQUEST = { ok: false, message: 'Invalid agent request.' }
@@ -52,11 +76,13 @@ export function registerAgentIpc(
   })
   for (const channel of ['prompt', 'promptWhenIdle'] as const) {
     ipc.handle(AGENT_CHANNELS[channel], (_event, id, content) =>
-      isString(id) && isPrompt(content) ? manager[channel](id, content) : INVALID_REQUEST)
+      isString(id) && isPrompt(content) ? manager[channel](id, content) : INVALID_REQUEST
+    )
   }
   for (const channel of ['setMode', 'setModel', 'setEffort', 'authenticate', 'submitAuthCode'] as const) {
     ipc.handle(AGENT_CHANNELS[channel], (_event, id, value) =>
-      isString(id) && isString(value) ? manager[channel](id, value) : INVALID_REQUEST)
+      isString(id) && isString(value) ? manager[channel](id, value) : INVALID_REQUEST
+    )
   }
   ipc.handle(AGENT_CHANNELS.openAuthLink, (_event, url) => {
     if (isString(url)) return manager.openAuthLink(url)

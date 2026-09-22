@@ -58,18 +58,9 @@ export function branchBlockedReason(status: TerminalNodeStatus): string | undefi
 }
 
 /**
- * What a node's launch mode becomes once it reports a conversation id of its own. A fork is a
- * one-shot launch: leaving it standing would make the *next* restart of that node - a
- * terminal-context adoption bumping `terminalContextNonce`, say - fork the parent a second time
- * and discard every turn the child had taken. Anything else is already what it should be.
+ * Own namespace, so a lineage edge can never be confused with a terminal-context grant.
+ * @internal exported for tests
  */
-export function launchModeAfterConversation(
-  launchMode: TerminalNodeData['launchMode']
-): TerminalNodeData['launchMode'] {
-  return launchMode === 'fork' ? 'resume' : launchMode
-}
-
-/** Own namespace, so a lineage edge can never be confused with a terminal-context grant. */
 export function lineageEdgeId(parentNodeId: string, childNodeId: string): string {
   return `lineage:${parentNodeId}->${childNodeId}`
 }

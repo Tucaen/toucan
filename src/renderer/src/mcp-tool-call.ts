@@ -11,6 +11,7 @@ export const mcpToolCallFor = memoizePerActivity(parseMcpToolCall)
 /**
  * The arguments as lines, pretty-printed so a nested object is readable rather than one long
  * line. Empty when the adapter reported no arguments, or reported something that isn't JSON.
+ * @internal exported for tests
  */
 export function mcpArgumentLines(call: McpToolCall): string[] {
   if (call.arguments === undefined || call.arguments === null) return []
@@ -28,6 +29,7 @@ export function mcpArgumentLines(call: McpToolCall): string[] {
  * What the server actually answered. codex-acp nests it under `rawOutput.result`; everything else
  * arrives as ACP content. An error is reported as text too, since the card's own failed status
  * already says which it was.
+ * @internal exported for tests
  */
 export function mcpResultText(activity: AgentActivity): string | undefined {
   const rawOutput = asRecord(activity.rawOutput)

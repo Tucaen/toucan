@@ -104,6 +104,7 @@ export function rankFileMentions(
  * back into text before the model ever sees it, so a root-relative path written plainly is the
  * same reference with none of the round trip - and it stays legible in the composer, which a
  * `file://` URI would not. Whitespace is quoted so the path still reads as one token.
+ * @internal exported for tests
  */
 export function fileMentionReference(entry: WorkspaceFileEntry): string {
   const path = entry.directory ? `${entry.path}/` : entry.path

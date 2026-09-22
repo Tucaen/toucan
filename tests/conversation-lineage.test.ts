@@ -10,13 +10,13 @@ import {
 } from '../src/renderer/src/canvas-workspace'
 import {
   branchBlockedReason,
-  launchModeAfterConversation,
   lineageEdgeId,
   lineageEdges,
   lineageKey,
   offersBranchAction,
   planBranch
 } from '../src/renderer/src/conversation-lineage'
+import { launchModeAfterConversation, launchModeOnOpen } from '../src/renderer/src/session-launch-mode'
 import { isValidTerminalContextConnection } from '../src/renderer/src/terminal-context-edges'
 import type { WorkspaceState, WorkspaceTerminalNode } from '../src/shared/terminal'
 
@@ -24,7 +24,6 @@ const callbacks = {
   onStatusChange: () => undefined,
   onConversationId: () => undefined,
   onTitleChange: async () => true,
-  onPreview: () => undefined,
   onFocusModeChange: () => undefined,
   onDraftChange: () => undefined,
   onPermissionModeChange: () => undefined,
@@ -213,4 +212,25 @@ test('a fork settles into a resume once the child owns a conversation, and nothi
   assert.equal(launchModeAfterConversation('fork'), 'resume')
   assert.equal(launchModeAfterConversation('new'), 'new')
   assert.equal(launchModeAfterConversation('resume'), 'resume')
+})
+
+test('one decision answers what a (re)opened node launches as, whichever route reopened it', () => {
+  // The bug this guards: the resume panel re-derived the mode from kind and conversation id alone,
+  // so a branch child restored before its fork ever ran woke up as `new` - the fork silently
+  // dropped while the lineage edge still claimed a parent.
+  assert.equal(launchModeOnOpen({ kind: 'claude', branchedFrom: { nodeId: 'parent', conversationId: 'c-1' } }), 'fork')
+  // Once the child owns a conversation the fork is spent, so the record stops deciding anything.
+  assert.equal(
+    launchModeOnOpen({
+      kind: 'claude',
+      conversationId: 'child-1',
+      branchedFrom: { nodeId: 'parent', conversationId: 'c-1' }
+    }),
+    'resume'
+  )
+  assert.equal(launchModeOnOpen({ kind: 'codex', conversationId: 'c-2' }), 'resume')
+  // A terminal has no conversation at all; reopening one always restarts the shell.
+  assert.equal(launchModeOnOpen({ kind: 'terminal' }), 'resume')
+  // A chat with nothing to load and no parent to fork has only one honest answer.
+  assert.equal(launchModeOnOpen({ kind: 'claude' }), 'new')
 })

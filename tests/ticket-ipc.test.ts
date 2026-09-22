@@ -86,7 +86,8 @@ test('outside project paths cannot watch, mutate, scaffold, or reveal tickets', 
     ['tickets:set-status', [path, 'ticket-board', 'done']],
     ['tickets:remove', [path, 'ticket-board']],
     ['tickets:write-skill', [path]]
-  ] as const) assert.equal((await handlers.get(channel)!(event, ...args) as { ok: boolean }).ok, false)
+  ] as const)
+    assert.equal(((await handlers.get(channel)!(event, ...args)) as { ok: boolean }).ok, false)
   await handlers.get('tickets:reveal')!(event, path, 'ticket-board')
   await handlers.get('tickets:reveal-skill')!(event, path)
   assert.equal(await handlers.get('tickets:is-git-repository')!(event, path), false)

@@ -1,8 +1,8 @@
 ---
 title: Mobile companion plan
 created: 2026-09-03
-updated: 2026-09-03
-status: draft plan (promoted from brain-dumps/mobile-session-access.md)
+updated: 2026-09-21
+status: shipped v0.2.0; the client has kept growing since (promoted from brain-dumps/mobile-session-access.md)
 ---
 
 # Mobile companion plan

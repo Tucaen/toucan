@@ -13,11 +13,17 @@ const NO_PROJECT = { available: false as const, reason: 'No project is selected.
  * and *what are its issues* only once the user has switched it on. Kept apart from `ticket-ipc.ts`
  * because nothing is shared but the seam - GitHub has no folder to watch and nothing to write.
  */
-export function registerGithubIssuesIpc(ipc: IpcRegistrar, reader: GithubIssueReader, containment: Pick<WorkspaceContainment, 'contains'>): void {
+export function registerGithubIssuesIpc(
+  ipc: IpcRegistrar,
+  reader: GithubIssueReader,
+  containment: Pick<WorkspaceContainment, 'contains'>
+): void {
   ipc.handle(
     GITHUB_ISSUES_CHANNELS.availability,
     async (_event, projectPath: unknown): Promise<TicketSourceAvailability> =>
-      typeof projectPath === 'string' && await containment.contains(projectPath) ? reader.availability(projectPath) : NO_PROJECT
+      typeof projectPath === 'string' && (await containment.contains(projectPath))
+        ? reader.availability(projectPath)
+        : NO_PROJECT
   )
 
   ipc.handle(GITHUB_ISSUES_CHANNELS.list, async (_event, projectPath: unknown): Promise<TicketGithubListResult> => {

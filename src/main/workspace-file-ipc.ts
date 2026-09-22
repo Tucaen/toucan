@@ -1,5 +1,4 @@
 import { WORKSPACE_CHANNELS } from '../shared/ipc-channels'
-import { emptyWorkspaceFileIndex } from '../shared/workspace-files'
 import type { IpcRegistrar } from './ipc-registrar'
 import type { WorkspaceContainment } from './workspace-containment'
 import type { WorkspaceFileIndexReader } from './workspace-file-index'
@@ -11,7 +10,8 @@ export function registerWorkspaceFileIpc(
   containment: Pick<WorkspaceContainment, 'contains'>
 ): void {
   ipc.handle(WORKSPACE_CHANNELS.fileIndex, async (_event, root) =>
-    typeof root === 'string' && await containment.contains(root)
+    typeof root === 'string' && (await containment.contains(root))
       ? files.read(root)
-      : emptyWorkspaceFileIndex(typeof root === 'string' ? root : ''))
+      : { root: typeof root === 'string' ? root : '', entries: [], truncated: false, gitignored: false }
+  )
 }

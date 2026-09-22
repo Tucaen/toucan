@@ -59,10 +59,6 @@ export function selectedHost(directory: HostDirectory): SavedHost | null {
   return directory.hosts.find((host) => host.id === directory.selectedId) ?? null
 }
 
-export function hostById(directory: HostDirectory, id: string): SavedHost | null {
-  return directory.hosts.find((host) => host.id === id) ?? null
-}
-
 /** The one reading of "this host cannot be used until the user pastes a token again". */
 export function hostNeedsPairing(host: SavedHost): boolean {
   return host.token.length === 0

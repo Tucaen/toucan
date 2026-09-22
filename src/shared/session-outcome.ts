@@ -16,7 +16,10 @@ import { parseFrontmatter } from './frontmatter'
  * wherever a record happens to be written, and the frontmatter stays a flat handful of fields.
  */
 
-/** Hard cap on each excerpt. Two of them plus the frontmatter keep a typical record well under 2 KB. */
+/**
+ * Hard cap on each excerpt. Two of them plus the frontmatter keep a typical record well under 2 KB.
+ * @internal exported for tests
+ */
 export const SESSION_OUTCOME_EXCERPT_LIMIT = 600
 
 /** Hard cap on the title, matching what `deriveConversationTitle` already produces. */
@@ -35,6 +38,7 @@ export const SESSION_OUTCOME_TITLE_LIMIT = 72
  * indistinguishable from a complete one, and the file list is precisely what a later session
  * trusts to answer "has anything already touched this area?" - so a silent truncation answers
  * "no" for a file this conversation in fact rewrote.
+ * @internal exported for tests
  */
 export const SESSION_OUTCOME_FILES_LIMIT = 16
 
@@ -54,6 +58,7 @@ export const SESSION_OUTCOME_FILES_LIMIT = 16
  * Written as a list item so the section stays one flat list, and recognised on the way back in so
  * the reader never mistakes it for a path. Nothing else in the list can collide with it: a clipped
  * path carries its ellipsis at the end (`sessionOutcomeExcerpt`), never at the start.
+ * @internal exported for tests
  */
 export function sessionOutcomeFilesOmittedMarker(count: number): string {
   return `… and at least ${count} older file${count === 1 ? '' : 's'} omitted`
@@ -67,19 +72,27 @@ const FILES_OMITTED_LINE = /^… and at least (\d+) older files? omitted$/
  * A path clipped by it keeps its ellipsis when the record is read back, so a later process writing
  * the same absurdly long file records it a second time rather than deduping against the clip - one
  * wasted slot out of `SESSION_OUTCOME_FILES_LIMIT`, which is cheaper than a cap a record escapes.
+ * @internal exported for tests
  */
 export const SESSION_OUTCOME_PATH_LIMIT = 80
 
-/** How many failed or cancelled turns a record keeps, newest last. */
+/**
+ * How many failed or cancelled turns a record keeps, newest last.
+ * @internal exported for tests
+ */
 export const SESSION_OUTCOME_FAILURE_LIMIT = 3
 
-/** Hard cap on a failure message: enough to recognise the failure, not enough to paste a stack. */
+/**
+ * Hard cap on a failure message: enough to recognise the failure, not enough to paste a stack.
+ * @internal exported for tests
+ */
 export const SESSION_OUTCOME_FAILURE_MESSAGE_LIMIT = 160
 
 /**
  * The ceiling every cap above is chosen against: a record filled to all of them still renders
  * under this, so "a screenful of records fits one context window" stays true for the worst case
  * and not just the typical one. `tests/session-outcome.test.ts` holds it honest.
+ * @internal exported for tests
  */
 export const SESSION_OUTCOME_SIZE_BUDGET = 4096
 
@@ -89,6 +102,7 @@ export const SESSION_OUTCOME_SIZE_BUDGET = 4096
  * ultimately justified by, because what has to stay affordable is the *read*, not one file:
  * measured at this size, a screenful is about 22 KB typical and under 70 KB with every record
  * saturating every cap (see `tests/session-outcome-retrieval.test.ts`, which holds both honest).
+ * @internal exported for tests
  */
 export const SESSION_OUTCOME_SCREENFUL = 20
 
@@ -106,6 +120,7 @@ export const SESSION_OUTCOME_RECORD_CAP = 400
  * written something does. `turns` counts user messages rather than turn boundaries, so a captain
  * who steered a follow-up into a running turn is already past this - which is the reading that
  * matters, since that conversation was worked, not glanced at.
+ * @internal exported for tests
  */
 export const SESSION_OUTCOME_TRIVIAL_TURNS = 2
 
@@ -196,6 +211,7 @@ export function sessionOutcomeKey(provider: ConversationProvider, conversationId
 /**
  * One line of prose, capped. Newlines collapse because frontmatter is line-oriented and a body
  * excerpt that reproduced a whole tool transcript would defeat the retrieval budget.
+ * @internal exported for tests
  */
 export function sessionOutcomeExcerpt(text: string, limit = SESSION_OUTCOME_EXCERPT_LIMIT): string {
   const collapsed = text.replace(/\s+/g, ' ').trim()
@@ -463,6 +479,7 @@ export function sessionOutcomeIndexInstruction(directory: string): string {
  * prose would build. A dot already in the path therefore stays a one-character wildcard - it still
  * matches its own literal, and the full-path shape plus the quotes bound what it could over-match
  * to a path differing in exactly that character, which no real directory layout produces.
+ * @internal exported for tests
  */
 export function sessionOutcomeProjectPattern(projectPath: string): string {
   return `project: ${JSON.stringify(projectPath)}`.replace(/\\/g, '.')

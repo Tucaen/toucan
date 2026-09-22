@@ -23,6 +23,7 @@ export const CLIENT_CACHE = 'toucan-client-v1'
 /** The one entry precached at install: a page load falls back to it, whatever the pathname was. */
 export const PRECACHED_SHELL = '/'
 
+/** @internal exported for tests */
 export const IMMUTABLE_ASSET_PREFIX = '/assets/'
 
 export interface RequestFacts {

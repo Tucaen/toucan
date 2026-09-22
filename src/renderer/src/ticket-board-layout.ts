@@ -10,9 +10,13 @@
  * `ticket-board-panes.ts`; this module only answers how much of the workspace the board may take.
  */
 
-/** Below this the states pane and the ticket list no longer both fit. */
+/**
+ * Below this the states pane and the ticket list no longer both fit.
+ * @internal exported for tests
+ */
 export const TICKET_BOARD_MIN_WIDTH = 480
 export const TICKET_BOARD_DEFAULT_WIDTH = 880
+/** @internal exported for tests */
 export const TICKET_BOARD_MAX_WIDTH = 1240
 /** The board never takes more than this share of the workspace, however wide the window is. */
 export const TICKET_BOARD_MAX_WORKSPACE_SHARE = 0.7

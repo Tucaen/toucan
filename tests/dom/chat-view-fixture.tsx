@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import {
   ChatView,
   type ChatComposerProps,
@@ -8,17 +9,23 @@ import {
 } from '../../src/renderer/src/ChatNode'
 
 export type TestChatViewProps = ChatTranscriptProps &
-  ChatComposerProps &
+  Omit<ChatComposerProps, 'draft' | 'onDraftChange'> &
   ChatPendingProps &
   Omit<ChatSessionControlsProps, 'status' | 'detail'> & {
-    setDraft(value: string): void
+    /**
+     * The composer's text belongs to the node, not to the conversation, so a test that does not
+     * care about persistence may leave both of these out and let the fixture stand in for the node.
+     */
+    draft?: string
+    onDraftChange?(text: string): void
     sendMessage(text: string): void
     search?: ChatSearchProps
   }
 
 /** Keeps behavior-oriented tests concise while production callers use the cohesive contracts. */
 export function TestChatView(props: TestChatViewProps): JSX.Element {
-  const { focusMode, setFocusMode, focusShortcutEnabled, empty, statusBar, completedTaskIds, closedDecisionIds } = props
+  const { focusMode, setFocusMode, focusShortcutEnabled, empty, statusBar } = props
+  const [ownDraft, setOwnDraft] = useState('')
   return (
     <ChatView
       transcript={{
@@ -32,7 +39,7 @@ export function TestChatView(props: TestChatViewProps): JSX.Element {
         commands: props.commands
       }}
       composer={{
-        draft: props.draft,
+        draft: props.draft ?? ownDraft,
         imageSupport: props.imageSupport,
         attachments: props.attachments,
         queued: props.queued,
@@ -43,7 +50,7 @@ export function TestChatView(props: TestChatViewProps): JSX.Element {
         withdrawQueued: props.withdrawQueued,
         sendQueuedNow: props.sendQueuedNow,
         cancel: props.cancel,
-        onDraftChange: props.onDraftChange,
+        onDraftChange: props.onDraftChange ?? setOwnDraft,
         fileMentions: props.fileMentions,
         modes: props.modes,
         models: props.models,
@@ -75,9 +82,7 @@ export function TestChatView(props: TestChatViewProps): JSX.Element {
         setFocusMode,
         focusShortcutEnabled,
         empty,
-        statusBar,
-        completedTaskIds,
-        closedDecisionIds
+        statusBar
       }}
       search={props.search}
     />

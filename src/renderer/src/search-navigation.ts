@@ -80,7 +80,10 @@ function webResults(content: string | undefined): WebResult[] {
   })
 }
 
-/** Recover the provider-specific arguments and result text needed by a search/navigation card. */
+/**
+ * Recover the provider-specific arguments and result text needed by a search/navigation card.
+ * @internal exported for tests
+ */
 export function parseSearchNavigation(activity: AgentActivity): SearchNavigation | null {
   const name = normalizeToolName(activity.toolName)
   const input = asRecord(activity.rawInput) ?? {}

@@ -30,13 +30,6 @@ export interface WorkspaceFileIndex {
  */
 export const WORKSPACE_FILE_INDEX_LIMIT = 20_000
 
-export const emptyWorkspaceFileIndex = (root: string): WorkspaceFileIndex => ({
-  root,
-  entries: [],
-  truncated: false,
-  gitignored: false
-})
-
 export interface WorkspaceFilesApi {
   /**
    * A bounded, cached listing of one working directory for the composer's `@` picker. Always the

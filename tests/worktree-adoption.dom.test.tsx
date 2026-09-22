@@ -45,7 +45,6 @@ const callbacks: TerminalNodeCallbacks & WorktreeNodeCallbacks = {
   onStatusChange: vi.fn(),
   onConversationId: vi.fn(),
   onTitleChange: vi.fn().mockResolvedValue(true),
-  onPreview: vi.fn(),
   onFocusModeChange: vi.fn(),
   onDraftChange: vi.fn(),
   onPermissionModeChange: vi.fn(),

@@ -12,6 +12,12 @@ export function optionalString(value: unknown): value is string | undefined {
 }
 
 export function isTerminalSize(cols: unknown, rows: unknown): boolean {
-  return typeof cols === 'number' && Number.isSafeInteger(cols) && cols >= 2 &&
-    typeof rows === 'number' && Number.isSafeInteger(rows) && rows >= 1
+  return (
+    typeof cols === 'number' &&
+    Number.isSafeInteger(cols) &&
+    cols >= 2 &&
+    typeof rows === 'number' &&
+    Number.isSafeInteger(rows) &&
+    rows >= 1
+  )
 }

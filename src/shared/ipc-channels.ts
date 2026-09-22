@@ -34,7 +34,6 @@ export const WORKSPACE_CHANNELS = {
 } as const
 
 export const TERMINAL_CHANNELS = {
-  preview: 'terminal:preview',
   create: 'terminal:create',
   write: 'terminal:write',
   resize: 'terminal:resize',

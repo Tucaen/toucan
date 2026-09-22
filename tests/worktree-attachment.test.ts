@@ -13,7 +13,6 @@ const callbacks = {
   onStatusChange: () => {},
   onConversationId: () => {},
   onTitleChange: async () => true,
-  onPreview: () => {},
   onFocusModeChange: () => {},
   onDraftChange: () => {},
   onPermissionModeChange: () => {},

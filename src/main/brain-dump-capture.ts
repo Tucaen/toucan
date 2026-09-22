@@ -68,6 +68,7 @@ function resolvedPathIdentity(path: string): string {
   return pathIdentity(win32.isAbsolute(path) ? win32.normalize(path) : normalize(path))
 }
 
+/** @internal exported for tests */
 export function buildBrainDumpCapturePrompt(content: string, projectPath?: string): AgentPromptContent {
   const association = projectPath ?? 'unassigned'
   return [
