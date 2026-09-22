@@ -176,7 +176,10 @@ test('the working directory is shown only when it is not the one the node alread
   assert.equal(shellWorkingDirectoryLabel('d:/development/toucan/', roots), undefined)
   assert.equal(shellWorkingDirectoryLabel(`${ROOT}\\src\\main`, roots), 'src/main')
   assert.equal(shellWorkingDirectoryLabel('C:\\elsewhere', roots), 'C:/elsewhere')
-  assert.equal(shellWorkingDirectoryLabel('/home/Morgan/project/src', ['/home/morgan/project']), '/home/Morgan/project/src')
+  assert.equal(
+    shellWorkingDirectoryLabel('/home/Morgan/project/src', ['/home/morgan/project']),
+    '/home/Morgan/project/src'
+  )
   assert.equal(shellWorkingDirectoryLabel(undefined, roots), undefined)
 })
 

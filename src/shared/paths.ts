@@ -28,11 +28,7 @@ export function isAbsolutePath(value: string): boolean {
  */
 function normalizedPathShape(path: string): string {
   const unc = /^[\\/]{2}[^\\/]/.test(path)
-  const normalized =
-    (unc ? '//' : '') +
-    path
-      .slice(unc ? 2 : 0)
-      .replace(/[\\/]+/g, '/')
+  const normalized = (unc ? '//' : '') + path.slice(unc ? 2 : 0).replace(/[\\/]+/g, '/')
   return normalized === '/' ? normalized : normalized.replace(/\/+$/, '')
 }
 
