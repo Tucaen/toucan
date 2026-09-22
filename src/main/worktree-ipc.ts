@@ -14,8 +14,9 @@ function isDiffFile(value: unknown): value is GitChangedFile {
     isRecord(value) &&
     isString(value.path) &&
     optionalString(value.oldPath) &&
+    typeof value.status === 'string' &&
     ['added', 'modified', 'deleted', 'renamed', 'copied', 'type-changed', 'unmerged', 'untracked'].includes(
-      String(value.status)
+      value.status
     ) &&
     [value.added, value.deleted].every(
       (count) => count === undefined || (typeof count === 'number' && Number.isSafeInteger(count) && count >= 0)

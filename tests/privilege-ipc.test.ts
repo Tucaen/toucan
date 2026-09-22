@@ -123,6 +123,7 @@ test('every worktree operation refuses paths outside the workspace, including fo
   await call(WORKTREE_CHANNELS.remove, { ...request, projectPath: root, path: root, force: 'yes' })
   await call(WORKTREE_CHANNELS.diffFile, { ...request, path: root, file: { path: '../secret', status: 'untracked' } })
   await call(WORKTREE_CHANNELS.discover, { projectPath: root, known: [tmpdir()] })
+  await call(WORKTREE_CHANNELS.diffFile, { ...request, path: root, file: { path: 'README.md', status: ['modified'] } })
   assert.deepEqual(calls, [])
   await call(WORKTREE_CHANNELS.create, { projectPath: root, branch: 'fix' })
   await call(WORKTREE_CHANNELS.checkoutBranch, { path: root, branch: 'fix' })

@@ -125,6 +125,18 @@ test('a malformed status request never reaches the files', async () => {
   assert.deepEqual(statuses, [['D:\\p', 'ticket-board', 'done']])
 })
 
+test('a ticket destination outside the workspace cannot be mutated or revealed', async () => {
+  const { handlers, statuses, removals, revealed } = harness({
+    pathFor: async () => 'D:/outside/ticket-board.md'
+  })
+  for (const channel of ['tickets:set-status', 'tickets:remove']) {
+    const result = await handlers.get(channel)!(event, 'D:/p', 'ticket-board', 'done')
+    assert.equal((result as { ok: boolean }).ok, false)
+  }
+  await handlers.get('tickets:reveal')!(event, 'D:/p', 'ticket-board')
+  assert.deepEqual([statuses, removals, revealed], [[], [], []])
+})
+
 test('reveal only ever hands the shell a path the library resolved', async () => {
   const { handlers, revealed } = harness()
   await handlers.get('tickets:reveal')!(event, 'D:\\p', '../escape')
