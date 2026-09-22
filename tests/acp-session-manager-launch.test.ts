@@ -1,14 +1,12 @@
 import { strict as assert } from 'node:assert'
-import type { ChildProcessWithoutNullStreams } from 'node:child_process'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { PassThrough } from 'node:stream'
 import { test } from 'node:test'
 import type { WebContents } from 'electron'
 import type { AgentProcessLaunch } from '../src/main/agent-process'
 import { agentProcessEnvironment, createAcpSessionManager } from '../src/main/acp-session-manager'
-import { installAdapterStub } from './helpers/scripted-adapter'
+import { installAdapterStub, stubAdapterChild } from './helpers/scripted-adapter'
 
 test('the node identity is part of the environment an agent process is built for', () => {
   const environment = agentProcessEnvironment({ PATH: '/usr/bin' }, 'node-42')
@@ -24,17 +22,6 @@ function appWithAdapter(): string {
   return appPath
 }
 
-function stubChild(): ChildProcessWithoutNullStreams {
-  const child = new PassThrough() as unknown as ChildProcessWithoutNullStreams & { kill(): boolean }
-  Object.assign(child, {
-    stdin: new PassThrough(),
-    stdout: new PassThrough(),
-    stderr: new PassThrough(),
-    kill: () => true
-  })
-  return child
-}
-
 test('the adapter process itself is launched with the node id, not only the record beside it', () => {
   // The regression this locks down: the manager stored `TOUCAN_NODE_ID` on the running agent
   // but launched the adapter with the untouched environment, so the Codex child - and the
@@ -46,7 +33,7 @@ test('the adapter process itself is launched with the node id, not only the reco
     environment: { PATH: '/usr/bin' },
     spawnAgent: (launch) => {
       launches.push(launch)
-      return stubChild()
+      return stubAdapterChild()
     }
   })
 
@@ -73,7 +60,7 @@ test('routine delegation configures the Codex launch environment, and only when 
     environment: { PATH: '/usr/bin' },
     spawnAgent: (launch) => {
       launches.push(launch)
-      return stubChild()
+      return stubAdapterChild()
     }
   })
   const owner = { isDestroyed: () => false, send: () => {} } as unknown as WebContents
@@ -116,7 +103,7 @@ test('a worker missing from the account model cache withholds the configuration'
     environment: {},
     spawnAgent: (launch) => {
       launches.push(launch)
-      return stubChild()
+      return stubAdapterChild()
     }
   })
   const owner = { isDestroyed: () => false, send: () => {} } as unknown as WebContents
@@ -147,7 +134,7 @@ test('new sessions resolve the selected adapter while existing sessions retain t
     resolveAdapter: () => selected,
     spawnAgent: (launch) => {
       launches.push(launch)
-      return stubChild()
+      return stubAdapterChild()
     }
   })
   const owner = { isDestroyed: () => false, send: () => {} } as unknown as WebContents

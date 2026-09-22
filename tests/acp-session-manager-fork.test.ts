@@ -186,3 +186,110 @@ test('reports forkSupport false when initialize advertised no session.fork capab
     manager.killAll()
   }
 })
+
+test('a fork whose load fails is reopened by loading the child, never by forking the parent twice', async () => {
+  // The auth-required shape of fork-then-load: `session/fork` copies the parent's transcript on
+  // disk, and only then does `session/load` start the SDK query that needs an account. Recording
+  // the child id after the load would leave `running.sessionId` unset, so the reopen would
+  // evaluate `running.sessionId ?? fork(...)` again - two forked transcripts, the first orphaned,
+  // and a node sitting on a different conversation id than the first attempt reported.
+  const appPath = mkdtempSync(join(tmpdir(), 'toucan-fork-reauth-'))
+  installScriptedAdapter(appPath, 'claude-agent-acp', {
+    agentCapabilities: { sessionCapabilities: { fork: {} } },
+    prelude: `let forks = 0
+let loads = 0`,
+    handleRequest: `
+  if (request.method === 'session/fork') {
+    forks += 1
+    send({ jsonrpc: '2.0', id: request.id, result: { sessionId: 'forked-child-' + forks } })
+    return
+  }
+  if (request.method === 'session/load') {
+    loads += 1
+    if (loads === 1) {
+      send({ jsonrpc: '2.0', id: request.id, error: { code: -32000, message: 'Authentication required' } })
+      return
+    }
+    send({ jsonrpc: '2.0', method: 'session/update', params: {
+      sessionId: request.params.sessionId,
+      update: {
+        sessionUpdate: 'user_message_chunk',
+        messageId: 'observed-requests',
+        content: { type: 'text', text: JSON.stringify({ forks, loads, loadSessionId: request.params.sessionId }) }
+      }
+    } })
+    send({ jsonrpc: '2.0', id: request.id, result: {} })
+  }`
+  })
+  const manager = createAcpSessionManager({ appPath })
+
+  try {
+    const request = {
+      id: 'reauthed-branch',
+      provider: 'claude' as const,
+      cwd: appPath,
+      forkFromSessionId: 'parent-session'
+    }
+    const first = await manager.create(request, owner)
+    assert.equal(first.status, 'auth_required')
+
+    // The very same node, reopened after the sign-in: the adapter process is still alive, so this
+    // walks `openSession` again with the child id the first attempt already paid for.
+    const reopened = await manager.create(request, owner)
+    assert.equal(reopened.status, 'ready')
+    assert.equal(reopened.sessionId, 'forked-child-1')
+
+    const observedText = reopened.replay?.find((event) => event.type === 'message' && event.role === 'user')
+    assert.ok(observedText && observedText.type === 'message')
+    const observed = JSON.parse(observedText.text) as { forks: number; loads: number; loadSessionId: string }
+    assert.equal(observed.forks, 1, 'two create calls on one forked node must issue exactly one session/fork')
+    assert.equal(observed.loads, 2)
+    assert.equal(observed.loadSessionId, 'forked-child-1')
+  } finally {
+    manager.killAll()
+  }
+})
+
+test('a fork whose load fails for any other reason leaves nothing promptable behind', async () => {
+  // The forked id is kept for the reopen, but it is a transcript on disk - not a session. Holding
+  // it as `running.sessionId` would have `beginTurn` accept a prompt and issue `session/prompt`
+  // against a conversation the adapter never loaded, which is why the two are separate fields.
+  const appPath = mkdtempSync(join(tmpdir(), 'toucan-fork-load-failure-'))
+  installScriptedAdapter(appPath, 'claude-agent-acp', {
+    agentCapabilities: { sessionCapabilities: { fork: {} } },
+    prelude: `let forks = 0`,
+    handleRequest: `
+  if (request.method === 'session/fork') {
+    forks += 1
+    send({ jsonrpc: '2.0', id: request.id, result: { sessionId: 'forked-child-' + forks } })
+    return
+  }
+  if (request.method === 'session/load') {
+    send({ jsonrpc: '2.0', id: request.id, error: { code: -32603, message: 'Transcript is corrupt' } })
+    return
+  }
+  if (request.method === 'session/prompt') {
+    send({ jsonrpc: '2.0', id: request.id, error: { code: -32602, message: 'no such session' } })
+  }`
+  })
+  const manager = createAcpSessionManager({ appPath })
+
+  try {
+    const request = {
+      id: 'unloadable-branch',
+      provider: 'claude' as const,
+      cwd: appPath,
+      forkFromSessionId: 'parent-session'
+    }
+    const result = await manager.create(request, owner)
+    assert.equal(result.status, 'error')
+    assert.match(result.message ?? '', /Transcript is corrupt/)
+    assert.equal(result.sessionId, undefined)
+
+    const prompted = await manager.prompt('unloadable-branch', 'are you there?')
+    assert.equal(prompted.ok, false)
+    assert.match(prompted.message ?? '', /not ready/i)
+  } finally {
+    manager.killAll()
+  }
+})
