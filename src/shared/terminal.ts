@@ -1,10 +1,9 @@
-import type { AgentProvider } from './agent'
-
 /**
  * One shell session: how it is started, what it emits, and how it ends. Everything a terminal
  * *sits on* - the canvas, the workspace snapshot, the projects - lives in `shared/workspace.ts`,
  * and the OS affordances the canvas offers live in `shared/shell.ts`.
  */
+import type { AgentProvider } from './agent'
 
 export type TerminalKind = 'terminal' | AgentProvider
 export type TerminalLiveness = 'live' | 'unverifiable' | 'exited'

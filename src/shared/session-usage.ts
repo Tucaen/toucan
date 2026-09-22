@@ -71,7 +71,8 @@ function pad(value: number): string {
 /**
  * Local wall-clock `HH:MM`. Hand-rolled for the same reason `groupDigits` is: a locale formatter
  * would make one tooltip read `14:05` beside another reading `2:05 PM`, and the same string
- * untestable between machines.
+ * untestable between machines. `formatResetsAt` builds the same clock off the `Date` it already
+ * has for the day and month.
  */
 function clockTime(at: number): string {
   const moment = new Date(at)
@@ -125,7 +126,7 @@ export function formatResetsAt(resetsAt: number, now: number = Date.now()): stri
         ? `${hours}h ${remainingMinutes}m`
         : `${hours}h`
   const reset = new Date(resetsAt)
-  const clock = clockTime(resetsAt)
+  const clock = `${pad(reset.getHours())}:${pad(reset.getMinutes())}`
   const stamp = beyondADay ? `${pad(reset.getDate())}.${pad(reset.getMonth() + 1)}. - ${clock}` : clock
   return `${duration} | ${stamp}`
 }

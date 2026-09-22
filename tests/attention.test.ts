@@ -289,6 +289,22 @@ describe('persistence validation', () => {
     assert.equal(merged[0].updatedAt, T0 + 9)
   })
 
+  test('a merged record describes itself with the newer duplicate, whatever order they were in', () => {
+    const [item] = recordAttention([], approval('node-1', 'perm-7', T0))
+    const older = { ...item, id: 'node-1 approval perm-7', summary: 'old wording', sourceId: 'old-session' }
+    const newer = { ...item, updatedAt: T0 + 9, summary: 'new wording', sourceId: 'new-session' }
+
+    for (const pair of [
+      [older, newer],
+      [newer, older]
+    ]) {
+      const [merged] = normalizeAttentionItems(pair) as AttentionItem[]
+      assert.equal(merged.summary, 'new wording')
+      assert.equal(merged.sourceId, 'new-session')
+      assert.equal(merged.updatedAt, T0 + 9)
+    }
+  })
+
   test('an entry with no recoverable identity is passed through for validation to refuse', () => {
     const junk = { id: 'x', nodeId: 'node-1' }
 

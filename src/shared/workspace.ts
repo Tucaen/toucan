@@ -1,3 +1,9 @@
+/**
+ * The persisted workspace: which projects the user has, what sits on the canvas, and the panel and
+ * preference state that has to survive a restart. Separate from `shared/terminal.ts` because a
+ * terminal is one kind of thing *on* a canvas, not the canvas itself - a reader following
+ * `saveWorkspace` should land here rather than in a session contract.
+ */
 import type { AgentProvider, AgentTurnOutcome } from './agent'
 import type { AttentionItem } from './attention'
 import type { WorkspaceFileNode } from './file-view'
@@ -9,13 +15,6 @@ import type { DecisionDelegationPreference } from './decision-delegation'
 import type { RoutineDelegationPreference } from './routine-delegation'
 import type { DictationCleanupPreference } from './dictation-cleanup'
 import type { TerminalKind, TerminalLiveness } from './terminal'
-
-/**
- * The persisted workspace: which projects the user has, what sits on the canvas, and the panel and
- * preference state that has to survive a restart. Separate from `shared/terminal.ts` because a
- * terminal is one kind of thing *on* a canvas, not the canvas itself - a reader following
- * `saveWorkspace` should land here rather than in a session contract.
- */
 
 export const RECENTLY_CLOSED_SESSION_LIMIT = 10
 

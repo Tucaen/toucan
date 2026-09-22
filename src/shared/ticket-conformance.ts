@@ -67,15 +67,10 @@ export function reportedTicketKey(agentId: string, path: string): string {
 
 /**
  * What to do about it, in the words an agent has to act on. It carries the whole shape and names
- * no skill, because Toucan ships no tickets skill: a project has one only if it wrote or
- * scaffolded its own, so a message pointing at "the tickets skill" would as often as not send the
- * steered agent looking for a file that is not there.
- * Leads with the filename, because that is the only thing the board insists on and so very
- * nearly the only thing a message that fires at all can be about; the field list behind it is
- * `TICKET_FIELD_SENTENCE` from `shared/ticket-format.ts`, which is also what the board's
- * empty-state primer lays out, so an agent and a human are never told two different shapes -
- * `shared/tickets.ts` decides how a file is read and the skill `shared/ticket-skill.ts` generates
- * teaches the convention at length; all of them move together.
+ * no skill: Toucan ships no tickets skill, so pointing at "the tickets skill" would as often as
+ * not send the steered agent looking for a file that is not there. It leads with the filename
+ * because that is the only thing the board insists on, and takes its field list from
+ * `TICKET_FIELD_SENTENCE` so an agent and a human are never told two different shapes.
  */
 const TICKET_SHAPE =
   'A ticket is a Markdown file named `<lowercase-kebab-case>.md` directly in the tickets folder: ' +
