@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { minimatch } from 'minimatch'
@@ -119,4 +119,66 @@ test('the updater ships with the app, because a devDependency is stripped from t
     'electron-updater runs inside the packaged main process, so it is a runtime dependency'
   )
   assert.equal(manifest.devDependencies?.['electron-updater'], undefined)
+})
+
+/**
+ * electron-builder ships `dependencies` into the asar and strips `devDependencies`, while
+ * `externalizeDepsPlugin()` (electron.vite.config.ts) uses the same list to decide what Rollup
+ * leaves as a runtime `require` in `out/main` and `out/preload`. The two rules are the same rule:
+ * a package the main process reaches for at runtime must be a dependency, and a package Vite has
+ * already inlined into `out/renderer` must not be - otherwise a second, unused copy of it is
+ * packaged. Renderer libraries drifting into `dependencies` cost ~115 MB of asar (#238).
+ *
+ * "Reaches for" is broader than `import`: some packages are resolved by name at runtime
+ * (`require.resolve('npm/package.json')`, the ACP adapter specifiers in
+ * `src/shared/adapter-management.ts`, the SDK specifier in `src/main/claude-usage.ts`), so a
+ * dependency counts as used when a privileged source file names it in any string.
+ */
+const PRIVILEGED_SOURCE_DIRECTORIES = ['src/main', 'src/preload', 'src/shared']
+
+function privilegedSourceText(): string {
+  const files: string[] = []
+  const walk = (directory: string): void => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const full = join(directory, entry.name)
+      if (entry.isDirectory()) walk(full)
+      else if (entry.name.endsWith('.ts')) files.push(full)
+    }
+  }
+  for (const directory of PRIVILEGED_SOURCE_DIRECTORIES) walk(join(process.cwd(), directory))
+  return files.map((file) => readFileSync(file, 'utf8')).join('\n')
+}
+
+test('every runtime dependency is named by the main, preload or shared sources', () => {
+  const sources = privilegedSourceText()
+  for (const name of Object.keys(manifest.dependencies ?? {})) {
+    const named = new RegExp(`['"\`]${name.replace(/[.*+?^${}()|[\]\/]/g, '\$&')}(/[^'"\`]*)?['"\`]`).test(sources)
+    assert.ok(
+      named,
+      `${name} is a runtime dependency but no file under ${PRIVILEGED_SOURCE_DIRECTORIES.join(', ')} names it. ` +
+        'A renderer-only package belongs in devDependencies: Vite already inlines it into out/renderer, ' +
+        'so leaving it here ships a second copy inside the asar.'
+    )
+  }
+})
+
+test('packages the main process imports are runtime dependencies rather than devDependencies', () => {
+  const sources = privilegedSourceText()
+  const imported = new Set(
+    [...sources.matchAll(/from '((?:@[^'/]+\/)?[^'.@][^']*)'/g)]
+      .map((match) => match[1])
+      .filter((specifier) => !specifier.startsWith('node:'))
+      .map((specifier) =>
+        specifier.startsWith('@') ? specifier.split('/').slice(0, 2).join('/') : specifier.split('/')[0]
+      )
+  )
+  // Electron is provided by the runtime itself, so it is the one import that stays a devDependency.
+  imported.delete('electron')
+  for (const name of imported) {
+    assert.ok(
+      manifest.dependencies?.[name],
+      `${name} is imported by privileged source but is not in dependencies, so electron-builder strips it ` +
+        'from the package and Rollup silently inlines it into out/main instead.'
+    )
+  }
 })
