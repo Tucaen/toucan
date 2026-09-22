@@ -20,6 +20,12 @@
   --neutral-850: #1c222b;
   --neutral-900: #171b22;
   --neutral-925: #161a21;
+  /* Five global stacking layers. Local controls never invent a sixth height. */
+  --z-base: 1;
+  --z-control: 2;
+  --z-chrome: 10;
+  --z-popover: 20;
+  --z-dialog: 30;
   /* One scrollbar for the whole app. Both properties inherit, so every scroll
      container below :root gets the chat-node scrollbar without opting in. */
   scrollbar-color: #3b4553 transparent;
@@ -72,7 +78,7 @@ button {
 
 .app-header {
   position: relative;
-  z-index: 10;
+  z-index: var(--z-chrome);
   height: 52px;
   display: flex;
   align-items: center;
@@ -447,7 +453,7 @@ button.global-status-chip:hover {
 .project-sidebar {
   --sidebar-inline-padding: 8px;
   position: relative;
-  z-index: 5;
+  z-index: var(--z-chrome);
   width: 238px;
   min-width: 238px;
   display: flex;
@@ -1106,7 +1112,7 @@ button.global-status-chip:hover {
   border-radius: 2px;
   background: var(--codex);
   pointer-events: none;
-  z-index: 40;
+  z-index: var(--z-popover);
 }
 
 .project-row-menu {
@@ -1268,7 +1274,7 @@ button.global-status-chip:hover {
 .dialog-overlay {
   position: absolute;
   inset: 0;
-  z-index: 100;
+  z-index: var(--z-dialog);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1464,7 +1470,7 @@ button.global-status-chip:hover {
 
 .context-menu {
   position: fixed;
-  z-index: 100;
+  z-index: var(--z-popover);
   width: 244px;
   padding: 7px;
   border: 1px solid #333b48;
@@ -1573,10 +1579,10 @@ button.global-status-chip:hover {
   height: 12px;
   border: 2px solid var(--node-accent, var(--terminal));
   background: #101319;
-  /* Above the border resizer, whose side grab band spans the full edge at z-index 4-5: a handle
+  /* Above the border resizer, whose side grab band spans the full edge: a handle
      left at the default stacking order is painted under it, and every connection drag would start
      as a resize instead. */
-  z-index: 6;
+  z-index: var(--z-control);
 }
 
 /* Pulled fully inside the node. xyflow centers a side handle on the border (`translate(±50%)`),
@@ -1644,7 +1650,7 @@ button.global-status-chip:hover {
    never covers real content. */
 .node-resize-line,
 .node-resize-handle {
-  z-index: 4;
+  z-index: var(--z-base);
 }
 
 .node-resize-line::after,
@@ -1666,7 +1672,7 @@ button.global-status-chip:hover {
 
 /* Corners sit above the edges they overlap, so a corner drag never degrades into a one-axis one. */
 .node-resize-handle {
-  z-index: 5;
+  z-index: var(--z-control);
 }
 
 /* Chained with xyflow's own classes to outrank its 5px default. */
@@ -1871,7 +1877,7 @@ button.global-status-chip:hover {
 
 .dormant-session-with-history {
   inset: 0 0 auto;
-  z-index: 2;
+  z-index: var(--z-base);
   max-height: 150px;
   padding: 8px 16px;
   border-bottom: 1px solid #29313c;
@@ -2067,7 +2073,7 @@ button.global-status-chip:hover {
    trigger button's viewport rect so the menu can't be clipped by an
    `overflow: hidden` ancestor such as .terminal-node. */
 .node-picker-menu {
-  z-index: 1000;
+  z-index: var(--z-popover);
   width: 240px;
   padding: 6px;
   border: 1px solid var(--neutral-700);
@@ -3308,7 +3314,7 @@ button.global-status-chip:hover {
 
 .chat-auth-panel {
   position: absolute;
-  z-index: 30;
+  z-index: var(--z-dialog);
   inset: 0;
   display: grid;
   place-items: center;
@@ -3696,7 +3702,7 @@ button.global-status-chip:hover {
 
 /* Same shell as a picker menu, but a column of pickers rather than a list of options. */
 .composer-settings-panel {
-  z-index: 1000;
+  z-index: var(--z-popover);
   width: 240px;
   display: flex;
   flex-direction: column;
@@ -3925,7 +3931,7 @@ button.global-status-chip:hover {
 
 .focus-toggle {
   position: absolute;
-  z-index: 2;
+  z-index: var(--z-control);
   top: 9px;
   right: 12px;
   padding: 4px 9px;
@@ -3959,7 +3965,7 @@ button.global-status-chip:hover {
    reflowed the scroll area would shift the text under the reader every time it opened. */
 .agent-chat .node-find-bar {
   position: absolute;
-  z-index: 2;
+  z-index: var(--z-base);
   top: 40px;
   right: 12px;
   width: min(380px, calc(100% - 24px));
@@ -5048,7 +5054,7 @@ button.global-status-chip:hover {
   transition:
     width 160ms ease,
     min-width 160ms ease;
-  z-index: 6;
+  z-index: var(--z-chrome);
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -5765,7 +5771,7 @@ button.global-status-chip:hover {
 .image-viewer-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 1100;
+  z-index: var(--z-dialog);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -6011,7 +6017,7 @@ button.global-status-chip:hover {
   transition:
     width 160ms ease,
     min-width 160ms ease;
-  z-index: 6;
+  z-index: var(--z-chrome);
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -6481,7 +6487,7 @@ button.global-status-chip:hover {
   position: absolute;
   top: 100%;
   right: 0;
-  z-index: 3;
+  z-index: var(--z-popover);
   display: grid;
   min-width: 200px;
   margin-top: 4px;

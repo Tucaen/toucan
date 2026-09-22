@@ -76,3 +76,21 @@ test('tool cards emit one shared chrome vocabulary', () => {
   assert.doesNotMatch(styles, /\.(?:file-op|search-result)-line-number\b/)
   assert.doesNotMatch(styles, /\.(?:file-op-path|shell-command) button/)
 })
+
+test('every stacking context uses the five-step z-index scale', () => {
+  const root = rootBlock()
+  const zTokens = new Map([
+    ['--z-base', '1'],
+    ['--z-control', '2'],
+    ['--z-chrome', '10'],
+    ['--z-popover', '20'],
+    ['--z-dialog', '30']
+  ])
+
+  assert.equal([...root.matchAll(/--z-[\w-]+:/g)].length, zTokens.size)
+  for (const [token, value] of zTokens) assert.match(root, new RegExp(`${token}: ${value};`))
+
+  const declarations = [...styles.matchAll(/z-index:\s*([^;]+);/g)].map((match) => match[1])
+  assert.ok(declarations.length > 0)
+  assert.deepEqual(new Set(declarations), new Set([...zTokens.keys()].map((token) => `var(${token})`)))
+})
