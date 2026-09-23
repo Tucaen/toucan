@@ -1,3 +1,0 @@
-# No pull-request CI is configured; .github/workflows/release.yml runs `npm run check` on
-# version tags only. Local verification is `npm run check`.
-no_ci: true
