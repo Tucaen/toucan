@@ -183,6 +183,7 @@ test('a branch inherits what the parent is running: its model, its worktree, its
   }
   assert.deepEqual(planBranch(running), {
     kind: 'claude',
+    label: 'parent (branch)',
     branchedFrom: { nodeId: 'parent', conversationId: 'conversation-parent' },
     modelId: 'claude-opus-5[1m]',
     worktreeId: 'worktree-7'
@@ -195,6 +196,15 @@ test('a branch inherits what the parent is running: its model, its worktree, its
   // Nothing to fork: no plan at all.
   const fresh = restoreCanvasWorkspace(workspace([chat('fresh', { conversationId: undefined })]), callbacks).nodes
   assert.equal(planBranch(node(fresh, 'fresh')), undefined)
+})
+
+test('a branch is titled apart from its parent, and apart from its siblings', () => {
+  // The bug this guards (#240): the fork copies the transcript, so a generated title came out
+  // identical to the parent's and History showed two entries nobody could tell apart.
+  const parent = node(canvasNodes(), 'parent')
+  assert.equal(planBranch(parent)?.label, 'parent (branch)')
+  assert.equal(planBranch(parent, ['parent (branch)'])?.label, 'parent (branch 2)')
+  assert.equal(planBranch(parent, ['parent (branch)', 'parent (branch 2)', 'unrelated'])?.label, 'parent (branch 3)')
 })
 
 test('the lineage key ignores everything a drag changes and notices everything lineage depends on', () => {

@@ -114,6 +114,12 @@ export function lineageEdges(nodes: readonly CanvasNode[]): Edge[] {
 /** Everything a branch inherits from the node it was taken at; `undefined` when there is nothing to fork. */
 export interface BranchPlan {
   kind: TerminalKind
+  /**
+   * The child's own title. The fork copies the transcript, so a title derived from it comes out
+   * identical to the parent's; the child is titled at creation instead, as a manual title, so no
+   * generated one can ever replace it (#240).
+   */
+  label: string
   /** The provenance record the child carries, and the conversation its fork copies. */
   branchedFrom: ConversationLineage
   /**
@@ -128,13 +134,28 @@ export interface BranchPlan {
 }
 
 /**
+ * "<parent> (branch)", numbered from 2 when that title is already taken - by an earlier branch of
+ * the same parent, typically - so siblings stay as distinguishable as parent and child.
+ * @internal exported for tests
+ */
+export function branchLabel(parentLabel: string, takenLabels: Iterable<string>): string {
+  const taken = new Set(takenLabels)
+  for (let index = 1; ; index += 1) {
+    const candidate = `${parentLabel} (branch${index === 1 ? '' : ` ${index}`})`
+    if (!taken.has(candidate)) return candidate
+  }
+}
+
+/**
  * What a branch of this node would be. One place decides it, so the canvas's placement code
  * cannot quietly drop an inherited property the way passing fields one by one invites.
+ * `takenLabels` are the titles already on the canvas, so a second branch is numbered.
  */
-export function planBranch(parent: TerminalCanvasNode): BranchPlan | undefined {
+export function planBranch(parent: TerminalCanvasNode, takenLabels: Iterable<string> = []): BranchPlan | undefined {
   if (!parent.data.conversationId) return undefined
   return {
     kind: parent.data.kind,
+    label: branchLabel(parent.data.label, takenLabels),
     branchedFrom: { nodeId: parent.id, conversationId: parent.data.conversationId },
     modelId: parent.data.modelId,
     worktreeId: parent.data.worktreeId

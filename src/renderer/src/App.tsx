@@ -1035,7 +1035,10 @@ function Canvas(): JSX.Element {
       )
       if (!node || !offersBranchAction(node)) return
       if (branchBlockedReason(sessionNodeStatus(node, nodeStatusesRef.current))) return
-      const plan = planBranch(node)
+      const plan = planBranch(
+        node,
+        nodesRef.current.filter(isTerminalCanvasNode).map((candidate) => candidate.data.label)
+      )
       const project = projectsRef.current.find((candidate) => candidate.id === node.data.projectId)
       if (!plan || !project) return
       const width = typeof node.style?.width === 'number' ? node.style.width : NEW_SESSION_NODE_SIZE.width
@@ -1048,6 +1051,11 @@ function Canvas(): JSX.Element {
           y: node.position.y
         }),
         modelId: plan.modelId,
+        // Manual, so the reporting hook never derives one from the inherited transcript, and
+        // written to the title store as soon as the fork reports its conversation id - which is
+        // what gives the History entry the same distinct title (`handleConversationId`).
+        label: plan.label,
+        titleSource: 'manual',
         branchedFrom: plan.branchedFrom
       })
       // A branch runs in the parent's worktree by definition, so a worktree that has gone means
