@@ -100,11 +100,24 @@ export function mirroredTerminalContextEdges(
 export const TERMINAL_CONTEXT_ADOPTION_BOUNDARY: readonly TerminalNodeStatus[] = ['idle', 'result']
 
 /**
+ * One planned restart and how it opens. `resume` replays the conversation the node already has;
+ * `new` is for a conversation with no turns yet, which neither provider has written to disk - a
+ * `session/load` of it fails and leaves the node `exited` (#239) - and which a fresh session
+ * loses nothing by replacing.
+ */
+export interface TerminalContextAdoption {
+  nodeId: string
+  launchMode: 'resume' | 'new'
+}
+
+/**
  * The chat nodes whose live session must restart to pick up the read tool: an edge stands, but
  * the session reported launching without the tool (`sessions[id] === false` - the launch-time
  * truth off `AgentCreateResult`; unknown means a session is still opening and will consult the
- * registry itself). Only at a boundary with nothing in flight, and only with a conversation to
- * resume - the restart replays the transcript, it must never begin a new one. Removing an edge
+ * registry itself). Only at a boundary with nothing in flight, and only once the session has
+ * reported a conversation. Whether that conversation has a transcript (`transcripts[id]`, off the
+ * node's own message list) picks the launch mode; only a positive "empty" starts new, so a node
+ * that has not reported yet keeps the resume, which can never discard turns. Removing an edge
  * plans nothing: the registry already refuses at call time, and the definition drops off at the
  * session's next natural resume.
  */
@@ -112,8 +125,9 @@ export function planTerminalContextAdoptions(
   nodes: readonly CanvasNode[],
   edges: readonly Edge[],
   statuses: Readonly<Record<string, TerminalNodeStatus>>,
-  sessions: Readonly<Record<string, boolean>>
-): string[] {
+  sessions: Readonly<Record<string, boolean>>,
+  transcripts: Readonly<Record<string, boolean>>
+): TerminalContextAdoption[] {
   const connected = new Set(mirroredTerminalContextEdges(nodes, edges).map((edge) => edge.agentId))
   return nodes
     .filter(isChatCanvasNode)
@@ -125,27 +139,30 @@ export function planTerminalContextAdoptions(
         Boolean(node.data.conversationId) &&
         TERMINAL_CONTEXT_ADOPTION_BOUNDARY.includes(sessionNodeStatus(node, statuses))
     )
-    .map((node) => node.id)
+    .map((node) => ({ nodeId: node.id, launchMode: transcripts[node.id] === false ? 'new' : 'resume' }))
 }
 
 /**
- * Applies those adoptions: bumping `terminalContextNonce` is what restarts the session effect,
- * and `resume` makes the restart load the same conversation - the `adoptClaimedWorktrees` move,
- * except the cwd never changes, which is why this one is safe for both providers.
+ * Applies those adoptions: bumping `terminalContextNonce` is what restarts the session effect.
+ * `resume` makes the restart load the same conversation - the `adoptClaimedWorktrees` move,
+ * except the cwd never changes, which is why this one is safe for both providers. `new` also
+ * drops the empty conversation's id, which names nothing that could ever be loaded; the fresh
+ * session reports its own.
  */
-export function adoptTerminalContext(nodes: CanvasNode[], nodeIds: readonly string[]): CanvasNode[] {
-  if (nodeIds.length === 0) return nodes
-  const ids = new Set(nodeIds)
-  return nodes.map((node) =>
-    isChatCanvasNode(node) && ids.has(node.id)
-      ? {
-          ...node,
-          data: {
-            ...node.data,
-            terminalContextNonce: (node.data.terminalContextNonce ?? 0) + 1,
-            launchMode: 'resume' as const
-          }
-        }
-      : node
-  )
+export function adoptTerminalContext(nodes: CanvasNode[], adoptions: readonly TerminalContextAdoption[]): CanvasNode[] {
+  if (adoptions.length === 0) return nodes
+  const modes = new Map(adoptions.map((adoption) => [adoption.nodeId, adoption.launchMode]))
+  return nodes.map((node) => {
+    const launchMode = modes.get(node.id)
+    if (!isChatCanvasNode(node) || !launchMode) return node
+    return {
+      ...node,
+      data: {
+        ...node.data,
+        terminalContextNonce: (node.data.terminalContextNonce ?? 0) + 1,
+        launchMode,
+        ...(launchMode === 'new' ? { conversationId: undefined } : {})
+      }
+    }
+  })
 }

@@ -342,6 +342,9 @@ function Canvas(): JSX.Element {
   // launch-time truth off `AgentCreateResult.terminalContext`. Compared against the live edge set
   // to decide when a session must restart to adopt an edge drawn onto it mid-conversation.
   const [terminalContextSessions, setTerminalContextSessions] = useState<Record<string, boolean>>({})
+  // Whether each chat node's conversation has any turns yet. An adoption restart resumes only a
+  // conversation that has one: an empty one is not on disk, so it restarts new instead (#239).
+  const [conversationTranscripts, setConversationTranscripts] = useState<Record<string, boolean>>({})
   const [projects, setProjects] = useState<Project[]>([])
   const [projectGroups, setProjectGroups] = useState<ProjectGroup[]>([])
   const [nodeStatuses, setNodeStatuses] = useState<Record<string, TerminalNodeStatus>>({})
@@ -547,6 +550,10 @@ function Canvas(): JSX.Element {
 
   const handleTerminalContext = useCallback((nodeId: string, carried: boolean): void => {
     setTerminalContextSessions((current) => (current[nodeId] === carried ? current : { ...current, [nodeId]: carried }))
+  }, [])
+
+  const handleTranscriptPresence = useCallback((nodeId: string, present: boolean): void => {
+    setConversationTranscripts((current) => (current[nodeId] === present ? current : { ...current, [nodeId]: present }))
   }, [])
 
   const handleTerminalLiveness = useCallback(
@@ -868,6 +875,7 @@ function Canvas(): JSX.Element {
         // Closing either end of a terminal-context edge revokes it - the whole lifecycle rule.
         setEdges((current) => withoutEdgesTouchingNodes(current, removedIds))
         setTerminalContextSessions((current) => withoutNodeKeys(current, removedIds))
+        setConversationTranscripts((current) => withoutNodeKeys(current, removedIds))
       }
       // Fit mode reads the changes before they land: a drag or manual resize of the fitted node
       // leaves fit mode, and a removed node must not leave a restore waiting for it.
@@ -939,6 +947,7 @@ function Canvas(): JSX.Element {
         onResume: resumeNode,
         onTerminalLiveness: handleTerminalLiveness,
         onTerminalContext: handleTerminalContext,
+        onTranscriptPresence: handleTranscriptPresence,
         onForkSupport: handleForkSupport,
         onBranch: dispatchBranch,
         onWorktreeHandoff: dispatchWorktreeHandoff
@@ -965,6 +974,7 @@ function Canvas(): JSX.Element {
     handleStatusChange,
     handleTicketActivity,
     handleTerminalContext,
+    handleTranscriptPresence,
     handleForkSupport,
     handleTerminalLiveness,
     handleTitleChange,
@@ -1096,6 +1106,7 @@ function Canvas(): JSX.Element {
               onResume: resumeNode,
               onTerminalLiveness: handleTerminalLiveness,
               onTerminalContext: handleTerminalContext,
+              onTranscriptPresence: handleTranscriptPresence,
               onForkSupport: handleForkSupport,
               onBranch: dispatchBranch,
               onWorktreeHandoff: dispatchWorktreeHandoff
@@ -1120,6 +1131,7 @@ function Canvas(): JSX.Element {
       handleStatusChange,
       handleTicketActivity,
       handleTerminalContext,
+      handleTranscriptPresence,
       handleForkSupport,
       handleTerminalLiveness,
       handleTitleChange,
@@ -1519,6 +1531,7 @@ function Canvas(): JSX.Element {
         onResume: resumeNode,
         onTerminalLiveness: handleTerminalLiveness,
         onTerminalContext: handleTerminalContext,
+        onTranscriptPresence: handleTranscriptPresence,
         onForkSupport: handleForkSupport,
         onBranch: dispatchBranch,
         onWorktreeHandoff: dispatchWorktreeHandoff,
@@ -1584,6 +1597,7 @@ function Canvas(): JSX.Element {
       handleStatusChange,
       handleTicketActivity,
       handleTerminalContext,
+      handleTranscriptPresence,
       handleForkSupport,
       handleTerminalLiveness,
       handleTitleChange,
@@ -1744,11 +1758,21 @@ function Canvas(): JSX.Element {
    * fresh session's own report is still on its way.
    */
   useEffect(() => {
-    const adopting = planTerminalContextAdoptions(nodesRef.current, edges, nodeStatuses, terminalContextSessions)
+    const adopting = planTerminalContextAdoptions(
+      nodesRef.current,
+      edges,
+      nodeStatuses,
+      terminalContextSessions,
+      conversationTranscripts
+    )
     if (adopting.length === 0) return
-    setTerminalContextSessions((current) => withoutNodeKeys(current, new Set(adopting)))
+    // Both launch-time reports are spent: the restarted session answers them afresh, and a
+    // transcript report from before the restart must not decide the next adoption's launch mode.
+    const adoptingIds = new Set(adopting.map((adoption) => adoption.nodeId))
+    setTerminalContextSessions((current) => withoutNodeKeys(current, adoptingIds))
+    setConversationTranscripts((current) => withoutNodeKeys(current, adoptingIds))
     setNodes((current) => adoptTerminalContext(current, adopting))
-  }, [edges, nodeStatuses, nodes, setNodes, terminalContextSessions])
+  }, [conversationTranscripts, edges, nodeStatuses, nodes, setNodes, terminalContextSessions])
 
   /**
    * Worktrees can appear without Toucan creating them - an agent running the worktree skill, a

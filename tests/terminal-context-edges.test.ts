@@ -170,28 +170,39 @@ test('an edge whose endpoint vanished or is the wrong kind mirrors as nothing', 
 
 const edgeToChat: Edge[] = [{ id: 'edge', source: 'terminal-node', target: 'chat-node' }]
 
+const withTranscript = { 'chat-node': true }
+
 test('plans a restart only for a connected live session that launched without the tool', () => {
   const nodes = canvasNodes()
+  const resume = [{ nodeId: 'chat-node', launchMode: 'resume' }]
 
-  assert.deepEqual(planTerminalContextAdoptions(nodes, edgeToChat, { 'chat-node': 'idle' }, { 'chat-node': false }), [
-    'chat-node'
-  ])
-  assert.deepEqual(planTerminalContextAdoptions(nodes, edgeToChat, { 'chat-node': 'result' }, { 'chat-node': false }), [
-    'chat-node'
-  ])
+  assert.deepEqual(
+    planTerminalContextAdoptions(nodes, edgeToChat, { 'chat-node': 'idle' }, { 'chat-node': false }, withTranscript),
+    resume
+  )
+  assert.deepEqual(
+    planTerminalContextAdoptions(nodes, edgeToChat, { 'chat-node': 'result' }, { 'chat-node': false }, withTranscript),
+    resume
+  )
   // A session that already carries the tool - or one whose launch report is still on its way
   // (unknown) - is never restarted for an edge it can already serve or will pick up itself.
-  assert.deepEqual(planTerminalContextAdoptions(nodes, edgeToChat, { 'chat-node': 'idle' }, { 'chat-node': true }), [])
-  assert.deepEqual(planTerminalContextAdoptions(nodes, edgeToChat, { 'chat-node': 'idle' }, {}), [])
+  assert.deepEqual(
+    planTerminalContextAdoptions(nodes, edgeToChat, { 'chat-node': 'idle' }, { 'chat-node': true }, withTranscript),
+    []
+  )
+  assert.deepEqual(planTerminalContextAdoptions(nodes, edgeToChat, { 'chat-node': 'idle' }, {}, withTranscript), [])
   // No edge, no restart: removal forces nothing - the registry already refuses at call time.
-  assert.deepEqual(planTerminalContextAdoptions(nodes, [], { 'chat-node': 'idle' }, { 'chat-node': false }), [])
+  assert.deepEqual(
+    planTerminalContextAdoptions(nodes, [], { 'chat-node': 'idle' }, { 'chat-node': false }, withTranscript),
+    []
+  )
 })
 
 test('never restarts across a boundary with something in flight, or a session that is not live', () => {
   const nodes = canvasNodes()
   for (const status of ['working', 'starting', 'attention', 'stalled', 'exited', 'dormant'] as const) {
     assert.deepEqual(
-      planTerminalContextAdoptions(nodes, edgeToChat, { 'chat-node': status }, { 'chat-node': false }),
+      planTerminalContextAdoptions(nodes, edgeToChat, { 'chat-node': status }, { 'chat-node': false }, withTranscript),
       [],
       `status ${status} must not restart`
     )
@@ -200,26 +211,53 @@ test('never restarts across a boundary with something in flight, or a session th
     node.id === 'chat-node' ? { ...node, data: { ...node.data, dormant: true } } : node
   ) as CanvasNode[]
   assert.deepEqual(
-    planTerminalContextAdoptions(dormant, edgeToChat, { 'chat-node': 'idle' }, { 'chat-node': false }),
+    planTerminalContextAdoptions(dormant, edgeToChat, { 'chat-node': 'idle' }, { 'chat-node': false }, withTranscript),
     []
   )
 })
 
-test('a session with no conversation to resume is never restarted - the restart must replay, not replace', () => {
+test('a session that never opened a conversation is not restarted - it has not reported one yet', () => {
   const nodes = canvasNodes().map((node) =>
     node.id === 'chat-node' ? { ...node, data: { ...node.data, conversationId: undefined } } : node
   ) as CanvasNode[]
-  assert.deepEqual(planTerminalContextAdoptions(nodes, edgeToChat, { 'chat-node': 'idle' }, { 'chat-node': false }), [])
+  assert.deepEqual(
+    planTerminalContextAdoptions(nodes, edgeToChat, { 'chat-node': 'idle' }, { 'chat-node': false }, withTranscript),
+    []
+  )
+})
+
+test('an empty conversation restarts new - there is no transcript on disk for a resume to load (#239)', () => {
+  const nodes = canvasNodes()
+  assert.deepEqual(
+    planTerminalContextAdoptions(
+      nodes,
+      edgeToChat,
+      { 'chat-node': 'idle' },
+      { 'chat-node': false },
+      { 'chat-node': false }
+    ),
+    [{ nodeId: 'chat-node', launchMode: 'new' }]
+  )
+  // Not knowing is not the same as empty: a node that has not reported keeps the resume, which
+  // can never discard a transcript.
+  assert.deepEqual(
+    planTerminalContextAdoptions(nodes, edgeToChat, { 'chat-node': 'idle' }, { 'chat-node': false }, {}),
+    [{ nodeId: 'chat-node', launchMode: 'resume' }]
+  )
 })
 
 test('adopting bumps the restart nonce and resumes the same conversation', () => {
   const nodes = canvasNodes()
-  const adopted = adoptTerminalContext(nodes, ['chat-node'])
+  const conversationId = nodes.find((node) => node.id === 'chat-node')!.data.conversationId
+  const adopted = adoptTerminalContext(nodes, [{ nodeId: 'chat-node', launchMode: 'resume' }])
   const chat = adopted.find((node) => node.id === 'chat-node')!
   assert.equal(chat.data.terminalContextNonce, 1)
   assert.equal(chat.data.launchMode, 'resume')
+  assert.equal(chat.data.conversationId, conversationId)
   // A second adoption later in the session's life restarts again rather than being spent forever.
-  const again = adoptTerminalContext(adopted, ['chat-node']).find((node) => node.id === 'chat-node')!
+  const again = adoptTerminalContext(adopted, [{ nodeId: 'chat-node', launchMode: 'resume' }]).find(
+    (node) => node.id === 'chat-node'
+  )!
   assert.equal(again.data.terminalContextNonce, 2)
   // Untouched nodes and an empty plan keep their references: no re-render for a no-op.
   assert.equal(
@@ -227,4 +265,14 @@ test('adopting bumps the restart nonce and resumes the same conversation', () =>
     nodes.find((node) => node.id === 'second-chat')
   )
   assert.equal(adoptTerminalContext(nodes, []), nodes)
+})
+
+test('adopting an empty conversation starts it new and drops the id that was never persisted', () => {
+  const nodes = canvasNodes()
+  const chat = adoptTerminalContext(nodes, [{ nodeId: 'chat-node', launchMode: 'new' }]).find(
+    (node) => node.id === 'chat-node'
+  )!
+  assert.equal(chat.data.terminalContextNonce, 1)
+  assert.equal(chat.data.launchMode, 'new')
+  assert.equal(chat.data.conversationId, undefined)
 })

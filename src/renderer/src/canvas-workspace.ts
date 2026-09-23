@@ -58,6 +58,11 @@ export interface TerminalNodeCallbacks {
    */
   onTerminalContext?(nodeId: string, carried: boolean): void
   /**
+   * Whether this chat's conversation has any messages yet. An empty one was never written to disk
+   * by its provider, so the adoption rule restarts it new rather than resuming it (#239).
+   */
+  onTranscriptPresence?(nodeId: string, present: boolean): void
+  /**
    * Whether the session just created advertised `session.fork`. Reported once per successful
    * create so the Branch action can be offered on launch-time truth rather than a guess, and so
    * the answer outlives the live session it came from.
@@ -697,6 +702,7 @@ function restoreTerminalCanvasNode(
       onResume: callbacks.onResume,
       onTerminalLiveness: callbacks.onTerminalLiveness,
       onTerminalContext: callbacks.onTerminalContext,
+      onTranscriptPresence: callbacks.onTranscriptPresence,
       onForkSupport: callbacks.onForkSupport,
       onBranch: callbacks.onBranch,
       onWorktreeHandoff: callbacks.onWorktreeHandoff
