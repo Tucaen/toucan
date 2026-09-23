@@ -101,6 +101,41 @@ test('an adapter that exits on its own is recorded in the main log with its code
   }
 })
 
+test('an adapter that dies during the handshake is still logged, though the failed open stops it first', async () => {
+  const logged: string[] = []
+  let child: ChildProcessWithoutNullStreams | undefined
+  const manager = createAcpSessionManager({
+    appPath: appWithAdapterStub(),
+    log: (message) => logged.push(message),
+    spawnAgent: () => {
+      child = stubAdapterChild()
+      return child
+    }
+  })
+
+  try {
+    const created = manager.create(
+      { id: 'restored-node', provider: 'codex', cwd: '/project', sessionId: 'thread-1' },
+      collectingOwner([])
+    )
+    assert.ok(child)
+    child.stderr.write('codex app-server crashed')
+    // The stream closing rejects the pending initialize, so the failed open runs `stop()` before
+    // Node reports the exit - the order that used to swallow the log line.
+    child.stdout.end()
+    const result = await created
+    assert.equal(result.ok, false)
+    child.emit('exit', 1, null)
+    await new Promise((resolve) => setImmediate(resolve))
+
+    assert.equal(logged.length, 1)
+    assert.match(logged[0], /code 1/)
+    assert.match(logged[0], /codex app-server crashed/)
+  } finally {
+    manager.killAll()
+  }
+})
+
 test('tool calls replayed by session/load do not stamp the session as a fresh writer of those files', async () => {
   const appPath = mkdtempSync(join(tmpdir(), 'toucan-replay-writes-'))
   installScriptedAdapter(appPath, 'claude-agent-acp', {

@@ -348,6 +348,12 @@ interface RunningAgent {
   busy: boolean
   stopping: boolean
   /**
+   * Set when `create` itself failed and stopped the session. The adapter dying mid-handshake
+   * rejects the pending request, and that teardown can run before Node reports the exit - so this,
+   * not `stopping`, is what still lets the exit be logged in exactly the "Exited on restore" case.
+   */
+  openFailed?: boolean
+  /**
    * Set once an `auth_required` event has been sent for this agent and cleared only when a
    * fresh `openSession` succeeds (reauth completes). While true, `runPrompt` short-circuits
    * instead of re-attempting the prompt: without this, a wake-gate queue built up while the
@@ -1608,7 +1614,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         // place the index hears that the session is over. `stop` reaches the same call through
         // `broker.close`, and finalizing twice rewrites the same record.
         running.sessionOutcomes?.finalize()
-        if (!running.stopping) {
+        if (!running.stopping || running.openFailed) {
           options.log?.(
             describeAdapterExit({
               provider: request.provider,
@@ -1620,6 +1626,8 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
               stderrTail
             })
           )
+        }
+        if (!running.stopping) {
           send(running, {
             type: 'status',
             status: 'exited',
@@ -1654,6 +1662,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       } catch (error) {
         const message = errorMessage(error)
         send(running, { type: 'error', message })
+        running.openFailed = true
         stop(request.id)
         return { ok: false, status: 'error', message }
       }

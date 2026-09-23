@@ -1,3 +1,4 @@
+import { isAgentProvider } from '../shared/agent-provider'
 import { EMPTY_CONVERSATION_PAGE, type ConversationListRequest } from '../shared/conversation'
 import { CONVERSATION_CHANNELS } from '../shared/ipc-channels'
 import type { ConversationHistory } from './conversation-history'
@@ -43,8 +44,7 @@ export function registerConversationIpc(
   ipc.handle(
     CONVERSATION_CHANNELS.setTitle,
     (_event, provider: unknown, id: unknown, title: unknown, source: unknown) => {
-      if ((provider !== 'claude' && provider !== 'codex') || typeof id !== 'string' || typeof title !== 'string')
-        return null
+      if (!isAgentProvider(provider) || typeof id !== 'string' || typeof title !== 'string') return null
       if (source !== 'generated' && source !== 'manual') return null
       return titles.set(provider, id, title, source)
     }
@@ -52,7 +52,7 @@ export function registerConversationIpc(
   ipc.handle(
     CONVERSATION_CHANNELS.setForkedFrom,
     async (_event, provider: unknown, id: unknown, parentId: unknown): Promise<boolean> => {
-      if (provider !== 'claude' && provider !== 'codex') return false
+      if (!isAgentProvider(provider)) return false
       if (typeof id !== 'string' || !id || typeof parentId !== 'string' || !parentId) return false
       await lineage.setForkedFrom(provider, id, parentId)
       return true

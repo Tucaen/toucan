@@ -208,7 +208,12 @@ interface CodexMeta {
 }
 
 /** Thread sources Codex gives a rollout it spawned itself rather than one the user started. */
-const CODEX_SUBAGENT_THREAD_SOURCES = new Set(['subagent', 'guardian_review'])
+const CODEX_SUBAGENT_THREAD_SOURCES = ['subagent', 'guardian_review']
+
+/** The same rule for a head too long to parse, read off the raw text of the meta line. */
+const CODEX_SUBAGENT_HEAD = new RegExp(
+  `"thread_source":"(?:${CODEX_SUBAGENT_THREAD_SOURCES.join('|')})"|"source":\\{"subagent"`
+)
 
 /**
  * Whether a rollout is one Codex spawned for its own ends. Guardian reviewers (Codex 0.155+) carry
@@ -216,7 +221,8 @@ const CODEX_SUBAGENT_THREAD_SOURCES = new Set(['subagent', 'guardian_review'])
  * read too, so a subagent kind Codex adds later is filtered without naming it here.
  */
 function isCodexSubagent(payload: { thread_source?: unknown; source?: unknown }): boolean {
-  if (typeof payload.thread_source === 'string' && CODEX_SUBAGENT_THREAD_SOURCES.has(payload.thread_source)) return true
+  if (typeof payload.thread_source === 'string' && CODEX_SUBAGENT_THREAD_SOURCES.includes(payload.thread_source))
+    return true
   return Boolean(payload.source) && typeof payload.source === 'object' && 'subagent' in (payload.source as object)
 }
 
@@ -258,7 +264,7 @@ export function extractCodexMeta(head: string): CodexMeta | null {
         id,
         cwd: JSON.parse(`"${rawCwd}"`) as string,
         startedAt: Date.parse(/"timestamp":"([^"]+)"/.exec(head)?.[1] ?? '') || 0,
-        subagent: /"thread_source":"(?:subagent|guardian_review)"|"source":{"subagent"/.test(head)
+        subagent: CODEX_SUBAGENT_HEAD.test(head)
       }
     } catch {
       return null

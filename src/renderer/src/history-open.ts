@@ -1,4 +1,4 @@
-import type { TerminalKind } from '../../shared/terminal'
+import type { AgentProvider } from '../../shared/agent-provider'
 import type { ConversationLineage } from '../../shared/workspace'
 import { isChatCanvasNode, type CanvasNode } from './canvas-workspace'
 
@@ -20,16 +20,16 @@ export type HistoryOpenPlan =
 
 /** The little of an entry this decision reads; a brain-dump capture reopens through it too. */
 export interface HistoryOpenEntry {
-  provider: TerminalKind
+  provider: AgentProvider
   id: string
   /** The conversation the entry was forked from, when that is known. */
   forkedFrom?: string
 }
 
 /** The chat node that holds this provider conversation, if one is on the canvas. */
-export function nodeHoldingConversation(
+function nodeHoldingConversation(
   nodes: readonly CanvasNode[],
-  provider: TerminalKind,
+  provider: AgentProvider,
   conversationId: string
 ): CanvasNode | undefined {
   return nodes.find(
