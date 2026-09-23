@@ -377,21 +377,14 @@ interface RunningAgent {
  */
 const IGNORED_ADAPTER_DIAGNOSTICS = [/^claude auth status\b/i]
 
-/**
- * The progress text one stderr chunk is worth: its lines minus the ignored diagnostics. A chunk can
- * carry several lines, so the filter is per line rather than per chunk, and a chunk left with
- * nothing publishes no status at all.
- * @internal exported for tests
- */
 /** How much adapter stderr an unexpected exit is logged with. */
 const ADAPTER_STDERR_TAIL_CHARS = 4 * 1024
 
 /**
  * The main-log line for an adapter that exited without being stopped: enough to tell which node
  * and conversation it was, how it ended, and what it said last.
- * @internal exported for tests
  */
-export function describeAdapterExit(exit: {
+function describeAdapterExit(exit: {
   provider: AgentProvider
   nodeId: string
   conversationId?: string
@@ -408,13 +401,16 @@ export function describeAdapterExit(exit: {
   const ending = exit.code !== null ? `code ${exit.code}` : `signal ${exit.signal ?? 'unknown'}`
   const tail = exit.stderrTail.trim()
   return `${exit.provider} adapter for node ${exit.nodeId} (${conversation}) exited with ${ending}${
-    tail
-      ? `; stderr tail:
-${tail}`
-      : '; no stderr'
+    tail ? `; stderr tail:\n${tail}` : '; no stderr'
   }`
 }
 
+/**
+ * The progress text one stderr chunk is worth: its lines minus the ignored diagnostics. A chunk can
+ * carry several lines, so the filter is per line rather than per chunk, and a chunk left with
+ * nothing publishes no status at all.
+ * @internal exported for tests
+ */
 export function startingProgressFrom(chunk: string): string | undefined {
   const kept = chunk
     .split('\n')

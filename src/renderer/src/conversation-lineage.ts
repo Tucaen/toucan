@@ -136,9 +136,8 @@ export interface BranchPlan {
 /**
  * "<parent> (branch)", numbered from 2 when that title is already taken - by an earlier branch of
  * the same parent, typically - so siblings stay as distinguishable as parent and child.
- * @internal exported for tests
  */
-export function branchLabel(parentLabel: string, takenLabels: Iterable<string>): string {
+function branchLabel(parentLabel: string, takenLabels: Iterable<string>): string {
   const taken = new Set(takenLabels)
   for (let index = 1; ; index += 1) {
     const candidate = `${parentLabel} (branch${index === 1 ? '' : ` ${index}`})`
