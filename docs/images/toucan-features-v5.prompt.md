@@ -1,0 +1,13 @@
+# Toucan feature image revision 5
+
+Created with the built-in image generator by editing revision 4, using the supplied real worktree-node screenshot as reference. Node structure verified in `src/renderer/src/WorktreeNode.tsx`.
+
+## Edit prompt
+
+Use case: precise-object-edit. Input images: the wide Toucan feature infographic is the EDIT TARGET; the small screenshot of a real Toucan worktree node is the AUTHORITATIVE REPLACEMENT REFERENCE. Edit the wide infographic, output one wide image with same dimensions and composition.
+Replace ONLY the invented lower-right canvas card labeled 'Git worktree' (which currently lists folders main, feature/auth, feature/ui) with a faithful depiction of the actual worktree node in the screenshot. Remove that fabricated folder-list UI entirely. Match the screenshot's deep near-black violet body, purple thin outline and rounded corners, separate slim dark-purple header, compact monospace facts, green clean-status line, and bottom action bar with divider. This is one worktree, not a list of branches or folders.
+The replacement node must have this real structure, verified from WorktreeNode.tsx:
+Header: small git-branch icon, bold branch name 'feature/search', project chip with colored dot and fictional name 'Harbor', '0 attached', small 'Diff' button and fit/expand icon at right.
+Body: uppercase muted small label 'DIRECTORY', then monospace 'D:\\Projects\\Harbor-worktrees\\search'; below 'BRANCHED FROM', then 'main'; below that small green dot and 'Clean · nothing unique here'. Leave breathing space under status like screenshot.
+Footer: 'OPEN HERE' plus three small square icon buttons for terminal, Claude and Codex; then a subdued disabled 'Setup' button and outlined 'Remove' button. Follow screenshot faithfully; these are the real UI controls. Do not add a 'Git worktree' title, folder icons, branch list, or extra invented control.
+Give this node enough width for that structure by widening it modestly toward the left within the desktop canvas and narrowing/repositioning ONLY the adjacent Terminal panel if needed; keep it within the desktop frame, below chat panels, no overlaps. Preserve the Terminal panel somewhere visible. Prioritize readable hierarchy and accurate node appearance over cramming. All other infographic content must stay unchanged, especially fictional sidebar projects Northstar, Orchard, Harbor, the amber ATTENTION row under Northstar, original three bottom feature captions, headline, left session-outcome flow, and phone. Keep the overall dark polished visual style and crisp text. Do not alter the sidebar or any project names. Output the full infographic, not a crop of the node.
