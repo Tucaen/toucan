@@ -90,7 +90,7 @@ import {
   withoutEdgesTouchingNodes
 } from './terminal-context-edges'
 import { branchBlockedReason, lineageEdges, lineageKey, offersBranchAction, planBranch } from './conversation-lineage'
-import { launchModeAfterConversation, launchModeOnOpen } from './session-launch-mode'
+import { launchModeAfterConversation, relaunchInPlace } from './session-launch-mode'
 import { planHistoryOpen } from './history-open'
 import { useTicketsFolderRevision } from './use-tickets-folder-revision'
 import { useWorkspaceSnapshot } from './use-workspace-snapshot'
@@ -578,8 +578,10 @@ function Canvas(): JSX.Element {
               // so the badge stops warning about a worktree that no longer exists.
               detachedFromWorktree: false,
               // The same decision a restore makes, from the same place: re-deriving it here is how
-              // a branch that never forked yet came to resume as `new` and lose its parentage.
-              launchMode: launchModeOnOpen(node.data)
+              // a branch that never forked yet came to resume as `new` and lose its parentage. The
+              // nonce is what restarts an `exited` node, which is not dormant and so changes nothing
+              // else; a dormant one starts on `dormant: false` alone.
+              ...relaunchInPlace(node.data)
             }
           }
         })

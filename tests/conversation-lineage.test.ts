@@ -16,7 +16,7 @@ import {
   offersBranchAction,
   planBranch
 } from '../src/renderer/src/conversation-lineage'
-import { launchModeAfterConversation, launchModeOnOpen } from '../src/renderer/src/session-launch-mode'
+import { launchModeAfterConversation, launchModeOnOpen, relaunchInPlace } from '../src/renderer/src/session-launch-mode'
 import { isValidTerminalContextConnection } from '../src/renderer/src/terminal-context-edges'
 import type { WorkspaceState, WorkspaceTerminalNode } from '../src/shared/workspace'
 
@@ -243,4 +243,25 @@ test('one decision answers what a (re)opened node launches as, whichever route r
   assert.equal(launchModeOnOpen({ kind: 'terminal' }), 'resume')
   // A chat with nothing to load and no parent to fork has only one honest answer.
   assert.equal(launchModeOnOpen({ kind: 'claude' }), 'new')
+})
+
+test('an exited node relaunched in place keeps its parentage and resumes the conversation it has', () => {
+  const branch = {
+    kind: 'codex' as const,
+    conversationId: 'thread-child',
+    branchedFrom: { nodeId: 'parent', conversationId: 'thread-parent' },
+    modelId: 'gpt-5.5',
+    relaunchNonce: 2
+  }
+  const patch = relaunchInPlace(branch)
+  assert.deepEqual(patch, { launchMode: 'resume', relaunchNonce: 3 })
+  // Nothing the node already carries is part of the patch, so a merge cannot drop it.
+  assert.deepEqual({ ...branch, ...patch }.branchedFrom, branch.branchedFrom)
+  assert.equal({ ...branch, ...patch }.modelId, 'gpt-5.5')
+
+  // A branch whose fork never produced a conversation is still a fork.
+  assert.deepEqual(relaunchInPlace({ kind: 'claude', branchedFrom: branch.branchedFrom }), {
+    launchMode: 'fork',
+    relaunchNonce: 1
+  })
 })

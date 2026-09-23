@@ -56,3 +56,17 @@ export function launchModeOnOpen(node: LaunchModeCandidate): SessionLaunchMode {
   if (!node.conversationId && node.branchedFrom) return 'fork'
   return node.kind === 'terminal' || node.conversationId ? 'resume' : 'new'
 }
+
+/**
+ * What (re)opening a node *in place* changes: its launch mode, decided by `launchModeOnOpen` like
+ * every other reopen, and a bumped `relaunchNonce` - which is what restarts the session effect of a
+ * node whose adapter has already exited, where nothing else about the node changes. Everything
+ * else stays out of the patch on purpose: in place is the point, so lineage, model, worktree and
+ * geometry survive the way close + History never let them (#240).
+ */
+export function relaunchInPlace(node: LaunchModeCandidate & { relaunchNonce?: number }): {
+  launchMode: SessionLaunchMode
+  relaunchNonce: number
+} {
+  return { launchMode: launchModeOnOpen(node), relaunchNonce: (node.relaunchNonce ?? 0) + 1 }
+}

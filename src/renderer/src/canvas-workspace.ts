@@ -157,6 +157,11 @@ export interface TerminalNodeData
    */
   terminalContextNonce?: number
   /**
+   * Bumped by the node's Resume action (`relaunchInPlace`), so an `exited` session restarts in
+   * place. Runtime-only, like `terminalContextNonce`.
+   */
+  relaunchNonce?: number
+  /**
    * Written into the shell on first start: a worktree's setup command, or one of the project's
    * saved run commands picked from its row menu. Built by `terminalRunInput`.
    */

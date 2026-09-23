@@ -235,6 +235,8 @@ export type ChatSessionProps = Pick<FlatChatViewProps, 'status' | 'detail'> & {
   focusShortcutEnabled?: boolean
   empty?: { icon: ReactNode; title: string; description: string }
   statusBar?: ReactNode
+  /** Relaunches an `exited` session in place; absent where the view has no session to relaunch. */
+  relaunch?(): void
 }
 
 /**
@@ -1121,6 +1123,14 @@ export function ChatView(groups: ChatViewProps): JSX.Element {
           detail={authVisible || (session.focusMode && session.status === 'working') ? undefined : session.detail}
         />
       )}
+      {session.status === 'exited' && session.relaunch && (
+        <div className="chat-exited nodrag">
+          <span>The {providerNames[transcript.provider]} session ended.</span>
+          <button type="button" className="resume-session" onClick={session.relaunch}>
+            Resume conversation
+          </button>
+        </div>
+      )}
       {authVisible && (
         <AuthPanel
           provider={transcript.provider}
@@ -1158,7 +1168,9 @@ export default function ChatNode({ id, data, selected, width }: NodeProps<Termin
     decisionDelegation: decisionDelegationRequest(decisionDelegationPreference),
     // Bumped when a terminal-context edge is adopted mid-session: the restart resumes this same
     // conversation with the read tool included (terminal-context-edges.ts).
-    restartKey: data.terminalContextNonce,
+    // …and by the Resume action of an exited node (`relaunchNonce`). Both only ever grow, so their
+    // sum changes whenever either does.
+    restartKey: (data.terminalContextNonce ?? 0) + (data.relaunchNonce ?? 0),
     enabled: !data.dormant,
     onSessionId: (sessionId) => data.onConversationId(id, sessionId),
     onTerminalContext: (carried) => data.onTerminalContext?.(id, carried),
@@ -1546,7 +1558,8 @@ export default function ChatNode({ id, data, selected, width }: NodeProps<Termin
               focusMode: data.focusMode,
               setFocusMode: (enabled) => data.onFocusModeChange(id, enabled),
               focusShortcutEnabled: selected,
-              statusBar
+              statusBar,
+              relaunch: () => data.onResume(id)
             }}
             search={{
               open: findBar.open,

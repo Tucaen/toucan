@@ -1943,6 +1943,22 @@ button.global-status-chip:hover {
   background: color-mix(in srgb, var(--project-color) 22%, #1a2028);
 }
 
+/* An exited chat session's way back, in place of a composer that can no longer send. */
+.chat-exited {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  border-top: 1px solid #2a323d;
+  color: #aab4c1;
+  font-size: 12px;
+}
+
+.chat-exited .resume-session {
+  margin-top: 0;
+}
+
 .terminal-host .xterm {
   height: 100%;
 }
