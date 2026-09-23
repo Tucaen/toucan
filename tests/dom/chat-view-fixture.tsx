@@ -4,14 +4,14 @@ import {
   type ChatComposerProps,
   type ChatPendingProps,
   type ChatSearchProps,
-  type ChatSessionControlsProps,
+  type ChatSessionProps,
   type ChatTranscriptProps
 } from '../../src/renderer/src/ChatNode'
 
 export type TestChatViewProps = ChatTranscriptProps &
   Omit<ChatComposerProps, 'draft' | 'onDraftChange'> &
   ChatPendingProps &
-  Omit<ChatSessionControlsProps, 'status' | 'detail'> & {
+  Omit<ChatSessionProps, 'status' | 'detail'> & {
     /**
      * The composer's text belongs to the node, not to the conversation, so a test that does not
      * care about persistence may leave both of these out and let the fixture stand in for the node.

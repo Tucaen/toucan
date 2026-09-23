@@ -1,4 +1,5 @@
 import {
+  memo,
   useCallback,
   useContext,
   useEffect,
@@ -223,7 +224,12 @@ export type ChatPendingProps = Pick<
   | 'answerDecision'
 >
 
-export type ChatSessionControlsProps = Pick<FlatChatViewProps, 'status' | 'detail'> & {
+/**
+ * The session group of the ChatView contract: live status plus the view choices ChatNode owns.
+ * Distinct from `ChatSessionControlsProps` in ChatSessionControls.tsx, which is that component's
+ * own (Focus-toggle) contract.
+ */
+export type ChatSessionProps = Pick<FlatChatViewProps, 'status' | 'detail'> & {
   focusMode: boolean
   setFocusMode(enabled: boolean): void
   focusShortcutEnabled?: boolean
@@ -248,7 +254,7 @@ export interface ChatViewProps {
   transcript: ChatTranscriptProps
   composer: ChatComposerProps
   pending: ChatPendingProps
-  session: ChatSessionControlsProps
+  session: ChatSessionProps
   search?: ChatSearchProps
 }
 
@@ -375,7 +381,7 @@ function ComposerToolbar(
 
 type ComposerProps = ChatComposerProps &
   Pick<ChatTranscriptProps, 'provider' | 'messages' | 'commands'> &
-  Pick<ChatSessionControlsProps, 'status' | 'detail'>
+  Pick<ChatSessionProps, 'status' | 'detail'>
 
 /**
  * Rendering only: the queue chips, the attachment strip, the notices and the footer around one
@@ -419,7 +425,13 @@ export function Composer(props: ComposerProps): JSX.Element {
 
   return (
     <form className="chat-composer nodrag" onSubmit={editor.submit}>
-      <ComposerQueue {...props} stranded={sendDisabled} />
+      <ComposerQueue
+        queued={props.queued}
+        stranded={sendDisabled}
+        editQueued={props.editQueued}
+        withdrawQueued={props.withdrawQueued}
+        sendQueuedNow={props.sendQueuedNow}
+      />
       <AttachmentPreview attachments={props.attachments} removeAttachment={props.removeAttachment} />
       {pasteBlocked && <small className="composer-paste-blocked">This agent doesn't support image attachments.</small>}
       {(props.detail || busy) && (
@@ -439,7 +451,19 @@ export function Composer(props: ComposerProps): JSX.Element {
       {/* Dictation, stop, and send sit in the footer rather than beside the textarea: stretched
           alongside a growing input they ballooned with it. */}
       <div className="composer-footer">
-        <ComposerToolbar {...props} />
+        <ComposerToolbar
+          provider={props.provider}
+          modes={props.modes}
+          models={props.models}
+          efforts={props.efforts}
+          routineDelegation={props.routineDelegation}
+          decisionDelegation={props.decisionDelegation}
+          selectorsDisabled={props.selectorsDisabled}
+          modelChangeBlocked={props.modelChangeBlocked}
+          selectMode={props.selectMode}
+          selectModel={props.selectModel}
+          selectEffort={props.selectEffort}
+        />
         <div className="composer-actions">
           <VoiceInput
             draft={editor.draft}
@@ -696,8 +720,11 @@ function DecisionQuestions(props: { text: string }): JSX.Element {
   return <p>{questions[0] ?? 'Choose an option.'}</p>
 }
 
-/** Classifies assistant replies for visual tone (see decision-message.ts). */
-function ChatMessageCard(props: { message: AgentChatMessage }): JSX.Element {
+/**
+ * Classifies assistant replies for visual tone (see decision-message.ts). Memoized because the
+ * transcript re-renders per streaming chunk while only the streaming entry's props change.
+ */
+const ChatMessageCard = memo(function ChatMessageCard(props: { message: AgentChatMessage }): JSX.Element {
   const { message } = props
   const tone = message.role === 'assistant' ? classifyAssistantMessage(message.text) : 'normal'
   const images = message.images ?? []
@@ -724,9 +751,9 @@ function ChatMessageCard(props: { message: AgentChatMessage }): JSX.Element {
       </div>
     </article>
   )
-}
+})
 
-function TurnOutcomeCard({ outcome }: { outcome: AgentTurnOutcome }): JSX.Element {
+const TurnOutcomeCard = memo(function TurnOutcomeCard({ outcome }: { outcome: AgentTurnOutcome }): JSX.Element {
   const failed = outcome.status === 'failed'
   return (
     <article className="turn-outcome" data-status={outcome.status} role={failed ? 'alert' : 'status'}>
@@ -734,7 +761,7 @@ function TurnOutcomeCard({ outcome }: { outcome: AgentTurnOutcome }): JSX.Elemen
       <MarkdownMessage text={outcome.message} />
     </article>
   )
-}
+})
 
 /**
  * Re-renders once a second, but only while something is actually being timed - a rail full of
@@ -757,7 +784,7 @@ function useElapsedClock(running: boolean): number {
  * only the summary and the body to the activity's family (see `tool-card-families.tsx`), so a
  * per-tool card never re-implements any of this.
  */
-function ActivityCard({ activity }: { activity: AgentActivity }): JSX.Element {
+const ActivityCard = memo(function ActivityCard({ activity }: { activity: AgentActivity }): JSX.Element {
   const family = toolCardFamilyFor(activity)
   const [choice, setChoice] = useState<ToolCardChoice | undefined>(undefined)
   const [showAll, setShowAll] = useState(false)
@@ -799,21 +826,23 @@ function ActivityCard({ activity }: { activity: AgentActivity }): JSX.Element {
       )}
     </article>
   )
-}
+})
 
 /**
  * One deliberation, however many thought messages it arrived as. Expansion is owned by `ChatView`
  * rather than by this component: Focus mode unmounts these cards, and local state would forget a
- * block the reader had deliberately opened.
+ * block the reader had deliberately opened. `onToggle` takes the block's id so `ChatView` can pass
+ * one stable callback; the memo then skips these cards on non-transcript renders (blocks are
+ * rebuilt whenever the transcript itself changes, so streaming still re-renders them).
  */
-function ReasoningCard({
+const ReasoningCard = memo(function ReasoningCard({
   block,
   expanded,
   onToggle
 }: {
   block: ReasoningBlock
   expanded: boolean
-  onToggle(): void
+  onToggle(id: string): void
 }): JSX.Element {
   const size = formatReasoningSize(block.estimatedTokens)
   // Collapsed, a streaming block would otherwise be indistinguishable from a finished one, so the
@@ -834,7 +863,7 @@ function ReasoningCard({
         className="activity-header"
         aria-label={heading}
         aria-expanded={expanded}
-        onClick={onToggle}
+        onClick={() => onToggle(block.id)}
       >
         <span className="activity-icon">
           <BrainCircuit aria-hidden="true" />
@@ -851,9 +880,9 @@ function ReasoningCard({
       )}
     </article>
   )
-}
+})
 
-function PlanCard({ plan }: { plan: AgentPlanEntry[] }): JSX.Element {
+const PlanCard = memo(function PlanCard({ plan }: { plan: AgentPlanEntry[] }): JSX.Element {
   const [expanded, setExpanded] = useState(true)
   return (
     <article className="activity-card plan-card" data-family="plan" data-expanded={expanded}>
@@ -882,7 +911,7 @@ function PlanCard({ plan }: { plan: AgentPlanEntry[] }): JSX.Element {
       )}
     </article>
   )
-}
+})
 
 /**
  * Keeps the chat scroll container pinned to the bottom on initial load and as new content
@@ -1034,7 +1063,7 @@ export function ChatView(groups: ChatViewProps): JSX.Element {
                         key={`reasoning:${item.block.id}`}
                         block={item.block}
                         expanded={expandedReasoning.has(item.block.id)}
-                        onToggle={() => toggleReasoning(item.block.id)}
+                        onToggle={toggleReasoning}
                       />
                     )
                   ) : item.entry.type === 'activity' ? (
@@ -1048,7 +1077,7 @@ export function ChatView(groups: ChatViewProps): JSX.Element {
                   )
                 )}
                 {!session.focusMode && transcript.plan.length > 0 && <PlanCard plan={transcript.plan} />}
-                <ApprovalPanel {...pending} />
+                <ApprovalPanel approval={pending.approval} resolveApproval={pending.resolveApproval} />
               </div>
             </SessionCommandsContext.Provider>
           </SubagentActivitiesContext.Provider>
@@ -1075,7 +1104,11 @@ export function ChatView(groups: ChatViewProps): JSX.Element {
           ))}
         </section>
       )}
-      <StructuredDecisionPanel key={pending.decisionRequest?.id ?? 'no-structured-decision'} {...pending} />
+      <StructuredDecisionPanel
+        key={pending.decisionRequest?.id ?? 'no-structured-decision'}
+        decisionRequest={pending.decisionRequest}
+        resolveElicitation={pending.resolveElicitation}
+      />
       {session.statusBar && <div className="agent-chat-status-bar">{session.statusBar}</div>}
       {pendingDecisions.length === 0 && !pending.decisionRequest && (
         <Composer
@@ -1088,7 +1121,17 @@ export function ChatView(groups: ChatViewProps): JSX.Element {
           detail={authVisible || (session.focusMode && session.status === 'working') ? undefined : session.detail}
         />
       )}
-      {authVisible && <AuthPanel provider={transcript.provider} {...pending} />}
+      {authVisible && (
+        <AuthPanel
+          provider={transcript.provider}
+          authMethods={pending.authMethods}
+          authLink={pending.authLink}
+          reauthenticating={pending.reauthenticating}
+          authenticate={pending.authenticate}
+          submitAuthCode={pending.submitAuthCode}
+          openAuthLink={pending.openAuthLink}
+        />
+      )}
     </div>
   )
 }
@@ -1159,8 +1202,8 @@ export default function ChatNode({ id, data, selected, width }: NodeProps<Termin
   const stalled = reporting.stalled
   /**
    * The Branch action. It is absent - not disabled - where a fork cannot work at all, and disabled
-   * with a reason only while the transcript it would copy is mid-turn. The node is assembled here
-   * The rules themselves are pure (conversation-lineage.ts); this node only supplies its data.
+   * with a reason only while the transcript it would copy is mid-turn. The rules themselves are
+   * pure (conversation-lineage.ts); this node only supplies its data.
    */
   const branchable = offersBranchAction({ data })
   const branchBlocked = branchBlockedReason(reporting.nodeStatus)
@@ -1300,21 +1343,10 @@ export default function ChatNode({ id, data, selected, width }: NodeProps<Termin
     composerFocusPending.current = false
   }, [dormant, selected, status, width])
 
-  const flatProps: FlatChatViewProps = {
-    provider,
-    fileMentions,
-    ...conversation,
-    outcomes,
-    submit,
-    // The draft belongs to the node, not to the conversation: it has to outlive resize, collapse
-    // and a workspace reload, none of which the ACP session knows anything about.
-    draft: data.draft ?? '',
-    // The directory the agent was launched in (its worktree, or the checkout) plus the project
-    // checkout itself, so a worktree session still shortens a path it read from the main tree.
-    // Display only - `workingDirectory` remains the sole value that may be sent as a cwd.
-    workspaceRoots: [data.workingDirectory, data.projectPath].filter((root): root is string => !!root),
-    onDraftChange: (text) => data.onDraftChange(id, text)
-  }
+  // The directory the agent was launched in (its worktree, or the checkout) plus the project
+  // checkout itself, so a worktree session still shortens a path it read from the main tree.
+  // Display only - `workingDirectory` remains the sole value that may be sent as a cwd.
+  const workspaceRoots = [data.workingDirectory, data.projectPath].filter((root): root is string => !!root)
 
   return (
     <article
@@ -1451,20 +1483,58 @@ export default function ChatNode({ id, data, selected, width }: NodeProps<Termin
         <>
           <ChatView
             transcript={{
-              provider: flatProps.provider,
-              messages: flatProps.messages,
-              activities: flatProps.activities,
-              outcomes: flatProps.outcomes,
-              transcript: flatProps.transcript,
-              plan: flatProps.plan,
-              workspaceRoots: flatProps.workspaceRoots,
-              commands: flatProps.commands
+              provider,
+              messages: conversation.messages,
+              activities: conversation.activities,
+              outcomes,
+              transcript: conversation.transcript,
+              plan: conversation.plan,
+              workspaceRoots,
+              commands: conversation.commands
             }}
-            composer={flatProps}
-            pending={flatProps}
+            composer={{
+              // The draft belongs to the node, not to the conversation: it has to outlive resize,
+              // collapse and a workspace reload, none of which the ACP session knows anything about.
+              draft: data.draft ?? '',
+              onDraftChange: (text) => data.onDraftChange(id, text),
+              imageSupport: conversation.imageSupport,
+              attachments: conversation.attachments,
+              queued: conversation.queued,
+              addImages: conversation.addImages,
+              removeAttachment: conversation.removeAttachment,
+              submit,
+              editQueued: conversation.editQueued,
+              withdrawQueued: conversation.withdrawQueued,
+              sendQueuedNow: conversation.sendQueuedNow,
+              cancel: conversation.cancel,
+              fileMentions,
+              modes: conversation.modes,
+              models: conversation.models,
+              efforts: conversation.efforts,
+              routineDelegation: conversation.routineDelegation,
+              decisionDelegation: conversation.decisionDelegation,
+              selectorsDisabled: conversation.selectorsDisabled,
+              modelChangeBlocked: conversation.modelChangeBlocked,
+              selectMode: conversation.selectMode,
+              selectModel: conversation.selectModel,
+              selectEffort: conversation.selectEffort
+            }}
+            pending={{
+              approval: conversation.approval,
+              decisionRequest: conversation.decisionRequest,
+              resolveApproval: conversation.resolveApproval,
+              resolveElicitation: conversation.resolveElicitation,
+              authMethods: conversation.authMethods,
+              authLink: conversation.authLink,
+              reauthenticating: conversation.reauthenticating,
+              authenticate: conversation.authenticate,
+              submitAuthCode: conversation.submitAuthCode,
+              openAuthLink: conversation.openAuthLink,
+              answerDecision: conversation.answerDecision
+            }}
             session={{
-              status: flatProps.status,
-              detail: flatProps.detail,
+              status,
+              detail: conversation.detail,
               focusMode: data.focusMode,
               setFocusMode: (enabled) => data.onFocusModeChange(id, enabled),
               focusShortcutEnabled: selected,
