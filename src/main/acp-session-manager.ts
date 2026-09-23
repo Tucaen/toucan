@@ -383,6 +383,38 @@ const IGNORED_ADAPTER_DIAGNOSTICS = [/^claude auth status\b/i]
  * nothing publishes no status at all.
  * @internal exported for tests
  */
+/** How much adapter stderr an unexpected exit is logged with. */
+const ADAPTER_STDERR_TAIL_CHARS = 4 * 1024
+
+/**
+ * The main-log line for an adapter that exited without being stopped: enough to tell which node
+ * and conversation it was, how it ended, and what it said last.
+ * @internal exported for tests
+ */
+export function describeAdapterExit(exit: {
+  provider: AgentProvider
+  nodeId: string
+  conversationId?: string
+  forkFromConversationId?: string
+  code: number | null
+  signal: NodeJS.Signals | null
+  stderrTail: string
+}): string {
+  const conversation = exit.conversationId
+    ? `conversation ${exit.conversationId}`
+    : exit.forkFromConversationId
+      ? `fork of conversation ${exit.forkFromConversationId}`
+      : 'new conversation'
+  const ending = exit.code !== null ? `code ${exit.code}` : `signal ${exit.signal ?? 'unknown'}`
+  const tail = exit.stderrTail.trim()
+  return `${exit.provider} adapter for node ${exit.nodeId} (${conversation}) exited with ${ending}${
+    tail
+      ? `; stderr tail:
+${tail}`
+      : '; no stderr'
+  }`
+}
+
 export function startingProgressFrom(chunk: string): string | undefined {
   const kept = chunk
     .split('\n')
@@ -693,6 +725,12 @@ export interface AcpSessionManagerOptions {
   codexHome?: string
   /** Environment inherited by both adapters and the provider processes they launch. */
   environment?: NodeJS.ProcessEnv
+  /**
+   * The main-log sink. An adapter that exits on its own is recorded here with its exit code and
+   * stderr tail: the node's transcript is the only other place that is said, and it is gone the
+   * moment the node is closed - which is how an "Exited on restore" came to be undiagnosable (#240).
+   */
+  log?: (message: string) => void
   /** Seam for tests to observe the launch the primary adapter is actually spawned with. */
   spawnAgent?: (launch: AgentProcessLaunch) => ChildProcessWithoutNullStreams
   /**
@@ -1545,8 +1583,12 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       })
       agents.set(request.id, running)
 
+      // Only the tail is kept: it is what an unexpected exit is logged with, and an adapter that
+      // chatters on stderr for hours must not grow this without bound.
+      let stderrTail = ''
       child.stderr.setEncoding('utf8')
       child.stderr.on('data', (data: string) => {
+        stderrTail = (stderrTail + data).slice(-ADAPTER_STDERR_TAIL_CHARS)
         // Only the opening phase reports stderr as progress; see `RunningAgent.opening`.
         if (!running.opening) return
         const message = startingProgressFrom(data)
@@ -1564,13 +1606,24 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         send(running, { type: 'error', message: errorMessage(error) })
         stop(request.id)
       })
-      child.on('exit', (code) => {
+      child.on('exit', (code, signal) => {
         if (agents.get(request.id) === running) agents.delete(request.id)
         // An adapter that fell over on its own retires no broker channel, so this is the only
         // place the index hears that the session is over. `stop` reaches the same call through
         // `broker.close`, and finalizing twice rewrites the same record.
         running.sessionOutcomes?.finalize()
         if (!running.stopping) {
+          options.log?.(
+            describeAdapterExit({
+              provider: request.provider,
+              nodeId: request.id,
+              conversationId: request.sessionId,
+              forkFromConversationId: request.forkFromSessionId,
+              code,
+              signal,
+              stderrTail
+            })
+          )
           send(running, {
             type: 'status',
             status: 'exited',

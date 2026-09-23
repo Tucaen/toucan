@@ -346,6 +346,7 @@ void app.whenReady().then(async () => {
     resolveAdapter: adapters.resolve,
     codexHome,
     environment: agentEnvironment,
+    log: mainLog('agent sessions'),
     broker: agentEvents,
     onModelsAdvertised: (provider, models) => modelCatalogue.record(provider, models),
     sessionOutcomes,

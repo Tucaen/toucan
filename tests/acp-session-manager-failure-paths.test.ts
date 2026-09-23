@@ -62,6 +62,45 @@ test("an adapter child that emits 'error' reports it and stops the session inste
   }
 })
 
+test('an adapter that exits on its own is recorded in the main log with its code and stderr tail', async () => {
+  const events: AgentEvent[] = []
+  const logged: string[] = []
+  let child: ChildProcessWithoutNullStreams | undefined
+  const manager = createAcpSessionManager({
+    appPath: appWithAdapterStub(),
+    log: (message) => logged.push(message),
+    spawnAgent: () => {
+      child = stubAdapterChild()
+      return child
+    }
+  })
+
+  try {
+    void manager.create(
+      { id: 'restored-node', provider: 'codex', cwd: '/project', sessionId: 'thread-1' },
+      collectingOwner(events)
+    )
+    assert.ok(child)
+    child.stderr.write('x'.repeat(8 * 1024))
+    child.stderr.write('sandbox helper failed: access denied\n')
+    await new Promise((resolve) => setImmediate(resolve))
+    child.emit('exit', 3, null)
+    await new Promise((resolve) => setImmediate(resolve))
+
+    assert.equal(logged.length, 1)
+    const [line] = logged
+    assert.match(line, /codex/)
+    assert.match(line, /restored-node/)
+    assert.match(line, /thread-1/)
+    assert.match(line, /code 3/)
+    assert.match(line, /sandbox helper failed: access denied/)
+    // A tail, not the whole stream: a chatty adapter must not flood the log file.
+    assert.ok(line.length < 6 * 1024, `logged ${line.length} characters`)
+  } finally {
+    manager.killAll()
+  }
+})
+
 test('tool calls replayed by session/load do not stamp the session as a fresh writer of those files', async () => {
   const appPath = mkdtempSync(join(tmpdir(), 'toucan-replay-writes-'))
   installScriptedAdapter(appPath, 'claude-agent-acp', {
