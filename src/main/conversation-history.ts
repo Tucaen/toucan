@@ -200,19 +200,32 @@ interface CodexMeta {
   subagent: boolean
 }
 
+/** Thread sources Codex gives a rollout it spawned itself rather than one the user started. */
+const CODEX_SUBAGENT_THREAD_SOURCES = new Set(['subagent', 'guardian_review'])
+
+/**
+ * Whether a rollout is one Codex spawned for its own ends. Guardian reviewers (Codex 0.155+) carry
+ * their own `thread_source`, so the source object - `{ subagent: … }` on every spawned kind - is
+ * read too, so a subagent kind Codex adds later is filtered without naming it here.
+ */
+function isCodexSubagent(payload: { thread_source?: unknown; source?: unknown }): boolean {
+  if (typeof payload.thread_source === 'string' && CODEX_SUBAGENT_THREAD_SOURCES.has(payload.thread_source)) return true
+  return Boolean(payload.source) && typeof payload.source === 'object' && 'subagent' in (payload.source as object)
+}
+
 export function extractCodexMeta(head: string): CodexMeta | null {
   const firstLine = head.split(/\r?\n/, 1)[0]
   try {
     const record = JSON.parse(firstLine) as {
       type?: string
-      payload?: { id?: string; cwd?: string; timestamp?: string; thread_source?: string }
+      payload?: { id?: string; cwd?: string; timestamp?: string; thread_source?: unknown; source?: unknown }
     }
     if (record.type !== 'session_meta' || !record.payload?.id || !record.payload.cwd) return null
     return {
       id: record.payload.id,
       cwd: record.payload.cwd,
       startedAt: Date.parse(record.payload.timestamp ?? '') || 0,
-      subagent: record.payload.thread_source === 'subagent'
+      subagent: isCodexSubagent(record.payload)
     }
   } catch {
     // A session_meta line carrying full base instructions can outrun the head read, so the few
@@ -226,7 +239,7 @@ export function extractCodexMeta(head: string): CodexMeta | null {
         id,
         cwd: JSON.parse(`"${rawCwd}"`) as string,
         startedAt: Date.parse(/"timestamp":"([^"]+)"/.exec(head)?.[1] ?? '') || 0,
-        subagent: /"thread_source":"subagent"/.test(head)
+        subagent: /"thread_source":"(?:subagent|guardian_review)"|"source":{"subagent"/.test(head)
       }
     } catch {
       return null

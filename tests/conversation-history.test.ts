@@ -54,6 +54,8 @@ function writeCodexTranscript(options: {
   cwd: string
   day: string
   subagent?: boolean
+  /** A Codex guardian reviewer: its own thread source, and a `source.subagent` object. */
+  guardian?: boolean
   turns: Array<{ role: 'user' | 'assistant'; text: string }>
   mtimeSeconds: number
   /** Pads the session_meta line past the head read, as real base instructions do. */
@@ -69,7 +71,8 @@ function writeCodexTranscript(options: {
       id: options.id,
       cwd: options.cwd,
       timestamp: '2026-08-20T10:00:00.000Z',
-      thread_source: options.subagent ? 'subagent' : 'user',
+      ...(options.guardian ? { source: { subagent: { other: 'guardian' } } } : {}),
+      thread_source: options.guardian ? 'guardian_review' : options.subagent ? 'subagent' : 'user',
       ...(options.oversizedMeta ? { base_instructions: { text: 'x'.repeat(32 * 1024) } } : {})
     }
   }
@@ -262,6 +265,48 @@ test('ignores Codex subagent rollouts and transcripts from other directories', a
       ['codex-worktree']
     )
     assert.equal(page.entries[0].cwd, WORKTREE)
+  } finally {
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('ignores Codex guardian-review rollouts, however long their meta line', async () => {
+  const home = makeHome()
+  try {
+    writeCodexTranscript({
+      home,
+      id: 'codex-guardian',
+      cwd: PROJECT,
+      day: '21',
+      guardian: true,
+      turns: [{ role: 'user', text: 'judge this planned action' }],
+      mtimeSeconds: 1_700_000_900
+    })
+    writeCodexTranscript({
+      home,
+      id: 'codex-guardian-big',
+      cwd: PROJECT,
+      day: '21',
+      guardian: true,
+      oversizedMeta: true,
+      turns: [{ role: 'user', text: 'judge this other action' }],
+      mtimeSeconds: 1_700_000_800
+    })
+    writeCodexTranscript({
+      home,
+      id: 'codex-real',
+      cwd: PROJECT,
+      day: '21',
+      turns: [{ role: 'user', text: 'the real conversation' }],
+      mtimeSeconds: 1_700_000_700
+    })
+
+    const page = await history(home).list({ directories: [PROJECT] })
+
+    assert.deepEqual(
+      page.entries.map((entry) => entry.id),
+      ['codex-real']
+    )
   } finally {
     rmSync(home, { recursive: true, force: true })
   }
