@@ -91,6 +91,7 @@ import {
 } from './terminal-context-edges'
 import { branchBlockedReason, lineageEdges, lineageKey, offersBranchAction, planBranch } from './conversation-lineage'
 import { launchModeAfterConversation, launchModeOnOpen } from './session-launch-mode'
+import { planHistoryOpen } from './history-open'
 import { useTicketsFolderRevision } from './use-tickets-folder-revision'
 import { useWorkspaceSnapshot } from './use-workspace-snapshot'
 import { COMPOSER_SEND_KEY_DEFAULT } from './composer-keys'
@@ -2013,13 +2014,20 @@ function Canvas(): JSX.Element {
 
   /**
    * A browsed conversation reopens as a node resumed onto it, attached to whichever worktree it
-   * originally ran in so it keeps writing where it always did.
+   * originally ran in so it keeps writing where it always did - unless a node already holds it,
+   * which is then focused instead (see `history-open.ts`).
    */
   const openHistoryConversation = useCallback(
     (entry: ConversationSummary): void => {
       const project =
         projectsRef.current.find((candidate) => candidate.id === activeProjectId) ?? projectsRef.current[0]
       if (!project || !historyDrop) return
+      const plan = planHistoryOpen(nodesRef.current, entry)
+      if (plan.action === 'focus') {
+        focusNode(plan.nodeId)
+        setHistoryDrop(null)
+        return
+      }
       const worktreeNode = nodesRef.current
         .filter(isWorktreeCanvasNode)
         .find((node) => pathWithinRoot(node.data.path, entry.cwd) === '')
@@ -2035,7 +2043,7 @@ function Canvas(): JSX.Element {
       if (!opened) setNotice(worktreeGoneNotice('the conversation could not be reopened in it.'))
       setHistoryDrop(null)
     },
-    [activeProjectId, addSessionNode, historyDrop]
+    [activeProjectId, addSessionNode, focusNode, historyDrop]
   )
 
   /**
@@ -2051,6 +2059,14 @@ function Canvas(): JSX.Element {
         projectsRef.current.find((candidate) => candidate.id === activeProjectId) ??
         projectsRef.current[0]
       if (!project) return
+      const plan = planHistoryOpen(nodesRef.current, {
+        provider: conversation.provider,
+        id: conversation.conversationId
+      })
+      if (plan.action === 'focus') {
+        focusNode(plan.nodeId)
+        return
+      }
       addSessionNode({
         kind: conversation.provider,
         project,
@@ -2059,7 +2075,7 @@ function Canvas(): JSX.Element {
         resumeConversationId: conversation.conversationId
       })
     },
-    [activeProjectId, addSessionNode, centredDropPosition]
+    [activeProjectId, addSessionNode, centredDropPosition, focusNode]
   )
 
   const confirmWorktreeDraft = useCallback((): void => {
