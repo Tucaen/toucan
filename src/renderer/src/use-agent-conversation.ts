@@ -150,6 +150,14 @@ export interface AgentConversationController {
   failureKey: string | null
   /** Whether the running agent's ACP handshake advertised support for image content blocks. */
   imageSupport: boolean
+  /**
+   * Whether this conversation has any turns - unknown until a create has opened the session and
+   * its replay has been folded. Every (re)start clears the messages first, and main's live `ready`
+   * lands before a resume's replay does, so reading `messages` alone would call a conversation
+   * with turns empty in that gap. A terminal-context adoption starts a positively empty one new
+   * rather than resuming it (#239), which is why the gap has to read as unknown.
+   */
+  transcriptPresence: boolean | undefined
   /** Pasted images attached to the composer, shown as removable previews until the message is sent. */
   attachments: AgentImageAttachment[]
   /**
@@ -199,6 +207,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
   const [chat, setChat] = useState<AgentTranscriptState>(initialAgentTranscriptState)
   const [reauthenticating, setReauthenticating] = useState(false)
   const [imageSupport, setImageSupport] = useState(false)
+  const [opened, setOpened] = useState(false)
   const [attachments, setAttachments] = useState<AgentImageAttachment[]>([])
   const [queued, setQueued] = useState<QueuedPrompt[]>([])
   const { status } = chat
@@ -289,6 +298,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     setChat(initialAgentTranscriptState())
     setReauthenticating(false)
     setImageSupport(false)
+    setOpened(false)
     setAttachments([])
     updateQueued(() => [])
     const handleEvent = (event: AgentEvent): void => {
@@ -337,6 +347,8 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
           onForkSupport.current?.(result.forkSupport ?? false)
         }
         setImageSupport(result.imageSupport ?? false)
+        // Same batch as the replay above, so no render sees the session open without its turns.
+        setOpened(result.status === 'ready')
         setChat((current) => applyAgentCreateResult(current, result))
       })
     return () => {
@@ -610,6 +622,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     failure: chat.failure,
     failureKey: chat.failureKey,
     imageSupport,
+    transcriptPresence: opened ? chat.messages.length > 0 : undefined,
     attachments,
     queued,
     editQueued,

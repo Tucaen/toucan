@@ -344,7 +344,7 @@ function Canvas(): JSX.Element {
   const [terminalContextSessions, setTerminalContextSessions] = useState<Record<string, boolean>>({})
   // Whether each chat node's conversation has any turns yet. An adoption restart resumes only a
   // conversation that has one: an empty one is not on disk, so it restarts new instead (#239).
-  const [conversationTranscripts, setConversationTranscripts] = useState<Record<string, boolean>>({})
+  const [transcriptPresence, setTranscriptPresence] = useState<Record<string, boolean>>({})
   const [projects, setProjects] = useState<Project[]>([])
   const [projectGroups, setProjectGroups] = useState<ProjectGroup[]>([])
   const [nodeStatuses, setNodeStatuses] = useState<Record<string, TerminalNodeStatus>>({})
@@ -553,7 +553,7 @@ function Canvas(): JSX.Element {
   }, [])
 
   const handleTranscriptPresence = useCallback((nodeId: string, present: boolean): void => {
-    setConversationTranscripts((current) => (current[nodeId] === present ? current : { ...current, [nodeId]: present }))
+    setTranscriptPresence((current) => (current[nodeId] === present ? current : { ...current, [nodeId]: present }))
   }, [])
 
   const handleTerminalLiveness = useCallback(
@@ -875,7 +875,7 @@ function Canvas(): JSX.Element {
         // Closing either end of a terminal-context edge revokes it - the whole lifecycle rule.
         setEdges((current) => withoutEdgesTouchingNodes(current, removedIds))
         setTerminalContextSessions((current) => withoutNodeKeys(current, removedIds))
-        setConversationTranscripts((current) => withoutNodeKeys(current, removedIds))
+        setTranscriptPresence((current) => withoutNodeKeys(current, removedIds))
       }
       // Fit mode reads the changes before they land: a drag or manual resize of the fitted node
       // leaves fit mode, and a removed node must not leave a restore waiting for it.
@@ -1763,16 +1763,16 @@ function Canvas(): JSX.Element {
       edges,
       nodeStatuses,
       terminalContextSessions,
-      conversationTranscripts
+      transcriptPresence
     )
     if (adopting.length === 0) return
     // Both launch-time reports are spent: the restarted session answers them afresh, and a
     // transcript report from before the restart must not decide the next adoption's launch mode.
     const adoptingIds = new Set(adopting.map((adoption) => adoption.nodeId))
     setTerminalContextSessions((current) => withoutNodeKeys(current, adoptingIds))
-    setConversationTranscripts((current) => withoutNodeKeys(current, adoptingIds))
+    setTranscriptPresence((current) => withoutNodeKeys(current, adoptingIds))
     setNodes((current) => adoptTerminalContext(current, adopting))
-  }, [conversationTranscripts, edges, nodeStatuses, nodes, setNodes, terminalContextSessions])
+  }, [edges, nodeStatuses, nodes, setNodes, terminalContextSessions, transcriptPresence])
 
   /**
    * Worktrees can appear without Toucan creating them - an agent running the worktree skill, a

@@ -22,6 +22,19 @@ export function launchModeAfterConversation(launchMode: SessionLaunchMode): Sess
   return launchMode === 'fork' ? 'resume' : launchMode
 }
 
+/**
+ * How a terminal-context adoption restarts a live chat. It resumes the conversation it has -
+ * unless that conversation is positively known to be empty: neither provider writes one to disk
+ * before its first turn, so a `session/load` of it fails and leaves the node `exited` (#239),
+ * while a fresh session loses nothing. Unknown resumes, because a resume can never discard turns.
+ */
+export function launchModeOnAdoption(transcriptPresence: boolean | undefined): AdoptionLaunchMode {
+  return transcriptPresence === false ? 'new' : 'resume'
+}
+
+/** An adoption restarts the node's own conversation or none - it never forks. */
+export type AdoptionLaunchMode = Exclude<SessionLaunchMode, 'fork'>
+
 /** The little of a node this decision reads, so a saved node can ask without being a canvas one. */
 export interface LaunchModeCandidate {
   kind: TerminalKind

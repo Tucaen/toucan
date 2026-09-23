@@ -1168,14 +1168,13 @@ export default function ChatNode({ id, data, selected, width }: NodeProps<Termin
   })
   const { status, messages, usage } = conversation
   // Only the fact that turns exist travels upward: it decides whether a terminal-context adoption
-  // may resume this conversation or has to start it new (terminal-context-edges.ts). Silent while
-  // the session is starting - every (re)start clears the list before a resume replays it, and an
-  // "empty" reported in that gap would start a real conversation over.
-  const hasTranscript = status === 'starting' ? undefined : messages.length > 0
+  // may resume this conversation or has to start it new (terminal-context-edges.ts). Unknown is
+  // never reported - it is what keeps a conversation mid-replay from reading as empty.
+  const { transcriptPresence } = conversation
   const onTranscriptPresence = data.onTranscriptPresence
   useEffect(() => {
-    if (hasTranscript !== undefined) onTranscriptPresence?.(id, hasTranscript)
-  }, [hasTranscript, id, onTranscriptPresence])
+    if (transcriptPresence !== undefined) onTranscriptPresence?.(id, transcriptPresence)
+  }, [transcriptPresence, id, onTranscriptPresence])
   const [renaming, setRenaming] = useState(false)
   const [titleDraft, setTitleDraft] = useState(data.label)
   const [titleError, setTitleError] = useState(false)

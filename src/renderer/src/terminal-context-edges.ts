@@ -8,6 +8,7 @@ import {
   type TerminalCanvasNode,
   type TerminalNodeStatus
 } from './canvas-workspace'
+import { launchModeOnAdoption, type AdoptionLaunchMode } from './session-launch-mode'
 
 /**
  * The renderer-side decisions behind the terminal-context edge (design in
@@ -99,15 +100,10 @@ export function mirroredTerminalContextEdges(
  */
 export const TERMINAL_CONTEXT_ADOPTION_BOUNDARY: readonly TerminalNodeStatus[] = ['idle', 'result']
 
-/**
- * One planned restart and how it opens. `resume` replays the conversation the node already has;
- * `new` is for a conversation with no turns yet, which neither provider has written to disk - a
- * `session/load` of it fails and leaves the node `exited` (#239) - and which a fresh session
- * loses nothing by replacing.
- */
+/** One planned restart and how it opens (`launchModeOnAdoption` decides which). */
 export interface TerminalContextAdoption {
   nodeId: string
-  launchMode: 'resume' | 'new'
+  launchMode: AdoptionLaunchMode
 }
 
 /**
@@ -115,9 +111,8 @@ export interface TerminalContextAdoption {
  * the session reported launching without the tool (`sessions[id] === false` - the launch-time
  * truth off `AgentCreateResult`; unknown means a session is still opening and will consult the
  * registry itself). Only at a boundary with nothing in flight, and only once the session has
- * reported a conversation. Whether that conversation has a transcript (`transcripts[id]`, off the
- * node's own message list) picks the launch mode; only a positive "empty" starts new, so a node
- * that has not reported yet keeps the resume, which can never discard turns. Removing an edge
+ * reported a conversation. Whether that conversation has turns (`transcriptPresence[id]`, off the
+ * node's own conversation; absent until it has reported) picks the launch mode. Removing an edge
  * plans nothing: the registry already refuses at call time, and the definition drops off at the
  * session's next natural resume.
  */
@@ -126,7 +121,7 @@ export function planTerminalContextAdoptions(
   edges: readonly Edge[],
   statuses: Readonly<Record<string, TerminalNodeStatus>>,
   sessions: Readonly<Record<string, boolean>>,
-  transcripts: Readonly<Record<string, boolean>>
+  transcriptPresence: Readonly<Record<string, boolean>>
 ): TerminalContextAdoption[] {
   const connected = new Set(mirroredTerminalContextEdges(nodes, edges).map((edge) => edge.agentId))
   return nodes
@@ -139,7 +134,7 @@ export function planTerminalContextAdoptions(
         Boolean(node.data.conversationId) &&
         TERMINAL_CONTEXT_ADOPTION_BOUNDARY.includes(sessionNodeStatus(node, statuses))
     )
-    .map((node) => ({ nodeId: node.id, launchMode: transcripts[node.id] === false ? 'new' : 'resume' }))
+    .map((node) => ({ nodeId: node.id, launchMode: launchModeOnAdoption(transcriptPresence[node.id]) }))
 }
 
 /**
