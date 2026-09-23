@@ -13,26 +13,7 @@ import {
   type NodeChange,
   type NodeTypes
 } from '@xyflow/react'
-import {
-  BookOpen,
-  ChevronDown,
-  ChevronLeft,
-  ChevronRight,
-  ClipboardList,
-  FileText,
-  FolderPlus,
-  GitBranch,
-  GitCompare,
-  GripVertical,
-  History,
-  LayoutGrid,
-  Maximize,
-  Plus,
-  Settings,
-  X,
-  ZoomIn,
-  ZoomOut
-} from 'lucide-react'
+import { FileText, GitBranch, GitCompare, History, LayoutGrid, Maximize, ZoomIn, ZoomOut } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import { AGENT_TURN_OUTCOME_LIMIT, type AgentTurnOutcome } from '../../shared/agent'
 import type { ConversationSummary } from '../../shared/conversation'
@@ -132,24 +113,14 @@ import DiffNode from './DiffNode'
 import FilePickerDialog from './FilePickerDialog'
 import { OpenFileContext } from './open-file-context'
 import { projectOwningPath, workspaceRootOwningPath } from './file-node'
-import {
-  groupDropTarget,
-  moveGroup,
-  moveProject,
-  nextGroupName,
-  projectDropTarget,
-  sidebarRegions,
-  ungroupProjects,
-  type MeasuredRow
-} from './project-order'
+import { moveGroup, moveProject, nextGroupName, ungroupProjects } from './project-order'
+import { projectSidebarSummaries } from './project-sidebar'
+import { ProjectSidebar, type GroupDrop, type ProjectDrop, type ProjectSidebarIntents } from './ProjectSidebar'
 import ProjectRowMenu, { type ProjectMenuPage, type ProjectMenuTarget } from './ProjectRowMenu'
-import ProjectBranchChip from './ProjectBranchChip'
 import type { GitCheckoutResult } from '../../shared/git-branch'
 import { ProviderRateLimitsContext } from './provider-rate-limits'
 import SessionKindIcon from './SessionKindIcon'
 import SessionNode from './SessionNode'
-import { terminalLivenessLabels } from './terminal-liveness'
-import { SidebarTerminalLiveness } from './TerminalLivenessPresentation'
 import { useProviderRateLimits } from './use-provider-rate-limits'
 import { READ_ON_VIEW_KINDS } from '../../shared/attention'
 import { useWorkspaceAttention } from './workspace-attention'
@@ -157,7 +128,6 @@ import { ticketsDirectoryOrDefault } from '../../shared/tickets'
 import { useWorkspacePersistence } from './workspace-persistence'
 import {
   ProjectSettingsDialog,
-  projectSettingsTitle,
   WorktreeCreateDialog,
   WorktreeRemoveDialog,
   type ProjectSettingsDraft,
@@ -192,7 +162,6 @@ import { nodeSearchKeyAction } from './node-search'
 import { NodeSearchContext, NO_NODE_SEARCH_REQUEST, type NodeSearchRequest } from './node-search-context'
 import { useNodeSnap } from './use-node-snap'
 import { useProjectAvatars } from './use-project-avatars'
-import { ProjectAvatar } from './ProjectAvatar'
 
 type Project = WorkspaceProject
 
@@ -252,17 +221,6 @@ const labels: Record<TerminalKind, string> = {
   terminal: 'Terminal',
   claude: 'Claude Code',
   codex: 'Codex'
-}
-
-const statusLabels: Record<TerminalNodeStatus, string> = {
-  dormant: 'Saved',
-  starting: 'Starting',
-  idle: 'Idle',
-  working: 'Working',
-  result: 'Result',
-  attention: 'Attention',
-  stalled: 'Stalled',
-  exited: terminalLivenessLabels.exited
 }
 
 function createProject(directory: ProjectDirectory, index: number): Project {
@@ -2196,92 +2154,6 @@ function Canvas(): JSX.Element {
     [setNodes]
   )
 
-  /**
-   * A drag in flight on a sidebar row. Rows are measured once at `pointerdown` - nothing in the
-   * list moves until the drop - and the new order is committed on `pointerup` only, because every
-   * change to `projects` re-serialises the whole workspace.
-   */
-  const [sidebarDrag, setSidebarDrag] = useState<{
-    kind: 'project' | 'group'
-    id: string
-    indicator: { top: number; left: number; width: number } | null
-  } | null>(null)
-  const sidebarRef = useRef<HTMLElement>(null)
-  const sidebarRowsRef = useRef(new Map<string, HTMLElement>())
-
-  const registerSidebarRow = useCallback((key: string, element: HTMLElement | null): void => {
-    if (element) sidebarRowsRef.current.set(key, element)
-    else sidebarRowsRef.current.delete(key)
-  }, [])
-
-  const measureSidebarRows = useCallback((): MeasuredRow[] => {
-    const measured: MeasuredRow[] = []
-    const push = (kind: MeasuredRow['kind'], id: string, groupId?: string): void => {
-      const element = sidebarRowsRef.current.get(`${kind}:${id}`)
-      if (!element) return
-      const rect = element.getBoundingClientRect()
-      measured.push({ kind, id, ...(groupId ? { groupId } : {}), top: rect.top, bottom: rect.bottom })
-    }
-    for (const region of sidebarRegions(projects, projectGroups)) {
-      if (region.group) push('group-header', region.group.id)
-      if (region.group?.collapsed) continue
-      for (const project of region.projects) push('project', project.id, region.group?.id)
-    }
-    return measured
-  }, [projectGroups, projects])
-
-  /**
-   * The one drag gesture, shared by project rows and group headers. It only ever starts on the
-   * grab handle, so clicking a row or one of its action buttons still does what it always did.
-   */
-  const startSidebarDrag = useCallback(
-    (kind: 'project' | 'group', id: string, event: React.PointerEvent<HTMLElement>): void => {
-      event.preventDefault()
-      event.stopPropagation()
-      event.currentTarget.setPointerCapture?.(event.pointerId)
-      setProjectMenu(null)
-
-      const rows = measureSidebarRows()
-      const sidebar = sidebarRef.current?.getBoundingClientRect()
-      const frame = { left: sidebar?.left ?? 0, width: sidebar?.width ?? 0 }
-      let target: ReturnType<typeof projectDropTarget> | ReturnType<typeof groupDropTarget> = null
-      setSidebarDrag({ kind, id, indicator: null })
-
-      const move = (pointer: PointerEvent): void => {
-        target =
-          kind === 'project' ? projectDropTarget(rows, pointer.clientY, id) : groupDropTarget(rows, pointer.clientY, id)
-        setSidebarDrag({
-          kind,
-          id,
-          indicator: target ? { top: target.indicatorY, ...frame } : null
-        })
-      }
-      const finish = (commit: boolean): void => {
-        window.removeEventListener('pointermove', move)
-        window.removeEventListener('pointerup', release)
-        window.removeEventListener('keydown', cancel)
-        setSidebarDrag(null)
-        if (!commit || !target) return
-        if (kind === 'project' && 'beforeProjectId' in target) {
-          const drop = target
-          setProjects((current) => moveProject(current, id, drop))
-        } else if (kind === 'group' && 'beforeGroupId' in target) {
-          const drop = target
-          setProjectGroups((current) => moveGroup(current, id, drop))
-        }
-      }
-      const release = (): void => finish(true)
-      const cancel = (key: KeyboardEvent): void => {
-        if (key.key === 'Escape') finish(false)
-      }
-
-      window.addEventListener('pointermove', move)
-      window.addEventListener('pointerup', release)
-      window.addEventListener('keydown', cancel)
-    },
-    [measureSidebarRows]
-  )
-
   const toggleProjectGroup = useCallback((groupId: string): void => {
     setProjectGroups((current) =>
       current.map((group) => (group.id === groupId ? { ...group, collapsed: !group.collapsed } : group))
@@ -2322,6 +2194,84 @@ function Canvas(): JSX.Element {
     setProjectGroups((current) => current.filter((group) => group.id !== groupId))
     setRenamingGroupId((current) => (current === groupId ? null : current))
   }, [])
+
+  // The sidebar's intent implementations. Each folds in the workspace-side effects the gesture
+  // implies - closing the canvas context menu, clearing a stale avatar error - so the sidebar
+  // itself stays a projection with no workspace knowledge.
+  const selectProject = useCallback((projectId: string): void => {
+    setActiveProjectId(projectId)
+    setMenu(null)
+  }, [])
+  const toggleSidebarCollapsed = useCallback((): void => {
+    setMenu(null)
+    setSidebarCollapsed((current) => !current)
+  }, [])
+  const openProjectSettings = useCallback((projectId: string): void => {
+    setAvatarError(null)
+    setSetupProjectId(projectId)
+    setMenu(null)
+  }, [])
+  const openProjectMenu = useCallback(
+    (anchor: { x: number; y: number }, target: ProjectMenuTarget, page?: ProjectMenuPage): void => {
+      setMenu(null)
+      setProjectMenu({ x: anchor.x, y: anchor.y, target, ...(page ? { page } : {}) })
+    },
+    []
+  )
+  const handleMoveProject = useCallback(
+    (projectId: string, drop: ProjectDrop): void => setProjects((current) => moveProject(current, projectId, drop)),
+    []
+  )
+  const handleMoveGroup = useCallback(
+    (groupId: string, drop: GroupDrop): void => setProjectGroups((current) => moveGroup(current, groupId, drop)),
+    []
+  )
+  const cancelGroupRename = useCallback((): void => setRenamingGroupId(null), [])
+  const closeProjectMenuForDrag = useCallback((): void => setProjectMenu(null), [])
+
+  const sidebarIntents = useMemo<ProjectSidebarIntents>(
+    () => ({
+      selectProject,
+      toggleCollapsed: toggleSidebarCollapsed,
+      addProject: () => void addProject(),
+      addGroup: () => void addProjectGroup(),
+      removeProject,
+      locateProject,
+      focusNode,
+      openProjectSettings,
+      openMenu: openProjectMenu,
+      toggleGroup: toggleProjectGroup,
+      commitGroupRename: renameProjectGroup,
+      cancelGroupRename,
+      moveProject: handleMoveProject,
+      moveGroup: handleMoveGroup,
+      dragStarted: closeProjectMenuForDrag,
+      toggleBrainDump: toggleBrainDumpPanel,
+      toggleTicketBoard: toggleTicketBoardPanel
+    }),
+    [
+      addProject,
+      addProjectGroup,
+      cancelGroupRename,
+      closeProjectMenuForDrag,
+      focusNode,
+      handleMoveGroup,
+      handleMoveProject,
+      locateProject,
+      openProjectMenu,
+      openProjectSettings,
+      removeProject,
+      renameProjectGroup,
+      selectProject,
+      toggleBrainDumpPanel,
+      toggleProjectGroup,
+      toggleSidebarCollapsed,
+      toggleTicketBoardPanel
+    ]
+  )
+
+  /** What the sidebar shows of the canvas, derived once per render; see `project-sidebar.ts`. */
+  const sidebarSummaries = useMemo(() => projectSidebarSummaries(nodes, nodeStatuses), [nodes, nodeStatuses])
 
   const sendKeyPreference = useMemo(
     () => ({ sendKey: composerSendKey, setSendKey: setComposerSendKey }),
@@ -2404,392 +2354,27 @@ function Canvas(): JSX.Element {
               />
 
               <div className="workspace-shell">
-                <aside ref={sidebarRef} className={`project-sidebar ${sidebarCollapsed ? 'collapsed' : ''}`}>
-                  <div className="sidebar-heading">
-                    {!sidebarCollapsed && <span>Projects</span>}
-                    <button
-                      type="button"
-                      className="sidebar-toggle"
-                      title={sidebarCollapsed ? 'Expand projects' : 'Collapse projects'}
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        setMenu(null)
-                        setSidebarCollapsed((current) => !current)
-                      }}
-                    >
-                      {sidebarCollapsed ? <ChevronRight aria-hidden="true" /> : <ChevronLeft aria-hidden="true" />}
-                    </button>
-                  </div>
-
-                  <div className="project-list" data-dragging={sidebarDrag ? 'true' : undefined}>
-                    {sidebarRegions(projects, projectGroups).map((region) => {
-                      const group = region.group
-                      return (
-                        <div className="project-region" key={group?.id ?? 'ungrouped'} data-group={group?.id}>
-                          {group && (
-                            <div
-                              className="project-group-header"
-                              ref={(element) => registerSidebarRow(`group-header:${group.id}`, element)}
-                              data-expanded={group.collapsed ? undefined : 'true'}
-                              data-dragging={
-                                sidebarDrag?.kind === 'group' && sidebarDrag.id === group.id ? 'true' : undefined
-                              }
-                              onContextMenu={(event) => {
-                                event.preventDefault()
-                                setMenu(null)
-                                setProjectMenu({ x: event.clientX, y: event.clientY, target: { kind: 'group', group } })
-                              }}
-                            >
-                              <span
-                                className="project-drag-handle"
-                                title={`Drag to re-order ${group.name}`}
-                                onPointerDown={(event) => startSidebarDrag('group', group.id, event)}
-                              >
-                                <GripVertical aria-hidden="true" />
-                              </span>
-                              {renamingGroupId === group.id ? (
-                                <input
-                                  className="project-group-rename"
-                                  autoFocus
-                                  defaultValue={group.name}
-                                  aria-label={`Rename ${group.name}`}
-                                  onKeyDown={(event) => {
-                                    if (event.key === 'Enter') renameProjectGroup(group.id, event.currentTarget.value)
-                                    if (event.key === 'Escape') {
-                                      event.stopPropagation()
-                                      setRenamingGroupId(null)
-                                    }
-                                  }}
-                                  onBlur={(event) => renameProjectGroup(group.id, event.currentTarget.value)}
-                                />
-                              ) : (
-                                <button
-                                  type="button"
-                                  className="project-group-toggle"
-                                  aria-expanded={!group.collapsed}
-                                  title={`${group.name} · ${region.projects.length} project${
-                                    region.projects.length === 1 ? '' : 's'
-                                  }`}
-                                  onClick={(event) => {
-                                    event.stopPropagation()
-                                    toggleProjectGroup(group.id)
-                                  }}
-                                >
-                                  <span className="project-group-chevron" aria-hidden="true">
-                                    <ChevronDown />
-                                  </span>
-                                  {sidebarCollapsed ? (
-                                    <span className="project-avatar project-group-avatar">
-                                      {group.name.slice(0, 1).toUpperCase()}
-                                    </span>
-                                  ) : (
-                                    <>
-                                      <strong>{group.name}</strong>
-                                      <span className="project-group-count">{region.projects.length}</span>
-                                    </>
-                                  )}
-                                </button>
-                              )}
-                            </div>
-                          )}
-                          {!group?.collapsed &&
-                            region.projects.map((project) => {
-                              const projectNodes = nodes
-                                .filter(isTerminalCanvasNode)
-                                .filter((node) => node.data.projectId === project.id)
-                              const projectWorktrees = nodes
-                                .filter(isWorktreeCanvasNode)
-                                .filter((node) => node.data.projectId === project.id)
-                              const nodeCount = projectNodes.length + projectWorktrees.length
-                              // Summed from the same records as the header chip and the nodes, never re-derived.
-                              const projectNodeIds = projectNodes.map((node) => node.id)
-                              const projectUnread = countUnread(projectNodeIds)
-                              const selected = project.id === activeProject?.id
-                              return (
-                                <div className="project-section" key={project.id}>
-                                  <div
-                                    className={`project-row ${selected ? 'active' : ''}`}
-                                    ref={(element) => registerSidebarRow(`project:${project.id}`, element)}
-                                    data-dragging={
-                                      sidebarDrag?.kind === 'project' && sidebarDrag.id === project.id
-                                        ? 'true'
-                                        : undefined
-                                    }
-                                    onContextMenu={(event) => {
-                                      event.preventDefault()
-                                      setMenu(null)
-                                      setProjectMenu({
-                                        x: event.clientX,
-                                        y: event.clientY,
-                                        target: { kind: 'project', project }
-                                      })
-                                    }}
-                                  >
-                                    <span
-                                      className="project-drag-handle"
-                                      title={`Drag to re-order ${project.name}`}
-                                      onPointerDown={(event) => startSidebarDrag('project', project.id, event)}
-                                    >
-                                      <GripVertical aria-hidden="true" />
-                                    </span>
-                                    <button
-                                      type="button"
-                                      className="project-select"
-                                      title={sidebarCollapsed ? `${project.name}\n${project.path}` : undefined}
-                                      onClick={(event) => {
-                                        event.stopPropagation()
-                                        setActiveProjectId(project.id)
-                                        setMenu(null)
-                                      }}
-                                    >
-                                      <ProjectAvatar project={project} avatarUrl={projectAvatars[project.id] ?? null}>
-                                        {projectUnread > 0 && (
-                                          <span
-                                            className="unread-badge project-unread"
-                                            title={describeUnread(projectNodeIds)}
-                                          >
-                                            {projectUnread}
-                                          </span>
-                                        )}
-                                      </ProjectAvatar>
-                                      {!sidebarCollapsed && (
-                                        <span className="project-copy">
-                                          <strong title={project.path}>{project.name}</strong>
-                                        </span>
-                                      )}
-                                    </button>
-                                    {!sidebarCollapsed && (
-                                      <div className="project-actions">
-                                        <button
-                                          type="button"
-                                          className="project-setup"
-                                          title={projectSettingsTitle(project)}
-                                          data-configured={
-                                            project.setupCommand ||
-                                            project.ticketsDirectory ||
-                                            project.runCommands?.length
-                                              ? 'true'
-                                              : undefined
-                                          }
-                                          onClick={(event) => {
-                                            event.stopPropagation()
-                                            setAvatarError(null)
-                                            setSetupProjectId(project.id)
-                                            setMenu(null)
-                                          }}
-                                        >
-                                          <Settings aria-hidden="true" />
-                                        </button>
-                                        <button
-                                          type="button"
-                                          className="project-locate"
-                                          title={
-                                            nodeCount > 0 ? `Show ${project.name} nodes` : 'No nodes on the canvas yet'
-                                          }
-                                          disabled={nodeCount === 0}
-                                          onClick={(event) => {
-                                            event.stopPropagation()
-                                            locateProject(project.id)
-                                          }}
-                                        >
-                                          {nodeCount}
-                                        </button>
-                                        <button
-                                          type="button"
-                                          className="project-remove"
-                                          title={
-                                            nodeCount > 0
-                                              ? 'Delete this project’s nodes first'
-                                              : `Remove ${project.name}`
-                                          }
-                                          disabled={nodeCount > 0}
-                                          onClick={(event) => {
-                                            event.stopPropagation()
-                                            removeProject(project.id)
-                                          }}
-                                        >
-                                          <X aria-hidden="true" />
-                                        </button>
-                                      </div>
-                                    )}
-                                    {!sidebarCollapsed && (
-                                      <div className="project-branch-line">
-                                        <ProjectBranchChip
-                                          directory={project.path}
-                                          revision={branchRevision}
-                                          onOpen={(anchor) => {
-                                            setMenu(null)
-                                            setProjectMenu({
-                                              x: anchor.left,
-                                              y: anchor.bottom + 4,
-                                              target: { kind: 'project', project },
-                                              page: 'branches'
-                                            })
-                                          }}
-                                        />
-                                      </div>
-                                    )}
-                                  </div>
-
-                                  {!sidebarCollapsed && projectWorktrees.length > 0 && (
-                                    <div className="project-node-list project-worktree-list">
-                                      {projectWorktrees.map((node) => (
-                                        <button
-                                          type="button"
-                                          className={`project-node-row ${node.selected ? 'selected' : ''}`}
-                                          key={node.id}
-                                          title={`Focus worktree ${node.data.branch}\n${node.data.path}`}
-                                          onClick={(event) => {
-                                            event.stopPropagation()
-                                            focusNode(node.id)
-                                          }}
-                                        >
-                                          <span className="project-node-kind">
-                                            <GitBranch aria-hidden="true" />
-                                          </span>
-                                          <span className="project-node-name">{node.data.branch}</span>
-                                          <span className="project-node-state" data-status="worktree">
-                                            {node.data.attachedNodeCount}
-                                          </span>
-                                        </button>
-                                      ))}
-                                    </div>
-                                  )}
-
-                                  {!sidebarCollapsed && projectNodes.length > 0 && (
-                                    <div className="project-node-list">
-                                      {projectNodes.map((node) => {
-                                        const status = sessionNodeStatus(node, nodeStatuses)
-                                        const nodeUnread = unreadByNode[node.id] ?? 0
-                                        return (
-                                          <button
-                                            type="button"
-                                            className={`project-node-row ${node.selected ? 'selected' : ''}`}
-                                            key={node.id}
-                                            data-kind={node.data.kind}
-                                            data-unread={nodeUnread > 0 ? 'true' : undefined}
-                                            title={[
-                                              `Focus ${node.data.label} · ${statusLabels[status]}`,
-                                              nodeUnread > 0 ? describeUnread([node.id]) : null
-                                            ]
-                                              .filter(Boolean)
-                                              .join('\n')}
-                                            onClick={(event) => {
-                                              event.stopPropagation()
-                                              focusNode(node.id)
-                                            }}
-                                          >
-                                            <span className="project-node-kind">
-                                              <SessionKindIcon kind={node.data.kind} />
-                                            </span>
-                                            <span className="project-node-name">{node.data.label}</span>
-                                            {nodeUnread > 0 && <span className="unread-badge">{nodeUnread}</span>}
-                                            {node.data.kind === 'terminal' && (
-                                              <SidebarTerminalLiveness liveness={node.data.terminalLiveness} />
-                                            )}
-                                            <span className="project-node-state" data-status={status}>
-                                              <span className="node-status-indicator" />
-                                              {statusLabels[status]}
-                                            </span>
-                                          </button>
-                                        )
-                                      })}
-                                    </div>
-                                  )}
-                                </div>
-                              )
-                            })}
-                        </div>
-                      )
-                    })}
-                  </div>
-
-                  {sidebarDrag?.indicator && (
-                    <div
-                      className="project-drop-indicator"
-                      aria-hidden="true"
-                      style={{
-                        position: 'fixed',
-                        top: sidebarDrag.indicator.top,
-                        left: sidebarDrag.indicator.left,
-                        width: sidebarDrag.indicator.width
-                      }}
-                    />
-                  )}
-
-                  {/* The sidebar's chrome, below the scrolling project list: global destinations,
-                  the create actions, and the canvas controls. One block with one alignment and one
-                  border language so the footer reads as chrome rather than as four loose widgets.
-                  The canvas controls live here rather than floating on the canvas because a
-                  floating group overlaps auto-laid-out nodes. */}
-                  <div className="sidebar-footer">
-                    <div className="sidebar-footer-group">
-                      <button
-                        type="button"
-                        className="sidebar-global-entry"
-                        aria-pressed={panels.brainDump.state.open}
-                        title={sidebarCollapsed ? 'Open brain-dump library' : 'Brain dumps (Ctrl+Shift+B)'}
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          panels.brainDump.toggle()
-                        }}
-                      >
-                        <span className="sidebar-global-icon" aria-hidden="true">
-                          <BookOpen />
-                        </span>
-                        {!sidebarCollapsed && <span>Brain dumps</span>}
-                        {sidebarCollapsed && <span className="visually-hidden">Open brain-dump library</span>}
-                      </button>
-
-                      <button
-                        type="button"
-                        className="sidebar-global-entry"
-                        aria-pressed={panels.ticketBoard.state.open}
-                        title={sidebarCollapsed ? 'Open the ticket board' : 'Tickets (Ctrl+Shift+K)'}
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          panels.ticketBoard.toggle()
-                        }}
-                      >
-                        <span className="sidebar-global-icon" aria-hidden="true">
-                          <ClipboardList />
-                        </span>
-                        {!sidebarCollapsed && <span>Tickets</span>}
-                        {sidebarCollapsed && <span className="visually-hidden">Open the ticket board</span>}
-                      </button>
-                    </div>
-
-                    <div className="sidebar-add-row">
-                      <button
-                        type="button"
-                        className="add-project"
-                        title="Add project folder"
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          void addProject()
-                        }}
-                      >
-                        <Plus aria-hidden="true" />
-                        {!sidebarCollapsed && 'Add project'}
-                      </button>
-                      <button
-                        type="button"
-                        className="add-project add-project-group"
-                        title="New group"
-                        aria-label="New group"
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          addProjectGroup()
-                        }}
-                      >
-                        <FolderPlus aria-hidden="true" />
-                      </button>
-                    </div>
-
-                    {/* One segmented group, not five loose buttons: they all steer the canvas, so they
+                <ProjectSidebar
+                  projects={projects}
+                  groups={projectGroups}
+                  collapsed={sidebarCollapsed}
+                  activeProjectId={activeProject?.id}
+                  summaries={sidebarSummaries}
+                  avatars={projectAvatars}
+                  branchRevision={branchRevision}
+                  renamingGroupId={renamingGroupId}
+                  unreadByNode={unreadByNode}
+                  countUnread={countUnread}
+                  describeUnread={describeUnread}
+                  brainDumpOpen={panels.brainDump.state.open}
+                  ticketBoardOpen={panels.ticketBoard.state.open}
+                  intents={sidebarIntents}
+                  canvasControls={
+                    /* One segmented group, not five loose buttons: they all steer the canvas, so they
                     share a single border and are divided by hairlines, like the stock React Flow
                     controls. The readout is the group's own reset affordance, which is why it is a
-                    button rather than a label. */}
+                    button rather than a label. They stay the canvas's to supply - the sidebar only
+                    hosts them - because they steer React Flow. */
                     <div className="canvas-zoom-row" role="group" aria-label="Canvas zoom">
                       <button
                         type="button"
@@ -2837,8 +2422,8 @@ function Canvas(): JSX.Element {
                         <LayoutGrid aria-hidden="true" />
                       </button>
                     </div>
-                  </div>
-                </aside>
+                  }
+                />
 
                 <section ref={canvasRegionRef} className="canvas-region">
                   <NodeFitContext.Provider value={nodeFit.toggle}>
