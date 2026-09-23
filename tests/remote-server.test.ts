@@ -14,6 +14,7 @@ import {
   type RemoteChatSessionOperations,
   type RemoteChatSpawn
 } from '../src/main/remote/remote-server'
+import type { RemoteAccessAddress } from '../src/shared/remote-access'
 import { REMOTE_SPAWN_BODY_LIMIT, type RemoteChatSpawnRequest } from '../src/shared/remote-spawn'
 import {
   encodePcm16,
@@ -90,6 +91,8 @@ function harness(
     models?: () => AgentModelCatalogue
     usage?: () => ProviderUsageReport | Promise<ProviderUsageReport>
     transcriber?: { transcribe: (audio: Float32Array) => Promise<RemoteTranscriptionResult> }
+    heartbeatMs?: number
+    addresses?: RemoteAccessAddress[]
   } = {}
 ): Harness {
   const directory = temporaryDirectory()
@@ -105,14 +108,15 @@ function harness(
   const server = createRemoteAccessServer({
     store,
     clientRoot,
-    addresses: () => [{ kind: 'tailscale', host: '100.1.2.3' }],
+    addresses: () => options.addresses ?? [{ kind: 'tailscale', host: '100.1.2.3' }],
     ...(options.chats ? { chats: options.chats } : {}),
     ...(options.sessions ? { sessions: options.sessions } : {}),
     ...(options.read ? { read: options.read } : {}),
     ...(options.spawn ? { spawn: options.spawn } : {}),
     ...(options.models ? { models: options.models } : {}),
     ...(options.usage ? { usage: options.usage } : {}),
-    ...(options.transcriber ? { transcriber: options.transcriber } : {})
+    ...(options.transcriber ? { transcriber: options.transcriber } : {}),
+    ...(options.heartbeatMs === undefined ? {} : { heartbeatMs: options.heartbeatMs })
   })
   running.push(server)
 
@@ -304,6 +308,29 @@ describe('remote access server', () => {
     assert.match(icon.headers.get('content-type') ?? '', /image\/png/)
   })
 
+  test('the page it serves carries a policy, and every reply that can become one carries it too', async () => {
+    const { server, get } = harness({
+      clientFiles: { 'index.html': '<!doctype html><title>Toucan</title>', 'assets/app.js': 'console.log(1)' }
+    })
+    await server.applySettings({ enabled: true, port: await freePort() })
+
+    for (const path of ['/', '/chats/chat-1', '/assets/app.js']) {
+      const response = await get(path)
+      const policy = response.headers.get('content-security-policy') ?? ''
+      // Inline script is what an injection needs, and the Vite build emits none - so there is
+      // nothing to relax and `'unsafe-inline'` must never appear on this directive.
+      assert.match(policy, /script-src 'self'/, `${path} restricts script to its own origin`)
+      assert.ok(!/script-src[^;]*unsafe-inline/.test(policy), `${path} allows no inline script`)
+      // One phone drives several hosts, so a narrowed connect-src would break the host switcher.
+      assert.match(policy, /connect-src \* ws: wss:/)
+      assert.match(policy, /frame-ancestors 'none'/)
+      assert.equal(response.headers.get('referrer-policy'), 'no-referrer')
+    }
+
+    // The API is read by script that already has the page's policy; a second one there is noise.
+    assert.equal((await get('/api/workspace')).headers.get('content-security-policy'), null)
+  })
+
   test('a path that escapes the bundle directory cannot read a file', async () => {
     const directory = temporaryDirectory()
     const clientRoot = join(directory, 'mobile')
@@ -415,6 +442,126 @@ const CHAT_PROJECTION = {
 function assistantChunk(messageId: string, text: string): AgentEvent {
   return { type: 'message', role: 'assistant', messageId, text }
 }
+
+/**
+ * What keeps a socket from outliving its reader, and what keeps a refused one from taking the
+ * process with it. Both are failures an unauthenticated peer can provoke, so neither is a matter
+ * of taste: Node removes its own `'error'` listener before handing an upgrade over, and a phone
+ * that walks out of signal never closes anything at all.
+ */
+describe('chat sockets that nobody is behind', () => {
+  test('a refused upgrade is answered, then closed by the host', async () => {
+    const { server } = harness()
+    await server.applySettings({ enabled: true, port: await freePort() })
+
+    const received = await upgrade(server.state().boundPort!)
+    assert.match(received, /^HTTP\/1\.1 401 Unauthorized/)
+    // `upgrade` resolves on 'close', so arriving here at all is the host having ended the socket
+    // rather than leaving it to a peer that ignores `connection: close`.
+  })
+
+  test('a peer that vanishes while its refusal is being written does not crash the host', async () => {
+    const { server, get } = harness()
+    await server.applySettings({ enabled: true, port: await freePort() })
+    const port = server.state().boundPort!
+
+    // A write to a reset socket fails asynchronously, and the refusal path is where Node has
+    // already dropped its own 'error' listener. Several attempts, because whether the write lands
+    // before or after the reset is a race - one of them reaching it is enough to catch a regression.
+    await Promise.all(
+      Array.from({ length: 8 }, async () => {
+        await new Promise<void>((resolve) => {
+          const socket = connect(port, '127.0.0.1', () => {
+            socket.write(
+              [
+                'GET /api/chats/chat-1 HTTP/1.1',
+                `host: 127.0.0.1:${port}`,
+                'upgrade: websocket',
+                'connection: Upgrade',
+                'sec-websocket-version: 13',
+                'sec-websocket-key: dGhlIHNhbXBsZSBub25jZQ==',
+                '',
+                ''
+              ].join('\r\n')
+            )
+            // RST rather than FIN, so the host's reply has nowhere to go.
+            socket.resetAndDestroy()
+            resolve()
+          })
+          socket.on('error', () => resolve())
+        })
+      })
+    )
+
+    // The listener is the assertion: an unhandled 'error' in this process would have taken it out.
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    assert.equal((await get('/api/workspace')).status, 401)
+    assert.equal(server.state().listening, true)
+  })
+
+  test('a socket that stops answering pings is torn down rather than held until TCP gives up', async () => {
+    const chats = createAgentEventBroker()
+    const { server, store } = harness({ chats, heartbeatMs: 25 })
+    await server.applySettings({ enabled: true, port: await freePort() })
+    server.publishWorkspace(CHAT_PROJECTION)
+
+    const socket = new WebSocket(`ws://127.0.0.1:${server.state().boundPort}/api/chats/chat-1`, [
+      REMOTE_CHAT_PROTOCOL,
+      remoteChatBearerProtocol(store.read().token)
+    ])
+    socket.on('error', () => {
+      /* the host terminates this one; a bare error must not crash the test */
+    })
+    await new Promise((resolve) => socket.on('open', resolve))
+    // A phone out of signal: the connection is up as far as either side can see, and nothing
+    // answers. `ws` pongs automatically, so silencing that is the whole simulation.
+    socket.pong = () => {}
+
+    await new Promise((resolve) => socket.on('close', resolve))
+    assert.equal(server.state().listening, true, 'reaping one socket does not disturb the listener')
+  })
+
+  test('stopping does not wait out a zombie socket', async () => {
+    const chats = createAgentEventBroker()
+    const { server, store } = harness({ chats })
+    await server.applySettings({ enabled: true, port: await freePort() })
+    server.publishWorkspace(CHAT_PROJECTION)
+
+    const socket = connectChat(server.state().boundPort!, 'chat-1', { protocolToken: store.read().token })
+    assert.equal((await socket.next()).type, 'snapshot')
+
+    // `ws` would wait out its own 30s close timeout for a peer that never answers the handshake;
+    // this is the assertion that the host drops the socket instead of asking it to agree.
+    // The budget is loose on purpose: what it guards against is the 30s `ws` close timeout, and a
+    // tight bound here would only measure how busy the machine running the suite is.
+    const began = Date.now()
+    await server.applySettings({ enabled: false, port: server.state().settings.port })
+    assert.ok(Date.now() - began < 5_000, `stopping took ${Date.now() - began}ms`)
+    assert.equal(server.state().listening, false)
+  })
+})
+
+describe('which address the listener binds', () => {
+  test('a named address is bound rather than every interface', async () => {
+    const { server, get } = harness({ addresses: [{ kind: 'local', host: '127.0.0.1' }] })
+    const port = await freePort()
+    await server.applySettings({ enabled: true, port, bindHost: '127.0.0.1' })
+
+    assert.equal(server.state().listening, true)
+    assert.equal(server.state().error, undefined)
+    // Reachable on the address that was asked for; that it is *not* on the others is the OS's
+    // doing and not something a loopback-only test can observe.
+    assert.equal((await get('/api/workspace')).status, 401)
+  })
+
+  test('an address this PC does not have stops the listener instead of widening it', async () => {
+    const { server } = harness()
+    await server.applySettings({ enabled: true, port: await freePort(), bindHost: '100.9.9.9' })
+
+    assert.equal(server.state().listening, false)
+    assert.match(server.state().error ?? '', /no longer has the address 100\.9\.9\.9/)
+  })
+})
 
 describe('remote chat socket', () => {
   test('joining a listed chat delivers the snapshot, then the live tail folds to the same transcript', async () => {

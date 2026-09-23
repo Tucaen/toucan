@@ -124,6 +124,51 @@ export const REMOTE_CORS_HEADERS: Record<string, string> = {
 }
 
 /**
+ * What the served page is allowed to do, sent with the bundle and with nothing else - the API
+ * replies are JSON read by script that already has its own document's policy, so a second one
+ * there would be noise rather than defence.
+ *
+ * It is defence in depth, not a fix for a known hole: the page renders agent-authored markdown
+ * through react-markdown, whose defaults already neutralise raw HTML and `javascript:` URLs. What
+ * the policy buys is that a *future* injection is inert, and the thing worth protecting is
+ * concrete - the page keeps one pairing token per paired host in `localStorage`, so script running
+ * on this origin is script holding every token the reader owns.
+ *
+ * Three directives carry the weight and each is the loosest it can be without being a hole:
+ *
+ * - `script-src 'self'`: the Vite build emits an external module script and no inline one, so there
+ *   is nothing to relax for - no `'unsafe-inline'`, no nonce plumbing. That is a premise rather
+ *   than a wish, and `tests/mobile-pwa-assets.test.ts` asserts it against the shell itself, because
+ *   an inline script appearing there would not fail loudly: the browser would refuse it and the app
+ *   would simply never start.
+ * - `connect-src` is deliberately open, `ws:`/`wss:` named explicitly rather than left to the
+ *   wildcard: one phone drives several hosts and a chat socket is not an HTTP fetch, so narrowing
+ *   this would break the host switcher the moment a second host is paired. It costs little, since
+ *   exfiltration needs script to run first and `script-src` is what forbids that.
+ * - `style-src` keeps `'unsafe-inline'`: the client sets a handful of `style` attributes (a project
+ *   dot's colour, a usage bar's width) and a style attribute cannot execute anything.
+ *
+ * `base-uri`, `object-src`, `frame-ancestors` and `form-action` are all shut: none of them is used,
+ * and each is a way a successful injection would otherwise still reach out.
+ */
+export const REMOTE_SHELL_SECURITY_HEADERS: Record<string, string> = {
+  'content-security-policy': [
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data:",
+    'connect-src * ws: wss:',
+    "base-uri 'none'",
+    "object-src 'none'",
+    "frame-ancestors 'none'",
+    "form-action 'none'"
+  ].join('; '),
+  // Nothing on this page is worth telling another origin about, and the origin itself is a private
+  // address a reader may not want leaked into someone else's logs.
+  'referrer-policy': 'no-referrer'
+}
+
+/**
  * What a WebSocket upgrade may become. Resolved separately from the HTTP routes because an upgrade
  * is not a method - the only socket the host speaks is the live view of one chat, and everything
  * else is refused after the pairing gate has already run.

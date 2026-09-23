@@ -6,7 +6,10 @@ import { afterEach, describe, test } from 'vitest'
 import {
   REMOTE_ACCESS_DEFAULT_PORT,
   deriveRemoteWorkspaceProjection,
+  isRemoteAccessSettings,
   remoteAccessPortProblem,
+  remoteBindHostOptions,
+  remoteBindHostProblem,
   type RemoteChatSummary,
   type RemoteWorkspaceSource
 } from '../src/shared/remote-access'
@@ -22,6 +25,7 @@ import {
   routeRequiresPairing
 } from '../src/main/remote/remote-routes'
 import { describeHostAddresses, isTailscaleAddress } from '../src/main/remote/host-addresses'
+import { createSafeStorageVault, PLAINTEXT_TOKEN_VAULT } from '../src/main/remote/token-vault'
 import { chatNeedsApproval, countActiveChats, groupChatsByProject, isAwaitingDesktop } from '../mobile/src/chat-list'
 
 /**
@@ -216,6 +220,39 @@ describe('settings', () => {
     assert.ok(store.read().token.length >= 32)
   })
 
+  test('a bind address is offered only where there is a tailnet one, and never a LAN-only bind', () => {
+    assert.deepEqual(remoteBindHostOptions([{ kind: 'local', host: '192.168.1.5' }]), [])
+    assert.deepEqual(remoteBindHostOptions([]), [])
+    assert.deepEqual(
+      remoteBindHostOptions([
+        { kind: 'tailscale', host: '100.1.2.3' },
+        { kind: 'local', host: '192.168.1.5' }
+      ]),
+      [{ label: 'Every interface' }, { host: '100.1.2.3', label: '100.1.2.3 (tailnet only)' }]
+    )
+  })
+
+  test('a bind address this PC no longer owns is a problem, never a quiet widening', () => {
+    const addresses = [{ kind: 'tailscale', host: '100.1.2.3' } as const]
+    assert.equal(remoteBindHostProblem(undefined, []), null)
+    assert.equal(remoteBindHostProblem('100.1.2.3', addresses), null)
+    assert.match(remoteBindHostProblem('100.1.2.3', []) ?? '', /no longer has the address 100\.1\.2\.3/)
+  })
+
+  test('a bind address is part of the settings shape and survives a restart', () => {
+    assert.equal(isRemoteAccessSettings({ enabled: true, port: 7391, bindHost: '100.1.2.3' }), true)
+    assert.equal(isRemoteAccessSettings({ enabled: true, port: 7391 }), true)
+    assert.equal(isRemoteAccessSettings({ enabled: true, port: 7391, bindHost: 7 }), false)
+
+    const path = join(temporaryDirectory(), 'remote-access.json')
+    createRemoteAccessStore({ path }).saveSettings({ enabled: true, port: 7500, bindHost: '100.1.2.3' })
+    assert.deepEqual(createRemoteAccessStore({ path }).read().settings, {
+      enabled: true,
+      port: 7500,
+      bindHost: '100.1.2.3'
+    })
+  })
+
   test('regenerating replaces the stored token', () => {
     const path = join(temporaryDirectory(), 'remote-access.json')
     const store = createRemoteAccessStore({ path })
@@ -223,6 +260,96 @@ describe('settings', () => {
     const after = store.regenerateToken().token
     assert.notEqual(before, after)
     assert.match(readFileSync(path, 'utf8'), new RegExp(after.replace(/[-_]/g, '.')))
+  })
+})
+
+/**
+ * The token on disk. What is worth asserting is not that the bytes are unreadable - that is the
+ * keyring's job, not Toucan's - but the three behaviours around it: that a sealed record never
+ * leaves the plain token beside it, that a record written before sealing existed still opens, and
+ * that one which *cannot* be opened costs a re-pair rather than reading as an open door.
+ */
+describe('the pairing token at rest', () => {
+  /** A stand-in keyring: reversible, never secret, and enough to prove which shape was written. */
+  function fakeSafeStorage(available = true): {
+    isEncryptionAvailable(): boolean
+    encryptString(value: string): Buffer
+    decryptString(value: Buffer): string
+  } {
+    return {
+      isEncryptionAvailable: () => available,
+      encryptString: (value) => Buffer.from(`sealed:${value}`, 'utf8'),
+      decryptString: (value) => {
+        const text = value.toString('utf8')
+        if (!text.startsWith('sealed:')) throw new Error('not sealed by this keyring')
+        return text.slice('sealed:'.length)
+      }
+    }
+  }
+
+  test('a sealed token is the only token in the file, and reopens on the same machine', () => {
+    const path = join(temporaryDirectory(), 'remote-access.json')
+    const vault = createSafeStorageVault(fakeSafeStorage())
+    const store = createRemoteAccessStore({ path, vault })
+    const token = store.regenerateToken().token
+
+    const file = readFileSync(path, 'utf8')
+    assert.ok(!file.includes(token), 'the plain token must not be in the file')
+    assert.match(file, /tokenSealed/)
+    assert.equal(createRemoteAccessStore({ path, vault }).read().token, token)
+  })
+
+  test('a host with no keyring keeps the token rather than refusing to have one', () => {
+    const path = join(temporaryDirectory(), 'remote-access.json')
+    const vault = createSafeStorageVault(fakeSafeStorage(false))
+    const token = createRemoteAccessStore({ path, vault }).regenerateToken().token
+    assert.match(readFileSync(path, 'utf8'), /"token"/)
+    assert.equal(createRemoteAccessStore({ path, vault }).read().token, token)
+  })
+
+  test('a record written before sealing existed is read, then sealed by the next write', () => {
+    const path = join(temporaryDirectory(), 'remote-access.json')
+    const plain = createRemoteAccessStore({ path, vault: PLAINTEXT_TOKEN_VAULT })
+    const token = plain.read().token
+    plain.saveSettings({ enabled: true, port: 7500 })
+
+    const vault = createSafeStorageVault(fakeSafeStorage())
+    const sealing = createRemoteAccessStore({ path, vault })
+    assert.equal(sealing.read().token, token)
+    sealing.saveSettings({ enabled: true, port: 7500 })
+    assert.ok(!readFileSync(path, 'utf8').includes(token))
+    assert.equal(createRemoteAccessStore({ path, vault }).read().token, token)
+  })
+
+  test('a sealed record this machine cannot open costs the token and only the token', () => {
+    const path = join(temporaryDirectory(), 'remote-access.json')
+    const store = createRemoteAccessStore({ path, vault: createSafeStorageVault(fakeSafeStorage()) })
+    store.saveSettings({ enabled: true, port: 7500, bindHost: '100.1.2.3' })
+    const token = store.read().token
+
+    // Another machine's keyring: the ciphertext is there, and nothing here can open it.
+    const logged: string[] = []
+    const stranger = createRemoteAccessStore({
+      path,
+      vault: { seal: () => null, open: () => null },
+      log: (message) => logged.push(message)
+    })
+
+    // One re-pair, never an open door: the new token is one nothing is holding yet.
+    assert.notEqual(stranger.read().token, token)
+    assert.ok(stranger.read().token.length >= 32)
+    assert.match(logged.join('\n'), /pair your phones again/)
+    // And not a forgotten install: turning remote access off, or losing the port and the address
+    // the user chose, would read as Toucan forgetting rather than as a credential that moved.
+    assert.deepEqual(stranger.read().settings, { enabled: true, port: 7500, bindHost: '100.1.2.3' })
+  })
+
+  test('a token field that is merely damaged is still a damaged record, and re-pairs whole', () => {
+    const path = join(temporaryDirectory(), 'remote-access.json')
+    writeFileSync(path, '{ "version": 1, "settings": { "enabled": true, "port": 7500 }, "token": "x" }', 'utf8')
+    const store = createRemoteAccessStore({ path, vault: createSafeStorageVault(fakeSafeStorage()) })
+    assert.equal(store.read().settings.enabled, false)
+    assert.ok(store.read().token.length >= 32)
   })
 })
 

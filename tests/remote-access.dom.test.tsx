@@ -50,7 +50,7 @@ function remoteState(overrides: Partial<RemoteAccessState> = {}): RemoteAccessSt
 }
 
 let published: RemoteWorkspaceProjection[]
-let applied: { enabled: boolean; port: number }[]
+let applied: { enabled: boolean; port: number; bindHost?: string }[]
 let copied: string[]
 let regenerated: number
 /** The host's side of a spawn: what it asked, and what the renderer eventually answered. */
@@ -177,6 +177,26 @@ describe('the remote access dialog', () => {
     expect(await screen.findByText(/1024 or higher/)).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Apply' })).toBeDisabled()
     expect(applied).toEqual([])
+  })
+
+  test('a tailnet address can be bound on its own, and is only offered where there is one', async () => {
+    await renderApp()
+    fireEvent.click(screen.getByTitle(/Remote access is off/))
+    await screen.findByRole('dialog')
+
+    fireEvent.click(screen.getByRole('checkbox'))
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: '100.1.2.3' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
+
+    await waitFor(() => expect(applied).toEqual([{ enabled: true, port: 7391, bindHost: '100.1.2.3' }]))
+  })
+
+  test('a PC with no tailnet address is not offered a choice it could not make', async () => {
+    await renderApp(remoteState({ addresses: [{ kind: 'local', host: '192.168.1.5' }] }))
+    fireEvent.click(screen.getByTitle(/Remote access is off/))
+    await screen.findByRole('dialog')
+
+    expect(screen.queryByRole('combobox')).toBeNull()
   })
 
   test('the token can be copied and regenerated', async () => {

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, nativeImage, net, protocol, session, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, nativeImage, net, protocol, safeStorage, session, shell } from 'electron'
 import { existsSync, mkdirSync } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
 import { join, normalize } from 'node:path'
@@ -45,6 +45,7 @@ import { createConversationTitleStore } from './conversation-title-store'
 import { createCodexRateLimitReader } from './codex-rate-limits'
 import { createProviderUsage, type ProviderUsage } from './provider-usage'
 import { createRemoteAccessStore } from './remote/remote-access-store'
+import { createSafeStorageVault } from './remote/token-vault'
 import { forwardRemoteStateChanges, registerRemoteIpc } from './remote/remote-ipc'
 import { createRemoteCanvasRequests, type RemoteCanvasRequests } from './remote/canvas-requests'
 import { createRemoteAccessServer, type RemoteAccessServer } from './remote/remote-server'
@@ -466,6 +467,10 @@ void app.whenReady().then(async () => {
   const remote = createRemoteAccessServer({
     store: createRemoteAccessStore({
       path: join(app.getPath('userData'), 'remote-access.json'),
+      // The one place Electron's keyring is named; everything below this takes a vault. A host
+      // without one (a Linux desktop with no keyring) keeps the token in the clear rather than
+      // refusing to have a token, and says so in the log.
+      vault: createSafeStorageVault(safeStorage, mainLog('remote access')),
       log: mainLog('remote access')
     }),
     // The mobile client is built beside the main and renderer bundles, so the same path resolves

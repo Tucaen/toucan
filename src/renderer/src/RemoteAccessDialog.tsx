@@ -1,7 +1,12 @@
 import { useEffect, useState } from 'react'
 import { Copy, RefreshCw } from 'lucide-react'
 import { ModalDialog } from './ModalDialog'
-import { remoteAccessPortProblem, type RemoteAccessSettings, type RemoteAccessState } from '../../shared/remote-access'
+import {
+  remoteAccessPortProblem,
+  remoteBindHostOptions,
+  type RemoteAccessSettings,
+  type RemoteAccessState
+} from '../../shared/remote-access'
 
 /**
  * Where the user turns remote access on and pairs a phone. It renders the host's state and hands
@@ -9,6 +14,11 @@ import { remoteAccessPortProblem, type RemoteAccessSettings, type RemoteAccessSt
  *
  * The pairing token is shown in full and deliberately never truncated for looks - it has to be
  * typed on a phone. Regenerating it is presented as what it is: the way to lock out a device.
+ *
+ * The bind-address control appears only where there is a tailnet address to bind to, which is what
+ * makes it honest: on a PC without Tailscale the only choice would be "every interface", and a
+ * disabled control offering nothing reads as a feature the user is missing out on rather than one
+ * that does not apply.
  */
 export function RemoteAccessDialog({
   state,
@@ -25,17 +35,31 @@ export function RemoteAccessDialog({
   onCopyToken(token: string): void
   onClose(): void
 }): JSX.Element {
-  const [draft, setDraft] = useState<{ enabled: boolean; port: string } | null>(null)
+  // `bindHost` is a required key holding `undefined` for "every interface", rather than an absent
+  // one: this is form state, so a control that can be set back to the default has to be able to
+  // say so - and only the settings that cross the seam care about the key being gone.
+  const [draft, setDraft] = useState<{ enabled: boolean; port: string; bindHost: string | undefined } | null>(null)
 
   // The host is the authority, so its state seeds the form and later corrections (a port that
   // could not be bound, a change from another window) are adopted rather than argued with.
   useEffect(() => {
-    if (state) setDraft({ enabled: state.settings.enabled, port: String(state.settings.port) })
+    if (state) {
+      setDraft({
+        enabled: state.settings.enabled,
+        port: String(state.settings.port),
+        bindHost: state.settings.bindHost
+      })
+    }
   }, [state])
 
   const portProblem = draft ? remoteAccessPortProblem(Number(draft.port)) : null
+  const bindOptions = remoteBindHostOptions(state?.addresses ?? [])
   const dirty = Boolean(
-    state && draft && (draft.enabled !== state.settings.enabled || Number(draft.port) !== state.settings.port)
+    state &&
+    draft &&
+    (draft.enabled !== state.settings.enabled ||
+      Number(draft.port) !== state.settings.port ||
+      draft.bindHost !== state.settings.bindHost)
   )
 
   return (
@@ -44,7 +68,9 @@ export function RemoteAccessDialog({
         className="dialog remote-dialog"
         onSubmit={(event) => {
           event.preventDefault()
-          if (draft && !portProblem && !busy) onApply({ enabled: draft.enabled, port: Number(draft.port) })
+          if (draft && !portProblem && !busy) {
+            onApply({ enabled: draft.enabled, port: Number(draft.port), bindHost: draft.bindHost })
+          }
         }}
       >
         <strong id="remote-access-title">Remote access</strong>
@@ -75,6 +101,22 @@ export function RemoteAccessDialog({
                 onChange={(event) => setDraft({ ...draft, port: event.target.value.replace(/[^0-9]/g, '') })}
               />
             </label>
+            {bindOptions.length > 0 && (
+              <label>
+                <span className="eyebrow-label">Reachable on</span>
+                <select
+                  value={draft.bindHost ?? ''}
+                  disabled={busy}
+                  onChange={(event) => setDraft({ ...draft, bindHost: event.target.value || undefined })}
+                >
+                  {bindOptions.map((option) => (
+                    <option key={option.host ?? ''} value={option.host ?? ''}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             {portProblem && <p className="dialog-error">{portProblem}</p>}
             {state?.error && <p className="dialog-error">{state.error}</p>}
 

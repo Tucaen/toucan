@@ -1,6 +1,8 @@
 import { strict as assert } from 'node:assert'
 import { describe, test } from 'vitest'
+import { cacheFirst, shellFirst, type ServiceWorkerRuntime } from '../mobile/src/service-worker-cache'
 import {
+  cacheableAsShell,
   fetchPlan,
   IMMUTABLE_ASSET_PREFIX,
   PRECACHED_SHELL,
@@ -76,5 +78,119 @@ describe('what a new worker version cleans up', () => {
 
   test('the shell the worker precaches is the origin root, which is what a page load falls back to', () => {
     assert.equal(PRECACHED_SHELL, '/')
+  })
+})
+
+/**
+ * What the worker *does* with a request it decided to handle, against a fake `caches`.
+ *
+ * The case worth having a test for is the one the address bar produces: `/sw.js` and
+ * `/icon-192.png` are navigations too, the host answers both with a 200, and a worker that cached
+ * either under the shell's key would open the app to a PNG the next time the host was unreachable.
+ */
+
+/** Enough of `CacheStorage` for one named cache, with the entries readable afterwards. */
+function fakeCaches(): CacheStorage & { entries: Map<string, Response> } {
+  const entries = new Map<string, Response>()
+  const keyOf = (request: RequestInfo | URL): string =>
+    typeof request === 'string' ? request : request instanceof URL ? request.href : request.url
+  const cache = {
+    match: (request: RequestInfo | URL) => Promise.resolve(entries.get(keyOf(request))),
+    put: (request: RequestInfo | URL, response: Response) => {
+      entries.set(keyOf(request), response)
+      return Promise.resolve()
+    }
+  }
+  return {
+    entries,
+    open: () => Promise.resolve(cache),
+    match: (request: RequestInfo | URL) => Promise.resolve(entries.get(keyOf(request)))
+  } as unknown as CacheStorage & { entries: Map<string, Response> }
+}
+
+function runtime(
+  caches: CacheStorage,
+  fetched: (request: Request) => Promise<Response>
+): ServiceWorkerRuntime & { caches: CacheStorage } {
+  return { caches, fetch: fetched }
+}
+
+function html(body = '<!doctype html>'): Response {
+  return new Response(body, { headers: { 'content-type': 'text/html; charset=utf-8' } })
+}
+
+describe('what a navigation is allowed to leave in the cache', () => {
+  test('only an HTML reply is the shell, whatever the address bar was pointed at', () => {
+    assert.equal(cacheableAsShell(html()), true)
+    assert.equal(
+      cacheableAsShell(new Response('{}', { headers: { 'content-type': 'application/manifest+json' } })),
+      false
+    )
+    assert.equal(cacheableAsShell(new Response('PNG', { headers: { 'content-type': 'image/png' } })), false)
+    assert.equal(cacheableAsShell(new Response('', { status: 500 })), false)
+    assert.equal(cacheableAsShell(new Response('')), false)
+  })
+
+  test('a page load replaces the cached shell', async () => {
+    const caches = fakeCaches()
+    const response = await shellFirst(
+      runtime(caches, async () => html('<!doctype html>fresh')),
+      new Request(`${ORIGIN}/`)
+    )
+
+    assert.equal(await response.text(), '<!doctype html>fresh')
+    assert.equal(await caches.entries.get(PRECACHED_SHELL)?.text(), '<!doctype html>fresh')
+  })
+
+  test('navigating to the manifest, the worker or an icon leaves the shell alone', async () => {
+    const caches = fakeCaches()
+    await caches.open(CLIENT_CACHE).then((cache) => cache.put(PRECACHED_SHELL, html('<!doctype html>the app')))
+
+    for (const reply of [
+      new Response('{"name":"Toucan"}', { headers: { 'content-type': 'application/manifest+json' } }),
+      new Response('PNG', { headers: { 'content-type': 'image/png' } })
+    ]) {
+      await shellFirst(
+        runtime(caches, async () => reply),
+        new Request(`${ORIGIN}/manifest.webmanifest`)
+      )
+    }
+
+    assert.equal(await caches.entries.get(PRECACHED_SHELL)?.text(), '<!doctype html>the app')
+  })
+
+  test('an unreachable host opens from the cached shell, and says so when there is none', async () => {
+    const caches = fakeCaches()
+    const offline = runtime(caches, () => Promise.reject(new Error('Failed to fetch')))
+
+    await assert.rejects(shellFirst(offline, new Request(`${ORIGIN}/`)), /Failed to fetch/)
+
+    await caches.open(CLIENT_CACHE).then((cache) => cache.put(PRECACHED_SHELL, html('<!doctype html>the app')))
+    assert.equal(await (await shellFirst(offline, new Request(`${ORIGIN}/`))).text(), '<!doctype html>the app')
+  })
+})
+
+describe('what a hashed asset does', () => {
+  test('the cache answers when it can, and fills from the network when it cannot', async () => {
+    const caches = fakeCaches()
+    let fetches = 0
+    const asset = runtime(caches, async () => {
+      fetches += 1
+      return new Response('console.log(1)', { headers: { 'content-type': 'text/javascript' } })
+    })
+    const request = new Request(`${ORIGIN}${IMMUTABLE_ASSET_PREFIX}index-a1b2c3.js`)
+
+    assert.equal(await (await cacheFirst(asset, request)).text(), 'console.log(1)')
+    assert.equal(await (await cacheFirst(asset, request)).text(), 'console.log(1)')
+    assert.equal(fetches, 1, 'a content-addressed URL is fetched once')
+  })
+
+  test('a failed fetch is not cached, so a 404 cannot become the asset', async () => {
+    const caches = fakeCaches()
+    const missing = runtime(caches, async () => new Response('not found', { status: 404 }))
+    const request = new Request(`${ORIGIN}${IMMUTABLE_ASSET_PREFIX}gone-a1b2c3.js`)
+
+    assert.equal((await cacheFirst(missing, request)).status, 404)
+    assert.equal(caches.entries.size, 0)
   })
 })

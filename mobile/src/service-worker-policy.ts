@@ -61,6 +61,23 @@ export function fetchPlan(request: RequestFacts, origin: string): FetchPlan {
 }
 
 /**
+ * Whether a reply to a navigation is the shell, and so whether it may replace the cached one.
+ *
+ * `fetchPlan` classifies the *request*, and a navigation is the one kind whose reply is not
+ * implied by its URL: typing `/manifest.webmanifest`, `/sw.js` or `/icon-192.png` into the address
+ * bar is a navigation too, the host answers each with a 200, and a worker that cached any of them
+ * under the shell's key would serve JSON or a PNG the next time the app was opened offline. Only
+ * the content type can tell those apart, so it is asked here rather than assumed there.
+ *
+ * A parameterised type rather than `Response`, because the rule is worth stating without a fetch
+ * runtime - and because that is the only thing this module has ever needed of one.
+ */
+export function cacheableAsShell(response: { ok: boolean; headers: { get(name: string): string | null } }): boolean {
+  if (!response.ok) return false
+  return (response.headers.get('content-type') ?? '').toLowerCase().includes('text/html')
+}
+
+/**
  * Caches a newly activated worker should drop, so an old shell cannot outlive its bundle.
  *
  * It keeps exactly one, which is right while there *is* one: anything a later ticket caches

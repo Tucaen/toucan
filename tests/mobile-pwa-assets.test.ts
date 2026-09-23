@@ -105,3 +105,36 @@ describe('the page that pulls it in', () => {
     assert.equal(SERVICE_WORKER_PATH, '/sw.js')
   })
 })
+
+/**
+ * The premise the served page's Content-Security-Policy rests on (`REMOTE_SHELL_SECURITY_HEADERS`
+ * in `src/main/remote/remote-routes.ts`): `script-src 'self'` with no `'unsafe-inline'` is only
+ * correct while the shell carries no inline script, and an inline one would not fail loudly - the
+ * browser would refuse it and the app would simply never start.
+ *
+ * The committed shell is the input and is asserted always; the built one is asserted when there is
+ * a build to read, since Vite - not this file - is what puts the script tags in it.
+ */
+describe('the shell the Content-Security-Policy is written for', () => {
+  /** Every `<script>` that has no `src`, which is every one the policy would have to allow. */
+  function inlineScripts(html: string): string[] {
+    return [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)]
+      .filter(([, attributes]) => !/\bsrc\s*=/i.test(attributes ?? ''))
+      .map(([, , body]) => (body ?? '').trim())
+      .filter((body) => body.length > 0)
+  }
+
+  test('the committed shell has no inline script', () => {
+    assert.deepEqual(inlineScripts(indexHtml), [])
+  })
+
+  test('neither does the built one, where there is a build to read', () => {
+    let built: string
+    try {
+      built = readFileSync(join(ROOT, 'out/mobile/index.html'), 'utf8')
+    } catch {
+      return // Nothing built here; `npm run build:mobile` is what makes this assertion possible.
+    }
+    assert.deepEqual(inlineScripts(built), [])
+  })
+})

@@ -29,6 +29,18 @@ export interface RemoteAccessSettings {
   /** Off in every fresh install: a listener nobody asked for is a listener nobody audited. */
   enabled: boolean
   port: number
+  /**
+   * Which address to bind, or every interface when absent - which stays the default, because the
+   * tailnet address is the point and the pairing token, not the bind address, is what authorizes a
+   * caller. Naming one narrows *reachability* on top of that: on hotel or office Wi-Fi, binding
+   * the tailnet address alone is what keeps the pairing page and its `401` off the local network.
+   *
+   * It is a second gate rather than the gate, so it is offered only where it can be honoured - see
+   * `remoteBindHostOptions` - and a host that no longer owns the named address refuses to listen
+   * rather than falling back to every interface, since falling back is precisely the exposure the
+   * setting was chosen to avoid.
+   */
+  bindHost?: string
 }
 
 export const REMOTE_ACCESS_DEFAULT_SETTINGS: RemoteAccessSettings = {
@@ -50,7 +62,48 @@ export function remoteAccessPortProblem(port: number): string | null {
 export function isRemoteAccessSettings(value: unknown): value is RemoteAccessSettings {
   if (!value || typeof value !== 'object') return false
   const settings = value as Partial<RemoteAccessSettings>
-  return typeof settings.enabled === 'boolean' && typeof settings.port === 'number'
+  if (typeof settings.enabled !== 'boolean' || typeof settings.port !== 'number') return false
+  return settings.bindHost === undefined || typeof settings.bindHost === 'string'
+}
+
+/**
+ * Which addresses this host may be *told* to bind to, and nothing else. An address the machine
+ * does not currently own cannot be bound, so it is never offered - and the empty list is the
+ * ordinary answer on a machine with nothing but a LAN address, which is why the dialog shows this
+ * control only when there is something here to choose.
+ *
+ * The tailnet entries are the whole reason the control exists, so they are the only ones offered:
+ * a LAN-only bind is not a narrowing anybody asked for, and offering one would invite exactly the
+ * exposure the setting is meant to remove. "Every interface" leads, because it is the default and
+ * because a reader has to be able to get back to it.
+ */
+export function remoteBindHostOptions(addresses: readonly RemoteAccessAddress[]): RemoteBindHostOption[] {
+  const tailnet = addresses.filter((address) => address.kind === 'tailscale')
+  if (tailnet.length === 0) return []
+  return [
+    { label: 'Every interface' },
+    ...tailnet.map((address) => ({ host: address.host, label: `${address.host} (tailnet only)` }))
+  ]
+}
+
+export interface RemoteBindHostOption {
+  /** Absent for "every interface", which is what an absent `bindHost` means in the settings. */
+  host?: string
+  label: string
+}
+
+/**
+ * Why a stored bind host cannot be honoured right now. Reported rather than silently dropped: the
+ * setting exists to keep the listener off the local network, so a tailnet that is down has to stop
+ * the listener, not quietly widen it.
+ */
+export function remoteBindHostProblem(
+  bindHost: string | undefined,
+  addresses: readonly RemoteAccessAddress[]
+): string | null {
+  if (bindHost === undefined) return null
+  if (addresses.some((address) => address.host === bindHost)) return null
+  return `This PC no longer has the address ${bindHost}, so the listener stayed down. Choose another address.`
 }
 
 /** Everything the desktop needs to explain remote access to the user, including the token itself. */

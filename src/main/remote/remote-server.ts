@@ -6,6 +6,7 @@ import { WebSocketServer, type WebSocket } from 'ws'
 import {
   EMPTY_REMOTE_WORKSPACE_SNAPSHOT,
   remoteAccessPortProblem,
+  remoteBindHostProblem,
   type RemoteAccessAddress,
   type RemoteAccessSettings,
   type RemoteAccessState,
@@ -45,6 +46,7 @@ import { pairingTokenMatches, presentedPairingToken } from './pairing'
 import {
   clientContentType,
   REMOTE_CORS_HEADERS,
+  REMOTE_SHELL_SECURITY_HEADERS,
   resolveClientAsset,
   resolveRemoteRoute,
   resolveRemoteSocketRoute,
@@ -58,11 +60,17 @@ import type { VoiceTranscriber } from '../voice-transcription'
  * it on.
  *
  * Three properties define it. It is **off by default** and every transition goes through
- * `applySettings`, so one place decides whether a socket is open. It **binds all interfaces**,
- * because reachability is Tailscale's job and narrowing the bind would only break the tailnet
- * address that makes this useful. And it is **gated by one pairing token** rather than by network
+ * `applySettings`, so one place decides whether a socket is open. It **binds all interfaces by
+ * default**, because reachability is Tailscale's job - a user who wants less may name one address
+ * (`RemoteAccessSettings.bindHost`), and a host that no longer owns that address refuses to listen
+ * rather than widening back out. And it is **gated by one pairing token** rather than by network
  * location: a device on the tailnet is reachable, not trusted, so every `/api` request presents
  * the token as a bearer header and an unauthorized one learns nothing but `401`.
+ *
+ * Two smaller rules cover what the gate cannot. Every chat socket is pinged (`HEARTBEAT_MS`), so a
+ * phone that walked out of signal is reaped instead of holding a subscription and a shutdown; and
+ * every refused upgrade is written to a socket this module listens to for `'error'` itself, since
+ * Node has already removed its own by then.
  *
  * The workspace projection is *pushed in* rather than read out. The canvas is the authority on
  * what nodes exist, what they are called and what they are doing, so the renderer publishes a
@@ -142,6 +150,11 @@ export interface RemoteAccessServerOptions {
   transcriber?: Pick<VoiceTranscriber, 'transcribe'>
   addresses?: () => RemoteAccessAddress[]
   now?: () => number
+  /**
+   * How often a live chat socket is pinged. Injectable for tests only; the default is the one a
+   * phone is actually served with.
+   */
+  heartbeatMs?: number
 }
 
 /** Performs one spawn and reports its verdict. Never rejects; a failure is `{ ok: false }`. */
@@ -188,6 +201,18 @@ export interface RemoteChatSessionOperations {
 /** Local close codes the phone can tell apart from a network drop. */
 const CLOSE_SESSION_RETIRED = 4001
 const CLOSE_UNAUTHORIZED = 1008
+
+/**
+ * How long a chat socket may go without answering a ping before it is torn down.
+ *
+ * A phone that walks out of signal never closes its socket: TCP has nothing to report, so the
+ * subscription and the `chatSockets` entry survive the reader by however long the OS takes to give
+ * up - and until then `stop()` waits on a connection with nobody behind it, which is the settings
+ * dialog sitting in "Applying". A ping the peer cannot answer is the only way to tell that apart
+ * from a reader who is simply quiet, and 30s is short enough to make quitting prompt while being
+ * far longer than any real round trip over a tailnet.
+ */
+const HEARTBEAT_MS = 30_000
 
 const UNAUTHORIZED_BODY = JSON.stringify({ error: 'unauthorized' })
 
@@ -415,7 +440,8 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
    * is even attempted; the accepted subprotocol is pinned so a client that offered one gets back
    * the one this host actually speaks.
    */
-  const chatSockets = new Set<WebSocket>()
+  const chatSockets = new Map<WebSocket, { answeredLastPing: boolean }>()
+  let heartbeat: ReturnType<typeof setInterval> | null = null
   const socketServer = new WebSocketServer({
     noServer: true,
     handleProtocols: (protocols) => (protocols.has(REMOTE_CHAT_PROTOCOL) ? REMOTE_CHAT_PROTOCOL : false),
@@ -507,7 +533,13 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
     chats: Pick<AgentEventBroker, 'subscribe'>,
     chatId: string
   ): void => {
-    chatSockets.add(connection)
+    chatSockets.set(connection, { answeredLastPing: true })
+    // A pong is the only evidence the peer is still there, so it is the one thing that resets the
+    // flag the sweep below reads. `ws` answers a ping itself, so nothing on the client had to change.
+    connection.on('pong', () => {
+      const liveness = chatSockets.get(connection)
+      if (liveness) liveness.answeredLastPing = true
+    })
     const deliver = (message: RemoteChatServerMessage): void => {
       if (connection.readyState === connection.OPEN) connection.send(JSON.stringify(message))
     }
@@ -535,6 +567,23 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
   }
 
   /**
+   * Refuses one upgrade on the raw socket.
+   *
+   * The `'error'` listener is the load-bearing line. Node removes its own before emitting
+   * `'upgrade'`, so from here on this socket is unlistened - and an asynchronous write failure on
+   * it (a peer that vanished between its handshake and this reply) would be an unhandled `'error'`
+   * in a process with no `uncaughtException` handler, reachable by a caller that never presented a
+   * token. The destroy is the other half: the reply is the end of the conversation, so the socket
+   * is closed here rather than left open by a peer that ignores `connection: close`.
+   */
+  const refuseUpgrade = (socket: Duplex, statusLine: string): void => {
+    socket.on('error', () => {
+      /* Refused already: there is nobody left to report to and nothing left to clean up. */
+    })
+    socket.end(statusLine, () => socket.destroy())
+  }
+
+  /**
    * The token gate runs before any route is considered, so a socket route added later can never be
    * an unguarded one. Browsers cannot set an `Authorization` header on an upgrade, so the token is
    * also accepted from the `Sec-WebSocket-Protocol` list - still a header, never a URL.
@@ -543,7 +592,7 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
     const presented =
       presentedPairingToken(request.headers) ?? tokenFromWebSocketProtocols(request.headers['sec-websocket-protocol'])
     if (!pairingTokenMatches(options.store.read().token, presented)) {
-      socket.end('HTTP/1.1 401 Unauthorized\r\nwww-authenticate: Bearer\r\nconnection: close\r\n\r\n')
+      refuseUpgrade(socket, 'HTTP/1.1 401 Unauthorized\r\nwww-authenticate: Bearer\r\nconnection: close\r\n\r\n')
       return
     }
     const route = resolveRemoteSocketRoute(request.url)
@@ -551,28 +600,59 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
     // not list is not joinable, which also keeps unknown ids from minting ghost broker channels.
     const chats = options.chats
     if (route.kind !== 'chat' || !chats || !snapshot.chats.some((chat) => chat.id === route.chatId)) {
-      socket.end('HTTP/1.1 404 Not Found\r\nconnection: close\r\n\r\n')
+      refuseUpgrade(socket, 'HTTP/1.1 404 Not Found\r\nconnection: close\r\n\r\n')
       return
     }
     socketServer.handleUpgrade(request, socket, head, (connection) => attachChatSocket(connection, chats, route.chatId))
   }
 
   const closeChatSockets = (code: number, reason: string): void => {
-    for (const connection of [...chatSockets]) connection.close(code, reason)
+    for (const connection of [...chatSockets.keys()]) connection.close(code, reason)
+  }
+
+  /** The same sweep without the handshake, for the peers that cannot complete one. */
+  const dropChatSockets = (): void => {
+    for (const connection of [...chatSockets.keys()]) connection.terminate()
+  }
+
+  /**
+   * One sweep of the heartbeat: anything that did not answer the last ping is gone, whatever TCP
+   * still believes. `terminate` rather than `close`, because a close *handshake* is a round trip
+   * with a peer that has just proved it cannot make one - `ws` would wait out its own 30s timeout
+   * and everything queued behind the socket would wait with it.
+   */
+  const sweepChatSockets = (): void => {
+    for (const [connection, liveness] of [...chatSockets]) {
+      if (!liveness.answeredLastPing) {
+        connection.terminate()
+        continue
+      }
+      liveness.answeredLastPing = false
+      connection.ping()
+    }
   }
 
   const stop = async (): Promise<void> => {
     const running = server
     server = null
     boundPort = undefined
+    if (heartbeat) {
+      clearInterval(heartbeat)
+      heartbeat = null
+    }
     if (!running) return
     // `Server.close` waits for open connections and does not know about upgraded sockets at all,
-    // so the chat sockets are closed first rather than left to strand the shutdown.
-    closeChatSockets(1001, 'server stopping')
+    // so the chat sockets are dropped first rather than left to strand the shutdown. Dropped, not
+    // closed: a phone that lost signal would never answer the close handshake, and this promise is
+    // what the settings dialog and the quit path are both waiting on. The client cannot tell the
+    // difference that matters anyway - every drop is classified by one authenticated probe, and a
+    // host that is going down fails that probe however politely its sockets were retired.
+    dropChatSockets()
     await new Promise<void>((resolve) => running.close(() => resolve()))
   }
 
-  const listen = async (port: number): Promise<void> => {
+  const listen = async (settings: RemoteAccessSettings): Promise<void> => {
+    const { port, bindHost } = settings
     const next = createServer((request, response) => {
       void handle(request, response).catch(() => {
         if (!response.headersSent) send(request, response, 500, null)
@@ -591,14 +671,20 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
         resolve()
       }
       next.once('error', failed)
-      // No host argument: every interface, because the tailnet address is the point and the
-      // pairing token - not the bind address - is what authorizes a caller.
-      next.listen(port, () => {
+      // Every interface unless the user named one: the tailnet address is the point and the
+      // pairing token - not the bind address - is what authorizes a caller. A named host narrows
+      // who can *reach* the 401 on top of that; `apply` has already refused one this PC does not
+      // own, so a bind failure here is a real one rather than a stale setting.
+      const started = (): void => {
         next.removeListener('error', failed)
         const address = next.address()
         boundPort = typeof address === 'object' && address ? address.port : port
         server = next
         error = undefined
+        // Started with the listener and cleared by `stop`, so a sweep can never outlive the sockets
+        // it was pinging. Unreferenced: a heartbeat is not a reason for the process to stay up.
+        heartbeat = setInterval(sweepChatSockets, options.heartbeatMs ?? HEARTBEAT_MS)
+        heartbeat.unref?.()
         // A later failure must not leave the state claiming to listen, so the long-lived handler
         // replaces the startup one rather than sharing it.
         next.on('error', (cause: Error) => {
@@ -606,18 +692,27 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
           void stop().then(() => publishState())
         })
         resolve()
-      })
+      }
+      if (bindHost === undefined) next.listen(port, started)
+      else next.listen(port, bindHost, started)
     })
   }
 
   const apply = async (settings: RemoteAccessSettings): Promise<RemoteAccessState> => {
     await stop()
     error = undefined
-    const problem = remoteAccessPortProblem(settings.port)
+    // The bind host is checked against what this PC currently owns rather than against a pattern:
+    // the tailnet address only exists while Tailscale is up, and binding every interface instead
+    // would silently undo the one thing the setting was chosen for. Only when the listener is
+    // actually wanted, though - "the listener stayed down" is not news to someone who turned it
+    // off, and a tailnet that is down is not a reason to put an error in front of them.
+    const problem = settings.enabled
+      ? (remoteAccessPortProblem(settings.port) ?? remoteBindHostProblem(settings.bindHost, readAddresses()))
+      : remoteAccessPortProblem(settings.port)
     if (problem) {
       error = problem
     } else if (settings.enabled) {
-      await listen(settings.port)
+      await listen(settings)
     }
     return publishState()
   }
@@ -777,7 +872,10 @@ async function sendClientAsset(
   pathname: string
 ): Promise<void> {
   // Served without CORS headers, unlike every API reply: the bundle is fetched by navigation, so no
-  // other origin has reason to read it with script.
+  // other origin has reason to read it with script. It carries the page's own policy headers
+  // instead, and they go on every reply this function makes rather than only on the shell - the
+  // unknown-path fallback below *is* the shell, and a document served without them is exactly the
+  // one a future injection would want.
   const resolved = resolveClientAsset(root, pathname)
   if (resolved) {
     const file = await readFileIfPresent(resolved)
@@ -788,6 +886,7 @@ async function sendClientAsset(
         200,
         file,
         {
+          ...REMOTE_SHELL_SECURITY_HEADERS,
           'content-type': clientContentType(resolved),
           // Vite fingerprints everything under /assets, so only the shell must never be cached.
           ...(pathname.startsWith('/assets/') ? { 'cache-control': 'public, max-age=31536000, immutable' } : {})
@@ -801,10 +900,24 @@ async function sendClientAsset(
   const shell = await readFileIfPresent(join(root, 'index.html'))
   if (!shell) {
     const message = 'The Toucan mobile client has not been built. Run "npm run build:mobile" on the host.'
-    send(request, response, 503, message, { 'content-type': 'text/plain; charset=utf-8' }, false)
+    send(
+      request,
+      response,
+      503,
+      message,
+      { ...REMOTE_SHELL_SECURITY_HEADERS, 'content-type': 'text/plain; charset=utf-8' },
+      false
+    )
     return
   }
-  send(request, response, 200, shell, { 'content-type': 'text/html; charset=utf-8' }, false)
+  send(
+    request,
+    response,
+    200,
+    shell,
+    { ...REMOTE_SHELL_SECURITY_HEADERS, 'content-type': 'text/html; charset=utf-8' },
+    false
+  )
 }
 
 async function readFileIfPresent(path: string): Promise<Buffer | null> {
