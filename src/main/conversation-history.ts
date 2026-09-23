@@ -8,12 +8,15 @@ import type {
 } from '../shared/conversation'
 import { pathIdentity } from '../shared/paths'
 import { claudeConfigRoot } from './claude-config'
+import type { ConversationLineageStore } from './conversation-lineage-store'
 import type { ConversationTitleStore } from './conversation-title-store'
 
 export interface ConversationHistoryOptions {
   homeDirectory: string
   environment: NodeJS.ProcessEnv
   titles?: ConversationTitleStore
+  /** Toucan's own fork records; the only lineage a Claude transcript has. */
+  lineage?: ConversationLineageStore
 }
 
 export interface ConversationHistory {
@@ -32,6 +35,8 @@ interface Candidate {
   path: string
   cwd: string
   sortAt: number
+  /** What the transcript itself says it was forked from (Codex only). */
+  forkedFrom?: string
 }
 
 interface Detail {
@@ -198,6 +203,8 @@ interface CodexMeta {
   startedAt: number
   /** Codex records subagent rollouts beside real ones; only user threads are resumable here. */
   subagent: boolean
+  /** The thread this rollout was forked from; Codex records it in the rollout head. */
+  forkedFromId?: string
 }
 
 /** Thread sources Codex gives a rollout it spawned itself rather than one the user started. */
@@ -218,14 +225,24 @@ export function extractCodexMeta(head: string): CodexMeta | null {
   try {
     const record = JSON.parse(firstLine) as {
       type?: string
-      payload?: { id?: string; cwd?: string; timestamp?: string; thread_source?: unknown; source?: unknown }
+      payload?: {
+        id?: string
+        cwd?: string
+        timestamp?: string
+        thread_source?: unknown
+        source?: unknown
+        forked_from_id?: unknown
+      }
     }
     if (record.type !== 'session_meta' || !record.payload?.id || !record.payload.cwd) return null
     return {
       id: record.payload.id,
       cwd: record.payload.cwd,
       startedAt: Date.parse(record.payload.timestamp ?? '') || 0,
-      subagent: isCodexSubagent(record.payload)
+      subagent: isCodexSubagent(record.payload),
+      ...(typeof record.payload.forked_from_id === 'string' && record.payload.forked_from_id
+        ? { forkedFromId: record.payload.forked_from_id }
+        : {})
     }
   } catch {
     // A session_meta line carrying full base instructions can outrun the head read, so the few
@@ -234,8 +251,10 @@ export function extractCodexMeta(head: string): CodexMeta | null {
     const id = /"id":"([^"]+)"/.exec(head)?.[1]
     const rawCwd = /"cwd":"((?:[^"\\]|\\.)*)"/.exec(head)?.[1]
     if (!id || rawCwd === undefined) return null
+    const forkedFromId = /"forked_from_id":"([^"]+)"/.exec(head)?.[1]
     try {
       return {
+        ...(forkedFromId ? { forkedFromId } : {}),
         id,
         cwd: JSON.parse(`"${rawCwd}"`) as string,
         startedAt: Date.parse(/"timestamp":"([^"]+)"/.exec(head)?.[1] ?? '') || 0,
@@ -344,7 +363,14 @@ export function createConversationHistory(options: ConversationHistoryOptions): 
       } catch {
         continue
       }
-      candidates.push({ provider: 'codex', id: meta.id, path: entry.path, cwd: directory, sortAt })
+      candidates.push({
+        provider: 'codex',
+        id: meta.id,
+        path: entry.path,
+        cwd: directory,
+        sortAt,
+        ...(meta.forkedFromId ? { forkedFrom: meta.forkedFromId } : {})
+      })
     }
     return candidates
   }
@@ -376,6 +402,8 @@ export function createConversationHistory(options: ConversationHistoryOptions): 
       trim(details)
     }
     const durableTitle = await options.titles?.get(candidate.provider, candidate.id)
+    // Toucan's record first: it names what the user actually branched, whichever provider ran it.
+    const forkedFrom = (await options.lineage?.forkedFrom(candidate.provider, candidate.id)) ?? candidate.forkedFrom
     return {
       id: candidate.id,
       provider: candidate.provider,
@@ -386,7 +414,8 @@ export function createConversationHistory(options: ConversationHistoryOptions): 
         : {}),
       updatedAt: detail.updatedAt,
       messageCount: detail.messageCount,
-      cwd: candidate.cwd
+      cwd: candidate.cwd,
+      ...(forkedFrom ? { forkedFrom } : {})
     }
   }
 

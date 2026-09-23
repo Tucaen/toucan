@@ -29,3 +29,17 @@ test('an entry nobody holds opens a new node', () => {
     action: 'open'
   })
 })
+
+test('a fork whose parent is on the canvas reopens with its lineage restored', () => {
+  const nodes = [node('parent-node', { kind: 'codex', conversationId: 'thread-parent' })]
+  assert.deepEqual(planHistoryOpen(nodes, { provider: 'codex', id: 'thread-branch', forkedFrom: 'thread-parent' }), {
+    action: 'open',
+    branchedFrom: { nodeId: 'parent-node', conversationId: 'thread-parent' }
+  })
+})
+
+test('a fork whose parent is not on the canvas opens without a lineage edge to draw', () => {
+  assert.deepEqual(planHistoryOpen([], { provider: 'codex', id: 'thread-branch', forkedFrom: 'thread-parent' }), {
+    action: 'open'
+  })
+})

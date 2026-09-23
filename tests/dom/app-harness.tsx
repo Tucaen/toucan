@@ -121,7 +121,7 @@ export function installWindowApis(options: AppHarnessOptions = {}): AppHarness {
       discover: vi.fn(async () => ({ worktrees: [], claims: [] })),
       status: vi.fn(async () => null)
     },
-    conversationApi: { setTitle: vi.fn(async () => null) },
+    conversationApi: { setTitle: vi.fn(async () => null), setForkedFrom: vi.fn(async () => true) },
     agentApi: { onEvent: () => () => undefined },
     terminalContextApi: { replaceEdges: vi.fn() },
     appUpdateApi: createMockAppUpdateApi() as unknown as Record<string, unknown>,

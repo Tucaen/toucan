@@ -169,7 +169,9 @@ const conversationApi: ConversationApi = {
   list: (request) => ipcRenderer.invoke(CONVERSATION_CHANNELS.list, request),
   exists: (path) => ipcRenderer.invoke(CONVERSATION_CHANNELS.exists, path),
   setTitle: (provider, conversationId, title, source) =>
-    ipcRenderer.invoke(CONVERSATION_CHANNELS.setTitle, provider, conversationId, title, source)
+    ipcRenderer.invoke(CONVERSATION_CHANNELS.setTitle, provider, conversationId, title, source),
+  setForkedFrom: (provider, conversationId, parentConversationId) =>
+    ipcRenderer.invoke(CONVERSATION_CHANNELS.setForkedFrom, provider, conversationId, parentConversationId)
 }
 
 contextBridge.exposeInMainWorld('conversationApi', conversationApi)

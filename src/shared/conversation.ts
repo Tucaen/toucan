@@ -20,6 +20,8 @@ export interface ConversationSummary {
   messageCount: number
   /** The directory the conversation ran in: a project checkout or one of its worktrees. */
   cwd: string
+  /** The conversation this one was branched (forked) from, when the provider or Toucan recorded it. */
+  forkedFrom?: string
 }
 
 export interface ConversationListRequest {
@@ -54,4 +56,6 @@ export interface ConversationApi {
     title: string,
     source: ConversationTitleSource
   ): Promise<ConversationTitle | null>
+  /** Records that a branch's conversation was forked from `parentConversationId`; false when refused. */
+  setForkedFrom(provider: ConversationProvider, conversationId: string, parentConversationId: string): Promise<boolean>
 }

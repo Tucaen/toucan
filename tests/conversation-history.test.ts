@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { test } from 'vitest'
 import { createConversationHistory, encodeClaudeProjectDirectory } from '../src/main/conversation-history'
 import { createConversationTitleStore } from '../src/main/conversation-title-store'
+import { createConversationLineageStore } from '../src/main/conversation-lineage-store'
 
 const PROJECT = 'D:\\Dev\\Toucan'
 const WORKTREE = 'D:\\Dev\\Toucan-worktrees\\feature'
@@ -56,6 +57,8 @@ function writeCodexTranscript(options: {
   subagent?: boolean
   /** A Codex guardian reviewer: its own thread source, and a `source.subagent` object. */
   guardian?: boolean
+  /** The conversation Codex forked this one from, as `forked_from_id` records it. */
+  forkedFromId?: string
   turns: Array<{ role: 'user' | 'assistant'; text: string }>
   mtimeSeconds: number
   /** Pads the session_meta line past the head read, as real base instructions do. */
@@ -69,6 +72,7 @@ function writeCodexTranscript(options: {
     payload: {
       session_id: options.id,
       id: options.id,
+      ...(options.forkedFromId ? { forked_from_id: options.forkedFromId } : {}),
       cwd: options.cwd,
       timestamp: '2026-08-20T10:00:00.000Z',
       ...(options.guardian ? { source: { subagent: { other: 'guardian' } } } : {}),
@@ -307,6 +311,65 @@ test('ignores Codex guardian-review rollouts, however long their meta line', asy
       page.entries.map((entry) => entry.id),
       ['codex-real']
     )
+  } finally {
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
+test('a fork names the conversation it was branched from: Codex from its rollout, Claude from Toucan', async () => {
+  const home = makeHome()
+  try {
+    writeCodexTranscript({
+      home,
+      id: 'codex-branch',
+      cwd: PROJECT,
+      day: '21',
+      forkedFromId: 'codex-parent',
+      turns: [{ role: 'user', text: 'investigate the tool failure' }],
+      mtimeSeconds: 1_700_000_900
+    })
+    writeCodexTranscript({
+      home,
+      id: 'codex-big-branch',
+      cwd: PROJECT,
+      day: '21',
+      forkedFromId: 'codex-parent',
+      oversizedMeta: true,
+      turns: [{ role: 'user', text: 'another branch' }],
+      mtimeSeconds: 1_700_000_850
+    })
+    writeCodexTranscript({
+      home,
+      id: 'codex-parent',
+      cwd: PROJECT,
+      day: '21',
+      turns: [{ role: 'user', text: 'make the README image' }],
+      mtimeSeconds: 1_700_000_800
+    })
+    writeClaudeTranscript({
+      home,
+      directoryName: encodeClaudeProjectDirectory(PROJECT),
+      id: 'claude-branch',
+      turns: [{ role: 'user', text: 'a Claude branch' }],
+      mtimeSeconds: 1_700_000_700
+    })
+    const lineage = createConversationLineageStore(join(home, 'lineage.json'))
+    await lineage.setForkedFrom('claude', 'claude-branch', 'claude-parent')
+
+    const page = await createConversationHistory({ homeDirectory: home, environment: {}, lineage }).list({
+      directories: [PROJECT]
+    })
+
+    assert.deepEqual(
+      page.entries.map((entry) => [entry.id, entry.forkedFrom]),
+      [
+        ['codex-branch', 'codex-parent'],
+        ['codex-big-branch', 'codex-parent'],
+        ['codex-parent', undefined],
+        ['claude-branch', 'claude-parent']
+      ]
+    )
+    assert.equal('forkedFrom' in page.entries[2], false)
   } finally {
     rmSync(home, { recursive: true, force: true })
   }

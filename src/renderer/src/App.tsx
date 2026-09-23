@@ -423,6 +423,14 @@ function Canvas(): JSX.Element {
           .setTitle(pending.kind, conversationId, pending.label, pending.titleSource)
           .catch(() => undefined)
       }
+      // A fork's first conversation id is also the moment its parentage becomes a fact about a
+      // conversation rather than about this node, so it is recorded where History can read it -
+      // the only lineage a Claude transcript will ever have once both nodes are closed.
+      if (pending && pending.kind !== 'terminal' && !pending.conversationId && pending.branchedFrom) {
+        void window.conversationApi
+          .setForkedFrom(pending.kind, conversationId, pending.branchedFrom.conversationId)
+          .catch(() => undefined)
+      }
       // A fork is a one-shot launch; `launchModeAfterConversation` says what it settles into.
       patchTerminalNode(nodeId, (data) => ({
         conversationId,
@@ -908,8 +916,9 @@ function Canvas(): JSX.Element {
       resumeConversationId?: string
       /**
        * The conversation this node branches off: it launches as a fork, inheriting the whole
-       * transcript, and keeps the record as its provenance. Mutually exclusive with
-       * `resumeConversationId` - one loads a conversation, the other copies it.
+       * transcript, and keeps the record as its provenance. Given together with
+       * `resumeConversationId` - a branch reopened from History - the conversation is loaded,
+       * not copied again, and this is only the provenance the lineage edge is drawn from.
        */
       branchedFrom?: ConversationLineage
       /** The model to open on. Absent leaves it to the adapter's own default, as a click does. */
@@ -922,9 +931,8 @@ function Canvas(): JSX.Element {
       const label = options.label ?? `${labels[kind]} ${nextSessionNumber.current}`
       // A branch has no conversation of its own until the fork produces one, and must not be
       // handed a speculative id: an id here would read as a conversation to resume.
-      const conversationId = branchedFrom
-        ? undefined
-        : (resumeConversationId ?? (kind === 'claude' ? crypto.randomUUID() : undefined))
+      const conversationId =
+        resumeConversationId ?? (branchedFrom ? undefined : kind === 'claude' ? crypto.randomUUID() : undefined)
       // The refusal is decided here, not inside the updater: an updater that returned `current`
       // still left this function recording a `starting` status for an id no node ever carried, and
       // handing that id back to a caller waiting on the session.
@@ -967,7 +975,7 @@ function Canvas(): JSX.Element {
               modelId: options.modelId,
               dormant: false,
               branchedFrom,
-              launchMode: branchedFrom ? 'fork' : resumeConversationId ? 'resume' : 'new',
+              launchMode: resumeConversationId ? 'resume' : branchedFrom ? 'fork' : 'new',
               initialInput: options.initialInput,
               onStatusChange: handleStatusChange,
               onAttention: handleAttention,
@@ -2046,7 +2054,8 @@ function Canvas(): JSX.Element {
         position: historyDrop,
         label: entry.title,
         titleSource: entry.titleSource,
-        resumeConversationId: entry.id
+        resumeConversationId: entry.id,
+        branchedFrom: plan.branchedFrom
       })
       if (!opened) setNotice(worktreeGoneNotice('the conversation could not be reopened in it.'))
       setHistoryDrop(null)

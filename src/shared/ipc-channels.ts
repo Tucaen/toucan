@@ -84,7 +84,8 @@ export const WORKTREE_CHANNELS = {
 export const CONVERSATION_CHANNELS = {
   list: 'conversation:list',
   exists: 'conversation:exists',
-  setTitle: 'conversation:set-title'
+  setTitle: 'conversation:set-title',
+  setForkedFrom: 'conversation:set-forked-from'
 } as const
 
 export const REMOTE_CHANNELS = {

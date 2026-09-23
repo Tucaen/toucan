@@ -1,6 +1,7 @@
 import { EMPTY_CONVERSATION_PAGE, type ConversationListRequest } from '../shared/conversation'
 import { CONVERSATION_CHANNELS } from '../shared/ipc-channels'
 import type { ConversationHistory } from './conversation-history'
+import type { ConversationLineageStore } from './conversation-lineage-store'
 import type { ConversationTitleStore } from './conversation-title-store'
 import type { IpcRegistrar } from './ipc-registrar'
 import type { WorkspaceContainment } from './workspace-containment'
@@ -14,6 +15,7 @@ export function registerConversationIpc(
   ipc: IpcRegistrar,
   history: ConversationHistory,
   titles: ConversationTitleStore,
+  lineage: ConversationLineageStore,
   containment: Pick<WorkspaceContainment, 'contains'>
 ): void {
   ipc.handle(CONVERSATION_CHANNELS.list, async (_event, request: unknown) => {
@@ -45,6 +47,15 @@ export function registerConversationIpc(
         return null
       if (source !== 'generated' && source !== 'manual') return null
       return titles.set(provider, id, title, source)
+    }
+  )
+  ipc.handle(
+    CONVERSATION_CHANNELS.setForkedFrom,
+    async (_event, provider: unknown, id: unknown, parentId: unknown): Promise<boolean> => {
+      if (provider !== 'claude' && provider !== 'codex') return false
+      if (typeof id !== 'string' || !id || typeof parentId !== 'string' || !parentId) return false
+      await lineage.setForkedFrom(provider, id, parentId)
+      return true
     }
   )
 }

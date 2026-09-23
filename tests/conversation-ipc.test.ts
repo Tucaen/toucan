@@ -5,6 +5,7 @@ import { EMPTY_CONVERSATION_PAGE } from '../src/shared/conversation'
 import { registerConversationIpc } from '../src/main/conversation-ipc'
 import type { ConversationHistory } from '../src/main/conversation-history'
 import type { ConversationTitleStore } from '../src/main/conversation-title-store'
+import type { ConversationLineageStore } from '../src/main/conversation-lineage-store'
 import type { ConversationListRequest } from '../src/shared/conversation'
 import type { ConversationTitle } from '../src/shared/conversation-title'
 
@@ -12,6 +13,7 @@ interface Harness {
   handlers: Map<string, (...args: unknown[]) => unknown>
   listed: ConversationListRequest[]
   titles: Array<[string, string, string, string]>
+  forks: Array<[string, string, string]>
 }
 
 const storedTitle: ConversationTitle = { title: 'Renamed', source: 'manual' }
@@ -20,6 +22,11 @@ function harness(): Harness {
   const handlers = new Map<string, (...args: unknown[]) => unknown>()
   const listed: ConversationListRequest[] = []
   const titles: Array<[string, string, string, string]> = []
+  const forks: Array<[string, string, string]> = []
+  const lineage: ConversationLineageStore = {
+    forkedFrom: async () => null,
+    setForkedFrom: async (provider, conversationId, parentId) => void forks.push([provider, conversationId, parentId])
+  }
   const history: ConversationHistory = {
     list: async (request) => {
       listed.push(request)
@@ -38,9 +45,10 @@ function harness(): Harness {
     { handle: (channel, listener) => void handlers.set(channel, listener as (...args: unknown[]) => unknown) },
     history,
     store,
+    lineage,
     { contains: async (path) => path.startsWith('D:/p') }
   )
-  return { handlers, listed, titles }
+  return { handlers, listed, titles, forks }
 }
 
 const event = { sender: {} }
@@ -86,4 +94,14 @@ test('set-title validates provider, id, title and source before touching the sto
   assert.equal(await handler(event, 'claude', 7, 'Renamed', 'manual'), null)
   assert.equal(await handler(event, 'claude', 'c-1', 'Renamed', 'guessed'), null)
   assert.deepEqual(titles, [['claude', 'c-1', 'Renamed', 'manual']])
+})
+
+test('set-forked-from validates provider and both ids before touching the lineage store', async () => {
+  const { handlers, forks } = harness()
+  const handler = handlers.get(CONVERSATION_CHANNELS.setForkedFrom)!
+  assert.equal(await handler(event, 'codex', 'child', 'parent'), true)
+  assert.equal(await handler(event, 'gemini', 'child', 'parent'), false)
+  assert.equal(await handler(event, 'claude', 'child', 7), false)
+  assert.equal(await handler(event, 'claude', '', 'parent'), false)
+  assert.deepEqual(forks, [['codex', 'child', 'parent']])
 })

@@ -13,6 +13,7 @@ import { forwardAppUpdateChanges, registerAppUpdateIpc } from './app-update-ipc'
 import { createVoiceModelStore, type VoiceModelStore } from './voice-model-store'
 import { createCommandLookup } from './command-lookup'
 import { createMainLog } from './main-log'
+import { createConversationLineageStore } from './conversation-lineage-store'
 import { createVoiceModelPort } from './voice-model-download'
 import { forwardVoiceModelChanges, registerVoiceModelIpc } from './voice-model-ipc'
 import { createDictationCleaner } from './dictation-cleanup'
@@ -307,6 +308,10 @@ void app.whenReady().then(async () => {
     join(app.getPath('userData'), 'conversation-titles.json'),
     mainLog('conversation titles')
   )
+  const conversationLineage = createConversationLineageStore(
+    join(app.getPath('userData'), 'conversation-lineage.json'),
+    mainLog('conversation lineage')
+  )
   // What each conversation was asked for and where it stands, extracted from the same transcript
   // snapshots the broker already keeps. No UI and no IPC by design: a later session asks an agent
   // to read the folder (see `docs/plans/session-outcome-index.md`).
@@ -529,9 +534,11 @@ void app.whenReady().then(async () => {
     createConversationHistory({
       homeDirectory: app.getPath('home'),
       environment: process.env,
-      titles: conversationTitles
+      titles: conversationTitles,
+      lineage: conversationLineage
     }),
     conversationTitles,
+    conversationLineage,
     containment
   )
   // One manager for both: the delete confirmation asks git the same question worktree discovery
