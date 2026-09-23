@@ -1,3 +1,5 @@
+![Toucan features](docs/images/toucan-features-v5.png)
+
 # Toucan
 
 Toucan is a Windows-first desktop workspace for arranging local shells, Claude sessions,
