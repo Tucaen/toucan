@@ -1,6 +1,10 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, test, vi } from 'vitest'
-import { ProjectSidebar, type ProjectSidebarIntents, type ProjectSidebarProps } from '../src/renderer/src/ProjectSidebar'
+import {
+  ProjectSidebar,
+  type ProjectSidebarIntents,
+  type ProjectSidebarProps
+} from '../src/renderer/src/ProjectSidebar'
 import type { SidebarProjectSummary } from '../src/renderer/src/project-sidebar'
 import type { ProjectGroup, WorkspaceProject } from '../src/shared/workspace'
 
@@ -13,8 +17,6 @@ import type { ProjectGroup, WorkspaceProject } from '../src/shared/workspace'
 
 const alpha: WorkspaceProject = { id: 'alpha', name: 'Alpha', path: 'D:\\Alpha', color: '#71a9ff' }
 const beta: WorkspaceProject = { id: 'beta', name: 'Beta', path: 'D:\\Beta', color: '#e69a71' }
-
-const emptySummary: SidebarProjectSummary = { sessions: [], worktrees: [], nodeCount: 0, sessionNodeIds: [] }
 
 function intentsSpy(): ProjectSidebarIntents {
   return {

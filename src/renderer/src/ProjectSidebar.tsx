@@ -315,7 +315,10 @@ export function ProjectSidebar({
                         >
                           <ProjectAvatar project={project} avatarUrl={avatars[project.id] ?? null}>
                             {projectUnread > 0 && (
-                              <span className="unread-badge project-unread" title={describeUnread(summary.sessionNodeIds)}>
+                              <span
+                                className="unread-badge project-unread"
+                                title={describeUnread(summary.sessionNodeIds)}
+                              >
                                 {projectUnread}
                               </span>
                             )}
@@ -347,7 +350,9 @@ export function ProjectSidebar({
                             <button
                               type="button"
                               className="project-locate"
-                              title={summary.nodeCount > 0 ? `Show ${project.name} nodes` : 'No nodes on the canvas yet'}
+                              title={
+                                summary.nodeCount > 0 ? `Show ${project.name} nodes` : 'No nodes on the canvas yet'
+                              }
                               disabled={summary.nodeCount === 0}
                               onClick={(event) => {
                                 event.stopPropagation()

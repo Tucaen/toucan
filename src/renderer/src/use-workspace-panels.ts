@@ -71,10 +71,7 @@ function useDockedPanel<State extends { open: boolean; width: number }>(
     return () => window.removeEventListener('resize', onResize)
   }, [clampWidth])
 
-  return useMemo(
-    () => ({ state, mounted, openRef, toggle, patch, adopt }),
-    [adopt, mounted, patch, state, toggle]
-  )
+  return useMemo(() => ({ state, mounted, openRef, toggle, patch, adopt }), [adopt, mounted, patch, state, toggle])
 }
 
 export interface WorkspacePanelsController {
