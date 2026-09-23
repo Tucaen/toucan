@@ -42,12 +42,10 @@ import { terminalRunInput } from '../../shared/project-run-commands'
 import type { TerminalKind, TerminalLiveness } from '../../shared/terminal'
 import type {
   AgentPermissionModes,
-  BrainDumpPanelState,
   ComposerSendKey,
   ConversationLineage,
   ProjectDirectory,
   ProjectGroup,
-  TicketBoardPanelState,
   WorkspaceLayoutSlot,
   WorkspaceProject,
   WorkspaceState,
@@ -59,22 +57,13 @@ import type { FileViewMode } from '../../shared/file-view'
 import { pathIdentity, pathWithinRoot } from '../../shared/paths'
 import { placeholderBranchName, type WorktreeHandoffPlan } from '../../shared/worktree-handoff'
 import { AppHeader, type CanvasNotice } from './AppHeader'
-import {
-  BRAIN_DUMP_PANEL_DEFAULT_WIDTH,
-  brainDumpPanelKeyAction,
-  clampBrainDumpPanelWidth
-} from './brain-dump-panel-layout'
-import BrainDumpLibraryPanel from './BrainDumpLibraryPanel'
-import {
-  TICKET_BOARD_DEFAULT_WIDTH,
-  clampTicketBoardWidth,
-  pruneEnabledSources,
-  ticketBoardKeyAction
-} from './ticket-board-layout'
+import { brainDumpPanelKeyAction } from './brain-dump-panel-layout'
+import { ticketBoardKeyAction } from './ticket-board-layout'
 import { ticketSessionsFromNodes, type TicketActivityReport } from './ticket-activity'
 import { createTicketFileSource } from './ticket-file-source'
 import { createTicketGithubSource } from './ticket-github-source'
-import TicketBoardPanel from './TicketBoardPanel'
+import { useWorkspacePanels } from './use-workspace-panels'
+import { WorkspacePanels } from './WorkspacePanels'
 import {
   closedSessionKeyAction,
   createNodeKeyAction,
@@ -284,16 +273,6 @@ function createProject(directory: ProjectDirectory, index: number): Project {
   }
 }
 
-/**
- * Today in the user's own calendar. The brain-dump library records local calendar days, so a UTC
- * date would read "yesterday" all evening for anyone west of Greenwich.
- */
-function localCalendarDate(): string {
-  const now = new Date()
-  const month = `${now.getMonth() + 1}`.padStart(2, '0')
-  return `${now.getFullYear()}-${month}-${`${now.getDate()}`.padStart(2, '0')}`
-}
-
 const WORKTREE_CREATE_FAILED = 'The worktree could not be created.'
 const WORKTREE_REMOVE_FAILED = 'The worktree could not be removed.'
 
@@ -377,20 +356,12 @@ function Canvas(): JSX.Element {
   /** Whether the picker will create a node or return a new path to an existing file node. */
   const [filePickerRequest, setFilePickerRequest] = useState<FilePickerRequest | null>(null)
   const filePickerResolver = useRef<((path: string | null) => void) | null>(null)
-  // The brain-dump library is global rather than per-project, so the workspace owns its persisted
-  // panel state and the panel itself only renders it.
-  const [brainDumpPanel, setBrainDumpPanel] = useState<BrainDumpPanelState>({
-    open: false,
-    width: BRAIN_DUMP_PANEL_DEFAULT_WIDTH
-  })
-  const [brainDumpMounted, setBrainDumpMounted] = useState(false)
-  // The board is a projection of the active project's files, so the workspace persists only where
-  // the panel sits; everything it shows is re-read from disk.
-  const [ticketBoardPanel, setTicketBoardPanel] = useState<TicketBoardPanelState>({
-    open: false,
-    width: TICKET_BOARD_DEFAULT_WIDTH
-  })
-  const [ticketBoardMounted, setTicketBoardMounted] = useState(false)
+  // Where the two docked panels sit and whether they are mounted; what they show is their own.
+  const panels = useWorkspacePanels()
+  const { restore: restorePanels } = panels
+  // Stable pieces the window key handler binds on, so it never re-binds on a panel resize.
+  const { toggle: toggleBrainDumpPanel, openRef: brainDumpOpenRef } = panels.brainDump
+  const { toggle: toggleTicketBoardPanel } = panels.ticketBoard
   // Built once, in board order: the files in the checkout are always on, GitHub is offered per
   // project. A further tracker is another entry here and nothing else above the seam.
   const ticketSources = useMemo(
@@ -400,7 +371,6 @@ function Canvas(): JSX.Element {
     ],
     []
   )
-  const [workspaceWidth, setWorkspaceWidth] = useState(() => window.innerWidth)
   const { fitView, getViewport, screenToFlowPosition, setViewport, zoomIn, zoomOut, zoomTo } = useReactFlow()
   // Selecting the scalar rather than the whole transform keeps the sidebar out of every pan frame:
   // panning changes transform[0]/[1] on each pointer move, and only the zoom readout needs to react.
@@ -659,8 +629,6 @@ function Canvas(): JSX.Element {
   const projectsRef = useRef<Project[]>([])
   const permissionModesRef = useRef<AgentPermissionModes>({})
   const recentlyClosedNodesRef = useRef<WorkspaceTerminalNode[]>([])
-  const brainDumpOpenRef = useRef(false)
-  const ticketBoardOpenRef = useRef(false)
   // Held in a ref because the handler is declared after the node factories that hand it out,
   // and because a node's stored callback must not go stale as the handler is recreated.
   const handleWorktreeHandoffRef = useRef<TerminalNodeCallbacks['onWorktreeHandoff']>(undefined)
@@ -681,8 +649,6 @@ function Canvas(): JSX.Element {
   projectsRef.current = projects
   permissionModesRef.current = agentPermissionModes
   recentlyClosedNodesRef.current = recentlyClosedNodes
-  brainDumpOpenRef.current = brainDumpPanel.open
-  ticketBoardOpenRef.current = ticketBoardPanel.open
 
   const handleRequestFilePath = useCallback((nodeId: string): Promise<string | null> => {
     if (filePickerResolver.current) return Promise.resolve(null)
@@ -969,43 +935,6 @@ function Canvas(): JSX.Element {
     resumeNode,
     setNodes
   ])
-
-  const toggleTicketBoardPanel = useCallback((): void => {
-    setTicketBoardMounted(true)
-    // Spread first: the per-project source choices must survive every open and close.
-    setTicketBoardPanel((current) => ({
-      ...current,
-      open: !current.open,
-      width: clampTicketBoardWidth(current.width, window.innerWidth)
-    }))
-  }, [])
-
-  const toggleBrainDumpPanel = useCallback((): void => {
-    setBrainDumpMounted(true)
-    setBrainDumpPanel((current) => ({
-      ...current,
-      open: !current.open,
-      width: clampBrainDumpPanelWidth(current.width, window.innerWidth)
-    }))
-  }, [])
-
-  // The panel takes real layout width, so a smaller window must narrow it rather than let it push
-  // the canvas off-screen.
-  useEffect(() => {
-    const onResize = (): void => {
-      setWorkspaceWidth(window.innerWidth)
-      setBrainDumpPanel((current) => {
-        const width = clampBrainDumpPanelWidth(current.width, window.innerWidth)
-        return width === current.width ? current : { ...current, width }
-      })
-      setTicketBoardPanel((current) => {
-        const width = clampTicketBoardWidth(current.width, window.innerWidth)
-        return width === current.width ? current : { ...current, width }
-      })
-    }
-    window.addEventListener('resize', onResize)
-    return () => window.removeEventListener('resize', onResize)
-  }, [])
 
   const addSessionNode = useCallback(
     (options: {
@@ -1537,24 +1466,7 @@ function Canvas(): JSX.Element {
       nextSessionNumber.current = restored.nextSessionNumber
       setActiveProjectId(restored.activeProjectId)
       setSidebarCollapsed(saved.sidebarCollapsed)
-      // A width saved on a larger monitor is folded into this window before it is ever rendered,
-      // so restoring a workspace can never hand the canvas less room than it can use.
-      if (saved.brainDumpPanel) {
-        const width = clampBrainDumpPanelWidth(saved.brainDumpPanel.width, window.innerWidth)
-        setBrainDumpPanel({ ...saved.brainDumpPanel, width })
-        if (saved.brainDumpPanel.open) setBrainDumpMounted(true)
-      }
-      if (saved.ticketBoardPanel) {
-        setTicketBoardPanel({
-          ...saved.ticketBoardPanel,
-          enabledSources: pruneEnabledSources(
-            saved.ticketBoardPanel.enabledSources,
-            saved.projects.map((entry) => entry.path)
-          ),
-          width: clampTicketBoardWidth(saved.ticketBoardPanel.width, window.innerWidth)
-        })
-        if (saved.ticketBoardPanel.open) setTicketBoardMounted(true)
-      }
+      restorePanels(saved)
       setAgentPermissionModes(saved.agentPermissionModes ?? {})
       setComposerSendKey(saved.composerSendKey ?? COMPOSER_SEND_KEY_DEFAULT)
       // Absent in older snapshots means off: existing workspaces migrate with delegation disabled.
@@ -1589,6 +1501,7 @@ function Canvas(): JSX.Element {
       handleForkSupport,
       handleTerminalLiveness,
       handleTitleChange,
+      restorePanels,
       resumeNode,
       restoreAttention,
       setNodes,
@@ -1613,8 +1526,8 @@ function Canvas(): JSX.Element {
     recentlyClosedNodes,
     attention,
     layoutSlots,
-    brainDumpPanel,
-    ticketBoardPanel
+    brainDumpPanel: panels.brainDump.state,
+    ticketBoardPanel: panels.ticketBoard.state
   })
 
   const [remoteAccessOpen, setRemoteAccessOpen] = useState(false)
@@ -2066,13 +1979,14 @@ function Canvas(): JSX.Element {
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [
+    brainDumpOpenRef,
     overlayOpen,
     reopenLastClosedSession,
+    toggleBrainDumpPanel,
+    toggleTicketBoardPanel,
     runCreateAction,
     runLayoutAction,
     searchTargetNodeId,
-    toggleBrainDumpPanel,
-    toggleTicketBoardPanel,
     centredDropPosition
   ])
 
@@ -2813,11 +2727,11 @@ function Canvas(): JSX.Element {
                       <button
                         type="button"
                         className="sidebar-global-entry"
-                        aria-pressed={brainDumpPanel.open}
+                        aria-pressed={panels.brainDump.state.open}
                         title={sidebarCollapsed ? 'Open brain-dump library' : 'Brain dumps (Ctrl+Shift+B)'}
                         onClick={(event) => {
                           event.stopPropagation()
-                          toggleBrainDumpPanel()
+                          panels.brainDump.toggle()
                         }}
                       >
                         <span className="sidebar-global-icon" aria-hidden="true">
@@ -2830,11 +2744,11 @@ function Canvas(): JSX.Element {
                       <button
                         type="button"
                         className="sidebar-global-entry"
-                        aria-pressed={ticketBoardPanel.open}
+                        aria-pressed={panels.ticketBoard.state.open}
                         title={sidebarCollapsed ? 'Open the ticket board' : 'Tickets (Ctrl+Shift+K)'}
                         onClick={(event) => {
                           event.stopPropagation()
-                          toggleTicketBoardPanel()
+                          panels.ticketBoard.toggle()
                         }}
                       >
                         <span className="sidebar-global-icon" aria-hidden="true">
@@ -2966,38 +2880,16 @@ function Canvas(): JSX.Element {
                   </NodeFitContext.Provider>
                 </section>
 
-                {/* Docked, never overlaid: the panel is a sibling of the canvas region, so opening it
-                only narrows React Flow's box. Once mounted it stays mounted and merely hides, which
-                is what preserves selection, search, scroll, and an unsent draft across a close. */}
-                {brainDumpMounted && (
-                  <BrainDumpLibraryPanel
-                    panel={brainDumpPanel}
-                    workspaceWidth={workspaceWidth}
-                    projects={projects}
-                    activeProjectPath={activeProject?.path}
-                    api={window.brainDumpApi}
-                    today={localCalendarDate()}
-                    onPanelChange={(patch) => setBrainDumpPanel((current) => ({ ...current, ...patch }))}
-                    onOpenSessionOnCanvas={openBrainDumpSession}
-                  />
-                )}
-
-                {ticketBoardMounted && (
-                  <TicketBoardPanel
-                    panel={ticketBoardPanel}
-                    revision={ticketsFolderRevision}
-                    workspaceWidth={workspaceWidth}
-                    projectPath={activeProject?.path}
-                    projectName={activeProject?.name}
-                    ticketsDirectory={activeProject?.ticketsDirectory}
-                    sources={ticketSources}
-                    skillApi={window.ticketSkillApi}
-                    today={localCalendarDate()}
-                    sessions={ticketSessions}
-                    onFocusSession={focusNode}
-                    onPanelChange={(patch) => setTicketBoardPanel((current) => ({ ...current, ...patch }))}
-                  />
-                )}
+                <WorkspacePanels
+                  panels={panels}
+                  projects={projects}
+                  activeProject={activeProject}
+                  ticketsFolderRevision={ticketsFolderRevision}
+                  ticketSources={ticketSources}
+                  ticketSessions={ticketSessions}
+                  onFocusSession={focusNode}
+                  onOpenBrainDumpSession={openBrainDumpSession}
+                />
               </div>
 
               {projectMenu && (
