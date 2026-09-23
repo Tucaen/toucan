@@ -29,7 +29,6 @@ import {
   Maximize,
   Plus,
   Settings,
-  Smartphone,
   X,
   ZoomIn,
   ZoomOut
@@ -58,8 +57,8 @@ import type { WorktreeRemovalBlocker } from '../../shared/worktree'
 import { worktreePathKey } from '../../shared/worktree'
 import type { FileViewMode } from '../../shared/file-view'
 import { pathIdentity, pathWithinRoot } from '../../shared/paths'
-import toucanLogo from './assets/toucan-logo.svg'
 import { placeholderBranchName, type WorktreeHandoffPlan } from '../../shared/worktree-handoff'
+import { AppHeader, type CanvasNotice } from './AppHeader'
 import {
   BRAIN_DUMP_PANEL_DEFAULT_WIDTH,
   brainDumpPanelKeyAction,
@@ -132,7 +131,6 @@ import type { DictationCleanupPreference } from '../../shared/dictation-cleanup'
 import { DecisionDelegationContext } from './decision-delegation-context'
 import type { RoutineDelegationPreference } from '../../shared/routine-delegation'
 import type { DecisionDelegationPreference } from '../../shared/decision-delegation'
-import { AppUpdateChip } from './AppUpdateChip'
 import { useAppUpdate } from './use-app-update'
 import { RemoteAccessDialog } from './RemoteAccessDialog'
 import { AdapterManagementDialog } from './AdapterManagementDialog'
@@ -159,7 +157,6 @@ import ProjectRowMenu, { type ProjectMenuPage, type ProjectMenuTarget } from './
 import ProjectBranchChip from './ProjectBranchChip'
 import type { GitCheckoutResult } from '../../shared/git-branch'
 import { ProviderRateLimitsContext } from './provider-rate-limits'
-import { ProviderUsageChip } from './ProviderUsageChip'
 import SessionKindIcon from './SessionKindIcon'
 import SessionNode from './SessionNode'
 import { terminalLivenessLabels } from './terminal-liveness'
@@ -299,15 +296,6 @@ function localCalendarDate(): string {
 
 const WORKTREE_CREATE_FAILED = 'The worktree could not be created.'
 const WORKTREE_REMOVE_FAILED = 'The worktree could not be removed.'
-
-/**
- * A line for the header's notice chip. `text` is what the chip shows, so it has to fit one; the
- * sentence that explains it goes in `detail` and is the chip's tooltip.
- */
-interface CanvasNotice {
-  text: string
-  detail: string
-}
 
 /** One line however many terminals were closed at once, which is the point of a chip over an alert. */
 const SCROLLBACK_NOTICE: CanvasNotice = {
@@ -1632,6 +1620,18 @@ function Canvas(): JSX.Element {
   const [remoteAccessOpen, setRemoteAccessOpen] = useState(false)
   const [adapterManagementOpen, setAdapterManagementOpen] = useState(false)
 
+  // The header's dialog buttons also close the canvas context menu, so opening one can never
+  // leave a create menu floating under the dialog it opened.
+  const openAdapterManagement = useCallback((): void => {
+    setMenu(null)
+    setAdapterManagementOpen(true)
+  }, [])
+  const openRemoteAccess = useCallback((): void => {
+    setMenu(null)
+    setRemoteAccessOpen(true)
+  }, [])
+  const dismissNotice = useCallback((): void => setNotice(null), [])
+
   /**
    * A chat a phone asked for, created through the canvas's own add-node path so the result is
    * indistinguishable from a right-click on the canvas: same id minting, same working-directory
@@ -1728,6 +1728,7 @@ function Canvas(): JSX.Element {
    * what it reports is work that is not on disk.
    */
   const [recoveryDismissed, setRecoveryDismissed] = useState(false)
+  const dismissRecovery = useCallback((): void => setRecoveryDismissed(true), [])
 
   const activeTicketsFolder = activeProject
     ? { projectId: activeProject.id, directory: ticketsDirectoryOrDefault(activeProject.ticketsDirectory) }
@@ -2471,148 +2472,22 @@ function Canvas(): JSX.Element {
                   </div>
                 </ModalDialog>
               )}
-              <header className="app-header">
-                <div>
-                  <img className="brand-mark" src={toucanLogo} alt="" aria-hidden="true" />
-                  <strong>Toucan</strong>
-                  <span className="prototype-label">Agentic Development Environment</span>
-                </div>
-                <div className="header-target">
-                  {(statusSummary.working > 0 ||
-                    statusSummary.stalled > 0 ||
-                    unreadTotal > 0 ||
-                    saveStatus === 'error' ||
-                    notice !== null ||
-                    (workspaceRecovered && !recoveryDismissed)) && (
-                    <div className="global-status-summary" role="status">
-                      {statusSummary.working > 0 && (
-                        <span className="global-status-chip" data-kind="working">
-                          <span className="global-status-dot" />
-                          {statusSummary.working} working
-                        </span>
-                      )}
-                      {statusSummary.stalled > 0 && (
-                        <span
-                          className="global-status-chip"
-                          data-kind="stalled"
-                          title="No progress for a while - these sessions may be stuck"
-                        >
-                          <span className="global-status-dot" />
-                          {statusSummary.stalled} may be stuck
-                        </span>
-                      )}
-                      {/* Not recomputed from node status: this is the same durable record set the
-                  project rows and the nodes themselves count, so the numbers agree. */}
-                      {unreadTotal > 0 && (
-                        <span className="global-status-chip" data-kind="attention" title={describeUnread()}>
-                          <span className="global-status-dot" />
-                          {unreadTotal} unread
-                        </span>
-                      )}
-                      {/* In the header rather than the sidebar because the sidebar collapses and
-                  these two must not: a canvas that is not reaching disk is worth reporting in
-                  every layout the window has. */}
-                      {saveStatus === 'error' && (
-                        <span
-                          className="global-status-chip"
-                          data-kind="save-error"
-                          title="The canvas could not be written to disk. Recent changes are only in memory until a save succeeds."
-                        >
-                          <span className="global-status-dot" />
-                          Save failed
-                        </span>
-                      )}
-                      {/* Whatever the canvas had to refuse or could not finish, said once and
-                  dismissible - the surface that replaced a `window.alert` per node. */}
-                      {notice !== null && (
-                        <button
-                          type="button"
-                          className="global-status-chip"
-                          data-kind="notice"
-                          title={`${notice.detail} Click to dismiss.`}
-                          onClick={() => setNotice(null)}
-                        >
-                          <span className="global-status-dot" />
-                          {notice.text}
-                        </button>
-                      )}
-                      {workspaceRecovered && !recoveryDismissed && (
-                        <button
-                          type="button"
-                          className="global-status-chip"
-                          data-kind="recovered"
-                          title="The saved workspace was damaged or incomplete, so this canvas was restored from the last known-good backup. Click to dismiss."
-                          onClick={() => setRecoveryDismissed(true)}
-                        >
-                          <span className="global-status-dot" />
-                          Recovered from backup
-                        </button>
-                      )}
-                    </div>
-                  )}
-                  {(providerRateLimits.providers.claude || providerRateLimits.providers.codex) && (
-                    <div className="global-usage-summary">
-                      {providerRateLimits.providers.claude && (
-                        <ProviderUsageChip
-                          provider="claude"
-                          entry={providerRateLimits.providers.claude}
-                          onRefresh={providerRateLimits.refresh}
-                        />
-                      )}
-                      {providerRateLimits.providers.codex && (
-                        <ProviderUsageChip
-                          provider="codex"
-                          entry={providerRateLimits.providers.codex}
-                          onRefresh={providerRateLimits.refresh}
-                        />
-                      )}
-                    </div>
-                  )}
-                  <AppUpdateChip
-                    snapshot={appUpdate.snapshot}
-                    announceError={appUpdate.announceError}
-                    busy={appUpdate.busy}
-                    onCheck={appUpdate.check}
-                    onRestart={appUpdate.restart}
-                  />
-                  <button
-                    type="button"
-                    className="header-remote-access"
-                    title="Agent adapters"
-                    aria-label="Agent adapters"
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      setMenu(null)
-                      setAdapterManagementOpen(true)
-                    }}
-                  >
-                    <Settings aria-hidden="true" />
-                  </button>
-                  <button
-                    type="button"
-                    className="header-remote-access"
-                    title={
-                      remoteAccess.state?.listening
-                        ? `Remote access is on (port ${remoteAccess.state.boundPort ?? remoteAccess.state.settings.port})`
-                        : 'Remote access is off - open to serve the mobile companion'
-                    }
-                    data-listening={remoteAccess.state?.listening ? 'true' : undefined}
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      setMenu(null)
-                      setRemoteAccessOpen(true)
-                    }}
-                  >
-                    <Smartphone aria-hidden="true" />
-                  </button>
-                  {activeProject && (
-                    <span className="target-chip" title={activeProject.path}>
-                      <span style={{ background: activeProject.color }} />
-                      {activeProject.name}
-                    </span>
-                  )}
-                </div>
-              </header>
+              <AppHeader
+                status={statusSummary}
+                unreadTotal={unreadTotal}
+                describeUnread={describeUnread}
+                saveFailed={saveStatus === 'error'}
+                notice={notice}
+                onDismissNotice={dismissNotice}
+                recoveredFromBackup={workspaceRecovered && !recoveryDismissed}
+                onDismissRecovery={dismissRecovery}
+                usage={providerRateLimits}
+                appUpdate={appUpdate}
+                remoteState={remoteAccess.state}
+                activeProject={activeProject}
+                onOpenAdapterManagement={openAdapterManagement}
+                onOpenRemoteAccess={openRemoteAccess}
+              />
 
               <div className="workspace-shell">
                 <aside ref={sidebarRef} className={`project-sidebar ${sidebarCollapsed ? 'collapsed' : ''}`}>
