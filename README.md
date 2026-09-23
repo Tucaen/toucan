@@ -6,6 +6,7 @@ workspace state is stored locally and the Windows x64 builds are not yet signed.
 
 ## What Toucan does
 
+- Gives agents memory across sessions. After every turn Toucan records what the conversation set out to do, which files it touched, how it ended and what failed, without spending any model tokens. Later Claude and Codex sessions check those records before starting, so they build on earlier work instead of redoing it. Ask an agent "what did we try for X last week?" to look something up.
 - Keeps multiple projects, terminals, and coding-agent conversations visible on one
   zoomable canvas. Every node can temporarily fit the visible canvas and then restore its
   exact previous position and size from the header.
