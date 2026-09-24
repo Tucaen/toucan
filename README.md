@@ -5,8 +5,8 @@ tried, run side by side on one canvas, and can be answered from your phone.**
 
 ![Toucan demo: a new Claude session recalls what an earlier session tried, then a Codex session works in a worktree alongside it](docs/images/toucan-demo.gif)
 
-*A new Claude session is asked what was already tried for quoted CSV fields and answers from
-Toucan's session records. A Codex session then works in a worktree alongside it, all on one canvas.*
+_A new Claude session is asked what was already tried for quoted CSV fields and answers from
+Toucan's session records. A Codex session then works in a worktree alongside it, all on one canvas._
 
 ## Why Toucan
 
@@ -93,6 +93,10 @@ implemented.
   repository.
 - `docs/research` preserves ideas and investigations; they are not claims about current behavior
   unless promoted into the features page or the architecture map.
+
+## Acknowledgements
+
+Credits to [NodeTerm](https://nodeterm.dev) for the idea of putting terminals and agents on one zoomable canvas.
 
 ## License and security
 
