@@ -3,6 +3,12 @@
  * inspected, a path that is not a repository at all, and a detached HEAD are three different
  * answers, and none of them may render as "on some branch, all fine".
  */
+/** Where a checkout's `HEAD` points: the full commit, and the branch unless `HEAD` is detached. */
+export interface GitHeadState {
+  commit: string
+  branch?: string
+}
+
 export interface GitBranchState {
   /** False for a missing path, a non-repository, or a git that would not run. */
   isRepository: boolean

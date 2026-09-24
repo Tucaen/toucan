@@ -99,7 +99,7 @@ A currently-active conversation is never pruned, and "active" here is membership
 
 Two residual gaps, both deliberate. The cap is enforced on one edge only — a new record — so an index left over the cap by other means (a lowered cap, records copied in) stays over it until the next new conversation. And a conversation is only protected while *this process* watches it, so a record resumed elsewhere before its first turn boundary is prunable; the cost of losing that race is one conversation re-deriving its record from the transcript, which is what the index does at every boundary anyway.
 
-## Staleness (#17)
+## Staleness (Tucaen/toucan#17)
 
 The cap bounds volume, not age: a failure recorded three weeks ago reads as current as yesterday's. Each record therefore carries `commit` (and `branch`, unless `HEAD` is detached): `HEAD` of the directory the session runs in — its worktree where it has one — re-read at every capture, so it is the code state the failures were *last* observed against. It is never carried over from the previous record: a capture whose git lookup fails, or a folder that is no checkout, omits the field, because an unknown code state must read as unknown rather than as an old commit nothing changed since.
 

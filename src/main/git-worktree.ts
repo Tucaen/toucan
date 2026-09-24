@@ -31,12 +31,12 @@ import {
   parseLocalBranches,
   type GitBranchListResult,
   type GitBranchState,
+  type GitHeadState,
   type GitCheckoutRequest,
   type GitCheckoutResult
 } from '../shared/git-branch'
 import type { GitDiffRequest, GitDiffSummary, GitFileDiff, GitFileDiffRequest } from '../shared/git-diff'
 import { changedFilesFromGit, parseUnifiedDiff } from '../shared/git-diff'
-import type { SessionOutcomeCodeState } from '../shared/session-outcome'
 
 /**
  * Claims are a hint written by an agent, so every failure mode - missing file, malformed
@@ -145,12 +145,12 @@ export interface WorktreeManager {
    */
   currentBranch(path: string): Promise<GitBranchState>
   /**
-   * The full `HEAD` commit of a checkout and the branch it is on, for the session outcome index
-   * (#17). `null` for anything that has no commit to name - a missing path, a non-repository, an
-   * unborn branch, or a git that will not run - because a guessed code state would tell a later
-   * session a failure is current when nobody knows.
+   * The full `HEAD` commit of a checkout and the branch it is on. Unlike `currentBranch`, which
+   * feeds a display, this is a claim a reader diffs against, so it answers `null` for anything that
+   * has no commit to name - a missing path, a non-repository, an unborn branch, or a git that will
+   * not run - rather than a guess.
    */
-  codeState(path: string): Promise<SessionOutcomeCodeState | null>
+  headState(path: string): Promise<GitHeadState | null>
   /**
    * Every local branch of a checkout, each with the worktree that already has it checked out so
    * the switcher can refuse those up front. Remote-only branches are deliberately not listed:
@@ -518,7 +518,7 @@ export function createWorktreeManager(options: WorktreeManagerOptions = {}): Wor
       }
     },
 
-    async codeState(path): Promise<SessionOutcomeCodeState | null> {
+    async headState(path): Promise<GitHeadState | null> {
       try {
         if (!pathExists(path)) return null
         const head = await runGit(['rev-parse', '--verify', '--quiet', 'HEAD'], path)

@@ -13,12 +13,12 @@ import {
   sessionOutcomeTurns,
   sessionOutcomeWriteSet,
   SESSION_OUTCOME_RECORD_CAP,
-  type SessionOutcomeCodeState,
   type SessionOutcomeEnding,
   type SessionOutcomeIndexEntry,
   type SessionOutcomeRecord,
   type SessionOutcomeSource
 } from '../shared/session-outcome'
+import type { GitHeadState } from '../shared/git-branch'
 import type { AgentEventBroker } from './agent-event-broker'
 import type { SessionOutcomeStore, SessionOutcomeUpdate } from './session-outcome-store'
 
@@ -96,11 +96,12 @@ export interface SessionOutcomeIndexerOptions {
   titleFor?: (provider: ConversationProvider, conversationId: string) => Promise<string | undefined>
   /**
    * `HEAD` of the directory a session runs in - its worktree where it has one - read at every
-   * capture so the record names the code state its failures were last observed against (#17).
+   * capture so the record names the code state its failures were last observed against
+   * (Tucaen/toucan#17).
    * `null` outside a git checkout; like the lookups above, a failure costs the commit, never the
    * record.
    */
-  codeStateFor?: (projectPath: string) => Promise<SessionOutcomeCodeState | null>
+  codeStateFor?: (projectPath: string) => Promise<GitHeadState | null>
   /** How many records the index keeps before the least recently updated go; injectable so a test can fill it. */
   recordCap?: number
   now?: () => Date
@@ -204,7 +205,7 @@ export function createSessionOutcomeIndexer(options: SessionOutcomeIndexerOption
     if (!context.conversationId) return
     let worktreeId: string | undefined
     let title: string | undefined
-    let codeState: SessionOutcomeCodeState | null | undefined
+    let codeState: GitHeadState | null | undefined
     try {
       worktreeId = await options.worktreeIdForNode?.(sessionId)
     } catch {
@@ -227,8 +228,7 @@ export function createSessionOutcomeIndexer(options: SessionOutcomeIndexerOption
       projectPath: context.projectPath,
       ...(worktreeId ? { worktreeId } : {}),
       ...(title ? { title } : {}),
-      ...(codeState ? { commit: codeState.commit } : {}),
-      ...(codeState?.branch ? { branch: codeState.branch } : {}),
+      ...(codeState ? { codeState } : {}),
       ...(filesTouched.length ? { filesTouched } : {})
     }
     let created = false

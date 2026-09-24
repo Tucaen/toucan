@@ -264,9 +264,9 @@ test('the worktree a node is attached to reaches the record', async () => {
   }
 })
 
-test('the HEAD of the directory the session runs in reaches the record at every boundary (#17)', async () => {
+test('the HEAD of the directory the session runs in reaches the record at every boundary (Tucaen/toucan#17)', async () => {
   const worktree = 'D:\\Development\\ADE-worktrees\\feature'
-  const heads = ['93ff65b', 'a62912f']
+  const heads = ['9999999999999999999999999999999999999999', 'a622222222222222222222222222222222222222']
   const asked: string[] = []
   const session = fixture({
     context: { projectPath: worktree },
@@ -282,7 +282,7 @@ test('the HEAD of the directory the session runs in reaches the record at every 
       message: 'Tests failed.'
     })
     await session.settle()
-    assert.equal(session.record('codex-conv-1')?.commit, '93ff65b')
+    assert.equal(session.record('codex-conv-1')?.commit, '9999999999999999999999999999999999999999')
 
     session.publish(user('u2', 'Try again after the rebase.'), assistant('a2', 'Green now.'), {
       type: 'turn_complete',
@@ -292,14 +292,14 @@ test('the HEAD of the directory the session runs in reaches the record at every 
 
     // The worktree's own HEAD, not the main checkout's, and the latest boundary's rather than the first.
     assert.deepEqual(asked, [worktree, worktree])
-    assert.equal(session.record('codex-conv-1')?.commit, 'a62912f')
+    assert.equal(session.record('codex-conv-1')?.commit, 'a622222222222222222222222222222222222222')
     assert.equal(session.record('codex-conv-1')?.branch, 'feature')
   } finally {
     session.dispose()
   }
 })
 
-test('a code state that cannot be read costs the commit, never the record (#17)', async () => {
+test('a code state that cannot be read costs the commit, never the record (Tucaen/toucan#17)', async () => {
   for (const codeState of [
     async (): Promise<null> => null,
     async (): Promise<never> => Promise.reject(new Error('git exploded'))

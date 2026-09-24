@@ -336,8 +336,9 @@ void app.whenReady().then(async () => {
     // something the user renamed away from.
     titleFor: async (provider, conversationId) => (await conversationTitles.get(provider, conversationId))?.title,
     // HEAD of the session's own directory - its worktree where it runs in one - so a later session
-    // can tell whether a recorded failure predates the code it is looking at (#17).
-    codeStateFor: (projectPath) => worktrees.codeState(projectPath),
+    // can tell whether a recorded failure predates the code it is looking at
+    // (Tucaen/toucan#17).
+    codeStateFor: (projectPath) => worktrees.headState(projectPath),
     log: mainLog('session outcomes')
   })
   // Main's copy of the canvas's terminal-context edges, and the MCP server that answers reads
