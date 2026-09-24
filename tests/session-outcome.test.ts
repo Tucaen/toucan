@@ -431,6 +431,8 @@ test('a record filled to every cap still fits the retrieval budget', () => {
     {
       ...SOURCE,
       worktreeId: 'wt-11',
+      commit: 'f'.repeat(40),
+      branch: `feature/${'long-branch-name-'.repeat(12)}`,
       filesTouched: Array.from({ length: 300 }, (_, index) => `src/${'deeply-nested/'.repeat(20)}file-${index}.ts`)
     },
     null,
@@ -464,6 +466,43 @@ test('files, failures and status round-trip through the reader', () => {
   assert.equal(record.status, 'completed')
 
   assert.deepEqual(parseSessionOutcome(renderSessionOutcome(record)), record)
+})
+
+test('the code state a turn was captured against round-trips, and each capture re-reads it (#17)', () => {
+  const snapshot = transcript(user('u1', 'Fix the flaky capture test.'), {
+    type: 'turn_failed',
+    turnId: 't1',
+    message: 'Typecheck failed.'
+  })
+  const first = extractSessionOutcome(
+    snapshot,
+    { ...SOURCE, commit: '93ff65b0c2f1d4e5a6b7c8d9e0f1a2b3c4d5e6f7', branch: 'feature/outcomes' },
+    null,
+    AT
+  )
+  assert.ok(first)
+  assert.match(renderSessionOutcome(first), /^commit: 93ff65b0c2f1d4e5a6b7c8d9e0f1a2b3c4d5e6f7$/m)
+  assert.match(renderSessionOutcome(first), /^branch: feature\/outcomes$/m)
+  assert.deepEqual(parseSessionOutcome(renderSessionOutcome(first)), first)
+
+  // The latest boundary's HEAD is what the failures were last observed against, so a later capture
+  // replaces the commit rather than keeping the first one - and a detached HEAD has no branch.
+  const later = extractSessionOutcome(snapshot, { ...SOURCE, commit: 'a62912f' }, first, AT)
+  assert.ok(later)
+  assert.equal(later.commit, 'a62912f')
+  assert.equal(later.branch, undefined)
+  assert.doesNotMatch(renderSessionOutcome(later), /^branch:/m)
+  assert.deepEqual(parseSessionOutcome(renderSessionOutcome(later)), later)
+})
+
+test('a project that is not a git checkout carries no code state at all (#17)', () => {
+  const snapshot = transcript(user('u1', 'Tidy the notes folder.'))
+  const record = extractSessionOutcome(snapshot, SOURCE, null, AT)
+  assert.ok(record)
+
+  assert.equal('commit' in record, false)
+  assert.equal('branch' in record, false)
+  assert.doesNotMatch(renderSessionOutcome(record), /^(commit|branch):/m)
 })
 
 test('a realistic record still fits the 2 KB the tracer bullet budgeted for', () => {
