@@ -6,6 +6,11 @@ Toucan is a Windows-first desktop workspace for arranging local shells, Claude s
 Codex sessions, and Git worktrees on one spatial canvas. It is under active development;
 workspace state is stored locally and the Windows x64 builds are not yet signed.
 
+![Toucan demo: a new Claude session recalls what an earlier session tried, then a Codex session works in a worktree alongside it](docs/images/toucan-demo.gif)
+
+*A new Claude session is asked what was already tried for quoted CSV fields and answers from
+Toucan's session records. A Codex session then works in a worktree alongside it, all on one canvas.*
+
 ## What Toucan does
 
 - Gives agents memory across sessions. After every turn Toucan records what the conversation set out to do, which files it touched, how it ended and what failed, without spending any model tokens. Later Claude and Codex sessions check those records before starting, so they build on earlier work instead of redoing it. Ask an agent "what did we try for X last week?" to look something up.
