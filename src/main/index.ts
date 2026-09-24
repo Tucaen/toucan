@@ -11,6 +11,7 @@ import { createAgentModelCatalogueStore } from './agent-model-catalogue-store'
 import { createAppUpdater, type AppUpdater } from './app-update'
 import { forwardAppUpdateChanges, registerAppUpdateIpc } from './app-update-ipc'
 import { createVoiceModelStore, type VoiceModelStore } from './voice-model-store'
+import { MAIN_WINDOW_CHROME } from './window-chrome'
 import { createCommandLookup } from './command-lookup'
 import { createMainLog } from './main-log'
 import { createConversationLineageStore } from './conversation-lineage-store'
@@ -143,6 +144,7 @@ function createWindow(
     icon: developmentWindowIcon(),
     show: false,
     autoHideMenuBar: true,
+    ...MAIN_WINDOW_CHROME,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,

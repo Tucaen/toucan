@@ -84,10 +84,31 @@ button {
   align-items: center;
   justify-content: space-between;
   padding: 0 18px;
+  /* The header is the window's title bar (`src/main/window-chrome.ts`): Windows draws its caption
+     buttons over the right edge, so the content stops where the title-bar area does. Solid, because
+     the buttons' band is painted in this same colour and cannot be translucent. */
+  padding-right: calc(100% - env(titlebar-area-width, 100%) + 18px);
   border-bottom: 1px solid var(--neutral-800);
-  background: rgba(14, 17, 23, 0.96);
+  background: #0e1117;
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.18);
   user-select: none;
+  -webkit-app-region: drag;
+}
+
+/* Everything in the right-hand cluster is a control or carries a tooltip, and neither works inside
+   a drag region. The brand block and the gaps between chips still move the window. */
+.header-target > * {
+  -webkit-app-region: no-drag;
+}
+
+/* A drag region wins over whatever is painted above it unless that layer opts out, so every layer
+   that can float over the header does. */
+.dialog-overlay,
+.image-viewer-backdrop,
+.context-menu,
+.node-picker-menu,
+.composer-settings-panel {
+  -webkit-app-region: no-drag;
 }
 
 .app-header > div {
