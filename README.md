@@ -1,230 +1,98 @@
-![Toucan features](docs/images/toucan-features-v5.png)
-
 # Toucan
 
-Toucan is a Windows-first desktop workspace for arranging local shells, Claude sessions,
-Codex sessions, and Git worktrees on one spatial canvas. It is under active development;
-workspace state is stored locally and the Windows x64 builds are not yet signed.
+**A Windows desktop workspace where Claude and Codex sessions remember what earlier sessions
+tried, run side by side on one canvas, and can be answered from your phone.**
 
 ![Toucan demo: a new Claude session recalls what an earlier session tried, then a Codex session works in a worktree alongside it](docs/images/toucan-demo.gif)
 
 *A new Claude session is asked what was already tried for quoted CSV fields and answers from
 Toucan's session records. A Codex session then works in a worktree alongside it, all on one canvas.*
 
-## What Toucan does
+## Why Toucan
 
-- Gives agents memory across sessions. After every turn Toucan records what the conversation set out to do, which files it touched, how it ended and what failed, without spending any model tokens. Later Claude and Codex sessions check those records before starting, so they build on earlier work instead of redoing it. Ask an agent "what did we try for X last week?" to look something up.
-- Keeps multiple projects, terminals, and coding-agent conversations visible on one
-  zoomable canvas. Every node can temporarily fit the visible canvas and then restore its
-  exact previous position and size from the header.
-- Creates every canvas node type from the context menu or from the keyboard: `Ctrl+T` terminal,
-  `Ctrl+N` Claude, `Ctrl+Shift+N` Codex, `Ctrl+Shift+G` worktree, `Ctrl+H` history browser and
-  `Ctrl+P` file. A shortcut drops its node at the viewport centre and yields inside a terminal.
-- Runs Claude and Codex through provider-neutral ACP chat nodes with sign-in, approvals,
-  model and effort controls, slash commands, Markdown, file attachments, and local voice
-  dictation.
-- Interleaves plans, reasoning, commands, edits, delegation, and other tool activity with
-  the conversation transcript. **Focus** mode hides that detail without discarding it.
-- Queues prompts submitted while an agent is busy, with controls to edit, withdraw, or
-  explicitly send a queued prompt into the running turn.
-- Creates and discovers Git worktrees as persistent canvas nodes. Sessions opened from a
-  worktree share its working directory, and removal is blocked or confirmed according to
-  the work that would be lost.
-- Browses locally recorded Claude and Codex conversation history across a project checkout
-  and its worktrees, then resumes a selected conversation as a new canvas node.
-- Restores saved canvas state, conversation nodes, drafts, attention, and recently closed
-  sessions. `Ctrl+Shift+T` reopens the most recently closed session node.
-- Shows retained display-only output for dormant plain terminals and provider account or
-  session usage when the provider exposes it.
-- Browses the personal brain-dump library in a resizable panel docked beside the canvas:
-  search active or archived topics, follow `[[slug]]` links, and archive completed topics.
-  Archived topics remain immutable snapshots; later work is captured as a linked active
-  follow-up. Capture a new dump by typing or dictating it for the brain-dump skill to organize
-  in the background. `Ctrl+Shift+B` toggles the panel; `Ctrl+K` focuses its search while it is open.
+- **Agents remember across sessions.** After every turn Toucan records what the conversation set
+  out to do, which files it touched, how it ended and what failed, without spending any model
+  tokens. Later Claude and Codex sessions check those records before starting, so they build on
+  earlier work instead of redoing it. Ask "what did we try for X last week?" and get an answer.
+- **Many agents, one canvas.** Terminals, Claude and Codex chats, and Git worktrees are nodes on
+  a zoomable canvas. Run several agents in parallel, each in its own worktree, and keep every one
+  of them in view. Every node type has a keyboard shortcut, and nodes snap and tile like windows.
+- **Answer your agents from your phone.** A mobile companion shows which chats are working, which
+  are waiting and which need an approval. Read transcripts live, answer approvals and questions,
+  and start new chats, over your own tailnet. Whichever device answers first wins; the other
+  client's card resolves.
 
-- Serves a mobile companion to your phone over your own tailnet. The remote server is off
-  until you turn it on, pairing is one long token, and the phone shows the workspace's active
-  agent chats with status, unread badges and a distinct "needs approval" state. Open one to
-  read its transcript live, send a message, and answer what the agent is waiting on - tool
-  permissions and structured questions alike. Answering is race-safe: whether you answer on
-  the phone or on the desktop, exactly one answer reaches the agent and the other client's
-  card resolves. Start a new chat for a project from the phone, and keep several PCs in one
-  installed app, switching between them. The chat list also shows how much of each provider's
-  plan is left and when each window resets - waiting out a limit is something you do away from
-  the desk - and a conversation shows its own context fill, cost and nearest limit. Put
-  `tailscale serve` in front of a host and the client installs to the Android home screen as a
-  standalone app.
+See [all features](docs/features.md) for the full tour.
 
-Live shell processes still end when Toucan exits, and live PTY process restoration is not
+## Install
+
+Download `Toucan-Setup-<version>-x64.exe` from the
+[latest release](https://github.com/Tucaen/toucan/releases/latest) and run it. It installs per
+user without admin rights and updates itself in the background; nothing is applied until you
+click **Restart to update**.
+
+The builds are not yet code-signed, so Windows SmartScreen shows "Windows protected your PC" on
+first run: click **More info**, then **Run anyway**.
+
+Claude and Codex use their existing subscription sign-in; Toucan bundles both agent adapters, so
+you do not need Node or npm.
+
+## Quick start
+
+1. **Add project** in the sidebar and pick a folder.
+2. Right-click the canvas, or use the keyboard: `Ctrl+N` Claude, `Ctrl+Shift+N` Codex, `Ctrl+T`
+   terminal, `Ctrl+Shift+G` worktree, `Ctrl+H` conversation history, `Ctrl+P` file.
+3. Arrange nodes with `Alt+Arrow` (snap to halves and quarters) and `Ctrl+Shift+A` (tile).
+4. For the phone companion, follow the [mobile companion setup](docs/mobile-companion-setup.md).
+
+## How it's built
+
+Toucan is an Electron app with a privileged main process, a narrow context-isolated preload seam
+and a React renderer; the [architecture map](docs/architecture.md) covers the details. A few
+decisions worth calling out:
+
+- **Session memory is plain Markdown, not a database.** Each conversation gets one small record,
+  written atomically at every turn boundary from the transcript alone. Agents read the records
+  with `grep` over a sandboxed folder, so recalling past work costs a few hundred bytes of context
+  and no extra model call. See [the design notes](docs/plans/session-outcome-index.md).
+- **Phone and desktop can never both answer.** A pending approval is resolved in one place on the
+  host, keyed on the request the agent is waiting on, so the race between two clients is decided
+  in the host rather than in either UI.
+- **Provider-neutral agents.** Claude and Codex both run through Agent Client Protocol adapters
+  behind one session manager, and each adapter version can be updated or pinned independently of
+  the app. See [adapter management](docs/adapter-management.md).
+- **Architecture rules are enforced, not just written down.** `npm run check` runs Prettier, typed
+  ESLint with zero warnings allowed, dependency-cruiser boundary rules, strict TypeScript and
+  about 290 test files. CI runs the same gate on every push to `main` and every pull request,
+  and a release is only published if it passes.
+
+## How this was built
+
+Toucan is built with AI coding agents, mostly Claude Code and Codex, and increasingly from inside
+Toucan itself. I decide what gets built and how it fits together, review what the agents produce,
+and maintain the guardrails that keep the quality up: the verification gate above, an
+[architecture map](docs/architecture.md), and an [AGENTS.md](AGENTS.md) that records the
+project's non-obvious invariants so every new session starts from them. Directing agents well
+turned out to be the most interesting engineering problem here, which is why so much of Toucan is
+about giving them memory and oversight.
+
+## Status
+
+Toucan is under active development and targets Windows x64 only. Workspace state stays on your
+machine. Live shell processes end when Toucan exits; restoring running terminals is not
 implemented.
 
-## Agent adapter versions
+## Documentation
 
-Open **Agent adapters** using the gear button in the top bar to update Claude or Codex
-without updating Toucan. **Bundled with Toucan** is the factory choice and follows the
-version shipped with each application release. **Check for updates** lists published
-versions, including labelled prereleases; choose one and click **Install and use**.
-Downloaded versions remain pinned across Toucan updates. **Use bundled** restores the
-factory choice without a download, and previously installed versions can be selected offline.
-
-Running conversations keep their existing adapter process. Start a new session or restart
-a session to use the selected version. Installation and an initial ACP compatibility check
-must succeed before the selection changes; a failed update leaves the previous selection
-in place. A successful check does not guarantee every model or history-resume feature works
-with every version. The bundled version remains available if an update causes problems.
-
-Toucan stores downloaded adapters and their dependency lockfiles in its application-data
-directory, separately from the app and your projects. It includes its own npm installer;
-installed users do not need to install Node or npm. Updates are manual and require access
-to the public npm registry. See [adapter management](docs/adapter-management.md) for the
-implementation and compatibility limits.
-
-## Set up and run
-
-Development currently targets Windows with Node.js 24 or newer (`.nvmrc` and `engines.node`
-agree on this), npm, and Git.
-From PowerShell in the repository checkout:
-
-```powershell
-npm ci
-npm run dev
-```
-
-Dictation downloads its speech engine and model (whisper.cpp with large-v3-turbo, about 1.6 GB)
-into Toucan's user-data directory the first time the microphone is used; nothing is fetched at
-build or launch time. See [docs/voice-input.md](docs/voice-input.md) for what runs where and how
-to measure accuracy on your own recordings.
-
-Toucan opens the repository directory as its first project. Use **Add project** for more
-folders, select a project in the sidebar, then right-click the canvas to create a
-**Terminal**, **Claude**, **Codex**, or **Worktree** node, or to open **History**. Claude
-and Codex use their existing subscription sign-in flows when authentication is required.
-
-## Use Toucan from your phone
-
-Remote access is off in a fresh install. Open it from the phone icon in the header, enable it,
-and note the port and pairing token.
-
-Reachability is deliberately not Toucan's problem: install [Tailscale](https://tailscale.com)
-on the PC and the phone, join both to the same tailnet, then open `http://<tailnet-address>:<port>`
-in the phone's browser and paste the pairing token once. The dialog lists the addresses to try
-and labels the tailnet one. A device on your tailnet is _reachable_, not _trusted_ - the token is
-what authorizes it, so **Regenerate** locks out every phone holding the old one.
-
-To install the client to the home screen, put HTTPS in front of that port with
-`tailscale serve` - a browser will not register a service worker over plain HTTP, so installing
-needs a secure origin, and Toucan deliberately owns no certificates. Over plain HTTP the app
-still works as an ordinary web page; it just never offers to install.
-
-**[docs/mobile-companion-setup.md](docs/mobile-companion-setup.md)** walks the whole path
-end to end, including adding a second PC and what the tailnet and the token each protect.
-
-The desktop has to be running: the server lives in Toucan's main process, and the phone shows the
-canvas that desktop has open. Plain terminals are never listed.
-
-The phone client is built as static assets Toucan serves itself:
-
-```powershell
-npm run build:mobile
-```
-
-`npm run build` and `npm run package:win` already include it; run it once by hand before using
-remote access from `npm run dev`.
-
-## Verify changes
-
-Run the required pre-handoff gate:
-
-```powershell
-npm run check
-```
-
-It checks formatting, typed ESLint, architecture dependency rules, strict TypeScript, and
-both test suites. Tests use temporary local data and do not invoke Claude or Codex.
-`.github/workflows/ci.yml` runs the same gate on every push to `main` and every pull request.
-
-Focused commands are available during development:
-
-```powershell
-npm run format:check
-npm run lint
-npm run check:architecture
-npm run typecheck
-npm test
-npm run build:mobile
-```
-
-For packaging changes, run the extended gate, which also creates a production build:
-
-```powershell
-npm run check:full
-```
-
-## Package for Windows
-
-```powershell
-npm run package:win
-```
-
-This produces two x64 artifacts in `dist/`:
-
-- `Toucan-Setup-0.1.0-x64.exe` - an NSIS installer. It installs per user (no admin rights),
-  lets you choose the directory, and is removed again through Settings > Apps. Prefer this one: it is the
-  only build that updates itself.
-- `Toucan-0.1.0-portable-x64.exe` - a single executable that needs no installer and cannot
-  update itself.
-
-`npm run package:win:installer` and `npm run package:win:portable` build just one of them.
-
-The builds are not digitally signed. When a downloaded exe is first run, Windows SmartScreen
-shows "Windows protected your PC": click **More info**, then **Run anyway**.
-
-An installed Toucan checks the public releases feed on startup and downloads a newer version in
-the background. Nothing is installed until you click **Restart to update** on the version chip in
-the header, so an update never interrupts a running session. That chip also shows the version you
-are on and checks for updates when clicked. Portable builds and `npm run dev` never contact the
-feed.
-
-## Release
-
-Builds are published as [GitHub Releases](https://github.com/Tucaen/toucan/releases/latest) of
-this repository (the `build.publish` block in `package.json` is the single source of truth for
-that destination), so anyone can download the installer without a GitHub account. Releases up to
-v0.17.12 were published on the former
-[Tucaen/toucan-releases](https://github.com/Tucaen/toucan-releases/releases) repository; v0.17.12
-is the bridge release there that moves installed builds onto this feed. Cutting a release:
-
-```powershell
-npm run release -- patch|minor|major
-```
-
-`scripts/release.mjs` bumps the version, shows the change list since the previous tag, and on
-confirmation writes it into the tag annotation and pushes - the annotation is where the
-published release notes come from, so a bare `npm version` tag would publish the
-"Automated release." fallback instead. The tag runs `.github/workflows/release.yml` on a
-Windows runner: it verifies the change with `npm run check`, builds, and only then packages and
-uploads both artifacts plus the `latest.yml` and `.blockmap` files that in-place updates will
-read. A failing check publishes nothing. Release notes are public - keep internal details out
-of them.
-
-## Architecture and project documentation
-
-Toucan is an Electron application with a privileged main process, a narrow context-isolated
-preload seam, and a React renderer. Shared modules hold cross-process contracts and pure
-domain rules. See the [architecture map](docs/architecture.md) for process topology,
-module ownership, dependency direction, important seams, and representative verification
-paths.
-
-Documentation has deliberately separate roles:
-
-- This README is the human entry point for current product behavior, setup, and everyday
-  commands.
-- [docs/architecture.md](docs/architecture.md) maps the current code structure and its
-  dependency boundaries.
-- [AGENTS.md](AGENTS.md) records non-obvious operational invariants and sharp edges for
-  agents working in the repository.
-- `docs/research` preserves ideas and investigations; they are not claims about current
-  behavior unless promoted into the README or architecture map.
+- [Features](docs/features.md): everything Toucan does today.
+- [Developing Toucan](docs/development.md): setting up a checkout, the verification gate,
+  packaging and releases.
+- [Architecture map](docs/architecture.md): process topology, module ownership and dependency
+  boundaries.
+- [AGENTS.md](AGENTS.md): operational invariants and sharp edges for agents working in the
+  repository.
+- `docs/research` preserves ideas and investigations; they are not claims about current behavior
+  unless promoted into the features page or the architecture map.
 
 ## License and security
 

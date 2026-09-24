@@ -238,8 +238,10 @@ interfaces:
 
 ## Documentation responsibilities
 
-- [`README.md`](../README.md) is the human entry point: product status, setup, everyday
-  commands, packaging, and a short link here.
+- [`README.md`](../README.md) is the human entry point: the pitch, install, quick start and
+  product status. [`docs/features.md`](features.md) is the full feature tour, and
+  [`docs/development.md`](development.md) holds setup, verification commands, packaging and
+  releases.
 - This document is the current structural map: process topology, module ownership,
   dependency rules, seams, and verification routes.
 - [`AGENTS.md`](../AGENTS.md) is durable project memory for non-obvious invariants and
@@ -250,6 +252,6 @@ interfaces:
 
 When a change alters user-visible capabilities, setup or verification commands, process
 boundaries, or module ownership, update the corresponding orientation document in the
-same change. Reviewers should treat a stale README or architecture map as an incomplete
+same change. Reviewers should treat a stale README, features page, development guide or architecture map as an incomplete
 architecture-facing change; reserve `AGENTS.md` updates for new non-obvious invariants or
 sharp edges rather than duplicating the public orientation docs.
