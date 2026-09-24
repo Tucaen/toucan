@@ -5,7 +5,11 @@ import { join } from 'node:path'
 import { test } from 'vitest'
 import type { AgentEvent } from '../src/shared/agent'
 import { createAgentEventBroker } from '../src/main/agent-event-broker'
-import { createSessionOutcomeIndexer, type SessionOutcomeContext } from '../src/main/session-outcome-indexer'
+import {
+  createSessionOutcomeIndexer,
+  type SessionOutcomeContext,
+  type SessionOutcomeIndexerOptions
+} from '../src/main/session-outcome-indexer'
 import { createSessionOutcomeStore } from '../src/main/session-outcome-store'
 import {
   SESSION_OUTCOME_FILES_LIMIT,
@@ -62,9 +66,10 @@ interface FixtureOptions {
   worktreeId?: string
   title?: string
   recordCap?: number
+  codeState?: SessionOutcomeIndexerOptions['codeStateFor']
 }
 
-function fixture({ context = {}, worktreeId, title, recordCap }: FixtureOptions = {}): Fixture {
+function fixture({ context = {}, worktreeId, title, recordCap, codeState }: FixtureOptions = {}): Fixture {
   const root = mkdtempSync(join(tmpdir(), 'toucan-outcomes-'))
   const directory = join(root, 'session-outcomes')
   const broker = createAgentEventBroker({ now: () => NOW })
@@ -76,6 +81,7 @@ function fixture({ context = {}, worktreeId, title, recordCap }: FixtureOptions 
     ...(worktreeId ? { worktreeIdForNode: async (): Promise<string> => worktreeId } : {}),
     ...(title ? { titleFor: async (): Promise<string> => title } : {}),
     ...(recordCap === undefined ? {} : { recordCap }),
+    ...(codeState ? { codeStateFor: codeState } : {}),
     now: () => new Date((clock += 60_000)),
     log: (message) => failures.push(message)
   })
@@ -255,6 +261,64 @@ test('the worktree a node is attached to reaches the record', async () => {
     assert.equal(session.record('codex-conv-1')?.worktreeId, 'wt-5')
   } finally {
     session.dispose()
+  }
+})
+
+test('the HEAD of the directory the session runs in reaches the record at every boundary (#17)', async () => {
+  const worktree = 'D:\\Development\\ADE-worktrees\\feature'
+  const heads = ['93ff65b', 'a62912f']
+  const asked: string[] = []
+  const session = fixture({
+    context: { projectPath: worktree },
+    codeState: async (projectPath) => {
+      asked.push(projectPath)
+      return { commit: heads.shift() ?? 'none', branch: 'feature' }
+    }
+  })
+  try {
+    session.publish(user('u1', 'Fix it in the worktree.'), {
+      type: 'turn_failed',
+      turnId: 't1',
+      message: 'Tests failed.'
+    })
+    await session.settle()
+    assert.equal(session.record('codex-conv-1')?.commit, '93ff65b')
+
+    session.publish(user('u2', 'Try again after the rebase.'), assistant('a2', 'Green now.'), {
+      type: 'turn_complete',
+      stopReason: 'end_turn'
+    })
+    await session.settle()
+
+    // The worktree's own HEAD, not the main checkout's, and the latest boundary's rather than the first.
+    assert.deepEqual(asked, [worktree, worktree])
+    assert.equal(session.record('codex-conv-1')?.commit, 'a62912f')
+    assert.equal(session.record('codex-conv-1')?.branch, 'feature')
+  } finally {
+    session.dispose()
+  }
+})
+
+test('a code state that cannot be read costs the commit, never the record (#17)', async () => {
+  for (const codeState of [
+    async (): Promise<null> => null,
+    async (): Promise<never> => Promise.reject(new Error('git exploded'))
+  ]) {
+    const session = fixture({ codeState })
+    try {
+      session.publish(user('u1', 'Work outside any checkout.'), assistant('a1', 'Done.'), {
+        type: 'turn_complete',
+        stopReason: 'end_turn'
+      })
+      await session.settle()
+
+      const record = session.record('codex-conv-1')
+      assert.equal(record?.task, 'Work outside any checkout.')
+      assert.equal(record?.commit, undefined)
+      assert.equal(record?.branch, undefined)
+    } finally {
+      session.dispose()
+    }
   }
 })
 

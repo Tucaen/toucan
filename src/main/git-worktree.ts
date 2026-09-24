@@ -36,6 +36,7 @@ import {
 } from '../shared/git-branch'
 import type { GitDiffRequest, GitDiffSummary, GitFileDiff, GitFileDiffRequest } from '../shared/git-diff'
 import { changedFilesFromGit, parseUnifiedDiff } from '../shared/git-diff'
+import type { SessionOutcomeCodeState } from '../shared/session-outcome'
 
 /**
  * Claims are a hint written by an agent, so every failure mode - missing file, malformed
@@ -143,6 +144,13 @@ export interface WorktreeManager {
    * branch would otherwise have to ask git the same question twice.
    */
   currentBranch(path: string): Promise<GitBranchState>
+  /**
+   * The full `HEAD` commit of a checkout and the branch it is on, for the session outcome index
+   * (#17). `null` for anything that has no commit to name - a missing path, a non-repository, an
+   * unborn branch, or a git that will not run - because a guessed code state would tell a later
+   * session a failure is current when nobody knows.
+   */
+  codeState(path: string): Promise<SessionOutcomeCodeState | null>
   /**
    * Every local branch of a checkout, each with the worktree that already has it checked out so
    * the switcher can refuse those up front. Remote-only branches are deliberately not listed:
@@ -507,6 +515,20 @@ export function createWorktreeManager(options: WorktreeManagerOptions = {}): Wor
         return { isRepository: true, ...(detachedHead ? { detachedHead } : {}) }
       } catch {
         return { isRepository: false }
+      }
+    },
+
+    async codeState(path): Promise<SessionOutcomeCodeState | null> {
+      try {
+        if (!pathExists(path)) return null
+        const head = await runGit(['rev-parse', '--verify', '--quiet', 'HEAD'], path)
+        const commit = head.code === 0 ? head.stdout.trim() : ''
+        if (!commit) return null
+        const symbolic = await runGit(['symbolic-ref', '--quiet', '--short', 'HEAD'], path)
+        const branch = symbolic.code === 0 ? symbolic.stdout.trim() : ''
+        return { commit, ...(branch ? { branch } : {}) }
+      } catch {
+        return null
       }
     },
 

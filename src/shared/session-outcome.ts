@@ -177,6 +177,12 @@ export interface SessionOutcomeRecord {
   updatedAt: string
 }
 
+/** Where a checkout's `HEAD` points: the commit, and the branch unless `HEAD` is detached. */
+export interface SessionOutcomeCodeState {
+  commit: string
+  branch?: string
+}
+
 /** What the capture site knows about the conversation beyond its transcript. */
 export interface SessionOutcomeSource {
   provider: ConversationProvider

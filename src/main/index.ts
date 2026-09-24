@@ -321,6 +321,10 @@ void app.whenReady().then(async () => {
   // Created up front rather than at the first record: every session is handed this folder as an
   // additional directory, and a provider sandbox cannot grant a path that is not there yet.
   mkdirSync(sessionOutcomesDirectory, { recursive: true })
+  // One manager for every git question main asks: the delete confirmation asks git the same thing
+  // worktree discovery does, and the outcome index reads HEAD through it, so none of them shells out
+  // on its own.
+  const worktrees = createWorktreeManager()
   const sessionOutcomes = createSessionOutcomeIndexer({
     broker: agentEvents,
     store: createSessionOutcomeStore({ directory: sessionOutcomesDirectory }),
@@ -331,6 +335,9 @@ void app.whenReady().then(async () => {
     // The same durable title every other surface shows, so a record cannot name the conversation
     // something the user renamed away from.
     titleFor: async (provider, conversationId) => (await conversationTitles.get(provider, conversationId))?.title,
+    // HEAD of the session's own directory - its worktree where it runs in one - so a later session
+    // can tell whether a recorded failure predates the code it is looking at (#17).
+    codeStateFor: (projectPath) => worktrees.codeState(projectPath),
     log: mainLog('session outcomes')
   })
   // Main's copy of the canvas's terminal-context edges, and the MCP server that answers reads
@@ -543,9 +550,6 @@ void app.whenReady().then(async () => {
     conversationLineage,
     containment
   )
-  // One manager for both: the delete confirmation asks git the same question worktree discovery
-  // does, so it asks the same object rather than shelling out on its own.
-  const worktrees = createWorktreeManager()
   registerTicketIpc(ipcMain, {
     containment,
     library: ticketLibrary,

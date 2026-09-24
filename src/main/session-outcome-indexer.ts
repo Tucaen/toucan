@@ -13,6 +13,7 @@ import {
   sessionOutcomeTurns,
   sessionOutcomeWriteSet,
   SESSION_OUTCOME_RECORD_CAP,
+  type SessionOutcomeCodeState,
   type SessionOutcomeEnding,
   type SessionOutcomeIndexEntry,
   type SessionOutcomeRecord,
@@ -93,6 +94,13 @@ export interface SessionOutcomeIndexerOptions {
    * turn would let the record's title drift with the latest prompt.
    */
   titleFor?: (provider: ConversationProvider, conversationId: string) => Promise<string | undefined>
+  /**
+   * `HEAD` of the directory a session runs in - its worktree where it has one - read at every
+   * capture so the record names the code state its failures were last observed against (#17).
+   * `null` outside a git checkout; like the lookups above, a failure costs the commit, never the
+   * record.
+   */
+  codeStateFor?: (projectPath: string) => Promise<SessionOutcomeCodeState | null>
   /** How many records the index keeps before the least recently updated go; injectable so a test can fill it. */
   recordCap?: number
   now?: () => Date
@@ -196,6 +204,7 @@ export function createSessionOutcomeIndexer(options: SessionOutcomeIndexerOption
     if (!context.conversationId) return
     let worktreeId: string | undefined
     let title: string | undefined
+    let codeState: SessionOutcomeCodeState | null | undefined
     try {
       worktreeId = await options.worktreeIdForNode?.(sessionId)
     } catch {
@@ -206,12 +215,20 @@ export function createSessionOutcomeIndexer(options: SessionOutcomeIndexerOption
     } catch {
       // Same rule: an unreadable title store falls back to the transcript's own derivation.
     }
+    try {
+      codeState = await options.codeStateFor?.(context.projectPath)
+    } catch {
+      // And again: a git that will not answer leaves the code state unknown, which the record says
+      // by omitting it.
+    }
     const source: SessionOutcomeSource = {
       provider: context.provider,
       conversationId: context.conversationId,
       projectPath: context.projectPath,
       ...(worktreeId ? { worktreeId } : {}),
       ...(title ? { title } : {}),
+      ...(codeState ? { commit: codeState.commit } : {}),
+      ...(codeState?.branch ? { branch: codeState.branch } : {}),
       ...(filesTouched.length ? { filesTouched } : {})
     }
     let created = false

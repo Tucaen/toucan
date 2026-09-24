@@ -579,3 +579,34 @@ test('a runner that rejects outright still answers with git’s own reason', asy
   assert.deepEqual(await manager.currentBranch(PROJECT), { isRepository: false })
   assert.equal(await manager.isRepository(PROJECT), false)
 })
+
+test('the code state names the full HEAD commit and its branch, and nothing outside a commit (#17)', async () => {
+  const calls: string[][] = []
+  const onBranch = createWorktreeManager({
+    runGit: gitStub(
+      [(args) => (args[0] === 'rev-parse' && args.includes('HEAD') ? ok(`${'a'.repeat(40)}\n`) : undefined)],
+      calls
+    ),
+    pathExists: () => true
+  })
+  assert.deepEqual(await onBranch.codeState(WORKTREE), { commit: 'a'.repeat(40), branch: 'main' })
+  assert.ok(calls.every((args) => args[0] !== 'rev-parse' || args.includes('--verify')))
+
+  const detached = createWorktreeManager({
+    runGit: gitStub([
+      (args) => (args[0] === 'rev-parse' && args.includes('HEAD') ? ok(`${'b'.repeat(40)}\n`) : undefined),
+      (args) => (args[0] === 'symbolic-ref' ? fail('', 1) : undefined)
+    ]),
+    pathExists: () => true
+  })
+  assert.deepEqual(await detached.codeState(WORKTREE), { commit: 'b'.repeat(40) })
+
+  // Not a checkout, no commit yet, or no git at all: the code state is unknown, never a guess.
+  const unknown = createWorktreeManager({
+    runGit: gitStub([(args) => (args[0] === 'rev-parse' ? fail('fatal: not a git repository', 128) : undefined)]),
+    pathExists: () => true
+  })
+  assert.equal(await unknown.codeState(WORKTREE), null)
+  const missing = createWorktreeManager({ runGit: gitStub([]), pathExists: () => false })
+  assert.equal(await missing.codeState(WORKTREE), null)
+})
