@@ -136,8 +136,7 @@ npm run check
 
 It checks formatting, typed ESLint, architecture dependency rules, strict TypeScript, and
 both test suites. Tests use temporary local data and do not invoke Claude or Codex.
-`.github/workflows/ci.yml` runs the same gate on every push to `main` and every pull request,
-on Windows and on Ubuntu.
+`.github/workflows/ci.yml` runs the same gate on every push to `main` and every pull request.
 
 Focused commands are available during development:
 

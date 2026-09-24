@@ -17,15 +17,8 @@ permissions:
 
 jobs:
   check:
-    # Windows is the supported platform; ubuntu keeps the portable parts honest for contributors
-    # who do not develop on Windows.
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-latest, ubuntu-latest]
-    runs-on: ${{ matrix.os }}
-    # Some tests still assume Windows paths; ubuntu reports without gating until they are portable.
-    continue-on-error: ${{ matrix.os == 'ubuntu-latest' }}
+    # Toucan is Windows-only, and so is its test suite.
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
