@@ -136,6 +136,8 @@ npm run check
 
 It checks formatting, typed ESLint, architecture dependency rules, strict TypeScript, and
 both test suites. Tests use temporary local data and do not invoke Claude or Codex.
+`.github/workflows/ci.yml` runs the same gate on every push to `main` and every pull request,
+on Windows and on Ubuntu.
 
 Focused commands are available during development:
 
@@ -181,10 +183,12 @@ feed.
 
 ## Release
 
-Builds are published as GitHub Releases on the public
-[Tucaen/toucan-releases](https://github.com/Tucaen/toucan-releases/releases/latest) repository
-(the `build.publish` block in `package.json` is the single source of truth for that
-destination), so anyone can download the installer without a GitHub account. Cutting a release:
+Builds are published as [GitHub Releases](https://github.com/Tucaen/toucan/releases/latest) of
+this repository (the `build.publish` block in `package.json` is the single source of truth for
+that destination), so anyone can download the installer without a GitHub account. Releases up to
+v0.17.12 were published on the former
+[Tucaen/toucan-releases](https://github.com/Tucaen/toucan-releases/releases) repository; v0.17.12
+is the bridge release there that moves installed builds onto this feed. Cutting a release:
 
 ```powershell
 npm run release -- patch|minor|major
@@ -217,3 +221,8 @@ Documentation has deliberately separate roles:
   agents working in the repository.
 - `docs/research` preserves ideas and investigations; they are not claims about current
   behavior unless promoted into the README or architecture map.
+
+## License and security
+
+Toucan is licensed under the [Apache License 2.0](LICENSE). Report vulnerabilities privately as
+described in [SECURITY.md](SECURITY.md).

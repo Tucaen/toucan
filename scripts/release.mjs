@@ -62,7 +62,7 @@ const notes = releaseNotes(previousTag, subjects)
 
 console.log(`\nRelease ${tag} (currently ${current}${previousTag ? `, last tag ${previousTag}` : ''})\n`)
 console.log(notes)
-console.log('These notes are published on the public releases repo. Nothing internal belongs in them.\n')
+console.log('These notes are published on the public release page. Nothing internal belongs in them.\n')
 
 if (flags.has('--dry-run')) process.exit(0)
 

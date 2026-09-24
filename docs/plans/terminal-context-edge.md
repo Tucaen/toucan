@@ -7,7 +7,7 @@ status: shipped v0.15.0 (#199, #202, #203)
 
 # Terminal-context edge: an agent reads a connected terminal's output
 
-Plan for [issue #199](https://github.com/Tucaen/ade/issues/199). Decisions resolved in the issue
+Plan for issue #199 (former private tracker). Decisions resolved in the issue
 comments (2026-09-17, amended same day); this doc records the resolved design and the
 implementation slices.
 

@@ -53,7 +53,7 @@ Two outcomes, one ticket because they share the decision on where transcription 
 
 ## Superseded (2026-09-21)
 
-Issue [#214](https://github.com/Tucaen/ade/issues/214) replaced the whole engine decision above.
+Issue #214 (former private tracker) replaced the whole engine decision above.
 Dictation is now a batch decode of whisper.cpp `large-v3-turbo` in the main process, so the
 Outcome's "Desktop stays local, on Moonshine 0.1.5" and everything resting on Moonshine's
 streaming models - the context-biasing `setContext` call, the English-only wording, the WASM

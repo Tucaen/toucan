@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'vitest'
@@ -25,22 +25,22 @@ const stepIndex = (needle: string): number => {
   return index
 }
 
-test('publishes to a separate public repository, never the source repository', () => {
+test('publishes to the source repository itself', () => {
   const publish = manifest.build?.publish
   assert.ok(publish, 'build.publish is what electron-builder, electron-updater and the workflow all read')
   assert.equal(publish.provider, 'github')
   assert.ok(publish.owner, 'an owner must be configured')
-  assert.ok(publish.repo, 'a releases repo must be configured')
+  assert.ok(publish.repo, 'a repo must be configured')
   const source = manifest.repository?.url?.replace(/\.git$/, '')
   assert.ok(source, 'package.json repository must name the source repository')
-  assert.notEqual(
+  assert.equal(
     `https://github.com/${publish.owner}/${publish.repo}`,
     source,
-    'releases must never land in the source repository'
+    'the workflow token can only publish into the repository it runs in'
   )
 })
 
-test('the workflow reads the releases repo from build.publish rather than hardcoding it', () => {
+test('the workflow reads the release destination from build.publish rather than hardcoding it', () => {
   assert.match(workflow, /ConvertFrom-Json\)\.build\.publish/)
   assert.doesNotMatch(
     workflow,
@@ -86,13 +86,20 @@ test('runs the verification gate before anything is published', () => {
   assert.ok(stepIndex('npm run check') < stepIndex('npm run publish:win'), 'a failing check must publish nothing')
 })
 
-test('publishes with a token scoped to the releases repository', () => {
-  assert.match(workflow, /GH_TOKEN: \$\{\{ secrets\.RELEASES_REPO_TOKEN \}\}/)
-  assert.doesNotMatch(
-    workflow,
-    /secrets\.GITHUB_TOKEN/,
-    'the default workflow token cannot write to another repository'
-  )
+test('publishes with the workflow token, granted contents write', () => {
+  assert.match(workflow, /GH_TOKEN: \$\{\{ secrets\.GITHUB_TOKEN \}\}/)
+  assert.match(workflow, /permissions:\s*\n(\s*#[^\n]*\n)*\s*contents: write/)
+  assert.doesNotMatch(workflow, /RELEASES_REPO_TOKEN/, 'no personal access token is needed any more')
+})
+
+test('pins every action in every workflow to a commit SHA', () => {
+  const directory = join(repositoryRoot, '.github/workflows')
+  for (const file of readdirSync(directory)) {
+    const source = readFileSync(join(directory, file), 'utf8')
+    for (const [, ref] of source.matchAll(/uses: [^@\s]+@(\S+)/g)) {
+      assert.match(ref, /^[0-9a-f]{40}$/, `${file}: a tag like @${ref} can be moved under the job`)
+    }
+  }
 })
 
 test('claims the release before packaging, so the two targets cannot race to create it', () => {

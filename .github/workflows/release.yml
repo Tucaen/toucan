@@ -7,7 +7,7 @@ on:
 
 # Two tags pushed close together must publish one after the other: the "Claim the release" step
 # guards the create/edit race within one run, but not across two concurrent runs against the
-# releases repo. Never cancel - a cancelled half-published release is the v0.3.1 incident again.
+# same release. Never cancel - a cancelled half-published release is the v0.3.1 incident again.
 concurrency:
   group: release
   cancel-in-progress: false
@@ -16,11 +16,12 @@ jobs:
   release:
     runs-on: windows-latest
     permissions:
-      contents: read
+      # Releases land in this repository, so the workflow's own token is enough to publish them.
+      contents: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -51,7 +52,7 @@ jobs:
           $notes = (git tag -l --format='%(contents:body)' "${env:TAG}" | Out-String).Trim()
           if (-not $notes) { $notes = "Automated release." }
           Set-Content -Path release-notes.md -Value $notes -Encoding utf8
-          # package.json build.publish is the one source of truth for the releases repo;
+          # package.json build.publish is the one source of truth for where releases land;
           # electron-builder and electron-updater read the same block.
           $publish = (Get-Content package.json -Raw | ConvertFrom-Json).build.publish
           $releasesRepo = "$($publish.owner)/$($publish.repo)"
@@ -63,10 +64,10 @@ jobs:
             gh release edit "${env:TAG}" --repo $releasesRepo --notes-file release-notes.md
           }
         env:
-          GH_TOKEN: ${{ secrets.RELEASES_REPO_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
 
       - name: Package and publish
         run: npm run publish:win
         env:
-          GH_TOKEN: ${{ secrets.RELEASES_REPO_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

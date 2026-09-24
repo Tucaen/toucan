@@ -1,6 +1,6 @@
 # Issue tracker: GitHub
 
-Issues and specs for this repo live as GitHub issues on `Tucaen/ade`. Use the `gh` CLI for all operations.
+Issues and specs for this repo live as GitHub issues on `Tucaen/toucan`. Use the `gh` CLI for all operations. Issue numbers up to #240 cited in docs, code comments and commit messages belong to the former private tracker and do not resolve here.
 
 Not to be confused with `docs/tickets/`. That folder is Toucan **dogfooding its own Markdown ticket convention** (`src/shared/ticket-format.ts` describes it; there is deliberately no tickets skill in this repo) - it is the board's self-hosted sample data, not this repo's tracker. A skill told to "publish to the issue tracker" files a GitHub issue, never a file there.
 
@@ -31,7 +31,7 @@ GitHub shares one number space across issues and PRs, so a bare `#42` may be eit
 
 Beyond the triage vocabulary in `triage-labels.md`, this repo uses (see AGENTS.md):
 
-- `blocked` - cannot start until another issue lands; the body carries a "Blocked by" section naming them. When a ticket lands, flip anything it was the *last* blocker for from `blocked` to `ready-for-agent`.
+- `blocked` - cannot start until another issue lands; the body carries a "Blocked by" section naming them. When a ticket lands, flip anything it was the _last_ blocker for from `blocked` to `ready-for-agent`.
 - `backlog` - deferred, not part of the current frontier.
 - `frontier-model` - architecture-sensitive; implement with the strongest available model rather than the default.
 

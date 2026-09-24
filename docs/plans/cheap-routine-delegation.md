@@ -9,7 +9,7 @@ status: shipped v0.10.0 (#177-#181)
 
 Usage visibility (#181): [transcript evidence, transport limits and measured workload comparison](delegation-evidence.md).
 
-Plan: [issue #177](https://github.com/Tucaen/ade/issues/177). First slice: [issue #178](https://github.com/Tucaen/ade/issues/178) (Codex provider). Second slice: [issue #179](https://github.com/Tucaen/ade/issues/179) (Claude provider). Third slice: [issue #180](https://github.com/Tucaen/ade/issues/180) (recipe-gated mechanical edits).
+Plan: issue #177 in the former private tracker. First slice: #178 (Codex provider). Second slice: #179 (Claude provider). Third slice: #180 (recipe-gated mechanical edits).
 
 A workspace preference, "Delegate routine work cheaply", lets a conversation spawn bounded routine
 work (substantial searches, extraction, prescribed checks, and mechanical edits from an explicit
