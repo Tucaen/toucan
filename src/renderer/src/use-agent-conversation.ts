@@ -180,7 +180,15 @@ export interface AgentConversationController {
   modelChangeBlocked: string | null
   addImages(files: File[] | FileList): Promise<void>
   removeAttachment(id: string): void
+  /** Hands the composer's attachments over (to a scheduled message) and clears them from it. */
+  takeAttachments(): AgentImageAttachment[]
   submit(event: FormEvent, prompt: string, onPrepared?: () => void): void
+  /**
+   * The composer submission itself, minus the composer: queued locally while a turn runs,
+   * delivered otherwise. A scheduled message coming due goes through here, so it behaves exactly
+   * as if the captain had pressed Send at that moment.
+   */
+  submitContent(text: string, images: AgentImageAttachment[], onTaken?: () => void): void
   /** Sends `text` as if the captain had typed and submitted it, bypassing the attachments state entirely. */
   sendMessage(text: string): void
   answerDecision(decisionId: string, text: string): void
@@ -453,19 +461,22 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
    * `promptWhenIdle` (and so straight into the running turn via steering), because those are
    * answers the agent is actively waiting on, not follow-ups the captain may still want back.
    */
-  const submit = (event: FormEvent, prompt: string, onPrepared?: () => void): void => {
-    event.preventDefault()
-    const text = prompt.trim()
-    const clearComposer = (): void => {
-      setAttachments([])
-      onPrepared?.()
-    }
-    if (status === 'working' && (text || attachments.length > 0)) {
-      updateQueued((current) => enqueuePrompt(current, { id: crypto.randomUUID(), text, images: attachments }))
-      clearComposer()
+  const submitContent = (text: string, images: AgentImageAttachment[], onTaken: () => void = () => {}): void => {
+    const trimmed = text.trim()
+    if (status === 'working' && (trimmed || images.length > 0)) {
+      updateQueued((current) => enqueuePrompt(current, { id: crypto.randomUUID(), text: trimmed, images }))
+      onTaken()
       return
     }
-    dispatchText(text, attachments, clearComposer)
+    dispatchText(trimmed, images, onTaken)
+  }
+
+  const submit = (event: FormEvent, prompt: string, onPrepared?: () => void): void => {
+    event.preventDefault()
+    submitContent(prompt, attachments, () => {
+      setAttachments([])
+      onPrepared?.()
+    })
   }
 
   const editQueued = (id: string, text: string): void => {
@@ -532,6 +543,11 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
 
   const removeAttachment = (id: string): void => {
     setAttachments((current) => current.filter((attachment) => attachment.id !== id))
+  }
+
+  const takeAttachments = (): AgentImageAttachment[] => {
+    setAttachments([])
+    return attachments
   }
 
   const authenticate = (methodId: string): void => {
@@ -636,7 +652,9 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     modelChangeBlocked: status === 'working' ? MODEL_CHANGE_WHILE_BUSY : null,
     addImages,
     removeAttachment,
+    takeAttachments,
     submit,
+    submitContent,
     sendMessage,
     answerDecision,
     cancel: () => window.agentApi.cancel(options.id),
