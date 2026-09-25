@@ -14,9 +14,10 @@
  * anything else exits non-zero.
  *
  * The project path must contain backslashes on Windows (#197): the #190 run's temp path happened to
- * carry none, so it never exercised the shell mangling that made the taught grep silently match
- * nothing. A run whose project path has no backslash on win32 fails up front rather than passing
- * vacuously.
+ * carry none, so it never exercised the shell mangling that once made a taught grep silently match
+ * nothing. Since #18 the pointer teaches a filename glob instead, but the `project:` confirmation
+ * still carries the separators, so a run whose project path has no backslash on win32 still fails
+ * up front rather than passing vacuously.
  */
 
 import { mkdtempSync, writeFileSync } from 'node:fs'
@@ -28,10 +29,13 @@ import { testOut } from './test-out.mjs'
 const { createAcpSessionManager } = await import(testOut('src/main/acp-session-manager.js'))
 // The same reducer every host runs, so the printed answer is the transcript's, not a raw chunk.
 const { foldAgentEvent, initialAgentTranscriptState } = await import(testOut('src/shared/agent-transcript.js'))
+// The real naming rule, so the seeded index looks exactly like one Toucan wrote (#18).
+const { sessionOutcomeFileName } = await import(testOut('src/shared/session-outcome.js'))
 
 const provider = process.argv[2] === 'codex' ? 'codex' : 'claude'
 // Normalized to backslashes on Windows so the records' `project:` lines carry the separators the
-// taught pattern exists for - a forward-slashed temp path (Git Bash sets one) would dodge the bug.
+// taught confirmation step meets in real records - a forward-slashed temp path (Git Bash sets one)
+// would dodge that shape entirely.
 const temporaryProject = mkdtempSync(join(tmpdir(), 'toucan-live-project-'))
 const project = process.platform === 'win32' ? win32.normalize(temporaryProject) : temporaryProject
 if (process.platform === 'win32' && !project.includes('\\')) {
@@ -68,8 +72,16 @@ const record = (key, title, task, result, files) =>
     ''
   ].join('\n')
 
+// Named through the real rule so the filenames carry the project and title the pointer teaches
+// globbing and scanning for (#18).
+const titles = [
+  'Retry the upload queue with backoff',
+  'Cache thumbnails on disk',
+  'Move the settings dialog off React context'
+]
+
 writeFileSync(
-  join(outcomes, `${provider}-aaa-0001.md`),
+  join(outcomes, `${sessionOutcomeFileName({ projectPath: project, title: titles[0], conversationId: `aaa-0001` })}.md`),
   record(
     `${provider}-aaa-0001`,
     'Retry the upload queue with backoff',
@@ -79,7 +91,7 @@ writeFileSync(
   )
 )
 writeFileSync(
-  join(outcomes, `${provider}-aaa-0002.md`),
+  join(outcomes, `${sessionOutcomeFileName({ projectPath: project, title: titles[1], conversationId: `aaa-0002` })}.md`),
   record(
     `${provider}-aaa-0002`,
     'Cache thumbnails on disk',
@@ -89,7 +101,7 @@ writeFileSync(
   )
 )
 writeFileSync(
-  join(outcomes, `${provider}-aaa-0003.md`),
+  join(outcomes, `${sessionOutcomeFileName({ projectPath: project, title: titles[2], conversationId: `aaa-0003` })}.md`),
   record(
     `${provider}-aaa-0003`,
     'Move the settings dialog off React context',

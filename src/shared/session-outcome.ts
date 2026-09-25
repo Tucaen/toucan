@@ -234,6 +234,7 @@ export const SESSION_OUTCOME_SHORT_ID_LENGTH = 8
  * leading or trailing dash. The cap cuts mid-word rather than at a boundary because the fragment
  * only has to be recognisable, and a boundary search would make two long titles sharing a prefix
  * collapse to the same slug more often, not less.
+ * @internal exported for tests
  */
 export function sessionOutcomeSlug(text: string, limit: number): string {
   return text
@@ -293,6 +294,7 @@ export function sessionOutcomeShortIdSuffix(conversationId: string): string {
 /**
  * The glob the pointer teaches for one project's records, generated from the same slug rule the
  * filenames are written with so the prose and the names on disk cannot drift apart.
+ * @internal exported for tests
  */
 export function sessionOutcomeProjectGlob(checkoutPath: string): string {
   return `${sessionOutcomeSlug(checkoutBasename(checkoutPath), SESSION_OUTCOME_PROJECT_SLUG_LIMIT)}--*.md`
