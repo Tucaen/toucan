@@ -1341,8 +1341,7 @@ export default function ChatNode({ id, data, selected, width }: NodeProps<Termin
         },
         edit: scheduler.edit,
         cancel: scheduler.cancel,
-        sendNow: scheduler.sendNow,
-        hold: scheduler.hold
+        sendNow: scheduler.sendNow
       }
     : undefined
 

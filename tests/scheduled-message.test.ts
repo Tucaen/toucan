@@ -88,11 +88,6 @@ describe('delivery', () => {
     expect(nextDueScheduledMessage([overdue], now)).toBeNull()
   })
 
-  test('skips held messages', () => {
-    const due = entry({ deliverAt: now })
-    expect(nextDueScheduledMessage([due], now, new Set(['m1']))).toBeNull()
-  })
-
   test('the next delivery time ignores overdue messages', () => {
     const overdue = entry({ id: 'm2', deliverAt: now - 5, overdue: true })
     expect(nextScheduledDelivery([overdue, entry()])).toBe(inAnHour)

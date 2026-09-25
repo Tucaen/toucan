@@ -3,6 +3,7 @@ import type { AgentImageAttachment } from '../../shared/agent'
 import {
   cancelScheduledMessage,
   editScheduledMessage,
+  markOverdueScheduledMessages,
   nextDueScheduledMessage,
   nextScheduledDelivery,
   scheduleMessage,
@@ -37,15 +38,16 @@ export interface ScheduledMessagesController {
   cancel(id: string): void
   /** Delivers one message now, overdue or not; refused while the session cannot take it. */
   sendNow(id: string): void
-  /** Holds a message back from automatic delivery while the captain is editing it. */
-  hold(id: string, held: boolean): void
 }
 
 /**
  * The renderer half of issue #21: keeps one timer armed for the next automatic delivery and hands
  * each due message to `deliver`, one per render - so a second message due at the same moment sees
  * the session the first one left (working, hence queued) instead of racing it into the adapter.
- * The rules themselves, overdue included, are `shared/scheduled-message.ts`'s.
+ * A message that comes due while the session cannot take it turns overdue there and then, so the
+ * session recovering later never sends it. Nothing holds a message back: an edit form left open
+ * does not stop the saved version going out on time. The rules themselves are
+ * `shared/scheduled-message.ts`'s.
  */
 export function useScheduledMessages(options: ScheduledMessagesOptions): ScheduledMessagesController {
   /**
@@ -65,7 +67,6 @@ export function useScheduledMessages(options: ScheduledMessagesOptions): Schedul
   const onChangeRef = useRef(options.onChange)
   onChangeRef.current = options.onChange
 
-  const [held, setHeld] = useState<ReadonlySet<string>>(() => new Set())
   const [clock, setClock] = useState(() => Date.now())
 
   const current = (): readonly ScheduledMessage[] =>
@@ -84,11 +85,9 @@ export function useScheduledMessages(options: ScheduledMessagesOptions): Schedul
 
   const messages = current()
   // Only times still ahead of the last wake need a timer. One already due is the delivery
-  // effect's to hand over whenever the session can take it; re-arming for it would wake at zero
-  // delay, set a new clock and render the node again on every tick until then.
-  const nextDelivery = nextScheduledDelivery(
-    messages.filter((message) => !held.has(message.id) && message.deliverAt > clock)
-  )
+  // effect's to settle; re-arming for it would wake at zero delay, set a new clock and render the
+  // node again on every tick.
+  const nextDelivery = nextScheduledDelivery(messages.filter((message) => message.deliverAt > clock))
 
   useEffect(() => {
     if (nextDelivery === null) return
@@ -98,12 +97,14 @@ export function useScheduledMessages(options: ScheduledMessagesOptions): Schedul
   }, [nextDelivery, clock])
 
   useEffect(() => {
-    if (!options.canDeliver) return
-    const due = nextDueScheduledMessage(current(), Date.now(), held)
-    if (due) take(due.id)
-    // `take` and `current` read refs, so the closure from any render is the one that runs.
+    const now = Date.now()
+    const due = nextDueScheduledMessage(current(), now)
+    if (!due) return
+    if (options.canDeliver) take(due.id)
+    else publish(markOverdueScheduledMessages(current(), now) ?? [])
+    // `take`, `publish` and `current` read refs, so the closure from any render is the one that runs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clock, messages, options.canDeliver, held])
+  }, [clock, messages, options.canDeliver])
 
   return {
     messages,
@@ -120,13 +121,6 @@ export function useScheduledMessages(options: ScheduledMessagesOptions): Schedul
     cancel: (id) => publish(cancelScheduledMessage(current(), id)),
     sendNow: (id) => {
       if (options.canDeliver) take(id)
-    },
-    hold: (id, hold) =>
-      setHeld((currentHeld) => {
-        const next = new Set(currentHeld)
-        if (hold) next.add(id)
-        else next.delete(id)
-        return next
-      })
+    }
   }
 }

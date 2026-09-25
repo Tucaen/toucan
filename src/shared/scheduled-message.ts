@@ -4,10 +4,12 @@
  * attachments included, which is why their bytes ride the workspace snapshot for as long as the
  * message waits.
  *
- * The one safety rule this module exists for: a message is delivered automatically only when
- * Toucan was running at its time. Whatever came due while the node was off the canvas - Toucan
- * closed, or the node closed and reopened - is `overdue` from the moment it is restored, and only
- * an explicit Send now delivers it.
+ * The one safety rule this module exists for: a message is delivered automatically only at its
+ * time, into a session that can take it then. Whatever came due while the node was off the
+ * canvas - Toucan closed, or the node closed and reopened - is `overdue` from the moment it is
+ * restored, and whatever came due while the session was down (starting, signed out, exited) is
+ * `overdue` from that moment. The session coming back is never a reason to send; only an
+ * explicit Send now delivers an overdue message.
  */
 import type { AgentImageAttachment } from './agent'
 
@@ -98,13 +100,9 @@ export function takeScheduledMessage(
   return { entry, rest: entry ? messages.filter((message) => message !== entry) : [...messages] }
 }
 
-/** The earliest message due at `now` that may go out on its own; `held` ones are being edited. */
-export function nextDueScheduledMessage(
-  messages: readonly ScheduledMessage[],
-  now: number,
-  held: ReadonlySet<string> = new Set()
-): ScheduledMessage | null {
-  const due = messages.filter((message) => !message.overdue && !held.has(message.id) && message.deliverAt <= now)
+/** The earliest message due at `now` that may go out on its own. */
+export function nextDueScheduledMessage(messages: readonly ScheduledMessage[], now: number): ScheduledMessage | null {
+  const due = messages.filter((message) => !message.overdue && message.deliverAt <= now)
   return inDeliveryOrder(due)[0] ?? null
 }
 
@@ -115,8 +113,9 @@ export function nextScheduledDelivery(messages: readonly ScheduledMessage[]): nu
 }
 
 /**
- * Applied whenever a node comes back onto the canvas: its messages could not have been delivered
- * while it was away, so each one whose time has passed waits for an explicit Send now instead.
+ * Applied whenever a message could not be delivered at its time - a node coming back onto the
+ * canvas, or a session that was down when one came due: each one whose time has passed waits for
+ * an explicit Send now instead.
  */
 export function markOverdueScheduledMessages(
   messages: readonly ScheduledMessage[] | undefined,

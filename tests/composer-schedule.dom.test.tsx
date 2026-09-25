@@ -270,6 +270,51 @@ describe('a waiting scheduled message', () => {
     }
   })
 
+  test('an edit form left open does not hold the message back: the saved version goes out on time', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      const deliverAt = new Date(Date.now() + 2 * 60 * 1000).setSeconds(0, 0)
+      const agent = await renderReadyNode([{ id: 'open-edit', text: 'the saved words', images: [], deliverAt }])
+      fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+      fireEvent.change(screen.getByLabelText('Edit scheduled message'), { target: { value: 'never saved' } })
+
+      await act(async () => {
+        vi.setSystemTime(deliverAt + 1)
+        await vi.advanceTimersByTimeAsync(3 * 60 * 1000)
+      })
+      await waitFor(() => expect(agent.api.prompt).toHaveBeenCalledWith('chat-node', 'the saved words'))
+      expect(screen.queryByLabelText('Edit scheduled message')).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  test('a message that comes due while the session is down is overdue, not sent when it comes back', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      const deliverAt = new Date(Date.now() + 2 * 60 * 1000).setSeconds(0, 0)
+      const agent = await renderReadyNode([{ id: 'down', text: 'while it was down', images: [], deliverAt }])
+      act(() => agent.emit('chat-node', { type: 'status', status: 'exited', message: 'ACP adapter exited.' }))
+      await waitFor(() => expect(screen.getByText('exited')).toBeInTheDocument())
+
+      await act(async () => {
+        vi.setSystemTime(deliverAt + 1)
+        await vi.advanceTimersByTimeAsync(3 * 60 * 1000)
+      })
+      act(() => agent.emit('chat-node', { type: 'status', status: 'ready' }))
+      await waitFor(() => expect(screen.getByText('ready')).toBeInTheDocument())
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1_000)
+      })
+
+      expect(agent.api.prompt).not.toHaveBeenCalled()
+      expect(persisted).toEqual([expect.objectContaining({ id: 'down', overdue: true })])
+      expect(screen.getByRole('listitem')).toHaveAttribute('data-overdue', 'true')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   async function deliversWhenDue(): Promise<void> {
     const agent = await renderReadyNode()
     fireEvent.change(composerTextarea(), { target: { value: 'any moment now' } })

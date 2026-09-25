@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { CalendarClock } from 'lucide-react'
 import {
@@ -20,7 +20,6 @@ export interface ComposerScheduleProps {
   edit(id: string, change: ScheduledMessageChange): ScheduleResult
   cancel(id: string): void
   sendNow(id: string): void
-  hold(id: string, held: boolean): void
 }
 
 const HOUR_MS = 60 * 60 * 1000
@@ -170,23 +169,14 @@ function ScheduledMessageItem(props: {
   edit(change: ScheduledMessageChange): ScheduleResult
   cancel(): void
   sendNow(): void
-  hold(held: boolean): void
 }): JSX.Element {
-  const { entry, hold } = props
+  const { entry } = props
   const [editing, setEditing] = useState(false)
   const [text, setText] = useState(entry.text)
   const [time, setTime] = useState(localDateTimeInputValue(entry.deliverAt))
   const [problem, setProblem] = useState<string | null>(null)
   const timeId = useId()
   const problemId = useId()
-
-  // An open editor holds the message back from delivery; leaving the list must release it too.
-  useEffect(() => {
-    if (!editing) return
-    hold(true)
-    return () => hold(false)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editing])
 
   const startEditing = (): void => {
     setText(entry.text)
@@ -298,7 +288,7 @@ export function ScheduledMessageList(props: {
     <div className="composer-scheduled" data-overdue={overdue > 0 || undefined}>
       <small>
         {overdue > 0
-          ? `${overdue} scheduled message${overdue === 1 ? '' : 's'} came due while Toucan was not running and will only be sent when you choose Send now.`
+          ? `${overdue} scheduled message${overdue === 1 ? '' : 's'} could not be sent at ${overdue === 1 ? 'its' : 'their'} time and will only be sent when you choose Send now.`
           : `${messages.length} scheduled message${messages.length === 1 ? '' : 's'}`}
       </small>
       <ul aria-label="Scheduled messages">
@@ -310,7 +300,6 @@ export function ScheduledMessageList(props: {
             edit={(change) => props.schedule.edit(entry.id, change)}
             cancel={() => props.schedule.cancel(entry.id)}
             sendNow={() => props.schedule.sendNow(entry.id)}
-            hold={(held) => props.schedule.hold(entry.id, held)}
           />
         ))}
       </ul>

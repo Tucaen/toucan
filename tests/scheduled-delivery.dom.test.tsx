@@ -73,7 +73,7 @@ describe('automatic delivery while Toucan is running', () => {
     expect(deliver).not.toHaveBeenCalled()
   })
 
-  test('a message that comes due while the session cannot take it waits for the session', () => {
+  test('a message that comes due while the session cannot take it turns overdue and is never sent on its own', () => {
     const deliver = vi.fn<(entry: ScheduledMessage) => void>()
     const { result, rerender } = renderHook(
       ({ canDeliver }: { canDeliver: boolean }) => useNodeScheduler({ canDeliver, deliver }),
@@ -82,11 +82,16 @@ describe('automatic delivery while Toucan is running', () => {
     act(() => {
       result.current.schedule({ text: 'when ready', images: [], deliverAt: Date.now() + 1_000 })
     })
-    act(() => vi.advanceTimersByTime(5_000))
+    act(() => vi.advanceTimersByTime(1_000))
+    expect(result.current.messages).toEqual([expect.objectContaining({ text: 'when ready', overdue: true })])
+
+    // The session coming back - relaunched, signed in again - is not the captain choosing to send.
+    rerender({ canDeliver: true })
+    act(() => vi.advanceTimersByTime(60_000))
     expect(deliver).not.toHaveBeenCalled()
 
-    rerender({ canDeliver: true })
-    expect(deliver).toHaveBeenCalledTimes(1)
+    act(() => result.current.sendNow(result.current.messages[0].id))
+    expect(deliver).toHaveBeenCalledWith(expect.objectContaining({ text: 'when ready' }))
   })
 
   test('a due message the session cannot take yet does not keep the timer spinning', () => {
@@ -127,21 +132,6 @@ describe('automatic delivery while Toucan is running', () => {
 
     expect(deliver.mock.calls.map(([entry]) => entry.text)).toEqual(['first', 'second'])
     expect(result.current.messages).toEqual([])
-  })
-
-  test('a message being edited is held past its time and goes out once the edit is closed', () => {
-    const deliver = vi.fn<(entry: ScheduledMessage) => void>()
-    const { result } = renderHook(() => useNodeScheduler({ canDeliver: true, deliver }))
-    act(() => {
-      result.current.schedule({ text: 'draft', images: [], deliverAt: Date.now() + 1_000 })
-    })
-    const [entry] = result.current.messages
-    act(() => result.current.hold(entry.id, true))
-    act(() => vi.advanceTimersByTime(2_000))
-    expect(deliver).not.toHaveBeenCalled()
-
-    act(() => result.current.hold(entry.id, false))
-    expect(deliver).toHaveBeenCalledTimes(1)
   })
 
   test('editing rewrites the text and time; cancelling removes the message undelivered', () => {
