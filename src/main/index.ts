@@ -55,6 +55,7 @@ import { createVoiceTranscriber } from './voice-transcription'
 import { loadWhisperEngine, VOICE_MODEL_MISSING_MESSAGE } from './whisper-engine'
 import { createSessionOutcomeIndexer } from './session-outcome-indexer'
 import { createSessionOutcomeStore } from './session-outcome-store'
+import { worktreePathKey } from '../shared/worktree'
 import { createTerminalShell } from './terminal-shell'
 import { createAdapterManager } from './adapter-manager'
 import { createAdapterInstaller } from './adapter-installer'
@@ -339,6 +340,14 @@ void app.whenReady().then(async () => {
     // can tell whether a recorded failure predates the code it is looking at
     // (Tucaen/toucan#17).
     codeStateFor: (projectPath) => worktrees.headState(projectPath),
+    // The main checkout behind a worktree directory, so a worktree session's record files under
+    // the project name a reader will glob for (Tucaen/toucan#18). A directory that is no
+    // worktree answers undefined and names the record after itself.
+    checkoutPathFor: async (projectPath) => {
+      const state = (await workspace.load()).state
+      const worktree = state?.worktrees.find((entry) => worktreePathKey(entry.path) === worktreePathKey(projectPath))
+      return worktree ? state?.projects.find((project) => project.id === worktree.projectId)?.path : undefined
+    },
     log: mainLog('session outcomes')
   })
   // Main's copy of the canvas's terminal-context edges, and the MCP server that answers reads

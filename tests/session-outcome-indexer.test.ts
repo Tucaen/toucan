@@ -15,6 +15,8 @@ import {
   SESSION_OUTCOME_FILES_LIMIT,
   parseSessionOutcome,
   renderSessionOutcome,
+  sessionOutcomeFileName,
+  sessionOutcomeShortIdSuffix,
   type SessionOutcomeRecord
 } from '../src/shared/session-outcome'
 
@@ -57,6 +59,12 @@ interface Fixture {
   record(key: string): SessionOutcomeRecord | null
   damage(key: string): void
   files(): string[]
+  /**
+   * Asserts the directory holds exactly one record per given conversation id, found by the shortid
+   * suffix its filename carries whatever its title slug currently is - which is also what proves
+   * every record was written under the #18 naming scheme.
+   */
+  expectFiles(...conversationIds: string[]): void
   dispose(): void
 }
 
@@ -64,12 +72,13 @@ interface Fixture {
 interface FixtureOptions {
   context?: Partial<SessionOutcomeContext>
   worktreeId?: string
-  title?: string
+  title?: string | (() => string)
   recordCap?: number
   codeState?: SessionOutcomeIndexerOptions['codeStateFor']
+  checkoutPath?: SessionOutcomeIndexerOptions['checkoutPathFor']
 }
 
-function fixture({ context = {}, worktreeId, title, recordCap, codeState }: FixtureOptions = {}): Fixture {
+function fixture({ context = {}, worktreeId, title, recordCap, codeState, checkoutPath }: FixtureOptions = {}): Fixture {
   const root = mkdtempSync(join(tmpdir(), 'toucan-outcomes-'))
   const directory = join(root, 'session-outcomes')
   const broker = createAgentEventBroker({ now: () => NOW })
@@ -79,9 +88,10 @@ function fixture({ context = {}, worktreeId, title, recordCap, codeState }: Fixt
     broker,
     store: createSessionOutcomeStore({ directory }),
     ...(worktreeId ? { worktreeIdForNode: async (): Promise<string> => worktreeId } : {}),
-    ...(title ? { titleFor: async (): Promise<string> => title } : {}),
+    ...(title ? { titleFor: async (): Promise<string> => (typeof title === 'string' ? title : title()) } : {}),
     ...(recordCap === undefined ? {} : { recordCap }),
     ...(codeState ? { codeStateFor: codeState } : {}),
+    ...(checkoutPath ? { checkoutPathFor: checkoutPath } : {}),
     now: () => new Date((clock += 60_000)),
     log: (message) => failures.push(message)
   })
@@ -93,7 +103,23 @@ function fixture({ context = {}, worktreeId, title, recordCap, codeState }: Fixt
       ...context
     }))
   ]
-  const pathFor = (key: string): string => join(directory, `${key}.md`)
+  const listNames = (): string[] => {
+    // The directory is created by the first write, so "nothing recorded" is an absent directory.
+    try {
+      return readdirSync(directory)
+    } catch {
+      return []
+    }
+  }
+  // A record is found the way the store finds it: by content, not by name, since #18 names files
+  // after the project and title rather than the key.
+  const fileForKey = (key: string): string | null => {
+    for (const name of listNames()) {
+      const parsed = parseSessionOutcome(readFileSync(join(directory, name), 'utf8'))
+      if (parsed?.key === key) return name
+    }
+    return null
+  }
   return {
     publish: (...events) => {
       for (const event of events) broker.publish('node-1', event)
@@ -136,26 +162,23 @@ function fixture({ context = {}, worktreeId, title, recordCap, codeState }: Fixt
     plant: (...records) => {
       mkdirSync(directory, { recursive: true })
       for (const { key, updatedAt } of records) {
-        writeFileSync(
-          pathFor(key),
-          renderSessionOutcome({
-            key,
-            provider: 'codex',
-            conversationId: key,
-            projectPath: 'D:\\Development\\ADE',
-            title: key,
-            task: 'Something an earlier session was asked for.',
-            lastResult: 'Something it reported back.',
-            turns: 3,
-            filesTouched: ['src/old.ts'],
-            filesOmitted: 0,
-            failures: [],
-            status: 'completed',
-            startedAt: updatedAt,
-            updatedAt
-          }),
-          'utf8'
-        )
+        const record: SessionOutcomeRecord = {
+          key,
+          provider: 'codex',
+          conversationId: key,
+          projectPath: 'D:\\Development\\ADE',
+          title: key,
+          task: 'Something an earlier session was asked for.',
+          lastResult: 'Something it reported back.',
+          turns: 3,
+          filesTouched: ['src/old.ts'],
+          filesOmitted: 0,
+          failures: [],
+          status: 'completed',
+          startedAt: updatedAt,
+          updatedAt
+        }
+        writeFileSync(join(directory, `${sessionOutcomeFileName(record)}.md`), renderSessionOutcome(record), 'utf8')
       }
     },
     close: () => broker.close('node-1'),
@@ -164,14 +187,27 @@ function fixture({ context = {}, worktreeId, title, recordCap, codeState }: Fixt
       for (const watch of watches) await watch.idle()
       assert.deepEqual(failures, [])
     },
-    record: (key) => parseSessionOutcome(readFileSync(pathFor(key), 'utf8')),
-    damage: (key) => writeFileSync(pathFor(key), 'not a record at all', 'utf8'),
-    // The directory is created by the first write, so "nothing recorded" is an absent directory.
-    files: () => {
-      try {
-        return readdirSync(directory)
-      } catch {
-        return []
+    record: (key) => {
+      const name = fileForKey(key)
+      return name ? parseSessionOutcome(readFileSync(join(directory, name), 'utf8')) : null
+    },
+    damage: (key) => {
+      const name = fileForKey(key)
+      assert.ok(name, `no record on disk for ${key} to damage`)
+      writeFileSync(join(directory, name), 'not a record at all', 'utf8')
+    },
+    files: listNames,
+    expectFiles: (...conversationIds) => {
+      const names = listNames()
+      assert.equal(
+        names.length,
+        conversationIds.length,
+        `expected ${conversationIds.length} records, found: ${names.join(', ') || '(none)'}`
+      )
+      for (const conversationId of conversationIds) {
+        const suffix = `${sessionOutcomeShortIdSuffix(conversationId)}.md`
+        const hits = names.filter((name) => name.endsWith(suffix))
+        assert.equal(hits.length, 1, `expected one record named *${suffix} for ${conversationId}, found: ${names.join(', ') || '(none)'}`)
       }
     },
     dispose: () => rmSync(root, { recursive: true, force: true })
@@ -188,7 +224,7 @@ test('a completed turn writes one record for the conversation', async () => {
     )
     await session.settle()
 
-    assert.deepEqual(session.files(), ['codex-conv-1.md'])
+    session.expectFiles('conv-1')
     const record = session.record('codex-conv-1')
     assert.equal(record?.task, 'Write the session outcome index tracer bullet.')
     assert.equal(record?.lastResult, 'Added the shared record, the store and the indexer.')
@@ -222,12 +258,92 @@ test('completed, cancelled and failed turns all upsert the same record', async (
     })
     await session.settle()
 
-    assert.deepEqual(session.files(), ['codex-conv-1.md'])
+    session.expectFiles('conv-1')
     const latest = session.record('codex-conv-1')
     assert.equal(latest?.turns, 3)
     assert.equal(latest?.lastResult, 'It threw.')
     assert.equal(latest?.startedAt, first?.startedAt)
     assert.notEqual(latest?.updatedAt, first?.updatedAt)
+  } finally {
+    session.dispose()
+  }
+})
+
+test('a title change moves the record to its new name and leaves no duplicate behind (#18)', async () => {
+  let title = 'Untitled exploration'
+  const session = fixture({ title: () => title })
+  try {
+    session.write(WORKED_ON)
+    session.publish(user('u1', 'Look into the wake gate.'), assistant('a1', 'Looking.'), {
+      type: 'turn_complete',
+      stopReason: 'end_turn'
+    })
+    await session.settle()
+    assert.deepEqual(session.files(), ['ade--untitled-exploration--conv-1.md'])
+
+    // The durable title settles (or the user renames) between two boundaries: the next capture
+    // finds the record under its old name and moves it, one file before and one file after.
+    title = 'Wake gate flush fix'
+    session.publish(user('u2', 'Now fix it.'), assistant('a2', 'Fixed.'), {
+      type: 'turn_complete',
+      stopReason: 'end_turn'
+    })
+    await session.settle()
+
+    assert.deepEqual(session.files(), ['ade--wake-gate-flush-fix--conv-1.md'])
+    const record = session.record('codex-conv-1')
+    assert.equal(record?.turns, 2)
+    // The rename carried the record, not a fresh extraction: accumulated history survives it.
+    assert.deepEqual(record?.filesTouched, ['src/a.ts'])
+  } finally {
+    session.dispose()
+  }
+})
+
+test("a worktree session's record files under the main checkout's name (#18)", async () => {
+  const asked: string[] = []
+  const session = fixture({
+    context: { projectPath: 'D:\\worktrees\\ade-fix' },
+    title: 'Fix the flush',
+    checkoutPath: async (projectPath) => {
+      asked.push(projectPath)
+      return 'D:\\Development\\ADE'
+    }
+  })
+  try {
+    session.write('D:\\worktrees\\ade-fix\\src\\a.ts')
+    session.publish(user('u1', 'Fix it on the branch.'), assistant('a1', 'Done.'), {
+      type: 'turn_complete',
+      stopReason: 'end_turn'
+    })
+    await session.settle()
+
+    // Named after the project a reader will glob for, while the record's own project: line keeps
+    // the directory the session actually ran in.
+    assert.deepEqual(asked, ['D:\\worktrees\\ade-fix'])
+    assert.deepEqual(session.files(), ['ade--fix-the-flush--conv-1.md'])
+    assert.equal(session.record('codex-conv-1')?.projectPath, 'D:\\worktrees\\ade-fix')
+  } finally {
+    session.dispose()
+  }
+})
+
+test('a checkout lookup that fails costs the project name, never the record (#18)', async () => {
+  const session = fixture({
+    title: 'Fix the flush',
+    checkoutPath: async () => Promise.reject(new Error('workspace unreadable'))
+  })
+  try {
+    session.write(WORKED_ON)
+    session.publish(user('u1', 'Fix it.'), assistant('a1', 'Done.'), {
+      type: 'turn_complete',
+      stopReason: 'end_turn'
+    })
+    await session.settle()
+
+    // The session directory's own basename stands in, and the record itself is untouched.
+    assert.deepEqual(session.files(), ['ade--fix-the-flush--conv-1.md'])
+    assert.equal(session.record('codex-conv-1')?.task, 'Fix it.')
   } finally {
     session.dispose()
   }
@@ -374,7 +490,7 @@ test('the final turn still lands when the session is stopped before the write co
     session.close()
     await session.settle()
 
-    assert.deepEqual(session.files(), ['codex-conv-1.md'])
+    session.expectFiles('conv-1')
     assert.equal(session.record('codex-conv-1')?.lastResult, 'All done.')
   } finally {
     session.dispose()
@@ -614,7 +730,7 @@ test('a one-turn Q&A that wrote nothing leaves no record behind once it ends', a
     await session.settle()
     // The record exists while the conversation is running: it is what carries `startedAt` and the
     // write set forward, and nothing yet says this conversation will stay a single ask.
-    assert.deepEqual(session.files(), ['codex-conv-1.md'])
+    session.expectFiles('conv-1')
 
     session.close()
     await session.settle()
@@ -691,7 +807,7 @@ test('a record is pruned once the index passes its cap, oldest by updated first'
     await session.settle()
 
     // Three records for a cap of two: the least recently updated one goes, and only that one.
-    assert.deepEqual(session.files(), ['codex-conv-1.md', 'codex-newer.md'])
+    session.expectFiles('conv-1', 'codex-newer')
   } finally {
     session.dispose()
   }
@@ -717,7 +833,7 @@ test('pruning leaves the record of a session that is still running alone', async
     })
     await session.settle()
 
-    assert.deepEqual(session.files(), ['codex-conv-1.md', 'codex-conv-2.md'])
+    session.expectFiles('conv-1', 'conv-2')
   } finally {
     session.dispose()
   }
@@ -744,7 +860,7 @@ test('a record left behind by a session that has ended is pruned on the next new
     await session.settle()
 
     // The retired conversation released its protection when its finalize settled, so the cap takes it.
-    assert.deepEqual(session.files(), ['codex-conv-2.md'])
+    session.expectFiles('conv-2')
   } finally {
     session.dispose()
   }
@@ -769,7 +885,7 @@ test('a record is not dropped as trivial on the strength of a turn the disk has 
     })
     session.close()
 
-    assert.deepEqual(session.files(), ['codex-conv-1.md'])
+    session.expectFiles('conv-1')
     await session.settle()
     const record = session.record('codex-conv-1')
     assert.equal(record?.turns, 2)
@@ -808,7 +924,7 @@ test('a conversation resumed while its previous session is still finalizing keep
     })
     await session.settle()
 
-    assert.deepEqual(session.files(), ['codex-conv-1.md', 'codex-conv-2.md'])
+    session.expectFiles('conv-1', 'conv-2')
   } finally {
     session.dispose()
   }

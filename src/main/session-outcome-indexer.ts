@@ -102,6 +102,15 @@ export interface SessionOutcomeIndexerOptions {
    * record.
    */
   codeStateFor?: (projectPath: string) => Promise<GitHeadState | null>
+  /**
+   * The main checkout a session's directory belongs to, where that directory is a worktree of one.
+   * Injected because the worktree/project association lives in the persisted workspace snapshot,
+   * and consulted only for the record's *filename* (Tucaen/toucan#18): a worktree session's record
+   * files under the project the reader will glob for, while the record's `project:` line keeps
+   * naming the directory the session actually ran in. A lookup that fails costs the checkout name,
+   * never the record - the filename falls back to the session directory's own basename.
+   */
+  checkoutPathFor?: (projectPath: string) => Promise<string | undefined>
   /** How many records the index keeps before the least recently updated go; injectable so a test can fill it. */
   recordCap?: number
   now?: () => Date
@@ -182,17 +191,28 @@ export function createSessionOutcomeIndexer(options: SessionOutcomeIndexerOption
    * turn after turn on an existing conversation rewrites one file and changes nothing to prune.
    */
   const prune = async (): Promise<void> => {
-    const keys = await options.store.keys()
-    if (keys.length <= cap) return
+    const files = await options.store.files()
+    if (files.length <= cap) return
     // An unreadable record contributes an empty timestamp, so it sorts oldest and is the first
     // thing dropped: a file the parser cannot make a record of is not one worth keeping over one
     // it can. Reading the whole directory is only reached in the over-cap case, once per new
-    // conversation, which is what the cheap key listing above buys.
+    // conversation, which is what the cheap file listing above buys. Since #18 the listing is
+    // filenames rather than keys, so liveness - which the watches count by key - is answered
+    // through the same read the timestamp needs; an unreadable file has no key and is never live.
+    const keyOf = new Map<string, string>()
     const entries: SessionOutcomeIndexEntry[] = await Promise.all(
-      keys.map(async (key) => ({ key, updatedAt: (await options.store.read(key))?.updatedAt ?? '' }))
+      files.map(async (file) => {
+        const record = await options.store.readFile(file)
+        if (record) keyOf.set(file, sessionOutcomeKey(record.provider, record.conversationId))
+        return { key: file, updatedAt: record?.updatedAt ?? '' }
+      })
     )
-    for (const key of prunableSessionOutcomes(entries, (candidate) => live.has(candidate), cap)) {
-      await options.store.delete(key)
+    const isLive = (file: string): boolean => {
+      const key = keyOf.get(file)
+      return key !== undefined && live.has(key)
+    }
+    for (const file of prunableSessionOutcomes(entries, isLive, cap)) {
+      await options.store.deleteFile(file)
     }
   }
 
@@ -206,10 +226,16 @@ export function createSessionOutcomeIndexer(options: SessionOutcomeIndexerOption
     let worktreeId: string | undefined
     let title: string | undefined
     let codeState: GitHeadState | null | undefined
+    let checkoutPath: string | undefined
     try {
       worktreeId = await options.worktreeIdForNode?.(sessionId)
     } catch {
       // An unreadable workspace snapshot costs the worktree attribute, never the record.
+    }
+    try {
+      checkoutPath = await options.checkoutPathFor?.(context.projectPath)
+    } catch {
+      // Same rule: a worktree whose project cannot be looked up files under its own folder's name.
     }
     try {
       title = await options.titleFor?.(context.provider, context.conversationId)
@@ -232,15 +258,21 @@ export function createSessionOutcomeIndexer(options: SessionOutcomeIndexerOption
       ...(filesTouched.length ? { filesTouched } : {})
     }
     let created = false
-    await options.store.update(sessionOutcomeKey(source.provider, source.conversationId), (previous) => {
-      // A record is written whether or not the conversation is trivial so far, and the thin ones
-      // are dropped when the session ends instead: it is the record that carries `startedAt` and
-      // the write set from turn to turn, so suppressing it would cost a conversation that turns
-      // out to matter the very history no transcript can reconstruct.
-      const record = extractSessionOutcome(snapshot, source, previous, now().toISOString())
-      created = Boolean(record) && !previous
-      return record ?? 'keep'
-    })
+    await options.store.update(
+      source,
+      (previous) => {
+        // A record is written whether or not the conversation is trivial so far, and the thin ones
+        // are dropped when the session ends instead: it is the record that carries `startedAt` and
+        // the write set from turn to turn, so suppressing it would cost a conversation that turns
+        // out to matter the very history no transcript can reconstruct.
+        const record = extractSessionOutcome(snapshot, source, previous, now().toISOString())
+        created = Boolean(record) && !previous
+        return record ?? 'keep'
+      },
+      // The capture is the one writer that names the file, which is what renames a record whose
+      // title slug changed - finalizing writes back to whatever name the last capture chose.
+      { ...(checkoutPath ? { checkoutPath } : {}) }
+    )
     // Only a record that did not exist can have taken the index over its cap.
     if (created) await prune()
   }
@@ -290,7 +322,7 @@ export function createSessionOutcomeIndexer(options: SessionOutcomeIndexerOption
       const finalize = (): void => {
         const captured = last
         if (!captured || !captured.context.conversationId) return
-        const key = sessionOutcomeKey(captured.context.provider, captured.context.conversationId)
+        const identity = { provider: captured.context.provider, conversationId: captured.context.conversationId }
         // The one verdict both passes reach, so they can only ever differ in the record they were
         // handed - which is the whole reason the queued pass exists.
         const verdict = (onDisk: SessionOutcomeRecord | null): SessionOutcomeUpdate => {
@@ -305,8 +337,8 @@ export function createSessionOutcomeIndexer(options: SessionOutcomeIndexerOption
           return endedSessionOutcome(onDisk, captured.ending, captured.answered, now().toISOString())
         }
         try {
-          const settled = verdict(options.store.readSync(key))
-          if (settled === 'delete') options.store.deleteSync(key)
+          const settled = verdict(options.store.readSync(identity))
+          if (settled === 'delete') options.store.deleteSync(identity)
           else if (settled !== 'keep') options.store.writeSync(settled)
         } catch (error: unknown) {
           options.log?.(`session outcome finalize failed: ${error instanceof Error ? error.message : String(error)}`)
@@ -316,7 +348,7 @@ export function createSessionOutcomeIndexer(options: SessionOutcomeIndexerOption
             // Re-read rather than trusting the synchronous pass's verdict: a capture queued behind
             // it may have landed the turn that made this conversation worth a record, and the
             // deletion above would then have taken a record that is no longer trivial.
-            await options.store.update(key, verdict)
+            await options.store.update(identity, verdict)
           } catch (error: unknown) {
             options.log?.(`session outcome finalize failed: ${error instanceof Error ? error.message : String(error)}`)
           }

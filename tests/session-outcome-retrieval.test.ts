@@ -345,18 +345,15 @@ test('an index a session has scribbled in survives: bad records are skipped and 
   // nonsense, one whose frontmatter parses but lies about a field, and a file that is not a record
   // at all. None of them is readable, and none of them is Toucan's problem - `read` answers `null`
   // exactly as it does for a record that was never written, and the next capture rewrites it.
-  writeFileSync(join(directory, `${record.key}.md`), 'not a record at all', 'utf8')
-  assert.equal(await store.read(record.key), null)
-  writeFileSync(
-    join(directory, `${record.key}.md`),
-    renderSessionOutcome(record).replace(/^turns: \d+$/m, 'turns: several'),
-    'utf8'
-  )
-  assert.equal(await store.read(record.key), null)
-  assert.equal(store.readSync(record.key), null)
+  const name = `${sessionOutcomeFileName(record)}.md`
+  writeFileSync(join(directory, name), 'not a record at all', 'utf8')
+  assert.equal(await store.read(record), null)
+  writeFileSync(join(directory, name), renderSessionOutcome(record).replace(/^turns: \d+$/m, 'turns: several'), 'utf8')
+  assert.equal(await store.read(record), null)
+  assert.equal(store.readSync(record), null)
   writeFileSync(join(directory, 'notes-the-agent-left.md'), '# unrelated', 'utf8')
 
-  await store.write(record)
+  await store.write(record, {})
 
-  assert.deepEqual(await store.read(record.key), record)
+  assert.deepEqual(await store.read(record), record)
 })
