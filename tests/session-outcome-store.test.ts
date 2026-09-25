@@ -26,6 +26,8 @@ function record(overrides: Partial<SessionOutcomeRecord> = {}): SessionOutcomeRe
     projectPath: 'D:\\Development\\cic.control-box',
     title: 'CICKVP-8801',
     task: 'Fix the offer form.',
+    asks: ['Fix the offer form.'],
+    asksOmitted: 0,
     lastResult: 'Fixed it.',
     turns: 3,
     filesTouched: ['src/offer-form.ts'],

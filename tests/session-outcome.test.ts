@@ -3,6 +3,8 @@ import { test } from 'vitest'
 import type { AgentEvent } from '../src/shared/agent'
 import { foldAgentEvent, initialAgentTranscriptState, type AgentTranscriptState } from '../src/shared/agent-transcript'
 import {
+  SESSION_OUTCOME_ASK_LIMIT,
+  SESSION_OUTCOME_ASKS_BUDGET,
   SESSION_OUTCOME_EXCERPT_LIMIT,
   SESSION_OUTCOME_FAILURE_LIMIT,
   SESSION_OUTCOME_FAILURE_MESSAGE_LIMIT,
@@ -17,6 +19,7 @@ import {
   parseSessionOutcome,
   prunableSessionOutcomes,
   renderSessionOutcome,
+  sessionOutcomeAsksOmittedMarker,
   sessionOutcomeExcerpt,
   sessionOutcomeFileName,
   sessionOutcomeFilesOmittedMarker,
@@ -48,14 +51,33 @@ function assistant(messageId: string, text: string, presentation?: 'progress' | 
   return { type: 'message', role: 'assistant', messageId, text, ...(presentation ? { presentation } : {}) }
 }
 
-test('extracts the task from the first user message and the result from the latest final answer', () => {
+test('the KVP-8801 handoff keeps every ask, the substantial result and the last word', () => {
   const snapshot = transcript(
-    user('u1', 'Fan agent events out through a main-process broker so remote clients can subscribe.'),
-    assistant('a1', 'Reading the session manager.', 'progress'),
-    assistant('a2', 'Added the broker and wired the manager to it.', 'final'),
+    user('u1', '/implement CICKVP-8801'),
+    assistant('a1', 'Implementing the offer form dates.', 'progress'),
+    assistant(
+      'a2',
+      [
+        '## TL;DR',
+        '✅ CICKVP-8801 done',
+        '',
+        'The date flow now uses the requested business-day rule.',
+        '',
+        '```ts',
+        'const implementationDetail = true',
+        '```',
+        '',
+        '## Files',
+        '- src/offer-form.ts'
+      ].join('\n'),
+      'final'
+    ),
     { type: 'turn_complete', stopReason: 'end_turn' },
-    user('u2', 'Now cover it with tests.'),
-    assistant('a3', 'Added tests/agent-event-broker.test.ts.', 'final'),
+    user('u2', 'Explain why the weekend case changed.'),
+    assistant('a3', 'Saturday and Sunday now advance to Monday, matching the acceptance example.', 'final'),
+    { type: 'turn_complete', stopReason: 'end_turn' },
+    user('u3', 'keep it'),
+    assistant('a4', 'Done. I left the code as it is; no open points left.', 'final'),
     { type: 'turn_complete', stopReason: 'end_turn' }
   )
 
@@ -66,11 +88,35 @@ test('extracts the task from the first user message and the result from the late
   assert.equal(record.provider, 'codex')
   assert.equal(record.conversationId, '019a2f3c-0001')
   assert.equal(record.projectPath, 'D:\\Development\\ADE')
-  assert.equal(record.task, 'Fan agent events out through a main-process broker so remote clients can subscribe.')
-  assert.equal(record.lastResult, 'Added tests/agent-event-broker.test.ts.')
-  assert.equal(record.turns, 2)
+  assert.equal(record.task, '/implement CICKVP-8801')
+  assert.deepEqual(record.asks, [
+    '/implement CICKVP-8801',
+    'Explain why the weekend case changed.',
+    'keep it'
+  ])
+  assert.equal(record.asksOmitted, 0)
+  assert.equal(
+    record.mainResult,
+    [
+      '### TL;DR',
+      '✅ CICKVP-8801 done',
+      '',
+      'The date flow now uses the requested business-day rule.',
+      '',
+      '### Files',
+      '- src/offer-form.ts'
+    ].join('\n')
+  )
+  assert.equal(record.lastResult, 'Done. I left the code as it is; no open points left.')
+  assert.equal(record.turns, 3)
   assert.equal(record.startedAt, AT)
   assert.equal(record.updatedAt, AT)
+  const rendered = renderSessionOutcome(record)
+  assert.match(rendered, /## Asks\n\n- \/implement CICKVP-8801/)
+  assert.match(rendered, /## Main result\n\n### TL;DR/)
+  assert.match(rendered, /## Last result\n\nDone\. I left the code as it is/)
+  assert.ok(rendered.length <= SESSION_OUTCOME_SIZE_BUDGET)
+  assert.deepEqual(parseSessionOutcome(rendered), record)
 })
 
 test('falls back to the latest progress message when a turn ended without a final answer', () => {
@@ -91,7 +137,7 @@ test('records nothing for a conversation that has not been asked anything', () =
   assert.equal(extractSessionOutcome(snapshot, SOURCE, null, AT), null)
 })
 
-test('caps both excerpts and keeps a record well under 2 KB', () => {
+test('caps task and result excerpts while keeping the record within its budget', () => {
   const snapshot = transcript(
     user('u1', `Do this: ${'context '.repeat(400)}`),
     assistant('a1', `Done: ${'detail '.repeat(400)}`, 'final'),
@@ -107,17 +153,40 @@ test('caps both excerpts and keeps a record well under 2 KB', () => {
   assert.ok(renderSessionOutcome(record).length < 2048)
 })
 
-test('collapses newlines so an excerpt stays one line of prose', () => {
+test('excerpts keep line breaks, collapse blank runs, drop fences and demote headings', () => {
   const snapshot = transcript(
-    user('u1', 'Line one\n\nLine two\n  - a bullet'),
-    assistant('a1', 'Result\nacross\nlines', 'final'),
+    user('u1', 'Line one\n\n\nLine two\n```sh\necho hidden\n```\n## Files\n  - a bullet'),
+    assistant('a1', 'Result\n\n\nacross\n## Files\nlines', 'final'),
     { type: 'turn_complete', stopReason: 'end_turn' }
   )
 
   const record = extractSessionOutcome(snapshot, SOURCE, null, AT)
 
-  assert.equal(record?.task, 'Line one Line two - a bullet')
-  assert.equal(record?.lastResult, 'Result across lines')
+  assert.equal(record?.task, 'Line one\n\nLine two\n### Files\n- a bullet')
+  assert.equal(record?.lastResult, 'Result\n\nacross\n### Files\nlines')
+  const rendered = renderSessionOutcome(record!)
+  assert.equal((rendered.match(/^## Files$/gm) ?? []).length, 0)
+  assert.deepEqual(parseSessionOutcome(rendered), record)
+})
+
+test('asks over budget keep the first and newest asks and round-trip their omission marker', () => {
+  const snapshot = transcript(
+    ...Array.from({ length: 9 }, (_, index) => user(`u${index}`, `Ask ${index}: ${'detail '.repeat(80)}`)),
+    assistant('a1', 'Handled the latest ask.', 'final'),
+    { type: 'turn_complete', stopReason: 'end_turn' }
+  )
+
+  const record = extractSessionOutcome(snapshot, SOURCE, null, AT)
+  assert.ok(record)
+  assert.equal(record.asks[0]?.startsWith('Ask 0:'), true)
+  assert.equal(record.asks.at(-1)?.startsWith('Ask 8:'), true)
+  assert.ok(record.asks.every((ask) => ask.length <= SESSION_OUTCOME_ASK_LIMIT))
+  assert.ok(record.asks.reduce((total, ask) => total + ask.length, 0) <= SESSION_OUTCOME_ASKS_BUDGET)
+  assert.ok(record.asksOmitted > 0)
+
+  const rendered = renderSessionOutcome(record)
+  assert.ok(rendered.includes(`- ${sessionOutcomeAsksOmittedMarker(record.asksOmitted)}`))
+  assert.deepEqual(parseSessionOutcome(rendered), record)
 })
 
 test('a follow-up steered into a running turn counts as an ask of its own', () => {

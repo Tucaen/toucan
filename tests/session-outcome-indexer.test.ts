@@ -169,6 +169,8 @@ function fixture({ context = {}, worktreeId, title, recordCap, codeState, checko
           projectPath: 'D:\\Development\\ADE',
           title: key,
           task: 'Something an earlier session was asked for.',
+          asks: ['Something an earlier session was asked for.'],
+          asksOmitted: 0,
           lastResult: 'Something it reported back.',
           turns: 3,
           filesTouched: ['src/old.ts'],

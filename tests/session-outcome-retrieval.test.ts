@@ -88,7 +88,7 @@ test('the pointer names the directory, every field a record carries, and how to 
   assert.ok(instruction.includes('git log --oneline <commit>..HEAD -- <files>'))
   assert.match(instruction, /unknown/)
   // It rides on every session's context whether or not the index is ever read, so it stays short.
-  assert.ok(instruction.length < 1250, `the pointer grew to ${instruction.length} characters`)
+  assert.ok(instruction.length < 1300, `the pointer grew to ${instruction.length} characters`)
 })
 
 test('the taught glob carries no backslash and selects only its own project (#18, #197)', () => {
@@ -325,7 +325,7 @@ test('a screenful of records costs little enough that consulting the index is al
   // fixture that stopped overflowing the file cap would quietly stop measuring the worst case.
   assert.ok(renderSessionOutcome(saturatedRecord(0)).includes('older files omitted'))
 
-  assert.ok(typical < 24_000, `a typical screenful grew to ${typical} bytes`)
+  assert.ok(typical < 27_000, `a typical screenful grew to ${typical} bytes`)
   assert.ok(saturated < SESSION_OUTCOME_SCREENFUL * SESSION_OUTCOME_SIZE_BUDGET)
   assert.ok(saturated < 72_000, `a saturated screenful grew to ${saturated} bytes`)
   // The two-stage read the pointer teaches: naming the relevant files costs only their frontmatter.
