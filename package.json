@@ -1,6 +1,6 @@
 {
   "name": "toucan",
-  "version": "0.17.15",
+  "version": "0.17.16",
   "private": true,
   "description": "Toucan is a Windows-first agent development environment: a spatial canvas for terminal and coding-agent sessions.",
   "author": "Toucan contributors",
