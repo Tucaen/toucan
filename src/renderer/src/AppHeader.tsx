@@ -3,7 +3,7 @@ import type { RemoteAccessState } from '../../shared/remote-access'
 import type { WorkspaceProject } from '../../shared/workspace'
 import { AppUpdateChip } from './AppUpdateChip'
 import { ProviderUsageChip } from './ProviderUsageChip'
-import toucanLogo from './assets/toucan-logo.svg'
+import toucanLogo from './assets/toucan-logo-small.svg'
 import type { AppUpdateController } from './use-app-update'
 import type { ProviderRateLimitsState } from './use-provider-rate-limits'
 

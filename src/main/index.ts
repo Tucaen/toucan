@@ -116,10 +116,10 @@ function registerUsageIpc(usage: ProviderUsage): void {
 
 /**
  * Packaged Windows builds take their icon from the executable electron-builder stamps, so
- * this only has to cover `electron-vite dev`, where the app root still holds build/icon.png.
+ * this only has to cover `electron-vite dev`, where the app root still holds build/icon.ico.
  */
 function developmentWindowIcon(): string | undefined {
-  const icon = join(app.getAppPath(), 'build', 'icon.png')
+  const icon = join(app.getAppPath(), 'build', 'icon.ico')
   return existsSync(icon) ? icon : undefined
 }
 

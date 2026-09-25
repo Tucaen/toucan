@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="1.25 2.5 30 30">
+  <!-- Optical small-size master: broad facets, a larger eye and two sturdy circuit traces. -->
+  <defs>
+    <linearGradient id="traceGradient" gradientUnits="userSpaceOnUse" x1="0" y1="13" x2="0" y2="30">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset=".5" stop-color="#718BAB"/>
+      <stop offset="1" stop-color="#060E20"/>
+    </linearGradient>
+  </defs>
+  <path fill="#1B1D21" stroke="#4B5767" stroke-width=".75" stroke-linejoin="round"
+    d="M2 11 6 7 10 5 13 8 13 17 19 23 19 29 17 31 8 31 2 25Z"/>
+  <path fill="#F5A524" d="m10 5 6-1 11 3 4 6-9-2-5 0-4 2V8Z"/>
+  <path fill="#FF7A1A" d="m16 4 11 3 4 6-9-2Z"/>
+  <path fill="#FF5A3C" d="M13 14 17.5 12h5l8.5 1.5L15 20l-2-3Z"/>
+  <path fill="#1B1D21" d="m13 13 4-2h5l9 2v.5L22.5 12h-5L13 14Z"/>
+  <path fill="none" stroke="url(#traceGradient)" stroke-width="1.5" stroke-linejoin="miter"
+    d="m8 12-3 4v5l4 4h3l4 4M9 19l3 3h3"/>
+  <path fill="url(#traceGradient)" d="M7 9h4v4H7zM14.5 27.5h3v3h-3zM7.5 17.5h3v3h-3z"/>
+  <path fill="#1B1D21" d="M8 10h2v2H8z"/>
+</svg>
