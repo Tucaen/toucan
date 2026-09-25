@@ -137,7 +137,7 @@ interface CapturedBoundary {
   context: SessionOutcomeContext
   snapshot: AgentTranscriptState
   ending: SessionOutcomeEnding
-  firstAsk: Promise<{ startedAt: string; base?: string }> | null
+  firstAskCapture: Promise<{ startedAt: string; base?: string }> | null
   /** Whether the latest ask got an answer, decided here because the snapshot is gone by finalize time. */
   answered: boolean
   /**
@@ -235,7 +235,7 @@ export function createSessionOutcomeIndexer(options: SessionOutcomeIndexerOption
   ): Promise<void> => {
     const { context, snapshot } = boundary
     if (!context.conversationId) return
-    const firstAsk = await boundary.firstAsk
+    const firstAsk = await boundary.firstAskCapture
     let worktreeId: string | undefined
     let title: string | undefined
     let codeState: GitHeadState | null | undefined
@@ -319,7 +319,7 @@ export function createSessionOutcomeIndexer(options: SessionOutcomeIndexerOption
       /** The key this watch is holding against pruning, held once however many boundaries it sees. */
       let held: string | null = null
       /** The first ask's time and HEAD, captured once before that turn can change the checkout. */
-      let firstAsk: Promise<{ startedAt: string; base?: string }> | null = null
+      let firstAskCapture: Promise<{ startedAt: string; base?: string }> | null = null
 
       const queue = (boundary: CapturedBoundary): void => {
         const files = written
@@ -388,11 +388,11 @@ export function createSessionOutcomeIndexer(options: SessionOutcomeIndexerOption
       options.broker.subscribe(
         sessionId,
         (event) => {
-          if (!firstAsk && event.type === 'message' && event.role === 'user') {
+          if (!firstAskCapture && event.type === 'message' && event.role === 'user') {
             const resolved = context()
             if (resolved) {
               const startedAt = now().toISOString()
-              firstAsk = (async () => {
+              firstAskCapture = (async () => {
                 try {
                   const state = await options.codeStateFor?.(resolved.projectPath)
                   return { startedAt, ...(state ? { base: state.commit } : {}) }
@@ -415,7 +415,7 @@ export function createSessionOutcomeIndexer(options: SessionOutcomeIndexerOption
             context: resolved,
             snapshot,
             ending,
-            firstAsk,
+            firstAskCapture,
             answered: answeredLatestAsk(snapshot),
             turns: sessionOutcomeTurns(snapshot)
           }
