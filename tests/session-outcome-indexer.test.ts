@@ -77,9 +77,19 @@ interface FixtureOptions {
   codeState?: SessionOutcomeIndexerOptions['codeStateFor']
   checkoutPath?: SessionOutcomeIndexerOptions['checkoutPathFor']
   transcriptPath?: SessionOutcomeIndexerOptions['transcriptPathFor']
+  temporaryDirectory?: string
 }
 
-function fixture({ context = {}, worktreeId, title, recordCap, codeState, checkoutPath, transcriptPath }: FixtureOptions = {}): Fixture {
+function fixture({
+  context = {},
+  worktreeId,
+  title,
+  recordCap,
+  codeState,
+  checkoutPath,
+  transcriptPath,
+  temporaryDirectory
+}: FixtureOptions = {}): Fixture {
   const root = mkdtempSync(join(tmpdir(), 'toucan-outcomes-'))
   const directory = join(root, 'session-outcomes')
   const broker = createAgentEventBroker({ now: () => NOW })
@@ -94,6 +104,7 @@ function fixture({ context = {}, worktreeId, title, recordCap, codeState, checko
     ...(codeState ? { codeStateFor: codeState } : {}),
     ...(checkoutPath ? { checkoutPathFor: checkoutPath } : {}),
     ...(transcriptPath ? { transcriptPathFor: transcriptPath } : {}),
+    ...(temporaryDirectory ? { temporaryDirectory } : {}),
     now: () => new Date((clock += 60_000)),
     log: (message) => failures.push(message)
   })
@@ -582,6 +593,29 @@ test('written paths are recorded relative to the project, in the shape a reader 
     assert.deepEqual(session.record('codex-conv-1')?.filesTouched, [
       'src/main/index.ts',
       'D:\\Development\\other\\notes.md'
+    ])
+  } finally {
+    session.dispose()
+  }
+})
+
+test('temp paths are dropped case-insensitively while project and sibling-repo paths stay', async () => {
+  const session = fixture({ temporaryDirectory: 'C:\\Users\\Ada\\AppData\\Local\\Temp' })
+  try {
+    session.write(
+      'C:\\USERS\\ADA\\APPDATA\\LOCAL\\TEMP\\toucan-script.mjs',
+      'D:\\Development\\ADE\\src\\keep.ts',
+      'D:\\Development\\Sibling\\src\\also-keep.ts'
+    )
+    session.publish(user('u1', 'Keep meaningful writes only.'), assistant('a1', 'Filtered.'), {
+      type: 'turn_complete',
+      stopReason: 'end_turn'
+    })
+    await session.settle()
+
+    assert.deepEqual(session.record('codex-conv-1')?.filesTouched, [
+      'src/keep.ts',
+      'D:\\Development\\Sibling\\src\\also-keep.ts'
     ])
   } finally {
     session.dispose()

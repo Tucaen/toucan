@@ -1,5 +1,7 @@
 import { relative } from 'node:path'
+import { tmpdir } from 'node:os'
 import { isWithin } from './workspace-containment'
+import { pathWithinRoot } from '../shared/paths'
 import type { AgentEvent } from '../shared/agent'
 import type { AgentTranscriptState } from '../shared/agent-transcript'
 import type { ConversationProvider } from '../shared/conversation'
@@ -117,6 +119,8 @@ export interface SessionOutcomeIndexerOptions {
     conversationId: string,
     projectPath: string
   ) => Promise<string | undefined>
+  /** @internal OS temp root override for deterministic path-filter tests. */
+  temporaryDirectory?: string
   /** How many records the index keeps before the least recently updated go; injectable so a test can fill it. */
   recordCap?: number
   now?: () => Date
@@ -167,6 +171,7 @@ function displayPath(path: string, projectPath: string | undefined): string {
 export function createSessionOutcomeIndexer(options: SessionOutcomeIndexerOptions): SessionOutcomeIndexer {
   const now = options.now ?? ((): Date => new Date())
   const cap = options.recordCap ?? SESSION_OUTCOME_RECORD_CAP
+  const temporaryDirectory = options.temporaryDirectory ?? tmpdir()
   /**
    * The records of conversations this process is still watching, which pruning must leave alone.
    * Membership is the honest reading of "currently active", and a stricter one than the record's
@@ -413,7 +418,12 @@ export function createSessionOutcomeIndexer(options: SessionOutcomeIndexerOption
           // Re-deduped on every report rather than at the boundary, so ordering, clipping and
           // deduping stay the shared rule's business rather than a second copy of it here. The cap
           // is deliberately not among them - see `written`.
-          written = sessionOutcomeWriteSet([...written, ...paths.map((path) => displayPath(path, projectPath))])
+          written = sessionOutcomeWriteSet([
+            ...written,
+            ...paths
+              .filter((path) => pathWithinRoot(path, temporaryDirectory) === undefined)
+              .map((path) => displayPath(path, projectPath))
+          ])
         }
       }
     }
