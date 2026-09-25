@@ -62,6 +62,10 @@ const record = (key, title, task, result, files) =>
     '',
     task,
     '',
+    '## Asks',
+    '',
+    `- ${task}`,
+    '',
     '## Last result',
     '',
     result,
@@ -81,7 +85,10 @@ const titles = [
 ]
 
 writeFileSync(
-  join(outcomes, `${sessionOutcomeFileName({ projectPath: project, title: titles[0], conversationId: 'aaa-0001' })}.md`),
+  join(
+    outcomes,
+    `${sessionOutcomeFileName({ projectPath: project, title: titles[0], conversationId: 'aaa-0001' })}.md`
+  ),
   record(
     `${provider}-aaa-0001`,
     titles[0],
@@ -91,7 +98,10 @@ writeFileSync(
   )
 )
 writeFileSync(
-  join(outcomes, `${sessionOutcomeFileName({ projectPath: project, title: titles[1], conversationId: 'aaa-0002' })}.md`),
+  join(
+    outcomes,
+    `${sessionOutcomeFileName({ projectPath: project, title: titles[1], conversationId: 'aaa-0002' })}.md`
+  ),
   record(
     `${provider}-aaa-0002`,
     titles[1],
@@ -101,7 +111,10 @@ writeFileSync(
   )
 )
 writeFileSync(
-  join(outcomes, `${sessionOutcomeFileName({ projectPath: project, title: titles[2], conversationId: 'aaa-0003' })}.md`),
+  join(
+    outcomes,
+    `${sessionOutcomeFileName({ projectPath: project, title: titles[2], conversationId: 'aaa-0003' })}.md`
+  ),
   record(
     `${provider}-aaa-0003`,
     titles[2],

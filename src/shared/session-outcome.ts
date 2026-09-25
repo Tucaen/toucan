@@ -19,7 +19,7 @@ import { isAgentProvider } from './agent-provider'
  */
 
 /**
- * Hard cap on each excerpt. Two of them plus the frontmatter keep a typical record well under 2 KB.
+ * Hard cap on the task and last-result excerpts. Larger handoff sections have their own caps below.
  * @internal exported for tests
  */
 export const SESSION_OUTCOME_EXCERPT_LIMIT = 600
@@ -30,7 +30,10 @@ export const SESSION_OUTCOME_ASK_LIMIT = 300
 /** Total content budget shared by the asks retained in one record. */
 export const SESSION_OUTCOME_ASKS_BUDGET = 1500
 
-/** Hard cap on the substantial answer retained as the conversation's main result. */
+/**
+ * Hard cap on the substantial answer retained as the conversation's main result. A record that
+ * saturates its other sections yields part of this allowance to the whole-record budget.
+ */
 export const SESSION_OUTCOME_MAIN_RESULT_LIMIT = 2500
 
 /** Hard cap on the title, matching what `deriveConversationTitle` already produces. */
@@ -101,7 +104,7 @@ export const SESSION_OUTCOME_SIZE_BUDGET = 6144
  * How many records "reading the index for this project" is budgeted as - the screenful an agent
  * answering "what happened here before?" is expected to pull. It is the unit every cap above is
  * ultimately justified by, because what has to stay affordable is the *read*, not one file:
- * measured at this size, a screenful is about 22 KB typical and under 70 KB with every record
+ * measured at this size, a screenful is about 25 KB typical and under 120 KB with every record
  * saturating every cap (see `tests/session-outcome-retrieval.test.ts`, which holds both honest).
  * @internal exported for tests
  */
@@ -275,7 +278,12 @@ export function sessionOutcomeShortId(conversationId: string): string {
 
 /** The last path segment, without importing `node:path` into a shared module the renderer also loads. */
 function checkoutBasename(path: string): string {
-  return path.split(/[\\/]+/).filter(Boolean).at(-1) ?? ''
+  return (
+    path
+      .split(/[\\/]+/)
+      .filter(Boolean)
+      .at(-1) ?? ''
+  )
 }
 
 /**
@@ -536,7 +544,7 @@ export function extractSessionOutcome(
   // its whole write set turn after turn idempotent instead of inflationary; neither view can see
   // the other's dropped paths, which is why the result is a floor (see the marker).
   const carried = previous ? previous.filesTouched.length + previous.filesOmitted - written.files.length : 0
-  return {
+  const record: SessionOutcomeRecord = {
     key: sessionOutcomeKey(source.provider, source.conversationId),
     provider: source.provider,
     conversationId: source.conversationId,
@@ -567,6 +575,13 @@ export function extractSessionOutcome(
     startedAt: previous?.startedAt ?? now,
     updatedAt: now
   }
+  const overflow = renderSessionOutcome(record).length - (SESSION_OUTCOME_SIZE_BUDGET - 1)
+  if (overflow <= 0 || !record.mainResult) return record
+  const remaining = record.mainResult.length - overflow
+  if (remaining > 0) return { ...record, mainResult: sessionOutcomeExcerpt(record.mainResult, remaining) }
+  const withoutMainResult = { ...record }
+  delete withoutMainResult.mainResult
+  return withoutMainResult
 }
 
 /**
@@ -585,6 +600,16 @@ function decodePath(value: string): string {
 }
 
 export function renderSessionOutcome(record: SessionOutcomeRecord): string {
+  const renderAsk = (ask: string): string[] => {
+    const [first = '', ...rest] = ask.split('\n')
+    return [`- ${first}`, ...rest.map((line) => `  ${line}`)]
+  }
+  const [firstAsk, ...newestAsks] = record.asks
+  const renderedAsks = [
+    ...(firstAsk ? renderAsk(firstAsk) : []),
+    ...(record.asksOmitted > 0 ? [`- ${sessionOutcomeAsksOmittedMarker(record.asksOmitted)}`] : []),
+    ...newestAsks.flatMap(renderAsk)
+  ]
   return [
     '---',
     `key: ${record.key}`,
@@ -608,11 +633,7 @@ export function renderSessionOutcome(record: SessionOutcomeRecord): string {
     '',
     '## Asks',
     '',
-    ...record.asks.flatMap((ask) => {
-      const [first = '', ...rest] = ask.split('\n')
-      return [`- ${first}`, ...rest.map((line) => `  ${line}`)]
-    }),
-    ...(record.asksOmitted > 0 ? [`- ${sessionOutcomeAsksOmittedMarker(record.asksOmitted)}`] : []),
+    ...renderedAsks,
     '',
     ...(record.mainResult ? ['## Main result', '', record.mainResult, ''] : []),
     '## Last result',
@@ -843,7 +864,9 @@ export function prunableSessionOutcomes(
   if (entries.length <= cap) return []
   // Ties break on the filename so a directory written inside one clock tick prunes
   // deterministically rather than in whatever order the filesystem happened to list it.
-  const oldestFirst = [...entries].sort((a, b) => a.updatedAt.localeCompare(b.updatedAt) || a.name.localeCompare(b.name))
+  const oldestFirst = [...entries].sort(
+    (a, b) => a.updatedAt.localeCompare(b.updatedAt) || a.name.localeCompare(b.name)
+  )
   const doomed: string[] = []
   for (const entry of oldestFirst) {
     if (entries.length - doomed.length <= cap) break

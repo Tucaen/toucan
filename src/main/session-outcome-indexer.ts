@@ -261,11 +261,7 @@ export function createSessionOutcomeIndexer(options: SessionOutcomeIndexerOption
       // by omitting it.
     }
     try {
-      transcriptPath = await options.transcriptPathFor?.(
-        context.provider,
-        context.conversationId,
-        context.projectPath
-      )
+      transcriptPath = await options.transcriptPathFor?.(context.provider, context.conversationId, context.projectPath)
     } catch {
       // A provider that cannot expose its transcript path costs the pointer, never the record.
     }

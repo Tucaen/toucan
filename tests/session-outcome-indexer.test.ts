@@ -222,7 +222,11 @@ function fixture({
       for (const conversationId of conversationIds) {
         const suffix = `${sessionOutcomeShortIdSuffix(conversationId)}.md`
         const hits = names.filter((name) => name.endsWith(suffix))
-        assert.equal(hits.length, 1, `expected one record named *${suffix} for ${conversationId}, found: ${names.join(', ') || '(none)'}`)
+        assert.equal(
+          hits.length,
+          1,
+          `expected one record named *${suffix} for ${conversationId}, found: ${names.join(', ') || '(none)'}`
+        )
       }
     },
     dispose: () => rmSync(root, { recursive: true, force: true })

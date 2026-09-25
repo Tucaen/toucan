@@ -126,10 +126,14 @@ test('an interrupted rename heals: the freshest duplicate wins and the write rem
   const store = createSessionOutcomeStore({ directory })
 
   assert.equal((await store.read(fresh))?.title, 'New title')
-  await store.update(fresh, (previous) => {
-    assert.equal(previous?.title, 'New title')
-    return record({ title: 'New title', turns: 4 })
-  }, {})
+  await store.update(
+    fresh,
+    (previous) => {
+      assert.equal(previous?.title, 'New title')
+      return record({ title: 'New title', turns: 4 })
+    },
+    {}
+  )
 
   assert.deepEqual(names(directory), ['cic-control-box--new-title--69f89ec3.md'])
 })

@@ -89,11 +89,7 @@ test('the KVP-8801 handoff keeps every ask, the substantial result and the last 
   assert.equal(record.conversationId, '019a2f3c-0001')
   assert.equal(record.projectPath, 'D:\\Development\\ADE')
   assert.equal(record.task, '/implement CICKVP-8801')
-  assert.deepEqual(record.asks, [
-    '/implement CICKVP-8801',
-    'Explain why the weekend case changed.',
-    'keep it'
-  ])
+  assert.deepEqual(record.asks, ['/implement CICKVP-8801', 'Explain why the weekend case changed.', 'keep it'])
   assert.equal(record.asksOmitted, 0)
   assert.equal(
     record.mainResult,
@@ -185,7 +181,10 @@ test('asks over budget keep the first and newest asks and round-trip their omiss
   assert.ok(record.asksOmitted > 0)
 
   const rendered = renderSessionOutcome(record)
-  assert.ok(rendered.includes(`- ${sessionOutcomeAsksOmittedMarker(record.asksOmitted)}`))
+  const marker = `- ${sessionOutcomeAsksOmittedMarker(record.asksOmitted)}`
+  assert.ok(rendered.includes(marker))
+  assert.ok(rendered.indexOf('Ask 0:') < rendered.indexOf(marker))
+  assert.ok(rendered.indexOf(marker) < rendered.lastIndexOf('Ask 8:'))
   assert.deepEqual(parseSessionOutcome(rendered), record)
 })
 
@@ -329,7 +328,11 @@ test('the project glob is built by the same slug rule the filenames are written 
     title: 'Anything',
     conversationId: 'abc12345'
   })
-  assert.ok(!new RegExp(`^${sessionOutcomeProjectGlob('D:\\Development\\cic.control-box').replace('*', '.*')}$`).test(`${name}.md`))
+  assert.ok(
+    !new RegExp(`^${sessionOutcomeProjectGlob('D:\\Development\\cic.control-box').replace('*', '.*')}$`).test(
+      `${name}.md`
+    )
+  )
 })
 
 test('an excerpt shorter than the cap is left exactly as written', () => {

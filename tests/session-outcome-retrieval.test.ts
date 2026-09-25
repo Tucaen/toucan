@@ -12,6 +12,7 @@ import type { AgentEvent } from '../src/shared/agent'
 import { foldAgentEvent, initialAgentTranscriptState, type AgentTranscriptState } from '../src/shared/agent-transcript'
 import { withCodexSessionConfig } from '../src/shared/codex-config'
 import {
+  SESSION_OUTCOME_ASKS_BUDGET,
   SESSION_OUTCOME_FAILURE_LIMIT,
   SESSION_OUTCOME_FILES_LIMIT,
   SESSION_OUTCOME_SCREENFUL,
@@ -118,12 +119,17 @@ test('the taught glob carries no backslash and selects only its own project (#18
   // A same-named leaf under a different root *does* match the glob - which is exactly why the
   // pointer teaches confirming the record's project: line before trusting a filename hit.
   assert.match(named('C:\\Other\\ADE'), regex)
-  assert.match(renderSessionOutcome(extractSessionOutcome(
-    transcript(user('u1', 'x'), assistant('a1', 'y'), { type: 'turn_complete', stopReason: 'end_turn' }),
-    { provider: 'claude', conversationId: 'c-197', projectPath: 'D:\\Development\\ADE' },
-    null,
-    AT
-  ) as SessionOutcomeRecord), /^project: "D:\\\\Development\\\\ADE"$/m)
+  assert.match(
+    renderSessionOutcome(
+      extractSessionOutcome(
+        transcript(user('u1', 'x'), assistant('a1', 'y'), { type: 'turn_complete', stopReason: 'end_turn' }),
+        { provider: 'claude', conversationId: 'c-197', projectPath: 'D:\\Development\\ADE' },
+        null,
+        AT
+      ) as SessionOutcomeRecord
+    ),
+    /^project: "D:\\\\Development\\\\ADE"$/m
+  )
   // A POSIX path builds the same shape: the one recipe works on every platform.
   assert.equal(sessionOutcomeProjectGlob('/home/ada/app'), 'app--*.md')
   assert.match(named('/home/ada/app'), new RegExp('^app--.*\\.md$'))
@@ -280,13 +286,15 @@ function typicalRecord(index: number): SessionOutcomeRecord {
 function saturatedRecord(index: number): SessionOutcomeRecord {
   const record = extractSessionOutcome(
     transcript(
-      user('u1', `Do this: ${'context '.repeat(400)}`),
+      user('u0', `Do this: ${'context '.repeat(400)}`),
+      assistant('a-main', `Main result: ${'decision detail '.repeat(400)}`),
+      ...Array.from({ length: 8 }, (_, ask) => user(`u${ask + 1}`, `Follow-up ${ask}: ${'context '.repeat(100)}`)),
       ...Array.from({ length: SESSION_OUTCOME_FAILURE_LIMIT }, (_, failure): AgentEvent => ({
         type: 'turn_failed',
         turnId: `turn-${'x'.repeat(30)}-${failure}`,
         message: 'stack frame '.repeat(80)
       })),
-      assistant('a1', `Done: ${'detail '.repeat(400)}`),
+      assistant('a-last', `Done: ${'detail '.repeat(400)}`),
       { type: 'turn_complete', stopReason: 'end_turn' }
     ),
     {
@@ -303,6 +311,10 @@ function saturatedRecord(index: number): SessionOutcomeRecord {
     AT
   )
   assert.ok(record)
+  assert.ok(record.asksOmitted > 0)
+  assert.ok(record.asks.reduce((total, ask) => total + ask.length, 0) <= SESSION_OUTCOME_ASKS_BUDGET)
+  assert.ok(record.mainResult?.endsWith('…'))
+  assert.ok(record.lastResult.endsWith('…'))
   return record
 }
 
@@ -316,7 +328,7 @@ function screenful(build: (index: number) => SessionOutcomeRecord): number {
 test('a screenful of records costs little enough that consulting the index is always worth it', () => {
   // The measurement this ticket owns, in the unit that decides whether an agent should bother:
   // what it costs to read the records for one project. At roughly four characters per token a
-  // typical screenful is about 5k tokens - cheaper than a single wrong re-exploration - and even
+  // typical screenful is about 6k tokens - cheaper than a single wrong re-exploration - and even
   // the pathological case, every record saturating every cap at once, stays under the ceiling of
   // twenty times the per-record budget. The caps were tightened against these numbers (#190).
   const typical = screenful(typicalRecord)
@@ -326,8 +338,11 @@ test('a screenful of records costs little enough that consulting the index is al
   assert.ok(renderSessionOutcome(saturatedRecord(0)).includes('older files omitted'))
 
   assert.ok(typical < 27_000, `a typical screenful grew to ${typical} bytes`)
-  assert.ok(saturated < SESSION_OUTCOME_SCREENFUL * SESSION_OUTCOME_SIZE_BUDGET)
-  assert.ok(saturated < 72_000, `a saturated screenful grew to ${saturated} bytes`)
+  assert.ok(
+    saturated < SESSION_OUTCOME_SCREENFUL * SESSION_OUTCOME_SIZE_BUDGET,
+    `a saturated screenful exceeded its per-record budget at ${saturated} bytes`
+  )
+  assert.ok(saturated < 124_000, `a saturated screenful grew to ${saturated} bytes`)
   // The two-stage read the pointer teaches: naming the relevant files costs only their frontmatter.
   const frontmatterOnly = Array.from(
     { length: SESSION_OUTCOME_SCREENFUL },
