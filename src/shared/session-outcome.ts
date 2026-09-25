@@ -24,10 +24,16 @@ import { isAgentProvider } from './agent-provider'
  */
 export const SESSION_OUTCOME_EXCERPT_LIMIT = 600
 
-/** Hard cap on one user ask in the conversation handoff. */
+/**
+ * Hard cap on one user ask in the conversation handoff.
+ * @internal exported for tests
+ */
 export const SESSION_OUTCOME_ASK_LIMIT = 300
 
-/** Total content budget shared by the asks retained in one record. */
+/**
+ * Total content budget shared by the asks retained in one record.
+ * @internal exported for tests
+ */
 export const SESSION_OUTCOME_ASKS_BUDGET = 1500
 
 /**
@@ -371,6 +377,7 @@ function oneLineExcerpt(text: string, limit: number): string {
   return `${(boundary >= limit / 2 ? clipped.slice(0, boundary) : clipped).trimEnd()}…`
 }
 
+/** @internal exported for tests */
 export function sessionOutcomeAsksOmittedMarker(count: number): string {
   return `… ${count} earlier ask${count === 1 ? '' : 's'} omitted`
 }
