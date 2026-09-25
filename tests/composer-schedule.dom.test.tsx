@@ -148,6 +148,18 @@ describe('the scheduling control', () => {
     expect(composerTextarea()).toHaveValue('later please')
   })
 
+  test('portals out of the clipping node, and closes once focus leaves it', async () => {
+    await renderReadyNode()
+    fireEvent.change(composerTextarea(), { target: { value: 'later please' } })
+
+    const dialog = openScheduleDialog()
+    expect(dialog.closest('.terminal-node')).toBeNull()
+    expect(dialog.parentElement).toBe(document.body)
+
+    fireEvent.blur(within(dialog).getByLabelText('Deliver at'), { relatedTarget: composerTextarea() })
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
   test('refuses a time in the past and keeps the composer as it was', async () => {
     const agent = await renderReadyNode()
     fireEvent.change(composerTextarea(), { target: { value: 'too late' } })

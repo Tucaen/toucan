@@ -21,6 +21,12 @@ export interface ScheduledMessage {
   overdue?: true
 }
 
+/** What an edit may change: the message's words and its time - never what it carries. */
+export interface ScheduledMessageChange {
+  text: string
+  deliverAt: number
+}
+
 export type ScheduleResult = { ok: true; messages: ScheduledMessage[] } | { ok: false; problem: string }
 
 /**
@@ -60,7 +66,7 @@ export function scheduleMessage(
 export function editScheduledMessage(
   messages: readonly ScheduledMessage[],
   id: string,
-  change: { text: string; deliverAt: number },
+  change: ScheduledMessageChange,
   now: number
 ): ScheduleResult {
   const current = messages.find((message) => message.id === id)

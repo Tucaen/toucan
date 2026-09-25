@@ -1,19 +1,23 @@
 import { useEffect, useId, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { CalendarClock } from 'lucide-react'
 import {
   localDateTimeInputValue,
   parseLocalDateTimeInput,
   type ScheduledMessage,
+  type ScheduledMessageChange,
   type ScheduleResult
 } from '../../shared/scheduled-message'
 import { ImageAttachments } from './ImageAttachments'
+import { useOutsidePointerClose } from './menu-keyboard'
+import { usePortalMenuPosition } from './use-portal-menu-position'
 
 /** What the composer needs to schedule messages and show the ones waiting; ChatNode supplies it. */
 export interface ComposerScheduleProps {
   messages: readonly ScheduledMessage[]
   /** Schedules `prompt` plus the composer's attachments; the composer clears the text on success. */
   schedule(prompt: string, deliverAt: number): ScheduleResult
-  edit(id: string, change: { text: string; deliverAt: number }): ScheduleResult
+  edit(id: string, change: ScheduledMessageChange): ScheduleResult
   cancel(id: string): void
   sendNow(id: string): void
   hold(id: string, held: boolean): void
@@ -33,42 +37,103 @@ function formatScheduledTime(time: number): string {
 /**
  * The clock beside dictate and send. It opens a small dialog for one local date and time; the
  * composer decides what is captured, so this only ever reports the time chosen and shows why a
- * time was refused.
+ * time was refused. The dialog is portalled and placed against the button, as every floating
+ * layer inside a node is (AGENTS.md): the node clips its overflow, so CSS anchoring would cut it
+ * off on a short node. It is non-modal - Tab may leave it, and leaving closes it.
  */
 export function ScheduleMessageControl(props: {
   disabled: boolean
-  /** Returns the reason a time was refused, or null once the message is scheduled. */
-  onSchedule(deliverAt: number): string | null
+  onSchedule(deliverAt: number): ScheduleResult
 }): JSX.Element {
   const [open, setOpen] = useState(false)
   const [value, setValue] = useState('')
   const [problem, setProblem] = useState<string | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
+  const dialogRef = useRef<HTMLDivElement>(null)
   const dialogId = useId()
   const titleId = useId()
   const inputId = useId()
   const problemId = useId()
+  const position = usePortalMenuPosition(triggerRef, dialogRef, open, { width: 220, height: 150 }, { prefer: 'above' })
 
   const close = (returnFocus: boolean): void => {
     setOpen(false)
     if (returnFocus) triggerRef.current?.focus()
   }
 
-  useEffect(() => {
-    if (!open) return
-    const onPointerDown = (event: MouseEvent): void => {
-      if (!containerRef.current?.contains(event.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', onPointerDown)
-    return () => document.removeEventListener('mousedown', onPointerDown)
-  }, [open])
+  // Blur close covers focus leaving; this covers a pointer-down that moves no focus at all.
+  useOutsidePointerClose([containerRef, dialogRef], open, () => setOpen(false))
+
+  const closeUnlessFocusStaysInside = (relatedTarget: EventTarget | null): void => {
+    const next = relatedTarget as Node | null
+    if (!next || containerRef.current?.contains(next) || dialogRef.current?.contains(next)) return
+    setOpen(false)
+  }
 
   const confirm = (): void => {
-    const refused = props.onSchedule(parseLocalDateTimeInput(value))
-    setProblem(refused)
-    if (!refused) close(true)
+    const result = props.onSchedule(parseLocalDateTimeInput(value))
+    setProblem(result.ok ? null : result.problem)
+    if (result.ok) close(true)
   }
+
+  const dialog = open && (
+    <div
+      ref={dialogRef}
+      id={dialogId}
+      role="dialog"
+      aria-labelledby={titleId}
+      className="composer-schedule-popover nodrag nopan"
+      style={{
+        position: 'fixed',
+        top: position?.top ?? 0,
+        left: position?.left ?? 0,
+        visibility: position ? 'visible' : 'hidden'
+      }}
+      onBlur={(event) => closeUnlessFocusStaysInside(event.relatedTarget)}
+      onKeyDown={(event) => {
+        if (event.key !== 'Escape') return
+        event.preventDefault()
+        event.stopPropagation()
+        close(true)
+      }}
+    >
+      <strong id={titleId}>Schedule message</strong>
+      <label htmlFor={inputId}>Deliver at</label>
+      <input
+        id={inputId}
+        type="datetime-local"
+        autoFocus
+        value={value}
+        min={localDateTimeInputValue(Date.now())}
+        aria-invalid={problem ? true : undefined}
+        aria-describedby={problem ? problemId : undefined}
+        onChange={(event) => {
+          setValue(event.target.value)
+          setProblem(null)
+        }}
+        onKeyDown={(event) => {
+          // Enter confirms the time here; it must never reach the composer as a send.
+          if (event.key !== 'Enter') return
+          event.preventDefault()
+          confirm()
+        }}
+      />
+      {problem && (
+        <small id={problemId} className="composer-schedule-problem" role="alert">
+          {problem}
+        </small>
+      )}
+      <div className="composer-schedule-actions">
+        <button type="button" className="composer-schedule-confirm" onClick={confirm}>
+          Schedule
+        </button>
+        <button type="button" onClick={() => close(true)}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  )
 
   return (
     <div className="composer-schedule" ref={containerRef}>
@@ -94,55 +159,7 @@ export function ScheduleMessageControl(props: {
       >
         <CalendarClock aria-hidden="true" />
       </button>
-      {open && (
-        <div
-          id={dialogId}
-          role="dialog"
-          aria-labelledby={titleId}
-          className="composer-schedule-popover nodrag nopan"
-          onKeyDown={(event) => {
-            if (event.key !== 'Escape') return
-            event.preventDefault()
-            event.stopPropagation()
-            close(true)
-          }}
-        >
-          <strong id={titleId}>Schedule message</strong>
-          <label htmlFor={inputId}>Deliver at</label>
-          <input
-            id={inputId}
-            type="datetime-local"
-            autoFocus
-            value={value}
-            min={localDateTimeInputValue(Date.now())}
-            aria-invalid={problem ? true : undefined}
-            aria-describedby={problem ? problemId : undefined}
-            onChange={(event) => {
-              setValue(event.target.value)
-              setProblem(null)
-            }}
-            onKeyDown={(event) => {
-              // The dialog sits inside the composer's form, so Enter must not submit the message.
-              if (event.key !== 'Enter') return
-              event.preventDefault()
-              confirm()
-            }}
-          />
-          {problem && (
-            <small id={problemId} className="composer-schedule-problem" role="alert">
-              {problem}
-            </small>
-          )}
-          <div className="composer-schedule-actions">
-            <button type="button" className="composer-schedule-confirm" onClick={confirm}>
-              Schedule
-            </button>
-            <button type="button" onClick={() => close(true)}>
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
+      {dialog && createPortal(dialog, document.body)}
     </div>
   )
 }
@@ -150,7 +167,7 @@ export function ScheduleMessageControl(props: {
 function ScheduledMessageItem(props: {
   entry: ScheduledMessage
   canSendNow: boolean
-  edit(change: { text: string; deliverAt: number }): ScheduleResult
+  edit(change: ScheduledMessageChange): ScheduleResult
   cancel(): void
   sendNow(): void
   hold(held: boolean): void

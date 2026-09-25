@@ -144,10 +144,11 @@ export interface PromptEditor {
   /** The form's submit handler: hoists the accepted command, hands the prompt over, clears on success. */
   submit(event: FormEvent): void
   /**
-   * The prompt exactly as a submit would send it, and the clear a submit would run once it was
-   * taken - for a control that takes the draft somewhere other than the agent, such as scheduling.
+   * Hands the prompt, exactly as a submit would send it, to a control that takes the draft
+   * somewhere other than the agent - scheduling it, say - and clears the editor as a submit would,
+   * but only when `taker` reports it was taken. A refusal leaves the draft untouched.
    */
-  prepare(): { prompt: string; clear(): void }
+  take<Result extends { ok: boolean }>(taker: (prompt: string) => Result): Result
 }
 
 interface PickerView {
@@ -488,6 +489,13 @@ export function usePromptEditor(options: PromptEditorOptions): PromptEditor {
     options.submit(event, prompt, clear)
   }
 
+  const take = <Result extends { ok: boolean }>(taker: (prompt: string) => Result): Result => {
+    const { prompt, clear } = prepare()
+    const result = taker(prompt)
+    if (result.ok) clear()
+    return result
+  }
+
   return {
     draft,
     setDraft,
@@ -495,7 +503,7 @@ export function usePromptEditor(options: PromptEditorOptions): PromptEditor {
     blank: draft.trim() === '',
     picker,
     submit,
-    prepare,
+    take,
     textarea: {
       value: draft,
       disabled: options.disabled,

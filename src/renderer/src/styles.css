@@ -107,7 +107,8 @@ button {
 .image-viewer-backdrop,
 .context-menu,
 .node-picker-menu,
-.composer-settings-panel {
+.composer-settings-panel,
+.composer-schedule-popover {
   -webkit-app-region: no-drag;
 }
 
@@ -3820,7 +3821,7 @@ button.global-status-chip:hover {
 }
 
 .chat-composer .scheduled-message input,
-.chat-composer .composer-schedule-popover input {
+.composer-schedule-popover input {
   padding: 4px 6px;
   border: 1px solid #333c49;
   border-radius: 6px;
@@ -3835,17 +3836,13 @@ button.global-status-chip:hover {
   font-size: 10px;
 }
 
-/* Anchored to its button and opening upward, over the transcript: the composer is always the
-   node's bottom edge, so there is room above it and none below. */
 .composer-schedule {
-  position: relative;
   display: flex;
 }
 
+/* Portalled to <body> and placed against the clock in JS, preferring above it: the composer is
+   the node's bottom edge, so that is where the room usually is. */
 .composer-schedule-popover {
-  position: absolute;
-  right: 0;
-  bottom: calc(100% + 6px);
   z-index: var(--z-popover);
   display: flex;
   flex-direction: column;
@@ -3869,10 +3866,19 @@ button.global-status-chip:hover {
   gap: 5px;
 }
 
-.chat-composer .composer-actions .composer-schedule-popover button {
-  height: auto;
+.composer-schedule-popover button {
   padding: 3px 9px;
+  border: 1px solid var(--neutral-700);
+  border-radius: 6px;
+  color: #b7c0cc;
+  background: #202630;
   font-size: 11px;
+}
+
+.composer-schedule-popover .composer-schedule-confirm {
+  border-color: #3d536b;
+  color: #b9d9f7;
+  background: #182534;
 }
 
 /* Model, effort and permissions as one wrapping row, so the pickers stay reachable however

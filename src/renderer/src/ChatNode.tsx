@@ -491,15 +491,7 @@ export function Composer(props: ComposerProps): JSX.Element {
           {schedule && (
             <ScheduleMessageControl
               disabled={(editor.blank && props.attachments.length === 0) || typingDisabled}
-              onSchedule={(deliverAt) => {
-                // What is scheduled is what Send would have sent, hoist included, and the draft
-                // clears only once the message has actually been taken.
-                const { prompt, clear } = editor.prepare()
-                const result = schedule.schedule(prompt, deliverAt)
-                if (!result.ok) return result.problem
-                clear()
-                return null
-              }}
+              onSchedule={(deliverAt) => editor.take((prompt) => schedule.schedule(prompt, deliverAt))}
             />
           )}
           {busy && (
@@ -1286,8 +1278,10 @@ export default function ChatNode({ id, data, selected, width }: NodeProps<Termin
    * starts a session whose working directory is the worktree from its first turn - the only
    * shape in which the worktree can be a writable root rather than an approval prompt. A node
    * already running in a worktree is where such work belongs, so it dispatches normally.
+   *
+   * Returns whether the prompt was handed off; when it was not, the caller dispatches it here.
    */
-  const submit: FlatChatViewProps['submit'] = (event, prompt, onPrepared) => {
+  const handOffToWorktree = (prompt: string): boolean => {
     // Mid-turn, the prompt queues as any follow-up does rather than moving a session that is
     // still working. It runs where it was typed when the outbox drains, which is visible in the
     // composer queue - unlike tearing down a session with a turn in flight.
@@ -1299,17 +1293,22 @@ export default function ChatNode({ id, data, selected, width }: NodeProps<Termin
           provider
         })
       : null
-    if (!handoff || !plan) {
-      conversation.submit(event, prompt, onPrepared)
-      return
-    }
-    event.preventDefault()
+    if (!handoff || !plan) return false
     // The dialogue is read here because this is where it lives; the workspace only ever sees
     // the finished prompt, never a transcript it would have to go and fetch.
     handoff(id, {
       ...plan,
       prompt: plan.mode === 'handoff' ? buildHandoffPrompt(messages, plan.prompt) : plan.prompt
     })
+    return true
+  }
+
+  const submit: FlatChatViewProps['submit'] = (event, prompt, onPrepared) => {
+    if (!handOffToWorktree(prompt)) {
+      conversation.submit(event, prompt, onPrepared)
+      return
+    }
+    event.preventDefault()
     data.onDraftChange(id, '')
     onPrepared?.()
   }
@@ -1322,22 +1321,8 @@ export default function ChatNode({ id, data, selected, width }: NodeProps<Termin
    * losing them.
    */
   const deliverScheduled = (entry: ScheduledMessage): void => {
-    const handoff = status === 'working' || entry.images.length > 0 ? undefined : data.onWorktreeHandoff
-    const plan = handoff
-      ? planWorktreeHandoff(entry.text, {
-          hasHistory: messages.length > 0,
-          alreadyInWorktree: Boolean(data.worktreeId),
-          provider
-        })
-      : null
-    if (!handoff || !plan) {
-      conversation.submitContent(entry.text, entry.images)
-      return
-    }
-    handoff(id, {
-      ...plan,
-      prompt: plan.mode === 'handoff' ? buildHandoffPrompt(messages, plan.prompt) : plan.prompt
-    })
+    if (entry.images.length === 0 && handOffToWorktree(entry.text)) return
+    conversation.submitContent(entry.text, entry.images)
   }
   const onScheduledMessagesChange = data.onScheduledMessagesChange
   const scheduler = useScheduledMessages({
