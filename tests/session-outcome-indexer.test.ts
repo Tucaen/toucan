@@ -76,9 +76,10 @@ interface FixtureOptions {
   recordCap?: number
   codeState?: SessionOutcomeIndexerOptions['codeStateFor']
   checkoutPath?: SessionOutcomeIndexerOptions['checkoutPathFor']
+  transcriptPath?: SessionOutcomeIndexerOptions['transcriptPathFor']
 }
 
-function fixture({ context = {}, worktreeId, title, recordCap, codeState, checkoutPath }: FixtureOptions = {}): Fixture {
+function fixture({ context = {}, worktreeId, title, recordCap, codeState, checkoutPath, transcriptPath }: FixtureOptions = {}): Fixture {
   const root = mkdtempSync(join(tmpdir(), 'toucan-outcomes-'))
   const directory = join(root, 'session-outcomes')
   const broker = createAgentEventBroker({ now: () => NOW })
@@ -92,6 +93,7 @@ function fixture({ context = {}, worktreeId, title, recordCap, codeState, checko
     ...(recordCap === undefined ? {} : { recordCap }),
     ...(codeState ? { codeStateFor: codeState } : {}),
     ...(checkoutPath ? { checkoutPathFor: checkoutPath } : {}),
+    ...(transcriptPath ? { transcriptPathFor: transcriptPath } : {}),
     now: () => new Date((clock += 60_000)),
     log: (message) => failures.push(message)
   })
@@ -379,6 +381,33 @@ test('the worktree a node is attached to reaches the record', async () => {
     assert.equal(session.record('codex-conv-1')?.worktreeId, 'wt-5')
   } finally {
     session.dispose()
+  }
+})
+
+test('a known provider transcript reaches the record and a failed lookup costs only the pointer', async () => {
+  const path = 'C:\\Users\\Ada\\.claude\\projects\\D--Development-ADE\\conv-1.jsonl'
+  const known = fixture({ transcriptPath: async () => path })
+  try {
+    known.publish(user('u1', 'Point readers to the full transcript.'), assistant('a1', 'Pointed.'), {
+      type: 'turn_complete',
+      stopReason: 'end_turn'
+    })
+    await known.settle()
+    assert.equal(known.record('codex-conv-1')?.transcriptPath, path)
+  } finally {
+    known.dispose()
+  }
+
+  const unknown = fixture({ transcriptPath: async () => Promise.reject(new Error('provider path unavailable')) })
+  try {
+    unknown.publish(user('u1', 'Keep recording without a provider path.'), assistant('a1', 'Recorded.'), {
+      type: 'turn_complete',
+      stopReason: 'end_turn'
+    })
+    await unknown.settle()
+    assert.equal(unknown.record('codex-conv-1')?.transcriptPath, undefined)
+  } finally {
+    unknown.dispose()
   }
 })
 

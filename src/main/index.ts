@@ -42,7 +42,7 @@ import { createTicketSkillScaffold } from './ticket-skill-scaffold'
 import { createTicketSteering } from './ticket-steering'
 import { createTicketChangeWatcher, type TicketChangeWatcher } from './ticket-watcher'
 import { createClaudeUsageReader } from './claude-usage'
-import { createConversationHistory } from './conversation-history'
+import { claudeConversationTranscriptPath, createConversationHistory } from './conversation-history'
 import { createConversationTitleStore } from './conversation-title-store'
 import { createCodexRateLimitReader } from './codex-rate-limits'
 import { createProviderUsage, type ProviderUsage } from './provider-usage'
@@ -348,6 +348,10 @@ void app.whenReady().then(async () => {
       const worktree = state?.worktrees.find((entry) => worktreePathKey(entry.path) === worktreePathKey(projectPath))
       return worktree ? state?.projects.find((project) => project.id === worktree.projectId)?.path : undefined
     },
+    transcriptPathFor: async (provider, conversationId, projectPath) =>
+      provider === 'claude'
+        ? claudeConversationTranscriptPath(app.getPath('home'), process.env, projectPath, conversationId)
+        : undefined,
     log: mainLog('session outcomes')
   })
   // Main's copy of the canvas's terminal-context edges, and the MCP server that answers reads

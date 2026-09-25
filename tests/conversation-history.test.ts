@@ -3,7 +3,11 @@ import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'vitest'
-import { createConversationHistory, encodeClaudeProjectDirectory } from '../src/main/conversation-history'
+import {
+  claudeConversationTranscriptPath,
+  createConversationHistory,
+  encodeClaudeProjectDirectory
+} from '../src/main/conversation-history'
 import { createConversationTitleStore } from '../src/main/conversation-title-store'
 import { createConversationLineageStore } from '../src/main/conversation-lineage-store'
 
@@ -102,6 +106,13 @@ function writeCodexTranscript(options: {
 
 test('encodes a working directory the way Claude names its project folder', () => {
   assert.equal(encodeClaudeProjectDirectory('d:\\Development\\Toucan'), 'd--Development-Toucan')
+})
+
+test('locates a Claude transcript from the same config root, cwd encoding and conversation id', () => {
+  assert.equal(
+    claudeConversationTranscriptPath('C:\\Users\\Ada', { CLAUDE_CONFIG_DIR: 'D:\\Claude' }, PROJECT, 'claude-1'),
+    join('D:\\Claude', 'projects', encodeClaudeProjectDirectory(PROJECT), 'claude-1.jsonl')
+  )
 })
 
 test('lists both providers for a directory, newest first', async () => {

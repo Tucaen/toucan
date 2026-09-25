@@ -111,6 +111,12 @@ export interface SessionOutcomeIndexerOptions {
    * never the record - the filename falls back to the session directory's own basename.
    */
   checkoutPathFor?: (projectPath: string) => Promise<string | undefined>
+  /** The provider's full transcript path, where that provider exposes one. */
+  transcriptPathFor?: (
+    provider: ConversationProvider,
+    conversationId: string,
+    projectPath: string
+  ) => Promise<string | undefined>
   /** How many records the index keeps before the least recently updated go; injectable so a test can fill it. */
   recordCap?: number
   now?: () => Date
@@ -227,6 +233,7 @@ export function createSessionOutcomeIndexer(options: SessionOutcomeIndexerOption
     let title: string | undefined
     let codeState: GitHeadState | null | undefined
     let checkoutPath: string | undefined
+    let transcriptPath: string | undefined
     try {
       worktreeId = await options.worktreeIdForNode?.(sessionId)
     } catch {
@@ -248,6 +255,15 @@ export function createSessionOutcomeIndexer(options: SessionOutcomeIndexerOption
       // And again: a git that will not answer leaves the code state unknown, which the record says
       // by omitting it.
     }
+    try {
+      transcriptPath = await options.transcriptPathFor?.(
+        context.provider,
+        context.conversationId,
+        context.projectPath
+      )
+    } catch {
+      // A provider that cannot expose its transcript path costs the pointer, never the record.
+    }
     const source: SessionOutcomeSource = {
       provider: context.provider,
       conversationId: context.conversationId,
@@ -255,6 +271,7 @@ export function createSessionOutcomeIndexer(options: SessionOutcomeIndexerOption
       ...(worktreeId ? { worktreeId } : {}),
       ...(title ? { title } : {}),
       ...(codeState ? { codeState } : {}),
+      ...(transcriptPath ? { transcriptPath } : {}),
       ...(filesTouched.length ? { filesTouched } : {})
     }
     let created = false

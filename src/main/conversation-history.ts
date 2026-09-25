@@ -59,6 +59,21 @@ export function encodeClaudeProjectDirectory(directory: string): string {
   return directory.replace(/[^a-zA-Z0-9]/g, '-')
 }
 
+/** The transcript path Claude derives from the config root, launch cwd and conversation id. */
+export function claudeConversationTranscriptPath(
+  homeDirectory: string,
+  environment: NodeJS.ProcessEnv,
+  cwd: string,
+  conversationId: string
+): string {
+  return join(
+    claudeConfigRoot(homeDirectory, environment),
+    'projects',
+    encodeClaudeProjectDirectory(cwd),
+    `${conversationId}.jsonl`
+  )
+}
+
 function trim<K, V>(cache: Map<K, V>): void {
   while (cache.size > CACHE_LIMIT) {
     const oldest = cache.keys().next()

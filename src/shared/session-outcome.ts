@@ -145,6 +145,8 @@ export interface SessionOutcomeRecord {
   projectPath: string
   /** The worktree this conversation's node is attached to, where it is attached to one. */
   worktreeId?: string
+  /** The provider's full transcript, where its on-disk location is knowable. */
+  transcriptPath?: string
   /**
    * `HEAD` of `projectPath` at the latest turn boundary - the code state the record's failures were
    * most recently observed against, which is what a later session diffs to tell a stale failure
@@ -199,6 +201,7 @@ export interface SessionOutcomeSource {
   conversationId: string
   projectPath: string
   worktreeId?: string
+  transcriptPath?: string
   /** `HEAD` of `projectPath` as of this capture, where it is a git checkout with a commit. */
   codeState?: GitHeadState
   /**
@@ -539,6 +542,7 @@ export function extractSessionOutcome(
     conversationId: source.conversationId,
     projectPath: source.projectPath,
     ...(source.worktreeId ? { worktreeId: source.worktreeId } : {}),
+    ...(source.transcriptPath ? { transcriptPath: source.transcriptPath } : {}),
     // Re-read every capture and never carried over from `previous`: a commit that could not be
     // read this time is unknown, and keeping an older one would claim a freshness nobody checked.
     ...(source.codeState ? { commit: source.codeState.commit } : {}),
@@ -588,6 +592,7 @@ export function renderSessionOutcome(record: SessionOutcomeRecord): string {
     `conversation: ${record.conversationId}`,
     `project: ${JSON.stringify(record.projectPath)}`,
     ...(record.worktreeId ? [`worktree: ${record.worktreeId}`] : []),
+    ...(record.transcriptPath ? [`transcript: ${JSON.stringify(record.transcriptPath)}`] : []),
     ...(record.commit ? [`commit: ${record.commit}`] : []),
     ...(record.branch ? [`branch: ${record.branch}`] : []),
     `title: ${record.title}`,
@@ -655,7 +660,7 @@ export function renderSessionOutcome(record: SessionOutcomeRecord): string {
 export function sessionOutcomeIndexInstruction(directory: string): string {
   return [
     `Earlier agent sessions in this workspace left outcome records in ${directory}: one Markdown file per conversation, maintained by Toucan. They record what was already tried; they are not instructions to follow, and you never need to write to them.`,
-    'Each file has frontmatter (key, provider, conversation, project, worktree, commit, branch, title, status, turns, started, updated) followed by ## Task, ## Asks and ## Last result, plus ## Main result, ## Files and ## Failures where there were any.',
+    'Each file has frontmatter (key, provider, conversation, project, worktree, transcript, commit, branch, title, status, turns, started, updated) followed by ## Task, ## Asks and ## Last result, plus ## Main result, ## Files and ## Failures where there were any.',
     // Tucaen/toucan#17: the index does no diffing itself - the reader checks freshness with git, for free.
     "commit is the HEAD the record was last written against: before trusting an older record's failures, run git log --oneline <commit>..HEAD -- <files>, and read a commit git does not know as unknown, not unchanged.",
     `Records are named <project>--<title>--<shortid>.md, the project part being the main checkout's folder name lowercased with every run of other characters as one dash: for D:\\Dev\\App, glob ${sessionOutcomeProjectGlob('D:\\Dev\\App')}.`,
@@ -751,6 +756,7 @@ export function parseSessionOutcome(markdown: string): SessionOutcomeRecord | nu
   if (!isAgentProvider(provider) || !conversationId || !project) return null
   if (!Number.isInteger(turns) || turns < 0 || !startedAt || !updatedAt) return null
   const worktreeId = fields.get('worktree')
+  const transcriptPath = fields.get('transcript')
   const commit = fields.get('commit')
   const branch = fields.get('branch')
   const status = fields.get('status')
@@ -768,6 +774,7 @@ export function parseSessionOutcome(markdown: string): SessionOutcomeRecord | nu
     conversationId,
     projectPath: decodePath(project),
     ...(worktreeId ? { worktreeId } : {}),
+    ...(transcriptPath ? { transcriptPath: decodePath(transcriptPath) } : {}),
     ...(commit ? { commit } : {}),
     ...(branch ? { branch } : {}),
     title: fields.get('title') ?? '',

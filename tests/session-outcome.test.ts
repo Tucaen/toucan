@@ -254,6 +254,20 @@ test('carries the worktree only where the node is attached to one', () => {
   assert.equal(extractSessionOutcome(snapshot, { ...SOURCE, worktreeId: 'wt-7' }, null, AT)?.worktreeId, 'wt-7')
 })
 
+test('a provider transcript path round-trips when known and is omitted otherwise', () => {
+  const snapshot = transcript(user('u1', 'Keep a pointer to the full transcript.'))
+  const path = 'C:\\Users\\Ada\\.claude\\projects\\D--Development-ADE\\019a2f3c-0001.jsonl'
+
+  const known = extractSessionOutcome(snapshot, { ...SOURCE, transcriptPath: path }, null, AT)
+  const unknown = extractSessionOutcome(snapshot, SOURCE, null, AT)
+  assert.ok(known)
+  assert.equal(known.transcriptPath, path)
+  assert.match(renderSessionOutcome(known), /^transcript: "C:\\\\Users/m)
+  assert.deepEqual(parseSessionOutcome(renderSessionOutcome(known)), known)
+  assert.equal(unknown?.transcriptPath, undefined)
+  assert.doesNotMatch(renderSessionOutcome(unknown!), /^transcript:/m)
+})
+
 test('a rendered record round-trips through the reader', () => {
   const snapshot = transcript(
     user('u1', 'Persist the session outcome index under userData as one file per conversation.'),
