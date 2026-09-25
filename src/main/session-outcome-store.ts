@@ -145,7 +145,9 @@ export function createSessionOutcomeStore(options: { directory: string }): Sessi
    * writes deletes the rest, which is what makes "no duplicate file is left behind" self-healing
    * rather than dependent on every rename completing.
    */
-  const locate = async (identity: SessionOutcomeIdentity): Promise<{ current: LocatedRecord | null; stale: string[] }> => {
+  const locate = async (
+    identity: SessionOutcomeIdentity
+  ): Promise<{ current: LocatedRecord | null; stale: string[] }> => {
     const suffix = sessionOutcomeShortIdSuffix(identity.conversationId)
     const confirmed: LocatedRecord[] = []
     for (const name of (await listNames()).filter((name) => name.endsWith(suffix))) {
@@ -174,7 +176,9 @@ export function createSessionOutcomeStore(options: { directory: string }): Sessi
     stale: string[],
     naming: SessionOutcomeNaming | undefined
   ): Promise<void> => {
-    const target = naming ? sessionOutcomeFileName(record, naming.checkoutPath) : (current?.name ?? sessionOutcomeFileName(record))
+    const target = naming
+      ? sessionOutcomeFileName(record, naming.checkoutPath)
+      : (current?.name ?? sessionOutcomeFileName(record))
     await writeNamed(target, record)
     for (const name of [current?.name, ...stale]) {
       if (name && name !== target) await rm(pathFor(name), { force: true })

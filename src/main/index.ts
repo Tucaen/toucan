@@ -348,10 +348,12 @@ void app.whenReady().then(async () => {
       const worktree = state?.worktrees.find((entry) => worktreePathKey(entry.path) === worktreePathKey(projectPath))
       return worktree ? state?.projects.find((project) => project.id === worktree.projectId)?.path : undefined
     },
-    transcriptPathFor: async (provider, conversationId, projectPath) =>
-      provider === 'claude'
-        ? claudeConversationTranscriptPath(app.getPath('home'), process.env, projectPath, conversationId)
-        : undefined,
+    transcriptPathFor: (provider, conversationId, projectPath) =>
+      Promise.resolve(
+        provider === 'claude'
+          ? claudeConversationTranscriptPath(app.getPath('home'), process.env, projectPath, conversationId)
+          : undefined
+      ),
     log: mainLog('session outcomes')
   })
   // Main's copy of the canvas's terminal-context edges, and the MCP server that answers reads

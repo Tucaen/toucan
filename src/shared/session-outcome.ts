@@ -355,7 +355,7 @@ export function sessionOutcomeExcerpt(text: string, limit = SESSION_OUTCOME_EXCE
     if (fence) continue
     const heading = /^(\s{0,3})(#{1,6})(?=\s)/.exec(sourceLine)
     const demoted = heading
-      ? `${'#'.repeat(Math.max(3, Math.min(6, heading[2]!.length + 1)))}${sourceLine.slice(heading[0].length)}`
+      ? `${'#'.repeat(Math.max(3, Math.min(6, heading[0].trimStart().length + 1)))}${sourceLine.slice(heading[0].length)}`
       : sourceLine
     lines.push(demoted.replace(/[ \t]+/g, ' ').trim())
   }
@@ -392,7 +392,8 @@ function boundedAsks(snapshot: AgentTranscriptState): { asks: string[]; omitted:
   const all = snapshot.messages
     .filter((message) => message.role === 'user' && message.text.trim())
     .map((message) => sessionOutcomeExcerpt(message.text, SESSION_OUTCOME_ASK_LIMIT))
-  if (all.length === 0) return { asks: [], omitted: 0 }
+  const first = all[0]
+  if (first === undefined) return { asks: [], omitted: 0 }
   if (all.reduce((total, ask) => total + ask.length, 0) <= SESSION_OUTCOME_ASKS_BUDGET) {
     return { asks: all, omitted: 0 }
   }
@@ -402,11 +403,11 @@ function boundedAsks(snapshot: AgentTranscriptState): { asks: string[]; omitted:
     if (!ask) continue
     const candidate = [ask, ...newest]
     const omitted = all.length - candidate.length - 1
-    const size = all[0]!.length + candidate.reduce((total, item) => total + item.length, 0)
+    const size = first.length + candidate.reduce((total, item) => total + item.length, 0)
     if (size + sessionOutcomeAsksOmittedMarker(omitted).length > SESSION_OUTCOME_ASKS_BUDGET) break
     newest.unshift(ask)
   }
-  return { asks: [all[0]!, ...newest], omitted: all.length - newest.length - 1 }
+  return { asks: [first, ...newest], omitted: all.length - newest.length - 1 }
 }
 
 /**
