@@ -687,7 +687,7 @@ export function isTrivialSessionOutcome(record: Pick<SessionOutcomeRecord, 'turn
 
 /** One record as pruning sees it: its filename and the timestamp the order is decided by. */
 export interface SessionOutcomeIndexEntry {
-  key: string
+  name: string
   /** ISO-8601, so lexicographic order is chronological order; an unreadable record contributes `''` and goes first. */
   updatedAt: string
 }
@@ -706,17 +706,17 @@ export interface SessionOutcomeIndexEntry {
  */
 export function prunableSessionOutcomes(
   entries: readonly SessionOutcomeIndexEntry[],
-  isLive: (key: string) => boolean,
+  isLive: (name: string) => boolean,
   cap = SESSION_OUTCOME_RECORD_CAP
 ): string[] {
   if (entries.length <= cap) return []
-  // Ties break on the key so a directory written inside one clock tick prunes deterministically
-  // rather than in whatever order the filesystem happened to list it.
-  const oldestFirst = [...entries].sort((a, b) => a.updatedAt.localeCompare(b.updatedAt) || a.key.localeCompare(b.key))
+  // Ties break on the filename so a directory written inside one clock tick prunes
+  // deterministically rather than in whatever order the filesystem happened to list it.
+  const oldestFirst = [...entries].sort((a, b) => a.updatedAt.localeCompare(b.updatedAt) || a.name.localeCompare(b.name))
   const doomed: string[] = []
   for (const entry of oldestFirst) {
     if (entries.length - doomed.length <= cap) break
-    if (!isLive(entry.key)) doomed.push(entry.key)
+    if (!isLive(entry.name)) doomed.push(entry.name)
   }
   return doomed
 }

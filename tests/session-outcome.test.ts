@@ -616,7 +616,7 @@ test('a one-ask conversation that wrote nothing is trivial, and either half of t
 })
 
 test('an index under its cap prunes nothing', () => {
-  const entries = Array.from({ length: 4 }, (_, index) => ({ key: `codex-${index}`, updatedAt: `2026-09-0${index}` }))
+  const entries = Array.from({ length: 4 }, (_, index) => ({ name: `codex-${index}`, updatedAt: `2026-09-0${index}` }))
 
   assert.deepEqual(
     prunableSessionOutcomes(entries, () => false, 4),
@@ -626,10 +626,10 @@ test('an index under its cap prunes nothing', () => {
 
 test('pruning drops the least recently updated records first, and only as many as the cap needs', () => {
   const entries = [
-    { key: 'codex-newest', updatedAt: '2026-09-13T10:00:00.000Z' },
-    { key: 'codex-oldest', updatedAt: '2026-01-02T10:00:00.000Z' },
-    { key: 'codex-middle', updatedAt: '2026-05-05T10:00:00.000Z' },
-    { key: 'codex-second-oldest', updatedAt: '2026-02-02T10:00:00.000Z' }
+    { name: 'codex-newest', updatedAt: '2026-09-13T10:00:00.000Z' },
+    { name: 'codex-oldest', updatedAt: '2026-01-02T10:00:00.000Z' },
+    { name: 'codex-middle', updatedAt: '2026-05-05T10:00:00.000Z' },
+    { name: 'codex-second-oldest', updatedAt: '2026-02-02T10:00:00.000Z' }
   ]
 
   assert.deepEqual(
@@ -642,8 +642,8 @@ test('a record whose timestamp could not be read is the first thing pruned', () 
   // `keys()` names every file; a record the parser refused contributes no `updated`, and a file
   // that cannot be read back is worth less than any record that can.
   const entries = [
-    { key: 'codex-good', updatedAt: '2026-01-01T10:00:00.000Z' },
-    { key: 'codex-damaged', updatedAt: '' }
+    { name: 'codex-good', updatedAt: '2026-01-01T10:00:00.000Z' },
+    { name: 'codex-damaged', updatedAt: '' }
   ]
 
   assert.deepEqual(
@@ -654,12 +654,12 @@ test('a record whose timestamp could not be read is the first thing pruned', () 
 
 test('pruning never takes the record of a session that is still running', () => {
   const entries = [
-    { key: 'codex-live-and-old', updatedAt: '2026-01-01T10:00:00.000Z' },
-    { key: 'codex-dormant', updatedAt: '2026-02-01T10:00:00.000Z' },
-    { key: 'codex-newest', updatedAt: '2026-03-01T10:00:00.000Z' }
+    { name: 'codex-live-and-old', updatedAt: '2026-01-01T10:00:00.000Z' },
+    { name: 'codex-dormant', updatedAt: '2026-02-01T10:00:00.000Z' },
+    { name: 'codex-newest', updatedAt: '2026-03-01T10:00:00.000Z' }
   ]
 
-  const doomed = prunableSessionOutcomes(entries, (key) => key === 'codex-live-and-old', 2)
+  const doomed = prunableSessionOutcomes(entries, (name) => name === 'codex-live-and-old', 2)
 
   // The oldest record is skipped for being live, so the cap is met by taking the next one instead.
   assert.deepEqual(doomed, ['codex-dormant'])
@@ -667,8 +667,8 @@ test('pruning never takes the record of a session that is still running', () => 
 
 test('an index whose every record is live stays over its cap rather than pruning one', () => {
   const entries = [
-    { key: 'codex-a', updatedAt: '2026-01-01T10:00:00.000Z' },
-    { key: 'codex-b', updatedAt: '2026-02-01T10:00:00.000Z' }
+    { name: 'codex-a', updatedAt: '2026-01-01T10:00:00.000Z' },
+    { name: 'codex-b', updatedAt: '2026-02-01T10:00:00.000Z' }
   ]
 
   assert.deepEqual(
@@ -679,9 +679,9 @@ test('an index whose every record is live stays over its cap rather than pruning
 
 test('records updated within the same tick prune in a deterministic order', () => {
   const entries = [
-    { key: 'codex-b', updatedAt: AT },
-    { key: 'codex-a', updatedAt: AT },
-    { key: 'codex-c', updatedAt: AT }
+    { name: 'codex-b', updatedAt: AT },
+    { name: 'codex-a', updatedAt: AT },
+    { name: 'codex-c', updatedAt: AT }
   ]
 
   assert.deepEqual(

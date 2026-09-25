@@ -204,7 +204,7 @@ export function createSessionOutcomeIndexer(options: SessionOutcomeIndexerOption
       files.map(async (file) => {
         const record = await options.store.readFile(file)
         if (record) keyOf.set(file, sessionOutcomeKey(record.provider, record.conversationId))
-        return { key: file, updatedAt: record?.updatedAt ?? '' }
+        return { name: file, updatedAt: record?.updatedAt ?? '' }
       })
     )
     const isLive = (file: string): boolean => {

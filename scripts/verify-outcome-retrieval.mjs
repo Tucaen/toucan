@@ -81,30 +81,30 @@ const titles = [
 ]
 
 writeFileSync(
-  join(outcomes, `${sessionOutcomeFileName({ projectPath: project, title: titles[0], conversationId: `aaa-0001` })}.md`),
+  join(outcomes, `${sessionOutcomeFileName({ projectPath: project, title: titles[0], conversationId: 'aaa-0001' })}.md`),
   record(
     `${provider}-aaa-0001`,
-    'Retry the upload queue with backoff',
+    titles[0],
     'Make the upload queue retry failed chunks with exponential backoff.',
     'Added backoff to the queue. Abandoned the worker-thread approach first: the queue shares a single socket, so a second thread only moved the contention.',
     ['src/upload/queue.ts', 'tests/queue.test.ts']
   )
 )
 writeFileSync(
-  join(outcomes, `${sessionOutcomeFileName({ projectPath: project, title: titles[1], conversationId: `aaa-0002` })}.md`),
+  join(outcomes, `${sessionOutcomeFileName({ projectPath: project, title: titles[1], conversationId: 'aaa-0002' })}.md`),
   record(
     `${provider}-aaa-0002`,
-    'Cache thumbnails on disk',
+    titles[1],
     'Cache generated thumbnails so a reopened album does not regenerate them.',
     'Wrote the disk cache under userData. Left the eviction policy out deliberately - nothing measures cache size yet.',
     ['src/media/thumbnail-cache.ts']
   )
 )
 writeFileSync(
-  join(outcomes, `${sessionOutcomeFileName({ projectPath: project, title: titles[2], conversationId: `aaa-0003` })}.md`),
+  join(outcomes, `${sessionOutcomeFileName({ projectPath: project, title: titles[2], conversationId: 'aaa-0003' })}.md`),
   record(
     `${provider}-aaa-0003`,
-    'Move the settings dialog off React context',
+    titles[2],
     'Replace the settings context with a store so a dialog open does not re-render the canvas.',
     'Reverted: the context was not the cost, the canvas was re-rendering on every pointer move.',
     ['src/settings/SettingsDialog.tsx']

@@ -132,6 +132,13 @@ export function createSessionOutcomeStore(options: { directory: string }): Sessi
     record.provider === identity.provider && record.conversationId === identity.conversationId
 
   /**
+   * Freshest record first; ties break on the name so an interrupted rename resolves the same way
+   * on every lookup. One rule for both the async and the sync locate, so it cannot drift.
+   */
+  const freshestFirst = (a: LocatedRecord, b: LocatedRecord): number =>
+    b.record.updatedAt.localeCompare(a.record.updatedAt) || a.name.localeCompare(b.name)
+
+  /**
    * Every file the identity's shortid suffix names, confirmed against the frontmatter so a shortid
    * collision costs a candidate read and never a wrong record. More than one confirmed file is a
    * rename interrupted between write and cleanup: the freshest is the record, and the caller that
@@ -145,7 +152,7 @@ export function createSessionOutcomeStore(options: { directory: string }): Sessi
       const record = await readNamed(name)
       if (record && confirms(record, identity)) confirmed.push({ name, record })
     }
-    confirmed.sort((a, b) => b.record.updatedAt.localeCompare(a.record.updatedAt) || a.name.localeCompare(b.name))
+    confirmed.sort(freshestFirst)
     const [current = null, ...rest] = confirmed
     return { current, stale: rest.map((located) => located.name) }
   }
@@ -221,7 +228,7 @@ export function createSessionOutcomeStore(options: { directory: string }): Sessi
         // Unreadable is absent, exactly as the async path reads it.
       }
     }
-    confirmed.sort((a, b) => b.record.updatedAt.localeCompare(a.record.updatedAt) || a.name.localeCompare(b.name))
+    confirmed.sort(freshestFirst)
     return confirmed[0] ?? null
   }
 
