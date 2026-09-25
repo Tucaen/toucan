@@ -203,12 +203,99 @@ export interface SessionOutcomeSource {
 const UNSAFE_KEY_CHARACTER = /[^A-Za-z0-9_-]+/g
 
 /**
- * A filename that cannot escape its directory whatever a provider mints as a conversation id.
+ * A key that cannot escape a directory whatever a provider mints as a conversation id.
  * Deliberately lossy - two ids differing only in stripped characters would collide - which is
  * acceptable because both providers issue UUID-shaped ids and a collision costs one record.
+ * Since Tucaen/toucan#18 this is the record's *identity* (its `key:` line and what the live set is
+ * counted by), no longer its filename - that is `sessionOutcomeFileName`.
  */
 export function sessionOutcomeKey(provider: ConversationProvider, conversationId: string): string {
   return `${provider}-${conversationId.replace(UNSAFE_KEY_CHARACTER, '-').slice(0, 120)}`
+}
+
+/** A record's identity as the store is asked for it: what `sessionOutcomeKey` is built from. */
+export interface SessionOutcomeIdentity {
+  provider: ConversationProvider
+  conversationId: string
+}
+
+/** Cap on the filename's project part: the main checkout's folder name, slugged. */
+export const SESSION_OUTCOME_PROJECT_SLUG_LIMIT = 32
+
+/** Cap on the filename's title part: the durable conversation title, slugged. */
+export const SESSION_OUTCOME_TITLE_SLUG_LIMIT = 48
+
+/** How much of the conversation id the filename carries - enough to be unique, short enough to scan. */
+export const SESSION_OUTCOME_SHORT_ID_LENGTH = 8
+
+/**
+ * A filename fragment a human and a glob can read: lowercase, Unicode letters and digits kept
+ * (umlauts included - `Änderung` stays recognisable as `änderung`), every other run one dash, no
+ * leading or trailing dash. The cap cuts mid-word rather than at a boundary because the fragment
+ * only has to be recognisable, and a boundary search would make two long titles sharing a prefix
+ * collapse to the same slug more often, not less.
+ */
+export function sessionOutcomeSlug(text: string, limit: number): string {
+  return text
+    .toLocaleLowerCase('en-US')
+    .replace(/[^\p{L}\p{N}]+/gu, '-')
+    .replace(/^-+/, '')
+    .slice(0, limit)
+    .replace(/-+$/, '')
+}
+
+/**
+ * The filename's identity part: the first characters of the conversation id, sanitised the same
+ * way the key is so it can never carry a path separator. Both providers issue UUIDs, so eight hex
+ * characters collide with the odds of a git short hash - and a collision is survivable anyway,
+ * because lookup confirms the frontmatter before trusting a filename match.
+ */
+export function sessionOutcomeShortId(conversationId: string): string {
+  return conversationId.replace(UNSAFE_KEY_CHARACTER, '-').slice(0, SESSION_OUTCOME_SHORT_ID_LENGTH)
+}
+
+/** The last path segment, without importing `node:path` into a shared module the renderer also loads. */
+function checkoutBasename(path: string): string {
+  return path.split(/[\\/]+/).filter(Boolean).at(-1) ?? ''
+}
+
+/**
+ * What a record is *named*: `<project-slug>--<title-slug>--<shortid>`, so stage one of the read -
+ * a directory listing - already says which project and which topic every record belongs to, and a
+ * reader globs `<project-slug>--*.md` instead of opening records blindly (Tucaen/toucan#18).
+ *
+ * `checkoutPath` is the main checkout where the session runs in a worktree of one, so a worktree
+ * session's record files under the project the reader will actually glob for; the record's own
+ * `projectPath` (the session's working directory) is the fallback. The double dash is the
+ * separator because a single dash occurs inside every slug.
+ */
+export function sessionOutcomeFileName(
+  record: Pick<SessionOutcomeRecord, 'projectPath' | 'title' | 'conversationId'>,
+  checkoutPath?: string
+): string {
+  const project = sessionOutcomeSlug(
+    checkoutBasename(checkoutPath ?? record.projectPath),
+    SESSION_OUTCOME_PROJECT_SLUG_LIMIT
+  )
+  const title = sessionOutcomeSlug(record.title, SESSION_OUTCOME_TITLE_SLUG_LIMIT)
+  return `${project}--${title}--${sessionOutcomeShortId(record.conversationId)}`
+}
+
+/**
+ * The suffix a conversation's record is *found* by, whatever its title slug currently is: title
+ * changes rename the file, so the shortid is the only stable part of the name. A hit is confirmed
+ * against the `provider` and `conversation` frontmatter before it is trusted.
+ */
+export function sessionOutcomeShortIdSuffix(conversationId: string): string {
+  return `--${sessionOutcomeShortId(conversationId)}`
+}
+
+/**
+ * The glob the pointer teaches for one project's records, generated from the same slug rule the
+ * filenames are written with so the prose and the names on disk cannot drift apart.
+ */
+export function sessionOutcomeProjectGlob(checkoutPath: string): string {
+  return `${sessionOutcomeSlug(checkoutBasename(checkoutPath), SESSION_OUTCOME_PROJECT_SLUG_LIMIT)}--*.md`
 }
 
 /**
@@ -460,15 +547,13 @@ export function renderSessionOutcome(record: SessionOutcomeRecord): string {
  * renamed there and not here would send every future session grepping for a line that no longer
  * exists. `tests/session-outcome-retrieval.test.ts` pins the two together.
  *
- * The two-stage read is the point. Grepping the `project:` line names the relevant files for a few
- * hundred bytes each; opening a record is the part that costs, and it is then paid only for the
- * conversations that turned out to matter.
- *
- * The pattern it teaches carries no backslash on purpose: Bash on Windows mangles backslash
- * runs in arguments before grep ever sees them, so a fixed-string grep for the literal JSON-quoted
- * path returns nothing - silently, which reads as "this project has no records" and sends the
- * session off to re-derive exactly what the index was holding. The worked example is generated by
- * `sessionOutcomeProjectPattern`, so the prose and the pattern the tests prove cannot drift apart.
+ * The two-stage read is the point, and since Tucaen/toucan#18 stage one is the *filenames*: a
+ * directory listing already names every record's project and topic, so a reader globs its
+ * project's records and opens only the ones whose titles look relevant. The worked example is
+ * generated by `sessionOutcomeProjectGlob`, so the prose and the names on disk cannot drift
+ * apart. The `project:` line stays as the exact confirmation, because two checkouts can share a
+ * folder name - but it is checked by reading the record, never by grepping for the path, which is
+ * what the backslash-mangling recipe this pointer used to carry existed to survive (#197).
  */
 export function sessionOutcomeIndexInstruction(directory: string): string {
   return [
@@ -476,29 +561,9 @@ export function sessionOutcomeIndexInstruction(directory: string): string {
     'Each file has frontmatter (key, provider, conversation, project, worktree, commit, branch, title, status, turns, started, updated) followed by ## Task and ## Last result, plus ## Files and ## Failures where there were any.',
     // Tucaen/toucan#17: the index does no diffing itself - the reader checks freshness with git, for free.
     "commit is the HEAD the record was last written against: before trusting an older record's failures, run git log --oneline <commit>..HEAD -- <files>, and read a commit git does not know as unknown, not unchanged.",
-    `To recall what earlier sessions did here, first grep that directory for the project: line matching this session's working directory, then open only the records worth reading; each one is under ${Math.round(SESSION_OUTCOME_SIZE_BUDGET / 1024)} KB.`,
-    `The path is stored JSON-quoted with doubled backslashes, and backslashes in a pattern do not survive Bash on Windows, so grep with a dot per stored backslash instead, closing quote included: for D:\\Dev\\App, grep '${sessionOutcomeProjectPattern('D:\\Dev\\App')}'.`
+    `Records are named <project>--<title>--<shortid>.md, the project part being the main checkout's folder name lowercased with every run of other characters as one dash: for D:\\Dev\\App, glob ${sessionOutcomeProjectGlob('D:\\Dev\\App')}.`,
+    `To recall what earlier sessions did here, glob that pattern for this session's checkout and pick records by their title part, confirming a record's project: line names this checkout since two can share a folder name; when the filenames do not reveal the topic, grep the directory for topic keywords. Each record is under ${Math.round(SESSION_OUTCOME_SIZE_BUDGET / 1024)} KB.`
   ].join(' ')
-}
-
-/**
- * The grep pattern the pointer teaches for one project, in code: the JSON-quoted `project:` line
- * with every backslash replaced by a dot wildcard, so the pattern reaches grep intact from any
- * shell (Bash on Windows eats backslash runs in arguments - see the instruction above). The
- * surrounding quotes stay, which is what keeps a same-named directory under a different root, a
- * sibling sharing the prefix, and this project's own worktrees out of the match. Exported for the
- * tests and the live verification script, so what the prose teaches is what the suite proves
- * against `renderSessionOutcome`'s real output.
- *
- * Deliberately nothing but the backslash substitution: this function is the prose recipe in code,
- * and escaping other regex specials here would make it prove a pattern no session following the
- * prose would build. A dot already in the path therefore stays a one-character wildcard - it still
- * matches its own literal, and the full-path shape plus the quotes bound what it could over-match
- * to a path differing in exactly that character, which no real directory layout produces.
- * @internal exported for tests
- */
-export function sessionOutcomeProjectPattern(projectPath: string): string {
-  return `project: ${JSON.stringify(projectPath)}`.replace(/\\/g, '.')
 }
 
 function renderFailure(failure: AgentTurnOutcome): string {

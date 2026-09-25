@@ -18,8 +18,12 @@ import {
   prunableSessionOutcomes,
   renderSessionOutcome,
   sessionOutcomeExcerpt,
+  sessionOutcomeFileName,
   sessionOutcomeFilesOmittedMarker,
   sessionOutcomeKey,
+  sessionOutcomeProjectGlob,
+  sessionOutcomeShortIdSuffix,
+  sessionOutcomeSlug,
   type SessionOutcomeSource
 } from '../src/shared/session-outcome'
 
@@ -202,6 +206,47 @@ test('a record whose frontmatter is unreadable is discarded rather than half-rea
 test('a conversation id that is not filename-safe cannot escape the outcomes directory', () => {
   assert.equal(sessionOutcomeKey('claude', '../../etc/passwd'), 'claude--etc-passwd')
   assert.equal(sessionOutcomeKey('claude', 'a b/c\\d'), 'claude-a-b-c-d')
+  // The filename's shortid is sanitised by the same rule, so no provider id reaches the directory
+  // either way a record is addressed.
+  assert.equal(sessionOutcomeShortIdSuffix('../../etc/passwd'), '---etc-pas')
+})
+
+test('a record is named by project, title and shortid, human-readably (#18)', () => {
+  const record = {
+    projectPath: 'D:\\Development\\cic.control-box',
+    title: 'CICKVP-8801: Fix the offer form',
+    conversationId: '69f89ec3-9536-41ce-851e-449d8366de18'
+  }
+  assert.equal(sessionOutcomeFileName(record), 'cic-control-box--cickvp-8801-fix-the-offer-form--69f89ec3')
+  // A worktree session files under the main checkout it belongs to, not its worktree folder: that
+  // is the name the reader will glob for.
+  assert.equal(
+    sessionOutcomeFileName({ ...record, projectPath: 'D:\\worktrees\\box-fix' }, 'D:\\Development\\cic.control-box'),
+    'cic-control-box--cickvp-8801-fix-the-offer-form--69f89ec3'
+  )
+  // Lookup goes by the shortid suffix, the only part of the name a title change cannot move.
+  assert.ok(sessionOutcomeFileName(record).endsWith(sessionOutcomeShortIdSuffix(record.conversationId)))
+})
+
+test('slugs keep Unicode letters, collapse everything else, and respect their caps (#18)', () => {
+  assert.equal(sessionOutcomeSlug('Änderung übernehmen: Maß & Größe!', 48), 'änderung-übernehmen-maß-größe')
+  assert.equal(sessionOutcomeSlug('  --Weird__punctuation--  ', 48), 'weird-punctuation')
+  // The cap cuts and never leaves a dangling dash behind.
+  assert.equal(sessionOutcomeSlug('one-two-three', 8), 'one-two')
+  // A title of nothing but punctuation slugs to nothing rather than to dashes.
+  assert.equal(sessionOutcomeSlug('!!!', 48), '')
+})
+
+test('the project glob is built by the same slug rule the filenames are written with (#18)', () => {
+  assert.equal(sessionOutcomeProjectGlob('D:\\Development\\cic.control-box'), 'cic-control-box--*.md')
+  // A sibling checkout sharing the prefix stays out: its slug continues where this glob demands
+  // the double-dash separator.
+  const name = sessionOutcomeFileName({
+    projectPath: 'D:\\Development\\cic.control-box-legacy',
+    title: 'Anything',
+    conversationId: 'abc12345'
+  })
+  assert.ok(!new RegExp(`^${sessionOutcomeProjectGlob('D:\\Development\\cic.control-box').replace('*', '.*')}$`).test(`${name}.md`))
 })
 
 test('an excerpt shorter than the cap is left exactly as written', () => {
