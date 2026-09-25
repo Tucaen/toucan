@@ -3690,6 +3690,191 @@ button.global-status-chip:hover {
   background: #2a1e21;
 }
 
+/* Scheduled messages (issue #21): the queue's chip shape, solid rather than dashed because they
+   wait on a time rather than on the agent. An overdue one is amber - it needs a decision. */
+.composer-scheduled {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.composer-scheduled > small {
+  color: #8995a4;
+  font:
+    10px/1.4 Inter,
+    system-ui,
+    sans-serif;
+}
+
+.composer-scheduled[data-overdue] > small {
+  color: #e9c78b;
+}
+
+.composer-scheduled ul {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 132px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.scheduled-message {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 7px;
+  border: 1px solid #3d4759;
+  border-radius: 8px;
+  background: #171d26;
+}
+
+.scheduled-message[data-overdue] {
+  border-color: #7a6333;
+}
+
+.scheduled-message[data-editing='true'] {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.scheduled-message-time {
+  flex: none;
+  color: #9fb6d4;
+  font:
+    10px/1.4 Inter,
+    system-ui,
+    sans-serif;
+}
+
+.scheduled-message[data-overdue] .scheduled-message-time {
+  color: #e9c78b;
+}
+
+.scheduled-message-text {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: #c2cad6;
+  font:
+    11px/1.4 Inter,
+    system-ui,
+    sans-serif;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scheduled-message .message-attachments {
+  flex: none;
+  margin-top: 0;
+}
+
+.scheduled-message .message-attachment {
+  width: 44px;
+  height: 33px;
+}
+
+.chat-composer .scheduled-message textarea {
+  height: 58px;
+  resize: none;
+  padding: 6px 8px;
+  border: 1px solid #333c49;
+  border-radius: 7px;
+  outline: none;
+  color: #dfe4eb;
+  background: #0f1217;
+  font:
+    12px/1.4 Inter,
+    system-ui,
+    sans-serif;
+}
+
+.scheduled-message-actions {
+  display: flex;
+  flex: none;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.chat-composer .scheduled-message-actions button {
+  align-self: auto;
+  padding: 2px 7px;
+  border-color: var(--neutral-700);
+  color: #b7c0cc;
+  background: #202630;
+  font-size: 10px;
+}
+
+.chat-composer .scheduled-message-actions .scheduled-message-cancel {
+  border-color: #6d4448;
+  color: #e5a9ad;
+  background: #2a1e21;
+}
+
+.scheduled-message label,
+.composer-schedule-popover label {
+  color: #8995a4;
+  font-size: 10px;
+}
+
+.chat-composer .scheduled-message input,
+.chat-composer .composer-schedule-popover input {
+  padding: 4px 6px;
+  border: 1px solid #333c49;
+  border-radius: 6px;
+  color: #dfe4eb;
+  background: #0f1217;
+  color-scheme: dark;
+  font-size: 12px;
+}
+
+.composer-schedule-problem {
+  color: #efb0b3;
+  font-size: 10px;
+}
+
+/* Anchored to its button and opening upward, over the transcript: the composer is always the
+   node's bottom edge, so there is room above it and none below. */
+.composer-schedule {
+  position: relative;
+  display: flex;
+}
+
+.composer-schedule-popover {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 6px);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 220px;
+  padding: 10px;
+  border: 1px solid #333c49;
+  border-radius: 8px;
+  background: #151a21;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 45%);
+}
+
+.composer-schedule-popover strong {
+  color: #dfe4eb;
+  font-size: 12px;
+}
+
+.composer-schedule-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 5px;
+}
+
+.chat-composer .composer-actions .composer-schedule-popover button {
+  height: auto;
+  padding: 3px 9px;
+  font-size: 11px;
+}
+
 /* Model, effort and permissions as one wrapping row, so the pickers stay reachable however
    narrow the node gets; the gear holding the one-time settings trails them. */
 .composer-footer {

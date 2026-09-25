@@ -94,6 +94,8 @@ import { decisionDelegationRequest, type AgentDecisionDelegation } from '../../s
 import { usePromptEditor, type ComposerFileMentions } from './use-prompt-editor'
 import PromptTextarea from './PromptTextarea'
 import ComposerQueue from './ComposerQueue'
+import { ScheduledMessageList, ScheduleMessageControl, type ComposerScheduleProps } from './ComposerSchedule'
+import { useScheduledMessages } from './use-scheduled-messages'
 import ChatSessionControls from './ChatSessionControls'
 import StructuredDecisionPanel from './StructuredDecisionPanel'
 import { useConversationReporting } from './use-conversation-reporting'
@@ -107,6 +109,7 @@ import {
   type AgentTranscriptEntry
 } from './use-agent-conversation'
 import type { AgentProvider } from '../../shared/agent-provider'
+import type { ScheduledMessage } from '../../shared/scheduled-message'
 
 interface FlatChatViewProps {
   provider: AgentProvider
@@ -160,6 +163,11 @@ interface FlatChatViewProps {
   resolveElicitation?(requestId: string, content?: AgentDecisionResponseContent): void
   /** Persists the unsent draft; debounced by the prompt editor, so it costs one write per pause. */
   onDraftChange?(draft: string): void
+  /**
+   * Messages set aside for a later time, and how to schedule another. Optional because a chat
+   * view renders perfectly well without one - the composer simply offers no clock.
+   */
+  schedule?: ComposerScheduleProps
   // The agent-reported selectors, rendered as the composer's toolbar. Optional because a chat
   // view is perfectly renderable before (or without) an adapter reporting any of them.
   modes?: AgentModeState | null
@@ -196,6 +204,7 @@ export type ChatComposerProps = Pick<
   | 'sendQueuedNow'
   | 'cancel'
   | 'onDraftChange'
+  | 'schedule'
   | 'fileMentions'
   | 'modes'
   | 'models'
@@ -261,6 +270,9 @@ export interface ChatViewProps {
 }
 
 const providerNames = { claude: 'Claude', codex: 'Codex' } as const
+
+/** One stable empty list, so a node with nothing scheduled does not hand the hook a new one each render. */
+const noScheduledMessages: readonly ScheduledMessage[] = []
 
 const ProviderChipIcon = pickerCopy.provider.icon
 
@@ -412,6 +424,7 @@ export function Composer(props: ComposerProps): JSX.Element {
     submit: props.submit
   })
   const [pasteBlocked, setPasteBlocked] = useState(false)
+  const schedule = props.schedule
 
   const handlePaste = (event: React.ClipboardEvent<HTMLTextAreaElement>): void => {
     const files = imageFilesFromClipboard(event.clipboardData?.items)
@@ -427,6 +440,7 @@ export function Composer(props: ComposerProps): JSX.Element {
 
   return (
     <form className="chat-composer nodrag" onSubmit={editor.submit}>
+      {props.schedule && <ScheduledMessageList schedule={props.schedule} canSendNow={!sendDisabled} />}
       <ComposerQueue
         queued={props.queued}
         stranded={sendDisabled}
@@ -474,6 +488,20 @@ export function Composer(props: ComposerProps): JSX.Element {
             setDraft={editor.setDraft}
             context={dictationContext(editor.draft, props.messages)}
           />
+          {schedule && (
+            <ScheduleMessageControl
+              disabled={(editor.blank && props.attachments.length === 0) || typingDisabled}
+              onSchedule={(deliverAt) => {
+                // What is scheduled is what Send would have sent, hoist included, and the draft
+                // clears only once the message has actually been taken.
+                const { prompt, clear } = editor.prepare()
+                const result = schedule.schedule(prompt, deliverAt)
+                if (!result.ok) return result.problem
+                clear()
+                return null
+              }}
+            />
+          )}
           {busy && (
             <button
               type="button"
@@ -1287,6 +1315,53 @@ export default function ChatNode({ id, data, selected, width }: NodeProps<Termin
   }
 
   /**
+   * Scheduled messages (issue #21) are the node's, persisted with it like the draft. One that
+   * comes due is submitted as Send would submit it at that moment - queued behind a running turn,
+   * or taking the worktree handoff when it asks for one - except that it never touches the draft
+   * being typed now. A handoff carries text only, so a message with images skips it rather than
+   * losing them.
+   */
+  const deliverScheduled = (entry: ScheduledMessage): void => {
+    const handoff = status === 'working' || entry.images.length > 0 ? undefined : data.onWorktreeHandoff
+    const plan = handoff
+      ? planWorktreeHandoff(entry.text, {
+          hasHistory: messages.length > 0,
+          alreadyInWorktree: Boolean(data.worktreeId),
+          provider
+        })
+      : null
+    if (!handoff || !plan) {
+      conversation.submitContent(entry.text, entry.images)
+      return
+    }
+    handoff(id, {
+      ...plan,
+      prompt: plan.mode === 'handoff' ? buildHandoffPrompt(messages, plan.prompt) : plan.prompt
+    })
+  }
+  const onScheduledMessagesChange = data.onScheduledMessagesChange
+  const scheduler = useScheduledMessages({
+    messages: data.scheduledMessages ?? noScheduledMessages,
+    onChange: (next) => onScheduledMessagesChange?.(id, next),
+    canDeliver: status === 'ready' || status === 'working',
+    deliver: deliverScheduled
+  })
+  const schedule: ComposerScheduleProps | undefined = onScheduledMessagesChange
+    ? {
+        messages: scheduler.messages,
+        schedule: (prompt, deliverAt) => {
+          const result = scheduler.schedule({ text: prompt, images: conversation.attachments, deliverAt })
+          if (result.ok) conversation.takeAttachments()
+          return result
+        },
+        edit: scheduler.edit,
+        cancel: scheduler.cancel,
+        sendNow: scheduler.sendNow,
+        hold: scheduler.hold
+      }
+    : undefined
+
+  /**
    * A session started to carry a prompt sends it once, as soon as it can. Agent nodes have no
    * shell to write into, so the prompt has to be delivered as a first turn rather than typed.
    */
@@ -1517,6 +1592,7 @@ export default function ChatNode({ id, data, selected, width }: NodeProps<Termin
               // collapse and a workspace reload, none of which the ACP session knows anything about.
               draft: data.draft ?? '',
               onDraftChange: (text) => data.onDraftChange(id, text),
+              schedule,
               imageSupport: conversation.imageSupport,
               attachments: conversation.attachments,
               queued: conversation.queued,

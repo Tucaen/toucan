@@ -46,6 +46,11 @@ export interface TerminalNodeCallbacks {
   onFocusModeChange(nodeId: string, enabled: boolean): void
   /** Persists unsent composer text so a draft outlives resize, collapse, and a workspace reload. */
   onDraftChange(nodeId: string, draft: string): void
+  /**
+   * Persists the node's scheduled messages. Optional so a node renders in isolation; without it
+   * the composer offers no scheduling, since nothing would keep what it scheduled.
+   */
+  onScheduledMessagesChange?(nodeId: string, messages: ScheduledMessage[]): void
   onPermissionModeChange(provider: keyof AgentPermissionModes, modeId: string): void
   onModelChange(nodeId: string, modelId: string): void
   /** Persists terminal turn outcomes that provider-owned transcript replay cannot reproduce. */
@@ -709,6 +714,7 @@ function restoreTerminalCanvasNode(
       onTitleChange: callbacks.onTitleChange,
       onFocusModeChange: callbacks.onFocusModeChange,
       onDraftChange: callbacks.onDraftChange,
+      onScheduledMessagesChange: callbacks.onScheduledMessagesChange,
       onPermissionModeChange: callbacks.onPermissionModeChange,
       onModelChange: callbacks.onModelChange,
       onTurnOutcome: callbacks.onTurnOutcome,

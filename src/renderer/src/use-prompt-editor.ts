@@ -143,6 +143,11 @@ export interface PromptEditor {
   picker: PromptEditorPicker | null
   /** The form's submit handler: hoists the accepted command, hands the prompt over, clears on success. */
   submit(event: FormEvent): void
+  /**
+   * The prompt exactly as a submit would send it, and the clear a submit would run once it was
+   * taken - for a control that takes the draft somewhere other than the agent, such as scheduling.
+   */
+  prepare(): { prompt: string; clear(): void }
 }
 
 interface PickerView {
@@ -463,16 +468,24 @@ export function usePromptEditor(options: PromptEditorOptions): PromptEditor {
     }
   }
 
-  const submit = (event: FormEvent): void => {
+  const prepare = (): { prompt: string; clear(): void } => {
     // A command taken from the menu only runs if it opens the prompt, so it moves to the front
     // here - what is sent is what is remembered and echoed, hoist included. The acceptance is
     // spent with the draft it belonged to, so the next prompt starts as prose.
     const sent = hoistSlashCommand(draft, options.commands, acceptedCommand)
-    options.submit(event, sent, () => {
-      setDraft('')
-      setAcceptedCommand(null)
-      setHistory((current) => rememberPrompt(current, sent))
-    })
+    return {
+      prompt: sent,
+      clear: () => {
+        setDraft('')
+        setAcceptedCommand(null)
+        setHistory((current) => rememberPrompt(current, sent))
+      }
+    }
+  }
+
+  const submit = (event: FormEvent): void => {
+    const { prompt, clear } = prepare()
+    options.submit(event, prompt, clear)
   }
 
   return {
@@ -482,6 +495,7 @@ export function usePromptEditor(options: PromptEditorOptions): PromptEditor {
     blank: draft.trim() === '',
     picker,
     submit,
+    prepare,
     textarea: {
       value: draft,
       disabled: options.disabled,

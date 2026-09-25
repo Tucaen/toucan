@@ -16,6 +16,7 @@ import {
 import { FileText, GitBranch, GitCompare, History, LayoutGrid, Maximize, ZoomIn, ZoomOut } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import { AGENT_TURN_OUTCOME_LIMIT, type AgentTurnOutcome } from '../../shared/agent'
+import type { ScheduledMessage } from '../../shared/scheduled-message'
 import type { ConversationSummary } from '../../shared/conversation'
 import { normalizeConversationTitle, type ConversationTitleSource } from '../../shared/conversation-title'
 import { paletteColorAt } from '../../shared/project-colors'
@@ -505,6 +506,14 @@ function Canvas(): JSX.Element {
     [patchTerminalNode]
   )
 
+  // Scheduled messages are the node's for the same reason, attachments and all (issue #21).
+  const handleScheduledMessagesChange = useCallback(
+    (nodeId: string, scheduledMessages: ScheduledMessage[]): void => {
+      patchTerminalNode(nodeId, () => ({ scheduledMessages }))
+    },
+    [patchTerminalNode]
+  )
+
   const handleFileViewModeChange = useCallback(
     (nodeId: string, view: FileViewMode): void => {
       setNodes((current) =>
@@ -865,6 +874,7 @@ function Canvas(): JSX.Element {
         onTitleChange: handleTitleChange,
         onFocusModeChange: handleFocusModeChange,
         onDraftChange: handleDraftChange,
+        onScheduledMessagesChange: handleScheduledMessagesChange,
         onPermissionModeChange: handlePermissionModeChange,
         onModelChange: handleModelChange,
         onTurnOutcome: handleTurnOutcome,
@@ -891,6 +901,7 @@ function Canvas(): JSX.Element {
     handleAttention,
     handleConversationId,
     handleDraftChange,
+    handleScheduledMessagesChange,
     handleFocusModeChange,
     handleModelChange,
     handleTurnOutcome,
@@ -987,6 +998,7 @@ function Canvas(): JSX.Element {
               onTitleChange: handleTitleChange,
               onFocusModeChange: handleFocusModeChange,
               onDraftChange: handleDraftChange,
+              onScheduledMessagesChange: handleScheduledMessagesChange,
               onPermissionModeChange: handlePermissionModeChange,
               onModelChange: handleModelChange,
               onTurnOutcome: handleTurnOutcome,
@@ -1011,6 +1023,7 @@ function Canvas(): JSX.Element {
       handleAttention,
       handleConversationId,
       handleDraftChange,
+      handleScheduledMessagesChange,
       handleFocusModeChange,
       handleModelChange,
       handleTurnOutcome,
@@ -1420,6 +1433,7 @@ function Canvas(): JSX.Element {
         onTitleChange: handleTitleChange,
         onFocusModeChange: handleFocusModeChange,
         onDraftChange: handleDraftChange,
+        onScheduledMessagesChange: handleScheduledMessagesChange,
         onPermissionModeChange: handlePermissionModeChange,
         onModelChange: handleModelChange,
         onTurnOutcome: handleTurnOutcome,
@@ -1464,6 +1478,7 @@ function Canvas(): JSX.Element {
       handleAttention,
       handleConversationId,
       handleDraftChange,
+      handleScheduledMessagesChange,
       handleFilePathChange,
       handleRequestFilePath,
       handleFileViewModeChange,
