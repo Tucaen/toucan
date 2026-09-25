@@ -200,6 +200,8 @@ export interface SessionOutcomeRecord {
   /** Failed and cancelled turns, newest last, in the transcript's own turn-outcome shape. */
   failures: AgentTurnOutcome[]
   status: SessionOutcomeStatus
+  /** `HEAD` of the session directory when the first ask was observed, where it was readable. */
+  base?: string
   startedAt: string
   updatedAt: string
 }
@@ -213,6 +215,8 @@ export interface SessionOutcomeSource {
   transcriptPath?: string
   /** `HEAD` of `projectPath` as of this capture, where it is a git checkout with a commit. */
   codeState?: GitHeadState
+  /** Facts captured when this process first observed an ask, before the turn could change HEAD. */
+  firstAsk?: { startedAt: string; base?: string }
   /**
    * Files written since this process started watching the session, newest last. Accumulated by the
    * indexer at the tool-call seam rather than read off the session's bounded `recentWrites` ring,
@@ -528,10 +532,10 @@ export function endedSessionOutcome(
 /**
  * The record this snapshot describes, or `null` when there is nothing worth writing down yet - a
  * conversation with no user message has not been asked anything. `previous` is the record already
- * on disk: only `startedAt` and the write set are carried over from it, so a record is otherwise
+ * on disk: `base`, `startedAt` and the write set are carried over from it, so a record is otherwise
  * re-derived in full at every turn boundary and cannot drift from the transcript it describes.
- * The write set is the deliberate exception - no transcript snapshot reports what a process that
- * has already exited wrote, so the only place that history survives is the record itself.
+ * The write set is the other deliberate exception - no transcript snapshot reports what a process
+ * that has already exited wrote, so the only place that history survives is the record itself.
  */
 export function extractSessionOutcome(
   snapshot: AgentTranscriptState,
@@ -551,6 +555,9 @@ export function extractSessionOutcome(
   // its whole write set turn after turn idempotent instead of inflationary; neither view can see
   // the other's dropped paths, which is why the result is a floor (see the marker).
   const carried = previous ? previous.filesTouched.length + previous.filesOmitted - written.files.length : 0
+  // A previous record is proof that the conversation started before this process observed it. Its
+  // missing base therefore stays unknown rather than being replaced with the resume-time HEAD.
+  const base = previous ? previous.base : source.firstAsk?.base
   const record: SessionOutcomeRecord = {
     key: sessionOutcomeKey(source.provider, source.conversationId),
     provider: source.provider,
@@ -579,7 +586,8 @@ export function extractSessionOutcome(
     // Always `active`: a turn landing is the proof a conversation is still going, and a session
     // that has ended settles its status through `endedSessionOutcome` instead.
     status: 'active',
-    startedAt: previous?.startedAt ?? now,
+    ...(base ? { base } : {}),
+    startedAt: previous?.startedAt ?? source.firstAsk?.startedAt ?? now,
     updatedAt: now
   }
   const overflow = renderSessionOutcome(record).length - (SESSION_OUTCOME_SIZE_BUDGET - 1)
@@ -625,6 +633,7 @@ export function renderSessionOutcome(record: SessionOutcomeRecord): string {
     `project: ${JSON.stringify(record.projectPath)}`,
     ...(record.worktreeId ? [`worktree: ${record.worktreeId}`] : []),
     ...(record.transcriptPath ? [`transcript: ${JSON.stringify(record.transcriptPath)}`] : []),
+    ...(record.base ? [`base: ${record.base}`] : []),
     ...(record.commit ? [`commit: ${record.commit}`] : []),
     ...(record.branch ? [`branch: ${record.branch}`] : []),
     `title: ${record.title}`,
@@ -785,6 +794,7 @@ export function parseSessionOutcome(markdown: string): SessionOutcomeRecord | nu
   if (!Number.isInteger(turns) || turns < 0 || !startedAt || !updatedAt) return null
   const worktreeId = fields.get('worktree')
   const transcriptPath = fields.get('transcript')
+  const base = fields.get('base')
   const commit = fields.get('commit')
   const branch = fields.get('branch')
   const status = fields.get('status')
@@ -803,6 +813,7 @@ export function parseSessionOutcome(markdown: string): SessionOutcomeRecord | nu
     projectPath: decodePath(project),
     ...(worktreeId ? { worktreeId } : {}),
     ...(transcriptPath ? { transcriptPath: decodePath(transcriptPath) } : {}),
+    ...(base ? { base } : {}),
     ...(commit ? { commit } : {}),
     ...(branch ? { branch } : {}),
     title: fields.get('title') ?? '',

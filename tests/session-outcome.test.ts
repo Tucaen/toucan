@@ -133,6 +133,38 @@ test('records nothing for a conversation that has not been asked anything', () =
   assert.equal(extractSessionOutcome(snapshot, SOURCE, null, AT), null)
 })
 
+test('base and the first-ask start time round-trip while absent base stays omitted', () => {
+  const snapshot = transcript(user('u1', 'Record where this work began.'), assistant('a1', 'Recorded.', 'final'), {
+    type: 'turn_complete',
+    stopReason: 'end_turn'
+  })
+  const withBase = extractSessionOutcome(
+    snapshot,
+    {
+      ...SOURCE,
+      firstAsk: {
+        startedAt: '2026-09-13T09:55:00.000Z',
+        base: '1111111111111111111111111111111111111111'
+      }
+    },
+    null,
+    AT
+  )
+  assert.ok(withBase)
+  assert.equal(withBase.startedAt, '2026-09-13T09:55:00.000Z')
+  assert.deepEqual(parseSessionOutcome(renderSessionOutcome(withBase)), withBase)
+
+  const withoutBase = extractSessionOutcome(
+    snapshot,
+    { ...SOURCE, firstAsk: { startedAt: '2026-09-13T09:55:00.000Z' } },
+    null,
+    AT
+  )
+  assert.ok(withoutBase)
+  assert.doesNotMatch(renderSessionOutcome(withoutBase), /^base:/m)
+  assert.deepEqual(parseSessionOutcome(renderSessionOutcome(withoutBase)), withoutBase)
+})
+
 test('caps task and result excerpts while keeping the record within its budget', () => {
   const snapshot = transcript(
     user('u1', `Do this: ${'context '.repeat(400)}`),

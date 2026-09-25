@@ -428,7 +428,11 @@ test('a known provider transcript reaches the record and a failed lookup costs o
 
 test('the HEAD of the directory the session runs in reaches the record at every boundary (Tucaen/toucan#17)', async () => {
   const worktree = 'D:\\Development\\ADE-worktrees\\feature'
-  const heads = ['9999999999999999999999999999999999999999', 'a622222222222222222222222222222222222222']
+  const heads = [
+    'base000000000000000000000000000000000000',
+    '9999999999999999999999999999999999999999',
+    'a622222222222222222222222222222222222222'
+  ]
   const asked: string[] = []
   const session = fixture({
     context: { projectPath: worktree },
@@ -453,9 +457,56 @@ test('the HEAD of the directory the session runs in reaches the record at every 
     await session.settle()
 
     // The worktree's own HEAD, not the main checkout's, and the latest boundary's rather than the first.
-    assert.deepEqual(asked, [worktree, worktree])
+    assert.deepEqual(asked, [worktree, worktree, worktree])
     assert.equal(session.record('codex-conv-1')?.commit, 'a622222222222222222222222222222222222222')
     assert.equal(session.record('codex-conv-1')?.branch, 'feature')
+  } finally {
+    session.dispose()
+  }
+})
+
+test('the first ask captures the conversation start and base before the turn changes HEAD', async () => {
+  const heads = [
+    '1111111111111111111111111111111111111111',
+    '2222222222222222222222222222222222222222',
+    '3333333333333333333333333333333333333333',
+    '4444444444444444444444444444444444444444',
+    '5555555555555555555555555555555555555555'
+  ]
+  const session = fixture({
+    codeState: async () => ({ commit: heads.shift() ?? 'none', branch: 'main' })
+  })
+  try {
+    session.publish(user('u1', 'Commit the implementation.'), assistant('a1', 'Committed.'), {
+      type: 'turn_complete',
+      stopReason: 'end_turn'
+    })
+    await session.settle()
+
+    const record = session.record('codex-conv-1')
+    assert.equal(record?.base, '1111111111111111111111111111111111111111')
+    assert.equal(record?.commit, '2222222222222222222222222222222222222222')
+    assert.equal(record?.startedAt, '2026-09-13T10:01:00.000Z')
+    assert.equal(record?.updatedAt, '2026-09-13T10:02:00.000Z')
+
+    session.publish(user('u2', 'Make one more commit.'), assistant('a2', 'Committed again.'), {
+      type: 'turn_complete',
+      stopReason: 'end_turn'
+    })
+    await session.settle()
+    assert.equal(session.record('codex-conv-1')?.base, '1111111111111111111111111111111111111111')
+    assert.equal(session.record('codex-conv-1')?.commit, '3333333333333333333333333333333333333333')
+    assert.equal(session.record('codex-conv-1')?.startedAt, '2026-09-13T10:01:00.000Z')
+
+    const resumed = session.rewatch()
+    resumed.publish(user('u3', 'Finish after the restart.'), assistant('a3', 'Finished.'), {
+      type: 'turn_complete',
+      stopReason: 'end_turn'
+    })
+    await session.settle()
+    assert.equal(session.record('codex-conv-1')?.base, '1111111111111111111111111111111111111111')
+    assert.equal(session.record('codex-conv-1')?.commit, '5555555555555555555555555555555555555555')
+    assert.equal(session.record('codex-conv-1')?.startedAt, '2026-09-13T10:01:00.000Z')
   } finally {
     session.dispose()
   }
@@ -481,6 +532,31 @@ test('a code state that cannot be read costs the commit, never the record (Tucae
     } finally {
       session.dispose()
     }
+  }
+})
+
+test('a base that was unknown at the first ask stays unknown when later HEAD lookups succeed', async () => {
+  let first = true
+  const session = fixture({
+    codeState: async () => {
+      if (first) {
+        first = false
+        return null
+      }
+      return { commit: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', branch: 'main' }
+    }
+  })
+  try {
+    session.publish(user('u1', 'Work in a checkout whose HEAD is briefly unreadable.'), assistant('a1', 'Done.'), {
+      type: 'turn_complete',
+      stopReason: 'end_turn'
+    })
+    await session.settle()
+
+    assert.equal(session.record('codex-conv-1')?.base, undefined)
+    assert.equal(session.record('codex-conv-1')?.commit, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')
+  } finally {
+    session.dispose()
   }
 })
 
