@@ -1056,7 +1056,7 @@ test('a restored node keeps its scheduled messages and marks every one whose tim
   }
   const state: WorkspaceState = {
     version: 3,
-    projects: [{ id: 'project-1', name: 'Toucan', path: 'D:\Development\Toucan', color: '#71a9ff' }],
+    projects: [{ id: 'project-1', name: 'Toucan', path: 'D:\\Development\\Toucan', color: '#71a9ff' }],
     activeProjectId: 'project-1',
     sidebarCollapsed: false,
     nodes: [
@@ -1087,7 +1087,7 @@ test('a restored node keeps its scheduled messages and marks every one whose tim
 test('a node without scheduled messages keeps its old snapshot shape', () => {
   const state: WorkspaceState = {
     version: 3,
-    projects: [{ id: 'project-1', name: 'Toucan', path: 'D:\Development\Toucan', color: '#71a9ff' }],
+    projects: [{ id: 'project-1', name: 'Toucan', path: 'D:\\Development\\Toucan', color: '#71a9ff' }],
     activeProjectId: 'project-1',
     sidebarCollapsed: false,
     nodes: [

@@ -23,7 +23,10 @@ export interface ScheduledMessage {
 
 export type ScheduleResult = { ok: true; messages: ScheduledMessage[] } | { ok: false; problem: string }
 
-/** Why `deliverAt` cannot be newly scheduled, or null when it can. */
+/**
+ * Why `deliverAt` cannot be newly scheduled, or null when it can.
+ * @internal exported for tests
+ */
 export function scheduleTimeProblem(deliverAt: number, now: number): string | null {
   if (!Number.isFinite(deliverAt)) return 'Enter a date and time.'
   if (deliverAt <= now) return 'Choose a time in the future.'
