@@ -35,7 +35,7 @@ Capture being free is only half the bargain; the read has to be cheap enough tha
 | Frontmatter only — stage one of the read              | 0.26 KB    | 5.3 KB            | ~1.3k    |
 | Saturated — every cap filled at once                  | 6.0 KB     | 119.9 KB          | ~30k     |
 
-Two things follow. The caps the tracer bullet wrote were too loose for the saturated case, so they were tightened here: `SESSION_OUTCOME_FILES_LIMIT` 24 → 16, `SESSION_OUTCOME_PATH_LIMIT` 100 → 80, and the per-record ceiling `SESSION_OUTCOME_SIZE_BUDGET` 5120 → 4096. And the pointer teaches a **two-stage read** — grep `project:` to name the files, then open only the records worth reading — which is what keeps the common case at stage one's price rather than stage two's.
+At #190, two things followed from the original measurement. The caps the tracer bullet wrote were too loose for the saturated case, so they were tightened then: `SESSION_OUTCOME_FILES_LIMIT` 24 → 16, `SESSION_OUTCOME_PATH_LIMIT` 100 → 80, and the per-record ceiling `SESSION_OUTCOME_SIZE_BUDGET` 5120 → 4096. And the pointer taught a **two-stage read** — grep `project:` to name the files, then open only the records worth reading — which kept the common case at stage one's price rather than stage two's.
 
 #19 raised the ceiling to 6144 for handoff-shaped records. Asks get about 1.5 KB and the main result up to 2.5 KB, but the main result yields space when every other section saturates so the whole record still stays below the hard ceiling. The typical read grew by about 3 KB per screenful; the pathological screenful now costs about 30k tokens, which makes the filename-first read even more important.
 
