@@ -89,6 +89,27 @@ describe('automatic delivery while Toucan is running', () => {
     expect(deliver).toHaveBeenCalledTimes(1)
   })
 
+  test('a due message the session cannot take yet does not keep the timer spinning', () => {
+    let renders = 0
+    const { result } = renderHook(() => {
+      renders += 1
+      return useNodeScheduler({ canDeliver: false, deliver: vi.fn() })
+    })
+    act(() => {
+      result.current.schedule({ text: 'when ready', images: [], deliverAt: Date.now() + 1_000 })
+    })
+    const before = renders
+    // A real clock moves between two reads, so a re-armed zero-delay wake would set a new time and
+    // render again each tick; the fake clock alone would hide that behind an unchanged state.
+    const realNow = Date.now.bind(Date)
+    let drift = 0
+    vi.spyOn(Date, 'now').mockImplementation(() => realNow() + (drift += 1))
+    for (let step = 0; step < 20; step += 1) act(() => vi.advanceTimersByTime(3_000))
+
+    // One wake at the due time, and then nothing until the session changes.
+    expect(renders - before).toBeLessThanOrEqual(2)
+  })
+
   test('messages due together go out one per render, each seeing the session the last one left', () => {
     const deliver = vi.fn<(entry: ScheduledMessage) => void>()
     const at = Date.now() + 1_000

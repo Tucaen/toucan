@@ -8,12 +8,15 @@ import {
   scheduleMessage,
   takeScheduledMessage,
   type ScheduledMessage,
+  type ScheduledMessageChange,
   type ScheduleResult
 } from '../../shared/scheduled-message'
 
 /**
  * `setTimeout` treats a delay past 2^31-1 ms (about 24.8 days) as zero and fires at once, so a
- * wait is never armed for longer than this; the timer simply re-arms when it wakes early.
+ * wait is never armed for longer than this; the timer simply re-arms when it wakes early. An hour
+ * rather than the limit itself also bounds how far a suspended machine's frozen timer can lag the
+ * wall clock once it wakes.
  */
 const LONGEST_WAIT_MS = 60 * 60 * 1000
 
@@ -30,7 +33,7 @@ export interface ScheduledMessagesOptions {
 export interface ScheduledMessagesController {
   messages: readonly ScheduledMessage[]
   schedule(entry: { text: string; images: AgentImageAttachment[]; deliverAt: number }): ScheduleResult
-  edit(id: string, change: { text: string; deliverAt: number }): ScheduleResult
+  edit(id: string, change: ScheduledMessageChange): ScheduleResult
   cancel(id: string): void
   /** Delivers one message now, overdue or not; refused while the session cannot take it. */
   sendNow(id: string): void
@@ -80,8 +83,12 @@ export function useScheduledMessages(options: ScheduledMessagesOptions): Schedul
   }
 
   const messages = current()
-  const waiting = messages.filter((message) => !held.has(message.id))
-  const nextDelivery = nextScheduledDelivery(waiting)
+  // Only times still ahead of the last wake need a timer. One already due is the delivery
+  // effect's to hand over whenever the session can take it; re-arming for it would wake at zero
+  // delay, set a new clock and render the node again on every tick until then.
+  const nextDelivery = nextScheduledDelivery(
+    messages.filter((message) => !held.has(message.id) && message.deliverAt > clock)
+  )
 
   useEffect(() => {
     if (nextDelivery === null) return
