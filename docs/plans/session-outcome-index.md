@@ -1,7 +1,7 @@
 ---
 title: Session outcome index plan
 created: 2026-09-13
-updated: 2026-09-21
+updated: 2026-09-25
 status: shipped v0.13.0 (#188, #189)
 ---
 
@@ -120,11 +120,25 @@ So a summarization upgrade should not be aimed at writing *more*. Two specific t
 
 Until that lands the records are still net-positive — they carry the files, the failures, and often enough judgment to be worth the read — but this is the ceiling, and it is a content ceiling rather than the budget ceiling the caps were tuned against.
 
+## Round 2: records as handoff summaries
+
+Decided 2026-09-25 in a grilling session, using the CICKVP-8801 conversation in cic.control-box as the worked example. Its `/implement` turn ended with a 2.9 KB TL;DR, and two follow-up turns ("Explain", "keep it") replaced it with "Done. I left the code as it is… no open points left". The record described the conversation's last reply, not the conversation. Four of its sixteen file slots were temp scripts, `started` was the end of a 35-minute first turn, and every commit the session made was already inside the first HEAD the record saw.
+
+Decisions:
+
+- **The record is a handoff summary** of the conversation's essentials, still with **no model call**. Keeping the real messages (asks and final answers) instead of the latest one closes most of the gap the section above describes.
+- **Descriptive filenames are the most important lever.** The read cost is record size × records opened, and stage one of the read returns filenames only, so a UUID filename forces blind opens. The new scheme is `<project-slug>--<title-slug>--<shortid>.md`. The project slug is the main checkout's basename and lets the reader glob instead of using the backslash pattern above. The `project:` line stays as the exact check. Files are renamed when the title changes, and existing records are migrated once at startup (#18).
+- **No companion log file.** The provider transcript already is the full log, so a second copy would be a worse duplicate. The record gets a `transcript:` pointer instead.
+- **Body**: every ask (≈300 chars each, ≈1.5 KB total, first and newest kept with an omission marker), the longest final answer as `## Main result`, and `## Last result`. Line breaks are kept, fenced code is dropped and headings are demoted. The budget rises from 4 KB to 6 KB. Paths under `os.tmpdir()` are no longer recorded; sibling repos are (#19).
+- **`base:`**, HEAD at the first ask, and a `started` time from the same event, so `git log base..commit` covers the whole conversation (#20).
+- **Known risk**: "longest answer" can pick a commit changelog (see above). Check against the live index once #19 lands.
+
 ## Ticket set
 
 1. Tracer bullet: outcome record written at turn end (type + indexer + markdown store, compact by construction).
 2. Rich capture: files touched, failures, status.
 3. Agent retrieval: outcomes directory via `additionalDirectories` + context pointer; verify the grep path end-to-end. **Landed** — see "Measured retrieval budget" above.
 4. Hygiene: pruning and trivial-session filtering. **Landed** — see "Hygiene" above.
+5. Round 2: descriptive filenames (#18), then asks and main result (#19) and base commit (#20), both blocked by #18.
 
 Out of scope for this set: LLM summarization (see "What extraction cannot reach" above for what it should target), revert detection (needs git correlation), follow-up extraction, stow-skill integration, any UI.
