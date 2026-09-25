@@ -19,6 +19,7 @@ import type { ConversationTitleSource } from '../../shared/conversation-title'
 import type { TicketActivityReport } from './ticket-activity'
 import type { NodeGeometry } from './node-snap'
 import { launchModeOnOpen, type SessionLaunchMode } from './session-launch-mode'
+import { markOverdueScheduledMessages, type ScheduledMessage } from '../../shared/scheduled-message'
 
 /** Re-exported so canvas modules keep one import site; the union itself is a shared contract. */
 export type { TerminalNodeStatus }
@@ -124,6 +125,8 @@ export interface TerminalNodeData
   focusMode: boolean
   /** Unsent composer text, restored into the composer when the node comes back. */
   draft?: string
+  /** Messages waiting for their scheduled time; those that came due while away restore overdue. */
+  scheduledMessages?: ScheduledMessage[]
   preferredPermissionMode?: string
   modelId?: string
   turnOutcomes?: AgentTurnOutcome[]
@@ -612,6 +615,7 @@ export function serializeCanvasNode(node: TerminalCanvasNode): WorkspaceTerminal
     ...(node.data.modelId ? { modelId: node.data.modelId } : {}),
     ...(node.data.turnOutcomes?.length ? { turnOutcomes: node.data.turnOutcomes } : {}),
     ...(node.data.draft ? { draft: node.data.draft } : {}),
+    ...(node.data.scheduledMessages?.length ? { scheduledMessages: node.data.scheduledMessages } : {}),
     ...(node.data.branchedFrom ? { branchedFrom: node.data.branchedFrom } : {}),
     ...(node.data.kind === 'terminal' ? {} : { focusMode: node.data.focusMode }),
     ...(node.data.kind === 'terminal' ? { terminalLiveness: node.data.terminalLiveness } : {})
@@ -687,6 +691,10 @@ function restoreTerminalCanvasNode(
       conversationId: savedNode.conversationId,
       focusMode: nodeFocusMode(savedNode),
       draft: savedNode.draft,
+      // A node is only ever restored after being off the canvas - Toucan closed, or the node
+      // closed - and nothing was there to deliver its messages meanwhile, so any that came due
+      // wait for an explicit Send now rather than going out unannounced.
+      scheduledMessages: markOverdueScheduledMessages(savedNode.scheduledMessages, Date.now()),
       preferredPermissionMode:
         savedNode.kind === 'terminal' ? undefined : context.agentPermissionModes?.[savedNode.kind],
       modelId: savedNode.kind === 'terminal' ? undefined : savedNode.modelId,

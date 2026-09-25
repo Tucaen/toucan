@@ -1044,3 +1044,67 @@ test('a session node with no reported status is read from the node, not defaulte
   // What the restored workspace reports is the same function, so the two cannot drift.
   assert.deepEqual(restored.statuses, { 'node-1': 'starting', 'node-2': 'dormant' })
 })
+
+test('a restored node keeps its scheduled messages and marks every one whose time passed as overdue (issue #21)', () => {
+  const now = Date.now()
+  const passed = { id: 'passed', text: 'was due overnight', images: [], deliverAt: now - 60_000 }
+  const upcoming = {
+    id: 'upcoming',
+    text: 'still ahead',
+    images: [{ id: 'image-1', data: 'aGVsbG8=', mimeType: 'image/png' }],
+    deliverAt: now + 3_600_000
+  }
+  const state: WorkspaceState = {
+    version: 3,
+    projects: [{ id: 'project-1', name: 'Toucan', path: 'D:\Development\Toucan', color: '#71a9ff' }],
+    activeProjectId: 'project-1',
+    sidebarCollapsed: false,
+    nodes: [
+      {
+        id: 'node-1',
+        kind: 'claude',
+        label: 'Claude 1',
+        projectId: 'project-1',
+        position: { x: 0, y: 0 },
+        width: 520,
+        height: 340,
+        focusMode: false,
+        scheduledMessages: [passed, upcoming]
+      }
+    ],
+    worktrees: []
+  }
+
+  const [node] = terminalNodes(restoreCanvasWorkspace(state, callbacks).nodes)
+  assert.deepEqual(node.data.scheduledMessages, [{ ...passed, overdue: true }, upcoming])
+  assert.deepEqual(serializeCanvasNode(node).scheduledMessages, [{ ...passed, overdue: true }, upcoming])
+
+  // The same rule holds for a node reopened from the closed list: it was off the canvas too.
+  const reopened = reopenClosedSession([{ ...state.nodes[0], conversationId: 'conversation-1' }], state, callbacks)
+  assert.deepEqual(reopened.node?.data.scheduledMessages, [{ ...passed, overdue: true }, upcoming])
+})
+
+test('a node without scheduled messages keeps its old snapshot shape', () => {
+  const state: WorkspaceState = {
+    version: 3,
+    projects: [{ id: 'project-1', name: 'Toucan', path: 'D:\Development\Toucan', color: '#71a9ff' }],
+    activeProjectId: 'project-1',
+    sidebarCollapsed: false,
+    nodes: [
+      {
+        id: 'node-1',
+        kind: 'claude',
+        label: 'Claude 1',
+        projectId: 'project-1',
+        position: { x: 0, y: 0 },
+        width: 520,
+        height: 340,
+        focusMode: false,
+        scheduledMessages: []
+      }
+    ],
+    worktrees: []
+  }
+  const [node] = terminalNodes(restoreCanvasWorkspace(state, callbacks).nodes)
+  assert.equal('scheduledMessages' in serializeCanvasNode(node), false)
+})

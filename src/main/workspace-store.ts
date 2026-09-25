@@ -25,6 +25,7 @@ import {
 import { errorMessage } from '../shared/text'
 import { normalizeWorkspaceWorktrees } from '../shared/worktree-identity'
 import { isAgentProvider } from '../shared/agent-provider'
+import { isScheduledMessage } from '../shared/scheduled-message'
 
 interface WorkspaceStateV1 {
   version: 1
@@ -155,6 +156,8 @@ function isWorkspaceTerminalNode(value: unknown): boolean {
     (node.turnOutcomes === undefined ||
       (Array.isArray(node.turnOutcomes) && node.turnOutcomes.every(isAgentTurnOutcome))) &&
     (node.draft === undefined || typeof node.draft === 'string') &&
+    (node.scheduledMessages === undefined ||
+      (Array.isArray(node.scheduledMessages) && node.scheduledMessages.every(isScheduledMessage))) &&
     // A branch's provenance leaves here as `forkFromSessionId` on an `agent:create`, so both halves
     // are checked rather than trusted: a malformed record would otherwise reach the adapter.
     (node.branchedFrom === undefined ||

@@ -13,6 +13,7 @@ import type { WorkspaceWorktree } from './worktree'
 import type { ConversationTitleSource } from './conversation-title'
 import type { DecisionDelegationPreference } from './decision-delegation'
 import type { RoutineDelegationPreference } from './routine-delegation'
+import type { ScheduledMessage } from './scheduled-message'
 import type { DictationCleanupPreference } from './dictation-cleanup'
 import type { TerminalKind, TerminalLiveness } from './terminal'
 
@@ -127,6 +128,11 @@ export interface WorkspaceTerminalNode {
   terminalLiveness?: TerminalLiveness
   /** Unsent composer text, kept so a draft survives resize, collapse, and an Toucan restart. */
   draft?: string
+  /**
+   * Composer messages set aside for a later local time, written only when there is at least one.
+   * They are the node's for the same reason the draft is; see `shared/scheduled-message.ts`.
+   */
+  scheduledMessages?: ScheduledMessage[]
   /** The conversation this one was branched off, if any; the canvas draws the lineage from it. */
   branchedFrom?: ConversationLineage
 }

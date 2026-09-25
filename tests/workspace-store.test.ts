@@ -988,3 +988,53 @@ test("a branch's provenance round-trips, and a malformed one is refused at the s
   assert.equal(parseWorkspaceState({ ...base, nodes: [{ ...child, branchedFrom: 'parent-node' }] }), null)
   assert.ok(parseWorkspaceState({ ...base, nodes: [child] }))
 })
+
+test('scheduled messages round-trip through the store with their text, attachments and time (issue #21)', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'toucan-workspace-test-'))
+  const store = createWorkspaceStore(join(directory, 'workspace.json'))
+  const state = makeState('scheduled')
+  const scheduledMessages = [
+    {
+      id: 'scheduled-1',
+      text: 'run the release checks',
+      images: [{ id: 'image-1', data: 'aGVsbG8=', mimeType: 'image/png' }],
+      deliverAt: Date.UTC(2026, 8, 26, 7, 30)
+    },
+    { id: 'scheduled-2', text: 'and report back', images: [], deliverAt: Date.UTC(2026, 8, 20), overdue: true as const }
+  ]
+  state.nodes = [
+    {
+      id: 'node-1',
+      kind: 'claude',
+      label: 'Claude 1',
+      projectId: 'project-1',
+      position: { x: 0, y: 0 },
+      width: 520,
+      height: 340,
+      scheduledMessages
+    }
+  ]
+
+  assert.equal((await store.save(state)).ok, true)
+  const loaded = await store.load()
+
+  assert.deepEqual(loaded.state?.nodes[0].scheduledMessages, scheduledMessages)
+})
+
+test('rejects a workspace whose scheduled message is the wrong shape', () => {
+  const state = makeState('scheduled')
+  const node = {
+    id: 'node-1',
+    kind: 'claude',
+    label: 'Claude 1',
+    projectId: 'project-1',
+    position: { x: 0, y: 0 },
+    width: 520,
+    height: 340
+  }
+  const withScheduled = (scheduledMessages: unknown): unknown => ({ ...state, nodes: [{ ...node, scheduledMessages }] })
+
+  assert.equal(parseWorkspaceState(withScheduled('soon')), null)
+  assert.equal(parseWorkspaceState(withScheduled([{ id: 'x', text: 'hi', images: [], deliverAt: 'soon' }])), null)
+  assert.ok(parseWorkspaceState(withScheduled([{ id: 'x', text: 'hi', images: [], deliverAt: 1 }])))
+})
