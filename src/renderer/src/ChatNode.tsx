@@ -70,8 +70,7 @@ import { buildHandoffPrompt, planWorktreeHandoff } from '../../shared/worktree-h
 import type { TerminalCanvasNode } from './canvas-workspace'
 import NodeFitAction from './NodeFitAction'
 import { imageAttachmentSource, imageFilesFromClipboard, type AgentImageAttachment } from './image-attachment'
-import { classifyAssistantMessage, decisionQuestions, type DecisionOption } from './decision-message'
-import { pendingDecisionsFromMessages, type PendingDecision } from './pending-decisions'
+import { classifyAssistantMessage } from './decision-message'
 import { SelectorPicker, pickerCopy } from './SelectorPicker'
 import ComposerSettingsMenu from './ComposerSettingsMenu'
 import NodeBorderResizer from './NodeBorderResizer'
@@ -151,7 +150,6 @@ interface FlatChatViewProps {
   removeAttachment(id: string): void
   submit(event: FormEvent, prompt: string, onPrepared?: () => void): void
   sendMessage(text: string): void
-  answerDecision(decisionId: string, text: string): void
   editQueued(id: string, text: string): void
   withdrawQueued(id: string): void
   sendQueuedNow(id: string): void
@@ -230,7 +228,6 @@ export type ChatPendingProps = Pick<
   | 'authenticate'
   | 'submitAuthCode'
   | 'openAuthLink'
-  | 'answerDecision'
 >
 
 /**
@@ -680,69 +677,6 @@ function ApprovalPanel(props: Pick<FlatChatViewProps, 'approval' | 'resolveAppro
 }
 
 /**
- * Renders a pending decision's extracted options as clickable buttons plus a free-text "Other"
- * field. Both paths reuse the ordinary prompt/steering delivery path with decision identity rather
- * than introducing a protocol-level channel; see pending-decisions.ts for state folding.
- */
-function DecisionOptions(props: {
-  decisionId?: string
-  options: DecisionOption[]
-  answerDecision: FlatChatViewProps['answerDecision']
-  status: FlatChatViewProps['status']
-  submitting?: boolean
-}): JSX.Element {
-  const [otherText, setOtherText] = useState('')
-  const disabled = isSendDisabled(props.status) || props.submitting
-  const send = (text: string): void => props.answerDecision(props.decisionId ?? '', text)
-  return (
-    <div className="decision-options">
-      <div className="decision-options-buttons">
-        {props.options.map((option) => (
-          <button type="button" key={option.id} disabled={disabled} onClick={() => send(option.label)}>
-            {option.label}
-          </button>
-        ))}
-      </div>
-      <form
-        className="decision-options-other"
-        onSubmit={(event) => {
-          event.preventDefault()
-          const text = otherText.trim()
-          if (!text) return
-          send(text)
-          setOtherText('')
-        }}
-      >
-        <input
-          type="text"
-          placeholder="Other…"
-          value={otherText}
-          disabled={disabled}
-          onChange={(event) => setOtherText(event.target.value)}
-        />
-        <button type="submit" disabled={disabled || !otherText.trim()}>
-          Send
-        </button>
-      </form>
-    </div>
-  )
-}
-
-/** Wording comes from decisionQuestions (see decision-message.ts). */
-function DecisionQuestions(props: { text: string }): JSX.Element {
-  const questions = decisionQuestions(props.text)
-  if (questions.length > 1)
-    return (
-      <ol className="decision-questions">
-        {questions.map((question, index) => (
-          <li key={index}>{question}</li>
-        ))}
-      </ol>
-    )
-  return <p>{questions[0] ?? 'Choose an option.'}</p>
-}
-
-/**
  * Classifies assistant replies for visual tone (see decision-message.ts). Memoized because the
  * transcript re-renders per streaming chunk while only the streaming entry's props change.
  */
@@ -975,7 +909,6 @@ export function ChatView(groups: ChatViewProps): JSX.Element {
     [transcript.activities, subagentActivities, transcript.plan.length]
   )
   const authVisible = session.status === 'auth_required' || pending.reauthenticating
-  const pendingDecisions = pendingDecisionsFromMessages(transcript.messages)
   const { ref: scrollRef, onScroll } = useStickToBottom([
     transcript.messages,
     transcript.activities,
@@ -1040,7 +973,7 @@ export function ChatView(groups: ChatViewProps): JSX.Element {
   return (
     <div
       ref={rootRef}
-      className={`agent-chat ${session.focusMode ? 'focus-mode' : ''} ${session.statusBar ? 'has-status-bar' : ''} ${pendingDecisions.length > 0 || pending.decisionRequest ? 'has-pending-decisions' : ''}`}
+      className={`agent-chat ${session.focusMode ? 'focus-mode' : ''} ${session.statusBar ? 'has-status-bar' : ''} ${pending.decisionRequest ? 'has-pending-decisions' : ''}`}
     >
       <ChatSessionControls
         rootRef={rootRef}
@@ -1105,34 +1038,13 @@ export function ChatView(groups: ChatViewProps): JSX.Element {
           </SubagentActivitiesContext.Provider>
         </ShellLaunchesContext.Provider>
       </WorkspaceRootsContext.Provider>
-      {pendingDecisions.length > 0 && (
-        <section className="pending-decisions nodrag nopan" aria-label="Pending decisions">
-          {pendingDecisions.map((decision: PendingDecision) => (
-            <article key={decision.id} data-state={decision.state}>
-              <header>
-                <strong>Decision needed</strong>
-                {decision.taskId && <small>{decision.taskId}</small>}
-              </header>
-              <DecisionQuestions text={decision.text} />
-              <DecisionOptions
-                decisionId={decision.id}
-                options={decision.options}
-                answerDecision={pending.answerDecision}
-                status={session.status}
-                submitting={decision.state === 'submitting'}
-              />
-              {decision.state === 'submitting' && <small>Sending your answer…</small>}
-            </article>
-          ))}
-        </section>
-      )}
       <StructuredDecisionPanel
         key={pending.decisionRequest?.id ?? 'no-structured-decision'}
         decisionRequest={pending.decisionRequest}
         resolveElicitation={pending.resolveElicitation}
       />
       {session.statusBar && <div className="agent-chat-status-bar">{session.statusBar}</div>}
-      {pendingDecisions.length === 0 && !pending.decisionRequest && (
+      {!pending.decisionRequest && (
         <Composer
           key={transcript.provider}
           {...composer}
@@ -1609,8 +1521,7 @@ export default function ChatNode({ id, data, selected, width }: NodeProps<Termin
               reauthenticating: conversation.reauthenticating,
               authenticate: conversation.authenticate,
               submitAuthCode: conversation.submitAuthCode,
-              openAuthLink: conversation.openAuthLink,
-              answerDecision: conversation.answerDecision
+              openAuthLink: conversation.openAuthLink
             }}
             session={{
               status,

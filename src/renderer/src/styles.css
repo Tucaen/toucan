@@ -2391,85 +2391,6 @@ button.global-status-chip:hover {
   font-size: 12px;
 }
 
-.decision-options {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 10px;
-}
-
-.decision-options-buttons {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.decision-options-buttons button {
-  padding: 6px 10px;
-  border: 1px solid #6b5629;
-  border-radius: 6px;
-  color: #f0d9a4;
-  background: color-mix(in srgb, #d3aa52 16%, #242017);
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.decision-options-buttons button:hover {
-  background: color-mix(in srgb, #d3aa52 26%, #242017);
-}
-
-.decision-options-buttons button:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-.decision-options-other {
-  display: flex;
-  gap: 6px;
-}
-
-.decision-options-other input {
-  flex: 1;
-  padding: 5px 8px;
-  border: 1px solid #3a4554;
-  border-radius: 6px;
-  color: #dbe1e9;
-  background: var(--neutral-900);
-  font-size: 12px;
-}
-
-.decision-options-other input:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-.decision-options-other button {
-  padding: 5px 10px;
-  border: 1px solid #3a4554;
-  border-radius: 6px;
-  color: #dbe1e9;
-  background: #242b36;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.decision-options-other button:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-.pending-decisions {
-  grid-column: 1;
-  grid-row: 2;
-  display: flex;
-  gap: 8px;
-  max-height: min(38vh, 300px);
-  padding: 8px 10px;
-  overflow: auto;
-  border-top: 1px solid #594a2c;
-  background: color-mix(in srgb, var(--neutral-900) 94%, #d3aa52);
-}
-
 .agent-chat.has-pending-decisions {
   grid-template-rows: minmax(0, 1fr) auto auto;
 }
@@ -2488,37 +2409,6 @@ button.global-status-chip:hover {
 
 .agent-chat.has-status-bar.has-pending-decisions .chat-composer {
   grid-row: 4;
-}
-
-.pending-decisions > article {
-  flex: 1 1 260px;
-  min-width: 0;
-  max-height: 250px;
-  padding: 8px 10px;
-  overflow: auto;
-  border: 1px solid #6b5629;
-  border-radius: 8px;
-  color: #dbe1e9;
-  background: #1c2029;
-  font-size: 12px;
-}
-
-.pending-decisions > article > header {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  color: #f0d9a4;
-}
-
-.pending-decisions .decision-questions {
-  margin: 6px 0;
-  padding-left: 18px;
-  display: grid;
-  gap: 4px;
-}
-
-.pending-decisions > article[data-state='submitting'] {
-  opacity: 0.72;
 }
 
 .structured-decision {
@@ -2763,17 +2653,6 @@ button.global-status-chip:hover {
 .structured-decision footer button.structured-decision-skip {
   border-color: transparent;
   background: transparent;
-}
-
-@media (max-width: 620px) {
-  .pending-decisions {
-    flex-direction: column;
-    max-height: 32vh;
-  }
-
-  .pending-decisions > article {
-    flex-basis: auto;
-  }
 }
 
 @container (max-width: 380px) {

@@ -477,7 +477,7 @@ test('local delivery bookkeeping: an acknowledged send sheds its flags, a droppe
   const sent = fold([
     {
       type: 'local_user_message',
-      message: { id: 'm1', role: 'user', text: 'hello', queued: true, deliveryPending: true }
+      message: { id: 'm1', role: 'user', text: 'hello', queued: true }
     }
   ])
   assert.deepEqual(sent.transcript, [{ type: 'message', id: 'm1', role: 'user' }])
@@ -488,7 +488,6 @@ test('local delivery bookkeeping: an acknowledged send sheds its flags, a droppe
   const dropped = fold([{ type: 'local_send_failed', messageId: 'm1' }], sent)
   assert.equal(dropped.messages[0].failed, true)
   assert.equal(dropped.messages[0].queued, false)
-  assert.equal(dropped.messages[0].deliveryPending, false)
 })
 
 test('local_detail sets the transient detail without touching anything else', () => {

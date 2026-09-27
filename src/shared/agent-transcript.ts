@@ -53,10 +53,6 @@ export interface AgentChatMessage {
   queued?: boolean
   /** True if delivery genuinely failed or expired (e.g. a queued send timed out in the wake gate) - never set alongside `queued`. */
   failed?: boolean
-  /** Exact pending decision answered through its pinned controls; local UI metadata only. */
-  decisionReplyTo?: string
-  /** A decision answer has been displayed optimistically but transport has not accepted it yet. */
-  deliveryPending?: boolean
   /** False while ACP is still streaming this assistant message; true after turn completion/replay. */
   complete?: boolean
   /** Provider-reported or turn-inferred distinction between interim narration and the result. */
@@ -394,15 +390,14 @@ export function foldAgentEvent(
       return appendLocalUserMessage(state, event.message)
     case 'local_message_delivered':
       return patchMessage(state, event.messageId, (message) => {
-        const { failed: _failed, deliveryPending: _deliveryPending, ...rest } = message
+        const { failed: _failed, ...rest } = message
         return { ...rest, queued: false }
       })
     case 'local_send_failed':
       return patchMessage(state, event.messageId, (message) => ({
         ...message,
         queued: false,
-        failed: true,
-        deliveryPending: false
+        failed: true
       }))
     case 'local_prompt_started':
       return { ...state, status: 'working', statusOrigin: 'local' }

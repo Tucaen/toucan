@@ -72,8 +72,7 @@ export function TestChatView(props: TestChatViewProps): JSX.Element {
         reauthenticating: props.reauthenticating,
         authenticate: props.authenticate,
         submitAuthCode: props.submitAuthCode,
-        openAuthLink: props.openAuthLink,
-        answerDecision: props.answerDecision
+        openAuthLink: props.openAuthLink
       }}
       session={{
         status: props.status,

@@ -191,7 +191,6 @@ export interface AgentConversationController {
   submitContent(text: string, images: AgentImageAttachment[], onTaken?: () => void): void
   /** Sends `text` as if the captain had typed and submitted it, bypassing the attachments state entirely. */
   sendMessage(text: string): void
-  answerDecision(decisionId: string, text: string): void
   cancel(): void
   authenticate(methodId: string): void
   submitAuthCode(code: string): Promise<boolean>
@@ -373,13 +372,8 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [options.cwd, options.enabled, options.id, options.provider, options.restartKey, options.scope])
 
-  /** Shared by `submit` (composer text + attachments) and `sendMessage` (a plain string, e.g. a clicked decision option). */
-  const dispatchText = (
-    text: string,
-    images: AgentImageAttachment[],
-    onSent: () => void,
-    decisionReplyTo?: string
-  ): void => {
+  /** Shared by `submit` (composer text + attachments) and `sendMessage` (a plain string). */
+  const dispatchText = (text: string, images: AgentImageAttachment[], onSent: () => void): void => {
     if ((!text && images.length === 0) || (status !== 'ready' && status !== 'working')) return
     const intoRunningTurn = status === 'working'
     const compose = options.composePrompt
@@ -417,9 +411,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
             // the transcript never needs `promptSummary`'s "N images attached" stand-in.
             text,
             ...(images.length > 0 ? { images } : {}),
-            queued: intoRunningTurn,
-            decisionReplyTo,
-            deliveryPending: decisionReplyTo !== undefined
+            queued: intoRunningTurn
           }
         })
         onSent()
@@ -457,9 +449,9 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
 
   /**
    * A composer submit while the agent is mid-turn parks the prompt in the local outbox instead of
-   * delivering it. Everything else - decision answers, `sendMessage` - still goes straight through
-   * `promptWhenIdle` (and so straight into the running turn via steering), because those are
-   * answers the agent is actively waiting on, not follow-ups the captain may still want back.
+   * delivering it. `sendMessage` still goes straight through `promptWhenIdle` (and so
+   * straight into the running turn via steering), because it carries no composer
+   * draft the captain may still want back.
    */
   const submitContent = (text: string, images: AgentImageAttachment[], onTaken: () => void = () => {}): void => {
     const trimmed = text.trim()
@@ -514,10 +506,6 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
 
   const sendMessage = (text: string): void => {
     dispatchText(text.trim(), [], () => {})
-  }
-
-  const answerDecision = (decisionId: string, text: string): void => {
-    dispatchText(text.trim(), [], () => {}, decisionId)
   }
 
   const addImages = async (files: File[] | FileList): Promise<void> => {
@@ -656,7 +644,6 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     submit,
     submitContent,
     sendMessage,
-    answerDecision,
     cancel: () => window.agentApi.cancel(options.id),
     authenticate,
     submitAuthCode,

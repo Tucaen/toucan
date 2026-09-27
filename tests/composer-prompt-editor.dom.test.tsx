@@ -29,7 +29,6 @@ const baseChatViewProps: ChatViewProps = {
   removeAttachment: vi.fn(),
   submit: vi.fn(),
   sendMessage: vi.fn(),
-  answerDecision: vi.fn(),
   editQueued: vi.fn(),
   withdrawQueued: vi.fn(),
   sendQueuedNow: vi.fn(),

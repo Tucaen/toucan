@@ -2,24 +2,20 @@
  * Agent chat replies carry no structured signal distinguishing a decision-requiring message
  * ("should I fix this or skip it?") from routine narration — both arrive as the same plain
  * `{ type: 'message', role: 'assistant', text }` event. This module is a conservative,
- * text-shape heuristic that drives styling/interaction from that plain text alone.
+ * text-shape heuristic that drives message styling from that plain text alone. It never produces
+ * answer controls: a question the agent wants answered through the UI must arrive as a structured
+ * elicitation (see StructuredDecisionPanel), because option buttons guessed from prose were wrong
+ * too often and hid the composer while they were up.
  *
  * Decision shape: either a trailing single-sentence question immediately preceded by one compact block of two or
  * more "option lines" (see OPTION_LINE_PATTERNS), or enumerated proposal content followed by a
- * single confirmation question. The latter offers one synthetic Agree action: proposal items are
- * content to approve, not choices to extract. Several questions cannot share one unambiguous
- * answer, so they remain ordinary prose unless the provider sends a structured elicitation.
+ * single confirmation question. Several trailing questions remain ordinary prose.
  *
  * Noise shape: the whole message is a single short paragraph, has no option lines, asks no
  * question, and opens with one of a fixed list of routine status lead-ins.
  */
 
 export type MessageTone = 'decision' | 'noise' | 'normal'
-
-export interface DecisionOption {
-  id: string
-  label: string
-}
 
 const OPTION_LINE_PATTERNS: RegExp[] = [
   // "- **Fix it now**: apply the patch and rerun tests" / "* **Skip it** — leave it as-is"
@@ -58,7 +54,6 @@ const NOISE_LEAD_PATTERNS: RegExp[] = [
 ]
 
 const NOISE_MAX_LENGTH = 220
-const CONFIRMATION_OPTION = 'Agree'
 
 const CONFIRMATION_CUE =
   /\b(?:agree|approve|blocking edges?|correct|feel right|granularity|look good|merge(?:d)?|okay|proposal|sound good|split|tickets?)\b/i
@@ -143,8 +138,8 @@ function isConfirmationQuestion(line: string): boolean {
 
 /**
  * A question line, judged loosely enough to catch the numbered members of a question block whose
- * text does not end on the question mark ("1. Which app is that? It may be out of scope."). Only
- * the panel's wording depends on this; classification stays on the strict confirmation shape.
+ * text does not end on the question mark ("1. Which app is that? It may be out of scope."), so a
+ * block of several questions is recognized as such and not mistaken for a single confirmation.
  */
 function isQuestionLine(line: string): boolean {
   const question = cleanMarkdownLine(line)
@@ -170,9 +165,8 @@ function hasSingleTrailingConfirmationQuestion(text: string): boolean {
   )
 }
 
-function extractDecisionOptionsFromText(text: string): string[] {
-  if (hasSingleTrailingConfirmationQuestion(text)) return [CONFIRMATION_OPTION]
-  return extractDecisionOptionLines(text)
+function isDecisionMessage(text: string): boolean {
+  return hasSingleTrailingConfirmationQuestion(text) || extractDecisionOptionLines(text).length > 0
 }
 
 function isNoiseMessage(text: string, optionLines: string[]): boolean {
@@ -187,31 +181,7 @@ export function classifyAssistantMessage(text: string): MessageTone {
   const trimmed = text.trim()
   if (!trimmed) return 'normal'
   const optionLines = extractOptionLines(trimmed)
-  if (extractDecisionOptionsFromText(trimmed).length > 0) return 'decision'
+  if (isDecisionMessage(trimmed)) return 'decision'
   if (isNoiseMessage(trimmed, optionLines)) return 'noise'
   return 'normal'
-}
-
-/**
- * Every question the message closes on, cleaned for display, in the order asked. The legacy
- * decision classifier only admits one confirmation question, but keeping extraction complete
- * prevents callers from silently losing wording when examining a non-decision message.
- */
-export function decisionQuestions(text: string): string[] {
-  const trimmed = text.trim()
-  const lines = nonEmptyLines(trimmed)
-  // A choice decision answers itself through its option lines, so only its closing question is a
-  // question — an option line that happens to end on a question mark is not one.
-  if (!hasSingleTrailingConfirmationQuestion(trimmed) && extractDecisionOptionLines(trimmed).length > 0) {
-    const last = lines.at(-1) ?? ''
-    return isQuestionLine(last) ? [cleanMarkdownLine(last)] : []
-  }
-  const questions: string[] = []
-  while (isQuestionLine(lines.at(-1) ?? '')) questions.unshift(cleanMarkdownLine(lines.pop() ?? ''))
-  return questions
-}
-
-/** Only meaningful when `classifyAssistantMessage` returned 'decision' for the same text. */
-export function extractDecisionOptions(text: string): DecisionOption[] {
-  return extractDecisionOptionsFromText(text.trim()).map((label, index) => ({ id: `option-${index}`, label }))
 }

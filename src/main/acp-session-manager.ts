@@ -113,6 +113,7 @@ function enumOptions(schema: Record<string, unknown>): Array<{ value: string; la
   })
 }
 
+/** @internal exported for tests */
 export function decisionQuestions(request: CreateElicitationRequest): AgentDecisionQuestion[] {
   if (request.mode !== 'form' || !('requestedSchema' in request)) return []
   const schema = record(request.requestedSchema)

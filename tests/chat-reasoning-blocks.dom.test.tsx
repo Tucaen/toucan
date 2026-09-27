@@ -29,7 +29,6 @@ const baseProps: ChatViewProps = {
   openAuthLink: vi.fn(),
   resolveApproval: vi.fn(),
   sendMessage: vi.fn(),
-  answerDecision: vi.fn(),
   queued: [],
   editQueued: vi.fn(),
   withdrawQueued: vi.fn(),

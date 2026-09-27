@@ -32,7 +32,6 @@ const baseChatViewProps: ChatViewProps = {
   openAuthLink: vi.fn(),
   resolveApproval: vi.fn(),
   sendMessage: vi.fn(),
-  answerDecision: vi.fn(),
   queued: [],
   editQueued: vi.fn(),
   withdrawQueued: vi.fn(),
@@ -268,13 +267,13 @@ test('sendQueuedNow hands one queued prompt to the running turn through promptWh
   expect(result.current.queued).toEqual([])
 })
 
-test('a decision answer given mid-turn still goes straight into the running turn, never the outbox', async () => {
+test('a sendMessage given mid-turn still goes straight into the running turn, never the outbox', async () => {
   const { api } = createMockAgentApi()
   window.agentApi = api
 
   const { result } = renderHook(() =>
     useAgentConversation({
-      id: 'session-decision',
+      id: 'session-send-now',
       provider: 'claude',
       cwd: '/project',
       enabled: true,
@@ -291,14 +290,14 @@ test('a decision answer given mid-turn still goes straight into the running turn
   await waitFor(() => expect(result.current.status).toBe('working'))
 
   act(() => {
-    result.current.answerDecision('decision-1', 'Option B')
+    result.current.sendMessage('Option B')
   })
 
-  await waitFor(() => expect(api.promptWhenIdle).toHaveBeenCalledWith('session-decision', 'Option B'))
+  await waitFor(() => expect(api.promptWhenIdle).toHaveBeenCalledWith('session-send-now', 'Option B'))
   expect(result.current.queued).toEqual([])
 })
 
-test('the host-authored user message consumes the optimistic bubble for composed prompts and decision replies alike', async () => {
+test('the host-authored user message consumes the optimistic bubble for composed prompts and sent messages alike', async () => {
   // Main publishes one `role: 'user'` message per accepted prompt (the same event every remote
   // client folds). The desktop already drew its own bubble - with UI metadata a host event cannot
   // carry - so that event must land as the echo of the local message, never as a second one.
@@ -339,19 +338,15 @@ test('the host-authored user message consumes the optimistic bubble for composed
   expect(result.current.messages[0].text).toBe('typed on the desktop')
 
   act(() => {
-    result.current.answerDecision('decision-1', 'Option B')
+    result.current.sendMessage('Option B')
   })
   await waitFor(() => expect(result.current.messages).toHaveLength(2))
-  expect(result.current.messages[1]).toEqual(
-    expect.objectContaining({ text: 'Option B', decisionReplyTo: 'decision-1' })
-  )
+  expect(result.current.messages[1]).toEqual(expect.objectContaining({ text: 'Option B' }))
 
   emit('session-host-echo', { type: 'message', role: 'user', messageId: 'host-2', text: '[with context] Option B' })
-  await waitFor(() => expect(result.current.messages[1].deliveryPending).toBeUndefined())
+  await waitFor(() => expect(result.current.messages[1].queued).toBe(false))
   expect(result.current.messages).toHaveLength(2)
-  expect(result.current.messages[1]).toEqual(
-    expect.objectContaining({ text: 'Option B', decisionReplyTo: 'decision-1', queued: false })
-  )
+  expect(result.current.messages[1]).toEqual(expect.objectContaining({ text: 'Option B', queued: false }))
 })
 
 test('each accepted queued send is acknowledged independently and later echoes are deduplicated', async () => {

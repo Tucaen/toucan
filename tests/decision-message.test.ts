@@ -1,10 +1,6 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'vitest'
-import {
-  classifyAssistantMessage,
-  decisionQuestions,
-  extractDecisionOptions
-} from '../src/renderer/src/decision-message'
+import { classifyAssistantMessage } from '../src/renderer/src/decision-message'
 
 test('a decision-shaped message (labeled options + trailing question) classifies as decision', () => {
   const text = [
@@ -19,21 +15,6 @@ test('a decision-shaped message (labeled options + trailing question) classifies
   assert.equal(classifyAssistantMessage(text), 'decision')
 })
 
-test('decision options are extracted with clean labels, in order', () => {
-  const text = [
-    'Two ways to proceed:',
-    '- **Fix it now**: remove the unused import and rerun the gate',
-    '- **Skip it**: leave the file as-is',
-    'Which would you like?'
-  ].join('\n')
-
-  const options = extractDecisionOptions(text)
-  assert.deepEqual(
-    options.map((option) => option.label),
-    ['Fix it now: remove the unused import and rerun the gate', 'Skip it: leave the file as-is']
-  )
-})
-
 test('Codex numbered Markdown options classify without admitting ordinary numbered steps', () => {
   const text = [
     'I need your choice:',
@@ -42,13 +23,9 @@ test('Codex numbered Markdown options classify without admitting ordinary number
     'Which should I do?'
   ].join('\n')
   assert.equal(classifyAssistantMessage(text), 'decision')
-  assert.deepEqual(
-    extractDecisionOptions(text).map((option) => option.label),
-    ['Use the cache — fastest', 'Read the source — freshest']
-  )
 })
 
-test('an enumerated ticket proposal followed by one confirmation question offers Agree, not the tickets', () => {
+test('an enumerated ticket proposal followed by one confirmation question classifies as decision', () => {
   const text = [
     'Here is the proposed breakdown:',
     '',
@@ -65,13 +42,9 @@ test('an enumerated ticket proposal followed by one confirmation question offers
   ].join('\n')
 
   assert.equal(classifyAssistantMessage(text), 'decision')
-  assert.deepEqual(
-    extractDecisionOptions(text).map((option) => option.label),
-    ['Agree']
-  )
 })
 
-test('plain numbered implementation steps followed by approval remain content', () => {
+test('plain numbered implementation steps followed by approval classify as decision', () => {
   const text = [
     'Suggested implementation:',
     '1. Add the persistence boundary.',
@@ -82,13 +55,9 @@ test('plain numbered implementation steps followed by approval remain content', 
   ].join('\n')
 
   assert.equal(classifyAssistantMessage(text), 'decision')
-  assert.deepEqual(
-    extractDecisionOptions(text).map((option) => option.label),
-    ['Agree']
-  )
 })
 
-test('a genuine numbered choice list keeps its choices when the question contains confirmation vocabulary', () => {
+test('a genuine numbered choice list classifies as decision when the question contains confirmation vocabulary', () => {
   const text = [
     'Choose the release action:',
     '1. **Approve** — publish now',
@@ -96,27 +65,10 @@ test('a genuine numbered choice list keeps its choices when the question contain
     'Which option looks good?'
   ].join('\n')
 
-  assert.deepEqual(
-    extractDecisionOptions(text).map((option) => option.label),
-    ['Approve — publish now', 'Reject — return to draft']
-  )
+  assert.equal(classifyAssistantMessage(text), 'decision')
 })
 
-test('a yes-no question about genuine options does not replace them with Agree', () => {
-  const text = [
-    'Choose an implementation plan:',
-    '1. **Approve** — publish now',
-    '2. **Reject** — return to draft',
-    'Do these options look good?'
-  ].join('\n')
-
-  assert.deepEqual(
-    extractDecisionOptions(text).map((option) => option.label),
-    ['Approve — publish now', 'Reject — return to draft']
-  )
-})
-
-test('bulleted seam proposals followed by approval offer Agree instead of seam buttons', () => {
+test('bulleted seam proposals followed by approval classify as decision', () => {
   const text = [
     'Suggested seams:',
     '- **Parser seam** — recognize proposal confirmation',
@@ -125,10 +77,7 @@ test('bulleted seam proposals followed by approval offer Agree instead of seam b
     'Does this proposal look good?'
   ].join('\n')
 
-  assert.deepEqual(
-    extractDecisionOptions(text).map((option) => option.label),
-    ['Agree']
-  )
+  assert.equal(classifyAssistantMessage(text), 'decision')
 })
 
 test('a routine/noise message (short status ping, no options, no question) classifies as noise', () => {
@@ -187,7 +136,6 @@ test('a long technical explanation with emphasized sections and a trailing quest
   ].join('\n')
 
   assert.equal(classifyAssistantMessage(text), 'normal')
-  assert.deepEqual(extractDecisionOptions(text), [])
 })
 
 test('numbered discussion points followed by a closing paragraph ending on a question are not a decision', () => {
@@ -201,7 +149,6 @@ test('numbered discussion points followed by a closing paragraph ending on a que
   ].join('\n')
 
   assert.equal(classifyAssistantMessage(text), 'normal')
-  assert.deepEqual(extractDecisionOptions(text), [])
 })
 
 test('a long or multi-paragraph message never classifies as noise even with a routine lead-in', () => {
@@ -216,7 +163,7 @@ test('empty text classifies as normal', () => {
   assert.equal(classifyAssistantMessage('   '), 'normal')
 })
 
-test('several trailing review questions remain prose instead of sharing one Agree answer', () => {
+test('several trailing review questions remain prose', () => {
   const text = [
     'Six tickets, ready to write:',
     '',
@@ -231,39 +178,4 @@ test('several trailing review questions remain prose instead of sharing one Agre
   ].join('\n')
 
   assert.equal(classifyAssistantMessage(text), 'normal')
-  assert.deepEqual(extractDecisionOptions(text), [])
-  assert.deepEqual(decisionQuestions(text), [
-    'Screenshot 2 — which app is that? It may be out of scope here.',
-    'Granularity — happy with 6, or should I merge 2 into 1 (giving 3 tickets total)?',
-    'Should tickets 1-6 get a parent reference to CICBP-384 in their bodies?'
-  ])
-})
-
-test('a choice decision reports only its trailing question, not the option lines', () => {
-  const text = [
-    'The lint gate failed on the unused import. I can:',
-    '',
-    '- **Fix it now**: remove the unused import and rerun the gate',
-    '- **Skip it**: leave the file as-is',
-    '',
-    'Which would you like?'
-  ].join('\n')
-
-  assert.deepEqual(decisionQuestions(text), ['Which would you like?'])
-})
-
-test('a message with no trailing question reports no questions', () => {
-  assert.deepEqual(decisionQuestions('I removed the unused import and the gate is green.'), [])
-  assert.deepEqual(decisionQuestions(''), [])
-})
-
-test('an option line ending on a question mark is not reported as one of the questions', () => {
-  const text = [
-    'Two ways to proceed:',
-    '- **Fix it now**: remove the unused import?',
-    '- **Skip it**: leave the file as-is?',
-    'Which would you like?'
-  ].join('\n')
-
-  assert.deepEqual(decisionQuestions(text), ['Which would you like?'])
 })
