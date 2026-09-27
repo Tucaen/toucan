@@ -11,6 +11,8 @@ import {
   SESSION_OUTCOME_FILES_LIMIT,
   SESSION_OUTCOME_PATH_LIMIT,
   SESSION_OUTCOME_SIZE_BUDGET,
+  SESSION_OUTCOME_TOOL_FAILURE_ENTRY_LIMIT,
+  SESSION_OUTCOME_TOOL_FAILURE_LIMIT,
   SESSION_OUTCOME_TRIVIAL_TURNS,
   answeredLatestAsk,
   endedSessionOutcome,
@@ -27,6 +29,7 @@ import {
   sessionOutcomeProjectGlob,
   sessionOutcomeShortIdSuffix,
   sessionOutcomeSlug,
+  sessionOutcomeToolFailuresOmittedMarker,
   type SessionOutcomeSource
 } from '../src/shared/session-outcome'
 
@@ -586,6 +589,11 @@ test('a record filled to every cap still fits the retrieval budget', () => {
       turnId: `turn-${'x'.repeat(30)}-${index}`,
       message: 'stack frame '.repeat(80)
     })),
+    ...Array.from({ length: SESSION_OUTCOME_TOOL_FAILURE_LIMIT * 2 }, (_, index) =>
+      toolCall(`tool-${index}`, `npm run step-${index} ${'--flag '.repeat(40)}`, 'failed', {
+        content: 'error output '.repeat(80)
+      })
+    ),
     assistant('a1', `Done: ${'detail '.repeat(400)}`, 'final'),
     { type: 'turn_complete', stopReason: 'end_turn' }
   )
@@ -606,6 +614,7 @@ test('a record filled to every cap still fits the retrieval budget', () => {
   // The marker is part of what a saturated record renders, so it is part of what the budget has to
   // hold: a fixture that stopped truncating would stop measuring the case this ceiling is for.
   assert.ok(renderSessionOutcome(record).includes(sessionOutcomeFilesOmittedMarker(record.filesOmitted)))
+  assert.ok(renderSessionOutcome(record).includes(sessionOutcomeToolFailuresOmittedMarker(record.toolFailuresOmitted)))
   assert.ok(renderSessionOutcome(record).length <= SESSION_OUTCOME_SIZE_BUDGET)
 })
 
@@ -712,6 +721,7 @@ test('a record that wrote nothing and failed nowhere spends no budget saying so'
   const rendered = renderSessionOutcome(record)
   assert.ok(!rendered.includes('## Files'))
   assert.ok(!rendered.includes('## Failures'))
+  assert.ok(!rendered.includes('## Tool failures'))
   assert.deepEqual(parseSessionOutcome(rendered), record)
 })
 
@@ -935,4 +945,110 @@ test('a count with no paths left to show is still reported', () => {
 
   assert.ok(renderSessionOutcome(truncated).includes('- … and at least 4 older files omitted'))
   assert.deepEqual(parseSessionOutcome(renderSessionOutcome(truncated)), truncated)
+})
+
+function toolCall(
+  id: string,
+  title: string,
+  status: 'completed' | 'failed',
+  extra: Partial<Extract<AgentEvent, { type: 'activity' }>['activity']> = {}
+): AgentEvent {
+  return { type: 'activity', activity: { id, title, status, ...extra } }
+}
+
+test('a failed tool call is recorded with its error, and a completed one never is (Tucaen/toucan#22)', () => {
+  const snapshot = transcript(
+    user('u1', 'Make the flaky suite pass.'),
+    toolCall('t1', 'Read src/a.ts', 'completed', { content: 'export const a = 1' }),
+    toolCall('t2', 'Edit src/a.ts', 'failed', {
+      content: '<tool_use_error>String to replace not found in file.\nString: const b</tool_use_error>'
+    }),
+    // A shell call's exit code is the stable part: its output differs run to run.
+    toolCall('t3', 'npm test', 'failed', { kind: 'execute', content: 'Tests 3 failed (412ms)', exitCode: 1 }),
+    toolCall('t4', 'Glob **/*.md', 'failed'),
+    toolCall('t5', 'npm run lint', 'failed', { rawOutput: { exit_code: 2, formatted_output: 'x' } }),
+    assistant('a1', 'Still red.', 'final'),
+    { type: 'turn_complete', stopReason: 'end_turn' }
+  )
+  const record = extractSessionOutcome(snapshot, SOURCE, null, AT)
+  assert.ok(record)
+
+  assert.deepEqual(record.toolFailures, [
+    'Edit src/a.ts — String to replace not found in file.',
+    'npm test — exit 1',
+    'Glob **/*.md',
+    'npm run lint — exit 2'
+  ])
+  assert.equal(record.toolFailuresOmitted, 0)
+  const rendered = renderSessionOutcome(record)
+  assert.match(rendered, /## Tool failures\n\n- Edit src\/a\.ts — String to replace not found in file\.\n/)
+  assert.ok(!rendered.includes('Read src/a.ts'))
+  assert.deepEqual(parseSessionOutcome(rendered), record)
+})
+
+test('retrying the same failing command leaves one entry, at its latest position (Tucaen/toucan#22)', () => {
+  const snapshot = transcript(
+    user('u1', 'Get the build green.'),
+    toolCall('t1', 'npm run build', 'failed', { exitCode: 1 }),
+    toolCall('t2', 'npm test', 'failed', { exitCode: 1 }),
+    toolCall('t3', 'npm run build', 'failed', { exitCode: 1 }),
+    toolCall('t4', 'npm run build', 'failed', { exitCode: 2 })
+  )
+  const record = extractSessionOutcome(snapshot, SOURCE, null, AT)
+  assert.ok(record)
+
+  assert.deepEqual(record.toolFailures, ['npm test — exit 1', 'npm run build — exit 1', 'npm run build — exit 2'])
+})
+
+test('a capped tool-failure list keeps the newest, says so, and never reads its marker back as an entry (Tucaen/toucan#22)', () => {
+  const count = SESSION_OUTCOME_TOOL_FAILURE_LIMIT + 3
+  const snapshot = transcript(
+    user('u1', 'Try every command.'),
+    ...Array.from({ length: count }, (_, index) =>
+      toolCall(`t${index}`, `command-${index} ${'--flag '.repeat(40)}`, 'failed', { content: 'boom '.repeat(80) })
+    )
+  )
+  const record = extractSessionOutcome(snapshot, SOURCE, null, AT)
+  assert.ok(record)
+
+  assert.equal(record.toolFailures.length, SESSION_OUTCOME_TOOL_FAILURE_LIMIT)
+  assert.ok(record.toolFailures.at(-1)?.startsWith(`command-${count - 1} `))
+  assert.ok(record.toolFailures.every((entry) => entry.length <= SESSION_OUTCOME_TOOL_FAILURE_ENTRY_LIMIT))
+  assert.equal(record.toolFailuresOmitted, 3)
+  const rendered = renderSessionOutcome(record)
+  assert.ok(rendered.includes(`- ${sessionOutcomeToolFailuresOmittedMarker(3)}`))
+  const parsed = parseSessionOutcome(rendered)
+  assert.deepEqual(parsed, record)
+  assert.ok(parsed?.toolFailures.every((entry) => !entry.startsWith('…')))
+})
+
+test('tool failures seen by an earlier process survive a restart that no longer replays them (Tucaen/toucan#22)', () => {
+  const before = extractSessionOutcome(
+    transcript(user('u1', 'Fix the migration.'), toolCall('t1', 'npm run migrate', 'failed', { exitCode: 1 })),
+    SOURCE,
+    null,
+    AT
+  )
+  assert.ok(before)
+  const onDisk = parseSessionOutcome(renderSessionOutcome(before))
+
+  // The resumed process sees only the new turn's activity.
+  const after = extractSessionOutcome(
+    transcript(user('u1', 'Fix the migration.'), toolCall('t9', 'npm test', 'failed', { exitCode: 1 })),
+    SOURCE,
+    onDisk,
+    AT
+  )
+  assert.ok(after)
+  assert.deepEqual(after.toolFailures, ['npm run migrate — exit 1', 'npm test — exit 1'])
+
+  // Re-capturing within one process re-reports what the record already holds: no duplicates, no inflation.
+  const again = extractSessionOutcome(
+    transcript(user('u1', 'Fix the migration.'), toolCall('t9', 'npm test', 'failed', { exitCode: 1 })),
+    SOURCE,
+    after,
+    AT
+  )
+  assert.deepEqual(again?.toolFailures, after.toolFailures)
+  assert.equal(again?.toolFailuresOmitted, 0)
 })

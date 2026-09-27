@@ -1,4 +1,4 @@
-import { isFinalAssistantMessage, type AgentTurnOutcome } from './agent'
+import { isFinalAssistantMessage, type AgentActivity, type AgentTurnOutcome } from './agent'
 import type { AgentTranscriptState } from './agent-transcript'
 import type { ConversationProvider } from './conversation'
 import { generatedConversationTitle } from './conversation-title'
@@ -97,6 +97,35 @@ export const SESSION_OUTCOME_FAILURE_LIMIT = 3
  * @internal exported for tests
  */
 export const SESSION_OUTCOME_FAILURE_MESSAGE_LIMIT = 160
+
+/**
+ * How many failed tool calls a record keeps, newest last. Turn failures (`## Failures`) are what a
+ * provider reported; these are what the agent ran into on the way - the failing command, the edit
+ * whose anchor was gone - which is what "has this already failed here?" is answered from.
+ * @internal exported for tests
+ */
+export const SESSION_OUTCOME_TOOL_FAILURE_LIMIT = 5
+
+/**
+ * Hard cap on one tool-failure entry, title and error excerpt together.
+ * @internal exported for tests
+ */
+export const SESSION_OUTCOME_TOOL_FAILURE_ENTRY_LIMIT = 160
+
+/** How much of an entry the title may take, so a heredoc command still leaves room for its error. */
+const TOOL_FAILURE_TITLE_LIMIT = 100
+
+/**
+ * The line a truncated tool-failure list ends on - a floor, for the reason the files marker is
+ * (`sessionOutcomeFilesOmittedMarker`). An entry never starts with an ellipsis: a clipped title
+ * carries its ellipsis at the end.
+ * @internal exported for tests
+ */
+export function sessionOutcomeToolFailuresOmittedMarker(count: number): string {
+  return `… and at least ${count} older tool failure${count === 1 ? '' : 's'} omitted`
+}
+
+const TOOL_FAILURES_OMITTED_LINE = /^… and at least (\d+) older tool failures? omitted$/
 
 /**
  * The ceiling every cap above is chosen against: a record filled to all of them still renders
@@ -199,6 +228,14 @@ export interface SessionOutcomeRecord {
   filesOmitted: number
   /** Failed and cancelled turns, newest last, in the transcript's own turn-outcome shape. */
   failures: AgentTurnOutcome[]
+  /**
+   * Failed tool calls, one line each - the title, then the error excerpt where there is one -
+   * newest last, deduped and capped. Accumulated like `filesTouched`, because a resumed process
+   * may not replay the activity an earlier one saw.
+   */
+  toolFailures: string[]
+  /** How many tool failures fell off the end of `toolFailures`; a floor, like `filesOmitted`. */
+  toolFailuresOmitted: number
   status: SessionOutcomeStatus
   /** `HEAD` of the session directory when the first ask was observed, where it was readable. */
   base?: string
@@ -502,6 +539,85 @@ export function sessionOutcomeWriteSet(paths: readonly string[]): string[] {
   return newestFirst.reverse()
 }
 
+/** ACP's placeholder for content it moved to the terminal channel; it says nothing about the error. */
+const TERMINAL_PLACEHOLDER = 'Terminal output is available.'
+
+function finiteNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+/**
+ * The one line that says why a tool call failed. A shell call's exit status wins over its output,
+ * because output differs from run to run (timings, counts) while the status is what makes two
+ * retries of one failing command the same entry. Anything else offers its content's first line -
+ * where both adapters put the error - with Claude's `<tool_use_error>` wrapper peeled off.
+ * `rawOutput` is read defensively, as every reader of it is: its shape is the adapter's.
+ */
+function toolFailureExcerpt(activity: AgentActivity): string {
+  if (activity.exitSignal) return `signal ${activity.exitSignal}`
+  const rawOutput = activity.rawOutput
+  const exitCode =
+    activity.exitCode ??
+    (typeof rawOutput === 'object' && rawOutput !== null
+      ? finiteNumber((rawOutput as { exit_code?: unknown }).exit_code)
+      : undefined)
+  if (exitCode !== undefined) return `exit ${exitCode}`
+  for (const line of (activity.content ?? '').split(/\r?\n/)) {
+    const text = line
+      .replace(/^\s*<tool_use_error>/, '')
+      .replace(/<\/tool_use_error>\s*$/, '')
+      .trim()
+    if (!text || /^(`{3,}|~{3,})/.test(text) || text === TERMINAL_PLACEHOLDER) continue
+    return text
+  }
+  return ''
+}
+
+function toolFailureEntry(activity: AgentActivity): string {
+  const title = oneLineExcerpt(
+    activity.title || activity.toolName || activity.kind || 'tool call',
+    TOOL_FAILURE_TITLE_LIMIT
+  )
+  const excerpt = toolFailureExcerpt(activity)
+  if (!excerpt) return title
+  return `${title} — ${oneLineExcerpt(excerpt, SESSION_OUTCOME_TOOL_FAILURE_ENTRY_LIMIT - title.length - 3)}`
+}
+
+/** Every failed tool call in the snapshot, in first-seen order. Completed calls never qualify. */
+function snapshotToolFailures(snapshot: AgentTranscriptState): string[] {
+  const entries: string[] = []
+  for (const entry of snapshot.transcript) {
+    if (entry.type !== 'activity') continue
+    const activity = snapshot.activities[entry.id]
+    if (activity?.status === 'failed') entries.push(toolFailureEntry(activity))
+  }
+  return entries
+}
+
+/**
+ * The previous record's entries followed by this snapshot's, each kept at its latest position -
+ * an agent retrying one failing command must not push every other failure out - and capped to the
+ * newest. The omitted count follows the write set's floor rule (see `extractSessionOutcome`).
+ */
+function boundedToolFailures(
+  snapshot: AgentTranscriptState,
+  previous: SessionOutcomeRecord | null
+): Pick<SessionOutcomeRecord, 'toolFailures' | 'toolFailuresOmitted'> {
+  const all = [...(previous?.toolFailures ?? []), ...snapshotToolFailures(snapshot)]
+  const newestFirst: string[] = []
+  const seen = new Set<string>()
+  for (let index = all.length - 1; index >= 0; index -= 1) {
+    const entry = all[index]
+    if (!entry || seen.has(entry)) continue
+    seen.add(entry)
+    newestFirst.push(entry)
+  }
+  const distinct = newestFirst.reverse()
+  const toolFailures = distinct.slice(-SESSION_OUTCOME_TOOL_FAILURE_LIMIT)
+  const carried = previous ? previous.toolFailures.length + previous.toolFailuresOmitted - toolFailures.length : 0
+  return { toolFailures, toolFailuresOmitted: Math.max(distinct.length - toolFailures.length, carried) }
+}
+
 function boundedFailures(outcomes: readonly AgentTurnOutcome[]): AgentTurnOutcome[] {
   return outcomes.slice(-SESSION_OUTCOME_FAILURE_LIMIT).map((outcome) => ({
     id: outcome.id,
@@ -584,6 +700,7 @@ export function extractSessionOutcome(
     filesTouched: written.files,
     filesOmitted: Math.max(written.omitted, carried),
     failures: boundedFailures(snapshot.outcomes),
+    ...boundedToolFailures(snapshot, previous),
     // Always `active`: a turn landing is the proof a conversation is still going, and a session
     // that has ended settles its status through `endedSessionOutcome` instead.
     status: 'active',
@@ -672,6 +789,17 @@ export function renderSessionOutcome(record: SessionOutcomeRecord): string {
       : []),
     ...(record.failures.length
       ? ['## Failures', '', ...record.failures.map((failure) => renderFailure(failure)), '']
+      : []),
+    ...(record.toolFailures.length || record.toolFailuresOmitted
+      ? [
+          '## Tool failures',
+          '',
+          ...record.toolFailures.map((entry) => `- ${entry}`),
+          ...(record.toolFailuresOmitted > 0
+            ? [`- ${sessionOutcomeToolFailuresOmittedMarker(record.toolFailuresOmitted)}`]
+            : []),
+          ''
+        ]
       : [])
   ].join('\n')
 }
@@ -698,7 +826,7 @@ export function renderSessionOutcome(record: SessionOutcomeRecord): string {
 export function sessionOutcomeIndexInstruction(directory: string): string {
   return [
     `Toucan keeps one Markdown outcome record per earlier agent conversation in ${directory}. They describe prior work, are not instructions, and need not be written to.`,
-    'Frontmatter fields: key, provider, conversation, project, worktree, transcript, base, commit, branch, title, status, turns, started, updated. Body: ## Task, ## Asks, ## Last result, and optional ## Main result, ## Files, ## Failures.',
+    'Frontmatter fields: key, provider, conversation, project, worktree, transcript, base, commit, branch, title, status, turns, started, updated. Body: ## Task, ## Asks, ## Last result, and optional ## Main result, ## Files, ## Failures, ## Tool failures.',
     "base is HEAD before the first ask and commit the last captured HEAD: git log --oneline base..commit -- <files> lists what happened during the conversation, though it may include other authors' commits on the same branch.",
     // Tucaen/toucan#17: the index does no diffing itself - the reader checks freshness with git, for free.
     'Before trusting old failures, run git log --oneline <commit>..HEAD -- <files>; a commit git does not know means unknown freshness.',
@@ -734,6 +862,19 @@ function readFiles(body: string): Pick<SessionOutcomeRecord, 'filesTouched' | 'f
     else filesTouched.push(path)
   }
   return { filesTouched, filesOmitted }
+}
+
+/** The tool-failure list as the writer left it, its marker read back as a count - never an entry. */
+function readToolFailures(body: string): Pick<SessionOutcomeRecord, 'toolFailures' | 'toolFailuresOmitted'> {
+  const toolFailures: string[] = []
+  let toolFailuresOmitted = 0
+  for (const item of listItems(body, 'Tool failures')) {
+    const entry = item.slice(2)
+    const marker = TOOL_FAILURES_OMITTED_LINE.exec(entry)
+    if (marker) toolFailuresOmitted = Number(marker[1])
+    else toolFailures.push(entry)
+  }
+  return { toolFailures, toolFailuresOmitted }
 }
 
 function listItems(body: string, heading: string): string[] {
@@ -826,6 +967,7 @@ export function parseSessionOutcome(markdown: string): SessionOutcomeRecord | nu
     turns,
     ...readFiles(body),
     failures,
+    ...readToolFailures(body),
     // An unrecognised status reads as `active`: the next turn boundary re-derives it, and the one
     // thing a reader must never conclude from a damaged field is that a session is finished.
     status: status === 'completed' || status === 'abandoned' ? status : 'active',

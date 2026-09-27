@@ -17,6 +17,7 @@ import {
   SESSION_OUTCOME_FILES_LIMIT,
   SESSION_OUTCOME_SCREENFUL,
   SESSION_OUTCOME_SIZE_BUDGET,
+  SESSION_OUTCOME_TOOL_FAILURE_LIMIT,
   extractSessionOutcome,
   renderSessionOutcome,
   sessionOutcomeFileName,
@@ -59,6 +60,7 @@ test('the pointer names the directory, every field a record carries, and how to 
     transcript(
       user('u1', 'Check the pointer against a real record.'),
       assistant('a1', 'Checked.'),
+      { type: 'activity', activity: { id: 'tool-1', title: 'npm test', status: 'failed', exitCode: 1 } },
       { type: 'turn_failed', turnId: 't1', message: 'Typecheck failed.' },
       { type: 'turn_complete', stopReason: 'end_turn' }
     ),
@@ -74,6 +76,7 @@ test('the pointer names the directory, every field a record carries, and how to 
     AT
   )
   assert.ok(record)
+  assert.ok(renderSessionOutcome(record).includes('## Tool failures'))
   for (const line of renderSessionOutcome(record).split('\n')) {
     const field = /^([a-z]+): /.exec(line)?.[1] ?? /^(## .+)$/.exec(line)?.[1]
     if (field) assert.ok(instruction.includes(field), `the pointer never mentions ${field}`)
@@ -296,6 +299,15 @@ function saturatedRecord(index: number): SessionOutcomeRecord {
         turnId: `turn-${'x'.repeat(30)}-${failure}`,
         message: 'stack frame '.repeat(80)
       })),
+      ...Array.from({ length: SESSION_OUTCOME_TOOL_FAILURE_LIMIT * 2 }, (_, call): AgentEvent => ({
+        type: 'activity',
+        activity: {
+          id: `tool-${call}`,
+          title: `npm run step-${call} ${'--flag '.repeat(40)}`,
+          status: 'failed',
+          content: 'error output '.repeat(80)
+        }
+      })),
       assistant('a-last', `Done: ${'detail '.repeat(400)}`),
       { type: 'turn_complete', stopReason: 'end_turn' }
     ),
@@ -338,6 +350,7 @@ test('a screenful of records costs little enough that consulting the index is al
   // The saturated record is the one that truncates, so its marker is inside the number below - a
   // fixture that stopped overflowing the file cap would quietly stop measuring the worst case.
   assert.ok(renderSessionOutcome(saturatedRecord(0)).includes('older files omitted'))
+  assert.ok(renderSessionOutcome(saturatedRecord(0)).includes('older tool failures omitted'))
 
   assert.ok(typical < 27_000, `a typical screenful grew to ${typical} bytes`)
   assert.ok(

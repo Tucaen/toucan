@@ -189,6 +189,8 @@ function fixture({
           filesTouched: ['src/old.ts'],
           filesOmitted: 0,
           failures: [],
+          toolFailures: [],
+          toolFailuresOmitted: 0,
           status: 'completed',
           startedAt: updatedAt,
           updatedAt

@@ -33,6 +33,8 @@ function record(overrides: Partial<SessionOutcomeRecord> = {}): SessionOutcomeRe
     filesTouched: ['src/offer-form.ts'],
     filesOmitted: 0,
     failures: [],
+    toolFailures: [],
+    toolFailuresOmitted: 0,
     status: 'active',
     startedAt: '2026-09-25T10:00:00.000Z',
     updatedAt: '2026-09-25T10:30:00.000Z',
