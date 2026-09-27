@@ -39,9 +39,9 @@ At #190, two things followed from the original measurement. The caps the tracer 
 
 #19 raised the ceiling to 6144 for handoff-shaped records. Asks get about 1.5 KB and the main result up to 2.5 KB, but the main result yields space when every other section saturates so the whole record still stays below the hard ceiling. The typical read grew by about 3 KB per screenful; the pathological screenful now costs about 30k tokens, which makes the filename-first read even more important.
 
-The pointer itself costs ~1,150 characters (~290 tokens) on every session, read or not: 1,094 plus the outcomes directory, measured 2026-09-27 (grown from ~740 by #197's retrieval-pattern sentence, #18's filename recipe, and Tucaen/toucan#22's `## Tool failures` in the section list).
+The pointer itself costs ~1,150 characters (~290 tokens) on every session, read or not: 1,094 plus the outcomes directory, measured 2026-09-27 (grown from ~740 by #197's retrieval-pattern sentence, #18's filename recipe, and Tucaen/toucan#22's `## Tool failures` in the section list). That is the fixed price of the index being discoverable at all, and it is one file-read's worth.
 
-Tucaen/toucan#22 added `## Tool failures`: up to `SESSION_OUTCOME_TOOL_FAILURE_LIMIT` (5) failed tool calls, one line of at most 160 characters each (title, then the exit status for a shell call or the content's first line otherwise), deduped, newest kept, with an anchored omission marker, and merged with the previous record like the write set. Saturated, that is under 1 KB, and it comes out of `## Main result`'s share, so the saturated row above does not move. A record with no failed tool call pays nothing. That is the fixed price of the index being discoverable at all, and it is one file-read's worth.
+Tucaen/toucan#22 added `## Tool failures`: up to `SESSION_OUTCOME_TOOL_FAILURE_LIMIT` (5) failed tool calls, one line of at most 160 characters each (title, then a shell call's non-zero exit status or the content's first line otherwise), deduped, newest kept, with an anchored omission marker, and merged with the previous record like the write set. Saturated, that is under 1 KB, and it comes out of `## Main result`'s share, so the saturated row above does not move. A record with no failed tool call pays nothing.
 
 ### A capped file list says it is capped (#198)
 

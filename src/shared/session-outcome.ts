@@ -525,16 +525,21 @@ export function sessionOutcomeFiles(paths: readonly string[]): SessionOutcomeFil
  * rewrote one file forty times must not push everything else out with forty copies of the entry.
  */
 export function sessionOutcomeWriteSet(paths: readonly string[]): string[] {
+  // Deduped on the path itself and clipped only afterwards: two deep files sharing a long prefix
+  // are two files, and collapsing them because their first hundred characters match would make
+  // the record claim one of them was never written.
+  return latestDistinct(paths).map((path) => oneLineExcerpt(path, SESSION_OUTCOME_PATH_LIMIT))
+}
+
+/** Every distinct non-empty item, each at its *latest* position, newest last. */
+function latestDistinct(items: readonly string[]): string[] {
   const newestFirst: string[] = []
   const seen = new Set<string>()
-  for (let index = paths.length - 1; index >= 0; index -= 1) {
-    // Deduped on the path itself and clipped only afterwards: two deep files sharing a long prefix
-    // are two files, and collapsing them because their first hundred characters match would make
-    // the record claim one of them was never written.
-    const path = paths[index]
-    if (!path || seen.has(path)) continue
-    seen.add(path)
-    newestFirst.push(oneLineExcerpt(path, SESSION_OUTCOME_PATH_LIMIT))
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index]
+    if (!item || seen.has(item)) continue
+    seen.add(item)
+    newestFirst.push(item)
   }
   return newestFirst.reverse()
 }
@@ -542,26 +547,20 @@ export function sessionOutcomeWriteSet(paths: readonly string[]): string[] {
 /** ACP's placeholder for content it moved to the terminal channel; it says nothing about the error. */
 const TERMINAL_PLACEHOLDER = 'Terminal output is available.'
 
-function finiteNumber(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
-}
+/** Between an entry's title and its error excerpt. */
+const TOOL_FAILURE_SEPARATOR = ' — '
 
 /**
- * The one line that says why a tool call failed. A shell call's exit status wins over its output,
- * because output differs from run to run (timings, counts) while the status is what makes two
- * retries of one failing command the same entry. Anything else offers its content's first line -
- * where both adapters put the error - with Claude's `<tool_use_error>` wrapper peeled off.
- * `rawOutput` is read defensively, as every reader of it is: its shape is the adapter's.
+ * The one line that says why a tool call failed. A shell call's non-zero exit status wins over its
+ * output, because output differs from run to run (timings, counts) while the status is what makes
+ * two retries of one failing command the same entry. `exitCode` is already the defensively parsed
+ * `rawOutput.exit_code` (or terminal exit) - `exitStatusOf` in `agent-activity.ts` folds it - so it
+ * is not read a second time here. Anything else offers its content's first line - where both
+ * adapters put the error - with Claude's `<tool_use_error>` wrapper peeled off.
  */
 function toolFailureExcerpt(activity: AgentActivity): string {
   if (activity.exitSignal) return `signal ${activity.exitSignal}`
-  const rawOutput = activity.rawOutput
-  const exitCode =
-    activity.exitCode ??
-    (typeof rawOutput === 'object' && rawOutput !== null
-      ? finiteNumber((rawOutput as { exit_code?: unknown }).exit_code)
-      : undefined)
-  if (exitCode !== undefined) return `exit ${exitCode}`
+  if (activity.exitCode !== undefined && activity.exitCode !== 0) return `exit ${activity.exitCode}`
   for (const line of (activity.content ?? '').split(/\r?\n/)) {
     const text = line
       .replace(/^\s*<tool_use_error>/, '')
@@ -580,7 +579,8 @@ function toolFailureEntry(activity: AgentActivity): string {
   )
   const excerpt = toolFailureExcerpt(activity)
   if (!excerpt) return title
-  return `${title} — ${oneLineExcerpt(excerpt, SESSION_OUTCOME_TOOL_FAILURE_ENTRY_LIMIT - title.length - 3)}`
+  const room = SESSION_OUTCOME_TOOL_FAILURE_ENTRY_LIMIT - title.length - TOOL_FAILURE_SEPARATOR.length
+  return `${title}${TOOL_FAILURE_SEPARATOR}${oneLineExcerpt(excerpt, room)}`
 }
 
 /** Every failed tool call in the snapshot, in first-seen order. Completed calls never qualify. */
@@ -603,16 +603,7 @@ function boundedToolFailures(
   snapshot: AgentTranscriptState,
   previous: SessionOutcomeRecord | null
 ): Pick<SessionOutcomeRecord, 'toolFailures' | 'toolFailuresOmitted'> {
-  const all = [...(previous?.toolFailures ?? []), ...snapshotToolFailures(snapshot)]
-  const newestFirst: string[] = []
-  const seen = new Set<string>()
-  for (let index = all.length - 1; index >= 0; index -= 1) {
-    const entry = all[index]
-    if (!entry || seen.has(entry)) continue
-    seen.add(entry)
-    newestFirst.push(entry)
-  }
-  const distinct = newestFirst.reverse()
+  const distinct = latestDistinct([...(previous?.toolFailures ?? []), ...snapshotToolFailures(snapshot)])
   const toolFailures = distinct.slice(-SESSION_OUTCOME_TOOL_FAILURE_LIMIT)
   const carried = previous ? previous.toolFailures.length + previous.toolFailuresOmitted - toolFailures.length : 0
   return { toolFailures, toolFailuresOmitted: Math.max(distinct.length - toolFailures.length, carried) }
@@ -649,10 +640,11 @@ export function endedSessionOutcome(
 /**
  * The record this snapshot describes, or `null` when there is nothing worth writing down yet - a
  * conversation with no user message has not been asked anything. `previous` is the record already
- * on disk: `base`, `startedAt` and the write set are carried over from it, so a record is otherwise
- * re-derived in full at every turn boundary and cannot drift from the transcript it describes.
- * The write set is the other deliberate exception - no transcript snapshot reports what a process
- * that has already exited wrote, so the only place that history survives is the record itself.
+ * on disk: `base`, `startedAt`, the write set and the tool failures are carried over from it, so a
+ * record is otherwise re-derived in full at every turn boundary and cannot drift from the
+ * transcript it describes. The write set and tool failures are the other deliberate exceptions -
+ * no transcript snapshot reports what a process that has already exited wrote or ran into, so the
+ * only place that history survives is the record itself.
  */
 export function extractSessionOutcome(
   snapshot: AgentTranscriptState,

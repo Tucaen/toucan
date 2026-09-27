@@ -25,6 +25,7 @@ import {
   sessionOutcomeExcerpt,
   sessionOutcomeFileName,
   sessionOutcomeFilesOmittedMarker,
+  sessionOutcomeIndexInstruction,
   sessionOutcomeKey,
   sessionOutcomeProjectGlob,
   sessionOutcomeShortIdSuffix,
@@ -966,7 +967,9 @@ test('a failed tool call is recorded with its error, and a completed one never i
     // A shell call's exit code is the stable part: its output differs run to run.
     toolCall('t3', 'npm test', 'failed', { kind: 'execute', content: 'Tests 3 failed (412ms)', exitCode: 1 }),
     toolCall('t4', 'Glob **/*.md', 'failed'),
-    toolCall('t5', 'npm run lint', 'failed', { rawOutput: { exit_code: 2, formatted_output: 'x' } }),
+    // `agent-activity.ts` folds `rawOutput.exit_code` into `exitCode`; a zero exit says nothing.
+    toolCall('t5', 'npm run lint', 'failed', { exitCode: 2, rawOutput: { exit_code: 2, formatted_output: 'x' } }),
+    toolCall('t6', 'git push', 'failed', { exitCode: 0, content: 'rejected: non-fast-forward' }),
     assistant('a1', 'Still red.', 'final'),
     { type: 'turn_complete', stopReason: 'end_turn' }
   )
@@ -977,7 +980,8 @@ test('a failed tool call is recorded with its error, and a completed one never i
     'Edit src/a.ts — String to replace not found in file.',
     'npm test — exit 1',
     'Glob **/*.md',
-    'npm run lint — exit 2'
+    'npm run lint — exit 2',
+    'git push — rejected: non-fast-forward'
   ])
   assert.equal(record.toolFailuresOmitted, 0)
   const rendered = renderSessionOutcome(record)
@@ -1051,4 +1055,8 @@ test('tool failures seen by an earlier process survive a restart that no longer 
   )
   assert.deepEqual(again?.toolFailures, after.toolFailures)
   assert.equal(again?.toolFailuresOmitted, 0)
+})
+
+test('the pointer tells a session the record may carry tool failures (Tucaen/toucan#22)', () => {
+  assert.ok(sessionOutcomeIndexInstruction('D:\\outcomes').includes('## Tool failures'))
 })
