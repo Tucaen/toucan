@@ -275,6 +275,7 @@ export const MIN_WORKTREE_SIZE = { width: 360, height: 232 }
 /**
  * The vertical room a worktree's own chrome takes around its inner canvas: the header above and
  * the compact bottom row below. Only ever used to size a frame around chats, never to lay one out.
+ * @internal exported for tests
  */
 export const WORKTREE_CHROME_HEIGHT = 76
 /** The gap between chats set side by side on a worktree canvas, and between a worktree and its neighbours. */

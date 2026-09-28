@@ -126,7 +126,8 @@ describe.each(['claude', 'codex'] as const)('%s restored chat transcript', (prov
     window.agentApi = mock.api
 
     const node = restoredChat(provider)
-    expect(node.position).toEqual({ x: 120, y: 80 })
+    // Saved before worktrees hosted chats, so it moves onto its worktree's canvas, at its origin.
+    expect(node.position).toEqual({ x: 0, y: 0 })
     expect(node.style).toMatchObject({ width: 640, height: 480 })
     expect(node.data.worktreeId).toBe('worktree-1')
     expect(node.data.workingDirectory).toBe('/project-worktree')
