@@ -189,3 +189,18 @@ test('the activity line counts chats and what they are doing, not the git state 
   })
   assert.deepEqual(worktreeActivity([], {}), { chats: 0, working: 0, attention: 0 })
 })
+
+test('moving a worktree moves nothing inside it: its chats keep their geometry, cwd and canvas array', () => {
+  const host = worktree('a')
+  const chats = [session('one', 'claude', 'a', { x: 0, y: 0 }), session('two', 'codex', 'a', { x: 798, y: 0 })]
+  const before = partitionWorktreeCanvases([host, ...chats])
+
+  const moved = { ...host, position: { x: 2400, y: -600 } }
+  const after = partitionWorktreeCanvases([moved, ...chats], before)
+
+  assert.equal(after.children.get('a'), before.children.get('a'))
+  assert.deepEqual(
+    after.children.get('a')?.map((node) => [node.position, node.data.workingDirectory]),
+    chats.map((node) => [node.position, node.data.workingDirectory])
+  )
+})

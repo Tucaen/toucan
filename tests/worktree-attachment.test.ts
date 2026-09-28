@@ -110,6 +110,17 @@ test('adopting rehomes the node: the worktree becomes its own, and its working d
   assert.equal(node.data.activeWorktreeBranch, undefined)
 })
 
+test('an adopted chat takes the next free spot on its worktree canvas, beside the chats already there', () => {
+  const resident = { ...sessionNode('resident', { worktreeId: 'worktree-1' }), position: { x: 0, y: 24 } }
+  const claiming = { ...sessionNode('node-1', { activeWorktreeId: 'worktree-1' }), position: { x: 3000, y: 900 } }
+  const adopted = adoptClaimedWorktrees([worktreeNode('worktree-1'), resident, claiming], statuses('idle'))
+  const node = adopted.filter(isTerminalCanvasNode).find((candidate) => candidate.id === 'node-1')!
+
+  // The resident is unmeasured, so it counts at the size a new session opens at.
+  assert.deepEqual(node.position, { x: 750 + 48, y: 24 })
+  assert.equal(node.data.worktreeId, 'worktree-1')
+})
+
 test('a node mid-turn keeps its association until the work it is doing is finished', () => {
   const nodes = [sessionNode('node-1', { activeWorktreeId: 'worktree-1' }), worktreeNode('worktree-1')]
 
