@@ -165,6 +165,8 @@ import { nodeSearchKeyAction } from './node-search'
 import { NodeSearchContext, NO_NODE_SEARCH_REQUEST, type NodeSearchRequest } from './node-search-context'
 import { useNodeSnap } from './use-node-snap'
 import { useProjectAvatars } from './use-project-avatars'
+import { createWorktreeCreator } from './worktree-creation'
+import type { AgentProvider } from '../../shared/agent-provider'
 
 type Project = WorkspaceProject
 
@@ -234,7 +236,6 @@ function createProject(directory: ProjectDirectory, index: number): Project {
   }
 }
 
-const WORKTREE_CREATE_FAILED = 'The worktree could not be created.'
 const WORKTREE_REMOVE_FAILED = 'The worktree could not be removed.'
 
 /** One line however many terminals were closed at once, which is the point of a chip over an alert. */
@@ -291,6 +292,8 @@ function Canvas(): JSX.Element {
   const [recentlyClosedNodes, setRecentlyClosedNodes] = useState<WorkspaceTerminalNode[]>([])
   const [menu, setMenu] = useState<ContextMenuState | null>(null)
   const [worktreeDraft, setWorktreeDraft] = useState<WorktreeDraft | null>(null)
+  /** The provider the next worktree dialog opens on: the one last chosen there, this session. */
+  const lastWorktreeProvider = useRef<AgentProvider>('claude')
   const [removalPrompt, setRemovalPrompt] = useState<WorktreeRemovalPrompt | null>(null)
   const [setupProjectId, setSetupProjectId] = useState<string | null>(null)
   /**
@@ -1309,6 +1312,8 @@ function Canvas(): JSX.Element {
               projectId: project.id,
               branch: '',
               baseRef: '',
+              // The dialog now opens a chat as well; the one the prompt was typed in is the obvious one.
+              provider: node.data.kind === 'codex' ? 'codex' : 'claude',
               position: { x: node.position.x, y: node.position.y + (node.height ?? 340) + 64 },
               busy: false,
               error: result.message ?? 'The worktree could not be created.'
@@ -1880,7 +1885,15 @@ function Canvas(): JSX.Element {
           addSessionNode({ kind: SESSION_KIND_BY_ACTION[action], project, position })
           break
         case 'create-worktree':
-          setWorktreeDraft({ projectId: project.id, branch: '', baseRef: '', position, busy: false, error: null })
+          setWorktreeDraft({
+            projectId: project.id,
+            branch: '',
+            baseRef: '',
+            provider: lastWorktreeProvider.current,
+            position,
+            busy: false,
+            error: null
+          })
           break
         case 'open-history':
           setHistoryDrop(position)
@@ -2112,46 +2125,87 @@ function Canvas(): JSX.Element {
     [activeProjectId, addSessionNode, centredDropPosition, focusNode]
   )
 
+  /**
+   * The draft being submitted, read by the creator's steps. The creator is single-flight, so there
+   * is only ever one, and the steps can stay stable rather than being rebuilt per draft.
+   */
+  const worktreeSubmission = useRef<{ draft: WorktreeDraft; project: Project } | null>(null)
+  const worktreeCreator = useMemo(
+    () =>
+      createWorktreeCreator<WorktreeCanvasNode['data']>({
+        create: (request) => window.worktreeApi.create(request),
+        register: (created) => {
+          const { draft, project } = worktreeSubmission.current!
+          const worktreeNode = createWorktreeCanvasNode(
+            {
+              worktreeId: crypto.randomUUID(),
+              branch: created.branch,
+              path: created.path,
+              baseRef: created.baseRef,
+              createdAt: new Date().toISOString(),
+              position: draft.position,
+              selected: false
+            },
+            project,
+            worktreeCallbacks
+          )
+          setNodes((current) =>
+            registerWorktreeNode(
+              current.map((node) => ({ ...node, selected: false })),
+              worktreeNode
+            )
+          )
+          return worktreeNode.data
+        },
+        // The existing new-chat path, so the node is an ordinary chat with its normal model,
+        // effort and permission controls, launched in the worktree from its first turn and
+        // selected - which is what hands its composer the caret once it can take input. No
+        // initial input: creating a worktree sends nothing and runs no setup on its own.
+        startChat: (worktree, provider) => {
+          const { draft, project } = worktreeSubmission.current!
+          return addSessionNode({
+            kind: provider,
+            project,
+            worktree,
+            position: { x: draft.position.x + DEFAULT_WORKTREE_SIZE.width + 48, y: draft.position.y }
+          })
+        }
+      }),
+    [addSessionNode, setNodes, worktreeCallbacks]
+  )
+
   const confirmWorktreeDraft = useCallback((): void => {
     const draft = worktreeDraft
     const project = projects.find((candidate) => candidate.id === draft?.projectId)
-    if (!draft || !project) return
+    if (!draft || !project || worktreeCreator.pending()) return
 
+    worktreeSubmission.current = { draft, project }
+    lastWorktreeProvider.current = draft.provider
+    const pending = worktreeCreator.submit({
+      projectPath: project.path,
+      branch: draft.branch,
+      baseRef: draft.baseRef.trim() || undefined,
+      provider: draft.provider
+    })
+    if (!pending) return
     setWorktreeDraft({ ...draft, busy: true, error: null })
-    void window.worktreeApi
-      .create({ projectPath: project.path, branch: draft.branch, baseRef: draft.baseRef.trim() || undefined })
-      .then((result) => {
-        if (!result.ok || !result.worktree) {
-          setWorktreeDraft({ ...draft, busy: false, error: result.message ?? 'The worktree could not be created.' })
-          return
-        }
-        const created = result.worktree
-        const worktreeNode = createWorktreeCanvasNode(
-          {
-            worktreeId: crypto.randomUUID(),
-            branch: created.branch,
-            path: created.path,
-            baseRef: created.baseRef,
-            createdAt: new Date().toISOString(),
-            position: draft.position,
-            selected: true
-          },
-          project,
-          worktreeCallbacks
-        )
-        setNodes((current) =>
-          registerWorktreeNode(
-            current.map((node) => ({ ...node, selected: false })),
-            worktreeNode
-          )
-        )
-        setWorktreeDraft(null)
-      })
-      // Without this the dialog would sit on `busy: true` forever, with no way out but Cancel.
-      .catch((error: unknown) => {
-        setWorktreeDraft({ ...draft, busy: false, error: worktreeErrorMessage(error, WORKTREE_CREATE_FAILED) })
-      })
-  }, [projects, setNodes, worktreeDraft, worktreeCallbacks])
+    void pending.then((outcome) => {
+      worktreeSubmission.current = null
+      if (outcome.status === 'failed') {
+        setWorktreeDraft({ ...draft, busy: false, error: outcome.message })
+        return
+      }
+      setWorktreeDraft(null)
+      // The checkout exists and stays; only its first chat is missing. The worktree node's own
+      // Claude/Codex actions start one there, so a retry never goes back through git.
+      if (outcome.status === 'chat-failed') {
+        setNotice({
+          text: 'Worktree created, chat not started',
+          detail: `${outcome.message} Start one from the ${outcome.worktree.branch} worktree node.`
+        })
+      }
+    })
+  }, [projects, worktreeCreator, worktreeDraft])
 
   /**
    * Avatar changes apply immediately rather than on the dialog's Save: the picked file has to be

@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { ModalDialog } from './ModalDialog'
 import { ProjectAvatar } from './ProjectAvatar'
 import { ArrowDown, ArrowUp, X } from 'lucide-react'
+import SessionKindIcon from './SessionKindIcon'
+import type { AgentProvider } from '../../shared/agent-provider'
 import type { WorkspaceProject } from '../../shared/workspace'
 import {
   moveRunCommand,
@@ -18,6 +20,8 @@ export interface WorktreeDraft {
   projectId: string
   branch: string
   baseRef: string
+  /** The provider of the one chat the new worktree opens with - the session's, not the worktree's. */
+  provider: AgentProvider
   position: { x: number; y: number }
   busy: boolean
   error: string | null
@@ -31,6 +35,12 @@ export interface WorktreeRemovalPrompt {
   busy: boolean
   error: string | null
 }
+
+/** Codex first, as the creation flow names them; each opens the same ordinary chat node. */
+const FIRST_CHAT_PROVIDERS: readonly { provider: AgentProvider; name: string }[] = [
+  { provider: 'codex', name: 'Codex' },
+  { provider: 'claude', name: 'Claude' }
+]
 
 export function WorktreeCreateDialog({
   draft,
@@ -58,6 +68,27 @@ export function WorktreeCreateDialog({
         }}
       >
         <strong id="worktree-create-title">New worktree in {project.name}</strong>
+        <div className="worktree-provider-choice" role="radiogroup" aria-label="First chat">
+          <span className="eyebrow-label" aria-hidden="true">
+            First chat
+          </span>
+          <div className="worktree-provider-options">
+            {FIRST_CHAT_PROVIDERS.map(({ provider, name }) => (
+              <label key={provider} data-checked={draft.provider === provider}>
+                <input
+                  type="radio"
+                  name="worktree-first-chat"
+                  value={provider}
+                  checked={draft.provider === provider}
+                  disabled={draft.busy}
+                  onChange={() => onChange({ provider })}
+                />
+                <SessionKindIcon kind={provider} />
+                <span>{name}</span>
+              </label>
+            ))}
+          </div>
+        </div>
         <label>
           <span className="eyebrow-label">Branch name</span>
           <input

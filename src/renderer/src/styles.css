@@ -1366,6 +1366,64 @@ button.global-status-chip:hover {
   border-color: #c992ff;
 }
 
+/* The worktree's first chat: two large choices, since picking the provider is the one decision
+   most creations make. The radio itself is visually hidden; the whole tile is its label. */
+.worktree-provider-choice {
+  display: grid;
+  gap: 5px;
+}
+
+.worktree-provider-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.dialog .worktree-provider-options label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid #323a46;
+  border-radius: 6px;
+  background: #131720;
+  color: #e3e8ef;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.dialog .worktree-provider-options label[data-checked='true'] {
+  border-color: #c992ff;
+  background: #221c30;
+}
+
+.dialog .worktree-provider-options label:has(input:focus-visible) {
+  outline: 2px solid #c992ff;
+  outline-offset: 2px;
+}
+
+.dialog .worktree-provider-options label:has(input:disabled) {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.dialog .worktree-provider-options input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.worktree-provider-options svg {
+  width: 18px;
+  height: 18px;
+  flex: none;
+}
+
 .dialog-actions {
   display: flex;
   justify-content: flex-end;
