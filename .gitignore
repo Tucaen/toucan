@@ -12,3 +12,4 @@ dist-out/
 .claude/worktrees/
 .agents/skills/typesafe-ai/
 skills-lock.json
+.scratch
