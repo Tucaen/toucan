@@ -771,6 +771,66 @@ export function serializeWorktreeNode(node: WorktreeCanvasNode): WorkspaceWorktr
   }
 }
 
+export interface SessionNodeSeed {
+  id: string
+  kind: TerminalKind
+  label: string
+  titleSource?: ConversationTitleSource
+  position: { x: number; y: number }
+  conversationId?: string
+  launchMode: SessionLaunchMode
+  branchedFrom?: ConversationLineage
+  preferredPermissionMode?: string
+  modelId?: string
+  initialInput?: string
+}
+
+/**
+ * The one place a freshly opened session node is built - from the context menu, a worktree's own
+ * actions, a branch, History, the phone, or the worktree dialog's first chat. Attachment is decided
+ * here and nowhere later: a node given a worktree runs in its directory from the first launch,
+ * since `workingDirectory` is the only value ever sent as a cwd. It is born selected, which is
+ * what hands its composer the caret once it can take input.
+ */
+export function createSessionCanvasNode(
+  seed: SessionNodeSeed,
+  project: WorkspaceProject,
+  worktree: Pick<WorktreeNodeData, 'worktreeId' | 'branch' | 'path'> | undefined,
+  callbacks: TerminalNodeCallbacks
+): TerminalCanvasNode {
+  return {
+    id: seed.id,
+    type: 'terminalNode',
+    dragHandle: NODE_DRAG_HANDLE,
+    selected: true,
+    position: seed.position,
+    data: {
+      kind: seed.kind,
+      sessionId: crypto.randomUUID(),
+      terminalLiveness: 'unverifiable',
+      label: seed.label,
+      titleSource: seed.titleSource,
+      projectId: project.id,
+      projectName: project.name,
+      projectPath: project.path,
+      projectColor: project.color,
+      worktreeId: worktree?.worktreeId,
+      worktreeBranch: worktree?.branch,
+      workingDirectory: worktree?.path ?? project.path,
+      conversationId: seed.conversationId,
+      focusMode: false,
+      preferredPermissionMode: seed.preferredPermissionMode,
+      modelId: seed.modelId,
+      dormant: false,
+      branchedFrom: seed.branchedFrom,
+      launchMode: seed.launchMode,
+      initialInput: seed.initialInput,
+      ...callbacks
+    },
+    style: { ...NEW_SESSION_NODE_SIZE }
+  }
+}
+
 export interface WorktreeNodeSeed {
   unavailable?: boolean
   /** The workspace's own id for the worktree; the canvas node's id is derived from it. */

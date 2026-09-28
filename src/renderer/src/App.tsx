@@ -55,6 +55,7 @@ import {
   changeFileCanvasNodePath,
   createDiffCanvasNode,
   createFileCanvasNode,
+  createSessionCanvasNode,
   createWorktreeCanvasNode,
   DEFAULT_WORKTREE_SIZE,
   NEW_NODE_SIZE,
@@ -65,7 +66,6 @@ import {
   isFileCanvasNode,
   isTerminalCanvasNode,
   isWorktreeCanvasNode,
-  NODE_DRAG_HANDLE,
   rememberClosedSessionNodes,
   reopenClosedSession,
   restoreCanvasWorkspace,
@@ -964,59 +964,44 @@ function Canvas(): JSX.Element {
         : undefined
       if (worktree?.unavailable) return null
       nextSessionNumber.current += 1
-      setNodes((current) => {
-        return [
-          ...current.map((node) => ({ ...node, selected: false })),
-          {
-            id,
-            type: 'terminalNode',
-            dragHandle: NODE_DRAG_HANDLE,
-            selected: true,
-            position,
-            data: {
-              kind,
-              sessionId: crypto.randomUUID(),
-              terminalLiveness: 'unverifiable',
-              label,
-              titleSource: options.titleSource,
-              projectId: project.id,
-              projectName: project.name,
-              projectPath: project.path,
-              projectColor: project.color,
-              worktreeId: worktree?.worktreeId,
-              worktreeBranch: worktree?.branch,
-              workingDirectory: worktree?.path ?? project.path,
-              conversationId,
-              focusMode: false,
-              preferredPermissionMode: kind === 'terminal' ? undefined : permissionModesRef.current[kind],
-              modelId: options.modelId,
-              dormant: false,
-              branchedFrom,
-              launchMode: resumeConversationId ? 'resume' : branchedFrom ? 'fork' : 'new',
-              initialInput: options.initialInput,
-              onStatusChange: handleStatusChange,
-              onAttention: handleAttention,
-              onTicketActivity: handleTicketActivity,
-              onConversationId: handleConversationId,
-              onTitleChange: handleTitleChange,
-              onFocusModeChange: handleFocusModeChange,
-              onDraftChange: handleDraftChange,
-              onScheduledMessagesChange: handleScheduledMessagesChange,
-              onPermissionModeChange: handlePermissionModeChange,
-              onModelChange: handleModelChange,
-              onTurnOutcome: handleTurnOutcome,
-              onResume: resumeNode,
-              onTerminalLiveness: handleTerminalLiveness,
-              onTerminalContext: handleTerminalContext,
-              onTranscriptPresence: handleTranscriptPresence,
-              onForkSupport: handleForkSupport,
-              onBranch: dispatchBranch,
-              onWorktreeHandoff: dispatchWorktreeHandoff
-            },
-            style: { ...NEW_SESSION_NODE_SIZE }
-          }
-        ]
-      })
+      const node = createSessionCanvasNode(
+        {
+          id,
+          kind,
+          label,
+          titleSource: options.titleSource,
+          position,
+          conversationId,
+          launchMode: resumeConversationId ? 'resume' : branchedFrom ? 'fork' : 'new',
+          branchedFrom,
+          preferredPermissionMode: kind === 'terminal' ? undefined : permissionModesRef.current[kind],
+          modelId: options.modelId,
+          initialInput: options.initialInput
+        },
+        project,
+        worktree,
+        {
+          onStatusChange: handleStatusChange,
+          onAttention: handleAttention,
+          onTicketActivity: handleTicketActivity,
+          onConversationId: handleConversationId,
+          onTitleChange: handleTitleChange,
+          onFocusModeChange: handleFocusModeChange,
+          onDraftChange: handleDraftChange,
+          onScheduledMessagesChange: handleScheduledMessagesChange,
+          onPermissionModeChange: handlePermissionModeChange,
+          onModelChange: handleModelChange,
+          onTurnOutcome: handleTurnOutcome,
+          onResume: resumeNode,
+          onTerminalLiveness: handleTerminalLiveness,
+          onTerminalContext: handleTerminalContext,
+          onTranscriptPresence: handleTranscriptPresence,
+          onForkSupport: handleForkSupport,
+          onBranch: dispatchBranch,
+          onWorktreeHandoff: dispatchWorktreeHandoff
+        }
+      )
+      setNodes((current) => [...current.map((candidate) => ({ ...candidate, selected: false })), node])
       setNodeStatuses((current) => ({ ...current, [id]: 'starting' }))
       return id
     },
