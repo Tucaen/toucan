@@ -55,6 +55,7 @@ const pureRendererFeatureNames = [
   'tool-input',
   'voice-transcript',
   'worklog-activities',
+  'worktree-creation',
   'worktree-removal'
 ]
 // dependency-cruiser splits external packages by the manifest section they are declared in, so a
