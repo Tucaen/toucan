@@ -68,6 +68,7 @@ import {
   isTerminalCanvasNode,
   isWorktreeCanvasChild,
   isWorktreeCanvasNode,
+  measured,
   rememberClosedSessionNodes,
   reopenClosedSession,
   restoreCanvasWorkspace,
@@ -151,8 +152,10 @@ import WorktreeNode from './WorktreeNode'
 import {
   nextWorktreeChildPosition,
   partitionWorktreeCanvases,
+  selectOnlyWithinCanvas,
   splitWorktreeCanvasEdges,
   withRoomForChat,
+  worktreeChildren,
   worktreeActivity,
   type WorktreeCanvasEdges,
   type WorktreeCanvasPartition
@@ -802,7 +805,8 @@ function Canvas(): JSX.Element {
   }, [])
 
   const handleNodesChange = useCallback(
-    (changes: NodeChange<CanvasNode>[]): void => {
+    // `canvas` is the worktree whose inner canvas reported the changes; absent is the main canvas.
+    (changes: NodeChange<CanvasNode>[], canvas: string | null = null): void => {
       const removedIds = new Set(changes.flatMap((change) => (change.type === 'remove' ? [change.id] : [])))
       if (removedIds.size > 0) {
         const removedNodes = nodesRef.current
@@ -842,8 +846,18 @@ function Canvas(): JSX.Element {
       // leaves fit mode, and a removed node must not leave a restore waiting for it.
       nodeFit.observeChanges(changes)
       onNodesChange(changes)
+      // A pick on one canvas clears every other canvas's selection; see `selectOnlyWithinCanvas`.
+      if (changes.some((change) => change.type === 'select' && change.selected)) {
+        setNodes((current) => selectOnlyWithinCanvas(current, canvas))
+      }
     },
-    [forgetNodeAttention, nodeFit, onNodesChange, setEdges]
+    [forgetNodeAttention, nodeFit, onNodesChange, setEdges, setNodes]
+  )
+
+  /** Clicking a canvas's empty pane leaves nothing selected on any other canvas either. */
+  const clearSelectionOutside = useCallback(
+    (canvas: string | null): void => setNodes((current) => selectOnlyWithinCanvas(current, canvas)),
+    [setNodes]
   )
 
   // The only edge the canvas admits: terminal → chat, the terminal-context grant. No generic
@@ -876,6 +890,20 @@ function Canvas(): JSX.Element {
   )
   edgeSplitRef.current = canvasEdgeSplit
 
+  /**
+   * A terminal-context edge is a grant the user must be able to see and revoke, so one whose ends
+   * come to sit on different canvases - a chat moved into a worktree while its terminal stays on the
+   * main canvas - is revoked rather than kept undrawn. Terminals do not live in worktrees yet, so
+   * until they do (#28) no context edge can reach a worktree's chat.
+   */
+  useEffect(() => {
+    const drawn = new Set(
+      [...canvasEdgeSplit.main, ...[...canvasEdgeSplit.children.values()].flat()].map((edge) => edge.id)
+    )
+    if (edges.every((edge) => drawn.has(edge.id))) return
+    setEdges((current) => current.filter((edge) => drawn.has(edge.id)))
+  }, [canvasEdgeSplit, edges, setEdges])
+
   const connectTerminalContext = useCallback(
     (connection: Connection): void => {
       setEdges((current) => withTerminalContextEdge(current, nodesRef.current, connection))
@@ -900,12 +928,7 @@ function Canvas(): JSX.Element {
         projects: projectsRef.current,
         worktrees: nodesRef.current.filter(isWorktreeCanvasNode).map(serializeWorktreeNode),
         agentPermissionModes: permissionModesRef.current,
-        worktreeChildPosition: (worktreeId) =>
-          nextWorktreeChildPosition(
-            nodesRef.current
-              .filter(isWorktreeCanvasChild)
-              .filter((candidate) => candidate.data.worktreeId === worktreeId)
-          )
+        worktreeChildPosition: (worktreeId) => nextWorktreeChildPosition(worktreeChildren(nodesRef.current, worktreeId))
       },
       {
         onStatusChange: handleStatusChange,
@@ -1012,11 +1035,7 @@ function Canvas(): JSX.Element {
           label,
           titleSource: options.titleSource,
           position: contained
-            ? nextWorktreeChildPosition(
-                nodesRef.current
-                  .filter(isWorktreeCanvasChild)
-                  .filter((candidate) => candidate.data.worktreeId === worktree.worktreeId)
-              )
+            ? nextWorktreeChildPosition(worktreeChildren(nodesRef.current, worktree.worktreeId))
             : position,
           conversationId,
           launchMode: resumeConversationId ? 'resume' : branchedFrom ? 'fork' : 'new',
@@ -1182,9 +1201,7 @@ function Canvas(): JSX.Element {
       // A chat goes onto the worktree's own canvas (`addSessionNode` places it there); a terminal
       // still lands beside the worktree on the main canvas, fanned out so they do not stack.
       const offset = worktreeNode.data.attachedNodeCount
-      const width =
-        worktreeNode.measured?.width ??
-        (typeof worktreeNode.style?.width === 'number' ? worktreeNode.style.width : DEFAULT_WORKTREE_SIZE.width)
+      const { width } = measured(worktreeNode, DEFAULT_WORKTREE_SIZE)
       addSessionNode({
         kind,
         project,
@@ -2468,9 +2485,10 @@ function Canvas(): JSX.Element {
           worktreeActivity(children, nodeStatuses)
         ])
       ),
-      onNodesChange: handleNodesChange
+      onNodesChange: handleNodesChange,
+      onPaneClick: clearSelectionOutside
     }),
-    [canvasEdgeSplit, canvasPartition, handleNodesChange, nodeStatuses]
+    [canvasEdgeSplit, canvasPartition, clearSelectionOutside, handleNodesChange, nodeStatuses]
   )
 
   /** What the sidebar shows of the canvas, derived once per render; see `project-sidebar.ts`. */
@@ -2642,7 +2660,10 @@ function Canvas(): JSX.Element {
                             isValidConnection={isValidCanvasConnection}
                             onNodesChange={handleNodesChange}
                             onPaneContextMenu={openContextMenu}
-                            onPaneClick={() => setMenu(null)}
+                            onPaneClick={() => {
+                              setMenu(null)
+                              clearSelectionOutside(null)
+                            }}
                             minZoom={0.25}
                             maxZoom={2}
                             /* Plain wheel is reserved for scrolling inside nodes; only a Ctrl-held

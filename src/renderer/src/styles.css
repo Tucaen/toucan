@@ -4375,11 +4375,11 @@ button.global-status-chip:hover {
   white-space: nowrap;
 }
 
-/* Git state, in the header: one line that gives way to the actions before anything else does. */
 .worktree-node-header .node-project {
   flex-shrink: 4;
 }
 
+/* Git state, in the header: one line that gives way to the actions before anything else does. */
 .worktree-status {
   min-width: 0;
   flex: 1 1 0;

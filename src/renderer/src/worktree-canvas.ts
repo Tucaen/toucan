@@ -4,6 +4,7 @@ import {
   DEFAULT_WORKTREE_SIZE,
   isWorktreeCanvasChild,
   isWorktreeCanvasNode,
+  measured,
   NEW_SESSION_NODE_SIZE,
   sessionNodeStatus,
   WORKTREE_CHILD_GAP,
@@ -29,6 +30,20 @@ function sameMembers<T>(previous: readonly T[] | undefined, next: readonly T[]):
   return !!previous && previous.length === next.length && previous.every((item, index) => item === next[index])
 }
 
+/** One canvas-by-canvas grouping, keeping every array whose members are unchanged since `previous`. */
+function reuseUnchanged<T>(
+  main: T[],
+  grouped: ReadonlyMap<string, T[]>,
+  previous?: { main: T[]; children: ReadonlyMap<string, T[]> }
+): { main: T[]; children: Map<string, T[]> } {
+  const children = new Map<string, T[]>()
+  for (const [worktreeId, members] of grouped) {
+    const before = previous?.children.get(worktreeId)
+    children.set(worktreeId, sameMembers(before, members) ? before : members)
+  }
+  return { main: sameMembers(previous?.main, main) ? previous.main : main, children }
+}
+
 /**
  * `previous` lets an unchanged canvas keep the same array. Each inner canvas is its own React Flow,
  * fed a `nodes` prop; handing it a fresh array on every drag elsewhere would make every worktree
@@ -48,12 +63,8 @@ export function partitionWorktreeCanvases(
     if (host && isWorktreeCanvasChild(node)) host.push(node)
     else main.push(node)
   }
-  const children = new Map<string, TerminalCanvasNode[]>()
-  for (const [worktreeId, members] of grouped) {
-    const before = previous?.children.get(worktreeId)
-    children.set(worktreeId, sameMembers(before, members) ? before : members)
-  }
-  return { main: sameMembers(previous?.main, main) ? previous.main : main, children }
+  const { main: kept, children } = reuseUnchanged<CanvasNode>(main, grouped, previous)
+  return { main: kept, children: children as Map<string, TerminalCanvasNode[]> }
 }
 
 export interface WorktreeCanvasEdges {
@@ -62,9 +73,9 @@ export interface WorktreeCanvasEdges {
 }
 
 /**
- * An edge is drawn where both of its ends are. One whose ends sit on different canvases is not
- * drawn at all for now - it still exists, and still grants whatever it granted, because drawing is
- * all this decides.
+ * An edge is drawn where both of its ends are, and one whose ends sit on different canvases is not
+ * drawn at all. Drawing is all this decides; `App` revokes a terminal-context edge that ends up
+ * here rather than leave a grant nobody can see.
  */
 export function splitWorktreeCanvasEdges(
   edges: readonly Edge[],
@@ -84,18 +95,12 @@ export function splitWorktreeCanvasEdges(
     if (source === null) main.push(edge)
     else grouped.get(source)!.push(edge)
   }
-  const children = new Map<string, Edge[]>()
-  for (const [worktreeId, members] of grouped) {
-    const before = previous?.children.get(worktreeId)
-    children.set(worktreeId, sameMembers(before, members) ? before : members)
-  }
-  return { main: sameMembers(previous?.main, main) ? previous.main : main, children }
+  return reuseUnchanged(main, grouped, previous)
 }
 
-function renderedWidth(node: TerminalCanvasNode): number {
-  return (
-    node.measured?.width ?? (typeof node.style?.width === 'number' ? node.style.width : NEW_SESSION_NODE_SIZE.width)
-  )
+/** A worktree's chats, read from any node list - including one a render has not caught up with. */
+export function worktreeChildren(nodes: readonly CanvasNode[], worktreeId: string): TerminalCanvasNode[] {
+  return nodes.filter(isWorktreeCanvasChild).filter((node) => node.data.worktreeId === worktreeId)
 }
 
 /**
@@ -105,7 +110,9 @@ function renderedWidth(node: TerminalCanvasNode): number {
 export function nextWorktreeChildPosition(children: readonly TerminalCanvasNode[]): { x: number; y: number } {
   if (children.length === 0) return { x: 0, y: 0 }
   return {
-    x: Math.max(...children.map((node) => node.position.x + renderedWidth(node))) + WORKTREE_CHILD_GAP,
+    x:
+      Math.max(...children.map((node) => node.position.x + measured(node, NEW_SESSION_NODE_SIZE).width)) +
+      WORKTREE_CHILD_GAP,
     y: Math.min(...children.map((node) => node.position.y))
   }
 }
@@ -118,8 +125,7 @@ export function nextWorktreeChildPosition(children: readonly TerminalCanvasNode[
 export function withRoomForChat(nodes: CanvasNode[], worktreeId: string): CanvasNode[] {
   const host = nodes.filter(isWorktreeCanvasNode).find((node) => node.data.worktreeId === worktreeId)
   if (!host) return nodes
-  const width = host.measured?.width ?? (typeof host.style?.width === 'number' ? host.style.width : 0)
-  const height = host.measured?.height ?? (typeof host.style?.height === 'number' ? host.style.height : 0)
+  const { width, height } = measured(host, { width: 0, height: 0 })
   if (width >= DEFAULT_WORKTREE_SIZE.width && height >= DEFAULT_WORKTREE_SIZE.height) return nodes
   const style = {
     ...host.style,
@@ -131,7 +137,6 @@ export function withRoomForChat(nodes: CanvasNode[], worktreeId: string): Canvas
 
 /** What a worktree's bottom row says about its chats. Agent state only - git state is the header's. */
 export interface WorktreeActivity {
-  chats: number
   working: number
   attention: number
 }
@@ -147,5 +152,22 @@ export function worktreeActivity(
     if (status === 'working') working += 1
     else if (status === 'attention') attention += 1
   }
-  return { chats: children.length, working, attention }
+  return { working, attention }
+}
+
+/**
+ * Each canvas is its own React Flow, and each keeps its own selection and listens for Delete on
+ * the whole document - so a chat picked in one worktree would stay selected while something is
+ * picked in another, and one Delete would close both. Picking anything therefore clears the
+ * selection on every other canvas, which is what a single canvas always did. A worktree's frame is
+ * on the main canvas, like any other node there.
+ *
+ * `canvas` is where the pick happened: a worktree id, or null for the main canvas. Returns the same
+ * array when nothing needed clearing.
+ */
+export function selectOnlyWithinCanvas(nodes: CanvasNode[], canvas: string | null): CanvasNode[] {
+  const outside = (node: CanvasNode): boolean =>
+    node.selected === true && (isWorktreeCanvasChild(node) ? node.data.worktreeId! : null) !== canvas
+  if (!nodes.some(outside)) return nodes
+  return nodes.map((node) => (outside(node) ? { ...node, selected: false } : node))
 }

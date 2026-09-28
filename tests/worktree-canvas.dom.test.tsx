@@ -201,4 +201,27 @@ describe('a worktree canvas of ordinary chats', () => {
     expect(screen.queryByRole('button', { name: /details/i })).toBeNull()
     expect(screen.queryByRole('button', { name: /close selected/i })).toBeNull()
   })
+
+  test("a worktree canvas comes back at the viewport it was left at, with its chats' geometry unchanged", async () => {
+    const placed: WorkspaceTerminalNode = {
+      ...legacyChat,
+      placement: 'worktree',
+      position: { x: 64, y: 12 },
+      width: 610,
+      height: 480
+    }
+    const viewport = { x: -40, y: 10, zoom: 0.5 }
+    const { harness } = await mount(
+      savedWorkspace({ nodes: [placed], worktrees: [{ ...worktree, width: 900, height: 700, viewport }] })
+    )
+
+    await waitFor(() => expect(canvasNodes('chat-a')).toHaveLength(1))
+    const inner = document.querySelector<HTMLElement>('.worktree-canvas .react-flow__viewport')!
+    expect(inner.style.transform.replace(/\s/g, '')).toBe('translate(-40px,10px)scale(0.5)')
+
+    await waitFor(() => expect(harness.saved.length).toBeGreaterThan(0))
+    const saved = lastSaved(harness)
+    expect(saved.worktrees[0].viewport).toEqual(viewport)
+    expect(saved.nodes[0]).toMatchObject({ placement: 'worktree', position: { x: 64, y: 12 }, width: 610, height: 480 })
+  })
 })

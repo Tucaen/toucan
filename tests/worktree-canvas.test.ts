@@ -14,6 +14,7 @@ import {
 import {
   nextWorktreeChildPosition,
   partitionWorktreeCanvases,
+  selectOnlyWithinCanvas,
   splitWorktreeCanvasEdges,
   withRoomForChat,
   worktreeActivity
@@ -180,14 +181,13 @@ test('a worktree too small for a chat grows to the size a new one opens at, and 
   assert.equal(withRoomForChat(nodes, 'b'), nodes)
 })
 
-test('the activity line counts chats and what they are doing, not the git state of the checkout', () => {
+test('the activity line counts what the chats are doing, not the git state of the checkout', () => {
   const chats = [session('one', 'claude', 'a'), session('two', 'codex', 'a'), session('three', 'codex', 'a')]
   assert.deepEqual(worktreeActivity(chats, { one: 'working', two: 'attention' }), {
-    chats: 3,
     working: 1,
     attention: 1
   })
-  assert.deepEqual(worktreeActivity([], {}), { chats: 0, working: 0, attention: 0 })
+  assert.deepEqual(worktreeActivity([], {}), { working: 0, attention: 0 })
 })
 
 test('moving a worktree moves nothing inside it: its chats keep their geometry, cwd and canvas array', () => {
@@ -203,4 +203,23 @@ test('moving a worktree moves nothing inside it: its chats keep their geometry, 
     after.children.get('a')?.map((node) => [node.position, node.data.workingDirectory]),
     chats.map((node) => [node.position, node.data.workingDirectory])
   )
+})
+
+test('selecting on one canvas clears the selection on every other, so one Delete can close only what is in view', () => {
+  const selected = <T extends CanvasNode>(node: T): T => ({ ...node, selected: true })
+  const nodes: CanvasNode[] = [
+    selected(worktree('a')),
+    worktree('b'),
+    selected(session('in-a', 'claude', 'a')),
+    selected(session('in-b', 'codex', 'b')),
+    selected(session('loose', 'claude'))
+  ]
+  const ids = (next: CanvasNode[]): string[] => next.filter((node) => node.selected).map((node) => node.id)
+
+  assert.deepEqual(ids(selectOnlyWithinCanvas(nodes, 'a')), ['in-a'])
+  assert.deepEqual(ids(selectOnlyWithinCanvas(nodes, 'b')), ['in-b'])
+  // A worktree's frame belongs to the main canvas, so picking it clears the chats inside it too.
+  assert.deepEqual(ids(selectOnlyWithinCanvas(nodes, null)), ['worktree:a', 'loose'])
+  const quiet = nodes.map((node) => ({ ...node, selected: false }))
+  assert.equal(selectOnlyWithinCanvas(quiet, 'a'), quiet)
 })

@@ -5,6 +5,7 @@ import {
   useReactFlow,
   type Edge,
   type FitViewOptions,
+  type NodeChange,
   type NodeTypes,
   type Viewport
 } from '@xyflow/react'
@@ -15,6 +16,7 @@ import type { WorktreeViewport } from '../../shared/worktree'
 import type { TerminalCanvasNode } from './canvas-workspace'
 import { NodeFitContext } from './node-fit-context'
 import SessionKindIcon from './SessionKindIcon'
+import { correctScaledCanvasPointerCoordinates } from './scaled-pointer-coordinates'
 import SessionNode from './SessionNode'
 import { WorktreeCanvasContext } from './worktree-canvas-context'
 
@@ -82,6 +84,16 @@ export default function WorktreeCanvas({
     if (known && [...ids].some((id) => !known.has(id))) fitChats()
   }, [children, fitChats])
 
+  // The main canvas's zoom scales this one on screen; see `correctScaledCanvasPointerCoordinates`.
+  const canvasRef = useRef<HTMLDivElement>(null)
+  useEffect(() => correctScaledCanvasPointerCoordinates(canvasRef.current), [])
+
+  const handleNodesChange = useCallback(
+    (changes: NodeChange<TerminalCanvasNode>[]): void => host.onNodesChange(changes, worktreeId),
+    [host, worktreeId]
+  )
+  const handlePaneClick = useCallback((): void => host.onPaneClick(worktreeId), [host, worktreeId])
+
   const handleMoveEnd = useCallback(
     (_event: unknown, next: Viewport): void => onViewportChange(worktreeId, next),
     [onViewportChange, worktreeId]
@@ -89,13 +101,16 @@ export default function WorktreeCanvas({
 
   return (
     <>
-      <div className="worktree-canvas nodrag">
+      {/* A click inside stays inside: reaching the main canvas it would select this worktree's
+          frame there, and so clear the chat it was meant for (`selectOnlyWithinCanvas`). */}
+      <div ref={canvasRef} className="worktree-canvas nodrag" onClick={(event) => event.stopPropagation()}>
         <NodeFitContext.Provider value={fitChat}>
           <ReactFlow
             nodes={children}
             edges={edges}
             nodeTypes={nodeTypes}
-            onNodesChange={host.onNodesChange}
+            onNodesChange={handleNodesChange}
+            onPaneClick={handlePaneClick}
             onMoveEnd={handleMoveEnd}
             defaultViewport={viewport ?? ORIGIN}
             fitView={!viewport}
@@ -109,6 +124,10 @@ export default function WorktreeCanvas({
             panOnScroll={false}
             preventScrolling={false}
             nodesConnectable={false}
+            // Auto-pan measures the pointer against the canvas's on-screen bounds, which the main
+            // zoom scales while the corrected pointer is not - it would pan on its own mid-drag.
+            autoPanOnNodeDrag={false}
+            autoPanOnSelection={false}
             colorMode="dark"
             deleteKeyCode={['Backspace', 'Delete']}
             proOptions={{ hideAttribution: true }}

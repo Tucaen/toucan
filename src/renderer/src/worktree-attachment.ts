@@ -9,7 +9,7 @@ import {
   sessionNodeStatus,
   withoutWorktree
 } from './canvas-workspace'
-import { nextWorktreeChildPosition } from './worktree-canvas'
+import { nextWorktreeChildPosition, worktreeChildren } from './worktree-canvas'
 
 /**
  * What it takes for a node to be *in* a worktree rather than merely linked to one.
@@ -180,9 +180,7 @@ export function adoptClaimedWorktrees(
     if (!isTerminalCanvasNode(node)) return node
     const adoption = adoptions.get(node.id)
     if (!adoption) return node
-    const position = nextWorktreeChildPosition(
-      children.filter((child) => child.data.worktreeId === adoption.worktreeId)
-    )
+    const position = nextWorktreeChildPosition(worktreeChildren(children, adoption.worktreeId))
     const adopted: TerminalCanvasNode = { ...node, position }
     children.push({ ...adopted, data: { ...adopted.data, worktreeId: adoption.worktreeId } })
     return {

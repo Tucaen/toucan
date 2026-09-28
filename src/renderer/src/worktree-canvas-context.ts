@@ -13,7 +13,10 @@ export interface WorktreeCanvasHost {
   partition: WorktreeCanvasPartition
   edges: WorktreeCanvasEdges
   activity: ReadonlyMap<string, WorktreeActivity>
-  onNodesChange(changes: NodeChange<CanvasNode>[]): void
+  /** `canvas` names the worktree whose canvas the changes came from. */
+  onNodesChange(changes: NodeChange<CanvasNode>[], canvas: string): void
+  /** Its empty pane was clicked: nothing may stay selected on any other canvas. */
+  onPaneClick(canvas: string): void
 }
 
 /** Empty by default, so a worktree node renders in isolation (tests) with an empty canvas. */
@@ -21,5 +24,6 @@ export const WorktreeCanvasContext = createContext<WorktreeCanvasHost>({
   partition: { main: [], children: new Map() },
   edges: { main: [], children: new Map() },
   activity: new Map(),
-  onNodesChange: () => undefined
+  onNodesChange: () => undefined,
+  onPaneClick: () => undefined
 })

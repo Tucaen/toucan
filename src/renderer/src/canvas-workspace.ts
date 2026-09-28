@@ -632,7 +632,10 @@ function canvasRestoreContext(
  * `fallback` its own serializer names. A node with no measurement is being reconstructed, not
  * opened, which is why the fallback is a restore size rather than the size a new node opens at.
  */
-function measured(node: CanvasNode, fallback: { width: number; height: number }): { width: number; height: number } {
+export function measured(
+  node: CanvasNode,
+  fallback: { width: number; height: number }
+): { width: number; height: number } {
   const styleWidth = typeof node.style?.width === 'number' ? node.style.width : fallback.width
   const styleHeight = typeof node.style?.height === 'number' ? node.style.height : fallback.height
   return {

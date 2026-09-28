@@ -71,6 +71,10 @@ export default function WorktreeNode({ id, data, selected }: NodeProps<WorktreeC
   const summary = data.unavailable
     ? { text: 'Worktree no longer exists', kind: 'missing' as const }
     : describeStatus(status)
+  // The way out of a missing worktree, said where it shows even while its chats are still open.
+  const summaryTitle = data.unavailable
+    ? 'Worktree no longer exists. Close its attached sessions to remove this record.'
+    : summary.text
 
   return (
     <article
@@ -93,7 +97,7 @@ export default function WorktreeNode({ id, data, selected }: NodeProps<WorktreeC
           <span className="project-color-dot" />
           {data.projectName}
         </span>
-        <span className="worktree-status" data-kind={summary.kind} title={summary.text}>
+        <span className="worktree-status" data-kind={summary.kind} title={summaryTitle}>
           <span className="worktree-status-dot" />
           <span className="worktree-status-text">{summary.text}</span>
         </span>
