@@ -4367,16 +4367,22 @@ button.global-status-chip:hover {
 }
 
 .worktree-node-header strong {
-  min-width: 0;
+  /* The branch names the worktree, so it is the last thing in the header to give way. */
+  flex: 0 1 auto;
+  min-width: 48px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 /* Git state, in the header: one line that gives way to the actions before anything else does. */
+.worktree-node-header .node-project {
+  flex-shrink: 4;
+}
+
 .worktree-status {
   min-width: 0;
-  flex: 1 1 auto;
+  flex: 1 1 0;
   display: flex;
   align-items: center;
   gap: 6px;
