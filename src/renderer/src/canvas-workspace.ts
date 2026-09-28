@@ -786,8 +786,8 @@ export interface SessionNodeSeed {
 }
 
 /**
- * The one place a freshly opened session node is built - from the context menu, a worktree's own
- * actions, a branch, History, the phone, or the worktree dialog's first chat. Attachment is decided
+ * The one place a freshly opened session node is built: every new session goes through
+ * `addSessionNode` in `App.tsx`, which builds it here. Attachment is decided
  * here and nowhere later: a node given a worktree runs in its directory from the first launch,
  * since `workingDirectory` is the only value ever sent as a cwd. It is born selected, which is
  * what hands its composer the caret once it can take input.

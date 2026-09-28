@@ -16,18 +16,15 @@ import type { WorktreeCreateRequest, WorktreeCreateResult } from '../../shared/w
  * - One submission at a time. The dialog's own `busy` flag only takes effect on the next render, so
  *   two submits in one tick would both pass it; this guard settles synchronously.
  */
-export interface CreatedWorktree {
-  path: string
-  branch: string
-  baseRef: string
-}
+export type CreatedWorktree = NonNullable<WorktreeCreateResult['worktree']>
 
-export interface WorktreeCreationSteps<Worktree> {
+/** `Context` is whatever the caller's steps need about this submission - its project and placement. */
+export interface WorktreeCreationSteps<Worktree, Context> {
   create(request: WorktreeCreateRequest): Promise<WorktreeCreateResult>
   /** Puts the created worktree on the canvas and returns the record a chat attaches to. */
-  register(created: CreatedWorktree): Worktree
+  register(created: CreatedWorktree, context: Context): Worktree
   /** Opens one ordinary chat in the worktree; the new node's id, or null when it refused. */
-  startChat(worktree: Worktree, provider: AgentProvider): string | null
+  startChat(worktree: Worktree, provider: AgentProvider, context: Context): string | null
 }
 
 export interface WorktreeCreationRequest extends WorktreeCreateRequest {
@@ -41,18 +38,23 @@ export type WorktreeCreationOutcome<Worktree> =
   | { status: 'chat-failed'; worktree: Worktree; message: string }
 
 export const WORKTREE_CREATE_FAILED = 'The worktree could not be created.'
-export const WORKTREE_CHAT_FAILED = 'The chat could not be started.'
+const WORKTREE_CHAT_FAILED = 'The chat could not be started.'
 
-export interface WorktreeCreator<Worktree> {
+export interface WorktreeCreator<Worktree, Context> {
   /** Null, doing nothing, while an earlier submission is still in flight. */
-  submit(request: WorktreeCreationRequest): Promise<WorktreeCreationOutcome<Worktree>> | null
+  submit(request: WorktreeCreationRequest, context: Context): Promise<WorktreeCreationOutcome<Worktree>> | null
   pending(): boolean
 }
 
-export function createWorktreeCreator<Worktree>(steps: WorktreeCreationSteps<Worktree>): WorktreeCreator<Worktree> {
+export function createWorktreeCreator<Worktree, Context = void>(
+  steps: WorktreeCreationSteps<Worktree, Context>
+): WorktreeCreator<Worktree, Context> {
   let inFlight = false
 
-  const run = async ({ provider, ...request }: WorktreeCreationRequest): Promise<WorktreeCreationOutcome<Worktree>> => {
+  const run = async (
+    { provider, ...request }: WorktreeCreationRequest,
+    context: Context
+  ): Promise<WorktreeCreationOutcome<Worktree>> => {
     let result: WorktreeCreateResult
     try {
       result = await steps.create(request)
@@ -61,9 +63,9 @@ export function createWorktreeCreator<Worktree>(steps: WorktreeCreationSteps<Wor
     }
     if (!result.ok || !result.worktree) return { status: 'failed', message: result.message ?? WORKTREE_CREATE_FAILED }
 
-    const worktree = steps.register(result.worktree)
+    const worktree = steps.register(result.worktree, context)
     try {
-      const chatId = steps.startChat(worktree, provider)
+      const chatId = steps.startChat(worktree, provider, context)
       return chatId
         ? { status: 'created', worktree, chatId }
         : { status: 'chat-failed', worktree, message: WORKTREE_CHAT_FAILED }
@@ -73,10 +75,10 @@ export function createWorktreeCreator<Worktree>(steps: WorktreeCreationSteps<Wor
   }
 
   return {
-    submit(request) {
+    submit(request, context) {
       if (inFlight) return null
       inFlight = true
-      return run(request).finally(() => {
+      return run(request, context).finally(() => {
         inFlight = false
       })
     },

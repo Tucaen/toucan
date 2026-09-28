@@ -165,7 +165,7 @@ import { nodeSearchKeyAction } from './node-search'
 import { NodeSearchContext, NO_NODE_SEARCH_REQUEST, type NodeSearchRequest } from './node-search-context'
 import { useNodeSnap } from './use-node-snap'
 import { useProjectAvatars } from './use-project-avatars'
-import { createWorktreeCreator } from './worktree-creation'
+import { createWorktreeCreator, WORKTREE_CREATE_FAILED } from './worktree-creation'
 import type { AgentProvider } from '../../shared/agent-provider'
 
 type Project = WorkspaceProject
@@ -1297,11 +1297,11 @@ function Canvas(): JSX.Element {
               projectId: project.id,
               branch: '',
               baseRef: '',
-              // The dialog now opens a chat as well; the one the prompt was typed in is the obvious one.
-              provider: node.data.kind === 'codex' ? 'codex' : 'claude',
+              // Its retry opens a chat as well, on the provider the prompt was typed into.
+              provider: isAgentProvider(node.data.kind) ? node.data.kind : 'claude',
               position: { x: node.position.x, y: node.position.y + (node.height ?? 340) + 64 },
               busy: false,
-              error: result.message ?? 'The worktree could not be created.'
+              error: result.message ?? WORKTREE_CREATE_FAILED
             })
             return
           }
@@ -2110,17 +2110,11 @@ function Canvas(): JSX.Element {
     [activeProjectId, addSessionNode, centredDropPosition, focusNode]
   )
 
-  /**
-   * The draft being submitted, read by the creator's steps. The creator is single-flight, so there
-   * is only ever one, and the steps can stay stable rather than being rebuilt per draft.
-   */
-  const worktreeSubmission = useRef<{ draft: WorktreeDraft; project: Project } | null>(null)
   const worktreeCreator = useMemo(
     () =>
-      createWorktreeCreator<WorktreeCanvasNode['data']>({
+      createWorktreeCreator<WorktreeCanvasNode['data'], { draft: WorktreeDraft; project: Project }>({
         create: (request) => window.worktreeApi.create(request),
-        register: (created) => {
-          const { draft, project } = worktreeSubmission.current!
+        register: (created, { draft, project }) => {
           const worktreeNode = createWorktreeCanvasNode(
             {
               worktreeId: crypto.randomUUID(),
@@ -2134,27 +2128,38 @@ function Canvas(): JSX.Element {
             project,
             worktreeCallbacks
           )
-          setNodes((current) =>
+          const register = (current: CanvasNode[]): CanvasNode[] =>
             registerWorktreeNode(
               current.map((node) => ({ ...node, selected: false })),
               worktreeNode
             )
+          // `addSessionNode` runs next, in this same tick, and resolves the worktree from
+          // `nodesRef`, which would otherwise lag until the next render: a record discovery had
+          // already placed - kept under its own id, and possibly still marked unavailable - has to
+          // read as the registration leaves it, or the chat would be refused or misattached.
+          nodesRef.current = register(nodesRef.current)
+          setNodes(register)
+          return (
+            nodesRef.current
+              .filter(isWorktreeCanvasNode)
+              .find(
+                (node) =>
+                  node.data.projectId === project.id &&
+                  worktreePathKey(node.data.path) === worktreePathKey(worktreeNode.data.path)
+              )?.data ?? worktreeNode.data
           )
-          return worktreeNode.data
         },
         // The existing new-chat path, so the node is an ordinary chat with its normal model,
         // effort and permission controls, launched in the worktree from its first turn and
         // selected - which is what hands its composer the caret once it can take input. No
         // initial input: creating a worktree sends nothing and runs no setup on its own.
-        startChat: (worktree, provider) => {
-          const { draft, project } = worktreeSubmission.current!
-          return addSessionNode({
+        startChat: (worktree, provider, { draft, project }) =>
+          addSessionNode({
             kind: provider,
             project,
             worktree,
             position: { x: draft.position.x + DEFAULT_WORKTREE_SIZE.width + 48, y: draft.position.y }
           })
-        }
       }),
     [addSessionNode, setNodes, worktreeCallbacks]
   )
@@ -2162,20 +2167,21 @@ function Canvas(): JSX.Element {
   const confirmWorktreeDraft = useCallback((): void => {
     const draft = worktreeDraft
     const project = projects.find((candidate) => candidate.id === draft?.projectId)
-    if (!draft || !project || worktreeCreator.pending()) return
+    if (!draft || !project) return
 
-    worktreeSubmission.current = { draft, project }
-    lastWorktreeProvider.current = draft.provider
-    const pending = worktreeCreator.submit({
-      projectPath: project.path,
-      branch: draft.branch,
-      baseRef: draft.baseRef.trim() || undefined,
-      provider: draft.provider
-    })
+    const pending = worktreeCreator.submit(
+      {
+        projectPath: project.path,
+        branch: draft.branch,
+        baseRef: draft.baseRef.trim() || undefined,
+        provider: draft.provider
+      },
+      { draft, project }
+    )
     if (!pending) return
+    lastWorktreeProvider.current = draft.provider
     setWorktreeDraft({ ...draft, busy: true, error: null })
     void pending.then((outcome) => {
-      worktreeSubmission.current = null
       if (outcome.status === 'failed') {
         setWorktreeDraft({ ...draft, busy: false, error: outcome.message })
         return

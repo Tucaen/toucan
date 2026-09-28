@@ -36,11 +36,15 @@ export interface WorktreeRemovalPrompt {
   error: string | null
 }
 
-/** Codex first, as the creation flow names them; each opens the same ordinary chat node. */
-const FIRST_CHAT_PROVIDERS: readonly { provider: AgentProvider; name: string }[] = [
-  { provider: 'codex', name: 'Codex' },
-  { provider: 'claude', name: 'Claude' }
-]
+/**
+ * Codex first, as the creation flow names them; each opens the same ordinary chat node. A record
+ * over every provider, so a third one cannot be silently missing from the choice.
+ */
+const FIRST_CHAT_PROVIDER_NAMES: Record<AgentProvider, string> = { codex: 'Codex', claude: 'Claude' }
+const FIRST_CHAT_PROVIDERS = (Object.keys(FIRST_CHAT_PROVIDER_NAMES) as AgentProvider[]).map((provider) => ({
+  provider,
+  name: FIRST_CHAT_PROVIDER_NAMES[provider]
+}))
 
 export function WorktreeCreateDialog({
   draft,

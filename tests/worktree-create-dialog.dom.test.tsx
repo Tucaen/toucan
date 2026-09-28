@@ -147,7 +147,7 @@ describe('creating a worktree with its first chat', () => {
       })
 
       expect(startChat).toHaveBeenCalledTimes(1)
-      expect(startChat).toHaveBeenCalledWith({ worktreeId: 'worktree-1', path: WORKTREE_PATH }, provider)
+      expect(startChat).toHaveBeenCalledWith({ worktreeId: 'worktree-1', path: WORKTREE_PATH }, provider, undefined)
       expect(onOutcome).toHaveBeenCalledWith('created')
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     })
