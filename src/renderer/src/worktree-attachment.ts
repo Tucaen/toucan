@@ -1,8 +1,15 @@
 import type { WorkspaceProject } from '../../shared/workspace'
 import type { WorktreeClaimMatch } from '../../shared/worktree'
 import { worktreePathKey } from '../../shared/worktree'
-import type { CanvasNode, TerminalNodeStatus, WorktreeCanvasNode } from './canvas-workspace'
-import { isTerminalCanvasNode, isWorktreeCanvasNode, sessionNodeStatus, withoutWorktree } from './canvas-workspace'
+import type { CanvasNode, TerminalCanvasNode, TerminalNodeStatus, WorktreeCanvasNode } from './canvas-workspace'
+import {
+  isTerminalCanvasNode,
+  isWorktreeCanvasChild,
+  isWorktreeCanvasNode,
+  sessionNodeStatus,
+  withoutWorktree
+} from './canvas-workspace'
+import { nextWorktreeChildPosition } from './worktree-canvas'
 
 /**
  * What it takes for a node to be *in* a worktree rather than merely linked to one.
@@ -166,12 +173,20 @@ export function adoptClaimedWorktrees(
   const adoptions = new Map(planWorktreeAdoptions(nodes, statuses).map((adoption) => [adoption.nodeId, adoption]))
   if (adoptions.size === 0) return nodes
 
+  // An adopted chat is shown on its worktree's canvas from now on, so it takes the next free spot
+  // there; its main-canvas position means nothing on that canvas.
+  const children = nodes.filter(isWorktreeCanvasChild)
   return nodes.map<CanvasNode>((node) => {
     if (!isTerminalCanvasNode(node)) return node
     const adoption = adoptions.get(node.id)
     if (!adoption) return node
+    const position = nextWorktreeChildPosition(
+      children.filter((child) => child.data.worktreeId === adoption.worktreeId)
+    )
+    const adopted: TerminalCanvasNode = { ...node, position }
+    children.push({ ...adopted, data: { ...adopted.data, worktreeId: adoption.worktreeId } })
     return {
-      ...node,
+      ...adopted,
       data: {
         ...node.data,
         worktreeId: adoption.worktreeId,

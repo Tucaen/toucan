@@ -29,6 +29,8 @@ import {
   DEFAULT_DIFF_NODE_SIZE,
   DEFAULT_FILE_NODE_SIZE,
   DEFAULT_WORKTREE_SIZE,
+  WORKTREE_CHILD_GAP,
+  WORKTREE_CHROME_HEIGHT,
   isChatCanvasNode,
   isDiffCanvasNode,
   isFileCanvasNode,
@@ -60,6 +62,7 @@ const callbacks = {
   onCreateNodeInWorktree: () => undefined,
   onRunSetupCommand: () => undefined,
   onOpenDiff: () => undefined,
+  onViewportChange: () => undefined,
   onViewModeChange: () => undefined,
   onRequestFilePath: async () => null,
   onPathChange: () => undefined,
@@ -225,6 +228,8 @@ const worktreeState = (): WorkspaceState => ({
       label: 'Claude Code 1',
       projectId: 'project-1',
       worktreeId: 'worktree-1',
+      // Written by a build whose worktrees host their chats: the position is on the worktree canvas.
+      placement: 'worktree',
       position: { x: 400, y: 0 },
       width: 520,
       height: 340
@@ -1107,4 +1112,125 @@ test('a node without scheduled messages keeps its old snapshot shape', () => {
   }
   const [node] = terminalNodes(restoreCanvasWorkspace(state, callbacks).nodes)
   assert.equal('scheduledMessages' in serializeCanvasNode(node), false)
+})
+
+/**
+ * Issue #24's restore half: a snapshot written before worktrees hosted chats had each attached chat
+ * beside its worktree on the main canvas. Loading it must move those chats onto the worktree canvas
+ * once, keeping every identity and each chat's own size, without inventing or losing a session.
+ */
+test('a chat saved beside its worktree moves onto the worktree canvas once, keeping its identity and size', () => {
+  const state = worktreeState()
+  const legacyChat = {
+    ...state.nodes[0],
+    placement: undefined,
+    conversationId: 'conversation-1',
+    draft: 'half a thought',
+    position: { x: 400, y: 20 },
+    width: 600,
+    height: 500
+  }
+  const secondChat = {
+    ...legacyChat,
+    id: 'node-3',
+    kind: 'codex' as const,
+    label: 'Codex 3',
+    conversationId: 'conversation-3',
+    draft: undefined,
+    position: { x: 1048, y: 60 }
+  }
+  state.nodes = [legacyChat, state.nodes[1], secondChat]
+
+  const restored = restoreCanvasWorkspace(state, callbacks)
+  const worktree = worktreeNodes(restored.nodes)[0]
+  const chats = terminalNodes(restored.nodes).filter(isChatCanvasNode)
+
+  // No session appears or disappears, and none changes who it is or where it runs.
+  assert.deepEqual(
+    terminalNodes(restored.nodes).map((node) => node.id),
+    ['node-1', 'node-2', 'node-3']
+  )
+  assert.deepEqual(
+    chats.map((node) => [node.data.conversationId, node.data.draft, node.data.workingDirectory]),
+    [
+      ['conversation-1', 'half a thought', 'D:\\Development\\Toucan-worktrees\\feature-login'],
+      ['conversation-3', undefined, 'D:\\Development\\Toucan-worktrees\\feature-login']
+    ]
+  )
+  // Each keeps its size and its place relative to its sibling, now on the worktree canvas.
+  assert.deepEqual(
+    chats.map((node) => [node.position, node.style]),
+    [
+      [
+        { x: 0, y: 0 },
+        { width: 600, height: 500 }
+      ],
+      [
+        { x: 648, y: 40 },
+        { width: 600, height: 500 }
+      ]
+    ]
+  )
+  // The worktree takes in the area it and its chats covered, plus room for its own chrome.
+  assert.deepEqual(worktree.position, { x: 0, y: 0 })
+  assert.deepEqual(worktree.style, { width: 1648, height: 560 + WORKTREE_CHROME_HEIGHT })
+  // A terminal is not a worktree child yet, so it keeps its main-canvas position untouched.
+  assert.deepEqual(terminalNodes(restored.nodes)[1].position, { x: 400, y: 400 })
+
+  // Saved again, the chats say they are placed, so the next load leaves them exactly where they are.
+  const saved = { ...state, ...serializeCanvasNodes(restored.nodes) }
+  assert.deepEqual(
+    saved.nodes.map((node) => node.placement),
+    ['worktree', undefined, 'worktree']
+  )
+  const reloaded = restoreCanvasWorkspace(saved, callbacks)
+  assert.deepEqual(serializeCanvasNodes(reloaded.nodes), serializeCanvasNodes(restored.nodes))
+})
+
+test('a worktree canvas keeps its viewport and its chats their geometry across save and reload', () => {
+  const state = worktreeState()
+  state.worktrees[0] = { ...state.worktrees[0], width: 900, height: 700, viewport: { x: -120, y: 30, zoom: 0.75 } }
+  state.nodes[0] = { ...state.nodes[0], focusMode: false, position: { x: 64, y: 12 }, width: 610, height: 480 }
+
+  const restored = restoreCanvasWorkspace(state, callbacks)
+  assert.deepEqual(worktreeNodes(restored.nodes)[0].data.viewport, { x: -120, y: 30, zoom: 0.75 })
+
+  const saved = serializeCanvasNodes(restored.nodes)
+  assert.deepEqual(saved.worktrees, state.worktrees)
+  assert.deepEqual(saved.nodes[0], state.nodes[0])
+  assert.deepEqual(serializeCanvasNodes(restoreCanvasWorkspace({ ...state, ...saved }, callbacks).nodes), saved)
+})
+
+test('a chat whose worktree is unavailable comes back detached on the main canvas, beside that worktree', () => {
+  const state = worktreeState()
+  state.worktrees[0] = { ...state.worktrees[0], unavailable: true, position: { x: 100, y: 50 }, width: 800 }
+  state.nodes[0] = { ...state.nodes[0], position: { x: 20, y: 30 } }
+
+  const restored = restoreCanvasWorkspace(state, callbacks)
+  const chat = terminalNodes(restored.nodes)[0]
+
+  assert.equal(chat.data.detachedFromWorktree, true)
+  assert.equal(chat.data.dormant, true)
+  assert.equal(chat.data.worktreeId, undefined)
+  assert.deepEqual(chat.position, { x: 100 + 800 + WORKTREE_CHILD_GAP + 20, y: 80 })
+  assert.equal(serializeCanvasNode(chat).placement, undefined)
+})
+
+test('an old closed chat reopened into its worktree lands at the next free spot on that canvas', () => {
+  const state = worktreeState()
+  const closed = {
+    ...state.nodes[0],
+    placement: undefined,
+    conversationId: 'conversation-1',
+    position: { x: 2000, y: 900 }
+  }
+
+  const reopened = reopenClosedSession(
+    [closed],
+    { ...state, worktreeChildPosition: () => ({ x: 798, y: 0 }) },
+    callbacks
+  )
+
+  assert.deepEqual(reopened.node?.position, { x: 798, y: 0 })
+  assert.equal(reopened.node && serializeCanvasNode(reopened.node).placement, 'worktree')
 })

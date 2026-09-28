@@ -12,7 +12,7 @@ import type {
 import { nodeFocusMode, RECENTLY_CLOSED_SESSION_LIMIT, type WorkspaceProject } from '../../shared/workspace'
 import { defaultFileViewMode, type FileViewMode, type WorkspaceFileNode } from '../../shared/file-view'
 import type { WorkspaceDiffNode } from '../../shared/git-diff'
-import type { WorkspaceWorktree } from '../../shared/worktree'
+import type { WorkspaceWorktree, WorktreeViewport } from '../../shared/worktree'
 import { normalizeWorktreePath } from '../../shared/worktree'
 import type { WorktreeHandoffPlan } from '../../shared/worktree-handoff'
 import type { ConversationTitleSource } from '../../shared/conversation-title'
@@ -182,6 +182,8 @@ export interface WorktreeNodeCallbacks {
   onRunSetupCommand(worktreeId: string): void
   /** Opens a diff node reviewing this worktree's changes against the ref it was branched from. */
   onOpenDiff(worktreeId: string): void
+  /** The worktree's own canvas of chats came to rest at a new pan/zoom; it persists with the record. */
+  onViewportChange(worktreeId: string, viewport: WorktreeViewport): void
 }
 
 export interface WorktreeNodeData
@@ -195,6 +197,8 @@ export interface WorktreeNodeData
   setupCommand?: string
   /** How many canvas nodes currently run in this worktree; teardown is refused while non-zero. */
   attachedNodeCount: number
+  /** Where its inner canvas was last left; absent means frame the chats once they are measured. */
+  viewport?: WorktreeViewport
 }
 
 export interface FileNodeCallbacks {
@@ -258,7 +262,23 @@ const DEFAULT_TERMINAL_SIZE = { width: 520, height: 340 }
  * opened to be worked in, an unmeasured one is being reconstructed.
  */
 export const NEW_SESSION_NODE_SIZE = { width: 750, height: 660 }
-export const DEFAULT_WORKTREE_SIZE = { width: 360, height: 232 }
+/**
+ * What a new worktree opens at: room for its header, its bottom row and one freshly created chat
+ * at close to full size, since the chat is what the worktree is opened to hold.
+ */
+export const DEFAULT_WORKTREE_SIZE = { width: 800, height: 720 }
+/**
+ * The smallest a worktree may be resized to - and the size every worktree was before it hosted
+ * chats, so a record written then keeps exactly the geometry it was saved with.
+ */
+export const MIN_WORKTREE_SIZE = { width: 360, height: 232 }
+/**
+ * The vertical room a worktree's own chrome takes around its inner canvas: the header above and
+ * the compact bottom row below. Only ever used to size a frame around chats, never to lay one out.
+ */
+export const WORKTREE_CHROME_HEIGHT = 76
+/** The gap between chats set side by side on a worktree canvas, and between a worktree and its neighbours. */
+export const WORKTREE_CHILD_GAP = 48
 /**
  * Taller than wide: a file node is for reading a document, and prose is read downward.
  * @internal exported for tests
@@ -444,6 +464,15 @@ export function isChatCanvasNode(node: CanvasNode): node is TerminalCanvasNode {
   return isTerminalCanvasNode(node) && node.data.kind !== 'terminal'
 }
 
+/**
+ * A node shown on its worktree's own canvas rather than on the main one: a chat attached to a
+ * worktree. Membership is derived from the attachment and nothing else, so there is no second
+ * record of it to drift - and a terminal, even an attached one, stays on the main canvas for now.
+ */
+export function isWorktreeCanvasChild(node: CanvasNode): node is TerminalCanvasNode {
+  return isChatCanvasNode(node) && Boolean(node.data.worktreeId)
+}
+
 export function isWorktreeCanvasNode(node: CanvasNode): node is WorktreeCanvasNode {
   return node.type === 'worktreeNode'
 }
@@ -560,7 +589,10 @@ export function centredNodePosition(
   }
 }
 
-type SessionRestoreWorkspace = Pick<WorkspaceState, 'projects' | 'worktrees' | 'agentPermissionModes'>
+type SessionRestoreWorkspace = Pick<WorkspaceState, 'projects' | 'worktrees' | 'agentPermissionModes'> & {
+  /** Where a reopened chat goes on its worktree's canvas when its record predates that canvas. */
+  worktreeChildPosition?(worktreeId: string): { x: number; y: number }
+}
 type SessionRestoreMode = 'hydrate' | 'reopen'
 
 /**
@@ -572,18 +604,25 @@ export interface CanvasRestoreContext {
   worktreeById(worktreeId: string): WorkspaceWorktree | undefined
   attachedNodeCount(worktreeId: string): number
   agentPermissionModes?: AgentPermissionModes
+  /**
+   * The next free spot on a worktree's canvas, for a chat restored into it without a position on
+   * that canvas. Absent where every such chat has already been placed (`placeLegacyWorktreeChats`).
+   */
+  worktreeChildPosition?(worktreeId: string): { x: number; y: number }
 }
 
 function canvasRestoreContext(
   worktrees: readonly WorkspaceWorktree[],
   attachedNodeCount: (worktreeId: string) => number,
-  agentPermissionModes?: AgentPermissionModes
+  agentPermissionModes?: AgentPermissionModes,
+  worktreeChildPosition?: (worktreeId: string) => { x: number; y: number }
 ): CanvasRestoreContext {
   const byId = new Map(worktrees.map((worktree) => [worktree.id, worktree]))
   return {
     worktreeById: (worktreeId) => byId.get(worktreeId),
     attachedNodeCount,
-    agentPermissionModes
+    agentPermissionModes,
+    worktreeChildPosition
   }
 }
 
@@ -613,6 +652,8 @@ export function serializeCanvasNode(node: TerminalCanvasNode): WorkspaceTerminal
     projectId: node.data.projectId,
     ...(node.data.worktreeId ? { worktreeId: node.data.worktreeId } : {}),
     ...(node.data.activeWorktreeId ? { activeWorktreeId: node.data.activeWorktreeId } : {}),
+    // The position is on the worktree's canvas exactly when the node is shown there.
+    ...(isWorktreeCanvasChild(node) ? { placement: 'worktree' as const } : {}),
     position: node.position,
     width: size.width,
     height: size.height,
@@ -652,6 +693,33 @@ export function rememberClosedSessionNodes(
   return [...current, ...closed].slice(-CLOSED_SESSION_STACK_LIMIT)
 }
 
+/**
+ * Where a restored session node sits, on whichever canvas it is about to be shown on. A chat that
+ * is shown in its worktree keeps a position already on that canvas and is given the next free spot
+ * there otherwise (an old recently-closed record, written in main-canvas coordinates). A chat that
+ * was on a worktree canvas but comes back detached is put beside the record it left, so it lands
+ * near where it was rather than at the main canvas's origin.
+ */
+function restoredSessionPosition(
+  savedNode: WorkspaceTerminalNode,
+  worktree: WorkspaceWorktree | undefined,
+  recordedWorktree: WorkspaceWorktree | undefined,
+  context: CanvasRestoreContext
+): { x: number; y: number } {
+  if (savedNode.kind !== 'terminal' && worktree) {
+    return savedNode.placement === 'worktree'
+      ? savedNode.position
+      : (context.worktreeChildPosition?.(worktree.id) ?? { x: 0, y: 0 })
+  }
+  if (savedNode.placement === 'worktree' && recordedWorktree) {
+    return {
+      x: recordedWorktree.position.x + recordedWorktree.width + WORKTREE_CHILD_GAP + savedNode.position.x,
+      y: recordedWorktree.position.y + savedNode.position.y
+    }
+  }
+  return savedNode.position
+}
+
 function restoreTerminalCanvasNode(
   savedNode: WorkspaceTerminalNode,
   project: WorkspaceProject,
@@ -674,7 +742,7 @@ function restoreTerminalCanvasNode(
     type: 'terminalNode',
     dragHandle: NODE_DRAG_HANDLE,
     ...(mode === 'reopen' ? { selected: true } : {}),
-    position: savedNode.position,
+    position: restoredSessionPosition(savedNode, worktree, recordedWorktree, context),
     data: {
       kind: savedNode.kind,
       sessionId: savedNode.sessionId ?? savedNode.id,
@@ -738,7 +806,12 @@ export function reopenClosedSession(
   const remaining = [...recentlyClosedNodes]
   // Nothing is attached yet at the moment a node is reopened, and the count a worktree node shows
   // is recomputed from the canvas straight afterwards (`applyAttachedNodeCounts`).
-  const context = canvasRestoreContext(workspace.worktrees ?? [], () => 0, workspace.agentPermissionModes)
+  const context = canvasRestoreContext(
+    workspace.worktrees ?? [],
+    () => 0,
+    workspace.agentPermissionModes,
+    workspace.worktreeChildPosition
+  )
   while (remaining.length > 0) {
     const savedNode = remaining.pop()!
     if (savedNode.kind !== 'terminal' && !savedNode.conversationId) {
@@ -767,7 +840,8 @@ export function serializeWorktreeNode(node: WorktreeCanvasNode): WorkspaceWorktr
     createdAt: node.data.createdAt,
     position: node.position,
     width: size.width,
-    height: size.height
+    height: size.height,
+    ...(node.data.viewport ? { viewport: node.data.viewport } : {})
   }
 }
 
@@ -844,6 +918,7 @@ export interface WorktreeNodeSeed {
   height?: number
   /** How many nodes already run here; a worktree that was just created carries none. */
   attachedNodeCount?: number
+  viewport?: WorktreeViewport
   /** Selected when the user asked for this worktree themselves; a swept one appears quietly. */
   selected?: boolean
 }
@@ -881,10 +956,12 @@ export function createWorktreeCanvasNode(
       projectColor: project.color,
       setupCommand: project.setupCommand,
       attachedNodeCount: seed.attachedNodeCount ?? 0,
+      ...(seed.viewport ? { viewport: seed.viewport } : {}),
       onRemoveWorktree: callbacks.onRemoveWorktree,
       onCreateNodeInWorktree: callbacks.onCreateNodeInWorktree,
       onRunSetupCommand: callbacks.onRunSetupCommand,
-      onOpenDiff: callbacks.onOpenDiff
+      onOpenDiff: callbacks.onOpenDiff,
+      onViewportChange: callbacks.onViewportChange
     },
     style: {
       width: seed.width ?? DEFAULT_WORKTREE_SIZE.width,
@@ -1166,20 +1243,81 @@ export function serializeCanvasNodes(
   return snapshot as unknown as Pick<WorkspaceState, 'nodes' | 'worktrees' | 'files' | 'diffs'>
 }
 
+/**
+ * Moves chats saved before worktrees hosted them onto their worktree's canvas, once. Such a chat
+ * sat beside its worktree on the main canvas, so the worktree grows to the area the two of them
+ * took up together and the chat keeps its size and its place relative to its siblings - that is the
+ * layout the user left. Identity, conversation, draft and every other field are untouched; only
+ * geometry moves, and the chat is marked as placed so a later load cannot migrate it again.
+ *
+ * A record whose worktree is unavailable is left alone: its chats restore detached, on the main
+ * canvas, where their main-canvas position is still the right one.
+ * @internal exported for tests
+ */
+export function placeLegacyWorktreeChats(
+  worktrees: readonly WorkspaceWorktree[],
+  nodes: readonly WorkspaceTerminalNode[]
+): { worktrees: WorkspaceWorktree[]; nodes: WorkspaceTerminalNode[] } {
+  const available = new Set(worktrees.filter((worktree) => !worktree.unavailable).map((worktree) => worktree.id))
+  const legacy = new Map<string, WorkspaceTerminalNode[]>()
+  for (const node of nodes) {
+    if (node.kind === 'terminal' || !node.worktreeId || node.placement === 'worktree') continue
+    if (!available.has(node.worktreeId)) continue
+    legacy.set(node.worktreeId, [...(legacy.get(node.worktreeId) ?? []), node])
+  }
+  if (legacy.size === 0) return { worktrees: [...worktrees], nodes: [...nodes] }
+
+  const origins = new Map<string, { x: number; y: number }>()
+  const nextWorktrees = worktrees.map((worktree) => {
+    const chats = legacy.get(worktree.id)
+    if (!chats) return worktree
+    const left = Math.min(...chats.map((chat) => chat.position.x))
+    const top = Math.min(...chats.map((chat) => chat.position.y))
+    const right = Math.max(...chats.map((chat) => chat.position.x + chat.width))
+    const bottom = Math.max(...chats.map((chat) => chat.position.y + chat.height))
+    origins.set(worktree.id, { x: left, y: top })
+    const x = Math.min(worktree.position.x, left)
+    const y = Math.min(worktree.position.y, top)
+    return {
+      ...worktree,
+      position: { x, y },
+      width: Math.max(worktree.position.x + worktree.width, right) - x,
+      height: Math.max(worktree.position.y + worktree.height, bottom + WORKTREE_CHROME_HEIGHT) - y
+    }
+  })
+  const nextNodes = nodes.map((node) => {
+    const origin =
+      node.worktreeId && legacy.get(node.worktreeId)?.includes(node) ? origins.get(node.worktreeId) : undefined
+    return origin
+      ? {
+          ...node,
+          placement: 'worktree' as const,
+          position: { x: node.position.x - origin.x, y: node.position.y - origin.y }
+        }
+      : node
+  })
+  return { worktrees: nextWorktrees, nodes: nextNodes }
+}
+
 function savedRecords(state: WorkspaceState, field: CanvasNodeStateField): readonly { projectId: string }[] {
   return state[field] ?? []
 }
 
 export function restoreCanvasWorkspace(
-  state: WorkspaceState,
+  saved: WorkspaceState,
   callbacks: CanvasNodeCallbacks,
   kinds: readonly CanvasNodeKindEntry[] = CANVAS_NODE_KINDS
 ): RestoredCanvasWorkspace {
-  const projectsById = new Map(state.projects.map((project) => [project.id, project]))
+  const projectsById = new Map(saved.projects.map((project) => [project.id, project]))
   // The same "its project is gone, so it goes too" rule the loop below applies to every kind,
   // applied to the worktree records up front: the session and diff kinds resolve their worktree
   // through this set, and a record naming a deleted project must not be resolvable for them.
-  const worktrees = (state.worktrees ?? []).filter((worktree) => projectsById.has(worktree.projectId))
+  const placed = placeLegacyWorktreeChats(
+    (saved.worktrees ?? []).filter((worktree) => projectsById.has(worktree.projectId)),
+    saved.nodes
+  )
+  const worktrees = placed.worktrees
+  const state: WorkspaceState = { ...saved, worktrees, nodes: placed.nodes }
   const worktreeIds = new Set(worktrees.map((worktree) => worktree.id))
   const attachedCounts = new Map<string, number>()
   for (const node of state.nodes) {
@@ -1194,10 +1332,10 @@ export function restoreCanvasWorkspace(
   )
 
   const nodes = kinds.flatMap((kind) =>
-    savedRecords(state, kind.field).flatMap((saved) => {
-      const project = projectsById.get(saved.projectId)
+    savedRecords(state, kind.field).flatMap((record) => {
+      const project = projectsById.get(record.projectId)
       if (!project) return []
-      const node = kind.restore(saved, project, context, callbacks)
+      const node = kind.restore(record, project, context, callbacks)
       return node ? [node] : []
     })
   )

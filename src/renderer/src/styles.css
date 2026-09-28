@@ -4373,45 +4373,62 @@ button.global-status-chip:hover {
   white-space: nowrap;
 }
 
-.worktree-body {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 12px 13px;
-  overflow: auto;
-}
-
-.worktree-facts {
-  margin: 0;
-  display: grid;
-  gap: 8px;
-}
-
-.worktree-facts div {
+/* Git state, in the header: one line that gives way to the actions before anything else does. */
+.worktree-status {
   min-width: 0;
-  display: grid;
-  gap: 2px;
-}
-
-.worktree-facts dd {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   margin: 0;
   overflow: hidden;
-  color: #b9c0cb;
-  font-family: Consolas, monospace;
-  font-size: 12px;
+  color: #9aa3b0;
+  font-size: 11px;
+}
+
+.worktree-status-text {
+  min-width: 0;
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.worktree-status {
+.worktree-header-actions {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 4px;
+}
+
+.worktree-header-action svg {
+  width: 13px;
+  height: 13px;
+}
+
+.worktree-header-action:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* The worktree's own canvas takes every pixel the header and the bottom row leave. */
+.worktree-canvas {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  background: #0f0d14;
+}
+
+.worktree-canvas-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
   margin: 0;
-  color: #9aa3b0;
+  padding: 0 24px;
+  color: var(--neutral-600);
   font-size: 12px;
+  text-align: center;
+  pointer-events: none;
 }
 
 .worktree-status-dot {
@@ -4447,28 +4464,51 @@ button.global-status-chip:hover {
   background: #df737a;
 }
 
+/* One compact row under the canvas: what the chats are doing, Add chat, Fit chats. */
 .worktree-actions {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 9px 13px;
+  padding: 4px 10px;
   border-top: 1px solid #2f2740;
   background: #17131f;
+}
+
+.worktree-activity {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: auto;
+  overflow: hidden;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.worktree-activity [data-kind='working'] {
+  color: var(--codex);
+}
+
+.worktree-activity [data-kind='attention'] {
+  color: #f1c75b;
 }
 
 .worktree-open-group {
   display: flex;
   align-items: center;
   gap: 5px;
-  margin-right: auto;
 }
 
-.worktree-open-group span {
+.worktree-open-group .eyebrow-label {
   margin-right: 3px;
 }
 
 .worktree-actions button {
-  padding: 5px 9px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
   border: 1px solid #3a3350;
   border-radius: 6px;
   background: transparent;
@@ -4478,9 +4518,9 @@ button.global-status-chip:hover {
   cursor: pointer;
 }
 
-.worktree-open-group button svg {
-  width: 14px;
-  height: 14px;
+.worktree-actions button svg {
+  width: 13px;
+  height: 13px;
 }
 
 .worktree-actions button:hover:not(:disabled) {
@@ -4493,7 +4533,7 @@ button.global-status-chip:hover {
   cursor: not-allowed;
 }
 
-.worktree-remove:hover:not(:disabled) {
+.worktree-header-action.worktree-remove:hover:not(:disabled) {
   border-color: #df737a;
   color: #f0c2c5;
 }
@@ -7682,7 +7722,7 @@ button.global-status-chip:hover {
 }
 
 .diff-node-refresh,
-.worktree-diff {
+.worktree-header-action {
   flex: 0 0 auto;
   padding: 3px 8px;
   border: 1px solid #3d3428;
@@ -7694,7 +7734,7 @@ button.global-status-chip:hover {
   cursor: pointer;
 }
 
-.worktree-diff {
+.worktree-header-action {
   border-color: #3b3048;
 }
 
@@ -7712,7 +7752,7 @@ button.global-status-chip:hover {
 }
 
 .diff-node-refresh:hover,
-.worktree-diff:hover {
+.worktree-header-action:hover:not(:disabled) {
   border-color: #f0b46a;
   color: #f4ece2;
 }

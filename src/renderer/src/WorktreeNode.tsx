@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { NodeProps } from '@xyflow/react'
+import { ReactFlowProvider, type NodeProps } from '@xyflow/react'
 import { GitBranch } from 'lucide-react'
+import type { TerminalKind } from '../../shared/terminal'
 import type { WorktreeStatus } from '../../shared/worktree'
-import type { WorktreeCanvasNode } from './canvas-workspace'
+import { MIN_WORKTREE_SIZE, type WorktreeCanvasNode } from './canvas-workspace'
 import NodeBorderResizer from './NodeBorderResizer'
 import NodeFitAction from './NodeFitAction'
 import SessionKindIcon from './SessionKindIcon'
+import WorktreeCanvas from './WorktreeCanvas'
 
 /** Git state moves only when something else on the canvas moves it, so this can be lazy. */
 const STATUS_POLL_MS = 10_000
@@ -30,9 +32,15 @@ function describeStatus(status: WorktreeStatus | null): {
   return { text: parts.join(' · '), kind: dirty ? 'dirty' : 'ahead' }
 }
 
+/**
+ * A worktree is the home of the chats that run in it: a header, the worktree's own canvas of
+ * those chats, and one compact row beneath. The header carries the checkout - branch, project, git
+ * state and the checkout-level actions - and doubles as the drag handle that moves the worktree and
+ * everything in it together; the canvas and the row belong to `WorktreeCanvas`.
+ */
 export default function WorktreeNode({ id, data, selected }: NodeProps<WorktreeCanvasNode>): JSX.Element {
   const [status, setStatus] = useState<WorktreeStatus | null>(null)
-  const { path, branch, baseRef } = data
+  const { path, branch, baseRef, worktreeId, onCreateNodeInWorktree } = data
 
   const refresh = useCallback(
     async (): Promise<WorktreeStatus | null> => window.worktreeApi.status({ path, branch, baseRef }).catch(() => null),
@@ -55,8 +63,13 @@ export default function WorktreeNode({ id, data, selected }: NodeProps<WorktreeC
     // Attaching or detaching a node is the most likely moment for the tree to have changed.
   }, [data.attachedNodeCount, refresh])
 
+  const addChat = useCallback(
+    (kind: TerminalKind): void => onCreateNodeInWorktree(worktreeId, kind),
+    [onCreateNodeInWorktree, worktreeId]
+  )
+
   const summary = data.unavailable
-    ? { text: 'Worktree no longer exists. Close its attached sessions to remove this record.', kind: 'missing' }
+    ? { text: 'Worktree no longer exists', kind: 'missing' as const }
     : describeStatus(status)
 
   return (
@@ -64,105 +77,88 @@ export default function WorktreeNode({ id, data, selected }: NodeProps<WorktreeC
       className={`worktree-node ${selected ? 'selected' : ''}`}
       style={{ '--project-color': data.projectColor } as React.CSSProperties}
     >
-      <NodeBorderResizer minWidth={320} minHeight={200} selected={selected} color={data.projectColor} />
+      <NodeBorderResizer
+        minWidth={MIN_WORKTREE_SIZE.width}
+        minHeight={MIN_WORKTREE_SIZE.height}
+        selected={selected}
+        color={data.projectColor}
+      />
       <header className="node-header worktree-node-header">
         <span className="worktree-glyph" aria-hidden="true">
           <GitBranch />
         </span>
-        <strong title={branch}>{branch}</strong>
+        {/* Directory and base stay one hover away rather than taking a row of the canvas. */}
+        <strong title={`${branch}\n${path}\nBranched from ${baseRef}`}>{branch}</strong>
         <span className="node-project" title={data.projectPath}>
           <span className="project-color-dot" />
           {data.projectName}
         </span>
-        <span className="node-status">{data.attachedNodeCount} attached</span>
-        <button
-          type="button"
-          className="worktree-diff nodrag"
-          title={`Review this worktree's changes against ${baseRef}`}
-          onMouseDown={(event) => event.stopPropagation()}
-          onClick={() => data.onOpenDiff(data.worktreeId)}
-        >
-          Diff
-        </button>
-        <NodeFitAction nodeId={id} fitted={data.fittedToCanvas ?? false} />
-      </header>
-
-      <div className="worktree-body nodrag">
-        <dl className="worktree-facts">
-          <div>
-            <dt className="eyebrow-label">Directory</dt>
-            <dd title={path}>{path}</dd>
-          </div>
-          <div>
-            <dt className="eyebrow-label">Branched from</dt>
-            <dd>{baseRef}</dd>
-          </div>
-        </dl>
-        <p className="worktree-status" data-kind={summary.kind}>
+        <span className="worktree-status" data-kind={summary.kind} title={summary.text}>
           <span className="worktree-status-dot" />
-          {summary.text}
-        </p>
-      </div>
-
-      <footer className="worktree-actions nodrag">
-        <div className="worktree-open-group">
-          <span className="eyebrow-label">Open here</span>
+          <span className="worktree-status-text">{summary.text}</span>
+        </span>
+        <span className="worktree-header-actions nodrag">
           <button
             type="button"
+            className="worktree-header-action worktree-terminal"
             title="New terminal in this worktree"
+            aria-label="New terminal in this worktree"
             disabled={data.unavailable}
             onMouseDown={(event) => event.stopPropagation()}
-            onClick={() => data.onCreateNodeInWorktree(data.worktreeId, 'terminal')}
+            onClick={() => onCreateNodeInWorktree(worktreeId, 'terminal')}
           >
             <SessionKindIcon kind="terminal" />
           </button>
           <button
             type="button"
-            title="New Claude session in this worktree"
-            disabled={data.unavailable}
+            className="worktree-header-action worktree-setup"
+            disabled={data.unavailable || !data.setupCommand}
+            title={
+              data.setupCommand
+                ? `Run in a new terminal: ${data.setupCommand}`
+                : 'No setup command configured for this project'
+            }
             onMouseDown={(event) => event.stopPropagation()}
-            onClick={() => data.onCreateNodeInWorktree(data.worktreeId, 'claude')}
+            onClick={() => data.onRunSetupCommand(worktreeId)}
           >
-            <SessionKindIcon kind="claude" />
+            Setup
           </button>
           <button
             type="button"
-            title="New Codex session in this worktree"
-            disabled={data.unavailable}
+            className="worktree-header-action worktree-diff"
+            title={`Review this worktree's changes against ${baseRef}`}
             onMouseDown={(event) => event.stopPropagation()}
-            onClick={() => data.onCreateNodeInWorktree(data.worktreeId, 'codex')}
+            onClick={() => data.onOpenDiff(worktreeId)}
           >
-            <SessionKindIcon kind="codex" />
+            Diff
           </button>
-        </div>
-        <button
-          type="button"
-          className="worktree-setup"
-          disabled={data.unavailable || !data.setupCommand}
-          title={
-            data.setupCommand
-              ? `Run in a new terminal: ${data.setupCommand}`
-              : 'No setup command configured for this project'
-          }
-          onMouseDown={(event) => event.stopPropagation()}
-          onClick={() => data.onRunSetupCommand(data.worktreeId)}
-        >
-          Setup
-        </button>
-        <button
-          type="button"
-          className="worktree-remove"
-          title={
-            data.attachedNodeCount > 0
-              ? 'Close or detach its nodes before removing this worktree'
-              : 'Check this worktree for unique work and remove it'
-          }
-          onMouseDown={(event) => event.stopPropagation()}
-          onClick={() => data.onRemoveWorktree(data.worktreeId)}
-        >
-          Remove
-        </button>
-      </footer>
+          <button
+            type="button"
+            className="worktree-header-action worktree-remove"
+            title={
+              data.attachedNodeCount > 0
+                ? 'Close or detach its nodes before removing this worktree'
+                : 'Check this worktree for unique work and remove it'
+            }
+            onMouseDown={(event) => event.stopPropagation()}
+            onClick={() => data.onRemoveWorktree(worktreeId)}
+          >
+            Remove
+          </button>
+        </span>
+        <NodeFitAction nodeId={id} fitted={data.fittedToCanvas ?? false} />
+      </header>
+
+      <ReactFlowProvider>
+        <WorktreeCanvas
+          worktreeId={worktreeId}
+          viewport={data.viewport}
+          unavailable={data.unavailable ?? false}
+          attachedNodeCount={data.attachedNodeCount}
+          onAddChat={addChat}
+          onViewportChange={data.onViewportChange}
+        />
+      </ReactFlowProvider>
     </article>
   )
 }

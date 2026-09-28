@@ -33,7 +33,7 @@ import type {
   WorkspaceState,
   WorkspaceTerminalNode
 } from '../../shared/workspace'
-import type { WorktreeRemovalBlocker } from '../../shared/worktree'
+import type { WorktreeRemovalBlocker, WorktreeViewport } from '../../shared/worktree'
 import { worktreePathKey } from '../../shared/worktree'
 import type { FileViewMode } from '../../shared/file-view'
 import { pathIdentity, pathWithinRoot } from '../../shared/paths'
@@ -58,6 +58,7 @@ import {
   createSessionCanvasNode,
   createWorktreeCanvasNode,
   DEFAULT_WORKTREE_SIZE,
+  WORKTREE_CHILD_GAP,
   NEW_NODE_SIZE,
   NEW_SESSION_NODE_SIZE,
   centredNodePosition,
@@ -65,6 +66,7 @@ import {
   isChatCanvasNode,
   isFileCanvasNode,
   isTerminalCanvasNode,
+  isWorktreeCanvasChild,
   isWorktreeCanvasNode,
   rememberClosedSessionNodes,
   reopenClosedSession,
@@ -146,6 +148,16 @@ import {
   reconcileStaleWorktrees
 } from './worktree-attachment'
 import WorktreeNode from './WorktreeNode'
+import {
+  nextWorktreeChildPosition,
+  partitionWorktreeCanvases,
+  splitWorktreeCanvasEdges,
+  withRoomForChat,
+  worktreeActivity,
+  type WorktreeCanvasEdges,
+  type WorktreeCanvasPartition
+} from './worktree-canvas'
+import { WorktreeCanvasContext, type WorktreeCanvasHost } from './worktree-canvas-context'
 import {
   LAYOUT_SHORTCUT_LABELS,
   applyLayoutSlot,
@@ -628,6 +640,16 @@ function Canvas(): JSX.Element {
   )
   nodesRef.current = nodes
   nodeStatusesRef.current = nodeStatuses
+
+  /**
+   * Which canvas shows which node: the main canvas, or the canvas inside a worktree. Derived from
+   * the one node set on every render and never stored, so a chat cannot be shown twice or in the
+   * wrong place - see `worktree-canvas.ts`. The previous result is handed back in so a canvas whose
+   * members did not change keeps the same array.
+   */
+  const partitionRef = useRef<WorktreeCanvasPartition | undefined>(undefined)
+  const canvasPartition = useMemo(() => partitionWorktreeCanvases(nodes, partitionRef.current), [nodes])
+  partitionRef.current = canvasPartition
   projectsRef.current = projects
   permissionModesRef.current = agentPermissionModes
   recentlyClosedNodesRef.current = recentlyClosedNodes
@@ -705,7 +727,9 @@ function Canvas(): JSX.Element {
   const tileCanvas = useCallback((): void => {
     const region = visibleCanvasRegion()
     if (!region) return
-    const current = getCanvasNodes()
+    // Main-canvas geometry only: a worktree's chats are positioned on its own canvas, and laying
+    // them out here would scatter them there. Moving the worktree is what moves them.
+    const current = getCanvasNodes().filter((node) => !isWorktreeCanvasChild(node))
     const selected = current.filter((node) => node.selected).map((node) => node.id)
     const ids = selected.length >= 2 ? selected : current.map((node) => node.id)
     // Tiling starts from what the release produced, not from `getCanvasNodes()` again: that still
@@ -718,7 +742,8 @@ function Canvas(): JSX.Element {
   const runLayoutAction = useCallback(
     (action: LayoutKeyAction): void => {
       const current = getCanvasNodes()
-      const selected = current.filter((node) => node.selected).map((node) => node.id)
+      // The same main-canvas rule as tiling: snap and match-size measure against the main viewport.
+      const selected = current.filter((node) => node.selected && !isWorktreeCanvasChild(node)).map((node) => node.id)
       switch (action.kind) {
         case 'snap':
           nodeFit.snap(selected, action.arrow)
@@ -844,6 +869,13 @@ function Canvas(): JSX.Element {
     [edges, lineage]
   )
 
+  const edgeSplitRef = useRef<WorktreeCanvasEdges | undefined>(undefined)
+  const canvasEdgeSplit = useMemo(
+    () => splitWorktreeCanvasEdges(canvasEdges, canvasPartition, edgeSplitRef.current),
+    [canvasEdges, canvasPartition]
+  )
+  edgeSplitRef.current = canvasEdgeSplit
+
   const connectTerminalContext = useCallback(
     (connection: Connection): void => {
       setEdges((current) => withTerminalContextEdge(current, nodesRef.current, connection))
@@ -867,7 +899,13 @@ function Canvas(): JSX.Element {
       {
         projects: projectsRef.current,
         worktrees: nodesRef.current.filter(isWorktreeCanvasNode).map(serializeWorktreeNode),
-        agentPermissionModes: permissionModesRef.current
+        agentPermissionModes: permissionModesRef.current,
+        worktreeChildPosition: (worktreeId) =>
+          nextWorktreeChildPosition(
+            nodesRef.current
+              .filter(isWorktreeCanvasChild)
+              .filter((candidate) => candidate.data.worktreeId === worktreeId)
+          )
       },
       {
         onStatusChange: handleStatusChange,
@@ -964,13 +1002,22 @@ function Canvas(): JSX.Element {
         : undefined
       if (worktree?.unavailable) return null
       nextSessionNumber.current += 1
+      // A chat in a worktree is shown on that worktree's canvas, so its position is on that canvas:
+      // the next spot beside the chats already there, whichever gesture asked for it.
+      const contained = worktree !== undefined && kind !== 'terminal'
       const node = createSessionCanvasNode(
         {
           id,
           kind,
           label,
           titleSource: options.titleSource,
-          position,
+          position: contained
+            ? nextWorktreeChildPosition(
+                nodesRef.current
+                  .filter(isWorktreeCanvasChild)
+                  .filter((candidate) => candidate.data.worktreeId === worktree.worktreeId)
+              )
+            : position,
           conversationId,
           launchMode: resumeConversationId ? 'resume' : branchedFrom ? 'fork' : 'new',
           branchedFrom,
@@ -1001,7 +1048,10 @@ function Canvas(): JSX.Element {
           onWorktreeHandoff: dispatchWorktreeHandoff
         }
       )
-      setNodes((current) => [...current.map((candidate) => ({ ...candidate, selected: false })), node])
+      setNodes((current) => {
+        const placed = [...current.map((candidate) => ({ ...candidate, selected: false })), node]
+        return contained ? withRoomForChat(placed, worktree.worktreeId) : placed
+      })
       setNodeStatuses((current) => ({ ...current, [id]: 'starting' }))
       return id
     },
@@ -1129,13 +1179,18 @@ function Canvas(): JSX.Element {
         setNotice(worktreeGoneNotice('nothing can be opened in it.'))
         return
       }
+      // A chat goes onto the worktree's own canvas (`addSessionNode` places it there); a terminal
+      // still lands beside the worktree on the main canvas, fanned out so they do not stack.
       const offset = worktreeNode.data.attachedNodeCount
+      const width =
+        worktreeNode.measured?.width ??
+        (typeof worktreeNode.style?.width === 'number' ? worktreeNode.style.width : DEFAULT_WORKTREE_SIZE.width)
       addSessionNode({
         kind,
         project,
         worktree: worktreeNode.data,
         position: {
-          x: worktreeNode.position.x + DEFAULT_WORKTREE_SIZE.width + 48,
+          x: worktreeNode.position.x + width + WORKTREE_CHILD_GAP,
           y: worktreeNode.position.y + offset * 40
         },
         initialInput
@@ -1258,6 +1313,24 @@ function Canvas(): JSX.Element {
     [clearRecentlyClosedNodes, findWorktreeNode, setNodes]
   )
 
+  /** Where a worktree's canvas came to rest; kept on the worktree so it survives a reload. */
+  const handleWorktreeViewportChange = useCallback(
+    (worktreeId: string, viewport: WorktreeViewport): void => {
+      setNodes((current) => {
+        const target = current.filter(isWorktreeCanvasNode).find((node) => node.data.worktreeId === worktreeId)
+        const previous = target?.data.viewport
+        if (
+          !target ||
+          (previous && previous.x === viewport.x && previous.y === viewport.y && previous.zoom === viewport.zoom)
+        )
+          return current
+        const next = { x: viewport.x, y: viewport.y, zoom: viewport.zoom }
+        return current.map((node) => (node === target ? { ...target, data: { ...target.data, viewport: next } } : node))
+      })
+    },
+    [setNodes]
+  )
+
   /**
    * The worktree node's callbacks in one bag, so every site that builds one - the dialog, a
    * handoff, the discovery sweep, a restore - hands `createWorktreeCanvasNode` the same set.
@@ -1267,9 +1340,16 @@ function Canvas(): JSX.Element {
       onRemoveWorktree: handleRemoveWorktree,
       onCreateNodeInWorktree: handleCreateNodeInWorktree,
       onRunSetupCommand: handleRunSetupCommand,
-      onOpenDiff: handleOpenDiff
+      onOpenDiff: handleOpenDiff,
+      onViewportChange: handleWorktreeViewportChange
     }),
-    [handleCreateNodeInWorktree, handleOpenDiff, handleRemoveWorktree, handleRunSetupCommand]
+    [
+      handleCreateNodeInWorktree,
+      handleOpenDiff,
+      handleRemoveWorktree,
+      handleRunSetupCommand,
+      handleWorktreeViewportChange
+    ]
   )
 
   /**
@@ -1347,6 +1427,8 @@ function Canvas(): JSX.Element {
               isTerminalCanvasNode(candidate) && candidate.id === nodeId
                 ? {
                     ...candidate,
+                    // Now shown on the worktree's canvas, and a fresh worktree's canvas is empty.
+                    position: { x: 0, y: 0 },
                     data: {
                       ...candidate.data,
                       worktreeId:
@@ -1797,7 +1879,15 @@ function Canvas(): JSX.Element {
 
   const focusNode = useCallback(
     (nodeId: string): void => {
-      const target = nodes.find((node) => node.id === nodeId)
+      const node = nodes.find((candidate) => candidate.id === nodeId)
+      // A chat inside a worktree is on that worktree's canvas, so the main canvas pans to the
+      // worktree that shows it.
+      const target =
+        node && isWorktreeCanvasChild(node)
+          ? (nodes
+              .filter(isWorktreeCanvasNode)
+              .find((candidate) => candidate.data.worktreeId === node.data.worktreeId) ?? node)
+          : node
       if (!target) return
 
       // Selecting a node is enough: each node reports its own status once it sees the focus.
@@ -1805,7 +1895,8 @@ function Canvas(): JSX.Element {
       setMenu(null)
       // Pan only: the user's zoom is theirs, and a snapped node goes back to the side it was snapped to.
       const canvas = canvasRegionRef.current?.getBoundingClientRect()
-      const next = canvas && viewportShowingNode(target, nodeFit.state()[nodeId], canvas, getViewport(), NODE_FIT_INSET)
+      const next =
+        canvas && viewportShowingNode(target, nodeFit.state()[target.id], canvas, getViewport(), NODE_FIT_INSET)
       if (next) void setViewport(next, { duration: 350 })
     },
     [getViewport, nodeFit, nodes, setNodes, setViewport]
@@ -2158,7 +2249,8 @@ function Canvas(): JSX.Element {
             kind: provider,
             project,
             worktree,
-            position: { x: draft.position.x + DEFAULT_WORKTREE_SIZE.width + 48, y: draft.position.y }
+            // Placed on the worktree's own canvas by `addSessionNode`; this is never read for a chat.
+            position: draft.position
           })
       }),
     [addSessionNode, setNodes, worktreeCallbacks]
@@ -2365,6 +2457,22 @@ function Canvas(): JSX.Element {
     ]
   )
 
+  /** What every worktree canvas reads from the workspace, and where its changes go. */
+  const worktreeCanvasHost = useMemo<WorktreeCanvasHost>(
+    () => ({
+      partition: canvasPartition,
+      edges: canvasEdgeSplit,
+      activity: new Map(
+        [...canvasPartition.children].map(([worktreeId, children]) => [
+          worktreeId,
+          worktreeActivity(children, nodeStatuses)
+        ])
+      ),
+      onNodesChange: handleNodesChange
+    }),
+    [canvasEdgeSplit, canvasPartition, handleNodesChange, nodeStatuses]
+  )
+
   /** What the sidebar shows of the canvas, derived once per render; see `project-sidebar.ts`. */
   const sidebarSummaries = useMemo(() => projectSidebarSummaries(nodes, nodeStatuses), [nodes, nodeStatuses])
 
@@ -2524,19 +2632,20 @@ function Canvas(): JSX.Element {
                   <NodeFitContext.Provider value={nodeFit.toggle}>
                     <NodeSearchContext.Provider value={nodeSearchRequest}>
                       <OpenFileContext.Provider value={openFileFromCard}>
-                        <ReactFlow
-                          nodes={nodes}
-                          nodeTypes={nodeTypes}
-                          edges={canvasEdges}
-                          onEdgesChange={onEdgesChange}
-                          onConnect={connectTerminalContext}
-                          isValidConnection={isValidCanvasConnection}
-                          onNodesChange={handleNodesChange}
-                          onPaneContextMenu={openContextMenu}
-                          onPaneClick={() => setMenu(null)}
-                          minZoom={0.25}
-                          maxZoom={2}
-                          /* Plain wheel is reserved for scrolling inside nodes; only a Ctrl-held
+                        <WorktreeCanvasContext.Provider value={worktreeCanvasHost}>
+                          <ReactFlow
+                            nodes={canvasPartition.main}
+                            nodeTypes={nodeTypes}
+                            edges={canvasEdgeSplit.main}
+                            onEdgesChange={onEdgesChange}
+                            onConnect={connectTerminalContext}
+                            isValidConnection={isValidCanvasConnection}
+                            onNodesChange={handleNodesChange}
+                            onPaneContextMenu={openContextMenu}
+                            onPaneClick={() => setMenu(null)}
+                            minZoom={0.25}
+                            maxZoom={2}
+                            /* Plain wheel is reserved for scrolling inside nodes; only a Ctrl-held
                            wheel moves the canvas, so a stray scroll over the pane never zooms.
                            Ctrl is the whole gate - a trackpad pinch arrives as one too, which is
                            what `zoomOnPinch` then lets through. `preventScrolling` has to go with
@@ -2545,16 +2654,17 @@ function Canvas(): JSX.Element {
                            gesture for. Nodes can then leave the wheel alone entirely - no
                            `nowheel`, no stopPropagation - so a Ctrl+wheel over a transcript or a
                            grown composer still zooms. */
-                          zoomOnScroll={false}
-                          zoomOnPinch
-                          panOnScroll={false}
-                          preventScrolling={false}
-                          defaultViewport={{ x: 0, y: 0, zoom: 1 }}
-                          colorMode="dark"
-                          deleteKeyCode={['Backspace', 'Delete']}
-                        >
-                          <Background variant={BackgroundVariant.Dots} gap={24} size={1.2} color="#303744" />
-                        </ReactFlow>
+                            zoomOnScroll={false}
+                            zoomOnPinch
+                            panOnScroll={false}
+                            preventScrolling={false}
+                            defaultViewport={{ x: 0, y: 0, zoom: 1 }}
+                            colorMode="dark"
+                            deleteKeyCode={['Backspace', 'Delete']}
+                          >
+                            <Background variant={BackgroundVariant.Dots} gap={24} size={1.2} color="#303744" />
+                          </ReactFlow>
+                        </WorktreeCanvasContext.Provider>
                       </OpenFileContext.Provider>
                     </NodeSearchContext.Provider>
                   </NodeFitContext.Provider>
