@@ -57,7 +57,14 @@ function isWorkspaceWorktree(value: unknown): boolean {
     typeof worktree.position?.x === 'number' &&
     typeof worktree.position?.y === 'number' &&
     typeof worktree.width === 'number' &&
-    typeof worktree.height === 'number'
+    typeof worktree.height === 'number' &&
+    (worktree.viewport === undefined ||
+      (!!worktree.viewport &&
+        typeof worktree.viewport === 'object' &&
+        [worktree.viewport.x, worktree.viewport.y, worktree.viewport.zoom].every(
+          (n) => typeof n === 'number' && Number.isFinite(n)
+        ) &&
+        worktree.viewport.zoom > 0))
   )
 }
 
@@ -145,6 +152,7 @@ function isWorkspaceTerminalNode(value: unknown): boolean {
     (node.titleSource === undefined || node.titleSource === 'generated' || node.titleSource === 'manual') &&
     typeof node.projectId === 'string' &&
     (node.worktreeId === undefined || typeof node.worktreeId === 'string') &&
+    (node.placement === undefined || node.placement === 'worktree') &&
     typeof node.position?.x === 'number' &&
     typeof node.position?.y === 'number' &&
     typeof node.width === 'number' &&

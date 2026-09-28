@@ -210,6 +210,47 @@ test('rejects a workspace whose worktree records are malformed', () => {
   )
 })
 
+test("a worktree canvas's viewport and a chat's placement on it round-trip, and malformed ones are refused", () => {
+  const worktree = {
+    id: 'w1',
+    projectId: 'project-1',
+    branch: 'feature/login',
+    path: 'D:\\Development\\Toucan-worktrees\\feature-login',
+    baseRef: 'main',
+    createdAt: '2026-08-27T09:00:00.000Z',
+    position: { x: 0, y: 0 },
+    width: 800,
+    height: 720,
+    viewport: { x: -40, y: 12, zoom: 0.8 }
+  }
+  const chat = {
+    id: 'chat-1',
+    kind: 'codex',
+    label: 'Codex 1',
+    projectId: 'project-1',
+    worktreeId: 'w1',
+    placement: 'worktree',
+    position: { x: 0, y: 0 },
+    width: 750,
+    height: 660
+  }
+  const base = {
+    version: 3,
+    projects: [{ id: 'project-1', name: 'Toucan', path: 'D:\\Development\\Toucan', color: '#71a9ff' }],
+    activeProjectId: 'project-1',
+    sidebarCollapsed: false
+  }
+
+  const parsed = parseWorkspaceState({ ...base, nodes: [chat], worktrees: [worktree] })
+  assert.deepEqual(parsed?.worktrees[0].viewport, worktree.viewport)
+  assert.equal(parsed?.nodes[0].placement, 'worktree')
+
+  for (const viewport of [null, { x: 0, y: 0 }, { x: 0, y: 0, zoom: 0 }, { x: Number.NaN, y: 0, zoom: 1 }]) {
+    assert.equal(parseWorkspaceState({ ...base, nodes: [chat], worktrees: [{ ...worktree, viewport }] }), null)
+  }
+  assert.equal(parseWorkspaceState({ ...base, nodes: [{ ...chat, placement: 'main' }], worktrees: [worktree] }), null)
+})
+
 test('saves and loads a valid workspace through the store', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'toucan-workspace-test-'))
   const store = createWorkspaceStore(join(directory, 'workspace.json'))

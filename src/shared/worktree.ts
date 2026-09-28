@@ -24,6 +24,19 @@ export interface WorkspaceWorktree {
   position: { x: number; y: number }
   width: number
   height: number
+  /**
+   * Where the worktree's own canvas of chats was panned and zoomed to. Absent until the user or a
+   * Fit chats first moves it, and in every snapshot written before worktrees hosted chats; the
+   * canvas then frames its chats once they are measured.
+   */
+  viewport?: WorktreeViewport
+}
+
+/** An inner canvas viewport in React Flow's terms: translation in screen pixels, then zoom. */
+export interface WorktreeViewport {
+  x: number
+  y: number
+  zoom: number
 }
 
 export interface WorktreeCreateRequest {
