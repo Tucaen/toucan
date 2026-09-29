@@ -302,9 +302,16 @@ void app.whenReady().then(async () => {
   // A file node may read anywhere inside a registered project or one of its worktrees and nowhere
   // else. The roots come from the snapshot per call, so a project added a moment ago is readable
   // and one removed a moment ago is not - fail closed, like brain-dump project assignment.
+  // Worktrees main created itself count too: the snapshot naming them is saved on a debounce, and
+  // a worktree's first chat launches before that save lands (see `registerWorktreeIpc`).
+  const createdWorktreeRoots = new Set<string>()
   const workspaceRoots = async (): Promise<string[]> => {
     const state = (await workspace.load()).state
-    return [...(state?.projects.map(({ path }) => path) ?? []), ...(state?.worktrees.map(({ path }) => path) ?? [])]
+    return [
+      ...(state?.projects.map(({ path }) => path) ?? []),
+      ...(state?.worktrees.map(({ path }) => path) ?? []),
+      ...createdWorktreeRoots
+    ]
   }
   const containment = createWorkspaceContainment({ roots: workspaceRoots })
   const conversationTitles = createConversationTitleStore(
@@ -580,7 +587,7 @@ void app.whenReady().then(async () => {
     createGithubIssueReader({ resolveCommand: (command) => commands.find(command), statusLabelsFor: githubLabelsFor }),
     containment
   )
-  registerWorktreeIpc(ipcMain, worktrees, containment)
+  registerWorktreeIpc(ipcMain, worktrees, containment, createdWorktreeRoots)
   registerFileViewIpc(ipcMain, fileView)
   registerWorkspaceFileIpc(ipcMain, createWorkspaceFileIndex(), containment)
   registerUsageIpc(providerUsage)

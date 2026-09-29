@@ -25,12 +25,21 @@ function isDiffFile(value: unknown): value is GitChangedFile {
   )
 }
 
-/** Git still proves worktree identity and teardown safety after this privilege boundary. */
+/**
+ * Git still proves worktree identity and teardown safety after this privilege boundary.
+ *
+ * `created` collects every worktree this process made, so main can count it as a workspace root
+ * before the renderer's debounced snapshot save names it. Without that, a chat started right after
+ * creation is refused as outside the workspace (Tucaen/toucan#30). Only a checkout git just created
+ * under an already-contained project gets in, so containment still fails closed.
+ */
 export function registerWorktreeIpc(
   ipc: IpcRegistrar,
   worktrees: WorktreeManager,
-  containment: Pick<WorkspaceContainment, 'contains'>
+  containment: Pick<WorkspaceContainment, 'contains' | 'comparable'>,
+  created: Set<string> = new Set()
 ): void {
+  const key = (path: string): string => containment.comparable(resolve(path))
   const allowed = async (path: unknown): Promise<boolean> => isString(path) && (await containment.contains(path))
   ipc.handle(WORKTREE_CHANNELS.create, async (_event, request) => {
     if (
@@ -41,7 +50,13 @@ export function registerWorktreeIpc(
       !(await allowed(request.projectPath))
     )
       return REFUSED
-    return worktrees.create({ projectPath: request.projectPath, branch: request.branch, baseRef: request.baseRef })
+    const result = await worktrees.create({
+      projectPath: request.projectPath,
+      branch: request.branch,
+      baseRef: request.baseRef
+    })
+    if (result.ok && result.worktree) created.add(key(result.worktree.path))
+    return result
   })
   ipc.handle(WORKTREE_CHANNELS.status, async (_event, request) => {
     if (
@@ -75,13 +90,15 @@ export function registerWorktreeIpc(
       !(await allowed(request.path))
     )
       return { ...REFUSED, blockers: [{ kind: 'inspection-failed', detail: MESSAGE }] }
-    return worktrees.remove({
+    const result = await worktrees.remove({
       projectPath: request.projectPath,
       path: request.path,
       branch: request.branch,
       baseRef: request.baseRef,
       force: request.force
     })
+    if (result.ok) created.delete(key(request.path))
+    return result
   })
   ipc.handle(WORKTREE_CHANNELS.discover, async (_event, request) => {
     const refused = { worktrees: [], claims: [], message: MESSAGE }

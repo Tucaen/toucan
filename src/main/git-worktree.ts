@@ -268,13 +268,17 @@ export function createWorktreeManager(options: WorktreeManagerOptions = {}): Wor
   const readStatus = async (request: WorktreeStatusRequest): Promise<WorktreeStatus> => {
     if (!pathExists(request.path)) return emptyStatus()
 
-    const status = await runGit(['status', '--porcelain=v2', '--branch', '--untracked-files=all'], request.path)
+    // Independent reads run side by side: on Windows every git process costs up to a second to
+    // start, which dominated create and remove when each waited for the one before it.
+    const [status, stash] = await Promise.all([
+      runGit(['status', '--porcelain=v2', '--branch', '--untracked-files=all'], request.path),
+      runGit(['stash', 'list', '--format=%gs'], request.path)
+    ])
     if (status.code !== 0) {
       return { ...emptyStatus(gitFailureMessage(status, 'git status failed')), exists: true }
     }
 
     const parsed = parsePorcelainStatus(status.stdout)
-    const stash = await runGit(['stash', 'list', '--format=%gs'], request.path)
     const stashEntries = stash.code === 0 ? countStashesOnBranch(stash.stdout, parsed.branch ?? request.branch) : 0
 
     // Without an upstream there is nothing to be "ahead" of, so fall back to the ref the
@@ -294,20 +298,21 @@ export function createWorktreeManager(options: WorktreeManagerOptions = {}): Wor
       if (problem) return { ok: false, message: problem }
 
       try {
-        const commonDir = await readCommonDir(request.projectPath)
+        // Read-only checks, asked all at once (see `readStatus`) and judged in their original order.
+        const [commonDir, format, existingBranch, resolvedBaseRef] = await Promise.all([
+          readCommonDir(request.projectPath),
+          runGit(['check-ref-format', `refs/heads/${request.branch}`], request.projectPath),
+          runGit(['show-ref', '--verify', '--quiet', `refs/heads/${request.branch}`], request.projectPath),
+          request.baseRef?.trim() ? Promise.resolve(request.baseRef.trim()) : resolveBaseRef(request.projectPath)
+        ])
         if (!commonDir.path) {
           return { ok: false, message: commonDir.unavailable ?? `${request.projectPath} is not a git repository` }
         }
 
-        const format = await runGit(['check-ref-format', `refs/heads/${request.branch}`], request.projectPath)
         if (format.code !== 0) {
           return { ok: false, message: gitUnavailable(format) ?? `git rejected the branch name "${request.branch}"` }
         }
 
-        const existingBranch = await runGit(
-          ['show-ref', '--verify', '--quiet', `refs/heads/${request.branch}`],
-          request.projectPath
-        )
         if (existingBranch.code === 0) {
           return { ok: false, message: `Branch "${request.branch}" already exists in this repository` }
         }
@@ -315,7 +320,7 @@ export function createWorktreeManager(options: WorktreeManagerOptions = {}): Wor
         const directory = normalizeWorktreePath(deriveWorktreeDirectory(request.projectPath, request.branch))
         if (pathExists(directory)) return { ok: false, message: `${directory} already exists` }
 
-        const baseRef = request.baseRef?.trim() || (await resolveBaseRef(request.projectPath))
+        const baseRef = resolvedBaseRef
         const added = await runGit(['worktree', 'add', '-b', request.branch, directory, baseRef], request.projectPath)
         if (added.code !== 0) {
           return { ok: false, message: gitFailureMessage(added, 'git worktree add failed') }
@@ -344,8 +349,11 @@ export function createWorktreeManager(options: WorktreeManagerOptions = {}): Wor
           return { ok: true, blockers: [] }
         }
 
-        const projectCommonDir = await readCommonDir(request.projectPath)
-        const worktreeCommonDir = await readCommonDir(request.path)
+        const [projectCommonDir, worktreeCommonDir, gitDir] = await Promise.all([
+          readCommonDir(request.projectPath),
+          readCommonDir(request.path),
+          runGit(['rev-parse', '--path-format=absolute', '--git-dir'], request.path)
+        ])
         // A git that will not start is no evidence about this worktree, so it blocks removal as a
         // failed inspection rather than as the verdict "this is not a worktree".
         const unavailable = projectCommonDir.unavailable ?? worktreeCommonDir.unavailable
@@ -363,7 +371,6 @@ export function createWorktreeManager(options: WorktreeManagerOptions = {}): Wor
           }
         }
 
-        const gitDir = await runGit(['rev-parse', '--path-format=absolute', '--git-dir'], request.path)
         if (gitDir.code !== 0) {
           const detail = gitFailureMessage(gitDir, 'git rev-parse --git-dir failed')
           return { ok: false, blockers: [{ kind: 'inspection-failed', detail }] }
@@ -399,7 +406,9 @@ export function createWorktreeManager(options: WorktreeManagerOptions = {}): Wor
           }
         }
 
-        await runGit(['worktree', 'prune'], request.projectPath)
+        // `worktree remove` already dropped this worktree's own registration; the prune only tidies
+        // unrelated stale ones, so the caller does not wait for it.
+        void runGit(['worktree', 'prune'], request.projectPath).catch(() => {})
         return { ok: true, blockers: [] }
       } catch (error) {
         return { ok: false, blockers: [{ kind: 'inspection-failed', detail: errorMessage(error) }] }

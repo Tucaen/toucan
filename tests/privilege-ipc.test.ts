@@ -130,6 +130,39 @@ test('every worktree operation refuses paths outside the workspace, including fo
   assert.deepEqual(calls, ['create', 'checkoutBranch'])
 })
 
+test("a worktree's first chat may launch before the snapshot naming the worktree is saved (Tucaen/toucan#30)", async () => {
+  const { ipc, call } = boundary()
+  const project = join(tmpdir(), 'toucan-project')
+  const worktree = join(tmpdir(), 'toucan-project-worktrees', 'fix')
+  const elsewhere = join(tmpdir(), 'toucan-elsewhere')
+  const worktrees = {
+    create: async (request: { branch: string }) =>
+      request.branch === 'refused'
+        ? { ok: false, message: 'no' }
+        : { ok: true, worktree: { path: worktree, branch: request.branch, baseRef: 'main' } },
+    remove: async () => ({ ok: true, blockers: [] })
+  } as unknown as WorktreeManager
+  const agents = { create: async () => ({ ok: true, status: 'started' }) } as unknown as AcpSessionManager
+  const created = new Set<string>()
+  // The persisted snapshot knows only the project: the save naming the worktree has not landed.
+  const containment = createWorkspaceContainment({ roots: () => [project, ...created] })
+  registerWorktreeIpc(ipc, worktrees, containment, created)
+  registerAgentIpc(ipc, agents, containment)
+  const launch = async (cwd: string) =>
+    ((await call(AGENT_CHANNELS.create, { id: 'node', provider: 'codex', cwd })) as { ok: boolean }).ok
+
+  await call(WORKTREE_CHANNELS.create, { projectPath: elsewhere, branch: 'fix' })
+  await call(WORKTREE_CHANNELS.create, { projectPath: project, branch: 'refused' })
+  assert.equal(await launch(worktree), false)
+
+  await call(WORKTREE_CHANNELS.create, { projectPath: project, branch: 'fix' })
+  assert.equal(await launch(worktree), true)
+  assert.equal(await launch(elsewhere), false)
+
+  await call(WORKTREE_CHANNELS.remove, { projectPath: project, path: worktree, branch: 'fix', baseRef: 'main' })
+  assert.equal(await launch(worktree), false)
+})
+
 test('file indexes and GitHub queries cannot name an outside checkout', async () => {
   const { ipc, call } = boundary()
   const containment = createWorkspaceContainment({ roots: () => [] })
