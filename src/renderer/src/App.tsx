@@ -95,7 +95,7 @@ import {
 } from './terminal-context-edges'
 import { branchBlockedReason, lineageEdges, lineageKey, offersBranchAction, planBranch } from './conversation-lineage'
 import { launchModeAfterConversation, relaunchInPlace } from './session-launch-mode'
-import { planHistoryOpen } from './history-open'
+import { nodeHoldingConversation, planHistoryOpen } from './history-open'
 import { isAgentProvider } from '../../shared/agent-provider'
 import { useTicketsFolderRevision } from './use-tickets-folder-revision'
 import { useWorkspaceSnapshot } from './use-workspace-snapshot'
@@ -656,6 +656,9 @@ function Canvas(): JSX.Element {
   // Branching places a node, so its handler is built on `addSessionNode` further down; same ref
   // indirection, for the same two reasons.
   const handleBranchRef = useRef<TerminalNodeCallbacks['onBranch']>(undefined)
+  // Reopening a closed chat focuses the node that already holds its conversation, and focusing is
+  // built on the viewport further down; same ref pattern.
+  const focusNodeRef = useRef<(nodeId: string) => void>(undefined)
   const dispatchBranch = useCallback<NonNullable<TerminalNodeCallbacks['onBranch']>>(
     (nodeId) => handleBranchRef.current?.(nodeId),
     []
@@ -1033,7 +1036,9 @@ function Canvas(): JSX.Element {
         projects: projectsRef.current,
         worktrees: nodesRef.current.filter(isWorktreeCanvasNode).map(serializeWorktreeNode),
         agentPermissionModes: permissionModesRef.current,
-        worktreeChildPosition: (worktreeId) => nextWorktreeChildPosition(worktreeChildren(nodesRef.current, worktreeId))
+        worktreeChildPosition: (worktreeId) => nextWorktreeChildPosition(worktreeChildren(nodesRef.current, worktreeId)),
+        conversationHolder: (kind, conversationId) =>
+          isAgentProvider(kind) ? nodeHoldingConversation(nodesRef.current, kind, conversationId)?.id : undefined
       },
       {
         onStatusChange: handleStatusChange,
@@ -1058,10 +1063,17 @@ function Canvas(): JSX.Element {
     )
     recentlyClosedNodesRef.current = result.recentlyClosedNodes
     setRecentlyClosedNodes(result.recentlyClosedNodes)
+    if (result.focusNodeId) {
+      focusNodeRef.current?.(result.focusNodeId)
+      return true
+    }
     if (!result.node) return false
 
     const reopened = result.node
-    setNodes((current) => [...current.map((node) => ({ ...node, selected: false })), reopened])
+    setNodes((current) => {
+      const placed = [...current.map((node) => ({ ...node, selected: false })), reopened]
+      return isWorktreeCanvasChild(reopened) ? withRoomForChat(placed, reopened.data.worktreeId!) : placed
+    })
     setNodeStatuses((current) => ({ ...current, [reopened.id]: sessionNodeStatus(reopened) }))
     return true
   }, [
@@ -2055,6 +2067,7 @@ function Canvas(): JSX.Element {
     },
     [getViewport, nodeFit, nodes, setNodes, setViewport]
   )
+  focusNodeRef.current = focusNode
 
   /** The board's live session cards; which report becomes which chip is `ticket-activity.ts`. */
   const ticketSessions = useMemo(

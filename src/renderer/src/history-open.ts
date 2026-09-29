@@ -27,7 +27,7 @@ export interface HistoryOpenEntry {
 }
 
 /** The chat node that holds this provider conversation, if one is on the canvas. */
-function nodeHoldingConversation(
+export function nodeHoldingConversation(
   nodes: readonly CanvasNode[],
   provider: AgentProvider,
   conversationId: string

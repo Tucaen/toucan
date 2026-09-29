@@ -600,6 +600,12 @@ export function centredNodePosition(
 type SessionRestoreWorkspace = Pick<WorkspaceState, 'projects' | 'worktrees' | 'agentPermissionModes'> & {
   /** Where a reopened chat goes on its worktree's canvas when its record predates that canvas. */
   worktreeChildPosition?(worktreeId: string): { x: number; y: number }
+  /**
+   * The node already holding a provider conversation, if any. A conversation has one writer, so a
+   * closed chat whose conversation has since been opened again (from History, say) is not resumed
+   * a second time.
+   */
+  conversationHolder?(kind: TerminalKind, conversationId: string): string | undefined
 }
 type SessionRestoreMode = 'hydrate' | 'reopen'
 
@@ -813,7 +819,12 @@ export function reopenClosedSession(
   recentlyClosedNodes: WorkspaceTerminalNode[],
   workspace: SessionRestoreWorkspace,
   callbacks: TerminalNodeCallbacks
-): { node: TerminalCanvasNode | null; recentlyClosedNodes: WorkspaceTerminalNode[] } {
+): {
+  node: TerminalCanvasNode | null
+  recentlyClosedNodes: WorkspaceTerminalNode[]
+  /** Set instead of `node` when the entry's conversation is already open: that node is focused. */
+  focusNodeId?: string
+} {
   const remaining = [...recentlyClosedNodes]
   // Nothing is attached yet at the moment a node is reopened, and the count a worktree node shows
   // is recomputed from the canvas straight afterwards (`applyAttachedNodeCounts`).
@@ -829,6 +840,11 @@ export function reopenClosedSession(
       return { node: null, recentlyClosedNodes: [] }
     }
     const project = workspace.projects.find((candidate) => candidate.id === savedNode.projectId)
+    const holder =
+      project && savedNode.kind !== 'terminal' && savedNode.conversationId
+        ? workspace.conversationHolder?.(savedNode.kind, savedNode.conversationId)
+        : undefined
+    if (holder) return { node: null, recentlyClosedNodes: remaining, focusNodeId: holder }
     if (project) {
       return {
         node: restoreTerminalCanvasNode(savedNode, project, context, callbacks, 'reopen'),

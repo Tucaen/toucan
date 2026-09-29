@@ -1235,3 +1235,24 @@ test('an old closed chat reopened into its worktree lands at the next free spot 
   assert.deepEqual(reopened.node?.position, { x: 798, y: 0 })
   assert.equal(reopened.node && serializeCanvasNode(reopened.node).placement, 'worktree')
 })
+
+test('reopening a closed chat whose conversation another node now holds focuses that node instead', () => {
+  const state = worktreeState()
+  const older = { ...state.nodes[0], id: 'node-older', conversationId: 'conversation-older' }
+  const closed = { ...state.nodes[0], conversationId: 'conversation-1' }
+
+  const reopened = reopenClosedSession(
+    [older, closed],
+    {
+      ...state,
+      conversationHolder: (kind, conversationId) =>
+        kind === closed.kind && conversationId === 'conversation-1' ? 'history-node' : undefined
+    },
+    callbacks
+  )
+
+  // A second resume is a second writer; the entry is spent on the node that already owns it.
+  assert.equal(reopened.node, null)
+  assert.equal(reopened.focusNodeId, 'history-node')
+  assert.deepEqual(reopened.recentlyClosedNodes, [older])
+})
