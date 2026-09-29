@@ -1,4 +1,4 @@
-import { fireEvent, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, test } from 'vitest'
 import { WORKTREE_CHROME_HEIGHT } from '../src/renderer/src/canvas-workspace'
 import {
@@ -148,5 +148,35 @@ describe('focusing a worktree', () => {
     expect(geometry(lastSaved(harness).nodes[0])).toEqual({ x: 0, y: 0, ...CHAT_SIZE })
     // The main canvas's React Flow never took part.
     expect(flowRoot(null).querySelector('.react-flow__viewport')!.getAttribute('style')).toContain('scale(1)')
+  })
+
+  test('focus, restore, a zoom and a tile never remount a chat, restart its agent or drop its draft', async () => {
+    harness = await mountWorktreeCanvases()
+    const create = harness.agent.api.create as unknown as { mock: { calls: unknown[][] } }
+    await waitFor(() => expect(create.mock.calls.length).toBe(4))
+    const composer = nodeElement('a1')!.querySelector('textarea')!
+    fireEvent.change(composer, { target: { value: 'mid-thought' } })
+    act(() => harness.agent.emit('a1', { type: 'status', status: 'working' }))
+    await waitFor(() =>
+      expect(screen.getByTitle(/^Focus Chat A1/)).toHaveAttribute('title', expect.stringMatching(/Working/))
+    )
+
+    fireEvent.click(within(header('w1')).getByRole('button', { name: 'Fit to canvas' }))
+    await waitFor(() => expect(shown('worktree:w1')).toEqual(MAIN_REGION))
+    worktreeResized('w1')
+    fireEvent.wheel(nodeElement('a1')!, { deltaY: -100, ctrlKey: true, bubbles: true, cancelable: true })
+    fireEvent.click(nodeElement('a2')!)
+    fireEvent.keyDown(window, { key: 'a', code: 'KeyA', ctrlKey: true, shiftKey: true })
+    await waitFor(() => expect((shown('a1') as { x: number }).x).not.toBe(0))
+    fireEvent.click(within(header('w1')).getByRole('button', { name: 'Restore' }))
+    await waitFor(() => expect(shown('worktree:w1')).toEqual({ x: 0, y: 0, ...WORKTREE_SIZE }))
+    worktreeResized('w1')
+
+    expect(nodeElement('a1')!.querySelector('textarea')).toBe(composer)
+    expect(composer.value).toBe('mid-thought')
+    expect(create.mock.calls.length).toBe(4)
+    expect(harness.agent.api.kill).not.toHaveBeenCalled()
+    expect(harness.agent.api.cancel).not.toHaveBeenCalled()
+    expect(screen.getByTitle(/^Focus Chat A1/)).toHaveAttribute('title', expect.stringMatching(/Working/))
   })
 })
