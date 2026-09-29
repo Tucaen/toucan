@@ -4556,26 +4556,31 @@ button.global-status-chip:hover {
   background: currentColor;
 }
 
+/* One colour per attention kind, read by the header chip and the navigator's chat rows alike. */
+.worktree-agent-unread,
+.worktree-navigator-chat {
+  --attention-color: #ff6b6f;
+}
+
+.worktree-agent-unread:is([data-kind='approval'], [data-kind='auth']),
+.worktree-navigator-chat:is([data-kind='approval'], [data-kind='auth']) {
+  --attention-color: #f1c75b;
+}
+
+.worktree-agent-unread:is([data-kind='result'], [data-kind='output']),
+.worktree-navigator-chat:is([data-kind='result'], [data-kind='output']) {
+  --attention-color: var(--codex);
+}
+
 .worktree-agent-unread {
   padding: 0 6px;
   border: 1px solid transparent;
   border-radius: 999px;
-  color: #2c1618;
-  background: #ff6b6f;
+  color: #17131f;
+  background: var(--attention-color);
   font: inherit;
   font-weight: 600;
   line-height: 16px;
-}
-
-.worktree-agent-unread[data-kind='approval'],
-.worktree-agent-unread[data-kind='auth'] {
-  background: #f1c75b;
-}
-
-.worktree-agent-unread[data-kind='result'],
-.worktree-agent-unread[data-kind='output'] {
-  color: #10202e;
-  background: var(--codex);
 }
 
 button.worktree-agent-unread {
@@ -4587,10 +4592,14 @@ button.worktree-agent-unread:focus-visible {
   border-color: #fff;
 }
 
-/* Every worktree over the canvas's corner: compact enough for a laptop, collapsible to one pill. */
+/*
+ * Every worktree over the canvas's lower corner: compact enough for a laptop, collapsible to one
+ * pill, and anchored at the bottom so it grows upward - the top would cover a focused worktree's
+ * collapse control and branch, which are the first things in its header.
+ */
 .worktree-navigator {
   position: absolute;
-  top: 8px;
+  bottom: 8px;
   left: 8px;
   z-index: var(--z-chrome);
   max-width: min(300px, calc(100% - 16px));
@@ -4701,17 +4710,7 @@ button.worktree-agent-unread:focus-visible {
 .worktree-navigator-kind {
   flex: 0 0 auto;
   font-weight: 600;
-  color: #ff6b6f;
-}
-
-.worktree-navigator-chat[data-kind='approval'] .worktree-navigator-kind,
-.worktree-navigator-chat[data-kind='auth'] .worktree-navigator-kind {
-  color: #f1c75b;
-}
-
-.worktree-navigator-chat[data-kind='result'] .worktree-navigator-kind,
-.worktree-navigator-chat[data-kind='output'] .worktree-navigator-kind {
-  color: var(--codex);
+  color: var(--attention-color);
 }
 
 .worktree-navigator-chat-count {

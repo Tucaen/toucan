@@ -8,7 +8,7 @@ import {
   type WorktreeCanvasNode
 } from '../src/renderer/src/canvas-workspace'
 import { collapseWorktree, partitionWorktreeCanvases } from '../src/renderer/src/worktree-canvas'
-import { mostUrgentAttention, summarizeWorktrees, worktreeAttentionTotal } from '../src/renderer/src/worktree-overview'
+import { summarizeWorktrees } from '../src/renderer/src/worktree-overview'
 import { applyAttentionAction, type AttentionKind, type AttentionState } from '../src/shared/attention'
 import type { WorkspaceProject } from '../src/shared/workspace'
 
@@ -104,9 +104,7 @@ test('agent activity comes from the session state of its own chats only', () => 
   ]
   const [a, b] = summaries(nodes, { one: 'working', two: 'stalled', three: 'idle', loose: 'working' })
 
-  assert.equal(a.chats, 2)
   assert.equal(a.working, 2)
-  assert.equal(b.chats, 1)
   assert.equal(b.working, 0)
 })
 
@@ -127,11 +125,11 @@ test('attention lists each chat with unread records, keeps chat order, and count
       ['second', 'approval', 2]
     ]
   )
-  assert.equal(worktreeAttentionTotal(a), 4)
-  assert.match(a.attention[1].description, /1 approval/)
+  assert.equal(a.unread, 4)
+  assert.match(a.attention[1].description, /^second: .*1 approval/)
   assert.match(a.attention[1].description, /1 sign-in request/)
   // The header's shortcut goes to the approval, not to the chat that happens to be first.
-  assert.equal(mostUrgentAttention(a)?.nodeId, 'second')
+  assert.equal(a.urgent?.nodeId, 'second')
 })
 
 test('read records are history, not attention, and records of chats elsewhere are not counted', () => {
@@ -142,7 +140,8 @@ test('read records are history, not attention, and records of chats elsewhere ar
 
   const [a] = summaries(nodes, {}, records)
   assert.deepEqual(a.attention, [])
-  assert.equal(worktreeAttentionTotal(a), 0)
+  assert.equal(a.unread, 0)
+  assert.equal(a.urgent, undefined)
 })
 
 test('a collapsed worktree still reports what its chats need', () => {
@@ -151,5 +150,5 @@ test('a collapsed worktree still reports what its chats need', () => {
 
   assert.equal(a.collapsed, true)
   assert.equal(a.working, 1)
-  assert.equal(worktreeAttentionTotal(a), 1)
+  assert.equal(a.unread, 1)
 })

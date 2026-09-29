@@ -10,6 +10,15 @@ import type { TerminalNodeStatus } from '../../shared/terminal'
 import { isWorktreeCanvasNode, sessionNodeStatus, type CanvasNode } from './canvas-workspace'
 import type { WorktreeCanvasPartition } from './worktree-canvas'
 
+/** A chat's most blocking unread kind, said in one word where a row has room for one. */
+export const ATTENTION_KIND_LABELS: Record<AttentionKind, string> = {
+  approval: 'Approval',
+  auth: 'Sign-in',
+  failure: 'Failed',
+  result: 'Result',
+  output: 'Output'
+}
+
 /** One chat in a worktree that has unread attention records - the place the user has to go. */
 export interface WorktreeChatAttention {
   nodeId: string
@@ -18,7 +27,7 @@ export interface WorktreeChatAttention {
   kind: AttentionKind
   /** Every unread record on the chat, so the counts add up to what the sidebar and header count. */
   count: number
-  /** The chat's own breakdown, for a tooltip. */
+  /** The chat and its own breakdown, for a tooltip: "Chat 2: 1 approval · 1 failure". */
   description: string
 }
 
@@ -37,25 +46,14 @@ export interface WorktreeSummary {
   projectName: string
   projectColor: string
   collapsed: boolean
-  unavailable: boolean
-  chats: number
   /** Chats mid-turn; a stalled turn is still one the agent has not finished. */
   working: number
   /** In chat order, never re-sorted by urgency, so an entry does not move under the pointer. */
   attention: WorktreeChatAttention[]
-}
-
-export function worktreeAttentionTotal(summary: WorktreeSummary): number {
-  return summary.attention.reduce((total, item) => total + item.count, 0)
-}
-
-/** The chat to go to first: the most blocking kind, and the earliest chat among equals. */
-export function mostUrgentAttention(summary: WorktreeSummary): WorktreeChatAttention | undefined {
-  let best: WorktreeChatAttention | undefined
-  for (const item of summary.attention) {
-    if (!best || compareAttentionKinds(item.kind, best.kind) < 0) best = item
-  }
-  return best
+  /** Every unread record across its chats: the one number both surfaces show. */
+  unread: number
+  /** The chat to go to first: the most blocking kind, and the earliest chat among equals. */
+  urgent?: WorktreeChatAttention
 }
 
 /**
@@ -69,25 +67,29 @@ export function summarizeWorktrees(
   statuses: Readonly<Record<string, TerminalNodeStatus>>,
   records: AttentionState
 ): WorktreeSummary[] {
-  const unread = unreadAttentionByNode(records)
+  const unreadByNode = unreadAttentionByNode(records)
   return nodes.filter(isWorktreeCanvasNode).map((node) => {
     const children = partition.children.get(node.data.worktreeId) ?? []
     const attention: WorktreeChatAttention[] = []
     let working = 0
+    let unread = 0
+    let urgent: WorktreeChatAttention | undefined
     for (const child of children) {
       const status = sessionNodeStatus(child, statuses)
       if (status === 'working' || status === 'stalled') working += 1
-      const count = unread[child.id] ?? 0
+      const count = unreadByNode[child.id] ?? 0
       const kind = count > 0 ? dominantUnreadKind(records, child.id) : undefined
-      if (kind) {
-        attention.push({
-          nodeId: child.id,
-          label: child.data.label,
-          kind,
-          count,
-          description: describeUnreadAttention(records, [child.id])
-        })
+      if (!kind) continue
+      const item: WorktreeChatAttention = {
+        nodeId: child.id,
+        label: child.data.label,
+        kind,
+        count,
+        description: `${child.data.label}: ${describeUnreadAttention(records, [child.id])}`
       }
+      attention.push(item)
+      unread += count
+      if (!urgent || compareAttentionKinds(kind, urgent.kind) < 0) urgent = item
     }
     const titled = children.find((child) => child.data.titleSource !== undefined)
     return {
@@ -98,10 +100,10 @@ export function summarizeWorktrees(
       projectName: node.data.projectName,
       projectColor: node.data.projectColor,
       collapsed: node.data.collapsed === true,
-      unavailable: node.data.unavailable === true,
-      chats: children.length,
       working,
-      attention
+      attention,
+      unread,
+      ...(urgent ? { urgent } : {})
     }
   })
 }

@@ -1,14 +1,4 @@
-import type { AttentionKind } from '../../shared/attention'
-import { mostUrgentAttention, worktreeAttentionTotal, type WorktreeSummary } from './worktree-overview'
-
-/** A chat's most blocking unread kind, said in one word where a row has room for one. */
-export const ATTENTION_KIND_LABELS: Record<AttentionKind, string> = {
-  approval: 'Approval',
-  auth: 'Sign-in',
-  failure: 'Failed',
-  result: 'Result',
-  output: 'Output'
-}
+import type { WorktreeSummary } from './worktree-overview'
 
 interface WorktreeAgentStateProps {
   summary: WorktreeSummary
@@ -23,12 +13,11 @@ interface WorktreeAgentStateProps {
  * turn.
  */
 export default function WorktreeAgentState({ summary, onReveal }: WorktreeAgentStateProps): JSX.Element | null {
-  const unread = worktreeAttentionTotal(summary)
-  const urgent = mostUrgentAttention(summary)
+  const { urgent } = summary
   if (summary.working === 0 && !urgent) return null
 
-  const description = summary.attention.map((item) => `${item.label}: ${item.description}`).join('\n')
-  const label = `${unread} unread`
+  const description = summary.attention.map((item) => item.description).join('\n')
+  const label = `${summary.unread} unread`
   return (
     <span className="worktree-agent-state">
       {summary.working > 0 && (

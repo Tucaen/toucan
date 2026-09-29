@@ -1,7 +1,7 @@
 import { useState, type KeyboardEvent } from 'react'
 import { ChevronDown, ChevronRight, GitBranch } from 'lucide-react'
-import WorktreeAgentState, { ATTENTION_KIND_LABELS } from './WorktreeAgentState'
-import { worktreeAttentionTotal, type WorktreeSummary } from './worktree-overview'
+import WorktreeAgentState from './WorktreeAgentState'
+import { ATTENTION_KIND_LABELS, type WorktreeSummary } from './worktree-overview'
 
 interface WorktreeNavigatorProps {
   summaries: readonly WorktreeSummary[]
@@ -21,7 +21,7 @@ interface WorktreeNavigatorProps {
 export default function WorktreeNavigator({ summaries, onReveal }: WorktreeNavigatorProps): JSX.Element | null {
   const [open, setOpen] = useState(true)
   if (summaries.length === 0) return null
-  const unread = summaries.reduce((total, summary) => total + worktreeAttentionTotal(summary), 0)
+  const unread = summaries.reduce((total, summary) => total + summary.unread, 0)
 
   // Up and Down walk every entry in order, so the list is usable without the pointer or Tab alone.
   const handleKeyDown = (event: KeyboardEvent<HTMLElement>): void => {
@@ -86,7 +86,7 @@ export default function WorktreeNavigator({ summaries, onReveal }: WorktreeNavig
                         type="button"
                         className="worktree-navigator-chat"
                         data-kind={item.kind}
-                        title={`${item.label}: ${item.description}`}
+                        title={item.description}
                         onClick={() => onReveal(item.nodeId)}
                       >
                         <span className="worktree-navigator-kind">{ATTENTION_KIND_LABELS[item.kind]}</span>
