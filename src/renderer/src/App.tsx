@@ -1039,8 +1039,8 @@ function Canvas(): JSX.Element {
         agentPermissionModes: permissionModesRef.current,
         worktreeChildPosition: (worktreeId) =>
           nextWorktreeChildPosition(worktreeChildren(nodesRef.current, worktreeId)),
-        conversationHolder: (kind, conversationId) =>
-          isAgentProvider(kind) ? nodeHoldingConversation(nodesRef.current, kind, conversationId)?.id : undefined
+        conversationHolder: (provider, conversationId) =>
+          nodeHoldingConversation(nodesRef.current, provider, conversationId)?.id
       },
       {
         onStatusChange: handleStatusChange,
@@ -2306,21 +2306,25 @@ function Canvas(): JSX.Element {
    */
   const openHistoryConversation = useCallback(
     (entry: ConversationSummary): void => {
-      const project =
-        projectsRef.current.find((candidate) => candidate.id === activeProjectId) ?? projectsRef.current[0]
-      if (!project || !historyDrop) return
+      if (!historyDrop) return
       const plan = planHistoryOpen(nodesRef.current, entry)
       if (plan.action === 'focus') {
         focusNode(plan.nodeId)
         setHistoryDrop(null)
         return
       }
+      // Where the entry ran decides where it reopens - a project checkout, or a worktree on the
+      // canvas and so its project - rather than whichever project is active by the time it is picked.
       const worktreeNode = nodesRef.current
         .filter(isWorktreeCanvasNode)
-        .find((node) => node.data.projectId === project.id && pathWithinRoot(node.data.path, entry.cwd) === '')
-      // The entry ran in a worktree that has left the canvas since the list was read. Resuming it in
-      // the project checkout instead is the silent fallback a missing worktree must never get.
-      if (!worktreeNode && pathWithinRoot(entry.cwd, project.path) !== '') {
+        .find((node) => pathWithinRoot(node.data.path, entry.cwd) === '')
+      const project = worktreeNode
+        ? projectsRef.current.find((candidate) => candidate.id === worktreeNode.data.projectId)
+        : projectsRef.current.find((candidate) => pathWithinRoot(entry.cwd, candidate.path) === '')
+      // Neither: the entry ran in a worktree that has left the canvas since the list was read.
+      // Resuming it in a project checkout instead is the silent fallback a missing worktree must
+      // never get.
+      if (!project) {
         setNotice(worktreeGoneNotice('the conversation could not be reopened in it.'))
         setHistoryDrop(null)
         return
@@ -2338,7 +2342,7 @@ function Canvas(): JSX.Element {
       if (!opened) setNotice(worktreeGoneNotice('the conversation could not be reopened in it.'))
       setHistoryDrop(null)
     },
-    [activeProjectId, addSessionNode, focusNode, historyDrop]
+    [addSessionNode, focusNode, historyDrop]
   )
 
   /**

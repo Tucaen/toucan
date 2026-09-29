@@ -2,6 +2,7 @@ import type { Node } from '@xyflow/react'
 import type { AttentionAction, AttentionKind } from '../../shared/attention'
 import type { AgentTurnOutcome } from '../../shared/agent'
 import type { TerminalLiveness, TerminalKind, TerminalNodeStatus } from '../../shared/terminal'
+import { isAgentProvider, type AgentProvider } from '../../shared/agent-provider'
 import type {
   AgentPermissionModes,
   CanvasNodeStateField,
@@ -605,7 +606,7 @@ type SessionRestoreWorkspace = Pick<WorkspaceState, 'projects' | 'worktrees' | '
    * closed chat whose conversation has since been opened again (from History, say) is not resumed
    * a second time.
    */
-  conversationHolder?(kind: TerminalKind, conversationId: string): string | undefined
+  conversationHolder?(provider: AgentProvider, conversationId: string): string | undefined
 }
 type SessionRestoreMode = 'hydrate' | 'reopen'
 
@@ -841,7 +842,7 @@ export function reopenClosedSession(
     }
     const project = workspace.projects.find((candidate) => candidate.id === savedNode.projectId)
     const holder =
-      project && savedNode.kind !== 'terminal' && savedNode.conversationId
+      project && isAgentProvider(savedNode.kind) && savedNode.conversationId
         ? workspace.conversationHolder?.(savedNode.kind, savedNode.conversationId)
         : undefined
     if (holder) return { node: null, recentlyClosedNodes: remaining, focusNodeId: holder }

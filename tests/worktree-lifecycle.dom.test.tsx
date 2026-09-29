@@ -1,6 +1,7 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, test, vi } from 'vitest'
 import type { AgentCreateRequest } from '../src/shared/agent'
+import type { AgentProvider } from '../src/shared/agent-provider'
 import type { ConversationSummary } from '../src/shared/conversation-history'
 import type { WorkspaceState, WorkspaceTerminalNode } from '../src/shared/workspace'
 import type { WorkspaceWorktree, WorktreeDiscoverResult, WorktreeRemoveResult } from '../src/shared/worktree'
@@ -28,11 +29,7 @@ const worktree: WorkspaceWorktree = {
   height: 800
 }
 
-function chat(
-  id: string,
-  kind: 'claude' | 'codex',
-  overrides: Partial<WorkspaceTerminalNode> = {}
-): WorkspaceTerminalNode {
+function chat(id: string, kind: AgentProvider, overrides: Partial<WorkspaceTerminalNode> = {}): WorkspaceTerminalNode {
   return {
     id,
     kind,
@@ -159,50 +156,54 @@ function removeButton(): HTMLElement {
 }
 
 describe('opening a conversation keeps it inside its worktree', () => {
-  test('a branch of a worktree chat opens beside it on the same canvas, as a fork in the same checkout', async () => {
-    const { harness, create } = await mount(savedWorkspace({ nodes: [chat('a', 'claude')], worktrees: [worktree] }))
-    await waitFor(() => expect(create).toHaveBeenCalledTimes(1))
+  for (const provider of ['claude', 'codex'] as const) {
+    test(`a branch of a worktree ${provider} chat opens beside it on the same canvas, as a fork in the same checkout`, async () => {
+      const { harness, create } = await mount(savedWorkspace({ nodes: [chat('a', provider)], worktrees: [worktree] }))
+      await waitFor(() => expect(create).toHaveBeenCalledTimes(1))
 
-    const branch = await waitFor(() => {
-      const button = canvasNodes('a')[0].querySelector<HTMLElement>('[aria-label="Branch conversation"]')
-      expect(button).toBeEnabled()
-      return button!
+      const branch = await waitFor(() => {
+        const button = canvasNodes('a')[0].querySelector<HTMLElement>('[aria-label="Branch conversation"]')
+        expect(button).toBeEnabled()
+        return button!
+      })
+      fireEvent.click(branch)
+
+      await waitFor(() => expect(create).toHaveBeenCalledTimes(2))
+      expect(createRequests(create)[1]).toMatchObject({ provider, cwd: WORKTREE_PATH })
+      await waitFor(() => expect(lastSaved(harness).nodes).toHaveLength(2))
+      const child = lastSaved(harness).nodes.find((node) => node.id !== 'a')!
+      expect(child).toMatchObject({ worktreeId: 'w1', placement: 'worktree' })
+      expect(child.branchedFrom).toEqual({ nodeId: 'a', conversationId: 'conversation-a' })
+      expect(insideWorktree(child.id)).toBe(true)
+      expect(child.position.x).toBeGreaterThanOrEqual(520)
     })
-    fireEvent.click(branch)
+  }
 
-    await waitFor(() => expect(create).toHaveBeenCalledTimes(2))
-    expect(createRequests(create)[1]).toMatchObject({ provider: 'claude', cwd: WORKTREE_PATH })
-    await waitFor(() => expect(lastSaved(harness).nodes).toHaveLength(2))
-    const child = lastSaved(harness).nodes.find((node) => node.id !== 'a')!
-    expect(child).toMatchObject({ worktreeId: 'w1', placement: 'worktree' })
-    expect(child.branchedFrom).toEqual({ nodeId: 'a', conversationId: 'conversation-a' })
-    expect(insideWorktree(child.id)).toBe(true)
-    expect(child.position.x).toBeGreaterThanOrEqual(520)
-  })
+  for (const provider of ['claude', 'codex'] as const) {
+    test(`History opens a worktree ${provider} conversation on that worktree canvas, and a second open focuses it`, async () => {
+      const { harness, create } = await mount(savedWorkspace({ worktrees: [worktree] }), {
+        history: [historyEntry({ provider })]
+      })
 
-  test('History opens a worktree conversation on that worktree canvas, and a second open focuses it', async () => {
-    const { harness, create } = await mount(savedWorkspace({ worktrees: [worktree] }), {
-      history: [historyEntry({})]
+      await openFromHistory('Fix the login redirect')
+
+      await waitFor(() => expect(create).toHaveBeenCalledTimes(1))
+      expect(createRequests(create)[0]).toMatchObject({
+        provider,
+        cwd: WORKTREE_PATH,
+        sessionId: 'conversation-history'
+      })
+      await waitFor(() => expect(lastSaved(harness).nodes).toHaveLength(1))
+      const opened = lastSaved(harness).nodes[0]
+      expect(opened).toMatchObject({ worktreeId: 'w1', placement: 'worktree', conversationId: 'conversation-history' })
+      expect(insideWorktree(opened.id)).toBe(true)
+
+      // One writer per conversation: the second open is a focus, not a second resume.
+      await openFromHistory('Fix the login redirect')
+      expect(create).toHaveBeenCalledTimes(1)
+      expect(lastSaved(harness).nodes).toHaveLength(1)
     })
-
-    await openFromHistory('Fix the login redirect')
-
-    await waitFor(() => expect(create).toHaveBeenCalledTimes(1))
-    expect(createRequests(create)[0]).toMatchObject({
-      provider: 'codex',
-      cwd: WORKTREE_PATH,
-      sessionId: 'conversation-history'
-    })
-    await waitFor(() => expect(lastSaved(harness).nodes).toHaveLength(1))
-    const opened = lastSaved(harness).nodes[0]
-    expect(opened).toMatchObject({ worktreeId: 'w1', placement: 'worktree', conversationId: 'conversation-history' })
-    expect(insideWorktree(opened.id)).toBe(true)
-
-    // One writer per conversation: the second open is a focus, not a second resume.
-    await openFromHistory('Fix the login redirect')
-    expect(create).toHaveBeenCalledTimes(1)
-    expect(lastSaved(harness).nodes).toHaveLength(1)
-  })
+  }
 
   test('a History entry from a worktree no longer on the canvas is refused rather than opened in the project checkout', async () => {
     const { harness, create } = await mount(savedWorkspace({ worktrees: [worktree] }), {

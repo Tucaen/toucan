@@ -209,8 +209,8 @@ export function adoptClaimedWorktrees(
  * beside the chats already there, and into its directory. `workingDirectory` is a dependency of
  * the session effect, so writing it is what restarts the session there; `launch` says what that
  * restart opens - `resume` to carry the conversation, `new` when there is nothing to carry. The
- * worktree grows to hold the chat, as it does for any chat added to it. Not on the canvas: the
- * same array.
+ * worktree grows to hold the chat, as it does for any chat added to it. A node that is not on the
+ * canvas leaves the input array unchanged.
  */
 export function moveChatIntoWorktree(
   nodes: CanvasNode[],
