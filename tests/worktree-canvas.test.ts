@@ -213,6 +213,20 @@ test('moving a worktree moves nothing inside it: its chats keep their geometry, 
   )
 })
 
+test('a chat dropped over a worktree frame is not adopted by it: only attachment moves a chat, never geometry', () => {
+  const host = worktree('a', { width: 1200, height: 800 })
+  const loose = session('loose', 'claude', undefined, { x: 200, y: 200 })
+
+  const partition = partitionWorktreeCanvases([host, loose])
+
+  assert.deepEqual(
+    partition.main.map((node) => node.id),
+    ['worktree:a', 'loose']
+  )
+  assert.deepEqual(partition.children.get('a'), [])
+  assert.equal(partition.main[1].data.workingDirectory, PROJECT.path)
+})
+
 test('selecting on one canvas clears the selection on every other, so one Delete can close only what is in view', () => {
   const selected = <T extends CanvasNode>(node: T): T => ({ ...node, selected: true })
   const nodes: CanvasNode[] = [
