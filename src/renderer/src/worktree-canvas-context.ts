@@ -1,4 +1,4 @@
-import type { FitViewOptions, NodeChange, Viewport } from '@xyflow/react'
+import type { NodeChange, Viewport } from '@xyflow/react'
 import { createContext } from 'react'
 import type { CanvasNode } from './canvas-workspace'
 import type { WorktreeActivity, WorktreeCanvasEdges, WorktreeCanvasPartition } from './worktree-canvas'
@@ -14,7 +14,8 @@ export interface WorktreeCanvasHandle {
   element: HTMLElement
   getViewport(): Viewport
   setViewport(viewport: Viewport, options?: { duration?: number }): Promise<boolean>
-  fitView(options?: FitViewOptions): Promise<boolean>
+  /** Frames every chat, as the Fit chats action does. */
+  fitChats(): Promise<boolean>
 }
 
 /**

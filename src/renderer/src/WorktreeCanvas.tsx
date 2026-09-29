@@ -75,7 +75,7 @@ export default function WorktreeCanvas({
 
   // React Flow queues a fit until every node it is given has been measured, so a chat added a
   // moment ago is framed at its real size rather than ignored.
-  const fitChats = useCallback((): void => void fitView(FIT_CHATS), [fitView])
+  const fitChats = useCallback((): Promise<boolean> => fitView(FIT_CHATS), [fitView])
 
   // A chat that joins after the canvas mounted is brought into view: it was placed beside the
   // others, which may well be outside what the canvas shows. The mount itself is left to the
@@ -85,7 +85,7 @@ export default function WorktreeCanvas({
     const ids = new Set(children.map((node) => node.id))
     const known = knownIds.current
     knownIds.current = ids
-    if (known && [...ids].some((id) => !known.has(id))) fitChats()
+    if (known && [...ids].some((id) => !known.has(id))) void fitChats()
   }, [children, fitChats])
 
   // The main canvas's zoom scales this one on screen; see `correctScaledCanvasPointerCoordinates`.
@@ -98,7 +98,7 @@ export default function WorktreeCanvas({
   useEffect(() => {
     const element = canvasRef.current
     if (!element) return
-    const unregister = registerCanvas(worktreeId, { element, getViewport, setViewport, fitView })
+    const unregister = registerCanvas(worktreeId, { element, getViewport, setViewport, fitChats })
     if (typeof ResizeObserver !== 'function') return unregister
     // A chat snapped within this canvas follows the worktree's size as the main region's snaps
     // follow the window's; the observer reports layout size, unscaled by the main zoom.
@@ -108,7 +108,7 @@ export default function WorktreeCanvas({
       observer.disconnect()
       unregister()
     }
-  }, [fitView, getViewport, onCanvasResize, registerCanvas, setViewport, worktreeId])
+  }, [fitChats, getViewport, onCanvasResize, registerCanvas, setViewport, worktreeId])
 
   const handleNodesChange = useCallback(
     (changes: NodeChange<TerminalCanvasNode>[]): void => host.onNodesChange(changes, worktreeId),
@@ -200,7 +200,7 @@ export default function WorktreeCanvas({
           title="Frame every chat in this worktree"
           disabled={children.length === 0}
           onMouseDown={(event) => event.stopPropagation()}
-          onClick={fitChats}
+          onClick={() => void fitChats()}
         >
           <Maximize aria-hidden="true" />
           Fit chats

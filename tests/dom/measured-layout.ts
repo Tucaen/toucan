@@ -29,16 +29,41 @@ function sizeOf(element: HTMLElement, pane: MeasuredPane): MeasuredPane {
     const inner = element.closest<HTMLElement>('.worktree-canvas')
     return inner ? sizeOf(inner, pane) : pane
   }
-  const width = Number.parseFloat(element.style.width)
-  const height = Number.parseFloat(element.style.height)
-  if (Number.isFinite(width) && Number.isFinite(height)) return { width, height }
   // Percent-sized and unsized boxes fill their parent, as the app's flex layout has them do.
-  const parent = element.parentElement
-  return parent ? sizeOf(parent, pane) : pane
+  const parent = element.parentElement ? sizeOf(element.parentElement, pane) : pane
+  return { width: axisSize(element.style.width, parent.width), height: axisSize(element.style.height, parent.height) }
+}
+
+function axisSize(declared: string, parent: number): number {
+  if (declared.endsWith('%')) return (parent * Number.parseFloat(declared)) / 100
+  const pixels = Number.parseFloat(declared)
+  return Number.isFinite(pixels) ? pixels : parent
+}
+
+const observed = new Map<Element, Set<ResizeObserverCallback>>()
+
+/**
+ * Reports `element` as resized to whatever observes it, at its current size. The stubbed observer
+ * reports once when told to observe; a later change - a node restyled, the window narrowed - is
+ * the test's to announce, since nothing lays out.
+ */
+export function resizeObserved(element: HTMLElement): void {
+  const contentRect = { width: element.offsetWidth, height: element.offsetHeight }
+  for (const callback of observed.get(element) ?? []) {
+    callback([{ target: element, contentRect } as ResizeObserverEntry], {} as ResizeObserver)
+  }
+}
+
+/** `resizeObserved` for everything observed inside `root` - a worktree node that changed size. */
+export function resizeObservedWithin(root: HTMLElement): void {
+  for (const element of observed.keys()) {
+    if (root.contains(element)) resizeObserved(element as HTMLElement)
+  }
 }
 
 /** Installs the layout; returns its teardown. The pane is the main canvas's usable size. */
 export function installMeasuredLayout(pane: MeasuredPane = { width: 1600, height: 900 }): () => void {
+  observed.clear()
   const originals = {
     width: Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetWidth'),
     height: Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight'),
@@ -64,16 +89,26 @@ export function installMeasuredLayout(pane: MeasuredPane = { width: 1600, height
   vi.stubGlobal(
     'ResizeObserver',
     class {
+      private readonly targets = new Set<Element>()
       constructor(private readonly callback: ResizeObserverCallback) {}
       observe(target: Element): void {
+        this.targets.add(target)
+        if (!observed.has(target)) observed.set(target, new Set())
+        observed.get(target)!.add(this.callback)
         const element = target as HTMLElement
         const contentRect = { width: element.offsetWidth, height: element.offsetHeight }
         queueMicrotask(() =>
           this.callback([{ target, contentRect } as ResizeObserverEntry], this as unknown as ResizeObserver)
         )
       }
-      unobserve(): void {}
-      disconnect(): void {}
+      unobserve(target: Element): void {
+        this.targets.delete(target)
+        observed.get(target)?.delete(this.callback)
+      }
+      disconnect(): void {
+        for (const target of this.targets) observed.get(target)?.delete(this.callback)
+        this.targets.clear()
+      }
     }
   )
   vi.stubGlobal(

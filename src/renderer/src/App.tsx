@@ -723,12 +723,43 @@ function Canvas(): JSX.Element {
     }),
     [worktreeCanvasRegion]
   )
+  /**
+   * Focus is maximising a worktree: it takes the main canvas, and its canvas frames its chats in
+   * the room that gives. Restore puts both back - the outer geometry through the snap's own
+   * restore, the inner viewport from what is kept here. While a worktree is focused its viewport
+   * moves are temporary too: the durable viewport stays what it was, so a reload, like restore,
+   * comes back to the layout the user made rather than the one focus made.
+   *
+   * Both halves wait for the canvas to have its new size. The frame is fitted once the canvas
+   * reports it has grown (`handleWorktreeCanvasResize`), or React Flow would frame the chats for
+   * the size it still has. The viewport is put back without animation, so the reflow that the
+   * shrinking canvas triggers sees the viewport it is measured against, not a frame in between.
+   */
+  const focusedWorktreeViewports = useRef(new Map<string, WorktreeViewport>())
+  const pendingFocusFits = useRef(new Set<string>())
+  const handleMaximisedChange = useCallback((nodeId: string, maximised: boolean): void => {
+    const node = nodesRef.current.find((candidate) => candidate.id === nodeId)
+    if (!node || !isWorktreeCanvasNode(node)) return
+    const { worktreeId } = node.data
+    const canvas = worktreeCanvases.current.get(worktreeId)
+    if (maximised) {
+      if (!canvas) return
+      focusedWorktreeViewports.current.set(worktreeId, canvas.getViewport())
+      pendingFocusFits.current.add(worktreeId)
+      return
+    }
+    pendingFocusFits.current.delete(worktreeId)
+    const before = focusedWorktreeViewports.current.get(worktreeId)
+    focusedWorktreeViewports.current.delete(worktreeId)
+    if (before && canvas) void canvas.setViewport(before)
+  }, [])
   const nodeFit = useNodeSnap<CanvasNode>({
     canvasRef: canvasRegionRef,
     getNodes: getCanvasNodes,
     getViewport,
     setNodes,
-    canvases: snapCanvases
+    canvases: snapCanvases,
+    onMaximisedChange: handleMaximisedChange
   })
   // Which layout the next tile produces. Session-local: it is a cycle position, not a preference.
   const [tileMode, setTileMode] = useState<TileMode>('grid')
@@ -1384,9 +1415,13 @@ function Canvas(): JSX.Element {
     [clearRecentlyClosedNodes, findWorktreeNode, setNodes]
   )
 
-  /** Where a worktree's canvas came to rest; kept on the worktree so it survives a reload. */
+  /**
+   * Where a worktree's canvas came to rest; kept on the worktree so it survives a reload. Not
+   * while the worktree is focused: that viewport is the focus's, and restore brings the kept one back.
+   */
   const handleWorktreeViewportChange = useCallback(
     (worktreeId: string, viewport: WorktreeViewport): void => {
+      if (focusedWorktreeViewports.current.has(worktreeId)) return
       setNodes((current) => {
         const target = current.filter(isWorktreeCanvasNode).find((node) => node.data.worktreeId === worktreeId)
         const previous = target?.data.viewport
@@ -2534,6 +2569,19 @@ function Canvas(): JSX.Element {
     ]
   )
 
+  /**
+   * A worktree's canvas has a new size - the worktree was resized, focused or restored. Chats
+   * snapped within it follow it, and a focus that was waiting for the room frames the chats now.
+   */
+  const handleWorktreeCanvasResize = useCallback(
+    (worktreeId: string): void => {
+      nodeFit.reflow(worktreeId)
+      if (!pendingFocusFits.current.delete(worktreeId)) return
+      void worktreeCanvases.current.get(worktreeId)?.fitChats()
+    },
+    [nodeFit]
+  )
+
   /** What every worktree canvas reads from the workspace, and where its changes go. */
   const worktreeCanvasHost = useMemo<WorktreeCanvasHost>(
     () => ({
@@ -2548,14 +2596,14 @@ function Canvas(): JSX.Element {
       onNodesChange: handleNodesChange,
       onPaneClick: clearSelectionOutside,
       registerCanvas: registerWorktreeCanvas,
-      onCanvasResize: nodeFit.reflow
+      onCanvasResize: handleWorktreeCanvasResize
     }),
     [
       canvasEdgeSplit,
       canvasPartition,
       clearSelectionOutside,
       handleNodesChange,
-      nodeFit,
+      handleWorktreeCanvasResize,
       nodeStatuses,
       registerWorktreeCanvas
     ]

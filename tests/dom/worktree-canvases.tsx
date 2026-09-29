@@ -7,7 +7,7 @@ import type { WorkspaceState, WorkspaceTerminalNode } from '../../src/shared/wor
 import type { WorkspaceWorktree } from '../../src/shared/worktree'
 import { createMockAgentApi, type MockAgentApi } from './agent-api-mock'
 import { DEFAULT_PROJECT, installWindowApis, savedWorkspace, type AppHarness } from './app-harness'
-import { installMeasuredLayout } from './measured-layout'
+import { installMeasuredLayout, resizeObservedWithin } from './measured-layout'
 
 /**
  * The fixture the worktree navigation tests (#25) share: two worktrees of chats and a chat on the
@@ -159,3 +159,12 @@ export function viewportOf(canvas: string | null): string {
 }
 
 export const ORIGIN_VIEWPORT = 'translate(0px,0px)scale(1)'
+
+/**
+ * Announces that a worktree node was resized to everything observing inside it - React Flow's own
+ * observer, which sizes the inner canvas, and the worktree canvas's, which re-fits its chats - in
+ * the order a browser delivers them.
+ */
+export function worktreeResized(worktreeId: string): void {
+  resizeObservedWithin(nodeElement(`worktree:${worktreeId}`)!)
+}
