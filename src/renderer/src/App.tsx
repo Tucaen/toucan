@@ -2316,7 +2316,14 @@ function Canvas(): JSX.Element {
       }
       const worktreeNode = nodesRef.current
         .filter(isWorktreeCanvasNode)
-        .find((node) => pathWithinRoot(node.data.path, entry.cwd) === '')
+        .find((node) => node.data.projectId === project.id && pathWithinRoot(node.data.path, entry.cwd) === '')
+      // The entry ran in a worktree that has left the canvas since the list was read. Resuming it in
+      // the project checkout instead is the silent fallback a missing worktree must never get.
+      if (!worktreeNode && pathWithinRoot(entry.cwd, project.path) !== '') {
+        setNotice(worktreeGoneNotice('the conversation could not be reopened in it.'))
+        setHistoryDrop(null)
+        return
+      }
       const opened = addSessionNode({
         kind: entry.provider,
         project,
