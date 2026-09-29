@@ -6,6 +6,7 @@ import {
   applyAttachedNodeCounts,
   applyWorktreeClaims,
   adoptClaimedWorktrees,
+  moveChatIntoWorktree,
   planWorktreeAdoptions
 } from '../src/renderer/src/worktree-attachment'
 import type { AgentProvider } from '../src/shared/agent-provider'
@@ -119,6 +120,36 @@ test('an adopted chat takes the next free spot on its worktree canvas, beside th
   // The resident is unmeasured, so it counts at the size a new session opens at.
   assert.deepEqual(node.position, { x: 750 + 48, y: 24 })
   assert.equal(node.data.worktreeId, 'worktree-1')
+})
+
+test('a chat handed off into a worktree moves onto its canvas beside the chats there, running in its directory', () => {
+  const resident = { ...sessionNode('resident', { worktreeId: 'worktree-1' }), position: { x: 0, y: 24 } }
+  const moving = { ...sessionNode('node-1'), position: { x: 3000, y: 900 } }
+  const moved = moveChatIntoWorktree(
+    [worktreeNode('worktree-1'), resident, moving],
+    'node-1',
+    { worktreeId: 'worktree-1', branch: 'feature/thinking-final-presentation', path: WORKTREE_PATH },
+    { launchMode: 'new', initialInput: '/implement-in-worktree tidy up' }
+  )
+  const node = moved.filter(isTerminalCanvasNode).find((candidate) => candidate.id === 'node-1')!
+
+  assert.deepEqual(node.position, { x: 750 + 48, y: 24 })
+  assert.equal(node.data.worktreeId, 'worktree-1')
+  assert.equal(node.data.worktreeBranch, 'feature/thinking-final-presentation')
+  assert.equal(node.data.workingDirectory, WORKTREE_PATH)
+  assert.equal(node.data.launchMode, 'new')
+  assert.equal(node.data.initialInput, '/implement-in-worktree tidy up')
+  // The worktree grew to hold a chat at a readable size, as it does for any chat added to it.
+  const host = moved.find(isWorktreeCanvasNode)!
+  assert.ok((host.style?.width as number) >= 800)
+})
+
+test('moving a node that is not on the canvas changes nothing', () => {
+  const nodes = [worktreeNode('worktree-1')]
+  assert.equal(
+    moveChatIntoWorktree(nodes, 'gone', { worktreeId: 'worktree-1', branch: 'b', path: WORKTREE_PATH }, {}),
+    nodes
+  )
 })
 
 test('a node mid-turn keeps its association until the work it is doing is finished', () => {

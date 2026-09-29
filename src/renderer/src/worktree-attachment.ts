@@ -1,7 +1,13 @@
 import type { WorkspaceProject } from '../../shared/workspace'
 import type { WorktreeClaimMatch } from '../../shared/worktree'
 import { worktreePathKey } from '../../shared/worktree'
-import type { CanvasNode, TerminalCanvasNode, TerminalNodeStatus, WorktreeCanvasNode } from './canvas-workspace'
+import type {
+  CanvasNode,
+  TerminalCanvasNode,
+  TerminalNodeData,
+  TerminalNodeStatus,
+  WorktreeCanvasNode
+} from './canvas-workspace'
 import {
   isTerminalCanvasNode,
   isWorktreeCanvasChild,
@@ -9,7 +15,7 @@ import {
   sessionNodeStatus,
   withoutWorktree
 } from './canvas-workspace'
-import { nextWorktreeChildPosition, worktreeChildren } from './worktree-canvas'
+import { nextWorktreeChildPosition, withRoomForChat, worktreeChildren } from './worktree-canvas'
 
 /**
  * What it takes for a node to be *in* a worktree rather than merely linked to one.
@@ -196,6 +202,42 @@ export function adoptClaimedWorktrees(
       }
     }
   })
+}
+
+/**
+ * Moves one chat into a worktree the way a handoff does: onto its canvas at the next free spot
+ * beside the chats already there, and into its directory. `workingDirectory` is a dependency of
+ * the session effect, so writing it is what restarts the session there; `launch` says what that
+ * restart opens - `resume` to carry the conversation, `new` when there is nothing to carry. The
+ * worktree grows to hold the chat, as it does for any chat added to it. Not on the canvas: the
+ * same array.
+ */
+export function moveChatIntoWorktree(
+  nodes: CanvasNode[],
+  nodeId: string,
+  worktree: { worktreeId: string; branch: string; path: string },
+  launch: Partial<Pick<TerminalNodeData, 'launchMode' | 'conversationId' | 'initialInput'>>
+): CanvasNode[] {
+  if (!nodes.some((node) => isTerminalCanvasNode(node) && node.id === nodeId)) return nodes
+  const position = nextWorktreeChildPosition(
+    worktreeChildren(nodes, worktree.worktreeId).filter((node) => node.id !== nodeId)
+  )
+  const moved = nodes.map<CanvasNode>((node) =>
+    isTerminalCanvasNode(node) && node.id === nodeId
+      ? {
+          ...node,
+          position,
+          data: {
+            ...node.data,
+            worktreeId: worktree.worktreeId,
+            worktreeBranch: worktree.branch,
+            workingDirectory: worktree.path,
+            ...launch
+          }
+        }
+      : node
+  )
+  return withRoomForChat(moved, worktree.worktreeId)
 }
 
 /**

@@ -145,6 +145,7 @@ import {
   adoptClaimedWorktrees,
   applyAttachedNodeCounts,
   applyWorktreeClaims,
+  moveChatIntoWorktree,
   registerWorktreeNode,
   reconcileStaleWorktrees
 } from './worktree-attachment'
@@ -1564,7 +1565,7 @@ function Canvas(): JSX.Element {
             )
           )
 
-          if (request.mode !== 'rehome') {
+          if (request.mode === 'handoff') {
             addSessionNode({
               kind: node.data.kind,
               project,
@@ -1575,37 +1576,32 @@ function Canvas(): JSX.Element {
             return
           }
 
-          // Codex can load a conversation in a directory it did not start in, so the node itself
-          // moves rather than a second one appearing beside it - which keeps exactly one owner of
-          // the conversation. Changing `workingDirectory` restarts the session there (it is a
-          // dependency of the session effect), and `resume` makes that restart load the
-          // conversation rather than begin a new one.
-          setNodes((current) =>
-            current.map((candidate) =>
-              isTerminalCanvasNode(candidate) && candidate.id === nodeId
-                ? {
-                    ...candidate,
-                    // Now shown on the worktree's canvas, and a fresh worktree's canvas is empty.
-                    position: { x: 0, y: 0 },
-                    data: {
-                      ...candidate.data,
-                      worktreeId:
-                        current
-                          .filter(isWorktreeCanvasNode)
-                          .find(
-                            (worktree) =>
-                              worktree.data.projectId === project.id &&
-                              worktreePathKey(worktree.data.path) === worktreePathKey(created.path)
-                          )?.data.worktreeId ?? worktreeId,
-                      worktreeBranch: created.branch,
-                      workingDirectory: created.path,
-                      launchMode: 'resume' as const,
-                      initialInput: request.prompt
-                    }
+          // The chat itself moves rather than a second one appearing beside it, so the work has
+          // exactly one chat and it is the one the prompt was typed into. `rehome` carries the
+          // conversation - Codex can load it in a directory it did not start in - and `fresh` has
+          // none to carry, so it starts a new one there on either provider (Claude under a new id:
+          // its conversations are scoped to the directory they started in).
+          setNodes((current) => {
+            const registered = current
+              .filter(isWorktreeCanvasNode)
+              .find(
+                (worktree) =>
+                  worktree.data.projectId === project.id &&
+                  worktreePathKey(worktree.data.path) === worktreePathKey(created.path)
+              )
+            return moveChatIntoWorktree(
+              current,
+              nodeId,
+              { worktreeId: registered?.data.worktreeId ?? worktreeId, branch: created.branch, path: created.path },
+              request.mode === 'rehome'
+                ? { launchMode: 'resume', initialInput: request.prompt }
+                : {
+                    launchMode: 'new',
+                    conversationId: node.data.kind === 'claude' ? crypto.randomUUID() : undefined,
+                    initialInput: request.prompt
                   }
-                : candidate
             )
-          )
+          })
         })
     },
     [addSessionNode, handleDraftChange, setNodes, worktreeCallbacks]
