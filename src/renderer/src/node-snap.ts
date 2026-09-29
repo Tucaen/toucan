@@ -172,6 +172,10 @@ function sameSlice(a: SnapSlice, b: SnapSlice): boolean {
  * restored first, which is what keeps "at most one maximised node" true without the caller
  * tracking it, and stops two half-snapped nodes from hiding each other. A node without
  * measurable geometry has nothing to return to and is left alone.
+ *
+ * `within` says which other nodes share this node's canvas: a slice is a part of one canvas, so a
+ * chat maximised inside a worktree and a worktree maximised on the main canvas never displace each
+ * other. Every node shares the one canvas when it is omitted.
  */
 export function snapNodeToSlice<T extends Node>(
   nodes: T[],
@@ -179,14 +183,16 @@ export function snapNodeToSlice<T extends Node>(
   nodeId: string,
   slice: SnapSlice,
   region: NodeGeometry,
-  gap: number
+  gap: number,
+  within: (nodeId: string) => boolean = () => true
 ): SnapResult<T> {
   const target = nodes.find((node) => node.id === nodeId)
   const current = target ? renderedNodeGeometry(target) : null
   if (!current) return { nodes, snaps }
   let result: SnapResult<T> = { nodes, snaps }
   for (const [otherId, other] of Object.entries(snaps)) {
-    if (otherId !== nodeId && sameSlice(other, slice)) result = restoreNode(result.nodes, result.snaps, otherId)
+    if (otherId !== nodeId && within(otherId) && sameSlice(other, slice))
+      result = restoreNode(result.nodes, result.snaps, otherId)
   }
   const geometry = sliceGeometry(region, slice, gap)
   return {
@@ -202,11 +208,12 @@ export function snapNode<T extends Node>(
   nodeId: string,
   arrow: SnapArrow,
   region: NodeGeometry,
-  gap: number
+  gap: number,
+  within?: (nodeId: string) => boolean
 ): SnapResult<T> {
   const slice = nextSnapSlice(snaps[nodeId] ?? null, arrow)
   if (slice === null) return restoreNode(nodes, snaps, nodeId)
-  return snapNodeToSlice(nodes, snaps, nodeId, slice, region, gap)
+  return snapNodeToSlice(nodes, snaps, nodeId, slice, region, gap, within)
 }
 
 /**
@@ -219,7 +226,8 @@ export function snapNodePair<T extends Node>(
   ids: readonly [string, string],
   arrow: SnapArrow,
   region: NodeGeometry,
-  gap: number
+  gap: number,
+  within?: (nodeId: string) => boolean
 ): SnapResult<T> {
   const pair = ids.map((id) => nodes.find((node) => node.id === id)).filter((node): node is T => !!node)
   if (pair.length !== 2) return { nodes, snaps }
@@ -236,8 +244,8 @@ export function snapNodePair<T extends Node>(
         { h: 'full', v: 'top' },
         { h: 'full', v: 'bottom' }
       ]
-  const one = snapNodeToSlice(nodes, snaps, first.id, slices[0], region, gap)
-  return snapNodeToSlice(one.nodes, one.snaps, second.id, slices[1], region, gap)
+  const one = snapNodeToSlice(nodes, snaps, first.id, slices[0], region, gap, within)
+  return snapNodeToSlice(one.nodes, one.snaps, second.id, slices[1], region, gap, within)
 }
 
 /** Maximises the node, or restores it when it is the maximised one - the header action. */
@@ -246,10 +254,16 @@ export function toggleNodeFit<T extends Node>(
   snaps: SnapStates,
   nodeId: string,
   region: NodeGeometry,
-  gap: number
+  gap: number,
+  within?: (nodeId: string) => boolean
 ): SnapResult<T> {
   if (isMaximised(snaps[nodeId])) return restoreNode(nodes, snaps, nodeId)
-  return snapNodeToSlice(nodes, snaps, nodeId, MAXIMISED, region, gap)
+  return snapNodeToSlice(nodes, snaps, nodeId, MAXIMISED, region, gap, within)
+}
+
+/** Puts a snapped node back where it was before its first snap; a node that is not snapped is left alone. */
+export function restoreSnappedNode<T extends Node>(nodes: T[], snaps: SnapStates, nodeId: string): SnapResult<T> {
+  return restoreNode(nodes, snaps, nodeId)
 }
 
 /**
@@ -265,11 +279,26 @@ export function reflowSnappedNodes<T extends Node>(
   viewport: Viewport,
   inset: number
 ): T[] {
-  if (Object.keys(snaps).length === 0 || canvas.width <= inset * 2 || canvas.height <= inset * 2) return nodes
-  const region = canvasRegion(canvas, viewport, inset)
+  if (canvas.width <= inset * 2 || canvas.height <= inset * 2) return nodes
+  return reflowSnappedNodesWithin(nodes, snaps, canvasRegion(canvas, viewport, inset), inset)
+}
+
+/**
+ * The same reflow for one canvas whose usable region is already known - a worktree's own canvas,
+ * whose size is its node's and whose viewport is its own React Flow's. Only the snapped nodes
+ * `within` that canvas move; the rest, snapped on other canvases or not at all, keep their arrays.
+ */
+export function reflowSnappedNodesWithin<T extends Node>(
+  nodes: T[],
+  snaps: SnapStates,
+  region: NodeGeometry,
+  inset: number,
+  within: (nodeId: string) => boolean = () => true
+): T[] {
+  if (!Object.keys(snaps).some(within)) return nodes
   return nodes.map((node) => {
     const snap = snaps[node.id]
-    return snap ? nodeAtGeometry(node, sliceGeometry(region, snap, inset)) : node
+    return snap && within(node.id) ? nodeAtGeometry(node, sliceGeometry(region, snap, inset)) : node
   })
 }
 

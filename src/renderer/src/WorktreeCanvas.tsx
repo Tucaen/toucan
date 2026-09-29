@@ -14,7 +14,6 @@ import { useCallback, useContext, useEffect, useRef } from 'react'
 import type { TerminalKind } from '../../shared/terminal'
 import type { WorktreeViewport } from '../../shared/worktree'
 import type { TerminalCanvasNode } from './canvas-workspace'
-import { NodeFitContext } from './node-fit-context'
 import SessionKindIcon from './SessionKindIcon'
 import { correctScaledCanvasPointerCoordinates } from './scaled-pointer-coordinates'
 import SessionNode from './SessionNode'
@@ -47,9 +46,10 @@ interface WorktreeCanvasProps {
  * action, Fit chats - addresses this canvas and never the main one.
  *
  * It holds no nodes of its own: they are the workspace's, read through `WorktreeCanvasContext`, and
- * every change goes straight back there. Gestures stay here without special casing: React Flow
- * stops a drag, pan or Ctrl+wheel it handles from reaching the main canvas around it, and the
- * `nodrag` on the canvas is what keeps the main canvas from moving the worktree from inside it.
+ * every change goes straight back there - a chat's fit action included, which the workspace snaps
+ * within this canvas's region. Gestures stay here without special casing: React Flow stops a drag,
+ * pan or Ctrl+wheel it handles from reaching the main canvas around it, and the `nodrag` on the
+ * canvas is what keeps the main canvas from moving the worktree from inside it.
  */
 export default function WorktreeCanvas({
   worktreeId,
@@ -63,15 +63,11 @@ export default function WorktreeCanvas({
   const children = host.partition.children.get(worktreeId) ?? NO_CHILDREN
   const edges = host.edges.children.get(worktreeId) ?? NO_EDGES
   const activity = host.activity.get(worktreeId)
-  const { fitView } = useReactFlow()
+  const { fitView, getViewport, setViewport } = useReactFlow()
 
   // React Flow queues a fit until every node it is given has been measured, so a chat added a
   // moment ago is framed at its real size rather than ignored.
   const fitChats = useCallback((): void => void fitView(FIT_CHATS), [fitView])
-  const fitChat = useCallback(
-    (nodeId: string): void => void fitView({ ...FIT_CHATS, nodes: [{ id: nodeId }] }),
-    [fitView]
-  )
 
   // A chat that joins after the canvas mounted is brought into view: it was placed beside the
   // others, which may well be outside what the canvas shows. The mount itself is left to the
@@ -87,6 +83,24 @@ export default function WorktreeCanvas({
   // The main canvas's zoom scales this one on screen; see `correctScaledCanvasPointerCoordinates`.
   const canvasRef = useRef<HTMLDivElement>(null)
   useEffect(() => correctScaledCanvasPointerCoordinates(canvasRef.current), [])
+
+  // Lent to the workspace while mounted: snapping a chat within this canvas, panning to one, and
+  // focusing the worktree all need its size and viewport, which only this instance has.
+  const { registerCanvas, onCanvasResize } = host
+  useEffect(() => {
+    const element = canvasRef.current
+    if (!element) return
+    const unregister = registerCanvas(worktreeId, { element, getViewport, setViewport, fitView })
+    if (typeof ResizeObserver !== 'function') return unregister
+    // A chat snapped within this canvas follows the worktree's size as the main region's snaps
+    // follow the window's; the observer reports layout size, unscaled by the main zoom.
+    const observer = new ResizeObserver(() => onCanvasResize(worktreeId))
+    observer.observe(element)
+    return () => {
+      observer.disconnect()
+      unregister()
+    }
+  }, [fitView, getViewport, onCanvasResize, registerCanvas, setViewport, worktreeId])
 
   const handleNodesChange = useCallback(
     (changes: NodeChange<TerminalCanvasNode>[]): void => host.onNodesChange(changes, worktreeId),
@@ -104,37 +118,35 @@ export default function WorktreeCanvas({
       {/* A click inside stays inside: reaching the main canvas it would select this worktree's
           frame there, and so clear the chat it was meant for (`selectOnlyWithinCanvas`). */}
       <div ref={canvasRef} className="worktree-canvas nodrag" onClick={(event) => event.stopPropagation()}>
-        <NodeFitContext.Provider value={fitChat}>
-          <ReactFlow
-            nodes={children}
-            edges={edges}
-            nodeTypes={nodeTypes}
-            onNodesChange={handleNodesChange}
-            onPaneClick={handlePaneClick}
-            onMoveEnd={handleMoveEnd}
-            defaultViewport={viewport ?? ORIGIN}
-            fitView={!viewport}
-            fitViewOptions={FIT_CHATS}
-            minZoom={0.25}
-            maxZoom={2}
-            // The main canvas's wheel policy, for the same reason: plain wheel scrolls a transcript,
-            // only Ctrl+wheel or a pinch moves the canvas under the pointer.
-            zoomOnScroll={false}
-            zoomOnPinch
-            panOnScroll={false}
-            preventScrolling={false}
-            nodesConnectable={false}
-            // Auto-pan measures the pointer against the canvas's on-screen bounds, which the main
-            // zoom scales while the corrected pointer is not - it would pan on its own mid-drag.
-            autoPanOnNodeDrag={false}
-            autoPanOnSelection={false}
-            colorMode="dark"
-            deleteKeyCode={['Backspace', 'Delete']}
-            proOptions={{ hideAttribution: true }}
-          >
-            <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#2a2436" />
-          </ReactFlow>
-        </NodeFitContext.Provider>
+        <ReactFlow
+          nodes={children}
+          edges={edges}
+          nodeTypes={nodeTypes}
+          onNodesChange={handleNodesChange}
+          onPaneClick={handlePaneClick}
+          onMoveEnd={handleMoveEnd}
+          defaultViewport={viewport ?? ORIGIN}
+          fitView={!viewport}
+          fitViewOptions={FIT_CHATS}
+          minZoom={0.25}
+          maxZoom={2}
+          // The main canvas's wheel policy, for the same reason: plain wheel scrolls a transcript,
+          // only Ctrl+wheel or a pinch moves the canvas under the pointer.
+          zoomOnScroll={false}
+          zoomOnPinch
+          panOnScroll={false}
+          preventScrolling={false}
+          nodesConnectable={false}
+          // Auto-pan measures the pointer against the canvas's on-screen bounds, which the main
+          // zoom scales while the corrected pointer is not - it would pan on its own mid-drag.
+          autoPanOnNodeDrag={false}
+          autoPanOnSelection={false}
+          colorMode="dark"
+          deleteKeyCode={['Backspace', 'Delete']}
+          proOptions={{ hideAttribution: true }}
+        >
+          <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#2a2436" />
+        </ReactFlow>
         {children.length === 0 && (
           <p className="worktree-canvas-empty">
             {unavailable

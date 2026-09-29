@@ -6,7 +6,7 @@ import { tileNodes } from '../src/renderer/src/canvas-layout'
 import { NODE_FIT_INSET } from '../src/renderer/src/node-snap'
 import { useNodeSnap, type NodeSnapController } from '../src/renderer/src/use-node-snap'
 
-type TestNode = Node<{ fittedToCanvas?: boolean }>
+type TestNode = Node<{ fittedToCanvas?: boolean; canvas?: string }>
 
 const observers: (() => void)[] = []
 
@@ -254,5 +254,152 @@ describe('canvas snap mode', () => {
     for (const node of nodes) expect(node.data.fittedToCanvas).toBe(false)
     // Tiled, not left where the maximise put it.
     expect(nodes[0].position).toEqual({ x: NODE_FIT_INSET, y: NODE_FIT_INSET })
+  })
+})
+
+/**
+ * A worktree's canvas of chats is a second canvas with its own region: a chat snapped there fills
+ * the worktree, a worktree snapped on the main canvas fills the window, and neither displaces the
+ * other. The inner region is the caller's to know - it is the worktree node's size and the inner
+ * React Flow's viewport, which no observer on the main region can see - so it is handed in.
+ */
+describe('snap mode across canvases', () => {
+  let rect: { current: DOMRect }
+  let inner: { current: { position: { x: number; y: number }; width: number; height: number } | null }
+  let controller: NodeSnapController<TestNode>
+  let nodes: TestNode[]
+  let maximisedChanges: [string, boolean][]
+
+  function twoCanvases(): TestNode[] {
+    return [
+      { id: 'a', type: 'test', position: { x: 40, y: 60 }, data: {}, style: { width: 300, height: 200 } },
+      { id: 'w', type: 'test', position: { x: 500, y: 60 }, data: {}, style: { width: 800, height: 700 } },
+      { id: 'c', type: 'test', position: { x: 0, y: 0 }, data: { canvas: 'w1' }, style: { width: 400, height: 300 } },
+      { id: 'd', type: 'test', position: { x: 450, y: 0 }, data: { canvas: 'w1' }, style: { width: 400, height: 300 } }
+    ]
+  }
+
+  function Harness(): JSX.Element {
+    const [current, setCurrent] = useState<TestNode[]>(twoCanvases)
+    const canvasRef = useRef<HTMLElement>(null)
+    nodes = current
+    controller = useNodeSnap<TestNode>({
+      canvasRef,
+      getNodes: () => current,
+      getViewport: () => ({ x: 0, y: 0, zoom: 1 }),
+      setNodes: setCurrent,
+      canvases: {
+        canvasOf: (node) => node.data.canvas ?? null,
+        regionOf: (canvas) => (canvas === 'w1' ? inner.current : null)
+      },
+      onMaximisedChange: (nodeId, maximised) => maximisedChanges.push([nodeId, maximised])
+    })
+    return (
+      <section
+        ref={(element) => {
+          if (element) element.getBoundingClientRect = () => rect.current
+          canvasRef.current = element
+        }}
+      />
+    )
+  }
+
+  beforeEach(() => {
+    observers.length = 0
+    maximisedChanges = []
+    rect = { current: { width: 1000, height: 700 } as DOMRect }
+    inner = { current: { position: { x: 16, y: 16 }, width: 768, height: 568 } }
+    vi.stubGlobal('ResizeObserver', ResizeObserverStub)
+    render(<Harness />)
+  })
+
+  afterEach(() => vi.unstubAllGlobals())
+
+  const byId = (id: string): TestNode => nodes.find((node) => node.id === id)!
+
+  test('a chat maximised inside a worktree fills the worktree region, not the window', () => {
+    act(() => controller.toggle('c'))
+    expect(geometryOf(byId('c'))).toEqual({
+      position: { x: 16, y: 16 },
+      style: { width: 768, height: 568 },
+      fitted: true
+    })
+    // Nothing on the main canvas moved.
+    expect(byId('a').position).toEqual({ x: 40, y: 60 })
+    expect(byId('w').style).toEqual({ width: 800, height: 700 })
+  })
+
+  test('a maximised chat and a maximised worktree coexist, one per canvas', () => {
+    act(() => controller.toggle('c'))
+    act(() => controller.toggle('w'))
+    expect(Object.keys(controller.state()).sort()).toEqual(['c', 'w'])
+    expect(byId('c').data.fittedToCanvas).toBe(true)
+    expect(byId('w').data.fittedToCanvas).toBe(true)
+    expect(byId('w').style).toEqual({ width: 968, height: 668 })
+
+    // A second chat maximised in the same worktree restores the first, and only the first.
+    act(() => controller.toggle('d'))
+    expect(Object.keys(controller.state()).sort()).toEqual(['d', 'w'])
+    expect(geometryOf(byId('c'))).toEqual({
+      position: { x: 0, y: 0 },
+      style: { width: 400, height: 300 },
+      fitted: false
+    })
+    expect(byId('w').data.fittedToCanvas).toBe(true)
+  })
+
+  test('Alt+Arrow on two chats in a worktree splits the worktree, and a pair cannot straddle canvases', () => {
+    act(() => controller.snap(['c', 'd'], 'left'))
+    expect(byId('c').position).toEqual({ x: 16, y: 16 })
+    expect(byId('c').style).toEqual({ width: 376, height: 568 })
+    expect(byId('d').position).toEqual({ x: 16 + 376 + 16, y: 16 })
+  })
+
+  test('an inner canvas without room to show refuses to snap rather than collapsing the chat', () => {
+    inner.current = null
+    act(() => controller.toggle('c'))
+    expect(controller.state()).toEqual({})
+    expect(byId('c').style).toEqual({ width: 400, height: 300 })
+  })
+
+  test('reflow of one canvas re-fits only the chats snapped there', () => {
+    act(() => controller.toggle('c'))
+    act(() => controller.toggle('w'))
+    inner.current = { position: { x: 16, y: 16 }, width: 1168, height: 868 }
+    act(() => controller.reflow('w1'))
+    expect(byId('c').style).toEqual({ width: 1168, height: 868 })
+    expect(byId('w').style).toEqual({ width: 968, height: 668 })
+
+    // The main region's observer reflows the main canvas alone.
+    resizeCanvas({ width: 800, height: 500 }, rect)
+    expect(byId('w').style).toEqual({ width: 768, height: 468 })
+    expect(byId('c').style).toEqual({ width: 1168, height: 868 })
+  })
+
+  test('restore hands back the restored array, and only layout actions report a maximise change', () => {
+    act(() => controller.toggle('w'))
+    expect(maximisedChanges).toEqual([['w', true]])
+
+    let restored: TestNode[] = []
+    act(() => {
+      restored = controller.restore('w')
+    })
+    expect(restored.find((node) => node.id === 'w')?.style).toEqual({ width: 800, height: 700 })
+    expect(maximisedChanges).toEqual([
+      ['w', true],
+      ['w', false]
+    ])
+    expect(controller.restore('w')).toBe(nodes)
+
+    // A drag releases the snap without a report: the node stays where the user put it.
+    act(() => controller.toggle('w'))
+    act(() => controller.observeChanges([{ id: 'w', type: 'position', dragging: true }]))
+    expect(controller.state()).toEqual({})
+    expect(maximisedChanges).toHaveLength(3)
+
+    // Alt+Left off a maximised node leaves the maximised state, which is reported.
+    act(() => controller.toggle('w'))
+    act(() => controller.snap(['w'], 'left'))
+    expect(maximisedChanges.at(-1)).toEqual(['w', false])
   })
 })

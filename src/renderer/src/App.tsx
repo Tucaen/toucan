@@ -160,7 +160,7 @@ import {
   type WorktreeCanvasEdges,
   type WorktreeCanvasPartition
 } from './worktree-canvas'
-import { WorktreeCanvasContext, type WorktreeCanvasHost } from './worktree-canvas-context'
+import { WorktreeCanvasContext, type WorktreeCanvasHandle, type WorktreeCanvasHost } from './worktree-canvas-context'
 import {
   LAYOUT_SHORTCUT_LABELS,
   applyLayoutSlot,
@@ -174,11 +174,17 @@ import {
   type LayoutKeyAction,
   type TileMode
 } from './canvas-layout'
-import { NODE_FIT_INSET, canvasRegion, nodeBeforeTemporaryFit, viewportShowingNode } from './node-snap'
+import {
+  NODE_FIT_INSET,
+  canvasRegion,
+  nodeBeforeTemporaryFit,
+  viewportShowingNode,
+  type NodeGeometry
+} from './node-snap'
 import { NodeFitContext } from './node-fit-context'
 import { nodeSearchKeyAction } from './node-search'
 import { NodeSearchContext, NO_NODE_SEARCH_REQUEST, type NodeSearchRequest } from './node-search-context'
-import { useNodeSnap } from './use-node-snap'
+import { useNodeSnap, type NodeSnapCanvases } from './use-node-snap'
 import { useProjectAvatars } from './use-project-avatars'
 import { createWorktreeCreator, WORKTREE_CREATE_FAILED } from './worktree-creation'
 import type { AgentProvider } from '../../shared/agent-provider'
@@ -684,11 +690,45 @@ function Canvas(): JSX.Element {
   }, [])
 
   const getCanvasNodes = useCallback((): CanvasNode[] => nodesRef.current, [])
+
+  /**
+   * Each worktree's canvas, lent by its own React Flow while it is mounted (`registerCanvas`). A
+   * ref, not state: nothing renders from it. It is how the workspace snaps a chat within its
+   * worktree, pans a worktree's canvas to a chat, and frames a focused worktree's chats.
+   */
+  const worktreeCanvases = useRef(new Map<string, WorktreeCanvasHandle>())
+  const registerWorktreeCanvas = useCallback((worktreeId: string, handle: WorktreeCanvasHandle): (() => void) => {
+    worktreeCanvases.current.set(worktreeId, handle)
+    return () => {
+      if (worktreeCanvases.current.get(worktreeId) === handle) worktreeCanvases.current.delete(worktreeId)
+    }
+  }, [])
+  /**
+   * A worktree canvas's usable region in its own flow coordinates, or null while it has no room.
+   * Its layout size is what its viewport is measured in - the main zoom scales it on screen, but
+   * not its coordinates - so the element's offset size is read, never its bounding rect.
+   */
+  const worktreeCanvasRegion = useCallback((worktreeId: string): NodeGeometry | null => {
+    const handle = worktreeCanvases.current.get(worktreeId)
+    if (!handle) return null
+    const size = { width: handle.element.offsetWidth, height: handle.element.offsetHeight }
+    if (size.width <= NODE_FIT_INSET * 2 || size.height <= NODE_FIT_INSET * 2) return null
+    return canvasRegion(size, handle.getViewport(), NODE_FIT_INSET)
+  }, [])
+  /** Which canvas a node is on, and the region of a worktree canvas; what scopes every snap. */
+  const snapCanvases = useMemo<NodeSnapCanvases<CanvasNode>>(
+    () => ({
+      canvasOf: (node) => (isWorktreeCanvasChild(node) ? node.data.worktreeId! : null),
+      regionOf: worktreeCanvasRegion
+    }),
+    [worktreeCanvasRegion]
+  )
   const nodeFit = useNodeSnap<CanvasNode>({
     canvasRef: canvasRegionRef,
     getNodes: getCanvasNodes,
     getViewport,
-    setNodes
+    setNodes,
+    canvases: snapCanvases
   })
   // Which layout the next tile produces. Session-local: it is a cycle position, not a preference.
   const [tileMode, setTileMode] = useState<TileMode>('grid')
@@ -723,39 +763,53 @@ function Canvas(): JSX.Element {
   )
 
   /**
-   * Lays every node - or the selection, when two or more are selected - into the visible canvas,
-   * then advances the cycle so the next press gives the next layout. Tiling places nodes itself,
-   * so their snaps are released first rather than left pointing at geometry that is gone.
+   * Lays every node on `canvas` - or the selection there, when two or more are selected - into
+   * that canvas's visible region, then advances the cycle so the next press gives the next layout.
+   * `null` is the main canvas, a worktree id its canvas of chats: each has its own coordinates, so
+   * a layout never mixes them. Tiling places nodes itself, so their snaps are released first
+   * rather than left pointing at geometry that is gone.
    */
-  const tileCanvas = useCallback((): void => {
-    const region = visibleCanvasRegion()
-    if (!region) return
-    // Main-canvas geometry only: a worktree's chats are positioned on its own canvas, and laying
-    // them out here would scatter them there. Moving the worktree is what moves them.
-    const current = getCanvasNodes().filter((node) => !isWorktreeCanvasChild(node))
-    const selected = current.filter((node) => node.selected).map((node) => node.id)
-    const ids = selected.length >= 2 ? selected : current.map((node) => node.id)
-    // Tiling starts from what the release produced, not from `getCanvasNodes()` again: that still
-    // reads the pre-release array, so re-reading it would put `fittedToCanvas` back on a node the
-    // controller no longer holds a restore for - a "restore" header action that maximises instead.
-    setNodes(tileNodes(nodeFit.release(ids), ids, tileMode, region, NODE_FIT_INSET))
-    setTileMode(nextTileMode(tileMode))
-  }, [getCanvasNodes, nodeFit, setNodes, tileMode, visibleCanvasRegion])
+  const tileCanvas = useCallback(
+    (canvas: string | null): void => {
+      const region = canvas === null ? visibleCanvasRegion() : worktreeCanvasRegion(canvas)
+      if (!region) return
+      const current = getCanvasNodes().filter((node) => snapCanvases.canvasOf(node) === canvas)
+      const selected = current.filter((node) => node.selected).map((node) => node.id)
+      const ids = selected.length >= 2 ? selected : current.map((node) => node.id)
+      // Tiling starts from what the release produced, not from `getCanvasNodes()` again: that still
+      // reads the pre-release array, so re-reading it would put `fittedToCanvas` back on a node the
+      // controller no longer holds a restore for - a "restore" header action that maximises instead.
+      setNodes(tileNodes(nodeFit.release(ids), ids, tileMode, region, NODE_FIT_INSET))
+      setTileMode(nextTileMode(tileMode))
+    },
+    [getCanvasNodes, nodeFit, setNodes, snapCanvases, tileMode, visibleCanvasRegion, worktreeCanvasRegion]
+  )
 
   const runLayoutAction = useCallback(
-    (action: LayoutKeyAction): void => {
+    /**
+     * `origin` is the node the key was pressed in, if any. A key pressed inside a node means
+     * that node, unless it is part of the selection - then the selection, as when the key comes
+     * from nowhere in particular. The nodes acted on are on exactly one canvas
+     * (`selectOnlyWithinCanvas`), and that canvas is what a layout key arranges: a chat picked
+     * inside a worktree makes every layout key arrange that worktree's canvas, and no node at all
+     * means the main one.
+     */
+    (action: LayoutKeyAction, origin: string | null = null): void => {
       const current = getCanvasNodes()
-      // The same main-canvas rule as tiling: snap and match-size measure against the main viewport.
-      const selected = current.filter((node) => node.selected && !isWorktreeCanvasChild(node)).map((node) => node.id)
+      const selected = current.filter((node) => node.selected)
+      const from = origin && !selected.some((node) => node.id === origin) ? [origin] : null
+      const targets = from ? current.filter((node) => node.id === origin) : selected
+      const canvas = targets.length > 0 ? snapCanvases.canvasOf(targets[0]) : null
+      const ids = from ?? targets.map((node) => node.id)
       switch (action.kind) {
         case 'snap':
-          nodeFit.snap(selected, action.arrow)
+          nodeFit.snap(ids, action.arrow)
           return
         case 'match-size':
-          setNodes(matchNodeSizes(current, selected))
+          setNodes(matchNodeSizes(current, ids))
           return
         case 'tile':
-          tileCanvas()
+          tileCanvas(canvas)
           return
         case 'slot-save':
           setLayoutSlots((slots) => ({ ...slots, [action.slot]: captureLayoutSlot(current) }))
@@ -772,7 +826,7 @@ function Canvas(): JSX.Element {
           return
       }
     },
-    [getCanvasNodes, layoutSlots, nodeFit, setNodes, tileCanvas]
+    [getCanvasNodes, layoutSlots, nodeFit, setNodes, snapCanvases, tileCanvas]
   )
 
   /**
@@ -1898,7 +1952,7 @@ function Canvas(): JSX.Element {
     (nodeId: string): void => {
       const node = nodes.find((candidate) => candidate.id === nodeId)
       // A chat inside a worktree is on that worktree's canvas, so the main canvas pans to the
-      // worktree that shows it.
+      // worktree that shows it - and that worktree's canvas pans to the chat.
       const target =
         node && isWorktreeCanvasChild(node)
           ? (nodes
@@ -1915,6 +1969,12 @@ function Canvas(): JSX.Element {
       const next =
         canvas && viewportShowingNode(target, nodeFit.state()[target.id], canvas, getViewport(), NODE_FIT_INSET)
       if (next) void setViewport(next, { duration: 350 })
+      if (!node || !isWorktreeCanvasChild(node) || target === node) return
+      const inner = worktreeCanvases.current.get(node.data.worktreeId!)
+      if (!inner) return
+      const size = { width: inner.element.offsetWidth, height: inner.element.offsetHeight }
+      const shown = viewportShowingNode(node, nodeFit.state()[node.id], size, inner.getViewport(), NODE_FIT_INSET)
+      if (shown) void inner.setViewport(shown, { duration: 350 })
     },
     [getViewport, nodeFit, nodes, setNodes, setViewport]
   )
@@ -2065,7 +2125,7 @@ function Canvas(): JSX.Element {
       if (layoutAction.kind !== 'none') {
         if (overlayOpen) return
         event.preventDefault()
-        runLayoutAction(layoutAction)
+        runLayoutAction(layoutAction, target?.closest('.react-flow__node')?.getAttribute('data-id') ?? null)
         return
       }
       const editingTerminal = !!target?.closest('.terminal-host')
@@ -2486,9 +2546,19 @@ function Canvas(): JSX.Element {
         ])
       ),
       onNodesChange: handleNodesChange,
-      onPaneClick: clearSelectionOutside
+      onPaneClick: clearSelectionOutside,
+      registerCanvas: registerWorktreeCanvas,
+      onCanvasResize: nodeFit.reflow
     }),
-    [canvasEdgeSplit, canvasPartition, clearSelectionOutside, handleNodesChange, nodeStatuses]
+    [
+      canvasEdgeSplit,
+      canvasPartition,
+      clearSelectionOutside,
+      handleNodesChange,
+      nodeFit,
+      nodeStatuses,
+      registerWorktreeCanvas
+    ]
   )
 
   /** What the sidebar shows of the canvas, derived once per render; see `project-sidebar.ts`. */
@@ -2638,7 +2708,7 @@ function Canvas(): JSX.Element {
                         className="canvas-zoom-button"
                         title={`Tile nodes as ${tileMode} (${LAYOUT_SHORTCUT_LABELS.tile})`}
                         aria-label="Tile nodes"
-                        onClick={tileCanvas}
+                        onClick={() => tileCanvas(null)}
                       >
                         <LayoutGrid aria-hidden="true" />
                       </button>

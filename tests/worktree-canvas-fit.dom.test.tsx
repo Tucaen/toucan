@@ -139,7 +139,9 @@ function view(
         edges: splitWorktreeCanvasEdges([], partition),
         activity: new Map(),
         onNodesChange: noop,
-        onPaneClick: noop
+        onPaneClick: noop,
+        registerCanvas: () => noop,
+        onCanvasResize: noop
       }}
     >
       <ReactFlowProvider>

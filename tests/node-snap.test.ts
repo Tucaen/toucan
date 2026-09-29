@@ -6,10 +6,13 @@ import {
   nextSnapSlice,
   nodeBeforeTemporaryFit,
   reflowSnappedNodes,
+  reflowSnappedNodesWithin,
   releaseSnaps,
+  restoreSnappedNode,
   sliceGeometry,
   snapNode,
   snapNodePair,
+  snapNodeToSlice,
   snapsReleasedByChanges,
   toggleNodeFit,
   viewportShowingNode,
@@ -243,4 +246,57 @@ test('showing a snapped node puts it back on the side it was snapped to', () => 
 
 test('a node without geometry has nothing to show', () => {
   equal(viewportShowingNode({ id: 'x', position: { x: 0, y: 0 }, data: {} }, undefined, canvas, viewport, 16), null)
+})
+
+test('a slice belongs to one canvas: maximising on another canvas displaces nothing there', () => {
+  // `a` and `b` are on different canvases (`within` says so), so both can be maximised at once;
+  // a third node on `a`'s canvas taking the maximised slice restores `a` alone.
+  const all = [...nodes(), { id: 'c', position: { x: 50, y: 50 }, data: {}, style: { width: 100, height: 100 } }]
+  const onA = (id: string): boolean => id !== 'b'
+  const onB = (id: string): boolean => id === 'b'
+  const first = toggleNodeFit(all, {}, 'a', region, 16, onA)
+  const second = toggleNodeFit(first.nodes, first.snaps, 'b', region, 16, onB)
+  deepEqual(Object.keys(second.snaps), ['a', 'b'])
+  deepEqual(second.nodes[0].position, { x: 16, y: 16 })
+  deepEqual(second.nodes[1].position, { x: 16, y: 16 })
+
+  const third = snapNodeToSlice(second.nodes, second.snaps, 'c', MAXIMISED, region, 16, onA)
+  deepEqual(Object.keys(third.snaps), ['b', 'c'])
+  deepEqual(third.nodes[0].position, { x: 10, y: 20 })
+  equal(third.nodes[0].data.fittedToCanvas, false)
+  deepEqual(third.nodes[1].position, { x: 16, y: 16 })
+
+  // Without a scope every node shares the one canvas, as before.
+  const unscoped = toggleNodeFit(first.nodes, first.snaps, 'b', region, 16)
+  deepEqual(Object.keys(unscoped.snaps), ['b'])
+})
+
+test('restoring a snapped node puts it back; an unsnapped node is untouched', () => {
+  const fitted = toggleNodeFit(nodes(), {}, 'a', region, 16)
+  const restored = restoreSnappedNode(fitted.nodes, fitted.snaps, 'a')
+  deepEqual(restored.snaps, {})
+  deepEqual(restored.nodes[0].position, { x: 10, y: 20 })
+  deepEqual(restored.nodes[0].style, { width: 300, height: 200 })
+  equal(restored.nodes[0].data.fittedToCanvas, false)
+
+  const untouched = nodes()
+  equal(restoreSnappedNode(untouched, {}, 'a').nodes, untouched)
+})
+
+test('reflow within one canvas moves only the nodes snapped on it', () => {
+  const inner = { position: { x: 0, y: 0 }, width: 400, height: 300 }
+  const onInner = (id: string): boolean => id === 'b'
+  const a = toggleNodeFit(nodes(), {}, 'a', region, 16)
+  const both = toggleNodeFit(a.nodes, a.snaps, 'b', inner, 16, onInner)
+  const grown = { position: { x: -20, y: 10 }, width: 800, height: 500 }
+  const reflowed = reflowSnappedNodesWithin(both.nodes, both.snaps, grown, 16, onInner)
+  // `a` is snapped on the other canvas and keeps its geometry - and its object.
+  equal(reflowed[0], both.nodes[0])
+  deepEqual(reflowed[1].position, grown.position)
+  deepEqual(reflowed[1].style, { width: 800, height: 500 })
+  // Nothing snapped within the canvas: the same array comes back.
+  equal(
+    reflowSnappedNodesWithin(both.nodes, both.snaps, grown, 16, () => false),
+    both.nodes
+  )
 })

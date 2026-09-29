@@ -3,21 +3,46 @@ import { useCallback, useEffect, useMemo, useRef, type RefObject } from 'react'
 import {
   NODE_FIT_INSET,
   canvasRegion,
+  isMaximised,
   releaseSnaps,
-  reflowSnappedNodes,
+  reflowSnappedNodesWithin,
+  restoreSnappedNode,
   snapNode,
   snapNodePair,
   snapsReleasedByChanges,
   toggleNodeFit,
+  type NodeGeometry,
   type SnapArrow,
   type SnapStates
 } from './node-snap'
+
+/**
+ * The canvases beyond the main one - a worktree's canvas of chats is one. A node is on exactly one
+ * canvas, and a snap is measured against that canvas's usable region in its own coordinates, so a
+ * chat maximised inside a worktree fills the worktree, not the window.
+ */
+export interface NodeSnapCanvases<T extends Node> {
+  /** Which canvas a node is on: null for the main canvas, otherwise the canvas's id. */
+  canvasOf(node: T): string | null
+  /** An inner canvas's usable region in its flow coordinates, or null while it has no room to show. */
+  regionOf(canvas: string): NodeGeometry | null
+}
 
 export interface NodeSnapController<T extends Node> {
   /** Maximises a node, or restores it when it is the maximised one - the header action. */
   toggle(nodeId: string): void
   /** One Alt+Arrow press: on two ids the pair is placed side by side or stacked, otherwise the first steps through Windows Snap. */
   snap(ids: readonly string[], arrow: SnapArrow): void
+  /**
+   * Puts a snapped node back to where it was before its first snap, and returns the node array
+   * that produced - for the same reason `release` does. A node that is not snapped is left alone.
+   */
+  restore(nodeId: string): T[]
+  /**
+   * Re-fits every node snapped on `canvas` (null for the main canvas) to that canvas's current
+   * usable region: for an inner canvas whose host was resized, which no observer here can see.
+   */
+  reflow(canvas: string | null): void
   /**
    * Forgets the snap state of the given nodes (all when omitted) without moving them; for layouts
    * that place nodes themselves. Returns the released node array, which is the array such a layout
@@ -58,47 +83,109 @@ export function useNodeSnap<T extends Node>({
   canvasRef,
   getNodes,
   getViewport,
-  setNodes
+  setNodes,
+  canvases,
+  onMaximisedChange
 }: {
   canvasRef: RefObject<HTMLElement | null>
   getNodes: () => T[]
   getViewport: () => Viewport
   setNodes: (nodes: T[]) => void
+  /** Absent means every node is on the main canvas. */
+  canvases?: NodeSnapCanvases<T>
+  /**
+   * A node was maximised, or a maximised node stopped being so, by a layout action - `toggle`,
+   * `snap` or `restore`. A drag or resize that merely releases the snap does not report: the node
+   * is still where the user put it, so there is nothing to undo.
+   */
+  onMaximisedChange?(nodeId: string, maximised: boolean): void
 }): NodeSnapController<T> {
   const snaps = useRef<SnapStates>({})
+  const notify = useRef(onMaximisedChange)
+  notify.current = onMaximisedChange
 
-  const region = useCallback(() => {
-    const canvas = canvasRef.current?.getBoundingClientRect()
-    return canvas ? canvasRegion(canvas, getViewport(), NODE_FIT_INSET) : null
-  }, [canvasRef, getViewport])
+  const canvasOf = useCallback((node: T): string | null => canvases?.canvasOf(node) ?? null, [canvases])
+
+  /** The usable region of `canvas`; the main one is measured here, an inner one is the caller's to know. */
+  const regionOf = useCallback(
+    (canvas: string | null): NodeGeometry | null => {
+      if (canvas !== null) return canvases?.regionOf(canvas) ?? null
+      const rect = canvasRef.current?.getBoundingClientRect()
+      return rect ? canvasRegion(rect, getViewport(), NODE_FIT_INSET) : null
+    },
+    [canvasRef, canvases, getViewport]
+  )
+
+  /** A node's canvas region, and the test for whether another node shares that canvas. */
+  const scope = useCallback(
+    (nodeId: string): { region: NodeGeometry | null; within: (otherId: string) => boolean } => {
+      const nodes = getNodes()
+      const node = nodes.find((candidate) => candidate.id === nodeId)
+      const canvas = node ? canvasOf(node) : null
+      const members = new Set(nodes.filter((candidate) => canvasOf(candidate) === canvas).map((n) => n.id))
+      return { region: regionOf(canvas), within: (otherId) => members.has(otherId) }
+    },
+    [canvasOf, getNodes, regionOf]
+  )
 
   const apply = useCallback(
-    (result: { nodes: T[]; snaps: SnapStates }): void => {
+    (result: { nodes: T[]; snaps: SnapStates }, report = false): void => {
+      const before = snaps.current
       snaps.current = result.snaps
       setNodes(result.nodes)
+      if (!report || !notify.current) return
+      for (const id of new Set([...Object.keys(before), ...Object.keys(result.snaps)])) {
+        const was = isMaximised(before[id])
+        const is = isMaximised(result.snaps[id])
+        if (was !== is) notify.current(id, is)
+      }
     },
     [setNodes]
   )
 
   const toggle = useCallback(
     (nodeId: string): void => {
-      const rect = region()
-      if (rect) apply(toggleNodeFit(getNodes(), snaps.current, nodeId, rect, NODE_FIT_INSET))
+      const { region, within } = scope(nodeId)
+      if (region) apply(toggleNodeFit(getNodes(), snaps.current, nodeId, region, NODE_FIT_INSET, within), true)
     },
-    [apply, getNodes, region]
+    [apply, getNodes, scope]
   )
 
   const snap = useCallback(
     (ids: readonly string[], arrow: SnapArrow): void => {
-      const rect = region()
-      if (!rect || ids.length === 0) return
+      if (ids.length === 0) return
+      const { region, within } = scope(ids[0])
+      if (!region) return
       apply(
         ids.length === 2
-          ? snapNodePair(getNodes(), snaps.current, [ids[0], ids[1]], arrow, rect, NODE_FIT_INSET)
-          : snapNode(getNodes(), snaps.current, ids[0], arrow, rect, NODE_FIT_INSET)
+          ? snapNodePair(getNodes(), snaps.current, [ids[0], ids[1]], arrow, region, NODE_FIT_INSET, within)
+          : snapNode(getNodes(), snaps.current, ids[0], arrow, region, NODE_FIT_INSET, within),
+        true
       )
     },
-    [apply, getNodes, region]
+    [apply, getNodes, scope]
+  )
+
+  const restore = useCallback(
+    (nodeId: string): T[] => {
+      const nodes = getNodes()
+      const result = restoreSnappedNode(nodes, snaps.current, nodeId)
+      if (result.nodes !== nodes) apply(result, true)
+      return result.nodes
+    },
+    [apply, getNodes]
+  )
+
+  const reflow = useCallback(
+    (canvas: string | null): void => {
+      const region = regionOf(canvas)
+      if (!region) return
+      const nodes = getNodes()
+      const members = new Set(nodes.filter((node) => canvasOf(node) === canvas).map((node) => node.id))
+      const reflowed = reflowSnappedNodesWithin(nodes, snaps.current, region, NODE_FIT_INSET, (id) => members.has(id))
+      if (reflowed !== nodes) setNodes(reflowed)
+    },
+    [canvasOf, getNodes, regionOf, setNodes]
   )
 
   const release = useCallback(
@@ -125,18 +212,18 @@ export function useNodeSnap<T extends Node>({
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas || typeof ResizeObserver !== 'function') return
+    // A canvas with no room for the inset (hidden, or not yet laid out) is ignored rather than
+    // collapsing the nodes onto it.
     const observer = new ResizeObserver(() => {
-      if (Object.keys(snaps.current).length === 0) return
-      setNodes(
-        reflowSnappedNodes(getNodes(), snaps.current, canvas.getBoundingClientRect(), getViewport(), NODE_FIT_INSET)
-      )
+      const { width, height } = canvas.getBoundingClientRect()
+      if (width > NODE_FIT_INSET * 2 && height > NODE_FIT_INSET * 2) reflow(null)
     })
     observer.observe(canvas)
     return () => observer.disconnect()
-  }, [canvasRef, getNodes, getViewport, setNodes])
+  }, [canvasRef, reflow])
 
   return useMemo(
-    () => ({ toggle, snap, release, observeChanges, state }),
-    [observeChanges, release, snap, state, toggle]
+    () => ({ toggle, snap, release, restore, reflow, observeChanges, state }),
+    [observeChanges, reflow, release, restore, snap, state, toggle]
   )
 }
