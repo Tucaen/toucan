@@ -194,11 +194,14 @@ test('edges are drawn on the canvas holding both of their ends and nowhere else'
     session('parent', 'claude', 'a'),
     session('child', 'claude', 'a'),
     session('loose', 'claude'),
-    session('terminal', 'terminal')
+    session('terminal', 'terminal'),
+    session('terminal-a', 'terminal', 'a')
   ])
   const edges: Edge[] = [
     { id: 'lineage', source: 'parent', target: 'child' },
     { id: 'context', source: 'terminal', target: 'loose' },
+    // A worktree's own terminal feeding its own chat is one canvas, so the grant is drawn there.
+    { id: 'context-a', source: 'terminal-a', target: 'child' },
     { id: 'across', source: 'terminal', target: 'child' }
   ]
 
@@ -210,7 +213,7 @@ test('edges are drawn on the canvas holding both of their ends and nowhere else'
   )
   assert.deepEqual(
     split.children.get('a')?.map((edge) => edge.id),
-    ['lineage']
+    ['lineage', 'context-a']
   )
 })
 

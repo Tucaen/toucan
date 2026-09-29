@@ -100,6 +100,64 @@ test('admits terminal → chat and nothing else', () => {
   assert.equal(isValidTerminalContextConnection(nodes, { source: null, target: 'chat-node' }), false)
 })
 
+test('a worktree terminal connects to a worktree chat by the same rule, and the grant mirrors the same way', () => {
+  const state: WorkspaceState = {
+    version: 3,
+    projects: [{ id: 'project-1', name: 'Toucan', path: 'D:\\Development\\Toucan', color: '#71a9ff' }],
+    activeProjectId: 'project-1',
+    sidebarCollapsed: false,
+    nodes: [
+      {
+        id: 'terminal-w',
+        sessionId: 'shell-w',
+        kind: 'terminal',
+        label: 'Terminal',
+        projectId: 'project-1',
+        worktreeId: 'w1',
+        placement: 'worktree',
+        position: { x: 0, y: 0 },
+        width: 520,
+        height: 340
+      },
+      {
+        id: 'chat-w',
+        kind: 'codex',
+        label: 'Codex',
+        projectId: 'project-1',
+        worktreeId: 'w1',
+        placement: 'worktree',
+        position: { x: 600, y: 0 },
+        width: 750,
+        height: 660,
+        conversationId: 'conversation-w'
+      }
+    ],
+    worktrees: [
+      {
+        id: 'w1',
+        projectId: 'project-1',
+        branch: 'feature/one',
+        path: 'D:\\Development\\Toucan-worktrees\\one',
+        baseRef: 'main',
+        createdAt: '2026-09-28T09:00:00.000Z',
+        position: { x: 0, y: 0 },
+        width: 1200,
+        height: 800
+      }
+    ]
+  }
+  const nodes = restoreCanvasWorkspace(state, callbacks).nodes
+
+  // Being in one worktree grants nothing: without the drawn edge the mirror set stays empty.
+  assert.deepEqual(mirroredTerminalContextEdges(nodes, []), [])
+
+  assert.equal(isValidTerminalContextConnection(nodes, { source: 'terminal-w', target: 'chat-w' }), true)
+  const edges = withTerminalContextEdge([], nodes, { source: 'terminal-w', target: 'chat-w' })
+  assert.deepEqual(mirroredTerminalContextEdges(nodes, edges), [{ terminalSessionId: 'shell-w', agentId: 'chat-w' }])
+  // Revocation is the same lifecycle: closing either end takes the grant with it.
+  assert.deepEqual(withoutEdgesTouchingNodes(edges, new Set(['terminal-w'])), [])
+})
+
 test('a dormant terminal still connects: the retained tail is exactly what an agent reads after an exit', () => {
   const nodes = canvasNodes().map((node) =>
     node.id === 'terminal-node' ? { ...node, data: { ...node.data, dormant: true } } : node
