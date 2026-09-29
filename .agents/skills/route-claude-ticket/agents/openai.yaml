@@ -1,0 +1,6 @@
+interface:
+  display_name: 'Route Claude Ticket'
+  short_description: 'Ask Jev to choose a Claude model and effort'
+  default_prompt: 'Use $route-claude-ticket to route this ticket to a currently available Claude model and effort.'
+policy:
+  allow_implicit_invocation: false
