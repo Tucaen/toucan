@@ -2251,7 +2251,9 @@ function Canvas(): JSX.Element {
           id: `file-${crypto.randomUUID()}`,
           ...(home ? { worktreeId: home.data.worktreeId } : {}),
           path,
-          position: home ? nextWorktreeChildPosition(worktreeChildren(nodesRef.current, home.data.worktreeId)) : position
+          position: home
+            ? nextWorktreeChildPosition(worktreeChildren(nodesRef.current, home.data.worktreeId))
+            : position
         },
         project,
         {
