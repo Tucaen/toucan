@@ -26,6 +26,14 @@ import { WorktreeCanvasContext } from './worktree-canvas-context'
 const nodeTypes: NodeTypes = { terminalNode: SessionNode }
 
 const FIT_CHATS: FitViewOptions = { padding: 0.06, duration: 250 }
+/**
+ * React Flow refuses to pan from inside any element carrying its no-pan class, and it puts that
+ * class on every draggable node's wrapper - the main canvas's included. This canvas lives inside
+ * one of those wrappers, so with the default class a drag on its empty pane would be refused by
+ * the very ancestor that keeps the main canvas from panning under it. Its own class is checked
+ * instead; the main canvas keeps the default, so a drag inside a worktree still never pans it.
+ */
+const WORKTREE_NO_PAN_CLASS = 'nopan-worktree'
 const NO_CHILDREN: TerminalCanvasNode[] = []
 const NO_EDGES: Edge[] = []
 const ORIGIN: Viewport = { x: 0, y: 0, zoom: 1 }
@@ -136,6 +144,7 @@ export default function WorktreeCanvas({
           zoomOnPinch
           panOnScroll={false}
           preventScrolling={false}
+          noPanClassName={WORKTREE_NO_PAN_CLASS}
           nodesConnectable={false}
           // Auto-pan measures the pointer against the canvas's on-screen bounds, which the main
           // zoom scales while the corrected pointer is not - it would pan on its own mid-drag.
