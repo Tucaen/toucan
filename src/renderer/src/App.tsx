@@ -1037,7 +1037,8 @@ function Canvas(): JSX.Element {
         projects: projectsRef.current,
         worktrees: nodesRef.current.filter(isWorktreeCanvasNode).map(serializeWorktreeNode),
         agentPermissionModes: permissionModesRef.current,
-        worktreeChildPosition: (worktreeId) => nextWorktreeChildPosition(worktreeChildren(nodesRef.current, worktreeId)),
+        worktreeChildPosition: (worktreeId) =>
+          nextWorktreeChildPosition(worktreeChildren(nodesRef.current, worktreeId)),
         conversationHolder: (kind, conversationId) =>
           isAgentProvider(kind) ? nodeHoldingConversation(nodesRef.current, kind, conversationId)?.id : undefined
       },

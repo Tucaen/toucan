@@ -217,7 +217,11 @@ describe('opening a conversation keeps it inside its worktree', () => {
   })
 
   test('a late claim moves a resting Codex chat into its worktree and leaves a Claude chat where it runs', async () => {
-    const codex = chat('codex-main', 'codex', { worktreeId: undefined, placement: undefined, position: { x: 1400, y: 0 } })
+    const codex = chat('codex-main', 'codex', {
+      worktreeId: undefined,
+      placement: undefined,
+      position: { x: 1400, y: 0 }
+    })
     const claude = chat('claude-main', 'claude', {
       worktreeId: undefined,
       placement: undefined,
