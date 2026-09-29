@@ -184,6 +184,8 @@ export interface WorktreeNodeCallbacks {
   onOpenDiff(worktreeId: string): void
   /** The worktree's own canvas of chats came to rest at a new pan/zoom; it persists with the record. */
   onViewportChange(worktreeId: string, viewport: WorktreeViewport): void
+  /** Collapses the worktree to its header and bottom row, or expands it back; the chats stay mounted. */
+  onToggleCollapsed(worktreeId: string): void
 }
 
 export interface WorktreeNodeData
@@ -199,6 +201,10 @@ export interface WorktreeNodeData
   attachedNodeCount: number
   /** Where its inner canvas was last left; absent means frame the chats once they are measured. */
   viewport?: WorktreeViewport
+  /** Header and bottom row only; the canvas is kept mounted out of view. See `collapseWorktree`. */
+  collapsed?: boolean
+  /** The height the worktree expands back to. Set only while collapsed, from the height it had. */
+  expandedHeight?: number
 }
 
 export interface FileNodeCallbacks {
@@ -275,9 +281,10 @@ export const MIN_WORKTREE_SIZE = { width: 360, height: 232 }
 /**
  * The vertical room a worktree's own chrome takes around its inner canvas: the header above and
  * the compact bottom row below. Only ever used to size a frame around chats, never to lay one out.
- * @internal exported for tests
  */
 export const WORKTREE_CHROME_HEIGHT = 76
+/** What a collapsed worktree is: its chrome and nothing else. */
+export const COLLAPSED_WORKTREE_HEIGHT = WORKTREE_CHROME_HEIGHT
 /** The gap between chats set side by side on a worktree canvas, and between a worktree and its neighbours. */
 export const WORKTREE_CHILD_GAP = 48
 /**
@@ -844,8 +851,11 @@ export function serializeWorktreeNode(node: WorktreeCanvasNode): WorkspaceWorktr
     createdAt: node.data.createdAt,
     position: node.position,
     width: size.width,
-    height: size.height,
-    ...(node.data.viewport ? { viewport: node.data.viewport } : {})
+    // A collapsed worktree is saved at the height it expands back to, so a snapshot never learns
+    // the collapsed height as the worktree's size.
+    height: node.data.collapsed ? (node.data.expandedHeight ?? DEFAULT_WORKTREE_SIZE.height) : size.height,
+    ...(node.data.viewport ? { viewport: node.data.viewport } : {}),
+    ...(node.data.collapsed ? { collapsed: true } : {})
   }
 }
 
@@ -923,6 +933,8 @@ export interface WorktreeNodeSeed {
   /** How many nodes already run here; a worktree that was just created carries none. */
   attachedNodeCount?: number
   viewport?: WorktreeViewport
+  /** Restored collapsed: `height` is then the height it expands back to. */
+  collapsed?: boolean
   /** Selected when the user asked for this worktree themselves; a swept one appears quietly. */
   selected?: boolean
 }
@@ -961,15 +973,17 @@ export function createWorktreeCanvasNode(
       setupCommand: project.setupCommand,
       attachedNodeCount: seed.attachedNodeCount ?? 0,
       ...(seed.viewport ? { viewport: seed.viewport } : {}),
+      ...(seed.collapsed ? { collapsed: true, expandedHeight: seed.height ?? DEFAULT_WORKTREE_SIZE.height } : {}),
       onRemoveWorktree: callbacks.onRemoveWorktree,
       onCreateNodeInWorktree: callbacks.onCreateNodeInWorktree,
       onRunSetupCommand: callbacks.onRunSetupCommand,
       onOpenDiff: callbacks.onOpenDiff,
-      onViewportChange: callbacks.onViewportChange
+      onViewportChange: callbacks.onViewportChange,
+      onToggleCollapsed: callbacks.onToggleCollapsed
     },
     style: {
       width: seed.width ?? DEFAULT_WORKTREE_SIZE.width,
-      height: seed.height ?? DEFAULT_WORKTREE_SIZE.height
+      height: seed.collapsed ? COLLAPSED_WORKTREE_HEIGHT : (seed.height ?? DEFAULT_WORKTREE_SIZE.height)
     }
   }
 }

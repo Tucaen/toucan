@@ -63,6 +63,7 @@ const callbacks = {
   onRunSetupCommand: () => undefined,
   onOpenDiff: () => undefined,
   onViewportChange: () => undefined,
+  onToggleCollapsed: () => undefined,
   onViewModeChange: () => undefined,
   onRequestFilePath: async () => null,
   onPathChange: () => undefined,

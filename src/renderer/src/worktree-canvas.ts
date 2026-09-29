@@ -1,6 +1,7 @@
 import type { Edge } from '@xyflow/react'
 import type { TerminalNodeStatus } from '../../shared/terminal'
 import {
+  COLLAPSED_WORKTREE_HEIGHT,
   DEFAULT_WORKTREE_SIZE,
   isWorktreeCanvasChild,
   isWorktreeCanvasNode,
@@ -9,7 +10,8 @@ import {
   sessionNodeStatus,
   WORKTREE_CHILD_GAP,
   type CanvasNode,
-  type TerminalCanvasNode
+  type TerminalCanvasNode,
+  type WorktreeCanvasNode
 } from './canvas-workspace'
 
 /**
@@ -133,6 +135,47 @@ export function withRoomForChat(nodes: CanvasNode[], worktreeId: string): Canvas
     height: Math.max(height, DEFAULT_WORKTREE_SIZE.height)
   }
   return nodes.map((node) => (node === host ? { ...host, style } : node))
+}
+
+/** A worktree shown as its header and bottom row only. Its chats are mounted and running, out of view. */
+export function isCollapsedWorktree(node: CanvasNode): node is WorktreeCanvasNode {
+  return isWorktreeCanvasNode(node) && node.data.collapsed === true
+}
+
+/** The node at `height`, wherever React Flow reads a height from - see `nodeAtGeometry`. */
+function worktreeAtHeight(node: WorktreeCanvasNode, height: number): WorktreeCanvasNode {
+  return {
+    ...node,
+    ...(node.height !== undefined ? { height } : {}),
+    style: { ...node.style, height },
+    measured: { ...node.measured, height }
+  }
+}
+
+/**
+ * Collapses a worktree to its chrome: header and bottom row. It is a change of the node's height,
+ * nothing else - its canvas and every chat on it stay mounted, so no session is disturbed - and
+ * the height it had is kept on the node to expand back to and to be saved as its size. Already
+ * collapsed, or not on the canvas: the same array.
+ */
+export function collapseWorktree(nodes: CanvasNode[], worktreeId: string): CanvasNode[] {
+  const host = nodes.filter(isWorktreeCanvasNode).find((node) => node.data.worktreeId === worktreeId)
+  if (!host || host.data.collapsed) return nodes
+  const { height } = measured(host, DEFAULT_WORKTREE_SIZE)
+  const collapsed = worktreeAtHeight(
+    { ...host, data: { ...host.data, collapsed: true, expandedHeight: height } },
+    COLLAPSED_WORKTREE_HEIGHT
+  )
+  return nodes.map((node) => (node === host ? collapsed : node))
+}
+
+/** The inverse of `collapseWorktree`: back to the height it had. Not collapsed: the same array. */
+export function expandWorktree(nodes: CanvasNode[], worktreeId: string): CanvasNode[] {
+  const host = nodes.filter(isWorktreeCanvasNode).find((node) => node.data.worktreeId === worktreeId)
+  if (!host || !host.data.collapsed) return nodes
+  const { collapsed: _collapsed, expandedHeight, ...data } = host.data
+  const expanded = worktreeAtHeight({ ...host, data }, expandedHeight ?? DEFAULT_WORKTREE_SIZE.height)
+  return nodes.map((node) => (node === host ? expanded : node))
 }
 
 /** What a worktree's bottom row says about its chats. Agent state only - git state is the header's. */

@@ -2,16 +2,21 @@ import { strict as assert } from 'node:assert'
 import type { Edge } from '@xyflow/react'
 import { test } from 'vitest'
 import {
+  COLLAPSED_WORKTREE_HEIGHT,
   createSessionCanvasNode,
   createWorktreeCanvasNode,
   DEFAULT_WORKTREE_SIZE,
   NEW_SESSION_NODE_SIZE,
+  serializeWorktreeNode,
   WORKTREE_CHILD_GAP,
   type CanvasNode,
   type TerminalCanvasNode,
   type WorktreeCanvasNode
 } from '../src/renderer/src/canvas-workspace'
 import {
+  collapseWorktree,
+  expandWorktree,
+  isCollapsedWorktree,
   nextWorktreeChildPosition,
   partitionWorktreeCanvases,
   selectOnlyWithinCanvas,
@@ -39,7 +44,8 @@ const worktreeCallbacks = {
   onCreateNodeInWorktree: noop,
   onRunSetupCommand: noop,
   onOpenDiff: noop,
-  onViewportChange: noop
+  onViewportChange: noop,
+  onToggleCollapsed: noop
 }
 
 function worktree(id: string, size?: { width: number; height: number }): WorktreeCanvasNode {
@@ -222,4 +228,71 @@ test('selecting on one canvas clears the selection on every other, so one Delete
   assert.deepEqual(ids(selectOnlyWithinCanvas(nodes, null)), ['worktree:a', 'loose'])
   const quiet = nodes.map((node) => ({ ...node, selected: false }))
   assert.equal(selectOnlyWithinCanvas(quiet, 'a'), quiet)
+})
+
+test('collapsing a worktree is a change of height only, and expanding returns the height it had', () => {
+  const host = { ...worktree('a', { width: 900, height: 700 }), measured: { width: 900, height: 700 } }
+  const chats = [session('in-a', 'claude', 'a'), session('loose', 'codex')]
+  const nodes: CanvasNode[] = [host, ...chats]
+
+  const collapsed = collapseWorktree(nodes, 'a')
+  const shelved = collapsed[0] as WorktreeCanvasNode
+  assert.equal(isCollapsedWorktree(shelved), true)
+  assert.equal(shelved.style?.height, COLLAPSED_WORKTREE_HEIGHT)
+  assert.equal(shelved.style?.width, 900)
+  assert.equal(shelved.data.expandedHeight, 700)
+  // Every other node is the same object: nothing about the chats changed, so nothing remounts.
+  assert.deepEqual(collapsed.slice(1), chats)
+  assert.equal(collapsed[1], chats[0])
+  // Its chats still partition onto its canvas - it is shown, just out of view.
+  assert.deepEqual(
+    partitionWorktreeCanvases(collapsed)
+      .children.get('a')
+      ?.map((node) => node.id),
+    ['in-a']
+  )
+  // Saved at the height it expands back to, and as collapsed.
+  assert.deepEqual(
+    { ...serializeWorktreeNode(shelved), createdAt: '' },
+    { ...serializeWorktreeNode(host), createdAt: '', collapsed: true }
+  )
+  assert.equal(serializeWorktreeNode(shelved).height, 700)
+
+  const expanded = expandWorktree(collapsed, 'a')
+  const back = expanded[0] as WorktreeCanvasNode
+  assert.equal(isCollapsedWorktree(back), false)
+  assert.equal(back.style?.height, 700)
+  assert.equal(back.data.expandedHeight, undefined)
+  assert.equal(expanded[1], chats[0])
+
+  // Idempotent, and quiet about worktrees that are not there.
+  assert.equal(collapseWorktree(collapsed, 'a'), collapsed)
+  assert.equal(expandWorktree(nodes, 'a'), nodes)
+  assert.equal(collapseWorktree(nodes, 'missing'), nodes)
+})
+
+test('a worktree restored collapsed opens at its chrome height and remembers the saved height', () => {
+  const restored = createWorktreeCanvasNode(
+    {
+      worktreeId: 'a',
+      branch: 'feature/a',
+      path: 'D:\\Development\\toucan-worktrees\\a',
+      baseRef: 'main',
+      createdAt: '2026-09-28T00:00:00.000Z',
+      position: { x: 0, y: 0 },
+      width: 900,
+      height: 700,
+      collapsed: true
+    },
+    PROJECT,
+    worktreeCallbacks
+  )
+  assert.equal(restored.style?.height, COLLAPSED_WORKTREE_HEIGHT)
+  assert.equal(restored.data.collapsed, true)
+  assert.equal(restored.data.expandedHeight, 700)
+  assert.deepEqual(
+    { height: serializeWorktreeNode(restored).height, collapsed: serializeWorktreeNode(restored).collapsed },
+    { height: 700, collapsed: true }
+  )
+  assert.equal(expandWorktree([restored], 'a')[0].style?.height, 700)
 })

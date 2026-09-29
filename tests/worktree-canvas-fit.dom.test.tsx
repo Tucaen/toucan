@@ -127,7 +127,8 @@ function view(
       onCreateNodeInWorktree: noop,
       onRunSetupCommand: noop,
       onOpenDiff: noop,
-      onViewportChange
+      onViewportChange,
+      onToggleCollapsed: noop
     }
   )
   const nodes: CanvasNode[] = [worktree, ...children]

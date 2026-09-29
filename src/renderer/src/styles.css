@@ -4351,6 +4351,7 @@ button.global-status-chip:hover {
 }
 
 .worktree-node {
+  position: relative;
   width: 100%;
   height: 100%;
   display: flex;
@@ -4431,6 +4432,23 @@ button.global-status-chip:hover {
   flex: 1 1 auto;
   min-height: 0;
   background: #0f0d14;
+}
+
+/* Collapsed, the canvas is taken out of the column and hidden - not removed, and not shrunk:
+   it keeps the size it expands back to, so the chats on it keep their layout, their scroll
+   positions and their sessions, and the node is exactly its header and bottom row. */
+.worktree-node.collapsed .worktree-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: var(--worktree-canvas-height);
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.worktree-header-action.worktree-collapse {
+  padding: 2px;
 }
 
 .worktree-canvas-empty {

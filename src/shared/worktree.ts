@@ -30,6 +30,11 @@ export interface WorkspaceWorktree {
    * canvas then frames its chats once they are measured.
    */
   viewport?: WorktreeViewport
+  /**
+   * Shown as its header and bottom row only, its canvas of chats kept but out of view. `height`
+   * stays the height it expands back to. Absent means expanded, as every earlier snapshot reads.
+   */
+  collapsed?: boolean
 }
 
 /** An inner canvas viewport in React Flow's terms: translation in screen pixels, then zoom. */

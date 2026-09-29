@@ -150,6 +150,9 @@ import {
 } from './worktree-attachment'
 import WorktreeNode from './WorktreeNode'
 import {
+  collapseWorktree,
+  expandWorktree,
+  isCollapsedWorktree,
   nextWorktreeChildPosition,
   partitionWorktreeCanvases,
   selectOnlyWithinCanvas,
@@ -804,7 +807,10 @@ function Canvas(): JSX.Element {
     (canvas: string | null): void => {
       const region = canvas === null ? visibleCanvasRegion() : worktreeCanvasRegion(canvas)
       if (!region) return
-      const current = getCanvasNodes().filter((node) => snapCanvases.canvasOf(node) === canvas)
+      // A collapsed worktree is shelved work: it keeps its place rather than taking a cell.
+      const current = getCanvasNodes().filter(
+        (node) => snapCanvases.canvasOf(node) === canvas && !isCollapsedWorktree(node)
+      )
       const selected = current.filter((node) => node.selected).map((node) => node.id)
       const ids = selected.length >= 2 ? selected : current.map((node) => node.id)
       // Tiling starts from what the release produced, not from `getCanvasNodes()` again: that still
@@ -827,9 +833,12 @@ function Canvas(): JSX.Element {
      */
     (action: LayoutKeyAction, origin: string | null = null): void => {
       const current = getCanvasNodes()
-      const selected = current.filter((node) => node.selected)
+      // A collapsed worktree has no size to arrange; it is expanded to be laid out.
+      const selected = current.filter((node) => node.selected && !isCollapsedWorktree(node))
       const from = origin && !selected.some((node) => node.id === origin) ? [origin] : null
-      const targets = from ? current.filter((node) => node.id === origin) : selected
+      const targets = (from ? current.filter((node) => node.id === origin) : selected).filter(
+        (node) => !isCollapsedWorktree(node)
+      )
       const canvas = targets.length > 0 ? snapCanvases.canvasOf(targets[0]) : null
       const ids = from ?? targets.map((node) => node.id)
       switch (action.kind) {
@@ -1438,6 +1447,24 @@ function Canvas(): JSX.Element {
   )
 
   /**
+   * Collapse is a change of height and nothing else - the canvas and its chats stay mounted (see
+   * `WorktreeNode`). A focused worktree is restored first, since the height it returns to is the
+   * one it had before the focus, not the main canvas's.
+   */
+  const handleToggleWorktreeCollapsed = useCallback(
+    (worktreeId: string): void => {
+      const worktreeNode = findWorktreeNode(worktreeId)
+      if (!worktreeNode) return
+      if (worktreeNode.data.collapsed) {
+        setNodes((current) => expandWorktree(current, worktreeId))
+        return
+      }
+      setNodes(collapseWorktree(nodeFit.restore(worktreeNode.id), worktreeId))
+    },
+    [findWorktreeNode, nodeFit, setNodes]
+  )
+
+  /**
    * The worktree node's callbacks in one bag, so every site that builds one - the dialog, a
    * handoff, the discovery sweep, a restore - hands `createWorktreeCanvasNode` the same set.
    */
@@ -1447,9 +1474,11 @@ function Canvas(): JSX.Element {
       onCreateNodeInWorktree: handleCreateNodeInWorktree,
       onRunSetupCommand: handleRunSetupCommand,
       onOpenDiff: handleOpenDiff,
-      onViewportChange: handleWorktreeViewportChange
+      onViewportChange: handleWorktreeViewportChange,
+      onToggleCollapsed: handleToggleWorktreeCollapsed
     }),
     [
+      handleToggleWorktreeCollapsed,
       handleCreateNodeInWorktree,
       handleOpenDiff,
       handleRemoveWorktree,
@@ -1996,6 +2025,8 @@ function Canvas(): JSX.Element {
           : node
       if (!target) return
 
+      // A chat in a collapsed worktree cannot be seen until the worktree is expanded.
+      if (isCollapsedWorktree(target)) setNodes((current) => expandWorktree(current, target.data.worktreeId))
       // Selecting a node is enough: each node reports its own status once it sees the focus.
       setNodes((current) => current.map((node) => ({ ...node, selected: node.id === nodeId })))
       setMenu(null)

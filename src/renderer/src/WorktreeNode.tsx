@@ -1,9 +1,14 @@
 import { useCallback, useEffect, useState } from 'react'
 import { ReactFlowProvider, type NodeProps } from '@xyflow/react'
-import { GitBranch } from 'lucide-react'
+import { ChevronDown, ChevronRight, GitBranch } from 'lucide-react'
 import type { TerminalKind } from '../../shared/terminal'
 import type { WorktreeStatus } from '../../shared/worktree'
-import { MIN_WORKTREE_SIZE, type WorktreeCanvasNode } from './canvas-workspace'
+import {
+  DEFAULT_WORKTREE_SIZE,
+  MIN_WORKTREE_SIZE,
+  WORKTREE_CHROME_HEIGHT,
+  type WorktreeCanvasNode
+} from './canvas-workspace'
 import NodeBorderResizer from './NodeBorderResizer'
 import NodeFitAction from './NodeFitAction'
 import SessionKindIcon from './SessionKindIcon'
@@ -37,6 +42,10 @@ function describeStatus(status: WorktreeStatus | null): {
  * those chats, and one compact row beneath. The header carries the checkout - branch, project, git
  * state and the checkout-level actions - and doubles as the drag handle that moves the worktree and
  * everything in it together; the canvas and the row belong to `WorktreeCanvas`.
+ *
+ * Collapsed, the worktree is its header and row. The canvas is still rendered, at the size it
+ * expands back to, hidden by the stylesheet rather than unmounted: every chat on it keeps its
+ * session, draft and scroll, and comes back exactly as it was.
  */
 export default function WorktreeNode({ id, data, selected }: NodeProps<WorktreeCanvasNode>): JSX.Element {
   const [status, setStatus] = useState<WorktreeStatus | null>(null)
@@ -68,6 +77,9 @@ export default function WorktreeNode({ id, data, selected }: NodeProps<WorktreeC
     [onCreateNodeInWorktree, worktreeId]
   )
 
+  const collapsed = data.collapsed === true
+  const expandedHeight = data.expandedHeight ?? DEFAULT_WORKTREE_SIZE.height
+
   const summary = data.unavailable
     ? { text: 'Worktree no longer exists', kind: 'missing' as const }
     : describeStatus(status)
@@ -78,16 +90,35 @@ export default function WorktreeNode({ id, data, selected }: NodeProps<WorktreeC
 
   return (
     <article
-      className={`worktree-node ${selected ? 'selected' : ''}`}
-      style={{ '--project-color': data.projectColor } as React.CSSProperties}
+      className={`worktree-node ${selected ? 'selected' : ''} ${collapsed ? 'collapsed' : ''}`}
+      style={
+        {
+          '--project-color': data.projectColor,
+          '--worktree-canvas-height': `${expandedHeight - WORKTREE_CHROME_HEIGHT}px`
+        } as React.CSSProperties
+      }
     >
-      <NodeBorderResizer
-        minWidth={MIN_WORKTREE_SIZE.width}
-        minHeight={MIN_WORKTREE_SIZE.height}
-        selected={selected}
-        color={data.projectColor}
-      />
+      {/* A collapsed worktree is its chrome; there is no size to drag. */}
+      {!collapsed && (
+        <NodeBorderResizer
+          minWidth={MIN_WORKTREE_SIZE.width}
+          minHeight={MIN_WORKTREE_SIZE.height}
+          selected={selected}
+          color={data.projectColor}
+        />
+      )}
       <header className="node-header worktree-node-header">
+        <button
+          type="button"
+          className="worktree-header-action worktree-collapse nodrag"
+          aria-label={collapsed ? 'Expand worktree' : 'Collapse worktree'}
+          aria-expanded={!collapsed}
+          title={collapsed ? 'Expand this worktree' : 'Collapse this worktree to its header; its chats keep running'}
+          onMouseDown={(event) => event.stopPropagation()}
+          onClick={() => data.onToggleCollapsed(worktreeId)}
+        >
+          {collapsed ? <ChevronRight aria-hidden="true" /> : <ChevronDown aria-hidden="true" />}
+        </button>
         <span className="worktree-glyph" aria-hidden="true">
           <GitBranch />
         </span>
@@ -150,7 +181,8 @@ export default function WorktreeNode({ id, data, selected }: NodeProps<WorktreeC
             Remove
           </button>
         </span>
-        <NodeFitAction nodeId={id} fitted={data.fittedToCanvas ?? false} />
+        {/* Focus is room for the chats; a collapsed worktree is expanded first. */}
+        {!collapsed && <NodeFitAction nodeId={id} fitted={data.fittedToCanvas ?? false} />}
       </header>
 
       <ReactFlowProvider>

@@ -244,6 +244,13 @@ test("a worktree canvas's viewport and a chat's placement on it round-trip, and 
   const parsed = parseWorkspaceState({ ...base, nodes: [chat], worktrees: [worktree] })
   assert.deepEqual(parsed?.worktrees[0].viewport, worktree.viewport)
   assert.equal(parsed?.nodes[0].placement, 'worktree')
+  // Collapsed is a flag on the record; anything but a boolean is refused.
+  assert.equal(
+    parseWorkspaceState({ ...base, nodes: [chat], worktrees: [{ ...worktree, collapsed: true }] })?.worktrees[0]
+      .collapsed,
+    true
+  )
+  assert.equal(parseWorkspaceState({ ...base, nodes: [chat], worktrees: [{ ...worktree, collapsed: 'yes' }] }), null)
 
   for (const viewport of [null, { x: 0, y: 0 }, { x: 0, y: 0, zoom: 0 }, { x: Number.NaN, y: 0, zoom: 1 }]) {
     assert.equal(parseWorkspaceState({ ...base, nodes: [chat], worktrees: [{ ...worktree, viewport }] }), null)

@@ -58,6 +58,7 @@ function isWorkspaceWorktree(value: unknown): boolean {
     typeof worktree.position?.y === 'number' &&
     typeof worktree.width === 'number' &&
     typeof worktree.height === 'number' &&
+    (worktree.collapsed === undefined || typeof worktree.collapsed === 'boolean') &&
     (worktree.viewport === undefined ||
       (!!worktree.viewport &&
         typeof worktree.viewport === 'object' &&
