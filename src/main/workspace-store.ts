@@ -75,6 +75,7 @@ function isWorkspaceFileNode(value: unknown): boolean {
   return (
     typeof file.id === 'string' &&
     typeof file.projectId === 'string' &&
+    (file.worktreeId === undefined || typeof file.worktreeId === 'string') &&
     typeof file.path === 'string' &&
     isFileViewMode(file.view) &&
     typeof file.position?.x === 'number' &&
@@ -91,6 +92,7 @@ function isWorkspaceDiffNode(value: unknown): boolean {
     typeof diff.id === 'string' &&
     typeof diff.projectId === 'string' &&
     (diff.worktreeId === undefined || typeof diff.worktreeId === 'string') &&
+    (diff.placement === undefined || diff.placement === 'worktree') &&
     (diff.selectedPath === undefined || typeof diff.selectedPath === 'string') &&
     typeof diff.position?.x === 'number' &&
     typeof diff.position?.y === 'number' &&

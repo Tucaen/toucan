@@ -652,6 +652,8 @@ test('a diff node survives save, load and restore, and goes with its worktree or
       id: 'diff-1',
       projectId: 'project-1',
       worktreeId: 'worktree-1',
+      // A worktree's review lives on the worktree canvas since #28, like the sessions beside it.
+      placement: 'worktree',
       position: { x: 0, y: 300 },
       width: 760,
       height: 560,
@@ -714,18 +716,75 @@ test('a fresh diff node takes the default size and remembers the file the reader
   assert.equal(selectDiffCanvasNodePath(nodes, 'missing', 'x'), nodes)
 })
 
-test('removing a worktree removes its diff nodes and nothing else', () => {
+test('removing a worktree removes its diff and file nodes and nothing else', () => {
   const state = worktreeState()
   state.diffs = [
-    { id: 'diff-1', projectId: 'project-1', worktreeId: 'worktree-1', position: { x: 0, y: 0 }, width: 1, height: 1 },
+    {
+      id: 'diff-1',
+      projectId: 'project-1',
+      worktreeId: 'worktree-1',
+      placement: 'worktree',
+      position: { x: 0, y: 0 },
+      width: 1,
+      height: 1
+    },
     { id: 'diff-primary', projectId: 'project-1', position: { x: 0, y: 0 }, width: 1, height: 1 }
+  ]
+  state.files = [
+    {
+      id: 'file-worktree',
+      projectId: 'project-1',
+      worktreeId: 'worktree-1',
+      path: 'D:\\Development\\Toucan-worktrees\\feature-login\\README.md',
+      view: 'rendered',
+      position: { x: 0, y: 0 },
+      width: 1,
+      height: 1
+    },
+    {
+      id: 'file-primary',
+      projectId: 'project-1',
+      path: 'D:\\Development\\Toucan\\README.md',
+      view: 'rendered',
+      position: { x: 0, y: 0 },
+      width: 1,
+      height: 1
+    }
   ]
   const nodes = restoreCanvasWorkspace(state, callbacks).nodes
   const remaining = withoutWorktree(nodes, 'worktree-1')
-  assert.deepEqual(remaining.map((node) => node.id).sort(), ['diff-primary', 'node-1', 'node-2'])
-  // A diff node is not attached to the worktree: it runs nothing there, so it never blocks removal.
+  assert.deepEqual(remaining.map((node) => node.id).sort(), ['diff-primary', 'file-primary', 'node-1', 'node-2'])
+  // A diff or file node is not attached to the worktree: it runs nothing there, so it never
+  // blocks removal - only the two session nodes count.
   const worktree = worktreeNodes(nodes)[0]
   assert.equal(worktree.data.attachedNodeCount, 2)
+})
+
+test('a file node opened for a worktree lives on its canvas and goes with the worktree record', () => {
+  const state = worktreeState()
+  state.files = [
+    {
+      id: 'file-worktree',
+      projectId: 'project-1',
+      worktreeId: 'worktree-1',
+      path: 'D:\\Development\\Toucan-worktrees\\feature-login\\README.md',
+      view: 'rendered',
+      position: { x: 12, y: 34 },
+      width: 480,
+      height: 360
+    }
+  ]
+  const restored = restoreCanvasWorkspace(state, callbacks)
+  const file = restored.nodes.filter(isFileCanvasNode)[0]
+
+  assert.equal(file.data.worktreeId, 'worktree-1')
+  // Home only, never attachment: the file adds nothing to the worktree's session count.
+  assert.equal(worktreeNodes(restored.nodes)[0].data.attachedNodeCount, 2)
+  assert.deepEqual(serializeFileNode(file), state.files[0])
+
+  // A record whose worktree is gone is pruned with it, exactly as a diff review is.
+  const orphaned = { ...state, worktrees: [], nodes: [] }
+  assert.deepEqual(restoreCanvasWorkspace(orphaned, callbacks).nodes.filter(isFileCanvasNode), [])
 })
 
 /**
@@ -1142,9 +1201,20 @@ test('a chat saved beside its worktree moves onto the worktree canvas once, keep
     draft: undefined,
     position: { x: 1048, y: 60 }
   }
-  // The attached terminal was saved by the same old build: beside the worktree, unplaced.
+  // The attached terminal and the review were saved by the same old build: beside the worktree,
+  // unplaced, in main-canvas coordinates.
   const legacyTerminal = { ...state.nodes[1], placement: undefined }
   state.nodes = [legacyChat, legacyTerminal, secondChat]
+  state.diffs = [
+    {
+      id: 'diff-legacy',
+      projectId: 'project-1',
+      worktreeId: 'worktree-1',
+      position: { x: 1048, y: 620 },
+      width: 600,
+      height: 120
+    }
+  ]
 
   const restored = restoreCanvasWorkspace(state, callbacks)
   const worktree = worktreeNodes(restored.nodes)[0]
@@ -1179,14 +1249,19 @@ test('a chat saved beside its worktree moves onto the worktree canvas once, keep
   // The worktree takes in the area it and its sessions covered, plus room for its own chrome.
   assert.deepEqual(worktree.position, { x: 0, y: 0 })
   assert.deepEqual(worktree.style, { width: 1648, height: 740 + WORKTREE_CHROME_HEIGHT })
-  // The attached terminal migrates with the chats, keeping its place relative to them.
+  // The attached terminal and the review migrate with the chats, keeping their place among them.
   assert.deepEqual(terminalNodes(restored.nodes)[1].position, { x: 0, y: 380 })
+  assert.deepEqual(restored.nodes.filter(isDiffCanvasNode)[0].position, { x: 648, y: 600 })
 
-  // Saved again, the sessions say they are placed, so the next load leaves them exactly where they are.
+  // Saved again, the records say they are placed, so the next load leaves them exactly where they are.
   const saved = { ...state, ...serializeCanvasNodes(restored.nodes) }
   assert.deepEqual(
     saved.nodes.map((node) => node.placement),
     ['worktree', 'worktree', 'worktree']
+  )
+  assert.deepEqual(
+    saved.diffs?.map((diff) => diff.placement),
+    ['worktree']
   )
   const reloaded = restoreCanvasWorkspace(saved, callbacks)
   assert.deepEqual(serializeCanvasNodes(reloaded.nodes), serializeCanvasNodes(restored.nodes))

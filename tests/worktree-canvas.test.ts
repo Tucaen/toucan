@@ -111,6 +111,54 @@ test('every attached chat is shown exactly once, in its own worktree, and nothin
   assert.deepEqual([...shown].sort(), nodes.map((node) => node.id).sort())
 })
 
+test('a worktree diff review and file node are shown inside their worktree, never twice', () => {
+  const diff: CanvasNode = {
+    id: 'diff-a',
+    type: 'diffNode',
+    position: { x: 0, y: 0 },
+    data: {
+      projectId: PROJECT.id,
+      projectName: PROJECT.name,
+      projectPath: PROJECT.path,
+      projectColor: PROJECT.color,
+      worktreeId: 'a',
+      label: 'feature/a',
+      path: 'D:\\Development\\toucan-worktrees\\a',
+      baseRef: 'main',
+      onSelectDiffPath: noop
+    }
+  }
+  const file: CanvasNode = {
+    id: 'file-a',
+    type: 'fileNode',
+    position: { x: 0, y: 0 },
+    data: {
+      projectId: PROJECT.id,
+      projectName: PROJECT.name,
+      projectPath: PROJECT.path,
+      projectColor: PROJECT.color,
+      worktreeId: 'a',
+      path: 'D:\\Development\\toucan-worktrees\\a\\README.md',
+      view: 'rendered',
+      onViewModeChange: noop,
+      onRequestFilePath: async () => null,
+      onPathChange: noop
+    }
+  }
+  const primaryDiff: CanvasNode = { ...diff, id: 'diff-primary', data: { ...diff.data, worktreeId: undefined } }
+
+  const partition = partitionWorktreeCanvases([worktree('a'), diff, file, primaryDiff])
+
+  assert.deepEqual(
+    partition.children.get('a')?.map((node) => node.id),
+    ['diff-a', 'file-a']
+  )
+  assert.deepEqual(
+    partition.main.map((node) => node.id),
+    ['worktree:a', 'diff-primary']
+  )
+})
+
 test('an empty worktree still has a canvas, and a chat whose worktree node is missing stays visible', () => {
   const orphan = session('orphan', 'codex', 'gone')
   const partition = partitionWorktreeCanvases([worktree('a'), orphan])

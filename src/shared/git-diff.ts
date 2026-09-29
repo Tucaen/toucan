@@ -12,6 +12,14 @@ export interface WorkspaceDiffNode {
   projectId: string
   /** The worktree reviewed; absent means the project's primary checkout against `HEAD`. */
   worktreeId?: string
+  /**
+   * Which canvas `position` is measured on: `'worktree'` means the inner canvas of the worktree
+   * named by `worktreeId`, where a review is shown with the sessions it belongs to; absent is the
+   * main canvas, how every snapshot written before worktrees hosted reviews reads - restore moves
+   * those inside once, with the sessions (`placeLegacyWorktreeChildren`). A placement, never an
+   * owner: membership is derived from `worktreeId` alone.
+   */
+  placement?: 'worktree'
   position: { x: number; y: number }
   width: number
   height: number

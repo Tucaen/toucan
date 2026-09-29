@@ -12,6 +12,12 @@ export type FileViewMode = 'rendered' | 'raw'
 export interface WorkspaceFileNode {
   id: string
   projectId: string
+  /**
+   * The worktree whose canvas shows this file, set when the file was opened for a path inside that
+   * worktree. `position` is then on that inner canvas. Absent means the main canvas; the record is
+   * pruned with the worktree, exactly as a diff review is.
+   */
+  worktreeId?: string
   /** Absolute path of the file. Stays recorded even when the file has gone, so the layout survives. */
   path: string
   view: FileViewMode

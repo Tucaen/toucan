@@ -8,7 +8,7 @@ import {
   NEW_SESSION_NODE_SIZE,
   WORKTREE_CHILD_GAP,
   type CanvasNode,
-  type TerminalCanvasNode,
+  type WorktreeChildCanvasNode,
   type WorktreeCanvasNode
 } from './canvas-workspace'
 
@@ -23,7 +23,7 @@ export interface WorktreeCanvasPartition {
   /** What the main canvas shows: everything that is not a worktree's child. */
   main: CanvasNode[]
   /** Each worktree's children by worktree id; every worktree on the canvas has an entry, if empty. */
-  children: ReadonlyMap<string, TerminalCanvasNode[]>
+  children: ReadonlyMap<string, WorktreeChildCanvasNode[]>
 }
 
 function sameMembers<T>(previous: readonly T[] | undefined, next: readonly T[]): previous is T[] {
@@ -55,7 +55,7 @@ export function partitionWorktreeCanvases(
 ): WorktreeCanvasPartition {
   const hosts = new Set(nodes.filter(isWorktreeCanvasNode).map((node) => node.data.worktreeId))
   const main: CanvasNode[] = []
-  const grouped = new Map<string, TerminalCanvasNode[]>([...hosts].map((worktreeId) => [worktreeId, []]))
+  const grouped = new Map<string, WorktreeChildCanvasNode[]>([...hosts].map((worktreeId) => [worktreeId, []]))
   for (const node of nodes) {
     // A chat whose worktree node is not on the canvas stays on the main one: shown somewhere is
     // always better than shown nowhere.
@@ -64,7 +64,7 @@ export function partitionWorktreeCanvases(
     else main.push(node)
   }
   const { main: kept, children } = reuseUnchanged<CanvasNode>(main, grouped, previous)
-  return { main: kept, children: children as Map<string, TerminalCanvasNode[]> }
+  return { main: kept, children: children as Map<string, WorktreeChildCanvasNode[]> }
 }
 
 export interface WorktreeCanvasEdges {
@@ -99,7 +99,7 @@ export function splitWorktreeCanvasEdges(
 }
 
 /** A worktree's chats, read from any node list - including one a render has not caught up with. */
-export function worktreeChildren(nodes: readonly CanvasNode[], worktreeId: string): TerminalCanvasNode[] {
+export function worktreeChildren(nodes: readonly CanvasNode[], worktreeId: string): WorktreeChildCanvasNode[] {
   return nodes.filter(isWorktreeCanvasChild).filter((node) => node.data.worktreeId === worktreeId)
 }
 
@@ -107,7 +107,7 @@ export function worktreeChildren(nodes: readonly CanvasNode[], worktreeId: strin
  * Where the next chat goes on a worktree canvas: beside the rightmost one, level with the highest,
  * so "+ Codex" then "+ Claude" reads as two chats side by side. Coordinates are the inner canvas's.
  */
-export function nextWorktreeChildPosition(children: readonly TerminalCanvasNode[]): { x: number; y: number } {
+export function nextWorktreeChildPosition(children: readonly WorktreeChildCanvasNode[]): { x: number; y: number } {
   if (children.length === 0) return { x: 0, y: 0 }
   return {
     x:

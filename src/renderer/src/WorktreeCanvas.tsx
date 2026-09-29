@@ -13,17 +13,20 @@ import { Maximize } from 'lucide-react'
 import { useCallback, useContext, useEffect, useRef } from 'react'
 import type { TerminalKind } from '../../shared/terminal'
 import type { WorktreeViewport } from '../../shared/worktree'
-import type { TerminalCanvasNode } from './canvas-workspace'
+import type { WorktreeChildCanvasNode } from './canvas-workspace'
+import DiffNode from './DiffNode'
+import FileNode from './FileNode'
 import SessionKindIcon from './SessionKindIcon'
 import { correctScaledCanvasPointerCoordinates } from './scaled-pointer-coordinates'
 import SessionNode from './SessionNode'
 import { WorktreeCanvasContext } from './worktree-canvas-context'
 
 /**
- * The chats inside a worktree are the ordinary session node, rendered by its own component - the
- * inner canvas registers the same node type the main canvas does, and nothing else.
+ * Everything inside a worktree is an ordinary node rendered by its own component - the inner
+ * canvas registers the same node types the main canvas does for sessions, files and diff reviews,
+ * and nothing else (a worktree cannot host another worktree).
  */
-const nodeTypes: NodeTypes = { terminalNode: SessionNode }
+const nodeTypes: NodeTypes = { terminalNode: SessionNode, fileNode: FileNode, diffNode: DiffNode }
 
 const FIT_CHATS: FitViewOptions = { padding: 0.06, duration: 250 }
 /**
@@ -34,7 +37,7 @@ const FIT_CHATS: FitViewOptions = { padding: 0.06, duration: 250 }
  * instead; the main canvas keeps the default, so a drag inside a worktree still never pans it.
  */
 const WORKTREE_NO_PAN_CLASS = 'nopan-worktree'
-const NO_CHILDREN: TerminalCanvasNode[] = []
+const NO_CHILDREN: WorktreeChildCanvasNode[] = []
 const NO_EDGES: Edge[] = []
 const ORIGIN: Viewport = { x: 0, y: 0, zoom: 1 }
 
@@ -110,7 +113,7 @@ export default function WorktreeCanvas({
   }, [fitChats, getViewport, onCanvasResize, registerCanvas, setViewport, worktreeId])
 
   const handleNodesChange = useCallback(
-    (changes: NodeChange<TerminalCanvasNode>[]): void => host.onNodesChange(changes, worktreeId),
+    (changes: NodeChange<WorktreeChildCanvasNode>[]): void => host.onNodesChange(changes, worktreeId),
     [host, worktreeId]
   )
   const handlePaneClick = useCallback((): void => host.onPaneClick(worktreeId), [host, worktreeId])

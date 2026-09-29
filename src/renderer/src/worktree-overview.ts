@@ -7,7 +7,7 @@ import {
   type AttentionState
 } from '../../shared/attention'
 import type { TerminalNodeStatus } from '../../shared/terminal'
-import { isWorktreeCanvasNode, sessionNodeStatus, type CanvasNode } from './canvas-workspace'
+import { isTerminalCanvasNode, isWorktreeCanvasNode, sessionNodeStatus, type CanvasNode } from './canvas-workspace'
 import type { WorktreeCanvasPartition } from './worktree-canvas'
 
 /** A chat's most blocking unread kind, said in one word where a row has room for one. */
@@ -69,7 +69,8 @@ export function summarizeWorktrees(
 ): WorktreeSummary[] {
   const unreadByNode = unreadAttentionByNode(records)
   return nodes.filter(isWorktreeCanvasNode).map((node) => {
-    const children = partition.children.get(node.data.worktreeId) ?? []
+    // Sessions only: a file or diff review shown on the same canvas has no agent state to report.
+    const children = (partition.children.get(node.data.worktreeId) ?? []).filter(isTerminalCanvasNode)
     const attention: WorktreeChatAttention[] = []
     let working = 0
     let unread = 0

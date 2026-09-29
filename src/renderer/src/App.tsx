@@ -116,7 +116,7 @@ import FileNode from './FileNode'
 import DiffNode from './DiffNode'
 import FilePickerDialog from './FilePickerDialog'
 import { OpenFileContext } from './open-file-context'
-import { projectOwningPath, workspaceRootOwningPath } from './file-node'
+import { workspaceRootOwningPath } from './file-node'
 import { moveGroup, moveProject, nextGroupName, ungroupProjects } from './project-order'
 import { projectSidebarSummaries } from './project-sidebar'
 import { ProjectSidebar, type GroupDrop, type ProjectDrop, type ProjectSidebarIntents } from './ProjectSidebar'
@@ -1268,41 +1268,41 @@ function Canvas(): JSX.Element {
   )
   handleBranchRef.current = handleBranchSession
 
-  /** Puts a review of one checkout on the canvas; the node reads git itself. */
+  /**
+   * Puts a review of one checkout on the canvas; the node reads git itself. A worktree's review
+   * is shown on that worktree's own canvas with the sessions it belongs to - visual home only,
+   * since a diff node runs nothing there and never counts as attached.
+   */
   const addDiffNode = useCallback(
     (project: Project, worktree: WorktreeCanvasNode['data'] | undefined, position: { x: number; y: number }): void => {
       const node = createDiffCanvasNode(
-        { id: `diff-${crypto.randomUUID()}`, position },
+        {
+          id: `diff-${crypto.randomUUID()}`,
+          position: worktree
+            ? nextWorktreeChildPosition(worktreeChildren(nodesRef.current, worktree.worktreeId))
+            : position
+        },
         project,
         worktree
           ? { id: worktree.worktreeId, branch: worktree.branch, path: worktree.path, baseRef: worktree.baseRef }
           : undefined,
         { onSelectDiffPath: handleSelectDiffPath }
       )
-      setNodes((current) => [
-        ...current.map((candidate) => ({ ...candidate, selected: false })),
-        { ...node, selected: true }
-      ])
+      setNodes((current) => {
+        const placed = [...current.map((candidate) => ({ ...candidate, selected: false })), { ...node, selected: true }]
+        return worktree ? withRoomForChat(placed, worktree.worktreeId) : placed
+      })
     },
     [handleSelectDiffPath, setNodes]
   )
 
-  /** "Diff" on a worktree node: the review lands below the worktree it reviews. */
+  /** "Diff" on a worktree node: the review opens inside the worktree it reviews. */
   const handleOpenDiff = useCallback(
     (worktreeId: string): void => {
       const worktreeNode = findWorktreeNode(worktreeId)
       const project = projectsRef.current.find((candidate) => candidate.id === worktreeNode?.data.projectId)
       if (!worktreeNode || !project) return
-      const height =
-        typeof worktreeNode.style?.height === 'number' ? worktreeNode.style.height : DEFAULT_WORKTREE_SIZE.height
-      addDiffNode(
-        project,
-        worktreeNode.data,
-        cascadedNodePosition(nodesRef.current, {
-          x: worktreeNode.position.x,
-          y: worktreeNode.position.y + (worktreeNode.measured?.height ?? height) + 48
-        })
-      )
+      addDiffNode(project, worktreeNode.data, worktreeNode.position)
     },
     [addDiffNode, findWorktreeNode]
   )
@@ -2242,18 +2242,30 @@ function Canvas(): JSX.Element {
 
   /** Puts one file on the canvas as a node; the node reads and watches the file itself. */
   const addFileNode = useCallback(
-    (path: string, project: Project, position: { x: number; y: number }): void => {
-      const node = createFileCanvasNode({ id: `file-${crypto.randomUUID()}`, path, position }, project, {
-        onViewModeChange: handleFileViewModeChange,
-        onRequestFilePath: handleRequestFilePath,
-        onPathChange: handleFilePathChange
+    (path: string, project: Project, position: { x: number; y: number }, worktreeId?: string): void => {
+      // A file opened for a worktree is shown on that worktree's canvas: home only, never
+      // attachment - the node reads bytes, runs nothing there and never blocks removal.
+      const home = worktreeId ? findWorktreeNode(worktreeId) : undefined
+      const node = createFileCanvasNode(
+        {
+          id: `file-${crypto.randomUUID()}`,
+          ...(home ? { worktreeId: home.data.worktreeId } : {}),
+          path,
+          position: home ? nextWorktreeChildPosition(worktreeChildren(nodesRef.current, home.data.worktreeId)) : position
+        },
+        project,
+        {
+          onViewModeChange: handleFileViewModeChange,
+          onRequestFilePath: handleRequestFilePath,
+          onPathChange: handleFilePathChange
+        }
+      )
+      setNodes((current) => {
+        const placed = [...current.map((candidate) => ({ ...candidate, selected: false })), { ...node, selected: true }]
+        return home ? withRoomForChat(placed, home.data.worktreeId) : placed
       })
-      setNodes((current) => [
-        ...current.map((candidate) => ({ ...candidate, selected: false })),
-        { ...node, selected: true }
-      ])
     },
-    [handleFilePathChange, handleFileViewModeChange, handleRequestFilePath, setNodes]
+    [findWorktreeNode, handleFilePathChange, handleFileViewModeChange, handleRequestFilePath, setNodes]
   )
 
   const openPickedFile = useCallback(
@@ -2287,18 +2299,19 @@ function Canvas(): JSX.Element {
    */
   const openFileFromCard = useCallback(
     (path: string): void => {
-      const owningId = projectOwningPath(path, [
+      const owning = workspaceRootOwningPath(path, [
         ...projectsRef.current.map((project) => ({ projectId: project.id, root: project.path })),
         ...nodesRef.current
           .filter(isWorktreeCanvasNode)
-          .map((node) => ({ projectId: node.data.projectId, root: node.data.path }))
+          .map((node) => ({ projectId: node.data.projectId, root: node.data.path, worktreeId: node.data.worktreeId }))
       ])
       const owner =
-        projectsRef.current.find((project) => project.id === owningId) ??
+        projectsRef.current.find((project) => project.id === owning?.projectId) ??
         projectsRef.current.find((project) => project.id === activeProjectId) ??
         projectsRef.current[0]
       if (!owner) return
-      addFileNode(path, owner, centredDropPosition(NEW_NODE_SIZE['open-file']))
+      // A file inside a worktree opens on that worktree's canvas, beside the session that named it.
+      addFileNode(path, owner, centredDropPosition(NEW_NODE_SIZE['open-file']), owning?.worktreeId)
     },
     [activeProjectId, addFileNode, centredDropPosition]
   )

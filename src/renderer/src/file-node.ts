@@ -124,20 +124,20 @@ export function joinWorkspacePath(root: string, relativePath: string): string {
  */
 export function workspaceRootOwningPath(
   path: string,
-  roots: readonly { projectId: string; root: string }[]
-): { projectId: string; root: string } | undefined {
-  let best: { projectId: string; root: string; length: number } | undefined
-  for (const { projectId, root } of roots) {
+  roots: readonly { projectId: string; root: string; worktreeId?: string }[]
+): { projectId: string; root: string; worktreeId?: string } | undefined {
+  let best: { projectId: string; root: string; worktreeId?: string; length: number } | undefined
+  for (const { projectId, root, worktreeId } of roots) {
     const relative = pathWithinRoot(path, root)
     if (!relative) continue
-    if (!best || relative.length < best.length) best = { projectId, root, length: relative.length }
+    if (!best || relative.length < best.length) best = { projectId, root, worktreeId, length: relative.length }
   }
   return best
 }
 
 export function projectOwningPath(
   path: string,
-  roots: readonly { projectId: string; root: string }[]
+  roots: readonly { projectId: string; root: string; worktreeId?: string }[]
 ): string | undefined {
   return workspaceRootOwningPath(path, roots)?.projectId
 }

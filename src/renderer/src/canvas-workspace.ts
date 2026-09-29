@@ -219,6 +219,8 @@ export interface FileNodeCallbacks {
 
 export interface FileNodeData
   extends Record<string, unknown>, ProjectNodeData, FileNodeCallbacks, CanvasNodePresentation {
+  /** The worktree whose canvas shows this file; absent means the main canvas. Fixed at creation. */
+  worktreeId?: string
   /** Absolute path of the file shown. Kept even when the file is gone so the layout survives. */
   path: string
   view: FileViewMode
@@ -473,13 +475,18 @@ export function isChatCanvasNode(node: CanvasNode): node is TerminalCanvasNode {
   return isTerminalCanvasNode(node) && node.data.kind !== 'terminal'
 }
 
+/** Every node kind a worktree's own canvas can show: sessions, plus its file and diff surfaces. */
+export type WorktreeChildCanvasNode = TerminalCanvasNode | FileCanvasNode | DiffCanvasNode
+
 /**
  * A node shown on its worktree's own canvas rather than on the main one: a chat or terminal
- * attached to a worktree. Membership is derived from the attachment and nothing else, so there is
- * no second record of it to drift.
+ * attached to a worktree, or a file or diff review opened for it. Membership is derived from
+ * `worktreeId` and nothing else, so there is no second record of it to drift - and it says nothing
+ * about attachment: a file or review is layout with a home, never a running session
+ * (`applyAttachedNodeCounts` still counts session nodes alone).
  */
-export function isWorktreeCanvasChild(node: CanvasNode): node is TerminalCanvasNode {
-  return isTerminalCanvasNode(node) && Boolean(node.data.worktreeId)
+export function isWorktreeCanvasChild(node: CanvasNode): node is WorktreeChildCanvasNode {
+  return !isWorktreeCanvasNode(node) && Boolean(node.data.worktreeId)
 }
 
 export function isWorktreeCanvasNode(node: CanvasNode): node is WorktreeCanvasNode {
@@ -621,7 +628,7 @@ export interface CanvasRestoreContext {
   agentPermissionModes?: AgentPermissionModes
   /**
    * The next free spot on a worktree's canvas, for a chat restored into it without a position on
-   * that canvas. Absent where every such chat has already been placed (`placeLegacyWorktreeChats`).
+   * that canvas. Absent where every such chat has already been placed (`placeLegacyWorktreeChildren`).
    */
   worktreeChildPosition?(worktreeId: string): { x: number; y: number }
 }
@@ -1011,6 +1018,7 @@ export function serializeFileNode(node: FileCanvasNode): WorkspaceFileNode {
   return {
     id: node.id,
     projectId: node.data.projectId,
+    ...(node.data.worktreeId ? { worktreeId: node.data.worktreeId } : {}),
     path: node.data.path,
     view: node.data.view,
     position: node.position,
@@ -1030,6 +1038,8 @@ export function changeFileCanvasNodePath(nodes: CanvasNode[], nodeId: string, pa
 
 export interface FileNodeSeed {
   id: string
+  /** Set when the file was opened for a path inside a worktree; `position` is then on its canvas. */
+  worktreeId?: string
   path: string
   position: { x: number; y: number }
   /** Absent for a freshly opened file, which then opens the way its type reads best. */
@@ -1054,6 +1064,7 @@ export function createFileCanvasNode(
     dragHandle: NODE_DRAG_HANDLE,
     position: seed.position,
     data: {
+      ...(seed.worktreeId ? { worktreeId: seed.worktreeId } : {}),
       path: seed.path,
       view: seed.view ?? defaultFileViewMode(seed.path),
       projectId: project.id,
@@ -1075,6 +1086,8 @@ export function serializeDiffNode(node: DiffCanvasNode): WorkspaceDiffNode {
     id: node.id,
     projectId: node.data.projectId,
     ...(node.data.worktreeId ? { worktreeId: node.data.worktreeId } : {}),
+    // The position is on the worktree's canvas exactly when the review is shown there.
+    ...(isWorktreeCanvasChild(node) ? { placement: 'worktree' as const } : {}),
     position: node.position,
     width: size.width,
     height: size.height,
@@ -1132,12 +1145,12 @@ export function selectDiffCanvasNodePath(nodes: CanvasNode[], nodeId: string, pa
   )
 }
 
-/** A worktree's diff nodes go with it: they review a directory that no longer exists. */
+/** A worktree's diff and file nodes go with it: they show a directory that no longer exists. */
 export function withoutWorktree(nodes: CanvasNode[], worktreeId: string): CanvasNode[] {
   return nodes.filter(
     (node) =>
       !(isWorktreeCanvasNode(node) && node.data.worktreeId === worktreeId) &&
-      !(isDiffCanvasNode(node) && node.data.worktreeId === worktreeId)
+      !(isLayoutCanvasNode(node) && node.data.worktreeId === worktreeId)
   )
 }
 
@@ -1234,9 +1247,13 @@ export const CANVAS_NODE_KINDS: readonly CanvasNodeKindEntry[] = [
     alwaysPersisted: false,
     is: isFileCanvasNode,
     serialize: serializeFileNode,
-    // A file whose project is gone has no root to be read under, so it goes with the project; a
-    // file that is merely missing from disk keeps its node, which reports that itself.
-    restore: (saved, project, _context, callbacks) => createFileCanvasNode(saved, project, callbacks)
+    // A file whose project is gone has no root to be read under, so it goes with the project - and
+    // one shown on a worktree canvas goes with the worktree record, exactly as a diff review does.
+    // A file that is merely missing from disk keeps its node, which reports that itself.
+    restore: (saved, project, context, callbacks) => {
+      if (saved.worktreeId && !context.worktreeById(saved.worktreeId)) return null
+      return createFileCanvasNode(saved, project, callbacks)
+    }
   }),
   canvasNodeKind<WorkspaceDiffNode, DiffCanvasNode>({
     field: 'diffs',
@@ -1278,39 +1295,49 @@ export function serializeCanvasNodes(
   return snapshot as unknown as Pick<WorkspaceState, 'nodes' | 'worktrees' | 'files' | 'diffs'>
 }
 
+/** The geometry every worktree-hostable record shares, which is all the migration reads of one. */
+interface LegacyWorktreeChild {
+  worktreeId?: string
+  placement?: 'worktree'
+  position: { x: number; y: number }
+  width: number
+  height: number
+}
+
 /**
- * Moves sessions saved before worktrees hosted them - chats first, terminals since #28 - onto
- * their worktree's canvas, once. Such a node sat beside its worktree on the main canvas, so the
- * worktree grows to the area the two of them took up together and the node keeps its size and its
- * place relative to its siblings - that is the layout the user left. Identity, conversation, draft
- * and every other field are untouched; only geometry moves, and the node is marked as placed so a
- * later load cannot migrate it again.
+ * Moves records saved before worktrees hosted their kind - chats first, terminals and diff reviews
+ * since #28 - onto their worktree's canvas, once. Such a record sat beside its worktree on the
+ * main canvas, so the worktree grows to the area they took up together and each record keeps its
+ * size and its place relative to its siblings - that is the layout the user left. Identity,
+ * conversation, draft and every other field are untouched; only geometry moves, and the record is
+ * marked as placed so a later load cannot migrate it again.
  *
  * A record whose worktree is unavailable is left alone: its chats restore detached, on the main
  * canvas, where their main-canvas position is still the right one.
  * @internal exported for tests
  */
-export function placeLegacyWorktreeChats(
+export function placeLegacyWorktreeChildren(
   worktrees: readonly WorkspaceWorktree[],
-  nodes: readonly WorkspaceTerminalNode[]
-): { worktrees: WorkspaceWorktree[]; nodes: WorkspaceTerminalNode[] } {
+  nodes: readonly WorkspaceTerminalNode[],
+  diffs: readonly WorkspaceDiffNode[] = []
+): { worktrees: WorkspaceWorktree[]; nodes: WorkspaceTerminalNode[]; diffs: WorkspaceDiffNode[] } {
   const available = new Set(worktrees.filter((worktree) => !worktree.unavailable).map((worktree) => worktree.id))
-  const legacy = new Map<string, WorkspaceTerminalNode[]>()
-  for (const node of nodes) {
-    if (!node.worktreeId || node.placement === 'worktree') continue
-    if (!available.has(node.worktreeId)) continue
-    legacy.set(node.worktreeId, [...(legacy.get(node.worktreeId) ?? []), node])
+  const legacy = new Map<string, LegacyWorktreeChild[]>()
+  for (const record of [...nodes, ...diffs]) {
+    if (!record.worktreeId || record.placement === 'worktree') continue
+    if (!available.has(record.worktreeId)) continue
+    legacy.set(record.worktreeId, [...(legacy.get(record.worktreeId) ?? []), record])
   }
-  if (legacy.size === 0) return { worktrees: [...worktrees], nodes: [...nodes] }
+  if (legacy.size === 0) return { worktrees: [...worktrees], nodes: [...nodes], diffs: [...diffs] }
 
   const origins = new Map<string, { x: number; y: number }>()
   const nextWorktrees = worktrees.map((worktree) => {
-    const chats = legacy.get(worktree.id)
-    if (!chats) return worktree
-    const left = Math.min(...chats.map((chat) => chat.position.x))
-    const top = Math.min(...chats.map((chat) => chat.position.y))
-    const right = Math.max(...chats.map((chat) => chat.position.x + chat.width))
-    const bottom = Math.max(...chats.map((chat) => chat.position.y + chat.height))
+    const children = legacy.get(worktree.id)
+    if (!children) return worktree
+    const left = Math.min(...children.map((child) => child.position.x))
+    const top = Math.min(...children.map((child) => child.position.y))
+    const right = Math.max(...children.map((child) => child.position.x + child.width))
+    const bottom = Math.max(...children.map((child) => child.position.y + child.height))
     origins.set(worktree.id, { x: left, y: top })
     const x = Math.min(worktree.position.x, left)
     const y = Math.min(worktree.position.y, top)
@@ -1321,18 +1348,18 @@ export function placeLegacyWorktreeChats(
       height: Math.max(worktree.position.y + worktree.height, bottom + WORKTREE_CHROME_HEIGHT) - y
     }
   })
-  const nextNodes = nodes.map((node) => {
+  const place = <T extends LegacyWorktreeChild>(record: T): T => {
     const origin =
-      node.worktreeId && legacy.get(node.worktreeId)?.includes(node) ? origins.get(node.worktreeId) : undefined
+      record.worktreeId && legacy.get(record.worktreeId)?.includes(record) ? origins.get(record.worktreeId) : undefined
     return origin
       ? {
-          ...node,
+          ...record,
           placement: 'worktree' as const,
-          position: { x: node.position.x - origin.x, y: node.position.y - origin.y }
+          position: { x: record.position.x - origin.x, y: record.position.y - origin.y }
         }
-      : node
-  })
-  return { worktrees: nextWorktrees, nodes: nextNodes }
+      : record
+  }
+  return { worktrees: nextWorktrees, nodes: nodes.map(place), diffs: diffs.map(place) }
 }
 
 function savedRecords(state: WorkspaceState, field: CanvasNodeStateField): readonly { projectId: string }[] {
@@ -1348,12 +1375,18 @@ export function restoreCanvasWorkspace(
   // The same "its project is gone, so it goes too" rule the loop below applies to every kind,
   // applied to the worktree records up front: the session and diff kinds resolve their worktree
   // through this set, and a record naming a deleted project must not be resolvable for them.
-  const placed = placeLegacyWorktreeChats(
+  const placed = placeLegacyWorktreeChildren(
     (saved.worktrees ?? []).filter((worktree) => projectsById.has(worktree.projectId)),
-    saved.nodes
+    saved.nodes,
+    saved.diffs ?? []
   )
   const worktrees = placed.worktrees
-  const state: WorkspaceState = { ...saved, worktrees, nodes: placed.nodes }
+  const state: WorkspaceState = {
+    ...saved,
+    worktrees,
+    nodes: placed.nodes,
+    ...(saved.diffs ? { diffs: placed.diffs } : {})
+  }
   const worktreeIds = new Set(worktrees.map((worktree) => worktree.id))
   const attachedCounts = new Map<string, number>()
   for (const node of state.nodes) {
