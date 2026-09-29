@@ -88,19 +88,20 @@ test('every attached chat is shown exactly once, in its own worktree, and nothin
     session('claude-a', 'claude', 'a'),
     session('claude-b', 'claude', 'b'),
     session('loose', 'claude'),
-    // A terminal stays where it is for now, attached or not.
-    session('terminal-a', 'terminal', 'a')
+    // An attached terminal is a worktree child like any chat; a loose one stays on main.
+    session('terminal-a', 'terminal', 'a'),
+    session('terminal-loose', 'terminal')
   ]
 
   const partition = partitionWorktreeCanvases(nodes)
 
   assert.deepEqual(
     partition.main.map((node) => node.id),
-    ['worktree:a', 'worktree:b', 'loose', 'terminal-a']
+    ['worktree:a', 'worktree:b', 'loose', 'terminal-loose']
   )
   assert.deepEqual(
     partition.children.get('a')?.map((node) => node.id),
-    ['codex-a', 'claude-a']
+    ['codex-a', 'claude-a', 'terminal-a']
   )
   assert.deepEqual(
     partition.children.get('b')?.map((node) => node.id),

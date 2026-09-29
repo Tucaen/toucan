@@ -474,12 +474,12 @@ export function isChatCanvasNode(node: CanvasNode): node is TerminalCanvasNode {
 }
 
 /**
- * A node shown on its worktree's own canvas rather than on the main one: a chat attached to a
- * worktree. Membership is derived from the attachment and nothing else, so there is no second
- * record of it to drift - and a terminal, even an attached one, stays on the main canvas for now.
+ * A node shown on its worktree's own canvas rather than on the main one: a chat or terminal
+ * attached to a worktree. Membership is derived from the attachment and nothing else, so there is
+ * no second record of it to drift.
  */
 export function isWorktreeCanvasChild(node: CanvasNode): node is TerminalCanvasNode {
-  return isChatCanvasNode(node) && Boolean(node.data.worktreeId)
+  return isTerminalCanvasNode(node) && Boolean(node.data.worktreeId)
 }
 
 export function isWorktreeCanvasNode(node: CanvasNode): node is WorktreeCanvasNode {
@@ -724,7 +724,7 @@ function restoredSessionPosition(
   recordedWorktree: WorkspaceWorktree | undefined,
   context: CanvasRestoreContext
 ): { x: number; y: number } {
-  if (savedNode.kind !== 'terminal' && worktree) {
+  if (worktree) {
     return savedNode.placement === 'worktree'
       ? savedNode.position
       : (context.worktreeChildPosition?.(worktree.id) ?? { x: 0, y: 0 })
@@ -1279,11 +1279,12 @@ export function serializeCanvasNodes(
 }
 
 /**
- * Moves chats saved before worktrees hosted them onto their worktree's canvas, once. Such a chat
- * sat beside its worktree on the main canvas, so the worktree grows to the area the two of them
- * took up together and the chat keeps its size and its place relative to its siblings - that is the
- * layout the user left. Identity, conversation, draft and every other field are untouched; only
- * geometry moves, and the chat is marked as placed so a later load cannot migrate it again.
+ * Moves sessions saved before worktrees hosted them - chats first, terminals since #28 - onto
+ * their worktree's canvas, once. Such a node sat beside its worktree on the main canvas, so the
+ * worktree grows to the area the two of them took up together and the node keeps its size and its
+ * place relative to its siblings - that is the layout the user left. Identity, conversation, draft
+ * and every other field are untouched; only geometry moves, and the node is marked as placed so a
+ * later load cannot migrate it again.
  *
  * A record whose worktree is unavailable is left alone: its chats restore detached, on the main
  * canvas, where their main-canvas position is still the right one.
@@ -1296,7 +1297,7 @@ export function placeLegacyWorktreeChats(
   const available = new Set(worktrees.filter((worktree) => !worktree.unavailable).map((worktree) => worktree.id))
   const legacy = new Map<string, WorkspaceTerminalNode[]>()
   for (const node of nodes) {
-    if (node.kind === 'terminal' || !node.worktreeId || node.placement === 'worktree') continue
+    if (!node.worktreeId || node.placement === 'worktree') continue
     if (!available.has(node.worktreeId)) continue
     legacy.set(node.worktreeId, [...(legacy.get(node.worktreeId) ?? []), node])
   }

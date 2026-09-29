@@ -241,6 +241,8 @@ const worktreeState = (): WorkspaceState => ({
       label: 'Terminal 2',
       projectId: 'project-1',
       worktreeId: 'worktree-1',
+      // An attached terminal lives on the worktree canvas since #28, like the chat above it.
+      placement: 'worktree',
       position: { x: 400, y: 400 },
       width: 520,
       height: 340
@@ -1140,7 +1142,9 @@ test('a chat saved beside its worktree moves onto the worktree canvas once, keep
     draft: undefined,
     position: { x: 1048, y: 60 }
   }
-  state.nodes = [legacyChat, state.nodes[1], secondChat]
+  // The attached terminal was saved by the same old build: beside the worktree, unplaced.
+  const legacyTerminal = { ...state.nodes[1], placement: undefined }
+  state.nodes = [legacyChat, legacyTerminal, secondChat]
 
   const restored = restoreCanvasWorkspace(state, callbacks)
   const worktree = worktreeNodes(restored.nodes)[0]
@@ -1172,17 +1176,17 @@ test('a chat saved beside its worktree moves onto the worktree canvas once, keep
       ]
     ]
   )
-  // The worktree takes in the area it and its chats covered, plus room for its own chrome.
+  // The worktree takes in the area it and its sessions covered, plus room for its own chrome.
   assert.deepEqual(worktree.position, { x: 0, y: 0 })
-  assert.deepEqual(worktree.style, { width: 1648, height: 560 + WORKTREE_CHROME_HEIGHT })
-  // A terminal is not a worktree child yet, so it keeps its main-canvas position untouched.
-  assert.deepEqual(terminalNodes(restored.nodes)[1].position, { x: 400, y: 400 })
+  assert.deepEqual(worktree.style, { width: 1648, height: 740 + WORKTREE_CHROME_HEIGHT })
+  // The attached terminal migrates with the chats, keeping its place relative to them.
+  assert.deepEqual(terminalNodes(restored.nodes)[1].position, { x: 0, y: 380 })
 
-  // Saved again, the chats say they are placed, so the next load leaves them exactly where they are.
+  // Saved again, the sessions say they are placed, so the next load leaves them exactly where they are.
   const saved = { ...state, ...serializeCanvasNodes(restored.nodes) }
   assert.deepEqual(
     saved.nodes.map((node) => node.placement),
-    ['worktree', undefined, 'worktree']
+    ['worktree', 'worktree', 'worktree']
   )
   const reloaded = restoreCanvasWorkspace(saved, callbacks)
   assert.deepEqual(serializeCanvasNodes(reloaded.nodes), serializeCanvasNodes(restored.nodes))

@@ -58,7 +58,6 @@ import {
   createSessionCanvasNode,
   createWorktreeCanvasNode,
   DEFAULT_WORKTREE_SIZE,
-  WORKTREE_CHILD_GAP,
   NEW_NODE_SIZE,
   NEW_SESSION_NODE_SIZE,
   centredNodePosition,
@@ -68,7 +67,6 @@ import {
   isTerminalCanvasNode,
   isWorktreeCanvasChild,
   isWorktreeCanvasNode,
-  measured,
   rememberClosedSessionNodes,
   reopenClosedSession,
   restoreCanvasWorkspace,
@@ -1146,9 +1144,10 @@ function Canvas(): JSX.Element {
         : undefined
       if (worktree?.unavailable) return null
       nextSessionNumber.current += 1
-      // A chat in a worktree is shown on that worktree's canvas, so its position is on that canvas:
-      // the next spot beside the chats already there, whichever gesture asked for it.
-      const contained = worktree !== undefined && kind !== 'terminal'
+      // A session in a worktree - chat or terminal - is shown on that worktree's canvas, so its
+      // position is on that canvas: the next spot beside those already there, whichever gesture
+      // asked for it.
+      const contained = worktree !== undefined
       const node = createSessionCanvasNode(
         {
           id,
@@ -1307,7 +1306,7 @@ function Canvas(): JSX.Element {
     [addDiffNode, findWorktreeNode]
   )
 
-  /** New sessions land beside their worktree node, fanned out so they do not stack on one spot. */
+  /** New sessions - chats and terminals alike - land on their worktree's own canvas. */
   const openInWorktree = useCallback(
     (worktreeId: string, kind: TerminalKind, initialInput?: string): void => {
       const worktreeNode = findWorktreeNode(worktreeId)
@@ -1319,18 +1318,13 @@ function Canvas(): JSX.Element {
         setNotice(worktreeGoneNotice('nothing can be opened in it.'))
         return
       }
-      // A chat goes onto the worktree's own canvas (`addSessionNode` places it there); a terminal
-      // still lands beside the worktree on the main canvas, fanned out so they do not stack.
-      const offset = worktreeNode.data.attachedNodeCount
-      const { width } = measured(worktreeNode, DEFAULT_WORKTREE_SIZE)
       addSessionNode({
         kind,
         project,
         worktree: worktreeNode.data,
-        position: {
-          x: worktreeNode.position.x + width + WORKTREE_CHILD_GAP,
-          y: worktreeNode.position.y + offset * 40
-        },
+        // Every session opened in a worktree goes onto that worktree's canvas; `addSessionNode`
+        // places it beside the sessions already there, so this position is never read.
+        position: worktreeNode.position,
         initialInput
       })
     },
