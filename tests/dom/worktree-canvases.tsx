@@ -143,6 +143,11 @@ export function shown(id: string): unknown {
   }
 }
 
+/** A worktree node's header - its drag handle, and where its own actions live. */
+export function worktreeHeader(worktreeId: string): HTMLElement {
+  return nodeElement(`worktree:${worktreeId}`)!.querySelector<HTMLElement>('.worktree-node-header')!
+}
+
 /** The main canvas's React Flow root, or a worktree's. */
 export function flowRoot(canvas: string | null): HTMLElement {
   const root =

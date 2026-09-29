@@ -116,16 +116,24 @@ export function useNodeSnap<T extends Node>({
     [canvasRef, canvases, getViewport]
   )
 
+  /** Whether a node id is on `canvas`, over the nodes as they are now. */
+  const membership = useCallback(
+    (nodes: readonly T[], canvas: string | null): ((nodeId: string) => boolean) => {
+      const members = new Set(nodes.filter((node) => canvasOf(node) === canvas).map((node) => node.id))
+      return (nodeId) => members.has(nodeId)
+    },
+    [canvasOf]
+  )
+
   /** A node's canvas region, and the test for whether another node shares that canvas. */
   const scope = useCallback(
     (nodeId: string): { region: NodeGeometry | null; within: (otherId: string) => boolean } => {
       const nodes = getNodes()
       const node = nodes.find((candidate) => candidate.id === nodeId)
       const canvas = node ? canvasOf(node) : null
-      const members = new Set(nodes.filter((candidate) => canvasOf(candidate) === canvas).map((n) => n.id))
-      return { region: regionOf(canvas), within: (otherId) => members.has(otherId) }
+      return { region: regionOf(canvas), within: membership(nodes, canvas) }
     },
-    [canvasOf, getNodes, regionOf]
+    [canvasOf, getNodes, membership, regionOf]
   )
 
   const apply = useCallback(
@@ -181,11 +189,10 @@ export function useNodeSnap<T extends Node>({
       const region = regionOf(canvas)
       if (!region) return
       const nodes = getNodes()
-      const members = new Set(nodes.filter((node) => canvasOf(node) === canvas).map((node) => node.id))
-      const reflowed = reflowSnappedNodesWithin(nodes, snaps.current, region, NODE_FIT_INSET, (id) => members.has(id))
+      const reflowed = reflowSnappedNodesWithin(nodes, snaps.current, region, NODE_FIT_INSET, membership(nodes, canvas))
       if (reflowed !== nodes) setNodes(reflowed)
     },
-    [canvasOf, getNodes, regionOf, setNodes]
+    [getNodes, membership, regionOf, setNodes]
   )
 
   const release = useCallback(

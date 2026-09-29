@@ -17,6 +17,8 @@ import {
   collapseWorktree,
   expandWorktree,
   isCollapsedWorktree,
+  keepCollapsed,
+  layoutGeometry,
   nextWorktreeChildPosition,
   partitionWorktreeCanvases,
   selectOnlyWithinCanvas,
@@ -295,4 +297,31 @@ test('a worktree restored collapsed opens at its chrome height and remembers the
     { height: 700, collapsed: true }
   )
   assert.equal(expandWorktree([restored], 'a')[0].style?.height, 700)
+})
+
+test('a layout slot remembers a collapsed worktree at its expanded height and restores it still collapsed', () => {
+  const host = { ...worktree('a', { width: 900, height: 700 }), measured: { width: 900, height: 700 } }
+  const collapsed = collapseWorktree([host, session('loose', 'codex')], 'a')
+  // Captured as the arrangement: the height it expands back to, nothing else touched.
+  const captured = layoutGeometry(collapsed)
+  assert.equal(captured[0].style?.height, 700)
+  assert.equal((captured[0] as WorktreeCanvasNode).data.collapsed, true)
+  assert.equal(captured[1], collapsed[1])
+  assert.equal(layoutGeometry([host]).length, 1)
+  assert.equal(layoutGeometry([host])[0], host)
+
+  // A slot applied to a collapsed worktree hands it a full height; it stays collapsed and
+  // takes that height as the one to expand back to.
+  const placed = collapsed.map((node) =>
+    node === collapsed[0]
+      ? { ...node, style: { ...node.style, height: 500 }, measured: { width: 900, height: 500 } }
+      : node
+  )
+  const kept = keepCollapsed(placed)
+  const shelved = kept[0] as WorktreeCanvasNode
+  assert.equal(shelved.style?.height, COLLAPSED_WORKTREE_HEIGHT)
+  assert.equal(shelved.data.expandedHeight, 500)
+  assert.equal(expandWorktree(kept, 'a')[0].style?.height, 500)
+  assert.equal(keepCollapsed(collapsed)[0], collapsed[0])
+  assert.equal(keepCollapsed([host])[0], host)
 })

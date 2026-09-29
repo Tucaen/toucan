@@ -1,6 +1,8 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, test } from 'vitest'
 import { WORKTREE_CHROME_HEIGHT } from '../src/renderer/src/canvas-workspace'
+import { NODE_FIT_INSET, canvasRegion } from '../src/renderer/src/node-snap'
+import { resizeObserved } from './dom/measured-layout'
 import {
   CHAT_SIZE,
   INSET,
@@ -19,6 +21,7 @@ import {
   viewportOf,
   worktree,
   worktreeResized,
+  worktreeHeader as header,
   type WorktreeCanvasesHarness
 } from './dom/worktree-canvases'
 
@@ -42,10 +45,6 @@ function withLeftViewport(): ReturnType<typeof twoWorktrees> {
   return twoWorktrees({
     worktrees: [worktree('w1', 'feature/login', 0, { viewport: LEFT_VIEWPORT }), worktree('w2', 'feature/signup', 1000)]
   })
-}
-
-function header(worktreeId: string): HTMLElement {
-  return nodeElement(`worktree:${worktreeId}`)!.querySelector<HTMLElement>('.worktree-node-header')!
 }
 
 /** The pan and zoom a transform string reads. */
@@ -178,5 +177,49 @@ describe('focusing a worktree', () => {
     expect(harness.agent.api.kill).not.toHaveBeenCalled()
     expect(harness.agent.api.cancel).not.toHaveBeenCalled()
     expect(screen.getByTitle(/^Focus Chat A1/)).toHaveAttribute('title', expect.stringMatching(/Working/))
+  })
+
+  test('a focused worktree and the chat maximised inside it follow the window as it narrows', async () => {
+    harness = await mountWorktreeCanvases(
+      twoWorktrees({ nodes: [chat('a1', 'Chat A1', 'w1', 0), chat('loose', 'Loose chat', undefined, 2000)] })
+    )
+    fireEvent.click(within(nodeElement('a1')!).getByRole('button', { name: 'Fit to canvas' }))
+    await waitFor(() => expect(shown('a1')).toEqual(WORKTREE_REGION))
+    fireEvent.click(within(header('w1')).getByRole('button', { name: 'Fit to canvas' }))
+    await waitFor(() => expect(shown('worktree:w1')).toEqual(MAIN_REGION))
+    worktreeResized('w1')
+    await waitFor(() => expect((shown('a1') as { width: number }).width).toBe(FOCUSED_CANVAS.width - INSET * 2))
+    // Let the focus finish framing the chat, so the viewport below is the one the reflow reads.
+    await new Promise((resolve) => setTimeout(resolve, 400))
+
+    // The window narrows: the main region's observer reports it, and the worktree re-fits...
+    const wide = { ...PANE }
+    Object.assign(PANE, { width: 1100, height: 700 })
+    try {
+      resizeObserved(document.querySelector<HTMLElement>('.canvas-region')!)
+      const narrow = { x: INSET, y: INSET, width: 1100 - INSET * 2, height: 700 - INSET * 2 }
+      await waitFor(() => expect(shown('worktree:w1')).toEqual(narrow))
+      // ...and its canvas's observer reports that, so the chat inside re-fits to what the
+      // narrower canvas now shows, at the worktree canvas's own pan and zoom.
+      worktreeResized('w1')
+      const visible = canvasRegion(
+        { width: narrow.width, height: narrow.height - WORKTREE_CHROME_HEIGHT },
+        parseViewport(viewportOf('w1')),
+        NODE_FIT_INSET
+      )
+      await waitFor(() =>
+        expect(shown('a1')).toEqual({
+          x: visible.position.x,
+          y: visible.position.y,
+          width: visible.width,
+          height: visible.height
+        })
+      )
+      // Restore still returns the durable geometry, which the resize never touched.
+      fireEvent.click(within(header('w1')).getByRole('button', { name: 'Restore' }))
+      await waitFor(() => expect(shown('worktree:w1')).toEqual({ x: 0, y: 0, ...WORKTREE_SIZE }))
+    } finally {
+      Object.assign(PANE, wide)
+    }
   })
 })

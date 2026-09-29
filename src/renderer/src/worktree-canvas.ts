@@ -125,7 +125,7 @@ export function nextWorktreeChildPosition(children: readonly TerminalCanvasNode[
  * only to the size a new worktree opens at.
  */
 export function withRoomForChat(nodes: CanvasNode[], worktreeId: string): CanvasNode[] {
-  const host = nodes.filter(isWorktreeCanvasNode).find((node) => node.data.worktreeId === worktreeId)
+  const host = worktreeHost(nodes, worktreeId)
   if (!host) return nodes
   const { width, height } = measured(host, { width: 0, height: 0 })
   if (width >= DEFAULT_WORKTREE_SIZE.width && height >= DEFAULT_WORKTREE_SIZE.height) return nodes
@@ -140,6 +140,11 @@ export function withRoomForChat(nodes: CanvasNode[], worktreeId: string): Canvas
 /** A worktree shown as its header and bottom row only. Its chats are mounted and running, out of view. */
 export function isCollapsedWorktree(node: CanvasNode): node is WorktreeCanvasNode {
   return isWorktreeCanvasNode(node) && node.data.collapsed === true
+}
+
+/** The worktree node hosting `worktreeId`, if it is on the canvas. */
+export function worktreeHost(nodes: readonly CanvasNode[], worktreeId: string): WorktreeCanvasNode | undefined {
+  return nodes.filter(isWorktreeCanvasNode).find((node) => node.data.worktreeId === worktreeId)
 }
 
 /** The node at `height`, wherever React Flow reads a height from - see `nodeAtGeometry`. */
@@ -159,7 +164,7 @@ function worktreeAtHeight(node: WorktreeCanvasNode, height: number): WorktreeCan
  * collapsed, or not on the canvas: the same array.
  */
 export function collapseWorktree(nodes: CanvasNode[], worktreeId: string): CanvasNode[] {
-  const host = nodes.filter(isWorktreeCanvasNode).find((node) => node.data.worktreeId === worktreeId)
+  const host = worktreeHost(nodes, worktreeId)
   if (!host || host.data.collapsed) return nodes
   const { height } = measured(host, DEFAULT_WORKTREE_SIZE)
   const collapsed = worktreeAtHeight(
@@ -171,11 +176,36 @@ export function collapseWorktree(nodes: CanvasNode[], worktreeId: string): Canva
 
 /** The inverse of `collapseWorktree`: back to the height it had. Not collapsed: the same array. */
 export function expandWorktree(nodes: CanvasNode[], worktreeId: string): CanvasNode[] {
-  const host = nodes.filter(isWorktreeCanvasNode).find((node) => node.data.worktreeId === worktreeId)
+  const host = worktreeHost(nodes, worktreeId)
   if (!host || !host.data.collapsed) return nodes
   const { collapsed: _collapsed, expandedHeight, ...data } = host.data
   const expanded = worktreeAtHeight({ ...host, data }, expandedHeight ?? DEFAULT_WORKTREE_SIZE.height)
   return nodes.map((node) => (node === host ? expanded : node))
+}
+
+/**
+ * The arrangement a layout slot should remember: every collapsed worktree at the height it expands
+ * back to, since collapse is a view of the worktree and the slot is an arrangement. Nothing else
+ * changes, and the nodes are for capture only - they are never rendered.
+ */
+export function layoutGeometry(nodes: readonly CanvasNode[]): CanvasNode[] {
+  return nodes.map((node) =>
+    isCollapsedWorktree(node) ? worktreeAtHeight(node, node.data.expandedHeight ?? DEFAULT_WORKTREE_SIZE.height) : node
+  )
+}
+
+/**
+ * The inverse, after a slot has placed the nodes: a worktree that is collapsed keeps its chrome
+ * height and takes the slot's height as the one it expands back to, so restoring an arrangement
+ * neither unfolds a collapsed worktree nor squashes an expanded one to a collapsed height.
+ */
+export function keepCollapsed(nodes: CanvasNode[]): CanvasNode[] {
+  return nodes.map((node) => {
+    if (!isCollapsedWorktree(node)) return node
+    const { height } = measured(node, DEFAULT_WORKTREE_SIZE)
+    if (height === COLLAPSED_WORKTREE_HEIGHT) return node
+    return worktreeAtHeight({ ...node, data: { ...node.data, expandedHeight: height } }, COLLAPSED_WORKTREE_HEIGHT)
+  })
 }
 
 /** What a worktree's bottom row says about its chats. Agent state only - git state is the header's. */

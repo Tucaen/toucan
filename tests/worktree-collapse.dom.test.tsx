@@ -13,6 +13,7 @@ import {
   shown,
   twoWorktrees,
   worktree,
+  worktreeHeader as header,
   type WorktreeCanvasesHarness
 } from './dom/worktree-canvases'
 
@@ -28,10 +29,6 @@ afterEach(() => harness?.teardown())
 
 const COLLAPSED = { x: 0, y: 0, width: WORKTREE_SIZE.width, height: COLLAPSED_WORKTREE_HEIGHT }
 const EXPANDED = { x: 0, y: 0, ...WORKTREE_SIZE }
-
-function header(worktreeId: string): HTMLElement {
-  return nodeElement(`worktree:${worktreeId}`)!.querySelector<HTMLElement>('.worktree-node-header')!
-}
 
 function collapse(worktreeId: string): void {
   fireEvent.click(within(header(worktreeId)).getByRole('button', { name: 'Collapse worktree' }))
@@ -140,5 +137,41 @@ describe('collapsing a worktree', () => {
     expand('w1')
     await waitFor(() => expect(shown('worktree:w1')).toEqual(EXPANDED))
     expect(within(header('w1')).getByRole('button', { name: 'Fit to canvas' })).toBeInTheDocument()
+  })
+
+  test('a layout key pressed in a collapsed worktree arranges nothing, and slots keep it collapsed', async () => {
+    harness = await mountWorktreeCanvases()
+    // Remember the arrangement while expanded, then collapse and restore it: still collapsed.
+    fireEvent.keyDown(window, { key: '1', code: 'Digit1', altKey: true, shiftKey: true })
+    collapse('w1')
+    await waitFor(() => expect(shown('worktree:w1')).toEqual(COLLAPSED))
+    // With the worktree selected, and with the key pressed in it while another node is selected:
+    // nothing is arranged either way.
+    fireEvent.keyDown(window, { key: 'ArrowUp', code: 'ArrowUp', altKey: true })
+    fireEvent.click(nodeElement('loose')!)
+    fireEvent.keyDown(within(header('w1')).getByRole('button', { name: 'Expand worktree' }), {
+      key: 'ArrowUp',
+      code: 'ArrowUp',
+      altKey: true
+    })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(shown('worktree:w1')).toEqual(COLLAPSED)
+    expect(shown('loose')).toEqual(UNMOVED.loose)
+
+    fireEvent.keyDown(window, { key: '1', code: 'Digit1', altKey: true })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(shown('worktree:w1')).toEqual(COLLAPSED)
+    expand('w1')
+    await waitFor(() => expect(shown('worktree:w1')).toEqual(EXPANDED))
+
+    // The other way round: a slot saved collapsed restores an expanded worktree at full height.
+    collapse('w1')
+    await waitFor(() => expect(shown('worktree:w1')).toEqual(COLLAPSED))
+    fireEvent.keyDown(window, { key: '2', code: 'Digit2', altKey: true, shiftKey: true })
+    expand('w1')
+    await waitFor(() => expect(shown('worktree:w1')).toEqual(EXPANDED))
+    fireEvent.keyDown(window, { key: '2', code: 'Digit2', altKey: true })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(shown('worktree:w1')).toEqual(EXPANDED)
   })
 })

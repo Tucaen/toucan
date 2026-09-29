@@ -153,6 +153,8 @@ import {
   collapseWorktree,
   expandWorktree,
   isCollapsedWorktree,
+  keepCollapsed,
+  layoutGeometry,
   nextWorktreeChildPosition,
   partitionWorktreeCanvases,
   selectOnlyWithinCanvas,
@@ -274,6 +276,14 @@ const worktreeGoneNotice = (attempt: string): CanvasNotice => ({
   text: 'Worktree no longer available',
   detail: `That worktree is no longer on the canvas, so ${attempt}`
 })
+
+/**
+ * A worktree canvas's size in its own coordinates: its layout size, which the main zoom does not
+ * scale, never its bounding rect, which it does.
+ */
+function worktreeCanvasSize(handle: WorktreeCanvasHandle): { width: number; height: number } {
+  return { width: handle.element.offsetWidth, height: handle.element.offsetHeight }
+}
 
 /** A rejected worktree IPC, said in the dialog that asked for it; `fallback` covers a non-Error. */
 function worktreeErrorMessage(error: unknown, fallback: string): string {
@@ -714,7 +724,7 @@ function Canvas(): JSX.Element {
   const worktreeCanvasRegion = useCallback((worktreeId: string): NodeGeometry | null => {
     const handle = worktreeCanvases.current.get(worktreeId)
     if (!handle) return null
-    const size = { width: handle.element.offsetWidth, height: handle.element.offsetHeight }
+    const size = worktreeCanvasSize(handle)
     if (size.width <= NODE_FIT_INSET * 2 || size.height <= NODE_FIT_INSET * 2) return null
     return canvasRegion(size, handle.getViewport(), NODE_FIT_INSET)
   }, [])
@@ -822,25 +832,24 @@ function Canvas(): JSX.Element {
     [getCanvasNodes, nodeFit, setNodes, snapCanvases, tileMode, visibleCanvasRegion, worktreeCanvasRegion]
   )
 
+  /**
+   * `origin` is the node the key was pressed in, if any. A key pressed inside a node means that
+   * node, unless it is part of the selection - then the selection, as when the key comes from
+   * nowhere in particular. The nodes acted on are on exactly one canvas (`selectOnlyWithinCanvas`),
+   * and that canvas is what a layout key arranges: a chat picked inside a worktree makes every
+   * layout key arrange that worktree's canvas, and no node at all means the main one. A collapsed
+   * worktree has no size to arrange: it is never among the nodes acted on, and a key pressed in
+   * one arranges nothing rather than something else.
+   */
   const runLayoutAction = useCallback(
-    /**
-     * `origin` is the node the key was pressed in, if any. A key pressed inside a node means
-     * that node, unless it is part of the selection - then the selection, as when the key comes
-     * from nowhere in particular. The nodes acted on are on exactly one canvas
-     * (`selectOnlyWithinCanvas`), and that canvas is what a layout key arranges: a chat picked
-     * inside a worktree makes every layout key arrange that worktree's canvas, and no node at all
-     * means the main one.
-     */
     (action: LayoutKeyAction, origin: string | null = null): void => {
       const current = getCanvasNodes()
-      // A collapsed worktree has no size to arrange; it is expanded to be laid out.
+      const pressedIn = current.find((node) => node.id === origin)
+      if (pressedIn && isCollapsedWorktree(pressedIn)) return
       const selected = current.filter((node) => node.selected && !isCollapsedWorktree(node))
-      const from = origin && !selected.some((node) => node.id === origin) ? [origin] : null
-      const targets = (from ? current.filter((node) => node.id === origin) : selected).filter(
-        (node) => !isCollapsedWorktree(node)
-      )
+      const targets = pressedIn && !pressedIn.selected ? [pressedIn] : selected
       const canvas = targets.length > 0 ? snapCanvases.canvasOf(targets[0]) : null
-      const ids = from ?? targets.map((node) => node.id)
+      const ids = targets.map((node) => node.id)
       switch (action.kind) {
         case 'snap':
           nodeFit.snap(ids, action.arrow)
@@ -852,14 +861,16 @@ function Canvas(): JSX.Element {
           tileCanvas(canvas)
           return
         case 'slot-save':
-          setLayoutSlots((slots) => ({ ...slots, [action.slot]: captureLayoutSlot(current) }))
+          // Collapsed worktrees are remembered at the height they expand to: a slot is an
+          // arrangement, and collapse is a view of it.
+          setLayoutSlots((slots) => ({ ...slots, [action.slot]: captureLayoutSlot(layoutGeometry(current)) }))
           return
         case 'slot-restore': {
           const slot = layoutSlots[action.slot]
           if (!slot) return
           // A restored arrangement places nodes itself, like tiling - and starts from the same
-          // released array, for the same reason.
-          setNodes(applyLayoutSlot(nodeFit.release(), slot))
+          // released array, for the same reason. A worktree collapsed now stays collapsed.
+          setNodes(keepCollapsed(applyLayoutSlot(nodeFit.release(), slot)))
           return
         }
         case 'none':
@@ -2038,7 +2049,7 @@ function Canvas(): JSX.Element {
       if (!node || !isWorktreeCanvasChild(node) || target === node) return
       const inner = worktreeCanvases.current.get(node.data.worktreeId!)
       if (!inner) return
-      const size = { width: inner.element.offsetWidth, height: inner.element.offsetHeight }
+      const size = worktreeCanvasSize(inner)
       const shown = viewportShowingNode(node, nodeFit.state()[node.id], size, inner.getViewport(), NODE_FIT_INSET)
       if (shown) void inner.setViewport(shown, { duration: 350 })
     },
