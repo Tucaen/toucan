@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import App from '../src/renderer/src/App'
 import type { WorkspaceState, WorkspaceTerminalNode } from '../src/shared/workspace'
@@ -74,8 +74,7 @@ afterEach(() => {
   teardownLayout = null
 })
 
-async function mount(state: WorkspaceState): Promise<Mounted> {
-  const agent = createMockAgentApi()
+async function mount(state: WorkspaceState, agent = createMockAgentApi()): Promise<Mounted> {
   const terminalCreate = vi.fn(async (request: { sessionId?: string }) => ({
     ok: true,
     sessionId: request.sessionId,
@@ -254,14 +253,16 @@ describe('review surfaces live with the worktree and never bind it', () => {
 })
 
 describe('relationships across canvas boundaries', () => {
-  test('a branch whose parent is on the main canvas keeps its provenance; no edge is drawn or invented', async () => {
+  test('a branch across canvases keeps its provenance and can reveal its parent without granting access', async () => {
     const parent = chat('parent', { worktreeId: undefined, placement: undefined, position: { x: 1400, y: 0 } })
     const child = chat('child', { branchedFrom: { nodeId: 'parent', conversationId: 'conversation-parent' } })
     const sibling = chat('sibling', {
       position: { x: 560, y: 0 },
       branchedFrom: { nodeId: 'child', conversationId: 'conversation-child' }
     })
-    const { harness } = await mount(savedWorkspace({ nodes: [parent, child, sibling], worktrees: [worktree] }))
+    const { harness, replaceEdges } = await mount(
+      savedWorkspace({ nodes: [parent, child, sibling], worktrees: [worktree] })
+    )
 
     await waitFor(() => expect(insideWorktree('child')).toBe(true))
     expect(insideWorktree('sibling')).toBe(true)
@@ -280,6 +281,14 @@ describe('relationships across canvas boundaries', () => {
     await waitFor(() => expect(harness.saved.length).toBeGreaterThan(0))
     const savedChild = lastSaved(harness).nodes.find((node) => node.id === 'child')!
     expect(savedChild.branchedFrom).toEqual({ nodeId: 'parent', conversationId: 'conversation-parent' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Connections for codex child (2)' }))
+    const dialog = screen.getByRole('dialog', { name: 'Connections for codex child' })
+    expect(within(dialog).getByText('Branched from: codex parent')).toBeTruthy()
+    expect(within(dialog).queryByRole('button', { name: /Connect codex/ })).toBeNull()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Show codex parent' }))
+    await waitFor(() => expect(canvasNodes('parent')[0].classList.contains('selected')).toBe(true))
+    expect(replaceEdges).toHaveBeenLastCalledWith([])
   })
 
   test('sharing a worktree with a terminal grants a chat nothing: the mirrored grant set stays empty', async () => {
@@ -299,5 +308,109 @@ describe('relationships across canvas boundaries', () => {
     // handed the empty set: containment is not an edge.
     await waitFor(() => expect(replaceEdges).toHaveBeenCalled())
     for (const call of replaceEdges.mock.calls) expect(call[0]).toEqual([])
+  })
+
+  test.each(['w1', 'w2', undefined])(
+    'a terminal feeds a chat on canvas %s until explicitly revoked or closed',
+    async (targetWorktree) => {
+      const terminal = chat('term', {
+        kind: 'terminal',
+        label: 'Terminal',
+        sessionId: 'session-term',
+        conversationId: undefined,
+        position: { x: 560, y: 0 }
+      })
+      const { harness, replaceEdges, removeScrollback } = await mount(
+        savedWorkspace({
+          nodes: [terminal, chat('a', { worktreeId: targetWorktree })],
+          worktrees: [
+            worktree,
+            {
+              ...worktree,
+              id: 'w2',
+              branch: 'feature/second',
+              path: `${WORKTREE_PATH}-second`,
+              position: { x: 1300, y: 0 }
+            }
+          ]
+        })
+      )
+      const opener = await screen.findByRole('button', { name: 'Connections for Terminal (0)' })
+      opener.focus()
+      fireEvent.click(opener)
+      let dialog = screen.getByRole('dialog', { name: 'Connections for Terminal' })
+      expect(dialog.contains(document.activeElement)).toBe(true)
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Connect codex a' }))
+      const grant = [{ terminalSessionId: 'session-term', agentId: 'a' }]
+      await waitFor(() => expect(replaceEdges).toHaveBeenLastCalledWith(grant))
+      fireEvent.keyDown(dialog, { key: 'Escape' })
+      expect(document.activeElement).toBe(opener)
+
+      // Collapse/focus are views: a grant is retained, even when one endpoint is hidden.
+      const firstWorktree = document.querySelector<HTMLElement>('.react-flow__node[data-id="worktree:w1"]')!
+      fireEvent.click(within(firstWorktree).getByRole('button', { name: 'Collapse worktree' }))
+      await waitFor(() => expect(lastSaved(harness).worktrees?.find((item) => item.id === 'w1')?.collapsed).toBe(true))
+      expect(replaceEdges).toHaveBeenLastCalledWith(grant)
+      fireEvent.click(within(firstWorktree).getByRole('button', { name: 'Expand worktree' }))
+      if (targetWorktree === 'w1') {
+        await waitFor(() => expect(document.querySelector('[data-id="terminal-context:term->a"]')).not.toBeNull())
+      } else {
+        expect(document.querySelector('[data-id="terminal-context:term->a"]')).toBeNull()
+      }
+
+      // Either endpoint can revoke, even across canvases; no phantom line or cross-canvas drag is needed.
+      fireEvent.click(screen.getByRole('button', { name: 'Connections for codex a (1)' }))
+      dialog = screen.getByRole('dialog', { name: 'Connections for codex a' })
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Disconnect Terminal' }))
+      await waitFor(() => expect(replaceEdges).toHaveBeenLastCalledWith([]))
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Connect Terminal' }))
+      await waitFor(() => expect(replaceEdges).toHaveBeenLastCalledWith(grant))
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Done' }))
+      closeWithDeleteKey('term')
+      await waitFor(() => expect(replaceEdges).toHaveBeenLastCalledWith([]))
+      expect(removeScrollback).toHaveBeenCalledWith('session-term')
+      // Runtime grants never enter the saved workspace.
+      expect(JSON.stringify(lastSaved(harness))).not.toContain('terminal-context:')
+    }
+  )
+
+  test('cross-canvas access restarts a running chat only at its next safe boundary', async () => {
+    let launches = 0
+    const agent = createMockAgentApi({
+      create: vi.fn(async () => ({
+        ok: true,
+        status: 'ready',
+        conversationId: 'conversation-a',
+        terminalContext: ++launches > 1
+      }))
+    })
+    const terminal = chat('term', {
+      kind: 'terminal',
+      label: 'Terminal',
+      sessionId: 'session-term',
+      conversationId: undefined
+    })
+    const { replaceEdges } = await mount(
+      savedWorkspace({
+        nodes: [terminal, chat('a', { worktreeId: undefined, placement: undefined })],
+        worktrees: [worktree]
+      }),
+      agent
+    )
+    const open = within(canvasNodes('a')[0]).queryByRole('button', { name: 'Open conversation' })
+    if (open) fireEvent.click(open)
+    await waitFor(() => expect(launches).toBe(1))
+    act(() => agent.emit('a', { type: 'status', status: 'working' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Connections for codex a (0)' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Connect Terminal' }))
+    await waitFor(() =>
+      expect(replaceEdges).toHaveBeenLastCalledWith([{ terminalSessionId: 'session-term', agentId: 'a' }])
+    )
+    expect(launches).toBe(1)
+    act(() => agent.emit('a', { type: 'status', status: 'ready' }))
+    await waitFor(() => expect(launches).toBe(2))
+    fireEvent.click(screen.getByRole('button', { name: 'Disconnect Terminal' }))
+    await waitFor(() => expect(replaceEdges).toHaveBeenLastCalledWith([]))
+    expect(launches).toBe(2)
   })
 })

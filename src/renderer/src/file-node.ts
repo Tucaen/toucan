@@ -135,13 +135,6 @@ export function workspaceRootOwningPath(
   return best
 }
 
-export function projectOwningPath(
-  path: string,
-  roots: readonly { projectId: string; root: string; worktreeId?: string }[]
-): string | undefined {
-  return workspaceRootOwningPath(path, roots)?.projectId
-}
-
 /** The file name alone, for the node's header. */
 export function fileNodeName(path: string): string {
   const segments = path.replace(/\\/g, '/').split('/').filter(Boolean)

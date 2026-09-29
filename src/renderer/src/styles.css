@@ -1433,6 +1433,57 @@ button.global-status-chip:hover {
   flex: none;
 }
 
+.session-connections-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.session-connections-dialog {
+  max-height: calc(100vh - 64px);
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
+
+.session-connections-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.session-connections-list li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid #333c48;
+}
+
+.session-connections-list li > span {
+  flex: 1;
+  min-width: 0;
+}
+
+.session-connections-list small {
+  display: block;
+  margin-top: 4px;
+  color: #9aa6b6;
+}
+
+.session-connections-list button {
+  flex-shrink: 0;
+  padding: 6px 10px;
+  border: 1px solid #333c48;
+  border-radius: 6px;
+  background: #202630;
+  color: inherit;
+  cursor: pointer;
+}
+
+.session-connections-list button:hover {
+  background: #303a48;
+}
+
 .dialog-actions {
   display: flex;
   justify-content: flex-end;

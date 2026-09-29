@@ -74,8 +74,8 @@ export interface WorktreeCanvasEdges {
 
 /**
  * An edge is drawn where both of its ends are, and one whose ends sit on different canvases is not
- * drawn at all. Drawing is all this decides; `App` revokes a terminal-context edge that ends up
- * here rather than leave a grant nobody can see.
+ * drawn as a line. Drawing is all this decides; `SessionConnectionsProvider` keeps relationships
+ * across canvases visible and terminal access revocable without changing their lifetime.
  */
 export function splitWorktreeCanvasEdges(
   edges: readonly Edge[],

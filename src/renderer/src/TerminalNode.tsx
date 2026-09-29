@@ -6,6 +6,7 @@ import type { TerminalCanvasNode } from './canvas-workspace'
 import { READ_ON_VIEW_KINDS } from '../../shared/attention'
 import NodeBorderResizer from './NodeBorderResizer'
 import NodeFitAction from './NodeFitAction'
+import { SessionConnectionsButton } from './SessionConnections'
 import SessionKindIcon from './SessionKindIcon'
 import UnreadToggle from './UnreadToggle'
 import { CanvasTerminalLiveness } from './TerminalLivenessPresentation'
@@ -265,6 +266,7 @@ export default function TerminalNode({ id, data, selected }: NodeProps<TerminalC
           }}
         />
         <CanvasTerminalLiveness liveness={data.terminalLiveness} />
+        <SessionConnectionsButton nodeId={id} label={data.label} />
         <NodeFitAction nodeId={id} fitted={data.fittedToCanvas ?? false} />
       </header>
       <div

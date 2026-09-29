@@ -12,7 +12,6 @@ import {
   isDirty,
   joinWorkspacePath,
   keepDraftOverDisk,
-  projectOwningPath,
   workspaceRootOwningPath,
   UNEDITED,
   type FileEditState
@@ -50,13 +49,13 @@ test('a file opened from a card is filed under the deepest root that contains it
     { projectId: 'toucan', root: 'D:\\Development\\Toucan-worktrees\\feature' },
     { projectId: 'other', root: 'D:\\Development\\Other' }
   ]
-  assert.equal(projectOwningPath('D:\\Development\\Toucan\\docs\\plan.md', roots), 'toucan')
-  assert.equal(projectOwningPath('d:/development/toucan-worktrees/feature/src/a.ts', roots), 'toucan')
-  assert.equal(projectOwningPath('D:\\Development\\Other\\x.md', roots), 'other')
-  assert.equal(projectOwningPath('D:\\Development\\readme.md', roots), 'outer')
+  assert.equal(workspaceRootOwningPath('D:\\Development\\Toucan\\docs\\plan.md', roots)?.projectId, 'toucan')
+  assert.equal(workspaceRootOwningPath('d:/development/toucan-worktrees/feature/src/a.ts', roots)?.projectId, 'toucan')
+  assert.equal(workspaceRootOwningPath('D:\\Development\\Other\\x.md', roots)?.projectId, 'other')
+  assert.equal(workspaceRootOwningPath('D:\\Development\\readme.md', roots)?.projectId, 'outer')
   // A sibling that merely shares a prefix is not inside the root.
-  assert.equal(projectOwningPath('D:\\Development\\Toucan-old\\x.md', roots.slice(1)), undefined)
-  assert.equal(projectOwningPath('E:\\elsewhere\\x.md', roots), undefined)
+  assert.equal(workspaceRootOwningPath('D:\\Development\\Toucan-old\\x.md', roots.slice(1)), undefined)
+  assert.equal(workspaceRootOwningPath('E:\\elsewhere\\x.md', roots), undefined)
 })
 
 test('a file node changes files within the deepest checkout or worktree root that contains it', () => {

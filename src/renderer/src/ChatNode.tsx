@@ -69,6 +69,7 @@ import { WorkspaceRootsContext } from './workspace-root'
 import { buildHandoffPrompt, planWorktreeHandoff } from '../../shared/worktree-handoff'
 import type { TerminalCanvasNode } from './canvas-workspace'
 import NodeFitAction from './NodeFitAction'
+import { SessionConnectionsButton } from './SessionConnections'
 import { imageAttachmentSource, imageFilesFromClipboard, type AgentImageAttachment } from './image-attachment'
 import { classifyAssistantMessage } from './decision-message'
 import { SelectorPicker, pickerCopy } from './SelectorPicker'
@@ -1454,6 +1455,7 @@ export default function ChatNode({ id, data, selected, width }: NodeProps<Termin
           </button>
         )}
         <NodeFitAction nodeId={id} fitted={data.fittedToCanvas ?? false} />
+        <SessionConnectionsButton nodeId={id} label={data.label} />
       </header>
       {data.dormant ? (
         <div className="dormant-session chat-dormant nodrag">

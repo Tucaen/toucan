@@ -116,6 +116,7 @@ import FileNode from './FileNode'
 import DiffNode from './DiffNode'
 import FilePickerDialog from './FilePickerDialog'
 import { OpenFileContext } from './open-file-context'
+import { SessionConnectionsProvider } from './SessionConnections'
 import { workspaceRootOwningPath } from './file-node'
 import { moveGroup, moveProject, nextGroupName, ungroupProjects } from './project-order'
 import { projectSidebarSummaries } from './project-sidebar'
@@ -999,25 +1000,15 @@ function Canvas(): JSX.Element {
   )
   edgeSplitRef.current = canvasEdgeSplit
 
-  /**
-   * A terminal-context edge is a grant the user must be able to see and revoke, so one whose ends
-   * come to sit on different canvases - a chat adopted into a worktree while its terminal stays on
-   * the main canvas, or the two sides of a pair split by attachment - is revoked rather than kept
-   * undrawn. Within one canvas, worktree canvases included, the edge draws and stays; across
-   * canvases no edge can be drawn either, so revocation and creation agree about the boundary.
-   */
-  useEffect(() => {
-    const drawn = new Set(
-      [...canvasEdgeSplit.main, ...[...canvasEdgeSplit.children.values()].flat()].map((edge) => edge.id)
-    )
-    if (edges.every((edge) => drawn.has(edge.id))) return
-    setEdges((current) => current.filter((edge) => drawn.has(edge.id)))
-  }, [canvasEdgeSplit, edges, setEdges])
-
   const connectTerminalContext = useCallback(
     (connection: Connection): void => {
       setEdges((current) => withTerminalContextEdge(current, nodesRef.current, connection))
     },
+    [setEdges]
+  )
+
+  const disconnectTerminalContext = useCallback(
+    (edgeId: string): void => setEdges((current) => current.filter((edge) => edge.id !== edgeId)),
     [setEdges]
   )
 
@@ -2863,22 +2854,29 @@ function Canvas(): JSX.Element {
                     <NodeSearchContext.Provider value={nodeSearchRequest}>
                       <OpenFileContext.Provider value={openFileFromCard}>
                         <WorktreeCanvasContext.Provider value={worktreeCanvasHost}>
-                          <ReactFlow
-                            nodes={canvasPartition.main}
-                            nodeTypes={nodeTypes}
-                            edges={canvasEdgeSplit.main}
-                            onEdgesChange={onEdgesChange}
+                          <SessionConnectionsProvider
+                            nodes={nodes}
+                            edges={canvasEdges}
                             onConnect={connectTerminalContext}
-                            isValidConnection={isValidCanvasConnection}
-                            onNodesChange={handleNodesChange}
-                            onPaneContextMenu={openContextMenu}
-                            onPaneClick={() => {
-                              setMenu(null)
-                              clearSelectionOutside(null)
-                            }}
-                            minZoom={0.25}
-                            maxZoom={2}
-                            /* Plain wheel is reserved for scrolling inside nodes; only a Ctrl-held
+                            onDisconnect={disconnectTerminalContext}
+                            onReveal={focusNode}
+                          >
+                            <ReactFlow
+                              nodes={canvasPartition.main}
+                              nodeTypes={nodeTypes}
+                              edges={canvasEdgeSplit.main}
+                              onEdgesChange={onEdgesChange}
+                              onConnect={connectTerminalContext}
+                              isValidConnection={isValidCanvasConnection}
+                              onNodesChange={handleNodesChange}
+                              onPaneContextMenu={openContextMenu}
+                              onPaneClick={() => {
+                                setMenu(null)
+                                clearSelectionOutside(null)
+                              }}
+                              minZoom={0.25}
+                              maxZoom={2}
+                              /* Plain wheel is reserved for scrolling inside nodes; only a Ctrl-held
                            wheel moves the canvas, so a stray scroll over the pane never zooms.
                            Ctrl is the whole gate - a trackpad pinch arrives as one too, which is
                            what `zoomOnPinch` then lets through. `preventScrolling` has to go with
@@ -2887,16 +2885,17 @@ function Canvas(): JSX.Element {
                            gesture for. Nodes can then leave the wheel alone entirely - no
                            `nowheel`, no stopPropagation - so a Ctrl+wheel over a transcript or a
                            grown composer still zooms. */
-                            zoomOnScroll={false}
-                            zoomOnPinch
-                            panOnScroll={false}
-                            preventScrolling={false}
-                            defaultViewport={{ x: 0, y: 0, zoom: 1 }}
-                            colorMode="dark"
-                            deleteKeyCode={['Backspace', 'Delete']}
-                          >
-                            <Background variant={BackgroundVariant.Dots} gap={24} size={1.2} color="#303744" />
-                          </ReactFlow>
+                              zoomOnScroll={false}
+                              zoomOnPinch
+                              panOnScroll={false}
+                              preventScrolling={false}
+                              defaultViewport={{ x: 0, y: 0, zoom: 1 }}
+                              colorMode="dark"
+                              deleteKeyCode={['Backspace', 'Delete']}
+                            >
+                              <Background variant={BackgroundVariant.Dots} gap={24} size={1.2} color="#303744" />
+                            </ReactFlow>
+                          </SessionConnectionsProvider>
                         </WorktreeCanvasContext.Provider>
                       </OpenFileContext.Provider>
                     </NodeSearchContext.Provider>
