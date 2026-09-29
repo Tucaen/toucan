@@ -22,8 +22,11 @@ The full tour of what Toucan does today. The [README](../README.md) has the shor
   explicitly send a queued prompt into the running turn.
 - Creates and discovers Git worktrees as persistent canvas nodes. Each worktree holds its
   own canvas of ordinary chats, which can be Codex or Claude side by side, with its own
-  pan, zoom and Fit chats. Sessions opened from a worktree share its working directory, and
-  removal is blocked or confirmed according to the work that would be lost.
+  pan, zoom and Fit chats. Fit, snap and tile act on the canvas the selection is on, focus
+  expands a worktree onto the main canvas and restore returns it and its viewport, and a
+  collapsed worktree is its header and row with every chat still running. Sessions opened
+  from a worktree share its working directory, and removal is blocked or confirmed
+  according to the work that would be lost.
 - Browses locally recorded Claude and Codex conversation history across a project checkout
   and its worktrees, then resumes a selected conversation as a new canvas node.
 - Restores saved canvas state, conversation nodes, drafts, attention, and recently closed
