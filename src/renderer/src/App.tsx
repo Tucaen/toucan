@@ -1001,9 +1001,10 @@ function Canvas(): JSX.Element {
 
   /**
    * A terminal-context edge is a grant the user must be able to see and revoke, so one whose ends
-   * come to sit on different canvases - a chat moved into a worktree while its terminal stays on the
-   * main canvas - is revoked rather than kept undrawn. Terminals do not live in worktrees yet, so
-   * until they do (#28) no context edge can reach a worktree's chat.
+   * come to sit on different canvases - a chat adopted into a worktree while its terminal stays on
+   * the main canvas, or the two sides of a pair split by attachment - is revoked rather than kept
+   * undrawn. Within one canvas, worktree canvases included, the edge draws and stays; across
+   * canvases no edge can be drawn either, so revocation and creation agree about the boundary.
    */
   useEffect(() => {
     const drawn = new Set(
@@ -2665,6 +2666,9 @@ function Canvas(): JSX.Element {
       summaries: new Map(worktreeSummaries.map((summary) => [summary.worktreeId, summary])),
       onReveal: focusNode,
       onNodesChange: handleNodesChange,
+      onEdgesChange,
+      onConnect: connectTerminalContext,
+      isValidConnection: isValidCanvasConnection,
       onPaneClick: clearSelectionOutside,
       registerCanvas: registerWorktreeCanvas,
       onCanvasResize: handleWorktreeCanvasResize
@@ -2673,9 +2677,12 @@ function Canvas(): JSX.Element {
       canvasEdgeSplit,
       canvasPartition,
       clearSelectionOutside,
+      connectTerminalContext,
       focusNode,
       handleNodesChange,
       handleWorktreeCanvasResize,
+      isValidCanvasConnection,
+      onEdgesChange,
       registerWorktreeCanvas,
       worktreeSummaries
     ]

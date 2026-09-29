@@ -144,7 +144,13 @@ export default function WorktreeCanvas({
           panOnScroll={false}
           preventScrolling={false}
           noPanClassName={WORKTREE_NO_PAN_CLASS}
-          nodesConnectable={false}
+          // The main canvas's connection policy: terminal → chat, the terminal-context grant,
+          // admitted by the same rule and landing in the same workspace edge set. React Flow
+          // confines a connection drag to its own instance, so a drag here can only offer this
+          // worktree's own nodes - a cross-canvas edge cannot be started, let alone completed.
+          onEdgesChange={host.onEdgesChange}
+          onConnect={host.onConnect}
+          isValidConnection={host.isValidConnection}
           // Auto-pan measures the pointer against the canvas's on-screen bounds, which the main
           // zoom scales while the corrected pointer is not - it would pan on its own mid-drag.
           autoPanOnNodeDrag={false}

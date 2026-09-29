@@ -1,4 +1,4 @@
-import type { NodeChange, Viewport } from '@xyflow/react'
+import type { Connection, EdgeChange, IsValidConnection, NodeChange, Viewport } from '@xyflow/react'
 import { createContext } from 'react'
 import type { CanvasNode } from './canvas-workspace'
 import type { WorktreeCanvasEdges, WorktreeCanvasPartition } from './worktree-canvas'
@@ -34,6 +34,15 @@ export interface WorktreeCanvasHost {
   onReveal(nodeId: string): void
   /** `canvas` names the worktree whose canvas the changes came from. */
   onNodesChange(changes: NodeChange<CanvasNode>[], canvas: string): void
+  /**
+   * Edge changes land in the workspace's one edge set, exactly as node changes do: deleting a
+   * terminal-context edge inside a worktree is the same revocation it is on the main canvas.
+   */
+  onEdgesChange(changes: EdgeChange[]): void
+  /** Drawing an edge grants terminal context; the workspace owns the set and mirrors it to main. */
+  onConnect(connection: Connection): void
+  /** The one admission rule - terminal → chat - shared with the main canvas. */
+  isValidConnection: IsValidConnection
   /** Its empty pane was clicked: nothing may stay selected on any other canvas. */
   onPaneClick(canvas: string): void
   /** The canvas mounted and lends its instance to the workspace; the return unregisters it. */
@@ -49,6 +58,9 @@ export const WorktreeCanvasContext = createContext<WorktreeCanvasHost>({
   summaries: new Map(),
   onReveal: () => undefined,
   onNodesChange: () => undefined,
+  onEdgesChange: () => undefined,
+  onConnect: () => undefined,
+  isValidConnection: () => false,
   onPaneClick: () => undefined,
   registerCanvas: () => () => undefined,
   onCanvasResize: () => undefined
