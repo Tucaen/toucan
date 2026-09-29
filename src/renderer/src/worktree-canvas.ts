@@ -1,5 +1,4 @@
 import type { Edge } from '@xyflow/react'
-import type { TerminalNodeStatus } from '../../shared/terminal'
 import {
   COLLAPSED_WORKTREE_HEIGHT,
   DEFAULT_WORKTREE_SIZE,
@@ -7,7 +6,6 @@ import {
   isWorktreeCanvasNode,
   measured,
   NEW_SESSION_NODE_SIZE,
-  sessionNodeStatus,
   WORKTREE_CHILD_GAP,
   type CanvasNode,
   type TerminalCanvasNode,
@@ -206,26 +204,6 @@ export function keepCollapsed(nodes: CanvasNode[]): CanvasNode[] {
     if (height === COLLAPSED_WORKTREE_HEIGHT) return node
     return worktreeAtHeight({ ...node, data: { ...node.data, expandedHeight: height } }, COLLAPSED_WORKTREE_HEIGHT)
   })
-}
-
-/** What a worktree's bottom row says about its chats. Agent state only - git state is the header's. */
-export interface WorktreeActivity {
-  working: number
-  attention: number
-}
-
-export function worktreeActivity(
-  children: readonly TerminalCanvasNode[],
-  statuses: Readonly<Record<string, TerminalNodeStatus>>
-): WorktreeActivity {
-  let working = 0
-  let attention = 0
-  for (const node of children) {
-    const status = sessionNodeStatus(node, statuses)
-    if (status === 'working') working += 1
-    else if (status === 'attention') attention += 1
-  }
-  return { working, attention }
 }
 
 /**

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useContext, useEffect, useState } from 'react'
 import { ReactFlowProvider, type NodeProps } from '@xyflow/react'
 import { ChevronDown, ChevronRight, GitBranch } from 'lucide-react'
 import type { TerminalKind } from '../../shared/terminal'
@@ -12,7 +12,9 @@ import {
 import NodeBorderResizer from './NodeBorderResizer'
 import NodeFitAction from './NodeFitAction'
 import SessionKindIcon from './SessionKindIcon'
+import WorktreeAgentState from './WorktreeAgentState'
 import WorktreeCanvas from './WorktreeCanvas'
+import { WorktreeCanvasContext } from './worktree-canvas-context'
 
 /** Git state moves only when something else on the canvas moves it, so this can be lazy. */
 const STATUS_POLL_MS = 10_000
@@ -50,6 +52,8 @@ function describeStatus(status: WorktreeStatus | null): {
 export default function WorktreeNode({ id, data, selected }: NodeProps<WorktreeCanvasNode>): JSX.Element {
   const [status, setStatus] = useState<WorktreeStatus | null>(null)
   const { path, branch, baseRef, worktreeId, onCreateNodeInWorktree } = data
+  const { summaries, onReveal } = useContext(WorktreeCanvasContext)
+  const agents = summaries.get(worktreeId)
 
   const refresh = useCallback(
     async (): Promise<WorktreeStatus | null> => window.worktreeApi.status({ path, branch, baseRef }).catch(() => null),
@@ -124,10 +128,16 @@ export default function WorktreeNode({ id, data, selected }: NodeProps<WorktreeC
         </span>
         {/* Directory and base stay one hover away rather than taking a row of the canvas. */}
         <strong title={`${branch}\n${path}\nBranched from ${baseRef}`}>{branch}</strong>
+        {agents?.task && (
+          <span className="worktree-task" title={agents.task}>
+            {agents.task}
+          </span>
+        )}
         <span className="node-project" title={data.projectPath}>
           <span className="project-color-dot" />
           {data.projectName}
         </span>
+        {agents && <WorktreeAgentState summary={agents} onReveal={onReveal} />}
         <span className="worktree-status" data-kind={summary.kind} title={summaryTitle}>
           <span className="worktree-status-dot" />
           <span className="worktree-status-text">{summary.text}</span>

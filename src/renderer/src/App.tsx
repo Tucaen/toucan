@@ -149,7 +149,9 @@ import {
   registerWorktreeNode,
   reconcileStaleWorktrees
 } from './worktree-attachment'
+import WorktreeNavigator from './WorktreeNavigator'
 import WorktreeNode from './WorktreeNode'
+import { summarizeWorktrees } from './worktree-overview'
 import {
   collapseWorktree,
   expandWorktree,
@@ -162,7 +164,6 @@ import {
   splitWorktreeCanvasEdges,
   withRoomForChat,
   worktreeChildren,
-  worktreeActivity,
   type WorktreeCanvasEdges,
   type WorktreeCanvasPartition
 } from './worktree-canvas'
@@ -183,6 +184,7 @@ import {
 import {
   NODE_FIT_INSET,
   canvasRegion,
+  isMaximised,
   nodeBeforeTemporaryFit,
   viewportShowingNode,
   type NodeGeometry
@@ -2045,6 +2047,13 @@ function Canvas(): JSX.Element {
           : node
       if (!target) return
 
+      // A focused worktree fills the canvas region, so it would cover whatever is revealed outside
+      // it: it gives the room back first. Its own chats are revealed inside the focus.
+      const focused = nodes.find(
+        (candidate) =>
+          candidate !== target && isWorktreeCanvasNode(candidate) && isMaximised(nodeFit.state()[candidate.id])
+      )
+      if (focused) nodeFit.restore(focused.id)
       // A chat in a collapsed worktree cannot be seen until the worktree is expanded.
       if (isCollapsedWorktree(target)) setNodes((current) => expandWorktree(current, target.data.worktreeId))
       // Selecting a node is enough: each node reports its own status once it sees the focus.
@@ -2645,17 +2654,22 @@ function Canvas(): JSX.Element {
     [nodeFit]
   )
 
+  /**
+   * Every worktree's agent state and attention, derived once: each header and the navigator read
+   * these same objects, which is what keeps their counts in agreement.
+   */
+  const worktreeSummaries = useMemo(
+    () => summarizeWorktrees(nodes, canvasPartition, nodeStatuses, attention),
+    [attention, canvasPartition, nodeStatuses, nodes]
+  )
+
   /** What every worktree canvas reads from the workspace, and where its changes go. */
   const worktreeCanvasHost = useMemo<WorktreeCanvasHost>(
     () => ({
       partition: canvasPartition,
       edges: canvasEdgeSplit,
-      activity: new Map(
-        [...canvasPartition.children].map(([worktreeId, children]) => [
-          worktreeId,
-          worktreeActivity(children, nodeStatuses)
-        ])
-      ),
+      summaries: new Map(worktreeSummaries.map((summary) => [summary.worktreeId, summary])),
+      onReveal: focusNode,
       onNodesChange: handleNodesChange,
       onPaneClick: clearSelectionOutside,
       registerCanvas: registerWorktreeCanvas,
@@ -2665,10 +2679,11 @@ function Canvas(): JSX.Element {
       canvasEdgeSplit,
       canvasPartition,
       clearSelectionOutside,
+      focusNode,
       handleNodesChange,
       handleWorktreeCanvasResize,
-      nodeStatuses,
-      registerWorktreeCanvas
+      registerWorktreeCanvas,
+      worktreeSummaries
     ]
   )
 
@@ -2870,6 +2885,8 @@ function Canvas(): JSX.Element {
                       </OpenFileContext.Provider>
                     </NodeSearchContext.Provider>
                   </NodeFitContext.Provider>
+                  {/* Beside the canvas rather than on it: its clicks and keys never reach React Flow. */}
+                  <WorktreeNavigator summaries={worktreeSummaries} onReveal={focusNode} />
                 </section>
 
                 <WorkspacePanels

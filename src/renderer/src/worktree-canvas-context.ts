@@ -1,7 +1,8 @@
 import type { NodeChange, Viewport } from '@xyflow/react'
 import { createContext } from 'react'
 import type { CanvasNode } from './canvas-workspace'
-import type { WorktreeActivity, WorktreeCanvasEdges, WorktreeCanvasPartition } from './worktree-canvas'
+import type { WorktreeCanvasEdges, WorktreeCanvasPartition } from './worktree-canvas'
+import type { WorktreeSummary } from './worktree-overview'
 
 /**
  * What the workspace may do to one worktree's canvas from outside it: measure it, read and move
@@ -27,7 +28,10 @@ export interface WorktreeCanvasHandle {
 export interface WorktreeCanvasHost {
   partition: WorktreeCanvasPartition
   edges: WorktreeCanvasEdges
-  activity: ReadonlyMap<string, WorktreeActivity>
+  /** By worktree id; the navigator is handed the very same objects, so the counts agree. */
+  summaries: ReadonlyMap<string, WorktreeSummary>
+  /** Brings a chat into view on its canvas and selects it, expanding its worktree if collapsed. */
+  onReveal(nodeId: string): void
   /** `canvas` names the worktree whose canvas the changes came from. */
   onNodesChange(changes: NodeChange<CanvasNode>[], canvas: string): void
   /** Its empty pane was clicked: nothing may stay selected on any other canvas. */
@@ -42,7 +46,8 @@ export interface WorktreeCanvasHost {
 export const WorktreeCanvasContext = createContext<WorktreeCanvasHost>({
   partition: { main: [], children: new Map() },
   edges: { main: [], children: new Map() },
-  activity: new Map(),
+  summaries: new Map(),
+  onReveal: () => undefined,
   onNodesChange: () => undefined,
   onPaneClick: () => undefined,
   registerCanvas: () => () => undefined,

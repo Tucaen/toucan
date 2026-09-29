@@ -70,7 +70,6 @@ export default function WorktreeCanvas({
   const host = useContext(WorktreeCanvasContext)
   const children = host.partition.children.get(worktreeId) ?? NO_CHILDREN
   const edges = host.edges.children.get(worktreeId) ?? NO_EDGES
-  const activity = host.activity.get(worktreeId)
   const { fitView, getViewport, setViewport } = useReactFlow()
 
   // React Flow queues a fit until every node it is given has been measured, so a chat added a
@@ -166,10 +165,9 @@ export default function WorktreeCanvas({
       </div>
 
       <footer className="worktree-actions nodrag">
+        {/* What the agents are doing is the header's, beside the git state it must not be read as. */}
         <span className="worktree-activity">
           <span className="node-status">{attachedNodeCount} attached</span>
-          {activity && activity.working > 0 && <span data-kind="working">{activity.working} working</span>}
-          {activity && activity.attention > 0 && <span data-kind="attention">{activity.attention} waiting</span>}
         </span>
         <div className="worktree-open-group" role="group" aria-label="Add chat">
           <span className="eyebrow-label">Add chat</span>

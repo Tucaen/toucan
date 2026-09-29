@@ -23,8 +23,7 @@ import {
   partitionWorktreeCanvases,
   selectOnlyWithinCanvas,
   splitWorktreeCanvasEdges,
-  withRoomForChat,
-  worktreeActivity
+  withRoomForChat
 } from '../src/renderer/src/worktree-canvas'
 import type { WorkspaceProject } from '../src/shared/workspace'
 
@@ -187,15 +186,6 @@ test('a worktree too small for a chat grows to the size a new one opens at, and 
   const roomy = worktree('b', { width: 1200, height: 900 })
   const nodes = [roomy]
   assert.equal(withRoomForChat(nodes, 'b'), nodes)
-})
-
-test('the activity line counts what the chats are doing, not the git state of the checkout', () => {
-  const chats = [session('one', 'claude', 'a'), session('two', 'codex', 'a'), session('three', 'codex', 'a')]
-  assert.deepEqual(worktreeActivity(chats, { one: 'working', two: 'attention' }), {
-    working: 1,
-    attention: 1
-  })
-  assert.deepEqual(worktreeActivity([], {}), { working: 0, attention: 0 })
 })
 
 test('moving a worktree moves nothing inside it: its chats keep their geometry, cwd and canvas array', () => {

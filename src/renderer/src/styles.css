@@ -1530,6 +1530,8 @@ button.global-status-chip:hover {
 }
 
 .canvas-region {
+  /* The worktree navigator sits over its corner. */
+  position: relative;
   min-width: 0;
   height: 100%;
   flex: 1;
@@ -4519,12 +4521,202 @@ button.global-status-chip:hover {
   white-space: nowrap;
 }
 
-.worktree-activity [data-kind='working'] {
+/* The worktree's first chat title: what it is for, beside the branch it runs on. */
+.worktree-task {
+  flex: 0 3 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: #c9bfdc;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Agent state - never git state - on a worktree header and in the navigator alike. */
+.worktree-agent-state {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.worktree-agent-working {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   color: var(--codex);
 }
 
-.worktree-activity [data-kind='attention'] {
+.worktree-agent-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.worktree-agent-unread {
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  color: #2c1618;
+  background: #ff6b6f;
+  font: inherit;
+  font-weight: 600;
+  line-height: 16px;
+}
+
+.worktree-agent-unread[data-kind='approval'],
+.worktree-agent-unread[data-kind='auth'] {
+  background: #f1c75b;
+}
+
+.worktree-agent-unread[data-kind='result'],
+.worktree-agent-unread[data-kind='output'] {
+  color: #10202e;
+  background: var(--codex);
+}
+
+button.worktree-agent-unread {
+  cursor: pointer;
+}
+
+button.worktree-agent-unread:hover,
+button.worktree-agent-unread:focus-visible {
+  border-color: #fff;
+}
+
+/* Every worktree over the canvas's corner: compact enough for a laptop, collapsible to one pill. */
+.worktree-navigator {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 5;
+  max-width: min(300px, calc(100% - 16px));
+  max-height: calc(100% - 16px);
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #2f2740;
+  border-radius: 8px;
+  background: color-mix(in srgb, #17131f 94%, transparent);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 35%);
+  font-size: 12px;
+}
+
+.worktree-navigator button {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  background: transparent;
+  color: #d5dbe5;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.worktree-navigator button:hover,
+.worktree-navigator button:focus-visible {
+  background: #241e31;
+}
+
+.worktree-navigator button:focus-visible {
+  outline: 1px solid #c992ff;
+  outline-offset: -1px;
+}
+
+.worktree-navigator svg {
+  width: 13px;
+  height: 13px;
+  flex: 0 0 auto;
+}
+
+.worktree-navigator-toggle {
+  padding: 5px 8px;
+  border-radius: 8px;
+  color: #b9c0cb;
+}
+
+.worktree-navigator-count {
+  color: var(--neutral-400);
+}
+
+.worktree-navigator-list,
+.worktree-navigator-chats {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.worktree-navigator-list {
+  overflow-y: auto;
+  padding-bottom: 4px;
+  border-top: 1px solid #2f2740;
+}
+
+.worktree-navigator-worktree,
+.worktree-navigator-chat {
+  width: 100%;
+}
+
+.worktree-navigator-worktree {
+  padding: 4px 8px;
+}
+
+.worktree-navigator-worktree[data-collapsed='true'] .worktree-navigator-name {
+  color: var(--neutral-300);
+}
+
+.worktree-navigator-name,
+.worktree-navigator-chat-label {
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.worktree-navigator-branch {
+  min-width: 0;
+  flex: 1 2 auto;
+  overflow: hidden;
+  color: var(--neutral-500);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.worktree-navigator-worktree .worktree-agent-state {
+  margin-left: auto;
+}
+
+.worktree-navigator-chat {
+  padding: 2px 8px 2px 22px;
+  color: #b9c0cb;
+  font-size: 11px;
+}
+
+.worktree-navigator-kind {
+  flex: 0 0 auto;
+  font-weight: 600;
+  color: #ff6b6f;
+}
+
+.worktree-navigator-chat[data-kind='approval'] .worktree-navigator-kind,
+.worktree-navigator-chat[data-kind='auth'] .worktree-navigator-kind {
   color: #f1c75b;
+}
+
+.worktree-navigator-chat[data-kind='result'] .worktree-navigator-kind,
+.worktree-navigator-chat[data-kind='output'] .worktree-navigator-kind {
+  color: var(--codex);
+}
+
+.worktree-navigator-chat-count {
+  margin-left: auto;
+  color: var(--neutral-400);
 }
 
 .worktree-open-group {
