@@ -206,7 +206,7 @@ describe('opening a conversation keeps it inside its worktree', () => {
 
   test('a History entry from a worktree no longer on the canvas is refused rather than opened in the project checkout', async () => {
     const { harness, create } = await mount(savedWorkspace({ worktrees: [worktree] }), {
-      history: [historyEntry({ cwd: 'D:\Development\Toucan-worktrees\removed-since' })]
+      history: [historyEntry({ cwd: 'D:\\Development\\Toucan-worktrees\\removed-since' })]
     })
 
     await openFromHistory('Fix the login redirect')
