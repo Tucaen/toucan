@@ -111,6 +111,18 @@ test('a node with no conversation, and a node that is not a chat, offer nothing 
   assert.equal(offersBranchAction(node(nodes, 'shell')), false)
 })
 
+test('a chat detached from its vanished worktree offers nothing to branch until it is resumed', () => {
+  const nodes = restoreCanvasWorkspace(
+    { ...workspace([chat('detached', { worktreeId: 'gone' })]), worktrees: [] },
+    callbacks
+  ).nodes
+  const detached = node(nodes, 'detached')
+  assert.equal(detached.data.detachedFromWorktree, true)
+  // The fork would run in the project checkout, which nobody chose; resuming is that explicit choice.
+  assert.equal(offersBranchAction(detached), false)
+  assert.equal(offersBranchAction({ data: { ...detached.data, detachedFromWorktree: false } }), true)
+})
+
 test('branching waits for a turn boundary and is free at every resting status', () => {
   for (const status of ['idle', 'result', 'dormant', 'exited'] as const) {
     assert.equal(branchBlockedReason(status), undefined, status)

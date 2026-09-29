@@ -34,7 +34,9 @@ import { ADOPTION_BOUNDARY } from './worktree-attachment'
 export const BRANCHABLE_PROVIDERS: readonly TerminalKind[] = ['claude', 'codex']
 
 /** The little of a node this decision reads, so a rendering node can ask without being one. */
-export type BranchCandidate = { data: Pick<TerminalNodeData, 'kind' | 'conversationId' | 'forkSupport'> }
+export type BranchCandidate = {
+  data: Pick<TerminalNodeData, 'kind' | 'conversationId' | 'forkSupport' | 'detachedFromWorktree'>
+}
 
 /**
  * The action is *absent* rather than disabled when the provider cannot fork - a control that can
@@ -42,10 +44,13 @@ export type BranchCandidate = { data: Pick<TerminalNodeData, 'kind' | 'conversat
  * the running session (`AgentCreateResult.forkSupport`); `undefined` means no session has reported
  * yet - a dormant or freshly restored node - and is deliberately permissive, because a fork runs
  * in the *child's* adapter and so needs nothing from the parent's process. A node with no
- * conversation id has no transcript to copy, so there is nothing to branch from either.
+ * conversation id has no transcript to copy, so there is nothing to branch from either. A chat
+ * detached from a worktree that has gone has no checkout to branch into: its fork would start in
+ * the project checkout, which only an explicit resume may choose.
  */
 export function offersBranchAction(node: BranchCandidate): boolean {
   if (!BRANCHABLE_PROVIDERS.includes(node.data.kind)) return false
+  if (node.data.detachedFromWorktree) return false
   if (node.data.forkSupport === false) return false
   return typeof node.data.conversationId === 'string' && node.data.conversationId.length > 0
 }
