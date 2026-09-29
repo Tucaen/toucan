@@ -138,7 +138,8 @@ function view(
       value={{
         partition,
         edges: splitWorktreeCanvasEdges([], partition),
-        activity: new Map(),
+        summaries: new Map(),
+        onReveal: () => undefined,
         onNodesChange: noop,
         onPaneClick: noop,
         registerCanvas: () => noop,

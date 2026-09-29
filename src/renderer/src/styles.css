@@ -4592,7 +4592,7 @@ button.worktree-agent-unread:focus-visible {
   position: absolute;
   top: 8px;
   left: 8px;
-  z-index: 5;
+  z-index: var(--z-chrome);
   max-width: min(300px, calc(100% - 16px));
   max-height: calc(100% - 16px);
   display: flex;
