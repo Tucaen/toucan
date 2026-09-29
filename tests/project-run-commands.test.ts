@@ -89,4 +89,5 @@ test('running a command types the line and the Enter the user would have pressed
   assert.equal(terminalRunInput('  npm run dev  '), 'npm run dev\r')
   assert.equal(terminalRunInput('   '), '')
   assert.equal(terminalRunInput(''), '')
+  assert.equal(terminalRunInput('$a = 1\r\nif ($a) {\n  echo hi\n}\n'), '$a = 1\rif ($a) {\r  echo hi\r}\r')
 })

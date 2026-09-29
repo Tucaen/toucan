@@ -70,12 +70,14 @@ export function runnableCommands(commands: readonly ProjectRunCommand[] | undefi
  * What is written into a freshly started terminal to run `command`: the line, then the Enter the
  * user would have pressed. Shared by the worktree setup command and the project's Run menu, because
  * both are the same gesture - hand a visible terminal a command line so failures, prompts and
- * long-running processes can be watched and interrupted. A command that is only whitespace yields
- * `''`, so a caller can treat the empty string as "there is nothing to run".
+ * long-running processes can be watched and interrupted. A multi-line command is typed line by line,
+ * each ended by that same Enter, since a bare `\n` is not reliably Enter to a shell behind a PTY. A
+ * command that is only whitespace yields `''`, so a caller can treat the empty string as "there is
+ * nothing to run".
  */
 export function terminalRunInput(command: string): string {
   const trimmed = command.trim()
-  return trimmed === '' ? '' : `${trimmed}\r`
+  return trimmed === '' ? '' : `${trimmed.replace(/\r?\n/g, '\r')}\r`
 }
 
 /**

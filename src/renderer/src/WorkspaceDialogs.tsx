@@ -291,14 +291,19 @@ export function ProjectSettingsDialog({
         {avatarError && <p className="dialog-error">{avatarError}</p>}
         <label>
           <span className="eyebrow-label">Setup command</span>
-          <input
+          <textarea
             autoFocus
+            rows={4}
+            spellCheck={false}
             value={command}
             placeholder="npm install"
             onChange={(event) => setCommand(event.target.value)}
           />
         </label>
-        <p>Run in a terminal node inside a new worktree to make it usable. Leave empty for none.</p>
+        <p>
+          Run in a terminal node inside a new worktree to make it usable. Several lines are typed in one after another.
+          Leave empty for none.
+        </p>
         <label>
           <span className="eyebrow-label">Tickets folder</span>
           <input

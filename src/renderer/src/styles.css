@@ -1351,7 +1351,8 @@ button.global-status-chip:hover {
   text-transform: uppercase;
 }
 
-.dialog input {
+.dialog input,
+.dialog textarea {
   padding: 8px 10px;
   border: 1px solid #323a46;
   border-radius: 6px;
@@ -1361,7 +1362,15 @@ button.global-status-chip:hover {
   font-size: 13px;
 }
 
-.dialog input:focus {
+.dialog textarea {
+  resize: vertical;
+  white-space: pre;
+  overflow-wrap: normal;
+  overflow-x: auto;
+}
+
+.dialog input:focus,
+.dialog textarea:focus {
   outline: none;
   border-color: #c992ff;
 }
