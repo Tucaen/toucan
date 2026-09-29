@@ -176,6 +176,7 @@ function sameSlice(a: SnapSlice, b: SnapSlice): boolean {
  * `within` says which other nodes share this node's canvas: a slice is a part of one canvas, so a
  * chat maximised inside a worktree and a worktree maximised on the main canvas never displace each
  * other. Every node shares the one canvas when it is omitted.
+ * @internal exported for tests
  */
 export function snapNodeToSlice<T extends Node>(
   nodes: T[],
@@ -271,6 +272,7 @@ export function restoreSnappedNode<T extends Node>(nodes: T[], snaps: SnapStates
  * sidebar toggle, a docked panel. It reads the caller's current pan and zoom and never writes
  * them, so the viewport stays exactly where the user left it. A canvas with no room for the inset
  * (a hidden or not-yet-laid-out region) is ignored rather than collapsing the nodes.
+ * @internal exported for tests
  */
 export function reflowSnappedNodes<T extends Node>(
   nodes: T[],
