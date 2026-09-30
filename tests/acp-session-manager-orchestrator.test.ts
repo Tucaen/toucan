@@ -135,7 +135,7 @@ test('a grant is scoped to the project checkout, and one still pending when the 
   const manager = createAcpSessionManager({
     appPath,
     environment: { PATH: process.env.PATH },
-    projectPathFor: async (cwd) => (cwd === appPath ? 'D:\checkout' : undefined),
+    projectPathFor: async (cwd) => (cwd === appPath ? 'D:\\checkout' : undefined),
     orchestrator: {
       grant: async (nodeId, scope) => {
         scopes.push({ nodeId, projectPath: scope.projectPath })
@@ -152,7 +152,7 @@ test('a grant is scoped to the project checkout, and one still pending when the 
   })
   try {
     await manager.create({ id: 'worktree', provider: 'claude', cwd: appPath, role: 'orchestrator' }, owner)
-    assert.deepEqual(scopes[0], { nodeId: 'worktree', projectPath: 'D:\checkout' })
+    assert.deepEqual(scopes[0], { nodeId: 'worktree', projectPath: 'D:\\checkout' })
 
     const pending = manager.create({ id: 'slow', provider: 'claude', cwd: appPath, role: 'orchestrator' }, owner)
     await new Promise((resolve) => setTimeout(resolve, 20))
