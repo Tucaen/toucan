@@ -4,7 +4,12 @@ import { writeFile } from 'node:fs/promises'
 import { join, normalize, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { spawn } from 'node-pty'
-import { ADAPTER_CHANNELS, ORCHESTRATOR_CHANNELS, USAGE_CHANNELS } from '../shared/ipc-channels'
+import {
+  ADAPTER_CHANNELS,
+  ORCHESTRATION_SETTINGS_CHANNELS,
+  ORCHESTRATOR_CHANNELS,
+  USAGE_CHANNELS
+} from '../shared/ipc-channels'
 import { pathIdentity } from '../shared/paths'
 import {
   isTicketSessionCanvasResult,
@@ -17,6 +22,7 @@ import { autoUpdater } from 'electron-updater'
 import { createAcpSessionManager, type AcpSessionManager } from './acp-session-manager'
 import { createOrchestrationStore } from './orchestration-store'
 import { createOrchestrationConfigStore } from './orchestration-config-store'
+import { registerOrchestrationSettingsIpc } from './orchestration-settings-ipc'
 import { createJevRouter } from './jev-router'
 import { createOrchestrationWaker } from './orchestration-wake'
 import { ORCHESTRATOR_ROLE, TICKET_SESSION_PROVIDER, type OrchestrationRecord } from '../shared/orchestration'
@@ -517,6 +523,18 @@ void app.whenReady().then(async () => {
   // Routing by difficulty tier (#36): the user's tier mapping, the Claude picker as last seen, and
   // Jev, asked from main with main's own TYPESAFE_API_KEY so the key never leaves this process.
   const orchestrationConfig = createOrchestrationConfigStore({ userDataPath: app.getPath('userData') })
+  // The settings panel (#39) edits the same files; an edit from anywhere - an agent, a text editor -
+  // reaches an open panel through the watch.
+  registerOrchestrationSettingsIpc(ipcMain, {
+    store: orchestrationConfig,
+    models: () => modelCatalogue.read().claude ?? [],
+    efforts: (modelId) => effortCatalogue.efforts(TICKET_SESSION_PROVIDER, modelId)
+  })
+  orchestrationConfig.watch(() => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.webContents.isDestroyed()) window.webContents.send(ORCHESTRATION_SETTINGS_CHANNELS.changed)
+    }
+  })
   const jevRouter = createJevRouter({ environment: () => process.env })
   const orchestratorEndpoint = createOrchestratorEndpoint({
     records: orchestrationRecords,

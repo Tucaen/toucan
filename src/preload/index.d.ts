@@ -18,6 +18,7 @@ import type { TerminalContextApi } from '../shared/terminal-context'
 import type { DecisionDelegationApi } from '../shared/decision-delegation'
 import type { DictationCleanupApi } from '../shared/dictation-cleanup'
 import type { OrchestratorApi } from '../shared/ticket-session-spawn'
+import type { OrchestrationSettingsApi } from '../shared/orchestration-settings'
 
 /**
  * Only the `Window` augmentation lives here. Every `*Api` contract is a shared type that
@@ -38,6 +39,7 @@ declare global {
     conversationApi: ConversationApi
     remoteApi: RemoteApi
     orchestratorApi: OrchestratorApi
+    orchestrationSettingsApi: OrchestrationSettingsApi
     brainDumpApi: BrainDumpApi
     ticketsApi: TicketFilesApi
     ticketSkillApi: TicketSkillApi

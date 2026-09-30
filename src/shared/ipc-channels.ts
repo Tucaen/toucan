@@ -118,6 +118,13 @@ export const ORCHESTRATOR_CHANNELS = {
   changed: 'orchestrator:changed'
 } as const
 
+/** The orchestration settings panel (#39): the configuration files, a save, and their changes on disk. */
+export const ORCHESTRATION_SETTINGS_CHANNELS = {
+  state: 'orchestration-settings:state',
+  save: 'orchestration-settings:save',
+  changed: 'orchestration-settings:changed'
+} as const
+
 export const BRAIN_DUMP_CHANNELS = {
   list: 'brain-dump:list',
   resolve: 'brain-dump:resolve',

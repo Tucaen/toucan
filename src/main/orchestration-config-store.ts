@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { mkdirSync, watch, type FSWatcher } from 'node:fs'
 import { mkdir, readFile } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import {
@@ -8,10 +9,11 @@ import {
   type OrchestrationConfig,
   type OrchestrationConfigFile
 } from '../shared/orchestration-routing'
+import type { OrchestrationConfigFileState, OrchestrationConfigScope } from '../shared/orchestration-settings'
 import { pathIdentity } from '../shared/paths'
 import { sessionOutcomeSlug } from '../shared/session-outcome'
 import { errorMessage } from '../shared/text'
-import { writeNewFileDurably } from './durable-file'
+import { writeNewFileDurably, writeThroughTemporary } from './durable-file'
 
 /**
  * The orchestration configuration on disk (#36; plan in `docs/plans/orchestrator-mode.md`): the tier
@@ -37,11 +39,22 @@ export interface OrchestrationConfigStore {
   load(projectPath: string): Promise<OrchestrationConfigLoad>
   /** Where a project's override lives, whether or not it exists yet. */
   projectConfigPath(projectPath: string): string
+  /** One file on its own, for the settings panel (#39); the project scope needs `projectPath`. */
+  inspect(scope: OrchestrationConfigScope, projectPath?: string): Promise<OrchestrationConfigFileState>
+  /**
+   * Replaces one file whole with a validated configuration. A file that does not parse is refused
+   * rather than replaced: it is most likely a hand edit in progress.
+   */
+  write(scope: OrchestrationConfigScope, projectPath: string | undefined, file: OrchestrationConfigFile): Promise<void>
+  /** Calls `listener` after the user file or any override changes on disk, whoever changed it. */
+  watch(listener: () => void): () => void
 }
 
 const USER_FILE = 'orchestration-config.json'
 const PROJECT_DIRECTORY = 'orchestration-config'
 const PROJECT_SLUG_LIMIT = 32
+/** One save lands as several raw events (temp file, rename); they are reported as one change. */
+const WATCH_COALESCE_MS = 50
 
 export function createOrchestrationConfigStore(options: { userDataPath: string }): OrchestrationConfigStore {
   const userPath = join(options.userDataPath, USER_FILE)
@@ -84,8 +97,61 @@ export function createOrchestrationConfigStore(options: { userDataPath: string }
     }
   }
 
+  const pathOf = (scope: OrchestrationConfigScope, projectPath: string | undefined): string => {
+    if (scope === 'user') return userPath
+    if (!projectPath) throw new Error('a project override needs the project path')
+    return projectConfigPath(projectPath)
+  }
+
   return {
     projectConfigPath,
+    async inspect(scope, projectPath) {
+      const path = pathOf(scope, projectPath)
+      const found = await read(path)
+      if (found === null) return { path, exists: false }
+      return 'error' in found ? { path, exists: true, error: found.error } : { path, exists: true, file: found }
+    },
+    async write(scope, projectPath, file) {
+      const path = pathOf(scope, projectPath)
+      const parsed = parseOrchestrationConfig(file)
+      if (parsed.error !== undefined) throw new Error(`the orchestration configuration is invalid: ${parsed.error}`)
+      const current = await read(path)
+      if (current && 'error' in current) throw new Error(current.error)
+      // Hidden temp name: the watcher and a reader of the folder never see a half-written file.
+      await writeThroughTemporary(path, `${JSON.stringify(parsed.config, null, 2)}
+`)
+    },
+    watch(listener) {
+      const projectDirectory = join(options.userDataPath, PROJECT_DIRECTORY)
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const changed = (): void => {
+        if (timer) clearTimeout(timer)
+        timer = setTimeout(() => {
+          timer = undefined
+          listener()
+        }, WATCH_COALESCE_MS)
+      }
+      const watchers: FSWatcher[] = []
+      const follow = (directory: string, relevant: (name: string) => boolean): void => {
+        try {
+          mkdirSync(directory, { recursive: true })
+          const watcher = watch(directory, (_event, name) => {
+            if (name === null || relevant(name.toString())) changed()
+          })
+          // A folder that goes away only stops the updates; the panel still reads on open.
+          watcher.on('error', () => watcher.close())
+          watchers.push(watcher)
+        } catch {
+          // Unwatchable: the panel still reads the files every time it opens.
+        }
+      }
+      follow(options.userDataPath, (name) => name === USER_FILE)
+      follow(projectDirectory, (name) => name.endsWith('.json') && !name.startsWith('.'))
+      return () => {
+        if (timer) clearTimeout(timer)
+        for (const watcher of watchers) watcher.close()
+      }
+    },
     async load(projectPath) {
       const overridePath = projectConfigPath(projectPath)
       const [user, project] = await Promise.all([read(userPath), read(overridePath)])
