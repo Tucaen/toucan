@@ -206,7 +206,9 @@ test('a spawn is refused for an unknown ticket, before a plan, and when no spawn
     const unknown = await call(grant, 'spawn', { ...spawn34, ticket: '99' })
     assert.equal(unknown.status, 400)
     assert.match(unknown.body.error ?? '', /no ticket "99"/)
-    assert.equal((await call(grant, 'spawn', { ticket: '34' })).status, 400)
+    // With neither a model nor a tier the recorded route decides (#36), and without routing there is none.
+    assert.equal((await call(grant, 'spawn', { ticket: '34' })).status, 501)
+    assert.equal((await call(grant, 'spawn', { ticket: '34', effort: 'high' })).status, 400)
   } finally {
     await endpoint.close()
   }

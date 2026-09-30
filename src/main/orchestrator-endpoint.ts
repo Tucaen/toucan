@@ -11,22 +11,37 @@ import {
   ORCHESTRATOR_COMMANDS,
   ORCHESTRATOR_TOKEN_ENV,
   ORCHESTRATOR_URL_ENV,
+  parseEscalateInput,
   parseFollowupInput,
   parseOutcomeInput,
   parsePlanInput,
+  parseRouteInput,
   parseSpawnInput,
   parseTicketUpdate,
+  recordTicketRoute,
   recordTicketSession,
   TICKET_SESSION_PROVIDER,
   reserveSpawn,
+  type DifficultyTier,
   type OrchestrationRecord,
   type OrchestrationTicket,
-  type OrchestratorCommand
+  type OrchestratorCommand,
+  type SpawnInput,
+  type TicketRoute
 } from '../shared/orchestration'
+import {
+  escalateRoute,
+  resolveTier,
+  ROUTE_REVIEW_CONFIDENCE,
+  type OfferedModels,
+  type OrchestrationConfig
+} from '../shared/orchestration-routing'
 import type { SessionOutcomeIdentity, SessionOutcomeRecord } from '../shared/session-outcome'
 import { pathIdentity } from '../shared/paths'
 import { isRecord } from '../shared/record'
 import { errorMessage } from '../shared/text'
+import type { JevRouter } from './jev-router'
+import type { OrchestrationConfigLoad } from './orchestration-config-store'
 import type { OrchestrationKey, OrchestrationStore } from './orchestration-store'
 import type { TicketBinding } from './orchestration-wake'
 import { createPairingToken, pairingTokenMatches, presentedPairingToken } from './remote/pairing'
@@ -96,8 +111,19 @@ export interface TicketSessionControl {
   outcome(identity: SessionOutcomeIdentity): Promise<{ path: string; record: SessionOutcomeRecord } | undefined>
 }
 
+/** What routing by difficulty tier needs (#36): the configuration, the picker's models, and Jev. */
+export interface OrchestratorRouting {
+  /** The effective tier mapping and implementation skill for a project, read afresh at every call. */
+  config(projectPath: string): Promise<OrchestrationConfigLoad>
+  /** What the chat node's Claude model picker offers, as main last saw it. */
+  offered(): OfferedModels
+  jev: Pick<JevRouter, 'judge'>
+}
+
 export interface OrchestratorEndpointOptions {
   records: OrchestrationStore
+  /** Absent, `route`, `escalate` and `spawn --tier` are refused and spawns use the default skill. */
+  routing?: OrchestratorRouting
   /** Starts ticket sessions for `spawn`; absent, `spawn` is refused as unavailable. */
   spawner?: TicketSpawner
   /** Absent, `status` reports no live state and `outcome` and `followup` are refused as unavailable. */
@@ -122,10 +148,16 @@ interface LiveGrant extends OrchestratorScope {
 /** One call's answer: an HTTP status and the JSON line the CLI prints. */
 interface Reply {
   status: number
-  body: { ok: true; [key: string]: unknown } | { ok: false; error: string }
+  body: { ok: true; [key: string]: unknown } | { ok: false; error: string; [key: string]: unknown }
 }
 
 const refused = (status: number, error: string): Reply => ({ status, body: { ok: false, error } })
+
+/** What a spawn runs on, and anything about its routing the caller should hear. */
+interface SpawnRoute {
+  route: TicketRoute & { model: string; effort: string }
+  warnings: string[]
+}
 
 const MAX_REQUEST_BYTES = 1024 * 1024
 
@@ -172,6 +204,62 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
       : undefined
 
   /**
+   * The effective configuration (#36), or the refusal to give when the user's file cannot be used:
+   * routing on a mapping the user did not write is worse than not routing. Without routing wired
+   * in, there is no configuration and spawns use the default skill.
+   */
+  const loadConfig = async (
+    grant: LiveGrant
+  ): Promise<{ config?: OrchestrationConfig; load?: OrchestrationConfigLoad } | { refusal: Reply }> => {
+    if (!options.routing) return {}
+    const load = await options.routing.config(grant.projectPath)
+    if (!load.config) return { refusal: refused(409, load.error ?? 'the orchestration configuration cannot be used') }
+    return { config: load.config, load }
+  }
+
+  /**
+   * The model and effort a spawn runs on, and the route recorded for it (#36): an explicit model is
+   * the orchestrator's own choice; a tier goes through the mapping; neither takes the ticket's
+   * recorded route. A tier other than the recorded one is the orchestrator's judgement, not Jev's.
+   */
+  const spawnRoute = (
+    request: SpawnInput,
+    ticket: OrchestrationTicket,
+    config: OrchestrationConfig | undefined
+  ): SpawnRoute | { refusal: Reply } => {
+    const recorded = ticket.route
+    if (request.model !== undefined) {
+      return {
+        route: { ...recorded, model: request.model, effort: request.effort!, routedBy: 'orchestrator' },
+        warnings: []
+      }
+    }
+    const routing = options.routing
+    if (!routing || !config) {
+      return { refusal: refused(501, 'this Toucan cannot route by tier; pass --model and --effort') }
+    }
+    const tier = request.tier ?? recorded?.tier
+    if (!tier) {
+      return {
+        refusal: refused(
+          409,
+          `ticket ${ticket.id} has no route yet; run route first, or spawn it with --tier <tier> or --model <id> --effort <level>`
+        )
+      }
+    }
+    const same = request.tier === undefined || request.tier === recorded?.tier
+    if (same && recorded?.model && recorded.effort) {
+      return { route: { ...recorded, model: recorded.model, effort: request.effort ?? recorded.effort }, warnings: [] }
+    }
+    const resolved = resolveTier(tier, same ? recorded?.depth : undefined, config, routing.offered())
+    if (resolved.error !== undefined) return { refusal: refused(409, resolved.error) }
+    const route = same
+      ? { ...recorded, ...resolved.route }
+      : { ...resolved.route, routedBy: 'orchestrator' as const, escalated: false }
+    return { route: { ...route, effort: request.effort ?? route.effort }, warnings: resolved.warnings }
+  }
+
+  /**
    * One ticket session (#34). Everything that can be refused without creating anything is refused
    * first; then the spawn is counted against the record, and only then does the spawner create the
    * worktree and the session - so the cap also bounds spawns that fail halfway.
@@ -190,6 +278,9 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
     if (grant.provider !== 'claude') return refused(403, 'only a Claude orchestrator can spawn ticket sessions')
     const spawner = options.spawner
     if (!spawner) return refused(501, 'this Toucan cannot spawn ticket sessions')
+    const configured = await loadConfig(grant)
+    if ('refusal' in configured) return configured.refusal
+    let routed: SpawnRoute | undefined
     const reservation = await options.records.update<{ refusal: Reply } | { record: OrchestrationRecord }>(
       key,
       (current) => {
@@ -197,24 +288,30 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
         if (!current) return refuse(refused(404, 'there is no plan yet; run plan set first'))
         const scope = outOfScope(grant, current)
         if (scope) return refuse(refused(403, scope))
+        const planned = current.tickets.find((candidate) => candidate.id === request.ticketId)
+        if (!planned) return refuse(refused(400, `the plan has no ticket "${request.ticketId}"`))
+        // Resolved before the spawn is counted, so a ticket that cannot be routed costs no spawn.
+        const resolved = spawnRoute(request, planned, configured.config)
+        if ('refusal' in resolved) return refuse(resolved.refusal)
+        routed = resolved
         const counted = reserveSpawn(current, request.ticketId, now())
-        if (counted.error !== undefined) {
-          const known = current.tickets.some((ticket) => ticket.id === request.ticketId)
-          return refuse(refused(known ? 429 : 400, counted.error))
-        }
-        return { value: counted.record, result: { record: counted.record } }
+        if (counted.error !== undefined) return refuse(refused(429, counted.error))
+        const record = recordTicketRoute(counted.record, request.ticketId, resolved.route, now())
+        return { value: record, result: { record } }
       }
     )
     if ('refusal' in reservation) return reservation.refusal
     const reserved = reservation.record
     const ticket = reserved.tickets.find((candidate) => candidate.id === request.ticketId)!
+    const { route: spawnedRoute, warnings: routeWarnings } = routed!
     const spawned = await spawner.spawn({
       orchestrator: { nodeId: grant.nodeId, conversationId: key.conversationId },
       projectPath: grant.projectPath,
       targetBranch: reserved.targetBranch,
       ticket,
-      model: request.model,
-      effort: request.effort
+      model: spawnedRoute.model,
+      effort: spawnedRoute.effort,
+      ...(configured.config ? { implementationSkill: configured.config.implementationSkill } : {})
     })
     const spawnsLeft = MAX_SPAWNS_PER_ORCHESTRATION - (reserved.spawnCount ?? 0)
     if (!spawned.ok) return { status: 502, body: { ok: false, error: spawned.error } }
@@ -235,10 +332,136 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
         session: spawned.session,
         model: spawned.model ?? null,
         effort: spawned.effort ?? null,
-        warnings: spawned.warnings,
+        warnings: [...routeWarnings, ...spawned.warnings],
+        route: spawnedRoute,
         spawnsLeft
       }
     }
+  }
+
+  /**
+   * `route` (#36). With no arguments, every unrouted ticket goes to Jev in one request and each tier
+   * is resolved through the mapping; with `--ticket --tier`, the orchestrator supplies the tier
+   * itself and the route is tagged so. A Jev that cannot be asked is reported, never guessed around.
+   */
+  const route = async (grant: LiveGrant, key: OrchestrationKey, args: unknown): Promise<Reply> => {
+    const parsed = parseRouteInput(args)
+    if (parsed.error !== undefined) return refused(400, parsed.error)
+    const routing = options.routing
+    if (!routing) return refused(501, 'this Toucan cannot route tickets')
+    const configured = await loadConfig(grant)
+    if ('refusal' in configured) return configured.refusal
+    const config = configured.config!
+    const own = await ownRecord(grant, key)
+    if ('status' in own) return own
+
+    const judgements: { ticketId: string; tier: DifficultyTier; confidence?: number; depth?: number }[] = []
+    const { ticketId, tier } = parsed.route
+    if (ticketId !== undefined && tier !== undefined) {
+      const ticket = ticketIn(own.record, ticketId)
+      if ('status' in ticket) return ticket
+      judgements.push({ ticketId, tier })
+    } else {
+      const unrouted = own.record.tickets.filter(
+        (ticket) => !ticket.route?.tier && !ticket.session && ticket.mergeStatus === 'pending'
+      )
+      if (unrouted.length > 0) {
+        const judged = await routing.jev.judge(
+          unrouted.map((ticket) => ({
+            id: ticket.id,
+            title: ticket.title,
+            ...(ticket.body ? { body: ticket.body } : {}),
+            ...(ticket.source ? { source: ticket.source } : {})
+          }))
+        )
+        if (!judged.ok) {
+          return {
+            status: 503,
+            body: {
+              ok: false,
+              jevUnavailable: true,
+              error:
+                `Jev is unavailable: ${judged.reason}. Judge each ticket's tier yourself with the same criteria and ` +
+                'record it with route --ticket <id> --tier <tier>; those routes are tagged routedBy: orchestrator.'
+            }
+          }
+        }
+        judgements.push(...judged.judgements)
+      }
+    }
+
+    const offered = routing.offered()
+    const warnings: string[] = []
+    const routes = new Map<string, TicketRoute>()
+    for (const judgement of judgements) {
+      const byJev = judgement.confidence !== undefined
+      const resolved = resolveTier(judgement.tier, judgement.depth, config, offered)
+      warnings.push(...resolved.warnings.map((warning) => `#${judgement.ticketId}: ${warning}`))
+      if (resolved.error !== undefined) warnings.push(`#${judgement.ticketId}: ${resolved.error}`)
+      routes.set(judgement.ticketId, {
+        tier: judgement.tier,
+        ...(resolved.route ? { model: resolved.route.model, effort: resolved.route.effort } : {}),
+        ...(byJev ? { confidence: judgement.confidence, depth: judgement.depth } : {}),
+        routedBy: byJev ? 'jev' : 'orchestrator',
+        escalated: false,
+        ...(byJev && judgement.confidence! < ROUTE_REVIEW_CONFIDENCE ? { reviewRequired: true } : {})
+      })
+    }
+    if (routes.size > 0) {
+      await options.records.update(key, (current) => {
+        if (!current) return { value: current, result: undefined }
+        let next = current
+        for (const [id, ticketRoute] of routes) {
+          const ticket = next.tickets.find((candidate) => candidate.id === id)
+          // A Jev route never replaces one written while Jev was answering; the orchestrator's own does.
+          if (!ticket || (ticketRoute.routedBy === 'jev' && ticket.route?.tier)) continue
+          next = recordTicketRoute(next, id, ticketRoute, now())
+        }
+        return { value: next, result: undefined }
+      })
+    }
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        routes: [...routes].map(([id, ticketRoute]) => ({
+          ticket: id,
+          ...ticketRoute,
+          reviewRequired: ticketRoute.reviewRequired ?? false
+        })),
+        warnings,
+        config: { user: configured.load!.userPath, project: configured.load!.projectPath ?? null }
+      }
+    }
+  }
+
+  /** `escalate` (#36): one tier up, re-resolved; past `frontier` the ticket belongs on the review list. */
+  const escalate = async (grant: LiveGrant, key: OrchestrationKey, args: unknown): Promise<Reply> => {
+    const parsed = parseEscalateInput(args)
+    if (parsed.error !== undefined) return refused(400, parsed.error)
+    const routing = options.routing
+    if (!routing) return refused(501, 'this Toucan cannot route tickets')
+    const configured = await loadConfig(grant)
+    if ('refusal' in configured) return configured.refusal
+    const offered = routing.offered()
+    return options.records.update(key, (current) => {
+      const refuse = (reply: Reply) => ({ value: current, result: reply })
+      if (!current) return refuse(refused(404, 'there is no plan yet; run plan set first'))
+      const scope = outOfScope(grant, current)
+      if (scope) return refuse(refused(403, scope))
+      const ticket = current.tickets.find((candidate) => candidate.id === parsed.ticketId)
+      if (!ticket) return refuse(refused(400, `the plan has no ticket "${parsed.ticketId}"`))
+      const escalated = escalateRoute(ticket.route, configured.config!, offered)
+      if (escalated.error !== undefined) return refuse(refused(409, `ticket ${ticket.id}: ${escalated.error}`))
+      const record = recordTicketRoute(current, ticket.id, escalated.route, now())
+      return {
+        value: record,
+        result: {
+          status: 200,
+          body: { ok: true, ticket: ticket.id, route: escalated.route, warnings: escalated.warnings }
+        }
+      }
+    })
   }
 
   /** The grant's own record, or the refusal to give instead. */
@@ -265,6 +488,7 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
         attempts: ticket.attempts,
         mergeStatus: ticket.mergeStatus,
         session: ticket.session ?? null,
+        route: ticket.route ?? null,
         state: !ticket.session ? 'not spawned' : (live?.status ?? 'not running'),
         permissionPrompt: live?.permission ? { title: live.permission.title, answeredBy: 'human' } : null,
         questions: live?.questions ?? []
@@ -366,6 +590,8 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
       })
     }
     if (command === 'spawn') return spawn(grant, key, args)
+    if (command === 'route') return route(grant, key, args)
+    if (command === 'escalate') return escalate(grant, key, args)
     if (command === 'status' || command === 'outcome' || command === 'followup') {
       const own = await ownRecord(grant, key)
       if ('status' in own) return own

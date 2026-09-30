@@ -28,6 +28,8 @@ export interface TicketSpawnRequest {
   ticket: OrchestrationTicket
   model: string
   effort: string
+  /** What the prompt opens with (#36); the default skill when absent. */
+  implementationSkill?: string
 }
 
 export type TicketSpawnResult =
@@ -142,7 +144,7 @@ export function createTicketSpawner(options: TicketSpawnerOptions): TicketSpawne
       effortId: request.effort,
       ...(permissionMode ? { permissionMode } : {}),
       orchestratedBy: request.orchestrator,
-      prompt: ticketSessionPrompt(request.ticket, worktree)
+      prompt: ticketSessionPrompt(request.ticket, worktree, request.implementationSkill)
     })
     if (!started.ok) {
       return { ok: false, error: `${started.message} The worktree stays at ${worktree.path} on ${worktree.branch}.` }

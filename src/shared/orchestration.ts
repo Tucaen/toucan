@@ -45,7 +45,9 @@ export const ORCHESTRATOR_COMMANDS = [
   'spawn',
   'status',
   'outcome',
-  'followup'
+  'followup',
+  'route',
+  'escalate'
 ] as const
 export type OrchestratorCommand = (typeof ORCHESTRATOR_COMMANDS)[number]
 
@@ -430,21 +432,38 @@ export const DEFAULT_IMPLEMENTATION_SKILL = '/implement'
 /** Ticket sessions, and so their outcome records, are Claude sessions in the first version. */
 export const TICKET_SESSION_PROVIDER = 'claude'
 
-/** What `spawn` asks for. The provider is not a field: ticket sessions are Claude sessions. */
+/**
+ * What `spawn` asks for. The provider is not a field: ticket sessions are Claude sessions. Either an
+ * explicit model with its effort, or a tier the tier mapping resolves (#36), or neither - then the
+ * ticket's recorded route decides.
+ */
 export interface SpawnInput {
   ticketId: string
-  model: string
-  effort: string
+  model?: string
+  tier?: DifficultyTier
+  /** Required with `model`; with a tier or the recorded route it overrides the resolved effort. */
+  effort?: string
   /** The project the caller names, if it names one; refused unless it is the orchestrator's own. */
   projectPath?: string
 }
 
-/** Validates what `spawn` sent - the CLI's `--ticket`, `--model`, `--effort` and optional flags. */
+const tierError = (flag: string): string => `${flag} must be one of ${DIFFICULTY_TIERS.join(', ')}`
+const isDifficultyTier = (value: unknown): value is DifficultyTier => DIFFICULTY_TIERS.includes(value as DifficultyTier)
+
+/** Validates what `spawn` sent - the CLI's `--ticket`, `--model`/`--tier`, `--effort` and optional flags. */
 export function parseSpawnInput(value: unknown): Outcome<'spawn', SpawnInput> {
   const args = isRecord(value) ? value : {}
   if (!nonEmptyString(args.ticket)) return refuse('spawn needs --ticket <id>')
-  if (!nonEmptyString(args.model)) return refuse('spawn needs --model <id>')
-  if (!nonEmptyString(args.effort)) return refuse('spawn needs --effort <level>')
+  if (args.model !== undefined && args.tier !== undefined) {
+    return refuse('spawn takes --model <id> --effort <level> or --tier <tier>, not both')
+  }
+  if (args.model !== undefined && !nonEmptyString(args.model)) return refuse('spawn needs --model <id>')
+  if (args.tier !== undefined && !isDifficultyTier(args.tier)) return refuse(tierError('--tier'))
+  if (args.effort !== undefined && !nonEmptyString(args.effort)) return refuse('spawn needs --effort <level>')
+  if (nonEmptyString(args.model) && !nonEmptyString(args.effort)) return refuse('spawn --model needs --effort <level>')
+  if (args.model === undefined && args.tier === undefined && args.effort !== undefined) {
+    return refuse('spawn --effort goes with --model <id> or --tier <tier>')
+  }
   if (args.provider !== undefined && args.provider !== TICKET_SESSION_PROVIDER) {
     return refuse(`ticket sessions are Claude sessions; provider ${JSON.stringify(args.provider)} is not supported`)
   }
@@ -452,11 +471,43 @@ export function parseSpawnInput(value: unknown): Outcome<'spawn', SpawnInput> {
   return {
     spawn: {
       ticketId: args.ticket.trim(),
-      model: args.model.trim(),
-      effort: args.effort.trim(),
+      ...(nonEmptyString(args.model) ? { model: args.model.trim() } : {}),
+      ...(isDifficultyTier(args.tier) ? { tier: args.tier } : {}),
+      ...(nonEmptyString(args.effort) ? { effort: args.effort.trim() } : {}),
       ...(nonEmptyString(args.project) ? { projectPath: args.project.trim() } : {})
     }
   }
+}
+
+/**
+ * What `route` asks for (#36): nothing, and Jev judges every unrouted ticket; or one ticket and the
+ * tier the orchestrator judged itself - the way through when Jev is unavailable.
+ */
+export function parseRouteInput(value: unknown): Outcome<'route', { ticketId?: string; tier?: DifficultyTier }> {
+  const args = isRecord(value) ? value : {}
+  if (args.ticket === undefined && args.tier === undefined) return { route: {} }
+  if (!nonEmptyString(args.ticket)) return refuse('route --tier needs --ticket <id>')
+  if (args.tier === undefined) return refuse('route --ticket needs --tier <tier>, the tier you judged yourself')
+  if (!isDifficultyTier(args.tier)) return refuse(tierError('--tier'))
+  return { route: { ticketId: args.ticket.trim(), tier: args.tier } }
+}
+
+/** Validates `escalate`'s `--ticket <id>`. */
+export function parseEscalateInput(value: unknown): Outcome<'ticketId', string> {
+  const args = isRecord(value) ? value : {}
+  if (!nonEmptyString(args.ticket)) return refuse('escalate needs --ticket <id>')
+  return { ticketId: args.ticket.trim() }
+}
+
+/** Writes a ticket's route; the one write `route`, `escalate` and `spawn` share. */
+export function recordTicketRoute(
+  record: OrchestrationRecord,
+  ticketId: string,
+  route: TicketRoute,
+  now: string
+): OrchestrationRecord {
+  const tickets = record.tickets.map((ticket) => (ticket.id === ticketId ? { ...ticket, route } : ticket))
+  return { ...record, tickets, updatedAt: now }
 }
 
 /**
@@ -566,8 +617,11 @@ export function orchestratorInstruction(paths: { cliPath: string; skillPath: str
     'You are a Toucan orchestrator. The first user message is your task: break it into tickets and keep',
     "Toucan's orchestration record up to date as the single source of truth for the plan and its progress.",
     `Drive Toucan through its CLI, which prints one JSON line per call: \`${cli} plan show\`,`,
-    `\`${cli} plan set --file <plan.json>\`, \`${cli} ticket update <id> --json '<fields>'\` and`,
-    `\`${cli} spawn --ticket <id> --model <id> --effort <level>\`, which starts one ticket session in a worktree of its own.`,
+    `\`${cli} plan set --file <plan.json>\`, \`${cli} ticket update <id> --json '<fields>'\`,`,
+    `\`${cli} route\`, which asks Jev for every unrouted ticket's difficulty tier and turns it into a model through the user's tier mapping, and`,
+    `\`${cli} spawn --ticket <id>\`, which starts one ticket session on its routed model in a worktree of its own.`,
+    `When route reports Jev unavailable, judge each tier yourself and record it with \`${cli} route --ticket <id> --tier <tier>\`;`,
+    `after a failed ticket, \`${cli} escalate --ticket <id>\` moves it one tier up.`,
     'Never wait for a ticket session inside a tool call: end your turn after spawning, and Toucan wakes you with a',
     'follow-up message whenever one of your ticket sessions completes, fails, is cancelled, asks something or waits on a tool-permission prompt.',
     `Then read more with \`${cli} status\` and \`${cli} outcome --ticket <id>\`, and answer a ticket session's`,

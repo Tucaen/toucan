@@ -3,7 +3,7 @@
 import { readFile } from 'node:fs/promises'
 import { request as httpRequest } from 'node:http'
 
-// The orchestrator's CLI (#33, #34, #35): sends one command to the Toucan endpoint named in the
+// The orchestrator's CLI (#33, #34, #35, #36): sends one command to the Toucan endpoint named in the
 // environment and prints its reply as one JSON line. Only an orchestrator session carries the
 // endpoint and token; every other session gets a clear refusal before anything is sent.
 
@@ -11,7 +11,9 @@ const USAGE = [
   'Usage: orchestrate.mjs plan show',
   '| plan set (--file <plan.json> | --json <plan>)',
   '| ticket update <id> (--json <fields> | --file <fields.json>)',
-  '| spawn --ticket <id> --model <id> --effort <level> [--provider <provider>] [--project <path>]',
+  '| route [--ticket <id> --tier <tier>]',
+  '| escalate --ticket <id>',
+  '| spawn --ticket <id> [--model <id> --effort <level> | --tier <tier> [--effort <level>]] [--provider <provider>] [--project <path>]',
   '| status',
   '| outcome --ticket <id>',
   '| followup --ticket <id> --text <text>'
@@ -95,9 +97,26 @@ async function message(words) {
     return { command: 'ticket update', args: { id: positionals[0], fields: await jsonInput(flags, 'The update') } }
   }
   if (first === 'spawn') {
-    const { flags, positionals } = parseFlags(words.slice(1), ['ticket', 'model', 'effort', 'provider', 'project'])
+    const { flags, positionals } = parseFlags(words.slice(1), [
+      'ticket',
+      'model',
+      'tier',
+      'effort',
+      'provider',
+      'project'
+    ])
     if (positionals.length > 0) usage('spawn takes no positional arguments')
     return { command: 'spawn', args: flags }
+  }
+  if (first === 'route') {
+    const { flags, positionals } = parseFlags(words.slice(1), ['ticket', 'tier'])
+    if (positionals.length > 0) usage('route takes no positional arguments')
+    return { command: 'route', args: flags }
+  }
+  if (first === 'escalate') {
+    const { flags, positionals } = parseFlags(words.slice(1), ['ticket'])
+    if (positionals.length > 0 || flags.ticket === undefined) usage('escalate needs --ticket <id> and nothing else')
+    return { command: 'escalate', args: flags }
   }
   if (first === 'status') {
     if (words.length > 1) usage('status takes no arguments')

@@ -9,6 +9,8 @@ import {
   decisionAnswerFromText,
   orchestratorInstruction,
   parsePlanInput,
+  parseEscalateInput,
+  parseRouteInput,
   parseSpawnInput,
   parseTicketUpdate,
   recordTicketSession,
@@ -230,6 +232,41 @@ test('a spawn names a ticket, a model and an effort, and only ever a Claude sess
   assert.match(parseSpawnInput({ ticket: '34', model: 'm' }).error ?? '', /--effort/)
   assert.match(parseSpawnInput({ ticket: '34', model: 'm', effort: 'e', provider: 'codex' }).error ?? '', /Claude/)
   assert.match(parseSpawnInput(null).error ?? '', /ticket/)
+})
+
+test('a spawn may name a tier instead of a model, or nothing and take the recorded route (#36)', () => {
+  assert.deepEqual(parseSpawnInput({ ticket: '34', tier: 'high' }).spawn, { ticketId: '34', tier: 'high' })
+  assert.deepEqual(parseSpawnInput({ ticket: '34', tier: 'low', effort: 'medium' }).spawn, {
+    ticketId: '34',
+    tier: 'low',
+    effort: 'medium'
+  })
+  assert.deepEqual(parseSpawnInput({ ticket: '34' }).spawn, { ticketId: '34' })
+  assert.match(parseSpawnInput({ ticket: '34', tier: 'easy' }).error ?? '', /--tier must be one of low, medium/)
+  assert.match(parseSpawnInput({ ticket: '34', tier: 'low', model: 'm', effort: 'e' }).error ?? '', /not both/)
+})
+
+test('route names nothing, for Jev, or a ticket and the tier the orchestrator judged (#36)', () => {
+  assert.deepEqual(parseRouteInput(undefined), { route: {} })
+  assert.deepEqual(parseRouteInput({ ticket: ' 12 ', tier: 'medium' }), { route: { ticketId: '12', tier: 'medium' } })
+  assert.match(parseRouteInput({ ticket: '12' }).error ?? '', /--tier/)
+  assert.match(parseRouteInput({ tier: 'low' }).error ?? '', /--ticket/)
+  assert.match(parseRouteInput({ ticket: '12', tier: 'hard' }).error ?? '', /low, medium, high, frontier/)
+  assert.deepEqual(parseEscalateInput({ ticket: '12' }), { ticketId: '12' })
+  assert.match(parseEscalateInput({}).error ?? '', /escalate needs --ticket/)
+})
+
+test('a route carries its depth score and review mark, both checked (#36)', () => {
+  assert.deepEqual(parseTicketUpdate({ route: { tier: 'low', depth: 1.5, reviewRequired: true } }).patch, {
+    route: { tier: 'low', depth: 1.5, reviewRequired: true }
+  })
+  assert.match(parseTicketUpdate({ route: { depth: 5 } }).error ?? '', /depth/)
+  assert.match(parseTicketUpdate({ route: { reviewRequired: 'yes' } }).error ?? '', /reviewRequired/)
+})
+
+test('a ticket session prompt opens with the configured implementation skill', () => {
+  const prompt = ticketSessionPrompt({ id: '1', title: 'T', body: 'B' }, { path: 'D:\w', branch: 'ticket/1' }, '/tdd')
+  assert.ok(prompt.startsWith('/tdd #1 T'))
 })
 
 test('a spawn is reserved against the record and refused past twenty per orchestration', () => {

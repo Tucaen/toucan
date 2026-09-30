@@ -171,3 +171,33 @@ test('status, outcome and followup reach the endpoint with their flags', async (
     await endpoint.close()
   }
 })
+
+test('route, escalate and spawn --tier reach the endpoint with their flags (#36)', async () => {
+  const { endpoint, environment } = await harness()
+  try {
+    await run(
+      [
+        'plan',
+        'set',
+        '--json',
+        JSON.stringify({ task: 't', targetBranch: 'main', tickets: [{ id: '34', title: 'Spawn' }] })
+      ],
+      environment
+    )
+    // The harness wires no routing, so Toucan refuses each - after the CLI sent it.
+    const route = await run(['route'], environment)
+    assert.equal(route.code, 1)
+    assert.match(route.output.error ?? '', /cannot route/)
+    const own = await run(['route', '--ticket', '34', '--tier', 'medium'], environment)
+    assert.match(own.output.error ?? '', /cannot route/)
+    const escalate = await run(['escalate', '--ticket', '34'], environment)
+    assert.match(escalate.output.error ?? '', /cannot route/)
+    const byTier = await run(['spawn', '--ticket', '34', '--tier', 'high'], environment)
+    assert.match(byTier.output.error ?? '', /cannot route by tier/)
+
+    assert.equal((await run(['route', 'extra'], environment)).code, 2)
+    assert.equal((await run(['escalate'], environment)).code, 2)
+  } finally {
+    await endpoint.close()
+  }
+})
