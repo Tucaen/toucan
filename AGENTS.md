@@ -130,7 +130,7 @@ Only `ready-for-agent` and `wontfix` of the five canonical roles are in use; the
 
 ### Domain docs
 
-Single-context: `CONTEXT.md` plus `docs/adr/` at the repo root, both created lazily. `CONTEXT.md` exists and pins the delegation-policy vocabulary; `docs/adr/` is still absent. See `docs/agents/domain.md`.
+Single-context: `CONTEXT.md` plus `docs/adr/` at the repo root, both created lazily. `CONTEXT.md` exists and pins the delegation-policy and orchestration vocabulary; `docs/adr/` is still absent. See `docs/agents/domain.md`.
 
 ## Maintaining this file
 
