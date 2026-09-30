@@ -315,11 +315,11 @@ export function createWorktreeManager(options: WorktreeManagerOptions = {}): Wor
         }
 
         if (existingBranch.code === 0) {
-          return { ok: false, message: `Branch "${request.branch}" already exists in this repository` }
+          return { ok: false, conflict: true, message: `Branch "${request.branch}" already exists in this repository` }
         }
 
         const directory = normalizeWorktreePath(deriveWorktreeDirectory(request.projectPath, request.branch))
-        if (pathExists(directory)) return { ok: false, message: `${directory} already exists` }
+        if (pathExists(directory)) return { ok: false, conflict: true, message: `${directory} already exists` }
 
         const baseRef = resolvedBaseRef
         const added = await runGit(['worktree', 'add', '-b', request.branch, directory, baseRef], request.projectPath)

@@ -54,6 +54,8 @@ export interface WorktreeCreateRequest {
 export interface WorktreeCreateResult {
   ok: boolean
   message?: string
+  /** Set when the refusal is only that the branch or its directory already exists: another name may work. */
+  conflict?: true
   worktree?: { path: string; branch: string; baseRef: string }
 }
 
