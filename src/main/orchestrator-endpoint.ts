@@ -36,7 +36,7 @@ import {
   type OfferedModels,
   type OrchestrationConfig
 } from '../shared/orchestration-routing'
-import { routingReport, type RoutingRunOutcome } from '../shared/orchestration-report'
+import { routingReport, ticketRunHistory, type RoutingRunOutcome } from '../shared/orchestration-report'
 import type { SessionOutcomeIdentity, SessionOutcomeRecord } from '../shared/session-outcome'
 import { pathIdentity } from '../shared/paths'
 import { isRecord } from '../shared/record'
@@ -493,10 +493,9 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
     if (sessions) {
       const conversations = new Set(
         records.flatMap((record) =>
-          record.tickets.flatMap((ticket) => [
-            ...(ticket.runs ?? []).flatMap((run) => (run.conversationId ? [run.conversationId] : [])),
-            ...(ticket.session?.conversationId ? [ticket.session.conversationId] : [])
-          ])
+          record.tickets.flatMap((ticket) =>
+            ticketRunHistory(ticket).flatMap((run) => (run.conversationId ? [run.conversationId] : []))
+          )
         )
       )
       for (const conversationId of conversations) {

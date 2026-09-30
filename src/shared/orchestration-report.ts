@@ -3,7 +3,8 @@ import {
   type DifficultyTier,
   type OrchestrationRecord,
   type OrchestrationTicket,
-  type TicketRoute
+  type TicketRoute,
+  type TicketRun
 } from './orchestration'
 import type { TierMapping, TierMappingEntry } from './orchestration-routing'
 
@@ -97,35 +98,50 @@ interface CountedRun {
   turns?: number
 }
 
-type Result = 'mergedWithoutEscalation' | 'mergedAfterEscalation' | 'escalated' | 'unmerged' | 'inProgress'
+type StayResult = 'mergedWithoutEscalation' | 'mergedAfterEscalation' | 'escalated' | 'unmerged' | 'inProgress'
 
 /** One ticket's stay on one tier and model: consecutive runs there, folded into one result. */
 interface Stay {
   group: Group
   tier: DifficultyTier
   model: string
-  result: Result
+  result: StayResult
+  /** The stay's first run was an escalation from a lower tier. */
+  escalatedIn: boolean
   turns?: number
 }
 
 const tierIndex = (tier: DifficultyTier): number => DIFFICULTY_TIERS.indexOf(tier)
 
 /**
- * A ticket's runs, oldest first. The route a run launched on (kept in the orchestration record) wins
- * over the outcome record's `route:` line, which a later turn boundary could rewrite with an
- * escalated route; a record written before runs were kept has only its latest session to go by.
+ * A ticket's runs, oldest first: `runs`, or for a record written before runs were kept (#40), its
+ * latest session with no launch route of its own. The one place both the report and the endpoint's
+ * outcome-record lookup read a ticket's sessions from.
+ */
+export function ticketRunHistory(ticket: OrchestrationTicket): TicketRun[] {
+  if (ticket.runs) return ticket.runs
+  return ticket.session?.conversationId ? [{ conversationId: ticket.session.conversationId }] : []
+}
+
+const isComplete = (route: RoutingRunOutcome['route'] | undefined): boolean =>
+  Boolean(route?.tier && route.model && route.routedBy)
+
+/**
+ * A ticket's countable runs. The route a run launched on wins over the outcome record's `route:`
+ * line, which a later turn boundary could rewrite with an escalated route; a run with no launch
+ * route takes the outcome record's, and only then the ticket's current route.
  */
 function ticketRuns(
   ticket: OrchestrationTicket,
   outcomes: ReadonlyMap<string, RoutingRunOutcome>
 ): { counted: CountedRun[]; skipped: number } {
-  const runs =
-    ticket.runs ?? (ticket.session ? [{ conversationId: ticket.session.conversationId, route: ticket.route }] : [])
+  const runs = ticketRunHistory(ticket)
   const counted: CountedRun[] = []
   let skipped = 0
-  for (const run of runs) {
+  for (const [index, run] of runs.entries()) {
     const outcome = run.conversationId ? outcomes.get(run.conversationId) : undefined
-    const route = run.route?.tier && run.route.model && run.route.routedBy ? run.route : (outcome?.route ?? run.route)
+    const latest = index === runs.length - 1 ? ticket.route : undefined
+    const route = [run.route, outcome?.route, latest].find(isComplete)
     if (!route?.tier || !route.model || !route.routedBy) {
       skipped += 1
       continue
@@ -149,14 +165,15 @@ function ticketRuns(
 function ticketStays(ticket: OrchestrationTicket, runs: readonly CountedRun[]): Stay[] {
   const groups: CountedRun[][] = []
   for (const run of runs) {
-    const last = groups.at(-1)?.[0]
-    if (last && last.group === run.group && last.tier === run.tier && last.model === run.model) groups.at(-1)!.push(run)
+    const open = groups.at(-1)
+    const opener = open?.[0]
+    if (open && opener?.group === run.group && opener.tier === run.tier && opener.model === run.model) open.push(run)
     else groups.push([run])
   }
   return groups.map((group, index) => {
     const [first] = group as [CountedRun, ...CountedRun[]]
     const next = groups[index + 1]?.[0]
-    let result: Result
+    let result: StayResult
     if (next) result = tierIndex(next.tier) > tierIndex(first.tier) ? 'escalated' : 'unmerged'
     else if (ticket.mergeStatus === 'merged')
       result = first.escalated ? 'mergedAfterEscalation' : 'mergedWithoutEscalation'
@@ -167,6 +184,7 @@ function ticketStays(ticket: OrchestrationTicket, runs: readonly CountedRun[]): 
       tier: first.tier,
       model: first.model,
       result,
+      escalatedIn: first.escalated,
       ...(known.length > 0 ? { turns: known.reduce((sum, turns) => sum + turns, 0) } : {})
     }
   })
@@ -181,30 +199,28 @@ function median(values: readonly number[]): number | null {
 }
 
 function rowsFor(stays: readonly Stay[]): RoutingReportRow[] {
-  const byPair = new Map<string, { tier: DifficultyTier; model: string; pair: Stay[] }>()
+  const byPair = new Map<string, { tier: DifficultyTier; model: string; stays: Stay[] }>()
   for (const stay of stays) {
     const key = `${tierIndex(stay.tier)}:${stay.model}`
-    const entry = byPair.get(key) ?? { tier: stay.tier, model: stay.model, pair: [] }
-    entry.pair.push(stay)
+    const entry = byPair.get(key) ?? { tier: stay.tier, model: stay.model, stays: [] }
+    entry.stays.push(stay)
     byPair.set(key, entry)
   }
   return [...byPair.entries()]
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    .map(([, { tier, model, pair }]) => {
-      const count = (result: Result): number => pair.filter((stay) => stay.result === result).length
-      const directSettled = pair.filter(
-        (stay) => stay.result !== 'inProgress' && stay.result !== 'mergedAfterEscalation'
-      ).length
+    .map(([, { tier, model, stays: onPair }]) => {
+      const count = (result: StayResult): number => onPair.filter((stay) => stay.result === result).length
+      const directSettled = onPair.filter((stay) => !stay.escalatedIn && stay.result !== 'inProgress').length
       return {
         tier,
         model,
-        tickets: pair.length,
+        tickets: onPair.length,
         mergedWithoutEscalation: count('mergedWithoutEscalation'),
         mergedAfterEscalation: count('mergedAfterEscalation'),
         escalated: count('escalated'),
         unmerged: count('unmerged'),
         inProgress: count('inProgress'),
-        medianTurns: median(pair.flatMap((stay) => (stay.turns === undefined ? [] : [stay.turns]))),
+        medianTurns: median(onPair.flatMap((stay) => (stay.turns === undefined ? [] : [stay.turns]))),
         sample: directSettled
       }
     })
@@ -229,7 +245,7 @@ export function proposeMappingChanges(rows: readonly RoutingReportRow[], mapping
     return row && row.sample >= ROUTING_REPORT_MINIMUM_SAMPLE ? row : undefined
   }
   const rate = (row: RoutingReportRow): number => row.mergedWithoutEscalation / row.sample
-  const numbers = (row: RoutingReportRow) => ({
+  const evidenceOf = (row: RoutingReportRow) => ({
     model: row.model,
     mergedWithoutEscalation: row.mergedWithoutEscalation,
     sample: row.sample
@@ -246,7 +262,7 @@ export function proposeMappingChanges(rows: readonly RoutingReportRow[], mapping
         tier,
         from,
         to: { model: cheaper.model },
-        evidence: numbers(cheaper),
+        evidence: evidenceOf(cheaper),
         summary: `${tier} → ${cheaper.model}: ${cheaper.mergedWithoutEscalation}/${cheaper.sample} Jev-routed ${tier} tickets merged without escalation`
       })
       continue
@@ -259,7 +275,7 @@ export function proposeMappingChanges(rows: readonly RoutingReportRow[], mapping
       tier,
       from,
       to,
-      evidence: numbers(own),
+      evidence: evidenceOf(own),
       summary: `${tier} → ${entryLabel(to)}: ${own.model} merged only ${own.mergedWithoutEscalation}/${own.sample} Jev-routed ${tier} tickets without escalation`
     })
   }

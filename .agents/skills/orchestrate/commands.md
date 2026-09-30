@@ -179,7 +179,7 @@ It never answers a tool-permission prompt. While a ticket session waits on one, 
     "high": { "model": "opus" },
     "frontier": { "model": "opus", "effort": "max" }
   },
-  "config": { "user": "C:\...\orchestration.json", "project": null }
+  "config": { "user": "<userData>/orchestration-config.json", "project": null }
 }
 ```
 

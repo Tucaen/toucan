@@ -126,6 +126,40 @@ test('the outcome record route stands in for a run the orchestration record pred
   assert.equal(report.orchestrations, 2)
 })
 
+test('a stay escalated in counts neither for nor against the tier it was escalated to', () => {
+  const twice = ticket('merged', jev('low', 'haiku'), jev('medium', 'sonnet', true), jev('high', 'opus', true))
+  const report = routingReport([record([twice])], new Map())
+  assert.deepEqual(
+    report.jev.map(({ tier, escalated, mergedAfterEscalation, sample }) => [
+      tier,
+      escalated,
+      mergedAfterEscalation,
+      sample
+    ]),
+    [
+      ['low', 1, 0, 1],
+      ['medium', 1, 0, 0],
+      ['high', 0, 1, 0]
+    ]
+  )
+})
+
+test("a run with no launch route takes its outcome record's route over the ticket's escalated one", () => {
+  const legacy: OrchestrationTicket = {
+    id: 'old',
+    title: 'Spawned before runs were kept',
+    blockedBy: [],
+    attempts: 1,
+    mergeStatus: 'merged',
+    route: jev('high', 'opus', true),
+    session: { conversationId: 'second' },
+    runs: [{ conversationId: 'first' }, { conversationId: 'second', route: jev('high', 'opus', true) }]
+  }
+  const report = routingReport([record([legacy])], new Map([['first', { route: jev('medium', 'sonnet') }]]))
+  assert.equal(row(report.jev, 'medium', 'sonnet')?.escalated, 1)
+  assert.equal(row(report.jev, 'high', 'opus')?.mergedAfterEscalation, 1)
+})
+
 /** `count` settled Jev tickets on one tier and model, `merged` of them merged without escalation. */
 function settled(tier: DifficultyTier, model: string, count: number, merged: number): OrchestrationTicket[] {
   return Array.from({ length: count }, (_, index) => ticket(index < merged ? 'merged' : 'unmerged', jev(tier, model)))

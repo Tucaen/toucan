@@ -344,6 +344,17 @@ test('every spawned session is kept as a run with the route it launched on (#40)
   assert.match(parseTicketUpdate({ runs: [] }).error ?? '', /"runs" is kept by Toucan/)
 })
 
+test('a session spawned before runs were kept joins the history, without a launch route, on the next spawn', () => {
+  const legacy = recordFrom(twoTickets)
+  legacy.tickets[1] = { ...legacy.tickets[1]!, session: { nodeId: 'n-0', conversationId: 'c-0' } }
+  const high = { tier: 'high' as const, model: 'opus', routedBy: 'jev' as const, escalated: true }
+  const next = recordTicketSession(legacy, '34', { nodeId: 'n-1', conversationId: 'c-1' }, LATER, high)
+  assert.deepEqual(next.tickets.find((ticket) => ticket.id === '34')?.runs, [
+    { conversationId: 'c-0' },
+    { conversationId: 'c-1', route: high }
+  ])
+})
+
 test('a ticket branch is a fresh name derived from the ticket id', () => {
   const candidates = ticketBranchCandidates('#34 Spawn!')
   assert.equal(candidates[0], 'ticket/34-spawn')

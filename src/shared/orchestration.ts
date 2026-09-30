@@ -580,8 +580,12 @@ export function recordTicketSession(
     ...(session.conversationId ? { conversationId: session.conversationId } : {}),
     ...(route ? { route } : {})
   }
+  // A session spawned before runs were kept (#40) joins the history without a launch route: by now
+  // `route` is the new spawn's, so the report takes that session's route from its outcome record.
+  const earlier = (ticket: OrchestrationTicket): TicketRun[] =>
+    ticket.runs ?? (ticket.session?.conversationId ? [{ conversationId: ticket.session.conversationId }] : [])
   const tickets = record.tickets.map((ticket) =>
-    ticket.id === ticketId ? { ...ticket, session, runs: [...(ticket.runs ?? []), run] } : ticket
+    ticket.id === ticketId ? { ...ticket, session, runs: [...earlier(ticket), run] } : ticket
   )
   return { ...record, tickets, updatedAt: now }
 }
