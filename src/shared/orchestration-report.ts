@@ -22,14 +22,16 @@ import type { TierMapping, TierMappingEntry } from './orchestration-routing'
 /**
  * How many settled tickets a tier and model need before the report proposes anything from them. Ten,
  * because the plan's own example ("9/10 without escalation") is the smallest sample it would act on.
+ * The reply states it as `minimumSample`.
+ * @internal exported for tests
  */
 export const ROUTING_REPORT_MINIMUM_SAMPLE = 10
 
 /** Below this share merged without escalation, the tier's model is proposed one tier up. */
-export const ROUTING_REPORT_RAISE_BELOW = 0.7
+const ROUTING_REPORT_RAISE_BELOW = 0.7
 
 /** At or above this share, a cheaper tier's model is proposed in place of the tier's own. */
-export const ROUTING_REPORT_LOWER_FROM = 0.9
+const ROUTING_REPORT_LOWER_FROM = 0.9
 
 /** What a ticket session's outcome record adds to a run: its turn count, and its `route:` fields. */
 export interface RoutingRunOutcome {
@@ -218,6 +220,7 @@ const sameEntry = (a: TierMappingEntry, b: TierMappingEntry): boolean => a.model
  * of its tickets without escalation; failing that, up to the next tier's entry when its own model
  * merged fewer than `ROUTING_REPORT_RAISE_BELOW`. Nothing is proposed from fewer than
  * `ROUTING_REPORT_MINIMUM_SAMPLE` settled tickets, and frontier has nowhere higher to go.
+ * @internal exported for tests
  */
 export function proposeMappingChanges(rows: readonly RoutingReportRow[], mapping: TierMapping): MappingProposal[] {
   const proposals: MappingProposal[] = []
