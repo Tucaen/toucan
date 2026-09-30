@@ -14,6 +14,8 @@ import {
 import { autoUpdater } from 'electron-updater'
 import { createAcpSessionManager, type AcpSessionManager } from './acp-session-manager'
 import { createOrchestrationStore } from './orchestration-store'
+import { createOrchestrationConfigStore } from './orchestration-config-store'
+import { createJevRouter } from './jev-router'
 import { createOrchestrationWaker } from './orchestration-wake'
 import { TICKET_SESSION_PROVIDER } from '../shared/orchestration'
 import { createOrchestratorEndpoint } from './orchestrator-endpoint'
@@ -375,6 +377,17 @@ void app.whenReady().then(async () => {
     // the record's `worktree` attribute is read from.
     worktreeIdForNode: async (nodeId) =>
       (await workspace.load()).state?.nodes.find((node) => node.id === nodeId)?.worktreeId,
+    // A ticket session's route (#36), found the way the orchestrator wake finds its ticket: by the
+    // node's orchestrated-by link and its orchestrator's record. Late-bound, like the spawner.
+    routeForNode: async (nodeId) => {
+      const link = (await workspace.load()).state?.nodes.find((node) => node.id === nodeId)?.orchestratedBy
+      if (!link) return undefined
+      const record = await orchestrationRecords.read({
+        provider: TICKET_SESSION_PROVIDER,
+        conversationId: link.conversationId
+      })
+      return record?.tickets.find((ticket) => ticket.session?.nodeId === nodeId)?.route
+    },
     // The same durable title every other surface shows, so a record cannot name the conversation
     // something the user renamed away from.
     titleFor: async (provider, conversationId) => (await conversationTitles.get(provider, conversationId))?.title,
@@ -442,8 +455,20 @@ void app.whenReady().then(async () => {
     log: mainLog('orchestrator wake')
   })
   agentEvents.observe((id, event) => orchestrationWaker.observe(id, event))
+  // Routing by difficulty tier (#36): the user's tier mapping, the Claude picker as last seen, and
+  // Jev, asked from main with main's own TYPESAFE_API_KEY so the key never leaves this process.
+  const orchestrationConfig = createOrchestrationConfigStore({ userDataPath: app.getPath('userData') })
+  const jevRouter = createJevRouter({ environment: () => process.env })
   const orchestratorEndpoint = createOrchestratorEndpoint({
     records: orchestrationRecords,
+    routing: {
+      config: (projectPath) => orchestrationConfig.load(projectPath),
+      offered: () => ({
+        models: (modelCatalogue.read().claude ?? []).map((model) => model.id),
+        efforts: (modelId) => effortCatalogue.efforts(TICKET_SESSION_PROVIDER, modelId)
+      }),
+      jev: jevRouter
+    },
     // Late-bound: the spawner needs the window requests and the model catalogue wired below.
     spawner: { spawn: (request) => ticketSpawner.spawn(request) },
     ticketSessions: {

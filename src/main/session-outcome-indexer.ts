@@ -21,6 +21,7 @@ import {
   type SessionOutcomeSource
 } from '../shared/session-outcome'
 import type { GitHeadState } from '../shared/git-branch'
+import type { TicketRoute } from '../shared/orchestration'
 import type { AgentEventBroker } from './agent-event-broker'
 import type { SessionOutcomeStore, SessionOutcomeUpdate } from './session-outcome-store'
 
@@ -89,6 +90,11 @@ export interface SessionOutcomeIndexerOptions {
    * fails must cost the attribute rather than the record.
    */
   worktreeIdForNode?: (nodeId: string) => Promise<string | undefined>
+  /**
+   * An orchestrated ticket session's route (#36), from its orchestrator's orchestration record.
+   * Undefined for every other node; a lookup that fails keeps the route the record already had.
+   */
+  routeForNode?: (nodeId: string) => Promise<TicketRoute | undefined>
   /**
    * The durable conversation title (`conversation-title-store.ts`), keyed identically. Consulted
    * rather than re-derived so a record cannot contradict the name the user sees - a manual rename
@@ -246,6 +252,12 @@ export function createSessionOutcomeIndexer(options: SessionOutcomeIndexerOption
     } catch {
       // An unreadable workspace snapshot costs the worktree attribute, never the record.
     }
+    let route: TicketRoute | undefined
+    try {
+      route = await options.routeForNode?.(sessionId)
+    } catch {
+      // Same rule: an unreadable orchestration record keeps the route the outcome record had.
+    }
     try {
       checkoutPath = await options.checkoutPathFor?.(context.projectPath)
     } catch {
@@ -273,6 +285,7 @@ export function createSessionOutcomeIndexer(options: SessionOutcomeIndexerOption
       projectPath: context.projectPath,
       ...(worktreeId ? { worktreeId } : {}),
       ...(title ? { title } : {}),
+      ...(route ? { route } : {}),
       ...(codeState ? { codeState } : {}),
       ...(firstAsk ? { firstAsk } : {}),
       ...(transcriptPath ? { transcriptPath } : {}),

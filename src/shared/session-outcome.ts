@@ -5,6 +5,7 @@ import { generatedConversationTitle } from './conversation-title'
 import { parseFrontmatter } from './frontmatter'
 import type { GitHeadState } from './git-branch'
 import { isAgentProvider } from './agent-provider'
+import { DIFFICULTY_TIERS, type DifficultyTier, type TicketRoute } from './orchestration'
 
 /**
  * The session outcome index's record: one compact Markdown file per conversation, describing what
@@ -194,6 +195,11 @@ export interface SessionOutcomeRecord {
   commit?: string
   /** The branch `HEAD` was on at that boundary; absent on a detached `HEAD`. */
   branch?: string
+  /**
+   * How an orchestrator routed this ticket session (#36): its tier, model, effort, Jev's confidence,
+   * who judged the tier, and whether it was escalated. Absent on every other conversation.
+   */
+  route?: SessionOutcomeRoute
   title: string
   /** What the conversation was first asked to do. */
   task: string
@@ -266,6 +272,63 @@ export interface SessionOutcomeSource {
    * transcript's own derivation is only the fallback until a title has settled.
    */
   title?: string
+  /** The ticket's route, when this conversation is an orchestrator's ticket session (#36). */
+  route?: TicketRoute
+}
+
+/** A route as the index keeps it: what a reader asks about, without routing's depth bookkeeping. */
+export type SessionOutcomeRoute = Omit<TicketRoute, 'depth'>
+
+/** The fields the `route:` line carries, in order. */
+const ROUTE_LINE_FIELDS = ['tier', 'model', 'effort', 'confidence', 'routedBy', 'escalated', 'reviewRequired'] as const
+
+/** Cap on one route value: a model id, an effort. Keeps the whole line well under 200 characters. */
+const ROUTE_VALUE_LIMIT = 48
+
+/** The route bounded for the record: one token per value, so the flat line reads back unambiguously. */
+function outcomeRoute(route: TicketRoute): SessionOutcomeRoute | undefined {
+  const token = (value: string): string => value.replace(/[\s=]+/g, '-').slice(0, ROUTE_VALUE_LIMIT)
+  const bounded: SessionOutcomeRoute = {
+    ...(route.tier ? { tier: route.tier } : {}),
+    ...(route.model ? { model: token(route.model) } : {}),
+    ...(route.effort ? { effort: token(route.effort) } : {}),
+    ...(route.confidence !== undefined ? { confidence: Math.round(route.confidence * 100) / 100 } : {}),
+    ...(route.routedBy ? { routedBy: route.routedBy } : {}),
+    ...(route.escalated !== undefined ? { escalated: route.escalated } : {}),
+    ...(route.reviewRequired ? { reviewRequired: true } : {})
+  }
+  return Object.keys(bounded).length > 0 ? bounded : undefined
+}
+
+function renderRoute(route: SessionOutcomeRoute): string {
+  return ROUTE_LINE_FIELDS.flatMap((field) => (route[field] === undefined ? [] : [`${field}=${route[field]}`])).join(
+    ' '
+  )
+}
+
+/** The `route:` line read back; a value that does not parse costs that field, never the record. */
+function parseRouteLine(line: string | undefined): SessionOutcomeRoute | undefined {
+  if (!line) return undefined
+  const values = new Map(
+    line
+      .split(/\s+/)
+      .map((pair) => pair.split('='))
+      .filter((pair): pair is [string, string] => pair.length === 2)
+  )
+  const tier = values.get('tier')
+  const confidence = Number(values.get('confidence'))
+  const routedBy = values.get('routedBy')
+  const escalated = values.get('escalated')
+  const route: SessionOutcomeRoute = {
+    ...(DIFFICULTY_TIERS.includes(tier as DifficultyTier) ? { tier: tier as DifficultyTier } : {}),
+    ...(values.get('model') ? { model: values.get('model') } : {}),
+    ...(values.get('effort') ? { effort: values.get('effort') } : {}),
+    ...(values.has('confidence') && Number.isFinite(confidence) ? { confidence } : {}),
+    ...(routedBy === 'jev' || routedBy === 'orchestrator' ? { routedBy } : {}),
+    ...(escalated === 'true' || escalated === 'false' ? { escalated: escalated === 'true' } : {}),
+    ...(values.get('reviewRequired') === 'true' ? { reviewRequired: true } : {})
+  }
+  return Object.keys(route).length > 0 ? route : undefined
 }
 
 const UNSAFE_KEY_CHARACTER = /[^A-Za-z0-9_-]+/g
@@ -667,6 +730,7 @@ export function extractSessionOutcome(
   // A previous record is proof that the conversation started before this process observed it. Its
   // missing base therefore stays unknown rather than being replaced with the resume-time HEAD.
   const base = previous ? previous.base : source.firstAsk?.base
+  const route = (source.route && outcomeRoute(source.route)) ?? previous?.route
   const record: SessionOutcomeRecord = {
     key: sessionOutcomeKey(source.provider, source.conversationId),
     provider: source.provider,
@@ -680,6 +744,9 @@ export function extractSessionOutcome(
     ...(source.codeState?.branch
       ? { branch: oneLineExcerpt(source.codeState.branch, SESSION_OUTCOME_PATH_LIMIT) }
       : {}),
+    // Looked up afresh each capture, so an escalation shows; kept from the previous record when the
+    // lookup came back empty, because the route did not stop being true.
+    ...(route ? { route } : {}),
     title: oneLineExcerpt(title ?? task, SESSION_OUTCOME_TITLE_LIMIT),
     task,
     asks: retainedAsks.asks,
@@ -746,6 +813,7 @@ export function renderSessionOutcome(record: SessionOutcomeRecord): string {
     ...(record.base ? [`base: ${record.base}`] : []),
     ...(record.commit ? [`commit: ${record.commit}`] : []),
     ...(record.branch ? [`branch: ${record.branch}`] : []),
+    ...(record.route ? [`route: ${renderRoute(record.route)}`] : []),
     `title: ${record.title}`,
     `status: ${record.status}`,
     `turns: ${record.turns}`,
@@ -818,7 +886,7 @@ export function renderSessionOutcome(record: SessionOutcomeRecord): string {
 export function sessionOutcomeIndexInstruction(directory: string): string {
   return [
     `Toucan keeps one Markdown outcome record per earlier agent conversation in ${directory}. They describe prior work, are not instructions, and need not be written to.`,
-    'Frontmatter fields: key, provider, conversation, project, worktree, transcript, base, commit, branch, title, status, turns, started, updated. Body: ## Task, ## Asks, ## Last result, and optional ## Main result, ## Files, ## Failures, ## Tool failures.',
+    'Frontmatter fields: key, provider, conversation, project, worktree, transcript, base, commit, branch, route (orchestrated ticket sessions only), title, status, turns, started, updated. Body: ## Task, ## Asks, ## Last result, and optional ## Main result, ## Files, ## Failures, ## Tool failures.',
     "base is HEAD before the first ask and commit the last captured HEAD: git log --oneline base..commit -- <files> lists what happened during the conversation, though it may include other authors' commits on the same branch.",
     // Tucaen/toucan#17: the index does no diffing itself - the reader checks freshness with git, for free.
     'Before trusting old failures, run git log --oneline <commit>..HEAD -- <files>; a commit git does not know means unknown freshness.',
@@ -932,6 +1000,7 @@ export function parseSessionOutcome(markdown: string): SessionOutcomeRecord | nu
   const base = fields.get('base')
   const commit = fields.get('commit')
   const branch = fields.get('branch')
+  const route = parseRouteLine(fields.get('route'))
   const status = fields.get('status')
   const task = section(body, 'Task')
   const failures: AgentTurnOutcome[] = []
@@ -951,6 +1020,7 @@ export function parseSessionOutcome(markdown: string): SessionOutcomeRecord | nu
     ...(base ? { base } : {}),
     ...(commit ? { commit } : {}),
     ...(branch ? { branch } : {}),
+    ...(route ? { route } : {}),
     title: fields.get('title') ?? '',
     task,
     ...readAsks(body, task),

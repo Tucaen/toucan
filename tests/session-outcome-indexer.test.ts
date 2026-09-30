@@ -77,6 +77,7 @@ interface FixtureOptions {
   codeState?: SessionOutcomeIndexerOptions['codeStateFor']
   checkoutPath?: SessionOutcomeIndexerOptions['checkoutPathFor']
   transcriptPath?: SessionOutcomeIndexerOptions['transcriptPathFor']
+  routeForNode?: SessionOutcomeIndexerOptions['routeForNode']
   temporaryDirectory?: string
 }
 
@@ -88,6 +89,7 @@ function fixture({
   codeState,
   checkoutPath,
   transcriptPath,
+  routeForNode,
   temporaryDirectory
 }: FixtureOptions = {}): Fixture {
   const root = mkdtempSync(join(tmpdir(), 'toucan-outcomes-'))
@@ -104,6 +106,7 @@ function fixture({
     ...(codeState ? { codeStateFor: codeState } : {}),
     ...(checkoutPath ? { checkoutPathFor: checkoutPath } : {}),
     ...(transcriptPath ? { transcriptPathFor: transcriptPath } : {}),
+    ...(routeForNode ? { routeForNode } : {}),
     ...(temporaryDirectory ? { temporaryDirectory } : {}),
     now: () => new Date((clock += 60_000)),
     log: (message) => failures.push(message)
@@ -396,6 +399,34 @@ test('the worktree a node is attached to reaches the record', async () => {
     await session.settle()
 
     assert.equal(session.record('codex-conv-1')?.worktreeId, 'wt-5')
+  } finally {
+    session.dispose()
+  }
+})
+
+test("an orchestrated ticket session's route reaches its record (#36)", async () => {
+  const asked: string[] = []
+  const session = fixture({
+    routeForNode: async (nodeId) => {
+      asked.push(nodeId)
+      return { tier: 'medium', model: 'sonnet', effort: 'high', confidence: 0.8, routedBy: 'jev', escalated: false }
+    }
+  })
+  try {
+    session.publish(user('u1', '/implement #12 Rename a flag'), assistant('a1', 'Done.'), {
+      type: 'turn_complete',
+      stopReason: 'end_turn'
+    })
+    await session.settle()
+    assert.deepEqual(asked, ['node-1'])
+    assert.deepEqual(session.record('codex-conv-1')?.route, {
+      tier: 'medium',
+      model: 'sonnet',
+      effort: 'high',
+      confidence: 0.8,
+      routedBy: 'jev',
+      escalated: false
+    })
   } finally {
     session.dispose()
   }

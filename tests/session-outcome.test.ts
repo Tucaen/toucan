@@ -1060,3 +1060,60 @@ test('tool failures seen by an earlier process survive a restart that no longer 
 test('the pointer tells a session the record may carry tool failures (Tucaen/toucan#22)', () => {
   assert.ok(sessionOutcomeIndexInstruction('D:\\outcomes').includes('## Tool failures'))
 })
+
+test('a ticket session record carries its route as one flat line that round-trips (#36)', () => {
+  const snapshot = transcript(user('u1', '/implement #12 Rename a flag'))
+  const route = {
+    tier: 'high' as const,
+    model: 'opus',
+    effort: 'xhigh',
+    confidence: 0.42,
+    depth: 3.1,
+    routedBy: 'jev' as const,
+    escalated: false,
+    reviewRequired: true
+  }
+  const record = extractSessionOutcome(snapshot, { ...SOURCE, route }, null, AT)
+  assert.ok(record)
+  const rendered = renderSessionOutcome(record)
+  assert.match(
+    rendered,
+    /^route: tier=high model=opus effort=xhigh confidence=0\.42 routedBy=jev escalated=false reviewRequired=true$/m
+  )
+  // The depth score is routing's own bookkeeping, not something a reader of the index needs.
+  const { depth: _depth, ...shown } = route
+  assert.deepEqual(parseSessionOutcome(rendered)?.route, shown)
+  assert.deepEqual(parseSessionOutcome(rendered), { ...record, route: shown })
+  // An ordinary conversation has no route and spends no line on one.
+  assert.doesNotMatch(renderSessionOutcome(extractSessionOutcome(snapshot, SOURCE, null, AT)!), /^route:/m)
+})
+
+test('a route keeps the previous record when this capture could not look it up (#36)', () => {
+  const snapshot = transcript(user('u1', '/implement #12 Rename a flag'))
+  const first = extractSessionOutcome(snapshot, { ...SOURCE, route: { tier: 'low', model: 'haiku' } }, null, AT)!
+  const next = extractSessionOutcome(snapshot, SOURCE, first, AT)!
+  assert.deepEqual(next.route, { tier: 'low', model: 'haiku' })
+})
+
+test('a record filled to every cap with a route still fits the retrieval budget (#36)', () => {
+  const snapshot = transcript(
+    user('u1', `Do this: ${'context '.repeat(400)}`),
+    assistant('a1', `Done: ${'detail '.repeat(400)}`, 'final'),
+    { type: 'turn_complete', stopReason: 'end_turn' }
+  )
+  const record = extractSessionOutcome(
+    snapshot,
+    {
+      ...SOURCE,
+      route: { tier: 'frontier', model: 'm'.repeat(300), effort: 'e'.repeat(300), confidence: 0.123456789 },
+      filesTouched: Array.from({ length: 300 }, (_, index) => `src/${'deeply-nested/'.repeat(20)}file-${index}.ts`)
+    },
+    null,
+    AT
+  )!
+  const line = renderSessionOutcome(record)
+    .split('\n')
+    .find((candidate) => candidate.startsWith('route: '))!
+  assert.ok(line.length <= 200, line)
+  assert.ok(renderSessionOutcome(record).length <= SESSION_OUTCOME_SIZE_BUDGET)
+})
