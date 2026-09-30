@@ -7,6 +7,7 @@ import type { IpcEventRegistrar } from './ipc-registrar'
 import { isRecord, isString, optionalString } from './ipc-validation'
 import type { WorkspaceContainment } from './workspace-containment'
 
+/** @internal exported for tests */
 export function isAgentCreateRequest(value: unknown): value is AgentCreateRequest {
   if (!isRecord(value) || !isString(value.id) || !isString(value.cwd)) return false
   if (value.provider !== 'claude' && value.provider !== 'codex') return false
