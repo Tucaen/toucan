@@ -1,8 +1,9 @@
-import { screen, waitFor } from '@testing-library/react'
+import { act, screen, waitFor } from '@testing-library/react'
 import { describe, expect, test, vi } from 'vitest'
 import type { AgentApi, AgentCreateRequest } from '../src/shared/agent'
 import type { TicketSessionCanvasRequest, TicketSessionCanvasResult } from '../src/shared/ticket-session-spawn'
 import type { WorkspaceState } from '../src/shared/workspace'
+import type { TicketCleanupRequest, TicketCleanupResult } from '../src/shared/orchestration-cleanup'
 import { createMockAgentApi } from './dom/agent-api-mock'
 import { DEFAULT_PROJECT as project, renderApp, savedWorkspace } from './dom/app-harness'
 
@@ -43,6 +44,8 @@ const request: TicketSessionCanvasRequest = {
 }
 
 async function render(agentOverrides: Partial<AgentApi> = {}) {
+  let cleanupTicket: ((requestId: string, request: TicketCleanupRequest) => void) | null = null
+  const cleanupResults: TicketCleanupResult[] = []
   let requestTicketSession: ((requestId: string, request: TicketSessionCanvasRequest) => void) | null = null
   const results: { requestId: string; result: TicketSessionCanvasResult }[] = []
   const agent = createMockAgentApi(agentOverrides)
@@ -51,6 +54,13 @@ async function render(agentOverrides: Partial<AgentApi> = {}) {
     apis: {
       agentApi: agent.api as unknown as Record<string, unknown>,
       orchestratorApi: {
+        onCleanupTicket: (callback: typeof cleanupTicket) => {
+          cleanupTicket = callback
+          return () => {
+            cleanupTicket = null
+          }
+        },
+        completeCleanupTicket: (_id: string, result: TicketCleanupResult) => cleanupResults.push(result),
         onStartTicketSession: (callback: typeof requestTicketSession) => {
           requestTicketSession = callback
           return () => {
@@ -63,13 +73,48 @@ async function render(agentOverrides: Partial<AgentApi> = {}) {
     }
   })
   await waitFor(() => expect(requestTicketSession).not.toBeNull())
-  return { harness, agent, results, start: (id: string, body = request) => requestTicketSession!(id, body) }
+  return {
+    harness,
+    agent,
+    results,
+    cleanupResults,
+    cleanup: (body: TicketCleanupRequest) => cleanupTicket!('cleanup', body),
+    start: (id: string, body = request) => requestTicketSession!(id, body)
+  }
 }
 
 const createRequests = (agent: ReturnType<typeof createMockAgentApi>): AgentCreateRequest[] =>
   vi.mocked(agent.api.create).mock.calls.map(([created]) => created)
 
 describe('a ticket session requested by an orchestrator', () => {
+  test('cleanup suspends its settled chat before removing the worktree canvas', async () => {
+    const { start, results, cleanup, cleanupResults, agent } = await render()
+    start('ticket-1')
+    await waitFor(() => expect(results).toHaveLength(1))
+    const session = results[0].result as { nodeId: string; conversationId: string }
+    await waitFor(() => expect(vi.mocked(agent.api.prompt).mock.calls.length).toBeGreaterThan(0))
+    await act(async () => {
+      agent.emit(session.nodeId, { type: 'turn_complete' })
+      agent.emit(session.nodeId, { type: 'status', status: 'ready' })
+    })
+    const body: TicketCleanupRequest = {
+      projectPath: project.path,
+      session: { ...session, worktreePath: request.worktree.path, branch: request.worktree.branch },
+      phase: 'close'
+    }
+    await waitFor(() => {
+      cleanup(body)
+      expect(cleanupResults.at(-1)).toEqual({ ok: true })
+    })
+    await waitFor(() => expect(agent.api.kill).toHaveBeenCalledWith(session.nodeId))
+    expect(screen.queryAllByText('#34 Spawn').length).toBeGreaterThan(0)
+    cleanup({ ...body, phase: 'remove' })
+    await waitFor(() => expect(screen.queryAllByText('ticket/34')).toHaveLength(0))
+    expect(screen.queryAllByText('#34 Spawn')).toHaveLength(0)
+    expect(cleanupResults.at(-1)).toEqual({ ok: true })
+    expect(screen.getAllByText('Orchestrator 1').length).toBeGreaterThan(0)
+  })
+
   test('opens a Claude chat in its worktree on the model, effort and mode main named', async () => {
     const { agent, results, start } = await render()
     start('ticket-1')

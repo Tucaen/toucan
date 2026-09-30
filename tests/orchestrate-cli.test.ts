@@ -42,6 +42,7 @@ async function harness() {
   const records = createOrchestrationStore({ directory: mkdtempSync(join(tmpdir(), 'toucan-orchestrate-cli-')) })
   const endpoint = createOrchestratorEndpoint({
     records,
+    cleanup: { run: async () => ({ removed: [{ ticket: '34' }], retained: [] }) },
     spawner: {
       async spawn(request) {
         calls.push(request)
@@ -81,6 +82,30 @@ test('without an orchestrator environment the CLI refuses clearly and calls noth
   })
   assert.equal(noToken.code, 2)
   assert.match(noToken.output.error ?? '', /TOUCAN_ORCHESTRATOR_TOKEN/)
+})
+
+test('cleanup runs through the scoped endpoint and rejects extra arguments', async () => {
+  const { endpoint, environment } = await harness()
+  try {
+    const missing = await run(['cleanup'], environment)
+    assert.equal(missing.code, 1)
+    assert.match(missing.output.error ?? '', /plan/)
+    await run(
+      [
+        'plan',
+        'set',
+        '--json',
+        JSON.stringify({ task: 'Done', targetBranch: 'main', tickets: [{ id: '34', title: 'Done' }] })
+      ],
+      environment
+    )
+    const result = await run(['cleanup'], environment)
+    assert.equal(result.code, 0)
+    assert.deepEqual(result.output.removed, [{ ticket: '34' }])
+    assert.equal((await run(['cleanup', '--force'], environment)).code, 2)
+  } finally {
+    await endpoint.close()
+  }
 })
 
 test('plan set, plan show, ticket update and spawn each print one JSON line', async () => {

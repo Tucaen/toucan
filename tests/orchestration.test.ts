@@ -50,6 +50,17 @@ const twoTickets = {
   ]
 }
 
+test('only a ticket whose blockers have merged can reserve a spawn', () => {
+  const record = recordFrom(twoTickets)
+  assert.match(reserveSpawn(record, '34', NOW).error ?? '', /unmerged blockers.*33/)
+  assert.equal(record.spawnCount ?? 0, 0)
+  record.tickets[0].mergeStatus = 'unmerged'
+  assert.match(reserveSpawn(record, '34', NOW).error ?? '', /unmerged blockers/)
+  record.tickets[0].mergeStatus = 'merged'
+  assert.equal(reserveSpawn(record, '34', NOW).record?.spawnCount, 1)
+  assert.match(reserveSpawn(record, '33', NOW).error ?? '', /already merged/)
+})
+
 test('a plan becomes a record whose tickets start pending with no attempts', () => {
   const record = recordFrom(twoTickets)
 
@@ -273,7 +284,7 @@ test('a spawn is reserved against the record and refused past twenty per orchest
   let record = recordFrom(twoTickets)
   assert.match(reserveSpawn(record, '99', NOW).error ?? '', /no ticket "99"/)
   for (let index = 0; index < MAX_SPAWNS_PER_ORCHESTRATION; index += 1) {
-    const reserved = reserveSpawn(record, index % 2 === 0 ? '33' : '34', LATER)
+    const reserved = reserveSpawn(record, '33', LATER)
     if (!reserved.record) throw new Error(`spawn ${index + 1} refused: ${reserved.error}`)
     record = reserved.record
   }

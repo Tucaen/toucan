@@ -127,6 +127,8 @@ export function installWindowApis(options: AppHarnessOptions = {}): AppHarness {
     appUpdateApi: createMockAppUpdateApi() as unknown as Record<string, unknown>,
     remoteApi: createMockRemoteApi() as unknown as Record<string, unknown>,
     orchestratorApi: {
+      onCleanupTicket: () => () => undefined,
+      completeCleanupTicket: vi.fn(),
       onStartTicketSession: () => () => undefined,
       completeTicketSession: vi.fn(),
       jevReachability: vi.fn(async () => ({ state: 'reachable' as const }))

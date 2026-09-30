@@ -17,7 +17,7 @@ const plan = {
   targetBranch: 'main',
   tickets: [
     { id: '33', title: 'Foundation', body: 'The endpoint and the record' },
-    { id: '34', title: 'Spawn', blockedBy: ['33'] }
+    { id: '34', title: 'Spawn' }
   ]
 }
 
@@ -74,6 +74,23 @@ async function planned(spawner?: TicketSpawner) {
 }
 
 const spawn34 = { ticket: '34', model: 'claude-opus-5-5', effort: 'high' }
+
+test('spawn refuses unmerged blockers without spending a spawn', async () => {
+  const spawner = fakeSpawner()
+  const { endpoint, grant, records } = await planned(spawner)
+  try {
+    await call(grant, 'ticket update', { id: '34', fields: { blockedBy: ['33'] } })
+    const refused = await call(grant, 'spawn', spawn34)
+    assert.equal(refused.body.ok, false)
+    assert.match(refused.body.error ?? '', /unmerged blockers.*33/)
+    assert.equal((await records.read({ provider: 'claude', conversationId: 'conversation-1' }))?.spawnCount ?? 0, 0)
+    assert.equal(spawner.calls.length, 0)
+    await call(grant, 'ticket update', { id: '33', fields: { mergeStatus: 'merged' } })
+    assert.equal((await call(grant, 'spawn', spawn34)).status, 200)
+  } finally {
+    await endpoint.close()
+  }
+})
 
 test('a spawn hands the spawner the ticket, the target branch and the orchestrator, and records the session', async () => {
   const spawner = fakeSpawner()

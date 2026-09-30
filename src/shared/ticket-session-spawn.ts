@@ -1,5 +1,6 @@
 import type { JevReachability } from './orchestration-routing'
 import { isRecord } from './record'
+import type { TicketCleanupRequest, TicketCleanupResult } from './orchestration-cleanup'
 
 /**
  * The canvas half of spawning a ticket session (#34). Main creates the worktree, guards it and
@@ -52,6 +53,8 @@ export interface OrchestratorApi {
    */
   onStartTicketSession(callback: (requestId: string, request: TicketSessionCanvasRequest) => void): () => void
   completeTicketSession(requestId: string, result: TicketSessionCanvasResult): void
+  onCleanupTicket(callback: (requestId: string, request: TicketCleanupRequest) => void): () => void
+  completeCleanupTicket(requestId: string, result: TicketCleanupResult): void
   /** Whether Jev can route this orchestrator's tickets (#36); never the key itself. */
   jevReachability(): Promise<JevReachability>
 }

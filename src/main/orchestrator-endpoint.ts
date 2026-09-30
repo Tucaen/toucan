@@ -46,6 +46,7 @@ import type { OrchestrationKey, OrchestrationStore } from './orchestration-store
 import type { TicketBinding } from './orchestration-wake'
 import { createPairingToken, pairingTokenMatches, presentedPairingToken } from './remote/pairing'
 import type { TicketSpawner } from './ticket-spawner'
+import type { OrchestrationCleanup } from './orchestration-cleanup'
 
 /**
  * The local endpoint an orchestrator's CLI talks to (#33; plan in
@@ -126,6 +127,7 @@ export interface OrchestratorEndpointOptions {
   routing?: OrchestratorRouting
   /** Starts ticket sessions for `spawn`; absent, `spawn` is refused as unavailable. */
   spawner?: TicketSpawner
+  cleanup?: OrchestrationCleanup
   /** Absent, `status` reports no live state and `outcome` and `followup` are refused as unavailable. */
   ticketSessions?: TicketSessionControl
   /** A ticket session was spawned: the orchestrator wake starts reporting its events. */
@@ -603,6 +605,13 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
     if (command === 'spawn') return spawn(grant, key, args)
     if (command === 'route') return route(grant, key, args)
     if (command === 'escalate') return escalate(grant, key, args)
+    if (command === 'cleanup') {
+      if (args !== undefined) return refused(400, 'cleanup takes no arguments')
+      const own = await ownRecord(grant, key)
+      if ('status' in own) return own
+      if (!options.cleanup) return refused(501, 'this Toucan cannot clean up ticket worktrees')
+      return { status: 200, body: { ok: true, ...(await options.cleanup.run(own.record)) } }
+    }
     if (command === 'status' || command === 'outcome' || command === 'followup') {
       const own = await ownRecord(grant, key)
       if ('status' in own) return own

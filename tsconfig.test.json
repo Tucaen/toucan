@@ -24,6 +24,9 @@
   "include": [
     "src/main/acp-session-manager.ts",
     "src/main/background-process.ts",
+    "src/main/orchestration-cleanup.ts",
+    "src/main/ticket-push-guard.ts",
+    "src/main/session-outcome-store.ts",
     "src/main/whisper-engine.ts",
     "src/main/zip-extract.ts",
     "src/shared/agent-transcript.ts",

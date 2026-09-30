@@ -1163,6 +1163,9 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         sessionSkillsConfiguration(running.request.provider, running.request.cwd, toucanSkillsRoot),
         [
           ...(running.request.additionalDirectories ?? []),
+          ...(isClaudeOrchestrator(running.request)
+            ? [join(toucanSkillsRoot ?? options.appPath, PROJECT_SKILLS_DIRECTORY, 'skills', 'orchestrate')]
+            : []),
           ...(sessionOutcomesDirectory ? [sessionOutcomesDirectory] : [])
         ]
       )

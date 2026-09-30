@@ -105,6 +105,8 @@ export const REMOTE_CHANNELS = {
 } as const
 
 export const ORCHESTRATOR_CHANNELS = {
+  cleanupTicket: 'orchestrator:cleanup-ticket',
+  cleanupTicketResult: 'orchestrator:cleanup-ticket-result',
   /** Main asks the renderer to put a ticket session on the canvas; the answer comes on `ticketSessionResult`. */
   startTicketSession: 'orchestrator:start-ticket-session',
   ticketSessionResult: 'orchestrator:ticket-session-result',

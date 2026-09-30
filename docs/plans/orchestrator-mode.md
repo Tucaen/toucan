@@ -173,6 +173,27 @@ the chat node's model list, with models the picker no longer offers shown as mis
 implementation-skill field with the ticket contract beside it - what the skill must do and what
 it must not do.
 
+## Live verification (#37)
+
+Run `npm run build:test-out`, then `node scripts/verify-orchestration.mjs` outside `npm test`.
+The harness uses real Claude ACP sessions, the shipped workflow, endpoint, spawner, wake handling,
+outcome records and cleanup, with a headless canvas transport. Two dependent changes exercise a
+fresh upstream on a **local bare remote**, deliberate Jev-unavailable fallback routing, ticket
+commits, rebase/full-suite/fast-forward/push, and final cleanup. It retains the temporary fixture
+and evidence and stops at permission prompts rather than granting them. No tracker or external
+remote is involved, so tracker write-back, real Jev routing and conflict retries are not covered
+by this smoke; the desktop cleanup path is covered by the DOM suite.
+
+2026-09-30 run: **not yet an end-to-end pass**. The first networked run opened an orchestrator but
+requested permission to read its shipped skill. That exposed a launch omission: orchestrator
+sessions now receive the specific `orchestrate` skill directory as an additional directory;
+ordinary sessions do not. The next run read all three workflow files successfully and stopped
+on Claude's tool-permission prompt for the initial Git/CLI inspection command, as intended by
+the harness. Fixture: `toucan-orchestration-smoke-LyGYw5` under the OS temporary directory;
+conversation `2de569fa-1baa-4ba0-9ba2-3f8f13101320`; evidence in `evidence.txt`. No ticket was
+spawned or merged in that run. Completing this acceptance criterion requires a human-approved
+run that can execute those fixture commands; it remains pending.
+
 ## Open facts to settle during implementation
 
 - Whether the chat node's model list and effort options are available to main at spawn time

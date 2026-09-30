@@ -19,6 +19,8 @@ import { createJevRouter } from './jev-router'
 import { createOrchestrationWaker } from './orchestration-wake'
 import { TICKET_SESSION_PROVIDER } from '../shared/orchestration'
 import { createOrchestratorEndpoint } from './orchestrator-endpoint'
+import { createOrchestrationCleanup } from './orchestration-cleanup'
+import type { TicketCleanupRequest, TicketCleanupResult } from '../shared/orchestration-cleanup'
 import { createSetupCommandRunner } from './setup-command'
 import { installPushGuard } from './ticket-push-guard'
 import { createTicketSpawner, type TicketSpawner } from './ticket-spawner'
@@ -151,6 +153,7 @@ function createWindow(
   remote: RemoteAccessServer,
   canvasRequests: RemoteCanvasRequests,
   ticketSessions: Pick<WindowRequests<TicketSessionCanvasRequest, TicketSessionCanvasResult>, 'attach'>,
+  ticketCleanup: Pick<WindowRequests<TicketCleanupRequest, TicketCleanupResult>, 'attach'>,
   appUpdater: AppUpdater,
   voiceModel: VoiceModelStore
 ): void {
@@ -194,12 +197,14 @@ function createWindow(
   const detachCanvasWindow = canvasRequests.attach(contents)
   // An orchestrator's ticket session is put on the canvas by a window for the same reason.
   const detachTicketSessionWindow = ticketSessions.attach(contents)
+  const detachTicketCleanupWindow = ticketCleanup.attach(contents)
   contents.on('destroyed', () => {
     stopForwardingRemoteState()
     stopForwardingUpdates()
     stopForwardingVoiceModel()
     detachCanvasWindow()
     detachTicketSessionWindow()
+    detachTicketCleanupWindow()
     terminalManager.disconnectOwner(contents)
     agentManager.killOwned(contents)
     brainDumpCapture.disconnectOwner(contents)
@@ -471,6 +476,7 @@ void app.whenReady().then(async () => {
     },
     // Late-bound: the spawner needs the window requests and the model catalogue wired below.
     spawner: { spawn: (request) => ticketSpawner.spawn(request) },
+    cleanup: { run: (record) => orchestrationCleanup.run(record) },
     ticketSessions: {
       state: (nodeId) => {
         const snapshot = agentEvents.snapshot(nodeId)
@@ -602,6 +608,41 @@ void app.whenReady().then(async () => {
     if (typeof requestId === 'string' && isTicketSessionCanvasResult(result)) ticketSessions.complete(requestId, result)
   })
   const runSetupCommand = createSetupCommandRunner({ shell: terminalShell })
+  const ticketCleanup = createWindowRequests<TicketCleanupRequest, TicketCleanupResult>({
+    channel: ORCHESTRATOR_CHANNELS.cleanupTicket,
+    messages: {
+      noWindow: 'Open the desktop to clean up ticket worktrees.',
+      windowGone: 'The desktop closed during ticket cleanup.',
+      timeout: 'The desktop did not finish ticket cleanup; retry cleanup to reconcile it.'
+    },
+    refuse: (message) => ({ ok: false, message }),
+    timeoutMs: 10_000
+  })
+  ipcMain.on(ORCHESTRATOR_CHANNELS.cleanupTicketResult, (_event, requestId: unknown, result: unknown) => {
+    if (typeof requestId !== 'string' || !result || typeof result !== 'object') return
+    const reply = result as Record<string, unknown>
+    if (reply.ok === true) ticketCleanup.complete(requestId, { ok: true })
+    else if (reply.ok === false && typeof reply.message === 'string') {
+      ticketCleanup.complete(requestId, { ok: false, message: reply.message })
+    }
+  })
+  const orchestrationCleanup = createOrchestrationCleanup({
+    runGit: runGitWithExecFile,
+    worktrees,
+    containment,
+    canvas: async (request) => {
+      const snapshot = agentEvents.snapshot(request.session.nodeId)
+      if (
+        snapshot &&
+        (snapshot.approval || snapshot.decisionRequests.length > 0 || !['ready', 'exited'].includes(snapshot.status))
+      ) {
+        return { ok: false, message: 'The ticket session is busy or waiting for an answer.' }
+      }
+      const result = await ticketCleanup.request(request)
+      if (result.ok && request.phase === 'close') agentManager.kill(request.session.nodeId)
+      return result
+    }
+  })
   const ticketSpawner: TicketSpawner = createTicketSpawner({
     worktrees,
     runGit: runGitWithExecFile,
@@ -827,6 +868,7 @@ void app.whenReady().then(async () => {
     remote,
     canvasRequests,
     ticketSessions,
+    ticketCleanup,
     appUpdater,
     voiceModel
   )
@@ -844,6 +886,7 @@ void app.whenReady().then(async () => {
         remote,
         canvasRequests,
         ticketSessions,
+        ticketCleanup,
         appUpdater,
         voiceModel
       )

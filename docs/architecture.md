@@ -236,6 +236,16 @@ interfaces:
 - pure rule plus rendered wiring: [`session-usage.test.ts`](../tests/session-usage.test.ts) with [`session-usage-bar.dom.test.tsx`](../tests/session-usage-bar.dom.test.tsx) and [`mobile-usage.dom.test.tsx`](../tests/mobile-usage.dom.test.tsx), and [`prompt-outbox.test.ts`](../tests/prompt-outbox.test.ts) with [`composer-queue-while-busy.dom.test.tsx`](../tests/composer-queue-while-busy.dom.test.tsx)
 - cross-process replay into UI: [`acp-session-manager-replay.test.ts`](../tests/acp-session-manager-replay.test.ts), [`restored-chat-transcript.dom.test.tsx`](../tests/restored-chat-transcript.dom.test.tsx)
 
+## Orchestrator workflow
+
+The orchestrator's procedure lives in [its workflow skill](../.agents/skills/orchestrate/SKILL.md),
+with conditional merge recovery and the CLI reference beside it. The system instruction points
+there before the first task. Main's [orchestration cleanup](../src/main/orchestration-cleanup.ts)
+checks workspace containment, Git worktree identity and publication before non-force removal.
+The canvas [cleanup policy](../src/renderer/src/ticket-cleanup.ts) suspends the settled ticket chat
+first, keeping it visible if Git refuses; successful cleanup retires the chat and group through
+the ordinary node-removal path. The endpoint takes only `cleanup`, never caller-supplied paths.
+
 ## Documentation responsibilities
 
 - [`README.md`](../README.md) is the human entry point: the pitch, install, quick start and

@@ -194,6 +194,9 @@ const remoteApi: RemoteApi = {
 contextBridge.exposeInMainWorld('remoteApi', remoteApi)
 
 const orchestratorApi: OrchestratorApi = {
+  onCleanupTicket: (callback) => subscribe(ORCHESTRATOR_CHANNELS.cleanupTicket, callback),
+  completeCleanupTicket: (requestId, result) =>
+    ipcRenderer.send(ORCHESTRATOR_CHANNELS.cleanupTicketResult, requestId, result),
   onStartTicketSession: (callback) =>
     subscribe(ORCHESTRATOR_CHANNELS.startTicketSession, (requestId: string, request: TicketSessionCanvasRequest) =>
       callback(requestId, request)

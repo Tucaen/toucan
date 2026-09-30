@@ -114,6 +114,7 @@ import { useRemoteAccess } from './use-remote-access'
 import type { RemoteChatSpawnRequest, RemoteChatSpawnResult } from '../../shared/remote-spawn'
 import type { OrchestratorLink, TicketSessionCanvasRequest } from '../../shared/ticket-session-spawn'
 import { useTicketSessionSpawns, type TicketSessionStart } from './use-ticket-session-spawns'
+import { ticketCleanupNodes } from './ticket-cleanup'
 import ConversationHistoryDialog from './ConversationHistoryDialog'
 import { ModalDialog } from './ModalDialog'
 import FileNode from './FileNode'
@@ -2517,6 +2518,26 @@ function Canvas(): JSX.Element {
     [addSessionNode, centredDropPosition, registerCreatedWorktree]
   )
   useTicketSessionSpawns(startTicketSession, nodes, nodeStatuses)
+  useEffect(
+    () =>
+      window.orchestratorApi.onCleanupTicket((requestId, request) => {
+        const result = ticketCleanupNodes(request, nodesRef.current, nodeStatusesRef.current)
+        if (result.ok && result.suspendId) {
+          setNodes((current) =>
+            current.map((node) =>
+              node.id === result.suspendId && isTerminalCanvasNode(node)
+                ? { ...node, data: { ...node.data, dormant: true } }
+                : node
+            )
+          )
+        }
+        if (result.ok && result.removeIds?.length) {
+          handleNodesChange(result.removeIds.map((id) => ({ type: 'remove' as const, id })))
+        }
+        window.orchestratorApi.completeCleanupTicket(requestId, result.ok ? { ok: true } : result)
+      }),
+    [handleNodesChange, setNodes]
+  )
 
   const confirmWorktreeDraft = useCallback((): void => {
     const draft = worktreeDraft

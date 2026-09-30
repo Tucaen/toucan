@@ -15,6 +15,7 @@ const USAGE = [
   '| escalate --ticket <id>',
   '| spawn --ticket <id> [--model <id> --effort <level> | --tier <tier> [--effort <level>]] [--provider <provider>] [--project <path>]',
   '| status',
+  '| cleanup',
   '| outcome --ticket <id>',
   '| followup --ticket <id> --text <text>'
 ].join(' ')
@@ -118,9 +119,9 @@ async function message(words) {
     if (positionals.length > 0 || flags.ticket === undefined) usage('escalate needs --ticket <id> and nothing else')
     return { command: 'escalate', args: flags }
   }
-  if (first === 'status') {
-    if (words.length > 1) usage('status takes no arguments')
-    return { command: 'status' }
+  if (first === 'status' || first === 'cleanup') {
+    if (words.length > 1) usage(`${first} takes no arguments`)
+    return { command: first }
   }
   if (first === 'outcome') {
     const { flags, positionals } = parseFlags(words.slice(1), ['ticket'])

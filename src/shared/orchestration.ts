@@ -47,7 +47,8 @@ export const ORCHESTRATOR_COMMANDS = [
   'outcome',
   'followup',
   'route',
-  'escalate'
+  'escalate',
+  'cleanup'
 ] as const
 export type OrchestratorCommand = (typeof ORCHESTRATOR_COMMANDS)[number]
 
@@ -523,7 +524,13 @@ export function reserveSpawn(
   ticketId: string,
   now: string
 ): Outcome<'record', OrchestrationRecord> {
-  if (!record.tickets.some((ticket) => ticket.id === ticketId)) return refuse(`the plan has no ticket "${ticketId}"`)
+  const ticket = record.tickets.find((candidate) => candidate.id === ticketId)
+  if (!ticket) return refuse(`the plan has no ticket "${ticketId}"`)
+  if (ticket.mergeStatus === 'merged') return refuse(`ticket ${ticketId} is already merged`)
+  const blockers = ticket.blockedBy.filter(
+    (id) => record.tickets.find((candidate) => candidate.id === id)?.mergeStatus !== 'merged'
+  )
+  if (blockers.length > 0) return refuse(`ticket ${ticketId} has unmerged blockers: ${blockers.join(', ')}`)
   const used = record.spawnCount ?? 0
   if (used >= MAX_SPAWNS_PER_ORCHESTRATION) {
     return refuse(
@@ -589,7 +596,8 @@ export function ticketContract(worktree: { path: string; branch: string }): stri
     `- Stay in your worktree, ${worktree.path}, and work nowhere else.`,
     `- Commit your work to its branch, ${worktree.branch}.`,
     '- Never push, never merge, and never open a pull request: the orchestrator merges this branch. Pushing is refused by a hook anyway.',
-    '- End with a final report: the verification commands you ran and their results, unresolved review findings, and open questions.'
+    '- Resolve and continue a rebase in this worktree when the orchestrator sends conflicts back to you.',
+    '- End with a final report: commit, verification commands and results, unresolved blocking review findings, skipped or deleted tests with reasons, and open questions.'
   ].join('\n')
 }
 
@@ -610,27 +618,18 @@ export function ticketSessionPrompt(
 
 /**
  * What an orchestrator session carries on its system prompt, appended like the session outcome
- * pointer. A placeholder until the orchestration procedure is written (#37): it establishes the
- * role, the CLI and how the orchestrator is woken (#35), nothing of the breakdown, merging or
- * review-list rules yet.
+ * pointer. The skill owns the procedure; this mandatory pointer puts it in scope before the task.
  */
 export function orchestratorInstruction(paths: { cliPath: string; skillPath: string }): string {
   const cli = `node "${paths.cliPath}"`
   return [
-    'You are a Toucan orchestrator. The first user message is your task: break it into tickets and keep',
-    "Toucan's orchestration record up to date as the single source of truth for the plan and its progress.",
-    `Drive Toucan through its CLI, which prints one JSON line per call: \`${cli} plan show\`,`,
-    `\`${cli} plan set --file <plan.json>\`, \`${cli} ticket update <id> --json '<fields>'\`,`,
-    `\`${cli} route\`, which asks Jev for every unrouted ticket's difficulty tier and turns it into a model through the user's tier mapping, and`,
-    `\`${cli} spawn --ticket <id>\`, which starts one ticket session on its routed model in a worktree of its own.`,
-    `When route reports Jev unavailable, judge each tier yourself and record it with \`${cli} route --ticket <id> --tier <tier>\`;`,
-    `after a failed ticket, \`${cli} escalate --ticket <id>\` moves it one tier up.`,
-    'Never wait for a ticket session inside a tool call: end your turn after spawning, and Toucan wakes you with a',
-    'follow-up message whenever one of your ticket sessions completes, fails, is cancelled, asks something or waits on a tool-permission prompt.',
-    `Then read more with \`${cli} status\` and \`${cli} outcome --ticket <id>\`, and answer a ticket session's`,
-    `question with \`${cli} followup --ticket <id> --text <text>\`. That never answers a tool-permission prompt:`,
-    'those wait for the human, so list them for them.',
-    `The command reference is ${paths.skillPath}.`
+    'You are a Toucan orchestrator. The first user message is your task.',
+    `Before acting, read and follow the orchestration workflow at "${paths.skillPath}" and its command reference.`,
+    'It governs start checks, dependency-aware breakdown, routing, serial tested merges, escalation, tracker write-back, cleanup and the final review list.',
+    `Use \`${cli} plan show\` to recover the durable record, and \`${cli} status\` for live ticket state.`,
+    'Spawn ticket sessions through Toucan; end your turn when waiting for them. Toucan wakes you on their events.',
+    `Use \`${cli} followup --ticket <id> --text <text>\` for questions or conflict recovery; it never answers a tool-permission prompt.`,
+    'Those prompts wait for the human and belong on the review list.'
   ].join(' ')
 }
 

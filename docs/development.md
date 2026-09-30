@@ -65,6 +65,17 @@ For packaging changes, run the extended gate, which also creates a production bu
 npm run check:full
 ```
 
+### Live orchestration verification
+
+After changing the orchestrator workflow, run `npm run build:test-out` then
+`node scripts/verify-orchestration.mjs` with Claude signed in and network access.
+This deliberately sits outside `npm test`: it spends account tokens on a real orchestrator
+and two dependent ticket sessions. It creates a temporary project and a local bare Git remote,
+exercises fallback routing, wake-ups, full-suite verification, publication and cleanup, and
+keeps its fixture and `evidence.txt` for inspection. It makes no GitHub writes and never answers
+permission prompts. The canvas transport is a headless adapter in this harness; the real canvas
+closure is covered by the ticket-session DOM suite. See the [run record](plans/orchestrator-mode.md#live-verification-37).
+
 ## Package for Windows
 
 ```powershell

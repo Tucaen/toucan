@@ -6,6 +6,12 @@ The full tour of what Toucan does today. The [README](../README.md) has the shor
 
 ## What Toucan does
 
+- A **New orchestrator** Claude chat can break a task into dependent tickets, route them to
+  models, start ticket sessions in worktrees, and merge tested results in order. Its workflow
+  writes progress back to a supplied tracker and ends with a review list. Its `cleanup` command
+  removes published, merged ticket worktrees and local branches; unmerged or unsafe-to-remove
+  work stays for review. Conversations remain in History. See the [orchestrator plan](plans/orchestrator-mode.md).
+
 - Gives agents memory across sessions. After every turn Toucan records what the conversation set out to do, which files it touched, how it ended and what failed, without spending any model tokens. Later Claude and Codex sessions check those records before starting, so they build on earlier work instead of redoing it. Ask an agent "what did we try for X last week?" to look something up.
 - Keeps multiple projects, terminals, and coding-agent conversations visible on one
   zoomable canvas. Every node can temporarily fit the visible canvas and then restore its

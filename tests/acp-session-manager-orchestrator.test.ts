@@ -17,7 +17,7 @@ import { installScriptedAdapter, type AdapterPackage } from './helpers/scripted-
 
 interface Recorded {
   method: string
-  params: { _meta?: { systemPrompt?: { append: string } } }
+  params: { additionalDirectories?: string[]; _meta?: { systemPrompt?: { append: string } } }
   env: { url?: string; token?: string; nodeId?: string }
 }
 
@@ -98,6 +98,9 @@ test('only an orchestrator Claude session gets a token and the instruction; clos
     assert.ok(orchestratorOpen?.env.token)
     assert.notEqual(orchestratorOpen?.env.token, 'inherited-from-a-parent-orchestrator')
     assert.match(orchestratorOpen?.params._meta?.systemPrompt?.append ?? '', /You are a Toucan orchestrator/)
+    assert.ok(
+      orchestratorOpen.params.additionalDirectories?.includes(join(appPath, '.agents', 'skills', 'orchestrate'))
+    )
     assert.match(
       orchestratorOpen?.params._meta?.systemPrompt?.append ?? '',
       /orchestrate[\\/]scripts[\\/]orchestrate\.mjs" plan show/
@@ -106,6 +109,7 @@ test('only an orchestrator Claude session gets a token and the instruction; clos
     for (const other of [plainOpen, codexOpen]) {
       assert.deepEqual(other?.env, { nodeId: other?.env.nodeId })
       assert.doesNotMatch(other?.params._meta?.systemPrompt?.append ?? '', /orchestrator/)
+      assert.ok(!other.params.additionalDirectories?.includes(join(appPath, '.agents', 'skills', 'orchestrate')))
     }
 
     // The token works, scoped to the conversation its session opened.

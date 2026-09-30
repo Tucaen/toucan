@@ -1,147 +1,58 @@
 ---
 name: orchestrate
-description: Command reference for the Toucan orchestrator CLI - plan show, plan set, ticket update, route, escalate, spawn, status, outcome and followup.
+description: Drive a Toucan orchestration from task breakdown through routed ticket sessions, ordered merges, tracker write-back, cleanup and human review.
 disable-model-invocation: true
 user-invocable: false
 ---
 
 # Orchestrate
 
-The CLI a Toucan orchestrator session drives Toucan with. Toucan launches an orchestrator with `TOUCAN_ORCHESTRATOR_URL` and `TOUCAN_ORCHESTRATOR_TOKEN`; the CLI reads both and works nowhere else.
+You are the orchestrator; Toucan starts ticket sessions through its CLI. Read [commands.md](commands.md) before your first command for the CLI path, JSON shapes, refusals and delivery semantics. The environment supplies the endpoint and token. Use your session's own tools for Git, tests and tracker operations.
 
-```
-node "<skills root>/skills/orchestrate/scripts/orchestrate.mjs" <command> [arguments]
-```
+Keep CLI JSON input files outside the checkout, so writing a plan does not dirty the target you are about to merge into.
 
-The orchestration record is the single source of truth for the plan and its progress. Rebuild your picture from `plan show` after a resume, never from memory.
+## Start or resume
 
-## Output and exit codes
+1. Read `plan show` and `status`. An existing record is the source of truth: recover progress, outcomes and the review notes before acting. A completed notification means a turn ended; inspect `outcome` and Git before deciding a ticket is done.
+2. Inspect the orchestrator checkout with `git status --porcelain --untracked-files=all` and `git symbolic-ref --quiet --short HEAD`. Refuse to start on a dirty checkout or detached HEAD. Preserve the user's files; ask them to settle the checkout. On resume, an unfinished rebase belongs to the recovery below, not a new task.
+3. The launch branch is the target. Record it once; on resume require the checkout to match `targetBranch`. Check its upstream. When none exists, run `git push -u origin <branch>` before spawning. A failed push, missing remote or refused permission is a blocker to report, not permission to change the target or remote. Push only the target branch.
 
-Every call prints exactly one JSON line on stdout.
+## Breakdown and dispatch
 
-| Exit | Meaning                                                                                                                                                     |
-| ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0    | Toucan accepted the call; the line is its reply, `ok: true`.                                                                                                |
-| 1    | Toucan refused (its reply, `ok: false`, `error` says why), could not be reached, or answered with something other than JSON.                                |
-| 2    | The CLI refused before sending: a missing environment variable, an unknown command, a bad flag, or unreadable JSON input. `error` ends with the usage line. |
+1. For free text, put the task and its tickets in `plan set`; no tracker items need creating. For a tracker reference, read the item and its linked requirements with your own tools, then record its source on the ticket. Include the concrete acceptance criteria, test command and needed context in each ticket's body.
+2. Model dependencies explicitly: `blocked_by` in a source becomes `blockedBy` in the CLI JSON. A blocker is satisfied only by `mergeStatus: merged`, which you record after the push succeeds. Keep the graph acyclic. Spawn only tickets whose blockers are all merged. Independently ready tickets may run together; merge them serially.
+3. Call `route` for all unrouted tickets. If it reports `jevUnavailable`, choose tiers yourself through `route --ticket <id> --tier <tier>`: low for a bounded mechanical edit, medium for familiar feature work, high for cross-module reasoning, frontier for architectural uncertainty. Record the reason in the ticket body. Keep low-confidence routes, model fallbacks and orchestrator routes in the review notes; use the recorded mapping, not invented model names.
+4. Call `spawn --ticket <id>`. Inspect its actual model/effort and warnings. On success, write back **in progress** to the ticket's tracker. Record a failed write-back and continue other work. A failed spawn may leave a worktree named in its error; preserve that path in the record.
+5. End your turn when the remaining progress depends on running ticket sessions. Toucan wakes you on completion, failure, questions and permission prompts. On each wake, reread `status`, `plan show` and relevant `outcome` records. Answer questions with `followup` when the task gives you the answer. Permission prompts belong to the human; report them and keep independent work moving.
 
-Read `error` and act on it; a refusal writes nothing to the record.
+## Merge one ticket
 
-## plan show
+Inspect its final report, diff and verification evidence first. Unresolved blocking findings, unexplained skipped/deleted tests or open product questions keep it unmerged. Record findings and follow up with its own session. Confirm the ticket session is settled, its worktree is clean and every blocker is merged.
 
-`plan show` prints `{ ok: true, record }`. `record` is `null` until the first `plan set`; otherwise it carries `task`, `targetBranch`, `tickets` and `spawnCount`. Each ticket has `id`, `title`, `body` or `source`, `blockedBy`, `attempts`, `mergeStatus` (`pending`, `merged`, `unmerged`), and `route` and `session` once set.
+1. In the ticket worktree, `git rebase <targetBranch>`. Read [merge-recovery.md](merge-recovery.md) for conflicts or rejected pushes.
+2. Run the project's **full test suite in that worktree**, using the command established from the project. A passing pre-rebase run is insufficient. If the suite cannot run or fails, keep the ticket unmerged and record the command and failure; never skip or delete a failing test to qualify the merge.
+3. Recheck the target checkout is clean and on `targetBranch`, then run `git merge --ff-only <ticketBranch>` there. If the target advanced, repeat the rebase and full suite. Do not force or create a merge commit.
+4. Push the target's configured upstream. Only after a successful push, record `mergeStatus: merged`, the resulting commit and commit link in the ticket's body. Close its tracker item with that link using your own tools. A failed tracker write-back leaves the Git merge valid; record the write-back failure separately.
+5. Reread the record and dispatch newly unblocked tickets. Repeat for the next settled ticket in dependency order.
 
-## plan set
+## Failure and escalation
 
-`plan set --file <plan.json>` or `plan set --json '<plan>'` writes the plan and prints `{ ok: true, record }`.
+Distinguish implementation failures from a question, permission prompt, sign-in or usage-limit pause; waiting on the human or quota is not a failed attempt. For an implementation failure, increment `attempts`, preserve the outcome, route, commit/worktree and reason in the ticket's body, and comment the reason on its tracker. A transport refusal is not evidence the implementation failed: inspect status and work left behind first.
 
-```json
-{
-  "task": "The whole task, as the user gave it",
-  "targetBranch": "main",
-  "tickets": [
-    { "id": "1", "title": "Short title", "body": "Free-text ticket", "blockedBy": [] },
-    { "id": "2", "title": "Tracked ticket", "source": "#12", "blockedBy": ["1"] }
-  ]
-}
-```
+Call `escalate --ticket <id>` once per failed attempt, then respawn on that recorded route. A fresh worktree starts from the target, so carry useful findings and the previous worktree path in the body; instruct the new session how to inspect prior work. Retain earlier attempts. At `frontier`, or when the spawn allowance is exhausted, set `mergeStatus: unmerged` and place it and its blocked dependents on the review list. Rebase-conflict retries have their own two-attempt limit in the recovery reference; escalation never resets that limit.
 
-- Ids are unique; every `blockedBy` entry names another ticket in the plan, and the graph is acyclic.
-- Re-planning is allowed. A ticket that keeps its id keeps its route, session, attempts and merge status; a ticket with a session stays in the plan.
-- `spawnCount` survives every re-plan.
+## Finish and review
 
-## ticket update
+Persist progress and review notes in each ticket's `body` through `ticket update`, preserving its acceptance criteria and source. Record commit/worktree links, conflict attempts, escalations, unresolved findings, test omissions, questions, permissions and failed write-backs as they occur, so a resume can rebuild the review list. CLI `attempts` counts failed implementation attempts; keep the conflict counter explicitly in these notes. Reconcile a resumed record against Git before repeating a merge or tracker update.
 
-`ticket update <id> --json '<fields>'` or `ticket update <id> --file <fields.json>` patches one ticket and prints `{ ok: true, ticket }`.
+When no further authorized work can progress, call `cleanup` once and inspect `removed` and `retained`. Unmerged work stays for the human. Report partial cleanup, with the reason and remaining branch/path; retry only after addressing that reason. Cleanup deletes merged local branches and worktrees, while conversations remain in History.
 
-Fields: `title`, `body`, `source`, `blockedBy`, `attempts` (non-negative integer), `mergeStatus`, and `route` (`tier` of `low`/`medium`/`high`/`frontier`, `model`, `effort`, `confidence` 0-1, `depth` 0-4, `routedBy` `jev`/`orchestrator`, `escalated`, `reviewRequired`). Toucan owns `id` and `session`; change ids with `plan set`. Prefer `route` and `escalate` over writing `route` by hand. An empty patch is refused.
+Your final answer is the **review list**, with a commit or worktree for every ticket mentioned:
 
-## route
+- Low-confidence routes, escalations, orchestrator-routed tickets and model fallbacks.
+- Unresolved blocking review findings and any skipped or deleted tests, including the reason.
+- Open questions and pending permission prompts requiring the human.
+- Unmerged tickets, their blocked dependents and retained worktrees.
+- Failed tracker write-backs and partial cleanup.
 
-`route` sends every ticket with no tier, no session and `mergeStatus: pending` to Jev in one request and prints `{ ok: true, routes, warnings, config }`.
-
-- Jev judges each ticket's **difficulty tier** (`low`, `medium`, `high`, `frontier`) and a reasoning-depth score. It never sees the models: Toucan turns the tier into a model through the user's **tier mapping**, and the depth into the nearest effort that model's picker offers. A tier mapped with a fixed effort keeps it.
-- Each route is recorded on its ticket: `tier`, `model`, `effort`, `confidence`, `depth`, `routedBy: "jev"`, `escalated: false`. Below confidence 0.6 it also gets `reviewRequired: true`: the ticket still runs on its tier; name it on the review list.
-- A mapped model the picker no longer lists falls back to the next tier up's model; `warnings` names each fallback, and any effort that could not be checked against the picker. The ticket keeps its tier.
-- `config` names the mapping's files: `user`, and `project` when this project has an override. Report a broken file to the human rather than editing around it.
-- Already-routed tickets are not sent again, so `route` after a re-plan routes only the new tickets.
-
-When Jev is unavailable (no `TYPESAFE_API_KEY`, a timeout, an error), `route` exits 1 with `jevUnavailable: true` and the reason. Then judge each ticket's tier yourself, with the same criteria, and record it:
-
-`route --ticket <id> --tier <tier>` resolves the tier through the mapping and records the route with `routedBy: "orchestrator"`. It may also replace a Jev route you disagree with; either way, name orchestrator-routed tickets in your final answer.
-
-## escalate
-
-`escalate --ticket <id>` moves the ticket's route one tier up after a failed attempt. It re-resolves the model and effort, keeps the depth score and how the ticket was routed, sets `escalated: true`, and prints `{ ok: true, ticket, route, warnings }`. Spawn the ticket again to run it on the new route. A ticket already at `frontier` is refused: it goes on the review list.
-
-## spawn
-
-`spawn --ticket <id> [--model <id> --effort <level> | --tier <tier> [--effort <level>]] [--provider claude] [--project <path>]` starts one ticket session and prints:
-
-```json
-{
-  "ok": true,
-  "ticket": "1",
-  "session": { "nodeId": "...", "conversationId": "...", "worktreePath": "...", "branch": "ticket/1" },
-  "model": "claude-opus-5-5",
-  "effort": "high",
-  "warnings": [],
-  "route": {
-    "tier": "high",
-    "model": "opus",
-    "effort": "high",
-    "confidence": 0.82,
-    "depth": 2.1,
-    "routedBy": "jev",
-    "escalated": false
-  },
-  "spawnsLeft": 19
-}
-```
-
-- With only `--ticket`, the session runs on the ticket's recorded route, which is the usual case after `route` or `escalate`. If the picker has dropped the recorded model since, it is resolved again. `--tier` resolves that tier through the mapping instead and records it as your own route. `--model` and `--effort` bypass the mapping entirely. `--effort` overrides a resolved effort. A ticket with no route and neither flag is refused, without counting a spawn.
-- The reply's `route` is what was recorded; `warnings` includes any model fallback.
-- The session's first prompt is the configured implementation skill (default `/implement`) with the ticket, then the ticket contract.
-- Toucan creates a worktree on a fresh `ticket/<id>` branch from `targetBranch` (a retry gets `ticket/<id>-2`, and so on), runs the project's setup command there (up to 15 minutes), and then opens the session on the canvas with the ticket as its first prompt. The call returns once the session is up, so expect it to take minutes.
-- `model` and `effort` are what the running session reports, `null` when it reports none. When they differ from what you asked for, `warnings` says so: treat the session as running on the reported values.
-- The ticket session is a Claude session; `--provider` accepts only `claude`, and `--project` only the orchestrator's own project.
-- Ticket sessions commit to their branch and cannot push: a hook refuses it. You merge each branch into `targetBranch` yourself, then record it with `ticket update <id> --json '{"mergeStatus":"merged"}'`.
-- An orchestration has 20 spawns in total. Each call counts before anything is created, so failed spawns, retries and escalations count too. Once they are used, spawn is refused; list what is left for human review.
-- A failure before the session opens removes the new worktree and branch again; after the session opens, they stay and `error` names the worktree.
-
-## Being woken
-
-Never wait for a ticket session inside a tool call - a ticket can take an hour. End your turn after spawning. Toucan sends you a follow-up message whenever one of your ticket sessions completes, fails, is cancelled, asks a question or waits on a tool-permission prompt, one line per event:
-
-```
-Toucan: your ticket sessions reported in.
-- #12 completed - 4 files - outcome record C:\...\session-outcomes\toucan--12-spawn--1a2b3c4d.md
-- #13 asks a question - read it with status, answer it with followup --ticket 13 --text <answer>
-```
-
-Events that arrive close together come as one message. The message names the event and where to read more; it never carries a ticket session's transcript. A message that arrives while you are working reaches you at your next safe boundary.
-
-## status
-
-`status` prints `{ ok: true, tickets, pendingPermissionPrompts }`. Each ticket has `id`, `title`, `blockedBy`, `attempts`, `mergeStatus`, `session` (or `null`), `route` (or `null`), and:
-
-- `state`: `not spawned`, `not running` (Toucan is not running its session, e.g. after a restart), or the live session's `starting`, `ready`, `working`, `auth_required`, `exited`.
-- `permissionPrompt`: `{ title, answeredBy: "human" }` while the session waits on a tool-permission prompt, else `null`.
-- `questions`: pending questions, each `{ id, message, questions: [{ id, question, options, input, ... }] }`.
-
-`pendingPermissionPrompts` lists the ticket ids waiting on the human; name them in your final answer.
-
-## outcome
-
-`outcome --ticket <id>` prints `{ ok: true, ticket, path, fields }`: the path of the ticket session's session outcome record and its fields (`title`, `status`, `turns`, `commit`, `branch`, `filesTouched`, `failures`, `toolFailures`, `lastResult`, and the rest). Refused while the ticket has no session, or before the session's first turn end has written the record.
-
-## followup
-
-`followup --ticket <id> --text <text>` sends the text to the ticket session and prints `{ ok: true, ticket, delivered }`:
-
-- `answered` - the session had a pending question; the text is its answer, in each question's free-text field. A required question that has only fixed options is refused and waits for the human.
-- `prompt` - the session was idle; the text starts a new turn.
-- `steered` - the session was working; the text reached the turn in flight.
-- `queued` - the session was working and takes the text when its turn ends.
-
-It never answers a tool-permission prompt. While a ticket session waits on one, `followup` is refused: that prompt waits for the human.
+For a category with no entries say none, concisely. Link merged commits even when there are no findings. If sessions are still working, this is an interim status and you end the turn for Toucan's wake; do not call the orchestration finished.
