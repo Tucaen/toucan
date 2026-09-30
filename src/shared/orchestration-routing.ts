@@ -1,5 +1,11 @@
 import { isRecord } from './record'
-import { DIFFICULTY_TIERS, type DifficultyTier, type TicketRoute } from './orchestration'
+import {
+  DEFAULT_IMPLEMENTATION_SKILL,
+  DIFFICULTY_TIERS,
+  isDifficultyTier,
+  type DifficultyTier,
+  type TicketRoute
+} from './orchestration'
 
 /**
  * Difficulty-tier routing (#36; plan in `docs/plans/orchestrator-mode.md`). Jev judges how hard a
@@ -37,7 +43,7 @@ export const DEFAULT_ORCHESTRATION_CONFIG: OrchestrationConfig = {
     high: { model: 'opus' },
     frontier: { model: 'opus', effort: 'max' }
   },
-  implementationSkill: '/implement'
+  implementationSkill: DEFAULT_IMPLEMENTATION_SKILL
 }
 
 /**
@@ -67,7 +73,7 @@ export function parseOrchestrationConfig(value: unknown): Outcome<'config', Orch
       if (!isRecord(field)) return { error: 'tiers must be an object keyed by tier' }
       const tiers: Partial<TierMapping> = {}
       for (const [tier, entry] of Object.entries(field)) {
-        if (!DIFFICULTY_TIERS.includes(tier as DifficultyTier)) {
+        if (!isDifficultyTier(tier)) {
           return { error: `unknown tier "${tier}"; the tiers are ${DIFFICULTY_TIERS.join(', ')}` }
         }
         if (!isRecord(entry) || !nonEmptyString(entry.model)) {
@@ -80,7 +86,7 @@ export function parseOrchestrationConfig(value: unknown): Outcome<'config', Orch
         if (entry.effort !== undefined && !nonEmptyString(entry.effort)) {
           return { error: `tiers.${tier}.effort must be an effort id such as low, medium, high, xhigh or max` }
         }
-        tiers[tier as DifficultyTier] = {
+        tiers[tier] = {
           model: entry.model.trim(),
           ...(nonEmptyString(entry.effort) ? { effort: entry.effort.trim() } : {})
         }
@@ -207,7 +213,16 @@ export function resolveTier(
   }
   const model = config.tiers[source ?? tier].model
   const efforts = offered.efforts(model)
-  const effort = (efforts && nearestEffort(wantedEffort, efforts)) ?? wantedEffort
+  const settled = efforts && nearestEffort(wantedEffort, efforts)
+  // Not refused: the spawn reports the effort the session actually runs at.
+  if (!settled && offered.models.length > 0) {
+    warnings.push(
+      efforts
+        ? `model "${model}" offers no effort choice, so effort "${wantedEffort}" is requested unchecked`
+        : `no session has run model "${model}" yet, so effort "${wantedEffort}" is requested unchecked`
+    )
+  }
+  const effort = settled ?? wantedEffort
   return { route: { tier, model, effort }, warnings }
 }
 

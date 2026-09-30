@@ -229,8 +229,16 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
   ): SpawnRoute | { refusal: Reply } => {
     const recorded = ticket.route
     if (request.model !== undefined) {
+      // The orchestrator's own route: Jev's confidence and review mark judged a model the mapping
+      // would have picked, so they do not travel with one it did not.
       return {
-        route: { ...recorded, model: request.model, effort: request.effort!, routedBy: 'orchestrator' },
+        route: {
+          ...(recorded?.tier ? { tier: recorded.tier } : {}),
+          model: request.model,
+          effort: request.effort!,
+          routedBy: 'orchestrator',
+          escalated: recorded?.escalated ?? false
+        },
         warnings: []
       }
     }
@@ -248,10 +256,13 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
       }
     }
     const same = request.tier === undefined || request.tier === recorded?.tier
-    if (same && recorded?.model && recorded.effort) {
+    const offered = routing.offered()
+    // A recorded model the picker has dropped since `route` is resolved again, falling back as usual.
+    const stillOffered = recorded?.model && (offered.models.length === 0 || offered.models.includes(recorded.model))
+    if (same && stillOffered && recorded.model && recorded.effort) {
       return { route: { ...recorded, model: recorded.model, effort: request.effort ?? recorded.effort }, warnings: [] }
     }
-    const resolved = resolveTier(tier, same ? recorded?.depth : undefined, config, routing.offered())
+    const resolved = resolveTier(tier, same ? recorded?.depth : undefined, config, offered)
     if (resolved.error !== undefined) return { refusal: refused(409, resolved.error) }
     const route = same
       ? { ...recorded, ...resolved.route }

@@ -1036,11 +1036,15 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
     return models
   }
 
-  /** The effort counterpart of `rememberModels`: every write to `cachedEfforts` goes through here. */
-  const rememberEfforts = (running: RunningAgent, efforts: AgentEffortState | undefined): void => {
+  /**
+   * The effort counterpart of `rememberModels`: every write to `cachedEfforts` goes through here.
+   * `advertised` is false when the session merely did not restate its options: that clears the
+   * session's cache but is no evidence the model offers no effort, so nothing is recorded.
+   */
+  const rememberEfforts = (running: RunningAgent, efforts: AgentEffortState | undefined, advertised = true): void => {
     running.cachedEfforts = efforts
     const modelId = running.cachedModels?.currentModelId
-    if (modelId) {
+    if (modelId && advertised) {
       options.onEffortsAdvertised?.(
         running.request.provider,
         modelId,
@@ -1895,7 +1899,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
           send(running, { type: 'efforts', efforts: effortSelector.efforts })
         } else {
           running.effortConfigId = undefined
-          rememberEfforts(running, undefined)
+          rememberEfforts(running, undefined, Boolean(response.configOptions))
           send(running, { type: 'efforts', efforts: null })
         }
         running.request.modelId = modelId

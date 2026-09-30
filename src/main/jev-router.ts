@@ -1,4 +1,4 @@
-import { DIFFICULTY_TIERS, type DifficultyTier } from '../shared/orchestration'
+import { isDifficultyTier, type DifficultyTier } from '../shared/orchestration'
 import type { JevReachability } from '../shared/orchestration-routing'
 import { isRecord } from '../shared/record'
 import { errorMessage } from '../shared/text'
@@ -10,9 +10,10 @@ import { errorMessage } from '../shared/text'
  * Jev is shown the tickets and never the models: routing on the pickers' one-line descriptions is
  * exactly what the tier mapping replaces.
  *
- * Main makes the call rather than the CLI, because main owns the mapping and the record - and the
- * key stays here: it is read from main's environment at call time and never enters a reply, a log
- * or the renderer, so every message built from a response is scrubbed of it.
+ * Main makes the call rather than the CLI, because main owns the mapping and the record. The key is
+ * read from main's environment at call time and never enters a reply, a log or the renderer, so
+ * every message built from a response is scrubbed of it. (Agent sessions still inherit it from
+ * Toucan's environment, as decision delegation's TypeSafe skill needs; this module adds no path.)
  */
 
 export interface JevTicket {
@@ -107,7 +108,6 @@ function jevRequest(tickets: readonly JevTicket[]): unknown {
   }
 }
 
-const isTier = (value: unknown): value is DifficultyTier => DIFFICULTY_TIERS.includes(value as DifficultyTier)
 const isNumber = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
 
 export function createJevRouter(options: JevRouterOptions): JevRouter {
@@ -133,7 +133,10 @@ export function createJevRouter(options: JevRouterOptions): JevRouter {
     let response: Response
     try {
       response = await call()
-      if (response.status === 429 || response.status === 529) response = await call()
+      if (response.status === 429 || response.status === 529) {
+        await response.body?.cancel().catch(() => undefined)
+        response = await call()
+      }
     } catch (error) {
       const name = (error as { name?: string } | null)?.name
       if (name === 'TimeoutError' || name === 'AbortError') {
@@ -166,7 +169,7 @@ export function createJevRouter(options: JevRouterOptions): JevRouter {
       const depth = answers[`depth_${index}`]
       if (
         !isRecord(tier) ||
-        !isTier(tier.choice) ||
+        !isDifficultyTier(tier.choice) ||
         !isNumber(tier.confidence) ||
         !isRecord(depth) ||
         !isNumber(depth.score)

@@ -5,7 +5,7 @@ import { generatedConversationTitle } from './conversation-title'
 import { parseFrontmatter } from './frontmatter'
 import type { GitHeadState } from './git-branch'
 import { isAgentProvider } from './agent-provider'
-import { DIFFICULTY_TIERS, type DifficultyTier, type TicketRoute } from './orchestration'
+import { isDifficultyTier, type TicketRoute } from './orchestration'
 
 /**
  * The session outcome index's record: one compact Markdown file per conversation, describing what
@@ -320,7 +320,7 @@ function parseRouteLine(line: string | undefined): SessionOutcomeRoute | undefin
   const routedBy = values.get('routedBy')
   const escalated = values.get('escalated')
   const route: SessionOutcomeRoute = {
-    ...(DIFFICULTY_TIERS.includes(tier as DifficultyTier) ? { tier: tier as DifficultyTier } : {}),
+    ...(isDifficultyTier(tier) ? { tier } : {}),
     ...(values.get('model') ? { model: values.get('model') } : {}),
     ...(values.get('effort') ? { effort: values.get('effort') } : {}),
     ...(values.has('confidence') && Number.isFinite(confidence) ? { confidence } : {}),

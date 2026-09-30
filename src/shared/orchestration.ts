@@ -54,6 +54,10 @@ export type OrchestratorCommand = (typeof ORCHESTRATOR_COMMANDS)[number]
 export const DIFFICULTY_TIERS = ['low', 'medium', 'high', 'frontier'] as const
 export type DifficultyTier = (typeof DIFFICULTY_TIERS)[number]
 
+export function isDifficultyTier(value: unknown): value is DifficultyTier {
+  return DIFFICULTY_TIERS.includes(value as DifficultyTier)
+}
+
 export const TICKET_MERGE_STATUSES = ['pending', 'merged', 'unmerged'] as const
 export type TicketMergeStatus = (typeof TICKET_MERGE_STATUSES)[number]
 
@@ -75,7 +79,7 @@ export interface TicketRoute {
   reviewRequired?: boolean
 }
 
-/** Every field a route may carry, in the order it is rendered. */
+/** Every field a route may carry; anything else in a route is refused. */
 export const TICKET_ROUTE_FIELDS = [
   'tier',
   'model',
@@ -288,7 +292,7 @@ function parseRoute(value: unknown): TicketRoute | string {
       return `route has unknown field "${key}"`
     }
   }
-  if (value.tier !== undefined && !DIFFICULTY_TIERS.includes(value.tier as DifficultyTier)) {
+  if (value.tier !== undefined && !isDifficultyTier(value.tier)) {
     return `route.tier must be one of ${DIFFICULTY_TIERS.join(', ')}`
   }
   if (!optionalString(value.model)) return 'route.model must be a string'
@@ -448,7 +452,6 @@ export interface SpawnInput {
 }
 
 const tierError = (flag: string): string => `${flag} must be one of ${DIFFICULTY_TIERS.join(', ')}`
-const isDifficultyTier = (value: unknown): value is DifficultyTier => DIFFICULTY_TIERS.includes(value as DifficultyTier)
 
 /** Validates what `spawn` sent - the CLI's `--ticket`, `--model`/`--tier`, `--effort` and optional flags. */
 export function parseSpawnInput(value: unknown): Outcome<'spawn', SpawnInput> {

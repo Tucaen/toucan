@@ -127,8 +127,9 @@ test('a mapped model the picker no longer lists falls back to the next tier up, 
   const onlyOpus = offered(['opus'])
   const climbed = resolveTier('low', 0, DEFAULT_ORCHESTRATION_CONFIG, onlyOpus)
   assert.equal(climbed.route?.model, 'opus')
-  assert.equal(climbed.warnings.length, 1)
   assert.match(climbed.warnings[0]!, /high tier's model "opus"/)
+  // And no session has run Opus here, so its effort could not be settled either.
+  assert.match(climbed.warnings[1]!, /no session has run model "opus" yet/)
 })
 
 test('a missing frontier model has nowhere to fall back to and is refused', () => {

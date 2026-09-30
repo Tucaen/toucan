@@ -31,7 +31,17 @@ test('each model keeps the efforts it was last seen to offer, per provider', asy
   assert.deepEqual(store.efforts('claude', 'opus'), ['low', 'high'])
   assert.deepEqual(store.efforts('claude', 'haiku'), [])
   assert.equal(store.efforts('codex', 'opus'), undefined)
-  await settled(path, { claude: { opus: ['low', 'high'], haiku: [] } })
+  // The latest recording is the newest entry, which is the end the bound keeps.
+  await settled(path, { claude: { haiku: [], opus: ['low', 'high'] } })
+})
+
+test('the store keeps at most 64 models per provider, dropping the least recently recorded', () => {
+  const path = join(mkdtempSync(join(tmpdir(), 'toucan-efforts-')), 'agent-model-efforts.json')
+  const store = createAgentEffortCatalogueStore({ path })
+  for (let index = 0; index < 70; index += 1) store.record('claude', `model-${index}`, ['low'])
+  assert.equal(store.efforts('claude', 'model-5'), undefined)
+  assert.deepEqual(store.efforts('claude', 'model-6'), ['low'])
+  assert.deepEqual(store.efforts('claude', 'model-69'), ['low'])
 })
 
 test('a restarted store reads what was recorded, and drops damaged entries', async () => {

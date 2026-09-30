@@ -33,10 +33,20 @@ function parseAgentEffortCatalogue(value: unknown): AgentEffortCatalogue | null 
         const efforts = entry[1]
         return Array.isArray(efforts) && efforts.every((effort) => typeof effort === 'string')
       })
-      .slice(0, MODEL_LIMIT)
+      .slice(-MODEL_LIMIT)
     catalogue[provider] = Object.fromEntries(entries)
   }
   return catalogue
+}
+
+/** One provider's models with this one recorded newest, the oldest dropped past the limit. */
+function bounded(
+  models: Record<string, string[]> | undefined,
+  modelId: string,
+  efforts: string[]
+): Record<string, string[]> {
+  const entries = Object.entries(models ?? {}).filter(([id]) => id !== modelId)
+  return Object.fromEntries([...entries, [modelId, efforts] as const].slice(-MODEL_LIMIT))
 }
 
 const sameList = (a: readonly string[] | undefined, b: readonly string[]): boolean =>
@@ -71,10 +81,10 @@ export function createAgentEffortCatalogueStore(options: {
     record(provider, modelId, efforts) {
       if (sameList(current[provider]?.[modelId], efforts)) return
       const list = [...efforts]
-      current = { ...current, [provider]: { ...current[provider], [modelId]: list } }
+      current = { ...current, [provider]: bounded(current[provider], modelId, list) }
       void store
         .update((stored) => ({
-          value: { ...stored, [provider]: { ...stored[provider], [modelId]: list } },
+          value: { ...stored, [provider]: bounded(stored[provider], modelId, list) },
           result: undefined
         }))
         .catch((error: unknown) => {

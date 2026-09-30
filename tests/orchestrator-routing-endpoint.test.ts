@@ -316,3 +316,36 @@ test('status shows each ticket route', async () => {
     await endpoint.close()
   }
 })
+
+test('spawn --model records the orchestrator route without Jev confidence', async () => {
+  const { endpoint, grant, routeOf } = await harness({ jev: fakeJev(judged) })
+  try {
+    await call(grant, 'route')
+    const reply = await call(grant, 'spawn', { ticket: '2', model: 'sonnet', effort: 'high' })
+    assert.equal(reply.status, 200, reply.text)
+    assert.deepEqual(await routeOf('2'), {
+      tier: 'high',
+      model: 'sonnet',
+      effort: 'high',
+      routedBy: 'orchestrator',
+      escalated: false
+    })
+  } finally {
+    await endpoint.close()
+  }
+})
+
+test('a recorded model the picker dropped since route is resolved again at spawn', async () => {
+  const models = ['haiku', 'sonnet', 'opus']
+  const { endpoint, grant, spawner } = await harness({ jev: fakeJev(judged), models })
+  try {
+    await call(grant, 'route')
+    models.splice(0, 1)
+    const reply = await call(grant, 'spawn', { ticket: '1' })
+    assert.equal(reply.status, 200, reply.text)
+    assert.equal(spawner.calls[0]!.model, 'sonnet')
+    assert.ok((reply.body.warnings as string[]).some((warning) => /"haiku" is not offered/.test(warning)))
+  } finally {
+    await endpoint.close()
+  }
+})
