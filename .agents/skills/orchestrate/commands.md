@@ -139,6 +139,55 @@ Events that arrive close together come as one message. The message names the eve
 
 It never answers a tool-permission prompt. While a ticket session waits on one, `followup` is refused: that prompt waits for the human.
 
+## report
+
+`report` takes no arguments and prints the routing report over **every orchestration record of this project**, this one included, with each ticket session's turns and `route:` fields from its outcome record:
+
+```json
+{
+  "ok": true,
+  "orchestrations": 3,
+  "minimumSample": 10,
+  "jev": [
+    {
+      "tier": "medium",
+      "model": "sonnet",
+      "tickets": 12,
+      "mergedWithoutEscalation": 7,
+      "mergedAfterEscalation": 0,
+      "escalated": 4,
+      "unmerged": 1,
+      "inProgress": 0,
+      "medianTurns": 3,
+      "sample": 12
+    }
+  ],
+  "orchestrator": [],
+  "skippedRuns": 0,
+  "proposals": [
+    {
+      "tier": "medium",
+      "from": { "model": "sonnet" },
+      "to": { "model": "opus" },
+      "evidence": { "model": "sonnet", "mergedWithoutEscalation": 7, "sample": 12 },
+      "summary": "medium → opus: sonnet merged only 7/12 Jev-routed medium tickets without escalation"
+    }
+  ],
+  "mapping": {
+    "low": { "model": "haiku" },
+    "medium": { "model": "sonnet" },
+    "high": { "model": "opus" },
+    "frontier": { "model": "opus", "effort": "max" }
+  },
+  "config": { "user": "C:\...\orchestration.json", "project": null }
+}
+```
+
+- A row is one tier and model. Each ticket that ran there counts once: `mergedWithoutEscalation` when it merged there, routed there directly; `mergedAfterEscalation` when it merged there after an escalation from below; `escalated` when it was escalated away to a higher tier; `unmerged` when it stayed unmerged or moved to another model on the same tier; `inProgress` when it is still pending there. `medianTurns` is `null` when no outcome record gives turns.
+- `jev` holds tickets Jev routed. `orchestrator` holds tickets whose tier you judged or whose model you named. They are never mixed, and only `jev` rows produce proposals. `skippedRuns` counts runs with no known tier, model or `routedBy`.
+- `sample` is the settled tickets Jev routed straight to that tier. A proposal needs `sample` of at least `minimumSample`. It moves a tier down to a lower tier's model that merged at least 90% of its sample without escalation, or else up to the next tier's entry when the tier's own model merged fewer than 70%. It proposes at most one change per tier and nothing past `frontier`.
+- `report` only reads. It never changes the mapping. A mapping file that cannot be used still gets the counts, with `mapping: null`, no proposals and a `mappingError`.
+
 ## cleanup
 
 `cleanup` takes no arguments and prints `{ ok: true, removed, retained }`. Each entry names its `ticket`, `worktree`, and `branch`; retained entries include a `reason`. Inspect both lists: acceptance of the command does not mean every worktree was removed.

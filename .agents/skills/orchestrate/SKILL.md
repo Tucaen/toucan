@@ -47,6 +47,8 @@ Persist progress and review notes in each ticket's `body` through `ticket update
 
 When no further authorized work can progress, call `cleanup` once and inspect `removed` and `retained`. Unmerged work stays for the human. Report partial cleanup, with the reason and remaining branch/path; retry only after addressing that reason. Cleanup deletes merged local branches and worktrees, while conversations remain in History.
 
+Then call `report` once for the routing report. It covers every orchestration of this project, not only this one. Never edit the tier mapping yourself, even when a proposal looks obvious: the human decides.
+
 Your final answer is the **review list**, with a commit or worktree for every ticket mentioned:
 
 - Low-confidence routes, escalations, orchestrator-routed tickets and model fallbacks.
@@ -54,5 +56,7 @@ Your final answer is the **review list**, with a commit or worktree for every ti
 - Open questions and pending permission prompts requiring the human.
 - Unmerged tickets, their blocked dependents and retained worktrees.
 - Failed tracker write-backs and partial cleanup.
+
+End it with a **Routing report** section built from `report`: one table of Jev's routes and a separate one of orchestrator routes, each row a tier and model with its tickets, merged without escalation, escalated and median turns. Then list each proposal's `summary` and its `from` → `to` mapping entry for the file in `config`. With no proposals, say none reached the minimum sample of `minimumSample` settled tickets. Name a `mappingError` if there is one.
 
 For a category with no entries say none, concisely. Link merged commits even when there are no findings. If sessions are still working, this is an interim status and you end the turn for Toucan's wake; do not call the orchestration finished.

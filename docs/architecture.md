@@ -245,6 +245,10 @@ checks workspace containment, Git worktree identity and publication before non-f
 The canvas [cleanup policy](../src/renderer/src/ticket-cleanup.ts) suspends the settled ticket chat
 first, keeping it visible if Git refuses; successful cleanup retires the chat and group through
 the ordinary node-removal path. The endpoint takes only `cleanup`, never caller-supplied paths.
+The [routing report](../src/shared/orchestration-report.ts) is pure. It reads each ticket's `runs`,
+the session and route of every spawn, from the orchestration records of one project, which
+`list()` on the [orchestration store](../src/main/orchestration-store.ts) supplies. It takes turns
+from the outcome records and only proposes changes to the tier mapping, never writing it.
 
 ## Documentation responsibilities
 
