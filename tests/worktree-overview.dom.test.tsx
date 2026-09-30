@@ -14,9 +14,9 @@ import {
 
 /**
  * Issue #27: five worktrees running side by side, one of them focused and one collapsed, and the
- * overview still says which worktree - and which chat in it - needs the user. The headers and the
- * navigator read one summary, going to a worktree reads nothing, and going to a chat reveals that
- * exact chat without restarting anything or moving any worktree.
+ * overview still says which worktree - and which chat in it - needs the user. The sidebar lists each
+ * worktree with its chats under it, going to a worktree reads nothing, and going to a chat reveals
+ * that exact chat without restarting anything or moving any worktree.
  */
 
 let harness: WorktreeCanvasesHarness
@@ -43,13 +43,24 @@ function fiveWorktrees(): WorkspaceState {
 
 const CHATS = ['c1', 'c2', 'c3a', 'c3b', 'c4', 'c5']
 
-function navigator(): HTMLElement {
-  return screen.getByRole('navigation', { name: 'Worktrees' })
+/** The project sidebar's worktree list. */
+function worktreeList(): HTMLElement {
+  return document.querySelector<HTMLElement>('.project-sidebar .project-worktree-list')!
 }
 
-/** The navigator's entry for a worktree: its row and the chats listed under it. */
+/** The sidebar's entry for a worktree: its row and the chats listed under it. */
 function entry(branch: string): HTMLElement {
-  return within(navigator()).getByText(branch).closest('li')!
+  return within(worktreeList()).getByText(branch).closest<HTMLElement>('.project-worktree-entry')!
+}
+
+/** The unread count on a worktree's own sidebar row, or null when it has none. */
+function entryUnread(branch: string): string | null {
+  return entry(branch).querySelector('.project-worktree-row .unread-badge')?.textContent ?? null
+}
+
+/** A chat's row under its worktree in the sidebar. */
+function chatRow(branch: string, label: string): HTMLElement {
+  return within(entry(branch)).getByRole('button', { name: new RegExp(label) })
 }
 
 function createsFor(nodeId: string): number {
@@ -89,7 +100,7 @@ describe('the worktree overview', () => {
     await waitFor(() => CHATS.forEach((id) => expect(createsFor(id)).toBe(1)))
 
     // Every worktree is listed by branch, in canvas order.
-    const rows = within(navigator()).getAllByRole('button', { name: /feature\// })
+    const rows = within(worktreeList()).getAllByRole('button', { name: /feature\// })
     expect(rows.map((row) => within(row).getByText(/^feature\//).textContent)).toEqual(BRANCHES)
 
     // Background work in w2, a collapsed w4, and w1 focused onto the whole canvas.
@@ -98,9 +109,9 @@ describe('the worktree overview', () => {
     fireEvent.click(within(header('w1')).getByRole('button', { name: 'Fit to canvas' }))
     await waitFor(() => expect(within(header('w1')).getByRole('button', { name: 'Restore' })).toBeInTheDocument())
 
-    // Header and navigator agree on the work in w2, and neither reads git state as agent state.
+    // Header and sidebar agree on the work in w2, and the header does not read git state as agent state.
     await waitFor(() => expect(within(header('w2')).getByText('1 working')).toBeInTheDocument())
-    expect(within(entry('feature/signup')).getByText('1 working')).toBeInTheDocument()
+    expect(within(chatRow('feature/signup', 'Chat C2')).getByText('Working')).toBeInTheDocument()
     expect(
       header('w2')
         .querySelector('.worktree-status')!
@@ -110,8 +121,9 @@ describe('the worktree overview', () => {
     // The collapsed worktree's chat asks for approval: it is still mounted, so it still reports.
     await act(async () => harness.agent.emit('c4', APPROVAL))
     await waitFor(() => expect(within(header('w4')).getByText('1 unread')).toBeInTheDocument())
-    expect(within(entry('feature/billing')).getByText('1 unread')).toBeInTheDocument()
-    const request = within(entry('feature/billing')).getByRole('button', { name: /Approval.*Chat C4/ })
+    expect(entryUnread('feature/billing')).toBe('1')
+    const request = chatRow('feature/billing', 'Chat C4')
+    expect(request).toHaveAttribute('data-unread', 'true')
     expect(nodeElement('worktree:w4')!.querySelector('.worktree-node')).toHaveClass('collapsed')
     expect(createsFor('c4')).toBe(1)
 
@@ -122,19 +134,19 @@ describe('the worktree overview', () => {
     await waitFor(() => expect(within(header('w1')).getByRole('button', { name: 'Fit to canvas' })).toBeInTheDocument())
     // Looking at the request is not answering it.
     expect(within(header('w4')).getByText('1 unread')).toBeInTheDocument()
-    expect(within(entry('feature/billing')).getByText('1 unread')).toBeInTheDocument()
+    expect(entryUnread('feature/billing')).toBe('1')
 
     // Answering it clears it everywhere at once.
     fireEvent.click(within(nodeElement('c4')!).getByRole('button', { name: 'Allow Once' }))
     await waitFor(() => expect(within(header('w4')).queryByText('1 unread')).toBeNull())
-    expect(within(entry('feature/billing')).queryByText('1 unread')).toBeNull()
+    expect(entryUnread('feature/billing')).toBeNull()
     expect(harness.agent.api.resolveApproval).toHaveBeenCalled()
 
     // Nothing restarted, the background turn is still running, and no worktree moved on its own.
     CHATS.forEach((id) => expect(createsFor(id)).toBe(1))
     expect(harness.agent.api.kill).not.toHaveBeenCalled()
     expect(within(header('w2')).getByText('1 working')).toBeInTheDocument()
-    expect(within(entry('feature/signup')).getByText('1 working')).toBeInTheDocument()
+    expect(within(chatRow('feature/signup', 'Chat C2')).getByText('Working')).toBeInTheDocument()
     await waitFor(() =>
       expect(worktreePositions()).toEqual(BRANCHES.map((_, index) => [`w${index + 1}`, { x: index * 1000, y: 0 }]))
     )
@@ -150,23 +162,23 @@ describe('the worktree overview', () => {
     )
     // Two children, two kinds, one total both surfaces agree on.
     await waitFor(() => expect(within(header('w3')).getByText('2 unread')).toBeInTheDocument())
-    expect(within(entry('feature/search')).getByText('2 unread')).toBeInTheDocument()
-    expect(within(entry('feature/search')).getByRole('button', { name: /Approval.*Chat C3a/ })).toBeInTheDocument()
-    expect(within(entry('feature/search')).getByRole('button', { name: /Result.*Chat C3b/ })).toBeInTheDocument()
+    expect(entryUnread('feature/search')).toBe('2')
+    expect(chatRow('feature/search', 'Chat C3a')).toHaveAttribute('data-unread', 'true')
+    expect(chatRow('feature/search', 'Chat C3b')).toHaveAttribute('data-unread', 'true')
 
     // The worktree itself: its frame is selected, none of its chats, and nothing is read.
-    fireEvent.click(within(navigator()).getByRole('button', { name: /feature\/search/ }))
+    fireEvent.click(within(worktreeList()).getByRole('button', { name: /feature\/search/ }))
     await waitFor(() => expect(isSelected('worktree:w3')).toBe(true))
     expect(isSelected('c3a')).toBe(false)
     expect(isSelected('c3b')).toBe(false)
     expect(within(header('w3')).getByText('2 unread')).toBeInTheDocument()
 
     // The chat with the result: shown, selected, and its result read under the chat's own policy.
-    fireEvent.click(within(entry('feature/search')).getByRole('button', { name: /Result.*Chat C3b/ }))
+    fireEvent.click(chatRow('feature/search', 'Chat C3b'))
     await waitFor(() => expect(isSelected('c3b')).toBe(true))
     await waitFor(() => expect(within(header('w3')).getByText('1 unread')).toBeInTheDocument())
-    expect(within(entry('feature/search')).getByText('1 unread')).toBeInTheDocument()
-    expect(within(entry('feature/search')).queryByRole('button', { name: /Result.*Chat C3b/ })).toBeNull()
+    expect(entryUnread('feature/search')).toBe('1')
+    expect(chatRow('feature/search', 'Chat C3b')).not.toHaveAttribute('data-unread')
 
     // The header's own shortcut goes to the chat that is waiting, not the first one in the worktree.
     fireEvent.click(within(header('w3')).getByRole('button', { name: /1 unread - show Chat C3a/ }))
@@ -188,21 +200,24 @@ describe('the worktree overview', () => {
     await waitFor(() => expect(within(header('w5')).getByText('1 unread')).toBeInTheDocument())
   })
 
-  test('the navigator is walked with the arrow keys and folds to one line', async () => {
+  test('the sidebar lists worktree chats under their worktree, loose chats under the project, and folds', async () => {
     harness = await mountWorktreeCanvases(fiveWorktrees())
-    const toggle = within(navigator()).getByRole('button', { name: /Worktrees/ })
-    toggle.focus()
+    expect(
+      within(entry('feature/search'))
+        .getAllByRole('button', { name: /Chat/ })
+        .map((row) => within(row).getByText(/^Chat/).textContent)
+    ).toEqual(['Chat C3a', 'Chat C3b'])
+    expect(within(worktreeList()).queryByText('Loose chat')).toBeNull()
+    expect(within(document.querySelector<HTMLElement>('.project-sidebar')!).getByText('Loose chat')).toBeInTheDocument()
+    // The canvas no longer carries an overlay of its own.
+    expect(screen.queryByRole('navigation', { name: 'Worktrees' })).toBeNull()
 
-    fireEvent.keyDown(toggle, { key: 'ArrowDown' })
-    expect(document.activeElement).toBe(within(navigator()).getByRole('button', { name: /feature\/login/ }))
-    fireEvent.keyDown(document.activeElement!, { key: 'End' })
-    expect(document.activeElement).toBe(within(navigator()).getByRole('button', { name: /feature\/export/ }))
-    fireEvent.keyDown(document.activeElement!, { key: 'Home' })
-    expect(document.activeElement).toBe(toggle)
-
+    const toggle = within(worktreeList()).getByRole('button', { name: /Worktrees/ })
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
     fireEvent.click(toggle)
     expect(toggle).toHaveAttribute('aria-expanded', 'false')
-    expect(within(navigator()).queryByRole('button', { name: /feature\// })).toBeNull()
+    expect(within(worktreeList()).queryByRole('button', { name: /feature\// })).toBeNull()
+    expect(within(worktreeList()).queryByText('Chat C1')).toBeNull()
   })
 
   test('the bottom row stays Add chat and Fit chats, with no details or close-selected action', async () => {

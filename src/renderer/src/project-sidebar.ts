@@ -26,15 +26,19 @@ export interface SidebarWorktreeRow {
   branch: string
   path: string
   selected: boolean
+  collapsed: boolean
   attachedNodeCount: number
+  /** The sessions attached to this worktree, in canvas order; they are listed under it, not the project. */
+  sessions: SidebarSessionRow[]
 }
 
 export interface SidebarProjectSummary {
+  /** Sessions not attached to any listed worktree. */
   sessions: SidebarSessionRow[]
   worktrees: SidebarWorktreeRow[]
   /** Sessions plus worktrees - what the locate button counts and the remove button guards on. */
   nodeCount: number
-  /** The session node ids, for counting and describing this project's unread records. */
+  /** Every session node id, worktree ones included, for counting and describing unread records. */
   sessionNodeIds: string[]
 }
 
@@ -60,30 +64,39 @@ export function projectSidebarSummaries(
     summaries.set(projectId, created)
     return created
   }
+  // Worktrees first, so a session finds the worktree it is attached to whatever the node order.
+  const worktreeRows = new Map<string, SidebarWorktreeRow>()
   for (const node of nodes) {
-    if (isTerminalCanvasNode(node)) {
-      const summary = summaryOf(node.data.projectId)
-      summary.sessions.push({
-        id: node.id,
-        label: node.data.label,
-        kind: node.data.kind,
-        selected: node.selected ?? false,
-        status: sessionNodeStatus(node, statuses),
-        terminalLiveness: node.data.kind === 'terminal' ? node.data.terminalLiveness : undefined
-      })
-      summary.sessionNodeIds.push(node.id)
-      summary.nodeCount += 1
-    } else if (isWorktreeCanvasNode(node)) {
-      const summary = summaryOf(node.data.projectId)
-      summary.worktrees.push({
-        id: node.id,
-        branch: node.data.branch,
-        path: node.data.path,
-        selected: node.selected ?? false,
-        attachedNodeCount: node.data.attachedNodeCount
-      })
-      summary.nodeCount += 1
+    if (!isWorktreeCanvasNode(node)) continue
+    const summary = summaryOf(node.data.projectId)
+    const row: SidebarWorktreeRow = {
+      id: node.id,
+      branch: node.data.branch,
+      path: node.data.path,
+      selected: node.selected ?? false,
+      collapsed: node.data.collapsed === true,
+      attachedNodeCount: node.data.attachedNodeCount,
+      sessions: []
     }
+    summary.worktrees.push(row)
+    worktreeRows.set(node.data.worktreeId, row)
+    summary.nodeCount += 1
+  }
+  for (const node of nodes) {
+    if (!isTerminalCanvasNode(node)) continue
+    const summary = summaryOf(node.data.projectId)
+    const row: SidebarSessionRow = {
+      id: node.id,
+      label: node.data.label,
+      kind: node.data.kind,
+      selected: node.selected ?? false,
+      status: sessionNodeStatus(node, statuses),
+      terminalLiveness: node.data.kind === 'terminal' ? node.data.terminalLiveness : undefined
+    }
+    const list = (node.data.worktreeId && worktreeRows.get(node.data.worktreeId)) || summary
+    list.sessions.push(row)
+    summary.sessionNodeIds.push(node.id)
+    summary.nodeCount += 1
   }
   return summaries
 }

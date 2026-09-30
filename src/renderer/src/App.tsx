@@ -148,7 +148,6 @@ import {
   registerWorktreeNode,
   reconcileStaleWorktrees
 } from './worktree-attachment'
-import WorktreeNavigator from './WorktreeNavigator'
 import WorktreeNode from './WorktreeNode'
 import { summarizeWorktrees } from './worktree-overview'
 import {
@@ -2656,8 +2655,7 @@ function Canvas(): JSX.Element {
   )
 
   /**
-   * Every worktree's agent state and attention, derived once: each header and the navigator read
-   * these same objects, which is what keeps their counts in agreement.
+   * Every worktree's agent state and attention, derived once and handed to each worktree header.
    */
   const worktreeSummaries = useMemo(
     () => summarizeWorktrees(nodes, canvasPartition, nodeStatuses, attention),
@@ -2900,8 +2898,6 @@ function Canvas(): JSX.Element {
                       </OpenFileContext.Provider>
                     </NodeSearchContext.Provider>
                   </NodeFitContext.Provider>
-                  {/* Beside the canvas rather than on it: its clicks and keys never reach React Flow. */}
-                  <WorktreeNavigator summaries={worktreeSummaries} onReveal={focusNode} />
                 </section>
 
                 <WorkspacePanels

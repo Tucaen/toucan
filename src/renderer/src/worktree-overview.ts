@@ -10,15 +10,6 @@ import type { TerminalNodeStatus } from '../../shared/terminal'
 import { isTerminalCanvasNode, isWorktreeCanvasNode, sessionNodeStatus, type CanvasNode } from './canvas-workspace'
 import type { WorktreeCanvasPartition } from './worktree-canvas'
 
-/** A chat's most blocking unread kind, said in one word where a row has room for one. */
-export const ATTENTION_KIND_LABELS: Record<AttentionKind, string> = {
-  approval: 'Approval',
-  auth: 'Sign-in',
-  failure: 'Failed',
-  result: 'Result',
-  output: 'Output'
-}
-
 /** One chat in a worktree that has unread attention records - the place the user has to go. */
 export interface WorktreeChatAttention {
   nodeId: string
@@ -32,7 +23,7 @@ export interface WorktreeChatAttention {
 }
 
 /**
- * What a worktree's header and the worktree navigator both say about it. Agent state only: git
+ * What a worktree's header says about its agents. Agent state only: git
  * state is the header's own poll, and deliberately not folded in here - a clean checkout says
  * nothing about whether a turn is finished.
  */
@@ -50,7 +41,7 @@ export interface WorktreeSummary {
   working: number
   /** In chat order, never re-sorted by urgency, so an entry does not move under the pointer. */
   attention: WorktreeChatAttention[]
-  /** Every unread record across its chats: the one number both surfaces show. */
+  /** Every unread record across its chats. */
   unread: number
   /** The chat to go to first: the most blocking kind, and the earliest chat among equals. */
   urgent?: WorktreeChatAttention
@@ -58,8 +49,7 @@ export interface WorktreeSummary {
 
 /**
  * Every worktree on the canvas, in canvas order, summarized from the same two sources every other
- * surface reads: the session statuses and the durable attention records. Header and navigator are
- * handed the same objects, so their counts cannot disagree.
+ * surface reads: the session statuses and the durable attention records.
  */
 export function summarizeWorktrees(
   nodes: readonly CanvasNode[],

@@ -1581,7 +1581,6 @@ button.global-status-chip:hover {
 }
 
 .canvas-region {
-  /* The worktree navigator sits over its corner. */
   position: relative;
   min-width: 0;
   height: 100%;
@@ -4583,7 +4582,7 @@ button.global-status-chip:hover {
   white-space: nowrap;
 }
 
-/* Agent state - never git state - on a worktree header and in the navigator alike. */
+/* Agent state - never git state - on a worktree header. */
 .worktree-agent-state {
   flex: 0 0 auto;
   display: flex;
@@ -4607,19 +4606,16 @@ button.global-status-chip:hover {
   background: currentColor;
 }
 
-/* One colour per attention kind, read by the header chip and the navigator's chat rows alike. */
-.worktree-agent-unread,
-.worktree-navigator-chat {
+/* One colour per attention kind on the header chip. */
+.worktree-agent-unread {
   --attention-color: #ff6b6f;
 }
 
-.worktree-agent-unread:is([data-kind='approval'], [data-kind='auth']),
-.worktree-navigator-chat:is([data-kind='approval'], [data-kind='auth']) {
+.worktree-agent-unread:is([data-kind='approval'], [data-kind='auth']) {
   --attention-color: #f1c75b;
 }
 
-.worktree-agent-unread:is([data-kind='result'], [data-kind='output']),
-.worktree-navigator-chat:is([data-kind='result'], [data-kind='output']) {
+.worktree-agent-unread:is([data-kind='result'], [data-kind='output']) {
   --attention-color: var(--codex);
 }
 
@@ -4641,132 +4637,6 @@ button.worktree-agent-unread {
 button.worktree-agent-unread:hover,
 button.worktree-agent-unread:focus-visible {
   border-color: #fff;
-}
-
-/*
- * Every worktree over the canvas's lower corner: compact enough for a laptop, collapsible to one
- * pill, and anchored at the bottom so it grows upward - the top would cover a focused worktree's
- * collapse control and branch, which are the first things in its header.
- */
-.worktree-navigator {
-  position: absolute;
-  bottom: 8px;
-  left: 8px;
-  z-index: var(--z-chrome);
-  max-width: min(300px, calc(100% - 16px));
-  max-height: calc(100% - 16px);
-  display: flex;
-  flex-direction: column;
-  border: 1px solid #2f2740;
-  border-radius: 8px;
-  background: color-mix(in srgb, #17131f 94%, transparent);
-  box-shadow: 0 6px 18px rgb(0 0 0 / 35%);
-  font-size: 12px;
-}
-
-.worktree-navigator button {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  border: 0;
-  background: transparent;
-  color: #d5dbe5;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.worktree-navigator button:hover,
-.worktree-navigator button:focus-visible {
-  background: #241e31;
-}
-
-.worktree-navigator button:focus-visible {
-  outline: 1px solid #c992ff;
-  outline-offset: -1px;
-}
-
-.worktree-navigator svg {
-  width: 13px;
-  height: 13px;
-  flex: 0 0 auto;
-}
-
-.worktree-navigator-toggle {
-  padding: 5px 8px;
-  border-radius: 8px;
-  color: #b9c0cb;
-}
-
-.worktree-navigator-count {
-  color: var(--neutral-400);
-}
-
-.worktree-navigator-list,
-.worktree-navigator-chats {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.worktree-navigator-list {
-  overflow-y: auto;
-  padding-bottom: 4px;
-  border-top: 1px solid #2f2740;
-}
-
-.worktree-navigator-worktree,
-.worktree-navigator-chat {
-  width: 100%;
-}
-
-.worktree-navigator-worktree {
-  padding: 4px 8px;
-}
-
-.worktree-navigator-worktree[data-collapsed='true'] .worktree-navigator-name {
-  color: var(--neutral-300);
-}
-
-.worktree-navigator-name,
-.worktree-navigator-chat-label {
-  min-width: 0;
-  flex: 0 1 auto;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.worktree-navigator-branch {
-  min-width: 0;
-  flex: 1 2 auto;
-  overflow: hidden;
-  color: var(--neutral-500);
-  font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.worktree-navigator-worktree .worktree-agent-state {
-  margin-left: auto;
-}
-
-.worktree-navigator-chat {
-  padding: 2px 8px 2px 22px;
-  color: #b9c0cb;
-  font-size: 11px;
-}
-
-.worktree-navigator-kind {
-  flex: 0 0 auto;
-  font-weight: 600;
-  color: var(--attention-color);
-}
-
-.worktree-navigator-chat-count {
-  margin-left: auto;
-  color: var(--neutral-400);
 }
 
 .worktree-open-group {
@@ -4836,8 +4706,61 @@ button.worktree-agent-unread:focus-visible {
   color: #c992ff;
 }
 
-.project-worktree-list .project-node-kind {
+.project-worktree-row .project-node-kind {
   color: #c992ff;
+}
+
+.project-worktree-row[data-collapsed='true'] .project-node-name {
+  color: #687484;
+}
+
+/* The fold for a project's worktrees: a quiet heading, not a row that focuses anything. */
+.project-worktree-toggle {
+  min-width: 0;
+  height: 25px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  color: #b9c0cb;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.project-worktree-toggle:hover {
+  background: #1a2028;
+}
+
+.project-worktree-toggle svg {
+  width: 13px;
+  height: 13px;
+  flex: 0 0 auto;
+}
+
+.project-worktree-toggle .project-node-name {
+  flex: 0 1 auto;
+}
+
+.project-worktree-toggle .project-group-count {
+  margin-left: 0;
+}
+
+.project-worktree-toggle[aria-expanded='true'] .project-group-chevron {
+  transform: rotate(0deg);
+}
+
+.project-worktree-entry {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+/* A worktree's own sessions, one step in under the worktree that runs them. */
+.project-node-list.project-worktree-sessions {
+  margin: 0 0 3px 15px;
 }
 
 .project-node-state[data-status='worktree'] {

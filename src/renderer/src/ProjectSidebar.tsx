@@ -22,7 +22,7 @@ import SessionKindIcon from './SessionKindIcon'
 import { SidebarTerminalLiveness } from './TerminalLivenessPresentation'
 import { terminalLivenessLabels } from './terminal-liveness'
 import { groupDropTarget, projectDropTarget, sidebarRegions, type MeasuredRow } from './project-order'
-import { sidebarSummaryFor, type SidebarProjectSummary } from './project-sidebar'
+import { sidebarSummaryFor, type SidebarProjectSummary, type SidebarSessionRow } from './project-sidebar'
 
 const statusLabels: Record<TerminalNodeStatus, string> = {
   dormant: 'Saved',
@@ -192,6 +192,53 @@ export function ProjectSidebar({
     },
     [intents, measureSidebarRows]
   )
+
+  /** Which projects have their worktree list folded away; session-local, never saved. */
+  const [foldedWorktreeLists, setFoldedWorktreeLists] = useState<ReadonlySet<string>>(() => new Set())
+  const toggleWorktreeList = useCallback((projectId: string): void => {
+    setFoldedWorktreeLists((current) => {
+      const next = new Set(current)
+      if (!next.delete(projectId)) next.add(projectId)
+      return next
+    })
+  }, [])
+
+  /** One session row, the same under a worktree as directly under its project. */
+  const renderSessionRow = (session: SidebarSessionRow): JSX.Element => {
+    const nodeUnread = unreadByNode[session.id] ?? 0
+    return (
+      <button
+        type="button"
+        className={`project-node-row ${session.selected ? 'selected' : ''}`}
+        key={session.id}
+        data-kind={session.kind}
+        data-unread={nodeUnread > 0 ? 'true' : undefined}
+        title={[
+          `Focus ${session.label} · ${statusLabels[session.status]}`,
+          nodeUnread > 0 ? describeUnread([session.id]) : null
+        ]
+          .filter(Boolean)
+          .join('\n')}
+        onClick={(event) => {
+          event.stopPropagation()
+          intents.focusNode(session.id)
+        }}
+      >
+        <span className="project-node-kind">
+          <SessionKindIcon kind={session.kind} />
+        </span>
+        <span className="project-node-name">{session.label}</span>
+        {nodeUnread > 0 && <span className="unread-badge">{nodeUnread}</span>}
+        {session.kind === 'terminal' && session.terminalLiveness !== undefined && (
+          <SidebarTerminalLiveness liveness={session.terminalLiveness} />
+        )}
+        <span className="project-node-state" data-status={session.status}>
+          <span className="node-status-indicator" />
+          {statusLabels[session.status]}
+        </span>
+      </button>
+    )
+  }
 
   return (
     <aside ref={sidebarRef} className={`project-sidebar ${collapsed ? 'collapsed' : ''}`}>
@@ -396,67 +443,72 @@ export function ProjectSidebar({
 
                       {!collapsed && summary.worktrees.length > 0 && (
                         <div className="project-node-list project-worktree-list">
-                          {summary.worktrees.map((worktree) => (
-                            <button
-                              type="button"
-                              className={`project-node-row ${worktree.selected ? 'selected' : ''}`}
-                              key={worktree.id}
-                              title={`Focus worktree ${worktree.branch}\n${worktree.path}`}
-                              onClick={(event) => {
-                                event.stopPropagation()
-                                intents.focusNode(worktree.id)
-                              }}
-                            >
-                              <span className="project-node-kind">
-                                <GitBranch aria-hidden="true" />
-                              </span>
-                              <span className="project-node-name">{worktree.branch}</span>
-                              <span className="project-node-state" data-status="worktree">
-                                {worktree.attachedNodeCount}
-                              </span>
-                            </button>
-                          ))}
+                          <button
+                            type="button"
+                            className="project-worktree-toggle"
+                            aria-expanded={!foldedWorktreeLists.has(project.id)}
+                            title={
+                              foldedWorktreeLists.has(project.id)
+                                ? `Show ${project.name} worktrees`
+                                : `Hide ${project.name} worktrees`
+                            }
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              toggleWorktreeList(project.id)
+                            }}
+                          >
+                            <span className="project-group-chevron" aria-hidden="true">
+                              <ChevronDown />
+                            </span>
+                            <GitBranch aria-hidden="true" />
+                            <span className="project-node-name">Worktrees</span>
+                            <span className="project-group-count">{summary.worktrees.length}</span>
+                          </button>
+                          {!foldedWorktreeLists.has(project.id) &&
+                            summary.worktrees.map((worktree) => {
+                              const worktreeUnread = countUnread(worktree.sessions.map((session) => session.id))
+                              return (
+                                <div className="project-worktree-entry" key={worktree.id}>
+                                  <button
+                                    type="button"
+                                    className={`project-node-row project-worktree-row ${
+                                      worktree.selected ? 'selected' : ''
+                                    }`}
+                                    data-collapsed={worktree.collapsed ? 'true' : undefined}
+                                    title={[
+                                      `Focus worktree ${worktree.branch}`,
+                                      worktree.path,
+                                      worktree.collapsed ? 'Collapsed; its chats keep running' : null
+                                    ]
+                                      .filter(Boolean)
+                                      .join('\n')}
+                                    onClick={(event) => {
+                                      event.stopPropagation()
+                                      intents.focusNode(worktree.id)
+                                    }}
+                                  >
+                                    <span className="project-node-kind">
+                                      <GitBranch aria-hidden="true" />
+                                    </span>
+                                    <span className="project-node-name">{worktree.branch}</span>
+                                    {worktreeUnread > 0 && <span className="unread-badge">{worktreeUnread}</span>}
+                                    <span className="project-node-state" data-status="worktree">
+                                      {worktree.attachedNodeCount}
+                                    </span>
+                                  </button>
+                                  {worktree.sessions.length > 0 && (
+                                    <div className="project-node-list project-worktree-sessions">
+                                      {worktree.sessions.map(renderSessionRow)}
+                                    </div>
+                                  )}
+                                </div>
+                              )
+                            })}
                         </div>
                       )}
 
                       {!collapsed && summary.sessions.length > 0 && (
-                        <div className="project-node-list">
-                          {summary.sessions.map((session) => {
-                            const nodeUnread = unreadByNode[session.id] ?? 0
-                            return (
-                              <button
-                                type="button"
-                                className={`project-node-row ${session.selected ? 'selected' : ''}`}
-                                key={session.id}
-                                data-kind={session.kind}
-                                data-unread={nodeUnread > 0 ? 'true' : undefined}
-                                title={[
-                                  `Focus ${session.label} · ${statusLabels[session.status]}`,
-                                  nodeUnread > 0 ? describeUnread([session.id]) : null
-                                ]
-                                  .filter(Boolean)
-                                  .join('\n')}
-                                onClick={(event) => {
-                                  event.stopPropagation()
-                                  intents.focusNode(session.id)
-                                }}
-                              >
-                                <span className="project-node-kind">
-                                  <SessionKindIcon kind={session.kind} />
-                                </span>
-                                <span className="project-node-name">{session.label}</span>
-                                {nodeUnread > 0 && <span className="unread-badge">{nodeUnread}</span>}
-                                {session.kind === 'terminal' && session.terminalLiveness !== undefined && (
-                                  <SidebarTerminalLiveness liveness={session.terminalLiveness} />
-                                )}
-                                <span className="project-node-state" data-status={session.status}>
-                                  <span className="node-status-indicator" />
-                                  {statusLabels[session.status]}
-                                </span>
-                              </button>
-                            )
-                          })}
-                        </div>
+                        <div className="project-node-list">{summary.sessions.map(renderSessionRow)}</div>
                       )}
                     </div>
                   )

@@ -7,8 +7,7 @@ interface WorktreeAgentStateProps {
 }
 
 /**
- * What a worktree's agents are doing, said the same way on its header and in the navigator - both
- * render this from the same `WorktreeSummary`, so their counts agree by construction. Agent state
+ * What a worktree's agents are doing, rendered on its header from its `WorktreeSummary`. Agent state
  * only, deliberately styled apart from the header's git state: a clean checkout is not a finished
  * turn.
  */

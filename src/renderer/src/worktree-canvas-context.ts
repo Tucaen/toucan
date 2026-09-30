@@ -28,7 +28,7 @@ export interface WorktreeCanvasHandle {
 export interface WorktreeCanvasHost {
   partition: WorktreeCanvasPartition
   edges: WorktreeCanvasEdges
-  /** By worktree id; the navigator is handed the very same objects, so the counts agree. */
+  /** By worktree id. */
   summaries: ReadonlyMap<string, WorktreeSummary>
   /** Brings a chat into view on its canvas and selects it, expanding its worktree if collapsed. */
   onReveal(nodeId: string): void
