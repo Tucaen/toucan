@@ -199,7 +199,8 @@ const orchestratorApi: OrchestratorApi = {
       callback(requestId, request)
     ),
   completeTicketSession: (requestId, result) =>
-    ipcRenderer.send(ORCHESTRATOR_CHANNELS.ticketSessionResult, requestId, result)
+    ipcRenderer.send(ORCHESTRATOR_CHANNELS.ticketSessionResult, requestId, result),
+  jevReachability: () => ipcRenderer.invoke(ORCHESTRATOR_CHANNELS.jevReachability)
 }
 
 contextBridge.exposeInMainWorld('orchestratorApi', orchestratorApi)

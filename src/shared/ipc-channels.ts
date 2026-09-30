@@ -107,7 +107,9 @@ export const REMOTE_CHANNELS = {
 export const ORCHESTRATOR_CHANNELS = {
   /** Main asks the renderer to put a ticket session on the canvas; the answer comes on `ticketSessionResult`. */
   startTicketSession: 'orchestrator:start-ticket-session',
-  ticketSessionResult: 'orchestrator:ticket-session-result'
+  ticketSessionResult: 'orchestrator:ticket-session-result',
+  /** Whether Jev can route an orchestration, asked by an orchestrator node before its task is sent (#36). */
+  jevReachability: 'orchestrator:jev-reachability'
 } as const
 
 export const BRAIN_DUMP_CHANNELS = {

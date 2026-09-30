@@ -1,3 +1,4 @@
+import type { JevReachability } from './orchestration-routing'
 import { isRecord } from './record'
 
 /**
@@ -51,4 +52,6 @@ export interface OrchestratorApi {
    */
   onStartTicketSession(callback: (requestId: string, request: TicketSessionCanvasRequest) => void): () => void
   completeTicketSession(requestId: string, result: TicketSessionCanvasResult): void
+  /** Whether Jev can route this orchestrator's tickets (#36); never the key itself. */
+  jevReachability(): Promise<JevReachability>
 }

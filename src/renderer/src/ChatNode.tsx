@@ -29,6 +29,7 @@ import {
 import MarkdownMessage from './MarkdownMessage'
 import { ImageAttachments } from './ImageAttachments'
 import WorktreeBadge from './WorktreeBadge'
+import JevReachabilityNote from './JevReachabilityNote'
 import {
   LINEAGE_SOURCE_HANDLE,
   LINEAGE_TARGET_HANDLE,
@@ -1442,6 +1443,7 @@ export default function ChatNode({ id, data, selected, width }: NodeProps<Termin
             Orchestrator
           </span>
         )}
+        {data.role === ORCHESTRATOR_ROLE && messages.length === 0 && <JevReachabilityNote />}
         {/* Which agent this conversation runs on is identity, not a setting: it is fixed for the
             session's life, so it belongs here rather than among the composer's pickers. Model,
             effort and permission stay in ComposerToolbar, where they are changed. */}

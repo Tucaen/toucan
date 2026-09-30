@@ -596,6 +596,8 @@ void app.whenReady().then(async () => {
     refuse: (message) => ({ ok: false, message }),
     timeoutMs: 90_000
   })
+  // Before an orchestrator's task is sent (#36): the service answering, never the key.
+  ipcMain.handle(ORCHESTRATOR_CHANNELS.jevReachability, () => jevRouter.status())
   ipcMain.on(ORCHESTRATOR_CHANNELS.ticketSessionResult, (_event, requestId: unknown, result: unknown) => {
     if (typeof requestId === 'string' && isTicketSessionCanvasResult(result)) ticketSessions.complete(requestId, result)
   })

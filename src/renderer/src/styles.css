@@ -2166,6 +2166,21 @@ button.global-status-chip:hover {
   height: 12px;
 }
 
+.node-jev-reachability {
+  padding: 3px 6px;
+  border-radius: 6px;
+  color: #9fd8b0;
+  background: rgba(98, 196, 128, 0.12);
+  font-size: 10px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.node-jev-reachability:not([data-state='reachable']) {
+  color: #f2c46d;
+  background: rgba(242, 196, 109, 0.12);
+}
+
 /* The model and permission pickers keep their width, so the title truncates first. */
 .chat-node-header > strong {
   min-width: 0;

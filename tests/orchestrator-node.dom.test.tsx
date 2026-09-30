@@ -75,6 +75,11 @@ function renderChat(role?: 'orchestrator') {
 }
 
 test('an orchestrator carries its badge and launches asking for the orchestrator role', async () => {
+  window.orchestratorApi = {
+    onStartTicketSession: () => () => undefined,
+    completeTicketSession: vi.fn(),
+    jevReachability: vi.fn(async () => ({ state: 'reachable' as const }))
+  }
   const { container, create } = renderChat('orchestrator')
 
   expect(container.querySelector('.chat-node-header .node-orchestrator-badge')).toHaveTextContent('Orchestrator')
@@ -88,4 +93,39 @@ test('an ordinary chat has no badge and asks for no role', async () => {
   expect(container.querySelector('.node-orchestrator-badge')).toBeNull()
   await waitFor(() => expect(create).toHaveBeenCalled())
   expect(create.mock.calls[0]?.[0]).not.toHaveProperty('role')
+})
+
+// #36: before its task is sent, an orchestrator shows whether Jev can route its tickets.
+
+test('an orchestrator shows before its task whether Jev is reachable', async () => {
+  window.orchestratorApi = {
+    onStartTicketSession: () => () => undefined,
+    completeTicketSession: vi.fn(),
+    jevReachability: vi.fn(async () => ({ state: 'no-key' as const }))
+  }
+  const { container } = renderChat('orchestrator')
+  await waitFor(() => expect(container.querySelector('.node-jev-reachability')).toHaveTextContent('Jev unavailable'))
+  expect(container.querySelector('.node-jev-reachability')).toHaveAttribute(
+    'title',
+    expect.stringMatching(/TYPESAFE_API_KEY/)
+  )
+})
+
+test('a reachable Jev says so, and an ordinary chat never asks', async () => {
+  const jevReachability = vi.fn(async () => ({ state: 'reachable' as const }))
+  window.orchestratorApi = {
+    onStartTicketSession: () => () => undefined,
+    completeTicketSession: vi.fn(),
+    jevReachability
+  }
+  const orchestrator = renderChat('orchestrator')
+  await waitFor(() =>
+    expect(orchestrator.container.querySelector('.node-jev-reachability')).toHaveTextContent('Jev reachable')
+  )
+  orchestrator.container.remove()
+  jevReachability.mockClear()
+  const chat = renderChat()
+  await waitFor(() => expect(chat.create).toHaveBeenCalled())
+  expect(chat.container.querySelector('.node-jev-reachability')).toBeNull()
+  expect(jevReachability).not.toHaveBeenCalled()
 })
