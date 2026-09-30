@@ -4,6 +4,7 @@ import { createContext, useContext, useId, useState, type ReactNode } from 'reac
 import { createPortal } from 'react-dom'
 import { isChatCanvasNode, isTerminalCanvasNode, isWorktreeCanvasNode, type CanvasNode } from './canvas-workspace'
 import { ModalDialog } from './ModalDialog'
+import { ORCHESTRATED_EDGE_CLASS } from './orchestration-edges'
 import { isValidTerminalContextConnection } from './terminal-context-edges'
 
 const ConnectionsContext = createContext<{
@@ -24,7 +25,7 @@ export function SessionConnectionsButton({ nodeId, label }: { nodeId: string; la
       aria-label={`Connections for ${label} (${count})`}
       aria-haspopup="dialog"
       aria-expanded={context.openId === nodeId}
-      title="Manage terminal access and view conversation branches, including other canvases"
+      title="Manage terminal access and view conversation branches and orchestration, including other canvases"
       onMouseDown={(event) => event.stopPropagation()}
       onClick={(event) => {
         event.stopPropagation()
@@ -40,7 +41,8 @@ export function SessionConnectionsButton({ nodeId, label }: { nodeId: string; la
 /**
  * Views the workspace's existing edge set, never a second relationship store. A grant is changed
  * only by an explicit button or canvas connection; moving an endpoint affects its location label
- * and line drawing, not its authority. Lineage arrives as the same read-only projection the canvas uses.
+ * and line drawing, not its authority. Lineage and orchestration arrive as the same read-only projections the
+ * canvas uses.
  */
 export function SessionConnectionsProvider({
   nodes,
@@ -80,6 +82,12 @@ export function SessionConnectionsProvider({
   const branches = session
     ? edges.filter(
         (edge) => edge.className === 'lineage-edge' && (edge.source === session.id || edge.target === session.id)
+      )
+    : []
+  const orchestration = session
+    ? edges.filter(
+        (edge) =>
+          edge.className === ORCHESTRATED_EDGE_CLASS && (edge.source === session.id || edge.target === session.id)
       )
     : []
 
@@ -144,6 +152,39 @@ export function SessionConnectionsProvider({
                           <span>
                             <strong>
                               {parent ? 'Branched from' : 'Branch'}: {related.data.label}
+                            </strong>
+                            <small>{location(related)}</small>
+                          </span>
+                          <button
+                            type="button"
+                            aria-label={`Show ${related.data.label}`}
+                            onClick={() => {
+                              close()
+                              onReveal(related.id)
+                            }}
+                          >
+                            Show
+                          </button>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                </>
+              )}
+              {orchestration.length > 0 && (
+                <>
+                  <h3>Orchestration</h3>
+                  <p>An orchestrator started these ticket sessions. The link grants no access.</p>
+                  <ul className="session-connections-list">
+                    {orchestration.map((edge) => {
+                      const spawned = edge.source === session.id
+                      const related = nodes.find((candidate) => candidate.id === (spawned ? edge.target : edge.source))
+                      if (!related || !isChatCanvasNode(related)) return null
+                      return (
+                        <li key={edge.id}>
+                          <span>
+                            <strong>
+                              {spawned ? 'Ticket session' : 'Orchestrated by'}: {related.data.label}
                             </strong>
                             <small>{location(related)}</small>
                           </span>

@@ -104,6 +104,12 @@ export const REMOTE_CHANNELS = {
   markChatRead: 'remote:mark-chat-read'
 } as const
 
+export const ORCHESTRATOR_CHANNELS = {
+  /** Main asks the renderer to put a ticket session on the canvas; the answer comes on `ticketSessionResult`. */
+  startTicketSession: 'orchestrator:start-ticket-session',
+  ticketSessionResult: 'orchestrator:ticket-session-result'
+} as const
+
 export const BRAIN_DUMP_CHANNELS = {
   list: 'brain-dump:list',
   resolve: 'brain-dump:resolve',

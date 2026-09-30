@@ -1,0 +1,138 @@
+import { screen, waitFor } from '@testing-library/react'
+import { describe, expect, test, vi } from 'vitest'
+import type { AgentApi, AgentCreateRequest } from '../src/shared/agent'
+import type { TicketSessionCanvasRequest, TicketSessionCanvasResult } from '../src/shared/ticket-session-spawn'
+import type { WorkspaceState } from '../src/shared/workspace'
+import { createMockAgentApi } from './dom/agent-api-mock'
+import { DEFAULT_PROJECT as project, renderApp, savedWorkspace } from './dom/app-harness'
+
+/**
+ * The canvas half of an orchestrator's `spawn` (#34): main has created, guarded and set up the
+ * worktree, and asks the renderer for the ticket session. What crossed the seam is asserted - the
+ * create request the chat launched with and the verdict main was handed - rather than anything
+ * re-derived here.
+ */
+
+const orchestratorLink = { nodeId: 'orchestrator-1', conversationId: 'conversation-orchestrator' }
+
+const workspace: WorkspaceState = savedWorkspace({
+  nodes: [
+    {
+      id: 'orchestrator-1',
+      kind: 'claude',
+      label: 'Orchestrator 1',
+      projectId: project.id,
+      position: { x: 0, y: 0 },
+      width: 520,
+      height: 340,
+      conversationId: 'conversation-orchestrator',
+      role: 'orchestrator'
+    }
+  ]
+})
+
+const request: TicketSessionCanvasRequest = {
+  projectId: project.id,
+  worktree: { path: 'D:\\Development\\Toucan-ticket-34', branch: 'ticket/34', baseRef: 'main' },
+  label: '#34 Spawn',
+  modelId: 'claude-opus-5-5',
+  effortId: 'high',
+  permissionMode: 'acceptEdits',
+  orchestratedBy: orchestratorLink,
+  prompt: '/implement #34 Spawn\n\n## Ticket contract'
+}
+
+async function render(agentOverrides: Partial<AgentApi> = {}) {
+  let requestTicketSession: ((requestId: string, request: TicketSessionCanvasRequest) => void) | null = null
+  const results: { requestId: string; result: TicketSessionCanvasResult }[] = []
+  const agent = createMockAgentApi(agentOverrides)
+  const harness = await renderApp({
+    state: workspace,
+    apis: {
+      agentApi: agent.api as unknown as Record<string, unknown>,
+      orchestratorApi: {
+        onStartTicketSession: (callback: typeof requestTicketSession) => {
+          requestTicketSession = callback
+          return () => {
+            requestTicketSession = null
+          }
+        },
+        completeTicketSession: (requestId: string, result: TicketSessionCanvasResult) =>
+          results.push({ requestId, result })
+      }
+    }
+  })
+  await waitFor(() => expect(requestTicketSession).not.toBeNull())
+  return { harness, agent, results, start: (id: string, body = request) => requestTicketSession!(id, body) }
+}
+
+const createRequests = (agent: ReturnType<typeof createMockAgentApi>): AgentCreateRequest[] =>
+  vi.mocked(agent.api.create).mock.calls.map(([created]) => created)
+
+describe('a ticket session requested by an orchestrator', () => {
+  test('opens a Claude chat in its worktree on the model, effort and mode main named', async () => {
+    const { agent, results, start } = await render()
+    start('ticket-1')
+
+    await waitFor(() => expect(results).toHaveLength(1))
+    const answer = results[0]
+    expect(answer.requestId).toBe('ticket-1')
+    expect(answer.result.ok).toBe(true)
+    const { nodeId, conversationId } = answer.result as { nodeId: string; conversationId: string }
+
+    const created = createRequests(agent).find((entry) => entry.id === nodeId)!
+    expect(created.provider).toBe('claude')
+    expect(created.cwd).toBe('D:\\Development\\Toucan-ticket-34')
+    expect(created.modelId).toBe('claude-opus-5-5')
+    expect(created.effortId).toBe('high')
+    expect(created.permissionMode).toBe('acceptEdits')
+    // A ticket session is never an orchestrator, so it is never minted a token: no nesting.
+    expect(created.role).toBeUndefined()
+    // The id main records is the conversation the session opened under.
+    expect(created.sessionId ?? conversationId).toBe(conversationId)
+
+    // Prompted with the implementation skill, the ticket and the contract.
+    await waitFor(() =>
+      expect(JSON.stringify(vi.mocked(agent.api.prompt).mock.calls)).toContain('/implement #34 Spawn')
+    )
+    // Titled by its ticket, on the worktree's canvas.
+    expect((await screen.findAllByText('#34 Spawn')).length).toBeGreaterThan(0)
+    expect(screen.getAllByText('ticket/34').length).toBeGreaterThan(0)
+  })
+
+  test('is saved with its manual title, its worktree and the orchestrated-by link', async () => {
+    const { harness, results, start } = await render()
+    start('ticket-1')
+    await waitFor(() => expect(results).toHaveLength(1))
+    const { nodeId } = results[0].result as { nodeId: string }
+
+    await waitFor(() => {
+      const latest = harness.saved[harness.saved.length - 1]
+      const ticket = latest?.nodes.find((node) => node.id === nodeId)
+      expect(ticket?.orchestratedBy).toEqual(orchestratorLink)
+    })
+    const latest = harness.saved[harness.saved.length - 1]
+    const ticket = latest.nodes.find((node) => node.id === nodeId)!
+    expect(ticket.label).toBe('#34 Spawn')
+    expect(ticket.titleSource).toBe('manual')
+    const worktree = latest.worktrees.find((entry) => entry.id === ticket.worktreeId)
+    expect(worktree?.path).toBe('D:\\Development\\Toucan-ticket-34')
+    expect(worktree?.branch).toBe('ticket/34')
+  })
+
+  test('a session that cannot start is reported as a failure', async () => {
+    const { results, start } = await render({
+      create: vi.fn(async () => ({ ok: false as const, status: 'error' as const, message: 'no adapter' }))
+    })
+    start('ticket-1')
+    await waitFor(() => expect(results).toHaveLength(1))
+    expect(results[0].result).toEqual({ ok: false, message: 'The ticket session could not be started on the desktop.' })
+  })
+
+  test('a project the canvas no longer has is refused', async () => {
+    const { results, start } = await render()
+    start('ticket-1', { ...request, projectId: 'closed-project' })
+    await waitFor(() => expect(results).toHaveLength(1))
+    expect(results[0].result).toEqual({ ok: false, message: 'That project is no longer open on the desktop.' })
+  })
+})

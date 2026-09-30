@@ -1,14 +1,24 @@
 import { app, BrowserWindow, dialog, ipcMain, nativeImage, net, protocol, safeStorage, session, shell } from 'electron'
 import { existsSync, mkdirSync } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
-import { join, normalize } from 'node:path'
+import { join, normalize, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { spawn } from 'node-pty'
-import { ADAPTER_CHANNELS, USAGE_CHANNELS } from '../shared/ipc-channels'
+import { ADAPTER_CHANNELS, ORCHESTRATOR_CHANNELS, USAGE_CHANNELS } from '../shared/ipc-channels'
+import { pathIdentity } from '../shared/paths'
+import {
+  isTicketSessionCanvasResult,
+  type TicketSessionCanvasRequest,
+  type TicketSessionCanvasResult
+} from '../shared/ticket-session-spawn'
 import { autoUpdater } from 'electron-updater'
 import { createAcpSessionManager, type AcpSessionManager } from './acp-session-manager'
 import { createOrchestrationStore } from './orchestration-store'
 import { createOrchestratorEndpoint } from './orchestrator-endpoint'
+import { createSetupCommandRunner } from './setup-command'
+import { installPushGuard } from './ticket-push-guard'
+import { createTicketSpawner, type TicketSpawner } from './ticket-spawner'
+import { createWindowRequests, type WindowRequests } from './window-requests'
 import { createAgentModelCatalogueStore } from './agent-model-catalogue-store'
 import { createAppUpdater, type AppUpdater } from './app-update'
 import { forwardAppUpdateChanges, registerAppUpdateIpc } from './app-update-ipc'
@@ -72,7 +82,7 @@ import { registerConversationIpc } from './conversation-ipc'
 import { createProjectAvatarStore } from './project-avatar-store'
 import { registerProjectIpc } from './project-ipc'
 import { createProjectPrettier } from './project-prettier'
-import { createWorktreeManager } from './git-worktree'
+import { createWorktreeManager, runGitWithExecFile } from './git-worktree'
 import { createWorkspaceFileIndex } from './workspace-file-index'
 import { createWorkspaceStore } from './workspace-store'
 import { projectFor, ticketsDirectoryFor, ticketsRelativeDirectoryFor } from './ticket-directory'
@@ -135,6 +145,7 @@ function createWindow(
   fileView: FileView,
   remote: RemoteAccessServer,
   canvasRequests: RemoteCanvasRequests,
+  ticketSessions: Pick<WindowRequests<TicketSessionCanvasRequest, TicketSessionCanvasResult>, 'attach'>,
   appUpdater: AppUpdater,
   voiceModel: VoiceModelStore
 ): void {
@@ -176,11 +187,14 @@ function createWindow(
   // desktop closed mid-spawn" into a refusal the phone can read rather than a request that waits
   // out its timeout.
   const detachCanvasWindow = canvasRequests.attach(contents)
+  // An orchestrator's ticket session is put on the canvas by a window for the same reason.
+  const detachTicketSessionWindow = ticketSessions.attach(contents)
   contents.on('destroyed', () => {
     stopForwardingRemoteState()
     stopForwardingUpdates()
     stopForwardingVoiceModel()
     detachCanvasWindow()
+    detachTicketSessionWindow()
     terminalManager.disconnectOwner(contents)
     agentManager.killOwned(contents)
     brainDumpCapture.disconnectOwner(contents)
@@ -389,6 +403,8 @@ void app.whenReady().then(async () => {
       directory: join(app.getPath('userData'), 'orchestrations'),
       log: mainLog('orchestrations')
     }),
+    // Late-bound: the spawner needs the window requests and the model catalogue wired below.
+    spawner: { spawn: (request) => ticketSpawner.spawn(request) },
     log: mainLog('orchestrator endpoint')
   })
   const agentManager = createAcpSessionManager({
@@ -484,6 +500,49 @@ void app.whenReady().then(async () => {
   })
   registerAppProtocol(join(__dirname, '..', 'renderer'))
   const canvasRequests = createRemoteCanvasRequests()
+  // An orchestrator's `spawn` (#34): main creates, guards and sets up the worktree, then asks the
+  // canvas for the chat and waits for its session to come up.
+  const ticketSessions = createWindowRequests<TicketSessionCanvasRequest, TicketSessionCanvasResult>({
+    channel: ORCHESTRATOR_CHANNELS.startTicketSession,
+    messages: {
+      noWindow: 'Toucan has no window open, so there is no canvas to start the ticket session on.',
+      windowGone: 'The Toucan window closed before the ticket session was started.',
+      timeout: 'The ticket session did not finish starting in time. It may still appear on the canvas.'
+    },
+    refuse: (message) => ({ ok: false, message }),
+    timeoutMs: 90_000
+  })
+  ipcMain.on(ORCHESTRATOR_CHANNELS.ticketSessionResult, (_event, requestId: unknown, result: unknown) => {
+    if (typeof requestId === 'string' && isTicketSessionCanvasResult(result)) ticketSessions.complete(requestId, result)
+  })
+  const runSetupCommand = createSetupCommandRunner({ shell: terminalShell })
+  const ticketSpawner: TicketSpawner = createTicketSpawner({
+    worktrees,
+    runGit: runGitWithExecFile,
+    installGuard: (path) => installPushGuard(path, runGitWithExecFile),
+    project: async (projectPath) => {
+      const project = (await workspace.load()).state?.projects.find(
+        (candidate) => pathIdentity(candidate.path) === pathIdentity(projectPath)
+      )
+      return project && { id: project.id, setupCommand: project.setupCommand }
+    },
+    runSetup: runSetupCommand,
+    canvas: { startTicketSession: (request) => ticketSessions.request(request) },
+    session: (nodeId) => {
+      const snapshot = agentEvents.snapshot(nodeId)
+      return snapshot
+        ? {
+            permissionMode: snapshot.modes?.currentModeId,
+            model: snapshot.models?.currentModelId,
+            effort: snapshot.efforts?.currentEffortId
+          }
+        : undefined
+    },
+    offeredModels: () => (modelCatalogue.read().claude ?? []).map((model) => model.id),
+    // The same registration a renderer-created worktree gets (`registerWorktreeIpc`), so the ticket
+    // session's first launch is not refused as outside the workspace before the snapshot names it.
+    onWorktreeCreated: (path) => createdWorktreeRoots.add(containment.comparable(resolve(path)))
+  })
   // Every recording lands here - the composer's over IPC, a phone's over `/api/transcribe` - and
   // main decodes it with one whisper-server child, loaded lazily: a 1.6 GB model is not paid for
   // by a desktop nobody dictates to.
@@ -681,6 +740,7 @@ void app.whenReady().then(async () => {
     fileView,
     remote,
     canvasRequests,
+    ticketSessions,
     appUpdater,
     voiceModel
   )
@@ -697,6 +757,7 @@ void app.whenReady().then(async () => {
         fileView,
         remote,
         canvasRequests,
+        ticketSessions,
         appUpdater,
         voiceModel
       )

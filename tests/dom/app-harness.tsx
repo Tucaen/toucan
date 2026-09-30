@@ -126,6 +126,7 @@ export function installWindowApis(options: AppHarnessOptions = {}): AppHarness {
     terminalContextApi: { replaceEdges: vi.fn() },
     appUpdateApi: createMockAppUpdateApi() as unknown as Record<string, unknown>,
     remoteApi: createMockRemoteApi() as unknown as Record<string, unknown>,
+    orchestratorApi: { onStartTicketSession: () => () => undefined, completeTicketSession: vi.fn() },
     brainDumpApi: createMockBrainDumpApi() as unknown as Record<string, unknown>
   }
 

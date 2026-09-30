@@ -477,6 +477,10 @@ export function ticketSessionTitle(ticket: Pick<OrchestrationTicket, 'id' | 'tit
   return `#${ticket.id} ${ticket.title}`
 }
 
+/**
+ * Where the contract starts in a ticket session's prompt.
+ * @internal exported for tests
+ */
 export const TICKET_CONTRACT_HEADING = '## Ticket contract'
 
 /**

@@ -18,6 +18,7 @@ import { normalizeWorktreePath } from '../../shared/worktree'
 import type { WorktreeHandoffPlan } from '../../shared/worktree-handoff'
 import type { ConversationTitleSource } from '../../shared/conversation-title'
 import type { ChatNodeRole } from '../../shared/orchestration'
+import type { OrchestratorLink } from '../../shared/ticket-session-spawn'
 import type { TicketActivityReport } from './ticket-activity'
 import type { NodeGeometry } from './node-snap'
 import { launchModeOnOpen, type SessionLaunchMode } from './session-launch-mode'
@@ -154,6 +155,13 @@ export interface TerminalNodeData
   launchMode: SessionLaunchMode
   /** Which conversation this one was branched off; see conversation-lineage.ts. */
   branchedFrom?: ConversationLineage
+  /** The orchestrator that spawned this ticket session; the orchestrated-by edge is drawn from it. */
+  orchestratedBy?: OrchestratorLink
+  /**
+   * The effort a ticket session launches at, as its orchestrator asked. Launch-only, like
+   * `initialInput`: a reopened chat is on whatever effort its picker then selects.
+   */
+  effortId?: string
   /** The chat's role, fixed at creation; see `shared/orchestration.ts`. */
   role?: ChatNodeRole
   /**
@@ -701,6 +709,7 @@ export function serializeCanvasNode(node: TerminalCanvasNode): WorkspaceTerminal
     ...(node.data.scheduledMessages?.length ? { scheduledMessages: node.data.scheduledMessages } : {}),
     ...(node.data.branchedFrom ? { branchedFrom: node.data.branchedFrom } : {}),
     ...(node.data.role ? { role: node.data.role } : {}),
+    ...(node.data.orchestratedBy ? { orchestratedBy: node.data.orchestratedBy } : {}),
     ...(node.data.kind === 'terminal' ? {} : { focusMode: node.data.focusMode }),
     ...(node.data.kind === 'terminal' ? { terminalLiveness: node.data.terminalLiveness } : {})
   }
@@ -813,6 +822,7 @@ function restoreTerminalCanvasNode(
       dormant,
       branchedFrom: savedNode.branchedFrom,
       role: savedNode.kind === 'terminal' ? undefined : savedNode.role,
+      orchestratedBy: savedNode.kind === 'terminal' ? undefined : savedNode.orchestratedBy,
       launchMode: launchModeOnOpen(savedNode),
       onStatusChange: callbacks.onStatusChange,
       onAttention: callbacks.onAttention,
@@ -907,8 +917,10 @@ export interface SessionNodeSeed {
   launchMode: SessionLaunchMode
   branchedFrom?: ConversationLineage
   role?: ChatNodeRole
+  orchestratedBy?: OrchestratorLink
   preferredPermissionMode?: string
   modelId?: string
+  effortId?: string
   initialInput?: string
 }
 
@@ -951,6 +963,8 @@ export function createSessionCanvasNode(
       dormant: false,
       branchedFrom: seed.branchedFrom,
       role: seed.kind === 'terminal' ? undefined : seed.role,
+      orchestratedBy: seed.kind === 'terminal' ? undefined : seed.orchestratedBy,
+      effortId: seed.effortId,
       launchMode: seed.launchMode,
       initialInput: seed.initialInput,
       ...callbacks

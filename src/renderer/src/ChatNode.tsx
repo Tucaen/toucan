@@ -1095,6 +1095,7 @@ export default function ChatNode({ id, data, selected, width }: NodeProps<Termin
     forkFromSessionId: data.launchMode === 'fork' ? data.branchedFrom?.conversationId : undefined,
     permissionMode: data.preferredPermissionMode,
     modelId: data.modelId,
+    effortId: data.effortId,
     // Read at session creation, so a change applies on the next safe creation or resume and
     // never cancels a turn already running under the old policy.
     routineDelegation: routineDelegationRequest(provider, routineDelegationPreference),

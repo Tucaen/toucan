@@ -12,6 +12,7 @@ import type { WorkspaceDiffNode } from './git-diff'
 import type { WorkspaceWorktree } from './worktree'
 import type { ConversationTitleSource } from './conversation-title'
 import type { ChatNodeRole } from './orchestration'
+import type { OrchestratorLink } from './ticket-session-spawn'
 import type { DecisionDelegationPreference } from './decision-delegation'
 import type { RoutineDelegationPreference } from './routine-delegation'
 import type { ScheduledMessage } from './scheduled-message'
@@ -149,6 +150,11 @@ export interface WorkspaceTerminalNode {
    * menu -> New orchestrator) and never changed after, so an ordinary chat can never become one.
    */
   role?: ChatNodeRole
+  /**
+   * The orchestrator that spawned this ticket session (#34), written only on one. Provenance like
+   * `branchedFrom`: the canvas projects the orchestrated-by edge from it, and it grants nothing.
+   */
+  orchestratedBy?: OrchestratorLink
 }
 
 /**

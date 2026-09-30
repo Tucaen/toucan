@@ -1775,6 +1775,14 @@ button.global-status-chip:hover {
   opacity: 0.8;
 }
 
+/* Orchestrated-by: provenance like lineage, told apart by a longer amber dash. Grants nothing. */
+.react-flow__edge.orchestrated-edge .react-flow__edge-path {
+  stroke: #d6a24a;
+  stroke-width: 1.5;
+  stroke-dasharray: 10 5;
+  opacity: 0.8;
+}
+
 /* xyflow marks the whole node wrapper as draggable. The actual drag target is the header, so the
    cursor should describe the body content (text, controls, terminal) instead of showing a hand. */
 .react-flow__node.draggable {

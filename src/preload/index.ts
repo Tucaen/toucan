@@ -20,7 +20,8 @@ import type { TerminalContextApi } from '../shared/terminal-context'
 import type { ProjectAvatarApi } from '../shared/project-avatar'
 import type { DecisionDelegationApi } from '../shared/decision-delegation'
 import type { DictationCleanupApi } from '../shared/dictation-cleanup'
-import { DICTATION_CLEANUP_CHANNELS } from '../shared/ipc-channels'
+import type { OrchestratorApi, TicketSessionCanvasRequest } from '../shared/ticket-session-spawn'
+import { DICTATION_CLEANUP_CHANNELS, ORCHESTRATOR_CHANNELS } from '../shared/ipc-channels'
 import {
   ADAPTER_CHANNELS,
   AGENT_CHANNELS,
@@ -191,6 +192,17 @@ const remoteApi: RemoteApi = {
 }
 
 contextBridge.exposeInMainWorld('remoteApi', remoteApi)
+
+const orchestratorApi: OrchestratorApi = {
+  onStartTicketSession: (callback) =>
+    subscribe(ORCHESTRATOR_CHANNELS.startTicketSession, (requestId: string, request: TicketSessionCanvasRequest) =>
+      callback(requestId, request)
+    ),
+  completeTicketSession: (requestId, result) =>
+    ipcRenderer.send(ORCHESTRATOR_CHANNELS.ticketSessionResult, requestId, result)
+}
+
+contextBridge.exposeInMainWorld('orchestratorApi', orchestratorApi)
 
 const brainDumpApi: BrainDumpApi = {
   list: (collection) => ipcRenderer.invoke(BRAIN_DUMP_CHANNELS.list, collection),

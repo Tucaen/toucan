@@ -93,6 +93,7 @@ import {
   withoutEdgesTouchingNodes
 } from './terminal-context-edges'
 import { branchBlockedReason, lineageEdges, lineageKey, offersBranchAction, planBranch } from './conversation-lineage'
+import { orchestratedEdges, orchestratedKey } from './orchestration-edges'
 import { launchModeAfterConversation, relaunchInPlace } from './session-launch-mode'
 import { nodeHoldingConversation, planHistoryOpen } from './history-open'
 import { isAgentProvider } from '../../shared/agent-provider'
@@ -111,6 +112,8 @@ import { RemoteAccessDialog } from './RemoteAccessDialog'
 import { AdapterManagementDialog } from './AdapterManagementDialog'
 import { useRemoteAccess } from './use-remote-access'
 import type { RemoteChatSpawnRequest, RemoteChatSpawnResult } from '../../shared/remote-spawn'
+import type { OrchestratorLink, TicketSessionCanvasRequest } from '../../shared/ticket-session-spawn'
+import { useTicketSessionSpawns, type TicketSessionStart } from './use-ticket-session-spawns'
 import ConversationHistoryDialog from './ConversationHistoryDialog'
 import { ModalDialog } from './ModalDialog'
 import FileNode from './FileNode'
@@ -980,18 +983,20 @@ function Canvas(): JSX.Element {
 
   /**
    * What the canvas draws: the terminal-context edges it owns as state, plus the lineage edges
-   * projected from `branchedFrom` on every render. The projection is deliberately not merged into
+   * projected from `branchedFrom` and the orchestrated-by edges from `orchestratedBy`, on every
+   * render. The projections are deliberately not merged into
    * `edges` - it is derived from nodes, so storing it would make two sources of truth for one
    * fact, and a lineage edge would then be something the user could select and delete.
    */
   const lineage = lineageKey(nodes)
+  const orchestrated = orchestratedKey(nodes)
   const canvasEdges = useMemo(
-    () => [...edges, ...lineageEdges(nodesRef.current)],
+    () => [...edges, ...lineageEdges(nodesRef.current), ...orchestratedEdges(nodesRef.current)],
     // `lineage` stands in for `nodes` deliberately: it changes only when a node or a `branchedFrom`
     // does, so dragging a node does not rebuild the projection on every pointer frame. The rule
     // cannot see that, because the memo reads `nodesRef.current` rather than `nodes`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [edges, lineage]
+    [edges, lineage, orchestrated]
   )
 
   const edgeSplitRef = useRef<WorktreeCanvasEdges | undefined>(undefined)
@@ -1115,6 +1120,12 @@ function Canvas(): JSX.Element {
       modelId?: string
       /** The chat's role, fixed for the node's life; only the New orchestrator action sets one. */
       role?: ChatNodeRole
+      /** The effort to open on; like `modelId`, absent leaves it to the adapter. */
+      effortId?: string
+      /** A permission mode that wins over the provider's remembered one: a ticket session inherits its orchestrator's. */
+      permissionMode?: string
+      /** The orchestrator that spawned this ticket session; the orchestrated-by edge is drawn from it. */
+      orchestratedBy?: OrchestratorLink
       // Returns the canvas node id it minted, or null when it refused to create one - the
       // requested worktree is gone - so a caller waiting on this session knows there is none.
     }): string | null => {
@@ -1158,8 +1169,11 @@ function Canvas(): JSX.Element {
           launchMode: resumeConversationId ? 'resume' : branchedFrom ? 'fork' : 'new',
           branchedFrom,
           role: options.role,
-          preferredPermissionMode: kind === 'terminal' ? undefined : permissionModesRef.current[kind],
+          orchestratedBy: options.orchestratedBy,
+          preferredPermissionMode:
+            kind === 'terminal' ? undefined : (options.permissionMode ?? permissionModesRef.current[kind]),
           modelId: options.modelId,
+          effortId: options.effortId,
           initialInput: options.initialInput
         },
         project,
@@ -2396,45 +2410,58 @@ function Canvas(): JSX.Element {
     [activeProjectId, addSessionNode, centredDropPosition, focusNode]
   )
 
+  /**
+   * Puts a worktree git just created on the canvas and returns the record a chat attaches to.
+   * Shared by "New worktree" and an orchestrator's ticket session, which both attach a chat next.
+   */
+  const registerCreatedWorktree = useCallback(
+    (
+      created: { path: string; branch: string; baseRef: string },
+      project: Project,
+      position: { x: number; y: number }
+    ): WorktreeCanvasNode['data'] => {
+      const worktreeNode = createWorktreeCanvasNode(
+        {
+          worktreeId: crypto.randomUUID(),
+          branch: created.branch,
+          path: created.path,
+          baseRef: created.baseRef,
+          createdAt: new Date().toISOString(),
+          position,
+          selected: false
+        },
+        project,
+        worktreeCallbacks
+      )
+      const register = (current: CanvasNode[]): CanvasNode[] =>
+        registerWorktreeNode(
+          current.map((node) => ({ ...node, selected: false })),
+          worktreeNode
+        )
+      // `addSessionNode` runs next, in this same tick, and resolves the worktree from
+      // `nodesRef`, which would otherwise lag until the next render: a record discovery had
+      // already placed - kept under its own id, and possibly still marked unavailable - has to
+      // read as the registration leaves it, or the chat would be refused or misattached.
+      nodesRef.current = register(nodesRef.current)
+      setNodes(register)
+      return (
+        nodesRef.current
+          .filter(isWorktreeCanvasNode)
+          .find(
+            (node) =>
+              node.data.projectId === project.id &&
+              worktreePathKey(node.data.path) === worktreePathKey(worktreeNode.data.path)
+          )?.data ?? worktreeNode.data
+      )
+    },
+    [setNodes, worktreeCallbacks]
+  )
+
   const worktreeCreator = useMemo(
     () =>
       createWorktreeCreator<WorktreeCanvasNode['data'], { draft: WorktreeDraft; project: Project }>({
         create: (request) => window.worktreeApi.create(request),
-        register: (created, { draft, project }) => {
-          const worktreeNode = createWorktreeCanvasNode(
-            {
-              worktreeId: crypto.randomUUID(),
-              branch: created.branch,
-              path: created.path,
-              baseRef: created.baseRef,
-              createdAt: new Date().toISOString(),
-              position: draft.position,
-              selected: false
-            },
-            project,
-            worktreeCallbacks
-          )
-          const register = (current: CanvasNode[]): CanvasNode[] =>
-            registerWorktreeNode(
-              current.map((node) => ({ ...node, selected: false })),
-              worktreeNode
-            )
-          // `addSessionNode` runs next, in this same tick, and resolves the worktree from
-          // `nodesRef`, which would otherwise lag until the next render: a record discovery had
-          // already placed - kept under its own id, and possibly still marked unavailable - has to
-          // read as the registration leaves it, or the chat would be refused or misattached.
-          nodesRef.current = register(nodesRef.current)
-          setNodes(register)
-          return (
-            nodesRef.current
-              .filter(isWorktreeCanvasNode)
-              .find(
-                (node) =>
-                  node.data.projectId === project.id &&
-                  worktreePathKey(node.data.path) === worktreePathKey(worktreeNode.data.path)
-              )?.data ?? worktreeNode.data
-          )
-        },
+        register: (created, { draft, project }) => registerCreatedWorktree(created, project, draft.position),
         // The existing new-chat path, so the node is an ordinary chat with its normal model,
         // effort and permission controls, launched in the worktree from its first turn and
         // selected - which is what hands its composer the caret once it can take input. No
@@ -2448,8 +2475,48 @@ function Canvas(): JSX.Element {
             position: draft.position
           })
       }),
-    [addSessionNode, setNodes, worktreeCallbacks]
+    [addSessionNode, registerCreatedWorktree]
   )
+
+  /**
+   * An orchestrator's ticket session (#34), asked for by main once the worktree exists, is guarded
+   * and is set up: the worktree goes on the canvas beside its orchestrator and one Claude chat opens
+   * in it through the ordinary new-chat path - titled by its ticket as a manual title, on the
+   * model, effort and permission mode main named, prompted with the ticket, and carrying the
+   * orchestrated-by link the canvas draws its edge from.
+   */
+  const startTicketSession = useCallback(
+    (request: TicketSessionCanvasRequest): TicketSessionStart => {
+      const project = projectsRef.current.find((candidate) => candidate.id === request.projectId)
+      if (!project) return { ok: false, message: 'That project is no longer open on the desktop.' }
+      const orchestrator = nodesRef.current.find((node) => node.id === request.orchestratedBy.nodeId)
+      const position =
+        orchestrator && !isWorktreeCanvasChild(orchestrator)
+          ? cascadedNodePosition(nodesRef.current, {
+              x: orchestrator.position.x + (orchestrator.measured?.width ?? NEW_SESSION_NODE_SIZE.width) + 48,
+              y: orchestrator.position.y
+            })
+          : centredDropPosition(DEFAULT_WORKTREE_SIZE)
+      const worktree = registerCreatedWorktree(request.worktree, project, position)
+      const nodeId = addSessionNode({
+        kind: 'claude',
+        project,
+        worktree,
+        position,
+        label: request.label,
+        titleSource: 'manual',
+        modelId: request.modelId,
+        effortId: request.effortId,
+        permissionMode: request.permissionMode,
+        orchestratedBy: request.orchestratedBy,
+        initialInput: request.prompt
+      })
+      if (!nodeId) return { ok: false, message: 'The desktop could not open the ticket session in its worktree.' }
+      return { ok: true, nodeId }
+    },
+    [addSessionNode, centredDropPosition, registerCreatedWorktree]
+  )
+  useTicketSessionSpawns(startTicketSession, nodes, nodeStatuses)
 
   const confirmWorktreeDraft = useCallback((): void => {
     const draft = worktreeDraft

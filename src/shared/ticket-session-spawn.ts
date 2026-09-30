@@ -42,3 +42,13 @@ export function isTicketSessionCanvasResult(value: unknown): value is TicketSess
   if (value.ok === true) return typeof value.nodeId === 'string' && typeof value.conversationId === 'string'
   return value.ok === false && typeof value.message === 'string'
 }
+
+/** The renderer's side of the request, exposed on `window.orchestratorApi`. */
+export interface OrchestratorApi {
+  /**
+   * A ticket session main wants on the canvas. The renderer answers on `completeTicketSession`
+   * once the session is up or has failed; the orchestrator's `spawn` call is waiting on it.
+   */
+  onStartTicketSession(callback: (requestId: string, request: TicketSessionCanvasRequest) => void): () => void
+  completeTicketSession(requestId: string, result: TicketSessionCanvasResult): void
+}

@@ -26,6 +26,7 @@ import { errorMessage } from '../shared/text'
 import { normalizeWorkspaceWorktrees } from '../shared/worktree-identity'
 import { isAgentProvider } from '../shared/agent-provider'
 import { isChatNodeRole } from '../shared/orchestration'
+import { isOrchestratorLink } from '../shared/ticket-session-spawn'
 import { isScheduledMessage } from '../shared/scheduled-message'
 
 interface WorkspaceStateV1 {
@@ -177,7 +178,9 @@ function isWorkspaceTerminalNode(value: unknown): boolean {
     (node.terminalLiveness === undefined || ['live', 'unverifiable', 'exited'].includes(node.terminalLiveness)) &&
     // A role reaches `agent:create` and decides whether a session is minted an orchestrator token,
     // so it is checked rather than trusted - and only a chat can hold one.
-    (node.role === undefined || (isChatNodeRole(node.role) && node.kind !== 'terminal'))
+    (node.role === undefined || (isChatNodeRole(node.role) && node.kind !== 'terminal')) &&
+    // Only a chat is ever a ticket session, and a malformed link would draw an edge to nothing.
+    (node.orchestratedBy === undefined || (isOrchestratorLink(node.orchestratedBy) && node.kind !== 'terminal'))
   )
 }
 
