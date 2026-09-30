@@ -151,6 +151,24 @@ describe('orchestration settings', () => {
     await waitFor(() => expect(skill).toHaveValue('/theirs'))
   })
 
+  it('flags an unsaved edit only when its own file changed', async () => {
+    const { edit } = mockApi({})
+    render(<OrchestrationSettingsDialog project={project} onClose={() => {}} />)
+    const skill = await screen.findByRole('textbox', { name: 'Implementation skill' })
+    fireEvent.change(skill, { target: { value: '/mine' } })
+    edit('project', { implementationSkill: '/other-file' })
+    await waitFor(() => expect(screen.queryByText(/changed on disk/i)).toBeNull())
+    // Saving the other tab and the watcher's echo of it leave this draft alone too.
+    fireEvent.click(screen.getByRole('tab', { name: 'Project: Toucan' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Implementation skill' }), { target: { value: '/tdd' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled())
+    edit('project', { implementationSkill: '/tdd' })
+    fireEvent.click(screen.getByRole('tab', { name: 'User' }))
+    expect(screen.getByRole('textbox', { name: 'Implementation skill' })).toHaveValue('/mine')
+    expect(screen.queryByText(/changed on disk/i)).toBeNull()
+  })
+
   it('will not overwrite a file that does not parse', async () => {
     mockApi({ user: `the orchestration configuration ${USER_PATH} is not valid JSON` })
     render(<OrchestrationSettingsDialog onClose={() => {}} />)

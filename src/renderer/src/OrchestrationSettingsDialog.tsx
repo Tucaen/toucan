@@ -29,6 +29,8 @@ const FOLLOWS_TICKET = '__ticket__'
 
 interface Draft<T> {
   value: T
+  /** The file contents this draft started from, to tell a real change on disk from a re-read. */
+  base: string
   dirty: boolean
   /** The file changed on disk while this draft had unsaved edits. */
   stale: boolean
@@ -36,15 +38,31 @@ interface Draft<T> {
 
 type Drafts = { user: Draft<OrchestrationConfig>; project?: Draft<OrchestrationConfigFile> }
 
-const fresh = <T,>(value: T): Draft<T> => ({ value, dirty: false, stale: false })
+const baseOf = (file: OrchestrationConfigFileState): string => JSON.stringify(file.file ?? file.error ?? null)
 
-/** Re-drafts from the files, keeping - and flagging - an unsaved edit. */
+const fresh = <T,>(value: T, file: OrchestrationConfigFileState): Draft<T> => ({
+  value,
+  base: baseOf(file),
+  dirty: false,
+  stale: false
+})
+
+const userFresh = (state: OrchestrationSettingsState): Draft<OrchestrationConfig> =>
+  fresh(userDraft(state.user.file), state.user)
+
+const projectFresh = (project: OrchestrationConfigFileState): Draft<OrchestrationConfigFile> =>
+  fresh(project.file ?? {}, project)
+
+/**
+ * Re-drafts from the files. An unsaved edit is kept, and flagged only when its own file now holds
+ * something else - a re-read, a save of the other tab or the echo of this panel's save is no change.
+ */
 function redraft(state: OrchestrationSettingsState, previous: Drafts | null, force: boolean): Drafts {
-  const keep = <T,>(draft: Draft<T> | undefined, next: T): Draft<T> =>
-    draft?.dirty && !force ? { ...draft, stale: true } : fresh(next)
+  const keep = <T,>(draft: Draft<T> | undefined, file: OrchestrationConfigFileState, next: () => Draft<T>): Draft<T> =>
+    draft?.dirty && !force ? (draft.base === baseOf(file) ? draft : { ...draft, stale: true }) : next()
   return {
-    user: keep(previous?.user, userDraft(state.user.file)),
-    ...(state.project ? { project: keep(previous?.project, state.project.file ?? {}) } : {})
+    user: keep(previous?.user, state.user, () => userFresh(state)),
+    ...(state.project ? { project: keep(previous?.project, state.project, () => projectFresh(state.project!)) } : {})
   }
 }
 
@@ -117,7 +135,8 @@ function TierRow(props: {
         trigger={{
           content: nameOf(efforts),
           className: 'orchestration-picker',
-          disabled: props.disabled || !props.entry
+          disabled: props.disabled || !props.entry,
+          ...(props.entry ? {} : { title: 'Choose a model for this tier to set its effort' })
         }}
         select={(id) => props.onChange({ model: shown.model, ...(id === FOLLOWS_TICKET ? {} : { effort: id }) })}
       />
@@ -168,12 +187,18 @@ export function OrchestrationSettingsDialog(props: {
     setDrafts((previous) => redraft(next, previous, force))
   }, [])
 
+  // Change events can overlap; only the latest read may land, so an older state never wins.
+  const latestRead = useRef(0)
   const reload = useCallback(
     async (force: boolean): Promise<void> => {
+      const read = ++latestRead.current
       try {
-        apply(await window.orchestrationSettingsApi.state(projectPath), force)
+        const next = await window.orchestrationSettingsApi.state(projectPath)
+        if (read !== latestRead.current) return
+        setError(null)
+        apply(next, force)
       } catch (reason) {
-        setError(String(reason))
+        if (read === latestRead.current) setError(String(reason))
       }
     },
     [apply, projectPath]
@@ -237,8 +262,8 @@ export function OrchestrationSettingsDialog(props: {
         const redrafted = redraft(next, previous, false)
         // The saved tab now matches its file; the other keeps whatever it had.
         return tab === 'user'
-          ? { ...redrafted, user: fresh(userDraft(next.user.file)) }
-          : { ...redrafted, ...(next.project ? { project: fresh(next.project.file ?? {}) } : {}) }
+          ? { ...redrafted, user: userFresh(next) }
+          : { ...redrafted, ...(next.project ? { project: projectFresh(next.project) } : {}) }
       })
     } catch (reason) {
       setError(String(reason))
@@ -252,8 +277,8 @@ export function OrchestrationSettingsDialog(props: {
     setDrafts((current) => {
       if (!current) return current
       return tab === 'user'
-        ? { ...current, user: fresh(userDraft(state.user.file)) }
-        : { ...current, ...(state.project ? { project: fresh(state.project.file ?? {}) } : {}) }
+        ? { ...current, user: userFresh(state) }
+        : { ...current, ...(state.project ? { project: projectFresh(state.project) } : {}) }
     })
     void reload(false)
   }

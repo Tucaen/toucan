@@ -55,6 +55,8 @@ const PROJECT_DIRECTORY = 'orchestration-config'
 const PROJECT_SLUG_LIMIT = 32
 /** One save lands as several raw events (temp file, rename); they are reported as one change. */
 const WATCH_COALESCE_MS = 50
+/** How soon a watch that failed is tried again. */
+const WATCH_RETRY_MS = 2000
 
 export function createOrchestrationConfigStore(options: { userDataPath: string }): OrchestrationConfigStore {
   const userPath = join(options.userDataPath, USER_FILE)
@@ -130,24 +132,40 @@ export function createOrchestrationConfigStore(options: { userDataPath: string }
           listener()
         }, WATCH_COALESCE_MS)
       }
-      const watchers: FSWatcher[] = []
+      const watchers = new Set<FSWatcher>()
+      const retries = new Set<ReturnType<typeof setTimeout>>()
+      let stopped = false
       const follow = (directory: string, relevant: (name: string) => boolean): void => {
+        if (stopped) return
+        // A folder removed or made unreadable is watched again once it can be, not given up on.
+        const retry = (): void => {
+          const retryTimer = setTimeout(() => {
+            retries.delete(retryTimer)
+            follow(directory, relevant)
+          }, WATCH_RETRY_MS)
+          retries.add(retryTimer)
+        }
         try {
           mkdirSync(directory, { recursive: true })
           const watcher = watch(directory, (_event, name) => {
             if (name === null || relevant(name.toString())) changed()
           })
-          // A folder that goes away only stops the updates; the panel still reads on open.
-          watcher.on('error', () => watcher.close())
-          watchers.push(watcher)
+          watcher.on('error', () => {
+            watcher.close()
+            watchers.delete(watcher)
+            retry()
+          })
+          watchers.add(watcher)
         } catch {
-          // Unwatchable: the panel still reads the files every time it opens.
+          retry()
         }
       }
       follow(options.userDataPath, (name) => name === USER_FILE)
       follow(projectDirectory, (name) => name.endsWith('.json') && !name.startsWith('.'))
       return () => {
+        stopped = true
         if (timer) clearTimeout(timer)
+        for (const retryTimer of retries) clearTimeout(retryTimer)
         for (const watcher of watchers) watcher.close()
       }
     },

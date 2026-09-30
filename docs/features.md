@@ -12,7 +12,11 @@ The full tour of what Toucan does today. The [README](../README.md) has the shor
   removes published, merged ticket worktrees and local branches; unmerged or unsafe-to-remove
   work stays for review. Conversations remain in History. Its final answer carries a routing
   report: how each tier and model did across the project's orchestrations, with tier mapping
-  changes proposed once enough tickets have settled. Toucan never applies them itself. See the [orchestrator plan](plans/orchestrator-mode.md).
+  changes proposed once enough tickets have settled. Toucan never applies them itself. The
+  header's **Orchestration settings** button edits the tier mapping and the implementation skill:
+  a user tab and a per-project override tab, with models the chat picker no longer offers shown
+  as missing and the ticket contract beside the skill. The files stay the source of truth, and an
+  edit an agent makes shows up in an open panel. See the [orchestrator plan](plans/orchestrator-mode.md).
 
 - Gives agents memory across sessions. After every turn Toucan records what the conversation set out to do, which files it touched, how it ended and what failed, without spending any model tokens. Later Claude and Codex sessions check those records before starting, so they build on earlier work instead of redoing it. Ask an agent "what did we try for X last week?" to look something up.
 - Keeps multiple projects, terminals, and coding-agent conversations visible on one

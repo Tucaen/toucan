@@ -7,7 +7,7 @@ import {
   userDraft,
   userFileFromDraft
 } from '../src/shared/orchestration-settings'
-import { TICKET_CONTRACT_SUMMARY } from '../src/shared/orchestration'
+import { TICKET_CONTRACT_SUMMARY, ticketContract } from '../src/shared/orchestration'
 
 // The orchestration settings panel (#39) edits the files #36 reads. What it offers per tier and
 // what it writes back are decided here, so the dialog only renders them.
@@ -81,4 +81,11 @@ it('summarises the ticket contract for the implementation-skill field', () => {
   expect(TICKET_CONTRACT_SUMMARY.must.join(' ')).toMatch(/implement.*test.*review.*commit.*worktree/i)
   expect(TICKET_CONTRACT_SUMMARY.must.join(' ')).toMatch(/final report/i)
   expect(TICKET_CONTRACT_SUMMARY.mustNot.join(' ')).toMatch(/push.*merge.*pull request.*leave the worktree/i)
+})
+
+it('summarises nothing the binding ticket contract does not say', () => {
+  const contract = ticketContract({ path: 'worktree', branch: 'ticket' }).toLowerCase()
+  for (const rule of ['push', 'merge', 'pull request', 'worktree', 'commit', 'final report']) {
+    expect(contract).toContain(rule)
+  }
 })
