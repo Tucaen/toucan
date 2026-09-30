@@ -89,7 +89,10 @@ const refused = (status: number, error: string): Reply => ({ status, body: { ok:
 
 const MAX_REQUEST_BYTES = 1024 * 1024
 
-const UNAUTHORIZED = refused(401, 'the orchestrator token is missing, wrong or revoked')
+const UNAUTHORIZED = refused(
+  401,
+  'the orchestrator token is missing, wrong or revoked; only an orchestrator session holds one, so a ticket session cannot spawn or orchestrate'
+)
 
 export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions): OrchestratorEndpoint {
   const now = options.now ?? (() => new Date().toISOString())

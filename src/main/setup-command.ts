@@ -18,8 +18,8 @@ const SETUP_MAX_BUFFER = 16 * 1024 * 1024
 
 /**
  * How the terminal's shell runs one command and exits: PowerShell by `-Command`, `cmd.exe` by
- * `/c`, anything else by `-c`. The profile is kept, like the terminal's, since a setup command may
- * lean on what it puts on PATH.
+ * `/c`, anything else by `-c`. PowerShell keeps its profile, like the terminal's, since a setup
+ * command may lean on what it puts on PATH; a POSIX `-c` shell reads no rc files either way.
  * @internal exported for tests
  */
 export function setupCommandLaunch(shell: ShellLaunch, command: string): ShellLaunch {
@@ -46,24 +46,59 @@ export function createSetupCommandRunner(options: {
   return (command, cwd) =>
     new Promise<SetupCommandResult>((resolve) => {
       const launch = setupCommandLaunch(options.shell.resolveLaunch(), command)
+      let settled = false
+      const settle = (result: SetupCommandResult): void => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        resolve(result)
+      }
+      let child: ReturnType<typeof execFile> | undefined
+      // Own timer rather than execFile's `timeout`, which kills only the shell: an `npm install`
+      // below it would keep the pipes open and the callback - and the waiting spawn - unanswered.
+      const timer = setTimeout(() => {
+        if (child?.pid !== undefined) killTree(child.pid)
+        settle({ ok: false, error: `"${command}" timed out after ${Math.round(timeout / 1000)}s` })
+      }, timeout)
       try {
         // The callback is the child's `'error'` listener too: a shell that cannot start lands here.
-        execFile(
+        child = execFile(
           launch.executable,
           launch.args,
-          hiddenProcessOptions({ cwd, timeout, maxBuffer: SETUP_MAX_BUFFER }),
+          hiddenProcessOptions({ cwd, maxBuffer: SETUP_MAX_BUFFER }),
           (error, stdout, stderr) => {
             if (!error) {
-              resolve({ ok: true })
+              settle({ ok: true })
               return
             }
-            const output = tail(`${stdout}\n${stderr}`)
-            const reason = error.killed ? `timed out after ${Math.round(timeout / 1000)}s` : errorMessage(error)
-            resolve({ ok: false, error: `"${command}" ${reason}${output ? `\n${output}` : ''}` })
+            const output = tail(`${stdout}
+${stderr}`)
+            settle({
+              ok: false,
+              error: `"${command}" ${errorMessage(error)}${
+                output
+                  ? `
+${output}`
+                  : ''
+              }`
+            })
           }
         )
       } catch (error) {
-        resolve({ ok: false, error: `"${command}" could not start: ${errorMessage(error)}` })
+        settle({ ok: false, error: `"${command}" could not start: ${errorMessage(error)}` })
       }
     })
+}
+
+/** The shell and everything it started. Best-effort: a tree that is already gone is the goal anyway. */
+function killTree(pid: number): void {
+  if (process.platform === 'win32') {
+    execFile('taskkill', ['/pid', String(pid), '/T', '/F'], hiddenProcessOptions({}), () => undefined)
+    return
+  }
+  try {
+    process.kill(pid, 'SIGKILL')
+  } catch {
+    // Already exited.
+  }
 }

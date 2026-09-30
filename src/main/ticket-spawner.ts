@@ -6,7 +6,11 @@ import {
   type TicketSession
 } from '../shared/orchestration'
 import { errorMessage } from '../shared/text'
-import type { TicketSessionCanvasRequest, TicketSessionCanvasResult } from '../shared/ticket-session-spawn'
+import type {
+  OrchestratorLink,
+  TicketSessionCanvasRequest,
+  TicketSessionCanvasResult
+} from '../shared/ticket-session-spawn'
 import type { GitRunner, WorktreeManager } from './git-worktree'
 import type { PushGuardResult } from './ticket-push-guard'
 
@@ -16,7 +20,7 @@ import type { PushGuardResult } from './ticket-push-guard'
  */
 export interface TicketSpawnRequest {
   /** The orchestrator the session is linked to by its orchestrated-by edge. */
-  orchestrator: { nodeId: string; conversationId: string }
+  orchestrator: OrchestratorLink
   /** The orchestrator's project checkout; the worktree is created from it. */
   projectPath: string
   /** The branch the orchestration merges into; the ticket branch starts from it. */
@@ -75,9 +79,12 @@ export interface TicketSpawnerOptions {
  * stays, because from then on it is a canvas entity the human can see and remove.
  */
 export function createTicketSpawner(options: TicketSpawnerOptions): TicketSpawner {
-  const discard = async (projectPath: string, path: string, branch: string): Promise<void> => {
-    await options.runGit(['worktree', 'remove', '--force', path], projectPath)
-    await options.runGit(['branch', '-D', branch], projectPath)
+  /** Removes a worktree only this spawn has seen; says what is left behind when git refuses. */
+  const discard = async (projectPath: string, path: string, branch: string): Promise<string> => {
+    const removed = await options.runGit(['worktree', 'remove', '--force', path], projectPath)
+    if (removed.code !== 0) return ` The worktree could not be removed and stays at ${path} on ${branch}.`
+    const deleted = await options.runGit(['branch', '-D', branch], projectPath)
+    return deleted.code === 0 ? '' : ` Its branch ${branch} could not be deleted.`
   }
 
   const createWorktree = async (
@@ -112,15 +119,18 @@ export function createTicketSpawner(options: TicketSpawnerOptions): TicketSpawne
 
     const guarded = await options.installGuard(worktree.path)
     if (!guarded.ok) {
-      await discard(request.projectPath, worktree.path, worktree.branch)
-      return { ok: false, error: guarded.error }
+      const left = await discard(request.projectPath, worktree.path, worktree.branch)
+      return { ok: false, error: `${guarded.error}${left}` }
     }
     const setupCommand = project.setupCommand?.trim()
     if (setupCommand) {
       const setup = await options.runSetup(setupCommand, worktree.path)
       if (!setup.ok) {
-        await discard(request.projectPath, worktree.path, worktree.branch)
-        return { ok: false, error: `the setup command failed, so the worktree was removed again: ${setup.error}` }
+        const left = await discard(request.projectPath, worktree.path, worktree.branch)
+        return {
+          ok: false,
+          error: `the setup command failed: ${setup.error}${left || ' The worktree was removed again.'}`
+        }
       }
     }
 

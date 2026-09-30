@@ -37,3 +37,20 @@ test.runIf(process.platform === 'win32')('a setup command reports success, and f
   assert.equal(failed.ok, false)
   assert.match(!failed.ok ? failed.error : '', /dependency install broke/)
 })
+
+test.runIf(process.platform === 'win32')(
+  'a setup command past its bound is killed with its children and reported',
+  async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'toucan-setup-command-'))
+    const run = createSetupCommandRunner({
+      shell: { resolveLaunch: () => ({ executable: process.env.ComSpec ?? 'cmd.exe', args: [] }) },
+      timeoutMs: 500
+    })
+    const started = Date.now()
+    // A grandchild holding the pipes open, like an `npm install` under the shell.
+    const result = await run('ping -n 30 127.0.0.1', cwd)
+    assert.equal(result.ok, false)
+    assert.match(!result.ok ? result.error : '', /timed out/)
+    assert.ok(Date.now() - started < 10_000, 'answered at the bound, not when the child finished')
+  }
+)

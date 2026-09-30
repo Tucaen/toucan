@@ -214,3 +214,12 @@ test('a session that came up on another model or effort is reported, not hidden'
   assert.match(result.warnings.join('\n'), /claude-sonnet-5-5/)
   assert.match(result.warnings.join('\n'), /medium/)
 })
+
+test('a clean-up git refuses is reported with what it left behind', async () => {
+  const { spawner } = harness({
+    runSetup: async () => ({ ok: false as const, error: 'npm ERR!' }),
+    runGit: async () => ({ code: 128, stdout: '', stderr: 'fatal: locked' })
+  })
+  const result = await spawner.spawn(request)
+  assert.match(!result.ok ? result.error : '', /could not be removed and stays at D:\\project-ticket\/34/)
+})

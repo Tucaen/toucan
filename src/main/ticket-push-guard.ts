@@ -63,7 +63,10 @@ export async function installPushGuard(worktreePath: string, runGit: GitRunner):
       for (const name of names) {
         if (name === 'pre-push' || name.endsWith('.sample') || name.startsWith('.')) continue
         const path = join(original, name)
-        if (!(await stat(path)).isFile()) continue
+        // A broken link is no hook, and on POSIX a hook without an execute bit is one the user
+        // switched off - git skips it, so a shim must not switch it back on.
+        const entry = await stat(path).catch(() => undefined)
+        if (!entry?.isFile() || (process.platform !== 'win32' && (entry.mode & 0o111) === 0)) continue
         await writeFile(join(guard, name), shim(path), { mode: 0o755 })
       }
     }

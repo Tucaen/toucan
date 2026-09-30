@@ -88,3 +88,13 @@ test('installing the guard twice is harmless, and a path that is no worktree is 
   const refused = await installPushGuard(join(root, 'missing'), runGitWithExecFile)
   assert.equal(refused.ok, false)
 })
+
+test.runIf(process.platform !== 'win32')('a hook the user switched off stays off in a guarded worktree', async () => {
+  const { project, worktree } = repository()
+  const hooks = git(project, 'rev-parse', '--path-format=absolute', '--git-path', 'hooks').trim()
+  writeFileSync(join(hooks, 'pre-commit'), '#!/bin/sh\nexit 1\n', { mode: 0o644 })
+  assert.deepEqual(await installPushGuard(worktree, runGitWithExecFile), { ok: true })
+  writeFileSync(join(worktree, 'change.txt'), 'ticket work\n')
+  git(worktree, 'add', 'change.txt')
+  git(worktree, 'commit', '-m', 'ticket work')
+})
