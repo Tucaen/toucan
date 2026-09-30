@@ -36,6 +36,7 @@ import {
   type OfferedModels,
   type OrchestrationConfig
 } from '../shared/orchestration-routing'
+import { routingReport, type RoutingRunOutcome } from '../shared/orchestration-report'
 import type { SessionOutcomeIdentity, SessionOutcomeRecord } from '../shared/session-outcome'
 import { pathIdentity } from '../shared/paths'
 import { isRecord } from '../shared/record'
@@ -477,6 +478,56 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
     })
   }
 
+  /**
+   * `report` (#40): the routing report over every orchestration record of the grant's project, the
+   * current one included, with each ticket session's turns and `route:` fields from its outcome
+   * record. Read-only: the mapping it proposes against is only read, and a broken configuration
+   * costs the proposals, never the counts.
+   */
+  const report = async (grant: LiveGrant, args: unknown): Promise<Reply> => {
+    if (args !== undefined) return refused(400, 'report takes no arguments')
+    const project = pathIdentity(grant.projectPath)
+    const records = (await options.records.list()).filter((record) => pathIdentity(record.projectPath) === project)
+    const outcomes = new Map<string, RoutingRunOutcome>()
+    const sessions = options.ticketSessions
+    if (sessions) {
+      const conversations = new Set(
+        records.flatMap((record) =>
+          record.tickets.flatMap((ticket) => [
+            ...(ticket.runs ?? []).flatMap((run) => (run.conversationId ? [run.conversationId] : [])),
+            ...(ticket.session?.conversationId ? [ticket.session.conversationId] : [])
+          ])
+        )
+      )
+      for (const conversationId of conversations) {
+        // An outcome record that cannot be read costs that run its turns, never the report.
+        const found = await sessions
+          .outcome({ provider: TICKET_SESSION_PROVIDER, conversationId })
+          .catch(() => undefined)
+        if (found) {
+          outcomes.set(conversationId, {
+            turns: found.record.turns,
+            ...(found.record.route ? { route: found.record.route } : {})
+          })
+        }
+      }
+    }
+    const load = options.routing ? await options.routing.config(grant.projectPath) : undefined
+    const mapping = load?.config?.tiers
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        ...routingReport(records, outcomes, mapping),
+        mapping: mapping ?? null,
+        ...(load && !load.config
+          ? { mappingError: load.error ?? 'the orchestration configuration cannot be used' }
+          : {}),
+        ...(load ? { config: { user: load.userPath, project: load.projectPath ?? null } } : {})
+      }
+    }
+  }
+
   /** The grant's own record, or the refusal to give instead. */
   const ownRecord = async (
     grant: LiveGrant,
@@ -605,6 +656,7 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
     if (command === 'spawn') return spawn(grant, key, args)
     if (command === 'route') return route(grant, key, args)
     if (command === 'escalate') return escalate(grant, key, args)
+    if (command === 'report') return report(grant, args)
     if (command === 'cleanup') {
       if (args !== undefined) return refused(400, 'cleanup takes no arguments')
       const own = await ownRecord(grant, key)

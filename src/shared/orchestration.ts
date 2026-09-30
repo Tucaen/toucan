@@ -48,7 +48,8 @@ export const ORCHESTRATOR_COMMANDS = [
   'followup',
   'route',
   'escalate',
-  'cleanup'
+  'cleanup',
+  'report'
 ] as const
 export type OrchestratorCommand = (typeof ORCHESTRATOR_COMMANDS)[number]
 

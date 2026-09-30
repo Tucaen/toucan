@@ -3,7 +3,7 @@
 import { readFile } from 'node:fs/promises'
 import { request as httpRequest } from 'node:http'
 
-// The orchestrator's CLI (#33, #34, #35, #36): sends one command to the Toucan endpoint named in the
+// The orchestrator's CLI (#33, #34, #35, #36, #40): sends one command to the Toucan endpoint named in the
 // environment and prints its reply as one JSON line. Only an orchestrator session carries the
 // endpoint and token; every other session gets a clear refusal before anything is sent.
 
@@ -16,6 +16,7 @@ const USAGE = [
   '| spawn --ticket <id> [--model <id> --effort <level> | --tier <tier> [--effort <level>]] [--provider <provider>] [--project <path>]',
   '| status',
   '| cleanup',
+  '| report',
   '| outcome --ticket <id>',
   '| followup --ticket <id> --text <text>'
 ].join(' ')
@@ -119,7 +120,7 @@ async function message(words) {
     if (positionals.length > 0 || flags.ticket === undefined) usage('escalate needs --ticket <id> and nothing else')
     return { command: 'escalate', args: flags }
   }
-  if (first === 'status' || first === 'cleanup') {
+  if (first === 'status' || first === 'cleanup' || first === 'report') {
     if (words.length > 1) usage(`${first} takes no arguments`)
     return { command: first }
   }

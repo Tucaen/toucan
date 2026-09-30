@@ -60,3 +60,17 @@ test('file names cannot escape the directory and never collide', () => {
     orchestrationFileName({ provider: 'claude', conversationId: 'a\\b' })
   )
 })
+
+test('list reads every orchestration record in the directory, for the routing report (#40)', async () => {
+  const directory = join(mkdtempSync(join(tmpdir(), 'toucan-orchestrations-')), 'orchestrations')
+  assert.deepEqual(await createOrchestrationStore({ directory }).list(), [])
+  const store = createOrchestrationStore({ directory })
+  const odd = { provider: 'claude' as const, conversationId: 'odd/id:1' }
+  await store.update(key, () => ({ value: record(), result: undefined }))
+  await store.update(odd, () => ({ value: record(odd.conversationId), result: undefined }))
+  writeFileSync(join(directory, 'claude-damaged.json'), '{ not json')
+  writeFileSync(join(directory, 'notes.txt'), 'not a record')
+
+  const listed = await createOrchestrationStore({ directory }).list()
+  assert.deepEqual(listed.map((entry) => entry.conversationId).sort(), ['conversation-1', 'odd/id:1'])
+})

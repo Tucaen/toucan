@@ -84,6 +84,18 @@ test('without an orchestrator environment the CLI refuses clearly and calls noth
   assert.match(noToken.output.error ?? '', /TOUCAN_ORCHESTRATOR_TOKEN/)
 })
 
+test('report reaches the endpoint and takes no arguments (#40)', async () => {
+  const { endpoint, environment } = await harness()
+  try {
+    const result = await run(['report'], environment)
+    assert.deepEqual([result.code, result.lines, result.output.ok], [0, 1, true])
+    assert.deepEqual([result.output.jev, result.output.proposals, result.output.orchestrations], [[], [], 0])
+    assert.equal((await run(['report', '--apply'], environment)).code, 2)
+  } finally {
+    await endpoint.close()
+  }
+})
+
 test('cleanup runs through the scoped endpoint and rejects extra arguments', async () => {
   const { endpoint, environment } = await harness()
   try {
