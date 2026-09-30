@@ -336,7 +336,8 @@ test('startPrompt reports delivery immediately and refuses a second prompt while
     // never steered into the turn in flight.
     assert.deepEqual(manager.startPrompt('node-1', 'and also this'), {
       ok: false,
-      message: 'The agent session is busy.'
+      message: 'The agent session is busy.',
+      undelivered: true
     })
 
     manager.resolveApproval('node-1', approval.approvalId, 'allow')
@@ -355,7 +356,8 @@ test('startPrompt refuses a session that does not exist instead of dropping the 
   const manager = createAcpSessionManager({ appPath: mkdtempSync(join(tmpdir(), 'toucan-broker-no-session-')) })
   assert.deepEqual(manager.startPrompt('nobody', 'hello'), {
     ok: false,
-    message: 'The agent session is not ready.'
+    message: 'The agent session is not ready.',
+    undelivered: true
   })
 })
 

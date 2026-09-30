@@ -82,9 +82,9 @@ test('dispose settles everything still queued and refuses anything enqueued afte
   gate.dispose()
 
   for (const result of await Promise.all(queued)) {
-    assert.deepEqual(result, { ok: false, message: 'The wake gate was disposed.' })
+    assert.deepEqual(result, { ok: false, message: 'The wake gate was disposed.', undelivered: true })
   }
-  assert.deepEqual(await gate.enqueue('late'), { ok: false, message: 'The wake gate is disposed.' })
+  assert.deepEqual(await gate.enqueue('late'), { ok: false, message: 'The wake gate is disposed.', undelivered: true })
 
   // A flush after disposal must stay a no-op rather than reviving the drained queue.
   gate.flush()

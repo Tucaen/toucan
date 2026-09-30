@@ -159,3 +159,24 @@ test('closing a session drops its snapshot and its subscribers', () => {
   assert.deepEqual(seen, [message('a1', 'before close')])
   assert.equal(broker.snapshot('node-1')?.messages[0]?.text, 'after close')
 })
+
+test('an observer hears every session live event, and neither replay nor anything after it stops', () => {
+  const broker = createAgentEventBroker({ now: () => NOW })
+  const heard: Array<[string, AgentEvent['type']]> = []
+  const stop = broker.observe((id, event) => heard.push([id, event.type]))
+  broker.observe(() => {
+    throw new Error('a broken observer')
+  })
+  broker.publish('a', message('m1', 'hi'))
+  broker.fold('a', message('m2', 'replayed'))
+  broker.publish('b', { type: 'turn_complete', stopReason: 'end_turn' })
+  broker.close('b')
+  broker.publish('b', { type: 'status', status: 'ready' })
+  stop()
+  broker.publish('a', message('m3', 'after'))
+  assert.deepEqual(heard, [
+    ['a', 'message'],
+    ['b', 'turn_complete'],
+    ['b', 'status']
+  ])
+})

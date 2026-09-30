@@ -104,6 +104,13 @@ export interface AgentCreateResult {
 export interface AgentPromptResult {
   ok: boolean
   message?: string
+  /**
+   * Set on a refusal that never reached the agent - the session was not ready, was busy, needed a
+   * sign-in, or stopped with the prompt still queued - as opposed to a turn that was accepted and
+   * then failed. A caller that must never drop a prompt (the orchestrator wake, #35) retries only
+   * these; retrying the other kind would re-send what the agent already has.
+   */
+  undelivered?: true
 }
 
 export interface AgentPromptTextBlock {

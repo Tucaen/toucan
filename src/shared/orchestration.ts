@@ -533,3 +533,80 @@ export function orchestratorInstruction(paths: { cliPath: string; skillPath: str
     `The command reference is ${paths.skillPath}.`
   ].join(' ')
 }
+
+/**
+ * What happened in a ticket session that the orchestrator is woken for (#35): its turn ended one of
+ * three ways, or it raised something only an answer unblocks - a question the orchestrator may
+ * answer with `followup`, or a tool-permission prompt that stays with the human.
+ */
+export type TicketWakeKind = 'completed' | 'failed' | 'cancelled' | 'question' | 'permission'
+
+export interface TicketWakeEvent {
+  ticketId: string
+  kind: TicketWakeKind
+  /** A failed or cancelled turn's own short reason, never transcript text. */
+  reason?: string
+  /** Filled in when the prompt is built, from the ticket session's outcome record. */
+  outcome?: { path: string; files: number }
+}
+
+/** Which session events wake the orchestrator; every other event is none of its business. */
+export function ticketWakeKind(event: { type: string }): TicketWakeKind | null {
+  switch (event.type) {
+    case 'turn_complete':
+      return 'completed'
+    case 'turn_failed':
+      return 'failed'
+    case 'turn_cancelled':
+      return 'cancelled'
+    case 'decision_request':
+      return 'question'
+    case 'approval':
+      return 'permission'
+    default:
+      return null
+  }
+}
+
+/** How much of a failure reason a wake carries: enough to recognise it, never a pasted log. */
+const WAKE_REASON_LIMIT = 160
+
+function wakeLine(event: TicketWakeEvent): string {
+  const ticket = `#${event.ticketId}`
+  const outcome = event.outcome
+    ? ` - ${event.outcome.files} file${event.outcome.files === 1 ? '' : 's'} - outcome record ${event.outcome.path}`
+    : ` - run outcome --ticket ${event.ticketId} for its outcome record`
+  switch (event.kind) {
+    case 'completed':
+      return `${ticket} completed${outcome}`
+    case 'failed':
+    case 'cancelled': {
+      const reason = event.reason?.replace(/\s+/g, ' ').trim()
+      const shown =
+        reason && reason.length > WAKE_REASON_LIMIT ? `${reason.slice(0, WAKE_REASON_LIMIT - 3)}...` : reason
+      return `${ticket} ${event.kind}${shown ? `: ${shown}` : ''}${outcome}`
+    }
+    case 'question':
+      return `${ticket} asks a question - read it with status, answer it with followup --ticket ${event.ticketId} --text <answer>`
+    case 'permission':
+      return `${ticket} waits on a tool-permission prompt - only the human answers those; list it for them`
+  }
+}
+
+/**
+ * The follow-up prompt Toucan wakes the orchestrator with: one line per event, folded when several
+ * arrived close together, naming the event and where to read more - never the ticket session's
+ * transcript. The same event reported twice for a ticket (two questions in a row) is one line.
+ */
+export function orchestratorWakePrompt(events: readonly TicketWakeEvent[]): string {
+  const lines: string[] = []
+  for (const event of events) {
+    const line = `- ${wakeLine(event)}`
+    if (!lines.includes(line)) lines.push(line)
+  }
+  return [
+    'Toucan: your ticket sessions reported in.',
+    ...lines,
+    'Read more with `status` and `outcome --ticket <id>`; this message never carries a ticket session transcript.'
+  ].join('\n')
+}

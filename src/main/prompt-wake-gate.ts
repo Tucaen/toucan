@@ -45,7 +45,7 @@ export function createPromptWakeGate<T = string>(options: PromptWakeGateOptions<
 
   return {
     enqueue(payload: T): Promise<AgentPromptResult> {
-      if (disposed) return Promise.resolve({ ok: false, message: 'The wake gate is disposed.' })
+      if (disposed) return Promise.resolve({ ok: false, message: 'The wake gate is disposed.', undelivered: true })
       return new Promise<AgentPromptResult>((resolve) => {
         queue.push({ payload, resolve })
       })
@@ -58,7 +58,7 @@ export function createPromptWakeGate<T = string>(options: PromptWakeGateOptions<
     dispose(): void {
       disposed = true
       for (const item of queue) {
-        item.resolve({ ok: false, message: 'The wake gate was disposed.' })
+        item.resolve({ ok: false, message: 'The wake gate was disposed.', undelivered: true })
       }
       queue.length = 0
     }

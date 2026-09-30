@@ -48,6 +48,12 @@ export interface AgentEventBroker {
   applyCreateResult(id: string, result: AgentCreateResult): void
   subscribe(id: string, subscriber: AgentEventSubscriber, hooks?: AgentEventSubscriptionHooks): AgentEventSubscription
   snapshot(id: string): AgentTranscriptState | null
+  /**
+   * Hears every session's live events, after the snapshot has folded them - not replay, exactly
+   * like a subscriber. For main-side watchers that follow sessions across relaunches (the
+   * orchestrator wake, #35): a per-session subscription is retired with its channel, this is not.
+   */
+  observe(observer: (id: string, event: AgentEvent) => void): () => void
   /** Retires a session: drops its snapshot and its subscribers. The id may be reused fresh later. */
   close(id: string): void
 }
@@ -65,6 +71,7 @@ interface SessionChannel {
 export function createAgentEventBroker(options?: { now?: () => number }): AgentEventBroker {
   const now = options?.now ?? Date.now
   const channels = new Map<string, SessionChannel>()
+  const observers = new Set<(id: string, event: AgentEvent) => void>()
 
   const channel = (id: string): SessionChannel => {
     const existing = channels.get(id)
@@ -85,6 +92,13 @@ export function createAgentEventBroker(options?: { now?: () => number }): AgentE
           member.subscriber(event)
         } catch {
           // One broken subscriber (a renderer torn down mid-send) must not starve the rest.
+        }
+      }
+      for (const observer of [...observers]) {
+        try {
+          observer(id, event)
+        } catch {
+          // Same rule for observers.
         }
       }
     },
@@ -117,6 +131,11 @@ export function createAgentEventBroker(options?: { now?: () => number }): AgentE
         snapshot: session.snapshot,
         unsubscribe: () => session.members.delete(member)
       }
+    },
+
+    observe(observer) {
+      observers.add(observer)
+      return () => observers.delete(observer)
     },
 
     snapshot(id): AgentTranscriptState | null {

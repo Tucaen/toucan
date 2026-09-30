@@ -563,6 +563,11 @@ const REQUEST_ALREADY_ANSWERED: AgentPromptResult = {
   message: 'That request was already answered.'
 }
 const SESSION_NOT_RUNNING: AgentPromptResult = { ok: false, message: 'This agent session is not running.' }
+const SESSION_NOT_READY: AgentPromptResult = {
+  ok: false,
+  message: 'The agent session is not ready.',
+  undelivered: true
+}
 
 const LOGIN_URL_PATTERN = /https?:\/\/[^\s<>"')]+/
 
@@ -1332,10 +1337,10 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
     content: AgentPromptContent
   ): { refusal: AgentPromptResult } | { turn: Promise<AgentPromptResult> } => {
     const running = agents.get(id)
-    if (!running?.sessionId) return { refusal: { ok: false, message: 'The agent session is not ready.' } }
+    if (!running?.sessionId) return { refusal: SESSION_NOT_READY }
     const guard = promptGuard(running)
-    if (guard) return { refusal: guard }
-    if (running.busy) return { refusal: { ok: false, message: 'The agent session is busy.' } }
+    if (guard) return { refusal: { ...guard, undelivered: true } }
+    if (running.busy) return { refusal: { ok: false, message: 'The agent session is busy.', undelivered: true } }
     const blocks = toPromptBlocks(content)
     const imageGuard = imageCapabilityGuard(running, blocks)
     if (imageGuard) return { refusal: imageGuard }
@@ -1763,7 +1768,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
 
     async promptWhenIdle(id: string, content: AgentPromptContent): Promise<AgentPromptResult> {
       const running = agents.get(id)
-      if (!running?.sessionId) return { ok: false, message: 'The agent session is not ready.' }
+      if (!running?.sessionId) return SESSION_NOT_READY
       if (!running.wakeGate) return runPrompt(id, content)
       if (!running.busy) return runPrompt(id, content)
       if (running.steeringSupport) {
