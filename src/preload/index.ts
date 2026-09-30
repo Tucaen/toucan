@@ -203,7 +203,12 @@ const orchestratorApi: OrchestratorApi = {
     ),
   completeTicketSession: (requestId, result) =>
     ipcRenderer.send(ORCHESTRATOR_CHANNELS.ticketSessionResult, requestId, result),
-  jevReachability: () => ipcRenderer.invoke(ORCHESTRATOR_CHANNELS.jevReachability)
+  jevReachability: () => ipcRenderer.invoke(ORCHESTRATOR_CHANNELS.jevReachability),
+  orchestrationState: (request) => ipcRenderer.invoke(ORCHESTRATOR_CHANNELS.state, request),
+  resumeOrchestration: (request) => ipcRenderer.invoke(ORCHESTRATOR_CHANNELS.resume, request),
+  stopOrchestration: (request) => ipcRenderer.invoke(ORCHESTRATOR_CHANNELS.stop, request),
+  onOrchestrationState: (callback) =>
+    subscribe(ORCHESTRATOR_CHANNELS.changed, (state) => callback(state as Parameters<typeof callback>[0]))
 }
 
 contextBridge.exposeInMainWorld('orchestratorApi', orchestratorApi)

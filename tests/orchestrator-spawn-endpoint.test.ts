@@ -6,7 +6,13 @@ import { test } from 'vitest'
 import { createOrchestrationStore } from '../src/main/orchestration-store'
 import { createOrchestratorEndpoint, type OrchestratorGrant } from '../src/main/orchestrator-endpoint'
 import type { TicketSpawner, TicketSpawnRequest } from '../src/main/ticket-spawner'
-import { MAX_SPAWNS_PER_ORCHESTRATION, ORCHESTRATOR_TOKEN_ENV, ORCHESTRATOR_URL_ENV } from '../src/shared/orchestration'
+import {
+  MAX_SPAWNS_PER_ORCHESTRATION,
+  ORCHESTRATOR_TOKEN_ENV,
+  ORCHESTRATOR_URL_ENV,
+  pauseOrchestration,
+  stopOrchestration
+} from '../src/shared/orchestration'
 
 // `spawn` on the orchestrator endpoint (#34): who may spawn, what is refused before anything is
 // created, and that the session lands on its ticket in the record. The spawner itself - worktree,
@@ -116,6 +122,33 @@ test('a spawn hands the spawner the ticket, the target branch and the orchestrat
       branch: 'ticket/34'
     })
     assert.equal(record?.spawnCount, 1)
+  } finally {
+    await endpoint.close()
+  }
+})
+
+test('paused and stopped orchestrations refuse a spawn before the spawner is called', async () => {
+  const spawner = fakeSpawner()
+  const { records, endpoint, grant } = await planned(spawner)
+  const key = { provider: 'claude' as const, conversationId: 'conversation-1' }
+  try {
+    await records.update(key, (current) => ({
+      value: current && pauseOrchestration(current, 'node-34', Date.parse('2026-09-30T15:00:00Z'), current.updatedAt),
+      result: undefined
+    }))
+    const paused = await call(grant, 'spawn', spawn34)
+    assert.equal(paused.status, 429)
+    assert.match(paused.body.error ?? '', /paused until/)
+    assert.equal(spawner.calls.length, 0)
+
+    await records.update(key, (current) => ({
+      value: current && stopOrchestration(current, current.updatedAt),
+      result: undefined
+    }))
+    const stopped = await call(grant, 'spawn', spawn34)
+    assert.equal(stopped.status, 429)
+    assert.match(stopped.body.error ?? '', /stopped/)
+    assert.equal(spawner.calls.length, 0)
   } finally {
     await endpoint.close()
   }

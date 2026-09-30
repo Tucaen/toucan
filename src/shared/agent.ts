@@ -482,7 +482,7 @@ export type AgentEvent =
    */
   | { type: 'usage'; used?: number; size?: number; cost?: AgentSessionCost }
   | { type: 'turn_complete'; stopReason: string }
-  | { type: 'turn_failed'; turnId: string; message: string }
+  | { type: 'turn_failed'; turnId: string; message: string; errorKind?: string }
   | { type: 'turn_cancelled'; turnId: string; message: string }
   | { type: 'error'; message: string }
 

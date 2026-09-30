@@ -1,4 +1,5 @@
 import type { JevReachability } from './orchestration-routing'
+import type { AgentProvider } from './agent-provider'
 import { isRecord } from './record'
 import type { TicketCleanupRequest, TicketCleanupResult } from './orchestration-cleanup'
 
@@ -45,6 +46,19 @@ export function isTicketSessionCanvasResult(value: unknown): value is TicketSess
   return value.ok === false && typeof value.message === 'string'
 }
 
+export interface OrchestrationControlRequest {
+  provider: AgentProvider
+  conversationId: string
+  nodeId: string
+}
+
+export interface OrchestrationControlState {
+  provider: AgentProvider
+  conversationId: string
+  status: 'running' | 'paused' | 'stopped'
+  resetsAt?: number
+}
+
 /** The renderer's side of the request, exposed on `window.orchestratorApi`. */
 export interface OrchestratorApi {
   /**
@@ -57,4 +71,8 @@ export interface OrchestratorApi {
   completeCleanupTicket(requestId: string, result: TicketCleanupResult): void
   /** Whether Jev can route this orchestrator's tickets (#36); never the key itself. */
   jevReachability(): Promise<JevReachability>
+  orchestrationState(request: OrchestrationControlRequest): Promise<OrchestrationControlState | null>
+  resumeOrchestration(request: OrchestrationControlRequest): Promise<OrchestrationControlState | null>
+  stopOrchestration(request: OrchestrationControlRequest): Promise<OrchestrationControlState | null>
+  onOrchestrationState(callback: (state: OrchestrationControlState) => void): () => void
 }

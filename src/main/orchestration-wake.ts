@@ -36,6 +36,8 @@ export interface OrchestrationWakerOptions {
   resolve(nodeId: string): Promise<TicketBinding | null | undefined>
   /** The ticket session's outcome record, read when the prompt is built. */
   outcome(conversationId: string): Promise<{ path: string; files: number } | undefined>
+  /** False while the orchestration is paused or stopped. Such wakes are deliberately discarded. */
+  mayWake?(orchestratorNodeId: string): Promise<boolean>
   /** How long events are gathered before they are sent together. */
   foldMs?: number
   /** Injectable for tests; answers a cancel. */
@@ -111,6 +113,7 @@ export function createOrchestrationWaker(options: OrchestrationWakerOptions): Or
   const flush = async (orchestratorNodeId: string, queue: OrchestratorQueue): Promise<void> => {
     const items = queue.items.splice(0)
     if (items.length === 0) return
+    if (options.mayWake && !(await options.mayWake(orchestratorNodeId).catch(() => false))) return
     const events: TicketWakeEvent[] = []
     for (const { conversationId, sequence: _sequence, ...event } of items) {
       const ended = event.kind === 'completed' || event.kind === 'failed' || event.kind === 'cancelled'
