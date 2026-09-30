@@ -26,7 +26,7 @@ export default function JevReachabilityNote(): JSX.Element | null {
   if (!reachability) return null
   const [label, title] =
     reachability.state === 'reachable'
-      ? ['Jev reachable', 'Jev will judge each ticket’s difficulty tier; your tier mapping picks the model.']
+      ? ['Jev reachable', 'TypeSafe answers and TYPESAFE_API_KEY is set; the key itself is first checked when the orchestrator routes. Jev judges each ticket’s difficulty tier, your tier mapping picks the model.']
       : reachability.state === 'no-key'
         ? [
             'Jev unavailable',

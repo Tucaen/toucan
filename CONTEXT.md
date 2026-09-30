@@ -38,7 +38,7 @@ The rules appended to every ticket session's prompt after the implementation ski
 Toucan's tracker-independent state for one orchestration: the task, and per ticket its blockers, route, session, attempts and merge status.
 
 **Difficulty tier**:
-Jev's verdict on how hard a ticket is (`low`, `medium`, `high`, `frontier`). Jev never sees models.
+Jev's verdict on how hard a ticket is (`low`, `medium`, `high`, `frontier`). Jev never sees models. Toucan's main process asks Jev for it directly, unlike decision delegation, which reaches Jev through the session's skill.
 
 **Tier mapping**:
 The user's configuration turning a difficulty tier into a model from the chat node's model picker.
