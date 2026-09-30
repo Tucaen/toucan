@@ -97,7 +97,8 @@ async function harness(options: Options = {}) {
   assert.equal((await call(grant, 'ticket update', { id: '3', fields: { mergeStatus: 'merged' } })).status, 200)
   const routeOf = async (id: string): Promise<TicketRoute | undefined> =>
     (await records.read(key))?.tickets.find((ticket) => ticket.id === id)?.route
-  return { endpoint, grant, spawner, jev, routeOf }
+  const runsOf = async (id: string) => (await records.read(key))?.tickets.find((ticket) => ticket.id === id)?.runs
+  return { endpoint, grant, spawner, jev, routeOf, runsOf }
 }
 
 async function call(
@@ -268,6 +269,26 @@ test('spawn takes the recorded route, or a tier, and opens the session with the 
     // A tier the orchestrator named over Jev's is its own route.
     assert.equal((await routeOf('2'))?.tier, 'medium')
     assert.equal((await routeOf('2'))?.routedBy, 'orchestrator')
+  } finally {
+    await endpoint.close()
+  }
+})
+
+test('each spawn keeps its session and the route it launched on, so an escalation leaves the failed tier behind (#40)', async () => {
+  const { endpoint, grant, runsOf } = await harness({ jev: fakeJev(judged) })
+  try {
+    await call(grant, 'route')
+    assert.equal((await call(grant, 'spawn', { ticket: '2' })).status, 200)
+    assert.equal((await call(grant, 'escalate', { ticket: '2' })).status, 200)
+    assert.equal((await call(grant, 'spawn', { ticket: '2' })).status, 200)
+    const runs = await runsOf('2')
+    assert.deepEqual(
+      runs?.map((run) => [run.conversationId, run.route?.tier, run.route?.model, run.route?.escalated]),
+      [
+        ['ticket-1', 'high', 'opus', false],
+        ['ticket-2', 'frontier', 'opus', true]
+      ]
+    )
   } finally {
     await endpoint.close()
   }

@@ -100,6 +100,16 @@ export interface TicketSession {
   branch?: string
 }
 
+/**
+ * One ticket session a ticket was run in and the route it launched on (#40). `session` is only the
+ * latest; the routing report needs every attempt, because an escalated ticket's failure belongs to
+ * the tier it failed on, and `route` by then says the tier it was escalated to.
+ */
+export interface TicketRun {
+  conversationId?: string
+  route?: TicketRoute
+}
+
 export interface OrchestrationTicket {
   id: string
   title: string
@@ -111,6 +121,8 @@ export interface OrchestrationTicket {
   blockedBy: string[]
   route?: TicketRoute
   session?: TicketSession
+  /** Every spawned session, oldest first. Toucan-owned; absent in records written before #40. */
+  runs?: TicketRun[]
   attempts: number
   mergeStatus: TicketMergeStatus
 }
@@ -271,6 +283,7 @@ export function applyPlan(
           ...ticket,
           ...(before?.route ? { route: before.route } : {}),
           ...(before?.session ? { session: before.session } : {}),
+          ...(before?.runs ? { runs: before.runs } : {}),
           attempts: before?.attempts ?? 0,
           mergeStatus: before?.mergeStatus ?? 'pending'
         }
@@ -320,7 +333,8 @@ function parseRoute(value: unknown): TicketRoute | string {
 /** Fields `ticket update` never touches, each with the reason it gives. */
 const PROTECTED_TICKET_FIELDS: Record<string, string> = {
   id: '"id" cannot be updated; re-plan with plan set instead',
-  session: '"session" is set by Toucan when it spawns the ticket session'
+  session: '"session" is set by Toucan when it spawns the ticket session',
+  runs: '"runs" is kept by Toucan: one entry per spawned ticket session'
 }
 
 /** Validates a `ticket update` patch. An empty patch is refused: it is always a mistake. */
@@ -391,6 +405,14 @@ function isTicketSession(value: unknown): value is TicketSession {
   return isRecord(value) && [value.nodeId, value.conversationId, value.worktreePath, value.branch].every(optionalString)
 }
 
+function isTicketRun(value: unknown): value is TicketRun {
+  return (
+    isRecord(value) &&
+    optionalString(value.conversationId) &&
+    (value.route === undefined || typeof parseRoute(value.route) !== 'string')
+  )
+}
+
 function isOrchestrationTicket(value: unknown): value is OrchestrationTicket {
   return (
     isRecord(value) &&
@@ -402,6 +424,7 @@ function isOrchestrationTicket(value: unknown): value is OrchestrationTicket {
     value.blockedBy.every(nonEmptyString) &&
     (value.route === undefined || typeof parseRoute(value.route) !== 'string') &&
     (value.session === undefined || isTicketSession(value.session)) &&
+    (value.runs === undefined || (Array.isArray(value.runs) && value.runs.every(isTicketRun))) &&
     isFiniteNumber(value.attempts) &&
     TICKET_MERGE_STATUSES.includes(value.mergeStatus as TicketMergeStatus)
   )
@@ -541,14 +564,24 @@ export function reserveSpawn(
   return { record: { ...record, spawnCount: used + 1, updatedAt: now } }
 }
 
-/** Records the ticket session Toucan spawned; the one write to `session`, which `ticket update` refuses. */
+/**
+ * Records the ticket session Toucan spawned and the route it launched on; the one write to `session`
+ * and `runs`, which `ticket update` refuses.
+ */
 export function recordTicketSession(
   record: OrchestrationRecord,
   ticketId: string,
   session: TicketSession,
-  now: string
+  now: string,
+  route?: TicketRoute
 ): OrchestrationRecord {
-  const tickets = record.tickets.map((ticket) => (ticket.id === ticketId ? { ...ticket, session } : ticket))
+  const run: TicketRun = {
+    ...(session.conversationId ? { conversationId: session.conversationId } : {}),
+    ...(route ? { route } : {})
+  }
+  const tickets = record.tickets.map((ticket) =>
+    ticket.id === ticketId ? { ...ticket, session, runs: [...(ticket.runs ?? []), run] } : ticket
+  )
   return { ...record, tickets, updatedAt: now }
 }
 

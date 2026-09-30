@@ -318,6 +318,32 @@ test('the spawned session is recorded against its ticket', () => {
   assert.ok(isOrchestrationRecord(JSON.parse(JSON.stringify(recorded))))
 })
 
+test('every spawned session is kept as a run with the route it launched on (#40)', () => {
+  const medium = {
+    tier: 'medium' as const,
+    model: 'sonnet',
+    effort: 'high',
+    routedBy: 'jev' as const,
+    escalated: false
+  }
+  const high = { ...medium, tier: 'high' as const, model: 'opus', escalated: true }
+  const first = recordTicketSession(recordFrom(twoTickets), '34', { nodeId: 'n-1', conversationId: 'c-1' }, NOW, medium)
+  const second = recordTicketSession(first, '34', { nodeId: 'n-2', conversationId: 'c-2' }, LATER, high)
+  const ticket = second.tickets.find((candidate) => candidate.id === '34')!
+  assert.deepEqual(ticket.session, { nodeId: 'n-2', conversationId: 'c-2' })
+  assert.deepEqual(ticket.runs, [
+    { conversationId: 'c-1', route: medium },
+    { conversationId: 'c-2', route: high }
+  ])
+  assert.ok(isOrchestrationRecord(JSON.parse(JSON.stringify(second))))
+  assert.equal(isOrchestrationRecord({ ...second, tickets: [{ ...ticket, runs: [{ route: 'x' }] }] }), false)
+
+  // Toucan owns the history: a re-plan keeps it and a ticket update cannot write it.
+  const replanned = applyPlan(second, planned(twoTickets), identity, LATER).record!
+  assert.deepEqual(replanned.tickets.find((candidate) => candidate.id === '34')?.runs, ticket.runs)
+  assert.match(parseTicketUpdate({ runs: [] }).error ?? '', /"runs" is kept by Toucan/)
+})
+
 test('a ticket branch is a fresh name derived from the ticket id', () => {
   const candidates = ticketBranchCandidates('#34 Spawn!')
   assert.equal(candidates[0], 'ticket/34-spawn')

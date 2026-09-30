@@ -329,7 +329,7 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
     const spawnsLeft = MAX_SPAWNS_PER_ORCHESTRATION - (reserved.spawnCount ?? 0)
     if (!spawned.ok) return { status: 502, body: { ok: false, error: spawned.error } }
     await options.records.update(key, (current) => ({
-      value: current && recordTicketSession(current, ticket.id, spawned.session, now()),
+      value: current && recordTicketSession(current, ticket.id, spawned.session, now(), spawnedRoute),
       result: undefined
     }))
     options.onTicketSpawned?.(spawned.session.nodeId, {
