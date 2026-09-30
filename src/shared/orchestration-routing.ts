@@ -108,7 +108,10 @@ export function effectiveOrchestrationConfig(
 /** The efforts in order of how much reasoning they buy; the Claude adapter's own ids. */
 const EFFORT_LADDER = ['low', 'medium', 'high', 'xhigh', 'max'] as const
 
-/** Jev's reasoning-depth score (0-4, one step per criterion) on the effort ladder. */
+/**
+ * Jev's reasoning-depth score (0-4, one step per criterion) on the effort ladder.
+ * @internal exported for tests
+ */
 export function depthEffort(depth: number): string {
   if (depth < 0.75) return 'low'
   if (depth < 1.75) return 'medium'
@@ -123,13 +126,15 @@ const TIER_EFFORT: Record<DifficultyTier, string> = { low: 'low', medium: 'mediu
 /**
  * The offered effort nearest the wanted one on the ladder, the higher on a tie - under-thinking a
  * ticket is the costlier mistake. Undefined when the list holds nothing on the ladder, which
- * includes a model whose picker offers no effort at all.
+ * includes a model whose picker offers no effort at all. An effort off the ladder is kept only
+ * when the picker offers it verbatim.
+ * @internal exported for tests
  */
 export function nearestEffort(wanted: string, offered: readonly string[]): string | undefined {
   const ladder: readonly string[] = EFFORT_LADDER
   const target = ladder.indexOf(wanted)
+  if (target < 0) return offered.includes(wanted) ? wanted : undefined
   const candidates = offered.filter((effort) => ladder.includes(effort))
-  if (target < 0) return candidates.includes(wanted) ? wanted : undefined
   let best: string | undefined
   let bestDistance = Infinity
   for (const effort of candidates) {
@@ -151,6 +156,10 @@ export interface OfferedModels {
   efforts(model: string): readonly string[] | undefined
 }
 
+/**
+ * The tier above, or undefined above `frontier`.
+ * @internal exported for tests
+ */
 export function nextTier(tier: DifficultyTier): DifficultyTier | undefined {
   return DIFFICULTY_TIERS[DIFFICULTY_TIERS.indexOf(tier) + 1]
 }

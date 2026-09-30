@@ -265,7 +265,7 @@ test('a route carries its depth score and review mark, both checked (#36)', () =
 })
 
 test('a ticket session prompt opens with the configured implementation skill', () => {
-  const prompt = ticketSessionPrompt({ id: '1', title: 'T', body: 'B' }, { path: 'D:\w', branch: 'ticket/1' }, '/tdd')
+  const prompt = ticketSessionPrompt({ id: '1', title: 'T', body: 'B' }, { path: 'D:\\w', branch: 'ticket/1' }, '/tdd')
   assert.ok(prompt.startsWith('/tdd #1 T'))
 })
 
