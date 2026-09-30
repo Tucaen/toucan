@@ -684,6 +684,7 @@ export const TICKET_CONTRACT_HEADING = '## Ticket contract'
  * ticket (CONTEXT.md, "Ticket contract"). The no-push rule is also enforced - the worktree's
  * `pre-push` hook refuses every push - but it is stated, so the session does not spend a turn
  * finding that out.
+ * @internal exported for tests
  */
 export function ticketContract(worktree: { path: string; branch: string }): string {
   return [
