@@ -173,26 +173,29 @@ function ticketStays(ticket: OrchestrationTicket, runs: readonly CountedRun[]): 
 function median(values: readonly number[]): number | null {
   if (values.length === 0) return null
   const sorted = [...values].sort((a, b) => a - b)
+  const at = (index: number): number => sorted.at(index) ?? 0
   const middle = Math.floor(sorted.length / 2)
-  return sorted.length % 2 === 1 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2
+  return sorted.length % 2 === 1 ? at(middle) : (at(middle - 1) + at(middle)) / 2
 }
 
 function rowsFor(stays: readonly Stay[]): RoutingReportRow[] {
-  const byPair = new Map<string, Stay[]>()
+  const byPair = new Map<string, { tier: DifficultyTier; model: string; pair: Stay[] }>()
   for (const stay of stays) {
-    const key = `${tierIndex(stay.tier)}\u0000${stay.model}`
-    byPair.set(key, [...(byPair.get(key) ?? []), stay])
+    const key = `${tierIndex(stay.tier)}:${stay.model}`
+    const entry = byPair.get(key) ?? { tier: stay.tier, model: stay.model, pair: [] }
+    entry.pair.push(stay)
+    byPair.set(key, entry)
   }
   return [...byPair.entries()]
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    .map(([, pair]) => {
+    .map(([, { tier, model, pair }]) => {
       const count = (result: Result): number => pair.filter((stay) => stay.result === result).length
       const directSettled = pair.filter(
         (stay) => stay.result !== 'inProgress' && stay.result !== 'mergedAfterEscalation'
       ).length
       return {
-        tier: pair[0].tier,
-        model: pair[0].model,
+        tier,
+        model,
         tickets: pair.length,
         mergedWithoutEscalation: count('mergedWithoutEscalation'),
         mergedAfterEscalation: count('mergedAfterEscalation'),
