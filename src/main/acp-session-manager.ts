@@ -798,6 +798,11 @@ export interface AcpSessionManagerOptions {
    * `TOUCAN_NODE_ID`; no other session is ever given one.
    */
   orchestrator?: Pick<OrchestratorEndpoint, 'grant'>
+  /**
+   * The project checkout behind a session's cwd - the main checkout when it runs in a worktree.
+   * An orchestrator's grant is scoped to it, so a relaunch in a worktree still reaches its record.
+   */
+  projectPathFor?: (cwd: string) => Promise<string | undefined>
 }
 
 /** Whether a launch is an orchestrator's - by role, and on Claude only in the first version. */
@@ -984,6 +989,8 @@ function recordWrittenLocations(
 export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpSessionManager {
   const environment = options.environment ?? process.env
   const agents = new Map<string, RunningAgent>()
+  /** Bumped by every `stop`, so a launch awaiting its orchestrator grant can tell it was closed meanwhile. */
+  const stopCounts = new Map<string, number>()
   /**
    * The model list the last Claude session advertised. The Claude worker has to be named before
    * `session/new` answers with the models, so the previous session's list is the only pre-launch
@@ -1290,6 +1297,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
   }
 
   const stop = (id: string): void => {
+    stopCounts.set(id, (stopCounts.get(id) ?? 0) + 1)
     // Unconditional: an unexpectedly exited agent is already out of `agents`, but its channel
     // (snapshot and subscribers, the owner's forwarding among them) must still be retired, or the
     // renderer's kill-then-recreate cycle would stack a second owner subscription per restart.
@@ -1444,9 +1452,18 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         : undefined
       // Claude only in the first version (docs/plans/orchestrator-mode.md); the conditional await
       // keeps every other launch spawning synchronously within `create`.
+      const stopsBeforeGrant = stopCounts.get(request.id) ?? 0
       const orchestratorGrant = isClaudeOrchestrator(request)
-        ? await options.orchestrator?.grant(request.id, { provider: request.provider, projectPath: request.cwd })
+        ? await options.orchestrator?.grant(request.id, {
+            provider: request.provider,
+            projectPath: (await options.projectPathFor?.(request.cwd)) ?? request.cwd
+          })
         : undefined
+      // The node was closed while its grant was pending: nothing holds the handle to revoke it.
+      if ((stopCounts.get(request.id) ?? 0) !== stopsBeforeGrant) {
+        orchestratorGrant?.revoke()
+        return { ok: false, status: 'error', message: 'The session was stopped while it was starting.' }
+      }
       const baseEnvironment = agentProcessEnvironment(environment, request.id, orchestratorGrant?.environment)
       const delegatingEnvironment =
         request.provider === 'codex' && delegation?.status === 'configured'

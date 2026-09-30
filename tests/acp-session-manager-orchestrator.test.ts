@@ -125,3 +125,43 @@ test('the create request carries the role across the privilege seam only as the 
   assert.equal(isAgentCreateRequest(request), true)
   assert.equal(isAgentCreateRequest({ ...request, role: 'admin' }), false)
 })
+
+test('a grant is scoped to the project checkout, and one still pending when the node closes is revoked', async () => {
+  const appPath = mkdtempSync(join(tmpdir(), 'toucan-acp-orchestrator-scope-'))
+  recordingAdapter(appPath, 'claude-agent-acp')
+  const scopes: Array<{ nodeId: string; projectPath: string }> = []
+  let revoked = 0
+  let release: () => void = () => undefined
+  const manager = createAcpSessionManager({
+    appPath,
+    environment: { PATH: process.env.PATH },
+    projectPathFor: async (cwd) => (cwd === appPath ? 'D:\checkout' : undefined),
+    orchestrator: {
+      grant: async (nodeId, scope) => {
+        scopes.push({ nodeId, projectPath: scope.projectPath })
+        if (nodeId === 'slow') await new Promise<void>((resolve) => (release = resolve))
+        return {
+          environment: { [ORCHESTRATOR_URL_ENV]: 'http://127.0.0.1:1/orchestrate', [ORCHESTRATOR_TOKEN_ENV]: 't' },
+          setConversation: () => undefined,
+          revoke: () => {
+            revoked += 1
+          }
+        }
+      }
+    }
+  })
+  try {
+    await manager.create({ id: 'worktree', provider: 'claude', cwd: appPath, role: 'orchestrator' }, owner)
+    assert.deepEqual(scopes[0], { nodeId: 'worktree', projectPath: 'D:\checkout' })
+
+    const pending = manager.create({ id: 'slow', provider: 'claude', cwd: appPath, role: 'orchestrator' }, owner)
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    manager.kill('slow')
+    release()
+    const result = await pending
+    assert.equal(result.ok, false)
+    assert.equal(revoked, 1)
+  } finally {
+    manager.killAll()
+  }
+})

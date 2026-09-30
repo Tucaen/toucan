@@ -335,6 +335,15 @@ void app.whenReady().then(async () => {
   // worktree discovery does, and the outcome index reads HEAD through it, so none of them shells out
   // on its own.
   const worktrees = createWorktreeManager()
+  // The main checkout behind a worktree directory, so a worktree session's record files under
+  // the project name a reader will glob for (Tucaen/toucan#18), and an orchestrator's grant is
+  // scoped to its project rather than to the directory it happens to run in. A directory that is
+  // no worktree answers undefined.
+  const checkoutPathFor = async (projectPath: string): Promise<string | undefined> => {
+    const state = (await workspace.load()).state
+    const worktree = state?.worktrees.find((entry) => worktreePathKey(entry.path) === worktreePathKey(projectPath))
+    return worktree ? state?.projects.find((project) => project.id === worktree.projectId)?.path : undefined
+  }
   const sessionOutcomes = createSessionOutcomeIndexer({
     broker: agentEvents,
     store: createSessionOutcomeStore({ directory: sessionOutcomesDirectory }),
@@ -349,14 +358,7 @@ void app.whenReady().then(async () => {
     // can tell whether a recorded failure predates the code it is looking at
     // (Tucaen/toucan#17).
     codeStateFor: (projectPath) => worktrees.headState(projectPath),
-    // The main checkout behind a worktree directory, so a worktree session's record files under
-    // the project name a reader will glob for (Tucaen/toucan#18). A directory that is no
-    // worktree answers undefined and names the record after itself.
-    checkoutPathFor: async (projectPath) => {
-      const state = (await workspace.load()).state
-      const worktree = state?.worktrees.find((entry) => worktreePathKey(entry.path) === worktreePathKey(projectPath))
-      return worktree ? state?.projects.find((project) => project.id === worktree.projectId)?.path : undefined
-    },
+    checkoutPathFor,
     transcriptPathFor: (provider, conversationId, projectPath) =>
       Promise.resolve(
         provider === 'claude'
@@ -402,7 +404,8 @@ void app.whenReady().then(async () => {
     sessionOutcomesDirectory,
     terminalContext: terminalContextMcp,
     decisionProviderInstalled,
-    orchestrator: orchestratorEndpoint
+    orchestrator: orchestratorEndpoint,
+    projectPathFor: checkoutPathFor
   })
   const captureStore = createBrainDumpCaptureStore(
     join(app.getPath('userData'), 'brain-dump-capture.json'),

@@ -82,6 +82,8 @@ const refused = (status: number, error: string): Reply => ({ status, body: { ok:
 
 const MAX_REQUEST_BYTES = 1024 * 1024
 
+const UNAUTHORIZED = refused(401, 'the orchestrator token is missing, wrong or revoked')
+
 export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions): OrchestratorEndpoint {
   const now = options.now ?? (() => new Date().toISOString())
   const grants = new Set<LiveGrant>()
@@ -162,7 +164,7 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
     // Resolved again when the body has arrived: a grant revoked mid-request refuses too.
     const token = presentedPairingToken(request.headers)
     if (!grantForToken(token)) {
-      respond(response, refused(401, 'the orchestrator token is missing, wrong or revoked'))
+      respond(response, UNAUTHORIZED)
       return
     }
     if (request.method !== 'POST') {
@@ -192,7 +194,7 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
       }
       const grant = grantForToken(token)
       if (!grant) {
-        respond(response, refused(401, 'the orchestrator token is missing, wrong or revoked'))
+        respond(response, UNAUTHORIZED)
         return
       }
       const command = isRecord(message) ? message.command : undefined
