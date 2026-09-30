@@ -4,6 +4,7 @@ import BrainDumpLifecycleDialog from '../src/renderer/src/BrainDumpLifecycleDial
 import BrainDumpPermissionDialog from '../src/renderer/src/BrainDumpPermissionDialog'
 import ConversationHistoryDialog from '../src/renderer/src/ConversationHistoryDialog'
 import FilePickerDialog from '../src/renderer/src/FilePickerDialog'
+import { OrchestrationSettingsDialog } from '../src/renderer/src/OrchestrationSettingsDialog'
 import { RemoteAccessDialog } from '../src/renderer/src/RemoteAccessDialog'
 import TicketDeleteDialog from '../src/renderer/src/TicketDeleteDialog'
 import { ProjectSettingsDialog, WorktreeCreateDialog, WorktreeRemoveDialog } from '../src/renderer/src/WorkspaceDialogs'
@@ -22,6 +23,7 @@ const project = { id: 'p1', name: 'Toucan', path: 'D:/Development/Toucan', color
 afterEach(() => {
   Reflect.deleteProperty(window, 'conversationApi')
   Reflect.deleteProperty(window, 'workspaceFilesApi')
+  Reflect.deleteProperty(window, 'orchestrationSettingsApi')
 })
 
 interface DialogCase {
@@ -126,6 +128,10 @@ const families: DialogCase[] = [
     )
   },
   {
+    name: 'OrchestrationSettingsDialog',
+    render: (onClose) => <OrchestrationSettingsDialog project={project} onClose={onClose} />
+  },
+  {
     name: 'BrainDumpPermissionDialog',
     render: (onClose) => (
       <BrainDumpPermissionDialog
@@ -143,6 +149,15 @@ describe.each(families)('$name', ({ role, render: renderDialog }) => {
       exists: vi.fn(async () => true)
     } as never
     window.workspaceFilesApi = { index: vi.fn(async () => ({ root: project.path, entries: [] })) } as never
+    window.orchestrationSettingsApi = {
+      state: vi.fn(async () => ({
+        user: { path: 'orchestration-config.json', exists: false },
+        models: [],
+        efforts: {}
+      })),
+      save: vi.fn(),
+      onChange: () => () => {}
+    }
 
     const onClose = vi.fn()
     render(renderDialog(onClose))

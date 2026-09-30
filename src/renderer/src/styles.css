@@ -4844,6 +4844,129 @@ button.worktree-agent-unread:focus-visible {
   overflow-y: auto;
 }
 
+.dialog.orchestration-settings-dialog {
+  width: min(720px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+}
+
+.orchestration-settings-tabs {
+  display: flex;
+  gap: 6px;
+}
+
+.orchestration-settings-tabs button {
+  padding: 5px 11px;
+  border: 1px solid var(--neutral-750);
+  border-radius: 999px;
+  color: var(--neutral-300);
+  background: transparent;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.orchestration-settings-tabs button[aria-selected='true'] {
+  border-color: #4a6da8;
+  color: var(--neutral-050);
+  background: #1a2331;
+}
+
+.orchestration-settings-tabs button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.orchestration-settings-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.orchestration-settings-path {
+  color: var(--neutral-300);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.orchestration-settings-stale,
+.orchestration-settings-note {
+  color: #e6c07b;
+  font-size: 12px;
+}
+
+.orchestration-tier {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  padding: 8px 12px 10px;
+  border: 1px solid #3b4553;
+  border-radius: 8px;
+}
+
+.orchestration-tier legend {
+  padding: 0 6px;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.orchestration-picker {
+  width: 100%;
+  padding: 7px 8px;
+  color: inherit;
+  text-align: left;
+  background: #171d26;
+  border: 1px solid #3b4553;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.orchestration-picker:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.orchestration-tier-missing {
+  grid-column: 1 / -1;
+  color: #f08c8c;
+  font-size: 12px;
+}
+
+.orchestration-skill {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.orchestration-skill label {
+  display: grid;
+  gap: 6px;
+}
+
+.orchestration-skill input {
+  padding: 8px;
+  color: inherit;
+  background: #171d26;
+  border: 1px solid #3b4553;
+  border-radius: 6px;
+}
+
+.orchestration-contract {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid #3b4553;
+  border-radius: 8px;
+  background: #171b22;
+  font-size: 12px;
+}
+
+.orchestration-contract ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
 .adapter-choice {
   min-width: 0;
   margin: 16px 0;

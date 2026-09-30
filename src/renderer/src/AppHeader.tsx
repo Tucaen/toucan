@@ -1,4 +1,4 @@
-import { Settings, Smartphone } from 'lucide-react'
+import { Route, Settings, Smartphone } from 'lucide-react'
 import type { RemoteAccessState } from '../../shared/remote-access'
 import type { WorkspaceProject } from '../../shared/workspace'
 import { AppUpdateChip } from './AppUpdateChip'
@@ -34,6 +34,7 @@ export interface AppHeaderProps {
   remoteState: RemoteAccessState | null
   activeProject: WorkspaceProject | undefined
   onOpenAdapterManagement: () => void
+  onOpenOrchestrationSettings: () => void
   onOpenRemoteAccess: () => void
 }
 
@@ -56,6 +57,7 @@ export function AppHeader({
   remoteState,
   activeProject,
   onOpenAdapterManagement,
+  onOpenOrchestrationSettings,
   onOpenRemoteAccess
 }: AppHeaderProps): JSX.Element {
   return (
@@ -166,6 +168,18 @@ export function AppHeader({
           }}
         >
           <Settings aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          className="header-remote-access"
+          title="Orchestration settings"
+          aria-label="Orchestration settings"
+          onClick={(event) => {
+            event.stopPropagation()
+            onOpenOrchestrationSettings()
+          }}
+        >
+          <Route aria-hidden="true" />
         </button>
         <button
           type="button"

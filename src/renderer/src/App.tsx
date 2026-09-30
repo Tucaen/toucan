@@ -110,6 +110,7 @@ import type { DecisionDelegationPreference } from '../../shared/decision-delegat
 import { useAppUpdate } from './use-app-update'
 import { RemoteAccessDialog } from './RemoteAccessDialog'
 import { AdapterManagementDialog } from './AdapterManagementDialog'
+import { OrchestrationSettingsDialog } from './OrchestrationSettingsDialog'
 import { useRemoteAccess } from './use-remote-access'
 import type { RemoteChatSpawnRequest, RemoteChatSpawnResult } from '../../shared/remote-spawn'
 import type { OrchestratorLink, TicketSessionCanvasRequest } from '../../shared/ticket-session-spawn'
@@ -1761,12 +1762,17 @@ function Canvas(): JSX.Element {
 
   const [remoteAccessOpen, setRemoteAccessOpen] = useState(false)
   const [adapterManagementOpen, setAdapterManagementOpen] = useState(false)
+  const [orchestrationSettingsOpen, setOrchestrationSettingsOpen] = useState(false)
 
   // The header's dialog buttons also close the canvas context menu, so opening one can never
   // leave a create menu floating under the dialog it opened.
   const openAdapterManagement = useCallback((): void => {
     setMenu(null)
     setAdapterManagementOpen(true)
+  }, [])
+  const openOrchestrationSettings = useCallback((): void => {
+    setMenu(null)
+    setOrchestrationSettingsOpen(true)
   }, [])
   const openRemoteAccess = useCallback((): void => {
     setMenu(null)
@@ -2194,6 +2200,7 @@ function Canvas(): JSX.Element {
     worktreeRemoval: removalPrompt !== null,
     remoteAccess: remoteAccessOpen,
     adapterManagement: adapterManagementOpen,
+    orchestrationSettings: orchestrationSettingsOpen,
     projectSettings: setupProjectId !== null,
     projectMenu: projectMenu !== null
   })
@@ -2871,6 +2878,7 @@ function Canvas(): JSX.Element {
                 remoteState={remoteAccess.state}
                 activeProject={activeProject}
                 onOpenAdapterManagement={openAdapterManagement}
+                onOpenOrchestrationSettings={openOrchestrationSettings}
                 onOpenRemoteAccess={openRemoteAccess}
               />
 
@@ -3100,6 +3108,13 @@ function Canvas(): JSX.Element {
               )}
 
               {adapterManagementOpen && <AdapterManagementDialog onClose={() => setAdapterManagementOpen(false)} />}
+
+              {orchestrationSettingsOpen && (
+                <OrchestrationSettingsDialog
+                  {...(activeProject ? { project: { name: activeProject.name, path: activeProject.path } } : {})}
+                  onClose={() => setOrchestrationSettingsOpen(false)}
+                />
+              )}
 
               {removalPrompt && (
                 <WorktreeRemoveDialog

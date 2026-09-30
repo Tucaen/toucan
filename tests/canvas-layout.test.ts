@@ -138,6 +138,7 @@ test('every surface that covers the canvas gates the shortcuts, one by one', () 
     worktreeRemoval: false,
     remoteAccess: false,
     adapterManagement: false,
+    orchestrationSettings: false,
     projectSettings: false,
     projectMenu: false
   }

@@ -24,6 +24,7 @@ export interface CanvasOverlays {
   worktreeRemoval: boolean
   remoteAccess: boolean
   adapterManagement: boolean
+  orchestrationSettings: boolean
   projectSettings: boolean
   projectMenu: boolean
 }
