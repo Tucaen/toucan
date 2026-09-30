@@ -2166,6 +2166,29 @@ button.global-status-chip:hover {
   height: 12px;
 }
 
+.node-orchestration-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.node-orchestration-paused,
+.node-orchestration-stopped {
+  color: var(--usage-warning);
+  font-size: 0.68rem;
+  white-space: nowrap;
+}
+
+.node-orchestration-controls button {
+  border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font-size: 0.66rem;
+  padding: 0.15rem 0.35rem;
+  white-space: nowrap;
+}
+
 .node-jev-reachability {
   padding: 3px 6px;
   border-radius: 6px;

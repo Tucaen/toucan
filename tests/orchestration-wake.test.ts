@@ -11,7 +11,13 @@ const bindings: Record<string, TicketBinding> = {
   'ticket-b': { orchestratorNodeId: 'orchestrator', ticketId: '13', conversationId: 'conversation-b' }
 }
 
-function harness(options: { answers?: AgentPromptResult[]; resolve?: (nodeId: string) => TicketBinding | null } = {}) {
+function harness(
+  options: {
+    answers?: AgentPromptResult[]
+    resolve?: (nodeId: string) => TicketBinding | null
+    mayWake?: (orchestratorNodeId: string) => boolean
+  } = {}
+) {
   const delivered: Array<{ nodeId: string; text: string }> = []
   const answers = [...(options.answers ?? [])]
   const timers: Array<() => void> = []
@@ -23,6 +29,7 @@ function harness(options: { answers?: AgentPromptResult[]; resolve?: (nodeId: st
     resolve: async (nodeId) => (options.resolve ? options.resolve(nodeId) : (bindings[nodeId] ?? null)),
     outcome: async (conversationId) =>
       conversationId === 'conversation-a' ? { path: 'C:\\outcomes\\toucan--a--1234.md', files: 4 } : undefined,
+    mayWake: async (orchestratorNodeId) => options.mayWake?.(orchestratorNodeId) ?? true,
     schedule: (callback) => {
       timers.push(callback)
       return () => timers.splice(timers.indexOf(callback), 1)
@@ -87,6 +94,19 @@ test('sessions that are not ticket sessions, and events that are not boundaries,
   await fold()
   assert.equal(delivered.length, 0)
   assert.equal(timers.length, 0)
+})
+
+test('a paused or stopped orchestration receives no ticket wakes, including the usage-limit failure itself', async () => {
+  const { waker, delivered, fold } = harness({ mayWake: () => false })
+  waker.observe('ticket-a', complete)
+  waker.observe('ticket-b', {
+    type: 'turn_failed',
+    turnId: 'limited',
+    message: 'rate limited',
+    errorKind: 'rate_limit'
+  })
+  await fold()
+  assert.deepEqual(delivered, [])
 })
 
 test('a wake the orchestrator could not take yet is kept and delivered at its next ready boundary', async () => {

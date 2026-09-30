@@ -114,6 +114,9 @@ export interface OrchestrationTicket {
   mergeStatus: TicketMergeStatus
 }
 
+export type OrchestrationLifecycle =
+  { status: 'paused'; resetsAt?: number; affectedNodeIds: string[] } | { status: 'stopped' }
+
 export interface OrchestrationRecord {
   version: 1
   provider: AgentProvider
@@ -129,6 +132,8 @@ export interface OrchestrationRecord {
    * which reads as none.
    */
   spawnCount?: number
+  /** Absent is the normal running state, preserving records written before pause/stop existed. */
+  lifecycle?: OrchestrationLifecycle
   createdAt: string
   updatedAt: string
 }
@@ -275,6 +280,7 @@ export function applyPlan(
         }
       }),
       ...(existing?.spawnCount ? { spawnCount: existing.spawnCount } : {}),
+      ...(existing?.lifecycle ? { lifecycle: existing.lifecycle } : {}),
       createdAt: existing?.createdAt ?? now,
       updatedAt: now
     }
@@ -406,6 +412,17 @@ function isOrchestrationTicket(value: unknown): value is OrchestrationTicket {
   )
 }
 
+function isOrchestrationLifecycle(value: unknown): value is OrchestrationLifecycle {
+  if (!isRecord(value)) return false
+  if (value.status === 'stopped') return Object.keys(value).every((key) => key === 'status')
+  return (
+    value.status === 'paused' &&
+    (value.resetsAt === undefined || isFiniteNumber(value.resetsAt)) &&
+    Array.isArray(value.affectedNodeIds) &&
+    value.affectedNodeIds.every(nonEmptyString)
+  )
+}
+
 /** The store's parse predicate: a record on disk is used only if every field still holds. */
 export function isOrchestrationRecord(value: unknown): value is OrchestrationRecord {
   return (
@@ -419,6 +436,7 @@ export function isOrchestrationRecord(value: unknown): value is OrchestrationRec
     Array.isArray(value.tickets) &&
     value.tickets.every(isOrchestrationTicket) &&
     (value.spawnCount === undefined || isNonNegativeInteger(value.spawnCount)) &&
+    (value.lifecycle === undefined || isOrchestrationLifecycle(value.lifecycle)) &&
     typeof value.createdAt === 'string' &&
     typeof value.updatedAt === 'string'
   )
@@ -524,6 +542,14 @@ export function reserveSpawn(
   now: string
 ): Outcome<'record', OrchestrationRecord> {
   if (!record.tickets.some((ticket) => ticket.id === ticketId)) return refuse(`the plan has no ticket "${ticketId}"`)
+  if (record.lifecycle?.status === 'paused') {
+    return refuse(
+      record.lifecycle.resetsAt === undefined
+        ? 'this orchestration is paused until its usage reset is known'
+        : `this orchestration is paused until ${new Date(record.lifecycle.resetsAt).toISOString()}`
+    )
+  }
+  if (record.lifecycle?.status === 'stopped') return refuse('this orchestration has been stopped')
   const used = record.spawnCount ?? 0
   if (used >= MAX_SPAWNS_PER_ORCHESTRATION) {
     return refuse(
@@ -532,6 +558,40 @@ export function reserveSpawn(
     )
   }
   return { record: { ...record, spawnCount: used + 1, updatedAt: now } }
+}
+
+/** Records a provider usage pause without turning it into a ticket attempt or escalation. */
+export function pauseOrchestration(
+  record: OrchestrationRecord,
+  affectedNodeId: string | undefined,
+  resetsAt: number | undefined,
+  now: string
+): OrchestrationRecord {
+  if (record.lifecycle?.status === 'stopped') return record
+  const previous = record.lifecycle?.status === 'paused' ? record.lifecycle : undefined
+  const knownResets = [previous?.resetsAt, resetsAt].filter((value): value is number => value !== undefined)
+  return {
+    ...record,
+    lifecycle: {
+      status: 'paused',
+      ...(knownResets.length > 0 ? { resetsAt: Math.max(...knownResets) } : {}),
+      affectedNodeIds: [...new Set([...(previous?.affectedNodeIds ?? []), ...(affectedNodeId ? [affectedNodeId] : [])])]
+    },
+    updatedAt: now
+  }
+}
+
+/** Clears only a pause. A stopped orchestration cannot be restarted accidentally. */
+export function resumeOrchestration(record: OrchestrationRecord, now: string): OrchestrationRecord {
+  if (record.lifecycle?.status !== 'paused') return record
+  const { lifecycle: _lifecycle, ...running } = record
+  return { ...running, updatedAt: now }
+}
+
+/** Permanently retires this orchestration while retaining its plan and ticket history. */
+export function stopOrchestration(record: OrchestrationRecord, now: string): OrchestrationRecord {
+  if (record.lifecycle?.status === 'stopped') return record
+  return { ...record, lifecycle: { status: 'stopped' }, updatedAt: now }
 }
 
 /** Records the ticket session Toucan spawned; the one write to `session`, which `ticket update` refuses. */
@@ -651,12 +711,12 @@ export interface TicketWakeEvent {
 }
 
 /** Which session events wake the orchestrator; every other event is none of its business. */
-export function ticketWakeKind(event: { type: string }): TicketWakeKind | null {
+export function ticketWakeKind(event: { type: string; errorKind?: string }): TicketWakeKind | null {
   switch (event.type) {
     case 'turn_complete':
       return 'completed'
     case 'turn_failed':
-      return 'failed'
+      return event.errorKind === 'rate_limit' || event.errorKind === 'usage_limit' ? null : 'failed'
     case 'turn_cancelled':
       return 'cancelled'
     case 'decision_request':

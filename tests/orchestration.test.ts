@@ -14,7 +14,10 @@ import {
   parseSpawnInput,
   parseTicketUpdate,
   recordTicketSession,
+  pauseOrchestration,
+  resumeOrchestration,
   reserveSpawn,
+  stopOrchestration,
   ticketBranchCandidates,
   ticketSessionPrompt,
   ticketSessionTitle,
@@ -290,6 +293,40 @@ test('a spawn is reserved against the record and refused past twenty per orchest
   assert.ok(isOrchestrationRecord(legacy))
   assert.equal(reserveSpawn(legacy as unknown as OrchestrationRecord, '33', NOW).record?.spawnCount, 1)
   assert.equal(isOrchestrationRecord({ ...record, spawnCount: -1 }), false)
+})
+
+test('pause, resume and stop are durable orchestration states that gate spawning without changing attempts', () => {
+  const original = recordFrom(twoTickets)
+  const paused = pauseOrchestration(original, 'node-33', Date.parse(LATER), LATER)
+
+  assert.deepEqual(paused.lifecycle, {
+    status: 'paused',
+    resetsAt: Date.parse(LATER),
+    affectedNodeIds: ['node-33']
+  })
+  assert.deepEqual(
+    paused.tickets.map(({ attempts }) => attempts),
+    original.tickets.map(({ attempts }) => attempts)
+  )
+  assert.match(reserveSpawn(paused, '34', LATER).error ?? '', /paused until/)
+  assert.ok(isOrchestrationRecord(JSON.parse(JSON.stringify(paused))))
+
+  const pausedAgain = pauseOrchestration(paused, 'node-34', Date.parse(LATER) + 60_000, LATER)
+  assert.deepEqual(pausedAgain.lifecycle, {
+    status: 'paused',
+    resetsAt: Date.parse(LATER) + 60_000,
+    affectedNodeIds: ['node-33', 'node-34']
+  })
+
+  const resumed = resumeOrchestration(pausedAgain, LATER)
+  assert.equal(resumed.lifecycle, undefined)
+  assert.equal(reserveSpawn(resumed, '34', LATER).error, undefined)
+
+  const stopped = stopOrchestration(resumed, LATER)
+  assert.deepEqual(stopped.lifecycle, { status: 'stopped' })
+  assert.match(reserveSpawn(stopped, '34', LATER).error ?? '', /stopped/)
+  assert.equal(resumeOrchestration(stopped, LATER), stopped)
+  assert.ok(isOrchestrationRecord(JSON.parse(JSON.stringify(stopped))))
 })
 
 test('the spawned session is recorded against its ticket', () => {

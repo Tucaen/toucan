@@ -8,6 +8,8 @@ import { ADAPTER_CHANNELS, ORCHESTRATOR_CHANNELS, USAGE_CHANNELS } from '../shar
 import { pathIdentity } from '../shared/paths'
 import {
   isTicketSessionCanvasResult,
+  type OrchestrationControlRequest,
+  type OrchestrationControlState,
   type TicketSessionCanvasRequest,
   type TicketSessionCanvasResult
 } from '../shared/ticket-session-spawn'
@@ -17,7 +19,8 @@ import { createOrchestrationStore } from './orchestration-store'
 import { createOrchestrationConfigStore } from './orchestration-config-store'
 import { createJevRouter } from './jev-router'
 import { createOrchestrationWaker } from './orchestration-wake'
-import { TICKET_SESSION_PROVIDER } from '../shared/orchestration'
+import { ORCHESTRATOR_ROLE, TICKET_SESSION_PROVIDER, type OrchestrationRecord } from '../shared/orchestration'
+import { createOrchestrationController, type OrchestrationSession } from './orchestration-control'
 import { createOrchestratorEndpoint } from './orchestrator-endpoint'
 import { createSetupCommandRunner } from './setup-command'
 import { installPushGuard } from './ticket-push-guard'
@@ -425,6 +428,53 @@ void app.whenReady().then(async () => {
     directory: join(app.getPath('userData'), 'orchestrations'),
     log: mainLog('orchestrations')
   })
+  let providerUsage: ProviderUsage
+  const orchestrationSessionForNode = async (nodeId: string): Promise<OrchestrationSession | null | undefined> => {
+    const node = (await workspace.load()).state?.nodes.find((candidate) => candidate.id === nodeId)
+    if (!node) return undefined
+    if (node.orchestratedBy) {
+      const key: OrchestrationSession['key'] = {
+        provider: TICKET_SESSION_PROVIDER,
+        conversationId: node.orchestratedBy.conversationId
+      }
+      const record = await orchestrationRecords.read(key)
+      if (!record?.tickets.some((ticket) => ticket.session?.nodeId === nodeId)) return undefined
+      return {
+        key,
+        orchestratorNodeId: node.orchestratedBy.nodeId,
+        ticketNodeId: nodeId
+      }
+    }
+    if (node.role === ORCHESTRATOR_ROLE && node.conversationId && isAgentProvider(node.kind)) {
+      return {
+        key: { provider: node.kind, conversationId: node.conversationId },
+        orchestratorNodeId: nodeId
+      }
+    }
+    return null
+  }
+  const orchestrationState = (record: OrchestrationRecord): OrchestrationControlState => ({
+    provider: record.provider,
+    conversationId: record.conversationId,
+    status: record.lifecycle?.status ?? 'running',
+    ...(record.lifecycle?.status === 'paused' && record.lifecycle.resetsAt !== undefined
+      ? { resetsAt: record.lifecycle.resetsAt }
+      : {})
+  })
+  const orchestrationController = createOrchestrationController({
+    records: orchestrationRecords,
+    resolve: orchestrationSessionForNode,
+    readUsage: async (provider) => (await providerUsage.read({ force: true, provider }))[provider]?.status ?? null,
+    promptWhenIdle: (nodeId, text) => agentManager.promptWhenIdle(nodeId, text),
+    kill: (nodeId) => agentManager.kill(nodeId),
+    changed: (record) => {
+      const state = orchestrationState(record)
+      for (const window of BrowserWindow.getAllWindows()) {
+        if (!window.webContents.isDestroyed()) window.webContents.send(ORCHESTRATOR_CHANNELS.changed, state)
+      }
+    },
+    log: mainLog('orchestration control')
+  })
   // Wakes an orchestrator when its ticket sessions finish, fail or ask (#35). Every session's
   // events pass the broker's observer; a ticket session this process did not spawn - one resumed
   // after a restart - is recognised by its node's orchestrated-by link and its orchestrator's record.
@@ -452,9 +502,13 @@ void app.whenReady().then(async () => {
       const found = await sessionOutcomeStore.find({ provider: TICKET_SESSION_PROVIDER, conversationId })
       return found ? { path: found.path, files: found.record.filesTouched.length } : undefined
     },
+    mayWake: (orchestratorNodeId) => orchestrationController.mayWake(orchestratorNodeId),
     log: mainLog('orchestrator wake')
   })
-  agentEvents.observe((id, event) => orchestrationWaker.observe(id, event))
+  agentEvents.observe((id, event) => {
+    orchestrationController.observe(id, event)
+    orchestrationWaker.observe(id, event)
+  })
   // Routing by difficulty tier (#36): the user's tier mapping, the Claude picker as last seen, and
   // Jev, asked from main with main's own TYPESAFE_API_KEY so the key never leaves this process.
   const orchestrationConfig = createOrchestrationConfigStore({ userDataPath: app.getPath('userData') })
@@ -598,6 +652,35 @@ void app.whenReady().then(async () => {
   })
   // Before an orchestrator's task is sent (#36): the service answering, never the key.
   ipcMain.handle(ORCHESTRATOR_CHANNELS.jevReachability, () => jevRouter.status())
+  const controlRequest = (value: unknown): OrchestrationControlRequest | undefined => {
+    const request = value as Partial<OrchestrationControlRequest> | null
+    return request &&
+      isAgentProvider(request.provider) &&
+      typeof request.conversationId === 'string' &&
+      request.conversationId.length > 0 &&
+      typeof request.nodeId === 'string' &&
+      request.nodeId.length > 0
+      ? (request as OrchestrationControlRequest)
+      : undefined
+  }
+  ipcMain.handle(ORCHESTRATOR_CHANNELS.state, async (_event, value: unknown) => {
+    const request = controlRequest(value)
+    if (!request) return null
+    const record = await orchestrationController.state(request, request.nodeId)
+    return record ? orchestrationState(record) : null
+  })
+  ipcMain.handle(ORCHESTRATOR_CHANNELS.resume, async (_event, value: unknown) => {
+    const request = controlRequest(value)
+    if (!request) return null
+    const record = await orchestrationController.resumeNow(request, request.nodeId)
+    return record ? orchestrationState(record) : null
+  })
+  ipcMain.handle(ORCHESTRATOR_CHANNELS.stop, async (_event, value: unknown) => {
+    const request = controlRequest(value)
+    if (!request) return null
+    const record = await orchestrationController.stop(request, request.nodeId)
+    return record ? orchestrationState(record) : null
+  })
   ipcMain.on(ORCHESTRATOR_CHANNELS.ticketSessionResult, (_event, requestId: unknown, result: unknown) => {
     if (typeof requestId === 'string' && isTicketSessionCanvasResult(result)) ticketSessions.complete(requestId, result)
   })
@@ -646,7 +729,7 @@ void app.whenReady().then(async () => {
   // One usage cache for both surfaces. The desktop header polls it over IPC and the phone reads it
   // over `/api/usage`, so two clients asking about the same account still cost one provider read
   // per TTL rather than one per client - which is the whole reason this sits in main at all.
-  const providerUsage = createProviderUsage({
+  providerUsage = createProviderUsage({
     readers: {
       claude: createClaudeUsageReader({
         cwd: app.getPath('home'),

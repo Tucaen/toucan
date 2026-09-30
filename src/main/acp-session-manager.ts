@@ -637,6 +637,15 @@ function isAuthRequired(error: unknown): boolean {
   )
 }
 
+/** Adapter-owned machine-readable failure kind, when ACP carried one. */
+function agentErrorKind(error: unknown): string | undefined {
+  if (typeof error !== 'object' || error === null) return undefined
+  const data = (error as { data?: unknown }).data
+  if (typeof data !== 'object' || data === null) return undefined
+  const kind = (data as { errorKind?: unknown }).errorKind
+  return typeof kind === 'string' && kind.length > 0 ? kind : undefined
+}
+
 /**
  * Filters out internal notification wrappers that leak into the chat view on session resume.
  * @internal exported for tests
@@ -872,9 +881,10 @@ export function promptFailure(
       result: { ok: false, message }
     }
   }
+  const errorKind = agentErrorKind(error)
   return {
     events: [
-      { type: 'turn_failed', turnId, message },
+      { type: 'turn_failed', turnId, message, ...(errorKind ? { errorKind } : {}) },
       { type: 'status', status: 'ready' }
     ],
     result: { ok: false, message }

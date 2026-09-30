@@ -52,7 +52,12 @@ test('does not treat an unrelated internal error carrying a different errorKind 
   )
 
   assert.deepEqual(failure.events, [
-    { type: 'turn_failed', turnId: 'rate-limit-turn', message: 'Internal error: rate limited' },
+    {
+      type: 'turn_failed',
+      turnId: 'rate-limit-turn',
+      message: 'Internal error: rate limited',
+      errorKind: 'rate_limit'
+    },
     { type: 'status', status: 'ready' }
   ])
 })

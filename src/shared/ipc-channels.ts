@@ -109,7 +109,11 @@ export const ORCHESTRATOR_CHANNELS = {
   startTicketSession: 'orchestrator:start-ticket-session',
   ticketSessionResult: 'orchestrator:ticket-session-result',
   /** Whether Jev can route an orchestration, asked by an orchestrator node before its task is sent (#36). */
-  jevReachability: 'orchestrator:jev-reachability'
+  jevReachability: 'orchestrator:jev-reachability',
+  state: 'orchestrator:state',
+  resume: 'orchestrator:resume',
+  stop: 'orchestrator:stop',
+  changed: 'orchestrator:changed'
 } as const
 
 export const BRAIN_DUMP_CHANNELS = {

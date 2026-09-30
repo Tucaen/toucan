@@ -129,7 +129,11 @@ export function installWindowApis(options: AppHarnessOptions = {}): AppHarness {
     orchestratorApi: {
       onStartTicketSession: () => () => undefined,
       completeTicketSession: vi.fn(),
-      jevReachability: vi.fn(async () => ({ state: 'reachable' as const }))
+      jevReachability: vi.fn(async () => ({ state: 'reachable' as const })),
+      orchestrationState: vi.fn(async () => null),
+      resumeOrchestration: vi.fn(async () => null),
+      stopOrchestration: vi.fn(async () => null),
+      onOrchestrationState: () => () => undefined
     },
     brainDumpApi: createMockBrainDumpApi() as unknown as Record<string, unknown>
   }
