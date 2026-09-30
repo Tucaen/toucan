@@ -174,6 +174,23 @@ test('Resume now clears a pause and Stop orchestration kills every ticket sessio
   assert.equal(await controller.mayWake('orchestrator'), false)
 })
 
+test('control operations require the named node to own the exact orchestration key', async () => {
+  const { records, controller, killed } = harness()
+  await records.update(key, () => ({ value: record(), result: undefined }))
+  const otherKey = { ...key, conversationId: 'other-conversation' }
+  await records.update(otherKey, () => ({
+    value: { ...record(), conversationId: otherKey.conversationId },
+    result: undefined
+  }))
+
+  assert.equal(await controller.state(otherKey, 'orchestrator'), undefined)
+  assert.equal(await controller.resumeNow(otherKey, 'orchestrator'), undefined)
+  assert.equal(await controller.stop(otherKey, 'orchestrator'), undefined)
+  assert.equal(await controller.stop(key, 'ticket-1'), undefined)
+  assert.deepEqual(killed, [])
+  assert.equal((await records.read(key))?.lifecycle, undefined)
+})
+
 test("the orchestrator's own usage-limit failure pauses the run without treating it as an affected ticket", async () => {
   const { records, controller, prompts } = harness()
   await records.update(key, () => ({ value: record(), result: undefined }))

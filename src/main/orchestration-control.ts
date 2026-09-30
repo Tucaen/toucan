@@ -79,6 +79,18 @@ export function createOrchestrationController(options: OrchestrationControllerOp
     return promise
   }
 
+  const authorizeControl = async (key: OrchestrationKey, orchestratorNodeId: string): Promise<boolean> => {
+    const session = await options.resolve(orchestratorNodeId)
+    return (
+      session !== null &&
+      session !== undefined &&
+      session.ticketNodeId === undefined &&
+      session.orchestratorNodeId === orchestratorNodeId &&
+      session.key.provider === key.provider &&
+      session.key.conversationId === key.conversationId
+    )
+  }
+
   const deliver = async (nodeId: string, text: string): Promise<void> => {
     try {
       const result = await options.promptWhenIdle(nodeId, text)
@@ -168,16 +180,19 @@ export function createOrchestrationController(options: OrchestrationControllerOp
     },
 
     async state(key, orchestratorNodeId) {
+      if (!(await authorizeControl(key, orchestratorNodeId))) return undefined
       const record = await options.records.read(key)
       if (record) arm(key, record, orchestratorNodeId)
       return record
     },
 
-    resumeNow(key, orchestratorNodeId) {
+    async resumeNow(key, orchestratorNodeId) {
+      if (!(await authorizeControl(key, orchestratorNodeId))) return undefined
       return track(resume(key, orchestratorNodeId))
     },
 
     async stop(key, orchestratorNodeId) {
+      if (!(await authorizeControl(key, orchestratorNodeId))) return undefined
       knownOrchestrations.set(orchestratorNodeId, key)
       const record = await options.records.update(key, (current) => {
         const next = current ? stopOrchestration(current, nowIso(now())) : undefined
