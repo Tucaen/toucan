@@ -11,6 +11,7 @@ import type { ProjectRunCommand } from './project-run-commands'
 import type { WorkspaceDiffNode } from './git-diff'
 import type { WorkspaceWorktree } from './worktree'
 import type { ConversationTitleSource } from './conversation-title'
+import type { ChatNodeRole } from './orchestration'
 import type { DecisionDelegationPreference } from './decision-delegation'
 import type { RoutineDelegationPreference } from './routine-delegation'
 import type { ScheduledMessage } from './scheduled-message'
@@ -143,6 +144,11 @@ export interface WorkspaceTerminalNode {
   scheduledMessages?: ScheduledMessage[]
   /** The conversation this one was branched off, if any; the canvas draws the lineage from it. */
   branchedFrom?: ConversationLineage
+  /**
+   * The chat's role, written only when it has one. Set when the node is created (canvas context
+   * menu -> New orchestrator) and never changed after, so an ordinary chat can never become one.
+   */
+  role?: ChatNodeRole
 }
 
 /**

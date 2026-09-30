@@ -1693,6 +1693,11 @@ button.global-status-chip:hover {
   background: rgba(113, 169, 255, 0.12);
 }
 
+.orchestrator-icon {
+  color: #b794f6;
+  background: rgba(183, 148, 246, 0.12);
+}
+
 .terminal-node {
   width: 100%;
   height: 100%;
@@ -2131,6 +2136,26 @@ button.global-status-chip:hover {
 
 .node-provider > .lucide {
   color: var(--node-accent);
+}
+
+/* An orchestrator is a role fixed at creation, so it reads as identity beside the provider. */
+.node-orchestrator-badge {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px;
+  border: 1px solid rgba(183, 148, 246, 0.45);
+  border-radius: 6px;
+  color: #cdb8f8;
+  background: rgba(183, 148, 246, 0.12);
+  font-size: 10px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.node-orchestrator-badge > .lucide {
+  width: 12px;
+  height: 12px;
 }
 
 /* The model and permission pickers keep their width, so the title truncates first. */

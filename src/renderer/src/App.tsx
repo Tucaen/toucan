@@ -13,10 +13,11 @@ import {
   type NodeChange,
   type NodeTypes
 } from '@xyflow/react'
-import { FileText, GitBranch, GitCompare, History, LayoutGrid, Maximize, ZoomIn, ZoomOut } from 'lucide-react'
+import { FileText, GitBranch, GitCompare, History, LayoutGrid, Maximize, Network, ZoomIn, ZoomOut } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import { AGENT_TURN_OUTCOME_LIMIT, type AgentTurnOutcome } from '../../shared/agent'
 import type { ScheduledMessage } from '../../shared/scheduled-message'
+import { ORCHESTRATOR_ROLE, type ChatNodeRole } from '../../shared/orchestration'
 import type { ConversationSummary } from '../../shared/conversation'
 import { normalizeConversationTitle, type ConversationTitleSource } from '../../shared/conversation-title'
 import { paletteColorAt } from '../../shared/project-colors'
@@ -243,6 +244,7 @@ const CREATE_ACTION_ICONS: Record<Exclude<CreateNodeKeyAction, 'none'>, { classN
   'create-terminal': { className: 'terminal-icon', icon: <SessionKindIcon kind="terminal" /> },
   'create-claude': { className: 'claude-icon', icon: <SessionKindIcon kind="claude" /> },
   'create-codex': { className: 'codex-icon', icon: <SessionKindIcon kind="codex" /> },
+  'create-orchestrator': { className: 'orchestrator-icon', icon: <Network aria-hidden="true" /> },
   'create-worktree': { className: 'worktree-icon', icon: <GitBranch aria-hidden="true" /> },
   'open-history': { className: 'history-icon', icon: <History aria-hidden="true" /> },
   'open-file': { className: 'file-icon', icon: <FileText aria-hidden="true" /> },
@@ -1111,12 +1113,16 @@ function Canvas(): JSX.Element {
       branchedFrom?: ConversationLineage
       /** The model to open on. Absent leaves it to the adapter's own default, as a click does. */
       modelId?: string
+      /** The chat's role, fixed for the node's life; only the New orchestrator action sets one. */
+      role?: ChatNodeRole
       // Returns the canvas node id it minted, or null when it refused to create one - the
       // requested worktree is gone - so a caller waiting on this session knows there is none.
     }): string | null => {
       const { kind, project, worktree: requestedWorktree, position, resumeConversationId, branchedFrom } = options
       const id = crypto.randomUUID()
-      const label = options.label ?? `${labels[kind]} ${nextSessionNumber.current}`
+      const label =
+        options.label ??
+        `${options.role === ORCHESTRATOR_ROLE ? 'Orchestrator' : labels[kind]} ${nextSessionNumber.current}`
       // A branch has no conversation of its own until the fork produces one, and must not be
       // handed a speculative id: an id here would read as a conversation to resume.
       const conversationId =
@@ -1151,6 +1157,7 @@ function Canvas(): JSX.Element {
           conversationId,
           launchMode: resumeConversationId ? 'resume' : branchedFrom ? 'fork' : 'new',
           branchedFrom,
+          role: options.role,
           preferredPermissionMode: kind === 'terminal' ? undefined : permissionModesRef.current[kind],
           modelId: options.modelId,
           initialInput: options.initialInput
@@ -2117,6 +2124,10 @@ function Canvas(): JSX.Element {
         case 'create-claude':
         case 'create-codex':
           addSessionNode({ kind: SESSION_KIND_BY_ACTION[action], project, position })
+          break
+        case 'create-orchestrator':
+          // Claude only in the first version (docs/plans/orchestrator-mode.md).
+          addSessionNode({ kind: 'claude', role: ORCHESTRATOR_ROLE, project, position })
           break
         case 'create-worktree':
           setWorktreeDraft({

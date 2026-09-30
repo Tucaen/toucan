@@ -17,6 +17,7 @@ import type {
 import { MODEL_CHANGE_WHILE_BUSY } from '../../shared/agent'
 import type { AgentRoutineDelegation, RoutineDelegationRequest } from '../../shared/routine-delegation'
 import type { AgentDecisionDelegation } from '../../shared/decision-delegation'
+import type { ChatNodeRole } from '../../shared/orchestration'
 import {
   applyAgentCreateResult,
   foldAgentEvent,
@@ -83,6 +84,8 @@ export interface AgentConversationOptions {
   routineDelegation?: RoutineDelegationRequest
   /** Whether to launch asking for decision delegation; read at create time, like the policy above. */
   decisionDelegation?: true
+  /** The chat node's role; an orchestrator's launch is minted its token in main. */
+  role?: ChatNodeRole
   restartKey?: number
   composePrompt?(text: string): string | Promise<string>
   enabled: boolean
@@ -336,7 +339,8 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
         modelId: options.modelId,
         effortId: options.effortId,
         routineDelegation: options.routineDelegation,
-        decisionDelegation: options.decisionDelegation
+        decisionDelegation: options.decisionDelegation,
+        ...(options.role ? { role: options.role } : {})
       })
       .then((result) => {
         if (!active) return

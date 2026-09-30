@@ -20,6 +20,7 @@ import {
   ListChecks,
   ListPlus,
   LockKeyhole,
+  Network,
   Pencil,
   SendHorizontal,
   Square,
@@ -90,6 +91,7 @@ import { useComposerSendKey } from './composer-send-key-context'
 import { useRoutineDelegation } from './routine-delegation-context'
 import { routineDelegationRequest, type AgentRoutineDelegation } from '../../shared/routine-delegation'
 import { useDecisionDelegation } from './decision-delegation-context'
+import { ORCHESTRATOR_ROLE } from '../../shared/orchestration'
 import { decisionDelegationRequest, type AgentDecisionDelegation } from '../../shared/decision-delegation'
 import { usePromptEditor, type ComposerFileMentions } from './use-prompt-editor'
 import PromptTextarea from './PromptTextarea'
@@ -1099,6 +1101,7 @@ export default function ChatNode({ id, data, selected, width }: NodeProps<Termin
     // Read at session creation for the same reason, and carried for Codex too: main records the
     // request and reports back why it was withheld, rather than the node quietly dropping it.
     decisionDelegation: decisionDelegationRequest(decisionDelegationPreference),
+    role: data.role,
     // Bumped when a terminal-context edge is adopted mid-session: the restart resumes this same
     // conversation with the read tool included (terminal-context-edges.ts).
     // …and by the Resume action of an exited node (`relaunchNonce`). Both only ever grow, so their
@@ -1429,6 +1432,15 @@ export default function ChatNode({ id, data, selected, width }: NodeProps<Termin
           {data.projectName}
         </span>
         <WorktreeBadge data={data} />
+        {data.role === ORCHESTRATOR_ROLE && (
+          <span
+            className="node-orchestrator-badge"
+            title="An orchestrator: it splits its task into tickets and drives them through Toucan"
+          >
+            <Network aria-hidden="true" />
+            Orchestrator
+          </span>
+        )}
         {/* Which agent this conversation runs on is identity, not a setting: it is fixed for the
             session's life, so it belongs here rather than among the composer's pickers. Model,
             effort and permission stay in ComposerToolbar, where they are changed. */}

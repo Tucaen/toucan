@@ -25,6 +25,7 @@ import {
 import { errorMessage } from '../shared/text'
 import { normalizeWorkspaceWorktrees } from '../shared/worktree-identity'
 import { isAgentProvider } from '../shared/agent-provider'
+import { isChatNodeRole } from '../shared/orchestration'
 import { isScheduledMessage } from '../shared/scheduled-message'
 
 interface WorkspaceStateV1 {
@@ -173,7 +174,10 @@ function isWorkspaceTerminalNode(value: unknown): boolean {
     // are checked rather than trusted: a malformed record would otherwise reach the adapter.
     (node.branchedFrom === undefined ||
       (typeof node.branchedFrom.nodeId === 'string' && typeof node.branchedFrom.conversationId === 'string')) &&
-    (node.terminalLiveness === undefined || ['live', 'unverifiable', 'exited'].includes(node.terminalLiveness))
+    (node.terminalLiveness === undefined || ['live', 'unverifiable', 'exited'].includes(node.terminalLiveness)) &&
+    // A role reaches `agent:create` and decides whether a session is minted an orchestrator token,
+    // so it is checked rather than trusted - and only a chat can hold one.
+    (node.role === undefined || (isChatNodeRole(node.role) && node.kind !== 'terminal'))
   )
 }
 

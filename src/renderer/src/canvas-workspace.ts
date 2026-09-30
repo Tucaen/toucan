@@ -17,6 +17,7 @@ import type { WorkspaceWorktree, WorktreeViewport } from '../../shared/worktree'
 import { normalizeWorktreePath } from '../../shared/worktree'
 import type { WorktreeHandoffPlan } from '../../shared/worktree-handoff'
 import type { ConversationTitleSource } from '../../shared/conversation-title'
+import type { ChatNodeRole } from '../../shared/orchestration'
 import type { TicketActivityReport } from './ticket-activity'
 import type { NodeGeometry } from './node-snap'
 import { launchModeOnOpen, type SessionLaunchMode } from './session-launch-mode'
@@ -153,6 +154,8 @@ export interface TerminalNodeData
   launchMode: SessionLaunchMode
   /** Which conversation this one was branched off; see conversation-lineage.ts. */
   branchedFrom?: ConversationLineage
+  /** The chat's role, fixed at creation; see `shared/orchestration.ts`. */
+  role?: ChatNodeRole
   /**
    * Whether this node's session reported the `session.fork` capability at launch, remembered on
    * the node so the Branch action still reads it once the session goes dormant. Runtime-only:
@@ -328,6 +331,7 @@ export type CreateNodeKeyAction =
   | 'create-terminal'
   | 'create-claude'
   | 'create-codex'
+  | 'create-orchestrator'
   | 'create-worktree'
   | 'open-history'
   | 'open-file'
@@ -389,6 +393,14 @@ export const CREATE_NODE_ACTIONS = [
     size: NEW_SESSION_NODE_SIZE,
     title: 'Codex',
     description: 'Unified ACP chat'
+  },
+  {
+    action: 'create-orchestrator',
+    key: 'o',
+    shift: true,
+    size: NEW_SESSION_NODE_SIZE,
+    title: 'New orchestrator',
+    description: 'Claude chat that splits a task into tickets'
   },
   {
     action: 'create-worktree',
@@ -688,6 +700,7 @@ export function serializeCanvasNode(node: TerminalCanvasNode): WorkspaceTerminal
     ...(node.data.draft ? { draft: node.data.draft } : {}),
     ...(node.data.scheduledMessages?.length ? { scheduledMessages: node.data.scheduledMessages } : {}),
     ...(node.data.branchedFrom ? { branchedFrom: node.data.branchedFrom } : {}),
+    ...(node.data.role ? { role: node.data.role } : {}),
     ...(node.data.kind === 'terminal' ? {} : { focusMode: node.data.focusMode }),
     ...(node.data.kind === 'terminal' ? { terminalLiveness: node.data.terminalLiveness } : {})
   }
@@ -799,6 +812,7 @@ function restoreTerminalCanvasNode(
       turnOutcomes: savedNode.kind === 'terminal' ? undefined : savedNode.turnOutcomes,
       dormant,
       branchedFrom: savedNode.branchedFrom,
+      role: savedNode.kind === 'terminal' ? undefined : savedNode.role,
       launchMode: launchModeOnOpen(savedNode),
       onStatusChange: callbacks.onStatusChange,
       onAttention: callbacks.onAttention,
@@ -892,6 +906,7 @@ export interface SessionNodeSeed {
   conversationId?: string
   launchMode: SessionLaunchMode
   branchedFrom?: ConversationLineage
+  role?: ChatNodeRole
   preferredPermissionMode?: string
   modelId?: string
   initialInput?: string
@@ -935,6 +950,7 @@ export function createSessionCanvasNode(
       modelId: seed.modelId,
       dormant: false,
       branchedFrom: seed.branchedFrom,
+      role: seed.kind === 'terminal' ? undefined : seed.role,
       launchMode: seed.launchMode,
       initialInput: seed.initialInput,
       ...callbacks

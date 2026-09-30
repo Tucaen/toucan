@@ -455,6 +455,7 @@ test('the menu hints are derived from the same bindings the handler reads', () =
     'create-terminal': 'Ctrl+T',
     'create-claude': 'Ctrl+N',
     'create-codex': 'Ctrl+Shift+N',
+    'create-orchestrator': 'Ctrl+Shift+O',
     'create-worktree': 'Ctrl+Shift+G',
     'open-history': 'Ctrl+H',
     'open-file': 'Ctrl+P',
