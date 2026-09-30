@@ -1,6 +1,6 @@
 ---
 name: orchestrate
-description: Command reference for the Toucan orchestrator CLI - plan show, plan set, ticket update, spawn, status, outcome and followup.
+description: Command reference for the Toucan orchestrator CLI - plan show, plan set, ticket update, route, escalate, spawn, status, outcome and followup.
 disable-model-invocation: true
 user-invocable: false
 ---
@@ -54,11 +54,29 @@ Read `error` and act on it; a refusal writes nothing to the record.
 
 `ticket update <id> --json '<fields>'` or `ticket update <id> --file <fields.json>` patches one ticket and prints `{ ok: true, ticket }`.
 
-Fields: `title`, `body`, `source`, `blockedBy`, `attempts` (non-negative integer), `mergeStatus`, and `route` (`tier` of `low`/`medium`/`high`/`frontier`, `model`, `effort`, `confidence` 0-1, `routedBy` `jev`/`orchestrator`, `escalated`). Toucan owns `id` and `session`; change ids with `plan set`. An empty patch is refused.
+Fields: `title`, `body`, `source`, `blockedBy`, `attempts` (non-negative integer), `mergeStatus`, and `route` (`tier` of `low`/`medium`/`high`/`frontier`, `model`, `effort`, `confidence` 0-1, `depth` 0-4, `routedBy` `jev`/`orchestrator`, `escalated`, `reviewRequired`). Toucan owns `id` and `session`; change ids with `plan set`. Prefer `route` and `escalate` over writing `route` by hand. An empty patch is refused.
+
+## route
+
+`route` sends every ticket with no tier, no session and `mergeStatus: pending` to Jev in one request and prints `{ ok: true, routes, warnings, config }`.
+
+- Jev judges each ticket's **difficulty tier** (`low`, `medium`, `high`, `frontier`) and a reasoning-depth score. It never sees the models: Toucan turns the tier into a model through the user's **tier mapping**, and the depth into the nearest effort that model's picker offers. A tier mapped with a fixed effort keeps it.
+- Each route is recorded on its ticket: `tier`, `model`, `effort`, `confidence`, `depth`, `routedBy: "jev"`, `escalated: false`. Below confidence 0.6 it also gets `reviewRequired: true`: the ticket still runs on its tier; name it on the review list.
+- A mapped model the picker no longer lists falls back to the next tier up's model; `warnings` names each fallback, and any effort that could not be checked against the picker. The ticket keeps its tier.
+- `config` names the mapping's files: `user`, and `project` when this project has an override. Report a broken file to the human rather than editing around it.
+- Already-routed tickets are not sent again, so `route` after a re-plan routes only the new tickets.
+
+When Jev is unavailable (no `TYPESAFE_API_KEY`, a timeout, an error), `route` exits 1 with `jevUnavailable: true` and the reason. Then judge each ticket's tier yourself, with the same criteria, and record it:
+
+`route --ticket <id> --tier <tier>` resolves the tier through the mapping and records the route with `routedBy: "orchestrator"`. It may also replace a Jev route you disagree with; either way, name orchestrator-routed tickets in your final answer.
+
+## escalate
+
+`escalate --ticket <id>` moves the ticket's route one tier up after a failed attempt. It re-resolves the model and effort, keeps the depth score and how the ticket was routed, sets `escalated: true`, and prints `{ ok: true, ticket, route, warnings }`. Spawn the ticket again to run it on the new route. A ticket already at `frontier` is refused: it goes on the review list.
 
 ## spawn
 
-`spawn --ticket <id> --model <id> --effort <level> [--provider claude] [--project <path>]` starts one ticket session and prints:
+`spawn --ticket <id> [--model <id> --effort <level> | --tier <tier> [--effort <level>]] [--provider claude] [--project <path>]` starts one ticket session and prints:
 
 ```json
 {
@@ -68,10 +86,22 @@ Fields: `title`, `body`, `source`, `blockedBy`, `attempts` (non-negative integer
   "model": "claude-opus-5-5",
   "effort": "high",
   "warnings": [],
+  "route": {
+    "tier": "high",
+    "model": "opus",
+    "effort": "high",
+    "confidence": 0.82,
+    "depth": 2.1,
+    "routedBy": "jev",
+    "escalated": false
+  },
   "spawnsLeft": 19
 }
 ```
 
+- With only `--ticket`, the session runs on the ticket's recorded route, which is the usual case after `route` or `escalate`. If the picker has dropped the recorded model since, it is resolved again. `--tier` resolves that tier through the mapping instead and records it as your own route. `--model` and `--effort` bypass the mapping entirely. `--effort` overrides a resolved effort. A ticket with no route and neither flag is refused, without counting a spawn.
+- The reply's `route` is what was recorded; `warnings` includes any model fallback.
+- The session's first prompt is the configured implementation skill (default `/implement`) with the ticket, then the ticket contract.
 - Toucan creates a worktree on a fresh `ticket/<id>` branch from `targetBranch` (a retry gets `ticket/<id>-2`, and so on), runs the project's setup command there (up to 15 minutes), and then opens the session on the canvas with the ticket as its first prompt. The call returns once the session is up, so expect it to take minutes.
 - `model` and `effort` are what the running session reports, `null` when it reports none. When they differ from what you asked for, `warnings` says so: treat the session as running on the reported values.
 - The ticket session is a Claude session; `--provider` accepts only `claude`, and `--project` only the orchestrator's own project.
@@ -93,7 +123,7 @@ Events that arrive close together come as one message. The message names the eve
 
 ## status
 
-`status` prints `{ ok: true, tickets, pendingPermissionPrompts }`. Each ticket has `id`, `title`, `blockedBy`, `attempts`, `mergeStatus`, `session` (or `null`), and:
+`status` prints `{ ok: true, tickets, pendingPermissionPrompts }`. Each ticket has `id`, `title`, `blockedBy`, `attempts`, `mergeStatus`, `session` (or `null`), `route` (or `null`), and:
 
 - `state`: `not spawned`, `not running` (Toucan is not running its session, e.g. after a restart), or the live session's `starting`, `ready`, `working`, `auth_required`, `exited`.
 - `permissionPrompt`: `{ title, answeredBy: "human" }` while the session waits on a tool-permission prompt, else `null`.
