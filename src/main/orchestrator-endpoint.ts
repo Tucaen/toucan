@@ -1,25 +1,33 @@
 import { createServer, type IncomingMessage, type Server as HttpServer, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
+import type { AgentDecisionRequest, AgentDecisionResponseContent, AgentPromptResult } from '../shared/agent'
 import type { AgentProvider } from '../shared/agent-provider'
+import type { AgentChatStatus } from '../shared/agent-transcript'
 import {
   applyPlan,
   applyTicketUpdate,
+  decisionAnswerFromText,
   MAX_SPAWNS_PER_ORCHESTRATION,
   ORCHESTRATOR_COMMANDS,
   ORCHESTRATOR_TOKEN_ENV,
   ORCHESTRATOR_URL_ENV,
+  parseFollowupInput,
+  parseOutcomeInput,
   parsePlanInput,
   parseSpawnInput,
   parseTicketUpdate,
   recordTicketSession,
   reserveSpawn,
   type OrchestrationRecord,
+  type OrchestrationTicket,
   type OrchestratorCommand
 } from '../shared/orchestration'
+import type { SessionOutcomeIdentity, SessionOutcomeRecord } from '../shared/session-outcome'
 import { pathIdentity } from '../shared/paths'
 import { isRecord } from '../shared/record'
 import { errorMessage } from '../shared/text'
-import type { OrchestrationStore } from './orchestration-store'
+import type { OrchestrationKey, OrchestrationStore } from './orchestration-store'
+import type { TicketBinding } from './orchestration-wake'
 import { createPairingToken, pairingTokenMatches, presentedPairingToken } from './remote/pairing'
 import type { TicketSpawner } from './ticket-spawner'
 
@@ -65,10 +73,41 @@ export interface OrchestratorEndpoint {
   close(): Promise<void>
 }
 
+/** What a live ticket session shows the orchestrator (#35): its state and what it waits on. */
+export interface TicketSessionState {
+  status: AgentChatStatus
+  /** A pending tool-permission prompt; only the human answers it. */
+  permission?: { title: string }
+  /** Pending provider-native questions, the head first; `followup` may answer the head one. */
+  questions: AgentDecisionRequest[]
+}
+
+/** Main's reach into ticket sessions for `status`, `outcome` and `followup` (#35). */
+export interface TicketSessionControl {
+  /** A running session's state by node id; undefined when Toucan is not running it. */
+  state(nodeId: string): TicketSessionState | undefined
+  /** Starts a turn and reports delivery only, never the turn's end. */
+  startPrompt(nodeId: string, text: string): AgentPromptResult
+  /** Steers a working session, or queues the text for its next boundary. */
+  promptWhenIdle(nodeId: string, text: string): Promise<AgentPromptResult>
+  answerQuestion(nodeId: string, requestId: string, content: AgentDecisionResponseContent): AgentPromptResult
+  /** The conversation's session outcome record and where it is on disk. */
+  outcome(identity: SessionOutcomeIdentity): Promise<{ path: string; record: SessionOutcomeRecord } | undefined>
+}
+
 export interface OrchestratorEndpointOptions {
   records: OrchestrationStore
   /** Starts ticket sessions for `spawn`; absent, `spawn` is refused as unavailable. */
   spawner?: TicketSpawner
+  /** Absent, `status` reports no live state and `outcome` and `followup` are refused as unavailable. */
+  ticketSessions?: TicketSessionControl
+  /** A ticket session was spawned: the orchestrator wake starts reporting its events. */
+  onTicketSpawned?(nodeId: string, binding: TicketBinding): void
+  /**
+   * How long `followup` waits for a working session to take the text before it answers "queued":
+   * a session that cannot be steered only takes it when its turn ends, which can be an hour.
+   */
+  followupAckMs?: number
   now?(): string
   log?(message: string): void
 }
@@ -88,6 +127,14 @@ interface Reply {
 const refused = (status: number, error: string): Reply => ({ status, body: { ok: false, error } })
 
 const MAX_REQUEST_BYTES = 1024 * 1024
+
+/** The one refusal `followup` gives while a ticket session waits on a tool-permission prompt. */
+const PERMISSION_STAYS_WITH_HUMAN = (ticketId: string, title: string): Reply =>
+  refused(
+    409,
+    `ticket ${ticketId} is waiting on a tool-permission prompt ("${title}"), which only the human answers; ` +
+      'a followup cannot answer it or reach the session until they do. List it for them.'
+  )
 
 const UNAUTHORIZED = refused(
   401,
@@ -174,6 +221,11 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
       value: current && recordTicketSession(current, ticket.id, spawned.session, now()),
       result: undefined
     }))
+    options.onTicketSpawned?.(spawned.session.nodeId, {
+      orchestratorNodeId: grant.nodeId,
+      ticketId: ticket.id,
+      conversationId: spawned.session.conversationId
+    })
     return {
       status: 200,
       body: {
@@ -186,6 +238,106 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
         spawnsLeft
       }
     }
+  }
+
+  /** The grant's own record, or the refusal to give instead. */
+  const ownRecord = async (
+    grant: LiveGrant,
+    key: OrchestrationKey
+  ): Promise<{ record: OrchestrationRecord } | Reply> => {
+    const record = await options.records.read(key)
+    if (!record) return refused(404, 'there is no plan yet; run plan set first')
+    const scope = outOfScope(grant, record)
+    return scope ? refused(403, scope) : { record }
+  }
+
+  const ticketIn = (record: OrchestrationRecord, ticketId: string): OrchestrationTicket | Reply =>
+    record.tickets.find((ticket) => ticket.id === ticketId) ?? refused(400, `the plan has no ticket "${ticketId}"`)
+
+  const status = (record: OrchestrationRecord): Reply => {
+    const tickets = record.tickets.map((ticket) => {
+      const live = ticket.session?.nodeId ? options.ticketSessions?.state(ticket.session.nodeId) : undefined
+      return {
+        id: ticket.id,
+        title: ticket.title,
+        blockedBy: ticket.blockedBy,
+        attempts: ticket.attempts,
+        mergeStatus: ticket.mergeStatus,
+        session: ticket.session ?? null,
+        state: !ticket.session ? 'not spawned' : (live?.status ?? 'not running'),
+        permissionPrompt: live?.permission ? { title: live.permission.title, answeredBy: 'human' } : null,
+        questions: live?.questions ?? []
+      }
+    })
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        tickets,
+        pendingPermissionPrompts: tickets.filter((ticket) => ticket.permissionPrompt).map((ticket) => ticket.id)
+      }
+    }
+  }
+
+  const outcome = async (record: OrchestrationRecord, args: unknown): Promise<Reply> => {
+    const parsed = parseOutcomeInput(args)
+    if (parsed.error !== undefined) return refused(400, parsed.error)
+    const ticket = ticketIn(record, parsed.ticketId)
+    if ('status' in ticket) return ticket
+    const conversationId = ticket.session?.conversationId
+    if (!conversationId) return refused(409, `ticket ${ticket.id} has no ticket session yet`)
+    const sessions = options.ticketSessions
+    if (!sessions) return refused(501, 'this Toucan cannot read session outcome records')
+    const found = await sessions.outcome({ provider: 'claude', conversationId })
+    if (!found) {
+      return refused(
+        404,
+        `ticket ${ticket.id}'s session has no outcome record yet; one is written at its first turn end`
+      )
+    }
+    const { key: _key, provider: _provider, conversationId: _conversationId, ...fields } = found.record
+    return { status: 200, body: { ok: true, ticket: ticket.id, path: found.path, fields } }
+  }
+
+  /**
+   * Answers a ticket session's question or prompts it - never its tool-permission prompt, which is
+   * checked first: one agent granting another rights the human did not grant is escalation.
+   */
+  const followup = async (record: OrchestrationRecord, args: unknown): Promise<Reply> => {
+    const parsed = parseFollowupInput(args)
+    if (parsed.error !== undefined) return refused(400, parsed.error)
+    const ticket = ticketIn(record, parsed.followup.ticketId)
+    if ('status' in ticket) return ticket
+    const sessions = options.ticketSessions
+    if (!sessions) return refused(501, 'this Toucan cannot reach ticket sessions')
+    const nodeId = ticket.session?.nodeId
+    if (!nodeId) return refused(409, `ticket ${ticket.id} has no ticket session yet`)
+    const live = sessions.state(nodeId)
+    if (!live || live.status === 'exited') return refused(409, `ticket ${ticket.id}'s session is not running`)
+    if (live.permission) return PERMISSION_STAYS_WITH_HUMAN(ticket.id, live.permission.title)
+    const text = parsed.followup.text
+    const delivered = (how: string, result: AgentPromptResult): Reply =>
+      result.ok
+        ? { status: 200, body: { ok: true, ticket: ticket.id, delivered: how } }
+        : refused(409, result.message ?? `ticket ${ticket.id}'s session did not take the followup`)
+    const [question] = live.questions
+    if (question) {
+      const answer = decisionAnswerFromText(question, text)
+      if (answer.error !== undefined) return refused(409, answer.error)
+      return delivered('answered', sessions.answerQuestion(nodeId, question.id, answer.content))
+    }
+    if (live.status !== 'working') return delivered('prompt', sessions.startPrompt(nodeId, text))
+    // A steered text is taken at once; one queued behind a session that cannot be steered is only
+    // taken when the turn ends, and the CLI must not sit in a tool call for that long.
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const acknowledged = await Promise.race([
+      sessions.promptWhenIdle(nodeId, text),
+      new Promise<'queued'>((resolve) => {
+        timer = setTimeout(() => resolve('queued'), options.followupAckMs ?? 5_000)
+      })
+    ]).finally(() => clearTimeout(timer))
+    if (acknowledged === 'queued') return { status: 200, body: { ok: true, ticket: ticket.id, delivered: 'queued' } }
+    return delivered('steered', acknowledged)
   }
 
   const execute = async (grant: LiveGrant, command: OrchestratorCommand, args: unknown): Promise<Reply> => {
@@ -210,6 +362,12 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
       })
     }
     if (command === 'spawn') return spawn(grant, key, args)
+    if (command === 'status' || command === 'outcome' || command === 'followup') {
+      const own = await ownRecord(grant, key)
+      if ('status' in own) return own
+      if (command === 'status') return status(own.record)
+      return command === 'outcome' ? outcome(own.record, args) : followup(own.record, args)
+    }
     const update = isRecord(args) ? args : {}
     if (typeof update.id !== 'string' || update.id.trim() === '') return refused(400, 'ticket update needs a ticket id')
     const ticketId = update.id.trim()

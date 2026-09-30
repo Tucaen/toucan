@@ -137,3 +137,37 @@ test('a refusal from Toucan is printed as it came and exits non-zero', async () 
     await endpoint.close()
   }
 })
+
+test('status, outcome and followup reach the endpoint with their flags', async () => {
+  const { endpoint, environment } = await harness()
+  try {
+    await run(
+      [
+        'plan',
+        'set',
+        '--json',
+        JSON.stringify({ task: 't', targetBranch: 'main', tickets: [{ id: '34', title: 'Spawn' }] })
+      ],
+      environment
+    )
+    await run(['spawn', '--ticket', '34', '--model', 'm', '--effort', 'high'], environment)
+
+    const status = await run(['status'], environment)
+    assert.deepEqual([status.code, status.lines, status.output.ok], [0, 1, true])
+    assert.equal((status.output.tickets as { state: string }[])[0].state, 'not running')
+
+    // The harness has no ticket-session control, so both are refused by Toucan - after the CLI sent them.
+    const outcome = await run(['outcome', '--ticket', '34'], environment)
+    assert.equal(outcome.code, 1)
+    assert.match(outcome.output.error ?? '', /outcome/)
+    const followup = await run(['followup', '--ticket', '34', '--text', 'Also cover the empty case'], environment)
+    assert.equal(followup.code, 1)
+    assert.match(followup.output.error ?? '', /ticket sessions/)
+
+    assert.equal((await run(['followup', '--ticket', '34'], environment)).code, 2)
+    assert.equal((await run(['outcome'], environment)).code, 2)
+    assert.equal((await run(['status', 'extra'], environment)).code, 2)
+  } finally {
+    await endpoint.close()
+  }
+})

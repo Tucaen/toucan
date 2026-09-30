@@ -3,7 +3,7 @@
 import { readFile } from 'node:fs/promises'
 import { request as httpRequest } from 'node:http'
 
-// The orchestrator's CLI (#33, #34): sends one command to the Toucan endpoint named in the
+// The orchestrator's CLI (#33, #34, #35): sends one command to the Toucan endpoint named in the
 // environment and prints its reply as one JSON line. Only an orchestrator session carries the
 // endpoint and token; every other session gets a clear refusal before anything is sent.
 
@@ -11,7 +11,10 @@ const USAGE = [
   'Usage: orchestrate.mjs plan show',
   '| plan set (--file <plan.json> | --json <plan>)',
   '| ticket update <id> (--json <fields> | --file <fields.json>)',
-  '| spawn --ticket <id> --model <id> --effort <level> [--provider <provider>] [--project <path>]'
+  '| spawn --ticket <id> --model <id> --effort <level> [--provider <provider>] [--project <path>]',
+  '| status',
+  '| outcome --ticket <id>',
+  '| followup --ticket <id> --text <text>'
 ].join(' ')
 
 const finish = (payload, code) => {
@@ -95,6 +98,22 @@ async function message(words) {
     const { flags, positionals } = parseFlags(words.slice(1), ['ticket', 'model', 'effort', 'provider', 'project'])
     if (positionals.length > 0) usage('spawn takes no positional arguments')
     return { command: 'spawn', args: flags }
+  }
+  if (first === 'status') {
+    if (words.length > 1) usage('status takes no arguments')
+    return { command: 'status' }
+  }
+  if (first === 'outcome') {
+    const { flags, positionals } = parseFlags(words.slice(1), ['ticket'])
+    if (positionals.length > 0 || flags.ticket === undefined) usage('outcome needs --ticket <id> and nothing else')
+    return { command: 'outcome', args: flags }
+  }
+  if (first === 'followup') {
+    const { flags, positionals } = parseFlags(words.slice(1), ['ticket', 'text'])
+    if (positionals.length > 0 || flags.ticket === undefined || flags.text === undefined) {
+      usage('followup needs --ticket <id> --text <text> and nothing else')
+    }
+    return { command: 'followup', args: flags }
   }
   return usage(words.length === 0 ? 'No command given' : `Unknown command "${words.join(' ')}"`)
 }

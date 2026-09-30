@@ -1,6 +1,6 @@
 ---
 name: orchestrate
-description: Command reference for the Toucan orchestrator CLI - plan show, plan set, ticket update and spawn.
+description: Command reference for the Toucan orchestrator CLI - plan show, plan set, ticket update, spawn, status, outcome and followup.
 disable-model-invocation: true
 user-invocable: false
 ---
@@ -78,3 +78,40 @@ Fields: `title`, `body`, `source`, `blockedBy`, `attempts` (non-negative integer
 - Ticket sessions commit to their branch and cannot push: a hook refuses it. You merge each branch into `targetBranch` yourself, then record it with `ticket update <id> --json '{"mergeStatus":"merged"}'`.
 - An orchestration has 20 spawns in total. Each call counts before anything is created, so failed spawns, retries and escalations count too. Once they are used, spawn is refused; list what is left for human review.
 - A failure before the session opens removes the new worktree and branch again; after the session opens, they stay and `error` names the worktree.
+
+## Being woken
+
+Never wait for a ticket session inside a tool call - a ticket can take an hour. End your turn after spawning. Toucan sends you a follow-up message whenever one of your ticket sessions completes, fails, is cancelled, asks a question or waits on a tool-permission prompt, one line per event:
+
+```
+Toucan: your ticket sessions reported in.
+- #12 completed - 4 files - outcome record C:\...\session-outcomes\toucan--12-spawn--1a2b3c4d.md
+- #13 asks a question - read it with status, answer it with followup --ticket 13 --text <answer>
+```
+
+Events that arrive close together come as one message. The message names the event and where to read more; it never carries a ticket session's transcript. A message that arrives while you are working reaches you at your next safe boundary.
+
+## status
+
+`status` prints `{ ok: true, tickets, pendingPermissionPrompts }`. Each ticket has `id`, `title`, `blockedBy`, `attempts`, `mergeStatus`, `session` (or `null`), and:
+
+- `state`: `not spawned`, `not running` (Toucan is not running its session, e.g. after a restart), or the live session's `starting`, `ready`, `working`, `auth_required`, `exited`.
+- `permissionPrompt`: `{ title, answeredBy: "human" }` while the session waits on a tool-permission prompt, else `null`.
+- `questions`: pending questions, each `{ id, message, questions: [{ id, question, options, input, ... }] }`.
+
+`pendingPermissionPrompts` lists the ticket ids waiting on the human; name them in your final answer.
+
+## outcome
+
+`outcome --ticket <id>` prints `{ ok: true, ticket, path, fields }`: the path of the ticket session's session outcome record and its fields (`title`, `status`, `turns`, `commit`, `branch`, `filesTouched`, `failures`, `toolFailures`, `lastResult`, and the rest). Refused while the ticket has no session, or before the session's first turn end has written the record.
+
+## followup
+
+`followup --ticket <id> --text <text>` sends the text to the ticket session and prints `{ ok: true, ticket, delivered }`:
+
+- `answered` - the session had a pending question; the text is its answer, in each question's free-text field. A required question that has only fixed options is refused and waits for the human.
+- `prompt` - the session was idle; the text starts a new turn.
+- `steered` - the session was working; the text reached the turn in flight.
+- `queued` - the session was working and takes the text when its turn ends.
+
+It never answers a tool-permission prompt. While a ticket session waits on one, `followup` is refused: that prompt waits for the human.

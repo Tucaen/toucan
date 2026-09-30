@@ -1,3 +1,4 @@
+import type { AgentDecisionRequest, AgentDecisionResponseContent } from './agent'
 import { isAgentProvider, type AgentProvider } from './agent-provider'
 import { isRecord } from './record'
 
@@ -38,7 +39,15 @@ export const ORCHESTRATE_SKILL_PATH = ['skills', 'orchestrate', 'SKILL.md'] as c
 export const ORCHESTRATE_CLI_PATH = ['skills', 'orchestrate', 'scripts', 'orchestrate.mjs'] as const
 
 /** The CLI's commands, as they travel to the endpoint. */
-export const ORCHESTRATOR_COMMANDS = ['plan set', 'plan show', 'ticket update', 'spawn'] as const
+export const ORCHESTRATOR_COMMANDS = [
+  'plan set',
+  'plan show',
+  'ticket update',
+  'spawn',
+  'status',
+  'outcome',
+  'followup'
+] as const
 export type OrchestratorCommand = (typeof ORCHESTRATOR_COMMANDS)[number]
 
 export const DIFFICULTY_TIERS = ['low', 'medium', 'high', 'frontier'] as const
@@ -520,7 +529,8 @@ export function ticketSessionPrompt(
 /**
  * What an orchestrator session carries on its system prompt, appended like the session outcome
  * pointer. A placeholder until the orchestration procedure is written (#37): it establishes the
- * role and the CLI, nothing of the breakdown, merging or review-list rules yet.
+ * role, the CLI and how the orchestrator is woken (#35), nothing of the breakdown, merging or
+ * review-list rules yet.
  */
 export function orchestratorInstruction(paths: { cliPath: string; skillPath: string }): string {
   const cli = `node "${paths.cliPath}"`
@@ -530,6 +540,11 @@ export function orchestratorInstruction(paths: { cliPath: string; skillPath: str
     `Drive Toucan through its CLI, which prints one JSON line per call: \`${cli} plan show\`,`,
     `\`${cli} plan set --file <plan.json>\`, \`${cli} ticket update <id> --json '<fields>'\` and`,
     `\`${cli} spawn --ticket <id> --model <id> --effort <level>\`, which starts one ticket session in a worktree of its own.`,
+    'Never wait for a ticket session inside a tool call: end your turn after spawning, and Toucan wakes you with a',
+    'follow-up message whenever one of your ticket sessions completes, fails, is cancelled or asks something.',
+    `Then read more with \`${cli} status\` and \`${cli} outcome --ticket <id>\`, and answer a ticket session's`,
+    `question with \`${cli} followup --ticket <id> --text <text>\`. That never answers a tool-permission prompt:`,
+    'those wait for the human, so list them for them.',
     `The command reference is ${paths.skillPath}.`
   ].join(' ')
 }
@@ -609,4 +624,43 @@ export function orchestratorWakePrompt(events: readonly TicketWakeEvent[]): stri
     ...lines,
     'Read more with `status` and `outcome --ticket <id>`; this message never carries a ticket session transcript.'
   ].join('\n')
+}
+
+/** Validates `outcome`'s `--ticket <id>`. */
+export function parseOutcomeInput(value: unknown): Outcome<'ticketId', string> {
+  const args = isRecord(value) ? value : {}
+  if (!nonEmptyString(args.ticket)) return refuse('outcome needs --ticket <id>')
+  return { ticketId: args.ticket.trim() }
+}
+
+/** Validates `followup`'s `--ticket <id> --text <text>`; the text is sent as given. */
+export function parseFollowupInput(value: unknown): Outcome<'followup', { ticketId: string; text: string }> {
+  const args = isRecord(value) ? value : {}
+  if (!nonEmptyString(args.ticket)) return refuse('followup needs --ticket <id>')
+  if (!nonEmptyString(args.text)) return refuse('followup needs --text <text>')
+  return { followup: { ticketId: args.ticket.trim(), text: args.text } }
+}
+
+/**
+ * A ticket session's pending question answered with the orchestrator's text: the text goes into
+ * every question's free-text slot - its "Other" field, or the question itself when it takes text.
+ * A required question with no free-text slot cannot be answered this way; the orchestrator is told
+ * which, rather than Toucan guessing an option for it.
+ */
+export function decisionAnswerFromText(
+  request: AgentDecisionRequest,
+  text: string
+): Outcome<'content', AgentDecisionResponseContent> {
+  const content: AgentDecisionResponseContent = {}
+  for (const question of request.questions) {
+    if (question.customAnswerId) content[question.customAnswerId] = text
+    else if (question.input === 'text') content[question.id] = text
+    else if (question.required) {
+      return refuse(
+        `question "${question.question}" takes only ${question.options.map((option) => option.label).join(', ') || 'a fixed answer'} and has no free-text answer; it waits for the human`
+      )
+    }
+  }
+  if (Object.keys(content).length === 0) return refuse('the question has no free-text answer; it waits for the human')
+  return { content }
 }

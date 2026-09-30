@@ -6,6 +6,7 @@ import {
   MAX_SPAWNS_PER_ORCHESTRATION,
   TICKET_CONTRACT_HEADING,
   isOrchestrationRecord,
+  decisionAnswerFromText,
   orchestratorInstruction,
   parsePlanInput,
   parseSpawnInput,
@@ -202,6 +203,15 @@ test('the orchestrator instruction names the CLI it drives Toucan through', () =
   assert.ok(instruction.includes('C:\\Toucan\\.agents\\skills\\orchestrate\\SKILL.md'))
 })
 
+test('the orchestrator instruction says to end the turn after spawning and wait to be woken (#35)', () => {
+  const instruction = orchestratorInstruction({ cliPath: 'cli.mjs', skillPath: 'SKILL.md' })
+  assert.match(instruction, /end your turn/i)
+  assert.match(instruction, /wakes you/i)
+  assert.ok(instruction.includes('node "cli.mjs" status'))
+  assert.ok(instruction.includes('node "cli.mjs" followup --ticket <id> --text <text>'))
+  assert.match(instruction, /never answers a tool-permission prompt/i)
+})
+
 // Spawning a ticket session (#34): what `spawn` may ask for, the per-orchestration cap, and the
 // prompt and title a ticket session is started with.
 
@@ -289,4 +299,24 @@ test('a ticket session is titled by its ticket and prompted with the skill, the 
   // A tracker reference is handed on for the session to read with its own tools.
   assert.ok(ticketSessionPrompt(tracked, worktree).includes('https://github.com/Tucaen/toucan/issues/34'))
   assert.ok(ticketSessionPrompt(tracked, worktree, '/ship').startsWith('/ship #34 Spawn'))
+})
+
+test('a followup answers a question through its free-text slots, and refuses one that has none', () => {
+  const base = { options: [{ value: 'a', label: 'A' }], multiSelect: false }
+  const request = {
+    id: 'q',
+    message: 'm',
+    questions: [
+      { ...base, id: 'pick', question: 'Pick one', input: 'select' as const, customAnswerId: 'pick__other' },
+      { ...base, id: 'why', question: 'Why?', options: [], input: 'text' as const },
+      { ...base, id: 'flag', question: 'Optional flag', input: 'boolean' as const }
+    ]
+  }
+  assert.deepEqual(decisionAnswerFromText(request, 'Use JSON').content, { pick__other: 'Use JSON', why: 'Use JSON' })
+  const fixed = {
+    id: 'q',
+    message: 'm',
+    questions: [{ ...base, id: 'pick', question: 'Pick one', input: 'select' as const, required: true }]
+  }
+  assert.match(decisionAnswerFromText(fixed, 'Use JSON').error ?? '', /Pick one.*A.*waits for the human/)
 })
