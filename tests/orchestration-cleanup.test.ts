@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert'
-import { existsSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'vitest'
@@ -9,7 +9,9 @@ import { createWorkspaceContainment } from '../src/main/workspace-containment'
 import { applyPlan, recordTicketSession } from '../src/shared/orchestration'
 
 async function fixture() {
-  const root = mkdtempSync(join(tmpdir(), 'toucan-cleanup-'))
+  // Git reports worktree paths in their long form, and the Windows runner's temp directory is
+  // an 8.3 short path (`RUNNER~1`), so the fixture starts from the name Git will list.
+  const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'toucan-cleanup-')))
   const project = join(root, 'project')
   const remote = join(root, 'remote.git')
   const git = async (args: string[], cwd = project) => {
