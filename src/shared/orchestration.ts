@@ -700,6 +700,20 @@ export function ticketContract(worktree: { path: string; branch: string }): stri
 }
 
 /**
+ * The ticket contract as the settings panel shows it beside the implementation-skill field (#39):
+ * what a configured skill has to do and must never do for a ticket session to be mergeable. The
+ * binding text is `ticketContract`, which wins over the skill; this is its reading for a human
+ * choosing the skill.
+ */
+export const TICKET_CONTRACT_SUMMARY: { must: readonly string[]; mustNot: readonly string[] } = {
+  must: [
+    'Implement, test, review and commit the ticket in the given worktree, on its branch.',
+    'End with a final report: commit, verification commands and results, unresolved review findings and open questions.'
+  ],
+  mustNot: ['Push.', 'Merge.', 'Open a pull request.', 'Leave the worktree.']
+}
+
+/**
  * A ticket session's first prompt: the implementation skill with the ticket, then the contract.
  * A free-text ticket carries its body; a tracked one carries its reference, which the session reads
  * with its own tools the way the orchestrator did.

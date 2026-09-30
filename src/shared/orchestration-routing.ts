@@ -112,7 +112,7 @@ export function effectiveOrchestrationConfig(
 }
 
 /** The efforts in order of how much reasoning they buy; the Claude adapter's own ids. */
-const EFFORT_LADDER = ['low', 'medium', 'high', 'xhigh', 'max'] as const
+export const EFFORT_LADDER = ['low', 'medium', 'high', 'xhigh', 'max'] as const
 
 /**
  * Jev's reasoning-depth score (0-4, one step per criterion) on the effort ladder.
