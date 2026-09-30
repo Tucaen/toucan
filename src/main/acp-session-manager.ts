@@ -50,6 +50,14 @@ import { effortSelectorFromConfigOptions } from '../shared/agent-effort'
 import { modelSelectorFromConfigOptions } from '../shared/agent-models'
 import { withCodexSessionConfig } from '../shared/codex-config'
 import { PROJECT_SKILLS_DIRECTORY } from '../shared/project-skills'
+import {
+  ORCHESTRATE_CLI_PATH,
+  ORCHESTRATE_SKILL_PATH,
+  ORCHESTRATOR_ROLE,
+  ORCHESTRATOR_TOKEN_ENV,
+  ORCHESTRATOR_URL_ENV,
+  orchestratorInstruction
+} from '../shared/orchestration'
 import { sessionOutcomeIndexInstruction } from '../shared/session-outcome'
 import {
   appliedClaudeDelegation,
@@ -70,6 +78,7 @@ import { buildAgentProcessLaunch, spawnAgentProcess, type AgentProcessLaunch } f
 import { readCachedCodexModels } from './codex-model-cache'
 import { createPromptWakeGate, type PromptWakeGate } from './prompt-wake-gate'
 import type { TerminalContextMcp } from './terminal-context-mcp'
+import type { OrchestratorEndpoint, OrchestratorGrant } from './orchestrator-endpoint'
 import type { SessionOutcomeIndexer, SessionOutcomeWatch } from './session-outcome-indexer'
 import { AGENT_CHANNELS } from '../shared/ipc-channels'
 import { openWebUrl } from './open-web-url'
@@ -299,6 +308,12 @@ interface RunningAgent {
    * after launch reaches this session only when it is next created or resumed.
    */
   decisionDelegation?: AgentDecisionDelegation
+  /**
+   * The orchestrator token this agent was launched with - only an orchestrator node's Claude
+   * session has one. Revoked through this handle when the agent stops or its adapter exits, which
+   * revokes this launch's token and never a relaunch's.
+   */
+  orchestratorGrant?: OrchestratorGrant
   cachedModels?: AgentModelState
   /** Whether the agent's `initialize` handshake advertised `promptCapabilities.image`. */
   imageSupport: boolean
@@ -777,6 +792,29 @@ export interface AcpSessionManagerOptions {
    * instruction is either carried or withheld; absent reads as not installed, which withholds it.
    */
   decisionProviderInstalled?: () => boolean
+  /**
+   * The orchestrator endpoint (`orchestrator-endpoint.ts`), asked for a grant when an orchestrator
+   * node's session launches. Its token and URL ride the adapter environment beside
+   * `TOUCAN_NODE_ID`; no other session is ever given one.
+   */
+  orchestrator?: Pick<OrchestratorEndpoint, 'grant'>
+}
+
+/** Whether a launch is an orchestrator's - by role, and on Claude only in the first version. */
+function isClaudeOrchestrator(request: AgentCreateRequest): boolean {
+  return request.role === ORCHESTRATOR_ROLE && request.provider === 'claude'
+}
+
+/**
+ * The orchestration instruction, naming the CLI by absolute path: the orchestrator's cwd is the
+ * user's project, where the skill's relative path means nothing.
+ * @internal exported for tests
+ */
+export function orchestratorInstructionFor(skillsRoot: string): string {
+  return orchestratorInstruction({
+    cliPath: join(skillsRoot, PROJECT_SKILLS_DIRECTORY, ...ORCHESTRATE_CLI_PATH),
+    skillPath: join(skillsRoot, PROJECT_SKILLS_DIRECTORY, ...ORCHESTRATE_SKILL_PATH)
+  })
 }
 
 /**
@@ -786,8 +824,15 @@ export interface AcpSessionManagerOptions {
  * beside the process and not the process itself is exactly as good as no node id at all.
  * @internal exported for tests
  */
-export function agentProcessEnvironment(environment: NodeJS.ProcessEnv, nodeId: string): NodeJS.ProcessEnv {
-  return { ...environment, TOUCAN_NODE_ID: nodeId }
+export function agentProcessEnvironment(
+  environment: NodeJS.ProcessEnv,
+  nodeId: string,
+  orchestrator?: OrchestratorGrant['environment']
+): NodeJS.ProcessEnv {
+  // Removed first, always: a Toucan started from an orchestrator's own shell (a dev build under
+  // test) inherits that orchestrator's token, and must never hand it to an ordinary session.
+  const { [ORCHESTRATOR_URL_ENV]: _inheritedUrl, [ORCHESTRATOR_TOKEN_ENV]: _inheritedToken, ...inherited } = environment
+  return { ...inherited, TOUCAN_NODE_ID: nodeId, ...orchestrator }
 }
 
 export function promptFailure(
@@ -1092,10 +1137,16 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
           : delegatingConfiguration
       // The third and last instruction on the one `_meta.systemPrompt` a session gets. Order is
       // immaterial - `withSessionInstruction` appends - so this simply layers on top.
-      const sessionConfiguration =
+      const decidingConfiguration =
         running.decisionDelegation?.status === 'configured'
           ? withSessionInstruction(skillsConfiguration, decisionDelegationInstruction())
           : skillsConfiguration
+      // An orchestrator's first prompt is its task; what to do with it rides the system prompt, so
+      // no slash command is needed. Carried by role, even if the grant failed: the CLI then says
+      // plainly that the token is missing rather than the session not knowing it orchestrates.
+      const sessionConfiguration = isClaudeOrchestrator(running.request)
+        ? withSessionInstruction(decidingConfiguration, orchestratorInstructionFor(toucanSkillsRoot ?? options.appPath))
+        : decidingConfiguration
       // Included only when a terminal edge stands at this creation; a session without one carries
       // zero extra tokens. An edge drawn later is adopted by a canvas-driven restart at a safe
       // boundary, and removal forces nothing - the registry already refuses at call time.
@@ -1157,6 +1208,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       }
       const sessionId = running.sessionId
       if (!sessionId) throw new Error('The agent did not return a session ID.')
+      running.orchestratorGrant?.setConversation(sessionId)
       if (
         running.request.permissionMode &&
         modes?.availableModes.some((mode) => mode.id === running.request.permissionMode) &&
@@ -1253,6 +1305,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
     for (const pending of running.pendingElicitations.values()) pending.resolve({ action: 'cancel' })
     running.pendingElicitations.clear()
     running.authChild?.kill()
+    running.orchestratorGrant?.revoke()
     running.connection.close()
     running.process.kill()
     agents.delete(id)
@@ -1389,7 +1442,12 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       const decisionDelegation = request.decisionDelegation
         ? appliedDecisionDelegation(request.provider, options.decisionProviderInstalled?.())
         : undefined
-      const baseEnvironment = agentProcessEnvironment(environment, request.id)
+      // Claude only in the first version (docs/plans/orchestrator-mode.md); the conditional await
+      // keeps every other launch spawning synchronously within `create`.
+      const orchestratorGrant = isClaudeOrchestrator(request)
+        ? await options.orchestrator?.grant(request.id, { provider: request.provider, projectPath: request.cwd })
+        : undefined
+      const baseEnvironment = agentProcessEnvironment(environment, request.id, orchestratorGrant?.environment)
       const delegatingEnvironment =
         request.provider === 'codex' && delegation?.status === 'configured'
           ? withCodexDelegationEnvironment(baseEnvironment, delegation)
@@ -1568,6 +1626,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         environment: agentEnvironment,
         ...(delegation ? { routineDelegation: delegation } : {}),
         ...(decisionDelegation ? { decisionDelegation } : {}),
+        ...(orchestratorGrant ? { orchestratorGrant } : {}),
         cachedModels,
         pendingApprovals,
         pendingElicitations,
@@ -1611,6 +1670,8 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       })
       child.on('exit', (code, signal) => {
         if (agents.get(request.id) === running) agents.delete(request.id)
+        // A token outlives nothing: no process, no orchestrator to act for.
+        running.orchestratorGrant?.revoke()
         // An adapter that fell over on its own retires no broker channel, so this is the only
         // place the index hears that the session is over. `stop` reaches the same call through
         // `broker.close`, and finalizing twice rewrites the same record.

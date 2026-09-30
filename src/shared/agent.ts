@@ -1,5 +1,6 @@
 import { AGENT_PROVIDERS, isAgentProvider, type AgentProvider } from './agent-provider'
 import type { AgentDecisionDelegation } from './decision-delegation'
+import type { ChatNodeRole } from './orchestration'
 import type { AgentRoutineDelegation, RoutineDelegationRequest } from './routine-delegation'
 
 export type { AgentProvider }
@@ -40,6 +41,12 @@ export interface AgentCreateRequest {
    * creation or resume like the routine policy, so a change never lands mid-turn.
    */
   decisionDelegation?: true
+  /**
+   * The chat node's role, fixed when the node was created (`shared/orchestration.ts`). Only an
+   * orchestrator's session is minted an orchestrator token and carries the orchestration
+   * instruction; absent is an ordinary chat.
+   */
+  role?: ChatNodeRole
 }
 
 export interface AgentAuthMethod {

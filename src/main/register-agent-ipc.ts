@@ -1,6 +1,7 @@
 import type { WebContents } from 'electron'
 import type { AgentCreateRequest, AgentPromptContent, AgentDecisionResponseContent } from '../shared/agent'
 import { AGENT_CHANNELS } from '../shared/ipc-channels'
+import { isChatNodeRole } from '../shared/orchestration'
 import type { AcpSessionManager } from './acp-session-manager'
 import type { IpcEventRegistrar } from './ipc-registrar'
 import { isRecord, isString, optionalString } from './ipc-validation'
@@ -29,6 +30,7 @@ export function isAgentCreateRequest(value: unknown): value is AgentCreateReques
       !optionalString(value.routineDelegation.workerEffortId))
   )
     return false
+  if (value.role !== undefined && !isChatNodeRole(value.role)) return false
   return value.decisionDelegation === undefined || value.decisionDelegation === true
 }
 

@@ -7,6 +7,8 @@ import { spawn } from 'node-pty'
 import { ADAPTER_CHANNELS, USAGE_CHANNELS } from '../shared/ipc-channels'
 import { autoUpdater } from 'electron-updater'
 import { createAcpSessionManager, type AcpSessionManager } from './acp-session-manager'
+import { createOrchestrationStore } from './orchestration-store'
+import { createOrchestratorEndpoint } from './orchestrator-endpoint'
 import { createAgentModelCatalogueStore } from './agent-model-catalogue-store'
 import { createAppUpdater, type AppUpdater } from './app-update'
 import { forwardAppUpdateChanges, registerAppUpdateIpc } from './app-update-ipc'
@@ -377,6 +379,16 @@ void app.whenReady().then(async () => {
   // channel decides what the menu offers. Neither caches - the user may install the skill while
   // Toucan is running.
   const decisionProviderInstalled = (): boolean => isDecisionProviderInstalled(app.getPath('home'))
+  // The orchestrator's local endpoint and its records (docs/plans/orchestrator-mode.md): one record
+  // per orchestrator conversation, and a 127.0.0.1 listener that exists only while an orchestrator
+  // session holds a token.
+  const orchestratorEndpoint = createOrchestratorEndpoint({
+    records: createOrchestrationStore({
+      directory: join(app.getPath('userData'), 'orchestrations'),
+      log: mainLog('orchestrations')
+    }),
+    log: mainLog('orchestrator endpoint')
+  })
   const agentManager = createAcpSessionManager({
     appPath: app.getAppPath(),
     appVersion: app.getVersion(),
@@ -389,7 +401,8 @@ void app.whenReady().then(async () => {
     sessionOutcomes,
     sessionOutcomesDirectory,
     terminalContext: terminalContextMcp,
-    decisionProviderInstalled
+    decisionProviderInstalled,
+    orchestrator: orchestratorEndpoint
   })
   const captureStore = createBrainDumpCaptureStore(
     join(app.getPath('userData'), 'brain-dump-capture.json'),
@@ -688,6 +701,7 @@ void app.whenReady().then(async () => {
   app.on('before-quit', () => {
     manager.killAll()
     agentManager.killAll()
+    void orchestratorEndpoint.close()
     brainDumpCapture.shutdown()
     brainDumpChanges.shutdown()
     ticketChanges.shutdown()
