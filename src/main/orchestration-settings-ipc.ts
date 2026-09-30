@@ -1,6 +1,5 @@
 import type { AgentModel } from '../shared/agent'
 import { ORCHESTRATION_SETTINGS_CHANNELS } from '../shared/ipc-channels'
-import type { OrchestrationConfigFile } from '../shared/orchestration-routing'
 import type { OrchestrationSettingsState } from '../shared/orchestration-settings'
 import type { IpcRegistrar } from './ipc-registrar'
 import { isRecord } from './ipc-validation'
@@ -52,7 +51,7 @@ export function registerOrchestrationSettingsIpc(ipc: IpcRegistrar, options: Orc
     if (scope !== 'user' && scope !== 'project') throw new Error('Unknown orchestration configuration scope.')
     if (!isRecord(file)) throw new Error('The orchestration configuration must be an object.')
     const projectPath = projectPathOf(request.projectPath)
-    await options.store.write(scope, projectPath, file as OrchestrationConfigFile)
+    await options.store.write(scope, projectPath, file)
     return settingsState(options, projectPath)
   })
 }

@@ -22,7 +22,11 @@ import type { DecisionDelegationApi } from '../shared/decision-delegation'
 import type { DictationCleanupApi } from '../shared/dictation-cleanup'
 import type { OrchestratorApi, TicketSessionCanvasRequest } from '../shared/ticket-session-spawn'
 import type { OrchestrationSettingsApi } from '../shared/orchestration-settings'
-import { DICTATION_CLEANUP_CHANNELS, ORCHESTRATION_SETTINGS_CHANNELS, ORCHESTRATOR_CHANNELS } from '../shared/ipc-channels'
+import {
+  DICTATION_CLEANUP_CHANNELS,
+  ORCHESTRATION_SETTINGS_CHANNELS,
+  ORCHESTRATOR_CHANNELS
+} from '../shared/ipc-channels'
 import {
   ADAPTER_CHANNELS,
   AGENT_CHANNELS,

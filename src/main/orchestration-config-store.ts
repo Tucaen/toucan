@@ -118,8 +118,7 @@ export function createOrchestrationConfigStore(options: { userDataPath: string }
       const current = await read(path)
       if (current && 'error' in current) throw new Error(current.error)
       // Hidden temp name: the watcher and a reader of the folder never see a half-written file.
-      await writeThroughTemporary(path, `${JSON.stringify(parsed.config, null, 2)}
-`)
+      await writeThroughTemporary(path, `${JSON.stringify(parsed.config, null, 2)}\n`)
     },
     watch(listener) {
       const projectDirectory = join(options.userDataPath, PROJECT_DIRECTORY)
