@@ -1,0 +1,139 @@
+import { strict as assert } from 'node:assert'
+import { execFile } from 'node:child_process'
+import { mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { test } from 'vitest'
+import { createOrchestrationStore } from '../src/main/orchestration-store'
+import { createOrchestratorEndpoint, type OrchestratorGrant } from '../src/main/orchestrator-endpoint'
+import type { TicketSpawnRequest } from '../src/main/ticket-spawner'
+import { PROJECT_SKILLS_DIRECTORY } from '../src/shared/project-skills'
+import { ORCHESTRATE_CLI_PATH, ORCHESTRATOR_TOKEN_ENV, ORCHESTRATOR_URL_ENV } from '../src/shared/orchestration'
+
+// The orchestrator's CLI (#33, #34): a thin client that finds the endpoint and token in its
+// environment, prints one JSON line per call, and fails clearly when either is missing - which is
+// what a ticket session, which carries no token, gets when it tries to spawn.
+
+const cli = join(process.cwd(), PROJECT_SKILLS_DIRECTORY, ...ORCHESTRATE_CLI_PATH)
+
+interface Run {
+  code: number
+  output: { ok: boolean; error?: string; [key: string]: unknown }
+  lines: number
+}
+
+function run(args: string[], environment: Record<string, string | undefined>): Promise<Run> {
+  const env = { ...process.env, ...environment }
+  for (const key of [ORCHESTRATOR_URL_ENV, ORCHESTRATOR_TOKEN_ENV]) if (environment[key] === undefined) delete env[key]
+  return new Promise((resolve) => {
+    execFile(process.execPath, [cli, ...args], { env }, (error, stdout) => {
+      const lines = stdout.trim().split(/\r?\n/)
+      resolve({
+        code: error ? Number((error as { code?: number }).code ?? 1) : 0,
+        output: JSON.parse(lines[lines.length - 1]) as Run['output'],
+        lines: lines.length
+      })
+    })
+  })
+}
+
+async function harness() {
+  const calls: TicketSpawnRequest[] = []
+  const records = createOrchestrationStore({ directory: mkdtempSync(join(tmpdir(), 'toucan-orchestrate-cli-')) })
+  const endpoint = createOrchestratorEndpoint({
+    records,
+    spawner: {
+      async spawn(request) {
+        calls.push(request)
+        return {
+          ok: true,
+          session: {
+            nodeId: 'ticket-node',
+            conversationId: 'ticket-conversation',
+            worktreePath: 'D:\\w',
+            branch: 'ticket/34'
+          },
+          model: request.model,
+          effort: request.effort,
+          warnings: []
+        }
+      }
+    }
+  })
+  const grant = (await endpoint.grant('orchestrator-1', {
+    provider: 'claude',
+    projectPath: 'D:\\project'
+  })) as OrchestratorGrant
+  grant.setConversation('conversation-1')
+  return { endpoint, grant, calls, environment: grant.environment }
+}
+
+test('without an orchestrator environment the CLI refuses clearly and calls nothing', async () => {
+  const missing = await run(['plan', 'show'], {})
+  assert.equal(missing.code, 2)
+  assert.equal(missing.lines, 1)
+  assert.equal(missing.output.ok, false)
+  assert.match(missing.output.error ?? '', /TOUCAN_ORCHESTRATOR_URL/)
+  assert.match(missing.output.error ?? '', /orchestrator/)
+
+  const noToken = await run(['spawn', '--ticket', '34', '--model', 'm', '--effort', 'e'], {
+    [ORCHESTRATOR_URL_ENV]: 'http://127.0.0.1:9/orchestrate'
+  })
+  assert.equal(noToken.code, 2)
+  assert.match(noToken.output.error ?? '', /TOUCAN_ORCHESTRATOR_TOKEN/)
+})
+
+test('plan set, plan show, ticket update and spawn each print one JSON line', async () => {
+  const { endpoint, environment, calls } = await harness()
+  try {
+    const planFile = join(mkdtempSync(join(tmpdir(), 'toucan-orchestrate-plan-')), 'plan.json')
+    writeFileSync(
+      planFile,
+      JSON.stringify({ task: 'Ship it', targetBranch: 'main', tickets: [{ id: '34', title: 'Spawn', body: 'Do it' }] })
+    )
+    const set = await run(['plan', 'set', '--file', planFile], environment)
+    assert.deepEqual([set.code, set.lines, set.output.ok], [0, 1, true])
+
+    const updated = await run(['ticket', 'update', '34', '--json', '{"attempts":1}'], environment)
+    assert.equal(updated.code, 0)
+    assert.equal((updated.output.ticket as { attempts: number }).attempts, 1)
+
+    const spawned = await run(
+      ['spawn', '--ticket', '34', '--model', 'claude-opus-5-5', '--effort', 'high'],
+      environment
+    )
+    assert.deepEqual([spawned.code, spawned.lines, spawned.output.ok], [0, 1, true])
+    assert.equal(spawned.output.model, 'claude-opus-5-5')
+    assert.equal(calls[0]?.ticket.id, '34')
+
+    const shown = await run(['plan', 'show'], environment)
+    const record = shown.output.record as { tickets: { session?: { nodeId: string } }[]; spawnCount: number }
+    assert.equal(record.tickets[0].session?.nodeId, 'ticket-node')
+    assert.equal(record.spawnCount, 1)
+  } finally {
+    await endpoint.close()
+  }
+})
+
+test('a refusal from Toucan is printed as it came and exits non-zero', async () => {
+  const { endpoint, environment } = await harness()
+  try {
+    const refused = await run(
+      ['spawn', '--ticket', '34', '--model', 'm', '--effort', 'e', '--provider', 'codex'],
+      environment
+    )
+    assert.equal(refused.code, 1)
+    assert.equal(refused.output.ok, false)
+    assert.match(refused.output.error ?? '', /Claude/)
+
+    const wrongToken = await run(['plan', 'show'], { ...environment, [ORCHESTRATOR_TOKEN_ENV]: 'guess' })
+    assert.equal(wrongToken.code, 1)
+    assert.match(wrongToken.output.error ?? '', /token/)
+
+    const unknown = await run(['merge'], environment)
+    assert.equal(unknown.code, 2)
+    assert.match(unknown.output.error ?? '', /usage/i)
+  } finally {
+    await endpoint.close()
+  }
+})
