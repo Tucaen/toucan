@@ -401,6 +401,9 @@ export const MAX_SPAWNS_PER_ORCHESTRATION = 20
 /** The implementation skill a ticket session's prompt opens with, until #36 makes it configurable. */
 export const DEFAULT_IMPLEMENTATION_SKILL = '/implement'
 
+/** Ticket sessions, and so their outcome records, are Claude sessions in the first version. */
+export const TICKET_SESSION_PROVIDER = 'claude'
+
 /** What `spawn` asks for. The provider is not a field: ticket sessions are Claude sessions. */
 export interface SpawnInput {
   ticketId: string
@@ -416,7 +419,7 @@ export function parseSpawnInput(value: unknown): Outcome<'spawn', SpawnInput> {
   if (!nonEmptyString(args.ticket)) return refuse('spawn needs --ticket <id>')
   if (!nonEmptyString(args.model)) return refuse('spawn needs --model <id>')
   if (!nonEmptyString(args.effort)) return refuse('spawn needs --effort <level>')
-  if (args.provider !== undefined && args.provider !== 'claude') {
+  if (args.provider !== undefined && args.provider !== TICKET_SESSION_PROVIDER) {
     return refuse(`ticket sessions are Claude sessions; provider ${JSON.stringify(args.provider)} is not supported`)
   }
   if (!optionalString(args.project)) return refuse('--project must be a path')
@@ -540,7 +543,7 @@ export function orchestratorInstruction(paths: { cliPath: string; skillPath: str
     `\`${cli} plan set --file <plan.json>\`, \`${cli} ticket update <id> --json '<fields>'\` and`,
     `\`${cli} spawn --ticket <id> --model <id> --effort <level>\`, which starts one ticket session in a worktree of its own.`,
     'Never wait for a ticket session inside a tool call: end your turn after spawning, and Toucan wakes you with a',
-    'follow-up message whenever one of your ticket sessions completes, fails, is cancelled or asks something.',
+    'follow-up message whenever one of your ticket sessions completes, fails, is cancelled, asks something or waits on a tool-permission prompt.',
     `Then read more with \`${cli} status\` and \`${cli} outcome --ticket <id>\`, and answer a ticket session's`,
     `question with \`${cli} followup --ticket <id> --text <text>\`. That never answers a tool-permission prompt:`,
     'those wait for the human, so list them for them.',

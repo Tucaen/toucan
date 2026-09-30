@@ -17,6 +17,7 @@ import {
   parseSpawnInput,
   parseTicketUpdate,
   recordTicketSession,
+  TICKET_SESSION_PROVIDER,
   reserveSpawn,
   type OrchestrationRecord,
   type OrchestrationTicket,
@@ -129,7 +130,7 @@ const refused = (status: number, error: string): Reply => ({ status, body: { ok:
 const MAX_REQUEST_BYTES = 1024 * 1024
 
 /** The one refusal `followup` gives while a ticket session waits on a tool-permission prompt. */
-const PERMISSION_STAYS_WITH_HUMAN = (ticketId: string, title: string): Reply =>
+const permissionStaysWithHuman = (ticketId: string, title: string): Reply =>
   refused(
     409,
     `ticket ${ticketId} is waiting on a tool-permission prompt ("${title}"), which only the human answers; ` +
@@ -288,7 +289,7 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
     if (!conversationId) return refused(409, `ticket ${ticket.id} has no ticket session yet`)
     const sessions = options.ticketSessions
     if (!sessions) return refused(501, 'this Toucan cannot read session outcome records')
-    const found = await sessions.outcome({ provider: 'claude', conversationId })
+    const found = await sessions.outcome({ provider: TICKET_SESSION_PROVIDER, conversationId })
     if (!found) {
       return refused(
         404,
@@ -314,7 +315,7 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
     if (!nodeId) return refused(409, `ticket ${ticket.id} has no ticket session yet`)
     const live = sessions.state(nodeId)
     if (!live || live.status === 'exited') return refused(409, `ticket ${ticket.id}'s session is not running`)
-    if (live.permission) return PERMISSION_STAYS_WITH_HUMAN(ticket.id, live.permission.title)
+    if (live.permission) return permissionStaysWithHuman(ticket.id, live.permission.title)
     const text = parsed.followup.text
     const delivered = (how: string, result: AgentPromptResult): Reply =>
       result.ok
@@ -330,8 +331,11 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
     // A steered text is taken at once; one queued behind a session that cannot be steered is only
     // taken when the turn ends, and the CLI must not sit in a tool call for that long.
     let timer: ReturnType<typeof setTimeout> | undefined
+    const delivery = sessions
+      .promptWhenIdle(nodeId, text)
+      .catch((error: unknown): AgentPromptResult => ({ ok: false, message: errorMessage(error) }))
     const acknowledged = await Promise.race([
-      sessions.promptWhenIdle(nodeId, text),
+      delivery,
       new Promise<'queued'>((resolve) => {
         timer = setTimeout(() => resolve('queued'), options.followupAckMs ?? 5_000)
       })

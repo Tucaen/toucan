@@ -54,6 +54,8 @@ export interface OrchestrationWaker {
 
 interface WakeItem extends TicketWakeEvent {
   conversationId?: string
+  /** Arrival order, so wakes requeued by two deliveries that both came back undelivered stay in it. */
+  sequence: number
 }
 
 interface OrchestratorQueue {
@@ -76,11 +78,12 @@ export function createOrchestrationWaker(options: OrchestrationWakerOptions): Or
       return () => clearTimeout(timer)
     })
   const bindings = new Map<string, TicketBinding | null>()
-  const unbound = new Map<string, { at: number; items: Array<Omit<WakeItem, 'ticketId'>> }>()
+  const unbound = new Map<string, { at: number; items: Array<Omit<WakeItem, 'ticketId' | 'sequence'>> }>()
   const queues = new Map<string, OrchestratorQueue>()
   /** Per session, so a lookup cannot reorder that session's events. */
   const chains = new Map<string, Promise<void>>()
   const inFlight = new Set<Promise<unknown>>()
+  let arrivals = 0
 
   const track = <T>(promise: Promise<T>): Promise<T> => {
     inFlight.add(promise)
@@ -109,7 +112,7 @@ export function createOrchestrationWaker(options: OrchestrationWakerOptions): Or
     const items = queue.items.splice(0)
     if (items.length === 0) return
     const events: TicketWakeEvent[] = []
-    for (const { conversationId, ...event } of items) {
+    for (const { conversationId, sequence: _sequence, ...event } of items) {
       const ended = event.kind === 'completed' || event.kind === 'failed' || event.kind === 'cancelled'
       const outcome = ended && conversationId ? await options.outcome(conversationId).catch(() => undefined) : undefined
       events.push(outcome ? { ...event, outcome } : event)
@@ -121,24 +124,26 @@ export function createOrchestrationWaker(options: OrchestrationWakerOptions): Or
       result = { ok: false, message: errorMessage(error), undelivered: true }
     }
     if (result.undelivered) {
-      queue.items.unshift(...items)
+      queue.items.push(...items)
+      queue.items.sort((a, b) => a.sequence - b.sequence)
       queue.owed = true
       return
     }
     if (!result.ok) options.log?.(`the orchestrator's woken turn failed: ${result.message ?? 'no reason given'}`)
   }
 
-  const enqueue = (binding: TicketBinding, item: Omit<WakeItem, 'ticketId'>): void => {
+  const enqueue = (binding: TicketBinding, item: Omit<WakeItem, 'ticketId' | 'sequence'>): void => {
     const queue = queueFor(binding.orchestratorNodeId)
     queue.items.push({
       ...item,
+      sequence: (arrivals += 1),
       ticketId: binding.ticketId,
       ...(binding.conversationId ? { conversationId: binding.conversationId } : {})
     })
     arm(binding.orchestratorNodeId, queue)
   }
 
-  const holdUnbound = (nodeId: string, item: Omit<WakeItem, 'ticketId'>): void => {
+  const holdUnbound = (nodeId: string, item: Omit<WakeItem, 'ticketId' | 'sequence'>): void => {
     const now = Date.now()
     for (const [id, held] of unbound) if (now - held.at > UNBOUND_TTL_MS) unbound.delete(id)
     const held = unbound.get(nodeId) ?? { at: now, items: [] }
@@ -146,7 +151,7 @@ export function createOrchestrationWaker(options: OrchestrationWakerOptions): Or
     unbound.set(nodeId, held)
   }
 
-  const route = async (nodeId: string, item: Omit<WakeItem, 'ticketId'>): Promise<void> => {
+  const route = async (nodeId: string, item: Omit<WakeItem, 'ticketId' | 'sequence'>): Promise<void> => {
     let binding = bindings.get(nodeId)
     if (binding === undefined) {
       const resolved = await options.resolve(nodeId).catch(() => undefined)
@@ -168,7 +173,7 @@ export function createOrchestrationWaker(options: OrchestrationWakerOptions): Or
       }
       const kind = ticketWakeKind(event)
       if (!kind) return
-      const item: Omit<WakeItem, 'ticketId'> =
+      const item: Omit<WakeItem, 'ticketId' | 'sequence'> =
         event.type === 'turn_failed' || event.type === 'turn_cancelled' ? { kind, reason: event.message } : { kind }
       const next = (chains.get(nodeId) ?? Promise.resolve()).then(() => route(nodeId, item))
       chains.set(nodeId, next)

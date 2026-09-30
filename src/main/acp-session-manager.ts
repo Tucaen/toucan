@@ -547,9 +547,14 @@ export async function deliverSteeredPrompt(
     if (response.outcome === 'injected') return { outcome: 'injected' }
     if (response.outcome === 'promptRequired') return { outcome: 'promptRequired' }
     if (response.outcome === 'startedNewTurn') return { outcome: 'refused', result: STEERING_STARTED_NEW_TURN }
-    return { outcome: 'refused', result: { ok: false, message: 'The agent could not accept the queued message.' } }
+    // The adapter refused the content outright, so it never reached the agent - unlike
+    // `startedNewTurn`, whose content is already in a turn and must not be sent twice.
+    return {
+      outcome: 'refused',
+      result: { ok: false, message: 'The agent could not accept the queued message.', undelivered: true }
+    }
   } catch (error) {
-    return { outcome: 'refused', result: { ok: false, message: errorMessage(error) } }
+    return { outcome: 'refused', result: { ok: false, message: errorMessage(error), undelivered: true } }
   }
 }
 

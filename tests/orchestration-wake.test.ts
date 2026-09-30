@@ -134,3 +134,74 @@ test('events a ticket session raised before its spawn returned are delivered onc
   assert.equal(delivered.length, 1)
   assert.match(delivered[0].text, /#14 waits on a tool-permission prompt/)
 })
+
+test('a wake for a working orchestrator is handed over at once and events meanwhile are not held behind it', async () => {
+  // promptWhenIdle on a working orchestrator steers the text in or queues it for the turn end, and
+  // its promise can stay open for that whole turn; the waker must neither wait on it nor drop what
+  // arrives meanwhile.
+  const delivered: string[] = []
+  const settle: Array<(result: AgentPromptResult) => void> = []
+  const timers: Array<() => void> = []
+  const waker = createOrchestrationWaker({
+    deliver: (_nodeId, text) => {
+      delivered.push(text)
+      return new Promise((resolve) => settle.push(resolve))
+    },
+    resolve: async (nodeId) => bindings[nodeId] ?? null,
+    outcome: async () => undefined,
+    schedule: (callback) => {
+      timers.push(callback)
+      return () => undefined
+    }
+  })
+  const fold = async (): Promise<void> => {
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    for (const timer of timers.splice(0)) timer()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  }
+  waker.observe('orchestrator', { type: 'status', status: 'working' })
+  waker.observe('ticket-a', complete)
+  await fold()
+  waker.observe('ticket-b', complete)
+  await fold()
+  assert.equal(delivered.length, 2)
+  assert.match(delivered[0], /#12 completed/)
+  assert.match(delivered[1], /#13 completed/)
+  settle.forEach((resolve) => resolve({ ok: true }))
+})
+
+test('wakes that two deliveries both left undelivered are retried in the order they arrived', async () => {
+  const undelivered = { ok: false, message: 'The wake gate was disposed.', undelivered: true } as const
+  const delivered: string[] = []
+  const settle: Array<(result: AgentPromptResult) => void> = []
+  const timers: Array<() => void> = []
+  const waker = createOrchestrationWaker({
+    deliver: (_nodeId, text) => {
+      delivered.push(text)
+      return settle.length < 2 ? new Promise((resolve) => settle.push(resolve)) : Promise.resolve({ ok: true })
+    },
+    resolve: async (nodeId) => bindings[nodeId] ?? null,
+    outcome: async () => undefined,
+    schedule: (callback) => {
+      timers.push(callback)
+      return () => undefined
+    }
+  })
+  const fold = async (): Promise<void> => {
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    for (const timer of timers.splice(0)) timer()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  }
+  waker.observe('ticket-a', complete)
+  await fold()
+  waker.observe('ticket-b', complete)
+  await fold()
+  settle[0](undelivered)
+  settle[1](undelivered)
+  await waker.idle()
+  waker.observe('orchestrator', { type: 'status', status: 'ready' })
+  await fold()
+  await waker.idle()
+  assert.equal(delivered.length, 3)
+  assert.ok(delivered[2].indexOf('#12') < delivered[2].indexOf('#13'), delivered[2])
+})

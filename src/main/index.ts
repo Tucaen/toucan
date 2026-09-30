@@ -15,6 +15,7 @@ import { autoUpdater } from 'electron-updater'
 import { createAcpSessionManager, type AcpSessionManager } from './acp-session-manager'
 import { createOrchestrationStore } from './orchestration-store'
 import { createOrchestrationWaker } from './orchestration-wake'
+import { TICKET_SESSION_PROVIDER } from '../shared/orchestration'
 import { createOrchestratorEndpoint } from './orchestrator-endpoint'
 import { createSetupCommandRunner } from './setup-command'
 import { installPushGuard } from './ticket-push-guard'
@@ -414,7 +415,10 @@ void app.whenReady().then(async () => {
       if (!node) return undefined
       if (!node.orchestratedBy) return null
       const link = node.orchestratedBy
-      const record = await orchestrationRecords.read({ provider: 'claude', conversationId: link.conversationId })
+      const record = await orchestrationRecords.read({
+        provider: TICKET_SESSION_PROVIDER,
+        conversationId: link.conversationId
+      })
       const ticket = record?.tickets.find((candidate) => candidate.session?.nodeId === nodeId)
       return ticket
         ? {
@@ -425,7 +429,7 @@ void app.whenReady().then(async () => {
         : undefined
     },
     outcome: async (conversationId) => {
-      const found = await sessionOutcomeStore.find({ provider: 'claude', conversationId })
+      const found = await sessionOutcomeStore.find({ provider: TICKET_SESSION_PROVIDER, conversationId })
       return found ? { path: found.path, files: found.record.filesTouched.length } : undefined
     },
     log: mainLog('orchestrator wake')

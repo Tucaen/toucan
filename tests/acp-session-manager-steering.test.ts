@@ -65,6 +65,16 @@ test('a terminal steering rejection remains a genuine delivery failure', async (
   assert.equal(result.outcome, 'refused')
   assert.equal(result.outcome === 'refused' && result.result.ok, false)
   assert.match((result.outcome === 'refused' && result.result.message) || '', /could not accept/i)
+  // Never reached the agent, so a caller that must not drop it may send it again (#35).
+  assert.equal(result.outcome === 'refused' && result.result.undelivered, true)
+  const thrown = await deliverSteeredPrompt(
+    async () => {
+      throw new Error('adapter restarted')
+    },
+    'session-3',
+    'cannot deliver'
+  )
+  assert.equal(thrown.outcome === 'refused' && thrown.result.undelivered, true)
 })
 
 test('steering opts into the idle behavior that leaves an unqueueable follow-up host-owned', async () => {
@@ -97,6 +107,7 @@ test('a steering call that started a detached turn is refused rather than report
     /new turn/i,
     'the wording must tell the user a turn may be running with their message'
   )
+  assert.equal(result.outcome === 'refused' && result.result.undelivered, undefined, 'its content was delivered')
 })
 
 /**
