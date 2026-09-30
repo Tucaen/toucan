@@ -159,7 +159,7 @@ test('invalid input and unknown commands are refused with a reason', async () =>
   const grant = (await endpoint.grant('orchestrator-1', { provider: 'claude', projectPath: 'D:\\project' }))!
   grant.setConversation('conversation-1')
   try {
-    const unknown = await call(grant, 'spawn')
+    const unknown = await call(grant, 'merge')
     assert.equal(unknown.status, 400)
     assert.match(unknown.body.error ?? '', /unknown command/)
     assert.equal((await call(grant, 'plan set', { task: 'no branch', tickets: [] })).status, 400)

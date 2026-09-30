@@ -4,11 +4,15 @@ import type { AgentProvider } from '../shared/agent-provider'
 import {
   applyPlan,
   applyTicketUpdate,
+  MAX_SPAWNS_PER_ORCHESTRATION,
   ORCHESTRATOR_COMMANDS,
   ORCHESTRATOR_TOKEN_ENV,
   ORCHESTRATOR_URL_ENV,
   parsePlanInput,
+  parseSpawnInput,
   parseTicketUpdate,
+  recordTicketSession,
+  reserveSpawn,
   type OrchestrationRecord,
   type OrchestratorCommand
 } from '../shared/orchestration'
@@ -17,6 +21,7 @@ import { isRecord } from '../shared/record'
 import { errorMessage } from '../shared/text'
 import type { OrchestrationStore } from './orchestration-store'
 import { createPairingToken, pairingTokenMatches, presentedPairingToken } from './remote/pairing'
+import type { TicketSpawner } from './ticket-spawner'
 
 /**
  * The local endpoint an orchestrator's CLI talks to (#33; plan in
@@ -62,6 +67,8 @@ export interface OrchestratorEndpoint {
 
 export interface OrchestratorEndpointOptions {
   records: OrchestrationStore
+  /** Starts ticket sessions for `spawn`; absent, `spawn` is refused as unavailable. */
+  spawner?: TicketSpawner
   now?(): string
   log?(message: string): void
 }
@@ -113,6 +120,71 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
       ? `this orchestration belongs to another project (${record.projectPath})`
       : undefined
 
+  /**
+   * One ticket session (#34). Everything that can be refused without creating anything is refused
+   * first; then the spawn is counted against the record, and only then does the spawner create the
+   * worktree and the session - so the cap also bounds spawns that fail halfway.
+   */
+  const spawn = async (
+    grant: LiveGrant,
+    key: { provider: AgentProvider; conversationId: string },
+    args: unknown
+  ): Promise<Reply> => {
+    const parsed = parseSpawnInput(args)
+    if (parsed.error !== undefined) return refused(400, parsed.error)
+    const request = parsed.spawn
+    if (request.projectPath !== undefined && pathIdentity(request.projectPath) !== pathIdentity(grant.projectPath)) {
+      return refused(403, `spawn cannot reach another project; this orchestrator works in ${grant.projectPath}`)
+    }
+    if (grant.provider !== 'claude') return refused(403, 'only a Claude orchestrator can spawn ticket sessions')
+    const spawner = options.spawner
+    if (!spawner) return refused(501, 'this Toucan cannot spawn ticket sessions')
+    const reservation = await options.records.update<{ refusal: Reply } | { record: OrchestrationRecord }>(
+      key,
+      (current) => {
+        const refuse = (reply: Reply) => ({ value: current, result: { refusal: reply } })
+        if (!current) return refuse(refused(404, 'there is no plan yet; run plan set first'))
+        const scope = outOfScope(grant, current)
+        if (scope) return refuse(refused(403, scope))
+        const counted = reserveSpawn(current, request.ticketId, now())
+        if (counted.error !== undefined) {
+          const known = current.tickets.some((ticket) => ticket.id === request.ticketId)
+          return refuse(refused(known ? 429 : 400, counted.error))
+        }
+        return { value: counted.record, result: { record: counted.record } }
+      }
+    )
+    if ('refusal' in reservation) return reservation.refusal
+    const reserved = reservation.record
+    const ticket = reserved.tickets.find((candidate) => candidate.id === request.ticketId)!
+    const spawned = await spawner.spawn({
+      orchestrator: { nodeId: grant.nodeId, conversationId: key.conversationId },
+      projectPath: grant.projectPath,
+      targetBranch: reserved.targetBranch,
+      ticket,
+      model: request.model,
+      effort: request.effort
+    })
+    const spawnsLeft = MAX_SPAWNS_PER_ORCHESTRATION - (reserved.spawnCount ?? 0)
+    if (!spawned.ok) return { status: 502, body: { ok: false, error: spawned.error } }
+    await options.records.update(key, (current) => ({
+      value: current && recordTicketSession(current, ticket.id, spawned.session, now()),
+      result: undefined
+    }))
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        ticket: ticket.id,
+        session: spawned.session,
+        model: spawned.model ?? null,
+        effort: spawned.effort ?? null,
+        warnings: spawned.warnings,
+        spawnsLeft
+      }
+    }
+  }
+
   const execute = async (grant: LiveGrant, command: OrchestratorCommand, args: unknown): Promise<Reply> => {
     const conversationId = grant.conversationId
     if (!conversationId) return refused(409, 'the orchestrator session has not opened its conversation yet')
@@ -134,6 +206,7 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
         return { value: applied.record, result: { status: 200, body: { ok: true, record: applied.record } } }
       })
     }
+    if (command === 'spawn') return spawn(grant, key, args)
     const update = isRecord(args) ? args : {}
     if (typeof update.id !== 'string' || update.id.trim() === '') return refused(400, 'ticket update needs a ticket id')
     const ticketId = update.id.trim()

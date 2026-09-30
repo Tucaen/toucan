@@ -38,7 +38,7 @@ export const ORCHESTRATE_SKILL_PATH = ['skills', 'orchestrate', 'SKILL.md'] as c
 export const ORCHESTRATE_CLI_PATH = ['skills', 'orchestrate', 'scripts', 'orchestrate.mjs'] as const
 
 /** The CLI's commands, as they travel to the endpoint. */
-export const ORCHESTRATOR_COMMANDS = ['plan set', 'plan show', 'ticket update'] as const
+export const ORCHESTRATOR_COMMANDS = ['plan set', 'plan show', 'ticket update', 'spawn'] as const
 export type OrchestratorCommand = (typeof ORCHESTRATOR_COMMANDS)[number]
 
 export const DIFFICULTY_TIERS = ['low', 'medium', 'high', 'frontier'] as const
@@ -89,6 +89,12 @@ export interface OrchestrationRecord {
   task: string
   targetBranch: string
   tickets: OrchestrationTicket[]
+  /**
+   * How many ticket sessions this orchestration has spawned, retries and escalations included.
+   * Toucan-owned and never reset by a re-plan; absent in records written before spawning existed,
+   * which reads as none.
+   */
+  spawnCount?: number
   createdAt: string
   updatedAt: string
 }
@@ -234,6 +240,7 @@ export function applyPlan(
           mergeStatus: before?.mergeStatus ?? 'pending'
         }
       }),
+      ...(existing?.spawnCount ? { spawnCount: existing.spawnCount } : {}),
       createdAt: existing?.createdAt ?? now,
       updatedAt: now
     }
@@ -241,6 +248,8 @@ export function applyPlan(
 }
 
 const isFiniteNumber = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
+const isNonNegativeInteger = (value: unknown): value is number =>
+  isFiniteNumber(value) && Number.isInteger(value) && value >= 0
 
 function parseRoute(value: unknown): TicketRoute | string {
   if (!isRecord(value)) return 'route must be an object'
@@ -303,7 +312,7 @@ export function parseTicketUpdate(value: unknown): Outcome<'patch', TicketUpdate
         break
       }
       case 'attempts':
-        if (!isFiniteNumber(field) || !Number.isInteger(field) || field < 0) {
+        if (!isNonNegativeInteger(field)) {
           return refuse('attempts must be a non-negative integer')
         }
         patch.attempts = field
@@ -369,9 +378,139 @@ export function isOrchestrationRecord(value: unknown): value is OrchestrationRec
     typeof value.targetBranch === 'string' &&
     Array.isArray(value.tickets) &&
     value.tickets.every(isOrchestrationTicket) &&
+    (value.spawnCount === undefined || isNonNegativeInteger(value.spawnCount)) &&
     typeof value.createdAt === 'string' &&
     typeof value.updatedAt === 'string'
   )
+}
+
+/**
+ * At most this many ticket sessions per orchestration, retries and escalations included (#34). A
+ * bound on a runaway loop, not a concurrency cap: how many run at once is the human's call.
+ */
+export const MAX_SPAWNS_PER_ORCHESTRATION = 20
+
+/** The implementation skill a ticket session's prompt opens with, until #36 makes it configurable. */
+export const DEFAULT_IMPLEMENTATION_SKILL = '/implement'
+
+/** What `spawn` asks for. The provider is not a field: ticket sessions are Claude sessions. */
+export interface SpawnInput {
+  ticketId: string
+  model: string
+  effort: string
+  /** The project the caller names, if it names one; refused unless it is the orchestrator's own. */
+  projectPath?: string
+}
+
+/** Validates what `spawn` sent - the CLI's `--ticket`, `--model`, `--effort` and optional flags. */
+export function parseSpawnInput(value: unknown): Outcome<'spawn', SpawnInput> {
+  const args = isRecord(value) ? value : {}
+  if (!nonEmptyString(args.ticket)) return refuse('spawn needs --ticket <id>')
+  if (!nonEmptyString(args.model)) return refuse('spawn needs --model <id>')
+  if (!nonEmptyString(args.effort)) return refuse('spawn needs --effort <level>')
+  if (args.provider !== undefined && args.provider !== 'claude') {
+    return refuse(`ticket sessions are Claude sessions; provider ${JSON.stringify(args.provider)} is not supported`)
+  }
+  if (!optionalString(args.project)) return refuse('--project must be a path')
+  return {
+    spawn: {
+      ticketId: args.ticket.trim(),
+      model: args.model.trim(),
+      effort: args.effort.trim(),
+      ...(nonEmptyString(args.project) ? { projectPath: args.project.trim() } : {})
+    }
+  }
+}
+
+/**
+ * Counts one spawn against the record before anything is created, so a spawn that fails later -
+ * a worktree git refuses, a setup command that exits non-zero - still counts: the cap bounds
+ * attempts, and an attempt that failed is exactly what a runaway loop is made of.
+ */
+export function reserveSpawn(
+  record: OrchestrationRecord,
+  ticketId: string,
+  now: string
+): Outcome<'record', OrchestrationRecord> {
+  if (!record.tickets.some((ticket) => ticket.id === ticketId)) return refuse(`the plan has no ticket "${ticketId}"`)
+  const used = record.spawnCount ?? 0
+  if (used >= MAX_SPAWNS_PER_ORCHESTRATION) {
+    return refuse(
+      `this orchestration has used all ${MAX_SPAWNS_PER_ORCHESTRATION} spawns (retries and escalations count); ` +
+        'list what is left for human review instead'
+    )
+  }
+  return { record: { ...record, spawnCount: used + 1, updatedAt: now } }
+}
+
+/** Records the ticket session Toucan spawned; the one write to `session`, which `ticket update` refuses. */
+export function recordTicketSession(
+  record: OrchestrationRecord,
+  ticketId: string,
+  session: TicketSession,
+  now: string
+): OrchestrationRecord {
+  const tickets = record.tickets.map((ticket) => (ticket.id === ticketId ? { ...ticket, session } : ticket))
+  return { ...record, tickets, updatedAt: now }
+}
+
+/**
+ * Local branch names for a ticket's worktree, in the order they are tried: a retry gets a fresh
+ * branch rather than reusing the one a failed attempt left behind. One more than the spawn cap, so
+ * every spawn an orchestration may make has a name.
+ */
+export function ticketBranchCandidates(ticketId: string): string[] {
+  const slug =
+    ticketId
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 48)
+      .replace(/-+$/, '') || 'ticket'
+  return Array.from({ length: MAX_SPAWNS_PER_ORCHESTRATION + 1 }, (_, index) =>
+    index === 0 ? `ticket/${slug}` : `ticket/${slug}-${index + 1}`
+  )
+}
+
+/** The canvas title of a ticket session: a manual title, so no generated one replaces it. */
+export function ticketSessionTitle(ticket: Pick<OrchestrationTicket, 'id' | 'title'>): string {
+  return `#${ticket.id} ${ticket.title}`
+}
+
+export const TICKET_CONTRACT_HEADING = '## Ticket contract'
+
+/**
+ * The rules every ticket session is bound by, appended after the implementation skill and the
+ * ticket (CONTEXT.md, "Ticket contract"). The no-push rule is also enforced - the worktree's
+ * `pre-push` hook refuses every push - but it is stated, so the session does not spend a turn
+ * finding that out.
+ */
+export function ticketContract(worktree: { path: string; branch: string }): string {
+  return [
+    TICKET_CONTRACT_HEADING,
+    '',
+    'You are a ticket session started by a Toucan orchestrator. These rules win over the skill above wherever the two disagree.',
+    '',
+    `- Stay in your worktree, ${worktree.path}, and work nowhere else.`,
+    `- Commit your work to its branch, ${worktree.branch}.`,
+    '- Never push, never merge, and never open a pull request: the orchestrator merges this branch. Pushing is refused by a hook anyway.',
+    '- End with a final report: the verification commands you ran and their results, unresolved review findings, and open questions.'
+  ].join('\n')
+}
+
+/**
+ * A ticket session's first prompt: the implementation skill with the ticket, then the contract.
+ * A free-text ticket carries its body; a tracked one carries its reference, which the session reads
+ * with its own tools the way the orchestrator did.
+ */
+export function ticketSessionPrompt(
+  ticket: Pick<OrchestrationTicket, 'id' | 'title' | 'body' | 'source'>,
+  worktree: { path: string; branch: string },
+  skill: string = DEFAULT_IMPLEMENTATION_SKILL
+): string {
+  const detail = ticket.body?.trim() || (ticket.source ? `Source: ${ticket.source}` : '')
+  const request = `${skill} ${ticketSessionTitle(ticket)}${detail ? `\n\n${detail}` : ''}`
+  return `${request}\n\n${ticketContract(worktree)}`
 }
 
 /**
@@ -385,7 +524,8 @@ export function orchestratorInstruction(paths: { cliPath: string; skillPath: str
     'You are a Toucan orchestrator. The first user message is your task: break it into tickets and keep',
     "Toucan's orchestration record up to date as the single source of truth for the plan and its progress.",
     `Drive Toucan through its CLI, which prints one JSON line per call: \`${cli} plan show\`,`,
-    `\`${cli} plan set --file <plan.json>\` and \`${cli} ticket update <id> --json '<fields>'\`.`,
-    `The command reference is ${paths.skillPath}. Spawning ticket sessions is not available yet.`
+    `\`${cli} plan set --file <plan.json>\`, \`${cli} ticket update <id> --json '<fields>'\` and`,
+    `\`${cli} spawn --ticket <id> --model <id> --effort <level>\`, which starts one ticket session in a worktree of its own.`,
+    `The command reference is ${paths.skillPath}.`
   ].join(' ')
 }

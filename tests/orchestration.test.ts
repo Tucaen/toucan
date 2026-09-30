@@ -3,10 +3,18 @@ import { test } from 'vitest'
 import {
   applyPlan,
   applyTicketUpdate,
+  MAX_SPAWNS_PER_ORCHESTRATION,
+  TICKET_CONTRACT_HEADING,
   isOrchestrationRecord,
   orchestratorInstruction,
   parsePlanInput,
+  parseSpawnInput,
   parseTicketUpdate,
+  recordTicketSession,
+  reserveSpawn,
+  ticketBranchCandidates,
+  ticketSessionPrompt,
+  ticketSessionTitle,
   type OrchestrationRecord
 } from '../src/shared/orchestration'
 
@@ -192,4 +200,93 @@ test('the orchestrator instruction names the CLI it drives Toucan through', () =
   assert.match(instruction, /orchestrator/i)
   assert.ok(instruction.includes('node "C:\\Toucan\\.agents\\skills\\orchestrate\\scripts\\orchestrate.mjs" plan show'))
   assert.ok(instruction.includes('C:\\Toucan\\.agents\\skills\\orchestrate\\SKILL.md'))
+})
+
+// Spawning a ticket session (#34): what `spawn` may ask for, the per-orchestration cap, and the
+// prompt and title a ticket session is started with.
+
+test('a spawn names a ticket, a model and an effort, and only ever a Claude session', () => {
+  assert.deepEqual(parseSpawnInput({ ticket: ' 34 ', model: 'claude-opus-5-5', effort: 'high' }).spawn, {
+    ticketId: '34',
+    model: 'claude-opus-5-5',
+    effort: 'high'
+  })
+  assert.deepEqual(
+    parseSpawnInput({ ticket: '34', model: 'm', effort: 'e', provider: 'claude', project: 'D:\\project' }).spawn,
+    { ticketId: '34', model: 'm', effort: 'e', projectPath: 'D:\\project' }
+  )
+  assert.match(parseSpawnInput({ model: 'm', effort: 'e' }).error ?? '', /--ticket/)
+  assert.match(parseSpawnInput({ ticket: '34', effort: 'e' }).error ?? '', /--model/)
+  assert.match(parseSpawnInput({ ticket: '34', model: 'm' }).error ?? '', /--effort/)
+  assert.match(parseSpawnInput({ ticket: '34', model: 'm', effort: 'e', provider: 'codex' }).error ?? '', /Claude/)
+  assert.match(parseSpawnInput(null).error ?? '', /ticket/)
+})
+
+test('a spawn is reserved against the record and refused past twenty per orchestration', () => {
+  let record = recordFrom(twoTickets)
+  assert.match(reserveSpawn(record, '99', NOW).error ?? '', /no ticket "99"/)
+  for (let index = 0; index < MAX_SPAWNS_PER_ORCHESTRATION; index += 1) {
+    const reserved = reserveSpawn(record, index % 2 === 0 ? '33' : '34', LATER)
+    if (!reserved.record) throw new Error(`spawn ${index + 1} refused: ${reserved.error}`)
+    record = reserved.record
+  }
+  assert.equal(record.spawnCount, MAX_SPAWNS_PER_ORCHESTRATION)
+  assert.equal(record.updatedAt, LATER)
+  // Retries and escalations count: the twenty-first spawn is refused whichever ticket it is for.
+  assert.match(reserveSpawn(record, '33', LATER).error ?? '', /20 spawns/)
+  // Re-planning never resets the count.
+  const replanned = applyPlan(record, planned(twoTickets), identity, LATER)
+  assert.equal(replanned.record?.spawnCount, MAX_SPAWNS_PER_ORCHESTRATION)
+  // A record written before spawning existed reads as none used.
+  const legacy: Record<string, unknown> = { ...recordFrom(twoTickets) }
+  delete legacy.spawnCount
+  assert.ok(isOrchestrationRecord(legacy))
+  assert.equal(reserveSpawn(legacy as unknown as OrchestrationRecord, '33', NOW).record?.spawnCount, 1)
+  assert.equal(isOrchestrationRecord({ ...record, spawnCount: -1 }), false)
+})
+
+test('the spawned session is recorded against its ticket', () => {
+  const record = recordFrom(twoTickets)
+  const session = {
+    nodeId: 'node-1',
+    conversationId: 'c-1',
+    worktreePath: 'D:\\project-ticket-34',
+    branch: 'ticket/34'
+  }
+  const recorded = recordTicketSession(record, '34', session, LATER)
+  assert.deepEqual(recorded.tickets.find((ticket) => ticket.id === '34')?.session, session)
+  assert.equal(recorded.tickets.find((ticket) => ticket.id === '33')?.session, undefined)
+  assert.equal(recorded.updatedAt, LATER)
+  assert.ok(isOrchestrationRecord(JSON.parse(JSON.stringify(recorded))))
+})
+
+test('a ticket branch is a fresh name derived from the ticket id', () => {
+  const candidates = ticketBranchCandidates('#34 Spawn!')
+  assert.equal(candidates[0], 'ticket/34-spawn')
+  assert.equal(candidates[1], 'ticket/34-spawn-2')
+  assert.equal(new Set(candidates).size, candidates.length)
+  assert.equal(ticketBranchCandidates('???')[0], 'ticket/ticket')
+})
+
+test('a ticket session is titled by its ticket and prompted with the skill, the ticket and the contract', () => {
+  const [freeText, tracked] = recordFrom(twoTickets).tickets
+  assert.equal(ticketSessionTitle(tracked), '#34 Spawn')
+  const worktree = { path: 'D:\\project-ticket-34', branch: 'ticket/34' }
+
+  const prompt = ticketSessionPrompt(freeText, worktree)
+  assert.ok(prompt.startsWith('/implement #33 Foundation\n\nThe endpoint and the record'))
+  // The contract follows the ticket, and wins over the skill.
+  const contract = prompt.slice(prompt.indexOf(TICKET_CONTRACT_HEADING))
+  assert.ok(prompt.indexOf(TICKET_CONTRACT_HEADING) > prompt.indexOf('The endpoint and the record'))
+  assert.ok(contract.includes('D:\\project-ticket-34'))
+  assert.ok(contract.includes('ticket/34'))
+  assert.match(contract, /never push/i)
+  assert.match(contract, /pull request/i)
+  assert.match(contract, /merge/i)
+  assert.match(contract, /final report/i)
+  assert.match(contract, /win over/i)
+
+  // A tracker reference is handed on for the session to read with its own tools.
+  assert.ok(ticketSessionPrompt(tracked, worktree).includes('https://github.com/Tucaen/toucan/issues/34'))
+  assert.ok(ticketSessionPrompt(tracked, worktree, '/ship').startsWith('/ship #34 Spawn'))
 })
