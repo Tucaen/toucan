@@ -173,7 +173,8 @@ export interface WorktreeManager {
 
 const GIT_MAX_BUFFER = 8 * 1024 * 1024
 
-const runGitWithExecFile: GitRunner = (args, cwd) =>
+/** Runs git hidden, never rejecting: a git that will not start is `GIT_LAUNCH_FAILED`. */
+export const runGitWithExecFile: GitRunner = (args, cwd) =>
   new Promise<GitResult>((resolve) => {
     execFile('git', args, hiddenProcessOptions({ cwd, maxBuffer: GIT_MAX_BUFFER }), (error, stdout, stderr) => {
       resolve(gitResultFromExecFile(error, stdout, stderr))
