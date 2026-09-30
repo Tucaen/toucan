@@ -22,6 +22,7 @@ import { installPushGuard } from './ticket-push-guard'
 import { createTicketSpawner, type TicketSpawner } from './ticket-spawner'
 import { createWindowRequests, type WindowRequests } from './window-requests'
 import { createAgentModelCatalogueStore } from './agent-model-catalogue-store'
+import { createAgentEffortCatalogueStore } from './agent-effort-catalogue-store'
 import { createAppUpdater, type AppUpdater } from './app-update'
 import { forwardAppUpdateChanges, registerAppUpdateIpc } from './app-update-ipc'
 import { createVoiceModelStore, type VoiceModelStore } from './voice-model-store'
@@ -316,6 +317,12 @@ void app.whenReady().then(async () => {
     path: join(app.getPath('userData'), 'agent-models.json'),
     log: mainLog('agent models')
   })
+  // And the efforts each of those models offers, which only a session on that model reveals: what a
+  // routed ticket's effort is settled against (#36).
+  const effortCatalogue = createAgentEffortCatalogueStore({
+    path: join(app.getPath('userData'), 'agent-model-efforts.json'),
+    log: mainLog('agent efforts')
+  })
   const workspace = createWorkspaceStore(join(app.getPath('userData'), 'prototype-workspace.json'))
   // A file node may read anywhere inside a registered project or one of its worktrees and nowhere
   // else. The roots come from the snapshot per call, so a project added a moment ago is readable
@@ -467,6 +474,7 @@ void app.whenReady().then(async () => {
     log: mainLog('agent sessions'),
     broker: agentEvents,
     onModelsAdvertised: (provider, models) => modelCatalogue.record(provider, models),
+    onEffortsAdvertised: (provider, modelId, efforts) => effortCatalogue.record(provider, modelId, efforts),
     sessionOutcomes,
     sessionOutcomesDirectory,
     terminalContext: terminalContextMcp,

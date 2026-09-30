@@ -776,6 +776,13 @@ export interface AcpSessionManagerOptions {
    */
   onModelsAdvertised?: (provider: AgentProvider, models: readonly AgentModel[]) => void
   /**
+   * Told which efforts the session's current model offers, every time a session advertises its
+   * effort selector or drops it (an empty list). Efforts are per model and only a session running
+   * that model reveals them, so routing a ticket to a model (#36) settles its effort against what
+   * this seam last recorded.
+   */
+  onEffortsAdvertised?: (provider: AgentProvider, modelId: string, efforts: readonly string[]) => void
+  /**
    * The session outcome index, watching each session's fan-out for its turn boundaries. Injected
    * like the broker so the manager keeps no disk of its own, and optional because indexing is
    * observation: a session runs identically without it.
@@ -1029,6 +1036,19 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
     return models
   }
 
+  /** The effort counterpart of `rememberModels`: every write to `cachedEfforts` goes through here. */
+  const rememberEfforts = (running: RunningAgent, efforts: AgentEffortState | undefined): void => {
+    running.cachedEfforts = efforts
+    const modelId = running.cachedModels?.currentModelId
+    if (modelId) {
+      options.onEffortsAdvertised?.(
+        running.request.provider,
+        modelId,
+        (efforts?.availableEfforts ?? []).map((effort) => effort.id)
+      )
+    }
+  }
+
   const send = (running: RunningAgent, event: AgentEvent): void => {
     // A stopped session's channel is closed; a straggler (late stderr, a rejected in-flight
     // request) publishing after that would lazily resurrect a ghost channel nothing ever closes.
@@ -1244,7 +1264,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       }
       if (efforts) efforts = await applySavedEffort(running, efforts)
       if (models) rememberModels(running, models)
-      if (efforts) running.cachedEfforts = efforts
+      if (efforts) rememberEfforts(running, efforts)
       if (running.request.provider === 'claude' && models) {
         lastClaudeSessionModelIds = models.availableModels.map((model) => model.id)
         // The one check that could not happen before launch: a worker the session does not list
@@ -1571,11 +1591,11 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
             const effortSelector = effortSelectorFromConfigOptions(update.configOptions)
             if (effortSelector) {
               running.effortConfigId = effortSelector.configId
-              running.cachedEfforts = effortSelector.efforts
+              rememberEfforts(running, effortSelector.efforts)
               send(running, { type: 'efforts', efforts: effortSelector.efforts })
             } else if (running.effortConfigId || running.cachedEfforts) {
               running.effortConfigId = undefined
-              running.cachedEfforts = undefined
+              rememberEfforts(running, undefined)
               send(running, { type: 'efforts', efforts: null })
             }
           } else if (update.sessionUpdate === 'available_commands_update') {
@@ -1871,11 +1891,11 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         const effortSelector = effortSelectorFromConfigOptions(response.configOptions)
         if (effortSelector) {
           running.effortConfigId = effortSelector.configId
-          running.cachedEfforts = effortSelector.efforts
+          rememberEfforts(running, effortSelector.efforts)
           send(running, { type: 'efforts', efforts: effortSelector.efforts })
         } else {
           running.effortConfigId = undefined
-          running.cachedEfforts = undefined
+          rememberEfforts(running, undefined)
           send(running, { type: 'efforts', efforts: null })
         }
         running.request.modelId = modelId
@@ -1906,7 +1926,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         const efforts = selector?.efforts ?? { ...running.cachedEfforts, currentEffortId: effortId }
         if (selector) running.effortConfigId = selector.configId
         running.request.effortId = effortId
-        running.cachedEfforts = efforts
+        rememberEfforts(running, efforts)
         send(running, { type: 'efforts', efforts })
         return { ok: true }
       } catch (error) {

@@ -176,3 +176,44 @@ test('every advertised model list is reported to the catalogue seam', async () =
     manager.killAll()
   }
 })
+
+/**
+ * Routing by difficulty tier (#36) settles an effort against what the chosen model's picker offers,
+ * and only a session running that model advertises it - so every list is reported with its model.
+ */
+test('every advertised effort list is reported with the model it belongs to', async () => {
+  const appPath = mkdtempSync(join(tmpdir(), 'toucan-effort-catalogue-seam-'))
+  installScriptedAdapter(appPath, 'claude-agent-acp', {
+    prelude: `
+const models = [{ value: 'sonnet', name: 'Sonnet' }, { value: 'haiku', name: 'Haiku' }]
+const efforts = { sonnet: ['low', 'medium', 'high'], haiku: [] }
+const optionsFor = (current) => [
+  { id: 'model', name: 'Model', type: 'select', category: 'model', currentValue: current, options: models },
+  ...(efforts[current].length
+    ? [{ id: 'effort', name: 'Effort', type: 'select', category: 'thought_level', currentValue: 'medium',
+        options: efforts[current].map((value) => ({ value, name: value })) }]
+    : [])
+]`,
+    handleRequest: `
+  if (request.method === 'session/new') {
+    send({ jsonrpc: '2.0', id: request.id, result: { sessionId: 'session-1', configOptions: optionsFor('sonnet') } })
+  } else if (request.method === 'session/set_config_option') {
+    send({ jsonrpc: '2.0', id: request.id, result: { configOptions: optionsFor(request.params.value) } })
+  }`
+  })
+  const advertised: { provider: string; model: string; efforts: string[] }[] = []
+  const manager = createAcpSessionManager({
+    appPath,
+    environment: { PATH: process.env.PATH },
+    onEffortsAdvertised: (provider, model, efforts) => advertised.push({ provider, model, efforts: [...efforts] })
+  })
+  try {
+    await manager.create({ id: 'chat', provider: 'claude', cwd: appPath }, recordingOwner([]))
+    assert.deepEqual(advertised.at(-1), { provider: 'claude', model: 'sonnet', efforts: ['low', 'medium', 'high'] })
+    await manager.setModel('chat', 'haiku')
+    // A model with no effort selector offers none, which is worth knowing too.
+    assert.deepEqual(advertised.at(-1), { provider: 'claude', model: 'haiku', efforts: [] })
+  } finally {
+    manager.killAll()
+  }
+})
