@@ -14,6 +14,7 @@ import {
 import { autoUpdater } from 'electron-updater'
 import { createAcpSessionManager, type AcpSessionManager } from './acp-session-manager'
 import { createOrchestrationStore } from './orchestration-store'
+import { createOrchestrationWaker } from './orchestration-wake'
 import { createOrchestratorEndpoint } from './orchestrator-endpoint'
 import { createSetupCommandRunner } from './setup-command'
 import { installPushGuard } from './ticket-push-guard'
@@ -358,9 +359,10 @@ void app.whenReady().then(async () => {
     const worktree = state?.worktrees.find((entry) => worktreePathKey(entry.path) === worktreePathKey(projectPath))
     return worktree ? state?.projects.find((project) => project.id === worktree.projectId)?.path : undefined
   }
+  const sessionOutcomeStore = createSessionOutcomeStore({ directory: sessionOutcomesDirectory })
   const sessionOutcomes = createSessionOutcomeIndexer({
     broker: agentEvents,
-    store: createSessionOutcomeStore({ directory: sessionOutcomesDirectory }),
+    store: sessionOutcomeStore,
     // The node/worktree association lives only in the persisted canvas snapshot, so that is where
     // the record's `worktree` attribute is read from.
     worktreeIdForNode: async (nodeId) =>
@@ -398,13 +400,58 @@ void app.whenReady().then(async () => {
   // The orchestrator's local endpoint and its records (docs/plans/orchestrator-mode.md): one record
   // per orchestrator conversation, and a 127.0.0.1 listener that exists only while an orchestrator
   // session holds a token.
+  const orchestrationRecords = createOrchestrationStore({
+    directory: join(app.getPath('userData'), 'orchestrations'),
+    log: mainLog('orchestrations')
+  })
+  // Wakes an orchestrator when its ticket sessions finish, fail or ask (#35). Every session's
+  // events pass the broker's observer; a ticket session this process did not spawn - one resumed
+  // after a restart - is recognised by its node's orchestrated-by link and its orchestrator's record.
+  const orchestrationWaker = createOrchestrationWaker({
+    deliver: (orchestratorNodeId, text) => agentManager.promptWhenIdle(orchestratorNodeId, text),
+    resolve: async (nodeId) => {
+      const node = (await workspace.load()).state?.nodes.find((candidate) => candidate.id === nodeId)
+      if (!node) return undefined
+      if (!node.orchestratedBy) return null
+      const link = node.orchestratedBy
+      const record = await orchestrationRecords.read({ provider: 'claude', conversationId: link.conversationId })
+      const ticket = record?.tickets.find((candidate) => candidate.session?.nodeId === nodeId)
+      return ticket
+        ? {
+            orchestratorNodeId: link.nodeId,
+            ticketId: ticket.id,
+            ...(ticket.session?.conversationId ? { conversationId: ticket.session.conversationId } : {})
+          }
+        : undefined
+    },
+    outcome: async (conversationId) => {
+      const found = await sessionOutcomeStore.find({ provider: 'claude', conversationId })
+      return found ? { path: found.path, files: found.record.filesTouched.length } : undefined
+    },
+    log: mainLog('orchestrator wake')
+  })
+  agentEvents.observe((id, event) => orchestrationWaker.observe(id, event))
   const orchestratorEndpoint = createOrchestratorEndpoint({
-    records: createOrchestrationStore({
-      directory: join(app.getPath('userData'), 'orchestrations'),
-      log: mainLog('orchestrations')
-    }),
+    records: orchestrationRecords,
     // Late-bound: the spawner needs the window requests and the model catalogue wired below.
     spawner: { spawn: (request) => ticketSpawner.spawn(request) },
+    ticketSessions: {
+      state: (nodeId) => {
+        const snapshot = agentEvents.snapshot(nodeId)
+        return snapshot
+          ? {
+              status: snapshot.status,
+              ...(snapshot.approval ? { permission: { title: snapshot.approval.title } } : {}),
+              questions: snapshot.decisionRequests
+            }
+          : undefined
+      },
+      startPrompt: (nodeId, text) => agentManager.startPrompt(nodeId, text),
+      promptWhenIdle: (nodeId, text) => agentManager.promptWhenIdle(nodeId, text),
+      answerQuestion: (nodeId, requestId, content) => agentManager.resolveElicitation(nodeId, requestId, content),
+      outcome: async (identity) => (await sessionOutcomeStore.find(identity)) ?? undefined
+    },
+    onTicketSpawned: (nodeId, binding) => orchestrationWaker.bind(nodeId, binding),
     log: mainLog('orchestrator endpoint')
   })
   const agentManager = createAcpSessionManager({

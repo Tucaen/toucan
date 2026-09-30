@@ -139,3 +139,15 @@ test('an interrupted rename heals: the freshest duplicate wins and the write rem
 
   assert.deepEqual(names(directory), ['cic-control-box--new-title--69f89ec3.md'])
 })
+
+test('find names the file a conversation record is in, for a reader who opens it (#35)', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'toucan-outcome-store-find-'))
+  const store = createSessionOutcomeStore({ directory })
+  const written = record()
+  assert.equal(await store.find(written), null)
+  await store.write(written, {})
+  assert.deepEqual(await store.find(written), {
+    path: join(directory, 'cic-control-box--cickvp-8801--69f89ec3.md'),
+    record: written
+  })
+})

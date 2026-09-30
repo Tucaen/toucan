@@ -1,4 +1,3 @@
-import type { AgentDecisionRequest, AgentDecisionResponseContent } from './agent'
 import { isAgentProvider, type AgentProvider } from './agent-provider'
 import { isRecord } from './record'
 
@@ -642,16 +641,29 @@ export function parseFollowupInput(value: unknown): Outcome<'followup', { ticket
 }
 
 /**
+ * The part of a provider-native question (`AgentDecisionQuestion` in `agent.ts`, which imports this
+ * module) that decides where free text can go.
+ */
+export interface DecisionQuestionSlots {
+  id: string
+  question: string
+  options: ReadonlyArray<{ label: string }>
+  input: string
+  required?: boolean
+  customAnswerId?: string
+}
+
+/**
  * A ticket session's pending question answered with the orchestrator's text: the text goes into
  * every question's free-text slot - its "Other" field, or the question itself when it takes text.
  * A required question with no free-text slot cannot be answered this way; the orchestrator is told
  * which, rather than Toucan guessing an option for it.
  */
 export function decisionAnswerFromText(
-  request: AgentDecisionRequest,
+  request: { questions: readonly DecisionQuestionSlots[] },
   text: string
-): Outcome<'content', AgentDecisionResponseContent> {
-  const content: AgentDecisionResponseContent = {}
+): Outcome<'content', Record<string, string>> {
+  const content: Record<string, string> = {}
   for (const question of request.questions) {
     if (question.customAnswerId) content[question.customAnswerId] = text
     else if (question.input === 'text') content[question.id] = text

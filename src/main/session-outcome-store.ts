@@ -51,6 +51,8 @@ export interface SessionOutcomeNaming {
 
 export interface SessionOutcomeStore {
   read(identity: SessionOutcomeIdentity): Promise<SessionOutcomeRecord | null>
+  /** The record and the file it is in, for a reader who is handed the path (the orchestrator, #35). */
+  find(identity: SessionOutcomeIdentity): Promise<{ path: string; record: SessionOutcomeRecord } | null>
   write(record: SessionOutcomeRecord, naming?: SessionOutcomeNaming): Promise<void>
   /**
    * Reads one record and writes back what `change` makes of it, with nothing else touching the file
@@ -240,6 +242,11 @@ export function createSessionOutcomeStore(options: { directory: string }): Sessi
     async read(identity) {
       await migrated
       return (await locate(identity)).current?.record ?? null
+    },
+    async find(identity) {
+      await migrated
+      const { current } = await locate(identity)
+      return current ? { path: pathFor(current.name), record: current.record } : null
     },
     write(record, naming) {
       return serialize(async () => {
