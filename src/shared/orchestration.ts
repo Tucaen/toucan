@@ -55,15 +55,35 @@ export type DifficultyTier = (typeof DIFFICULTY_TIERS)[number]
 export const TICKET_MERGE_STATUSES = ['pending', 'merged', 'unmerged'] as const
 export type TicketMergeStatus = (typeof TICKET_MERGE_STATUSES)[number]
 
-/** How a ticket was routed; filled in by the routing slice (#36), every field optional until then. */
+/**
+ * How a ticket was routed (#36): its difficulty tier, the model and effort the tier mapping gave it,
+ * and who judged the tier. `route` and `escalate` write it; `ticket update` may still correct it.
+ */
 export interface TicketRoute {
   tier?: DifficultyTier
   model?: string
   effort?: string
+  /** Jev's confidence in the tier; absent when the orchestrator supplied the tier itself. */
   confidence?: number
+  /** Jev's reasoning-depth score (0-4), kept so an escalation settles its effort the same way. */
+  depth?: number
   routedBy?: 'jev' | 'orchestrator'
   escalated?: boolean
+  /** Jev's confidence was below the review threshold: the ticket runs on its tier and goes on the review list. */
+  reviewRequired?: boolean
 }
+
+/** Every field a route may carry, in the order it is rendered. */
+export const TICKET_ROUTE_FIELDS = [
+  'tier',
+  'model',
+  'effort',
+  'confidence',
+  'depth',
+  'routedBy',
+  'escalated',
+  'reviewRequired'
+] as const
 
 /** The ticket session Toucan spawned for a ticket (#34). Toucan-owned: `ticket update` cannot set it. */
 export interface TicketSession {
@@ -262,7 +282,7 @@ const isNonNegativeInteger = (value: unknown): value is number =>
 function parseRoute(value: unknown): TicketRoute | string {
   if (!isRecord(value)) return 'route must be an object'
   for (const key of Object.keys(value)) {
-    if (!['tier', 'model', 'effort', 'confidence', 'routedBy', 'escalated'].includes(key)) {
+    if (!(TICKET_ROUTE_FIELDS as readonly string[]).includes(key)) {
       return `route has unknown field "${key}"`
     }
   }
@@ -280,7 +300,13 @@ function parseRoute(value: unknown): TicketRoute | string {
   if (value.routedBy !== undefined && value.routedBy !== 'jev' && value.routedBy !== 'orchestrator') {
     return 'route.routedBy must be jev or orchestrator'
   }
+  if (value.depth !== undefined && !(isFiniteNumber(value.depth) && value.depth >= 0 && value.depth <= 4)) {
+    return 'route.depth must be a number from 0 to 4'
+  }
   if (value.escalated !== undefined && typeof value.escalated !== 'boolean') return 'route.escalated must be a boolean'
+  if (value.reviewRequired !== undefined && typeof value.reviewRequired !== 'boolean') {
+    return 'route.reviewRequired must be a boolean'
+  }
   return value
 }
 
