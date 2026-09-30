@@ -222,3 +222,15 @@ export function escalateRoute(
   if (resolved.error !== undefined) return resolved
   return { route: { ...route, ...resolved.route, escalated: true }, warnings: resolved.warnings }
 }
+
+/**
+ * Whether Jev can route an orchestration, as the orchestrator node shows it before launch (#36).
+ * `reachable` is the service answering, not a judgement spent; the key itself never leaves main.
+ */
+export type JevReachability = { state: 'reachable' } | { state: 'no-key' } | { state: 'unreachable'; reason: string }
+
+export function isJevReachability(value: unknown): value is JevReachability {
+  if (!isRecord(value)) return false
+  if (value.state === 'reachable' || value.state === 'no-key') return true
+  return value.state === 'unreachable' && typeof value.reason === 'string'
+}
