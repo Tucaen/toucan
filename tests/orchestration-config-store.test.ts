@@ -75,18 +75,18 @@ test('a damaged or invalid file is refused with its path, never silently replace
 
 test('inspect reports each file on its own: absent, parsed or unusable', async () => {
   const { store } = fresh()
-  const absent = await store.inspect('project', 'D:\project')
-  assert.deepEqual(absent, { path: store.projectConfigPath('D:\project'), exists: false })
-  const overridePath = store.projectConfigPath('D:\project')
+  const absent = await store.inspect('project', 'D:\\project')
+  assert.deepEqual(absent, { path: store.projectConfigPath('D:\\project'), exists: false })
+  const overridePath = store.projectConfigPath('D:\\project')
   mkdirSync(dirname(overridePath), { recursive: true })
   writeFileSync(overridePath, JSON.stringify({ implementationSkill: '/tdd' }))
-  assert.deepEqual(await store.inspect('project', 'D:\project'), {
+  assert.deepEqual(await store.inspect('project', 'D:\\project'), {
     path: overridePath,
     exists: true,
     file: { implementationSkill: '/tdd' }
   })
   writeFileSync(overridePath, '{ nope')
-  const broken = await store.inspect('project', 'D:\project')
+  const broken = await store.inspect('project', 'D:\\project')
   assert.equal(broken.exists, true)
   assert.equal(broken.file, undefined)
   assert.match(broken.error!, /not valid JSON/)
@@ -94,18 +94,18 @@ test('inspect reports each file on its own: absent, parsed or unusable', async (
 
 test('write puts a validated file in place, and the next load routes with it', async () => {
   const { store } = fresh()
-  await store.write('project', 'D:\project', { tiers: { high: { model: 'sonnet', effort: 'high' } } })
-  const loaded = await store.load('D:\project')
+  await store.write('project', 'D:\\project', { tiers: { high: { model: 'sonnet', effort: 'high' } } })
+  const loaded = await store.load('D:\\project')
   assert.deepEqual(loaded.config!.tiers.high, { model: 'sonnet', effort: 'high' })
   await store.write('user', undefined, { implementationSkill: '/tdd' })
-  assert.equal((await store.load('D:\other')).config!.implementationSkill, '/tdd')
+  assert.equal((await store.load('D:\\other')).config!.implementationSkill, '/tdd')
   await assert.rejects(store.write('user', undefined, { tiers: { easy: { model: 'x' } } } as never), /unknown tier/)
   await assert.rejects(store.write('project', undefined, {}), /project/)
 })
 
 test('write refuses to replace a file that does not parse, so a hand edit in progress is kept', async () => {
   const { store } = fresh()
-  const first = await store.load('D:\project')
+  const first = await store.load('D:\\project')
   writeFileSync(first.userPath!, '{ half written')
   await assert.rejects(store.write('user', undefined, { implementationSkill: '/tdd' }), /not valid JSON/)
   assert.equal(readFileSync(first.userPath!, 'utf8'), '{ half written')
@@ -113,15 +113,15 @@ test('write refuses to replace a file that does not parse, so a hand edit in pro
 
 test('watch reports edits another process makes to the user file and to an override', async () => {
   const { store } = fresh()
-  await store.load('D:\project')
+  await store.load('D:\\project')
   let changes = 0
   const stop = store.watch(() => changes++)
   try {
-    const { userPath } = await store.load('D:\project')
+    const { userPath } = await store.load('D:\\project')
     writeFileSync(userPath, JSON.stringify({ implementationSkill: '/tdd' }))
     await waitFor(() => changes > 0)
     const before = changes
-    const overridePath = store.projectConfigPath('D:\project')
+    const overridePath = store.projectConfigPath('D:\\project')
     writeFileSync(overridePath, JSON.stringify({ implementationSkill: '/x' }))
     await waitFor(() => changes > before)
   } finally {

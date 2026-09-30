@@ -4958,7 +4958,7 @@ button.worktree-agent-unread:focus-visible {
   padding: 10px 12px;
   border: 1px solid #3b4553;
   border-radius: 8px;
-  background: #171b22;
+  background: var(--neutral-900);
   font-size: 12px;
 }
 
