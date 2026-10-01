@@ -110,7 +110,10 @@ Never wait for a ticket session inside a tool call - a ticket can take an hour. 
 Toucan: your ticket sessions reported in.
 - #12 completed - 4 files - outcome record C:\...\session-outcomes\toucan--12-spawn--1a2b3c4d.md
 - #13 asks a question - read it with status, answer it with followup --ticket 13 --text <answer>
+- #14 completed (background work pending: 1 task) - 2 files - outcome record C:\...\session-outcomes\toucan--14-spawn--5e6f7a8b.md
 ```
+
+`completed (background work pending: N tasks)` means the turn ended with background work it started still running - a backgrounded shell or subagent. That work's result arrives in a further turn, which wakes you again; until then the outcome record is not final.
 
 Events that arrive close together come as one message. The message names the event and where to read more; it never carries a ticket session's transcript. A message that arrives while you are working reaches you at your next safe boundary.
 
