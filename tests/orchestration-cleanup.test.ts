@@ -82,73 +82,89 @@ async function fixture() {
   return { root, project, git, record, canvas, cleanup }
 }
 
-test('cleanup removes only published merged worktrees and branches, and can be repeated', async () => {
-  const { git, record, cleanup, canvas } = await fixture()
-  await git(['merge', '--ff-only', 'ticket/1'])
-  await git(['push'])
-  const result = await cleanup.run(record)
-  assert.deepEqual(
-    result.removed.map((entry) => entry.ticket),
-    ['1']
-  )
-  assert.deepEqual(
-    result.retained.map((entry) => entry.ticket),
-    ['2']
-  )
-  assert.equal(existsSync(record.tickets[0].session!.worktreePath!), false)
-  assert.equal(existsSync(record.tickets[1].session!.worktreePath!), true)
-  assert.equal(await git(['branch', '--list', 'ticket/1']), '')
-  assert.ok(await git(['branch', '--list', 'ticket/2']))
-  assert.deepEqual(canvas, ['close:node-1', 'remove:node-1'])
-  assert.deepEqual(
-    (await cleanup.run(record)).removed.map((entry) => entry.ticket),
-    ['1']
-  )
-}, GIT_FIXTURE_TIMEOUT)
+test(
+  'cleanup removes only published merged worktrees and branches, and can be repeated',
+  async () => {
+    const { git, record, cleanup, canvas } = await fixture()
+    await git(['merge', '--ff-only', 'ticket/1'])
+    await git(['push'])
+    const result = await cleanup.run(record)
+    assert.deepEqual(
+      result.removed.map((entry) => entry.ticket),
+      ['1']
+    )
+    assert.deepEqual(
+      result.retained.map((entry) => entry.ticket),
+      ['2']
+    )
+    assert.equal(existsSync(record.tickets[0].session!.worktreePath!), false)
+    assert.equal(existsSync(record.tickets[1].session!.worktreePath!), true)
+    assert.equal(await git(['branch', '--list', 'ticket/1']), '')
+    assert.ok(await git(['branch', '--list', 'ticket/2']))
+    assert.deepEqual(canvas, ['close:node-1', 'remove:node-1'])
+    assert.deepEqual(
+      (await cleanup.run(record)).removed.map((entry) => entry.ticket),
+      ['1']
+    )
+  },
+  GIT_FIXTURE_TIMEOUT
+)
 
-test('a merged flag cannot delete unpublished, unmerged, dirty or occupied work', async () => {
-  const { git, record, cleanup, canvas } = await fixture()
-  assert.equal((await cleanup.run(record)).removed.length, 0)
-  await git(['merge', '--ff-only', 'ticket/1'])
-  assert.equal((await cleanup.run(record)).removed.length, 0)
-  await git(['push'])
-  const path = record.tickets[0].session!.worktreePath!
-  writeFileSync(join(path, 'keep.txt'), 'keep this untracked work')
-  const dirty = await cleanup.run(record)
-  assert.match(dirty.retained[0].reason!, /uncommitted|untracked/)
-  assert.equal(existsSync(join(path, 'keep.txt')), true)
-  assert.deepEqual(canvas, [])
-}, GIT_FIXTURE_TIMEOUT)
+test(
+  'a merged flag cannot delete unpublished, unmerged, dirty or occupied work',
+  async () => {
+    const { git, record, cleanup, canvas } = await fixture()
+    assert.equal((await cleanup.run(record)).removed.length, 0)
+    await git(['merge', '--ff-only', 'ticket/1'])
+    assert.equal((await cleanup.run(record)).removed.length, 0)
+    await git(['push'])
+    const path = record.tickets[0].session!.worktreePath!
+    writeFileSync(join(path, 'keep.txt'), 'keep this untracked work')
+    const dirty = await cleanup.run(record)
+    assert.match(dirty.retained[0].reason!, /uncommitted|untracked/)
+    assert.equal(existsSync(join(path, 'keep.txt')), true)
+    assert.deepEqual(canvas, [])
+  },
+  GIT_FIXTURE_TIMEOUT
+)
 
-test('cleanup retains a worktree when its canvas cannot safely close the ticket', async () => {
-  const { root, git, record } = await fixture()
-  await git(['merge', '--ff-only', 'ticket/1'])
-  await git(['push'])
-  const cleanup = createOrchestrationCleanup({
-    containment: createWorkspaceContainment({ roots: () => [root] }),
-    runGit: runGitWithExecFile,
-    worktrees: createWorktreeManager(),
-    canvas: async () => ({ ok: false, message: 'ticket is working' })
-  })
-  const result = await cleanup.run(record)
-  assert.match(result.retained[0].reason!, /working/)
-  assert.equal(existsSync(record.tickets[0].session!.worktreePath!), true)
-  assert.ok(await git(['branch', '--list', 'ticket/1']))
-}, GIT_FIXTURE_TIMEOUT)
+test(
+  'cleanup retains a worktree when its canvas cannot safely close the ticket',
+  async () => {
+    const { root, git, record } = await fixture()
+    await git(['merge', '--ff-only', 'ticket/1'])
+    await git(['push'])
+    const cleanup = createOrchestrationCleanup({
+      containment: createWorkspaceContainment({ roots: () => [root] }),
+      runGit: runGitWithExecFile,
+      worktrees: createWorktreeManager(),
+      canvas: async () => ({ ok: false, message: 'ticket is working' })
+    })
+    const result = await cleanup.run(record)
+    assert.match(result.retained[0].reason!, /working/)
+    assert.equal(existsSync(record.tickets[0].session!.worktreePath!), true)
+    assert.ok(await git(['branch', '--list', 'ticket/1']))
+  },
+  GIT_FIXTURE_TIMEOUT
+)
 
-test('cleanup refuses a project no longer registered in the workspace before running Git', async () => {
-  const { record } = await fixture()
-  const cleanup = createOrchestrationCleanup({
-    containment: createWorkspaceContainment({ roots: () => [] }),
-    runGit: async () => {
-      throw new Error('Git must not run outside the workspace')
-    },
-    worktrees: createWorktreeManager(),
-    canvas: async () => {
-      throw new Error('Canvas must not be changed')
-    }
-  })
-  const result = await cleanup.run(record)
-  assert.match(result.retained[0].reason!, /registered workspace/)
-  assert.equal(existsSync(record.tickets[0].session!.worktreePath!), true)
-}, GIT_FIXTURE_TIMEOUT)
+test(
+  'cleanup refuses a project no longer registered in the workspace before running Git',
+  async () => {
+    const { record } = await fixture()
+    const cleanup = createOrchestrationCleanup({
+      containment: createWorkspaceContainment({ roots: () => [] }),
+      runGit: async () => {
+        throw new Error('Git must not run outside the workspace')
+      },
+      worktrees: createWorktreeManager(),
+      canvas: async () => {
+        throw new Error('Canvas must not be changed')
+      }
+    })
+    const result = await cleanup.run(record)
+    assert.match(result.retained[0].reason!, /registered workspace/)
+    assert.equal(existsSync(record.tickets[0].session!.worktreePath!), true)
+  },
+  GIT_FIXTURE_TIMEOUT
+)

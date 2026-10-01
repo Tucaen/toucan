@@ -67,53 +67,69 @@ function repository(): { root: string; project: string; worktree: string } {
   return { root, project, worktree }
 }
 
-test('a guarded ticket worktree refuses every push while the project checkout still pushes', async () => {
-  const { project, worktree } = repository()
-  const installed = await installPushGuard(worktree, runGitWithExecFile)
-  assert.deepEqual(installed, { ok: true })
+test(
+  'a guarded ticket worktree refuses every push while the project checkout still pushes',
+  async () => {
+    const { project, worktree } = repository()
+    const installed = await installPushGuard(worktree, runGitWithExecFile)
+    assert.deepEqual(installed, { ok: true })
 
-  writeFileSync(join(worktree, 'change.txt'), 'ticket work\n')
-  git(worktree, 'add', 'change.txt')
-  git(worktree, 'commit', '-m', 'ticket work')
-  assert.match(gitFails(worktree, 'push', 'origin', 'ticket/34'), /ticket worktree/)
-  assert.match(gitFails(worktree, 'push', 'origin', 'HEAD:main'), /ticket worktree/)
-  assert.equal(git(project, 'ls-remote', 'origin', 'refs/heads/ticket/34').trim(), '')
+    writeFileSync(join(worktree, 'change.txt'), 'ticket work\n')
+    git(worktree, 'add', 'change.txt')
+    git(worktree, 'commit', '-m', 'ticket work')
+    assert.match(gitFails(worktree, 'push', 'origin', 'ticket/34'), /ticket worktree/)
+    assert.match(gitFails(worktree, 'push', 'origin', 'HEAD:main'), /ticket worktree/)
+    assert.equal(git(project, 'ls-remote', 'origin', 'refs/heads/ticket/34').trim(), '')
 
-  // The orchestrator merges and pushes from its own checkout, which the guard must not reach.
-  git(project, 'merge', '--ff-only', 'ticket/34')
-  git(project, 'push', 'origin', 'main')
-  assert.equal(git(project, 'rev-parse', 'origin/main').trim(), git(project, 'rev-parse', 'ticket/34').trim())
-}, GIT_FIXTURE_TIMEOUT)
+    // The orchestrator merges and pushes from its own checkout, which the guard must not reach.
+    git(project, 'merge', '--ff-only', 'ticket/34')
+    git(project, 'push', 'origin', 'main')
+    assert.equal(git(project, 'rev-parse', 'origin/main').trim(), git(project, 'rev-parse', 'ticket/34').trim())
+  },
+  GIT_FIXTURE_TIMEOUT
+)
 
-test('the project hooks keep running in a guarded worktree', async () => {
-  const { project, worktree } = repository()
-  const hooks = git(project, 'rev-parse', '--path-format=absolute', '--git-path', 'hooks').trim()
-  writeFileSync(join(hooks, 'pre-commit'), '#!/bin/sh\necho "project pre-commit refused" >&2\nexit 1\n', {
-    mode: 0o755
-  })
-  assert.deepEqual(await installPushGuard(worktree, runGitWithExecFile), { ok: true })
+test(
+  'the project hooks keep running in a guarded worktree',
+  async () => {
+    const { project, worktree } = repository()
+    const hooks = git(project, 'rev-parse', '--path-format=absolute', '--git-path', 'hooks').trim()
+    writeFileSync(join(hooks, 'pre-commit'), '#!/bin/sh\necho "project pre-commit refused" >&2\nexit 1\n', {
+      mode: 0o755
+    })
+    assert.deepEqual(await installPushGuard(worktree, runGitWithExecFile), { ok: true })
 
-  writeFileSync(join(worktree, 'change.txt'), 'ticket work\n')
-  git(worktree, 'add', 'change.txt')
-  assert.match(gitFails(worktree, 'commit', '-m', 'ticket work'), /project pre-commit refused/)
-}, GIT_FIXTURE_TIMEOUT)
+    writeFileSync(join(worktree, 'change.txt'), 'ticket work\n')
+    git(worktree, 'add', 'change.txt')
+    assert.match(gitFails(worktree, 'commit', '-m', 'ticket work'), /project pre-commit refused/)
+  },
+  GIT_FIXTURE_TIMEOUT
+)
 
-test('installing the guard twice is harmless, and a path that is no worktree is refused', async () => {
-  const { root, worktree } = repository()
-  assert.deepEqual(await installPushGuard(worktree, runGitWithExecFile), { ok: true })
-  assert.deepEqual(await installPushGuard(worktree, runGitWithExecFile), { ok: true })
-  assert.match(gitFails(worktree, 'push', 'origin', 'ticket/34'), /ticket worktree/)
+test(
+  'installing the guard twice is harmless, and a path that is no worktree is refused',
+  async () => {
+    const { root, worktree } = repository()
+    assert.deepEqual(await installPushGuard(worktree, runGitWithExecFile), { ok: true })
+    assert.deepEqual(await installPushGuard(worktree, runGitWithExecFile), { ok: true })
+    assert.match(gitFails(worktree, 'push', 'origin', 'ticket/34'), /ticket worktree/)
 
-  const refused = await installPushGuard(join(root, 'missing'), runGitWithExecFile)
-  assert.equal(refused.ok, false)
-}, GIT_FIXTURE_TIMEOUT)
+    const refused = await installPushGuard(join(root, 'missing'), runGitWithExecFile)
+    assert.equal(refused.ok, false)
+  },
+  GIT_FIXTURE_TIMEOUT
+)
 
-test.runIf(process.platform !== 'win32')('a hook the user switched off stays off in a guarded worktree', async () => {
-  const { project, worktree } = repository()
-  const hooks = git(project, 'rev-parse', '--path-format=absolute', '--git-path', 'hooks').trim()
-  writeFileSync(join(hooks, 'pre-commit'), '#!/bin/sh\nexit 1\n', { mode: 0o644 })
-  assert.deepEqual(await installPushGuard(worktree, runGitWithExecFile), { ok: true })
-  writeFileSync(join(worktree, 'change.txt'), 'ticket work\n')
-  git(worktree, 'add', 'change.txt')
-  git(worktree, 'commit', '-m', 'ticket work')
-}, GIT_FIXTURE_TIMEOUT)
+test.runIf(process.platform !== 'win32')(
+  'a hook the user switched off stays off in a guarded worktree',
+  async () => {
+    const { project, worktree } = repository()
+    const hooks = git(project, 'rev-parse', '--path-format=absolute', '--git-path', 'hooks').trim()
+    writeFileSync(join(hooks, 'pre-commit'), '#!/bin/sh\nexit 1\n', { mode: 0o644 })
+    assert.deepEqual(await installPushGuard(worktree, runGitWithExecFile), { ok: true })
+    writeFileSync(join(worktree, 'change.txt'), 'ticket work\n')
+    git(worktree, 'add', 'change.txt')
+    git(worktree, 'commit', '-m', 'ticket work')
+  },
+  GIT_FIXTURE_TIMEOUT
+)
