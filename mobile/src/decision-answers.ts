@@ -10,8 +10,8 @@ import { decisionContentProblem } from '../../src/shared/remote-chat'
  * The rules that are not obvious, and are the desktop's:
  *
  * - A question with a `customAnswerId` carries its free-text answer in a *sibling* field, and the
- *   two are mutually exclusive: typing an "Other" answer drops the selected option, and choosing
- *   an option drops the typed one. Sending both would ask the agent to honour two answers.
+ *   two coexist: the adapter reads the text as the answer when no option is chosen, and as a note
+ *   (single select) or an extra pick (multi-select) when one is.
  * - Answered means "has a value the agent can read": an empty string is not one, an empty
  *   multi-select is not one, and `false` is.
  * - Required questions gate submission; everything else may be left out. A set with nothing
@@ -38,18 +38,16 @@ export function answeredCount(request: AgentDecisionRequest, content: AgentDecis
   return request.questions.filter((question) => isQuestionAnswered(content, question)).length
 }
 
-/** Selects (or, for a multi-select, toggles) one option, dropping any conflicting "Other" text. */
+/** Selects (or, for a multi-select, toggles) one option, keeping any "Other" text beside it. */
 export function chooseOption(
   content: AgentDecisionResponseContent,
   question: AgentDecisionQuestion,
   value: string
 ): AgentDecisionResponseContent {
-  const next = { ...content }
-  if (question.customAnswerId) delete next[question.customAnswerId]
-  if (!question.multiSelect) return { ...next, [question.id]: value }
+  if (!question.multiSelect) return { ...content, [question.id]: value }
   const selected = Array.isArray(content[question.id]) ? (content[question.id] as string[]) : []
   return {
-    ...next,
+    ...content,
     [question.id]: selected.includes(value) ? selected.filter((entry) => entry !== value) : [...selected, value]
   }
 }
@@ -98,7 +96,7 @@ export function setBooleanAnswer(
   return { ...content, [question.id]: value }
 }
 
-/** Writes the "Other" field, which replaces this question's chosen option rather than joining it. */
+/** Writes the "Other" field, which sits beside this question's chosen option. */
 export function setCustomAnswer(
   content: AgentDecisionResponseContent,
   question: AgentDecisionQuestion,
@@ -106,12 +104,8 @@ export function setCustomAnswer(
 ): AgentDecisionResponseContent {
   if (!question.customAnswerId) return content
   const next = { ...content }
-  if (text.trim() === '') {
-    delete next[question.customAnswerId]
-    return next
-  }
-  delete next[question.id]
-  next[question.customAnswerId] = text
+  if (text.trim() === '') delete next[question.customAnswerId]
+  else next[question.customAnswerId] = text
   return next
 }
 

@@ -86,10 +86,10 @@ describe('decisionTabTarget', () => {
 })
 
 describe('withChosenOption', () => {
-  it('replaces the answer on a single select and clears the custom answer', () => {
+  it('replaces the answer on a single select and keeps the custom answer beside it', () => {
     const q = question({ customAnswerId: 'q1-other' })
     const next = withChosenOption(q, { q1: 'a', 'q1-other': 'typed' }, 'b')
-    assert.deepEqual(next, { q1: 'b' })
+    assert.deepEqual(next, { q1: 'b', 'q1-other': 'typed' })
   })
 
   it('toggles values on a multi select', () => {
@@ -104,12 +104,12 @@ describe('withChosenOption', () => {
 describe('withCustomAnswer', () => {
   const q = question({ customAnswerId: 'q1-other' })
 
-  it('text with substance displaces the chosen option', () => {
-    assert.deepEqual(withCustomAnswer(q, { q1: 'a' }, 'my own answer'), { 'q1-other': 'my own answer' })
+  it('text with substance sits beside the chosen option', () => {
+    assert.deepEqual(withCustomAnswer(q, { q1: 'a' }, 'my own answer'), { q1: 'a', 'q1-other': 'my own answer' })
   })
 
-  it('clearing the field removes the custom answer without restoring anything', () => {
-    assert.deepEqual(withCustomAnswer(q, { 'q1-other': 'typed' }, ''), {})
+  it('clearing the field removes only the custom answer', () => {
+    assert.deepEqual(withCustomAnswer(q, { q1: 'a', 'q1-other': 'typed' }, ''), { q1: 'a' })
   })
 
   it('is inert on a question with no custom answer field', () => {

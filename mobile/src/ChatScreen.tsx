@@ -513,6 +513,7 @@ function DecisionCard({
           <input
             type="text"
             disabled={busy}
+            placeholder={question.customAnswerHint}
             value={customAnswerText(answers, question)}
             onChange={(event) => setAnswers((current) => setCustomAnswer(current, question, event.target.value))}
           />

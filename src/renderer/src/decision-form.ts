@@ -60,29 +60,26 @@ export function decisionTabTarget(key: string, index: number, count: number): nu
 }
 
 /**
- * Folds a clicked option into the answers. Choosing an option always clears the question's
- * "Other" text - the two are mutually exclusive ways of answering one question - and a
- * multi-select toggles the value in and out while a single select replaces it.
+ * Folds a clicked option into the answers: a multi-select toggles the value in and out while a
+ * single select replaces it. Any "Other" text stays - the adapter reads it beside the option.
  */
 export function withChosenOption(
   question: AgentDecisionQuestion,
   answers: AgentDecisionResponseContent,
   value: string
 ): AgentDecisionResponseContent {
-  const next = { ...answers }
-  if (question.customAnswerId) delete next[question.customAnswerId]
-  if (!question.multiSelect) return { ...next, [question.id]: value }
+  if (!question.multiSelect) return { ...answers, [question.id]: value }
   const selected = Array.isArray(answers[question.id]) ? (answers[question.id] as string[]) : []
   return {
-    ...next,
+    ...answers,
     [question.id]: selected.includes(value) ? selected.filter((item) => item !== value) : [...selected, value]
   }
 }
 
 /**
- * Folds typed "Other" text into the answers. Text with substance displaces the chosen option
- * (the same mutual exclusion as `withChosenOption`, from the other side); clearing the field
- * removes the custom answer without resurrecting anything.
+ * Folds typed "Other" text into the answers. It sits beside the chosen option rather than
+ * replacing it: the adapter treats it as the answer when nothing is chosen and as a note or an
+ * extra pick when something is. Clearing the field removes it.
  */
 export function withCustomAnswer(
   question: AgentDecisionQuestion,
@@ -91,12 +88,8 @@ export function withCustomAnswer(
 ): AgentDecisionResponseContent {
   if (!question.customAnswerId) return answers
   const next = { ...answers }
-  if (value.trim()) {
-    delete next[question.id]
-    next[question.customAnswerId] = value
-  } else {
-    delete next[question.customAnswerId]
-  }
+  if (value.trim()) next[question.customAnswerId] = value
+  else delete next[question.customAnswerId]
   return next
 }
 

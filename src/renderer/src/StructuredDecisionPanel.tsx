@@ -2,7 +2,7 @@
  * Provider-native question sets (ACP form elicitations, normalized in acp-session-manager.ts),
  * rendered one question at a time with retained tabbed answers before returning one typed
  * response. The form rules - what counts as answered, when submission is gated, where a tab key
- * lands, and how a chosen option and its "Other" text exclude each other - are the pure
+ * lands, and how a chosen option and its "Other" text combine - are the pure
  * `decision-form.ts`; this file is the markup and focus wiring. While a request is pending the
  * ordinary composer is hidden (see ChatView), so free text cannot bypass the response channel.
  */
@@ -188,6 +188,7 @@ export default function StructuredDecisionPanel(props: StructuredDecisionPanelPr
             <span>Other answer</span>
             <input
               type="text"
+              placeholder={question.customAnswerHint}
               value={
                 typeof answers[question.customAnswerId] === 'string' ? (answers[question.customAnswerId] as string) : ''
               }

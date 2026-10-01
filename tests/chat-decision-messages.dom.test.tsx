@@ -245,7 +245,7 @@ describe('assistant message tone rendering', () => {
     expect(within(panel).getByRole('textbox', { name: 'Other answer' })).toHaveValue('Zed')
   })
 
-  test('switching between Other and a listed option keeps only the current answer mode', () => {
+  test('a listed option and Other text are submitted together as answer and note', () => {
     const resolveElicitation = vi.fn()
     renderChatView({
       decisionRequest: {
@@ -274,21 +274,19 @@ describe('assistant message tone rendering', () => {
 
     const panel = screen.getByRole('region', { name: 'Decision questions' })
     const other = within(panel).getByRole('textbox', { name: 'Other answer' })
-    fireEvent.change(other, { target: { value: 'Zed' } })
+    fireEvent.change(other, { target: { value: 'with Vim keys' } })
     fireEvent.click(within(panel).getByRole('button', { name: 'VS Code' }))
     fireEvent.click(within(panel).getByRole('tab', { name: /Question 1/ }))
-    expect(within(panel).getByRole('textbox', { name: 'Other answer' })).toHaveValue('')
+    expect(within(panel).getByRole('textbox', { name: 'Other answer' })).toHaveValue('with Vim keys')
+    expect(within(panel).getByRole('button', { name: 'VS Code' })).toHaveAttribute('aria-pressed', 'true')
 
-    fireEvent.change(within(panel).getByRole('textbox', { name: 'Other answer' }), {
-      target: { value: 'Sublime Text' }
-    })
-    expect(within(panel).getByRole('button', { name: 'VS Code' })).toHaveAttribute('aria-pressed', 'false')
     fireEvent.click(within(panel).getByRole('tab', { name: /Question 2/ }))
     fireEvent.click(within(panel).getByRole('button', { name: 'Dark' }))
     fireEvent.click(within(panel).getByRole('button', { name: 'Submit answers' }))
 
     expect(resolveElicitation).toHaveBeenCalledWith('request-other-switch', {
-      editor_custom: 'Sublime Text',
+      editor: 'vscode',
+      editor_custom: 'with Vim keys',
       theme: 'dark'
     })
   })

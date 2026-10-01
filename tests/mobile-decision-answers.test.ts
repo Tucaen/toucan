@@ -17,9 +17,8 @@ import type { AgentDecisionQuestion, AgentDecisionRequest } from '../src/shared/
 
 /**
  * Filling in a structured question set on the phone. These are the desktop's rules restated as
- * data, so the two surfaces cannot answer the same elicitation differently - in particular the
- * mutual exclusion between a chosen option and an "Other" answer, which is the one place a form
- * could otherwise send the agent two answers to one question.
+ * data, so the two surfaces cannot answer the same elicitation differently - in particular how a
+ * chosen option and an "Other" answer travel together, which the adapter reads as answer plus note.
  */
 
 function question(overrides: Partial<AgentDecisionQuestion> & { id: string }): AgentDecisionQuestion {
@@ -68,16 +67,21 @@ test('a single-value option replaces, a multi-select toggles', () => {
   assert.equal(isOptionSelected(chooseOption(two, TAGS, 'ui'), TAGS, 'ui'), false)
 })
 
-test('an "Other" answer and a chosen option are mutually exclusive in both directions', () => {
+test('an "Other" answer and a chosen option coexist in both directions', () => {
   const typed = setCustomAnswer(chooseOption(initialDecisionAnswers(), SCOPE, 'Read-only'), SCOPE, 'Only the reads')
-  assert.deepEqual(typed, { scope_custom: 'Only the reads' })
+  assert.deepEqual(typed, { scope: 'Read-only', scope_custom: 'Only the reads' })
   assert.equal(customAnswerText(typed, SCOPE), 'Only the reads')
-  assert.equal(isQuestionAnswered(typed, SCOPE), true)
 
-  // Choosing an option again drops the typed answer rather than sending both.
-  assert.deepEqual(chooseOption(typed, SCOPE, 'Complete CRUD'), { scope: 'Complete CRUD' })
-  // An emptied "Other" field is removed, so the question reads as unanswered again.
-  assert.deepEqual(setCustomAnswer(typed, SCOPE, '   '), {})
+  // Choosing another option keeps the typed note.
+  assert.deepEqual(chooseOption(typed, SCOPE, 'Complete CRUD'), {
+    scope: 'Complete CRUD',
+    scope_custom: 'Only the reads'
+  })
+  // An emptied "Other" field is removed; the chosen option stays.
+  assert.deepEqual(setCustomAnswer(typed, SCOPE, '   '), { scope: 'Read-only' })
+  // Typed text alone still answers the question.
+  const own = setCustomAnswer(initialDecisionAnswers(), SCOPE, 'Only the reads')
+  assert.equal(isQuestionAnswered(own, SCOPE), true)
 })
 
 test('answered means a value the agent can read, and false is one', () => {

@@ -122,6 +122,42 @@ function enumOptions(schema: Record<string, unknown>): Array<{ value: string; la
   })
 }
 
+/** Suffixes that pair a free-text field with the question it belongs to when no marker says so. */
+const CUSTOM_ANSWER_SUFFIXES = ['__other', '_custom']
+
+/**
+ * The question a free-text "Other" or note field belongs to, or null when the field is a question
+ * of its own. Each adapter marks the pairing its own way: claude-agent-acp keys it
+ * `question_<n>_custom` (and marks it only for JetBrains AIR), codex-acp marks it as a `user_note`.
+ */
+function customAnswerQuestionId(
+  id: string,
+  property: Record<string, unknown> | null,
+  properties: Record<string, unknown>
+): string | null {
+  const meta = record(property?._meta)
+  const air = record(record(record(meta?.jetbrains)?.air)?.customAnswer)
+  const legacy = record(meta?._askUserQuestionCustomAnswer)
+  for (const marker of [legacy, air]) {
+    if (marker?.isCustomAnswer === true && typeof marker.questionId === 'string') return marker.questionId
+  }
+  const codex = record(meta?.codex)
+  if (codex?.role === 'user_note' && typeof codex.questionId === 'string') return codex.questionId
+  const suffix = CUSTOM_ANSWER_SUFFIXES.find((candidate) => id.endsWith(candidate))
+  const questionId = suffix ? id.slice(0, -suffix.length) : null
+  return questionId && record(properties[questionId]) ? questionId : null
+}
+
+/** The paired free-text field, with the adapter's own explanation of what typing into it means. */
+function customAnswerSlot(
+  customAnswerId: string | undefined,
+  properties: Record<string, unknown>
+): Pick<AgentDecisionQuestion, 'customAnswerId' | 'customAnswerHint'> {
+  if (!customAnswerId) return {}
+  const hint = record(properties[customAnswerId])?.description
+  return { customAnswerId, ...(typeof hint === 'string' ? { customAnswerHint: hint } : {}) }
+}
+
 /** @internal exported for tests */
 export function decisionQuestions(request: CreateElicitationRequest): AgentDecisionQuestion[] {
   if (request.mode !== 'form' || !('requestedSchema' in request)) return []
@@ -134,12 +170,8 @@ export function decisionQuestions(request: CreateElicitationRequest): AgentDecis
   )
   const customFor = new Map<string, string>()
   for (const [id, value] of Object.entries(properties)) {
-    const property = record(value)
-    const meta = record(property?._meta)
-    const marker = record(meta?._askUserQuestionCustomAnswer)
-    const questionId = marker?.questionId
-    if (marker?.isCustomAnswer === true && typeof questionId === 'string') customFor.set(questionId, id)
-    else if (id.endsWith('__other')) customFor.set(id.slice(0, -'__other'.length), id)
+    const questionId = customAnswerQuestionId(id, record(value), properties)
+    if (questionId) customFor.set(questionId, id)
   }
   return Object.entries(properties).flatMap(([id, value]) => {
     const property = record(value)
@@ -167,7 +199,7 @@ export function decisionQuestions(request: CreateElicitationRequest): AgentDecis
         input,
         multiSelect,
         ...(required.has(id) ? { required: true } : {}),
-        ...(customFor.has(id) ? { customAnswerId: customFor.get(id) } : {})
+        ...customAnswerSlot(customFor.get(id), properties)
       }
     ]
   })

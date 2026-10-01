@@ -237,7 +237,9 @@ export interface AgentDecisionQuestion {
   input: 'select' | 'text' | 'number' | 'boolean'
   multiSelect: boolean
   required?: boolean
+  /** The question's free-text field: an answer of its own, or a note beside a chosen option. */
   customAnswerId?: string
+  customAnswerHint?: string
 }
 
 export interface AgentDecisionRequest {
