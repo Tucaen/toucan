@@ -758,6 +758,8 @@ export interface TicketWakeEvent {
   kind: TicketWakeKind
   /** A failed or cancelled turn's own short reason, never transcript text. */
   reason?: string
+  /** A completed turn's background work still running: its result comes with a later wake. */
+  backgroundTasks?: number
   /** Filled in when the prompt is built, from the ticket session's outcome record. */
   outcome?: { path: string; files: number }
 }
@@ -789,8 +791,12 @@ function wakeLine(event: TicketWakeEvent): string {
     ? ` - ${event.outcome.files} file${event.outcome.files === 1 ? '' : 's'} - outcome record ${event.outcome.path}`
     : ` - run outcome --ticket ${event.ticketId} for its outcome record`
   switch (event.kind) {
-    case 'completed':
-      return `${ticket} completed${outcome}`
+    case 'completed': {
+      const pending = event.backgroundTasks
+      return pending
+        ? `${ticket} completed (background work pending: ${pending} task${pending === 1 ? '' : 's'})${outcome}`
+        : `${ticket} completed${outcome}`
+    }
     case 'failed':
     case 'cancelled': {
       const reason = event.reason?.replace(/\s+/g, ' ').trim()

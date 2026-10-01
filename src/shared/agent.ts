@@ -481,7 +481,13 @@ export type AgentEvent =
    * adapter that cannot determine the window omits `size`.
    */
   | { type: 'usage'; used?: number; size?: number; cost?: AgentSessionCost }
-  | { type: 'turn_complete'; stopReason: string }
+  /**
+   * `backgroundTasks`: background work the turn started that was still running when it ended - a
+   * backgrounded shell or subagent. Its result arrives in a later, notification-driven turn, so
+   * this one is not the session's final word. Absent when none was running, or the provider cannot
+   * tell (Codex).
+   */
+  | { type: 'turn_complete'; stopReason: string; backgroundTasks?: number }
   | { type: 'turn_failed'; turnId: string; message: string; errorKind?: string }
   | { type: 'turn_cancelled'; turnId: string; message: string }
   | { type: 'error'; message: string }

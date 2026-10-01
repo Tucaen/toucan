@@ -53,6 +53,17 @@ test('a finished ticket turn wakes its orchestrator with the event and where to 
   assert.equal(delivered[0].nodeId, 'orchestrator')
   assert.match(delivered[0].text, /#12 completed - 4 files - outcome record C:\\outcomes\\toucan--a--1234\.md/)
   assert.match(delivered[0].text, /outcome --ticket/)
+  assert.doesNotMatch(delivered[0].text, /background work pending/)
+})
+
+test('a turn that ends with background work still running says so, with the task count', async () => {
+  const { waker, delivered, fold } = harness()
+  waker.observe('ticket-a', { type: 'turn_complete', stopReason: 'end_turn', backgroundTasks: 1 })
+  waker.observe('ticket-b', { type: 'turn_complete', stopReason: 'end_turn', backgroundTasks: 2 })
+  await fold()
+  assert.equal(delivered.length, 1)
+  assert.match(delivered[0].text, /#12 completed \(background work pending: 1 task\) - 4 files/)
+  assert.match(delivered[0].text, /#13 completed \(background work pending: 2 tasks\) - run outcome/)
 })
 
 test('events arriving close together are folded into one prompt', async () => {

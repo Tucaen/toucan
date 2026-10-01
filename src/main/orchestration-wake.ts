@@ -177,7 +177,11 @@ export function createOrchestrationWaker(options: OrchestrationWakerOptions): Or
       const kind = ticketWakeKind(event)
       if (!kind) return
       const item: Omit<WakeItem, 'ticketId' | 'sequence'> =
-        event.type === 'turn_failed' || event.type === 'turn_cancelled' ? { kind, reason: event.message } : { kind }
+        event.type === 'turn_failed' || event.type === 'turn_cancelled'
+          ? { kind, reason: event.message }
+          : event.type === 'turn_complete' && event.backgroundTasks
+            ? { kind, backgroundTasks: event.backgroundTasks }
+            : { kind }
       const next = (chains.get(nodeId) ?? Promise.resolve()).then(() => route(nodeId, item))
       chains.set(nodeId, next)
       void track(next).finally(() => {

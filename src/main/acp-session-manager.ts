@@ -296,8 +296,18 @@ export function withSessionInstruction(
  * user-turn lifecycle, so this opt-in is the boundary's only carrier: every result (Toucan, not the
  * filter, decides which are autonomous - see `autonomousTurnSignal`) and the SDK's idle transition
  * as a fallback for a cycle whose result never comes.
+ *
+ * The same channel says whether such a cycle is still to come: `background_tasks_changed` is the
+ * SDK's full set of live background tasks on every change (see `backgroundTaskCount`). The adapter's
+ * own `async_task_*` session updates would say it too, but it sends those only to a client that
+ * declares itself JetBrains AIR, which also strips the `_meta.claudeCode` subagent attribution
+ * Toucan reads off nested tool calls.
  */
-const AUTONOMOUS_TURN_SDK_MESSAGES = [{ type: 'result' }, { type: 'system', subtype: 'session_state_changed' }] as const
+const AUTONOMOUS_TURN_SDK_MESSAGES = [
+  { type: 'result' },
+  { type: 'system', subtype: 'session_state_changed' },
+  { type: 'system', subtype: 'background_tasks_changed' }
+] as const
 
 const CLAUDE_SDK_MESSAGE_NOTIFICATION = '_claude/sdkMessage'
 
@@ -346,6 +356,24 @@ export function autonomousTurnSignal(message: unknown): AutonomousTurnSignal | n
     stopReason: typeof sdk.stop_reason === 'string' && sdk.stop_reason ? sdk.stop_reason : 'end_turn',
     ...(failed && typeof sdk.result === 'string' && sdk.result ? { message: sdk.result } : {})
   }
+}
+
+/**
+ * How many background tasks a forwarded `background_tasks_changed` reports live - backgrounded
+ * shells and subagents alike - or null for any other message. The level has REPLACE semantics, so
+ * the latest count is the whole truth and a lost edge cannot leave a task counted forever.
+ * @internal exported for tests
+ */
+export function backgroundTaskCount(message: unknown): number | null {
+  if (typeof message !== 'object' || message === null) return null
+  const sdk = message as { type?: unknown; subtype?: unknown; tasks?: unknown }
+  if (sdk.type !== 'system' || sdk.subtype !== 'background_tasks_changed' || !Array.isArray(sdk.tasks)) return null
+  return sdk.tasks.length
+}
+
+/** A turn boundary that names the background work still running past it (see `backgroundTaskCount`). */
+function withBackgroundTasks(event: AgentEvent, backgroundTasks: number): AgentEvent {
+  return event.type === 'turn_complete' && backgroundTasks > 0 ? { ...event, backgroundTasks } : event
 }
 
 interface RunningAgent {
@@ -436,6 +464,8 @@ interface RunningAgent {
    * accepted meanwhile takes the cycle over - its own boundary settles everything before it.
    */
   autonomousTurn?: { turnId: string; cancelRequested: boolean }
+  /** The live background tasks the latest `background_tasks_changed` reported; unset before any. */
+  backgroundTasks?: number
   stopping: boolean
   /**
    * Set when `create` itself failed and stopped the session. The adapter dying mid-handshake
@@ -1502,7 +1532,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
             message: signal.message ?? 'The agent could not finish the work it resumed on its own.'
           }
         : { type: 'turn_complete', stopReason: signal.end === 'result' ? signal.stopReason : 'end_turn' }
-    send(running, boundary)
+    send(running, withBackgroundTasks(boundary, running.backgroundTasks ?? 0))
     send(running, { type: 'status', status: 'ready' })
     running.wakeGate?.flush()
   }
@@ -1536,7 +1566,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         running.authMethods
       )
       if (turn.authRequired) running.authRequired = true
-      for (const event of turn.events) send(running, event)
+      for (const event of turn.events) send(running, withBackgroundTasks(event, running.backgroundTasks ?? 0))
       return turn.result
     } finally {
       running.busy = false
@@ -1752,6 +1782,8 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
           CLAUDE_SDK_MESSAGE_NOTIFICATION,
           (params: unknown) => params as { message?: unknown },
           ({ params }) => {
+            const live = backgroundTaskCount(params?.message)
+            if (live !== null) running.backgroundTasks = live
             const signal = autonomousTurnSignal(params?.message)
             if (signal) closeAutonomousTurn(running, signal)
           }

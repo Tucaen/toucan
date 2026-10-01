@@ -6,6 +6,7 @@ import { test } from 'vitest'
 import type { WebContents } from 'electron'
 import {
   autonomousTurnSignal,
+  backgroundTaskCount,
   createAcpSessionManager,
   withAutonomousTurnReporting
 } from '../src/main/acp-session-manager'
@@ -48,10 +49,13 @@ lines.on('line', (line) => {
   } else if (request.method === 'session/prompt') {
     edit('c1', 'src/a.ts')
     update({ sessionUpdate: 'tool_call', toolCallId: 'c2', title: 'npm test', kind: 'execute' })
+    // The backgrounded command is live when the turn ends; its settle empties the level again.
+    sdk({ type: 'system', subtype: 'background_tasks_changed', tasks: [{ task_id: 'b1', task_type: 'local_bash', description: 'npm test' }] })
     say('m1', 'The full suite is running in the background.')
     sdk({ type: 'result', subtype: 'success', num_turns: 3, origin: { kind: 'human' } })
     send({ jsonrpc: '2.0', id: request.id, result: { stopReason: 'end_turn' } })
     setTimeout(() => {
+      sdk({ type: 'system', subtype: 'background_tasks_changed', tasks: [] })
       // The CLI's own notification echo is not forwarded live; the agent's reaction is.
       say('m2', 'Seven tests failed; fixing them.')
       edit('c3', 'src/b.ts')
@@ -127,6 +131,7 @@ test('a turn the agent resumes on a task notification refreshes the record and w
     assert.equal(first.commit, '08a06f0')
     assert.equal(first.lastResult, 'The full suite is running in the background.')
     await until(() => delivered.length === 1 || undefined)
+    assert.match(delivered[0], /#CIC-33 completed \(background work pending: 1 task\)/)
     head = 'ab543d1'
 
     // The notification-driven cycle has no prompt of its own; its end is a turn boundary all the same.
@@ -135,7 +140,8 @@ test('a turn the agent resumes on a task notification refreshes the record and w
     assert.equal(second.turns, 1, 'a task notification is not an ask, so it does not count as one')
     assert.deepEqual(second.filesTouched, ['src/a.ts', 'src/b.ts'])
     await until(() => delivered.length === 2 || undefined)
-    assert.match(delivered[1], /CIC-33 completed/)
+    assert.match(delivered[1], /#CIC-33 completed - /)
+    assert.doesNotMatch(delivered[1], /background work pending/)
 
     // The placeholder result and the trailing idle close nothing: the cycle was already closed once.
     await waker.idle()
@@ -176,10 +182,24 @@ test('autonomous cycles are read off results and idle, never off a placeholder',
   assert.equal(autonomousTurnSignal({ type: 'assistant' }), null)
 })
 
+test('the live background-task count is read off the replace-semantics level, never anything else', () => {
+  const level = (tasks: unknown) => ({ type: 'system', subtype: 'background_tasks_changed', tasks })
+  assert.equal(backgroundTaskCount(level([{ task_id: 'b1' }, { task_id: 'a1' }])), 2)
+  assert.equal(backgroundTaskCount(level([])), 0)
+  assert.equal(backgroundTaskCount(level('garbled')), null)
+  assert.equal(backgroundTaskCount({ type: 'system', subtype: 'session_state_changed', state: 'idle' }), null)
+  assert.equal(backgroundTaskCount({ type: 'result', subtype: 'success', num_turns: 2 }), null)
+})
+
 test('the raw-message opt-in keeps every sibling Claude option', () => {
   const configured = withAutonomousTurnReporting({
     _meta: { claudeCode: { options: { plugins: [{ type: 'local', path: 'skills' }] } } }
   })
   assert.deepEqual(configured._meta?.claudeCode?.options, { plugins: [{ type: 'local', path: 'skills' }] })
   assert.ok(configured._meta?.claudeCode?.emitRawSDKMessages?.some((filter) => filter.type === 'result'))
+  assert.ok(
+    configured._meta?.claudeCode?.emitRawSDKMessages?.some(
+      (filter) => filter.type === 'system' && filter.subtype === 'background_tasks_changed'
+    )
+  )
 })
