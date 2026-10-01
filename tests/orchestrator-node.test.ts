@@ -116,3 +116,15 @@ test('the store validates the role at the seam: only the orchestrator role, only
   assert.equal(parseWorkspaceState(workspace([savedChat({ role: 'admin' as never })])), null)
   assert.equal(parseWorkspaceState(workspace([savedChat({ kind: 'terminal', role: 'orchestrator' })])), null)
 })
+
+test('a ticket session opened in the background is born unselected, so it never takes the caret', () => {
+  const seed = {
+    id: 'ticket',
+    kind: 'claude' as const,
+    label: '#42',
+    position: { x: 0, y: 0 },
+    launchMode: 'new' as const
+  }
+  assert.equal(createSessionCanvasNode(seed, project, undefined, callbacks).selected, true)
+  assert.equal(createSessionCanvasNode({ ...seed, background: true }, project, undefined, callbacks).selected, false)
+})

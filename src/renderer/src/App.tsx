@@ -1128,6 +1128,8 @@ function Canvas(): JSX.Element {
       permissionMode?: string
       /** The orchestrator that spawned this ticket session; the orchestrated-by edge is drawn from it. */
       orchestratedBy?: OrchestratorLink
+      /** Opened on the orchestrator's behalf: the node and the current selection are left as they are. */
+      background?: boolean
       // Returns the canvas node id it minted, or null when it refused to create one - the
       // requested worktree is gone - so a caller waiting on this session knows there is none.
     }): string | null => {
@@ -1176,7 +1178,8 @@ function Canvas(): JSX.Element {
             kind === 'terminal' ? undefined : (options.permissionMode ?? permissionModesRef.current[kind]),
           modelId: options.modelId,
           effortId: options.effortId,
-          initialInput: options.initialInput
+          initialInput: options.initialInput,
+          background: options.background
         },
         project,
         worktree,
@@ -1202,7 +1205,10 @@ function Canvas(): JSX.Element {
         }
       )
       setNodes((current) => {
-        const placed = [...current.map((candidate) => ({ ...candidate, selected: false })), node]
+        const placed = [
+          ...(options.background ? current : current.map((candidate) => ({ ...candidate, selected: false }))),
+          node
+        ]
         return contained ? withRoomForChat(placed, worktree.worktreeId) : placed
       })
       setNodeStatuses((current) => ({ ...current, [id]: 'starting' }))
@@ -2426,7 +2432,8 @@ function Canvas(): JSX.Element {
     (
       created: { path: string; branch: string; baseRef: string },
       project: Project,
-      position: { x: number; y: number }
+      position: { x: number; y: number },
+      background = false
     ): WorktreeCanvasNode['data'] => {
       const worktreeNode = createWorktreeCanvasNode(
         {
@@ -2442,10 +2449,7 @@ function Canvas(): JSX.Element {
         worktreeCallbacks
       )
       const register = (current: CanvasNode[]): CanvasNode[] =>
-        registerWorktreeNode(
-          current.map((node) => ({ ...node, selected: false })),
-          worktreeNode
-        )
+        registerWorktreeNode(background ? current : current.map((node) => ({ ...node, selected: false })), worktreeNode)
       // `addSessionNode` runs next, in this same tick, and resolves the worktree from
       // `nodesRef`, which would otherwise lag until the next render: a record discovery had
       // already placed - kept under its own id, and possibly still marked unavailable - has to
@@ -2505,7 +2509,9 @@ function Canvas(): JSX.Element {
               y: orchestrator.position.y
             })
           : centredDropPosition(DEFAULT_WORKTREE_SIZE)
-      const worktree = registerCreatedWorktree(request.worktree, project, position)
+      // In the background: the captain may be typing elsewhere, and a selected new chat would
+      // take the caret out of that field.
+      const worktree = registerCreatedWorktree(request.worktree, project, position, true)
       const nodeId = addSessionNode({
         kind: 'claude',
         project,
@@ -2517,7 +2523,8 @@ function Canvas(): JSX.Element {
         effortId: request.effortId,
         permissionMode: request.permissionMode,
         orchestratedBy: request.orchestratedBy,
-        initialInput: request.prompt
+        initialInput: request.prompt,
+        background: true
       })
       if (!nodeId) return { ok: false, message: 'The desktop could not open the ticket session in its worktree.' }
       return { ok: true, nodeId }

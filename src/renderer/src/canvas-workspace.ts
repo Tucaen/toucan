@@ -922,14 +922,19 @@ export interface SessionNodeSeed {
   modelId?: string
   effortId?: string
   initialInput?: string
+  /**
+   * Opened without the captain asking - an orchestrator's ticket session. Such a node is born
+   * unselected, so it takes neither the selection nor the caret from whatever the captain is typing in.
+   */
+  background?: boolean
 }
 
 /**
  * The one place a freshly opened session node is built: every new session goes through
  * `addSessionNode` in `App.tsx`, which builds it here. Attachment is decided
  * here and nowhere later: a node given a worktree runs in its directory from the first launch,
- * since `workingDirectory` is the only value ever sent as a cwd. It is born selected, which is
- * what hands its composer the caret once it can take input.
+ * since `workingDirectory` is the only value ever sent as a cwd. Unless opened in the background,
+ * it is born selected, which is what hands its composer the caret once it can take input.
  */
 export function createSessionCanvasNode(
   seed: SessionNodeSeed,
@@ -941,7 +946,7 @@ export function createSessionCanvasNode(
     id: seed.id,
     type: 'terminalNode',
     dragHandle: NODE_DRAG_HANDLE,
-    selected: true,
+    selected: !seed.background,
     position: seed.position,
     data: {
       kind: seed.kind,
