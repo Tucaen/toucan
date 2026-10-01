@@ -8,7 +8,7 @@ import {
   autonomousTurnSignal,
   backgroundTaskCount,
   createAcpSessionManager,
-  withAutonomousTurnReporting
+  withForwardedSdkMessages
 } from '../src/main/acp-session-manager'
 import { createAgentEventBroker } from '../src/main/agent-event-broker'
 import { createOrchestrationWaker } from '../src/main/orchestration-wake'
@@ -192,7 +192,7 @@ test('the live background-task count is read off the replace-semantics level, ne
 })
 
 test('the raw-message opt-in keeps every sibling Claude option', () => {
-  const configured = withAutonomousTurnReporting({
+  const configured = withForwardedSdkMessages({
     _meta: { claudeCode: { options: { plugins: [{ type: 'local', path: 'skills' }] } } }
   })
   assert.deepEqual(configured._meta?.claudeCode?.options, { plugins: [{ type: 'local', path: 'skills' }] })

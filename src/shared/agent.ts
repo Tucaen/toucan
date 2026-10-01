@@ -482,10 +482,11 @@ export type AgentEvent =
    */
   | { type: 'usage'; used?: number; size?: number; cost?: AgentSessionCost }
   /**
-   * `backgroundTasks`: background work the turn started that was still running when it ended - a
-   * backgrounded shell or subagent. Its result arrives in a later, notification-driven turn, so
-   * this one is not the session's final word. Absent when none was running, or the provider cannot
-   * tell (Codex).
+   * `backgroundTasks`: background work still running when the turn ended - chiefly a backgrounded
+   * shell, since claude-agent-acp holds a prompted turn open until its background subagents finish;
+   * an autonomous cycle's can be either. Its result arrives in a later, notification-driven turn,
+   * so this one is not the session's final word. Absent when none was running, or the provider
+   * cannot tell (Codex).
    */
   | { type: 'turn_complete'; stopReason: string; backgroundTasks?: number }
   | { type: 'turn_failed'; turnId: string; message: string; errorKind?: string }

@@ -181,7 +181,7 @@ interface SessionSkillsConfiguration {
         plugins?: Array<{ type: 'local'; path: string }>
         agents?: ClaudeDelegationSessionMeta['claudeCode']['options']['agents']
       }
-      emitRawSDKMessages?: typeof AUTONOMOUS_TURN_SDK_MESSAGES
+      emitRawSDKMessages?: typeof FORWARDED_SDK_MESSAGES
     }
     systemPrompt?: ClaudeDelegationSessionMeta['systemPrompt']
   }
@@ -303,7 +303,7 @@ export function withSessionInstruction(
  * declares itself JetBrains AIR, which also strips the `_meta.claudeCode` subagent attribution
  * Toucan reads off nested tool calls.
  */
-const AUTONOMOUS_TURN_SDK_MESSAGES = [
+const FORWARDED_SDK_MESSAGES = [
   { type: 'result' },
   { type: 'system', subtype: 'session_state_changed' },
   { type: 'system', subtype: 'background_tasks_changed' }
@@ -311,13 +311,13 @@ const AUTONOMOUS_TURN_SDK_MESSAGES = [
 
 const CLAUDE_SDK_MESSAGE_NOTIFICATION = '_claude/sdkMessage'
 
-/** Opts a Claude session into the raw messages `AUTONOMOUS_TURN_SDK_MESSAGES` names. @internal exported for tests */
-export function withAutonomousTurnReporting(configuration: SessionSkillsConfiguration): SessionSkillsConfiguration {
+/** Opts a Claude session into the raw messages `FORWARDED_SDK_MESSAGES` names. @internal exported for tests */
+export function withForwardedSdkMessages(configuration: SessionSkillsConfiguration): SessionSkillsConfiguration {
   return {
     ...configuration,
     _meta: {
       ...configuration._meta,
-      claudeCode: { options: {}, ...configuration._meta?.claudeCode, emitRawSDKMessages: AUTONOMOUS_TURN_SDK_MESSAGES }
+      claudeCode: { options: {}, ...configuration._meta?.claudeCode, emitRawSDKMessages: FORWARDED_SDK_MESSAGES }
     }
   }
 }
@@ -369,11 +369,6 @@ export function backgroundTaskCount(message: unknown): number | null {
   const sdk = message as { type?: unknown; subtype?: unknown; tasks?: unknown }
   if (sdk.type !== 'system' || sdk.subtype !== 'background_tasks_changed' || !Array.isArray(sdk.tasks)) return null
   return sdk.tasks.length
-}
-
-/** A turn boundary that names the background work still running past it (see `backgroundTaskCount`). */
-function withBackgroundTasks(event: AgentEvent, backgroundTasks: number): AgentEvent {
-  return event.type === 'turn_complete' && backgroundTasks > 0 ? { ...event, backgroundTasks } : event
 }
 
 interface RunningAgent {
@@ -459,13 +454,13 @@ interface RunningAgent {
   busy: boolean
   /**
    * An autonomous cycle the agent started on its own while no `session/prompt` was in flight (see
-   * `AUTONOMOUS_TURN_SDK_MESSAGES`). Deliberately not `busy`: the adapter queues a prompt sent
+   * `FORWARDED_SDK_MESSAGES`). Deliberately not `busy`: the adapter queues a prompt sent
    * during such a cycle, so refusing one would only cost the user their message. A prompt that is
    * accepted meanwhile takes the cycle over - its own boundary settles everything before it.
    */
   autonomousTurn?: { turnId: string; cancelRequested: boolean }
-  /** The live background tasks the latest `background_tasks_changed` reported; unset before any. */
-  backgroundTasks?: number
+  /** The live background tasks the latest `background_tasks_changed` reported (see `backgroundTaskCount`). */
+  backgroundTasks: number
   stopping: boolean
   /**
    * Set when `create` itself failed and stopped the session. The adapter dying mid-handshake
@@ -1181,6 +1176,15 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
     broker.publish(running.request.id, event)
   }
 
+  /**
+   * Publishes a turn boundary, a completed one naming the background work still running past it:
+   * that work's result comes with a later, notification-driven turn.
+   */
+  const sendBoundary = (running: RunningAgent, event: AgentEvent): void => {
+    const { backgroundTasks } = running
+    send(running, event.type === 'turn_complete' && backgroundTasks > 0 ? { ...event, backgroundTasks } : event)
+  }
+
   const adapterPath = (provider: AgentCreateRequest['provider']): string =>
     join(
       options.appPath,
@@ -1309,7 +1313,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       // answer depend on the boundary of an autonomous cycle as much as the orchestrator's wake does.
       const sessionConfiguration =
         running.request.provider === 'claude'
-          ? withAutonomousTurnReporting(orchestratingConfiguration)
+          ? withForwardedSdkMessages(orchestratingConfiguration)
           : orchestratingConfiguration
       // Included only when a terminal edge stands at this creation; a session without one carries
       // zero extra tokens. An edge drawn later is adopted by a canvas-driven restart at a safe
@@ -1507,7 +1511,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
 
   /**
    * Agent output with no `session/prompt` in flight is an autonomous cycle (see
-   * `AUTONOMOUS_TURN_SDK_MESSAGES`): reported as working, like any turn, so `status` stops reading
+   * `FORWARDED_SDK_MESSAGES`): reported as working, like any turn, so `status` stops reading
    * ready while the agent is plainly at work. Opened only by output the agent authors - a message, a
    * thought, a new tool call - never by a late `tool_call_update` or usage report, which can trail a
    * turn that already ended and would leave a cycle open that no result will ever close.
@@ -1532,7 +1536,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
             message: signal.message ?? 'The agent could not finish the work it resumed on its own.'
           }
         : { type: 'turn_complete', stopReason: signal.end === 'result' ? signal.stopReason : 'end_turn' }
-    send(running, withBackgroundTasks(boundary, running.backgroundTasks ?? 0))
+    sendBoundary(running, boundary)
     send(running, { type: 'status', status: 'ready' })
     running.wakeGate?.flush()
   }
@@ -1566,7 +1570,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         running.authMethods
       )
       if (turn.authRequired) running.authRequired = true
-      for (const event of turn.events) send(running, withBackgroundTasks(event, running.backgroundTasks ?? 0))
+      for (const event of turn.events) sendBoundary(running, event)
       return turn.result
     } finally {
       running.busy = false
@@ -1858,6 +1862,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         recentWrites: [],
         ...(outcomeWatch ? { sessionOutcomes: outcomeWatch } : {}),
         busy: false,
+        backgroundTasks: 0,
         stopping: false,
         authRequired: false,
         opening: true,
