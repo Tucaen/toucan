@@ -181,6 +181,7 @@ interface SessionSkillsConfiguration {
         plugins?: Array<{ type: 'local'; path: string }>
         agents?: ClaudeDelegationSessionMeta['claudeCode']['options']['agents']
       }
+      emitRawSDKMessages?: typeof AUTONOMOUS_TURN_SDK_MESSAGES
     }
     systemPrompt?: ClaudeDelegationSessionMeta['systemPrompt']
   }
@@ -234,7 +235,10 @@ export function withClaudeDelegation(
       ...configuration,
       _meta: {
         ...configuration._meta,
-        claudeCode: { options: { ...configuration._meta?.claudeCode?.options, ...meta.claudeCode.options } }
+        claudeCode: {
+          ...configuration._meta?.claudeCode,
+          options: { ...configuration._meta?.claudeCode?.options, ...meta.claudeCode.options }
+        }
       }
     },
     meta.systemPrompt.append
@@ -278,6 +282,69 @@ export function withSessionInstruction(
         append: [existing, instruction].filter(Boolean).join('\n\n')
       }
     }
+  }
+}
+
+/**
+ * The raw SDK messages a Claude session forwards as `_claude/sdkMessage`, which is the only way
+ * Toucan learns that an *autonomous* cycle ended. claude-agent-acp settles `session/prompt` at the
+ * user turn's own result, so when the agent then wakes on its own - a background task's
+ * `<task-notification>`, chiefly - the work it does belongs to no `session/prompt` and the adapter
+ * reports no boundary for it. Without one there is no `turn_complete`: the outcome record keeps
+ * the earlier turn's result, the orchestrator is never woken, and the renderer leaves the cycle's
+ * answer a provisional progress message. The adapter deliberately keeps such results off the
+ * user-turn lifecycle, so this opt-in is the boundary's only carrier: every result (Toucan, not the
+ * filter, decides which are autonomous - see `autonomousTurnSignal`) and the SDK's idle transition
+ * as a fallback for a cycle whose result never comes.
+ */
+const AUTONOMOUS_TURN_SDK_MESSAGES = [{ type: 'result' }, { type: 'system', subtype: 'session_state_changed' }] as const
+
+const CLAUDE_SDK_MESSAGE_NOTIFICATION = '_claude/sdkMessage'
+
+/** Opts a Claude session into the raw messages `AUTONOMOUS_TURN_SDK_MESSAGES` names. @internal exported for tests */
+export function withAutonomousTurnReporting(configuration: SessionSkillsConfiguration): SessionSkillsConfiguration {
+  return {
+    ...configuration,
+    _meta: {
+      ...configuration._meta,
+      claudeCode: { options: {}, ...configuration._meta?.claudeCode, emitRawSDKMessages: AUTONOMOUS_TURN_SDK_MESSAGES }
+    }
+  }
+}
+
+/** What one raw SDK message says about an autonomous cycle, if anything. */
+export type AutonomousTurnSignal =
+  { end: 'result'; failed: boolean; stopReason: string; message?: string } | { end: 'idle' }
+
+/**
+ * Reads a forwarded raw SDK message as the end of an autonomous cycle. Whether a cycle is actually
+ * open is the session manager's call (a result while `session/prompt` is in flight is the user
+ * turn's own); this only says what the message would end it with. A `num_turns: 0` result is one of
+ * the placeholders CLI 2.1.274+ emits for queued notifications ahead of the one shared follow-up
+ * that answers them all, so it ends nothing.
+ * @internal exported for tests
+ */
+export function autonomousTurnSignal(message: unknown): AutonomousTurnSignal | null {
+  if (typeof message !== 'object' || message === null) return null
+  const sdk = message as {
+    type?: unknown
+    subtype?: unknown
+    state?: unknown
+    num_turns?: unknown
+    is_error?: unknown
+    stop_reason?: unknown
+    result?: unknown
+  }
+  if (sdk.type === 'system' && sdk.subtype === 'session_state_changed') {
+    return sdk.state === 'idle' ? { end: 'idle' } : null
+  }
+  if (sdk.type !== 'result' || sdk.num_turns === 0) return null
+  const failed = sdk.is_error === true || (typeof sdk.subtype === 'string' && sdk.subtype !== 'success')
+  return {
+    end: 'result',
+    failed,
+    stopReason: typeof sdk.stop_reason === 'string' && sdk.stop_reason ? sdk.stop_reason : 'end_turn',
+    ...(failed && typeof sdk.result === 'string' && sdk.result ? { message: sdk.result } : {})
   }
 }
 
@@ -362,6 +429,13 @@ interface RunningAgent {
    */
   sessionOutcomes?: SessionOutcomeWatch
   busy: boolean
+  /**
+   * An autonomous cycle the agent started on its own while no `session/prompt` was in flight (see
+   * `AUTONOMOUS_TURN_SDK_MESSAGES`). Deliberately not `busy`: the adapter queues a prompt sent
+   * during such a cycle, so refusing one would only cost the user their message. A prompt that is
+   * accepted meanwhile takes the cycle over - its own boundary settles everything before it.
+   */
+  autonomousTurn?: { turnId: string; cancelRequested: boolean }
   stopping: boolean
   /**
    * Set when `create` itself failed and stopped the session. The adapter dying mid-handshake
@@ -1198,9 +1272,15 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       // An orchestrator's first prompt is its task; what to do with it rides the system prompt, so
       // no slash command is needed. Carried by role, even if the grant failed: the CLI then says
       // plainly that the token is missing rather than the session not knowing it orchestrates.
-      const sessionConfiguration = isClaudeOrchestrator(running.request)
+      const orchestratingConfiguration = isClaudeOrchestrator(running.request)
         ? withSessionInstruction(decidingConfiguration, orchestratorInstructionFor(toucanSkillsRoot ?? options.appPath))
         : decidingConfiguration
+      // Every Claude session, not only ticket sessions: the outcome record and the renderer's final
+      // answer depend on the boundary of an autonomous cycle as much as the orchestrator's wake does.
+      const sessionConfiguration =
+        running.request.provider === 'claude'
+          ? withAutonomousTurnReporting(orchestratingConfiguration)
+          : orchestratingConfiguration
       // Included only when a terminal edge stands at this creation; a session without one carries
       // zero extra tokens. An edge drawn later is adopted by a canvas-driven restart at a safe
       // boundary, and removal forces nothing - the registry already refuses at call time.
@@ -1387,9 +1467,44 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
     const imageGuard = imageCapabilityGuard(running, blocks)
     if (imageGuard) return { refusal: imageGuard }
     running.busy = true
+    // The adapter runs this prompt once the autonomous cycle in flight is over, so the prompt's own
+    // boundary is the one that settles both; closing the cycle here would report it finished early.
+    running.autonomousTurn = undefined
     publishUserMessage(running, content)
     send(running, { type: 'status', status: 'working' })
     return { turn: settleTurn(running, running.sessionId, blocks) }
+  }
+
+  /**
+   * Agent output with no `session/prompt` in flight is an autonomous cycle (see
+   * `AUTONOMOUS_TURN_SDK_MESSAGES`): reported as working, like any turn, so `status` stops reading
+   * ready while the agent is plainly at work. Opened only by output the agent authors - a message, a
+   * thought, a new tool call - never by a late `tool_call_update` or usage report, which can trail a
+   * turn that already ended and would leave a cycle open that no result will ever close.
+   */
+  const openAutonomousTurn = (running: RunningAgent): void => {
+    if (running.busy || running.autonomousTurn || running.replayEvents || !running.sessionId) return
+    running.autonomousTurn = { turnId: crypto.randomUUID(), cancelRequested: false }
+    send(running, { type: 'status', status: 'working' })
+  }
+
+  /** Ends the open autonomous cycle with the same events a prompted turn's boundary publishes. */
+  const closeAutonomousTurn = (running: RunningAgent, signal: AutonomousTurnSignal): void => {
+    const turn = running.autonomousTurn
+    if (!turn || running.busy) return
+    running.autonomousTurn = undefined
+    const boundary: AgentEvent = turn.cancelRequested
+      ? { type: 'turn_cancelled', turnId: turn.turnId, message: 'Stopped by you.' }
+      : signal.end === 'result' && signal.failed
+        ? {
+            type: 'turn_failed',
+            turnId: turn.turnId,
+            message: signal.message ?? 'The agent could not finish the work it resumed on its own.'
+          }
+        : { type: 'turn_complete', stopReason: signal.end === 'result' ? signal.stopReason : 'end_turn' }
+    send(running, boundary)
+    send(running, { type: 'status', status: 'ready' })
+    running.wakeGate?.flush()
   }
 
   /**
@@ -1539,6 +1654,12 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
           )
             markReplayMessageBoundary(running)
           if (
+            update.sessionUpdate === 'agent_message_chunk' ||
+            update.sessionUpdate === 'agent_thought_chunk' ||
+            update.sessionUpdate === 'tool_call'
+          )
+            openAutonomousTurn(running)
+          if (
             update.sessionUpdate === 'user_message_chunk' &&
             update.content.type === 'text' &&
             // Only `session/load` replay may author user messages from the adapter's side: a live
@@ -1627,6 +1748,14 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
             })
           }
         })
+        .onNotification(
+          CLAUDE_SDK_MESSAGE_NOTIFICATION,
+          (params: unknown) => params as { message?: unknown },
+          ({ params }) => {
+            const signal = autonomousTurnSignal(params?.message)
+            if (signal) closeAutonomousTurn(running, signal)
+          }
+        )
         .onRequest(methods.client.session.requestPermission, ({ params }) => {
           const approvalId = crypto.randomUUID()
           // Not `options`: that is the manager's own construction argument in every enclosing
@@ -2054,6 +2183,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
     cancel(id): void {
       const running = agents.get(id)
       if (!running?.sessionId) return
+      if (running.autonomousTurn) running.autonomousTurn.cancelRequested = true
       // Queued messages are not dropped by a stop: the cancelled prompt's `finally` flushes the
       // wake gate once cancellation settles, so they run as the next turn rather than vanishing.
       void running.context.notify(methods.agent.session.cancel, { sessionId: running.sessionId })
