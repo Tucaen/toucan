@@ -1,17 +1,36 @@
 import { strict as assert } from 'node:assert'
-import { existsSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { test } from 'vitest'
+import { afterEach, test } from 'vitest'
 import { createWorktreeManager, runGitWithExecFile } from '../src/main/git-worktree'
 import { createOrchestrationCleanup } from '../src/main/orchestration-cleanup'
 import { createWorkspaceContainment } from '../src/main/workspace-containment'
 import { applyPlan, recordTicketSession } from '../src/shared/orchestration'
 
+// Real Git on Windows costs a process spawn per call, and the full suite runs these on a machine
+// every worker is saturating: measured at 6 s alone and 30 s+ in the full run for the same 80-odd
+// spawns, so the default 30 s deadline is a race rather than a check.
+const GIT_FIXTURE_TIMEOUT = 120_000
+
+const roots: string[] = []
+afterEach(() => {
+  // Best effort: Windows may still hold a handle in the directory (EBUSY), and a leaked temp
+  // directory is no reason to fail a test that already passed.
+  for (const root of roots.splice(0)) {
+    try {
+      rmSync(root, { recursive: true, force: true, maxRetries: 3 })
+    } catch {
+      /* left for the OS temp cleanup */
+    }
+  }
+})
+
 async function fixture() {
   // Git reports worktree paths in their long form, and the Windows runner's temp directory is
   // an 8.3 short path (`RUNNER~1`), so the fixture starts from the name Git will list.
   const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'toucan-cleanup-')))
+  roots.push(root)
   const project = join(root, 'project')
   const remote = join(root, 'remote.git')
   const git = async (args: string[], cwd = project) => {
@@ -19,8 +38,7 @@ async function fixture() {
     assert.equal(result.code, 0, result.stderr)
     return result.stdout.trim()
   }
-  await git(['init', '--bare', remote], root)
-  await git(['init', '-b', 'main', project], root)
+  await Promise.all([git(['init', '--bare', remote], root), git(['init', '-b', 'main', project], root)])
   await git(['config', 'user.email', 'test@example.invalid'])
   await git(['config', 'user.name', 'Test'])
   await git(['commit', '--allow-empty', '-m', 'base'])
@@ -86,7 +104,7 @@ test('cleanup removes only published merged worktrees and branches, and can be r
     (await cleanup.run(record)).removed.map((entry) => entry.ticket),
     ['1']
   )
-})
+}, GIT_FIXTURE_TIMEOUT)
 
 test('a merged flag cannot delete unpublished, unmerged, dirty or occupied work', async () => {
   const { git, record, cleanup, canvas } = await fixture()
@@ -100,7 +118,7 @@ test('a merged flag cannot delete unpublished, unmerged, dirty or occupied work'
   assert.match(dirty.retained[0].reason!, /uncommitted|untracked/)
   assert.equal(existsSync(join(path, 'keep.txt')), true)
   assert.deepEqual(canvas, [])
-})
+}, GIT_FIXTURE_TIMEOUT)
 
 test('cleanup retains a worktree when its canvas cannot safely close the ticket', async () => {
   const { root, git, record } = await fixture()
@@ -116,7 +134,7 @@ test('cleanup retains a worktree when its canvas cannot safely close the ticket'
   assert.match(result.retained[0].reason!, /working/)
   assert.equal(existsSync(record.tickets[0].session!.worktreePath!), true)
   assert.ok(await git(['branch', '--list', 'ticket/1']))
-})
+}, GIT_FIXTURE_TIMEOUT)
 
 test('cleanup refuses a project no longer registered in the workspace before running Git', async () => {
   const { record } = await fixture()
@@ -133,4 +151,4 @@ test('cleanup refuses a project no longer registered in the workspace before run
   const result = await cleanup.run(record)
   assert.match(result.retained[0].reason!, /registered workspace/)
   assert.equal(existsSync(record.tickets[0].session!.worktreePath!), true)
-})
+}, GIT_FIXTURE_TIMEOUT)

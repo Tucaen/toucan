@@ -1,9 +1,9 @@
 import { strict as assert } from 'node:assert'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { test } from 'vitest'
+import { afterEach, test } from 'vitest'
 import { runGitWithExecFile } from '../src/main/git-worktree'
 import { installPushGuard } from '../src/main/ticket-push-guard'
 
@@ -18,6 +18,24 @@ const identity = {
   GIT_COMMITTER_NAME: 'Toucan Test',
   GIT_COMMITTER_EMAIL: 'test@example.invalid'
 }
+
+// Every call is a real `git` spawn, and the full suite runs these on a machine every worker is
+// saturating: the same spawns take 4 s alone and 30 s+ in the full run, so the default 30 s
+// deadline is a race rather than a check.
+const GIT_FIXTURE_TIMEOUT = 120_000
+
+const roots: string[] = []
+afterEach(() => {
+  // Best effort: Windows may still hold a handle in the directory (EBUSY), and a leaked temp
+  // directory is no reason to fail a test that already passed.
+  for (const root of roots.splice(0)) {
+    try {
+      rmSync(root, { recursive: true, force: true, maxRetries: 3 })
+    } catch {
+      /* left for the OS temp cleanup */
+    }
+  }
+})
 
 function git(cwd: string, ...args: string[]): string {
   return execFileSync('git', args, { cwd, env: { ...process.env, ...identity }, encoding: 'utf8', stdio: 'pipe' })
@@ -34,6 +52,7 @@ function gitFails(cwd: string, ...args: string[]): string {
 
 function repository(): { root: string; project: string; worktree: string } {
   const root = mkdtempSync(join(tmpdir(), 'toucan-push-guard-'))
+  roots.push(root)
   const remote = join(root, 'remote.git')
   const project = join(root, 'project')
   git(root, 'init', '--bare', '--initial-branch=main', remote)
@@ -64,7 +83,7 @@ test('a guarded ticket worktree refuses every push while the project checkout st
   git(project, 'merge', '--ff-only', 'ticket/34')
   git(project, 'push', 'origin', 'main')
   assert.equal(git(project, 'rev-parse', 'origin/main').trim(), git(project, 'rev-parse', 'ticket/34').trim())
-})
+}, GIT_FIXTURE_TIMEOUT)
 
 test('the project hooks keep running in a guarded worktree', async () => {
   const { project, worktree } = repository()
@@ -77,7 +96,7 @@ test('the project hooks keep running in a guarded worktree', async () => {
   writeFileSync(join(worktree, 'change.txt'), 'ticket work\n')
   git(worktree, 'add', 'change.txt')
   assert.match(gitFails(worktree, 'commit', '-m', 'ticket work'), /project pre-commit refused/)
-})
+}, GIT_FIXTURE_TIMEOUT)
 
 test('installing the guard twice is harmless, and a path that is no worktree is refused', async () => {
   const { root, worktree } = repository()
@@ -87,7 +106,7 @@ test('installing the guard twice is harmless, and a path that is no worktree is 
 
   const refused = await installPushGuard(join(root, 'missing'), runGitWithExecFile)
   assert.equal(refused.ok, false)
-})
+}, GIT_FIXTURE_TIMEOUT)
 
 test.runIf(process.platform !== 'win32')('a hook the user switched off stays off in a guarded worktree', async () => {
   const { project, worktree } = repository()
@@ -97,4 +116,4 @@ test.runIf(process.platform !== 'win32')('a hook the user switched off stays off
   writeFileSync(join(worktree, 'change.txt'), 'ticket work\n')
   git(worktree, 'add', 'change.txt')
   git(worktree, 'commit', '-m', 'ticket work')
-})
+}, GIT_FIXTURE_TIMEOUT)
