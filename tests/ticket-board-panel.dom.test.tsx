@@ -28,6 +28,15 @@ import {
 
 const other = { id: 'atlas', name: 'Atlas', path: 'D:\\Development\\Atlas', color: '#8ad1a0' }
 
+/** Calendar fixtures age with the assertion they serve instead of with the wall calendar. */
+function daysAgo(days: number): string {
+  const date = new Date()
+  date.setHours(12, 0, 0, 0)
+  date.setDate(date.getDate() - days)
+  const month = `${date.getMonth() + 1}`.padStart(2, '0')
+  return `${date.getFullYear()}-${month}-${`${date.getDate()}`.padStart(2, '0')}`
+}
+
 const savedWorkspace = (overrides: Partial<WorkspaceState> = {}): WorkspaceState =>
   harnessWorkspace({ projects: [project, other], ...overrides })
 
@@ -129,9 +138,9 @@ beforeEach(() => {
   ticketSkill = createMockTicketSkillApi()
   tickets.projects.set(project.path, {
     cards: [
-      cardFixture({ id: 'ticket-board', title: 'Ticket board', status: 'in-progress', updated: '2026-09-03' }),
+      cardFixture({ id: 'ticket-board', title: 'Ticket board', status: 'in-progress', updated: daysAgo(2) }),
       cardFixture({ id: 'file-node', title: 'File node', blockedBy: ['shared-frontmatter', 'ghost'] }),
-      cardFixture({ id: 'shared-frontmatter', title: 'Shared frontmatter', status: 'done', updated: '2026-09-02' })
+      cardFixture({ id: 'shared-frontmatter', title: 'Shared frontmatter', status: 'done', updated: daysAgo(3) })
     ],
     diagnostics: []
   })
@@ -187,8 +196,8 @@ describe('the three panes', () => {
   test('Done still lists the recent ones only, and offers everything it is withholding', async () => {
     tickets.projects.set(project.path, {
       cards: [
-        cardFixture({ id: 'recent', title: 'Recently closed', status: 'done', updated: '2026-09-01' }),
-        cardFixture({ id: 'ancient', title: 'Long closed', status: 'done', updated: '2026-01-01' })
+        cardFixture({ id: 'recent', title: 'Recently closed', status: 'done', updated: daysAgo(10) }),
+        cardFixture({ id: 'ancient', title: 'Long closed', status: 'done', updated: daysAgo(60) })
       ],
       diagnostics: []
     })
@@ -650,9 +659,9 @@ describe('deleting tickets', () => {
   test('the Done column sweeps only tickets past the cutoff, naming every one it would delete', async () => {
     tickets.projects.set(project.path, {
       cards: [
-        cardFixture({ id: 'closed-long-ago', title: 'Closed long ago', status: 'done', updated: '2026-01-05' }),
-        cardFixture({ id: 'also-long-ago', title: 'Also long ago', status: 'done', updated: '2026-02-05' }),
-        cardFixture({ id: 'closed-recently', title: 'Closed recently', status: 'done', updated: '2026-09-01' }),
+        cardFixture({ id: 'closed-long-ago', title: 'Closed long ago', status: 'done', updated: daysAgo(90) }),
+        cardFixture({ id: 'also-long-ago', title: 'Also long ago', status: 'done', updated: daysAgo(60) }),
+        cardFixture({ id: 'closed-recently', title: 'Closed recently', status: 'done', updated: daysAgo(10) }),
         cardFixture({ id: 'still-open', title: 'Still open', status: 'open', updated: '2026-01-05' })
       ],
       diagnostics: []
