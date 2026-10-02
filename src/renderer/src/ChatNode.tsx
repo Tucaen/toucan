@@ -689,11 +689,16 @@ const ChatMessageCard = memo(function ChatMessageCard(props: { message: AgentCha
   const { message } = props
   const tone = message.role === 'assistant' ? classifyAssistantMessage(message.text) : 'normal'
   const images = message.images ?? []
+  const timestamp =
+    message.receivedAt === undefined
+      ? undefined
+      : new Date(message.receivedAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
   return (
     <article
       className={`chat-message ${message.role}${message.queued ? ' queued' : ''}${message.failed ? ' failed' : ''}`}
       data-tone={tone}
       data-presentation={message.presentation}
+      title={timestamp}
     >
       <div>
         {message.presentation === 'progress' && <small className="progress-label">Progress</small>}

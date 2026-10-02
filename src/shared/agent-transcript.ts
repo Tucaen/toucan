@@ -42,6 +42,8 @@ export interface AgentChatMessage {
   id: string
   role: 'user' | 'assistant' | 'thought'
   text: string
+  /** When this observer first received the message, retained across later streaming chunks. */
+  receivedAt?: number
   /**
    * Images this message carries - pasted by the captain, or sent by the agent as an `image`
    * content chunk. A captain's attachments are render state only: provider replay of a resumed
@@ -226,7 +228,8 @@ function messageImages(
 
 function foldMessage(
   state: AgentTranscriptState,
-  event: Extract<AgentEvent, { type: 'message' }>
+  event: Extract<AgentEvent, { type: 'message' }>,
+  now: number
 ): AgentTranscriptState {
   const existing = state.messages.findIndex((message) => message.id === event.messageId && message.role === event.role)
   if (existing < 0) {
@@ -240,6 +243,7 @@ function foldMessage(
           id: event.messageId,
           role: event.role,
           text: event.text,
+          receivedAt: now,
           ...(images ? { images } : {}),
           complete: event.role === 'assistant' ? false : undefined,
           ...(event.role === 'assistant' ? initialAssistantPresentation(event.presentation) : {})
@@ -307,7 +311,7 @@ export function foldAgentEvent(
     case 'session':
       return { ...state, sessionId: event.sessionId }
     case 'message':
-      return foldMessage(state, event)
+      return foldMessage(state, event, now)
     case 'turn_complete':
       return { ...state, messages: settleCurrentAssistantTurn(state.messages) }
     case 'turn_failed':
@@ -387,7 +391,7 @@ export function foldAgentEvent(
     case 'error':
       return { ...state, detail: event.message, failure: event.message, failureKey: null }
     case 'local_user_message':
-      return appendLocalUserMessage(state, event.message)
+      return appendLocalUserMessage(state, event.message, now)
     case 'local_message_delivered':
       return patchMessage(state, event.messageId, (message) => {
         const { failed: _failed, ...rest } = message
@@ -477,8 +481,14 @@ export function applyAgentCreateResult(state: AgentTranscriptState, result: Agen
  * never sends optimistically folds the echo as the message itself.
  * @internal exported for tests
  */
-export function appendLocalUserMessage(state: AgentTranscriptState, message: AgentChatMessage): AgentTranscriptState {
+export function appendLocalUserMessage(
+  state: AgentTranscriptState,
+  message: AgentChatMessage,
+  receivedAt?: number
+): AgentTranscriptState {
   const entry: AgentTranscriptEntry = { type: 'message', id: message.id, role: message.role }
   const next = hasTranscriptEntry(state, entry) ? state : withTranscriptEntry(state, entry)
-  return { ...next, messages: [...next.messages, message] }
+  const timestamped =
+    message.receivedAt === undefined && receivedAt !== undefined ? { ...message, receivedAt } : message
+  return { ...next, messages: [...next.messages, timestamped] }
 }

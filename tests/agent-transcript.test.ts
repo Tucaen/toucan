@@ -76,6 +76,22 @@ test('folds a live turn: chunk accumulation, activity order, and final-message p
   assert.equal(activity.endedAt, NOW + 6)
 })
 
+test('a message keeps the time its first chunk arrived', () => {
+  const state = fold([
+    message('assistant', 'a1', 'First '),
+    message('assistant', 'a1', 'response'),
+    message('user', 'u1', 'Follow-up')
+  ])
+
+  assert.deepEqual(
+    state.messages.map((entry) => ({ id: entry.id, receivedAt: entry.receivedAt })),
+    [
+      { id: 'a1', receivedAt: NOW },
+      { id: 'u1', receivedAt: NOW + 2 }
+    ]
+  )
+})
+
 test('a resumed-session replay reconstructs turn boundaries from user messages', () => {
   const replay: AgentEvent[] = [
     { type: 'session', sessionId: 'sess-1' },
@@ -483,7 +499,7 @@ test('local delivery bookkeeping: an acknowledged send sheds its flags, a droppe
   assert.deepEqual(sent.transcript, [{ type: 'message', id: 'm1', role: 'user' }])
 
   const delivered = fold([{ type: 'local_message_delivered', messageId: 'm1' }], sent)
-  assert.deepEqual(delivered.messages, [{ id: 'm1', role: 'user', text: 'hello', queued: false }])
+  assert.deepEqual(delivered.messages, [{ id: 'm1', role: 'user', text: 'hello', queued: false, receivedAt: NOW }])
 
   const dropped = fold([{ type: 'local_send_failed', messageId: 'm1' }], sent)
   assert.equal(dropped.messages[0].failed, true)

@@ -140,7 +140,7 @@ test('submit() delivers directly while ready, and holds the next one locally onc
   await waitFor(() => expect(api.prompt).toHaveBeenCalledWith('session-1', 'first message'))
   await waitFor(() =>
     expect(result.current.messages).toEqual([
-      { id: expect.any(String), role: 'user', text: 'first message', queued: false }
+      { id: expect.any(String), role: 'user', text: 'first message', queued: false, receivedAt: expect.any(Number) }
     ])
   )
 
@@ -161,8 +161,8 @@ test('submit() delivers directly while ready, and holds the next one locally onc
   await waitFor(() => expect(result.current.queued).toEqual([]))
   await waitFor(() =>
     expect(result.current.messages).toEqual([
-      { id: expect.any(String), role: 'user', text: 'first message', queued: false },
-      { id: expect.any(String), role: 'user', text: 'second message', queued: false }
+      { id: expect.any(String), role: 'user', text: 'first message', queued: false, receivedAt: expect.any(Number) },
+      { id: expect.any(String), role: 'user', text: 'second message', queued: false, receivedAt: expect.any(Number) }
     ])
   )
 })

@@ -97,4 +97,19 @@ describe('chat message sender label removal', () => {
     expect(assistantArticle).not.toBeNull()
     expect(userArticle).not.toBe(assistantArticle)
   })
+
+  test('an exact local timestamp is available only as the message tooltip', () => {
+    const receivedAt = new Date(2026, 9, 2, 14, 37).getTime()
+    const container = renderChatView({
+      messages: [{ id: '1', role: 'assistant', text: 'Finished the change.', receivedAt }]
+    })
+
+    const article = container.querySelector('article.chat-message.assistant') as HTMLElement
+    expect(article).toHaveAttribute(
+      'title',
+      new Date(receivedAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+    )
+    expect(article.querySelector('time')).toBeNull()
+    expect(article.children).toHaveLength(1)
+  })
 })
