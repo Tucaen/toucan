@@ -152,8 +152,10 @@ describe.each(families)('$name', ({ role, render: renderDialog }) => {
     window.orchestrationSettingsApi = {
       state: vi.fn(async () => ({
         user: { path: 'orchestration-config.json', exists: false },
-        models: [],
-        efforts: {}
+        catalogues: {
+          claude: { models: [], efforts: {} },
+          codex: { models: [], efforts: {} }
+        }
       })),
       save: vi.fn(),
       onChange: () => () => {}

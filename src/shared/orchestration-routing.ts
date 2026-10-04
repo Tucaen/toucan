@@ -1,4 +1,5 @@
 import { isRecord } from './record'
+import type { AgentProvider } from './agent-provider'
 import {
   DEFAULT_IMPLEMENTATION_SKILL,
   DIFFICULTY_TIERS,
@@ -30,11 +31,18 @@ export interface OrchestrationConfig {
   implementationSkill: string
 }
 
-/** One configuration file - the user's or a project's override - where every field is optional. */
-export interface OrchestrationConfigFile {
+/** One provider's entry in the user file or a project's override. */
+export interface ProviderOrchestrationConfigFile {
   tiers?: Partial<TierMapping>
   implementationSkill?: string
 }
+
+/**
+ * One configuration file. Provider entries coexist so a Codex mapping can never reinterpret or
+ * overwrite Claude's model ids. `parseOrchestrationConfig` migrates the former top-level shape to
+ * the `claude` entry in memory.
+ */
+export type OrchestrationConfigFile = Partial<Record<AgentProvider, ProviderOrchestrationConfigFile>>
 
 export const DEFAULT_ORCHESTRATION_CONFIG: OrchestrationConfig = {
   tiers: {
@@ -62,29 +70,31 @@ const nonEmptyString = (value: unknown): value is string => typeof value === 'st
  * meant to be edited by hand or by an agent, and a misspelt tier silently falling back to the
  * default is the one mistake nobody would notice.
  */
-export function parseOrchestrationConfig(value: unknown): Outcome<'config', OrchestrationConfigFile> {
-  if (!isRecord(value)) return { error: 'the orchestration configuration must be a JSON object' }
-  const config: OrchestrationConfigFile = {}
+function parseProviderConfig(value: unknown, prefix = ''): Outcome<'config', ProviderOrchestrationConfigFile> {
+  if (!isRecord(value)) return { error: `${prefix || 'the provider configuration'} must be a JSON object` }
+  const config: ProviderOrchestrationConfigFile = {}
   for (const [key, field] of Object.entries(value)) {
     if (key === 'implementationSkill') {
-      if (!nonEmptyString(field)) return { error: 'implementationSkill must be a non-empty string' }
+      if (!nonEmptyString(field)) return { error: `${prefix}implementationSkill must be a non-empty string` }
       config.implementationSkill = field.trim()
     } else if (key === 'tiers') {
-      if (!isRecord(field)) return { error: 'tiers must be an object keyed by tier' }
+      if (!isRecord(field)) return { error: `${prefix}tiers must be an object keyed by tier` }
       const tiers: Partial<TierMapping> = {}
       for (const [tier, entry] of Object.entries(field)) {
         if (!isDifficultyTier(tier)) {
-          return { error: `unknown tier "${tier}"; the tiers are ${DIFFICULTY_TIERS.join(', ')}` }
+          return { error: `${prefix}unknown tier "${tier}"; the tiers are ${DIFFICULTY_TIERS.join(', ')}` }
         }
         if (!isRecord(entry) || !nonEmptyString(entry.model)) {
-          return { error: `tiers.${tier}.model must be a model id from the chat node's model picker` }
+          return { error: `${prefix}tiers.${tier}.model must be a model id from the chat node's model picker` }
         }
         for (const entryKey of Object.keys(entry)) {
           if (entryKey !== 'model' && entryKey !== 'effort')
-            return { error: `tiers.${tier} has unknown field "${entryKey}"` }
+            return { error: `${prefix}tiers.${tier} has unknown field "${entryKey}"` }
         }
         if (entry.effort !== undefined && !nonEmptyString(entry.effort)) {
-          return { error: `tiers.${tier}.effort must be an effort id such as low, medium, high, xhigh or max` }
+          return {
+            error: `${prefix}tiers.${tier}.effort must be an effort id such as low, medium, high, xhigh or max`
+          }
         }
         tiers[tier] = {
           model: entry.model.trim(),
@@ -93,21 +103,69 @@ export function parseOrchestrationConfig(value: unknown): Outcome<'config', Orch
       }
       config.tiers = tiers
     } else {
-      return { error: `unknown field "${key}"; the configuration holds tiers and implementationSkill` }
+      return { error: `${prefix}unknown field "${key}"; a provider entry holds tiers and implementationSkill` }
     }
   }
   return { config }
 }
 
-/** The configuration a project routes with: its override over the user file over the defaults, per tier. */
-export function effectiveOrchestrationConfig(
+export function parseOrchestrationConfig(value: unknown): Outcome<'config', OrchestrationConfigFile> {
+  if (!isRecord(value)) return { error: 'the orchestration configuration must be a JSON object' }
+  const keys = Object.keys(value)
+  const legacy = keys.some((key) => key === 'tiers' || key === 'implementationSkill')
+  if (legacy) {
+    if (keys.some((key) => key !== 'tiers' && key !== 'implementationSkill')) {
+      return { error: 'legacy Claude fields cannot be mixed with provider entries; move them under "claude"' }
+    }
+    const parsed = parseProviderConfig(value)
+    return parsed.error !== undefined ? parsed : { config: { claude: parsed.config } }
+  }
+  const config: OrchestrationConfigFile = {}
+  for (const [provider, field] of Object.entries(value)) {
+    if (provider !== 'claude' && provider !== 'codex') {
+      return { error: `unknown provider "${provider}"; the providers are claude and codex` }
+    }
+    const parsed = parseProviderConfig(field, `${provider}.`)
+    if (parsed.error !== undefined) return parsed
+    config[provider] = parsed.config
+  }
+  return { config }
+}
+
+/** The tiers a provider still needs after user and project entries have been combined. */
+export function missingProviderTiers(
+  provider: AgentProvider,
   user: OrchestrationConfigFile | undefined,
   project: OrchestrationConfigFile | undefined
-): OrchestrationConfig {
+): DifficultyTier[] {
+  if (provider === 'claude') return []
+  const tiers = { ...user?.[provider]?.tiers, ...project?.[provider]?.tiers }
+  return DIFFICULTY_TIERS.filter((tier) => !tiers[tier])
+}
+
+/**
+ * The configuration a project routes with: its provider-specific project override over its user
+ * entry. Claude retains the historical defaults. Codex has no model defaults and is therefore
+ * undefined until all four tiers are configured.
+ */
+export function effectiveOrchestrationConfig(
+  provider: AgentProvider,
+  user: OrchestrationConfigFile | undefined,
+  project: OrchestrationConfigFile | undefined
+): OrchestrationConfig | undefined {
+  const userEntry = user?.[provider]
+  const projectEntry = project?.[provider]
+  if (missingProviderTiers(provider, user, project).length > 0) return undefined
   return {
-    tiers: { ...DEFAULT_ORCHESTRATION_CONFIG.tiers, ...user?.tiers, ...project?.tiers },
+    tiers: {
+      ...(provider === 'claude' ? DEFAULT_ORCHESTRATION_CONFIG.tiers : {}),
+      ...userEntry?.tiers,
+      ...projectEntry?.tiers
+    } as TierMapping,
     implementationSkill:
-      project?.implementationSkill ?? user?.implementationSkill ?? DEFAULT_ORCHESTRATION_CONFIG.implementationSkill
+      projectEntry?.implementationSkill ??
+      userEntry?.implementationSkill ??
+      DEFAULT_ORCHESTRATION_CONFIG.implementationSkill
   }
 }
 

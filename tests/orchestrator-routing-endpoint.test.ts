@@ -11,6 +11,7 @@ import {
   type OrchestratorRouting
 } from '../src/main/orchestrator-endpoint'
 import type { TicketSpawner, TicketSpawnRequest } from '../src/main/ticket-spawner'
+import type { AgentProvider } from '../src/shared/agent-provider'
 import { ORCHESTRATOR_TOKEN_ENV, ORCHESTRATOR_URL_ENV, type TicketRoute } from '../src/shared/orchestration'
 import { DEFAULT_ORCHESTRATION_CONFIG, type OrchestrationConfig } from '../src/shared/orchestration-routing'
 
@@ -65,6 +66,7 @@ function fakeSpawner(): TicketSpawner & { calls: TicketSpawnRequest[] } {
 }
 
 interface Options {
+  provider?: AgentProvider
   jev?: ReturnType<typeof fakeJev>
   models?: string[]
   efforts?: Record<string, string[]>
@@ -79,8 +81,11 @@ async function harness(options: Options = {}) {
     sonnet: ['low', 'medium', 'high'],
     opus: ['low', 'medium', 'high', 'xhigh', 'max']
   }
+  const provider = options.provider ?? 'claude'
+  const configProviders: AgentProvider[] = []
   const routing: OrchestratorRouting = {
-    config: async () => {
+    config: async (requestedProvider) => {
+      configProviders.push(requestedProvider)
       const config = options.config ?? DEFAULT_ORCHESTRATION_CONFIG
       return 'error' in config
         ? { error: config.error, userPath: 'C:\\u.json' }
@@ -90,15 +95,15 @@ async function harness(options: Options = {}) {
     jev
   }
   const endpoint = createOrchestratorEndpoint({ records, spawner, routing, now: () => '2026-09-30T12:00:00.000Z' })
-  const grant = (await endpoint.grant('orchestrator-1', { provider: 'claude', projectPath: 'D:\\project' }))!
+  const grant = (await endpoint.grant('orchestrator-1', { provider, projectPath: 'D:\\project' }))!
   grant.setConversation('conversation-1')
-  const key = { provider: 'claude' as const, conversationId: 'conversation-1' }
+  const key = { provider, conversationId: 'conversation-1' }
   assert.equal((await call(grant, 'plan set', plan)).status, 200)
   assert.equal((await call(grant, 'ticket update', { id: '3', fields: { mergeStatus: 'merged' } })).status, 200)
   const routeOf = async (id: string): Promise<TicketRoute | undefined> =>
     (await records.read(key))?.tickets.find((ticket) => ticket.id === id)?.route
   const runsOf = async (id: string) => (await records.read(key))?.tickets.find((ticket) => ticket.id === id)?.runs
-  return { endpoint, grant, spawner, jev, routeOf, runsOf }
+  return { endpoint, grant, spawner, jev, routeOf, runsOf, configProviders }
 }
 
 async function call(
@@ -269,6 +274,51 @@ test('spawn takes the recorded route, or a tier, and opens the session with the 
     // A tier the orchestrator named over Jev's is its own route.
     assert.equal((await routeOf('2'))?.tier, 'medium')
     assert.equal((await routeOf('2'))?.routedBy, 'orchestrator')
+  } finally {
+    await endpoint.close()
+  }
+})
+
+test('a Codex orchestrator routes through Jev and spawns on its Codex mapping and skill', async () => {
+  const codexConfig: OrchestrationConfig = {
+    tiers: {
+      low: { model: 'gpt-mini' },
+      medium: { model: 'gpt-5.6' },
+      high: { model: 'gpt-5.6', effort: 'high' },
+      frontier: { model: 'gpt-6', effort: 'xhigh' }
+    },
+    implementationSkill: '/codex-implement'
+  }
+  const { endpoint, grant, spawner, routeOf, configProviders } = await harness({
+    provider: 'codex',
+    config: codexConfig,
+    jev: fakeJev(judged),
+    models: ['gpt-mini', 'gpt-5.6', 'gpt-6'],
+    efforts: {
+      'gpt-mini': ['low', 'medium'],
+      'gpt-5.6': ['medium', 'high'],
+      'gpt-6': ['high', 'xhigh']
+    }
+  })
+  try {
+    const routed = await call(grant, 'route')
+    assert.equal(routed.status, 200, routed.text)
+    assert.deepEqual(await routeOf('1'), {
+      tier: 'low',
+      model: 'gpt-mini',
+      effort: 'low',
+      confidence: 0.9,
+      depth: 0.3,
+      routedBy: 'jev',
+      escalated: false
+    })
+    const spawned = await call(grant, 'spawn', { ticket: '1' })
+    assert.equal(spawned.status, 200, spawned.text)
+    assert.equal(spawner.calls[0]!.orchestrator.provider, 'codex')
+    assert.equal(spawner.calls[0]!.model, 'gpt-mini')
+    assert.equal(spawner.calls[0]!.effort, 'low')
+    assert.equal(spawner.calls[0]!.implementationSkill, '/codex-implement')
+    assert.ok(configProviders.every((requested) => requested === 'codex'))
   } finally {
     await endpoint.close()
   }

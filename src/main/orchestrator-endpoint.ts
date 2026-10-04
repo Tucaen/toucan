@@ -115,7 +115,7 @@ export interface TicketSessionControl {
 /** What routing by difficulty tier needs (#36): the configuration, the picker's models, and Jev. */
 export interface OrchestratorRouting {
   /** The effective tier mapping and implementation skill for a project, read afresh at every call. */
-  config(projectPath: string): Promise<OrchestrationConfigLoad>
+  config(provider: AgentProvider, projectPath: string): Promise<OrchestrationConfigLoad>
   /** What this provider's model picker offers, as main last saw it. */
   offered(provider: AgentProvider): OfferedModels
   jev: Pick<JevRouter, 'judge'>
@@ -214,7 +214,7 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
     grant: LiveGrant
   ): Promise<{ config?: OrchestrationConfig; load?: OrchestrationConfigLoad } | { refusal: Reply }> => {
     if (!options.routing) return {}
-    const load = await options.routing.config(grant.projectPath)
+    const load = await options.routing.config(grant.provider, grant.projectPath)
     if (!load.config) return { refusal: refused(409, load.error ?? 'the orchestration configuration cannot be used') }
     return { config: load.config, load }
   }
@@ -521,7 +521,7 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
         }
       }
     }
-    const load = options.routing ? await options.routing.config(grant.projectPath) : undefined
+    const load = options.routing ? await options.routing.config(grant.provider, grant.projectPath) : undefined
     const mapping = load?.config?.tiers
     return {
       status: 200,

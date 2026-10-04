@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import type { AgentProvider } from '../../shared/agent-provider'
 import { DIFFICULTY_TIERS, TICKET_CONTRACT_SUMMARY, type DifficultyTier } from '../../shared/orchestration'
-import type { OrchestrationConfig, OrchestrationConfigFile, TierMappingEntry } from '../../shared/orchestration-routing'
+import {
+  DEFAULT_ORCHESTRATION_CONFIG,
+  type OrchestrationConfigFile,
+  type TierMappingEntry
+} from '../../shared/orchestration-routing'
 import {
   effortChoices,
   inheritedConfig,
@@ -36,7 +41,7 @@ interface Draft<T> {
   stale: boolean
 }
 
-type Drafts = { user: Draft<OrchestrationConfig>; project?: Draft<OrchestrationConfigFile> }
+type Drafts = { user: Draft<OrchestrationConfigFile>; project?: Draft<OrchestrationConfigFile> }
 
 const baseOf = (file: OrchestrationConfigFileState): string => JSON.stringify(file.file ?? file.error ?? null)
 
@@ -47,8 +52,8 @@ const fresh = <T,>(value: T, file: OrchestrationConfigFileState): Draft<T> => ({
   stale: false
 })
 
-const userFresh = (state: OrchestrationSettingsState): Draft<OrchestrationConfig> =>
-  fresh(userDraft(state.user.file), state.user)
+const userFresh = (state: OrchestrationSettingsState): Draft<OrchestrationConfigFile> =>
+  fresh(state.user.file ?? {}, state.user)
 
 const projectFresh = (project: OrchestrationConfigFileState): Draft<OrchestrationConfigFile> =>
   fresh(project.file ?? {}, project)
@@ -76,20 +81,19 @@ function TierRow(props: {
   tier: DifficultyTier
   entry: TierMappingEntry | undefined
   inherited?: TierMappingEntry
-  state: OrchestrationSettingsState
+  catalogue: OrchestrationSettingsState['catalogues'][AgentProvider]
   disabled: boolean
   onChange(entry: TierMappingEntry | undefined): void
 }): JSX.Element {
-  const { tier, state, inherited } = props
+  const { tier, catalogue, inherited } = props
   const shown = props.entry ?? inherited
-  if (!shown) throw new Error(`the ${tier} tier has no model`)
-  const models = modelChoices(shown.model, state.models)
-  const efforts = effortChoices(shown.effort, state.efforts[shown.model])
+  const models = modelChoices(shown?.model, catalogue.models)
+  const efforts = effortChoices(shown?.effort, shown ? catalogue.efforts[shown.model] : undefined)
   const nameOf = (choices: readonly SettingsChoice<unknown>[]): string => {
     const choice = choices.find((candidate) => candidate.selected)
     return choice ? `${choice.name}${choice.missing ? ' (missing)' : ''}` : ''
   }
-  const inheritedLabel = inherited && `Inherited: ${nameOf(modelChoices(inherited.model, state.models))}`
+  const inheritedLabel = inherited && `Inherited: ${nameOf(modelChoices(inherited.model, catalogue.models))}`
   const modelOptions = [
     ...(inherited
       ? [{ id: INHERIT, content: 'Inherited from the user file', description: inheritedLabel, selected: !props.entry }]
@@ -109,13 +113,13 @@ function TierRow(props: {
         menuWidth={260}
         options={modelOptions}
         trigger={{
-          content: props.entry ? nameOf(models) : inheritedLabel,
+          content: props.entry ? nameOf(models) : (inheritedLabel ?? 'Choose a model'),
           className: 'orchestration-picker',
           disabled: props.disabled
         }}
         select={(id) => {
           if (id === INHERIT) props.onChange(undefined)
-          else props.onChange({ model: id, ...(shown.effort ? { effort: shown.effort } : {}) })
+          else props.onChange({ model: id, ...(shown?.effort ? { effort: shown.effort } : {}) })
         }}
       />
       <ListboxPicker
@@ -135,10 +139,12 @@ function TierRow(props: {
         trigger={{
           content: nameOf(efforts),
           className: 'orchestration-picker',
-          disabled: props.disabled || !props.entry,
-          ...(props.entry ? {} : { title: 'Choose a model for this tier to set its effort' })
+          disabled: props.disabled || !props.entry || !shown,
+          ...(props.entry && shown ? {} : { title: 'Choose a model for this tier to set its effort' })
         }}
-        select={(id) => props.onChange({ model: shown.model, ...(id === FOLLOWS_TICKET ? {} : { effort: id }) })}
+        select={(id) =>
+          shown && props.onChange({ model: shown.model, ...(id === FOLLOWS_TICKET ? {} : { effort: id }) })
+        }
       />
       {props.entry && missingNote(models, 'model')}
       {props.entry && missingNote(efforts, 'effort for this model')}
@@ -175,11 +181,17 @@ export function OrchestrationSettingsDialog(props: {
   const projectPath = props.project?.path
   const [state, setState] = useState<OrchestrationSettingsState | null>(null)
   const [drafts, setDrafts] = useState<Drafts | null>(null)
+  const [provider, setProvider] = useState<AgentProvider>('claude')
   const [tab, setTab] = useState<OrchestrationConfigScope>('user')
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const providersRef = useRef<HTMLDivElement>(null)
   const tabsRef = useRef<HTMLDivElement>(null)
   const ids = useId()
+  const providerNavigation = useMenuNavigation(providersRef, true, {
+    orientation: 'horizontal',
+    onMove: (item) => item.click()
+  })
   const tabNavigation = useMenuNavigation(tabsRef, true, { orientation: 'horizontal', onMove: (item) => item.click() })
 
   const apply = useCallback((next: OrchestrationSettingsState, force: boolean) => {
@@ -231,7 +243,7 @@ export function OrchestrationSettingsDialog(props: {
       if (tab === 'user') {
         return {
           ...current,
-          user: { ...current.user, value: change(current.user.value) as OrchestrationConfig, dirty: true }
+          user: { ...current.user, value: change(current.user.value), dirty: true }
         }
       }
       if (!current.project) return current
@@ -241,10 +253,11 @@ export function OrchestrationSettingsDialog(props: {
 
   const setTier = (tier: DifficultyTier, entry: TierMappingEntry | undefined): void =>
     edit((value) => {
-      const tiers = { ...value.tiers }
+      const providerConfig = value[provider] ?? {}
+      const tiers = { ...providerConfig.tiers }
       if (entry) tiers[tier] = entry
       else delete tiers[tier]
-      return { ...value, tiers }
+      return { ...value, [provider]: { ...providerConfig, tiers } }
     })
 
   const save = async (): Promise<void> => {
@@ -283,9 +296,19 @@ export function OrchestrationSettingsDialog(props: {
     void reload(false)
   }
 
-  const inherited = inheritedConfig(state?.user)
+  const inherited = inheritedConfig(state?.user, provider)
+  const userShown = userDraft(drafts?.user.value, provider)
+  const providerDraft = draft?.value[provider]
   const skillValue =
-    tab === 'user' ? (drafts?.user.value.implementationSkill ?? '') : (drafts?.project?.value.implementationSkill ?? '')
+    tab === 'user'
+      ? (providerDraft?.implementationSkill ?? DEFAULT_ORCHESTRATION_CONFIG.implementationSkill)
+      : (providerDraft?.implementationSkill ?? '')
+  const catalogue = state?.catalogues[provider]
+  const visibleTiers = {
+    ...(tab === 'project' ? inherited.tiers : {}),
+    ...(tab === 'user' ? userShown.tiers : providerDraft?.tiers)
+  }
+  const missingTiers = provider === 'codex' ? DIFFICULTY_TIERS.filter((tier) => !visibleTiers[tier]) : []
   const contractId = `${ids}-contract`
   const panelId = `${ids}-panel`
 
@@ -294,9 +317,30 @@ export function OrchestrationSettingsDialog(props: {
       <div className="dialog orchestration-settings-dialog">
         <strong id={`${ids}-title`}>Orchestration settings</strong>
         <p>
-          How an orchestrator routes tickets: the model per difficulty tier and the skill every ticket session starts
-          with. The files are the source of truth, so an agent may edit them too.
+          How each orchestration provider routes tickets: its model per difficulty tier and the skill its ticket
+          sessions start with. The files are the source of truth, so an agent may edit them too.
         </p>
+        <div
+          ref={providersRef}
+          className="orchestration-settings-tabs"
+          role="tablist"
+          aria-label="Orchestration provider"
+          onKeyDown={providerNavigation.onKeyDown}
+        >
+          {(['claude', 'codex'] as const).map((candidate) => (
+            <button
+              key={candidate}
+              type="button"
+              role="tab"
+              aria-selected={provider === candidate}
+              aria-controls={panelId}
+              tabIndex={provider === candidate ? 0 : -1}
+              onClick={() => setProvider(candidate)}
+            >
+              {candidate === 'claude' ? 'Claude' : 'Codex'}
+            </button>
+          ))}
+        </div>
         <div
           ref={tabsRef}
           className="orchestration-settings-tabs"
@@ -338,20 +382,26 @@ export function OrchestrationSettingsDialog(props: {
               The file changed on disk since you started editing. Revert to load it, or Save to replace it.
             </p>
           )}
-          {state && state.models.length === 0 && (
+          {catalogue && catalogue.models.length === 0 && (
             <p className="orchestration-settings-note">
-              No Claude model list is known yet. Start a Claude chat once so the pickers can offer its models.
+              No {provider === 'claude' ? 'Claude' : 'Codex'} model list is known yet. Start a{' '}
+              {provider === 'claude' ? 'Claude' : 'Codex'} chat once so the pickers can offer its models.
             </p>
           )}
-          {state && drafts && draft && (
+          {missingTiers.length > 0 && (
+            <p role="status" className="orchestration-settings-note">
+              Codex routing is not usable yet. Choose a Codex model for {missingTiers.join(', ')}.
+            </p>
+          )}
+          {state && drafts && draft && catalogue && (
             <>
               {DIFFICULTY_TIERS.map((tier) => (
                 <TierRow
                   key={tier}
                   tier={tier}
-                  entry={draft.value.tiers?.[tier]}
+                  entry={tab === 'user' ? userShown.tiers[tier] : providerDraft?.tiers?.[tier]}
                   {...(tab === 'project' ? { inherited: inherited.tiers[tier] } : {})}
-                  state={state}
+                  catalogue={catalogue}
                   disabled={unusable || saving}
                   onChange={(entry) => setTier(tier, entry)}
                 />
@@ -368,7 +418,10 @@ export function OrchestrationSettingsDialog(props: {
                     disabled={unusable || saving}
                     onChange={(event) => {
                       const value = event.target.value
-                      edit((current) => ({ ...current, implementationSkill: value }))
+                      edit((current) => ({
+                        ...current,
+                        [provider]: { ...current[provider], implementationSkill: value }
+                      }))
                     }}
                   />
                 </label>

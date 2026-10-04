@@ -529,8 +529,8 @@ void app.whenReady().then(async () => {
   // reaches an open panel through the watch.
   registerOrchestrationSettingsIpc(ipcMain, {
     store: orchestrationConfig,
-    models: () => modelCatalogue.read().claude ?? [],
-    efforts: (modelId) => effortCatalogue.efforts('claude', modelId)
+    models: (provider) => modelCatalogue.read()[provider] ?? [],
+    efforts: (provider, modelId) => effortCatalogue.efforts(provider, modelId)
   })
   orchestrationConfig.watch(() => {
     for (const window of BrowserWindow.getAllWindows()) {
@@ -541,7 +541,7 @@ void app.whenReady().then(async () => {
   const orchestratorEndpoint = createOrchestratorEndpoint({
     records: orchestrationRecords,
     routing: {
-      config: (projectPath) => orchestrationConfig.load(projectPath),
+      config: (provider, projectPath) => orchestrationConfig.load(provider, projectPath),
       offered: (provider) => ({
         models: (modelCatalogue.read()[provider] ?? []).map((model) => model.id),
         efforts: (modelId) => effortCatalogue.efforts(provider, modelId)

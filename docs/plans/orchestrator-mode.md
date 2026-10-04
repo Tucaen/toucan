@@ -90,10 +90,11 @@ Toucan) rebuilds its picture from it, never from memory.
   model list: it returns a **difficulty tier** (`low` / `medium` / `high` / `frontier`) and a
   reasoning-depth score per ticket, all tickets in one call. Passing models to Jev would make it
   route on the pickers' one-line marketing descriptions ("For your toughest challenges").
-- The **tier mapping** in the configuration turns a tier into a model from the same list the
-  chat node's model picker shows, optionally with an effort. Toucan maps the depth score to the
-  nearest effort that model's picker offers. Defaults: low → Haiku, medium → Sonnet 5.5,
-  high → Opus 5.5, frontier → Opus 5.5 at max effort.
+- The provider's **tier mapping** in the configuration turns a tier into a model from that
+  provider's chat-node picker, optionally with an effort. Toucan maps the depth score to the
+  nearest effort that model's picker offers. Claude defaults: low → Haiku, medium → Sonnet 5.5,
+  high → Opus 5.5, frontier → Opus 5.5 at max effort. Codex has no invented defaults: its
+  mapping must be configured before a Codex orchestrator can route or spawn.
 - A mapped model that the picker no longer lists falls back to the next tier up, reported.
 - Jev's confidence gates the route: below the threshold the ticket still runs on its tier and
   is marked for review.
@@ -112,7 +113,7 @@ Toucan) rebuilds its picture from it, never from memory.
 ### Ticket sessions
 
 - `spawn` creates the worktree through Toucan (including the project's setup command), starts a
-  Claude chat in it with the resolved model and effort, and draws it on the worktree's canvas,
+  provider-matched chat in it with the resolved model and effort, and draws it on the worktree's canvas,
   titled `#<id> <title>`. An **orchestrated-by** edge links it to the orchestrator: a
   projection of persisted node data like the lineage edge, never drawn or removed by hand, and
   it grants nothing.
@@ -169,12 +170,13 @@ failed tracker write-backs - each with its commit or worktree.
 
 ### Configuration
 
-One file per user in userData with an optional per-project override, both holding the tier
-mapping and the implementation skill. The files are the source of truth, so an agent can edit
-the mapping. A settings panel (user tab, project-override tab) edits them: tier pickers fed from
-the chat node's model list, with models the picker no longer offers shown as missing, and the
-implementation-skill field with the ticket contract beside it - what the skill must do and what
-it must not do.
+One file per user in userData with an optional per-project override. Each file may hold separate
+`claude` and `codex` entries, each with `tiers` and `implementationSkill`. The former top-level
+`tiers`/`implementationSkill` shape is read as Claude configuration, so upgrading never treats a
+Claude model id as a Codex model. The files are the source of truth, so an agent can edit the
+mapping. A settings panel selects provider and scope explicitly; its tier pickers use only that
+provider's advertised model and effort catalogue, with missing models marked, and the
+implementation-skill field has the ticket contract beside it.
 
 ## Live verification (#37)
 

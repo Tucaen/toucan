@@ -1,4 +1,5 @@
 import type { AgentModel } from '../shared/agent'
+import { AGENT_PROVIDERS, type AgentProvider } from '../shared/agent-provider'
 import { ORCHESTRATION_SETTINGS_CHANNELS } from '../shared/ipc-channels'
 import type { OrchestrationSettingsState } from '../shared/orchestration-settings'
 import type { IpcRegistrar } from './ipc-registrar'
@@ -7,15 +8,15 @@ import type { OrchestrationConfigStore } from './orchestration-config-store'
 
 /**
  * The orchestration settings panel's side of main (#39): both configuration files as they are on
- * disk, and the chat node's Claude model list with each known model's efforts, so the panel offers
- * exactly what a ticket session could be started with. The store validates what is saved.
+ * disk, and each provider's model list with each known model's efforts, so the panel offers exactly
+ * what that provider's ticket session could be started with. The store validates what is saved.
  */
 export interface OrchestrationSettingsIpcOptions {
   store: Pick<OrchestrationConfigStore, 'inspect' | 'write'>
-  /** The Claude models the chat node's picker last listed. */
-  models(): readonly AgentModel[]
+  /** The models this provider's chat-node picker last listed. */
+  models(provider: AgentProvider): readonly AgentModel[]
   /** What a model's effort picker offers; undefined while no session has run it. */
-  efforts(modelId: string): readonly string[] | undefined
+  efforts(provider: AgentProvider, modelId: string): readonly string[] | undefined
 }
 
 function projectPathOf(value: unknown): string | undefined {
@@ -32,13 +33,17 @@ async function settingsState(
     options.store.inspect('user'),
     projectPath === undefined ? undefined : options.store.inspect('project', projectPath)
   ])
-  const models = [...options.models()]
-  const efforts: Record<string, string[]> = {}
-  for (const model of models) {
-    const offered = options.efforts(model.id)
-    if (offered) efforts[model.id] = [...offered]
+  const catalogues = {} as OrchestrationSettingsState['catalogues']
+  for (const provider of AGENT_PROVIDERS) {
+    const models = [...options.models(provider)]
+    const efforts: Record<string, string[]> = {}
+    for (const model of models) {
+      const offered = options.efforts(provider, model.id)
+      if (offered) efforts[model.id] = [...offered]
+    }
+    catalogues[provider] = { models, efforts }
   }
-  return { user, ...(project ? { project } : {}), models, efforts }
+  return { user, ...(project ? { project } : {}), catalogues }
 }
 
 export function registerOrchestrationSettingsIpc(ipc: IpcRegistrar, options: OrchestrationSettingsIpcOptions): void {

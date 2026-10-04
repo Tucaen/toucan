@@ -8,8 +8,8 @@ import type {
   OrchestrationSettingsState
 } from '../src/shared/orchestration-settings'
 
-// The orchestration settings panel (#39): a user tab and a project-override tab over the files #36
-// routes with. The files stay the source of truth, so the panel follows edits made elsewhere.
+// The orchestration settings panel (#39/#45): provider and scope tabs over the files routing reads.
+// The files stay the source of truth, so the panel follows edits made elsewhere.
 
 const USER_PATH = 'C:\\userData\\orchestration-config.json'
 const PROJECT_PATH = 'C:\\userData\\orchestration-config\\toucan--0123abcd.json'
@@ -26,12 +26,23 @@ function mockApi(files: { user?: OrchestrationConfigFile | string; project?: Orc
   const state = (projectPath?: string): OrchestrationSettingsState => ({
     user: fileState(USER_PATH, files.user),
     ...(projectPath ? { project: fileState(PROJECT_PATH, files.project) } : {}),
-    models: [
-      { id: 'haiku', name: 'Haiku 4.5' },
-      { id: 'sonnet', name: 'Sonnet 5.5' },
-      { id: 'opus', name: 'Opus 5.5' }
-    ],
-    efforts: { opus: ['low', 'medium', 'high', 'max'] }
+    catalogues: {
+      claude: {
+        models: [
+          { id: 'haiku', name: 'Haiku 4.5' },
+          { id: 'sonnet', name: 'Sonnet 5.5' },
+          { id: 'opus', name: 'Opus 5.5' }
+        ],
+        efforts: { opus: ['low', 'medium', 'high', 'max'] }
+      },
+      codex: {
+        models: [
+          { id: 'gpt-mini', name: 'GPT Mini' },
+          { id: 'gpt-frontier', name: 'GPT Frontier' }
+        ],
+        efforts: { 'gpt-frontier': ['medium', 'high', 'xhigh'] }
+      }
+    }
   })
   const save = vi.fn(async (request: OrchestrationSettingsSaveRequest) => {
     files[request.scope] = request.file
@@ -78,19 +89,18 @@ describe('orchestration settings', () => {
     expect(save.mock.calls[0]![0]).toEqual({
       scope: 'user',
       file: {
-        tiers: {
-          low: { model: 'haiku' },
-          medium: { model: 'sonnet' },
-          high: { model: 'sonnet' },
-          frontier: { model: 'opus', effort: 'high' }
-        },
-        implementationSkill: '/implement'
+        claude: {
+          tiers: {
+            high: { model: 'sonnet' },
+            frontier: { model: 'opus', effort: 'high' }
+          }
+        }
       }
     })
   })
 
   it('shows a mapped model the list no longer offers as missing', async () => {
-    mockApi({ user: { tiers: { medium: { model: 'sonnet-4' } } } })
+    mockApi({ user: { claude: { tiers: { medium: { model: 'sonnet-4' } } } } })
     render(<OrchestrationSettingsDialog onClose={() => {}} />)
     await screen.findByRole('dialog')
     expect(tier('medium').getByRole('button', { name: /sonnet-4.*missing/i })).toBeVisible()
@@ -107,7 +117,7 @@ describe('orchestration settings', () => {
   })
 
   it('edits the project override: tiers inherit from the user file until overridden', async () => {
-    const { save } = mockApi({ user: { tiers: { high: { model: 'sonnet' } } } })
+    const { save } = mockApi({ user: { claude: { tiers: { high: { model: 'sonnet' } } } } })
     render(<OrchestrationSettingsDialog project={project} onClose={() => {}} />)
     fireEvent.click(await screen.findByRole('tab', { name: 'Project: Toucan' }))
     expect(screen.getByText(PROJECT_PATH)).toBeVisible()
@@ -120,7 +130,29 @@ describe('orchestration settings', () => {
     expect(save.mock.calls[0]![0]).toEqual({
       scope: 'project',
       projectPath: project.path,
-      file: { tiers: { high: { model: 'opus' } }, implementationSkill: '/tdd' }
+      file: { claude: { tiers: { high: { model: 'opus' } }, implementationSkill: '/tdd' } }
+    })
+  })
+
+  it('makes the active provider explicit and edits Codex only from the Codex catalogue', async () => {
+    const { save } = mockApi({ user: { claude: { implementationSkill: '/claude-implement' } } })
+    render(<OrchestrationSettingsDialog project={project} onClose={() => {}} />)
+    fireEvent.click(await screen.findByRole('tab', { name: 'Codex' }))
+    expect(screen.getByRole('tab', { name: 'Codex' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByText(/Codex routing is not usable yet.*low, medium, high, frontier/i)).toBeVisible()
+
+    fireEvent.click(tier('low').getByRole('button', { name: 'Choose a model' }))
+    expect(await screen.findByRole('option', { name: 'GPT Mini' })).toBeVisible()
+    expect(screen.queryByRole('option', { name: /Sonnet/ })).toBeNull()
+    fireEvent.click(screen.getByRole('option', { name: 'GPT Mini' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1))
+    expect(save.mock.calls[0]![0]).toEqual({
+      scope: 'user',
+      file: {
+        claude: { implementationSkill: '/claude-implement' },
+        codex: { tiers: { low: { model: 'gpt-mini' } } }
+      }
     })
   })
 
@@ -134,7 +166,7 @@ describe('orchestration settings', () => {
     const { edit } = mockApi({})
     render(<OrchestrationSettingsDialog project={project} onClose={() => {}} />)
     await screen.findByRole('dialog')
-    edit('user', { tiers: { low: { model: 'opus' } }, implementationSkill: '/tdd' })
+    edit('user', { claude: { tiers: { low: { model: 'opus' } }, implementationSkill: '/tdd' } })
     await waitFor(() => expect(tier('low').getByRole('button', { name: /Opus 5\.5/ })).toBeVisible())
     expect(screen.getByRole('textbox', { name: 'Implementation skill' })).toHaveValue('/tdd')
   })
@@ -144,7 +176,7 @@ describe('orchestration settings', () => {
     render(<OrchestrationSettingsDialog onClose={() => {}} />)
     const skill = await screen.findByRole('textbox', { name: 'Implementation skill' })
     fireEvent.change(skill, { target: { value: '/mine' } })
-    edit('user', { implementationSkill: '/theirs' })
+    edit('user', { claude: { implementationSkill: '/theirs' } })
     expect(await screen.findByText(/changed on disk/i)).toBeVisible()
     expect(skill).toHaveValue('/mine')
     fireEvent.click(screen.getByRole('button', { name: 'Revert' }))
@@ -156,14 +188,14 @@ describe('orchestration settings', () => {
     render(<OrchestrationSettingsDialog project={project} onClose={() => {}} />)
     const skill = await screen.findByRole('textbox', { name: 'Implementation skill' })
     fireEvent.change(skill, { target: { value: '/mine' } })
-    edit('project', { implementationSkill: '/other-file' })
+    edit('project', { claude: { implementationSkill: '/other-file' } })
     await waitFor(() => expect(screen.queryByText(/changed on disk/i)).toBeNull())
     // Saving the other tab and the watcher's echo of it leave this draft alone too.
     fireEvent.click(screen.getByRole('tab', { name: 'Project: Toucan' }))
     fireEvent.change(screen.getByRole('textbox', { name: 'Implementation skill' }), { target: { value: '/tdd' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
     await waitFor(() => expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled())
-    edit('project', { implementationSkill: '/tdd' })
+    edit('project', { claude: { implementationSkill: '/tdd' } })
     fireEvent.click(screen.getByRole('tab', { name: 'User' }))
     expect(screen.getByRole('textbox', { name: 'Implementation skill' })).toHaveValue('/mine')
     expect(screen.queryByText(/changed on disk/i)).toBeNull()

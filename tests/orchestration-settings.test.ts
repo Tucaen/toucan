@@ -58,21 +58,28 @@ describe('effort choices', () => {
 describe('drafts and files', () => {
   it('drafts the user tab from the file over the defaults', () => {
     expect(userDraft(undefined)).toEqual(DEFAULT_ORCHESTRATION_CONFIG)
-    expect(userDraft({ tiers: { low: { model: 'sonnet' } } }).tiers.low).toEqual({ model: 'sonnet' })
+    expect(userDraft({ claude: { tiers: { low: { model: 'sonnet' } } } }).tiers.low).toEqual({ model: 'sonnet' })
+    expect(userDraft({ claude: { tiers: { low: { model: 'haiku' } } } }, 'codex').tiers).toEqual({})
   })
 
-  it('writes the user tab whole, leaving out a blank skill so the default applies', () => {
-    const draft = { ...DEFAULT_ORCHESTRATION_CONFIG, implementationSkill: '  ' }
-    expect(userFileFromDraft(draft)).toEqual({ tiers: DEFAULT_ORCHESTRATION_CONFIG.tiers })
-    expect(userFileFromDraft({ ...draft, implementationSkill: ' /tdd ' }).implementationSkill).toBe('/tdd')
+  it('writes both provider entries, leaving out blank skills and preserving the other provider', () => {
+    const draft = {
+      claude: { ...DEFAULT_ORCHESTRATION_CONFIG, implementationSkill: '  ' },
+      codex: { tiers: { low: { model: 'gpt-5.6' } }, implementationSkill: ' /tdd ' }
+    }
+    expect(userFileFromDraft(draft)).toEqual({
+      claude: { tiers: DEFAULT_ORCHESTRATION_CONFIG.tiers },
+      codex: { tiers: { low: { model: 'gpt-5.6' } }, implementationSkill: '/tdd' }
+    })
   })
 
   it('writes the project tab with only what it overrides', () => {
-    expect(projectFileFromDraft({ implementationSkill: '' })).toEqual({})
-    expect(projectFileFromDraft({ tiers: {} })).toEqual({})
-    expect(projectFileFromDraft({ tiers: { high: { model: 'sonnet' } }, implementationSkill: '/tdd' })).toEqual({
-      tiers: { high: { model: 'sonnet' } },
-      implementationSkill: '/tdd'
+    expect(projectFileFromDraft({ codex: { implementationSkill: '' } })).toEqual({})
+    expect(projectFileFromDraft({ claude: { tiers: {} } })).toEqual({})
+    expect(
+      projectFileFromDraft({ claude: { tiers: { high: { model: 'sonnet' } }, implementationSkill: '/tdd' } })
+    ).toEqual({
+      claude: { tiers: { high: { model: 'sonnet' } }, implementationSkill: '/tdd' }
     })
   })
 })

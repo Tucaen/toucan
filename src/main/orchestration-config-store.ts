@@ -5,10 +5,12 @@ import { basename, dirname, join } from 'node:path'
 import {
   DEFAULT_ORCHESTRATION_CONFIG,
   effectiveOrchestrationConfig,
+  missingProviderTiers,
   parseOrchestrationConfig,
   type OrchestrationConfig,
   type OrchestrationConfigFile
 } from '../shared/orchestration-routing'
+import type { AgentProvider } from '../shared/agent-provider'
 import type { OrchestrationConfigFileState, OrchestrationConfigScope } from '../shared/orchestration-settings'
 import { pathIdentity } from '../shared/paths'
 import { sessionOutcomeSlug } from '../shared/session-outcome'
@@ -36,7 +38,7 @@ export interface OrchestrationConfigLoad {
 }
 
 export interface OrchestrationConfigStore {
-  load(projectPath: string): Promise<OrchestrationConfigLoad>
+  load(provider: AgentProvider, projectPath: string): Promise<OrchestrationConfigLoad>
   /** Where a project's override lives, whether or not it exists yet. */
   projectConfigPath(projectPath: string): string
   /** One file on its own, for the settings panel (#39); the project scope needs `projectPath`. */
@@ -93,7 +95,7 @@ export function createOrchestrationConfigStore(options: { userDataPath: string }
     try {
       await mkdir(dirname(userPath), { recursive: true })
       // Exclusive: a file that appeared meanwhile - an agent writing one - is never replaced.
-      await writeNewFileDurably(userPath, `${JSON.stringify(DEFAULT_ORCHESTRATION_CONFIG, null, 2)}\n`)
+      await writeNewFileDurably(userPath, `${JSON.stringify({ claude: DEFAULT_ORCHESTRATION_CONFIG }, null, 2)}\n`)
     } catch {
       // The defaults still apply; the file is only a convenience for the next edit.
     }
@@ -169,14 +171,26 @@ export function createOrchestrationConfigStore(options: { userDataPath: string }
         for (const watcher of watchers) watcher.close()
       }
     },
-    async load(projectPath) {
+    async load(provider, projectPath) {
       const overridePath = projectConfigPath(projectPath)
       const [user, project] = await Promise.all([read(userPath), read(overridePath)])
       const base = { userPath, ...(project ? { projectPath: overridePath } : {}) }
       if (user && 'error' in user) return { ...base, error: user.error }
       if (project && 'error' in project) return { ...base, error: project.error }
       if (user === null) await writeDefaults()
-      return { ...base, config: effectiveOrchestrationConfig(user ?? undefined, project ?? undefined) }
+      const userFile = user ?? undefined
+      const projectFile = project ?? undefined
+      const config = effectiveOrchestrationConfig(provider, userFile, projectFile)
+      if (!config) {
+        const missing = missingProviderTiers(provider, userFile, projectFile)
+        return {
+          ...base,
+          error:
+            `the ${provider} orchestration tier mapping is missing ${missing.join(', ')}; ` +
+            `configure the ${provider} provider in Orchestration settings (${userPath})`
+        }
+      }
+      return { ...base, config }
     }
   }
 }

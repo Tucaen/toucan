@@ -39,29 +39,64 @@ test('the defaults map low to Haiku, medium to Sonnet, high and frontier to Opus
   })
 })
 
-test('a config file may name any subset of tiers and the skill; anything else is refused', () => {
+test('legacy files migrate to Claude, and provider entries remain separate', () => {
   assert.deepEqual(parseOrchestrationConfig({ tiers: { low: { model: 'sonnet' } } }), {
-    config: { tiers: { low: { model: 'sonnet' } } }
+    config: { claude: { tiers: { low: { model: 'sonnet' } } } }
+  })
+  assert.deepEqual(parseOrchestrationConfig({ codex: { tiers: { low: { model: 'gpt-5.5' } } } }), {
+    config: { codex: { tiers: { low: { model: 'gpt-5.5' } } } }
   })
   assert.deepEqual(parseOrchestrationConfig({}), { config: {} })
   assert.match(parseOrchestrationConfig({ tiers: { easy: { model: 'x' } } }).error!, /unknown tier "easy"/)
-  assert.match(parseOrchestrationConfig({ tiers: { low: {} } }).error!, /tiers\.low\.model/)
-  assert.match(parseOrchestrationConfig({ tiers: { low: { model: 'haiku', effort: 3 } } }).error!, /effort/)
+  assert.match(parseOrchestrationConfig({ codex: { tiers: { low: {} } } }).error!, /codex\.tiers\.low\.model/)
+  assert.match(parseOrchestrationConfig({ codex: { tiers: { low: { model: 'gpt', effort: 3 } } } }).error!, /effort/)
   assert.match(parseOrchestrationConfig({ implementationSkill: ' ' }).error!, /implementationSkill/)
-  assert.match(parseOrchestrationConfig({ tier: {} }).error!, /unknown field "tier"/)
+  assert.match(parseOrchestrationConfig({ tier: {} }).error!, /unknown provider "tier"/)
+  assert.match(
+    parseOrchestrationConfig({ tiers: {}, codex: { tiers: {} } }).error!,
+    /legacy Claude fields cannot be mixed/
+  )
   assert.match(parseOrchestrationConfig([]).error!, /JSON object/)
 })
 
 test('a project override replaces the tiers it names and the skill; the user file fills the rest', () => {
   const config = effectiveOrchestrationConfig(
-    { tiers: { low: { model: 'sonnet' }, high: { model: 'claude-fable-5[1m]' } }, implementationSkill: '/tdd' },
-    { tiers: { high: { model: 'opus', effort: 'xhigh' } }, implementationSkill: '/implement-in-worktree' }
-  )
+    'claude',
+    {
+      claude: {
+        tiers: { low: { model: 'sonnet' }, high: { model: 'claude-fable-5[1m]' } },
+        implementationSkill: '/tdd'
+      }
+    },
+    { claude: { tiers: { high: { model: 'opus', effort: 'xhigh' } }, implementationSkill: '/implement-in-worktree' } }
+  )!
   assert.deepEqual(config.tiers.low, { model: 'sonnet' })
   assert.deepEqual(config.tiers.medium, DEFAULT_ORCHESTRATION_CONFIG.tiers.medium)
   assert.deepEqual(config.tiers.high, { model: 'opus', effort: 'xhigh' })
   assert.equal(config.implementationSkill, '/implement-in-worktree')
-  assert.deepEqual(effectiveOrchestrationConfig(undefined, undefined), DEFAULT_ORCHESTRATION_CONFIG)
+  assert.deepEqual(effectiveOrchestrationConfig('claude', undefined, undefined), DEFAULT_ORCHESTRATION_CONFIG)
+})
+
+test('Codex has no invented defaults and becomes usable only from its own complete mapping', () => {
+  const claude = { claude: { tiers: { low: { model: 'haiku' } } } }
+  assert.equal(effectiveOrchestrationConfig('codex', claude, undefined), undefined)
+  const config = effectiveOrchestrationConfig(
+    'codex',
+    {
+      codex: {
+        tiers: {
+          low: { model: 'gpt-5.6-mini' },
+          medium: { model: 'gpt-5.6' },
+          high: { model: 'gpt-5.6' }
+        },
+        implementationSkill: '/codex-implement'
+      }
+    },
+    { codex: { tiers: { frontier: { model: 'gpt-6' } } } }
+  )!
+  assert.equal(config.tiers.low.model, 'gpt-5.6-mini')
+  assert.equal(config.tiers.frontier.model, 'gpt-6')
+  assert.equal(config.implementationSkill, '/codex-implement')
 })
 
 test('the reasoning-depth score maps onto the effort ladder', () => {
