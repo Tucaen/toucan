@@ -203,6 +203,19 @@ conversation `2de569fa-1baa-4ba0-9ba2-3f8f13101320`; evidence in `evidence.txt`.
 spawned or merged in that run. Completing this acceptance criterion requires a human-approved
 run that can execute those fixture commands; it remains pending.
 
+2026-10-04 Codex runs (#47), all in codex-acp's ordinary `agent` mode with no permission prompt:
+the orchestrator read the shipped skill outside its checkout and reached the loopback endpoint
+with no provider-specific transport change. The first run failed at `spawn` because the harness
+lacked the spawner's `offeredEfforts`; fixed in the harness. The second
+(`toucan-orchestration-smoke-codex-fAjhnt`) completed the whole workflow: plan set, orchestrator
+fallback routing, two dependent Codex ticket sessions, a completion wake and `outcome` for each,
+rebase, `npm test`, `merge --ff-only`, push to the local bare remote, a cleanup that removed both
+worktrees and branches, and `report` with Codex-only rows. It was marked failed only by a too
+strict step pattern in the harness, since corrected; its retained fixture satisfies every
+post-run assertion. Two later runs hit the account's Codex usage limit, which codex-acp surfaced
+as a generic `Internal error` turn failure rather than a usage-limit error. A clean harness PASS
+is still to be recorded once the limit resets.
+
 ## Open facts to settle during implementation
 
 - Whether the chat node's model list and effort options are available to main at spawn time
