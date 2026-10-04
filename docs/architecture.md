@@ -248,7 +248,9 @@ the ordinary node-removal path. The endpoint takes only `cleanup`, never caller-
 The [routing report](../src/shared/orchestration-report.ts) is pure. It reads each ticket's `runs`,
 the session and route of every spawn, from the orchestration records of one project, which
 `list()` on the [orchestration store](../src/main/orchestration-store.ts) supplies. It takes turns
-from the outcome records and only proposes changes to the tier mapping, never writing it.
+from the outcome records and only proposes changes to the tier mapping, never writing it. Rows and
+proposals are per provider: each run names the provider that ran it, and each provider's
+proposals are judged against its own mapping only.
 
 ## Documentation responsibilities
 

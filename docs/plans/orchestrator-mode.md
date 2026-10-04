@@ -32,10 +32,13 @@ outcome index, and the terminal-context server's lazy local listener with per-ag
   that has a shell. The CLI is a thin client: Toucan's main process owns the ACP sessions, so
   the CLI calls a local endpoint in main (plain JSON over 127.0.0.1, bound lazily, like the
   terminal-context listener).
-- **Claude ticket sessions; Claude or Codex orchestrators.** Follow-up #43 adds Codex
-  orchestrator creation and durable planning authority. Its instruction appends through
-  `CODEX_CONFIG.developer_instructions`; both providers receive the shipped workflow path and
-  a launch-scoped endpoint grant. Ticket-session providers are a separate follow-up.
+- **Provider-homogeneous orchestrations.** A Claude orchestrator spawns Claude ticket sessions
+  and a Codex orchestrator Codex ones (#43, #44); a spawn naming another provider is refused.
+  Codex instructions append through `CODEX_CONFIG.developer_instructions`; both providers
+  receive the shipped workflow path and a launch-scoped endpoint grant. Each provider routes
+  through its own tier mapping (#45), and the routing report keeps each provider's evidence and
+  proposals apart (#47): a run records the provider that ran it, and one recorded before that
+  field existed was a Claude session.
 
 ### The orchestrator node
 
@@ -56,7 +59,7 @@ outcome index, and the terminal-context server's lazy local listener with per-ag
 The token is minted when the orchestrator node launches and passed to the session in its
 environment, like `TOUCAN_NODE_ID`. Every call is checked in main at call time:
 
-- only Claude ticket sessions, only in the orchestrator's own project, only into worktrees the
+- only ticket sessions of the orchestrator's own provider, only in the orchestrator's own project, only into worktrees the
   orchestration created;
 - ticket sessions get no token, so orchestrators never nest;
 - ticket sessions inherit the orchestrator's permission mode;

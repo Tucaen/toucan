@@ -57,6 +57,6 @@ Your final answer is the **review list**, with a commit or worktree for every ti
 - Unmerged tickets, their blocked dependents and retained worktrees.
 - Failed tracker write-backs and partial cleanup.
 
-End it with a **Routing report** section built from `report`: one table of Jev's routes and a separate one of orchestrator routes, each row a tier and model with its tickets, merged without escalation, escalated and median turns. Then list each proposal's `summary` and its `from` → `to` mapping entry for the file in `config`. With no proposals, say none reached the minimum sample of `minimumSample` settled tickets. Name a `mappingError` if there is one.
+End it with a **Routing report** section built from `report`: one table of Jev's routes and a separate one of orchestrator routes, each row a provider, tier and model with its tickets, merged without escalation, escalated and median turns. Never merge rows of different providers, even when the model names match. Then list each proposal's `summary` and its `configEntry` `from` → `to` for that provider's file in `config`. With no proposals, say none reached the minimum sample of `minimumSample` settled tickets. Name each entry of `mappingErrors` if there are any.
 
 For a category with no entries say none, concisely. Link merged commits even when there are no findings. If sessions are still working, this is an interim status and you end the turn for Toucan's wake; do not call the orchestration finished.

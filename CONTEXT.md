@@ -24,7 +24,7 @@ _Avoid_: naming the feature after the provider
 ### Orchestration
 
 **Orchestrator**:
-A dedicated Claude or Codex chat node kind that splits one large task into tickets, spawns a ticket session per ticket and merges the results into the branch it was launched on. Plan in `docs/plans/orchestrator-mode.md`.
+A dedicated Claude or Codex chat node kind that splits one large task into tickets, spawns a ticket session per ticket and merges the results into the branch it was launched on. Orchestrations are provider-homogeneous: every ticket session runs on the orchestrator's own provider. Plan in `docs/plans/orchestrator-mode.md`.
 _Avoid_: orchestrator mode toggle, manager agent
 
 **Ticket session**:

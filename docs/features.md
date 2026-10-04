@@ -11,8 +11,9 @@ The full tour of what Toucan does today. The [README](../README.md) has the shor
   writes progress back to a supplied tracker and ends with a review list. Its `cleanup` command
   removes published, merged ticket worktrees and local branches; unmerged or unsafe-to-remove
   work stays for review. Conversations remain in History. Its final answer carries a routing
-  report: how each tier and model did across the project's orchestrations, with tier mapping
-  changes proposed once enough tickets have settled. Toucan never applies them itself. The
+  report: how each provider's tiers and models did across the project's orchestrations, with
+  changes to that provider's tier mapping proposed once enough tickets have settled. Toucan never
+  applies them itself. Ticket sessions always run on the orchestrator's own provider. The
   header's **Orchestration settings** button edits separate Claude and Codex tier mappings and
   implementation skills at user and per-project scope. Each provider uses only its own advertised
   model and effort catalogue. Models its picker no longer offers are shown as missing, and the

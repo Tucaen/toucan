@@ -69,7 +69,7 @@ When Jev is unavailable (no `TYPESAFE_API_KEY`, a timeout, an error), `route` ex
 
 ## spawn
 
-`spawn --ticket <id> [--model <id> --effort <level> | --tier <tier> [--effort <level>]] [--provider claude] [--project <path>]` starts one ticket session and prints:
+`spawn --ticket <id> [--model <id> --effort <level> | --tier <tier> [--effort <level>]] [--provider claude|codex] [--project <path>]` starts one ticket session and prints:
 
 ```json
 {
@@ -97,7 +97,7 @@ When Jev is unavailable (no `TYPESAFE_API_KEY`, a timeout, an error), `route` ex
 - The session's first prompt is the configured implementation skill (default `/implement`) with the ticket, then the ticket contract.
 - Toucan creates a worktree on a fresh `ticket/<id>` branch from `targetBranch` (a retry gets `ticket/<id>-2`, and so on), runs the project's setup command there (up to 15 minutes), and then opens the session on the canvas with the ticket as its first prompt. The call returns once the session is up, so expect it to take minutes.
 - `model` and `effort` are what the running session reports, `null` when it reports none. When they differ from what you asked for, `warnings` says so: treat the session as running on the reported values.
-- The ticket session is a Claude session; `--provider` accepts only `claude`, and `--project` only the orchestrator's own project.
+- Orchestrations are provider-homogeneous: the ticket session runs on your own provider, so a Claude orchestrator spawns Claude sessions and a Codex orchestrator Codex sessions, each routed through that provider's own tier mapping. `--provider` may only name your own provider, and `--project` only the orchestrator's own project.
 - Ticket sessions commit to their branch and cannot push: a hook refuses it. You merge each branch into `targetBranch` yourself, then record it with `ticket update <id> --json '{"mergeStatus":"merged"}'`.
 - An orchestration has 20 spawns in total. Each call counts before anything is created, so failed spawns, retries and escalations count too. Once they are used, spawn is refused; list what is left for human review.
 - A failure before the session opens removes the new worktree and branch again; after the session opens, they stay and `error` names the worktree.
@@ -153,6 +153,7 @@ It never answers a tool-permission prompt. While a ticket session waits on one, 
   "minimumSample": 10,
   "jev": [
     {
+      "provider": "claude",
       "tier": "medium",
       "model": "sonnet",
       "tickets": 12,
@@ -169,27 +170,31 @@ It never answers a tool-permission prompt. While a ticket session waits on one, 
   "skippedRuns": 0,
   "proposals": [
     {
+      "provider": "claude",
+      "configEntry": "claude.tiers.medium",
       "tier": "medium",
       "from": { "model": "sonnet" },
       "to": { "model": "opus" },
       "evidence": { "model": "sonnet", "mergedWithoutEscalation": 7, "sample": 12 },
-      "summary": "medium → opus: sonnet merged only 7/12 Jev-routed medium tickets without escalation"
+      "summary": "claude.tiers.medium → opus: sonnet merged only 7/12 Jev-routed Claude medium tickets without escalation"
     }
   ],
-  "mapping": {
-    "low": { "model": "haiku" },
-    "medium": { "model": "sonnet" },
-    "high": { "model": "opus" },
-    "frontier": { "model": "opus", "effort": "max" }
+  "mappings": {
+    "claude": {
+      "low": { "model": "haiku" },
+      "medium": { "model": "sonnet" },
+      "high": { "model": "opus" },
+      "frontier": { "model": "opus", "effort": "max" }
+    }
   },
-  "config": { "user": "<userData>/orchestration-config.json", "project": null }
+  "config": { "claude": { "user": "<userData>/orchestration-config.json", "project": null } }
 }
 ```
 
-- A row is one tier and model. Each ticket that ran there counts once: `mergedWithoutEscalation` when it merged there, routed there directly; `mergedAfterEscalation` when it merged there after an escalation from below; `escalated` when it was escalated away to a higher tier; `unmerged` when it stayed unmerged or moved to another model on the same tier; `inProgress` when it is still pending there. `medianTurns` is `null` when no outcome record gives turns.
+- A row is one provider, tier and model. `provider` is the provider whose ticket sessions ran there, and `model` an id from that provider's picker: the same model name under two providers is two rows, never one. A run recorded before runs named their provider counts as Claude's, because ticket sessions were Claude-only then. Each ticket that ran there counts once: `mergedWithoutEscalation` when it merged there, routed there directly; `mergedAfterEscalation` when it merged there after an escalation from below; `escalated` when it was escalated away to a higher tier; `unmerged` when it stayed unmerged or moved to another model on the same tier; `inProgress` when it is still pending there. `medianTurns` is `null` when no outcome record gives turns.
 - `jev` holds tickets Jev routed. `orchestrator` holds tickets whose tier you judged or whose model you named. They are never mixed, and only `jev` rows produce proposals. `skippedRuns` counts runs with no known tier, model or `routedBy`.
-- `sample` is the settled tickets Jev routed straight to that tier. A proposal needs `sample` of at least `minimumSample`. It moves a tier down to a lower tier's model that merged at least 90% of its sample without escalation, or else up to the next tier's entry when the tier's own model merged fewer than 70%. It proposes at most one change per tier and nothing past `frontier`.
-- `report` only reads. It never changes the mapping. A mapping file that cannot be used still gets the counts, with `mapping: null`, no proposals and a `mappingError`.
+- `sample` is the settled tickets Jev routed straight to that tier. Each provider's proposals are judged only from its own rows against its own mapping, and `configEntry` names the entry in that provider's section of the `config` file a proposal would change. A proposal needs `sample` of at least `minimumSample`. It moves a tier down to a lower tier's model that merged at least 90% of its sample without escalation, or else up to the next tier's entry when the tier's own model merged fewer than 70%. It proposes at most one change per tier and nothing past `frontier`.
+- `mappings` and `config` hold your own provider and every provider whose ticket sessions ran in this project. `report` only reads. It never changes a mapping. A provider whose mapping cannot be used still gets its counts, with `mappings.<provider>: null`, no proposals of its own and the reason in `mappingErrors.<provider>`.
 
 ## cleanup
 
