@@ -1,4 +1,5 @@
 import type { AgentEvent, AgentPromptResult } from '../shared/agent'
+import type { SessionOutcomeIdentity } from '../shared/session-outcome'
 import { orchestratorWakePrompt, ticketWakeKind, type TicketWakeEvent } from '../shared/orchestration'
 import { errorMessage } from '../shared/text'
 
@@ -19,6 +20,7 @@ import { errorMessage } from '../shared/text'
 
 /** Which orchestrator a ticket session reports to, and as which ticket. */
 export interface TicketBinding {
+  provider: SessionOutcomeIdentity['provider']
   orchestratorNodeId: string
   ticketId: string
   /** The ticket session's conversation, which its outcome record is keyed by. */
@@ -35,7 +37,7 @@ export interface OrchestrationWakerOptions {
    */
   resolve(nodeId: string): Promise<TicketBinding | null | undefined>
   /** The ticket session's outcome record, read when the prompt is built. */
-  outcome(conversationId: string): Promise<{ path: string; files: number } | undefined>
+  outcome(identity: SessionOutcomeIdentity): Promise<{ path: string; files: number } | undefined>
   /** False while the orchestration is paused or stopped. Such wakes are deliberately discarded. */
   mayWake?(orchestratorNodeId: string): Promise<boolean>
   /** How long events are gathered before they are sent together. */
@@ -55,6 +57,7 @@ export interface OrchestrationWaker {
 }
 
 interface WakeItem extends TicketWakeEvent {
+  provider?: SessionOutcomeIdentity['provider']
   conversationId?: string
   /** Arrival order, so wakes requeued by two deliveries that both came back undelivered stay in it. */
   sequence: number
@@ -115,9 +118,12 @@ export function createOrchestrationWaker(options: OrchestrationWakerOptions): Or
     if (items.length === 0) return
     if (options.mayWake && !(await options.mayWake(orchestratorNodeId).catch(() => false))) return
     const events: TicketWakeEvent[] = []
-    for (const { conversationId, sequence: _sequence, ...event } of items) {
+    for (const { provider, conversationId, sequence: _sequence, ...event } of items) {
       const ended = event.kind === 'completed' || event.kind === 'failed' || event.kind === 'cancelled'
-      const outcome = ended && conversationId ? await options.outcome(conversationId).catch(() => undefined) : undefined
+      const outcome =
+        ended && provider && conversationId
+          ? await options.outcome({ provider, conversationId }).catch(() => undefined)
+          : undefined
       events.push(outcome ? { ...event, outcome } : event)
     }
     let result: AgentPromptResult
@@ -141,6 +147,7 @@ export function createOrchestrationWaker(options: OrchestrationWakerOptions): Or
       ...item,
       sequence: (arrivals += 1),
       ticketId: binding.ticketId,
+      provider: binding.provider,
       ...(binding.conversationId ? { conversationId: binding.conversationId } : {})
     })
     arm(binding.orchestratorNodeId, queue)

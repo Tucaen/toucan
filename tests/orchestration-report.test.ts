@@ -61,10 +61,10 @@ test('each run counts against the tier and model it ran on; an escalation leaves
   const unmerged = ticket('unmerged', jev('medium', 'sonnet'))
   const running = ticket('pending', jev('medium', 'sonnet'))
   const turns = new Map([
-    [merged.conversations[0]!, { turns: 2 }],
-    [escalated.conversations[0]!, { turns: 6 }],
-    [escalated.conversations[1]!, { turns: 3 }],
-    [unmerged.conversations[0]!, { turns: 4 }]
+    [`claude-${merged.conversations[0]!}`, { turns: 2 }],
+    [`claude-${escalated.conversations[0]!}`, { turns: 6 }],
+    [`claude-${escalated.conversations[1]!}`, { turns: 3 }],
+    [`claude-${unmerged.conversations[0]!}`, { turns: 4 }]
   ])
   const report = routingReport([record([merged, escalated, unmerged, running])], turns)
 
@@ -118,7 +118,7 @@ test('the outcome record route stands in for a run the orchestration record pred
   const unrouted: OrchestrationTicket = { ...legacy, id: 'none', session: { conversationId: 'none' } }
   const report = routingReport(
     [record([legacy, unrouted]), record([], 'orchestrator-2')],
-    new Map([['legacy', { turns: 5, route: jev('high', 'opus') }]])
+    new Map([['claude-legacy', { turns: 5, route: jev('high', 'opus') }]])
   )
   assert.equal(row(report.jev, 'high', 'opus')?.mergedWithoutEscalation, 1)
   assert.equal(row(report.jev, 'high', 'opus')?.medianTurns, 5)
@@ -155,7 +155,7 @@ test("a run with no launch route takes its outcome record's route over the ticke
     session: { conversationId: 'second' },
     runs: [{ conversationId: 'first' }, { conversationId: 'second', route: jev('high', 'opus', true) }]
   }
-  const report = routingReport([record([legacy])], new Map([['first', { route: jev('medium', 'sonnet') }]]))
+  const report = routingReport([record([legacy])], new Map([['claude-first', { route: jev('medium', 'sonnet') }]]))
   assert.equal(row(report.jev, 'medium', 'sonnet')?.escalated, 1)
   assert.equal(row(report.jev, 'high', 'opus')?.mergedAfterEscalation, 1)
 })

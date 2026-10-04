@@ -6,11 +6,13 @@ import {
   type TicketSession
 } from '../shared/orchestration'
 import { errorMessage } from '../shared/text'
-import type {
-  OrchestratorLink,
-  TicketSessionCanvasRequest,
-  TicketSessionCanvasResult
+import {
+  orchestratorProvider,
+  type OrchestratorLink,
+  type TicketSessionCanvasRequest,
+  type TicketSessionCanvasResult
 } from '../shared/ticket-session-spawn'
+import type { AgentProvider } from '../shared/agent-provider'
 import type { GitRunner, WorktreeManager } from './git-worktree'
 import type { PushGuardResult } from './ticket-push-guard'
 
@@ -67,8 +69,9 @@ export interface TicketSpawnerOptions {
   canvas: { startTicketSession(request: TicketSessionCanvasRequest): Promise<TicketSessionCanvasResult> }
   /** A live session's settings by node id, from the event broker's snapshot. */
   session(nodeId: string): SessionSettings | undefined
-  /** The Claude models the picker offers; empty when no Claude session has advertised any yet. */
-  offeredModels(): readonly string[]
+  /** The provider's picker catalogue; empty until a session advertises it. */
+  offeredModels(provider: AgentProvider): readonly string[]
+  offeredEfforts(provider: AgentProvider, modelId: string): readonly string[] | undefined
   /** A worktree main created, so the chat launching in it is not refused as outside the workspace. */
   onWorktreeCreated(path: string): void
 }
@@ -107,9 +110,17 @@ export function createTicketSpawner(options: TicketSpawnerOptions): TicketSpawne
   const spawn = async (request: TicketSpawnRequest): Promise<TicketSpawnResult> => {
     const project = await options.project(request.projectPath)
     if (!project) return { ok: false, error: `the project ${request.projectPath} is not open in Toucan` }
-    const offered = options.offeredModels()
+    const provider = orchestratorProvider(request.orchestrator)
+    const offered = options.offeredModels(provider)
     if (offered.length > 0 && !offered.includes(request.model)) {
       return { ok: false, error: `model "${request.model}" is not offered; the picker offers ${offered.join(', ')}` }
+    }
+    const efforts = options.offeredEfforts(provider, request.model)
+    if (efforts && efforts.length > 0 && !efforts.includes(request.effort)) {
+      return {
+        ok: false,
+        error: `effort "${request.effort}" is not offered for "${request.model}"; the picker offers ${efforts.join(', ')}`
+      }
     }
     // Read before anything is created, so the ticket session inherits the mode the orchestrator
     // had when it asked.
@@ -137,13 +148,14 @@ export function createTicketSpawner(options: TicketSpawnerOptions): TicketSpawne
     }
 
     const started = await options.canvas.startTicketSession({
+      provider,
       projectId: project.id,
       worktree,
       label: ticketSessionTitle(request.ticket),
       modelId: request.model,
       effortId: request.effort,
       ...(permissionMode ? { permissionMode } : {}),
-      orchestratedBy: request.orchestrator,
+      orchestratedBy: { ...request.orchestrator, provider },
       prompt: ticketSessionPrompt(request.ticket, worktree, request.implementationSkill)
     })
     if (!started.ok) {

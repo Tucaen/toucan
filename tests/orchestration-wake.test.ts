@@ -2,13 +2,24 @@ import { strict as assert } from 'node:assert'
 import { test } from 'vitest'
 import { createOrchestrationWaker, type TicketBinding } from '../src/main/orchestration-wake'
 import type { AgentEvent, AgentPromptResult } from '../src/shared/agent'
+import type { SessionOutcomeIdentity } from '../src/shared/session-outcome'
 
 // Waking the orchestrator (#35): ticket session events become follow-up prompts to the orchestrator,
 // folded when they arrive close together, and kept until a prompt actually got through.
 
 const bindings: Record<string, TicketBinding> = {
-  'ticket-a': { orchestratorNodeId: 'orchestrator', ticketId: '12', conversationId: 'conversation-a' },
-  'ticket-b': { orchestratorNodeId: 'orchestrator', ticketId: '13', conversationId: 'conversation-b' }
+  'ticket-a': {
+    provider: 'claude',
+    orchestratorNodeId: 'orchestrator',
+    ticketId: '12',
+    conversationId: 'conversation-a'
+  },
+  'ticket-b': {
+    provider: 'claude',
+    orchestratorNodeId: 'orchestrator',
+    ticketId: '13',
+    conversationId: 'conversation-b'
+  }
 }
 
 function harness(
@@ -27,7 +38,7 @@ function harness(
       return answers.shift() ?? { ok: true }
     },
     resolve: async (nodeId) => (options.resolve ? options.resolve(nodeId) : (bindings[nodeId] ?? null)),
-    outcome: async (conversationId) =>
+    outcome: async ({ conversationId }) =>
       conversationId === 'conversation-a' ? { path: 'C:\\outcomes\\toucan--a--1234.md', files: 4 } : undefined,
     mayWake: async (orchestratorNodeId) => options.mayWake?.(orchestratorNodeId) ?? true,
     schedule: (callback) => {
@@ -54,6 +65,38 @@ test('a finished ticket turn wakes its orchestrator with the event and where to 
   assert.match(delivered[0].text, /#12 completed - 4 files - outcome record C:\\outcomes\\toucan--a--1234\.md/)
   assert.match(delivered[0].text, /outcome --ticket/)
   assert.doesNotMatch(delivered[0].text, /background work pending/)
+})
+
+test('a restored Codex ticket reads its Codex outcome when waking the orchestrator', async () => {
+  const reads: SessionOutcomeIdentity[] = []
+  const prompts: string[] = []
+  const timers: Array<() => void> = []
+  const waker = createOrchestrationWaker({
+    resolve: async () => ({
+      provider: 'codex',
+      orchestratorNodeId: 'captain',
+      ticketId: '44',
+      conversationId: 'shared-id'
+    }),
+    outcome: async (identity) => {
+      reads.push(identity)
+      return { path: 'codex-outcome.md', files: 2 }
+    },
+    deliver: async (_node, text) => {
+      prompts.push(text)
+      return { ok: true }
+    },
+    schedule: (callback) => {
+      timers.push(callback)
+      return () => undefined
+    }
+  })
+  waker.observe('ticket', complete)
+  await waker.idle()
+  timers.forEach((callback) => callback())
+  await waker.idle()
+  assert.deepEqual(reads, [{ provider: 'codex', conversationId: 'shared-id' }])
+  assert.match(prompts[0], /2 files - outcome record codex-outcome.md/)
 })
 
 test('a turn that ends with background work still running says so, with the task count', async () => {
@@ -160,7 +203,7 @@ test('events a ticket session raised before its spawn returned are delivered onc
   })
   await fold()
   assert.equal(delivered.length, 0)
-  waker.bind('fresh-ticket', { orchestratorNodeId: 'orchestrator', ticketId: '14' })
+  waker.bind('fresh-ticket', { provider: 'claude', orchestratorNodeId: 'orchestrator', ticketId: '14' })
   await fold()
   assert.equal(delivered.length, 1)
   assert.match(delivered[0].text, /#14 waits on a tool-permission prompt/)

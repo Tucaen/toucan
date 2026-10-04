@@ -108,7 +108,11 @@ test('a spawn hands the spawner the ticket, the target branch and the orchestrat
     const [request] = spawner.calls
     assert.equal(request.projectPath, 'D:\\project')
     assert.equal(request.targetBranch, 'main')
-    assert.deepEqual(request.orchestrator, { nodeId: 'orchestrator-1', conversationId: 'conversation-1' })
+    assert.deepEqual(request.orchestrator, {
+      nodeId: 'orchestrator-1',
+      conversationId: 'conversation-1',
+      provider: 'claude'
+    })
     assert.equal(request.ticket.id, '34')
     assert.equal(request.model, 'claude-opus-5-5')
     assert.equal(request.effort, 'high')
@@ -193,14 +197,53 @@ test('a spawn into another project is refused, by flag and by record', async () 
   }
 })
 
-test('a spawn for a provider other than Claude is refused', async () => {
+test('a spawn for a provider other than its orchestrator is refused', async () => {
   const spawner = fakeSpawner()
   const { endpoint, grant } = await planned(spawner)
   try {
     const reply = await call(grant, 'spawn', { ...spawn34, provider: 'codex' })
     assert.equal(reply.status, 400)
-    assert.match(reply.body.error ?? '', /Claude/)
+    assert.match(reply.body.error ?? '', /must match its orchestrator \(claude\)/)
     assert.equal(spawner.calls.length, 0)
+  } finally {
+    await endpoint.close()
+  }
+})
+
+test('a Codex orchestrator spawns its own provider with the same authorization and dependency gates', async () => {
+  const spawner = fakeSpawner()
+  const { records, endpoint } = harness(spawner)
+  const grant = (await endpoint.grant('codex-orchestrator', { provider: 'codex', projectPath: 'D:\\project' }))!
+  grant.setConversation('codex-conversation')
+  const args = { ticket: '34', model: 'gpt-6', effort: 'xhigh', provider: 'codex' }
+  const key = { provider: 'codex' as const, conversationId: 'codex-conversation' }
+  try {
+    assert.equal((await call(grant, 'plan set', plan)).status, 200)
+    assert.equal((await call(grant, 'spawn', args, null)).status, 401)
+    assert.equal((await call(grant, 'spawn', { ...args, provider: 'claude' })).status, 400)
+    assert.equal((await call(grant, 'spawn', { ...args, project: 'D:\\other' })).status, 403)
+    await call(grant, 'ticket update', { id: '34', fields: { blockedBy: ['33'] } })
+    assert.equal((await call(grant, 'spawn', args)).status, 429)
+    assert.equal(spawner.calls.length, 0)
+    assert.equal((await records.read(key))?.spawnCount ?? 0, 0)
+    await call(grant, 'ticket update', { id: '33', fields: { mergeStatus: 'merged' } })
+    const reply = await call(grant, 'spawn', args)
+    assert.equal(reply.status, 200)
+    assert.equal(reply.body.model, 'gpt-6')
+    assert.equal(reply.body.effort, 'xhigh')
+    assert.deepEqual(spawner.calls[0].orchestrator, {
+      nodeId: 'codex-orchestrator',
+      conversationId: key.conversationId,
+      provider: 'codex'
+    })
+    assert.equal((await records.read(key))?.tickets[1].session?.conversationId, 'ticket-conversation-1')
+    assert.equal(await records.read({ ...key, provider: 'claude' }), undefined)
+    await records.update(key, (current) => ({
+      value: { ...current!, spawnCount: MAX_SPAWNS_PER_ORCHESTRATION },
+      result: undefined
+    }))
+    assert.equal((await call(grant, 'spawn', args)).status, 429)
+    assert.equal(spawner.calls.length, 1)
   } finally {
     await endpoint.close()
   }

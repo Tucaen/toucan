@@ -24,6 +24,9 @@ export function useTicketSessionSpawns(
   const awaiting = useRef(new Map<string, string>())
   const starter = useRef(start)
   starter.current = start
+  // Pair requests with the render that can see their nodes. A request arriving after render
+  // must not be failed by that render's pending effect, whose nodes predate the spawn.
+  const pending = [...awaiting.current]
 
   useEffect(
     () =>
@@ -36,7 +39,8 @@ export function useTicketSessionSpawns(
   )
 
   useEffect(() => {
-    for (const [requestId, nodeId] of [...awaiting.current]) {
+    for (const [requestId, nodeId] of pending) {
+      if (!awaiting.current.has(requestId)) continue
       const node = nodes.find((candidate) => candidate.id === nodeId)
       // Closed before it came up: nothing will report on it again, so main is answered now.
       const settlement = node ? spawnSettlement(statuses[nodeId] ?? 'starting') : 'failed'
@@ -49,5 +53,5 @@ export function useTicketSessionSpawns(
           : { ok: false, message: START_FAILED_MESSAGE }
       window.orchestratorApi.completeTicketSession(requestId, result)
     }
-  }, [nodes, statuses])
+  })
 }

@@ -142,7 +142,7 @@ test('a missing frontier model has nowhere to fall back to and is refused', () =
 test('with no model list known yet the mapping is used unchecked, with a warning', () => {
   const resolved = resolveTier('high', 2, DEFAULT_ORCHESTRATION_CONFIG, offered([]))
   assert.deepEqual(resolved.route, { tier: 'high', model: 'opus', effort: 'high' })
-  assert.match(resolved.warnings[0]!, /no Claude model list/)
+  assert.match(resolved.warnings[0]!, /no model list is known for this provider/)
 })
 
 test('tiers climb one step at a time and stop at frontier', () => {

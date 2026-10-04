@@ -20,7 +20,6 @@ import {
   parseTicketUpdate,
   recordTicketRoute,
   recordTicketSession,
-  TICKET_SESSION_PROVIDER,
   reserveSpawn,
   type DifficultyTier,
   type OrchestrationRecord,
@@ -37,7 +36,7 @@ import {
   type OrchestrationConfig
 } from '../shared/orchestration-routing'
 import { routingReport, ticketRunHistory, type RoutingRunOutcome } from '../shared/orchestration-report'
-import type { SessionOutcomeIdentity, SessionOutcomeRecord } from '../shared/session-outcome'
+import { sessionOutcomeKey, type SessionOutcomeIdentity, type SessionOutcomeRecord } from '../shared/session-outcome'
 import { pathIdentity } from '../shared/paths'
 import { isRecord } from '../shared/record'
 import { errorMessage } from '../shared/text'
@@ -117,8 +116,8 @@ export interface TicketSessionControl {
 export interface OrchestratorRouting {
   /** The effective tier mapping and implementation skill for a project, read afresh at every call. */
   config(projectPath: string): Promise<OrchestrationConfigLoad>
-  /** What the chat node's Claude model picker offers, as main last saw it. */
-  offered(): OfferedModels
+  /** What this provider's model picker offers, as main last saw it. */
+  offered(provider: AgentProvider): OfferedModels
   jev: Pick<JevRouter, 'judge'>
 }
 
@@ -228,7 +227,8 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
   const spawnRoute = (
     request: SpawnInput,
     ticket: OrchestrationTicket,
-    config: OrchestrationConfig | undefined
+    config: OrchestrationConfig | undefined,
+    provider: AgentProvider
   ): SpawnRoute | { refusal: Reply } => {
     const recorded = ticket.route
     if (request.model !== undefined) {
@@ -259,7 +259,7 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
       }
     }
     const same = request.tier === undefined || request.tier === recorded?.tier
-    const offered = routing.offered()
+    const offered = routing.offered(provider)
     // A recorded model the picker has dropped since `route` is resolved again, falling back as usual.
     const stillOffered = recorded?.model && (offered.models.length === 0 || offered.models.includes(recorded.model))
     if (same && stillOffered && recorded.model && recorded.effort) {
@@ -289,7 +289,9 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
     if (request.projectPath !== undefined && pathIdentity(request.projectPath) !== pathIdentity(grant.projectPath)) {
       return refused(403, `spawn cannot reach another project; this orchestrator works in ${grant.projectPath}`)
     }
-    if (grant.provider !== 'claude') return refused(403, 'only a Claude orchestrator can spawn ticket sessions')
+    if (request.provider !== undefined && request.provider !== grant.provider) {
+      return refused(400, `ticket provider must match its orchestrator (${grant.provider})`)
+    }
     const spawner = options.spawner
     if (!spawner) return refused(501, 'this Toucan cannot spawn ticket sessions')
     const configured = await loadConfig(grant)
@@ -305,7 +307,7 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
         const planned = current.tickets.find((candidate) => candidate.id === request.ticketId)
         if (!planned) return refuse(refused(400, `the plan has no ticket "${request.ticketId}"`))
         // Resolved before the spawn is counted, so a ticket that cannot be routed costs no spawn.
-        const resolved = spawnRoute(request, planned, configured.config)
+        const resolved = spawnRoute(request, planned, configured.config, grant.provider)
         if ('refusal' in resolved) return refuse(resolved.refusal)
         routed = resolved
         const counted = reserveSpawn(current, request.ticketId, now())
@@ -319,7 +321,7 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
     const ticket = reserved.tickets.find((candidate) => candidate.id === request.ticketId)!
     const { route: spawnedRoute, warnings: routeWarnings } = routed!
     const spawned = await spawner.spawn({
-      orchestrator: { nodeId: grant.nodeId, conversationId: key.conversationId },
+      orchestrator: { nodeId: grant.nodeId, conversationId: key.conversationId, provider: grant.provider },
       projectPath: grant.projectPath,
       targetBranch: reserved.targetBranch,
       ticket,
@@ -336,6 +338,7 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
     options.onTicketSpawned?.(spawned.session.nodeId, {
       orchestratorNodeId: grant.nodeId,
       ticketId: ticket.id,
+      provider: grant.provider,
       conversationId: spawned.session.conversationId
     })
     return {
@@ -404,7 +407,7 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
       }
     }
 
-    const offered = routing.offered()
+    const offered = routing.offered(grant.provider)
     const warnings: string[] = []
     const routes = new Map<string, TicketRoute>()
     for (const judgement of judgements) {
@@ -457,7 +460,7 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
     if (!routing) return refused(501, 'this Toucan cannot route tickets')
     const configured = await loadConfig(grant)
     if ('refusal' in configured) return configured.refusal
-    const offered = routing.offered()
+    const offered = routing.offered(grant.provider)
     return options.records.update(key, (current) => {
       const refuse = (reply: Reply) => ({ value: current, result: reply })
       if (!current) return refuse(refused(404, 'there is no plan yet; run plan set first'))
@@ -491,20 +494,27 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
     const outcomes = new Map<string, RoutingRunOutcome>()
     const sessions = options.ticketSessions
     if (sessions) {
-      const conversations = new Set(
+      const conversations = new Map(
         records.flatMap((record) =>
           record.tickets.flatMap((ticket) =>
-            ticketRunHistory(ticket).flatMap((run) => (run.conversationId ? [run.conversationId] : []))
+            ticketRunHistory(ticket).flatMap((run) =>
+              run.conversationId
+                ? [
+                    [
+                      sessionOutcomeKey(record.provider, run.conversationId),
+                      { provider: record.provider, conversationId: run.conversationId }
+                    ] as const
+                  ]
+                : []
+            )
           )
         )
       )
-      for (const conversationId of conversations) {
+      for (const [key, identity] of conversations) {
         // An outcome record that cannot be read costs that run its turns, never the report.
-        const found = await sessions
-          .outcome({ provider: TICKET_SESSION_PROVIDER, conversationId })
-          .catch(() => undefined)
+        const found = await sessions.outcome(identity).catch(() => undefined)
         if (found) {
-          outcomes.set(conversationId, {
+          outcomes.set(key, {
             turns: found.record.turns,
             ...(found.record.route ? { route: found.record.route } : {})
           })
@@ -576,7 +586,7 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
     if (!conversationId) return refused(409, `ticket ${ticket.id} has no ticket session yet`)
     const sessions = options.ticketSessions
     if (!sessions) return refused(501, 'this Toucan cannot read session outcome records')
-    const found = await sessions.outcome({ provider: TICKET_SESSION_PROVIDER, conversationId })
+    const found = await sessions.outcome({ provider: record.provider, conversationId })
     if (!found) {
       return refused(
         404,

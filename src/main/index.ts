@@ -13,6 +13,7 @@ import {
 import { pathIdentity } from '../shared/paths'
 import {
   isTicketSessionCanvasResult,
+  orchestratorProvider,
   type OrchestrationControlRequest,
   type OrchestrationControlState,
   type TicketSessionCanvasRequest,
@@ -25,7 +26,7 @@ import { createOrchestrationConfigStore } from './orchestration-config-store'
 import { registerOrchestrationSettingsIpc } from './orchestration-settings-ipc'
 import { createJevRouter } from './jev-router'
 import { createOrchestrationWaker } from './orchestration-wake'
-import { ORCHESTRATOR_ROLE, TICKET_SESSION_PROVIDER, type OrchestrationRecord } from '../shared/orchestration'
+import { ORCHESTRATOR_ROLE, type OrchestrationRecord } from '../shared/orchestration'
 import { createOrchestrationController, type OrchestrationSession } from './orchestration-control'
 import { createOrchestratorEndpoint } from './orchestrator-endpoint'
 import { createOrchestrationCleanup } from './orchestration-cleanup'
@@ -397,7 +398,7 @@ void app.whenReady().then(async () => {
       const link = (await workspace.load()).state?.nodes.find((node) => node.id === nodeId)?.orchestratedBy
       if (!link) return undefined
       const record = await orchestrationRecords.read({
-        provider: TICKET_SESSION_PROVIDER,
+        provider: orchestratorProvider(link),
         conversationId: link.conversationId
       })
       return record?.tickets.find((ticket) => ticket.session?.nodeId === nodeId)?.route
@@ -445,7 +446,7 @@ void app.whenReady().then(async () => {
     if (!node) return undefined
     if (node.orchestratedBy) {
       const key: OrchestrationSession['key'] = {
-        provider: TICKET_SESSION_PROVIDER,
+        provider: orchestratorProvider(node.orchestratedBy),
         conversationId: node.orchestratedBy.conversationId
       }
       const record = await orchestrationRecords.read(key)
@@ -497,20 +498,21 @@ void app.whenReady().then(async () => {
       if (!node.orchestratedBy) return null
       const link = node.orchestratedBy
       const record = await orchestrationRecords.read({
-        provider: TICKET_SESSION_PROVIDER,
+        provider: orchestratorProvider(link),
         conversationId: link.conversationId
       })
       const ticket = record?.tickets.find((candidate) => candidate.session?.nodeId === nodeId)
       return ticket
         ? {
             orchestratorNodeId: link.nodeId,
+            provider: orchestratorProvider(link),
             ticketId: ticket.id,
             ...(ticket.session?.conversationId ? { conversationId: ticket.session.conversationId } : {})
           }
         : undefined
     },
-    outcome: async (conversationId) => {
-      const found = await sessionOutcomeStore.find({ provider: TICKET_SESSION_PROVIDER, conversationId })
+    outcome: async (identity) => {
+      const found = await sessionOutcomeStore.find(identity)
       return found ? { path: found.path, files: found.record.filesTouched.length } : undefined
     },
     mayWake: (orchestratorNodeId) => orchestrationController.mayWake(orchestratorNodeId),
@@ -520,7 +522,7 @@ void app.whenReady().then(async () => {
     orchestrationController.observe(id, event)
     orchestrationWaker.observe(id, event)
   })
-  // Routing by difficulty tier (#36): the user's tier mapping, the Claude picker as last seen, and
+  // Routing by difficulty tier (#36): the user's tier mapping, the provider's picker as last seen, and
   // Jev, asked from main with main's own TYPESAFE_API_KEY so the key never leaves this process.
   const orchestrationConfig = createOrchestrationConfigStore({ userDataPath: app.getPath('userData') })
   // The settings panel (#39) edits the same files; an edit from anywhere - an agent, a text editor -
@@ -528,7 +530,7 @@ void app.whenReady().then(async () => {
   registerOrchestrationSettingsIpc(ipcMain, {
     store: orchestrationConfig,
     models: () => modelCatalogue.read().claude ?? [],
-    efforts: (modelId) => effortCatalogue.efforts(TICKET_SESSION_PROVIDER, modelId)
+    efforts: (modelId) => effortCatalogue.efforts('claude', modelId)
   })
   orchestrationConfig.watch(() => {
     for (const window of BrowserWindow.getAllWindows()) {
@@ -540,9 +542,9 @@ void app.whenReady().then(async () => {
     records: orchestrationRecords,
     routing: {
       config: (projectPath) => orchestrationConfig.load(projectPath),
-      offered: () => ({
-        models: (modelCatalogue.read().claude ?? []).map((model) => model.id),
-        efforts: (modelId) => effortCatalogue.efforts(TICKET_SESSION_PROVIDER, modelId)
+      offered: (provider) => ({
+        models: (modelCatalogue.read()[provider] ?? []).map((model) => model.id),
+        efforts: (modelId) => effortCatalogue.efforts(provider, modelId)
       }),
       jev: jevRouter
     },
@@ -766,7 +768,8 @@ void app.whenReady().then(async () => {
           }
         : undefined
     },
-    offeredModels: () => (modelCatalogue.read().claude ?? []).map((model) => model.id),
+    offeredModels: (provider) => (modelCatalogue.read()[provider] ?? []).map((model) => model.id),
+    offeredEfforts: (provider, modelId) => effortCatalogue.efforts(provider, modelId),
     // The same registration a renderer-created worktree gets (`registerWorktreeIpc`), so the ticket
     // session's first launch is not refused as outside the workspace before the snapshot names it.
     onWorktreeCreated: (path) => createdWorktreeRoots.add(containment.comparable(resolve(path)))

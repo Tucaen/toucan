@@ -161,7 +161,7 @@ test('a refusal from Toucan is printed as it came and exits non-zero', async () 
     )
     assert.equal(refused.code, 1)
     assert.equal(refused.output.ok, false)
-    assert.match(refused.output.error ?? '', /Claude/)
+    assert.match(refused.output.error ?? '', /must match its orchestrator/)
 
     const wrongToken = await run(['plan', 'show'], { ...environment, [ORCHESTRATOR_TOKEN_ENV]: 'guess' })
     assert.equal(wrongToken.code, 1)

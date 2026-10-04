@@ -145,7 +145,13 @@ test('a spawned ticket session is bound to its orchestrator for waking', async (
   const { endpoint, bound } = await spawned({})
   try {
     assert.deepEqual(bound, [
-      { nodeId: 'node-34', ticketId: '34', orchestratorNodeId: 'orchestrator-1', conversationId: 'conversation-34' }
+      {
+        nodeId: 'node-34',
+        ticketId: '34',
+        orchestratorNodeId: 'orchestrator-1',
+        provider: 'claude',
+        conversationId: 'conversation-34'
+      }
     ])
   } finally {
     await endpoint.close()

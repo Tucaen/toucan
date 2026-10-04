@@ -1,5 +1,5 @@
 import type { JevReachability } from './orchestration-routing'
-import type { AgentProvider } from './agent-provider'
+import { isAgentProvider, type AgentProvider } from './agent-provider'
 import { isRecord } from './record'
 import type { TicketCleanupRequest, TicketCleanupResult } from './orchestration-cleanup'
 
@@ -14,9 +14,17 @@ import type { TicketCleanupRequest, TicketCleanupResult } from './orchestration-
 export interface OrchestratorLink {
   nodeId: string
   conversationId: string
+  /** Absent only on links saved before provider-matched ticket spawning. */
+  provider?: AgentProvider
+}
+
+/** Legacy links belong to Claude, regardless of the ticket node's current provider. */
+export function orchestratorProvider(link: OrchestratorLink): AgentProvider {
+  return link.provider ?? 'claude'
 }
 
 export interface TicketSessionCanvasRequest {
+  provider: AgentProvider
   /** The workspace project the worktree belongs to. */
   projectId: string
   /** The worktree main just created; the renderer registers it before the chat attaches to it. */
@@ -36,7 +44,12 @@ export type TicketSessionCanvasResult =
   { ok: true; nodeId: string; conversationId: string } | { ok: false; message: string }
 
 export function isOrchestratorLink(value: unknown): value is OrchestratorLink {
-  return isRecord(value) && typeof value.nodeId === 'string' && typeof value.conversationId === 'string'
+  return (
+    isRecord(value) &&
+    typeof value.nodeId === 'string' &&
+    typeof value.conversationId === 'string' &&
+    (value.provider === undefined || isAgentProvider(value.provider))
+  )
 }
 
 /** Narrows the renderer's answer, which crosses IPC unvalidated. */

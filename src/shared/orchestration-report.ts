@@ -7,6 +7,7 @@ import {
   type TicketRun
 } from './orchestration'
 import type { TierMapping, TierMappingEntry } from './orchestration-routing'
+import { sessionOutcomeKey } from './session-outcome'
 
 /**
  * The routing report (#40; plan in `docs/plans/orchestrator-mode.md`): the feedback loop that keeps
@@ -133,13 +134,14 @@ const isComplete = (route: RoutingRunOutcome['route'] | undefined): boolean =>
  */
 function ticketRuns(
   ticket: OrchestrationTicket,
-  outcomes: ReadonlyMap<string, RoutingRunOutcome>
+  outcomes: ReadonlyMap<string, RoutingRunOutcome>,
+  provider: OrchestrationRecord['provider']
 ): { counted: CountedRun[]; skipped: number } {
   const runs = ticketRunHistory(ticket)
   const counted: CountedRun[] = []
   let skipped = 0
   for (const [index, run] of runs.entries()) {
-    const outcome = run.conversationId ? outcomes.get(run.conversationId) : undefined
+    const outcome = run.conversationId ? outcomes.get(sessionOutcomeKey(provider, run.conversationId)) : undefined
     const latest = index === runs.length - 1 ? ticket.route : undefined
     const route = [run.route, outcome?.route, latest].find(isComplete)
     if (!route?.tier || !route.model || !route.routedBy) {
@@ -284,8 +286,8 @@ export function proposeMappingChanges(rows: readonly RoutingReportRow[], mapping
 
 /**
  * The report over a project's orchestration records. `outcomes` is each ticket session's outcome
- * record by conversation id; `mapping` is the project's effective tier mapping, which proposals are
- * made against - absent, the report only counts.
+ * record by `sessionOutcomeKey(provider, conversationId)`; `mapping` is the project's effective
+ * tier mapping, which proposals are made against - absent, the report only counts.
  */
 export function routingReport(
   records: readonly OrchestrationRecord[],
@@ -296,7 +298,7 @@ export function routingReport(
   let skippedRuns = 0
   for (const record of records) {
     for (const ticket of record.tickets) {
-      const { counted, skipped } = ticketRuns(ticket, outcomes)
+      const { counted, skipped } = ticketRuns(ticket, outcomes, record.provider)
       skippedRuns += skipped
       stays.push(...ticketStays(ticket, counted))
     }

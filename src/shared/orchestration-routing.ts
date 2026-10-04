@@ -193,7 +193,7 @@ export function resolveTier(
   const wantedEffort = mapped.effort ?? (depth === undefined ? TIER_EFFORT[tier] : depthEffort(depth))
   let source: DifficultyTier | undefined = tier
   if (offered.models.length === 0) {
-    warnings.push('no Claude model list is known yet, so the tier mapping is used unchecked')
+    warnings.push('no model list is known for this provider yet, so the tier mapping is used unchecked')
   } else {
     while (source && !offered.models.includes(config.tiers[source].model)) source = nextTier(source)
     if (!source) {

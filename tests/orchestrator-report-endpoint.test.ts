@@ -137,3 +137,40 @@ test('a broken configuration still gets the counts, with the reason there are no
     await endpoint.close()
   }
 })
+
+test('outcome and report resolve conversations by provider, including ids shared across providers', async () => {
+  const records = createOrchestrationStore({ directory: mkdtempSync(join(tmpdir(), 'toucan-provider-report-')) })
+  for (const provider of ['claude', 'codex'] as const) {
+    const record = { ...finished('captain', 'D:\\project', ['shared-id']), provider }
+    await records.update(record, () => ({ value: record, result: undefined }))
+  }
+  const reads: string[] = []
+  const endpoint = createOrchestratorEndpoint({
+    records,
+    ticketSessions: {
+      state: () => undefined,
+      startPrompt: () => ({ ok: true }),
+      promptWhenIdle: async () => ({ ok: true }),
+      answerQuestion: () => ({ ok: true }),
+      outcome: async ({ provider, conversationId }) => {
+        reads.push(`${provider}:${conversationId}`)
+        return { path: `${provider}.md`, record: { turns: provider === 'codex' ? 8 : 2 } as SessionOutcomeRecord }
+      }
+    }
+  })
+  try {
+    const grant = (await endpoint.grant('captain-node', { provider: 'codex', projectPath: 'D:\\project' }))!
+    grant.setConversation('captain')
+    const outcome = await call(grant, 'outcome', { ticket: '1' })
+    assert.equal(outcome.status, 200)
+    assert.equal(outcome.body.path, 'codex.md')
+    assert.deepEqual(reads, ['codex:shared-id'])
+    reads.length = 0
+    const report = await call(grant, 'report')
+    assert.equal(report.status, 200)
+    assert.deepEqual(reads.sort(), ['claude:shared-id', 'codex:shared-id'])
+    assert.equal((report.body.jev as Array<{ medianTurns: number }>)[0].medianTurns, 5)
+  } finally {
+    await endpoint.close()
+  }
+})

@@ -476,16 +476,15 @@ export const MAX_SPAWNS_PER_ORCHESTRATION = 20
 /** The implementation skill a ticket session's prompt opens with, until #36 makes it configurable. */
 export const DEFAULT_IMPLEMENTATION_SKILL = '/implement'
 
-/** Ticket sessions, and so their outcome records, are Claude sessions in the first version. */
-export const TICKET_SESSION_PROVIDER = 'claude'
-
 /**
- * What `spawn` asks for. The provider is not a field: ticket sessions are Claude sessions. Either an
+ * What `spawn` asks for. Ticket sessions use their orchestrator's provider. Either an
  * explicit model with its effort, or a tier the tier mapping resolves (#36), or neither - then the
  * ticket's recorded route decides.
  */
 export interface SpawnInput {
   ticketId: string
+  /** When supplied, must match the orchestrator's provider. */
+  provider?: AgentProvider
   model?: string
   tier?: DifficultyTier
   /** Required with `model`; with a tier or the recorded route it overrides the resolved effort. */
@@ -510,13 +509,14 @@ export function parseSpawnInput(value: unknown): Outcome<'spawn', SpawnInput> {
   if (args.model === undefined && args.tier === undefined && args.effort !== undefined) {
     return refuse('spawn --effort goes with --model <id> or --tier <tier>')
   }
-  if (args.provider !== undefined && args.provider !== TICKET_SESSION_PROVIDER) {
-    return refuse(`ticket sessions are Claude sessions; provider ${JSON.stringify(args.provider)} is not supported`)
+  if (args.provider !== undefined && !isAgentProvider(args.provider)) {
+    return refuse(`provider ${JSON.stringify(args.provider)} is not supported`)
   }
   if (!optionalString(args.project)) return refuse('--project must be a path')
   return {
     spawn: {
       ticketId: args.ticket.trim(),
+      ...(isAgentProvider(args.provider) ? { provider: args.provider } : {}),
       ...(nonEmptyString(args.model) ? { model: args.model.trim() } : {}),
       ...(isDifficultyTier(args.tier) ? { tier: args.tier } : {}),
       ...(nonEmptyString(args.effort) ? { effort: args.effort.trim() } : {}),

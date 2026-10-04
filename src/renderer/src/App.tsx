@@ -2495,7 +2495,7 @@ function Canvas(): JSX.Element {
 
   /**
    * An orchestrator's ticket session (#34), asked for by main once the worktree exists, is guarded
-   * and is set up: the worktree goes on the canvas beside its orchestrator and one Claude chat opens
+   * and is set up: the worktree goes on the canvas beside its orchestrator and one same-provider chat opens
    * in it through the ordinary new-chat path - titled by its ticket as a manual title, on the
    * model, effort and permission mode main named, prompted with the ticket, and carrying the
    * orchestrated-by link the canvas draws its edge from.
@@ -2516,7 +2516,7 @@ function Canvas(): JSX.Element {
       // take the caret out of that field.
       const worktree = registerCreatedWorktree(request.worktree, project, position, true)
       const nodeId = addSessionNode({
-        kind: 'claude',
+        kind: request.provider,
         project,
         worktree,
         position,

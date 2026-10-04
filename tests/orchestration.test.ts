@@ -231,7 +231,7 @@ test('the orchestrator instruction says to end the turn after spawning and wait 
 // Spawning a ticket session (#34): what `spawn` may ask for, the per-orchestration cap, and the
 // prompt and title a ticket session is started with.
 
-test('a spawn names a ticket, a model and an effort, and only ever a Claude session', () => {
+test('a spawn names a ticket, a model and an effort, and optionally a known provider', () => {
   assert.deepEqual(parseSpawnInput({ ticket: ' 34 ', model: 'claude-opus-5-5', effort: 'high' }).spawn, {
     ticketId: '34',
     model: 'claude-opus-5-5',
@@ -239,12 +239,16 @@ test('a spawn names a ticket, a model and an effort, and only ever a Claude sess
   })
   assert.deepEqual(
     parseSpawnInput({ ticket: '34', model: 'm', effort: 'e', provider: 'claude', project: 'D:\\project' }).spawn,
-    { ticketId: '34', model: 'm', effort: 'e', projectPath: 'D:\\project' }
+    { ticketId: '34', model: 'm', effort: 'e', provider: 'claude', projectPath: 'D:\\project' }
   )
   assert.match(parseSpawnInput({ model: 'm', effort: 'e' }).error ?? '', /--ticket/)
   assert.match(parseSpawnInput({ ticket: '34', effort: 'e' }).error ?? '', /--model/)
   assert.match(parseSpawnInput({ ticket: '34', model: 'm' }).error ?? '', /--effort/)
-  assert.match(parseSpawnInput({ ticket: '34', model: 'm', effort: 'e', provider: 'codex' }).error ?? '', /Claude/)
+  assert.equal(parseSpawnInput({ ticket: '34', model: 'm', effort: 'e', provider: 'codex' }).spawn?.provider, 'codex')
+  assert.match(
+    parseSpawnInput({ ticket: '34', model: 'm', effort: 'e', provider: 'unknown' }).error ?? '',
+    /not supported/
+  )
   assert.match(parseSpawnInput(null).error ?? '', /ticket/)
 })
 

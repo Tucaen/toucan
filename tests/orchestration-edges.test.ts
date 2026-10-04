@@ -19,6 +19,7 @@ import {
 } from '../src/renderer/src/orchestration-edges'
 import { isValidTerminalContextConnection } from '../src/renderer/src/terminal-context-edges'
 import type { WorkspaceState, WorkspaceTerminalNode } from '../src/shared/workspace'
+import { orchestratorProvider } from '../src/shared/ticket-session-spawn'
 
 // The orchestrated-by edge (#34): a projection of `orchestratedBy` on a ticket session, like the
 // lineage edge - not drawable, not removable, granting nothing, and back after a restart.
@@ -144,10 +145,32 @@ test('a closed orchestrator draws nothing while the ticket session keeps its lin
   assert.deepEqual(ticket && isTerminalCanvasNode(ticket) ? ticket.data.orchestratedBy : undefined, link)
 })
 
+test('provider identity survives save and restore, with Claude as the legacy link default', async () => {
+  const store = createWorkspaceStore(
+    join(mkdtempSync(join(tmpdir(), 'toucan-orchestrator-provider-')), 'workspace.json')
+  )
+  for (const provider of [undefined, 'claude', 'codex'] as const) {
+    const provenance = { ...link, ...(provider ? { provider } : {}) }
+    const state = workspace([
+      chat('orchestrator', { kind: provider ?? 'claude', role: 'orchestrator' }),
+      chat('ticket', { kind: provider ?? 'claude', orchestratedBy: provenance })
+    ])
+    assert.equal((await store.save(state)).ok, true)
+    const loaded = (await store.load()).state!
+    const restored = restoreCanvasWorkspace(loaded, callbacks).nodes
+    const ticket = restored.find((node) => node.id === 'ticket')!
+    assert.ok(isTerminalCanvasNode(ticket))
+    assert.deepEqual(ticket.data.orchestratedBy, provenance)
+    assert.equal(orchestratorProvider(ticket.data.orchestratedBy!), provider ?? 'claude')
+    assert.equal(orchestratedEdges(restored).length, 1)
+  }
+})
+
 test('the store refuses a malformed link and a link on a terminal', async () => {
   const store = createWorkspaceStore(join(mkdtempSync(join(tmpdir(), 'toucan-orchestrated-edge-')), 'workspace.json'))
   for (const node of [
     chat('ticket', { orchestratedBy: { nodeId: 'orchestrator' } as never }),
+    chat('ticket', { orchestratedBy: { ...link, provider: 'unknown' } as never }),
     chat('shell', { kind: 'terminal', orchestratedBy: link })
   ]) {
     await store.save(workspace([node]))

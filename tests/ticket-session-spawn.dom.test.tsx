@@ -1,6 +1,6 @@
 import { act, screen, waitFor } from '@testing-library/react'
 import { describe, expect, test, vi } from 'vitest'
-import type { AgentApi, AgentCreateRequest } from '../src/shared/agent'
+import type { AgentApi, AgentCreateRequest, AgentProvider } from '../src/shared/agent'
 import type { TicketSessionCanvasRequest, TicketSessionCanvasResult } from '../src/shared/ticket-session-spawn'
 import type { WorkspaceState } from '../src/shared/workspace'
 import type { TicketCleanupRequest, TicketCleanupResult } from '../src/shared/orchestration-cleanup'
@@ -33,6 +33,7 @@ const workspace: WorkspaceState = savedWorkspace({
 })
 
 const request: TicketSessionCanvasRequest = {
+  provider: 'claude',
   projectId: project.id,
   worktree: { path: 'D:\\Development\\Toucan-ticket-34', branch: 'ticket/34', baseRef: 'main' },
   label: '#34 Spawn',
@@ -43,14 +44,17 @@ const request: TicketSessionCanvasRequest = {
   prompt: '/implement #34 Spawn\n\n## Ticket contract'
 }
 
-async function render(agentOverrides: Partial<AgentApi> = {}) {
+async function render(agentOverrides: Partial<AgentApi> = {}, provider: AgentProvider = 'claude') {
   let cleanupTicket: ((requestId: string, request: TicketCleanupRequest) => void) | null = null
   const cleanupResults: TicketCleanupResult[] = []
   let requestTicketSession: ((requestId: string, request: TicketSessionCanvasRequest) => void) | null = null
   const results: { requestId: string; result: TicketSessionCanvasResult }[] = []
-  const agent = createMockAgentApi(agentOverrides)
+  const agent = createMockAgentApi({
+    create: vi.fn(async ({ id }) => ({ ok: true, status: 'ready' as const, sessionId: `conversation-${id}` })),
+    ...agentOverrides
+  })
   const harness = await renderApp({
-    state: workspace,
+    state: { ...workspace, nodes: workspace.nodes.map((node) => ({ ...node, kind: provider })) },
     apis: {
       agentApi: agent.api as unknown as Record<string, unknown>,
       orchestratorApi: {
@@ -163,6 +167,40 @@ describe('a ticket session requested by an orchestrator', () => {
     const worktree = latest.worktrees.find((entry) => entry.id === ticket.worktreeId)
     expect(worktree?.path).toBe('D:\\Development\\Toucan-ticket-34')
     expect(worktree?.branch).toBe('ticket/34')
+  })
+
+  test('opens exactly one Codex ticket chat and persists its provider and provenance', async () => {
+    const { harness, agent, results, start } = await render({}, 'codex')
+    const codexRequest: TicketSessionCanvasRequest = {
+      ...request,
+      provider: 'codex',
+      orchestratedBy: { ...orchestratorLink, provider: 'codex' },
+      modelId: 'gpt-6',
+      effortId: 'xhigh',
+      permissionMode: 'auto'
+    }
+    start('codex-ticket', codexRequest)
+    await waitFor(() => expect(results).toHaveLength(1))
+    const result = results[0].result
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error(result.message)
+    const launches = createRequests(agent).filter((entry) => entry.id === result.nodeId)
+    expect(launches).toHaveLength(1)
+    expect(launches[0]).toMatchObject({
+      provider: 'codex',
+      modelId: 'gpt-6',
+      effortId: 'xhigh',
+      permissionMode: 'auto',
+      cwd: request.worktree.path
+    })
+    expect(launches[0].role).toBeUndefined()
+    await waitFor(() => expect(agent.api.prompt).toHaveBeenCalledWith(result.nodeId, request.prompt))
+    await waitFor(() => {
+      const ticket = harness.saved.at(-1)?.nodes.find((node) => node.id === result.nodeId)
+      expect(ticket?.kind).toBe('codex')
+      expect(ticket?.orchestratedBy).toEqual(codexRequest.orchestratedBy)
+      expect(ticket?.worktreeId).toBeTruthy()
+    })
   })
 
   test('a session that cannot start is reported as a failure', async () => {

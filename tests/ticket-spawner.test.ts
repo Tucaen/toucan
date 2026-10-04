@@ -72,6 +72,7 @@ function harness(overrides: Partial<TicketSpawnerOptions> = {}) {
           ? { model: 'claude-opus-5-5', effort: 'high' }
           : undefined,
     offeredModels: () => ['claude-opus-5-5', 'claude-sonnet-5-5'],
+    offeredEfforts: () => ['low', 'medium', 'high'],
     onWorktreeCreated: (path) => log.push(`registered ${path}`),
     ...overrides
   }
@@ -111,7 +112,11 @@ test('a spawn creates the worktree, guards it, runs setup and then starts the ch
   assert.equal(started.effortId, 'high')
   // Ticket sessions inherit the orchestrator's permission mode.
   assert.equal(started.permissionMode, 'acceptEdits')
-  assert.deepEqual(started.orchestratedBy, { nodeId: 'orchestrator-1', conversationId: 'conversation-1' })
+  assert.deepEqual(started.orchestratedBy, {
+    nodeId: 'orchestrator-1',
+    conversationId: 'conversation-1',
+    provider: 'claude'
+  })
   assert.ok(started.prompt.startsWith('/implement #34 Spawn\n\nStart one ticket session.'))
   assert.ok(started.prompt.includes('D:\\project-ticket/34'))
 })
@@ -131,6 +136,45 @@ test('a retry gets the next free branch name', async () => {
   assert.deepEqual(
     created.map((entry) => entry.branch),
     ['ticket/34', 'ticket/34-2']
+  )
+})
+
+test('Codex spawning uses its catalogue and mode, and reports confirmed settings after guard and setup', async () => {
+  const { spawner, canvas, log, created } = harness({
+    offeredModels: (provider) => (provider === 'codex' ? ['gpt-6', 'gpt-5.6'] : ['claude-opus-5-5']),
+    offeredEfforts: (provider, model) => {
+      assert.equal(provider, 'codex')
+      assert.equal(model, 'gpt-6')
+      return ['low', 'high', 'xhigh']
+    },
+    session: (nodeId) =>
+      nodeId === 'orchestrator-1' ? { permissionMode: 'auto' } : { model: 'gpt-5.6', effort: 'high' }
+  })
+  const codex = {
+    ...request,
+    orchestrator: { ...request.orchestrator, provider: 'codex' as const },
+    model: 'gpt-6',
+    effort: 'xhigh'
+  }
+  assert.equal((await spawner.spawn({ ...codex, model: 'claude-opus-5-5' })).ok, false)
+  const invalidEffort = await spawner.spawn({ ...codex, effort: 'max' })
+  assert.match(!invalidEffort.ok ? invalidEffort.error : '', /effort.*not offered/)
+  assert.equal(created.length, 0)
+  const result = await spawner.spawn(codex)
+  assert.ok(result.ok)
+  assert.equal(result.model, 'gpt-5.6')
+  assert.equal(result.effort, 'high')
+  assert.equal(result.warnings.length, 2)
+  assert.equal(canvas.length, 1)
+  assert.equal(canvas[0].provider, 'codex')
+  assert.equal(canvas[0].orchestratedBy.provider, 'codex')
+  assert.equal(canvas[0].permissionMode, 'auto')
+  assert.equal(canvas[0].modelId, 'gpt-6')
+  assert.equal(canvas[0].effortId, 'xhigh')
+  assert.match(canvas[0].prompt, /Ticket contract/)
+  assert.deepEqual(
+    log.map((entry) => entry.split(' ')[0]),
+    ['create', 'registered', 'guard', 'setup', 'canvas']
   )
 })
 
