@@ -32,12 +32,15 @@ outcome index, and the terminal-context server's lazy local listener with per-ag
   that has a shell. The CLI is a thin client: Toucan's main process owns the ACP sessions, so
   the CLI calls a local endpoint in main (plain JSON over 127.0.0.1, bound lazily, like the
   terminal-context listener).
-- **Claude only in the first version.** The design carries a provider field so Codex can be
-  added without reshaping it.
+- **Claude ticket sessions; Claude or Codex orchestrators.** Follow-up #43 adds Codex
+  orchestrator creation and durable planning authority. Its instruction appends through
+  `CODEX_CONFIG.developer_instructions`; both providers receive the shipped workflow path and
+  a launch-scoped endpoint grant. Ticket-session providers are a separate follow-up.
 
 ### The orchestrator node
 
-- A dedicated node kind, created from the canvas context menu (**New orchestrator**) - not a
+- A dedicated node kind, created from the canvas context menu (**New orchestrator** for Claude,
+  **New Codex orchestrator** for Codex) - not a
   launch toggle, which is easy to forget and hides the capability. It is a chat node with
   `role: 'orchestrator'` and a distinct header badge; an ordinary chat can never become one.
 - Its first prompt is the task. The orchestration instructions are on its system prompt, so no

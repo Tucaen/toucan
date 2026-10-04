@@ -250,6 +250,7 @@ const CREATE_ACTION_ICONS: Record<Exclude<CreateNodeKeyAction, 'none'>, { classN
   'create-claude': { className: 'claude-icon', icon: <SessionKindIcon kind="claude" /> },
   'create-codex': { className: 'codex-icon', icon: <SessionKindIcon kind="codex" /> },
   'create-orchestrator': { className: 'orchestrator-icon', icon: <Network aria-hidden="true" /> },
+  'create-codex-orchestrator': { className: 'orchestrator-icon', icon: <Network aria-hidden="true" /> },
   'create-worktree': { className: 'worktree-icon', icon: <GitBranch aria-hidden="true" /> },
   'open-history': { className: 'history-icon', icon: <History aria-hidden="true" /> },
   'open-file': { className: 'file-icon', icon: <FileText aria-hidden="true" /> },
@@ -2153,8 +2154,10 @@ function Canvas(): JSX.Element {
           addSessionNode({ kind: SESSION_KIND_BY_ACTION[action], project, position })
           break
         case 'create-orchestrator':
-          // Claude only in the first version (docs/plans/orchestrator-mode.md).
           addSessionNode({ kind: 'claude', role: ORCHESTRATOR_ROLE, project, position })
+          break
+        case 'create-codex-orchestrator':
+          addSessionNode({ kind: 'codex', role: ORCHESTRATOR_ROLE, project, position })
           break
         case 'create-worktree':
           setWorktreeDraft({

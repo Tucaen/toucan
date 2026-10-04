@@ -431,7 +431,7 @@ interface RunningAgent {
    */
   decisionDelegation?: AgentDecisionDelegation
   /**
-   * The orchestrator token this agent was launched with - only an orchestrator node's Claude
+   * The orchestrator token this agent was launched with - only an orchestrator node's
    * session has one. Revoked through this handle when the agent stops or its adapter exits, which
    * revokes this launch's token and never a relaunch's.
    */
@@ -962,9 +962,9 @@ export interface AcpSessionManagerOptions {
   projectPathFor?: (cwd: string) => Promise<string | undefined>
 }
 
-/** Whether a launch is an orchestrator's - by role, and on Claude only in the first version. */
-function isClaudeOrchestrator(request: AgentCreateRequest): boolean {
-  return request.role === ORCHESTRATOR_ROLE && request.provider === 'claude'
+/** Authority follows the fixed node role, independently of its chat provider. */
+function isOrchestrator(request: AgentCreateRequest): boolean {
+  return request.role === ORCHESTRATOR_ROLE
 }
 
 /**
@@ -1313,7 +1313,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         sessionSkillsConfiguration(running.request.provider, running.request.cwd, toucanSkillsRoot),
         [
           ...(running.request.additionalDirectories ?? []),
-          ...(isClaudeOrchestrator(running.request)
+          ...(isOrchestrator(running.request)
             ? [join(toucanSkillsRoot ?? options.appPath, PROJECT_SKILLS_DIRECTORY, 'skills', 'orchestrate')]
             : []),
           ...(sessionOutcomesDirectory ? [sessionOutcomesDirectory] : [])
@@ -1338,9 +1338,14 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       // An orchestrator's first prompt is its task; what to do with it rides the system prompt, so
       // no slash command is needed. Carried by role, even if the grant failed: the CLI then says
       // plainly that the token is missing rather than the session not knowing it orchestrates.
-      const orchestratingConfiguration = isClaudeOrchestrator(running.request)
-        ? withSessionInstruction(decidingConfiguration, orchestratorInstructionFor(toucanSkillsRoot ?? options.appPath))
-        : decidingConfiguration
+      // Codex carries the same instruction in its launch-scoped CODEX_CONFIG instead.
+      const orchestratingConfiguration =
+        running.request.provider === 'claude' && isOrchestrator(running.request)
+          ? withSessionInstruction(
+              decidingConfiguration,
+              orchestratorInstructionFor(toucanSkillsRoot ?? options.appPath)
+            )
+          : decidingConfiguration
       // Every Claude session, not only ticket sessions: the outcome record and the renderer's final
       // answer depend on the boundary of an autonomous cycle as much as the orchestrator's wake does.
       const sessionConfiguration =
@@ -1678,10 +1683,9 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       const decisionDelegation = request.decisionDelegation
         ? appliedDecisionDelegation(request.provider, options.decisionProviderInstalled?.())
         : undefined
-      // Claude only in the first version (docs/plans/orchestrator-mode.md); the conditional await
-      // keeps every other launch spawning synchronously within `create`.
+      // The conditional await keeps ordinary launches spawning synchronously within `create`.
       const stopsBeforeGrant = stopCounts.get(request.id) ?? 0
-      const orchestratorGrant = isClaudeOrchestrator(request)
+      const orchestratorGrant = isOrchestrator(request)
         ? await options.orchestrator?.grant(request.id, {
             provider: request.provider,
             projectPath: (await options.projectPathFor?.(request.cwd)) ?? request.cwd
@@ -1699,12 +1703,18 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
           : baseEnvironment
       // Layered second, so a user's own `developer_instructions` stay first and the delegation
       // policy keeps its place; `withCodexSessionConfig` appends rather than replaces.
-      const agentEnvironment =
+      const outcomeEnvironment =
         request.provider === 'codex' && sessionOutcomesDirectory
           ? withCodexSessionConfig(delegatingEnvironment, {
               developer_instructions: sessionOutcomeIndexInstruction(sessionOutcomesDirectory)
             })
           : delegatingEnvironment
+      const agentEnvironment =
+        request.provider === 'codex' && isOrchestrator(request)
+          ? withCodexSessionConfig(outcomeEnvironment, {
+              developer_instructions: orchestratorInstructionFor(toucanSkillsRoot ?? options.appPath)
+            })
+          : outcomeEnvironment
       const launch = buildAgentProcessLaunch(process.execPath, path, request.cwd, agentEnvironment)
       const child = (options.spawnAgent ?? spawnAgentProcess)(launch)
       const pendingApprovals = new Map<string, PendingApproval>()

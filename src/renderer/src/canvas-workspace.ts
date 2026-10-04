@@ -340,6 +340,7 @@ export type CreateNodeKeyAction =
   | 'create-claude'
   | 'create-codex'
   | 'create-orchestrator'
+  | 'create-codex-orchestrator'
   | 'create-worktree'
   | 'open-history'
   | 'open-file'
@@ -409,6 +410,14 @@ export const CREATE_NODE_ACTIONS = [
     size: NEW_SESSION_NODE_SIZE,
     title: 'New orchestrator',
     description: 'Claude chat that splits a task into tickets'
+  },
+  {
+    action: 'create-codex-orchestrator',
+    key: 'o',
+    shift: false,
+    size: NEW_SESSION_NODE_SIZE,
+    title: 'New Codex orchestrator',
+    description: 'Codex chat that splits a task into tickets'
   },
   {
     action: 'create-worktree',

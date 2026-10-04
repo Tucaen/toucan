@@ -63,11 +63,11 @@ test('the context menu offers New orchestrator, with a shortcut of its own', () 
   )
 })
 
-test('the role is born with the node and survives a save and restore', () => {
+test.each(['claude', 'codex'] as const)('the %s role is born with the node and survives a save and restore', (kind) => {
   const created = createSessionCanvasNode(
     {
       id: 'orchestrator',
-      kind: 'claude',
+      kind,
       label: 'Orchestrator 1',
       position: { x: 0, y: 0 },
       launchMode: 'new',
@@ -81,8 +81,10 @@ test('the role is born with the node and survives a save and restore', () => {
 
   const saved = serializeCanvasNode(created)
   assert.equal(saved.role, 'orchestrator')
+  assert.ok(parseWorkspaceState(workspace([saved])))
   const restored = restoreCanvasWorkspace(workspace([saved]), callbacks).nodes.find(isTerminalCanvasNode)
   assert.equal(restored?.data.role, 'orchestrator')
+  assert.equal(restored?.data.kind, kind)
 })
 
 test('an ordinary chat carries no role at all, and a terminal can never hold one', () => {
