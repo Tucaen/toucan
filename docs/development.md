@@ -68,9 +68,12 @@ npm run check:full
 ### Live orchestration verification
 
 After changing the orchestrator workflow, run `npm run build:test-out` then
-`node scripts/verify-orchestration.mjs` with Claude signed in and network access.
+`node scripts/verify-orchestration.mjs` with Claude signed in and network access, or
+`node scripts/verify-orchestration.mjs --provider codex` with Codex signed in. The Codex run keeps
+the adapter's ordinary permission mode and refuses to start in a full-access one.
 This deliberately sits outside `npm test`: it spends account tokens on a real orchestrator
-and two dependent ticket sessions. It creates a temporary project and a local bare Git remote,
+and two dependent ticket sessions of the same provider. It fails unless the orchestrator's own
+commands show every workflow step, from reading the shipped skill to `report`. It creates a temporary project and a local bare Git remote,
 exercises fallback routing, wake-ups, full-suite verification, publication and cleanup, and
 keeps its fixture and `evidence.txt` for inspection. It makes no GitHub writes and never answers
 permission prompts. The canvas transport is a headless adapter in this harness; the real canvas

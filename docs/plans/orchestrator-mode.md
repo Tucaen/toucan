@@ -59,8 +59,8 @@ outcome index, and the terminal-context server's lazy local listener with per-ag
 The token is minted when the orchestrator node launches and passed to the session in its
 environment, like `TOUCAN_NODE_ID`. Every call is checked in main at call time:
 
-- only ticket sessions of the orchestrator's own provider, only in the orchestrator's own project, only into worktrees the
-  orchestration created;
+- only ticket sessions of the orchestrator's own provider, only in the orchestrator's own
+  project, only into worktrees the orchestration created;
 - ticket sessions get no token, so orchestrators never nest;
 - ticket sessions inherit the orchestrator's permission mode;
 - at most 20 spawns per orchestration (retries and escalations count);
@@ -183,11 +183,12 @@ implementation-skill field has the ticket contract beside it.
 
 ## Live verification (#37)
 
-Run `npm run build:test-out`, then `node scripts/verify-orchestration.mjs` outside `npm test`.
-The harness uses real Claude ACP sessions, the shipped workflow, endpoint, spawner, wake handling,
-outcome records and cleanup, with a headless canvas transport. Two dependent changes exercise a
-fresh upstream on a **local bare remote**, deliberate Jev-unavailable fallback routing, ticket
-commits, rebase/full-suite/fast-forward/push, and final cleanup. It retains the temporary fixture
+Run `npm run build:test-out`, then `node scripts/verify-orchestration.mjs [--provider codex]`
+outside `npm test`. The harness uses real ACP sessions of one provider, the shipped workflow,
+endpoint, spawner, wake handling, outcome records and cleanup, with a headless canvas transport.
+Two dependent changes exercise a fresh upstream on a **local bare remote**, deliberate
+Jev-unavailable fallback routing, ticket commits, rebase/full-suite/fast-forward/push, and final
+cleanup. It retains the temporary fixture
 and evidence and stops at permission prompts rather than granting them. No tracker or external
 remote is involved, so tracker write-back, real Jev routing and conflict retries are not covered
 by this smoke; the desktop cleanup path is covered by the DOM suite.

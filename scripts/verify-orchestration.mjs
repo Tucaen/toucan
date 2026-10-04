@@ -1,8 +1,11 @@
 /**
- * Live #37 smoke: real Claude orchestrator + ticket sessions, local Git remote, no GitHub writes.
- * Spends account tokens; deliberately outside npm test. Run npm run build:test-out first, then
- * node scripts/verify-orchestration.mjs. Keeps the temporary fixture and evidence for inspection.
- * Permission prompts stop the run for human review; this harness never answers them.
+ * Live #37/#47 smoke: a real orchestrator and its provider-matched ticket sessions, local Git
+ * remote, no GitHub writes. Spends account tokens; deliberately outside npm test. Run
+ * npm run build:test-out first, then node scripts/verify-orchestration.mjs [--provider codex].
+ * Keeps the temporary fixture and evidence for inspection. Permission prompts stop the run for
+ * human review; this harness never answers them. A Codex run keeps the adapter's ordinary
+ * permission mode and refuses to start in a full-access one, so it proves the shipped workflow
+ * and the loopback endpoint are reachable without it.
  */
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -21,8 +24,14 @@ const { createWorkspaceContainment } = await import(testOut('src/main/workspace-
 const { createOrchestrationWaker } = await import(testOut('src/main/orchestration-wake.js'))
 const { createSessionOutcomeStore } = await import(testOut('src/main/session-outcome-store.js'))
 const { createSessionOutcomeIndexer } = await import(testOut('src/main/session-outcome-indexer.js'))
+const { routingReport } = await import(testOut('src/shared/orchestration-report.js'))
 
-const root = mkdtempSync(join(tmpdir(), 'toucan-orchestration-smoke-'))
+const providerFlag = process.argv.indexOf('--provider')
+const provider = providerFlag >= 0 ? process.argv[providerFlag + 1] : 'claude'
+if (provider !== 'claude' && provider !== 'codex')
+  throw new Error(`--provider must be claude or codex, not ${provider}`)
+
+const root = mkdtempSync(join(tmpdir(), `toucan-orchestration-smoke-${provider}-`))
 const project = join(root, 'project')
 const remote = join(root, 'remote.git')
 const evidence = []
@@ -30,7 +39,7 @@ const log = (message) => {
   evidence.push(message)
   console.log(message)
 }
-log(`Fixture: ${root}`)
+log(`Fixture: ${root} (${provider})`)
 const git = async (args, cwd = project) => {
   const result = await runGitWithExecFile(args, cwd)
   if (result.code !== 0) throw new Error(result.stderr || `git ${args[0]} failed`)
@@ -79,14 +88,18 @@ process.on('SIGINT', () => {
 })
 let ticketCount = 0
 let cleaned = false
+let completionWakes = 0
+/** The orchestrator's own tool calls: the evidence that it, not the harness, did each step. */
+const orchestratorCommands = []
 const waker = createOrchestrationWaker({
   deliver: (id, text) => {
     log(`Wake: ${text}`)
+    if (/completed/u.test(text)) completionWakes += 1
     return manager.promptWhenIdle(id, text)
   },
   resolve: async () => undefined,
   outcome: async (id) => {
-    const found = await outcomeStore.find({ provider: 'claude', conversationId: id })
+    const found = await outcomeStore.find({ provider, conversationId: id })
     return found ? { path: found.path, files: found.record.filesTouched.length } : undefined
   },
   log
@@ -97,7 +110,9 @@ const endpoint = createOrchestratorEndpoint({
     config: async () => ({
       ok: true,
       config: {
-        tiers: Object.fromEntries(['low', 'medium', 'high', 'frontier'].map((tier) => [tier, { model: 'haiku' }])),
+        tiers: Object.fromEntries(
+          ['low', 'medium', 'high', 'frontier'].map((tier) => [tier, { model: economicalModel() }])
+        ),
         implementationSkill: 'Implement this ticket directly. Use npm test, inspect your diff and commit.'
       },
       userPath: 'smoke in-memory mapping'
@@ -150,9 +165,19 @@ manager = createAcpSessionManager({
   log
 })
 const owner = { isDestroyed: () => false, send: () => {} }
+/** Claude's cheapest alias; for Codex the advertised model that looks smallest, else the first offered. */
+function economicalModel() {
+  if (provider === 'claude') return 'haiku'
+  const ids = [...models.keys()]
+  return ids.find((id) => /mini/iu.test(id)) ?? ids[0] ?? 'unknown'
+}
 broker.observe((id, event) => {
   waker.observe(id, event)
-  if (event.type === 'activity') log(`${id}: activity ${event.activity?.title ?? ''}`)
+  if (event.type === 'activity') {
+    const title = event.activity?.title ?? ''
+    log(`${id}: activity ${title}`)
+    if (id === 'orchestrator' && title) orchestratorCommands.push(title)
+  }
   if (event.type === 'approval') fatal = `Pending permission on ${id}: ${event.title ?? JSON.stringify(event)}`
   if (['turn_complete', 'turn_failed', 'turn_cancelled'].includes(event.type)) log(`${id}: ${event.type}`)
   if (id === 'orchestrator' && event.type === 'turn_failed') fatal = event.message
@@ -174,6 +199,7 @@ ticketSpawner = createTicketSpawner({
     )
   },
   offeredModels: () => [...models.keys()],
+  offeredEfforts: (_provider, id) => efforts.get(id),
   onWorktreeCreated: () => {},
   canvas: {
     startTicketSession: async (request) => {
@@ -181,7 +207,7 @@ ticketSpawner = createTicketSpawner({
       const created = await manager.create(
         {
           id,
-          provider: 'claude',
+          provider,
           cwd: request.worktree.path,
           modelId: request.modelId,
           effortId: request.effortId,
@@ -213,18 +239,23 @@ try {
   const created = await manager.create(
     {
       id: 'orchestrator',
-      provider: 'claude',
+      provider,
       role: 'orchestrator',
       cwd: project,
-      modelId: 'sonnet',
-      permissionMode: 'acceptEdits'
+      // Codex keeps its adapter's default model and ordinary permission mode.
+      ...(provider === 'claude' ? { modelId: 'sonnet', permissionMode: 'acceptEdits' } : {})
     },
     owner
   )
   if (!created.ok || created.status !== 'ready')
     throw new Error(`Orchestrator did not start: ${created.message ?? created.status}`)
   conversationId = created.sessionId
-  log(`Orchestrator: ${conversationId}`)
+  const modes = broker.snapshot('orchestrator')?.modes
+  const mode = modes?.currentModeId
+  log(
+    `Orchestrator: ${conversationId}, mode ${mode}, offered ${JSON.stringify(modes?.availableModes?.map((m) => m.id))}`
+  )
+  if (/full|bypass|danger/iu.test(mode ?? '')) throw new Error(`Refusing to smoke in full-access mode ${mode}`)
   const accepted = manager.startPrompt(
     'orchestrator',
     `This is a live smoke test in an isolated throwaway repository. Complete two dependent tickets: first add an exported multiply(a,b) to sum.js with a node:test test; second depends on the first and adds README.md documenting sum and multiply. Full test suite: npm test. Use the orchestration workflow, route and spawn both tickets through Toucan, test/rebase/merge/push to the configured LOCAL remote, then cleanup. No tracker exists, so write-back is not applicable. The harness configured a small implementation instruction and an economical tier mapping for this fixture. Do not create external issues or push anywhere except this fixture's origin. Keep plan JSON outside the checkout (use ${root.replace(/\\/g, '/')}). End with the review list.`
@@ -237,20 +268,52 @@ try {
   }
   if (fatal) throw new Error(fatal)
   if (!cleaned) throw new Error('Smoke did not complete cleanup before the deadline')
-  const record = await records.read({ provider: 'claude', conversationId })
+  const record = await records.read({ provider, conversationId })
   if (record.tickets.length !== 2 || record.tickets.some((ticket) => ticket.mergeStatus !== 'merged'))
     throw new Error('Tickets were not both merged')
+  const runs = record.tickets.flatMap((ticket) => ticket.runs ?? [])
+  if (runs.length < 2 || runs.some((run) => run.provider !== provider))
+    throw new Error(`Ticket runs are not all ${provider} sessions: ${JSON.stringify(runs)}`)
+  if (completionWakes === 0) throw new Error('No ticket completion wake reached the orchestrator')
+  // Each step the workflow owes, as the orchestrator's own command. The CLI calls also prove the
+  // session reached the loopback endpoint in the mode logged above, and reading the skill that it
+  // could read the shipped workflow outside its checkout.
+  const steps = {
+    'read the shipped workflow': /orchestrate[\\/]+SKILL\.md/u,
+    'plan set': /orchestrate\.mjs\W*plan set/u,
+    route: /orchestrate\.mjs\W*route/u,
+    spawn: /orchestrate\.mjs\W*spawn/u,
+    outcome: /orchestrate\.mjs\W*outcome/u,
+    rebase: /git\b.*\brebase\b/u,
+    'full test suite': /npm(\.cmd)? (run )?test|node --test/u,
+    'fast-forward merge': /merge --ff-only/u,
+    push: /git\b.*\bpush\b/u,
+    cleanup: /orchestrate\.mjs\W*cleanup/u,
+    report: /orchestrate\.mjs\W*report/u
+  }
+  for (const [step, pattern] of Object.entries(steps)) {
+    const command = orchestratorCommands.find((title) => pattern.test(title))
+    if (!command) throw new Error(`The orchestrator never ran its ${step} step`)
+    log(`Step ${step}: ${command.slice(0, 200)}`)
+  }
   const head = await git(['rev-parse', 'HEAD'])
   if (head !== (await git(['rev-parse', 'refs/heads/main'], remote)))
     throw new Error('Remote does not hold the merged target')
+  if ((await git(['rev-list', '--merges', 'refs/heads/main'], remote)) !== '')
+    throw new Error('The target holds merge commits; tickets were not fast-forwarded')
   if ((await git(['branch', '--list', 'ticket/*'])) !== '') throw new Error('Ticket branches remain')
-  log(`PASS: two dependent tickets published at ${head}, cleaned, review follows`)
-  log(
+  const report = routingReport([record], new Map())
+  const rows = [...report.jev, ...report.orchestrator]
+  if (rows.length === 0 || rows.some((row) => row.provider !== provider))
+    throw new Error(`Routing report rows are not all ${provider}'s: ${JSON.stringify(rows)}`)
+  const answer =
     broker
       .snapshot('orchestrator')
       .messages.filter((message) => message.role === 'assistant')
       .at(-1)?.text ?? ''
-  )
+  if (!/routing report/iu.test(answer)) throw new Error('The final answer has no routing report')
+  log(`PASS: two dependent ${provider} tickets fast-forwarded and published at ${head}, cleaned, review follows`)
+  log(answer)
 } catch (error) {
   log(`FAIL: ${error.message}`)
   process.exitCode = 1
