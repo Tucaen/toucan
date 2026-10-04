@@ -21,6 +21,7 @@ import {
   ticketBranchCandidates,
   ticketSessionPrompt,
   ticketSessionTitle,
+  ticketRunProvider,
   type OrchestrationRecord
 } from '../src/shared/orchestration'
 
@@ -373,11 +374,12 @@ test('every spawned session is kept as a run with the route it launched on (#40)
   const ticket = second.tickets.find((candidate) => candidate.id === '34')!
   assert.deepEqual(ticket.session, { nodeId: 'n-2', conversationId: 'c-2' })
   assert.deepEqual(ticket.runs, [
-    { conversationId: 'c-1', route: medium },
-    { conversationId: 'c-2', route: high }
+    { conversationId: 'c-1', provider: 'claude', route: medium },
+    { conversationId: 'c-2', provider: 'claude', route: high }
   ])
   assert.ok(isOrchestrationRecord(JSON.parse(JSON.stringify(second))))
   assert.equal(isOrchestrationRecord({ ...second, tickets: [{ ...ticket, runs: [{ route: 'x' }] }] }), false)
+  assert.equal(isOrchestrationRecord({ ...second, tickets: [{ ...ticket, runs: [{ provider: 'gemini' }] }] }), false)
 
   // Toucan owns the history: a re-plan keeps it and a ticket update cannot write it.
   const replanned = applyPlan(second, planned(twoTickets), identity, LATER).record!
@@ -392,8 +394,17 @@ test('a session spawned before runs were kept joins the history, without a launc
   const next = recordTicketSession(legacy, '34', { nodeId: 'n-1', conversationId: 'c-1' }, LATER, high)
   assert.deepEqual(next.tickets.find((ticket) => ticket.id === '34')?.runs, [
     { conversationId: 'c-0' },
-    { conversationId: 'c-1', route: high }
+    { conversationId: 'c-1', provider: 'claude', route: high }
   ])
+})
+
+test("a run names its orchestrator's provider; one recorded before the field reads as Claude's (#47)", () => {
+  const codex = { ...recordFrom(twoTickets), provider: 'codex' as const }
+  const next = recordTicketSession(codex, '34', { nodeId: 'n-1', conversationId: 'c-1' }, LATER)
+  const [run] = next.tickets.find((ticket) => ticket.id === '34')?.runs ?? []
+  assert.equal(run?.provider, 'codex')
+  assert.equal(ticketRunProvider(run), 'codex')
+  assert.equal(ticketRunProvider({}), 'claude')
 })
 
 test('a ticket branch is a fresh name derived from the ticket id', () => {

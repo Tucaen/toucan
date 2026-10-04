@@ -1,5 +1,6 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'vitest'
+import type { AgentProvider } from '../src/shared/agent-provider'
 import type { DifficultyTier, OrchestrationRecord, OrchestrationTicket, TicketRoute } from '../src/shared/orchestration'
 import {
   proposeMappingChanges,
@@ -38,10 +39,14 @@ function ticket(
   }
 }
 
-function record(tickets: OrchestrationTicket[], conversationId = 'orchestrator-1'): OrchestrationRecord {
+function record(
+  tickets: OrchestrationTicket[],
+  conversationId = 'orchestrator-1',
+  provider: AgentProvider = 'claude'
+): OrchestrationRecord {
   return {
     version: 1,
-    provider: 'claude',
+    provider,
     conversationId,
     projectPath: 'D:\\project',
     task: 'Task',
@@ -52,8 +57,13 @@ function record(tickets: OrchestrationTicket[], conversationId = 'orchestrator-1
   }
 }
 
-const row = (rows: RoutingReportRow[], tier: DifficultyTier, model: string): RoutingReportRow | undefined =>
-  rows.find((candidate) => candidate.tier === tier && candidate.model === model)
+const row = (
+  rows: RoutingReportRow[],
+  tier: DifficultyTier,
+  model: string,
+  provider: AgentProvider = 'claude'
+): RoutingReportRow | undefined =>
+  rows.find((candidate) => candidate.provider === provider && candidate.tier === tier && candidate.model === model)
 
 test('each run counts against the tier and model it ran on; an escalation leaves its failure on the lower tier', () => {
   const merged = ticket('merged', jev('medium', 'sonnet'))
@@ -69,6 +79,7 @@ test('each run counts against the tier and model it ran on; an escalation leaves
   const report = routingReport([record([merged, escalated, unmerged, running])], turns)
 
   assert.deepEqual(row(report.jev, 'medium', 'sonnet'), {
+    provider: 'claude',
     tier: 'medium',
     model: 'sonnet',
     tickets: 4,
@@ -83,6 +94,7 @@ test('each run counts against the tier and model it ran on; an escalation leaves
   // Merging after an escalation is the higher tier's success, but not one "without escalation",
   // and not evidence for a ticket Jev put there.
   assert.deepEqual(row(report.jev, 'high', 'opus'), {
+    provider: 'claude',
     tier: 'high',
     model: 'opus',
     tickets: 1,
@@ -171,18 +183,20 @@ test('no mapping change is proposed below the minimum sample, however lopsided t
     [record([...settled('medium', 'sonnet', below, 0), ...settled('high', 'sonnet', below, below)])],
     new Map()
   ).jev
-  assert.deepEqual(proposeMappingChanges(rows, DEFAULT_ORCHESTRATION_CONFIG.tiers), [])
+  assert.deepEqual(proposeMappingChanges(rows, DEFAULT_ORCHESTRATION_CONFIG.tiers, 'claude'), [])
 })
 
 test('a tier whose model keeps failing is proposed one tier up, with the numbers behind it', () => {
   const rows = routingReport([record(settled('medium', 'sonnet', 10, 5))], new Map()).jev
-  assert.deepEqual(proposeMappingChanges(rows, DEFAULT_ORCHESTRATION_CONFIG.tiers), [
+  assert.deepEqual(proposeMappingChanges(rows, DEFAULT_ORCHESTRATION_CONFIG.tiers, 'claude'), [
     {
+      provider: 'claude',
+      configEntry: 'claude.tiers.medium',
       tier: 'medium',
       from: { model: 'sonnet' },
       to: { model: 'opus' },
       evidence: { model: 'sonnet', mergedWithoutEscalation: 5, sample: 10 },
-      summary: 'medium → opus: sonnet merged only 5/10 Jev-routed medium tickets without escalation'
+      summary: 'claude.tiers.medium → opus: sonnet merged only 5/10 Jev-routed Claude medium tickets without escalation'
     }
   ])
 })
@@ -192,13 +206,15 @@ test("a tier a cheaper tier's model handles is proposed down to it", () => {
     [record([...settled('high', 'sonnet', 10, 9), ...settled('high', 'opus', 10, 10)])],
     new Map()
   ).jev
-  assert.deepEqual(proposeMappingChanges(rows, DEFAULT_ORCHESTRATION_CONFIG.tiers), [
+  assert.deepEqual(proposeMappingChanges(rows, DEFAULT_ORCHESTRATION_CONFIG.tiers, 'claude'), [
     {
+      provider: 'claude',
+      configEntry: 'claude.tiers.high',
       tier: 'high',
       from: { model: 'opus' },
       to: { model: 'sonnet' },
       evidence: { model: 'sonnet', mergedWithoutEscalation: 9, sample: 10 },
-      summary: 'high → sonnet: 9/10 Jev-routed high tickets merged without escalation'
+      summary: 'claude.tiers.high → sonnet: 9/10 Jev-routed Claude high tickets merged without escalation'
     }
   ])
 })
@@ -207,11 +223,119 @@ test('orchestrator routes never produce a proposal, and frontier has nowhere hig
   const byOrchestrator = Array.from({ length: 10 }, () =>
     ticket('unmerged', { tier: 'medium', model: 'sonnet', routedBy: 'orchestrator', escalated: false })
   )
+  const report = routingReport([record([...byOrchestrator, ...settled('frontier', 'opus', 10, 0)])], new Map(), {
+    claude: DEFAULT_ORCHESTRATION_CONFIG.tiers
+  })
+  assert.deepEqual(proposeMappingChanges(report.jev, DEFAULT_ORCHESTRATION_CONFIG.tiers, 'claude'), [])
+  assert.deepEqual(report.proposals, [])
+})
+
+/** `count` settled Jev tickets run by `provider`'s ticket sessions, as a record written since runs name it. */
+function settledOn(
+  provider: AgentProvider,
+  tier: DifficultyTier,
+  model: string,
+  count: number,
+  merged: number
+): OrchestrationTicket[] {
+  return settled(tier, model, count, merged).map((ticket) => ({
+    ...ticket,
+    runs: ticket.runs?.map((run) => ({ ...run, provider }))
+  }))
+}
+
+const CODEX_TIERS = {
+  low: { model: 'gpt-mini' },
+  medium: { model: 'sonnet' },
+  high: { model: 'gpt-max' },
+  frontier: { model: 'gpt-max', effort: 'xhigh' }
+}
+
+test('rows name their provider and never combine a same-named model or its outcomes across providers', () => {
   const report = routingReport(
-    [record([...byOrchestrator, ...settled('frontier', 'opus', 10, 0)])],
-    new Map(),
-    DEFAULT_ORCHESTRATION_CONFIG.tiers
+    [
+      record(settled('medium', 'sonnet', 2, 2)),
+      record(settledOn('codex', 'medium', 'sonnet', 3, 1), 'codex-orchestrator', 'codex')
+    ],
+    new Map()
   )
-  assert.deepEqual(proposeMappingChanges(report.jev, DEFAULT_ORCHESTRATION_CONFIG.tiers), [])
+  assert.deepEqual(
+    report.jev.map(({ provider, tier, model, tickets, mergedWithoutEscalation, unmerged }) => [
+      provider,
+      tier,
+      model,
+      tickets,
+      mergedWithoutEscalation,
+      unmerged
+    ]),
+    [
+      ['claude', 'medium', 'sonnet', 2, 2, 0],
+      ['codex', 'medium', 'sonnet', 3, 1, 2]
+    ]
+  )
+})
+
+test('a run with no provider on record is a Claude session, even under a Codex orchestrator', () => {
+  const legacy = ticket('merged', jev('medium', 'sonnet'))
+  const current = settledOn('codex', 'medium', 'sonnet', 1, 1)
+  const turns = new Map([
+    [`claude-${legacy.conversations[0]!}`, { turns: 7 }],
+    [`codex-${legacy.conversations[0]!}`, { turns: 99 }]
+  ])
+  const report = routingReport([record([legacy, ...current], 'codex-orchestrator', 'codex')], turns)
+  assert.equal(row(report.jev, 'medium', 'sonnet', 'claude')?.tickets, 1)
+  assert.equal(row(report.jev, 'medium', 'sonnet', 'claude')?.medianTurns, 7)
+  assert.equal(row(report.jev, 'medium', 'sonnet', 'codex')?.tickets, 1)
+  assert.equal(row(report.jev, 'medium', 'sonnet', 'codex')?.medianTurns, null)
+})
+
+test("each provider's proposals come only from its own runs and name its own configuration entry", () => {
+  const report = routingReport(
+    [
+      // Claude's failing sonnet must not drag Codex's sonnet up, nor Codex's success pull Claude's down.
+      record([...settled('medium', 'sonnet', 10, 2), ...settled('high', 'sonnet', 4, 4)]),
+      record(
+        [...settledOn('codex', 'medium', 'sonnet', 10, 10), ...settledOn('codex', 'high', 'sonnet', 10, 10)],
+        'codex-orchestrator',
+        'codex'
+      )
+    ],
+    new Map(),
+    { claude: DEFAULT_ORCHESTRATION_CONFIG.tiers, codex: CODEX_TIERS }
+  )
+  assert.deepEqual(
+    report.proposals.map(({ provider, configEntry, from, to, evidence }) => ({
+      provider,
+      configEntry,
+      from,
+      to,
+      evidence
+    })),
+    [
+      {
+        provider: 'claude',
+        configEntry: 'claude.tiers.medium',
+        from: { model: 'sonnet' },
+        to: { model: 'opus' },
+        evidence: { model: 'sonnet', mergedWithoutEscalation: 2, sample: 10 }
+      },
+      {
+        provider: 'codex',
+        configEntry: 'codex.tiers.high',
+        from: { model: 'gpt-max' },
+        to: { model: 'sonnet' },
+        evidence: { model: 'sonnet', mergedWithoutEscalation: 10, sample: 10 }
+      }
+    ]
+  )
+})
+
+test('a provider without a usable mapping gets counts but no proposals', () => {
+  const report = routingReport(
+    [record(settledOn('codex', 'medium', 'sonnet', 10, 0), 'codex-orchestrator', 'codex')],
+    new Map(),
+    { claude: DEFAULT_ORCHESTRATION_CONFIG.tiers }
+  )
+  assert.equal(row(report.jev, 'medium', 'sonnet', 'codex')?.sample, 10)
   assert.deepEqual(report.proposals, [])
 })

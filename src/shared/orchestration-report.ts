@@ -1,5 +1,7 @@
+import { AGENT_PROVIDERS, type AgentProvider } from './agent-provider'
 import {
   DIFFICULTY_TIERS,
+  ticketRunProvider,
   type DifficultyTier,
   type OrchestrationRecord,
   type OrchestrationTicket,
@@ -19,6 +21,10 @@ import { sessionOutcomeKey } from './session-outcome'
  * Jev's routes and the orchestrator's own are counted apart: the orchestrator judging tiers while
  * Jev was unavailable says nothing about how well Jev judges them, so only Jev's routes feed a
  * proposal.
+ *
+ * Providers are counted apart too (#47): a model id means something only within its provider's
+ * picker, so every row and every proposal belongs to the provider whose ticket session ran it, and a
+ * proposal is judged only against that provider's own mapping.
  */
 
 /**
@@ -42,6 +48,8 @@ export interface RoutingRunOutcome {
 }
 
 export interface RoutingReportRow {
+  /** The provider whose ticket sessions ran these tickets; `model` is one of its picker's ids. */
+  provider: AgentProvider
   tier: DifficultyTier
   model: string
   /** Tickets that ran on this tier and model at least once. */
@@ -66,11 +74,17 @@ export interface RoutingReportRow {
 }
 
 export interface MappingProposal {
+  provider: AgentProvider
+  /** The configuration entry the proposal would change, e.g. `codex.tiers.high`. */
+  configEntry: string
   tier: DifficultyTier
   from: TierMappingEntry
   to: TierMappingEntry
   evidence: { model: string; mergedWithoutEscalation: number; sample: number }
-  /** One line for the review list, e.g. `high → sonnet: 9/10 Jev-routed high tickets merged without escalation`. */
+  /**
+   * One line for the review list, e.g.
+   * `claude.tiers.high → sonnet: 9/10 Jev-routed Claude high tickets merged without escalation`.
+   */
   summary: string
 }
 
@@ -84,7 +98,10 @@ export interface RoutingReport {
   orchestrator: RoutingReportRow[]
   /** Runs with no tier, model or `routedBy` anywhere on record, so they fit no row. */
   skippedRuns: number
-  /** Empty when no mapping was supplied, or when no evidence reached the minimum sample. */
+  /**
+   * Empty for a provider with no mapping supplied, and wherever no evidence reached the minimum
+   * sample. Claude's come first, then Codex's.
+   */
   proposals: MappingProposal[]
 }
 
@@ -92,6 +109,7 @@ type Group = 'jev' | 'orchestrator'
 
 /** A run that can be counted: its tier, model and who judged the tier are all known. */
 interface CountedRun {
+  provider: AgentProvider
   group: Group
   tier: DifficultyTier
   model: string
@@ -103,6 +121,7 @@ type StayResult = 'mergedWithoutEscalation' | 'mergedAfterEscalation' | 'escalat
 
 /** One ticket's stay on one tier and model: consecutive runs there, folded into one result. */
 interface Stay {
+  provider: AgentProvider
   group: Group
   tier: DifficultyTier
   model: string
@@ -134,13 +153,13 @@ const isComplete = (route: RoutingRunOutcome['route'] | undefined): boolean =>
  */
 function ticketRuns(
   ticket: OrchestrationTicket,
-  outcomes: ReadonlyMap<string, RoutingRunOutcome>,
-  provider: OrchestrationRecord['provider']
+  outcomes: ReadonlyMap<string, RoutingRunOutcome>
 ): { counted: CountedRun[]; skipped: number } {
   const runs = ticketRunHistory(ticket)
   const counted: CountedRun[] = []
   let skipped = 0
   for (const [index, run] of runs.entries()) {
+    const provider = ticketRunProvider(run)
     const outcome = run.conversationId ? outcomes.get(sessionOutcomeKey(provider, run.conversationId)) : undefined
     const latest = index === runs.length - 1 ? ticket.route : undefined
     const route = [run.route, outcome?.route, latest].find(isComplete)
@@ -149,6 +168,7 @@ function ticketRuns(
       continue
     }
     counted.push({
+      provider,
       group: route.routedBy,
       tier: route.tier,
       model: route.model,
@@ -169,7 +189,12 @@ function ticketStays(ticket: OrchestrationTicket, runs: readonly CountedRun[]): 
   for (const run of runs) {
     const open = groups.at(-1)
     const opener = open?.[0]
-    if (open && opener?.group === run.group && opener.tier === run.tier && opener.model === run.model) open.push(run)
+    const same =
+      opener?.provider === run.provider &&
+      opener.group === run.group &&
+      opener.tier === run.tier &&
+      opener.model === run.model
+    if (open && same) open.push(run)
     else groups.push([run])
   }
   return groups.map((group, index) => {
@@ -182,6 +207,7 @@ function ticketStays(ticket: OrchestrationTicket, runs: readonly CountedRun[]): 
     else result = ticket.mergeStatus === 'unmerged' ? 'unmerged' : 'inProgress'
     const known = group.flatMap((run) => (run.turns === undefined ? [] : [run.turns]))
     return {
+      provider: first.provider,
       group: first.group,
       tier: first.tier,
       model: first.model,
@@ -201,19 +227,20 @@ function median(values: readonly number[]): number | null {
 }
 
 function rowsFor(stays: readonly Stay[]): RoutingReportRow[] {
-  const byPair = new Map<string, { tier: DifficultyTier; model: string; stays: Stay[] }>()
+  const byPair = new Map<string, { provider: AgentProvider; tier: DifficultyTier; model: string; stays: Stay[] }>()
   for (const stay of stays) {
-    const key = `${tierIndex(stay.tier)}:${stay.model}`
-    const entry = byPair.get(key) ?? { tier: stay.tier, model: stay.model, stays: [] }
+    const key = `${AGENT_PROVIDERS.indexOf(stay.provider)}:${tierIndex(stay.tier)}:${stay.model}`
+    const entry = byPair.get(key) ?? { provider: stay.provider, tier: stay.tier, model: stay.model, stays: [] }
     entry.stays.push(stay)
     byPair.set(key, entry)
   }
   return [...byPair.entries()]
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    .map(([, { tier, model, stays: onPair }]) => {
+    .map(([, { provider, tier, model, stays: onPair }]) => {
       const count = (result: StayResult): number => onPair.filter((stay) => stay.result === result).length
       const directSettled = onPair.filter((stay) => !stay.escalatedIn && stay.result !== 'inProgress').length
       return {
+        provider,
         tier,
         model,
         tickets: onPair.length,
@@ -231,19 +258,29 @@ function rowsFor(stays: readonly Stay[]): RoutingReportRow[] {
 const entryLabel = (entry: TierMappingEntry): string =>
   entry.effort ? `${entry.model} at ${entry.effort}` : entry.model
 const sameEntry = (a: TierMappingEntry, b: TierMappingEntry): boolean => a.model === b.model && a.effort === b.effort
+const PROVIDER_NAMES: Record<AgentProvider, string> = { claude: 'Claude', codex: 'Codex' }
 
 /**
- * Mapping changes Jev's evidence supports, at most one per tier, each carrying its numbers. A tier
+ * Mapping changes Jev's evidence supports for one provider's mapping, at most one per tier, each
+ * carrying its numbers. Only that provider's rows are evidence: another provider's same-named model
+ * is a different model. A tier
  * is proposed down to the cheapest lower tier's model that merged at least `ROUTING_REPORT_LOWER_FROM`
  * of its tickets without escalation; failing that, up to the next tier's entry when its own model
  * merged fewer than `ROUTING_REPORT_RAISE_BELOW`. Nothing is proposed from fewer than
  * `ROUTING_REPORT_MINIMUM_SAMPLE` settled tickets, and frontier has nowhere higher to go.
  * @internal exported for tests
  */
-export function proposeMappingChanges(rows: readonly RoutingReportRow[], mapping: TierMapping): MappingProposal[] {
+export function proposeMappingChanges(
+  rows: readonly RoutingReportRow[],
+  mapping: TierMapping,
+  provider: AgentProvider
+): MappingProposal[] {
   const proposals: MappingProposal[] = []
+  const name = PROVIDER_NAMES[provider]
   const evidenceFor = (tier: DifficultyTier, model: string): RoutingReportRow | undefined => {
-    const row = rows.find((candidate) => candidate.tier === tier && candidate.model === model)
+    const row = rows.find(
+      (candidate) => candidate.provider === provider && candidate.tier === tier && candidate.model === model
+    )
     return row && row.sample >= ROUTING_REPORT_MINIMUM_SAMPLE ? row : undefined
   }
   const rate = (row: RoutingReportRow): number => row.mergedWithoutEscalation / row.sample
@@ -253,6 +290,7 @@ export function proposeMappingChanges(rows: readonly RoutingReportRow[], mapping
     sample: row.sample
   })
   for (const tier of DIFFICULTY_TIERS) {
+    const configEntry = `${provider}.tiers.${tier}`
     const from = mapping[tier]
     const cheaper = DIFFICULTY_TIERS.slice(0, tierIndex(tier))
       .map((lower) => mapping[lower].model)
@@ -261,11 +299,13 @@ export function proposeMappingChanges(rows: readonly RoutingReportRow[], mapping
       .find((row) => row !== undefined && rate(row) >= ROUTING_REPORT_LOWER_FROM)
     if (cheaper) {
       proposals.push({
+        provider,
+        configEntry,
         tier,
         from,
         to: { model: cheaper.model },
         evidence: evidenceOf(cheaper),
-        summary: `${tier} → ${cheaper.model}: ${cheaper.mergedWithoutEscalation}/${cheaper.sample} Jev-routed ${tier} tickets merged without escalation`
+        summary: `${configEntry} → ${cheaper.model}: ${cheaper.mergedWithoutEscalation}/${cheaper.sample} Jev-routed ${name} ${tier} tickets merged without escalation`
       })
       continue
     }
@@ -274,11 +314,13 @@ export function proposeMappingChanges(rows: readonly RoutingReportRow[], mapping
     if (!higher || !own || rate(own) >= ROUTING_REPORT_RAISE_BELOW || sameEntry(mapping[higher], from)) continue
     const to = mapping[higher]
     proposals.push({
+      provider,
+      configEntry,
       tier,
       from,
       to,
       evidence: evidenceOf(own),
-      summary: `${tier} → ${entryLabel(to)}: ${own.model} merged only ${own.mergedWithoutEscalation}/${own.sample} Jev-routed ${tier} tickets without escalation`
+      summary: `${configEntry} → ${entryLabel(to)}: ${own.model} merged only ${own.mergedWithoutEscalation}/${own.sample} Jev-routed ${name} ${tier} tickets without escalation`
     })
   }
   return proposals
@@ -286,19 +328,20 @@ export function proposeMappingChanges(rows: readonly RoutingReportRow[], mapping
 
 /**
  * The report over a project's orchestration records. `outcomes` is each ticket session's outcome
- * record by `sessionOutcomeKey(provider, conversationId)`; `mapping` is the project's effective
- * tier mapping, which proposals are made against - absent, the report only counts.
+ * record by `sessionOutcomeKey(provider, conversationId)`, the provider being the run's own;
+ * `mappings` holds each provider's effective tier mapping, which that provider's proposals are made
+ * against - a provider without one is only counted.
  */
 export function routingReport(
   records: readonly OrchestrationRecord[],
   outcomes: ReadonlyMap<string, RoutingRunOutcome>,
-  mapping?: TierMapping
+  mappings: Partial<Record<AgentProvider, TierMapping>> = {}
 ): RoutingReport {
   const stays: Stay[] = []
   let skippedRuns = 0
   for (const record of records) {
     for (const ticket of record.tickets) {
-      const { counted, skipped } = ticketRuns(ticket, outcomes, record.provider)
+      const { counted, skipped } = ticketRuns(ticket, outcomes)
       skippedRuns += skipped
       stays.push(...ticketStays(ticket, counted))
     }
@@ -310,6 +353,9 @@ export function routingReport(
     jev,
     orchestrator: rowsFor(stays.filter((stay) => stay.group === 'orchestrator')),
     skippedRuns,
-    proposals: mapping ? proposeMappingChanges(jev, mapping) : []
+    proposals: AGENT_PROVIDERS.flatMap((provider) => {
+      const mapping = mappings[provider]
+      return mapping ? proposeMappingChanges(jev, mapping, provider) : []
+    })
   }
 }

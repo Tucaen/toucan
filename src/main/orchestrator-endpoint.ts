@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type Server as HttpServer, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import type { AgentDecisionRequest, AgentDecisionResponseContent, AgentPromptResult } from '../shared/agent'
-import type { AgentProvider } from '../shared/agent-provider'
+import { AGENT_PROVIDERS, type AgentProvider } from '../shared/agent-provider'
 import type { AgentChatStatus } from '../shared/agent-transcript'
 import {
   applyPlan,
@@ -21,6 +21,7 @@ import {
   recordTicketRoute,
   recordTicketSession,
   reserveSpawn,
+  ticketRunProvider,
   type DifficultyTier,
   type OrchestrationRecord,
   type OrchestrationTicket,
@@ -33,7 +34,8 @@ import {
   resolveTier,
   ROUTE_REVIEW_CONFIDENCE,
   type OfferedModels,
-  type OrchestrationConfig
+  type OrchestrationConfig,
+  type TierMapping
 } from '../shared/orchestration-routing'
 import { routingReport, ticketRunHistory, type RoutingRunOutcome } from '../shared/orchestration-report'
 import { sessionOutcomeKey, type SessionOutcomeIdentity, type SessionOutcomeRecord } from '../shared/session-outcome'
@@ -484,31 +486,25 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
   /**
    * `report` (#40): the routing report over every orchestration record of the grant's project, the
    * current one included, with each ticket session's turns and `route:` fields from its outcome
-   * record. Read-only: the mapping it proposes against is only read, and a broken configuration
-   * costs the proposals, never the counts.
+   * record. Read-only: the mappings it proposes against are only read, and a broken configuration
+   * costs that provider's proposals, never the counts. Each provider's mapping is read when the
+   * grant's own provider is it or one of its ticket sessions ran here (#47).
    */
   const report = async (grant: LiveGrant, args: unknown): Promise<Reply> => {
     if (args !== undefined) return refused(400, 'report takes no arguments')
     const project = pathIdentity(grant.projectPath)
     const records = (await options.records.list()).filter((record) => pathIdentity(record.projectPath) === project)
+    const runs = records.flatMap((record) => record.tickets.flatMap(ticketRunHistory))
     const outcomes = new Map<string, RoutingRunOutcome>()
     const sessions = options.ticketSessions
     if (sessions) {
       const conversations = new Map(
-        records.flatMap((record) =>
-          record.tickets.flatMap((ticket) =>
-            ticketRunHistory(ticket).flatMap((run) =>
-              run.conversationId
-                ? [
-                    [
-                      sessionOutcomeKey(record.provider, run.conversationId),
-                      { provider: record.provider, conversationId: run.conversationId }
-                    ] as const
-                  ]
-                : []
-            )
-          )
-        )
+        runs.flatMap((run) => {
+          if (!run.conversationId) return []
+          const provider = ticketRunProvider(run)
+          const identity = { provider, conversationId: run.conversationId }
+          return [[sessionOutcomeKey(provider, run.conversationId), identity] as const]
+        })
       )
       for (const [key, identity] of conversations) {
         // An outcome record that cannot be read costs that run its turns, never the report.
@@ -521,18 +517,28 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
         }
       }
     }
-    const load = options.routing ? await options.routing.config(grant.provider, grant.projectPath) : undefined
-    const mapping = load?.config?.tiers
+    const mappings: Partial<Record<AgentProvider, TierMapping | null>> = {}
+    const mappingErrors: Partial<Record<AgentProvider, string>> = {}
+    const config: Partial<Record<AgentProvider, { user: string; project: string | null }>> = {}
+    const routing = options.routing
+    if (routing) {
+      const used = new Set([grant.provider, ...runs.map(ticketRunProvider)])
+      for (const provider of AGENT_PROVIDERS.filter((candidate) => used.has(candidate))) {
+        const load = await routing.config(provider, grant.projectPath)
+        mappings[provider] = load.config?.tiers ?? null
+        if (!load.config) mappingErrors[provider] = load.error ?? 'the orchestration configuration cannot be used'
+        config[provider] = { user: load.userPath, project: load.projectPath ?? null }
+      }
+    }
+    const usable = Object.fromEntries(Object.entries(mappings).filter(([, mapping]) => mapping))
     return {
       status: 200,
       body: {
         ok: true,
-        ...routingReport(records, outcomes, mapping),
-        mapping: mapping ?? null,
-        ...(load && !load.config
-          ? { mappingError: load.error ?? 'the orchestration configuration cannot be used' }
-          : {}),
-        ...(load ? { config: { user: load.userPath, project: load.projectPath ?? null } } : {})
+        ...routingReport(records, outcomes, usable),
+        mappings,
+        ...(Object.keys(mappingErrors).length > 0 ? { mappingErrors } : {}),
+        ...(routing ? { config } : {})
       }
     }
   }
@@ -586,7 +592,8 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
     if (!conversationId) return refused(409, `ticket ${ticket.id} has no ticket session yet`)
     const sessions = options.ticketSessions
     if (!sessions) return refused(501, 'this Toucan cannot read session outcome records')
-    const found = await sessions.outcome({ provider: record.provider, conversationId })
+    const latest = [...ticketRunHistory(ticket)].reverse().find((run) => run.conversationId === conversationId)
+    const found = await sessions.outcome({ provider: ticketRunProvider(latest), conversationId })
     if (!found) {
       return refused(
         404,

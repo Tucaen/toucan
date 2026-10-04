@@ -108,7 +108,21 @@ export interface TicketSession {
  */
 export interface TicketRun {
   conversationId?: string
+  /**
+   * The provider whose session ran it - the orchestrator's, since ticket sessions are
+   * provider-homogeneous (#44). Absent on runs recorded before #47, which were all Claude sessions:
+   * read it through `ticketRunProvider`.
+   */
+  provider?: AgentProvider
   route?: TicketRoute
+}
+
+/**
+ * The provider a run's session belongs to. Runs recorded before the field existed were spawned
+ * while ticket sessions were Claude-only, whatever the orchestrator's provider.
+ */
+export function ticketRunProvider(run: Pick<TicketRun, 'provider'> | undefined): AgentProvider {
+  return run?.provider ?? 'claude'
 }
 
 export interface OrchestrationTicket {
@@ -416,6 +430,7 @@ function isTicketRun(value: unknown): value is TicketRun {
   return (
     isRecord(value) &&
     optionalString(value.conversationId) &&
+    (value.provider === undefined || isAgentProvider(value.provider)) &&
     (value.route === undefined || typeof parseRoute(value.route) !== 'string')
   )
 }
@@ -638,6 +653,7 @@ export function recordTicketSession(
 ): OrchestrationRecord {
   const run: TicketRun = {
     ...(session.conversationId ? { conversationId: session.conversationId } : {}),
+    provider: record.provider,
     ...(route ? { route } : {})
   }
   // A session spawned before runs were kept (#40) joins the history without a launch route: by now
