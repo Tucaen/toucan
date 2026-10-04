@@ -10,6 +10,8 @@ import type { OrchestrationKey, OrchestrationStore } from './orchestration-store
 
 /** A live canvas node's place in one orchestration. */
 export interface OrchestrationSession {
+  /** Provider of the live session that raised the event. */
+  provider: AgentProvider
   key: OrchestrationKey
   orchestratorNodeId: string
   /** Present only when the node is a ticket session. */
@@ -155,7 +157,7 @@ export function createOrchestrationController(options: OrchestrationControllerOp
     if (!paused || paused.lifecycle?.status !== 'paused') return
     options.changed?.(paused)
 
-    const reset = orchestrationResetAt(await options.readUsage(session.key.provider), now())
+    const reset = orchestrationResetAt(await options.readUsage(session.provider), now())
     if (reset === undefined) {
       arm(session.key, paused, session.orchestratorNodeId)
       return

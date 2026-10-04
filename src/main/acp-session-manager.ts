@@ -1991,7 +1991,11 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         // `{}` advertises support; omitted or `null` both mean the adapter cannot fork.
         running.forkSupport = initialized.agentCapabilities?.sessionCapabilities?.fork != null
         const initializeMeta = initialized._meta as { steering?: { supported?: boolean } } | undefined
-        running.steeringSupport = initializeMeta?.steering?.supported === true
+        // Codex ACP can answer steering by starting a turn outside `session/prompt`, which gives
+        // Toucan no lifecycle to track and can race a second prompt into the same session. Keep its
+        // follow-ups host-owned on the wake gate; Claude's adapter honours the idle-behaviour
+        // contract above and retains its supported in-turn steering path.
+        running.steeringSupport = running.request.provider === 'claude' && initializeMeta?.steering?.supported === true
         return await openSession(running)
       } catch (error) {
         const message = errorMessage(error)

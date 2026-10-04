@@ -39,9 +39,9 @@ function harness() {
   const controller = createOrchestrationController({
     records,
     resolve: async (nodeId) => {
-      if (nodeId === 'orchestrator') return { key, orchestratorNodeId: 'orchestrator' }
+      if (nodeId === 'orchestrator') return { provider: 'claude', key, orchestratorNodeId: 'orchestrator' }
       if (nodeId === 'ticket-1' || nodeId === 'ticket-2') {
-        return { key, orchestratorNodeId: 'orchestrator', ticketNodeId: nodeId }
+        return { provider: 'claude', key, orchestratorNodeId: 'orchestrator', ticketNodeId: nodeId }
       }
       return null
     },
@@ -91,7 +91,12 @@ test('the record is paused before the provider usage read returns', async () => 
   const started = new Promise<void>((resolve) => (usageStarted = resolve))
   const controller = createOrchestrationController({
     records,
-    resolve: async () => ({ key, orchestratorNodeId: 'orchestrator', ticketNodeId: 'ticket-1' }),
+    resolve: async () => ({
+      provider: 'claude',
+      key,
+      orchestratorNodeId: 'orchestrator',
+      ticketNodeId: 'ticket-1'
+    }),
     readUsage: () => {
       usageStarted()
       return new Promise((resolve) => (finishUsage = resolve))
@@ -113,6 +118,37 @@ test('the record is paused before the provider usage read returns', async () => 
   })
   finishUsage!(null)
   await controller.idle()
+})
+
+test('a usage-limit failure reads reset information from the provider of the failing session', async () => {
+  const records = createOrchestrationStore({ directory: mkdtempSync(join(tmpdir(), 'toucan-session-provider-')) })
+  await records.update(key, () => ({ value: record(), result: undefined }))
+  const providers: string[] = []
+  const controller = createOrchestrationController({
+    records,
+    resolve: async () => ({
+      key,
+      provider: 'codex',
+      orchestratorNodeId: 'orchestrator',
+      ticketNodeId: 'ticket-1'
+    }),
+    readUsage: async (provider) => {
+      providers.push(provider)
+      return null
+    },
+    promptWhenIdle: async () => ({ ok: true }),
+    kill: () => undefined
+  })
+
+  controller.observe('ticket-1', {
+    type: 'turn_failed',
+    turnId: 'turn-1',
+    message: 'usage limit reached',
+    errorKind: 'usage_limit'
+  })
+  await controller.idle()
+
+  assert.deepEqual(providers, ['codex'])
 })
 
 test('a ticket usage-limit failure durably pauses its orchestration and the reset resumes the ticket and wakes the orchestrator', async () => {
@@ -226,7 +262,7 @@ test('reading a persisted pause after restart re-arms its reset timer', async ()
   const prompts: string[] = []
   const restarted = createOrchestrationController({
     records,
-    resolve: async () => ({ key, orchestratorNodeId: 'orchestrator' }),
+    resolve: async () => ({ provider: 'claude', key, orchestratorNodeId: 'orchestrator' }),
     readUsage: async () => null,
     promptWhenIdle: async (nodeId) => {
       prompts.push(nodeId)

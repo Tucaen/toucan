@@ -118,7 +118,12 @@ test('a turn the agent resumes on a task notification refreshes the record and w
     foldMs: 0
   })
   broker.observe((id, event) => waker.observe(id, event))
-  waker.bind('node-1', { orchestratorNodeId: 'orchestrator', ticketId: 'CIC-33', conversationId: 'live-session' })
+  waker.bind('node-1', {
+    provider: 'claude',
+    orchestratorNodeId: 'orchestrator',
+    ticketId: 'CIC-33',
+    conversationId: 'live-session'
+  })
   const owner = { isDestroyed: () => false, send: () => {} } as unknown as WebContents
   const manager = createAcpSessionManager({ appPath, broker, sessionOutcomes: indexer })
 

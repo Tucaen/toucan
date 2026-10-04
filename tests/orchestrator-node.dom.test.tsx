@@ -28,7 +28,7 @@ const callbacks: TerminalNodeCallbacks & WorktreeNodeCallbacks = {
   onRunSetupCommand: vi.fn()
 }
 
-function renderChat(role?: 'orchestrator', conversationId?: string) {
+function renderChat(role?: 'orchestrator', conversationId?: string, provider: 'claude' | 'codex' = 'claude') {
   const mock = createMockAgentApi()
   window.agentApi = mock.api
   const state: WorkspaceState = {
@@ -39,8 +39,8 @@ function renderChat(role?: 'orchestrator', conversationId?: string) {
     nodes: [
       {
         id: 'chat-1',
-        kind: 'claude',
-        label: role ? 'Orchestrator 1' : 'Claude 1',
+        kind: provider,
+        label: role ? 'Orchestrator 1' : `${provider === 'codex' ? 'Codex' : 'Claude'} 1`,
         projectId: 'project-1',
         position: { x: 0, y: 0 },
         width: 640,
@@ -131,7 +131,7 @@ test('a reachable Jev says so, and an ordinary chat never asks', async () => {
   expect(jevReachability).not.toHaveBeenCalled()
 })
 
-test('a paused orchestrator shows its reset and Resume now, while Stop orchestration stops the whole run', async () => {
+test('a paused Codex orchestrator authorizes Resume now and Stop orchestration with its provider', async () => {
   const reset = Date.parse('2026-09-30T15:00:00.000Z')
   const resumeOrchestration = vi.fn(async (request) => ({
     provider: request.provider,
@@ -148,7 +148,7 @@ test('a paused orchestrator shows its reset and Resume now, while Stop orchestra
     completeTicketSession: vi.fn(),
     jevReachability: vi.fn(async () => ({ state: 'reachable' as const })),
     orchestrationState: vi.fn(async () => ({
-      provider: 'claude' as const,
+      provider: 'codex' as const,
       conversationId: 'conversation-1',
       status: 'paused' as const,
       resetsAt: reset
@@ -158,14 +158,14 @@ test('a paused orchestrator shows its reset and Resume now, while Stop orchestra
     onOrchestrationState: () => () => undefined
   }
 
-  const { container, cancel } = renderChat('orchestrator', 'conversation-1')
+  const { container, cancel } = renderChat('orchestrator', 'conversation-1', 'codex')
   await waitFor(() => expect(container.querySelector('.node-orchestration-paused')).toHaveTextContent('Paused until'))
   const resume = container.querySelector('.node-orchestration-resume') as HTMLButtonElement
   expect(resume).toHaveTextContent('Resume now')
   fireEvent.click(resume)
   await waitFor(() =>
     expect(resumeOrchestration).toHaveBeenCalledWith({
-      provider: 'claude',
+      provider: 'codex',
       conversationId: 'conversation-1',
       nodeId: 'chat-1'
     })

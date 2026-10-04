@@ -13,7 +13,7 @@ import {
 import type { TicketSpawner } from '../src/main/ticket-spawner'
 import type { AgentDecisionResponseContent, AgentPromptResult } from '../src/shared/agent'
 import { ORCHESTRATOR_TOKEN_ENV, ORCHESTRATOR_URL_ENV } from '../src/shared/orchestration'
-import type { SessionOutcomeRecord } from '../src/shared/session-outcome'
+import type { SessionOutcomeIdentity, SessionOutcomeRecord } from '../src/shared/session-outcome'
 
 // The orchestrator's view of and reach into its ticket sessions (#35): `status`, `outcome` and
 // `followup`. A follow-up may answer a ticket session's question, never its tool-permission prompt.
@@ -62,6 +62,7 @@ const outcomeRecord = {
 function control(states: Record<string, TicketSessionState>) {
   const sent: Array<{ nodeId: string; text: string; via: 'start' | 'whenIdle' }> = []
   const answered: Array<{ nodeId: string; requestId: string; content: AgentDecisionResponseContent }> = []
+  const outcomeReads: SessionOutcomeIdentity[] = []
   let whenIdle: (nodeId: string) => Promise<AgentPromptResult> = async () => ({ ok: true })
   const sessions: TicketSessionControl = {
     state: (nodeId) => states[nodeId],
@@ -77,15 +78,18 @@ function control(states: Record<string, TicketSessionState>) {
       answered.push({ nodeId, requestId, content })
       return { ok: true }
     },
-    outcome: async (identity) =>
-      identity.conversationId === 'conversation-34'
+    outcome: async (identity) => {
+      outcomeReads.push(identity)
+      return identity.conversationId === 'conversation-34'
         ? { path: 'C:\\outcomes\\toucan--spawn--abcd.md', record: outcomeRecord }
         : undefined
+    }
   }
   return {
     sessions,
     sent,
     answered,
+    outcomeReads,
     setWhenIdle: (next: typeof whenIdle) => {
       whenIdle = next
     }
@@ -184,6 +188,36 @@ test('status reads a ticket session Toucan is not running as not running', async
     assert.equal((await call(grant, 'status')).body.tickets[0].state, 'not running')
   } finally {
     await endpoint.close()
+  }
+})
+
+test('a restarted Codex endpoint recovers status, outcome and followup through the durable session identity', async () => {
+  const records = createOrchestrationStore({ directory: mkdtempSync(join(tmpdir(), 'toucan-codex-restart-')) })
+  const beforeRestart = createOrchestratorEndpoint({ records, spawner })
+  const firstGrant = (await beforeRestart.grant('codex-orchestrator', {
+    provider: 'codex',
+    projectPath: 'D:\\project'
+  }))!
+  firstGrant.setConversation('codex-conversation')
+  assert.equal((await call(firstGrant, 'plan set', plan)).status, 200)
+  assert.equal((await call(firstGrant, 'spawn', { ticket: '34', model: 'gpt', effort: 'high' })).status, 200)
+  await beforeRestart.close()
+
+  const restartedControl = control({ 'node-34': { status: 'ready', questions: [] } })
+  const restarted = createOrchestratorEndpoint({ records, ticketSessions: restartedControl.sessions })
+  const resumedGrant = (await restarted.grant('codex-orchestrator', {
+    provider: 'codex',
+    projectPath: 'D:\\project'
+  }))!
+  resumedGrant.setConversation('codex-conversation')
+  try {
+    assert.equal((await call(resumedGrant, 'status')).body.tickets[0].state, 'ready')
+    assert.equal((await call(resumedGrant, 'outcome', { ticket: '34' })).status, 200)
+    assert.deepEqual(restartedControl.outcomeReads, [{ provider: 'codex', conversationId: 'conversation-34' }])
+    assert.equal((await call(resumedGrant, 'followup', { ticket: '34', text: 'continue' })).status, 200)
+    assert.deepEqual(restartedControl.sent, [{ nodeId: 'node-34', text: 'continue', via: 'start' }])
+  } finally {
+    await restarted.close()
   }
 })
 

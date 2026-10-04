@@ -445,6 +445,7 @@ void app.whenReady().then(async () => {
     const node = (await workspace.load()).state?.nodes.find((candidate) => candidate.id === nodeId)
     if (!node) return undefined
     if (node.orchestratedBy) {
+      if (!isAgentProvider(node.kind)) return undefined
       const key: OrchestrationSession['key'] = {
         provider: orchestratorProvider(node.orchestratedBy),
         conversationId: node.orchestratedBy.conversationId
@@ -452,6 +453,7 @@ void app.whenReady().then(async () => {
       const record = await orchestrationRecords.read(key)
       if (!record?.tickets.some((ticket) => ticket.session?.nodeId === nodeId)) return undefined
       return {
+        provider: node.kind,
         key,
         orchestratorNodeId: node.orchestratedBy.nodeId,
         ticketNodeId: nodeId
@@ -459,6 +461,7 @@ void app.whenReady().then(async () => {
     }
     if (node.role === ORCHESTRATOR_ROLE && node.conversationId && isAgentProvider(node.kind)) {
       return {
+        provider: node.kind,
         key: { provider: node.kind, conversationId: node.conversationId },
         orchestratorNodeId: nodeId
       }
@@ -496,6 +499,7 @@ void app.whenReady().then(async () => {
       const node = (await workspace.load()).state?.nodes.find((candidate) => candidate.id === nodeId)
       if (!node) return undefined
       if (!node.orchestratedBy) return null
+      if (!isAgentProvider(node.kind)) return undefined
       const link = node.orchestratedBy
       const record = await orchestrationRecords.read({
         provider: orchestratorProvider(link),
@@ -505,7 +509,10 @@ void app.whenReady().then(async () => {
       return ticket
         ? {
             orchestratorNodeId: link.nodeId,
-            provider: orchestratorProvider(link),
+            // The orchestration record follows the link's provider; the outcome belongs to the
+            // ticket session itself. They normally match, but both identities stay explicit when
+            // a persisted canvas is recovered after a restart.
+            provider: node.kind,
             ticketId: ticket.id,
             ...(ticket.session?.conversationId ? { conversationId: ticket.session.conversationId } : {})
           }

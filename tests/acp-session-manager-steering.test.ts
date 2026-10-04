@@ -208,3 +208,51 @@ test('a follow-up the adapter answered with startedNewTurn is refused, leaving n
     manager.killAll()
   }
 })
+
+test('a Codex follow-up stays host-owned and starts as a tracked turn at the next boundary', async () => {
+  const appPath = mkdtempSync(join(tmpdir(), 'toucan-codex-wake-'))
+  installScriptedAdapter(appPath, 'codex-acp', {
+    meta: { steering: { supported: true } },
+    prelude: 'let prompts = 0',
+    handleRequest: `
+  if (request.method === 'session/new') {
+    send({ jsonrpc: '2.0', id: request.id, result: { sessionId: 'codex-session' } })
+    return
+  }
+  if (request.method === 'session/prompt') {
+    prompts += 1
+    if (prompts === 1) {
+      setTimeout(() => send({ jsonrpc: '2.0', id: request.id, result: { stopReason: 'end_turn' } }), 20)
+      return
+    }
+    send({ jsonrpc: '2.0', id: request.id, result: { stopReason: 'end_turn' } })
+    return
+  }
+  if (request.method === '_session/steering') {
+    send({ jsonrpc: '2.0', id: request.id, result: { outcome: 'startedNewTurn' } })
+  }`
+  })
+  const events: AgentEvent[] = []
+  const manager = createAcpSessionManager({ appPath })
+
+  try {
+    const created = await manager.create({ id: 'codex-orchestrator', provider: 'codex', cwd: appPath }, owner(events))
+    assert.equal(created.status, 'ready')
+    events.length = 0
+
+    assert.equal(manager.startPrompt('codex-orchestrator', 'working turn').ok, true)
+    const firstWake = manager.promptWhenIdle('codex-orchestrator', 'ticket 1 completed')
+    const secondWake = manager.promptWhenIdle('codex-orchestrator', 'ticket 2 asks a question')
+    assert.deepEqual(await Promise.all([firstWake, secondWake]), [{ ok: true }, { ok: true }])
+
+    assert.deepEqual(
+      events.flatMap((event) => (event.type === 'message' && event.role === 'user' ? [event.text] : [])),
+      ['working turn', 'ticket 1 completed', 'ticket 2 asks a question'],
+      'queued wakes are published once and in order, only when Toucan accepts each turn'
+    )
+    assert.equal(events.filter((event) => event.type === 'status' && event.status === 'working').length, 3)
+    assert.equal(events.filter((event) => event.type === 'turn_complete').length, 3)
+  } finally {
+    manager.killAll()
+  }
+})
