@@ -5,6 +5,7 @@ import type {
   AgentSessionCost,
   ProviderUsageEntry
 } from './agent'
+import { AGENT_PROVIDER_LABELS } from './agent-provider'
 
 /** The latest `usage_update` a session reported, verbatim; the display maths is below. */
 export interface SessionUsageInput {
@@ -248,18 +249,8 @@ export function accountUsageLevel(windows: readonly RateLimitWindowReadout[], re
   return worst ? worst.level : 'normal'
 }
 
-/**
- * What a provider calls itself wherever its account usage is shown; the `AgentProvider` id is
- * lowercase wiring and never display text. Here rather than beside either chip because the phone
- * and the desktop label the same account, and two tables would be two chances to disagree.
- */
-const PROVIDER_LABELS: Record<AgentProvider, string> = {
-  claude: 'Claude',
-  codex: 'Codex'
-}
-
 export function providerUsageLabel(provider: AgentProvider): string {
-  return PROVIDER_LABELS[provider] ?? provider
+  return AGENT_PROVIDER_LABELS[provider] ?? provider
 }
 
 /**

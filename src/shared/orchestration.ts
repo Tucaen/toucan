@@ -110,16 +110,18 @@ export interface TicketRun {
   conversationId?: string
   /**
    * The provider whose session ran it - the orchestrator's, since ticket sessions are
-   * provider-homogeneous (#44). Absent on runs recorded before #47, which were all Claude sessions:
-   * read it through `ticketRunProvider`.
+   * provider-homogeneous (#44). Absent on runs recorded before #47: read it through
+   * `ticketRunProvider`.
    */
   provider?: AgentProvider
   route?: TicketRoute
 }
 
 /**
- * The provider a run's session belongs to. Runs recorded before the field existed were spawned
- * while ticket sessions were Claude-only, whatever the orchestrator's provider.
+ * The provider a run's session belongs to. A run without the field reads as Claude's: every
+ * released Toucan spawned only Claude ticket sessions, whatever the orchestrator's provider. Codex
+ * runs that unreleased #44 development builds recorded without it are miscounted as Claude's, an
+ * accepted cost of never guessing from the record's provider.
  */
 export function ticketRunProvider(run: Pick<TicketRun, 'provider'> | undefined): AgentProvider {
   return run?.provider ?? 'claude'

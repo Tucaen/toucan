@@ -1,4 +1,4 @@
-import { AGENT_PROVIDERS, type AgentProvider } from './agent-provider'
+import { AGENT_PROVIDER_LABELS, AGENT_PROVIDERS, type AgentProvider } from './agent-provider'
 import {
   DIFFICULTY_TIERS,
   ticketRunProvider,
@@ -258,15 +258,13 @@ function rowsFor(stays: readonly Stay[]): RoutingReportRow[] {
 const entryLabel = (entry: TierMappingEntry): string =>
   entry.effort ? `${entry.model} at ${entry.effort}` : entry.model
 const sameEntry = (a: TierMappingEntry, b: TierMappingEntry): boolean => a.model === b.model && a.effort === b.effort
-const PROVIDER_NAMES: Record<AgentProvider, string> = { claude: 'Claude', codex: 'Codex' }
 
 /**
  * Mapping changes Jev's evidence supports for one provider's mapping, at most one per tier, each
  * carrying its numbers. Only that provider's rows are evidence: another provider's same-named model
- * is a different model. A tier
- * is proposed down to the cheapest lower tier's model that merged at least `ROUTING_REPORT_LOWER_FROM`
- * of its tickets without escalation; failing that, up to the next tier's entry when its own model
- * merged fewer than `ROUTING_REPORT_RAISE_BELOW`. Nothing is proposed from fewer than
+ * is a different model. A tier is proposed down to the cheapest lower tier's model that merged at
+ * least `ROUTING_REPORT_LOWER_FROM` of its tickets without escalation; failing that, up to the next
+ * tier's entry when its own model merged fewer than `ROUTING_REPORT_RAISE_BELOW`. Nothing is proposed from fewer than
  * `ROUTING_REPORT_MINIMUM_SAMPLE` settled tickets, and frontier has nowhere higher to go.
  * @internal exported for tests
  */
@@ -276,7 +274,7 @@ export function proposeMappingChanges(
   provider: AgentProvider
 ): MappingProposal[] {
   const proposals: MappingProposal[] = []
-  const name = PROVIDER_NAMES[provider]
+  const name = AGENT_PROVIDER_LABELS[provider]
   const evidenceFor = (tier: DifficultyTier, model: string): RoutingReportRow | undefined => {
     const row = rows.find(
       (candidate) => candidate.provider === provider && candidate.tier === tier && candidate.model === model
