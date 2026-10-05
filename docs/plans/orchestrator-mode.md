@@ -213,8 +213,16 @@ rebase, `npm test`, `merge --ff-only`, push to the local bare remote, a cleanup 
 worktrees and branches, and `report` with Codex-only rows. It was marked failed only by a too
 strict step pattern in the harness, since corrected; its retained fixture satisfies every
 post-run assertion. Two later runs hit the account's Codex usage limit, which codex-acp surfaced
-as a generic `Internal error` turn failure rather than a usage-limit error. A clean harness PASS
-is still to be recorded once the limit resets.
+as a generic `Internal error` turn failure rather than a usage-limit error.
+
+2026-10-05 run: **PASS** (`toucan-orchestration-smoke-codex-EqgvvW`, orchestrator conversation
+`01a10ad8-399f-7430-813e-c853b73529d9`), again in ordinary `agent` mode with no permission prompt.
+Every harness assertion held: all eleven workflow steps from the orchestrator's own commands, a
+completion wake per ticket, Codex-tagged runs, a merge-free target equal to the local remote's
+`main`, no ticket branches left, and a final answer whose routing report has one `codex` row. The
+default Codex model answered "Selected model is at capacity" that day, so the run pinned
+`--model gpt-6-astra`; an unpinned run the same morning ended its first turn without a tool call
+for that reason.
 
 ## Open facts to settle during implementation
 

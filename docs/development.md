@@ -69,7 +69,8 @@ npm run check:full
 
 After changing the orchestrator workflow, run `npm run build:test-out` then
 `node scripts/verify-orchestration.mjs` with Claude signed in and network access, or
-`node scripts/verify-orchestration.mjs --provider codex` with Codex signed in. The Codex run keeps
+`node scripts/verify-orchestration.mjs --provider codex` with Codex signed in. Add
+`--model <id>` to pin the orchestrator and every tier to one model when the default is unavailable. The Codex run keeps
 the adapter's ordinary permission mode and refuses to start in a full-access one.
 This deliberately sits outside `npm test`: it spends account tokens on a real orchestrator
 and two dependent ticket sessions of the same provider. It fails unless the orchestrator's own

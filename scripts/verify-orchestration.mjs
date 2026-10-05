@@ -1,7 +1,8 @@
 /**
  * Live #37/#47 smoke: a real orchestrator and its provider-matched ticket sessions, local Git
  * remote, no GitHub writes. Spends account tokens; deliberately outside npm test. Run
- * npm run build:test-out first, then node scripts/verify-orchestration.mjs [--provider codex].
+ * npm run build:test-out first, then node scripts/verify-orchestration.mjs [--provider codex]
+ * [--model <id>].
  * Keeps the temporary fixture and evidence for inspection. Permission prompts stop the run for
  * human review; this harness never answers them. A Codex run keeps the adapter's ordinary
  * permission mode and refuses to start in a full-access one, so it proves the shipped workflow
@@ -30,6 +31,10 @@ const providerFlag = process.argv.indexOf('--provider')
 const provider = providerFlag >= 0 ? process.argv[providerFlag + 1] : 'claude'
 if (provider !== 'claude' && provider !== 'codex')
   throw new Error(`--provider must be claude or codex, not ${provider}`)
+// `--model <id>` pins the orchestrator and every tier to one model, for when the provider's default
+// is unavailable (Codex answers "Selected model is at capacity" as a turn with no tool call).
+const modelFlag = process.argv.indexOf('--model')
+const pinnedModel = modelFlag >= 0 ? process.argv[modelFlag + 1] : undefined
 
 const root = mkdtempSync(join(tmpdir(), `toucan-orchestration-smoke-${provider}-`))
 const project = join(root, 'project')
@@ -167,6 +172,7 @@ manager = createAcpSessionManager({
 const owner = { isDestroyed: () => false, send: () => {} }
 /** Claude's cheapest alias; for Codex the advertised model that looks smallest, else the first offered. */
 function economicalModel() {
+  if (pinnedModel) return pinnedModel
   if (provider === 'claude') return 'haiku'
   const ids = [...models.keys()]
   return ids.find((id) => /mini/iu.test(id)) ?? ids[0] ?? 'unknown'
@@ -242,8 +248,9 @@ try {
       provider,
       role: 'orchestrator',
       cwd: project,
-      // Codex keeps its adapter's default model and ordinary permission mode.
-      ...(provider === 'claude' ? { modelId: 'sonnet', permissionMode: 'acceptEdits' } : {})
+      // Codex keeps its adapter's default model, unless pinned, and its ordinary permission mode.
+      ...(provider === 'claude' ? { modelId: 'sonnet', permissionMode: 'acceptEdits' } : {}),
+      ...(pinnedModel ? { modelId: pinnedModel } : {})
     },
     owner
   )
@@ -316,6 +323,11 @@ try {
   log(answer)
 } catch (error) {
   log(`FAIL: ${error.message}`)
+  const last = broker
+    .snapshot('orchestrator')
+    ?.messages.filter((message) => message.role === 'assistant')
+    .at(-1)?.text
+  if (last) log(`Orchestrator's last reply: ${last}`)
   process.exitCode = 1
 } finally {
   manager.killAll()
