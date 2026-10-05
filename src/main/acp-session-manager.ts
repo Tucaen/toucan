@@ -1371,13 +1371,17 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
           : decidingConfiguration
       // Every Claude session, not only ticket sessions: the outcome record and the renderer's final
       // answer depend on the boundary of an autonomous cycle as much as the orchestrator's wake does.
+      // The guard alone is optional per node (`request.commandGuard === false`, ticket 04): the
+      // forwarded messages are not a safety feature and stay either way.
       const sessionConfiguration =
         running.request.provider === 'claude'
           ? withForwardedSdkMessages(
-              withCommandGuard(
-                orchestratingConfiguration,
-                commandGuardSettings(process.execPath, commandGuardFiles(toucanSkillsRoot ?? options.appPath))
-              )
+              running.request.commandGuard === false
+                ? orchestratingConfiguration
+                : withCommandGuard(
+                    orchestratingConfiguration,
+                    commandGuardSettings(process.execPath, commandGuardFiles(toucanSkillsRoot ?? options.appPath))
+                  )
             )
           : orchestratingConfiguration
       // Included only when a terminal edge stands at this creation; a session without one carries

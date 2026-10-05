@@ -166,6 +166,7 @@ function isWorkspaceTerminalNode(value: unknown): boolean {
     (node.focusMode === undefined || typeof node.focusMode === 'boolean') &&
     (node.worklogCollapsed === undefined || typeof node.worklogCollapsed === 'boolean') &&
     (node.modelId === undefined || typeof node.modelId === 'string') &&
+    (node.commandGuard === undefined || (node.commandGuard === false && node.kind !== 'terminal')) &&
     (node.turnOutcomes === undefined ||
       (Array.isArray(node.turnOutcomes) && node.turnOutcomes.every(isAgentTurnOutcome))) &&
     (node.draft === undefined || typeof node.draft === 'string') &&

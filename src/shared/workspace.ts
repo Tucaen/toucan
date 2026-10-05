@@ -133,6 +133,12 @@ export interface WorkspaceTerminalNode {
   worklogCollapsed?: boolean
   /** The agent model this conversation last ran on, as reported by its ACP adapter. */
   modelId?: string
+  /**
+   * `false` when the dangerous-command guard is turned off for this node's session (ticket 04),
+   * written only then: absent is the default, guarded. Read when the session starts, so a change
+   * lands on the next start or resume, and it never overrides a guard that is off everywhere.
+   */
+  commandGuard?: false
   /** Bounded local turn failures/cancellations that provider transcript replay cannot restore. */
   turnOutcomes?: AgentTurnOutcome[]
   terminalLiveness?: TerminalLiveness

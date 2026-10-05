@@ -1,4 +1,15 @@
-import { AtSign, BrainCircuit, ChevronDown, Cpu, Keyboard, Pencil, Scale, ShieldCheck, UsersRound } from 'lucide-react'
+import {
+  AtSign,
+  BrainCircuit,
+  ChevronDown,
+  Cpu,
+  Keyboard,
+  Pencil,
+  Scale,
+  ShieldAlert,
+  ShieldCheck,
+  UsersRound
+} from 'lucide-react'
 import { ListboxPicker } from './ListboxPicker'
 
 export interface PickerOption {
@@ -39,6 +50,12 @@ export const pickerCopy = {
     heading: 'Decisions',
     idle: 'Decisions',
     hint: 'Let decision-shaped subtasks go to an installed decision-provider skill'
+  },
+  commandGuard: {
+    icon: ShieldAlert,
+    heading: 'Command guard',
+    idle: 'Guard',
+    hint: 'Block dangerous shell commands in this conversation'
   },
   cleanup: {
     icon: Pencil,

@@ -14,11 +14,21 @@ import { DECISION_DELEGATION_ON_OPTION, describeDecisionDelegation } from './dec
 import { type AgentDecisionDelegation } from '../../shared/decision-delegation'
 import { useDictationCleanupPreference } from './dictation-cleanup-context'
 import { DICTATION_CLEANUP_MODELS } from '../../shared/dictation-cleanup'
+import { COMMAND_GUARD_ON_OPTION, describeCommandGuard } from './command-guard-display'
+
+/** One node's command guard switch (ticket 04). Unlike the rest of the menu it is the node's own. */
+export interface ComposerCommandGuard {
+  enabled: boolean
+  /** The guard is off for every chat, so this node's switch shows off and cannot be changed. */
+  globallyOff?: boolean
+  onChange(enabled: boolean): void
+}
 
 export interface ComposerSettingsMenuProps {
   provider: AgentProvider
   routineDelegation?: AgentRoutineDelegation | null
   decisionDelegation?: AgentDecisionDelegation | null
+  commandGuard?: ComposerCommandGuard
 }
 
 /**
@@ -50,6 +60,9 @@ export default function ComposerSettingsMenu(props: ComposerSettingsMenuProps): 
     props.decisionDelegation ?? undefined,
     decisionDelegation.skillInstalled
   )
+  const guard = props.commandGuard
+    ? describeCommandGuard(props.provider, props.commandGuard.enabled, props.commandGuard.globallyOff ?? false)
+    : null
   // A string, not an array: `remeasureOn` is an effect dependency, and a fresh array literal
   // every render would re-measure forever.
   const position = usePortalMenuPosition(
@@ -58,7 +71,7 @@ export default function ComposerSettingsMenu(props: ComposerSettingsMenuProps): 
     open,
     { width: 260, height: 0 },
     undefined,
-    `${delegation.note ?? ''}|${decisions.note ?? ''}`
+    `${delegation.note ?? ''}|${decisions.note ?? ''}|${guard?.note ?? ''}`
   )
 
   useEffect(() => {
@@ -124,6 +137,21 @@ export default function ComposerSettingsMenu(props: ComposerSettingsMenuProps): 
         select={(id) => decisionDelegation.setPreference({ enabled: id === DECISION_DELEGATION_ON_OPTION.id })}
       />
       {decisions.note && <span className="composer-toolbar-note">{decisions.note}</span>}
+      {guard && props.commandGuard && (
+        <>
+          <SelectorPicker
+            kind="commandGuard"
+            options={guard.options}
+            selectedId={guard.selectedId}
+            // Only closed when the guard is off everywhere; otherwise it applies at the next start
+            // anyway, so a running turn is no reason to refuse the choice.
+            disabled={!guard.changeable}
+            disabledHint={guard.changeable ? undefined : guard.note}
+            select={(id) => props.commandGuard?.onChange(id === COMMAND_GUARD_ON_OPTION.id)}
+          />
+          <span className="composer-toolbar-note">{guard.note}</span>
+        </>
+      )}
       <SelectorPicker
         kind="cleanup"
         options={[
@@ -161,7 +189,7 @@ export default function ComposerSettingsMenu(props: ComposerSettingsMenuProps): 
         aria-expanded={open}
         aria-haspopup="dialog"
         aria-label="More settings"
-        title="Delegation, dictation cleanup and the send key"
+        title="Delegation, command guard, dictation cleanup and the send key"
         onClick={() => setOpen((current) => !current)}
       >
         <Settings2 aria-hidden="true" />

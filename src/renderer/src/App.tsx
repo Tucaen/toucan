@@ -608,6 +608,15 @@ function Canvas(): JSX.Element {
     [patchTerminalNode]
   )
 
+  // Per node, like the model: a guard switched off for one chat leaves every other chat guarded.
+  // Stored only as `false`, so a node that never touched it saves exactly what it always did.
+  const handleCommandGuardChange = useCallback(
+    (nodeId: string, enabled: boolean): void => {
+      patchTerminalNode(nodeId, () => ({ commandGuard: enabled ? undefined : false }))
+    },
+    [patchTerminalNode]
+  )
+
   const handleTurnOutcome = useCallback(
     (nodeId: string, outcome: AgentTurnOutcome): void => {
       patchTerminalNode(nodeId, (data) => {
@@ -1054,6 +1063,7 @@ function Canvas(): JSX.Element {
         onScheduledMessagesChange: handleScheduledMessagesChange,
         onPermissionModeChange: handlePermissionModeChange,
         onModelChange: handleModelChange,
+        onCommandGuardChange: handleCommandGuardChange,
         onTurnOutcome: handleTurnOutcome,
         onResume: resumeNode,
         onTerminalLiveness: handleTerminalLiveness,
@@ -1088,6 +1098,7 @@ function Canvas(): JSX.Element {
     handleScheduledMessagesChange,
     handleFocusModeChange,
     handleModelChange,
+    handleCommandGuardChange,
     handleTurnOutcome,
     handlePermissionModeChange,
     handleStatusChange,
@@ -1195,6 +1206,7 @@ function Canvas(): JSX.Element {
           onScheduledMessagesChange: handleScheduledMessagesChange,
           onPermissionModeChange: handlePermissionModeChange,
           onModelChange: handleModelChange,
+          onCommandGuardChange: handleCommandGuardChange,
           onTurnOutcome: handleTurnOutcome,
           onResume: resumeNode,
           onTerminalLiveness: handleTerminalLiveness,
@@ -1224,6 +1236,7 @@ function Canvas(): JSX.Element {
       handleScheduledMessagesChange,
       handleFocusModeChange,
       handleModelChange,
+      handleCommandGuardChange,
       handleTurnOutcome,
       handlePermissionModeChange,
       handleStatusChange,
@@ -1680,6 +1693,7 @@ function Canvas(): JSX.Element {
         onScheduledMessagesChange: handleScheduledMessagesChange,
         onPermissionModeChange: handlePermissionModeChange,
         onModelChange: handleModelChange,
+        onCommandGuardChange: handleCommandGuardChange,
         onTurnOutcome: handleTurnOutcome,
         onResume: resumeNode,
         onTerminalLiveness: handleTerminalLiveness,
@@ -1728,6 +1742,7 @@ function Canvas(): JSX.Element {
       handleFileViewModeChange,
       handleFocusModeChange,
       handleModelChange,
+      handleCommandGuardChange,
       handleTurnOutcome,
       handlePermissionModeChange,
       handleSelectDiffPath,

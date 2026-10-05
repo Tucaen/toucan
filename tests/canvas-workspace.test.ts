@@ -1337,3 +1337,34 @@ test('reopening a closed chat whose conversation another node now holds focuses 
   assert.equal(reopened.focusNodeId, 'history-node')
   assert.deepEqual(reopened.recentlyClosedNodes, [older])
 })
+
+test('a node whose command guard is off keeps that choice through save and restore', () => {
+  const state: WorkspaceState = {
+    version: 3,
+    projects: [{ id: 'project-1', name: 'Toucan', path: 'D:\\Development\\Toucan', color: '#71a9ff' }],
+    activeProjectId: 'project-1',
+    sidebarCollapsed: false,
+    nodes: ['open', 'guarded'].map((id, index) => ({
+      id,
+      kind: 'claude' as const,
+      label: `Claude ${index + 1}`,
+      projectId: 'project-1',
+      position: { x: index * 600, y: 0 },
+      width: 540,
+      height: 360,
+      conversationId: `conversation-${id}`,
+      focusMode: false,
+      ...(id === 'open' ? { commandGuard: false as const } : {})
+    })),
+    worktrees: []
+  }
+  const [open, guarded] = terminalNodes(restoreCanvasWorkspace(state, callbacks).nodes)
+
+  assert.equal(open.data.commandGuard, false)
+  assert.equal(guarded.data.commandGuard, undefined)
+  assert.deepEqual(serializeCanvasNode(open), state.nodes[0])
+  assert.deepEqual(serializeCanvasNode(guarded), state.nodes[1])
+  // Turning it back on stores nothing, so the node is exactly what it was before it was touched.
+  const reenabled = { ...open, data: { ...open.data, commandGuard: undefined } }
+  assert.equal('commandGuard' in serializeCanvasNode(reenabled), false)
+})

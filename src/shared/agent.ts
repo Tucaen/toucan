@@ -42,6 +42,12 @@ export interface AgentCreateRequest {
    */
   decisionDelegation?: true
   /**
+   * `false` asks for this session to start without the dangerous-command guard (ticket 04); absent
+   * is guarded. A request, not a promise: the guard stays on wherever it is off or on for a reason
+   * of its own, and nothing reports back whether it was honoured. Read when the session starts.
+   */
+  commandGuard?: false
+  /**
    * The chat node's role, fixed when the node was created (`shared/orchestration.ts`). Only an
    * orchestrator's session is minted an orchestrator token and carries the orchestration
    * instruction; absent is an ordinary chat.

@@ -57,6 +57,7 @@ export function TestChatView(props: TestChatViewProps): JSX.Element {
         efforts: props.efforts,
         routineDelegation: props.routineDelegation,
         decisionDelegation: props.decisionDelegation,
+        commandGuard: props.commandGuard,
         selectorsDisabled: props.selectorsDisabled,
         selectMode: props.selectMode,
         selectModel: props.selectModel,

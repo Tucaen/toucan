@@ -76,7 +76,7 @@ import { SessionConnectionsButton } from './SessionConnections'
 import { imageAttachmentSource, imageFilesFromClipboard, type AgentImageAttachment } from './image-attachment'
 import { classifyAssistantMessage } from './decision-message'
 import { SelectorPicker, pickerCopy } from './SelectorPicker'
-import ComposerSettingsMenu from './ComposerSettingsMenu'
+import ComposerSettingsMenu, { type ComposerCommandGuard } from './ComposerSettingsMenu'
 import NodeBorderResizer from './NodeBorderResizer'
 import UnreadToggle from './UnreadToggle'
 import SessionUsageBar from './SessionUsageBar'
@@ -180,6 +180,8 @@ interface FlatChatViewProps {
   routineDelegation?: AgentRoutineDelegation | null
   /** What the running session carries for decision delegation; the preference is only a request. */
   decisionDelegation?: AgentDecisionDelegation | null
+  /** This node's command guard switch; absent when the node cannot persist one. */
+  commandGuard?: ComposerCommandGuard
   selectorsDisabled?: boolean
   /** Why the model picker alone is closed (a turn in flight), in the words `setModel` would refuse with. */
   modelChangeBlocked?: string | null
@@ -214,6 +216,7 @@ export type ChatComposerProps = Pick<
   | 'efforts'
   | 'routineDelegation'
   | 'decisionDelegation'
+  | 'commandGuard'
   | 'selectorsDisabled'
   | 'modelChangeBlocked'
   | 'selectMode'
@@ -346,6 +349,7 @@ function ComposerToolbar(
     | 'efforts'
     | 'routineDelegation'
     | 'decisionDelegation'
+    | 'commandGuard'
     | 'selectorsDisabled'
     | 'modelChangeBlocked'
     | 'selectMode'
@@ -390,6 +394,7 @@ function ComposerToolbar(
         provider={props.provider}
         routineDelegation={props.routineDelegation}
         decisionDelegation={props.decisionDelegation}
+        commandGuard={props.commandGuard}
       />
     </div>
   )
@@ -476,6 +481,7 @@ export function Composer(props: ComposerProps): JSX.Element {
           efforts={props.efforts}
           routineDelegation={props.routineDelegation}
           decisionDelegation={props.decisionDelegation}
+          commandGuard={props.commandGuard}
           selectorsDisabled={props.selectorsDisabled}
           modelChangeBlocked={props.modelChangeBlocked}
           selectMode={props.selectMode}
@@ -1109,6 +1115,8 @@ export default function ChatNode({ id, data, selected, width }: NodeProps<Termin
     // Read at session creation for the same reason, and carried for Codex too: main records the
     // request and reports back why it was withheld, rather than the node quietly dropping it.
     decisionDelegation: decisionDelegationRequest(decisionDelegationPreference),
+    // Per node and read at creation too: the switch in More settings applies on the next start.
+    commandGuard: data.commandGuard,
     role: data.role,
     // Bumped when a terminal-context edge is adopted mid-session: the restart resumes this same
     // conversation with the read tool included (terminal-context-edges.ts).
@@ -1531,6 +1539,12 @@ export default function ChatNode({ id, data, selected, width }: NodeProps<Termin
               efforts: conversation.efforts,
               routineDelegation: conversation.routineDelegation,
               decisionDelegation: conversation.decisionDelegation,
+              commandGuard: data.onCommandGuardChange
+                ? {
+                    enabled: data.commandGuard !== false,
+                    onChange: (enabled) => data.onCommandGuardChange?.(id, enabled)
+                  }
+                : undefined,
               selectorsDisabled: conversation.selectorsDisabled,
               modelChangeBlocked: conversation.modelChangeBlocked,
               selectMode: conversation.selectMode,

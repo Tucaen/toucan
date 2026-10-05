@@ -84,6 +84,8 @@ export interface AgentConversationOptions {
   routineDelegation?: RoutineDelegationRequest
   /** Whether to launch asking for decision delegation; read at create time, like the policy above. */
   decisionDelegation?: true
+  /** `false` launches without the command guard; read at create time, never a restart trigger. */
+  commandGuard?: false
   /** The chat node's role; an orchestrator's launch is minted its token in main. */
   role?: ChatNodeRole
   restartKey?: number
@@ -340,6 +342,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
         effortId: options.effortId,
         routineDelegation: options.routineDelegation,
         decisionDelegation: options.decisionDelegation,
+        ...(options.commandGuard === false ? { commandGuard: false as const } : {}),
         ...(options.role ? { role: options.role } : {})
       })
       .then((result) => {

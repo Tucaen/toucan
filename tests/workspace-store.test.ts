@@ -1086,3 +1086,23 @@ test('rejects a workspace whose scheduled message is the wrong shape', () => {
   assert.equal(parseWorkspaceState(withScheduled([{ id: 'x', text: 'hi', images: [], deliverAt: 'soon' }])), null)
   assert.ok(parseWorkspaceState(withScheduled([{ id: 'x', text: 'hi', images: [], deliverAt: 1 }])))
 })
+
+test('a persisted command guard choice is only ever false, and only on a chat', () => {
+  const node = {
+    id: 'node-1',
+    label: 'Claude 1',
+    projectId: 'project-1',
+    position: { x: 0, y: 0 },
+    width: 540,
+    height: 360
+  }
+  const withNode = (extra: object, kind: 'claude' | 'terminal' = 'claude'): WorkspaceState => ({
+    ...makeState('guard'),
+    nodes: [{ ...node, kind, ...extra }]
+  })
+  assert.equal(parseWorkspaceState(withNode({ commandGuard: false }))?.nodes[0].commandGuard, false)
+  assert.equal(parseWorkspaceState(withNode({}))?.nodes[0].commandGuard, undefined)
+  assert.equal(isWorkspaceState(withNode({ commandGuard: true })), false)
+  assert.equal(isWorkspaceState(withNode({ commandGuard: 'off' })), false)
+  assert.equal(isWorkspaceState(withNode({ commandGuard: false }, 'terminal')), false)
+})

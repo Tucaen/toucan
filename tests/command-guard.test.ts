@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'vitest'
 import type { WebContents } from 'electron'
+import { isAgentCreateRequest } from '../src/main/register-agent-ipc'
 import { createAcpSessionManager } from '../src/main/acp-session-manager'
 import {
   COMMAND_GUARD_MATCHER,
@@ -138,4 +139,44 @@ test('Claude sessions, orchestrators included, open with the guard in their sess
   } finally {
     manager.killAll()
   }
+})
+
+// Ticket 04: the guard is per node. A chat whose request says `commandGuard: false` opens without
+// the hook, while a guarded chat beside it keeps it.
+test('a node that turned the guard off opens without the hook; the others stay guarded', async () => {
+  const appPath = mkdtempSync(join(tmpdir(), 'toucan-command-guard-off-'))
+  const recordPath = join(appPath, 'requests.json')
+  installScriptedAdapter(appPath, 'claude-agent-acp', {
+    prelude: `const fs = require('node:fs')`,
+    handleRequest: `
+  if (request.method === 'session/new') {
+    fs.appendFileSync(${JSON.stringify(recordPath)}, JSON.stringify(request.params) + String.fromCharCode(10))
+    send({ jsonrpc: '2.0', id: request.id, result: { sessionId: 'fresh-session' } })
+  }`
+  })
+  const owner = { isDestroyed: () => false, send: () => {} } as unknown as WebContents
+  const manager = createAcpSessionManager({ appPath, environment: { PATH: process.env.PATH } })
+  try {
+    await manager.create({ id: 'open', provider: 'claude', cwd: appPath, commandGuard: false }, owner)
+    await manager.create({ id: 'guarded', provider: 'claude', cwd: appPath }, owner)
+    const [open, guarded] = readFileSync(recordPath, 'utf8')
+      .split(String.fromCharCode(10))
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as { _meta?: { claudeCode?: { options?: { settings?: unknown } } } })
+    assert.equal(open?._meta?.claudeCode?.options?.settings, undefined)
+    assert.deepEqual(
+      guarded?._meta?.claudeCode?.options?.settings,
+      commandGuardSettings(process.execPath, commandGuardFiles(appPath))
+    )
+  } finally {
+    manager.killAll()
+  }
+})
+
+test('a create request may carry commandGuard: false and nothing else', () => {
+  const request = { id: 'chat', provider: 'claude', cwd: '/work' }
+  assert.equal(isAgentCreateRequest({ ...request, commandGuard: false }), true)
+  assert.equal(isAgentCreateRequest(request), true)
+  assert.equal(isAgentCreateRequest({ ...request, commandGuard: true }), false)
+  assert.equal(isAgentCreateRequest({ ...request, commandGuard: 'off' }), false)
 })

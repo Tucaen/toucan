@@ -56,6 +56,11 @@ export interface TerminalNodeCallbacks {
   onScheduledMessagesChange?(nodeId: string, messages: ScheduledMessage[]): void
   onPermissionModeChange(provider: keyof AgentPermissionModes, modeId: string): void
   onModelChange(nodeId: string, modelId: string): void
+  /**
+   * Turns the dangerous-command guard on or off for one node's session. Optional so a node renders
+   * in isolation; without it the composer's More settings menu offers no switch.
+   */
+  onCommandGuardChange?(nodeId: string, enabled: boolean): void
   /** Persists terminal turn outcomes that provider-owned transcript replay cannot reproduce. */
   onTurnOutcome?(nodeId: string, outcome: AgentTurnOutcome): void
   onResume(nodeId: string): void
@@ -137,6 +142,8 @@ export interface TerminalNodeData
   scheduledMessages?: ScheduledMessage[]
   preferredPermissionMode?: string
   modelId?: string
+  /** `false` when the command guard is off for this node's session; see `WorkspaceTerminalNode`. */
+  commandGuard?: false
   turnOutcomes?: AgentTurnOutcome[]
   dormant: boolean
   /**
@@ -713,6 +720,7 @@ export function serializeCanvasNode(node: TerminalCanvasNode): WorkspaceTerminal
     height: size.height,
     ...(node.data.conversationId ? { conversationId: node.data.conversationId } : {}),
     ...(node.data.modelId ? { modelId: node.data.modelId } : {}),
+    ...(node.data.kind !== 'terminal' && node.data.commandGuard === false ? { commandGuard: false as const } : {}),
     ...(node.data.turnOutcomes?.length ? { turnOutcomes: node.data.turnOutcomes } : {}),
     ...(node.data.draft ? { draft: node.data.draft } : {}),
     ...(node.data.scheduledMessages?.length ? { scheduledMessages: node.data.scheduledMessages } : {}),
@@ -827,6 +835,7 @@ function restoreTerminalCanvasNode(
       preferredPermissionMode:
         savedNode.kind === 'terminal' ? undefined : context.agentPermissionModes?.[savedNode.kind],
       modelId: savedNode.kind === 'terminal' ? undefined : savedNode.modelId,
+      commandGuard: savedNode.kind === 'terminal' ? undefined : savedNode.commandGuard,
       turnOutcomes: savedNode.kind === 'terminal' ? undefined : savedNode.turnOutcomes,
       dormant,
       branchedFrom: savedNode.branchedFrom,
@@ -843,6 +852,7 @@ function restoreTerminalCanvasNode(
       onScheduledMessagesChange: callbacks.onScheduledMessagesChange,
       onPermissionModeChange: callbacks.onPermissionModeChange,
       onModelChange: callbacks.onModelChange,
+      onCommandGuardChange: callbacks.onCommandGuardChange,
       onTurnOutcome: callbacks.onTurnOutcome,
       onResume: callbacks.onResume,
       onTerminalLiveness: callbacks.onTerminalLiveness,

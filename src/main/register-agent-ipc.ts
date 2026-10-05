@@ -31,6 +31,7 @@ export function isAgentCreateRequest(value: unknown): value is AgentCreateReques
       !optionalString(value.routineDelegation.workerEffortId))
   )
     return false
+  if (value.commandGuard !== undefined && value.commandGuard !== false) return false
   if (value.role !== undefined && !isChatNodeRole(value.role)) return false
   return value.decisionDelegation === undefined || value.decisionDelegation === true
 }
