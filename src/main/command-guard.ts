@@ -117,25 +117,40 @@ function canonicalJson(value: unknown): string {
   return JSON.stringify(value)
 }
 
+/** The guard's handler as Codex reads it from config; registered and hashed from this one object. */
+function codexGuardHandler(command: string): { type: 'command'; command: string; timeout: number } {
+  return { type: 'command', command, timeout: HOOK_TIMEOUT_SECONDS }
+}
+
+/** An inline TOML value. Every key the guard writes is a bare key, so only values need quoting. */
+function tomlValue(value: unknown): string {
+  if (typeof value === 'string') return tomlString(value)
+  if (Array.isArray(value)) return `[${value.map(tomlValue).join(',')}]`
+  if (value && typeof value === 'object')
+    return `{${Object.entries(value)
+      .map(([key, entry]) => `${key}=${tomlValue(entry)}`)
+      .join(',')}}`
+  return String(value)
+}
+
 /**
  * The hash Codex trusts a user-level hook by: SHA-256 over the canonical JSON of the hook's
- * normalized identity (`hook_hash` in codex-rs `hooks/src/engine/discovery.rs`). Not a documented
- * format, so `tests/codex-command-guard.test.ts` pins it to hashes Codex itself reported.
+ * normalized identity (`hook_hash` in codex-rs `hooks/src/engine/discovery.rs`), where an absent
+ * `async` reads as false. Not a documented format, so `tests/codex-command-guard.test.ts` pins it to
+ * hashes Codex itself reported.
  * @internal exported for tests
  */
 export function codexHookTrustHash(matcher: string, command: string): string {
-  const identity = {
-    event_name: 'pre_tool_use',
-    matcher,
-    hooks: [{ type: 'command', command, timeout: HOOK_TIMEOUT_SECONDS, async: false }]
-  }
+  const identity = { event_name: 'pre_tool_use', matcher, hooks: [{ ...codexGuardHandler(command), async: false }] }
   return `sha256:${createHash('sha256').update(canonicalJson(identity)).digest('hex')}`
 }
 
 /**
  * The `-c` overrides that register the guard on one Codex process and trust it. The hook state is
  * keyed by the synthetic path of the session-flags layer plus the hook's position; the guard is the
- * only hook that layer carries, so it is group 0, handler 0.
+ * only hook that layer carries, so it is group 0, handler 0. On Windows that path is always on C:,
+ * whatever drive the session works on: Codex resolves it against a fixed `C:\` (`synthetic_layer_path`),
+ * and a session on D: was verified to report the guard trusted.
  * @internal exported for tests
  */
 export function codexCommandGuardOverrides(
@@ -149,8 +164,8 @@ export function codexCommandGuardOverrides(
   const layer = platform === 'win32' ? 'C:\\<session-flags>\\config.toml' : '/<session-flags>/config.toml'
   const key = `${layer}:pre_tool_use:0:0`
   return [
-    `hooks.PreToolUse=[{matcher=${tomlString(COMMAND_GUARD_MATCHER)},hooks=[{type="command",command=${tomlString(command)},timeout=${HOOK_TIMEOUT_SECONDS}}]}]`,
-    `hooks.state={${tomlString(key)}={trusted_hash=${tomlString(codexHookTrustHash(COMMAND_GUARD_MATCHER, command))}}}`
+    `hooks.PreToolUse=${tomlValue([{ matcher: COMMAND_GUARD_MATCHER, hooks: [codexGuardHandler(command)] }])}`,
+    `hooks.state={${tomlString(key)}=${tomlValue({ trusted_hash: codexHookTrustHash(COMMAND_GUARD_MATCHER, command) })}}`
   ]
 }
 
@@ -188,10 +203,17 @@ export function resolveBundledCodex(
   if (!target) return null
   try {
     const packageRoot = dirname(createRequire(adapterPath).resolve('@openai/codex/package.json'))
-    const platformPackage = createRequire(join(packageRoot, 'package.json')).resolve(
-      `@openai/codex-${platform}-${arch}/package.json`
-    )
-    const binary = join(dirname(platformPackage), 'vendor', target, 'bin', platform === 'win32' ? 'codex.exe' : 'codex')
+    // `codex.js`'s own fallback when the platform package is missing: a vendor tree in the package.
+    let vendor = join(packageRoot, 'vendor')
+    try {
+      const platformPackage = createRequire(join(packageRoot, 'package.json')).resolve(
+        `@openai/codex-${platform}-${arch}/package.json`
+      )
+      vendor = join(dirname(platformPackage), 'vendor')
+    } catch {
+      // Falls back to the package's own vendor tree, as above.
+    }
+    const binary = join(vendor, target, 'bin', platform === 'win32' ? 'codex.exe' : 'codex')
     const executable = resolveUnpackedExecutable(binary, pathExists)
     return pathExists(executable) ? { executable, packageRoot } : null
   } catch {

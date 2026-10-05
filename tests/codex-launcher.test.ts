@@ -38,11 +38,23 @@ test('Codex gets the reports directory but none of the launch variables', () => 
       ELECTRON_RUN_AS_NODE: '1',
       TOUCAN_CODEX_RUNTIME: '/toucan',
       TOUCAN_CODEX_EXECUTABLE: '/codex',
-      TOUCAN_CODEX_CONFIG_OVERRIDES: '[]'
+      TOUCAN_CODEX_CONFIG_OVERRIDES: '[]',
+      // Inherited by every tool otherwise, so a Toucan started from one would launch through here.
+      CODEX_PATH: '/toucan/codex-launcher.sh'
     },
     '/tmp/reports'
   )
   assert.deepEqual(environment, { PATH: '/bin', TOUCAN_COMMAND_GUARD_REPORTS: '/tmp/reports' })
+})
+
+test('a long line arriving in many chunks is forwarded once, whole', () => {
+  const written: string[] = []
+  const relay = createRelay((text: string) => written.push(text), mkdtempSync(join(tmpdir(), 'toucan-guard-reports-')))
+  const line = `${JSON.stringify({ method: 'item/completed', params: { output: 'x'.repeat(5000) } })}\n`
+  for (let index = 0; index < line.length; index += 7) relay(line.slice(index, index + 7))
+  relay('tail')
+  relay.flush()
+  assert.deepEqual(written, [line, 'tail'])
 })
 
 test('a blocked guard hook is followed by a declined command carrying the reason', () => {

@@ -17,7 +17,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
-const REPORTS_VARIABLE = 'TOUCAN_COMMAND_GUARD_REPORTS'
+export const REPORTS_VARIABLE = 'TOUCAN_COMMAND_GUARD_REPORTS'
 
 const POSIX_CLASSES = {
   alnum: 'a-zA-Z0-9',

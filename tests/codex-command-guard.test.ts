@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert'
 import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { test } from 'vitest'
 import type { WebContents } from 'electron'
 import type { AgentCreateRequest } from '../src/shared/agent'
@@ -228,4 +228,20 @@ test("an edited pattern list reaches the Codex hook, read through the guard's la
 
 test.runIf(resolvesOnThisMachine)('the Codex Toucan bundles resolves for this machine', () => {
   assert.ok(resolvesOnThisMachine?.executable)
+})
+
+test("without a platform package, the binary is looked for in Codex's own vendor tree, as codex.js does", () => {
+  const appPath = mkdtempSync(join(tmpdir(), 'toucan-codex-vendor-'))
+  const modules = join(appPath, 'node_modules')
+  const adapter = join(modules, '@agentclientprotocol', 'codex-acp', 'dist', 'index.js')
+  mkdirSync(dirname(adapter), { recursive: true })
+  writeFileSync(adapter, '')
+  const vendor = join(modules, '@openai', 'codex', 'vendor', 'x86_64-pc-windows-msvc', 'bin')
+  mkdirSync(vendor, { recursive: true })
+  writeFileSync(join(modules, '@openai', 'codex', 'package.json'), '{}')
+  writeFileSync(join(vendor, 'codex.exe'), '')
+  assert.equal(
+    realpathSync(resolveBundledCodex(adapter, 'win32', 'x64')?.executable ?? ''),
+    realpathSync(join(vendor, 'codex.exe'))
+  )
 })

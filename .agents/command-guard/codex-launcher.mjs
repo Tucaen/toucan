@@ -8,7 +8,9 @@
 //   TOUCAN_CODEX_CONFIG_OVERRIDES  JSON array of `key=value` overrides, one `-c` each
 //   TOUCAN_CODEX_RUNTIME           Toucan's own binary, which runs this script (read by the wrappers)
 //
-// None of them, nor ELECTRON_RUN_AS_NODE, reach Codex, so no tool the agent runs inherits them.
+// None of them, nor ELECTRON_RUN_AS_NODE or CODEX_PATH, reach Codex, so no tool the agent runs
+// inherits them: a Toucan started from such a tool would otherwise send even its unguarded Codex
+// sessions through this launcher, with nothing to start.
 //
 // codex-acp drops Codex's hook notifications, and Codex never reports a command its hook blocked as
 // an item. So the guard records each block in a directory made here, and the relay below follows
@@ -19,25 +21,26 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { REPORTS_VARIABLE } from './guard.mjs'
 
 const LAUNCH_VARIABLES = [
   'ELECTRON_RUN_AS_NODE',
   'TOUCAN_CODEX_RUNTIME',
   'TOUCAN_CODEX_EXECUTABLE',
-  'TOUCAN_CODEX_CONFIG_OVERRIDES'
+  'TOUCAN_CODEX_CONFIG_OVERRIDES',
+  'CODEX_PATH'
 ]
-const REPORTS_VARIABLE = 'TOUCAN_COMMAND_GUARD_REPORTS'
 
 /** Codex's arguments: the overrides are root options, so they go before the subcommand. */
 export function codexArguments(overrides, args) {
   return [...overrides.flatMap((override) => ['-c', override]), ...args]
 }
 
-export function codexEnvironment(environment, reports) {
-  const codex = { ...environment }
-  for (const name of LAUNCH_VARIABLES) delete codex[name]
-  codex[REPORTS_VARIABLE] = reports
-  return codex
+export function codexEnvironment(environment, reportsDirectory) {
+  const codexEnvironment = { ...environment }
+  for (const name of LAUNCH_VARIABLES) delete codexEnvironment[name]
+  codexEnvironment[REPORTS_VARIABLE] = reportsDirectory
+  return codexEnvironment
 }
 
 /** Removes and returns the blocks the guard recorded for one thread. */
@@ -91,7 +94,7 @@ function declinedCommand(report, threadId, turnId) {
 }
 
 /** The notifications to add after one line of Codex's output: none, unless it is a blocked hook. */
-function additionsAfter(line, reports) {
+function additionsAfter(line, reportsDirectory) {
   // Cheap test first: almost every line is something else, and only this one needs parsing.
   if (!line.includes('"hook/completed"')) return []
   let message
@@ -103,7 +106,7 @@ function additionsAfter(line, reports) {
   const params = message?.params
   if (message?.method !== 'hook/completed' || params?.run?.status !== 'blocked') return []
   if (params.run.eventName !== 'preToolUse' || typeof params.threadId !== 'string') return []
-  return takeReports(reports, params.threadId).flatMap((report) =>
+  return takeReports(reportsDirectory, params.threadId).flatMap((report) =>
     declinedCommand(report, params.threadId, params.turnId ?? report.turn_id)
   )
 }
@@ -112,15 +115,20 @@ function additionsAfter(line, reports) {
  * Forwards Codex's stdout whole line by whole line, so an addition never lands inside a message.
  * Returns the function to feed chunks to; `flush` writes what is left of a last unterminated line.
  */
-export function createRelay(write, reports) {
+export function createRelay(write, reportsDirectory) {
   let buffer = ''
   const relay = (chunk) => {
+    // Only the new chunk is searched: a line of several megabytes arrives in many chunks, and
+    // rescanning what was already searched would make it quadratic.
+    let end = chunk.indexOf('\n')
+    if (end >= 0) end += buffer.length
     buffer += chunk
-    for (let end = buffer.indexOf('\n'); end >= 0; end = buffer.indexOf('\n')) {
+    while (end >= 0) {
       const line = buffer.slice(0, end + 1)
       buffer = buffer.slice(end + 1)
       write(line)
-      for (const addition of additionsAfter(line, reports)) write(`${JSON.stringify(addition)}\n`)
+      for (const addition of additionsAfter(line, reportsDirectory)) write(`${JSON.stringify(addition)}\n`)
+      end = buffer.indexOf('\n')
     }
   }
   relay.flush = () => {
@@ -131,8 +139,8 @@ export function createRelay(write, reports) {
 }
 
 function main() {
-  const reports = mkdtempSync(join(tmpdir(), 'toucan-codex-guard-reports-'))
-  const removeReports = () => rmSync(reports, { recursive: true, force: true })
+  const reportsDirectory = mkdtempSync(join(tmpdir(), 'toucan-codex-guard-reports-'))
+  const removeReports = () => rmSync(reportsDirectory, { recursive: true, force: true })
   let overrides
   try {
     overrides = JSON.parse(process.env.TOUCAN_CODEX_CONFIG_OVERRIDES ?? '[]')
@@ -143,11 +151,11 @@ function main() {
     process.exit(1)
   }
   const codex = spawn(process.env.TOUCAN_CODEX_EXECUTABLE ?? '', codexArguments(overrides, process.argv.slice(2)), {
-    env: codexEnvironment(process.env, reports),
+    env: codexEnvironment(process.env, reportsDirectory),
     stdio: ['inherit', 'pipe', 'inherit'],
     windowsHide: true
   })
-  const relay = createRelay((text) => process.stdout.write(text), reports)
+  const relay = createRelay((text) => process.stdout.write(text), reportsDirectory)
   codex.stdout.setEncoding('utf8')
   codex.stdout.on('data', relay)
   // The adapter went away: nobody reads Codex any more.

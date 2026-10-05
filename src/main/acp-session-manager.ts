@@ -1395,12 +1395,14 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       // answer depend on the boundary of an autonomous cycle as much as the orchestrator's wake does.
       // The guard alone is optional (`RunningAgent.commandGuard`). The forwarded messages are not a
       // safety feature and stay either way.
-      const guardFiles = running.commandGuard
       const sessionConfiguration =
         running.request.provider === 'claude'
           ? withForwardedSdkMessages(
-              guardFiles
-                ? withCommandGuard(orchestratingConfiguration, commandGuardSettings(process.execPath, guardFiles))
+              running.commandGuard
+                ? withCommandGuard(
+                    orchestratingConfiguration,
+                    commandGuardSettings(process.execPath, running.commandGuard)
+                  )
                 : orchestratingConfiguration
             )
           : orchestratingConfiguration
@@ -1735,7 +1737,8 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       const decisionDelegation = request.decisionDelegation
         ? appliedDecisionDelegation(request.provider, options.decisionProviderInstalled?.())
         : undefined
-      // The conditional awaits keep ordinary launches spawning synchronously within `create`.
+      // The conditional awaits keep a launch with neither an orchestrator grant nor a guard-preferences
+      // seam spawning synchronously within `create`, which the launch tests observe.
       const stopsBeforeGrant = stopCounts.get(request.id) ?? 0
       const guardFiles =
         request.commandGuard === false
@@ -1749,7 +1752,8 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
             projectPath: (await options.projectPathFor?.(request.cwd)) ?? request.cwd
           })
         : undefined
-      // The node was closed while its grant was pending: nothing holds the handle to revoke it.
+      // The node was closed while its guard preferences or grant were pending: nothing holds the
+      // handle to revoke the grant.
       if ((stopCounts.get(request.id) ?? 0) !== stopsBeforeGrant) {
         orchestratorGrant?.revoke()
         return { ok: false, status: 'error', message: 'The session was stopped while it was starting.' }
