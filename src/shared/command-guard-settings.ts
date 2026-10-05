@@ -25,7 +25,7 @@ export const COMMAND_GUARD_SCOPE_NOTE =
   'Changes apply to sessions started from now on. A session that is already running keeps the guard it was started with.'
 
 export const COMMAND_GUARD_REQUESTED_NOTE =
-  'The guard is requested for each new Claude session, not confirmed: Toucan registers the hook, but cannot verify the agent runs its commands through it.'
+  'The guard is requested for each new session, not confirmed: Toucan registers the hook, but cannot verify the agent runs its commands through it.'
 
 export interface CommandGuardPatternError {
   /** 1-based, as the user sees it in the editor. */

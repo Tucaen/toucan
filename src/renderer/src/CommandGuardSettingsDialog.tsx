@@ -86,7 +86,7 @@ export function CommandGuardSettingsDialog({
       <div className="dialog command-guard-dialog">
         <strong id={`${ids}-title`}>Command guard</strong>
         <p>
-          Asks each new Claude session to refuse shell commands that match a dangerous pattern, such as a recursive
+          Asks each new agent session to refuse shell commands that match a dangerous pattern, such as a recursive
           delete of your home folder or a force push.
         </p>
         <p className="command-guard-note">

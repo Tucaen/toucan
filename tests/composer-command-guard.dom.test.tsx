@@ -90,8 +90,8 @@ describe('the command guard switch', () => {
     expect(onChange).not.toHaveBeenCalled()
   })
 
-  test('is absent where the provider has no guard, or the node cannot save the choice', () => {
-    expect(guardPicker(renderComposer({ enabled: true }, { provider: 'codex' }).panel)).toBeNull()
+  test('is offered on Codex too, and absent where the node cannot save the choice', () => {
+    expect(guardPicker(renderComposer({ enabled: true }, { provider: 'codex' }).panel)).not.toBeNull()
     expect(guardPicker(renderComposer(undefined).panel)).toBeNull()
   })
 })

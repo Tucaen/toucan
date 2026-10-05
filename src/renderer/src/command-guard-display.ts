@@ -2,11 +2,11 @@ import type { PickerOption } from './SelectorPicker'
 import type { AgentProvider } from '../../shared/agent-provider'
 
 /**
- * The providers whose sessions carry a command guard. Claude registers a `PreToolUse` hook
- * (ticket 01); Codex joins here when its guard lands (ticket 02), which is all the menu needs to
- * offer the switch there too.
+ * The providers whose sessions carry a command guard: both register a `PreToolUse` hook, Claude
+ * through its session settings (ticket 01) and Codex through its launch (ticket 02). A provider
+ * added later gets no switch until its guard exists.
  */
-const GUARDED_PROVIDERS: readonly AgentProvider[] = ['claude']
+const GUARDED_PROVIDERS: readonly AgentProvider[] = ['claude', 'codex']
 
 export const COMMAND_GUARD_ON_OPTION: PickerOption = {
   id: 'on',

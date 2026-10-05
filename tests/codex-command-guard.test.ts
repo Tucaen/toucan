@@ -3,14 +3,23 @@ import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'vitest'
+import type { WebContents } from 'electron'
+import type { AgentCreateRequest } from '../src/shared/agent'
+import type { AgentProcessLaunch } from '../src/main/agent-process'
+import { createAcpSessionManager } from '../src/main/acp-session-manager'
+import { stubAdapterChild } from './helpers/scripted-adapter'
 import {
   COMMAND_GUARD_MATCHER,
   codexCommandGuardEnvironment,
   codexCommandGuardOverrides,
   codexHookTrustHash,
+  commandGuardFiles,
   commandGuardHookCommand,
-  resolveBundledCodex
+  resolveBundledCodex,
+  type CommandGuardFiles
 } from '../src/main/command-guard'
+
+const launcherName = process.platform === 'win32' ? 'codex-launcher.cmd' : 'codex-launcher.sh'
 
 const files = { script: join('/toucan', '.agents', 'command-guard', 'guard.mjs'), patterns: '/toucan/patterns.txt' }
 
@@ -116,4 +125,107 @@ test('the native Codex is resolved from the adapter, as its own codex.js would',
   const linux = appWithCodex('linux', 'arm64', 'aarch64-unknown-linux-musl', 'codex')
   const linuxAdapter = join(linux, 'node_modules', '@agentclientprotocol', 'codex-acp', 'dist', 'index.js')
   assert.ok(resolveBundledCodex(linuxAdapter, 'linux', 'arm64')?.executable.endsWith(join('bin', 'codex')))
+})
+
+// The integration seam: what a Codex session's adapter is launched with. The guard rides the launch
+// (`CODEX_PATH` and the launcher's overrides), next to the per-session `CODEX_CONFIG` that carries
+// delegation and instructions, which it must leave exactly as it was.
+interface CodexSessionConfig {
+  agents?: Record<string, unknown>
+  developer_instructions?: string
+}
+
+// The launch tests need a binary the resolver finds on whichever machine runs them.
+const THIS_MACHINE_TRIPLE =
+  {
+    'win32-x64': 'x86_64-pc-windows-msvc',
+    'win32-arm64': 'aarch64-pc-windows-msvc',
+    'darwin-x64': 'x86_64-apple-darwin',
+    'darwin-arm64': 'aarch64-apple-darwin',
+    'linux-x64': 'x86_64-unknown-linux-musl',
+    'linux-arm64': 'aarch64-unknown-linux-musl'
+  }[`${process.platform}-${process.arch}`] ?? 'unsupported'
+const THIS_MACHINE_BINARY = process.platform === 'win32' ? 'codex.exe' : 'codex'
+
+const owner = { isDestroyed: () => false, send: () => {} } as unknown as WebContents
+const routineDelegation = { workerModelId: 'gpt-5.6-luna', workerEffortId: 'low' }
+
+async function launchCodex(
+  requests: Array<Omit<AgentCreateRequest, 'provider' | 'cwd'>>,
+  options: { commandGuard?: { launch(): Promise<CommandGuardFiles | null> } } = {},
+  binary = THIS_MACHINE_BINARY
+): Promise<{ appPath: string; launches: AgentProcessLaunch[] }> {
+  const appPath = appWithCodex(process.platform, process.arch, THIS_MACHINE_TRIPLE, binary)
+  const launches: AgentProcessLaunch[] = []
+  const manager = createAcpSessionManager({
+    appPath,
+    environment: { PATH: '/usr/bin' },
+    ...options,
+    spawnAgent: (launch) => {
+      launches.push(launch)
+      return stubAdapterChild()
+    }
+  })
+  for (const request of requests) void manager.create({ ...request, provider: 'codex', cwd: appPath }, owner)
+  // Past the awaits an orchestrator grant and the guard preferences put before the spawn.
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  manager.killAll()
+  return { appPath, launches }
+}
+
+const resolvesOnThisMachine = resolveBundledCodex(
+  join(process.cwd(), 'node_modules', '@agentclientprotocol', 'codex-acp', 'dist', 'index.js')
+)
+
+test('chats and orchestrators on Codex launch guarded, beside their own CODEX_CONFIG', async () => {
+  const { appPath, launches } = await launchCodex([
+    { id: 'chat', routineDelegation },
+    { id: 'orchestrator', role: 'orchestrator', routineDelegation }
+  ])
+  assert.equal(launches.length, 2)
+  const files = commandGuardFiles(appPath)
+  for (const launch of launches) {
+    const env = launch.options.env ?? {}
+    assert.equal(env.CODEX_PATH, join(appPath, '.agents', 'command-guard', launcherName))
+    assert.deepEqual(
+      JSON.parse(env.TOUCAN_CODEX_CONFIG_OVERRIDES ?? ''),
+      codexCommandGuardOverrides(process.execPath, files, process.platform)
+    )
+    // The overrides only ever set `hooks.*`, so nothing the session config carries is shadowed.
+    for (const override of JSON.parse(env.TOUCAN_CODEX_CONFIG_OVERRIDES ?? '') as string[])
+      assert.match(override, /^hooks\./)
+    const config = JSON.parse(env.CODEX_CONFIG ?? '{}') as CodexSessionConfig
+    assert.equal(config.agents?.default_subagent_model, 'gpt-5.6-luna')
+    assert.match(config.developer_instructions ?? '', /Delegate routine work cheaply/)
+    assert.equal(Object.hasOwn(config, 'hooks'), false)
+  }
+  const orchestrator = JSON.parse(launches[1]?.options.env?.CODEX_CONFIG ?? '{}') as CodexSessionConfig
+  assert.match(orchestrator.developer_instructions ?? '', /orchestrate/i)
+})
+
+test('an opted-out node, a guard switched off and no Codex binary each launch plain codex-acp', async () => {
+  const off = await launchCodex([{ id: 'open', commandGuard: false }, { id: 'guarded' }])
+  assert.equal(off.launches[0]?.options.env?.CODEX_PATH, undefined)
+  assert.ok(off.launches[1]?.options.env?.CODEX_PATH)
+  const globallyOff = await launchCodex([{ id: 'chat' }], { commandGuard: { launch: async () => null } })
+  assert.equal(globallyOff.launches[0]?.options.env?.CODEX_PATH, undefined)
+  assert.equal(globallyOff.launches[0]?.options.env?.TOUCAN_CODEX_CONFIG_OVERRIDES, undefined)
+  const missing = await launchCodex([{ id: 'chat' }], {}, 'not-codex')
+  assert.equal(missing.launches.length, 1)
+  assert.equal(missing.launches[0]?.options.env?.CODEX_PATH, undefined)
+})
+
+test("an edited pattern list reaches the Codex hook, read through the guard's launch seam", async () => {
+  const custom = { script: join('/shipped', 'guard.mjs'), patterns: join('/user-data', 'mine.txt') }
+  const { launches } = await launchCodex([{ id: 'chat' }], { commandGuard: { launch: async () => custom } })
+  const env = launches[0]?.options.env ?? {}
+  assert.equal(env.CODEX_PATH, join('/shipped', launcherName))
+  assert.deepEqual(
+    JSON.parse(env.TOUCAN_CODEX_CONFIG_OVERRIDES ?? ''),
+    codexCommandGuardOverrides(process.execPath, custom, process.platform)
+  )
+})
+
+test.runIf(resolvesOnThisMachine)('the Codex Toucan bundles resolves for this machine', () => {
+  assert.ok(resolvesOnThisMachine?.executable)
 })

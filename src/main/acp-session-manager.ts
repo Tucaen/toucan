@@ -77,8 +77,10 @@ import { createAgentEventBroker, type AgentEventBroker } from './agent-event-bro
 import { buildAgentProcessLaunch, spawnAgentProcess, type AgentProcessLaunch } from './agent-process'
 import { readCachedCodexModels } from './codex-model-cache'
 import {
+  codexCommandGuardEnvironment,
   commandGuardFiles,
   commandGuardSettings,
+  resolveBundledCodex,
   type CommandGuardFiles,
   type CommandGuardSettings
 } from './command-guard'
@@ -464,6 +466,14 @@ interface RunningAgent {
    * revokes this launch's token and never a relaunch's.
    */
   orchestratorGrant?: OrchestratorGrant
+  /**
+   * The command guard files this agent was created with, or null when it runs unguarded: the node
+   * opted out (`request.commandGuard === false`, ticket 04) or the user switched the guard off for
+   * every new session (ticket 03). Either one wins, so a globally-off guard is never turned back on
+   * by a node. Asked once, before the spawn, because a Codex session's guard rides its launch; a
+   * Claude session's rides the session settings.
+   */
+  commandGuard: CommandGuardFiles | null
   cachedModels?: AgentModelState
   /** Whether the agent's `initialize` handshake advertised `promptCapabilities.image`. */
   imageSupport: boolean
@@ -1383,16 +1393,9 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
           : decidingConfiguration
       // Every Claude session, not only ticket sessions: the outcome record and the renderer's final
       // answer depend on the boundary of an autonomous cycle as much as the orchestrator's wake does.
-      // The guard alone is optional: a node may opt out (`request.commandGuard === false`, ticket 04)
-      // and the user may switch it off for every new session (ticket 03). Either one wins, so a
-      // globally-off guard is never turned back on by a node. The forwarded messages are not a safety
-      // feature and stay either way.
-      const guardFiles =
-        running.request.provider !== 'claude' || running.request.commandGuard === false
-          ? null
-          : options.commandGuard
-            ? await options.commandGuard.launch()
-            : commandGuardFiles(toucanSkillsRoot ?? options.appPath)
+      // The guard alone is optional (`RunningAgent.commandGuard`). The forwarded messages are not a
+      // safety feature and stay either way.
+      const guardFiles = running.commandGuard
       const sessionConfiguration =
         running.request.provider === 'claude'
           ? withForwardedSdkMessages(
@@ -1732,8 +1735,14 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       const decisionDelegation = request.decisionDelegation
         ? appliedDecisionDelegation(request.provider, options.decisionProviderInstalled?.())
         : undefined
-      // The conditional await keeps ordinary launches spawning synchronously within `create`.
+      // The conditional awaits keep ordinary launches spawning synchronously within `create`.
       const stopsBeforeGrant = stopCounts.get(request.id) ?? 0
+      const guardFiles =
+        request.commandGuard === false
+          ? null
+          : options.commandGuard
+            ? await options.commandGuard.launch()
+            : commandGuardFiles(toucanSkillsRoot ?? options.appPath)
       const orchestratorGrant = isOrchestrator(request)
         ? await options.orchestrator?.grant(request.id, {
             provider: request.provider,
@@ -1758,12 +1767,25 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
               developer_instructions: sessionOutcomeIndexInstruction(sessionOutcomesDirectory)
             })
           : delegatingEnvironment
-      const agentEnvironment =
+      const orchestratingEnvironment =
         request.provider === 'codex' && isOrchestrator(request)
           ? withCodexSessionConfig(outcomeEnvironment, {
               developer_instructions: orchestratorInstructionFor(toucanSkillsRoot ?? options.appPath)
             })
           : outcomeEnvironment
+      // Beside `CODEX_CONFIG`, not in it: Codex ignores hooks there (`command-guard.ts`). Without a
+      // bundled binary the adapter's own `codex.js` cannot start Codex either, so the launch goes
+      // ahead and fails the way it always has rather than for a new reason.
+      const bundledCodex = request.provider === 'codex' && guardFiles ? resolveBundledCodex(path) : null
+      if (request.provider === 'codex' && guardFiles && !bundledCodex)
+        options.log?.(`no bundled Codex binary beside ${path}; ${request.id} launches without the command guard`)
+      const agentEnvironment =
+        bundledCodex && guardFiles
+          ? {
+              ...orchestratingEnvironment,
+              ...codexCommandGuardEnvironment({ runtime: process.execPath, codex: bundledCodex, files: guardFiles })
+            }
+          : orchestratingEnvironment
       const launch = buildAgentProcessLaunch(process.execPath, path, request.cwd, agentEnvironment)
       const child = (options.spawnAgent ?? spawnAgentProcess)(launch)
       const pendingApprovals = new Map<string, PendingApproval>()
@@ -1947,6 +1969,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         ...(delegation ? { routineDelegation: delegation } : {}),
         ...(decisionDelegation ? { decisionDelegation } : {}),
         ...(orchestratorGrant ? { orchestratorGrant } : {}),
+        commandGuard: guardFiles,
         cachedModels,
         pendingApprovals,
         pendingElicitations,
