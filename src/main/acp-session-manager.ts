@@ -76,7 +76,12 @@ import {
 import { createAgentEventBroker, type AgentEventBroker } from './agent-event-broker'
 import { buildAgentProcessLaunch, spawnAgentProcess, type AgentProcessLaunch } from './agent-process'
 import { readCachedCodexModels } from './codex-model-cache'
-import { commandGuardFiles, commandGuardSettings, type CommandGuardSettings } from './command-guard'
+import {
+  commandGuardFiles,
+  commandGuardSettings,
+  type CommandGuardFiles,
+  type CommandGuardSettings
+} from './command-guard'
 import { createPromptWakeGate, type PromptWakeGate } from './prompt-wake-gate'
 import type { TerminalContextMcp } from './terminal-context-mcp'
 import type { OrchestratorEndpoint, OrchestratorGrant } from './orchestrator-endpoint'
@@ -922,6 +927,13 @@ export interface AcpSessionManagerOptions {
    * moment the node is closed - which is how an "Exited on restore" came to be undiagnosable (#240).
    */
   log?: (message: string) => void
+  /**
+   * The provider-neutral point the user's command guard preferences reach a session through
+   * (ticket 03): the script and pattern list its hook should run, or null when the guard is off and
+   * no hook is registered. Absent, the shipped files are used. Asked per creation, so a change
+   * applies to sessions started afterwards and never to a running one.
+   */
+  commandGuard?: { launch(): Promise<CommandGuardFiles | null> }
   /** Seam for tests to observe the launch the primary adapter is actually spawned with. */
   spawnAgent?: (launch: AgentProcessLaunch) => ChildProcessWithoutNullStreams
   /**
@@ -1371,17 +1383,22 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
           : decidingConfiguration
       // Every Claude session, not only ticket sessions: the outcome record and the renderer's final
       // answer depend on the boundary of an autonomous cycle as much as the orchestrator's wake does.
-      // The guard alone is optional per node (`request.commandGuard === false`, ticket 04): the
-      // forwarded messages are not a safety feature and stay either way.
+      // The guard alone is optional: a node may opt out (`request.commandGuard === false`, ticket 04)
+      // and the user may switch it off for every new session (ticket 03). Either one wins, so a
+      // globally-off guard is never turned back on by a node. The forwarded messages are not a safety
+      // feature and stay either way.
+      const guardFiles =
+        running.request.provider !== 'claude' || running.request.commandGuard === false
+          ? null
+          : options.commandGuard
+            ? await options.commandGuard.launch()
+            : commandGuardFiles(toucanSkillsRoot ?? options.appPath)
       const sessionConfiguration =
         running.request.provider === 'claude'
           ? withForwardedSdkMessages(
-              running.request.commandGuard === false
-                ? orchestratingConfiguration
-                : withCommandGuard(
-                    orchestratingConfiguration,
-                    commandGuardSettings(process.execPath, commandGuardFiles(toucanSkillsRoot ?? options.appPath))
-                  )
+              guardFiles
+                ? withCommandGuard(orchestratingConfiguration, commandGuardSettings(process.execPath, guardFiles))
+                : orchestratingConfiguration
             )
           : orchestratingConfiguration
       // Included only when a terminal edge stands at this creation; a session without one carries

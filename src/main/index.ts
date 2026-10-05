@@ -20,9 +20,12 @@ import {
   type TicketSessionCanvasResult
 } from '../shared/ticket-session-spawn'
 import { autoUpdater } from 'electron-updater'
-import { createAcpSessionManager, type AcpSessionManager } from './acp-session-manager'
+import { createAcpSessionManager, resolveToucanSkillsRoot, type AcpSessionManager } from './acp-session-manager'
 import { createOrchestrationStore } from './orchestration-store'
 import { createOrchestrationConfigStore } from './orchestration-config-store'
+import { commandGuardFiles } from './command-guard'
+import { createCommandGuardSettingsStore } from './command-guard-settings-store'
+import { registerCommandGuardSettingsIpc } from './command-guard-settings-ipc'
 import { registerOrchestrationSettingsIpc } from './orchestration-settings-ipc'
 import { createJevRouter } from './jev-router'
 import { createOrchestrationWaker } from './orchestration-wake'
@@ -577,8 +580,16 @@ void app.whenReady().then(async () => {
     onTicketSpawned: (nodeId, binding) => orchestrationWaker.bind(nodeId, binding),
     log: mainLog('orchestrator endpoint')
   })
+  // The user's command guard preferences (ticket 03), asked by every session as it opens.
+  const commandGuardSettings = createCommandGuardSettingsStore({
+    userDataPath: app.getPath('userData'),
+    bundled: commandGuardFiles(resolveToucanSkillsRoot(app.getAppPath()) ?? app.getAppPath()),
+    log: mainLog('command guard')
+  })
+  registerCommandGuardSettingsIpc(ipcMain, commandGuardSettings)
   const agentManager = createAcpSessionManager({
     appPath: app.getAppPath(),
+    commandGuard: commandGuardSettings,
     appVersion: app.getVersion(),
     resolveAdapter: adapters.resolve,
     codexHome,

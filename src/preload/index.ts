@@ -21,9 +21,11 @@ import type { ProjectAvatarApi } from '../shared/project-avatar'
 import type { DecisionDelegationApi } from '../shared/decision-delegation'
 import type { DictationCleanupApi } from '../shared/dictation-cleanup'
 import type { OrchestratorApi, TicketSessionCanvasRequest } from '../shared/ticket-session-spawn'
+import type { CommandGuardSettingsApi } from '../shared/command-guard-settings'
 import type { OrchestrationSettingsApi } from '../shared/orchestration-settings'
 import {
   DICTATION_CLEANUP_CHANNELS,
+  COMMAND_GUARD_SETTINGS_CHANNELS,
   ORCHESTRATION_SETTINGS_CHANNELS,
   ORCHESTRATOR_CHANNELS
 } from '../shared/ipc-channels'
@@ -224,6 +226,12 @@ const orchestrationSettingsApi: OrchestrationSettingsApi = {
   onChange: (callback) => subscribe(ORCHESTRATION_SETTINGS_CHANNELS.changed, () => callback())
 }
 contextBridge.exposeInMainWorld('orchestrationSettingsApi', orchestrationSettingsApi)
+
+const commandGuardSettingsApi: CommandGuardSettingsApi = {
+  state: () => ipcRenderer.invoke(COMMAND_GUARD_SETTINGS_CHANNELS.state),
+  save: (request) => ipcRenderer.invoke(COMMAND_GUARD_SETTINGS_CHANNELS.save, request)
+}
+contextBridge.exposeInMainWorld('commandGuardSettingsApi', commandGuardSettingsApi)
 
 const brainDumpApi: BrainDumpApi = {
   list: (collection) => ipcRenderer.invoke(BRAIN_DUMP_CHANNELS.list, collection),

@@ -18,6 +18,7 @@ import type { TerminalContextApi } from '../shared/terminal-context'
 import type { DecisionDelegationApi } from '../shared/decision-delegation'
 import type { DictationCleanupApi } from '../shared/dictation-cleanup'
 import type { OrchestratorApi } from '../shared/ticket-session-spawn'
+import type { CommandGuardSettingsApi } from '../shared/command-guard-settings'
 import type { OrchestrationSettingsApi } from '../shared/orchestration-settings'
 
 /**
@@ -40,6 +41,7 @@ declare global {
     remoteApi: RemoteApi
     orchestratorApi: OrchestratorApi
     orchestrationSettingsApi: OrchestrationSettingsApi
+    commandGuardSettingsApi: CommandGuardSettingsApi
     brainDumpApi: BrainDumpApi
     ticketsApi: TicketFilesApi
     ticketSkillApi: TicketSkillApi

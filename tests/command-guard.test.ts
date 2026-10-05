@@ -180,3 +180,40 @@ test('a create request may carry commandGuard: false and nothing else', () => {
   assert.equal(isAgentCreateRequest({ ...request, commandGuard: true }), false)
   assert.equal(isAgentCreateRequest({ ...request, commandGuard: 'off' }), false)
 })
+
+// Ticket 03: the preferences reach a session through the manager's `commandGuard` seam. Off means the
+// session opens with no hook at all; an edited list means its hook runs the user's pattern file.
+test('sessions carry the guard the preferences ask for, and none when it is off', async () => {
+  const appPath = mkdtempSync(join(tmpdir(), 'toucan-command-guard-'))
+  const recordPath = join(appPath, 'requests.json')
+  installScriptedAdapter(appPath, 'claude-agent-acp', {
+    prelude: `const fs = require('node:fs')`,
+    handleRequest: `
+  if (request.method === 'session/new') {
+    fs.appendFileSync(${JSON.stringify(recordPath)}, JSON.stringify(request.params) + String.fromCharCode(10))
+    send({ jsonrpc: '2.0', id: request.id, result: { sessionId: 'fresh-session' } })
+  }`
+  })
+  const owner = { isDestroyed: () => false, send: () => {} } as unknown as WebContents
+  const custom = { script: guardFiles.script, patterns: join(appPath, 'mine.txt') }
+  let launch: () => Promise<typeof custom | null> = async () => null
+  const manager = createAcpSessionManager({
+    appPath,
+    environment: { PATH: process.env.PATH },
+    commandGuard: { launch: () => launch() }
+  })
+  try {
+    await manager.create({ id: 'off', provider: 'claude', cwd: appPath }, owner)
+    launch = async () => custom
+    await manager.create({ id: 'edited', provider: 'claude', cwd: appPath }, owner)
+    const sessions = readFileSync(recordPath, 'utf8')
+      .split(String.fromCharCode(10))
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as { _meta?: { claudeCode?: { options?: { settings?: unknown } } } })
+    assert.equal(sessions.length, 2)
+    assert.equal(sessions[0]?._meta?.claudeCode?.options?.settings, undefined)
+    assert.deepEqual(sessions[1]?._meta?.claudeCode?.options?.settings, commandGuardSettings(process.execPath, custom))
+  } finally {
+    manager.killAll()
+  }
+})

@@ -125,6 +125,12 @@ export const ORCHESTRATION_SETTINGS_CHANNELS = {
   changed: 'orchestration-settings:changed'
 } as const
 
+/** The command guard settings (ticket 03): the user's preferences and a save that validates the patterns. */
+export const COMMAND_GUARD_SETTINGS_CHANNELS = {
+  state: 'command-guard-settings:state',
+  save: 'command-guard-settings:save'
+} as const
+
 export const BRAIN_DUMP_CHANNELS = {
   list: 'brain-dump:list',
   resolve: 'brain-dump:resolve',
