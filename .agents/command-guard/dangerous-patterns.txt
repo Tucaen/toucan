@@ -1,0 +1,31 @@
+# Toucan's default dangerous-command patterns, checked case-insensitively against every
+# Bash and PowerShell command an agent runs. ERE-style: one regex per line, `#` starts a comment.
+
+# Recursive delete of the filesystem root, the home directory or a whole drive.
+rm[[:space:]]+(-[a-z]*[[:space:]]+)*-[a-z]*[rf][a-z]*[[:space:]]+(-[a-z]+[[:space:]]+)*(/|~|\$HOME|/\*|~/\*)([[:space:]]|$)
+# PowerShell recursive delete of a drive root or the user profile.
+remove-item[^|;&]*-recurse[^|;&]*[[:space:]]['"]?([a-z]:[\\/]?|~|\$env:userprofile)['"]?([[:space:]]|$)
+# cmd.exe recursive delete or directory removal from a drive root.
+(del|rd|rmdir)[[:space:]]+(/[sq][[:space:]]+)+['"]?[a-z]:\\['"]?([[:space:]]|$)
+# Formatting a disk or partition.
+(^|[;&|[:space:]])(mkfs(\.[a-z0-9]+)?|format[[:space:]]+[a-z]:)([[:space:]]|$)
+# Writing raw data straight onto a block device.
+dd[[:space:]][^|;&]*of=/dev/(sd|hd|nvme|disk)
+# Redirecting output onto a block device.
+>[[:space:]]*/dev/(sd|hd|nvme)[a-z0-9]*
+# Recursively opening up permissions on the filesystem root.
+chmod[[:space:]]+-r[[:space:]]+[0-7]*777[[:space:]]+/([[:space:]]|$)
+# Fork bomb.
+:\(\)[[:space:]]*\{[[:space:]]*:[[:space:]]*\|[[:space:]]*:
+# Piping a download straight into a shell.
+(curl|wget|iwr|invoke-webrequest)[^|;&]*\|[[:space:]]*(sudo[[:space:]]+)?(ba|z|da)?sh([[:space:]]|$)
+# Piping a download into PowerShell's Invoke-Expression.
+\|[[:space:]]*(iex|invoke-expression)([[:space:]]|$)
+# Force-pushing rewrites published history (--force-with-lease is not matched).
+git[[:space:]]+push[^|;&]*[[:space:]](--force|-f)([[:space:]]|$)
+# Deleting untracked and ignored files across the whole checkout.
+git[[:space:]]+clean[[:space:]]+-[a-z]*f[a-z]*x
+# Dropping a database or table.
+drop[[:space:]]+(database|table|schema)[[:space:]]
+# Shutting down or rebooting the machine.
+(^|[;&|[:space:]])(shutdown|reboot|halt|poweroff|stop-computer|restart-computer)([[:space:]]|$)

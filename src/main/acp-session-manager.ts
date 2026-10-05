@@ -76,6 +76,7 @@ import {
 import { createAgentEventBroker, type AgentEventBroker } from './agent-event-broker'
 import { buildAgentProcessLaunch, spawnAgentProcess, type AgentProcessLaunch } from './agent-process'
 import { readCachedCodexModels } from './codex-model-cache'
+import { commandGuardFiles, commandGuardSettings, type CommandGuardSettings } from './command-guard'
 import { createPromptWakeGate, type PromptWakeGate } from './prompt-wake-gate'
 import type { TerminalContextMcp } from './terminal-context-mcp'
 import type { OrchestratorEndpoint, OrchestratorGrant } from './orchestrator-endpoint'
@@ -212,6 +213,7 @@ interface SessionSkillsConfiguration {
       options: {
         plugins?: Array<{ type: 'local'; path: string }>
         agents?: ClaudeDelegationSessionMeta['claudeCode']['options']['agents']
+        settings?: CommandGuardSettings
       }
       emitRawSDKMessages?: typeof FORWARDED_SDK_MESSAGES
     }
@@ -342,6 +344,27 @@ const FORWARDED_SDK_MESSAGES = [
 ] as const
 
 const CLAUDE_SDK_MESSAGE_NOTIFICATION = '_claude/sdkMessage'
+
+/**
+ * Registers the dangerous-command guard on a Claude session through its per-session settings, never
+ * the user's own. See `command-guard.ts`.
+ * @internal exported for tests
+ */
+export function withCommandGuard(
+  configuration: SessionSkillsConfiguration,
+  settings: CommandGuardSettings
+): SessionSkillsConfiguration {
+  return {
+    ...configuration,
+    _meta: {
+      ...configuration._meta,
+      claudeCode: {
+        ...configuration._meta?.claudeCode,
+        options: { ...configuration._meta?.claudeCode?.options, settings }
+      }
+    }
+  }
+}
 
 /** Opts a Claude session into the raw messages `FORWARDED_SDK_MESSAGES` names. @internal exported for tests */
 export function withForwardedSdkMessages(configuration: SessionSkillsConfiguration): SessionSkillsConfiguration {
@@ -1350,7 +1373,12 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       // answer depend on the boundary of an autonomous cycle as much as the orchestrator's wake does.
       const sessionConfiguration =
         running.request.provider === 'claude'
-          ? withForwardedSdkMessages(orchestratingConfiguration)
+          ? withForwardedSdkMessages(
+              withCommandGuard(
+                orchestratingConfiguration,
+                commandGuardSettings(process.execPath, commandGuardFiles(toucanSkillsRoot ?? options.appPath))
+              )
+            )
           : orchestratingConfiguration
       // Included only when a terminal edge stands at this creation; a session without one carries
       // zero extra tokens. An edge drawn later is adopted by a canvas-driven restart at a safe
