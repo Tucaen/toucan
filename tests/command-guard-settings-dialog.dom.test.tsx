@@ -57,6 +57,16 @@ describe('CommandGuardSettingsDialog', () => {
     expect(screen.getByText(/no guard hook at all/)).toBeInTheDocument()
   })
 
+  it('tells the app what was stored, so the composer menus follow the global switch', async () => {
+    mockApi()
+    const onSaved = vi.fn()
+    render(<CommandGuardSettingsDialog onClose={vi.fn()} onSaved={onSaved} />)
+    await patternsBox()
+    fireEvent.click(screen.getByRole('checkbox'))
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith({ enabled: false, patterns: null }))
+  })
+
   it('reports an invalid regex with its line and does not claim it saved', async () => {
     mockApi()
     render(<CommandGuardSettingsDialog onClose={vi.fn()} />)

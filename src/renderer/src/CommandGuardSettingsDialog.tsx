@@ -5,6 +5,7 @@ import {
   effectivePatternText,
   normalizePatternText,
   type CommandGuardPatternError,
+  type CommandGuardPreferences,
   type CommandGuardSettingsState
 } from '../../shared/command-guard-settings'
 import { ModalDialog } from './ModalDialog'
@@ -15,7 +16,14 @@ import { ModalDialog } from './ModalDialog'
  * lines named, so nothing is ever silently skipped at runtime. What is saved reaches sessions
  * started afterwards, and the dialog says so.
  */
-export function CommandGuardSettingsDialog({ onClose }: { onClose(): void }): JSX.Element {
+export function CommandGuardSettingsDialog({
+  onClose,
+  onSaved
+}: {
+  onClose(): void
+  /** Told what was just stored, so the composer menus can follow the global switch. */
+  onSaved?(preferences: CommandGuardPreferences): void
+}): JSX.Element {
   const ids = useId()
   const [state, setState] = useState<CommandGuardSettingsState | null>(null)
   const [enabled, setEnabled] = useState(true)
@@ -61,6 +69,7 @@ export function CommandGuardSettingsDialog({ onClose }: { onClose(): void }): JS
       if (result.ok) {
         setErrors([])
         adopt(result.state)
+        onSaved?.(result.state.preferences)
         setSavedNotice(true)
       } else {
         setErrors(result.errors)

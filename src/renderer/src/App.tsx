@@ -111,6 +111,7 @@ import { useAppUpdate } from './use-app-update'
 import { RemoteAccessDialog } from './RemoteAccessDialog'
 import { AdapterManagementDialog } from './AdapterManagementDialog'
 import { CommandGuardSettingsDialog } from './CommandGuardSettingsDialog'
+import { CommandGuardGloballyOffContext } from './command-guard-context'
 import { OrchestrationSettingsDialog } from './OrchestrationSettingsDialog'
 import { useRemoteAccess } from './use-remote-access'
 import type { RemoteChatSpawnRequest, RemoteChatSpawnResult } from '../../shared/remote-spawn'
@@ -1787,6 +1788,22 @@ function Canvas(): JSX.Element {
   const [adapterManagementOpen, setAdapterManagementOpen] = useState(false)
   const [orchestrationSettingsOpen, setOrchestrationSettingsOpen] = useState(false)
   const [commandGuardSettingsOpen, setCommandGuardSettingsOpen] = useState(false)
+  // Read once at startup and then kept by the dialog that edits it, so the composer menus agree
+  // with the global switch without each chat node asking main.
+  const [commandGuardGloballyOff, setCommandGuardGloballyOff] = useState(false)
+  useEffect(() => {
+    let active = true
+    // Absent where the preload is not (some test hosts); an unreadable answer leaves the node switch live.
+    window.commandGuardSettingsApi
+      ?.state()
+      .then((state) => {
+        if (active) setCommandGuardGloballyOff(!state.preferences.enabled)
+      })
+      .catch(() => {})
+    return () => {
+      active = false
+    }
+  }, [])
 
   // The header's dialog buttons also close the canvas context menu, so opening one can never
   // leave a create menu floating under the dialog it opened.
@@ -3150,7 +3167,10 @@ function Canvas(): JSX.Element {
               )}
 
               {commandGuardSettingsOpen && (
-                <CommandGuardSettingsDialog onClose={() => setCommandGuardSettingsOpen(false)} />
+                <CommandGuardSettingsDialog
+                  onSaved={(preferences) => setCommandGuardGloballyOff(!preferences.enabled)}
+                  onClose={() => setCommandGuardSettingsOpen(false)}
+                />
               )}
 
               {removalPrompt && (
@@ -3179,7 +3199,11 @@ function Canvas(): JSX.Element {
     </ComposerSendKeyContext.Provider>
   )
   return (
-    <DictationCleanupContext.Provider value={dictationCleanupSetting}>{workspace}</DictationCleanupContext.Provider>
+    <DictationCleanupContext.Provider value={dictationCleanupSetting}>
+      <CommandGuardGloballyOffContext.Provider value={commandGuardGloballyOff}>
+        {workspace}
+      </CommandGuardGloballyOffContext.Provider>
+    </DictationCleanupContext.Provider>
   )
 }
 

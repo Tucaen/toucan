@@ -90,6 +90,7 @@ import { dictationContext } from './voice-transcript'
 import { recentMentionPaths } from './file-mention-completion'
 import { composerSendKeyLabels } from './composer-keys'
 import { useComposerSendKey } from './composer-send-key-context'
+import { useCommandGuardGloballyOff } from './command-guard-context'
 import { useRoutineDelegation } from './routine-delegation-context'
 import { routineDelegationRequest, type AgentRoutineDelegation } from '../../shared/routine-delegation'
 import { useDecisionDelegation } from './decision-delegation-context'
@@ -1096,6 +1097,7 @@ export function ChatView(groups: ChatViewProps): JSX.Element {
 
 export default function ChatNode({ id, data, selected, width }: NodeProps<TerminalCanvasNode>): JSX.Element {
   const provider = data.kind === 'claude' ? 'claude' : 'codex'
+  const commandGuardGloballyOff = useCommandGuardGloballyOff()
   const routineDelegationPreference = useRoutineDelegation().preference
   const decisionDelegationPreference = useDecisionDelegation().preference
   const conversation = useAgentConversation({
@@ -1542,6 +1544,7 @@ export default function ChatNode({ id, data, selected, width }: NodeProps<Termin
               commandGuard: data.onCommandGuardChange
                 ? {
                     enabled: data.commandGuard !== false,
+                    globallyOff: commandGuardGloballyOff,
                     onChange: (enabled) => data.onCommandGuardChange?.(id, enabled)
                   }
                 : undefined,
