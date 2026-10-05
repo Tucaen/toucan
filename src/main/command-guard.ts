@@ -12,8 +12,11 @@
  *   hash as `-c` overrides. Those load as Codex's session-flags layer of that one process.
  */
 import { createHash } from 'node:crypto'
+import { existsSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { PROJECT_SKILLS_DIRECTORY } from '../shared/project-skills'
+import { resolveUnpackedExecutable } from './agent-process'
 
 /**
  * Every shell-like tool a Claude session can run a command through. Codex names every shell call
@@ -151,11 +154,55 @@ export function codexCommandGuardOverrides(
   ]
 }
 
+/** The Rust target each platform package of `@openai/codex` ships its binary under. */
+const CODEX_TARGETS: Record<string, string> = {
+  'win32-x64': 'x86_64-pc-windows-msvc',
+  'win32-arm64': 'aarch64-pc-windows-msvc',
+  'darwin-x64': 'x86_64-apple-darwin',
+  'darwin-arm64': 'aarch64-apple-darwin',
+  'linux-x64': 'x86_64-unknown-linux-musl',
+  'linux-arm64': 'aarch64-unknown-linux-musl'
+}
+
+export interface BundledCodex {
+  /** The native binary, never a `.cmd` or `codex.js` wrapper: the launcher runs it directly. */
+  executable: string
+  /** `@openai/codex`'s package root, which `codex.js` reports to the binary it starts. */
+  packageRoot: string
+}
+
+/**
+ * The Codex an adapter runs when nothing overrides it, found the way the adapter's own `codex.js`
+ * finds it: `@openai/codex` resolved from the adapter, then its platform package resolved from
+ * there. So a guarded session runs the same Codex version an unguarded one would. A packaged
+ * binary is run from `app.asar.unpacked`, where electron-builder puts it. Null where no binary for
+ * this machine is installed; then `codex.js` could not start one either.
+ */
+export function resolveBundledCodex(
+  adapterPath: string,
+  platform: NodeJS.Platform = process.platform,
+  arch: string = process.arch,
+  pathExists: (path: string) => boolean = existsSync
+): BundledCodex | null {
+  const target = CODEX_TARGETS[`${platform}-${arch}`]
+  if (!target) return null
+  try {
+    const packageRoot = dirname(createRequire(adapterPath).resolve('@openai/codex/package.json'))
+    const platformPackage = createRequire(join(packageRoot, 'package.json')).resolve(
+      `@openai/codex-${platform}-${arch}/package.json`
+    )
+    const binary = join(dirname(platformPackage), 'vendor', target, 'bin', platform === 'win32' ? 'codex.exe' : 'codex')
+    const executable = resolveUnpackedExecutable(binary, pathExists)
+    return pathExists(executable) ? { executable, packageRoot } : null
+  } catch {
+    return null
+  }
+}
+
 export interface CodexCommandGuardLaunch {
   /** Toucan's own binary: it runs both the launcher and the guard as Node. */
   runtime: string
-  /** The bundled native Codex executable the launcher starts. */
-  codex: string
+  codex: BundledCodex
   files: CommandGuardFiles
   platform?: NodeJS.Platform
 }
@@ -163,15 +210,17 @@ export interface CodexCommandGuardLaunch {
 /**
  * The adapter environment that guards a Codex session: codex-acp starts `CODEX_PATH app-server`,
  * and the launcher shipped beside the guard script turns that into the bundled Codex with the
- * overrides above.
+ * overrides above. `codex.js` is skipped that way, so its two variables are set here instead.
  */
 export function codexCommandGuardEnvironment(launch: CodexCommandGuardLaunch): Record<string, string> {
   const platform = launch.platform ?? process.platform
   const launcher = platform === 'win32' ? 'codex-launcher.cmd' : 'codex-launcher.sh'
   return {
     CODEX_PATH: join(dirname(launch.files.script), launcher),
+    CODEX_MANAGED_PACKAGE_ROOT: launch.codex.packageRoot,
+    CODEX_MANAGED_BY_NPM: '1',
     [CODEX_LAUNCHER_ENVIRONMENT.runtime]: launch.runtime,
-    [CODEX_LAUNCHER_ENVIRONMENT.executable]: launch.codex,
+    [CODEX_LAUNCHER_ENVIRONMENT.executable]: launch.codex.executable,
     [CODEX_LAUNCHER_ENVIRONMENT.overrides]: JSON.stringify(
       codexCommandGuardOverrides(launch.runtime, launch.files, platform)
     )

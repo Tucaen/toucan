@@ -11,3 +11,6 @@
 *.woff binary
 *.woff2 binary
 *.zip binary
+
+# cmd.exe parses batch files line by line; keep their native endings.
+*.cmd text eol=crlf
