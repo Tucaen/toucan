@@ -1777,8 +1777,6 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       // bundled binary the adapter's own `codex.js` cannot start Codex either, so the launch goes
       // ahead and fails the way it always has rather than for a new reason.
       const bundledCodex = request.provider === 'codex' && guardFiles ? resolveBundledCodex(path) : null
-      if (request.provider === 'codex' && guardFiles && !bundledCodex)
-        options.log?.(`no bundled Codex binary beside ${path}; ${request.id} launches without the command guard`)
       const agentEnvironment =
         bundledCodex && guardFiles
           ? {

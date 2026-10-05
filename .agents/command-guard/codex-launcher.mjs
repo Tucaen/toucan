@@ -131,7 +131,7 @@ export function createRelay(write, reports) {
 }
 
 function main() {
-  const reports = mkdtempSync(join(tmpdir(), 'toucan-command-guard-'))
+  const reports = mkdtempSync(join(tmpdir(), 'toucan-codex-guard-reports-'))
   const removeReports = () => rmSync(reports, { recursive: true, force: true })
   let overrides
   try {
