@@ -68,6 +68,7 @@ const POSIX_CLASSES: Record<string, string> = {
  * Rewrites the POSIX bracket classes ERE allows (`[[:space:]]`) into their JavaScript spelling.
  * The same translation as `.agents/command-guard/guard.mjs`, which runs as a plain script and so
  * cannot import this; `tests/command-guard-settings.test.ts` keeps the two in agreement.
+ * @internal exported for tests
  */
 export function translateEre(source: string): string {
   return source.replace(/\[:(\w+):\]/g, (whole, name: string) => POSIX_CLASSES[name] ?? whole)

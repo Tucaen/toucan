@@ -25,6 +25,7 @@ export interface CanvasOverlays {
   remoteAccess: boolean
   adapterManagement: boolean
   orchestrationSettings: boolean
+  commandGuardSettings: boolean
   projectSettings: boolean
   projectMenu: boolean
 }

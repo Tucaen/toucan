@@ -4850,6 +4850,37 @@ button.worktree-agent-unread:focus-visible {
   overflow-y: auto;
 }
 
+.dialog.command-guard-dialog {
+  width: min(680px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+}
+
+.command-guard-note {
+  color: var(--neutral-300);
+  font-size: 12px;
+}
+
+.command-guard-switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.command-guard-patterns {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  white-space: pre;
+  overflow-x: auto;
+}
+
+.command-guard-errors {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+
 .orchestration-settings-tabs {
   display: flex;
   gap: 6px;

@@ -110,6 +110,7 @@ import type { DecisionDelegationPreference } from '../../shared/decision-delegat
 import { useAppUpdate } from './use-app-update'
 import { RemoteAccessDialog } from './RemoteAccessDialog'
 import { AdapterManagementDialog } from './AdapterManagementDialog'
+import { CommandGuardSettingsDialog } from './CommandGuardSettingsDialog'
 import { OrchestrationSettingsDialog } from './OrchestrationSettingsDialog'
 import { useRemoteAccess } from './use-remote-access'
 import type { RemoteChatSpawnRequest, RemoteChatSpawnResult } from '../../shared/remote-spawn'
@@ -1785,6 +1786,7 @@ function Canvas(): JSX.Element {
   const [remoteAccessOpen, setRemoteAccessOpen] = useState(false)
   const [adapterManagementOpen, setAdapterManagementOpen] = useState(false)
   const [orchestrationSettingsOpen, setOrchestrationSettingsOpen] = useState(false)
+  const [commandGuardSettingsOpen, setCommandGuardSettingsOpen] = useState(false)
 
   // The header's dialog buttons also close the canvas context menu, so opening one can never
   // leave a create menu floating under the dialog it opened.
@@ -1795,6 +1797,10 @@ function Canvas(): JSX.Element {
   const openOrchestrationSettings = useCallback((): void => {
     setMenu(null)
     setOrchestrationSettingsOpen(true)
+  }, [])
+  const openCommandGuardSettings = useCallback((): void => {
+    setMenu(null)
+    setCommandGuardSettingsOpen(true)
   }, [])
   const openRemoteAccess = useCallback((): void => {
     setMenu(null)
@@ -2225,6 +2231,7 @@ function Canvas(): JSX.Element {
     remoteAccess: remoteAccessOpen,
     adapterManagement: adapterManagementOpen,
     orchestrationSettings: orchestrationSettingsOpen,
+    commandGuardSettings: commandGuardSettingsOpen,
     projectSettings: setupProjectId !== null,
     projectMenu: projectMenu !== null
   })
@@ -2904,6 +2911,7 @@ function Canvas(): JSX.Element {
                 activeProject={activeProject}
                 onOpenAdapterManagement={openAdapterManagement}
                 onOpenOrchestrationSettings={openOrchestrationSettings}
+                onOpenCommandGuardSettings={openCommandGuardSettings}
                 onOpenRemoteAccess={openRemoteAccess}
               />
 
@@ -3139,6 +3147,10 @@ function Canvas(): JSX.Element {
                   {...(activeProject ? { project: { name: activeProject.name, path: activeProject.path } } : {})}
                   onClose={() => setOrchestrationSettingsOpen(false)}
                 />
+              )}
+
+              {commandGuardSettingsOpen && (
+                <CommandGuardSettingsDialog onClose={() => setCommandGuardSettingsOpen(false)} />
               )}
 
               {removalPrompt && (

@@ -1,4 +1,4 @@
-import { Route, Settings, Smartphone } from 'lucide-react'
+import { Route, Settings, ShieldCheck, Smartphone } from 'lucide-react'
 import type { RemoteAccessState } from '../../shared/remote-access'
 import type { WorkspaceProject } from '../../shared/workspace'
 import { AppUpdateChip } from './AppUpdateChip'
@@ -35,6 +35,7 @@ export interface AppHeaderProps {
   activeProject: WorkspaceProject | undefined
   onOpenAdapterManagement: () => void
   onOpenOrchestrationSettings: () => void
+  onOpenCommandGuardSettings: () => void
   onOpenRemoteAccess: () => void
 }
 
@@ -58,6 +59,7 @@ export function AppHeader({
   activeProject,
   onOpenAdapterManagement,
   onOpenOrchestrationSettings,
+  onOpenCommandGuardSettings,
   onOpenRemoteAccess
 }: AppHeaderProps): JSX.Element {
   return (
@@ -180,6 +182,18 @@ export function AppHeader({
           }}
         >
           <Route aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          className="header-remote-access"
+          title="Command guard"
+          aria-label="Command guard"
+          onClick={(event) => {
+            event.stopPropagation()
+            onOpenCommandGuardSettings()
+          }}
+        >
+          <ShieldCheck aria-hidden="true" />
         </button>
         <button
           type="button"

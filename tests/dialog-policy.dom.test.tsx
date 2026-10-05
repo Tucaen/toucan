@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import BrainDumpLifecycleDialog from '../src/renderer/src/BrainDumpLifecycleDialog'
 import BrainDumpPermissionDialog from '../src/renderer/src/BrainDumpPermissionDialog'
+import { CommandGuardSettingsDialog } from '../src/renderer/src/CommandGuardSettingsDialog'
 import ConversationHistoryDialog from '../src/renderer/src/ConversationHistoryDialog'
 import FilePickerDialog from '../src/renderer/src/FilePickerDialog'
 import { OrchestrationSettingsDialog } from '../src/renderer/src/OrchestrationSettingsDialog'
@@ -24,6 +25,7 @@ afterEach(() => {
   Reflect.deleteProperty(window, 'conversationApi')
   Reflect.deleteProperty(window, 'workspaceFilesApi')
   Reflect.deleteProperty(window, 'orchestrationSettingsApi')
+  Reflect.deleteProperty(window, 'commandGuardSettingsApi')
 })
 
 interface DialogCase {
@@ -132,6 +134,10 @@ const families: DialogCase[] = [
     render: (onClose) => <OrchestrationSettingsDialog project={project} onClose={onClose} />
   },
   {
+    name: 'CommandGuardSettingsDialog',
+    render: (onClose) => <CommandGuardSettingsDialog onClose={onClose} />
+  },
+  {
     name: 'BrainDumpPermissionDialog',
     render: (onClose) => (
       <BrainDumpPermissionDialog
@@ -159,6 +165,11 @@ describe.each(families)('$name', ({ role, render: renderDialog }) => {
       })),
       save: vi.fn(),
       onChange: () => () => {}
+    }
+
+    window.commandGuardSettingsApi = {
+      state: vi.fn(async () => ({ preferences: { enabled: true, patterns: null }, defaults: '# default' })),
+      save: vi.fn()
     }
 
     const onClose = vi.fn()
