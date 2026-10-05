@@ -96,6 +96,17 @@ test('a hand-edited or deleted materialized list is restored to what was saved a
   assert.equal(readFileSync(files.patterns, 'utf8'), 'only[[:space:]]this')
 })
 
+test('editing the list leaves the file a running session already holds untouched', async () => {
+  const { store } = setup()
+  saved(await store.save({ enabled: true, patterns: 'first[[:space:]]list' }))
+  const running = (await store.launch())!
+  saved(await store.save({ enabled: true, patterns: 'second[[:space:]]list' }))
+  const next = (await store.launch())!
+  assert.notEqual(next.patterns, running.patterns)
+  assert.equal(readFileSync(running.patterns, 'utf8'), 'first[[:space:]]list')
+  assert.equal(readFileSync(next.patterns, 'utf8'), 'second[[:space:]]list')
+})
+
 test('Reset to defaults restores the built-in list', async () => {
   const { store } = setup()
   saved(await store.save({ enabled: true, patterns: 'only[[:space:]]this' }))

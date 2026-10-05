@@ -39,7 +39,7 @@ describe('CommandGuardSettingsDialog', () => {
     render(<CommandGuardSettingsDialog onClose={vi.fn()} />)
     expect((await patternsBox()).value).toBe(DEFAULTS)
     expect(screen.getByText(/sessions started from now on/i)).toBeInTheDocument()
-    expect(screen.getByText(/requested for each session, not confirmed/i)).toBeInTheDocument()
+    expect(screen.getByText(/requested for each new Claude session, not confirmed/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
   })
 

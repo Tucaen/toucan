@@ -581,15 +581,15 @@ void app.whenReady().then(async () => {
     log: mainLog('orchestrator endpoint')
   })
   // The user's command guard preferences (ticket 03), asked by every session as it opens.
-  const commandGuardSettings = createCommandGuardSettingsStore({
+  const commandGuardStore = createCommandGuardSettingsStore({
     userDataPath: app.getPath('userData'),
     bundled: commandGuardFiles(resolveToucanSkillsRoot(app.getAppPath()) ?? app.getAppPath()),
     log: mainLog('command guard')
   })
-  registerCommandGuardSettingsIpc(ipcMain, commandGuardSettings)
+  registerCommandGuardSettingsIpc(ipcMain, commandGuardStore)
   const agentManager = createAcpSessionManager({
     appPath: app.getAppPath(),
-    commandGuard: commandGuardSettings,
+    commandGuard: commandGuardStore,
     appVersion: app.getVersion(),
     resolveAdapter: adapters.resolve,
     codexHome,

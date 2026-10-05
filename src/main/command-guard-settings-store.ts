@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { mkdir, readFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import {
@@ -46,7 +47,14 @@ export function createCommandGuardSettingsStore(options: CommandGuardSettingsSto
     fallback: () => DEFAULT_COMMAND_GUARD_PREFERENCES,
     ...(options.log ? { log: options.log } : {})
   })
-  const customPatternsPath = join(options.userDataPath, 'command-guard', 'patterns.txt')
+  // Named by content: the hook re-reads its list on every command, so a file rewritten in place
+  // would change the guard of sessions already running. Each saved list gets a file of its own.
+  const customPatternsPathFor = (text: string): string =>
+    join(
+      options.userDataPath,
+      'command-guard',
+      `patterns-${createHash('sha256').update(text).digest('hex').slice(0, 16)}.txt`
+    )
   const enqueue = createSerialQueue()
   const defaults = (): Promise<string> => readFile(options.bundled.patterns, 'utf8')
 
@@ -73,6 +81,7 @@ export function createCommandGuardSettingsStore(options: CommandGuardSettingsSto
       if (!preferences.enabled) return null
       if (preferences.patterns === null) return options.bundled
       const text = preferences.patterns
+      const customPatternsPath = customPatternsPathFor(text)
       try {
         // Serialized and rewritten every launch: two sessions opening together must not tear the
         // file, and a list that was deleted or edited by hand is restored to what was saved.
