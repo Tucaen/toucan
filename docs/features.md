@@ -20,6 +20,14 @@ The full tour of what Toucan does today. The [README](../README.md) has the shor
   ticket contract sits beside the skill. The files stay the source of truth, and an edit an agent
   makes shows up in an open panel. See the [orchestrator plan](plans/orchestrator-mode.md).
 
+- Guards every Claude and Codex session, whether chat, orchestrator or ticket, with a command
+  guard: a per-session `PreToolUse` hook checks every Bash and PowerShell command against a list
+  of dangerous patterns and blocks a match before it runs, showing the reason on the failed tool
+  call. The header's **Command guard** button turns it off everywhere or edits the pattern list,
+  one regex per line, with line-level errors and **Reset to defaults**. A chat node's composer
+  settings turn it off for that node alone. Changes apply to sessions started afterwards, and
+  the guard never touches the user's own Claude or Codex configuration.
+
 - Gives agents memory across sessions. After every turn Toucan records what the conversation set out to do, which files it touched, how it ended and what failed, without spending any model tokens. Later Claude and Codex sessions check those records before starting, so they build on earlier work instead of redoing it. Ask an agent "what did we try for X last week?" to look something up.
 - Keeps multiple projects, terminals, and coding-agent conversations visible on one
   zoomable canvas. Every node can temporarily fit the visible canvas and then restore its

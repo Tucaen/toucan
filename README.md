@@ -17,6 +17,18 @@ Toucan's session records. A Codex session then works in a worktree alongside it,
 - **Many agents, one canvas.** Terminals, Claude and Codex chats, and Git worktrees are nodes on
   a zoomable canvas. Run several agents in parallel, each in its own worktree, and keep every one
   of them in view. Every node type has a keyboard shortcut, and nodes snap and tile like windows.
+- **Hand a large task to an orchestrator.** A **New orchestrator** node, Claude or Codex, splits
+  one task into dependent tickets, routes each to a model tier, starts a ticket session per
+  ticket in its own worktree, and merges the tested results in dependency order. Every ticket
+  session is an ordinary node you can watch, steer or take over. It ends with a review list and
+  a routing report that proposes tier-mapping changes once enough tickets have settled; Toucan
+  never applies them itself.
+- **Guard-rails on every agent.** Every Claude and Codex session, whether chat, orchestrator or
+  ticket, runs behind a command guard that blocks dangerous shell commands before they execute:
+  recursive deletes of a drive or home directory, disk formatting, piping a download into a
+  shell, force pushes, `git clean -fdx`, dropping a database and more. The blocked command shows
+  up as a failed tool call with the reason. Edit the pattern list or turn the guard off from the
+  header's **Command guard** button, or switch it off for a single chat node.
 - **Answer your agents from your phone.** A mobile companion shows which chats are working, which
   are waiting and which need an approval. Read transcripts live, answer approvals and questions,
   and start new chats, over your own tailnet. Whichever device answers first wins; the other
@@ -61,6 +73,15 @@ decisions worth calling out:
 - **Provider-neutral agents.** Claude and Codex both run through Agent Client Protocol adapters
   behind one session manager, and each adapter version can be updated or pinned independently of
   the app. See [adapter management](docs/adapter-management.md).
+- **The orchestrator drives Toucan through a CLI, not an MCP server.** It costs no tool-definition
+  tokens in sessions that never orchestrate, works the same for any provider with a shell, and
+  Toucan's main process still owns every ticket session, so each one gets an exact model and
+  effort at launch and leaves a session record. See the
+  [orchestrator plan](docs/plans/orchestrator-mode.md).
+- **The command guard never touches your own agent config.** It is a `PreToolUse` hook
+  registered per session, through the session's settings for Claude and launch overrides for
+  Codex, and it runs on Toucan's bundled runtime, so Windows needs neither bash nor jq. An edited
+  pattern list applies to sessions started afterwards and never changes one already running.
 - **Architecture rules are enforced, not just written down.** `npm run check` runs Prettier, typed
   ESLint with zero warnings allowed, dependency-cruiser boundary rules, strict TypeScript and
   about 290 test files. CI runs the same gate on every push to `main` and every pull request,
