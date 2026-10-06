@@ -76,10 +76,6 @@ export function createOrchestrationCleanup(options: {
             await git(['merge-base', '--is-ancestor', head, upstream])
           } else if (worktree) throw new Error('the ticket branch is missing')
           if (worktree) {
-            // Read failures are blockers too. The general worktree status API tolerates a failed
-            // stash read for display; deletion here needs positive evidence instead.
-            if (await git(['stash', 'list', '--format=%gs'], worktreePath))
-              throw new Error('repository has stashed work')
             if (await git(['status', '--porcelain', '--untracked-files=all'], worktreePath))
               throw new Error('worktree has uncommitted or untracked work')
             const closed = await options.canvas({ projectPath: record.projectPath, session, phase: 'close' })

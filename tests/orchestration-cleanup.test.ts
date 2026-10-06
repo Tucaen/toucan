@@ -111,6 +111,24 @@ test(
 )
 
 test(
+  'a stash made on another branch does not hold back a merged ticket',
+  async () => {
+    const { project, git, record, cleanup } = await fixture()
+    await git(['merge', '--ff-only', 'ticket/1'])
+    await git(['push'])
+    writeFileSync(join(project, 'unrelated.txt'), 'unrelated work')
+    await git(['stash', 'push', '--include-untracked', '-m', 'unrelated'])
+    const result = await cleanup.run(record)
+    assert.deepEqual(
+      result.removed.map((entry) => entry.ticket),
+      ['1']
+    )
+    assert.match(await git(['stash', 'list']), /unrelated/)
+  },
+  GIT_FIXTURE_TIMEOUT
+)
+
+test(
   'a merged flag cannot delete unpublished, unmerged, dirty or occupied work',
   async () => {
     const { git, record, cleanup, canvas } = await fixture()
