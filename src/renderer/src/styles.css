@@ -2127,6 +2127,13 @@ button.global-status-chip:hover {
   margin-left: auto;
 }
 
+/* The project chip already pushes the trailing actions to the right edge; their own auto margins
+   would split the free space between them instead of keeping them together at the 8px header gap. */
+.chat-node-header .node-branch-action,
+.chat-node-header .node-fit-action {
+  margin-left: 0;
+}
+
 /* Which agent runs this conversation, beside the rest of the node's identity. */
 .node-provider {
   display: flex;
