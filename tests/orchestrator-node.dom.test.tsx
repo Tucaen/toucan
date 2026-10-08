@@ -201,7 +201,7 @@ test('an enforced provider pacing deferral shows its state and reason without a 
   const { container } = renderChat('orchestrator', 'conversation-1')
   await waitFor(() => expect(container.querySelector('.node-orchestration-pacing')).toBeInTheDocument())
   const pacing = container.querySelector('.node-orchestration-pacing') as HTMLElement
-  expect(pacing).toHaveTextContent('Provider pacing: drain')
+  expect(pacing).toHaveTextContent('Provider pacing: drain — five hour drain active ticket work')
   expect(pacing).toHaveAttribute('title', 'five_hour_drain_active_ticket_work')
   expect(container.querySelector('.node-orchestration-resume')).toBeNull()
   expect(container.querySelector('.node-orchestration-stop')).toHaveTextContent('Stop orchestration')

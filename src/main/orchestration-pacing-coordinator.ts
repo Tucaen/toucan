@@ -341,7 +341,19 @@ export function createOrchestrationPacingCoordinator(
     },
 
     async restore(key, orchestratorNodeId) {
-      if (!options.enabled || closed) return
+      if (closed) return
+      if (!options.enabled) {
+        await serial(key.provider, async () => {
+          let cleared = false
+          const record = await updateRecord(key, (current) => {
+            if (!current.pacing) return current
+            cleared = true
+            return clearOrchestrationPacing(current, nowIso(now()))
+          })
+          if (cleared && record) options.changed?.(record)
+        })
+        return
+      }
       const record = await options.records.read(key)
       const pacing = record?.pacing
       if (!pacing || record.lifecycle !== undefined) return

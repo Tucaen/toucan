@@ -225,6 +225,18 @@ test('a durable deferral is restored after restart and enforcement can be disabl
   assert.equal((await records.read(value))?.pacing, undefined)
   restarted.close()
 
+  await put(records, {
+    ...value,
+    pacing: {
+      state: 'pause',
+      reason: 'five_hour_pause_threshold',
+      constrainingWindow: 'five_hour',
+      freshness: 'fresh',
+      activeTicketSessions: 0,
+      retryAt: NOW + 1_000,
+      deferredAt: new Date(NOW).toISOString()
+    }
+  })
   const disabled = createOrchestrationPacingCoordinator({
     records,
     usage,
@@ -233,6 +245,8 @@ test('a durable deferral is restored after restart and enforcement can be disabl
     wake: async () => ({ ok: true }),
     now: () => clock
   })
+  await disabled.restore(value, 'captain')
+  assert.equal((await records.read(value))?.pacing, undefined)
   const admitted = await disabled.admit({ key: value, orchestratorNodeId: 'captain' })
   assert.equal(admitted.admitted, true)
   assert.equal(reads, 2)

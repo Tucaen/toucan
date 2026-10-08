@@ -219,12 +219,13 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
   const grants = new Set<LiveGrant>()
   let startedServer: Promise<HttpServer> | undefined
 
+  const pacingEnforced = options.pacing?.enforce === true
   const pacingCoordinator: OrchestrationPacingCoordinator | undefined =
-    options.pacing?.enforce && options.providerUsage
+    options.pacing && options.providerUsage
       ? createOrchestrationPacingCoordinator({
           records: options.records,
           usage: options.providerUsage,
-          enabled: true,
+          enabled: pacingEnforced,
           activeTicketSessions: options.pacing.activeTicketSessions,
           wake:
             options.pacing.wake ??
@@ -403,7 +404,7 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
     const preflightReservation = reserveSpawn(current, request.ticketId, now())
     if (preflightReservation.error !== undefined) return refused(429, preflightReservation.error)
 
-    if (!pacingCoordinator) logSpawnPacing(grant.provider)
+    if (!pacingEnforced) logSpawnPacing(grant.provider)
     const admission = pacingCoordinator
       ? await pacingCoordinator.admit({ key, orchestratorNodeId: grant.nodeId })
       : undefined

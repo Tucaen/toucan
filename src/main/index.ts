@@ -23,6 +23,7 @@ import { autoUpdater } from 'electron-updater'
 import { createAcpSessionManager, resolveToucanSkillsRoot, type AcpSessionManager } from './acp-session-manager'
 import { createOrchestrationStore } from './orchestration-store'
 import { createOrchestrationConfigStore } from './orchestration-config-store'
+import { loadOrchestrationPacingConfig } from './orchestration-pacing-config'
 import { commandGuardFiles } from './command-guard'
 import { createCommandGuardSettingsStore } from './command-guard-settings-store'
 import { registerCommandGuardSettingsIpc } from './command-guard-settings-ipc'
@@ -542,6 +543,12 @@ void app.whenReady().then(async () => {
   // Routing by difficulty tier (#36): the user's tier mapping, the provider's picker as last seen, and
   // Jev, asked from main with main's own TYPESAFE_API_KEY so the key never leaves this process.
   const orchestrationConfig = createOrchestrationConfigStore({ userDataPath: app.getPath('userData') })
+  const pacingConfigLoad = await loadOrchestrationPacingConfig({ userDataPath: app.getPath('userData') })
+  if (pacingConfigLoad.error) {
+    mainLog('orchestration pacing')(
+      `${pacingConfigLoad.error}; proactive spawn pacing is disabled until the file is fixed and Toucan restarts`
+    )
+  }
   // The settings panel (#39) edits the same files; an edit from anywhere - an agent, a text editor -
   // reaches an open panel through the watch.
   registerOrchestrationSettingsIpc(ipcMain, {
@@ -564,7 +571,15 @@ void app.whenReady().then(async () => {
     },
     pacing: {
       activeTicketSessions: createProviderWideTicketSessionCounter({ workspace, broker: agentEvents }),
-      enforce: true,
+      enforce: pacingConfigLoad.config?.enabled ?? false,
+      ...(pacingConfigLoad.config
+        ? {
+            policy: {
+              fiveHour: pacingConfigLoad.config.fiveHour,
+              unavailableUsage: pacingConfigLoad.config.unavailableUsage
+            }
+          }
+        : {}),
       wake: (nodeId, prompt) => agentManager.promptWhenIdle(nodeId, prompt),
       changed: publishOrchestrationState
     },

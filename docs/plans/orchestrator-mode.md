@@ -126,8 +126,8 @@ Toucan) rebuilds its picture from it, never from memory.
   unresolved review findings and open questions. The contract wins over the skill.
 - The no-push rule is enforced, not only requested: the spawned worktree gets a `pre-push` hook
   that refuses. Ticket branches are never pushed; only the target branch is (see Merging).
-- The orchestrator may answer a ticket session's *questions* with a follow-up. It never answers
-  *permission* prompts: one agent granting another rights the human did not grant is
+- The orchestrator may answer a ticket session's _questions_ with a follow-up. It never answers
+  _permission_ prompts: one agent granting another rights the human did not grant is
   escalation. Those wait for the human and are listed in the orchestrator's status and final
   answer.
 
@@ -178,9 +178,13 @@ consumes no attempt and leaves no artifact. Providers have independent queues.
 The initial curve is unrestricted below 70% of the fresh five-hour window, drain from 70% through
 below 85% while ticket work is active, and pause until the reported reset at 85% or above. A stale
 or unavailable reading keeps a one-active-ticket reserve; weekly and model-scoped windows stay
-reported but do not drive the curve. The policy object is the one threshold/reserve configuration
-seam, and endpoint enforcement is an explicit switch (omitting it retains shadow-only behavior)
-while the curve is tuned.
+reported but do not drive the curve. `<userData>/orchestration-pacing.json` is the global policy
+seam. Enforcement defaults to disabled; setting `enabled` to `true` turns it on without changing
+provider, model, effort or billing selection, while `fiveHour` and `unavailableUsage` adjust the two
+thresholds and reserve. Toucan writes the defaults on first start and reads the file at startup;
+edits apply after restart. An invalid file is logged and safely disables proactive enforcement
+rather than silently substituting thresholds the user did not choose. The file deliberately has no
+project override because projects sharing one provider must not contend under different policies.
 
 `drain` rechecks when provider-wide active work changes. `pause` arms a Toucan timer for the
 reported reset. Both paths force a fresh/coalesced usage read before reopening; repeated activity
@@ -269,13 +273,13 @@ for that reason.
 
 Sub-issues of #32.
 
-| Issue | Slice | Blocked by |
-| --- | --- | --- |
-| #33 | Orchestrator node, spawn token, local endpoint and orchestration record | — |
-| #34 | `spawn`: ticket worktree and Claude ticket session, orchestrated-by edge, `pre-push` guard | #33 |
-| #35 | Wake the orchestrator on ticket session events; `status`, `outcome`, `followup` | #34 |
-| #36 | Difficulty-tier routing through Jev and the tier mapping configuration | #34 |
-| #37 | Orchestrator instructions: breakdown, merging, escalation, write-back, review list, cleanup | #35, #36 |
-| #38 | Usage-limit pause and resume; Stop orchestration | #35 |
-| #39 | Orchestration settings panel | #36 |
-| #40 | Routing report with tier mapping proposals | #36 |
+| Issue | Slice                                                                                       | Blocked by |
+| ----- | ------------------------------------------------------------------------------------------- | ---------- |
+| #33   | Orchestrator node, spawn token, local endpoint and orchestration record                     | —          |
+| #34   | `spawn`: ticket worktree and Claude ticket session, orchestrated-by edge, `pre-push` guard  | #33        |
+| #35   | Wake the orchestrator on ticket session events; `status`, `outcome`, `followup`             | #34        |
+| #36   | Difficulty-tier routing through Jev and the tier mapping configuration                      | #34        |
+| #37   | Orchestrator instructions: breakdown, merging, escalation, write-back, review list, cleanup | #35, #36   |
+| #38   | Usage-limit pause and resume; Stop orchestration                                            | #35        |
+| #39   | Orchestration settings panel                                                                | #36        |
+| #40   | Routing report with tier mapping proposals                                                  | #36        |
