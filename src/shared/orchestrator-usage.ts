@@ -1,10 +1,9 @@
 import type { ProviderUsageEntry } from './agent'
 import type { AgentProvider } from './agent-provider'
+import type { OrchestrationPacingRecommendation } from './orchestration-pacing'
 
-/** The recommendation is deliberately explicit until #49 defines actionable pacing. */
-export interface OrchestratorUsagePacing {
-  state: 'unknown'
-}
+/** The provider-neutral, advisory pacing answer attached to an orchestrator's usage response. */
+export type OrchestratorUsagePacing = OrchestrationPacingRecommendation
 
 /** Read-only usage result for the live provider of an authenticated orchestrator grant. */
 export interface OrchestratorUsageResponse {
@@ -13,6 +12,6 @@ export interface OrchestratorUsageResponse {
   usage: ProviderUsageEntry | null
   /** Why `usage` is absent, or why its entry is stale. */
   state: 'available' | 'missing' | 'failed'
-  /** A machine-readable recommendation placeholder; #49 may add actionable states. */
+  /** An advisory spawn recommendation; shadow mode never blocks work from this response. */
   pacing: OrchestratorUsagePacing
 }

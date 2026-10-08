@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { test } from 'vitest'
 import { createOrchestrationStore } from '../src/main/orchestration-store'
 import { createOrchestratorEndpoint, type OrchestratorGrant } from '../src/main/orchestrator-endpoint'
+import { createProviderUsage } from '../src/main/provider-usage'
 import type { TicketSpawner, TicketSpawnRequest } from '../src/main/ticket-spawner'
 import {
   MAX_SPAWNS_PER_ORCHESTRATION,
@@ -327,4 +328,42 @@ test('a spawn is refused for an unknown ticket, before a plan, and when no spawn
     await unwired.endpoint.close()
   }
   assert.equal(spawner.calls.length, 0)
+})
+
+test('every spawn attempt logs a cached shadow recommendation without delaying work or reading usage', async () => {
+  const records = createOrchestrationStore({ directory: mkdtempSync(join(tmpdir(), 'toucan-orchestrator-shadow-')) })
+  let reads = 0
+  const providerUsage = createProviderUsage({
+    readers: {
+      claude: {
+        read: () => {
+          reads += 1
+          return { fiveHour: { usedPercent: 99 } }
+        }
+      }
+    },
+    ttlMs: 60_000
+  })
+  const logs: string[] = []
+  const spawner = fakeSpawner()
+  const endpoint = createOrchestratorEndpoint({
+    records,
+    spawner,
+    providerUsage,
+    pacing: { activeTicketSessions: () => 1 },
+    now: () => '2026-09-30T12:00:00.000Z',
+    log: (message) => logs.push(message)
+  })
+  const grant = (await endpoint.grant('orchestrator-1', { provider: 'claude', projectPath: 'D:\\project' }))!
+  grant.setConversation('conversation-1')
+  try {
+    assert.equal((await call(grant, 'plan set', plan)).status, 200)
+    assert.equal((await call(grant, 'spawn', spawn34)).status, 200)
+    assert.equal(spawner.calls.length, 1)
+    assert.equal(reads, 0)
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    assert.deepEqual(logs, ['shadow pacing spawn provider=claude state=drain freshness=unavailable active=1'])
+  } finally {
+    await endpoint.close()
+  }
 })

@@ -201,23 +201,52 @@ test('usage reads only the authenticated grant provider and preserves explicit m
       provider: 'claude',
       usage: { status: { fiveHour: { usedPercent: 61 } }, readAt: 50, stale: false },
       state: 'available',
-      pacing: { state: 'unknown' }
+      pacing: { action: 'spawn', state: 'unrestricted', freshness: 'fresh', activeTicketSessions: 0 }
     })
     assert.deepEqual((await call(codex, 'usage')).body, {
       ok: true,
       provider: 'codex',
       usage: null,
       state: 'missing',
-      pacing: { state: 'unknown' }
+      pacing: { action: 'spawn', state: 'unrestricted', freshness: 'unavailable', activeTicketSessions: 0 }
     })
     assert.deepEqual((await call(claude, 'usage')).body, {
       ok: true,
       provider: 'claude',
       usage: { status: { fiveHour: { usedPercent: 61 } }, readAt: 50, stale: true },
       state: 'failed',
-      pacing: { state: 'unknown' }
+      pacing: { action: 'spawn', state: 'unrestricted', freshness: 'stale', activeTicketSessions: 0 }
     })
     assert.equal((await call(claude, 'usage', { force: true })).status, 400)
+  } finally {
+    await endpoint.close()
+  }
+})
+
+test('usage attaches the provider-wide shadow pacing recommendation', async () => {
+  const records = createOrchestrationStore({ directory: mkdtempSync(join(tmpdir(), 'toucan-orchestrator-pacing-')) })
+  const reset = Date.parse('2026-09-30T15:00:00.000Z')
+  const providerUsage = createProviderUsage({
+    readers: { claude: { read: () => ({ fiveHour: { usedPercent: 85, resetsAt: reset } }) } },
+    ttlMs: 60_000,
+    now: () => Date.parse('2026-09-30T12:00:00.000Z')
+  })
+  const endpoint = createOrchestratorEndpoint({
+    records,
+    providerUsage,
+    pacing: { activeTicketSessions: (provider) => (provider === 'claude' ? 3 : 0) },
+    now: () => '2026-09-30T12:00:00.000Z'
+  })
+  const grant = (await endpoint.grant('orchestrator-claude', { provider: 'claude', projectPath: 'D:\\project' }))!
+  grant.setConversation('claude-conversation')
+  try {
+    assert.deepEqual((await call(grant, 'usage')).body.pacing, {
+      action: 'spawn',
+      state: 'pause',
+      freshness: 'fresh',
+      activeTicketSessions: 3,
+      resetsAt: reset
+    })
   } finally {
     await endpoint.close()
   }

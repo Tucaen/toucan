@@ -62,6 +62,11 @@ export interface ProviderUsage {
     provider: AgentProvider,
     options?: Pick<ProviderUsageReadOptions, 'force'>
   ): Promise<ProviderUsageReadResult>
+  /**
+   * Returns the current cache entry without starting a provider read. Shadow pacing uses this on
+   * a spawn attempt, which must never make a CLI call or wait on one.
+   */
+  peekProvider(provider: AgentProvider): ProviderUsageReadResult
 }
 
 export function createProviderUsage(options: ProviderUsageOptions): ProviderUsage {
@@ -107,6 +112,14 @@ export function createProviderUsage(options: ProviderUsageOptions): ProviderUsag
   }
 
   return {
+    peekProvider(provider) {
+      const cached = cache.get(provider)
+      if (!cached) return { state: 'missing' }
+      // A spawn must not refresh usage itself, but an expired cache entry is no longer fresh
+      // enough for its pacing decision. Preserve its value for the conservative fallback.
+      const entry = cached.result.entry
+      return cached.expiresAt > now() || !entry ? cached.result : { ...cached.result, entry: keptAsStale(entry) }
+    },
     async readProvider(provider, readOptions) {
       const reader = options.readers[provider]
       if (!reader) return { state: 'missing' }

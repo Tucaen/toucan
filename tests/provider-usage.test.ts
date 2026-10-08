@@ -245,6 +245,32 @@ test('the detailed provider result distinguishes missing and failed reads while 
   })
 })
 
+test('peekProvider observes the cache without starting a provider read', async () => {
+  const calls = { count: 0 }
+  let clock = 10
+  const usage = createProviderUsage({
+    readers: { claude: reader([{ fiveHour: { usedPercent: 24 } }], calls) },
+    ttlMs: 60_000,
+    now: () => clock
+  })
+
+  assert.deepEqual(usage.peekProvider('claude'), { state: 'missing' })
+  assert.equal(calls.count, 0)
+  await usage.readProvider('claude')
+  assert.deepEqual(usage.peekProvider('claude'), {
+    state: 'available',
+    entry: fresh({ fiveHour: { usedPercent: 24 } }, 10)
+  })
+  assert.equal(calls.count, 1)
+
+  clock = 60_011
+  assert.deepEqual(usage.peekProvider('claude'), {
+    state: 'available',
+    entry: { status: { fiveHour: { usedPercent: 24 } }, readAt: 10, stale: true }
+  })
+  assert.equal(calls.count, 1)
+})
+
 test('concurrent forced single-provider reads join the same in-flight request', async () => {
   let resolve!: (value: AgentRateLimitStatus) => void
   let calls = 0

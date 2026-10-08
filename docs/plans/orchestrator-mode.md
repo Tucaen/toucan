@@ -164,6 +164,21 @@ the orchestration `paused`, spawns nothing and does not wake the orchestrator. A
 time (`claude-usage.ts` already reads `resets_at`) it resumes the affected ticket sessions and
 wakes the orchestrator with "limit reset". A pause never counts as an attempt.
 
+### Provider-wide pacing (shadow mode)
+
+[`orchestration-pacing.ts`](../../src/shared/orchestration-pacing.ts) makes one structured,
+provider-neutral recommendation for a requested `spawn`; the endpoint returns it from `usage` and
+logs it on every spawn attempt from the cached reading, without delaying or refusing that spawn.
+It counts live ticket sessions by their persisted `orchestratedBy` provenance and the session
+broker across every workspace project for the provider, rather than maintaining a project-local
+counter. The initial curve is unrestricted below 70% of the fresh five-hour window, drain from
+70% through below 85% while ticket work is active, and pause until the reported reset at 85% or
+above. A stale or unavailable reading keeps a one-active-ticket reserve; weekly and model-scoped
+windows stay reported but do not drive the curve. `drain` and `pause` preserve already-running
+work and leave review/merge room; they never downgrade models or efforts, switch providers,
+estimate tokens, alter billing, or interrupt a session. This is a likelihood-reduction signal,
+not a guarantee that a provider limit will not be reached.
+
 ### The review list
 
 The orchestrator's final answer, since it is not tied to a ticket system. It lists: low-confidence

@@ -32,6 +32,12 @@ import {
 } from '../shared/orchestration'
 import type { OrchestratorUsageResponse } from '../shared/orchestrator-usage'
 import {
+  decideOrchestrationPacing,
+  type OrchestrationPacingPolicy,
+  type OrchestrationPacingRecommendation,
+  type OrchestrationUsageFreshness
+} from '../shared/orchestration-pacing'
+import {
   escalateRoute,
   resolveTier,
   ROUTE_REVIEW_CONFIDENCE,
@@ -51,7 +57,7 @@ import type { TicketBinding } from './orchestration-wake'
 import { createPairingToken, pairingTokenMatches, presentedPairingToken } from './remote/pairing'
 import type { TicketSpawner } from './ticket-spawner'
 import type { OrchestrationCleanup } from './orchestration-cleanup'
-import type { ProviderUsage } from './provider-usage'
+import type { ProviderUsage, ProviderUsageReadResult } from './provider-usage'
 
 /**
  * The local endpoint an orchestrator's CLI talks to (#33; plan in
@@ -130,6 +136,14 @@ export interface OrchestratorEndpointOptions {
   records: OrchestrationStore
   /** The shared provider-usage cache. Usage never starts an agent turn. */
   providerUsage?: ProviderUsage
+  /**
+   * Provider-wide live ticket work, read from persisted provenance and the session broker. It is
+   * intentionally not scoped to this grant's project: provider limits are account-wide.
+   */
+  pacing?: {
+    activeTicketSessions(provider: AgentProvider): number | Promise<number>
+    policy?: OrchestrationPacingPolicy
+  }
   /** Absent, `route`, `escalate` and `spawn --tier` are refused and spawns use the default skill. */
   routing?: OrchestratorRouting
   /** Starts ticket sessions for `spawn`; absent, `spawn` is refused as unavailable. */
@@ -187,6 +201,42 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
   const now = options.now ?? (() => new Date().toISOString())
   const grants = new Set<LiveGrant>()
   let startedServer: Promise<HttpServer> | undefined
+
+  const pacingFreshness = (result: ProviderUsageReadResult): OrchestrationUsageFreshness =>
+    result.entry ? (result.entry.stale ? 'stale' : 'fresh') : 'unavailable'
+
+  /** Reads a recommendation only; caller decides whether to await it. */
+  const pace = async (
+    provider: AgentProvider,
+    result: ProviderUsageReadResult
+  ): Promise<OrchestrationPacingRecommendation> => {
+    const activeTicketSessions = await Promise.resolve(options.pacing?.activeTicketSessions(provider) ?? 0).catch(
+      () => 0
+    )
+    const timestamp = Date.parse(now())
+    return decideOrchestrationPacing(
+      {
+        action: 'spawn',
+        usage: result.entry ?? null,
+        freshness: pacingFreshness(result),
+        now: Number.isFinite(timestamp) ? timestamp : Date.now(),
+        activeTicketSessions
+      },
+      options.pacing?.policy
+    )
+  }
+
+  /** Spawn pacing is observational: it reads no provider and never holds the spawn path open. */
+  const logSpawnPacing = (provider: AgentProvider): void => {
+    const result = options.providerUsage?.peekProvider(provider) ?? { state: 'missing' as const }
+    void pace(provider, result)
+      .then((pacing) =>
+        options.log?.(
+          `shadow pacing spawn provider=${provider} state=${pacing.state} freshness=${pacing.freshness} active=${pacing.activeTicketSessions}`
+        )
+      )
+      .catch(() => options.log?.(`shadow pacing spawn provider=${provider} state=unavailable`))
+  }
 
   /** Constant-time per candidate, like the remote server's pairing gate; the set stays tiny. */
   const grantForToken = (presented: string | null): LiveGrant | undefined => {
@@ -290,6 +340,9 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
     key: { provider: AgentProvider; conversationId: string },
     args: unknown
   ): Promise<Reply> => {
+    // This deliberately happens before validation: every incoming spawn attempt is observable,
+    // while its asynchronous cache/provenance read cannot delay or refuse that attempt.
+    logSpawnPacing(grant.provider)
     const parsed = parseSpawnInput(args)
     if (parsed.error !== undefined) return refused(400, parsed.error)
     const request = parsed.spawn
@@ -662,11 +715,12 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
       if (args !== undefined) return refused(400, 'usage takes no arguments')
       if (!options.providerUsage) return refused(501, 'this Toucan cannot read provider usage')
       const result = await options.providerUsage.readProvider(grant.provider, { force: true })
+      const pacing = await pace(grant.provider, result)
       const body: OrchestratorUsageResponse = {
         provider: grant.provider,
         usage: result.entry ?? null,
         state: result.state,
-        pacing: { state: 'unknown' }
+        pacing
       }
       return { status: 200, body: { ok: true, ...body } }
     }
