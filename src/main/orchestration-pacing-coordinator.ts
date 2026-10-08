@@ -37,6 +37,8 @@ export interface OrchestrationPacingCoordinatorOptions {
   changed?(record: OrchestrationRecord): void
   now?(): number
   schedule?(callback: () => void, ms: number): () => void
+  /** Test seam for the bounded retry after a provider still reports an elapsed reset. */
+  expiredResetRetryMs?: number
   log?(message: string): void
 }
 
@@ -64,6 +66,9 @@ interface DeferredOrchestration {
 
 const keyId = (key: OrchestrationKey): string => `${key.provider}:${key.conversationId}`
 const nowIso = (now: number): string => new Date(now).toISOString()
+const DEFAULT_EXPIRED_RESET_RETRY_MS = 30_000
+const MIN_EXPIRED_RESET_RETRY_MS = 1_000
+const MAX_EXPIRED_RESET_RETRY_MS = 5 * 60_000
 
 const freshness = (result: ProviderUsageReadResult): OrchestrationUsageFreshness =>
   result.entry ? (result.entry.stale ? 'stale' : 'fresh') : 'unavailable'
@@ -92,6 +97,10 @@ export function createOrchestrationPacingCoordinator(
   options: OrchestrationPacingCoordinatorOptions
 ): OrchestrationPacingCoordinator {
   const now = options.now ?? Date.now
+  const expiredResetRetryMs = Math.min(
+    MAX_EXPIRED_RESET_RETRY_MS,
+    Math.max(MIN_EXPIRED_RESET_RETRY_MS, options.expiredResetRetryMs ?? DEFAULT_EXPIRED_RESET_RETRY_MS)
+  )
   const schedule =
     options.schedule ??
     ((callback: () => void, ms: number) => {
@@ -145,6 +154,26 @@ export function createOrchestrationPacingCoordinator(
       },
       options.policy
     )
+
+  const schedulableDeferral = (recommendation: OrchestrationPacingRecommendation): OrchestrationPacingRecommendation =>
+    recommendation.state === 'pause' && recommendation.resetsAt !== undefined && recommendation.resetsAt <= now()
+      ? { ...recommendation, resetsAt: now() + expiredResetRetryMs }
+      : recommendation
+
+  const admissionFrom = (
+    provider: AgentProvider,
+    recommendation: OrchestrationPacingRecommendation
+  ): OrchestrationPacingAdmission | undefined =>
+    recommendation.state === 'unrestricted'
+      ? undefined
+      : {
+          admitted: false,
+          deferred: true,
+          provider,
+          state: recommendation.state,
+          reason: recommendation.reason,
+          ...(recommendation.resetsAt !== undefined ? { retryAt: recommendation.resetsAt } : {})
+        }
 
   const updateRecord = async (
     key: OrchestrationKey,
@@ -242,7 +271,7 @@ export function createOrchestrationPacingCoordinator(
       .catch((): ProviderUsageReadResult => ({ state: 'failed' }))
     const reopening = await serial(provider, async () => {
       const result = await reading
-      const recommendation = await decide(provider, result)
+      const recommendation = schedulableDeferral(await decide(provider, result))
       const ready: DeferredOrchestration[] = []
       for (const waiter of [...(deferred.get(provider)?.values() ?? [])]) {
         const record = await options.records.read(waiter.key)
@@ -250,15 +279,19 @@ export function createOrchestrationPacingCoordinator(
           forget(waiter)
           continue
         }
-        if (recommendation.state === 'unrestricted') {
+        // Once a fresh reading established a pause, a failed/missing refresh cannot reopen it via
+        // the unavailable-usage reserve. Only another fresh reading can establish that the policy
+        // is unrestricted; until then the bounded Toucan retry remains the next check.
+        const keepPause = waiter.recommendation.state === 'pause' && recommendation.freshness !== 'fresh'
+        if (recommendation.state === 'unrestricted' && !keepPause) {
           waiter.reopened = true
           ready.push(waiter)
           continue
         }
-        waiter.recommendation = recommendation
+        waiter.recommendation = keepPause ? schedulableDeferral(waiter.recommendation) : recommendation
         waiter.reopened = false
         waiter.wakeAccepted = false
-        await remember(waiter.key, waiter.orchestratorNodeId, recommendation)
+        await remember(waiter.key, waiter.orchestratorNodeId, waiter.recommendation)
       }
       arm(provider)
       return ready
@@ -294,13 +327,27 @@ export function createOrchestrationPacingCoordinator(
         return { admitted: true, release: () => undefined }
       }
 
+      // A caller retrying an already-deferred spawn receives the same refusal. It cannot turn the
+      // CLI into a second usage poller, replace the reset timer or enqueue another wake.
+      const remembered = deferred.get(key.provider)?.get(keyId(key))
+      const rememberedAdmission = remembered ? admissionFrom(key.provider, remembered.recommendation) : undefined
+      if (rememberedAdmission) return rememberedAdmission
+      const persisted = await options.records.read(key)
+      const persistedAdmission = persisted?.pacing
+        ? admissionFrom(key.provider, recommendationFrom(persisted.pacing))
+        : undefined
+      if (persistedAdmission) return persistedAdmission
+
       // Start the provider read before entering the provider queue. Concurrent calls therefore join
       // ProviderUsage's in-flight request, while the decisions that consume it remain serialized.
       const reading = options.usage
         .readProvider(key.provider, { force: true })
         .catch((): ProviderUsageReadResult => ({ state: 'failed' }))
       return serial(key.provider, async (): Promise<OrchestrationPacingAdmission> => {
-        const recommendation = await decide(key.provider, await reading)
+        const existing = deferred.get(key.provider)?.get(keyId(key))
+        const existingAdmission = existing ? admissionFrom(key.provider, existing.recommendation) : undefined
+        if (existingAdmission) return existingAdmission
+        const recommendation = schedulableDeferral(await decide(key.provider, await reading))
         options.log?.(
           `enforced pacing spawn provider=${key.provider} state=${recommendation.state} freshness=${recommendation.freshness} ` +
             `active=${recommendation.activeTicketSessions} reason=${recommendation.reason} window=${recommendation.constrainingWindow}`
@@ -308,14 +355,7 @@ export function createOrchestrationPacingCoordinator(
         if (recommendation.state !== 'unrestricted') {
           await remember(key, orchestratorNodeId, recommendation)
           arm(key.provider)
-          return {
-            admitted: false,
-            deferred: true,
-            provider: key.provider,
-            state: recommendation.state,
-            reason: recommendation.reason,
-            ...(recommendation.resetsAt !== undefined ? { retryAt: recommendation.resetsAt } : {})
-          }
+          return admissionFrom(key.provider, recommendation)!
         }
 
         const waiter = deferred.get(key.provider)?.get(keyId(key))

@@ -96,10 +96,6 @@ export function decideOrchestrationPacing(
 
   const fiveHour = input.usage.status.fiveHour
   if (!fiveHour) return recommendation(input, 'unrestricted', 'no_five_hour_window', 'none')
-  // A reported reset ends a pause even if a just-expired reading has not been replaced yet.
-  if (fiveHour.resetsAt !== undefined && fiveHour.resetsAt <= input.now) {
-    return recommendation(input, 'unrestricted', 'five_hour_reset_elapsed', 'none')
-  }
   if (fiveHour.usedPercent >= policy.fiveHour.pauseAtPercent) {
     return recommendation(input, 'pause', 'five_hour_pause_threshold', 'five_hour', fiveHour.resetsAt)
   }

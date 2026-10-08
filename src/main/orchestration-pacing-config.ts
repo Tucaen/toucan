@@ -15,7 +15,7 @@ export interface OrchestrationPacingConfig extends OrchestrationPacingPolicy {
 
 /** @internal exported for tests */
 export const DEFAULT_ORCHESTRATION_PACING_CONFIG: OrchestrationPacingConfig = {
-  enabled: false,
+  enabled: true,
   fiveHour: { ...DEFAULT_ORCHESTRATION_PACING_POLICY.fiveHour },
   unavailableUsage: { ...DEFAULT_ORCHESTRATION_PACING_POLICY.unavailableUsage }
 }

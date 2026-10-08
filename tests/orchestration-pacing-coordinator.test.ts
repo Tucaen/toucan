@@ -170,6 +170,114 @@ test('a paused provider re-reads at each reset and wakes once only after the fre
   coordinator.close()
 })
 
+test('an elapsed reset that remains above threshold retries on a bounded backoff without reopening', async () => {
+  const records = createOrchestrationStore({ directory: mkdtempSync(join(tmpdir(), 'toucan-pacing-backoff-')) })
+  const value = record('claude', 'conversation-1', 'D:\\project')
+  await put(records, value)
+  let clock = NOW
+  let usedPercent = 90
+  let failRead = false
+  let reads = 0
+  const usage = createProviderUsage({
+    readers: {
+      claude: {
+        read: () => {
+          reads += 1
+          if (failRead) throw new Error('usage unavailable')
+          return { fiveHour: { usedPercent, resetsAt: NOW } }
+        }
+      }
+    },
+    ttlMs: 60_000,
+    now: () => clock
+  })
+  const scheduler = manualSchedule()
+  const wakes: string[] = []
+  const coordinator = createOrchestrationPacingCoordinator({
+    records,
+    usage,
+    enabled: true,
+    activeTicketSessions: () => 0,
+    wake: async (_nodeId, prompt) => {
+      wakes.push(prompt)
+      return { ok: true }
+    },
+    now: () => clock,
+    schedule: scheduler.schedule,
+    expiredResetRetryMs: 0
+  })
+
+  assert.deepEqual(await coordinator.admit({ key: value, orchestratorNodeId: 'captain' }), {
+    admitted: false,
+    deferred: true,
+    provider: 'claude',
+    state: 'pause',
+    reason: 'five_hour_pause_threshold',
+    retryAt: NOW + 1_000
+  })
+  assert.equal(scheduler.tasks[0]?.ms, 1_000)
+
+  failRead = true
+  clock += 1_000
+  scheduler.runNext()
+  await coordinator.idle()
+  assert.equal(reads, 2)
+  assert.equal(wakes.length, 0)
+  assert.equal((await records.read(value))?.pacing?.retryAt, NOW + 2_000)
+  assert.equal(scheduler.tasks.filter((task) => !task.cancelled)[0]?.ms, 1_000)
+
+  failRead = false
+  usedPercent = 20
+  clock += 1_000
+  scheduler.runNext()
+  await coordinator.idle()
+  assert.equal(reads, 3)
+  assert.equal(wakes.length, 1)
+  assert.equal((await records.read(value))?.pacing, undefined)
+  coordinator.close()
+})
+
+test('a repeated admission returns its existing deferral without another read, timer or wake', async () => {
+  const records = createOrchestrationStore({ directory: mkdtempSync(join(tmpdir(), 'toucan-pacing-repeat-')) })
+  const value = record('claude', 'conversation-1', 'D:\\project')
+  await put(records, value)
+  let reads = 0
+  const usage = createProviderUsage({
+    readers: {
+      claude: {
+        read: () => {
+          reads += 1
+          return { fiveHour: { usedPercent: 90, resetsAt: NOW + 60_000 } }
+        }
+      }
+    },
+    ttlMs: 60_000,
+    now: () => NOW
+  })
+  const scheduler = manualSchedule()
+  const wakes: string[] = []
+  const coordinator = createOrchestrationPacingCoordinator({
+    records,
+    usage,
+    enabled: true,
+    activeTicketSessions: () => 0,
+    wake: async (_nodeId, prompt) => {
+      wakes.push(prompt)
+      return { ok: true }
+    },
+    now: () => NOW,
+    schedule: scheduler.schedule
+  })
+
+  const first = await coordinator.admit({ key: value, orchestratorNodeId: 'captain' })
+  const repeated = await coordinator.admit({ key: value, orchestratorNodeId: 'captain' })
+  assert.deepEqual(repeated, first)
+  assert.equal(reads, 1)
+  assert.equal(scheduler.tasks.length, 1)
+  assert.equal(wakes.length, 0)
+  coordinator.close()
+})
+
 test('a durable deferral is restored after restart and enforcement can be disabled', async () => {
   const records = createOrchestrationStore({ directory: mkdtempSync(join(tmpdir(), 'toucan-pacing-restart-')) })
   const value = record('claude', 'conversation-1', 'D:\\project')

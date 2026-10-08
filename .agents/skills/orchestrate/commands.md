@@ -28,7 +28,7 @@ Read it when deciding whether to dispatch, retry, or resume work after a usage-l
 
 ## plan show
 
-`plan show` prints `{ ok: true, record }`. `record` is `null` until the first `plan set`; otherwise it carries `task`, `targetBranch`, `tickets` and `spawnCount`. A proactively deferred record also carries `pacing` with its state, reason and `retryAt` when the provider reported one. Each ticket has `id`, `title`, `body` or `source`, `blockedBy`, `attempts`, `mergeStatus` (`pending`, `merged`, `unmerged`), and `route` and `session` once set.
+`plan show` prints `{ ok: true, record }`. `record` is `null` until the first `plan set`; otherwise it carries `task`, `targetBranch`, `tickets` and `spawnCount`. A proactively deferred record also carries `pacing` with its state, reason and `retryAt` when a provider reset or Toucan-owned bounded recheck is scheduled. Each ticket has `id`, `title`, `body` or `source`, `blockedBy`, `attempts`, `mergeStatus` (`pending`, `merged`, `unmerged`), and `route` and `session` once set.
 
 ## plan set
 
@@ -106,7 +106,7 @@ When Jev is unavailable (no `TYPESAFE_API_KEY`, a timeout, an error), `route` ex
 - Orchestrations are provider-homogeneous: the ticket session runs on your own provider, so a Claude orchestrator spawns Claude sessions and a Codex orchestrator Codex sessions, each routed through that provider's own tier mapping. `--provider` may only name your own provider, and `--project` only the orchestrator's own project.
 - Ticket sessions commit to their branch and cannot push: a hook refuses it. You merge each branch into `targetBranch` yourself, then record it with `ticket update <id> --json '{"mergeStatus":"merged"}'`.
 - An orchestration has 20 spawns in total. Each call counts before anything is created, so failed spawns, retries and escalations count too. Once they are used, spawn is refused; list what is left for human review.
-- Before that count or any Git, setup or canvas work, Toucan atomically checks fresh provider usage against provider-wide active ticket work. A pacing refusal is `{ ok: false, deferred: true, provider, state, reason, retryAt? }`; it consumes no spawn and leaves no artifact. End the turn with the deferral recorded. Toucan owns reset rechecks and wakes you when the gate reopens; then reread `usage`, `status` and `plan show` before one retry. Waiting happens through that wake, never through a shell sleep or polling loop.
+- Before that count or any Git, setup or canvas work, Toucan atomically checks fresh provider usage against provider-wide active ticket work. A pacing refusal is `{ ok: false, deferred: true, provider, state, reason, retryAt? }`; it consumes no spawn and leaves no artifact. End the turn with the deferral recorded. Repeating `spawn` while it remains deferred only returns the same refusal; it does not force a usage read or hasten the timer. Toucan owns reset rechecks and wakes you when the gate reopens; then reread `usage`, `status` and `plan show` before one retry. Waiting happens through that wake, never through a shell sleep or polling loop.
 - A failure before the session opens removes the new worktree and branch again; after the session opens, they stay and `error` names the worktree.
 
 ## Being woken

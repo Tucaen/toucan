@@ -179,21 +179,25 @@ The initial curve is unrestricted below 70% of the fresh five-hour window, drain
 below 85% while ticket work is active, and pause until the reported reset at 85% or above. A stale
 or unavailable reading keeps a one-active-ticket reserve; weekly and model-scoped windows stay
 reported but do not drive the curve. `<userData>/orchestration-pacing.json` is the global policy
-seam. Enforcement defaults to disabled; setting `enabled` to `true` turns it on without changing
-provider, model, effort or billing selection, while `fiveHour` and `unavailableUsage` adjust the two
-thresholds and reserve. Toucan writes the defaults on first start and reads the file at startup;
-edits apply after restart. An invalid file is logged and safely disables proactive enforcement
-rather than silently substituting thresholds the user did not choose. The file deliberately has no
-project override because projects sharing one provider must not contend under different policies.
+seam. Enforcement ships enabled; setting `enabled` to `false` explicitly disables it without
+changing provider, model, effort or billing selection, while `fiveHour` and `unavailableUsage`
+adjust the two thresholds and reserve. Toucan writes the defaults on first start and reads the file
+at startup; edits apply after restart. An invalid file is logged and safely disables proactive
+enforcement rather than silently substituting thresholds the user did not choose. The file
+deliberately has no project override because projects sharing one provider must not contend under
+different policies.
 
 `drain` rechecks when provider-wide active work changes. `pause` arms a Toucan timer for the
 reported reset. Both paths force a fresh/coalesced usage read before reopening; repeated activity
-signals and reset callbacks share one recheck, and a past reset that still reports a pause is not
-scheduled into a zero-delay loop. A durable per-orchestration `pacing` record restores the timer and
-recheck after restart. Once reopened, Toucan wakes the orchestrator once with instructions to read
-`usage`, `status` and `plan show` before retrying. Proactive pacing stays separate from the reactive
-provider-rejection lifecycle pause, and it does not suppress ticket completion wakes or outcome
-records.
+signals and reset callbacks share one recheck. A fresh reading still above the pause threshold never
+reopens merely because its reported reset is in the past: Toucan records a future 30-second retry
+and checks again, so a failed or missing refresh also cannot release that established pause through
+the unavailable-usage reserve. Repeated `spawn` calls while that orchestration is already deferred
+return its stored structured refusal without another usage read, timer or wake. A durable
+per-orchestration `pacing` record restores the timer and recheck after restart. Once reopened, Toucan
+wakes the orchestrator once with instructions to read `usage`, `status` and `plan show` before
+retrying. Proactive pacing stays separate from the reactive provider-rejection lifecycle pause, and
+it does not suppress ticket completion wakes or outcome records.
 
 The coordinator preserves already-running work and never changes provider, model, effort or billing.
 Its admission queues, provisional counts and wake coalescing are in memory across every project in

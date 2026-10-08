@@ -373,12 +373,22 @@ test('every spawn attempt logs a cached shadow recommendation without delaying w
 
 test('enforced pacing returns a structured deferral before reserving or calling the spawner', async () => {
   const records = createOrchestrationStore({ directory: mkdtempSync(join(tmpdir(), 'toucan-orchestrator-enforced-')) })
+  let reads = 0
   const providerUsage = createProviderUsage({
-    readers: { claude: { read: () => ({ fiveHour: { usedPercent: 90, resetsAt: 123_456 } }) } },
+    readers: {
+      claude: {
+        read: () => {
+          reads += 1
+          return { fiveHour: { usedPercent: 90, resetsAt: 100_000 } }
+        }
+      }
+    },
     ttlMs: 60_000,
     now: () => 100_000
   })
   const spawner = fakeSpawner()
+  let scheduled = 0
+  let wakes = 0
   const endpoint = createOrchestratorEndpoint({
     records,
     spawner,
@@ -386,7 +396,14 @@ test('enforced pacing returns a structured deferral before reserving or calling 
     pacing: {
       enforce: true,
       activeTicketSessions: () => 0,
-      wake: async () => ({ ok: true })
+      wake: async () => {
+        wakes += 1
+        return { ok: true }
+      },
+      schedule: () => {
+        scheduled += 1
+        return () => undefined
+      }
     },
     now: () => new Date(100_000).toISOString()
   })
@@ -402,7 +419,12 @@ test('enforced pacing returns a structured deferral before reserving or calling 
     assert.equal(reply.body.provider, 'claude')
     assert.equal(reply.body.state, 'pause')
     assert.equal(reply.body.reason, 'five_hour_pause_threshold')
-    assert.equal(reply.body.retryAt, 123_456)
+    assert.equal(reply.body.retryAt, 130_000)
+    const repeated = await call(grant, 'spawn', spawn34)
+    assert.deepEqual(repeated, reply)
+    assert.equal(reads, 1)
+    assert.equal(scheduled, 1)
+    assert.equal(wakes, 0)
     const record = await records.read({ provider: 'claude', conversationId: 'conversation-1' })
     assert.equal(record?.spawnCount, undefined)
     assert.equal(record?.pacing?.state, 'pause')
@@ -411,7 +433,7 @@ test('enforced pacing returns a structured deferral before reserving or calling 
     assert.equal((status.body.pacing as { reason?: string }).reason, 'five_hour_pause_threshold')
     assert.equal(
       ((await call(grant, 'plan show')).body.record as { pacing?: { retryAt?: number } }).pacing?.retryAt,
-      123_456
+      130_000
     )
     assert.equal(spawner.calls.length, 0)
   } finally {

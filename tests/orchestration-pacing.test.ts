@@ -78,18 +78,19 @@ test('the five-hour curve is deterministic at its thresholds and preserves an id
   )
 })
 
-test('a five-hour reset releases the advisory pause without estimating a new usage value', () => {
+test('an elapsed reset does not release a fresh reading that remains above the pause threshold', () => {
   assert.deepEqual(
     decideOrchestrationPacing(
       input({ usage: { status: { fiveHour: { usedPercent: 100, resetsAt: NOW } }, readAt: NOW - 1, stale: false } })
     ),
     {
       action: 'spawn',
-      state: 'unrestricted',
-      reason: 'five_hour_reset_elapsed',
-      constrainingWindow: 'none',
+      state: 'pause',
+      reason: 'five_hour_pause_threshold',
+      constrainingWindow: 'five_hour',
       freshness: 'fresh',
-      activeTicketSessions: 0
+      activeTicketSessions: 0,
+      resetsAt: NOW
     }
   )
 })

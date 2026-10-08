@@ -12,7 +12,6 @@ export const ORCHESTRATION_PACING_REASONS = [
   'five_hour_below_drain_threshold',
   'five_hour_drain_active_ticket_work',
   'five_hour_pause_threshold',
-  'five_hour_reset_elapsed',
   'no_five_hour_window',
   'stale_usage_reserve_available',
   'stale_usage_reserve_exhausted',

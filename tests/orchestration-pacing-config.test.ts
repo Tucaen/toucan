@@ -13,7 +13,7 @@ const fresh = (): string => mkdtempSync(join(tmpdir(), 'toucan-orchestration-pac
 
 test('a missing pacing config uses and writes the documented defaults', async () => {
   const loaded = await loadOrchestrationPacingConfig({ userDataPath: fresh() })
-  assert.equal(loaded.config?.enabled, false)
+  assert.equal(loaded.config?.enabled, true)
   assert.deepEqual(loaded.config, DEFAULT_ORCHESTRATION_PACING_CONFIG)
   assert.equal(loaded.error, undefined)
   assert.deepEqual(JSON.parse(readFileSync(loaded.path, 'utf8')), DEFAULT_ORCHESTRATION_PACING_CONFIG)
