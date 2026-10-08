@@ -3,6 +3,8 @@ import { test } from 'vitest'
 import {
   applyPlan,
   applyTicketUpdate,
+  clearOrchestrationPacing,
+  deferOrchestration,
   MAX_SPAWNS_PER_ORCHESTRATION,
   TICKET_CONTRACT_HEADING,
   isOrchestrationRecord,
@@ -343,6 +345,44 @@ test('pause, resume and stop are durable orchestration states that gate spawning
   assert.match(reserveSpawn(stopped, '33', LATER).error ?? '', /stopped/)
   assert.equal(resumeOrchestration(stopped, LATER), stopped)
   assert.ok(isOrchestrationRecord(JSON.parse(JSON.stringify(stopped))))
+})
+
+test('a proactive pacing deferral is durable, survives replanning and yields to a real provider pause', () => {
+  const original = recordFrom(twoTickets)
+  const deferred = deferOrchestration(
+    original,
+    {
+      action: 'spawn',
+      state: 'pause',
+      reason: 'five_hour_pause_threshold',
+      constrainingWindow: 'five_hour',
+      freshness: 'fresh',
+      activeTicketSessions: 1,
+      resetsAt: Date.parse(LATER)
+    },
+    NOW
+  )
+
+  assert.deepEqual(deferred.pacing, {
+    state: 'pause',
+    reason: 'five_hour_pause_threshold',
+    constrainingWindow: 'five_hour',
+    freshness: 'fresh',
+    activeTicketSessions: 1,
+    retryAt: Date.parse(LATER),
+    deferredAt: NOW
+  })
+  assert.equal(deferred.spawnCount, undefined)
+  assert.ok(isOrchestrationRecord(JSON.parse(JSON.stringify(deferred))))
+  assert.deepEqual(applyPlan(deferred, planned(twoTickets), identity, LATER).record?.pacing, deferred.pacing)
+
+  const cleared = clearOrchestrationPacing(deferred, LATER)
+  assert.equal(cleared.pacing, undefined)
+  assert.equal(clearOrchestrationPacing(cleared, LATER), cleared)
+
+  const reactive = pauseOrchestration(deferred, 'node-33', Date.parse(LATER), LATER)
+  assert.equal(reactive.pacing, undefined)
+  assert.equal(reactive.lifecycle?.status, 'paused')
 })
 
 test('the spawned session is recorded against its ticket', () => {

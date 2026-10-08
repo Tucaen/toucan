@@ -1,45 +1,21 @@
 import type { ProviderUsageEntry } from './agent'
+import type {
+  OrchestrationPacingAction,
+  OrchestrationPacingConstrainingWindow,
+  OrchestrationPacingRecommendation,
+  OrchestrationPacingReason,
+  OrchestrationPacingState,
+  OrchestrationUsageFreshness
+} from './orchestration-pacing-types'
 
-/** The action an orchestration pacing recommendation currently advises on. */
-export type OrchestrationPacingAction = 'spawn'
-
-/** Whether the decision can rely on the provider reading it was given. */
-export type OrchestrationUsageFreshness = 'fresh' | 'stale' | 'unavailable'
-
-/** The advisory state for one provider-wide orchestration decision. */
-export type OrchestrationPacingState = 'unrestricted' | 'drain' | 'pause'
-
-/** The stable explanation for an advisory pacing state. */
-export type OrchestrationPacingReason =
-  | 'five_hour_below_drain_threshold'
-  | 'five_hour_drain_active_ticket_work'
-  | 'five_hour_pause_threshold'
-  | 'five_hour_reset_elapsed'
-  | 'no_five_hour_window'
-  | 'stale_usage_reserve_available'
-  | 'stale_usage_reserve_exhausted'
-  | 'unavailable_usage_reserve_available'
-  | 'unavailable_usage_reserve_exhausted'
-  | 'usage_entry_missing'
-
-/** What constrained the recommendation, rather than a provider-specific token estimate. */
-export type OrchestrationPacingConstrainingWindow = 'five_hour' | 'usage_freshness' | 'none'
-
-/**
- * One provider-neutral, advisory answer for an orchestration action. `drain` leaves the remaining
- * window for existing ticket work to reach review or merge; `pause` advises waiting for reset.
- * Neither state stops already-running work or changes what the endpoint will accept in shadow mode.
- */
-export interface OrchestrationPacingRecommendation {
-  action: OrchestrationPacingAction
-  state: OrchestrationPacingState
-  reason: OrchestrationPacingReason
-  constrainingWindow: OrchestrationPacingConstrainingWindow
-  freshness: OrchestrationUsageFreshness
-  activeTicketSessions: number
-  /** The five-hour reset that releases a pause, when the provider reported one. */
-  resetsAt?: number
-}
+export type {
+  OrchestrationPacingAction,
+  OrchestrationPacingConstrainingWindow,
+  OrchestrationPacingRecommendation,
+  OrchestrationPacingReason,
+  OrchestrationPacingState,
+  OrchestrationUsageFreshness
+} from './orchestration-pacing-types'
 
 /** Inputs available at the endpoint, deliberately independent of any particular provider. */
 export interface OrchestrationPacingInput {
@@ -52,7 +28,7 @@ export interface OrchestrationPacingInput {
 }
 
 /**
- * The one policy seam for the shadow curve and its conservative reserve. The reserve applies only
+ * The one policy seam for the pacing curve and its conservative reserve. The reserve applies only
  * when usage cannot be trusted: one ticket may continue or start, while further work drains.
  */
 export interface OrchestrationPacingPolicy {

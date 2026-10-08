@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { test } from 'vitest'
 import { createOrchestrationController, orchestrationResetAt } from '../src/main/orchestration-control'
 import { createOrchestrationStore } from '../src/main/orchestration-store'
-import { applyPlan, parsePlanInput, type OrchestrationRecord } from '../src/shared/orchestration'
+import { applyPlan, deferOrchestration, parsePlanInput, type OrchestrationRecord } from '../src/shared/orchestration'
 
 const key = { provider: 'claude' as const, conversationId: 'conversation-1' }
 const RESET = Date.parse('2026-09-30T15:00:00.000Z')
@@ -81,6 +81,26 @@ test('the reset is the last saturated window to clear, or the next reported rese
     orchestrationResetAt({ rejected: true, fiveHour: { usedPercent: 100, resetsAt: RESET } }, RESET + 1),
     RESET + 1
   )
+})
+
+test('proactive pacing does not suppress ticket completion wakes or outcome evidence', async () => {
+  const { records, controller } = harness()
+  const paced = deferOrchestration(
+    record(),
+    {
+      action: 'spawn',
+      state: 'drain',
+      reason: 'five_hour_drain_active_ticket_work',
+      constrainingWindow: 'five_hour',
+      freshness: 'fresh',
+      activeTicketSessions: 1
+    },
+    '2026-09-30T12:30:00.000Z'
+  )
+  await records.update(key, () => ({ value: paced, result: undefined }))
+
+  assert.equal(await controller.mayWake('orchestrator'), true)
+  assert.equal((await records.read(key))?.tickets[0].session?.conversationId, 'ticket-conversation-1')
 })
 
 test('the record is paused before the provider usage read returns', async () => {

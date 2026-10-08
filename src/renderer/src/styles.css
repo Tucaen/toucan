@@ -2181,6 +2181,7 @@ button.global-status-chip:hover {
 }
 
 .node-orchestration-paused,
+.node-orchestration-pacing,
 .node-orchestration-stopped {
   color: var(--usage-warning);
   font-size: 0.68rem;

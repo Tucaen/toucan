@@ -115,8 +115,8 @@ export function createProviderUsage(options: ProviderUsageOptions): ProviderUsag
     peekProvider(provider) {
       const cached = cache.get(provider)
       if (!cached) return { state: 'missing' }
-      // A spawn must not refresh usage itself, but an expired cache entry is no longer fresh
-      // enough for its pacing decision. Preserve its value for the conservative fallback.
+      // Shadow spawn logging does not refresh usage itself, but an expired cache entry is no longer
+      // fresh enough for its pacing decision. Preserve its value for the conservative fallback.
       const entry = cached.result.entry
       return cached.expiresAt > now() || !entry ? cached.result : { ...cached.result, entry: keptAsStale(entry) }
     },

@@ -22,13 +22,13 @@ Read `error` and act on it; a refusal writes nothing to the record.
 
 ## usage
 
-`usage` prints `{ ok: true, provider, usage, state, pacing }` for the orchestrator's own provider only. `usage` is a normalized `ProviderUsageEntry` (`status`, `readAt`, `stale`) or `null`; `state` is `available`, `missing`, or `failed`, so an absent reading and a failed refresh are never conflated. A failed or missing refresh can retain a stale last-known `usage` entry. `pacing` is `{ "state": "unknown" }` until Toucan can make a recommendation; treat that explicitly as no recommendation, not permission to poll.
+`usage` prints `{ ok: true, provider, usage, state, pacing }` for the orchestrator's own provider only. `usage` is a normalized `ProviderUsageEntry` (`status`, `readAt`, `stale`) or `null`; `state` is `available`, `missing`, or `failed`, so an absent reading and a failed refresh are never conflated. A failed or missing refresh can retain a stale last-known `usage` entry. `pacing` carries the current `unrestricted`, `drain`, or `pause` recommendation with its stable `reason`, freshness and provider-wide active-ticket count.
 
 Read it when deciding whether to dispatch, retry, or resume work after a usage-limit pause. Do not poll it: Toucan uses a shared cache and forced reads coalesce, but polling still asks a provider for account state without making progress. The command starts no model turn and never exposes credentials, raw provider payloads, or another provider's usage.
 
 ## plan show
 
-`plan show` prints `{ ok: true, record }`. `record` is `null` until the first `plan set`; otherwise it carries `task`, `targetBranch`, `tickets` and `spawnCount`. Each ticket has `id`, `title`, `body` or `source`, `blockedBy`, `attempts`, `mergeStatus` (`pending`, `merged`, `unmerged`), and `route` and `session` once set.
+`plan show` prints `{ ok: true, record }`. `record` is `null` until the first `plan set`; otherwise it carries `task`, `targetBranch`, `tickets` and `spawnCount`. A proactively deferred record also carries `pacing` with its state, reason and `retryAt` when the provider reported one. Each ticket has `id`, `title`, `body` or `source`, `blockedBy`, `attempts`, `mergeStatus` (`pending`, `merged`, `unmerged`), and `route` and `session` once set.
 
 ## plan set
 
@@ -106,6 +106,7 @@ When Jev is unavailable (no `TYPESAFE_API_KEY`, a timeout, an error), `route` ex
 - Orchestrations are provider-homogeneous: the ticket session runs on your own provider, so a Claude orchestrator spawns Claude sessions and a Codex orchestrator Codex sessions, each routed through that provider's own tier mapping. `--provider` may only name your own provider, and `--project` only the orchestrator's own project.
 - Ticket sessions commit to their branch and cannot push: a hook refuses it. You merge each branch into `targetBranch` yourself, then record it with `ticket update <id> --json '{"mergeStatus":"merged"}'`.
 - An orchestration has 20 spawns in total. Each call counts before anything is created, so failed spawns, retries and escalations count too. Once they are used, spawn is refused; list what is left for human review.
+- Before that count or any Git, setup or canvas work, Toucan atomically checks fresh provider usage against provider-wide active ticket work. A pacing refusal is `{ ok: false, deferred: true, provider, state, reason, retryAt? }`; it consumes no spawn and leaves no artifact. End the turn with the deferral recorded. Toucan owns reset rechecks and wakes you when the gate reopens; then reread `usage`, `status` and `plan show` before one retry. Waiting happens through that wake, never through a shell sleep or polling loop.
 - A failure before the session opens removes the new worktree and branch again; after the session opens, they stay and `error` names the worktree.
 
 ## Being woken
@@ -121,11 +122,11 @@ Toucan: your ticket sessions reported in.
 
 `completed (background work pending: N tasks)` means the turn ended with background work it started still running - a backgrounded shell or subagent. That work's result arrives in a further turn, which wakes you again; until then the outcome record is not final.
 
-Events that arrive close together come as one message. The message names the event and where to read more; it never carries a ticket session's transcript. A message that arrives while you are working reaches you at your next safe boundary.
+Events that arrive close together come as one message. The message names the event and where to read more; it never carries a ticket session's transcript. A message that arrives while you are working reaches you at your next safe boundary. A provider-pacing reopen wake explicitly asks you to reread `usage`, `status` and `plan show`; it is the retry signal for a deferred spawn.
 
 ## status
 
-`status` prints `{ ok: true, tickets, pendingPermissionPrompts }`. Each ticket has `id`, `title`, `blockedBy`, `attempts`, `mergeStatus`, `session` (or `null`), `route` (or `null`), and:
+`status` prints `{ ok: true, tickets, pacing, pendingPermissionPrompts }`. `pacing` is the durable proactive deferral or `null`. Each ticket has `id`, `title`, `blockedBy`, `attempts`, `mergeStatus`, `session` (or `null`), `route` (or `null`), and:
 
 - `state`: `not spawned`, `not running` (Toucan is not running its session, e.g. after a restart), or the live session's `starting`, `ready`, `working`, `auth_required`, `exited`.
 - `permissionPrompt`: `{ title, answeredBy: "human" }` while the session waits on a tool-permission prompt, else `null`.

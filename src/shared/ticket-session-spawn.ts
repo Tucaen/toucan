@@ -2,6 +2,7 @@ import type { JevReachability } from './orchestration-routing'
 import { isAgentProvider, type AgentProvider } from './agent-provider'
 import { isRecord } from './record'
 import type { TicketCleanupRequest, TicketCleanupResult } from './orchestration-cleanup'
+import type { OrchestrationPacingReason } from './orchestration-pacing-types'
 
 /**
  * The canvas half of spawning a ticket session (#34). Main creates the worktree, guards it and
@@ -70,6 +71,11 @@ export interface OrchestrationControlState {
   conversationId: string
   status: 'running' | 'paused' | 'stopped'
   resetsAt?: number
+  pacing?: {
+    state: 'drain' | 'pause'
+    reason: OrchestrationPacingReason
+    retryAt?: number
+  }
 }
 
 /** The renderer's side of the request, exposed on `window.orchestratorApi`. */

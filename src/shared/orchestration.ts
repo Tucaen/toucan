@@ -1,4 +1,10 @@
 import { isAgentProvider, type AgentProvider } from './agent-provider'
+import {
+  ORCHESTRATION_PACING_REASONS,
+  type OrchestrationPacingRecommendation,
+  type OrchestrationPacingReason,
+  type OrchestrationUsageFreshness
+} from './orchestration-pacing-types'
 import { isRecord } from './record'
 
 /**
@@ -148,6 +154,17 @@ export interface OrchestrationTicket {
 export type OrchestrationLifecycle =
   { status: 'paused'; resetsAt?: number; affectedNodeIds: string[] } | { status: 'stopped' }
 
+/** A proactive spawn deferral, kept apart from an actual provider-rejection lifecycle pause. */
+export interface OrchestrationPacingDeferral {
+  state: 'drain' | 'pause'
+  reason: OrchestrationPacingReason
+  constrainingWindow: 'five_hour' | 'usage_freshness' | 'none'
+  freshness: OrchestrationUsageFreshness
+  activeTicketSessions: number
+  retryAt?: number
+  deferredAt: string
+}
+
 export interface OrchestrationRecord {
   version: 1
   provider: AgentProvider
@@ -165,6 +182,8 @@ export interface OrchestrationRecord {
   spawnCount?: number
   /** Absent is the normal running state, preserving records written before pause/stop existed. */
   lifecycle?: OrchestrationLifecycle
+  /** Durable proactive pacing state; absent when this orchestration may attempt a spawn. */
+  pacing?: OrchestrationPacingDeferral
   createdAt: string
   updatedAt: string
 }
@@ -313,6 +332,7 @@ export function applyPlan(
       }),
       ...(existing?.spawnCount ? { spawnCount: existing.spawnCount } : {}),
       ...(existing?.lifecycle ? { lifecycle: existing.lifecycle } : {}),
+      ...(existing?.pacing ? { pacing: existing.pacing } : {}),
       createdAt: existing?.createdAt ?? now,
       updatedAt: now
     }
@@ -466,6 +486,21 @@ function isOrchestrationLifecycle(value: unknown): value is OrchestrationLifecyc
   )
 }
 
+function isOrchestrationPacingDeferral(value: unknown): value is OrchestrationPacingDeferral {
+  return (
+    isRecord(value) &&
+    (value.state === 'drain' || value.state === 'pause') &&
+    ORCHESTRATION_PACING_REASONS.includes(value.reason as OrchestrationPacingReason) &&
+    (value.constrainingWindow === 'five_hour' ||
+      value.constrainingWindow === 'usage_freshness' ||
+      value.constrainingWindow === 'none') &&
+    (value.freshness === 'fresh' || value.freshness === 'stale' || value.freshness === 'unavailable') &&
+    isNonNegativeInteger(value.activeTicketSessions) &&
+    (value.retryAt === undefined || isFiniteNumber(value.retryAt)) &&
+    nonEmptyString(value.deferredAt)
+  )
+}
+
 /** The store's parse predicate: a record on disk is used only if every field still holds. */
 export function isOrchestrationRecord(value: unknown): value is OrchestrationRecord {
   return (
@@ -480,6 +515,7 @@ export function isOrchestrationRecord(value: unknown): value is OrchestrationRec
     value.tickets.every(isOrchestrationTicket) &&
     (value.spawnCount === undefined || isNonNegativeInteger(value.spawnCount)) &&
     (value.lifecycle === undefined || isOrchestrationLifecycle(value.lifecycle)) &&
+    (value.pacing === undefined || isOrchestrationPacingDeferral(value.pacing)) &&
     typeof value.createdAt === 'string' &&
     typeof value.updatedAt === 'string'
   )
@@ -609,6 +645,32 @@ export function reserveSpawn(
   return { record: { ...record, spawnCount: used + 1, updatedAt: now } }
 }
 
+/** Records a proactive provider-wide deferral without consuming a spawn or changing ticket work. */
+export function deferOrchestration(
+  record: OrchestrationRecord,
+  recommendation: OrchestrationPacingRecommendation,
+  now: string
+): OrchestrationRecord {
+  if (record.lifecycle !== undefined || recommendation.state === 'unrestricted') return record
+  const pacing: OrchestrationPacingDeferral = {
+    state: recommendation.state,
+    reason: recommendation.reason,
+    constrainingWindow: recommendation.constrainingWindow,
+    freshness: recommendation.freshness,
+    activeTicketSessions: recommendation.activeTicketSessions,
+    ...(recommendation.resetsAt !== undefined ? { retryAt: recommendation.resetsAt } : {}),
+    deferredAt: record.pacing?.deferredAt ?? now
+  }
+  return { ...record, pacing, updatedAt: now }
+}
+
+/** Clears only proactive pacing; a provider-rejection pause and a stopped record remain intact. */
+export function clearOrchestrationPacing(record: OrchestrationRecord, now: string): OrchestrationRecord {
+  if (!record.pacing) return record
+  const { pacing: _pacing, ...running } = record
+  return { ...running, updatedAt: now }
+}
+
 /** Records a provider usage pause without turning it into a ticket attempt or escalation. */
 export function pauseOrchestration(
   record: OrchestrationRecord,
@@ -617,10 +679,11 @@ export function pauseOrchestration(
   now: string
 ): OrchestrationRecord {
   if (record.lifecycle?.status === 'stopped') return record
+  const { pacing: _pacing, ...withoutProactivePacing } = record
   const previous = record.lifecycle?.status === 'paused' ? record.lifecycle : undefined
   const knownResets = [previous?.resetsAt, resetsAt].filter((value): value is number => value !== undefined)
   return {
-    ...record,
+    ...withoutProactivePacing,
     lifecycle: {
       status: 'paused',
       ...(knownResets.length > 0 ? { resetsAt: Math.max(...knownResets) } : {}),
@@ -640,7 +703,8 @@ export function resumeOrchestration(record: OrchestrationRecord, now: string): O
 /** Permanently retires this orchestration while retaining its plan and ticket history. */
 export function stopOrchestration(record: OrchestrationRecord, now: string): OrchestrationRecord {
   if (record.lifecycle?.status === 'stopped') return record
-  return { ...record, lifecycle: { status: 'stopped' }, updatedAt: now }
+  const { pacing: _pacing, ...withoutProactivePacing } = record
+  return { ...withoutProactivePacing, lifecycle: { status: 'stopped' }, updatedAt: now }
 }
 
 /**

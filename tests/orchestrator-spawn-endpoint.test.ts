@@ -370,3 +370,96 @@ test('every spawn attempt logs a cached shadow recommendation without delaying w
     await endpoint.close()
   }
 })
+
+test('enforced pacing returns a structured deferral before reserving or calling the spawner', async () => {
+  const records = createOrchestrationStore({ directory: mkdtempSync(join(tmpdir(), 'toucan-orchestrator-enforced-')) })
+  const providerUsage = createProviderUsage({
+    readers: { claude: { read: () => ({ fiveHour: { usedPercent: 90, resetsAt: 123_456 } }) } },
+    ttlMs: 60_000,
+    now: () => 100_000
+  })
+  const spawner = fakeSpawner()
+  const endpoint = createOrchestratorEndpoint({
+    records,
+    spawner,
+    providerUsage,
+    pacing: {
+      enforce: true,
+      activeTicketSessions: () => 0,
+      wake: async () => ({ ok: true })
+    },
+    now: () => new Date(100_000).toISOString()
+  })
+  const grant = (await endpoint.grant('orchestrator-1', { provider: 'claude', projectPath: 'D:\\project' }))!
+  grant.setConversation('conversation-1')
+  try {
+    assert.equal((await call(grant, 'plan set', plan)).status, 200)
+    const reply = await call(grant, 'spawn', spawn34)
+    assert.equal(reply.status, 429)
+    assert.equal(reply.body.ok, false)
+    assert.match(reply.body.error ?? '', /deferred.*do not retry or sleep/i)
+    assert.equal(reply.body.deferred, true)
+    assert.equal(reply.body.provider, 'claude')
+    assert.equal(reply.body.state, 'pause')
+    assert.equal(reply.body.reason, 'five_hour_pause_threshold')
+    assert.equal(reply.body.retryAt, 123_456)
+    const record = await records.read({ provider: 'claude', conversationId: 'conversation-1' })
+    assert.equal(record?.spawnCount, undefined)
+    assert.equal(record?.pacing?.state, 'pause')
+    const status = await call(grant, 'status')
+    assert.equal((status.body.pacing as { state?: string }).state, 'pause')
+    assert.equal((status.body.pacing as { reason?: string }).reason, 'five_hour_pause_threshold')
+    assert.equal(
+      ((await call(grant, 'plan show')).body.record as { pacing?: { retryAt?: number } }).pacing?.retryAt,
+      123_456
+    )
+    assert.equal(spawner.calls.length, 0)
+  } finally {
+    await endpoint.close()
+  }
+})
+
+test('same-provider concurrent spawns in different projects are admitted atomically', async () => {
+  const records = createOrchestrationStore({ directory: mkdtempSync(join(tmpdir(), 'toucan-orchestrator-atomic-')) })
+  const providerUsage = createProviderUsage({
+    readers: { claude: { read: () => ({ fiveHour: { usedPercent: 75 } }) } },
+    ttlMs: 60_000,
+    now: () => 100_000
+  })
+  const spawner = fakeSpawner()
+  const endpoint = createOrchestratorEndpoint({
+    records,
+    spawner,
+    providerUsage,
+    pacing: {
+      enforce: true,
+      activeTicketSessions: () => 0,
+      wake: async () => ({ ok: true })
+    },
+    now: () => new Date(100_000).toISOString()
+  })
+  const first = (await endpoint.grant('orchestrator-a', { provider: 'claude', projectPath: 'D:\\project-a' }))!
+  const second = (await endpoint.grant('orchestrator-b', { provider: 'claude', projectPath: 'D:\\project-b' }))!
+  first.setConversation('conversation-a')
+  second.setConversation('conversation-b')
+  try {
+    assert.equal((await call(first, 'plan set', plan)).status, 200)
+    assert.equal((await call(second, 'plan set', plan)).status, 200)
+    const replies = await Promise.all([call(first, 'spawn', spawn34), call(second, 'spawn', spawn34)])
+    assert.deepEqual(replies.map((reply) => reply.status).sort(), [200, 429])
+    const deferred = replies.find((reply) => reply.status === 429)!
+    assert.equal(deferred.body.deferred, true)
+    assert.equal(deferred.body.state, 'drain')
+    assert.equal(spawner.calls.length, 1)
+    const saved = await Promise.all([
+      records.read({ provider: 'claude', conversationId: 'conversation-a' }),
+      records.read({ provider: 'claude', conversationId: 'conversation-b' })
+    ])
+    assert.equal(
+      saved.reduce((total, record) => total + (record?.spawnCount ?? 0), 0),
+      1
+    )
+  } finally {
+    await endpoint.close()
+  }
+})

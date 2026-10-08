@@ -63,6 +63,12 @@ export default function OrchestrationControls({
           </button>
         </>
       )}
+      {state.status === 'running' && state.pacing && (
+        <span className="node-orchestration-pacing" data-state={state.pacing.state} title={state.pacing.reason}>
+          Provider pacing: {state.pacing.state}
+          {state.pacing.retryAt === undefined ? '' : ` until ${new Date(state.pacing.retryAt).toLocaleString()}`}
+        </span>
+      )}
       <button
         type="button"
         className="node-orchestration-stop"

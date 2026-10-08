@@ -178,3 +178,31 @@ test('a paused Codex orchestrator authorizes Resume now and Stop orchestration w
   expect(cancel).not.toHaveBeenCalled()
   await waitFor(() => expect(container.querySelector('.node-orchestration-stopped')).toHaveTextContent('Stopped'))
 })
+
+test('an enforced provider pacing deferral shows its state and reason without a reactive resume action', async () => {
+  window.orchestratorApi = {
+    onStartTicketSession: () => () => undefined,
+    completeTicketSession: vi.fn(),
+    jevReachability: vi.fn(async () => ({ state: 'reachable' as const })),
+    orchestrationState: vi.fn(async () => ({
+      provider: 'claude' as const,
+      conversationId: 'conversation-1',
+      status: 'running' as const,
+      pacing: {
+        state: 'drain' as const,
+        reason: 'five_hour_drain_active_ticket_work' as const
+      }
+    })),
+    resumeOrchestration: vi.fn(async () => null),
+    stopOrchestration: vi.fn(async () => null),
+    onOrchestrationState: () => () => undefined
+  }
+
+  const { container } = renderChat('orchestrator', 'conversation-1')
+  await waitFor(() => expect(container.querySelector('.node-orchestration-pacing')).toBeInTheDocument())
+  const pacing = container.querySelector('.node-orchestration-pacing') as HTMLElement
+  expect(pacing).toHaveTextContent('Provider pacing: drain')
+  expect(pacing).toHaveAttribute('title', 'five_hour_drain_active_ticket_work')
+  expect(container.querySelector('.node-orchestration-resume')).toBeNull()
+  expect(container.querySelector('.node-orchestration-stop')).toHaveTextContent('Stop orchestration')
+})

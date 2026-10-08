@@ -478,20 +478,30 @@ void app.whenReady().then(async () => {
     status: record.lifecycle?.status ?? 'running',
     ...(record.lifecycle?.status === 'paused' && record.lifecycle.resetsAt !== undefined
       ? { resetsAt: record.lifecycle.resetsAt }
+      : {}),
+    ...(record.pacing
+      ? {
+          pacing: {
+            state: record.pacing.state,
+            reason: record.pacing.reason,
+            ...(record.pacing.retryAt !== undefined ? { retryAt: record.pacing.retryAt } : {})
+          }
+        }
       : {})
   })
+  const publishOrchestrationState = (record: OrchestrationRecord): void => {
+    const state = orchestrationState(record)
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.webContents.isDestroyed()) window.webContents.send(ORCHESTRATOR_CHANNELS.changed, state)
+    }
+  }
   const orchestrationController = createOrchestrationController({
     records: orchestrationRecords,
     resolve: orchestrationSessionForNode,
     readUsage: async (provider) => (await providerUsage.read({ force: true, provider }))[provider]?.status ?? null,
     promptWhenIdle: (nodeId, text) => agentManager.promptWhenIdle(nodeId, text),
     kill: (nodeId) => agentManager.kill(nodeId),
-    changed: (record) => {
-      const state = orchestrationState(record)
-      for (const window of BrowserWindow.getAllWindows()) {
-        if (!window.webContents.isDestroyed()) window.webContents.send(ORCHESTRATOR_CHANNELS.changed, state)
-      }
-    },
+    changed: publishOrchestrationState,
     log: mainLog('orchestration control')
   })
   // Wakes an orchestrator when its ticket sessions finish, fail or ask (#35). Every session's
@@ -529,10 +539,6 @@ void app.whenReady().then(async () => {
     mayWake: (orchestratorNodeId) => orchestrationController.mayWake(orchestratorNodeId),
     log: mainLog('orchestrator wake')
   })
-  agentEvents.observe((id, event) => {
-    orchestrationController.observe(id, event)
-    orchestrationWaker.observe(id, event)
-  })
   // Routing by difficulty tier (#36): the user's tier mapping, the provider's picker as last seen, and
   // Jev, asked from main with main's own TYPESAFE_API_KEY so the key never leaves this process.
   const orchestrationConfig = createOrchestrationConfigStore({ userDataPath: app.getPath('userData') })
@@ -557,7 +563,10 @@ void app.whenReady().then(async () => {
       peekProvider: (provider) => providerUsage.peekProvider(provider)
     },
     pacing: {
-      activeTicketSessions: createProviderWideTicketSessionCounter({ workspace, broker: agentEvents })
+      activeTicketSessions: createProviderWideTicketSessionCounter({ workspace, broker: agentEvents }),
+      enforce: true,
+      wake: (nodeId, prompt) => agentManager.promptWhenIdle(nodeId, prompt),
+      changed: publishOrchestrationState
     },
     routing: {
       config: (provider, projectPath) => orchestrationConfig.load(provider, projectPath),
@@ -613,6 +622,18 @@ void app.whenReady().then(async () => {
     decisionProviderInstalled,
     orchestrator: orchestratorEndpoint,
     projectPathFor: checkoutPathFor
+  })
+  agentEvents.observe((id, event) => {
+    orchestrationController.observe(id, event)
+    orchestrationWaker.observe(id, event)
+    if (event.type === 'status' && event.status === 'ready') orchestratorEndpoint.pacingSessionReady(id)
+    if (event.type === 'status' && event.status === 'exited') {
+      void orchestrationSessionForNode(id)
+        .then((session) => {
+          if (session?.ticketNodeId) orchestratorEndpoint.pacingActivityChanged(session.provider)
+        })
+        .catch((error: unknown) => mainLog('orchestration pacing')(`could not resolve activity: ${String(error)}`))
+    }
   })
   const captureStore = createBrainDumpCaptureStore(
     join(app.getPath('userData'), 'brain-dump-capture.json'),

@@ -53,6 +53,10 @@ import { errorMessage } from '../shared/text'
 import type { JevRouter } from './jev-router'
 import type { OrchestrationConfigLoad } from './orchestration-config-store'
 import type { OrchestrationKey, OrchestrationStore } from './orchestration-store'
+import {
+  createOrchestrationPacingCoordinator,
+  type OrchestrationPacingCoordinator
+} from './orchestration-pacing-coordinator'
 import type { TicketBinding } from './orchestration-wake'
 import { createPairingToken, pairingTokenMatches, presentedPairingToken } from './remote/pairing'
 import type { TicketSpawner } from './ticket-spawner'
@@ -98,6 +102,10 @@ export interface OrchestratorEndpoint {
   grant(nodeId: string, scope: OrchestratorScope): Promise<OrchestratorGrant | undefined>
   /** Whether the listener is bound - the "no orchestrator, no open port" check. */
   listening(): boolean
+  /** Re-evaluates deferred work after a provider ticket enters or leaves the live count. */
+  pacingActivityChanged(provider: AgentProvider): void
+  /** Retries a coalesced pacing wake when its orchestrator session becomes ready. */
+  pacingSessionReady(nodeId: string): void
   close(): Promise<void>
 }
 
@@ -143,6 +151,11 @@ export interface OrchestratorEndpointOptions {
   pacing?: {
     activeTicketSessions(provider: AgentProvider): number | Promise<number>
     policy?: OrchestrationPacingPolicy
+    /** Shadow mode is the compatibility default; production opts into atomic enforcement. */
+    enforce?: boolean
+    wake?(orchestratorNodeId: string, prompt: string): Promise<AgentPromptResult>
+    changed?(record: OrchestrationRecord): void
+    schedule?(callback: () => void, ms: number): () => void
   }
   /** Absent, `route`, `escalate` and `spawn --tier` are refused and spawns use the default skill. */
   routing?: OrchestratorRouting
@@ -199,8 +212,30 @@ const UNAUTHORIZED = refused(
 
 export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions): OrchestratorEndpoint {
   const now = options.now ?? (() => new Date().toISOString())
+  const nowMs = (): number => {
+    const timestamp = Date.parse(now())
+    return Number.isFinite(timestamp) ? timestamp : Date.now()
+  }
   const grants = new Set<LiveGrant>()
   let startedServer: Promise<HttpServer> | undefined
+
+  const pacingCoordinator: OrchestrationPacingCoordinator | undefined =
+    options.pacing?.enforce && options.providerUsage
+      ? createOrchestrationPacingCoordinator({
+          records: options.records,
+          usage: options.providerUsage,
+          enabled: true,
+          activeTicketSessions: options.pacing.activeTicketSessions,
+          wake:
+            options.pacing.wake ??
+            (() => Promise.resolve({ ok: false, message: 'the orchestrator session is not ready', undelivered: true })),
+          policy: options.pacing.policy,
+          changed: options.pacing.changed,
+          schedule: options.pacing.schedule,
+          now: nowMs,
+          log: options.log
+        })
+      : undefined
 
   const pacingFreshness = (result: ProviderUsageReadResult): OrchestrationUsageFreshness =>
     result.entry ? (result.entry.stale ? 'stale' : 'fresh') : 'unavailable'
@@ -210,16 +245,16 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
     provider: AgentProvider,
     result: ProviderUsageReadResult
   ): Promise<OrchestrationPacingRecommendation> => {
+    if (pacingCoordinator) return pacingCoordinator.recommend(provider, result)
     const activeTicketSessions = await Promise.resolve(options.pacing?.activeTicketSessions(provider) ?? 0).catch(
       () => 0
     )
-    const timestamp = Date.parse(now())
     return decideOrchestrationPacing(
       {
         action: 'spawn',
         usage: result.entry ?? null,
         freshness: pacingFreshness(result),
-        now: Number.isFinite(timestamp) ? timestamp : Date.now(),
+        now: nowMs(),
         activeTicketSessions
       },
       options.pacing?.policy
@@ -341,9 +376,6 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
     key: { provider: AgentProvider; conversationId: string },
     args: unknown
   ): Promise<Reply> => {
-    // This deliberately happens before validation: every incoming spawn attempt is observable,
-    // while its asynchronous cache/provenance read cannot delay or refuse that attempt.
-    logSpawnPacing(grant.provider)
     const parsed = parseSpawnInput(args)
     if (parsed.error !== undefined) return refused(400, parsed.error)
     const request = parsed.spawn
@@ -357,63 +389,102 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
     if (!spawner) return refused(501, 'this Toucan cannot spawn ticket sessions')
     const configured = await loadConfig(grant)
     if ('refusal' in configured) return configured.refusal
+
+    // Everything that can be rejected without provider coordination is checked first. This call
+    // does not persist reserveSpawn's returned clone; the real reservation remains below the gate.
+    const current = await options.records.read(key)
+    if (!current) return refused(404, 'there is no plan yet; run plan set first')
+    const scope = outOfScope(grant, current)
+    if (scope) return refused(403, scope)
+    const planned = current.tickets.find((candidate) => candidate.id === request.ticketId)
+    if (!planned) return refused(400, `the plan has no ticket "${request.ticketId}"`)
+    const preflightRoute = spawnRoute(request, planned, configured.config, grant.provider)
+    if ('refusal' in preflightRoute) return preflightRoute.refusal
+    const preflightReservation = reserveSpawn(current, request.ticketId, now())
+    if (preflightReservation.error !== undefined) return refused(429, preflightReservation.error)
+
+    if (!pacingCoordinator) logSpawnPacing(grant.provider)
+    const admission = pacingCoordinator
+      ? await pacingCoordinator.admit({ key, orchestratorNodeId: grant.nodeId })
+      : undefined
+    if (admission && !admission.admitted) {
+      return {
+        status: 429,
+        body: {
+          ok: false,
+          error:
+            `spawn deferred by provider pacing (${admission.state}: ${admission.reason}); ` +
+            'Toucan will wake this orchestrator after a fresh recheck, so do not retry or sleep',
+          deferred: true,
+          provider: admission.provider,
+          state: admission.state,
+          reason: admission.reason,
+          ...(admission.retryAt !== undefined ? { retryAt: admission.retryAt } : {})
+        }
+      }
+    }
+
     let routed: SpawnRoute | undefined
-    const reservation = await options.records.update<{ refusal: Reply } | { record: OrchestrationRecord }>(
-      key,
-      (current) => {
-        const refuse = (reply: Reply) => ({ value: current, result: { refusal: reply } })
-        if (!current) return refuse(refused(404, 'there is no plan yet; run plan set first'))
-        const scope = outOfScope(grant, current)
-        if (scope) return refuse(refused(403, scope))
-        const planned = current.tickets.find((candidate) => candidate.id === request.ticketId)
-        if (!planned) return refuse(refused(400, `the plan has no ticket "${request.ticketId}"`))
-        // Resolved before the spawn is counted, so a ticket that cannot be routed costs no spawn.
-        const resolved = spawnRoute(request, planned, configured.config, grant.provider)
-        if ('refusal' in resolved) return refuse(resolved.refusal)
-        routed = resolved
-        const counted = reserveSpawn(current, request.ticketId, now())
-        if (counted.error !== undefined) return refuse(refused(429, counted.error))
-        const record = recordTicketRoute(counted.record, request.ticketId, resolved.route, now())
-        return { value: record, result: { record } }
+    try {
+      const reservation = await options.records.update<{ refusal: Reply } | { record: OrchestrationRecord }>(
+        key,
+        (current) => {
+          const refuse = (reply: Reply) => ({ value: current, result: { refusal: reply } })
+          if (!current) return refuse(refused(404, 'there is no plan yet; run plan set first'))
+          const scope = outOfScope(grant, current)
+          if (scope) return refuse(refused(403, scope))
+          const planned = current.tickets.find((candidate) => candidate.id === request.ticketId)
+          if (!planned) return refuse(refused(400, `the plan has no ticket "${request.ticketId}"`))
+          // Resolved before the spawn is counted, so a ticket that cannot be routed costs no spawn.
+          const resolved = spawnRoute(request, planned, configured.config, grant.provider)
+          if ('refusal' in resolved) return refuse(resolved.refusal)
+          routed = resolved
+          const counted = reserveSpawn(current, request.ticketId, now())
+          if (counted.error !== undefined) return refuse(refused(429, counted.error))
+          const record = recordTicketRoute(counted.record, request.ticketId, resolved.route, now())
+          return { value: record, result: { record } }
+        }
+      )
+      if ('refusal' in reservation) return reservation.refusal
+      const reserved = reservation.record
+      const ticket = reserved.tickets.find((candidate) => candidate.id === request.ticketId)!
+      const { route: spawnedRoute, warnings: routeWarnings } = routed!
+      const spawned = await spawner.spawn({
+        orchestrator: { nodeId: grant.nodeId, conversationId: key.conversationId, provider: grant.provider },
+        projectPath: grant.projectPath,
+        targetBranch: reserved.targetBranch,
+        ticket,
+        model: spawnedRoute.model,
+        effort: spawnedRoute.effort,
+        ...(configured.config ? { implementationSkill: configured.config.implementationSkill } : {})
+      })
+      const spawnsLeft = MAX_SPAWNS_PER_ORCHESTRATION - (reserved.spawnCount ?? 0)
+      if (!spawned.ok) return { status: 502, body: { ok: false, error: spawned.error } }
+      await options.records.update(key, (current) => ({
+        value: current && recordTicketSession(current, ticket.id, spawned.session, now(), spawnedRoute),
+        result: undefined
+      }))
+      options.onTicketSpawned?.(spawned.session.nodeId, {
+        orchestratorNodeId: grant.nodeId,
+        ticketId: ticket.id,
+        provider: grant.provider,
+        conversationId: spawned.session.conversationId
+      })
+      return {
+        status: 200,
+        body: {
+          ok: true,
+          ticket: ticket.id,
+          session: spawned.session,
+          model: spawned.model ?? null,
+          effort: spawned.effort ?? null,
+          warnings: [...routeWarnings, ...spawned.warnings],
+          route: spawnedRoute,
+          spawnsLeft
+        }
       }
-    )
-    if ('refusal' in reservation) return reservation.refusal
-    const reserved = reservation.record
-    const ticket = reserved.tickets.find((candidate) => candidate.id === request.ticketId)!
-    const { route: spawnedRoute, warnings: routeWarnings } = routed!
-    const spawned = await spawner.spawn({
-      orchestrator: { nodeId: grant.nodeId, conversationId: key.conversationId, provider: grant.provider },
-      projectPath: grant.projectPath,
-      targetBranch: reserved.targetBranch,
-      ticket,
-      model: spawnedRoute.model,
-      effort: spawnedRoute.effort,
-      ...(configured.config ? { implementationSkill: configured.config.implementationSkill } : {})
-    })
-    const spawnsLeft = MAX_SPAWNS_PER_ORCHESTRATION - (reserved.spawnCount ?? 0)
-    if (!spawned.ok) return { status: 502, body: { ok: false, error: spawned.error } }
-    await options.records.update(key, (current) => ({
-      value: current && recordTicketSession(current, ticket.id, spawned.session, now(), spawnedRoute),
-      result: undefined
-    }))
-    options.onTicketSpawned?.(spawned.session.nodeId, {
-      orchestratorNodeId: grant.nodeId,
-      ticketId: ticket.id,
-      provider: grant.provider,
-      conversationId: spawned.session.conversationId
-    })
-    return {
-      status: 200,
-      body: {
-        ok: true,
-        ticket: ticket.id,
-        session: spawned.session,
-        model: spawned.model ?? null,
-        effort: spawned.effort ?? null,
-        warnings: [...routeWarnings, ...spawned.warnings],
-        route: spawnedRoute,
-        spawnsLeft
-      }
+    } finally {
+      if (admission?.admitted) admission.release()
     }
   }
 
@@ -637,6 +708,7 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
       body: {
         ok: true,
         tickets,
+        pacing: record.pacing ?? null,
         pendingPermissionPrompts: tickets.filter((ticket) => ticket.permissionPrompt).map((ticket) => ticket.id)
       }
     }
@@ -876,6 +948,9 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
           },
           setConversation: (conversationId) => {
             grant.conversationId = conversationId
+            void pacingCoordinator
+              ?.restore({ provider: grant.provider, conversationId }, grant.nodeId)
+              .catch((error: unknown) => options.log?.(`provider pacing restore failed: ${errorMessage(error)}`))
           },
           revoke: () => revoke(grant)
         }
@@ -889,7 +964,14 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
     listening() {
       return startedServer !== undefined
     },
+    pacingActivityChanged(provider) {
+      pacingCoordinator?.activityChanged(provider)
+    },
+    pacingSessionReady(nodeId) {
+      pacingCoordinator?.ready(nodeId)
+    },
     async close() {
+      pacingCoordinator?.close()
       grants.clear()
       const pending = startedServer
       startedServer = undefined

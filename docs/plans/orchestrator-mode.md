@@ -164,24 +164,38 @@ the orchestration `paused`, spawns nothing and does not wake the orchestrator. A
 time (`claude-usage.ts` already reads `resets_at`) it resumes the affected ticket sessions and
 wakes the orchestrator with "limit reset". A pause never counts as an attempt.
 
-### Provider-wide pacing (shadow mode)
+### Provider-wide pacing
 
-[`orchestration-pacing.ts`](../../src/shared/orchestration-pacing.ts) makes one structured,
-provider-neutral recommendation for a requested `spawn`; the endpoint returns it from `usage` and
-logs it on every spawn attempt from the cached reading, without delaying or refusing that spawn.
-Every recommendation carries stable `reason` and `constrainingWindow` fields: a five-hour threshold
-names `five_hour`, conservative stale/unavailable reserve handling names `usage_freshness`, and a
-missing five-hour window or elapsed reset names `none`. This lets an orchestrator explain the
-advice without deriving policy from display text.
-It counts live ticket sessions by their persisted `orchestratedBy` provenance and the session
-broker across every workspace project for the provider, rather than maintaining a project-local
-counter. The initial curve is unrestricted below 70% of the fresh five-hour window, drain from
-70% through below 85% while ticket work is active, and pause until the reported reset at 85% or
-above. A stale or unavailable reading keeps a one-active-ticket reserve; weekly and model-scoped
-windows stay reported but do not drive the curve. `drain` and `pause` preserve already-running
-work and leave review/merge room; they never downgrade models or efforts, switch providers,
-estimate tokens, alter billing, or interrupt a session. This is a likelihood-reduction signal,
-not a guarantee that a provider limit will not be reached.
+[`orchestration-pacing.ts`](../../src/shared/orchestration-pacing.ts) makes the provider-neutral
+policy decision; [`orchestration-pacing-coordinator.ts`](../../src/main/orchestration-pacing-coordinator.ts)
+enforces it at the authenticated `spawn` boundary. Concurrent calls start the same forced
+`ProviderUsage` read so its in-flight cache coalesces them, then enter one provider-specific
+admission queue. An admitted spawn occupies a provisional active slot until its session has reached
+the canvas, closing the gap before the session broker can count it. The gate runs before
+`reserveSpawn`, worktree creation, setup or canvas mutation, so a structured `deferred` refusal
+consumes no attempt and leaves no artifact. Providers have independent queues.
+
+The initial curve is unrestricted below 70% of the fresh five-hour window, drain from 70% through
+below 85% while ticket work is active, and pause until the reported reset at 85% or above. A stale
+or unavailable reading keeps a one-active-ticket reserve; weekly and model-scoped windows stay
+reported but do not drive the curve. The policy object is the one threshold/reserve configuration
+seam, and endpoint enforcement is an explicit switch (omitting it retains shadow-only behavior)
+while the curve is tuned.
+
+`drain` rechecks when provider-wide active work changes. `pause` arms a Toucan timer for the
+reported reset. Both paths force a fresh/coalesced usage read before reopening; repeated activity
+signals and reset callbacks share one recheck, and a past reset that still reports a pause is not
+scheduled into a zero-delay loop. A durable per-orchestration `pacing` record restores the timer and
+recheck after restart. Once reopened, Toucan wakes the orchestrator once with instructions to read
+`usage`, `status` and `plan show` before retrying. Proactive pacing stays separate from the reactive
+provider-rejection lifecycle pause, and it does not suppress ticket completion wakes or outcome
+records.
+
+The coordinator preserves already-running work and never changes provider, model, effort or billing.
+Its admission queues, provisional counts and wake coalescing are in memory across every project in
+one running Toucan process. Separate Toucan processes and other machines do not share that state;
+their calls can race until a future cross-process coordinator exists. Pacing therefore reduces the
+likelihood of an unexpected billed fallback rather than guaranteeing that no provider limit is hit.
 
 ### The review list
 
