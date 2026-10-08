@@ -1,6 +1,7 @@
-import type { AgentProvider } from '../shared/agent-provider'
+import { isAgentProvider, type AgentProvider } from '../shared/agent-provider'
 import type { AgentChatStatus } from '../shared/agent-transcript'
-import { isAgentProvider } from '../shared/agent-provider'
+import type { AgentEventBroker } from './agent-event-broker'
+import type { WorkspaceStore } from './workspace-store'
 
 /** The persisted provenance and live state needed to count one possible ticket session. */
 export interface OrchestratedTicketSessionCandidate {
@@ -26,4 +27,18 @@ export function activeOrchestratedTicketSessionCount(
     if (status !== undefined && status !== 'exited') count += 1
   }
   return count
+}
+
+/**
+ * The production counter deliberately reads the complete workspace snapshot, not the requesting
+ * grant's project. The broker then decides which provenance-bearing sessions remain live.
+ */
+export function createProviderWideTicketSessionCounter(options: {
+  workspace: Pick<WorkspaceStore, 'load'>
+  broker: Pick<AgentEventBroker, 'snapshot'>
+}): (provider: AgentProvider) => Promise<number> {
+  return async (provider) => {
+    const nodes = (await options.workspace.load()).state?.nodes ?? []
+    return activeOrchestratedTicketSessionCount(nodes, provider, (nodeId) => options.broker.snapshot(nodeId)?.status)
+  }
 }

@@ -232,7 +232,8 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
     void pace(provider, result)
       .then((pacing) =>
         options.log?.(
-          `shadow pacing spawn provider=${provider} state=${pacing.state} freshness=${pacing.freshness} active=${pacing.activeTicketSessions}`
+          `shadow pacing spawn provider=${provider} state=${pacing.state} freshness=${pacing.freshness} active=${pacing.activeTicketSessions}` +
+            ` reason=${pacing.reason} window=${pacing.constrainingWindow}`
         )
       )
       .catch(() => options.log?.(`shadow pacing spawn provider=${provider} state=unavailable`))

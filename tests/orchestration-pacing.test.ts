@@ -20,67 +20,117 @@ function input(overrides: Partial<OrchestrationPacingInput> = {}): Orchestration
 }
 
 test('the five-hour curve is deterministic at its thresholds and preserves an idle provider reserve', () => {
-  assert.equal(
+  assert.deepEqual(
     decideOrchestrationPacing(
       input({ usage: { status: { fiveHour: { usedPercent: 69.9 } }, readAt: NOW, stale: false } })
-    ).state,
-    'unrestricted'
+    ),
+    {
+      action: 'spawn',
+      state: 'unrestricted',
+      reason: 'five_hour_below_drain_threshold',
+      constrainingWindow: 'five_hour',
+      freshness: 'fresh',
+      activeTicketSessions: 0
+    }
   )
-  assert.equal(
+  assert.deepEqual(
     decideOrchestrationPacing(
       input({ usage: { status: { fiveHour: { usedPercent: 70 } }, readAt: NOW, stale: false } })
-    ).state,
-    'unrestricted'
+    ),
+    {
+      action: 'spawn',
+      state: 'unrestricted',
+      reason: 'five_hour_below_drain_threshold',
+      constrainingWindow: 'five_hour',
+      freshness: 'fresh',
+      activeTicketSessions: 0
+    }
   )
-  assert.equal(
+  assert.deepEqual(
     decideOrchestrationPacing(
       input({
         usage: { status: { fiveHour: { usedPercent: 70 } }, readAt: NOW, stale: false },
         activeTicketSessions: 1
       })
-    ).state,
-    'drain'
+    ),
+    {
+      action: 'spawn',
+      state: 'drain',
+      reason: 'five_hour_drain_active_ticket_work',
+      constrainingWindow: 'five_hour',
+      freshness: 'fresh',
+      activeTicketSessions: 1
+    }
   )
   assert.deepEqual(
     decideOrchestrationPacing(
       input({ usage: { status: { fiveHour: { usedPercent: 85, resetsAt: NOW + 60_000 } }, readAt: NOW, stale: false } })
     ),
-    { action: 'spawn', state: 'pause', freshness: 'fresh', activeTicketSessions: 0, resetsAt: NOW + 60_000 }
+    {
+      action: 'spawn',
+      state: 'pause',
+      reason: 'five_hour_pause_threshold',
+      constrainingWindow: 'five_hour',
+      freshness: 'fresh',
+      activeTicketSessions: 0,
+      resetsAt: NOW + 60_000
+    }
   )
 })
 
 test('a five-hour reset releases the advisory pause without estimating a new usage value', () => {
-  assert.equal(
+  assert.deepEqual(
     decideOrchestrationPacing(
       input({ usage: { status: { fiveHour: { usedPercent: 100, resetsAt: NOW } }, readAt: NOW - 1, stale: false } })
-    ).state,
-    'unrestricted'
+    ),
+    {
+      action: 'spawn',
+      state: 'unrestricted',
+      reason: 'five_hour_reset_elapsed',
+      constrainingWindow: 'none',
+      freshness: 'fresh',
+      activeTicketSessions: 0
+    }
   )
 })
 
 test('stale or unavailable usage retains only the configured one-ticket reserve', () => {
   for (const freshness of ['stale', 'unavailable'] as const) {
-    assert.equal(
+    assert.deepEqual(
       decideOrchestrationPacing(
         input({ freshness, usage: freshness === 'stale' ? { status: {}, readAt: NOW - 1, stale: true } : null })
-      ).state,
-      'unrestricted'
+      ),
+      {
+        action: 'spawn',
+        state: 'unrestricted',
+        reason: freshness === 'stale' ? 'stale_usage_reserve_available' : 'unavailable_usage_reserve_available',
+        constrainingWindow: 'usage_freshness',
+        freshness,
+        activeTicketSessions: 0
+      }
     )
-    assert.equal(
+    assert.deepEqual(
       decideOrchestrationPacing(
         input({
           freshness,
           usage: freshness === 'stale' ? { status: {}, readAt: NOW - 1, stale: true } : null,
           activeTicketSessions: 1
         })
-      ).state,
-      'drain'
+      ),
+      {
+        action: 'spawn',
+        state: 'drain',
+        reason: freshness === 'stale' ? 'stale_usage_reserve_exhausted' : 'unavailable_usage_reserve_exhausted',
+        constrainingWindow: 'usage_freshness',
+        freshness,
+        activeTicketSessions: 1
+      }
     )
   }
 })
 
 test('weekly and model-scoped windows do not receive an aggressive pacing curve', () => {
-  assert.equal(
+  assert.deepEqual(
     decideOrchestrationPacing(
       input({
         usage: {
@@ -90,8 +140,15 @@ test('weekly and model-scoped windows do not receive an aggressive pacing curve'
         },
         activeTicketSessions: 4
       })
-    ).state,
-    'unrestricted'
+    ),
+    {
+      action: 'spawn',
+      state: 'unrestricted',
+      reason: 'no_five_hour_window',
+      constrainingWindow: 'none',
+      freshness: 'fresh',
+      activeTicketSessions: 4
+    }
   )
 })
 

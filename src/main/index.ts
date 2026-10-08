@@ -78,7 +78,7 @@ import { claudeConversationTranscriptPath, createConversationHistory } from './c
 import { createConversationTitleStore } from './conversation-title-store'
 import { createCodexRateLimitReader } from './codex-rate-limits'
 import { createProviderUsage, type ProviderUsage } from './provider-usage'
-import { activeOrchestratedTicketSessionCount } from './orchestrated-ticket-sessions'
+import { createProviderWideTicketSessionCounter } from './orchestrated-ticket-sessions'
 import { createRemoteAccessStore } from './remote/remote-access-store'
 import { createSafeStorageVault } from './remote/token-vault'
 import { forwardRemoteStateChanges, registerRemoteIpc } from './remote/remote-ipc'
@@ -557,10 +557,7 @@ void app.whenReady().then(async () => {
       peekProvider: (provider) => providerUsage.peekProvider(provider)
     },
     pacing: {
-      activeTicketSessions: async (provider) => {
-        const nodes = (await workspace.load()).state?.nodes ?? []
-        return activeOrchestratedTicketSessionCount(nodes, provider, (nodeId) => agentEvents.snapshot(nodeId)?.status)
-      }
+      activeTicketSessions: createProviderWideTicketSessionCounter({ workspace, broker: agentEvents })
     },
     routing: {
       config: (provider, projectPath) => orchestrationConfig.load(provider, projectPath),

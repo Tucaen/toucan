@@ -1,6 +1,9 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'vitest'
-import { activeOrchestratedTicketSessionCount } from '../src/main/orchestrated-ticket-sessions'
+import {
+  activeOrchestratedTicketSessionCount,
+  createProviderWideTicketSessionCounter
+} from '../src/main/orchestrated-ticket-sessions'
 
 test('counts live ticket sessions provider-wide from provenance rather than a project-local counter', () => {
   const nodes = [
@@ -26,4 +29,26 @@ test('counts live ticket sessions provider-wide from provenance rather than a pr
     activeOrchestratedTicketSessionCount(nodes, 'codex', (id) => statuses.get(id)),
     1
   )
+})
+
+test('the production counter reads every project in the workspace, not the requesting grant project', async () => {
+  const counter = createProviderWideTicketSessionCounter({
+    workspace: {
+      load: async () =>
+        ({
+          state: {
+            nodes: [
+              { id: 'project-a', projectId: 'a', kind: 'claude', orchestratedBy: { nodeId: 'captain-a' } },
+              { id: 'project-b', projectId: 'b', kind: 'claude', orchestratedBy: { nodeId: 'captain-b' } },
+              { id: 'project-b-exited', projectId: 'b', kind: 'claude', orchestratedBy: { nodeId: 'captain-c' } }
+            ]
+          }
+        }) as never
+    },
+    broker: {
+      snapshot: (id) => (id === 'project-b-exited' ? ({ status: 'exited' } as never) : ({ status: 'working' } as never))
+    }
+  })
+
+  assert.equal(await counter('claude'), 2)
 })

@@ -9,6 +9,22 @@ export type OrchestrationUsageFreshness = 'fresh' | 'stale' | 'unavailable'
 /** The advisory state for one provider-wide orchestration decision. */
 export type OrchestrationPacingState = 'unrestricted' | 'drain' | 'pause'
 
+/** The stable explanation for an advisory pacing state. */
+export type OrchestrationPacingReason =
+  | 'five_hour_below_drain_threshold'
+  | 'five_hour_drain_active_ticket_work'
+  | 'five_hour_pause_threshold'
+  | 'five_hour_reset_elapsed'
+  | 'no_five_hour_window'
+  | 'stale_usage_reserve_available'
+  | 'stale_usage_reserve_exhausted'
+  | 'unavailable_usage_reserve_available'
+  | 'unavailable_usage_reserve_exhausted'
+  | 'usage_entry_missing'
+
+/** What constrained the recommendation, rather than a provider-specific token estimate. */
+export type OrchestrationPacingConstrainingWindow = 'five_hour' | 'usage_freshness' | 'none'
+
 /**
  * One provider-neutral, advisory answer for an orchestration action. `drain` leaves the remaining
  * window for existing ticket work to reach review or merge; `pause` advises waiting for reset.
@@ -17,6 +33,8 @@ export type OrchestrationPacingState = 'unrestricted' | 'drain' | 'pause'
 export interface OrchestrationPacingRecommendation {
   action: OrchestrationPacingAction
   state: OrchestrationPacingState
+  reason: OrchestrationPacingReason
+  constrainingWindow: OrchestrationPacingConstrainingWindow
   freshness: OrchestrationUsageFreshness
   activeTicketSessions: number
   /** The five-hour reset that releases a pause, when the provider reported one. */
@@ -60,11 +78,15 @@ function activeTickets(input: OrchestrationPacingInput): number {
 function recommendation(
   input: OrchestrationPacingInput,
   state: OrchestrationPacingState,
+  reason: OrchestrationPacingReason,
+  constrainingWindow: OrchestrationPacingConstrainingWindow,
   resetsAt?: number
 ): OrchestrationPacingRecommendation {
   return {
     action: input.action,
     state,
+    reason,
+    constrainingWindow,
     freshness: input.freshness,
     activeTicketSessions: activeTickets(input),
     ...(resetsAt !== undefined ? { resetsAt } : {})
@@ -82,14 +104,31 @@ export function decideOrchestrationPacing(
 ): OrchestrationPacingRecommendation {
   const active = activeTickets(input)
   if (input.freshness !== 'fresh' || !input.usage) {
-    return recommendation(input, active >= policy.unavailableUsage.maxActiveTicketSessions ? 'drain' : 'unrestricted')
+    const exhausted = active >= policy.unavailableUsage.maxActiveTicketSessions
+    const reason: OrchestrationPacingReason =
+      input.freshness === 'stale'
+        ? exhausted
+          ? 'stale_usage_reserve_exhausted'
+          : 'stale_usage_reserve_available'
+        : input.freshness === 'unavailable'
+          ? exhausted
+            ? 'unavailable_usage_reserve_exhausted'
+            : 'unavailable_usage_reserve_available'
+          : 'usage_entry_missing'
+    return recommendation(input, exhausted ? 'drain' : 'unrestricted', reason, 'usage_freshness')
   }
 
   const fiveHour = input.usage.status.fiveHour
-  if (!fiveHour) return recommendation(input, 'unrestricted')
+  if (!fiveHour) return recommendation(input, 'unrestricted', 'no_five_hour_window', 'none')
   // A reported reset ends a pause even if a just-expired reading has not been replaced yet.
-  if (fiveHour.resetsAt !== undefined && fiveHour.resetsAt <= input.now) return recommendation(input, 'unrestricted')
-  if (fiveHour.usedPercent >= policy.fiveHour.pauseAtPercent) return recommendation(input, 'pause', fiveHour.resetsAt)
-  if (fiveHour.usedPercent >= policy.fiveHour.drainAtPercent && active > 0) return recommendation(input, 'drain')
-  return recommendation(input, 'unrestricted')
+  if (fiveHour.resetsAt !== undefined && fiveHour.resetsAt <= input.now) {
+    return recommendation(input, 'unrestricted', 'five_hour_reset_elapsed', 'none')
+  }
+  if (fiveHour.usedPercent >= policy.fiveHour.pauseAtPercent) {
+    return recommendation(input, 'pause', 'five_hour_pause_threshold', 'five_hour', fiveHour.resetsAt)
+  }
+  if (fiveHour.usedPercent >= policy.fiveHour.drainAtPercent && active > 0) {
+    return recommendation(input, 'drain', 'five_hour_drain_active_ticket_work', 'five_hour')
+  }
+  return recommendation(input, 'unrestricted', 'five_hour_below_drain_threshold', 'five_hour')
 }

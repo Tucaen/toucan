@@ -201,21 +201,42 @@ test('usage reads only the authenticated grant provider and preserves explicit m
       provider: 'claude',
       usage: { status: { fiveHour: { usedPercent: 61 } }, readAt: 50, stale: false },
       state: 'available',
-      pacing: { action: 'spawn', state: 'unrestricted', freshness: 'fresh', activeTicketSessions: 0 }
+      pacing: {
+        action: 'spawn',
+        state: 'unrestricted',
+        reason: 'five_hour_below_drain_threshold',
+        constrainingWindow: 'five_hour',
+        freshness: 'fresh',
+        activeTicketSessions: 0
+      }
     })
     assert.deepEqual((await call(codex, 'usage')).body, {
       ok: true,
       provider: 'codex',
       usage: null,
       state: 'missing',
-      pacing: { action: 'spawn', state: 'unrestricted', freshness: 'unavailable', activeTicketSessions: 0 }
+      pacing: {
+        action: 'spawn',
+        state: 'unrestricted',
+        reason: 'unavailable_usage_reserve_available',
+        constrainingWindow: 'usage_freshness',
+        freshness: 'unavailable',
+        activeTicketSessions: 0
+      }
     })
     assert.deepEqual((await call(claude, 'usage')).body, {
       ok: true,
       provider: 'claude',
       usage: { status: { fiveHour: { usedPercent: 61 } }, readAt: 50, stale: true },
       state: 'failed',
-      pacing: { action: 'spawn', state: 'unrestricted', freshness: 'stale', activeTicketSessions: 0 }
+      pacing: {
+        action: 'spawn',
+        state: 'unrestricted',
+        reason: 'stale_usage_reserve_available',
+        constrainingWindow: 'usage_freshness',
+        freshness: 'stale',
+        activeTicketSessions: 0
+      }
     })
     assert.equal((await call(claude, 'usage', { force: true })).status, 400)
   } finally {
@@ -243,6 +264,8 @@ test('usage attaches the provider-wide shadow pacing recommendation', async () =
     assert.deepEqual((await call(grant, 'usage')).body.pacing, {
       action: 'spawn',
       state: 'pause',
+      reason: 'five_hour_pause_threshold',
+      constrainingWindow: 'five_hour',
       freshness: 'fresh',
       activeTicketSessions: 3,
       resetsAt: reset

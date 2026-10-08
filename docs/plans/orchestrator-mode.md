@@ -169,6 +169,10 @@ wakes the orchestrator with "limit reset". A pause never counts as an attempt.
 [`orchestration-pacing.ts`](../../src/shared/orchestration-pacing.ts) makes one structured,
 provider-neutral recommendation for a requested `spawn`; the endpoint returns it from `usage` and
 logs it on every spawn attempt from the cached reading, without delaying or refusing that spawn.
+Every recommendation carries stable `reason` and `constrainingWindow` fields: a five-hour threshold
+names `five_hour`, conservative stale/unavailable reserve handling names `usage_freshness`, and a
+missing five-hour window or elapsed reset names `none`. This lets an orchestrator explain the
+advice without deriving policy from display text.
 It counts live ticket sessions by their persisted `orchestratedBy` provenance and the session
 broker across every workspace project for the provider, rather than maintaining a project-local
 counter. The initial curve is unrestricted below 70% of the fresh five-hour window, drain from

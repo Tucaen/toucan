@@ -362,7 +362,10 @@ test('every spawn attempt logs a cached shadow recommendation without delaying w
     assert.equal(spawner.calls.length, 1)
     assert.equal(reads, 0)
     await new Promise<void>((resolve) => setImmediate(resolve))
-    assert.deepEqual(logs, ['shadow pacing spawn provider=claude state=drain freshness=unavailable active=1'])
+    assert.deepEqual(logs, [
+      'shadow pacing spawn provider=claude state=drain freshness=unavailable active=1 ' +
+        'reason=unavailable_usage_reserve_exhausted window=usage_freshness'
+    ])
   } finally {
     await endpoint.close()
   }
