@@ -3,7 +3,7 @@ import { pathIdentity } from '../../shared/paths'
 import type { TerminalNodeStatus } from '../../shared/terminal'
 import { isFileCanvasNode, isTerminalCanvasNode, isWorktreeCanvasNode, type CanvasNode } from './canvas-workspace'
 
-/** Cleanup suspends its own settled chat until Git succeeds. Other sessions and file editors keep the worktree. */
+/** Cleanup retires its settled chat first. Other sessions and file editors only block worktree removal. */
 export function ticketCleanupNodes(
   request: TicketCleanupRequest,
   nodes: readonly CanvasNode[],
@@ -25,10 +25,6 @@ export function ticketCleanupNodes(
   ) {
     return { ok: false, message: 'The canvas worktree identity changed.' }
   }
-  const children = nodes.filter((node) => node.data.worktreeId === worktree.data.worktreeId && node.id !== worktree.id)
-  if (children.some((node) => isFileCanvasNode(node) || (isTerminalCanvasNode(node) && node.id !== session.nodeId))) {
-    return { ok: false, message: 'Another session or file editor is using the ticket worktree.' }
-  }
   if (ticket) {
     if (
       !isTerminalCanvasNode(ticket) ||
@@ -37,15 +33,21 @@ export function ticketCleanupNodes(
     ) {
       return { ok: false, message: 'The ticket chat identity changed.' }
     }
-    const status = ticket.data.dormant ? 'dormant' : statuses[ticket.id]
-    if (!status || !['idle', 'result', 'dormant', 'exited'].includes(status)) {
-      return { ok: false, message: 'The ticket session is busy or waiting for an answer.' }
+    if (request.phase === 'retire') {
+      const status = ticket.data.dormant ? 'dormant' : statuses[ticket.id]
+      if (!status || !['idle', 'result', 'dormant', 'exited'].includes(status)) {
+        return { ok: false, message: 'The ticket session is busy or waiting for an answer.' }
+      }
     }
+  }
+  if (request.phase === 'retire') return { ok: true, suspendId: ticket?.id }
+
+  const children = nodes.filter((node) => node.data.worktreeId === worktree.data.worktreeId && node.id !== worktree.id)
+  if (children.some((node) => isFileCanvasNode(node) || (isTerminalCanvasNode(node) && node.id !== session.nodeId))) {
+    return { ok: false, message: 'Another session or file editor is using the ticket worktree.' }
   }
   return {
     ok: true,
-    ...(request.phase === 'close'
-      ? { suspendId: ticket?.id }
-      : { removeIds: [worktree.id, ...children.map((node) => node.id)] })
+    ...(request.phase === 'remove' ? { removeIds: [worktree.id, ...children.map((node) => node.id)] } : {})
   }
 }

@@ -560,7 +560,7 @@ void app.whenReady().then(async () => {
     },
     // Late-bound: the spawner needs the window requests and the model catalogue wired below.
     spawner: { spawn: (request) => ticketSpawner.spawn(request) },
-    cleanup: { run: (record) => orchestrationCleanup.run(record) },
+    cleanup: { run: (record, ticketId) => orchestrationCleanup.run(record, ticketId) },
     ticketSessions: {
       state: (nodeId) => {
         const snapshot = agentEvents.snapshot(nodeId)
@@ -754,13 +754,14 @@ void app.whenReady().then(async () => {
     canvas: async (request) => {
       const snapshot = agentEvents.snapshot(request.session.nodeId)
       if (
+        request.phase === 'retire' &&
         snapshot &&
         (snapshot.approval || snapshot.decisionRequests.length > 0 || !['ready', 'exited'].includes(snapshot.status))
       ) {
         return { ok: false, message: 'The ticket session is busy or waiting for an answer.' }
       }
       const result = await ticketCleanup.request(request)
-      if (result.ok && request.phase === 'close') agentManager.kill(request.session.nodeId)
+      if (result.ok && request.phase === 'retire') agentManager.kill(request.session.nodeId)
       return result
     }
   })

@@ -20,7 +20,8 @@ export interface OrchestrationCleanupResult {
 }
 
 export interface OrchestrationCleanup {
-  run(record: OrchestrationRecord): Promise<OrchestrationCleanupResult>
+  /** A ticket id retires one freshly merged session; absent performs the final full sweep. */
+  run(record: OrchestrationRecord, ticketId?: string): Promise<OrchestrationCleanupResult>
 }
 
 /** Evidence-gated cleanup: a record's merged flag alone never authorizes deleting a branch. */
@@ -31,7 +32,7 @@ export function createOrchestrationCleanup(options: {
   canvas(request: TicketCleanupRequest): Promise<TicketCleanupResult>
 }): OrchestrationCleanup {
   return {
-    async run(record) {
+    async run(record, ticketId) {
       const removed: CleanupEntry[] = []
       const retained: CleanupEntry[] = []
       const git = async (args: string[], cwd = record.projectPath): Promise<string> => {
@@ -39,7 +40,9 @@ export function createOrchestrationCleanup(options: {
         if (result.code !== 0) throw new Error(result.stderr.trim() || `git ${args[0]} failed (${result.code})`)
         return result.stdout.trim()
       }
-      for (const ticket of record.tickets) {
+      const tickets =
+        ticketId === undefined ? record.tickets : record.tickets.filter((ticket) => ticket.id === ticketId)
+      for (const ticket of tickets) {
         const entry = { ticket: ticket.id, worktree: ticket.session?.worktreePath, branch: ticket.session?.branch }
         if (ticket.mergeStatus !== 'merged') {
           retained.push({ ...entry, reason: 'ticket is unmerged' })
@@ -75,11 +78,18 @@ export function createOrchestrationCleanup(options: {
             await git(['merge-base', '--is-ancestor', head, target])
             await git(['merge-base', '--is-ancestor', head, upstream])
           } else if (worktree) throw new Error('the ticket branch is missing')
+
+          // Publication is the terminal point for the agent process. Retire it before checking
+          // filesystem blockers so a dirty tree or another canvas occupant retains evidence, not RAM.
+          const retired = await options.canvas({ projectPath: record.projectPath, session, phase: 'retire' })
+          if (!retired.ok) throw new Error(retired.message)
           if (worktree) {
             if (await git(['status', '--porcelain', '--untracked-files=all'], worktreePath))
               throw new Error('worktree has uncommitted or untracked work')
-            const closed = await options.canvas({ projectPath: record.projectPath, session, phase: 'close' })
-            if (!closed.ok) throw new Error(closed.message)
+          }
+          const prepared = await options.canvas({ projectPath: record.projectPath, session, phase: 'prepare' })
+          if (!prepared.ok) throw new Error(prepared.message)
+          if (worktree) {
             const result = await options.worktrees.remove({
               projectPath: record.projectPath,
               path: worktreePath,
@@ -90,8 +100,9 @@ export function createOrchestrationCleanup(options: {
           }
           // -d rechecks reachability at deletion time; never force past Git's verdict.
           if (hasBranch) await git(['branch', '-d', '--', branch])
-          const retired = await options.canvas({ projectPath: record.projectPath, session, phase: 'remove' })
-          if (!retired.ok) throw new Error(`Git cleanup finished; canvas cleanup failed: ${retired.message}`)
+          const removedFromCanvas = await options.canvas({ projectPath: record.projectPath, session, phase: 'remove' })
+          if (!removedFromCanvas.ok)
+            throw new Error(`Git cleanup finished; canvas cleanup failed: ${removedFromCanvas.message}`)
           removed.push(entry)
         } catch (error) {
           retained.push({ ...entry, reason: errorMessage(error) })

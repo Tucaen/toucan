@@ -33,7 +33,8 @@ Inspect its final report, diff and verification evidence first. Unresolved block
 2. Run the project's **full test suite in that worktree**, using the command established from the project. A passing pre-rebase run is insufficient. If the suite cannot run or fails, keep the ticket unmerged and record the command and failure; never skip or delete a failing test to qualify the merge.
 3. Recheck the target checkout is clean and on `targetBranch`, then run `git merge --ff-only <ticketBranch>` there. If the target advanced, repeat the rebase and full suite. Do not force or create a merge commit.
 4. Push the target's configured upstream. Only after a successful push, record `mergeStatus: merged`, the resulting commit and commit link in the ticket's body. Close its tracker item with that link using your own tools. A failed tracker write-back leaves the Git merge valid; record the write-back failure separately.
-5. Reread the record and dispatch newly unblocked tickets. Repeat for the next settled ticket in dependency order.
+5. Call `cleanup --ticket <id>` immediately and inspect `removed` and `retained`. Toucan retires the settled ticket session before attempting worktree removal, so a retained worktree does not retain its agent process. Record and report a retained reason; do not undo the valid merge.
+6. Reread the record and dispatch newly unblocked tickets. Repeat for the next settled ticket in dependency order.
 
 ## Failure and escalation
 
@@ -45,7 +46,7 @@ Call `escalate --ticket <id>` once per failed attempt, then respawn on that reco
 
 Persist progress and review notes in each ticket's `body` through `ticket update`, preserving its acceptance criteria and source. Record commit/worktree links, conflict attempts, escalations, unresolved findings, test omissions, questions, permissions and failed write-backs as they occur, so a resume can rebuild the review list. CLI `attempts` counts failed implementation attempts; keep the conflict counter explicitly in these notes. Reconcile a resumed record against Git before repeating a merge or tracker update.
 
-When no further authorized work can progress, call `cleanup` once and inspect `removed` and `retained`. Unmerged work stays for the human. Report partial cleanup, with the reason and remaining branch/path; retry only after addressing that reason. Cleanup deletes merged local branches and worktrees, while conversations remain in History.
+When no further authorized work can progress, call `cleanup` once as a final sweep and inspect `removed` and `retained`. Unmerged work stays for the human. Report partial cleanup, with the reason and remaining branch/path; retry only after addressing that reason. Cleanup deletes merged local branches and worktrees, while conversations remain in History.
 
 Then call `report` once for the routing report. It covers every orchestration of this project, not only this one. Never edit the tier mapping yourself, even when a proposal looks obvious: the human decides.
 

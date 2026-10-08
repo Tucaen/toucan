@@ -1,10 +1,10 @@
 import type { TicketSession } from './orchestration'
 
-/** Suspend the settled ticket chat before Git removes its directory; retire chat and frame afterwards. */
+/** Retire the settled chat, preflight its canvas, then remove the chat and frame after Git succeeds. */
 export interface TicketCleanupRequest {
   projectPath: string
   session: Required<TicketSession>
-  phase: 'close' | 'remove'
+  phase: 'retire' | 'prepare' | 'remove'
 }
 
 export type TicketCleanupResult = { ok: true } | { ok: false; message: string }

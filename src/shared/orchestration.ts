@@ -854,6 +854,16 @@ export function parseOutcomeInput(value: unknown): Outcome<'ticketId', string> {
   return { ticketId: args.ticket.trim() }
 }
 
+/** Validates `cleanup`'s optional `--ticket <id>` selector. No selector means the final full sweep. */
+export function parseCleanupInput(value: unknown): Outcome<'cleanup', { ticketId?: string }> {
+  if (value === undefined) return { cleanup: {} }
+  if (!isRecord(value) || Object.keys(value).some((key) => key !== 'ticket')) {
+    return refuse('cleanup takes only an optional --ticket <id>')
+  }
+  if (!nonEmptyString(value.ticket)) return refuse('cleanup --ticket needs a ticket id')
+  return { cleanup: { ticketId: value.ticket.trim() } }
+}
+
 /** Validates `followup`'s `--ticket <id> --text <text>`; the text is sent as given. */
 export function parseFollowupInput(value: unknown): Outcome<'followup', { ticketId: string; text: string }> {
   const args = isRecord(value) ? value : {}

@@ -11,6 +11,7 @@ import {
   ORCHESTRATOR_COMMANDS,
   ORCHESTRATOR_TOKEN_ENV,
   ORCHESTRATOR_URL_ENV,
+  parseCleanupInput,
   parseEscalateInput,
   parseFollowupInput,
   parseOutcomeInput,
@@ -674,11 +675,21 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
     if (command === 'escalate') return escalate(grant, key, args)
     if (command === 'report') return report(grant, args)
     if (command === 'cleanup') {
-      if (args !== undefined) return refused(400, 'cleanup takes no arguments')
+      const parsed = parseCleanupInput(args)
+      if (parsed.error !== undefined) return refused(400, parsed.error)
       const own = await ownRecord(grant, key)
       if ('status' in own) return own
       if (!options.cleanup) return refused(501, 'this Toucan cannot clean up ticket worktrees')
-      return { status: 200, body: { ok: true, ...(await options.cleanup.run(own.record)) } }
+      if (
+        parsed.cleanup.ticketId !== undefined &&
+        !own.record.tickets.some((ticket) => ticket.id === parsed.cleanup.ticketId)
+      ) {
+        return refused(404, `the plan has no ticket "${parsed.cleanup.ticketId}"`)
+      }
+      return {
+        status: 200,
+        body: { ok: true, ...(await options.cleanup.run(own.record, parsed.cleanup.ticketId)) }
+      }
     }
     if (command === 'status' || command === 'outcome' || command === 'followup') {
       const own = await ownRecord(grant, key)

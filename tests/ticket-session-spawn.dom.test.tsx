@@ -104,7 +104,7 @@ describe('a ticket session requested by an orchestrator', () => {
     const body: TicketCleanupRequest = {
       projectPath: project.path,
       session: { ...session, worktreePath: request.worktree.path, branch: request.worktree.branch },
-      phase: 'close'
+      phase: 'retire'
     }
     await waitFor(() => {
       cleanup(body)
@@ -112,6 +112,8 @@ describe('a ticket session requested by an orchestrator', () => {
     })
     await waitFor(() => expect(agent.api.kill).toHaveBeenCalledWith(session.nodeId))
     expect(screen.queryAllByText('#34 Spawn').length).toBeGreaterThan(0)
+    cleanup({ ...body, phase: 'prepare' })
+    expect(cleanupResults.at(-1)).toEqual({ ok: true })
     cleanup({ ...body, phase: 'remove' })
     await waitFor(() => expect(screen.queryAllByText('ticket/34')).toHaveLength(0))
     expect(screen.queryAllByText('#34 Spawn')).toHaveLength(0)

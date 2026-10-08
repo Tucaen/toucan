@@ -152,9 +152,9 @@ shows real working state, and this carries over to other providers unchanged.
 - A rebase conflict goes back to the ticket's own session, which knows what the change was for.
   After two failed attempts the ticket stays unmerged, goes to the review list, and its
   dependents stay blocked.
-- When the orchestration finishes, merged worktrees and their local ticket branches are removed
-  in one step (their canvas groups go with them; transcripts stay in History). Unmerged
-  worktrees stay for the human.
+- After each published merge, the settled ticket session is retired and its worktree and local
+  branch are removed immediately (its canvas group goes with them; the transcript stays in
+  History). A final sweep retries retained cleanup. Unmerged worktrees stay for the human.
 
 ### Usage limits
 

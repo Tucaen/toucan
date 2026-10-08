@@ -39,10 +39,16 @@ function run(args: string[], environment: Record<string, string | undefined>): P
 
 async function harness() {
   const calls: TicketSpawnRequest[] = []
+  const cleanupCalls: Array<string | undefined> = []
   const records = createOrchestrationStore({ directory: mkdtempSync(join(tmpdir(), 'toucan-orchestrate-cli-')) })
   const endpoint = createOrchestratorEndpoint({
     records,
-    cleanup: { run: async () => ({ removed: [{ ticket: '34' }], retained: [] }) },
+    cleanup: {
+      run: async (_record, ticketId) => {
+        cleanupCalls.push(ticketId)
+        return { removed: [{ ticket: ticketId ?? '34' }], retained: [] }
+      }
+    },
     spawner: {
       async spawn(request) {
         calls.push(request)
@@ -66,7 +72,7 @@ async function harness() {
     projectPath: 'D:\\project'
   })) as OrchestratorGrant
   grant.setConversation('conversation-1')
-  return { endpoint, grant, calls, environment: grant.environment }
+  return { endpoint, grant, calls, cleanupCalls, environment: grant.environment }
 }
 
 test('without an orchestrator environment the CLI refuses clearly and calls nothing', async () => {
@@ -96,8 +102,8 @@ test('report reaches the endpoint and takes no arguments (#40)', async () => {
   }
 })
 
-test('cleanup runs through the scoped endpoint and rejects extra arguments', async () => {
-  const { endpoint, environment } = await harness()
+test('cleanup runs globally or for one ticket and rejects invalid selectors', async () => {
+  const { endpoint, environment, cleanupCalls } = await harness()
   try {
     const missing = await run(['cleanup'], environment)
     assert.equal(missing.code, 1)
@@ -114,7 +120,15 @@ test('cleanup runs through the scoped endpoint and rejects extra arguments', asy
     const result = await run(['cleanup'], environment)
     assert.equal(result.code, 0)
     assert.deepEqual(result.output.removed, [{ ticket: '34' }])
+    const scoped = await run(['cleanup', '--ticket', '34'], environment)
+    assert.equal(scoped.code, 0)
+    assert.deepEqual(scoped.output.removed, [{ ticket: '34' }])
+    assert.deepEqual(cleanupCalls, [undefined, '34'])
+    const unknown = await run(['cleanup', '--ticket', 'missing'], environment)
+    assert.equal(unknown.code, 1)
+    assert.match(unknown.output.error ?? '', /no ticket/)
     assert.equal((await run(['cleanup', '--force'], environment)).code, 2)
+    assert.equal((await run(['cleanup', '--ticket'], environment)).code, 2)
   } finally {
     await endpoint.close()
   }
