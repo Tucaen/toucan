@@ -10,7 +10,7 @@ export interface OrchestratedTicketSessionCandidate {
   orchestratedBy?: unknown
 }
 
-/**
+/** @internal exported for tests
  * Counts live ticket sessions for a provider from all workspace nodes. A ticket is identified by
  * its persisted orchestration provenance, while the broker remains the owner of whether it is
  * live; a dormant canvas node or an exited session therefore consumes no pacing capacity.
