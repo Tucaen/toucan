@@ -27,10 +27,10 @@ import {
   type OrchestrationRecord,
   type OrchestrationTicket,
   type OrchestratorCommand,
-  type OrchestratorUsageResponse,
   type SpawnInput,
   type TicketRoute
 } from '../shared/orchestration'
+import type { OrchestratorUsageResponse } from '../shared/orchestrator-usage'
 import {
   escalateRoute,
   resolveTier,
@@ -666,7 +666,7 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
         provider: grant.provider,
         usage: result.entry ?? null,
         state: result.state,
-        pacing: null
+        pacing: { state: 'unknown' }
       }
       return { status: 200, body: { ok: true, ...body } }
     }

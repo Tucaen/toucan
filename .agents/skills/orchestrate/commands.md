@@ -22,7 +22,7 @@ Read `error` and act on it; a refusal writes nothing to the record.
 
 ## usage
 
-`usage` prints `{ ok: true, provider, usage, state, pacing }` for the orchestrator's own provider only. `usage` is a normalized `ProviderUsageEntry` (`status`, `readAt`, `stale`) or `null`; `state` is `available`, `missing`, or `failed`, so an absent reading and a failed refresh are never conflated. A failed or missing refresh can retain a stale last-known `usage` entry. `pacing` is currently `null`, reserved for future machine-readable server pacing.
+`usage` prints `{ ok: true, provider, usage, state, pacing }` for the orchestrator's own provider only. `usage` is a normalized `ProviderUsageEntry` (`status`, `readAt`, `stale`) or `null`; `state` is `available`, `missing`, or `failed`, so an absent reading and a failed refresh are never conflated. A failed or missing refresh can retain a stale last-known `usage` entry. `pacing` is `{ "state": "unknown" }` until Toucan can make a recommendation; treat that explicitly as no recommendation, not permission to poll.
 
 Read it when deciding whether to dispatch, retry, or resume work after a usage-limit pause. Do not poll it: Toucan uses a shared cache and forced reads coalesce, but polling still asks a provider for account state without making progress. The command starts no model turn and never exposes credentials, raw provider payloads, or another provider's usage.
 

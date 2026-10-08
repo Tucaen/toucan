@@ -201,21 +201,21 @@ test('usage reads only the authenticated grant provider and preserves explicit m
       provider: 'claude',
       usage: { status: { fiveHour: { usedPercent: 61 } }, readAt: 50, stale: false },
       state: 'available',
-      pacing: null
+      pacing: { state: 'unknown' }
     })
     assert.deepEqual((await call(codex, 'usage')).body, {
       ok: true,
       provider: 'codex',
       usage: null,
       state: 'missing',
-      pacing: null
+      pacing: { state: 'unknown' }
     })
     assert.deepEqual((await call(claude, 'usage')).body, {
       ok: true,
       provider: 'claude',
       usage: { status: { fiveHour: { usedPercent: 61 } }, readAt: 50, stale: true },
       state: 'failed',
-      pacing: null
+      pacing: { state: 'unknown' }
     })
     assert.equal((await call(claude, 'usage', { force: true })).status, 400)
   } finally {
