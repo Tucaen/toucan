@@ -550,6 +550,10 @@ void app.whenReady().then(async () => {
   const jevRouter = createJevRouter({ environment: () => process.env })
   const orchestratorEndpoint = createOrchestratorEndpoint({
     records: orchestrationRecords,
+    providerUsage: {
+      read: (options) => providerUsage.read(options),
+      readProvider: (provider, options) => providerUsage.readProvider(provider, options)
+    },
     routing: {
       config: (provider, projectPath) => orchestrationConfig.load(provider, projectPath),
       offered: (provider) => ({

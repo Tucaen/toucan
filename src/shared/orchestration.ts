@@ -1,3 +1,4 @@
+import type { ProviderUsageEntry } from './agent'
 import { isAgentProvider, type AgentProvider } from './agent-provider'
 import { isRecord } from './record'
 
@@ -37,6 +38,17 @@ export const ORCHESTRATOR_TOKEN_ENV = 'TOUCAN_ORCHESTRATOR_TOKEN'
 export const ORCHESTRATE_SKILL_PATH = ['skills', 'orchestrate', 'SKILL.md'] as const
 export const ORCHESTRATE_CLI_PATH = ['skills', 'orchestrate', 'scripts', 'orchestrate.mjs'] as const
 
+/** Read-only usage result for the live provider of an authenticated orchestrator grant. */
+export interface OrchestratorUsageResponse {
+  provider: AgentProvider
+  /** The normalized last reading, including a stale fallback when one exists. */
+  usage: ProviderUsageEntry | null
+  /** Why `usage` is absent, or why its entry is stale. */
+  state: 'available' | 'missing' | 'failed'
+  /** Reserved for a future server-directed pacing policy. Always null; callers must not poll. */
+  pacing: null
+}
+
 /** The CLI's commands, as they travel to the endpoint. */
 export const ORCHESTRATOR_COMMANDS = [
   'plan set',
@@ -49,7 +61,8 @@ export const ORCHESTRATOR_COMMANDS = [
   'route',
   'escalate',
   'cleanup',
-  'report'
+  'report',
+  'usage'
 ] as const
 export type OrchestratorCommand = (typeof ORCHESTRATOR_COMMANDS)[number]
 

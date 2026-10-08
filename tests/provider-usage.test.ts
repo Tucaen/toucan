@@ -216,3 +216,58 @@ test('a read for a provider with no reader configured reports nothing', async ()
 
   assert.deepEqual(await usage.read({ provider: 'codex' }), {})
 })
+
+test('the detailed provider result distinguishes missing and failed reads while preserving a stale fallback', async () => {
+  let attempt = 0
+  const usage = createProviderUsage({
+    readers: {
+      claude: {
+        read: () => {
+          attempt += 1
+          if (attempt === 1) return { fiveHour: { usedPercent: 24 } }
+          throw new Error('offline')
+        }
+      },
+      codex: { read: () => null }
+    },
+    ttlMs: 60_000,
+    now: () => 10
+  })
+
+  assert.deepEqual(await usage.readProvider('codex', { force: true }), { state: 'missing' })
+  assert.deepEqual(await usage.readProvider('claude', { force: true }), {
+    state: 'available',
+    entry: fresh({ fiveHour: { usedPercent: 24 } }, 10)
+  })
+  assert.deepEqual(await usage.readProvider('claude', { force: true }), {
+    state: 'failed',
+    entry: { status: { fiveHour: { usedPercent: 24 } }, readAt: 10, stale: true }
+  })
+})
+
+test('concurrent forced single-provider reads join the same in-flight request', async () => {
+  let resolve!: (value: AgentRateLimitStatus) => void
+  let calls = 0
+  const usage = createProviderUsage({
+    readers: {
+      claude: {
+        read: () => {
+          calls += 1
+          return new Promise<AgentRateLimitStatus>((done) => {
+            resolve = done
+          })
+        }
+      }
+    },
+    ttlMs: 60_000
+  })
+
+  const first = usage.readProvider('claude', { force: true })
+  const second = usage.readProvider('claude', { force: true })
+  assert.equal(calls, 1)
+  resolve({ weekly: { usedPercent: 19 } })
+  const results = await Promise.all([first, second])
+  assert.deepEqual(results[0], results[1])
+  assert.equal(results[0].state, 'available')
+  assert.deepEqual(results[0].entry?.status, { weekly: { usedPercent: 19 } })
+})

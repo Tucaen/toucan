@@ -102,6 +102,19 @@ test('report reaches the endpoint and takes no arguments (#40)', async () => {
   }
 })
 
+test('usage reaches the endpoint and rejects flags or positional arguments', async () => {
+  const { endpoint, environment } = await harness()
+  try {
+    const result = await run(['usage'], environment)
+    assert.equal(result.code, 1)
+    assert.match(result.output.error ?? '', /provider usage/)
+    assert.equal((await run(['usage', '--force'], environment)).code, 2)
+    assert.equal((await run(['usage', 'now'], environment)).code, 2)
+  } finally {
+    await endpoint.close()
+  }
+})
+
 test('cleanup runs globally or for one ticket and rejects invalid selectors', async () => {
   const { endpoint, environment, cleanupCalls } = await harness()
   try {

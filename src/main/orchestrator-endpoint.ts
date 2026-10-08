@@ -27,6 +27,7 @@ import {
   type OrchestrationRecord,
   type OrchestrationTicket,
   type OrchestratorCommand,
+  type OrchestratorUsageResponse,
   type SpawnInput,
   type TicketRoute
 } from '../shared/orchestration'
@@ -50,6 +51,7 @@ import type { TicketBinding } from './orchestration-wake'
 import { createPairingToken, pairingTokenMatches, presentedPairingToken } from './remote/pairing'
 import type { TicketSpawner } from './ticket-spawner'
 import type { OrchestrationCleanup } from './orchestration-cleanup'
+import type { ProviderUsage } from './provider-usage'
 
 /**
  * The local endpoint an orchestrator's CLI talks to (#33; plan in
@@ -126,6 +128,8 @@ export interface OrchestratorRouting {
 
 export interface OrchestratorEndpointOptions {
   records: OrchestrationStore
+  /** The shared provider-usage cache. Usage never starts an agent turn. */
+  providerUsage?: ProviderUsage
   /** Absent, `route`, `escalate` and `spawn --tier` are refused and spawns use the default skill. */
   routing?: OrchestratorRouting
   /** Starts ticket sessions for `spawn`; absent, `spawn` is refused as unavailable. */
@@ -654,6 +658,18 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
     if (!conversationId) return refused(409, 'the orchestrator session has not opened its conversation yet')
     const key = { provider: grant.provider, conversationId }
     const identity = { ...key, projectPath: grant.projectPath }
+    if (command === 'usage') {
+      if (args !== undefined) return refused(400, 'usage takes no arguments')
+      if (!options.providerUsage) return refused(501, 'this Toucan cannot read provider usage')
+      const result = await options.providerUsage.readProvider(grant.provider, { force: true })
+      const body: OrchestratorUsageResponse = {
+        provider: grant.provider,
+        usage: result.entry ?? null,
+        state: result.state,
+        pacing: null
+      }
+      return { status: 200, body: { ok: true, ...body } }
+    }
     if (command === 'plan show') {
       const record = await options.records.read(key)
       const scope = outOfScope(grant, record)

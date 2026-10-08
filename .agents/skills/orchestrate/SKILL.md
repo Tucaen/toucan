@@ -11,6 +11,8 @@ You are the orchestrator; Toucan starts ticket sessions through its CLI. Read [c
 
 Keep CLI JSON input files outside the checkout, so writing a plan does not dirty the target you are about to merge into.
 
+Use `usage` only when a dispatch, retry or paused orchestration needs an account-usage decision; it is not a polling signal. It reads your own provider's normalized usage through Toucan without starting a model turn.
+
 ## Start or resume
 
 1. Read `plan show` and `status`. An existing record is the source of truth: recover progress, outcomes and the review notes before acting. A completed notification means a turn ended; inspect `outcome` and Git before deciding a ticket is done.

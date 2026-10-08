@@ -44,22 +44,38 @@ export interface ProviderUsageReadOptions {
   provider?: AgentProvider
 }
 
+/**
+ * The outcome for one provider. `read()` remains the header-facing view and omits unavailable
+ * providers; callers that need to explain an absent chip use this richer result instead.
+ */
+export interface ProviderUsageReadResult {
+  /** `missing` means the provider had no usage to report; `failed` means its reader threw. */
+  state: 'available' | 'missing' | 'failed'
+  /** A failed or missing refresh may retain the last known entry, marked stale. */
+  entry?: ProviderUsageEntry
+}
+
 export interface ProviderUsage {
   read(options?: ProviderUsageReadOptions): Promise<ProviderUsageReport>
+  /** Reads exactly one provider, preserving why an entry is absent for non-UI consumers. */
+  readProvider(
+    provider: AgentProvider,
+    options?: Pick<ProviderUsageReadOptions, 'force'>
+  ): Promise<ProviderUsageReadResult>
 }
 
 export function createProviderUsage(options: ProviderUsageOptions): ProviderUsage {
   const now = options.now ?? ((): number => Date.now())
-  const cache = new Map<AgentProvider, { expiresAt: number; entry: ProviderUsageEntry | null }>()
-  const inFlight = new Map<AgentProvider, Promise<ProviderUsageEntry | null>>()
+  const cache = new Map<AgentProvider, { expiresAt: number; result: ProviderUsageReadResult }>()
+  const inFlight = new Map<AgentProvider, Promise<ProviderUsageReadResult>>()
 
   const readProvider = async (
     provider: AgentProvider,
     reader: ProviderUsageReader,
     force: boolean
-  ): Promise<ProviderUsageEntry | null> => {
+  ): Promise<ProviderUsageReadResult> => {
     const cached = cache.get(provider)
-    if (!force && cached && cached.expiresAt > now()) return cached.entry
+    if (!force && cached && cached.expiresAt > now()) return cached.result
 
     // A forced read still joins a request already on its way: that answer is no staler than one
     // started now, and joining keeps a burst of clicks from spawning a CLI process per click.
@@ -67,15 +83,22 @@ export function createProviderUsage(options: ProviderUsageOptions): ProviderUsag
     if (pending) return pending
 
     // Wrapping in an async call normalizes a synchronous reader and a synchronous throw alike.
-    const request = (async () => reader.read())()
-      .catch(() => null)
-      .then((status) => {
+    const request = (async (): Promise<{ status: AgentRateLimitStatus | null; failed: boolean }> => {
+      try {
+        return { status: await reader.read(), failed: false }
+      } catch {
+        return { status: null, failed: true }
+      }
+    })()
+      .then(({ status, failed }) => {
         // Keep the previous reading when this one came back empty, but say so: `readAt` stays at
         // the moment the kept reading was actually obtained, which is what the header dates it by.
-        const kept = keptAsStale(cache.get(provider)?.entry ?? undefined)
-        const entry: ProviderUsageEntry | null = status ? { status, readAt: now(), stale: false } : (kept ?? null)
-        cache.set(provider, { expiresAt: now() + options.ttlMs, entry })
-        return entry
+        const kept = keptAsStale(cache.get(provider)?.result.entry)
+        const result: ProviderUsageReadResult = status
+          ? { state: 'available', entry: { status, readAt: now(), stale: false } }
+          : { state: failed ? 'failed' : 'missing', ...(kept ? { entry: kept } : {}) }
+        cache.set(provider, { expiresAt: now() + options.ttlMs, result })
+        return result
       })
       .finally(() => inFlight.delete(provider))
 
@@ -84,6 +107,11 @@ export function createProviderUsage(options: ProviderUsageOptions): ProviderUsag
   }
 
   return {
+    async readProvider(provider, readOptions) {
+      const reader = options.readers[provider]
+      if (!reader) return { state: 'missing' }
+      return readProvider(provider, reader, readOptions?.force ?? false)
+    },
     async read(readOptions?: ProviderUsageReadOptions): Promise<ProviderUsageReport> {
       const force = readOptions?.force ?? false
       const requested = readOptions?.provider
@@ -94,8 +122,8 @@ export function createProviderUsage(options: ProviderUsageOptions): ProviderUsag
         entries.map(async ([provider, reader]) => [provider, await readProvider(provider, reader, force)] as const)
       )
       const report: ProviderUsageReport = {}
-      for (const [provider, entry] of results) {
-        if (entry) report[provider] = entry
+      for (const [provider, result] of results) {
+        if (result.entry) report[provider] = result.entry
       }
       return report
     }

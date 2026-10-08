@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { test } from 'vitest'
 import { createOrchestrationStore } from '../src/main/orchestration-store'
 import { createOrchestratorEndpoint, type OrchestratorGrant } from '../src/main/orchestrator-endpoint'
+import { createProviderUsage } from '../src/main/provider-usage'
 import { ORCHESTRATOR_TOKEN_ENV, ORCHESTRATOR_URL_ENV } from '../src/shared/orchestration'
 
 // The orchestrator's local endpoint (#33): every call is authorized at call time against a live
@@ -95,6 +96,7 @@ test('a missing, wrong or revoked token is refused before anything is read', asy
   grant.setConversation('conversation-1')
   try {
     assert.equal((await call(grant, 'plan show', undefined, null)).status, 401)
+    assert.equal((await call(grant, 'usage', undefined, null)).status, 401)
     const wrong = await call(grant, 'plan show', undefined, 'not-the-token')
     assert.equal(wrong.status, 401)
     assert.match(wrong.body.error ?? '', /missing, wrong or revoked/)
@@ -166,6 +168,56 @@ test('invalid input and unknown commands are refused with a reason', async () =>
     const early = await call(grant, 'ticket update', { id: '33', fields: { attempts: 1 } })
     assert.equal(early.status, 404)
     assert.match(early.body.error ?? '', /plan set first/)
+  } finally {
+    await endpoint.close()
+  }
+})
+
+test('usage reads only the authenticated grant provider and preserves explicit missing or failed state', async () => {
+  let claudeAttempt = 0
+  const records = createOrchestrationStore({ directory: mkdtempSync(join(tmpdir(), 'toucan-orchestrator-usage-')) })
+  const providerUsage = createProviderUsage({
+    readers: {
+      claude: {
+        read: () => {
+          claudeAttempt += 1
+          if (claudeAttempt === 1) return { fiveHour: { usedPercent: 61 } }
+          throw new Error('offline')
+        }
+      },
+      codex: { read: () => null }
+    },
+    ttlMs: 60_000,
+    now: () => 50
+  })
+  const endpoint = createOrchestratorEndpoint({ records, providerUsage })
+  const claude = (await endpoint.grant('orchestrator-claude', { provider: 'claude', projectPath: 'D:\\project' }))!
+  const codex = (await endpoint.grant('orchestrator-codex', { provider: 'codex', projectPath: 'D:\\project' }))!
+  claude.setConversation('claude-conversation')
+  codex.setConversation('codex-conversation')
+  try {
+    assert.deepEqual((await call(claude, 'usage')).body, {
+      ok: true,
+      provider: 'claude',
+      usage: { status: { fiveHour: { usedPercent: 61 } }, readAt: 50, stale: false },
+      state: 'available',
+      pacing: null
+    })
+    assert.deepEqual((await call(codex, 'usage')).body, {
+      ok: true,
+      provider: 'codex',
+      usage: null,
+      state: 'missing',
+      pacing: null
+    })
+    assert.deepEqual((await call(claude, 'usage')).body, {
+      ok: true,
+      provider: 'claude',
+      usage: { status: { fiveHour: { usedPercent: 61 } }, readAt: 50, stale: true },
+      state: 'failed',
+      pacing: null
+    })
+    assert.equal((await call(claude, 'usage', { force: true })).status, 400)
   } finally {
     await endpoint.close()
   }

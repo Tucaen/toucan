@@ -15,6 +15,7 @@ const USAGE = [
   '| escalate --ticket <id>',
   '| spawn --ticket <id> [--model <id> --effort <level> | --tier <tier> [--effort <level>]] [--provider <provider>] [--project <path>]',
   '| status',
+  '| usage',
   '| cleanup [--ticket <id>]',
   '| report',
   '| outcome --ticket <id>',
@@ -125,7 +126,7 @@ async function message(words) {
     if (positionals.length > 0) usage('cleanup takes no positional arguments')
     return { command: 'cleanup', ...(flags.ticket === undefined ? {} : { args: flags }) }
   }
-  if (first === 'status' || first === 'report') {
+  if (first === 'status' || first === 'report' || first === 'usage') {
     if (words.length > 1) usage(`${first} takes no arguments`)
     return { command: first }
   }
