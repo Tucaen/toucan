@@ -6,6 +6,7 @@ import { errorMessage } from '../shared/text'
 import { parseWorktreeList } from '../shared/worktree'
 import type { GitRunner, WorktreeManager } from './git-worktree'
 import type { WorkspaceContainment } from './workspace-containment'
+import { describeRemovalFailure, inspectLeftover, removeTree } from './worktree-leftover'
 
 interface CleanupEntry {
   ticket: string
@@ -66,18 +67,23 @@ export function createOrchestrationCleanup(options: {
           const listed = parseWorktreeList(await git(['worktree', 'list', '--porcelain']))
           const worktree = listed.find((item) => pathIdentity(item.path) === pathIdentity(worktreePath))
           if (worktree && (worktree.isMain || worktree.branch !== branch)) throw new Error('worktree identity changed')
-          if (!worktree && existsSync(worktreePath))
-            throw new Error('the path is no longer a registered ticket worktree')
+          // A recorded folder git no longer lists is what a half-failed `worktree remove` leaves;
+          // it is finished below once its contents are proved to be nothing but published files.
+          const leftover = !worktree && existsSync(worktreePath)
           const ref = `refs/heads/${branch}`
           const refs = await git(['for-each-ref', '--format=%(refname)', ref])
           const hasBranch = refs.split(/\r?\n/).includes(ref)
+          const published: string[] = []
           if (hasBranch) {
             const head = await git(['rev-parse', '--verify', ref])
             const target = await git(['rev-parse', '--verify', `refs/heads/${record.targetBranch}`])
             const upstream = await git(['rev-parse', '--verify', `${record.targetBranch}@{upstream}`])
             await git(['merge-base', '--is-ancestor', head, target])
             await git(['merge-base', '--is-ancestor', head, upstream])
+            published.push(head, upstream)
           } else if (worktree) throw new Error('the ticket branch is missing')
+          // An earlier sweep already deleted the proved branch; the published target is what is left.
+          else if (leftover) published.push(await git(['rev-parse', '--verify', `${record.targetBranch}@{upstream}`]))
 
           // Publication is the terminal point for the agent process. Retire it before checking
           // filesystem blockers so a dirty tree or another canvas occupant retains evidence, not RAM.
@@ -87,8 +93,21 @@ export function createOrchestrationCleanup(options: {
             if (await git(['status', '--porcelain', '--untracked-files=all'], worktreePath))
               throw new Error('worktree has uncommitted or untracked work')
           }
+          if (leftover) {
+            const findings = await inspectLeftover({
+              runGit: options.runGit,
+              projectPath: record.projectPath,
+              folder: worktreePath,
+              refs: published
+            })
+            if (findings.length > 0)
+              throw new Error(`the unregistered worktree folder still holds work: ${findings.join('; ')}`)
+          }
           const prepared = await options.canvas({ projectPath: record.projectPath, session, phase: 'prepare' })
           if (!prepared.ok) throw new Error(prepared.message)
+          // A refusal (a blocker) keeps everything; a removal that ran and failed costs only the
+          // folder, because the branch's publication is already proved.
+          let folderFailure: string | undefined
           if (worktree) {
             const result = await options.worktrees.remove({
               projectPath: record.projectPath,
@@ -96,10 +115,34 @@ export function createOrchestrationCleanup(options: {
               branch,
               baseRef: record.targetBranch
             })
-            if (!result.ok) throw new Error(result.message || result.blockers.map((blocker) => blocker.kind).join(', '))
+            if (!result.ok && result.blockers.length > 0)
+              throw new Error(result.message || result.blockers.map((blocker) => blocker.kind).join(', '))
+            if (!result.ok) folderFailure = result.message || 'git worktree remove failed'
+          } else if (leftover) {
+            try {
+              await removeTree(worktreePath)
+            } catch (error) {
+              folderFailure = await describeRemovalFailure(worktreePath, errorMessage(error))
+            }
           }
           // -d rechecks reachability at deletion time; never force past Git's verdict.
-          if (hasBranch) await git(['branch', '-d', '--', branch])
+          if (hasBranch) {
+            try {
+              await git(['branch', '-d', '--', branch])
+            } catch (error) {
+              if (!folderFailure) throw error
+              throw new Error(
+                `worktree folder retained: ${folderFailure}; branch not deleted: ${errorMessage(error)}`,
+                {
+                  cause: error
+                }
+              )
+            }
+          }
+          if (folderFailure)
+            throw new Error(
+              `${hasBranch ? `branch ${branch} deleted; ` : ''}worktree folder retained: ${folderFailure}`
+            )
           const removedFromCanvas = await options.canvas({ projectPath: record.projectPath, session, phase: 'remove' })
           if (!removedFromCanvas.ok)
             throw new Error(`Git cleanup finished; canvas cleanup failed: ${removedFromCanvas.message}`)

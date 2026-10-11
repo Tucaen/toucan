@@ -1,9 +1,9 @@
 import { strict as assert } from 'node:assert'
-import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, test } from 'vitest'
-import { createWorktreeManager, runGitWithExecFile } from '../src/main/git-worktree'
+import { createWorktreeManager, runGitWithExecFile, type GitRunner } from '../src/main/git-worktree'
 import { createOrchestrationCleanup } from '../src/main/orchestration-cleanup'
 import { createWorkspaceContainment } from '../src/main/workspace-containment'
 import { applyPlan, recordTicketSession } from '../src/shared/orchestration'
@@ -200,6 +200,163 @@ test(
     const result = await cleanup.run(record)
     assert.match(result.retained[0].reason!, /registered workspace/)
     assert.equal(existsSync(record.tickets[0].session!.worktreePath!), true)
+  },
+  GIT_FIXTURE_TIMEOUT
+)
+
+/** Publishes ticket 1 with a committed `.gitignore`, so its worktree can hold ignored output. */
+async function publishWithIgnoredOutput(context: Awaited<ReturnType<typeof fixture>>) {
+  const { git, record } = context
+  const path = record.tickets[0].session!.worktreePath!
+  writeFileSync(join(path, '.gitignore'), 'out/\n')
+  writeFileSync(join(path, 'tracked.txt'), 'tracked\n')
+  await git(['add', '.gitignore', 'tracked.txt'], path)
+  await git(['commit', '-m', 'ignore output'], path)
+  await git(['merge', '--ff-only', 'ticket/1'])
+  await git(['push'])
+  mkdirSync(join(path, 'out', 'run'), { recursive: true })
+  writeFileSync(join(path, 'out', 'run', 'result.png.import'), 'generated')
+  return path
+}
+
+/** Adds ignored output whose absolute path is beyond Windows' 260-character MAX_PATH. */
+function addDeepOutput(path: string) {
+  const deep = join(path, 'out', ...Array.from({ length: 14 }, (_, index) => `godot-check-project-${index}`))
+  mkdirSync(deep, { recursive: true })
+  writeFileSync(join(deep, 'icon.png.import'), 'generated')
+  assert.ok(join(deep, 'icon.png.import').length > 260)
+}
+
+/**
+ * What a half-failed `git worktree remove` leaves: no registration, no `.git`, and some files -
+ * here without the folder's own `.gitignore`, which git deletes early.
+ */
+async function halfRemove(context: Awaited<ReturnType<typeof fixture>>, path: string) {
+  rmSync(join(path, '.git'))
+  rmSync(join(path, '.gitignore'))
+  await context.git(['worktree', 'prune'])
+  assert.doesNotMatch(await context.git(['worktree', 'list']), /ticket-1/)
+}
+
+test(
+  'the final sweep finishes a half-removed worktree and deletes its merged branch',
+  async () => {
+    const context = await fixture()
+    const path = await publishWithIgnoredOutput(context)
+    await halfRemove(context, path)
+    const result = await context.cleanup.run(context.record)
+    assert.deepEqual(
+      result.removed.map((entry) => entry.ticket),
+      ['1']
+    )
+    assert.equal(existsSync(path), false)
+    assert.equal(await context.git(['branch', '--list', 'ticket/1']), '')
+  },
+  GIT_FIXTURE_TIMEOUT
+)
+
+test(
+  'a leftover folder is finished even after an earlier sweep already deleted the branch',
+  async () => {
+    const context = await fixture()
+    const path = await publishWithIgnoredOutput(context)
+    await halfRemove(context, path)
+    await context.git(['branch', '-d', 'ticket/1'])
+    const result = await context.cleanup.run(context.record, '1')
+    assert.deepEqual(result.retained, [])
+    assert.equal(existsSync(path), false)
+  },
+  GIT_FIXTURE_TIMEOUT
+)
+
+test(
+  'a leftover folder holding changed tracked or untracked files is retained with what was found',
+  async () => {
+    const context = await fixture()
+    const path = await publishWithIgnoredOutput(context)
+    await halfRemove(context, path)
+    writeFileSync(join(path, 'tracked.txt'), 'edited after the merge\n')
+    writeFileSync(join(path, 'notes.txt'), 'unpublished notes')
+    const result = await context.cleanup.run(context.record, '1')
+    assert.equal(result.removed.length, 0)
+    const reason = result.retained[0].reason!
+    assert.match(reason, /still holds work/)
+    assert.match(reason, /modified tracked\.txt/)
+    assert.match(reason, /untracked notes\.txt/)
+    assert.doesNotMatch(reason, /result\.png\.import/)
+    assert.equal(existsSync(join(path, 'notes.txt')), true)
+    assert.ok(await context.git(['branch', '--list', 'ticket/1']))
+  },
+  GIT_FIXTURE_TIMEOUT
+)
+
+test(
+  'a worktree removal that fails still deletes the proved branch and reports the folder',
+  async () => {
+    const { root, git, record } = await fixture()
+    await git(['merge', '--ff-only', 'ticket/1'])
+    await git(['push'])
+    const manager = createWorktreeManager()
+    const cleanup = createOrchestrationCleanup({
+      containment: createWorkspaceContainment({ roots: () => [root] }),
+      runGit: runGitWithExecFile,
+      worktrees: {
+        // Git's half-way failure: the registration goes, the folder stays.
+        remove: async (request) => {
+          await manager.remove(request)
+          mkdirSync(request.path, { recursive: true })
+          return { ok: false, blockers: [], message: "error: failed to delete 'ticket-1': Filename too long" }
+        }
+      },
+      canvas: async () => ({ ok: true })
+    })
+    const result = await cleanup.run(record, '1')
+    assert.match(result.retained[0].reason!, /branch ticket\/1 deleted; worktree folder retained: .*Filename too long/)
+    assert.equal(await git(['branch', '--list', 'ticket/1']), '')
+    // The next sweep finds the leftover, proves it empty and finishes it.
+    assert.deepEqual(
+      (await cleanup.run(record, '1')).removed.map((entry) => entry.ticket),
+      ['1']
+    )
+    assert.equal(existsSync(record.tickets[0].session!.worktreePath!), false)
+  },
+  GIT_FIXTURE_TIMEOUT
+)
+
+// MAX_PATH is a Windows limit; other platforms have no such failure to reproduce.
+test.skipIf(process.platform !== 'win32')(
+  'cleanup removes a worktree whose ignored output is deeper than MAX_PATH (Windows only)',
+  async () => {
+    const context = await fixture()
+    const path = await publishWithIgnoredOutput(context)
+    addDeepOutput(path)
+    const result = await context.cleanup.run(context.record, '1')
+    assert.deepEqual(result.retained, [])
+    assert.equal(existsSync(path), false)
+    assert.equal(await context.git(['branch', '--list', 'ticket/1']), '')
+  },
+  GIT_FIXTURE_TIMEOUT
+)
+
+test.skipIf(process.platform !== 'win32')(
+  'a git without core.longpaths still has its half-removed deep worktree finished (Windows only)',
+  async () => {
+    const context = await fixture()
+    const path = await publishWithIgnoredOutput(context)
+    addDeepOutput(path)
+    // A later -c wins, so this is the user's git on a machine without LongPathsEnabled:
+    // `worktree remove` drops the registration and fails on the folder.
+    const shortPathGit: GitRunner = (args, cwd) => runGitWithExecFile(['-c', 'core.longpaths=false', ...args], cwd)
+    const cleanup = createOrchestrationCleanup({
+      containment: createWorkspaceContainment({ roots: () => [context.root] }),
+      runGit: shortPathGit,
+      worktrees: createWorktreeManager({ runGit: shortPathGit }),
+      canvas: async () => ({ ok: true })
+    })
+    const result = await cleanup.run(context.record, '1')
+    assert.deepEqual(result.retained, [])
+    assert.equal(existsSync(path), false)
+    assert.equal(await context.git(['branch', '--list', 'ticket/1']), '')
   },
   GIT_FIXTURE_TIMEOUT
 )

@@ -37,6 +37,7 @@ import {
 } from '../shared/git-branch'
 import type { GitDiffRequest, GitDiffSummary, GitFileDiff, GitFileDiffRequest } from '../shared/git-diff'
 import { changedFilesFromGit, parseUnifiedDiff } from '../shared/git-diff'
+import { describeRemovalFailure, removeTree } from './worktree-leftover'
 
 /**
  * Claims are a hint written by an agent, so every failure mode - missing file, malformed
@@ -173,12 +174,24 @@ export interface WorktreeManager {
 
 const GIT_MAX_BUFFER = 8 * 1024 * 1024
 
+/**
+ * Git for Windows refuses paths beyond `MAX_PATH` unless `core.longpaths` is on, and a worktree
+ * holding deep ignored build output then fails `worktree remove` half-way. Toucan's own git runs
+ * always lift the limit; the setting is a no-op elsewhere, so it is applied on Windows only.
+ */
+const LONG_PATHS = process.platform === 'win32' ? ['-c', 'core.longpaths=true'] : []
+
 /** Runs git hidden, never rejecting: a git that will not start is `GIT_LAUNCH_FAILED`. */
 export const runGitWithExecFile: GitRunner = (args, cwd) =>
   new Promise<GitResult>((resolve) => {
-    execFile('git', args, hiddenProcessOptions({ cwd, maxBuffer: GIT_MAX_BUFFER }), (error, stdout, stderr) => {
-      resolve(gitResultFromExecFile(error, stdout, stderr))
-    })
+    execFile(
+      'git',
+      [...LONG_PATHS, ...args],
+      hiddenProcessOptions({ cwd, maxBuffer: GIT_MAX_BUFFER }),
+      (error, stdout, stderr) => {
+        resolve(gitResultFromExecFile(error, stdout, stderr))
+      }
+    )
   })
 
 const emptyStatus = (message?: string): WorktreeStatus => ({
@@ -293,6 +306,32 @@ export function createWorktreeManager(options: WorktreeManagerOptions = {}): Wor
     return { exists: true, ...parsed, ahead, stashEntries }
   }
 
+  /**
+   * `worktree remove` drops the registration even when it could not empty the folder, so what is
+   * left was already judged clean by the blocker checks above: finish the deletion git started.
+   * A worktree that is still registered was not removed at all and keeps git's own message.
+   * Answers undefined once the folder is gone, else the message to report.
+   */
+  const finishHalfRemoved = async (request: WorktreeRemoveRequest, message: string): Promise<string | undefined> => {
+    const listed = await runGit(['worktree', 'list', '--porcelain'], request.projectPath)
+    // The primary checkout is always listed, so an empty answer is no evidence of absence.
+    const entries = listed.code === 0 ? parseWorktreeList(listed.stdout) : []
+    if (entries.length === 0) return message
+    const key = worktreePathKey(request.path)
+    if (entries.some((entry) => worktreePathKey(entry.path) === key)) {
+      return describeRemovalFailure(request.path, message)
+    }
+    try {
+      await removeTree(request.path)
+      return undefined
+    } catch (error) {
+      return describeRemovalFailure(
+        request.path,
+        `${message}; deleting the leftover folder failed: ${errorMessage(error)}`
+      )
+    }
+  }
+
   return {
     async create(request): Promise<WorktreeCreateResult> {
       const problem = branchNameProblem(request.branch)
@@ -400,11 +439,8 @@ export function createWorktreeManager(options: WorktreeManagerOptions = {}): Wor
           request.projectPath
         )
         if (removed.code !== 0) {
-          return {
-            ok: false,
-            blockers: [],
-            message: gitFailureMessage(removed, 'git worktree remove failed')
-          }
+          const left = await finishHalfRemoved(request, gitFailureMessage(removed, 'git worktree remove failed'))
+          if (left !== undefined) return { ok: false, blockers: [], message: left }
         }
 
         // `worktree remove` already dropped this worktree's own registration; the prune only tidies
