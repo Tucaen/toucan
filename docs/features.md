@@ -35,6 +35,8 @@ The full tour of what Toucan does today. The [README](../README.md) has the shor
 - Creates every canvas node type from the context menu or from the keyboard: `Ctrl+T` terminal,
   `Ctrl+N` Claude, `Ctrl+Shift+N` Codex, `Ctrl+Shift+G` worktree, `Ctrl+H` history browser and
   `Ctrl+P` file. A shortcut drops its node at the viewport centre and yields inside a terminal.
+  Selecting or clicking a node makes its project the active one in the sidebar, so a shortcut
+  opens in the project of the node being worked in.
 - Runs Claude and Codex through provider-neutral ACP chat nodes with sign-in, approvals,
   model and effort controls, slash commands, Markdown, file attachments, and local voice
   dictation.

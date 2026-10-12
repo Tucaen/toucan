@@ -1,7 +1,8 @@
 /**
  * The projection the project sidebar renders: per-project summaries of the canvas, derived once
  * per render from the nodes and their live statuses. The sidebar itself never sees a canvas node -
- * it reads rows - which is what keeps `ProjectSidebar` mountable without React Flow.
+ * it reads rows - which is what keeps `ProjectSidebar` mountable without React Flow. It also
+ * derives which project the sidebar follows from the canvas selection (`projectOfSelection`).
  */
 import type { TerminalKind, TerminalLiveness } from '../../shared/terminal'
 import {
