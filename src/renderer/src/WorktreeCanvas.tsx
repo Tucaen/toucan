@@ -134,6 +134,7 @@ export default function WorktreeCanvas({
           nodeTypes={nodeTypes}
           onNodesChange={handleNodesChange}
           onPaneClick={handlePaneClick}
+          onNodeClick={host.onNodeClick}
           onMoveEnd={handleMoveEnd}
           defaultViewport={viewport ?? ORIGIN}
           fitView={!viewport}

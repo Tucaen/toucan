@@ -127,7 +127,7 @@ import { OpenFileContext } from './open-file-context'
 import { SessionConnectionsProvider } from './SessionConnections'
 import { workspaceRootOwningPath } from './file-node'
 import { moveGroup, moveProject, nextGroupName, ungroupProjects } from './project-order'
-import { projectSidebarSummaries } from './project-sidebar'
+import { projectOfSelection, projectSidebarSummaries } from './project-sidebar'
 import { ProjectSidebar, type GroupDrop, type ProjectDrop, type ProjectSidebarIntents } from './ProjectSidebar'
 import ProjectRowMenu, { type ProjectMenuPage, type ProjectMenuTarget } from './ProjectRowMenu'
 import type { GitCheckoutResult } from '../../shared/git-branch'
@@ -2817,6 +2817,18 @@ function Canvas(): JSX.Element {
     [attention, canvasPartition, nodeStatuses, nodes]
   )
 
+  // The sidebar follows the canvas selection, so the new-node key opens in the project of the node
+  // the user is looking at rather than one picked earlier. Only a change of that project moves it:
+  // a project picked in the sidebar stays picked until something else is selected or clicked.
+  const selectionProjectId = useMemo(() => projectOfSelection(nodes), [nodes])
+  useEffect(() => {
+    if (selectionProjectId) setActiveProjectId(selectionProjectId)
+  }, [selectionProjectId])
+  /** Clicking a node that is already selected changes no selection, but is the same intent. */
+  const followClickedNodeProject = useCallback((_event: ReactMouseEvent, node: CanvasNode): void => {
+    setActiveProjectId(node.data.projectId)
+  }, [])
+
   /** What every worktree canvas reads from the workspace, and where its changes go. */
   const worktreeCanvasHost = useMemo<WorktreeCanvasHost>(
     () => ({
@@ -2829,6 +2841,7 @@ function Canvas(): JSX.Element {
       onConnect: connectTerminalContext,
       isValidConnection: isValidCanvasConnection,
       onPaneClick: clearSelectionOutside,
+      onNodeClick: followClickedNodeProject,
       registerCanvas: registerWorktreeCanvas,
       onCanvasResize: handleWorktreeCanvasResize
     }),
@@ -2838,6 +2851,7 @@ function Canvas(): JSX.Element {
       clearSelectionOutside,
       connectTerminalContext,
       focusNode,
+      followClickedNodeProject,
       handleNodesChange,
       handleWorktreeCanvasResize,
       isValidCanvasConnection,
@@ -3024,6 +3038,7 @@ function Canvas(): JSX.Element {
                               onConnect={connectTerminalContext}
                               isValidConnection={isValidCanvasConnection}
                               onNodesChange={handleNodesChange}
+                              onNodeClick={followClickedNodeProject}
                               onPaneContextMenu={openContextMenu}
                               onPaneClick={() => {
                                 setMenu(null)

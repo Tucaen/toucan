@@ -52,6 +52,16 @@ export function sidebarSummaryFor(
   return summaries.get(projectId) ?? EMPTY_SUMMARY
 }
 
+/**
+ * The project the canvas selection belongs to, which the sidebar follows so a node created next
+ * lands where the user is looking. A selection spanning projects names none - the sidebar keeps
+ * what it had rather than picking one of them.
+ */
+export function projectOfSelection(nodes: readonly CanvasNode[]): string | undefined {
+  const projects = new Set(nodes.filter((node) => node.selected).map((node) => node.data.projectId))
+  return projects.size === 1 ? [...projects][0] : undefined
+}
+
 export function projectSidebarSummaries(
   nodes: readonly CanvasNode[],
   statuses: Readonly<Record<string, TerminalNodeStatus>>

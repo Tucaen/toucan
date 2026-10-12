@@ -1,5 +1,5 @@
 import type { Connection, EdgeChange, IsValidConnection, NodeChange, Viewport } from '@xyflow/react'
-import { createContext } from 'react'
+import { createContext, type MouseEvent } from 'react'
 import type { CanvasNode } from './canvas-workspace'
 import type { WorktreeCanvasEdges, WorktreeCanvasPartition } from './worktree-canvas'
 import type { WorktreeSummary } from './worktree-overview'
@@ -45,6 +45,8 @@ export interface WorktreeCanvasHost {
   isValidConnection: IsValidConnection
   /** Its empty pane was clicked: nothing may stay selected on any other canvas. */
   onPaneClick(canvas: string): void
+  /** One of its nodes was clicked, even one already selected: the sidebar follows its project. */
+  onNodeClick(event: MouseEvent, node: CanvasNode): void
   /** The canvas mounted and lends its instance to the workspace; the return unregisters it. */
   registerCanvas(canvas: string, handle: WorktreeCanvasHandle): () => void
   /** The canvas's layout size changed - its worktree was resized, focused or restored. */
@@ -62,6 +64,7 @@ export const WorktreeCanvasContext = createContext<WorktreeCanvasHost>({
   onConnect: () => undefined,
   isValidConnection: () => false,
   onPaneClick: () => undefined,
+  onNodeClick: () => undefined,
   registerCanvas: () => () => undefined,
   onCanvasResize: () => undefined
 })
