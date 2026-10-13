@@ -265,3 +265,30 @@ test('route, escalate and spawn --tier reach the endpoint with their flags (#36)
     await endpoint.close()
   }
 })
+
+test('spawn --force is a switch that needs --reason', async () => {
+  const { endpoint, environment, calls } = await harness()
+  try {
+    await run(
+      [
+        'plan',
+        'set',
+        '--json',
+        JSON.stringify({ task: 't', targetBranch: 'main', tickets: [{ id: '34', title: 'Spawn' }] })
+      ],
+      environment
+    )
+    const spawn34 = ['spawn', '--ticket', '34', '--model', 'm', '--effort', 'high', '--force']
+    const bare = await run(spawn34, environment)
+    assert.equal(bare.code, 1)
+    assert.match(bare.output.error ?? '', /--force needs --reason/)
+    assert.equal(calls.length, 0)
+    const forced = await run([...spawn34, '--reason', 'the user asked'], environment)
+    assert.equal(forced.code, 0)
+    assert.equal((forced.output.forced as { reason: string }).reason, 'the user asked')
+    assert.equal(calls.length, 1)
+    assert.equal((await run(['spawn', '--ticket', '34', '--force', '--force'], environment)).code, 2)
+  } finally {
+    await endpoint.close()
+  }
+})

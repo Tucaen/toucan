@@ -2188,6 +2188,27 @@ button.global-status-chip:hover {
   white-space: nowrap;
 }
 
+.node-orchestration-start {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.node-orchestration-start select {
+  max-width: 10rem;
+  border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
+  border-radius: 4px;
+  background: #171d26;
+  color: inherit;
+  font-size: 0.66rem;
+}
+
+.node-orchestration-start-problem {
+  color: var(--usage-warning);
+  font-size: 0.68rem;
+  white-space: nowrap;
+}
+
 .node-orchestration-controls button {
   border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
   border-radius: 4px;

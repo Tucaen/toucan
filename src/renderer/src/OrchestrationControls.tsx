@@ -8,6 +8,8 @@ export default function OrchestrationControls({
 }): JSX.Element | null {
   const [state, setState] = useState<OrchestrationControlState | null>(null)
   const [pending, setPending] = useState(false)
+  const [chosenTicket, setChosenTicket] = useState<string | undefined>(undefined)
+  const [startProblem, setStartProblem] = useState<string | undefined>(undefined)
   const { provider, conversationId, nodeId } = request
   const identity = `${provider}:${conversationId}`
 
@@ -42,7 +44,22 @@ export default function OrchestrationControls({
     }
   }
 
+  const startNow = async (ticketId: string): Promise<void> => {
+    setPending(true)
+    setStartProblem(undefined)
+    try {
+      const result = await window.orchestratorApi.forceStartTicket({ provider, conversationId, nodeId, ticketId })
+      if (!result.ok) setStartProblem(result.message)
+    } catch {
+      setStartProblem('Toucan could not start the ticket.')
+    } finally {
+      setPending(false)
+    }
+  }
+
   if (!state) return null
+  const startable = state.startable ?? []
+  const startTicket = startable.find((ticket) => ticket.id === chosenTicket) ?? startable[0]
   if (state.status === 'stopped') return <span className="node-orchestration-stopped">Stopped</span>
   return (
     <span className="node-orchestration-controls nodrag">
@@ -67,6 +84,38 @@ export default function OrchestrationControls({
         <span className="node-orchestration-pacing" data-state={state.pacing.state} title={state.pacing.reason}>
           Provider pacing: {state.pacing.state} — {state.pacing.reason.replaceAll('_', ' ')}
           {state.pacing.retryAt === undefined ? '' : ` until ${new Date(state.pacing.retryAt).toLocaleString()}`}
+        </span>
+      )}
+      {startTicket && (
+        <span className="node-orchestration-start">
+          {startable.length > 1 && (
+            <select
+              aria-label="Ticket to start"
+              value={startTicket.id}
+              disabled={pending}
+              onChange={(event) => setChosenTicket(event.target.value)}
+            >
+              {startable.map((ticket) => (
+                <option key={ticket.id} value={ticket.id}>
+                  {ticket.id}: {ticket.title}
+                </option>
+              ))}
+            </select>
+          )}
+          <button
+            type="button"
+            className="node-orchestration-start-now"
+            disabled={pending}
+            title={`Start ticket ${startTicket.id} now, regardless of the usage limits`}
+            onClick={() => void startNow(startTicket.id)}
+          >
+            {startable.length > 1 ? 'Start now' : `Start ${startTicket.id} now`}
+          </button>
+          {startProblem && (
+            <span className="node-orchestration-start-problem" role="alert">
+              {startProblem}
+            </span>
+          )}
         </span>
       )}
       <button

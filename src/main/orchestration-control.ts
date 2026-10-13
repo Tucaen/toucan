@@ -34,6 +34,11 @@ export interface OrchestrationController {
   observe(nodeId: string, event: AgentEvent): void
   state(key: OrchestrationKey, orchestratorNodeId: string): Promise<OrchestrationRecord | undefined>
   resumeNow(key: OrchestrationKey, orchestratorNodeId: string): Promise<OrchestrationRecord | undefined>
+  /**
+   * Lifts a usage pause for the orchestrator's own `spawn --force`: the interrupted ticket sessions
+   * continue, but the orchestrator is not woken because it is the one making the call.
+   */
+  resumeForForce(key: OrchestrationKey, orchestratorNodeId: string): Promise<OrchestrationRecord | undefined>
   stop(key: OrchestrationKey, orchestratorNodeId: string): Promise<OrchestrationRecord | undefined>
   mayWake(orchestratorNodeId: string): Promise<boolean>
   idle(): Promise<void>
@@ -124,7 +129,8 @@ export function createOrchestrationController(options: OrchestrationControllerOp
 
   const resume = async (
     key: OrchestrationKey,
-    orchestratorNodeId: string
+    orchestratorNodeId: string,
+    wakeOrchestrator = true
   ): Promise<OrchestrationRecord | undefined> => {
     const result = await options.records.update(key, (current) => {
       if (!current || current.lifecycle?.status !== 'paused') {
@@ -140,7 +146,9 @@ export function createOrchestrationController(options: OrchestrationControllerOp
     options.changed?.(result.record)
     await Promise.all([
       ...result.affected.map((nodeId) => deliver(nodeId, 'Usage limit reset. Continue the interrupted ticket work.')),
-      deliver(orchestratorNodeId, 'Usage limit reset. Review ticket status and continue the orchestration.')
+      ...(wakeOrchestrator
+        ? [deliver(orchestratorNodeId, 'Usage limit reset. Review ticket status and continue the orchestration.')]
+        : [])
     ])
     return result.record
   }
@@ -191,6 +199,12 @@ export function createOrchestrationController(options: OrchestrationControllerOp
     async resumeNow(key, orchestratorNodeId) {
       if (!(await authorizeControl(key, orchestratorNodeId))) return undefined
       return track(resume(key, orchestratorNodeId))
+    },
+
+    async resumeForForce(key, orchestratorNodeId) {
+      if (!(await authorizeControl(key, orchestratorNodeId))) return undefined
+      knownOrchestrations.set(orchestratorNodeId, key)
+      return track(resume(key, orchestratorNodeId, false))
     },
 
     async stop(key, orchestratorNodeId) {

@@ -30,9 +30,10 @@ import { registerCommandGuardSettingsIpc } from './command-guard-settings-ipc'
 import { registerOrchestrationSettingsIpc } from './orchestration-settings-ipc'
 import { createJevRouter } from './jev-router'
 import { createOrchestrationWaker } from './orchestration-wake'
-import { ORCHESTRATOR_ROLE, type OrchestrationRecord } from '../shared/orchestration'
+import { ORCHESTRATOR_ROLE, pacingDeferral, startableTickets, type OrchestrationRecord } from '../shared/orchestration'
 import { createOrchestrationController, type OrchestrationSession } from './orchestration-control'
 import { createOrchestratorEndpoint } from './orchestrator-endpoint'
+import { createOrchestrationStartNow } from './orchestration-start-now'
 import { createOrchestrationCleanup } from './orchestration-cleanup'
 import type { TicketCleanupRequest, TicketCleanupResult } from '../shared/orchestration-cleanup'
 import { createSetupCommandRunner } from './setup-command'
@@ -79,7 +80,7 @@ import { claudeConversationTranscriptPath, createConversationHistory } from './c
 import { createConversationTitleStore } from './conversation-title-store'
 import { createCodexRateLimitReader } from './codex-rate-limits'
 import { createProviderUsage, type ProviderUsage } from './provider-usage'
-import { createProviderWideTicketSessionCounter } from './orchestrated-ticket-sessions'
+import { createProviderWideTicketSessionCounter, createWorkingSessionCounter } from './orchestrated-ticket-sessions'
 import { createRemoteAccessStore } from './remote/remote-access-store'
 import { createSafeStorageVault } from './remote/token-vault'
 import { forwardRemoteStateChanges, registerRemoteIpc } from './remote/remote-ipc'
@@ -473,22 +474,26 @@ void app.whenReady().then(async () => {
     }
     return null
   }
-  const orchestrationState = (record: OrchestrationRecord): OrchestrationControlState => ({
+  const orchestrationState = (
+    record: OrchestrationRecord,
+    deferral = pacingDeferral(record)
+  ): OrchestrationControlState => ({
     provider: record.provider,
     conversationId: record.conversationId,
     status: record.lifecycle?.status ?? 'running',
     ...(record.lifecycle?.status === 'paused' && record.lifecycle.resetsAt !== undefined
       ? { resetsAt: record.lifecycle.resetsAt }
       : {}),
-    ...(record.pacing
+    ...(deferral
       ? {
           pacing: {
-            state: record.pacing.state,
-            reason: record.pacing.reason,
-            ...(record.pacing.retryAt !== undefined ? { retryAt: record.pacing.retryAt } : {})
+            state: deferral.state,
+            reason: deferral.reason,
+            ...(deferral.retryAt !== undefined ? { retryAt: deferral.retryAt } : {})
           }
         }
-      : {})
+      : {}),
+    startable: startableTickets(record).map((ticket) => ({ id: ticket.id, title: ticket.title }))
   })
   const publishOrchestrationState = (record: OrchestrationRecord): void => {
     const state = orchestrationState(record)
@@ -562,15 +567,28 @@ void app.whenReady().then(async () => {
     }
   })
   const jevRouter = createJevRouter({ environment: () => process.env })
+  const orchestrationStartNow = createOrchestrationStartNow({
+    records: orchestrationRecords,
+    orchestratorFor: async (nodeId) => {
+      const session = await orchestrationSessionForNode(nodeId)
+      return session && session.ticketNodeId === undefined && session.orchestratorNodeId === nodeId
+        ? { key: session.key, orchestratorNodeId: nodeId }
+        : undefined
+    },
+    wake: (nodeId, prompt) => agentManager.promptWhenIdle(nodeId, prompt),
+    log: mainLog('orchestration start now')
+  })
   const orchestratorEndpoint = createOrchestratorEndpoint({
     records: orchestrationRecords,
     providerUsage: {
       read: (options) => providerUsage.read(options),
       readProvider: (provider, options) => providerUsage.readProvider(provider, options),
-      peekProvider: (provider) => providerUsage.peekProvider(provider)
+      peekProvider: (provider) => providerUsage.peekProvider(provider),
+      samples: (provider) => providerUsage.samples(provider)
     },
     pacing: {
       activeTicketSessions: createProviderWideTicketSessionCounter({ workspace, broker: agentEvents }),
+      workingSessions: createWorkingSessionCounter({ workspace, broker: agentEvents }),
       enforce: pacingConfigLoad.config?.enabled ?? false,
       ...(pacingConfigLoad.config
         ? {
@@ -611,6 +629,8 @@ void app.whenReady().then(async () => {
       outcome: async (identity) => (await sessionOutcomeStore.find(identity)) ?? undefined
     },
     onTicketSpawned: (nodeId, binding) => orchestrationWaker.bind(nodeId, binding),
+    spawned: publishOrchestrationState,
+    resumePaused: (key, orchestratorNodeId) => orchestrationController.resumeForForce(key, orchestratorNodeId),
     log: mainLog('orchestrator endpoint')
   })
   // The user's command guard preferences (ticket 03), asked by every session as it opens.
@@ -769,6 +789,14 @@ void app.whenReady().then(async () => {
     if (!request) return null
     const record = await orchestrationController.stop(request, request.nodeId)
     return record ? orchestrationState(record) : null
+  })
+  ipcMain.handle(ORCHESTRATOR_CHANNELS.forceStart, async (_event, value: unknown) => {
+    const request = controlRequest(value)
+    const ticketId = (value as { ticketId?: unknown } | null)?.ticketId
+    if (!request || typeof ticketId !== 'string' || ticketId.length === 0) {
+      return { ok: false, message: 'Invalid start request.' }
+    }
+    return orchestrationStartNow({ key: request, nodeId: request.nodeId, ticketId })
   })
   ipcMain.on(ORCHESTRATOR_CHANNELS.ticketSessionResult, (_event, requestId: unknown, result: unknown) => {
     if (typeof requestId === 'string' && isTicketSessionCanvasResult(result)) ticketSessions.complete(requestId, result)

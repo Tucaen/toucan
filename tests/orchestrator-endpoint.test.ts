@@ -195,6 +195,16 @@ test('usage reads only the authenticated grant provider and preserves explicit m
   const codex = (await endpoint.grant('orchestrator-codex', { provider: 'codex', projectPath: 'D:\\project' }))!
   claude.setConversation('claude-conversation')
   codex.setConversation('codex-conversation')
+  // No reset time and a single reading: the outlook knows the percent and nothing to project.
+  const outlook = (usedPercent: number | null) => ({
+    usedPercent,
+    resetsAt: null,
+    minutesToReset: null,
+    burnRatePerMinute: null,
+    projectedAtReset: null,
+    projectedWithOneMore: null,
+    working: { tickets: 0, orchestrators: 0, chats: 0 }
+  })
   try {
     assert.deepEqual((await call(claude, 'usage')).body, {
       ok: true,
@@ -208,7 +218,8 @@ test('usage reads only the authenticated grant provider and preserves explicit m
         constrainingWindow: 'five_hour',
         freshness: 'fresh',
         activeTicketSessions: 0
-      }
+      },
+      outlook: outlook(61)
     })
     assert.deepEqual((await call(codex, 'usage')).body, {
       ok: true,
@@ -222,7 +233,8 @@ test('usage reads only the authenticated grant provider and preserves explicit m
         constrainingWindow: 'usage_freshness',
         freshness: 'unavailable',
         activeTicketSessions: 0
-      }
+      },
+      outlook: outlook(null)
     })
     assert.deepEqual((await call(claude, 'usage')).body, {
       ok: true,
@@ -236,7 +248,8 @@ test('usage reads only the authenticated grant provider and preserves explicit m
         constrainingWindow: 'usage_freshness',
         freshness: 'stale',
         activeTicketSessions: 0
-      }
+      },
+      outlook: outlook(61)
     })
     assert.equal((await call(claude, 'usage', { force: true })).status, 400)
   } finally {

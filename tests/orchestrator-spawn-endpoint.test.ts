@@ -414,7 +414,7 @@ test('enforced pacing returns a structured deferral before reserving or calling 
     const reply = await call(grant, 'spawn', spawn34)
     assert.equal(reply.status, 429)
     assert.equal(reply.body.ok, false)
-    assert.match(reply.body.error ?? '', /deferred.*do not retry or sleep/i)
+    assert.match(reply.body.error ?? '', /deferred.*Do not sleep or poll/)
     assert.equal(reply.body.deferred, true)
     assert.equal(reply.body.provider, 'claude')
     assert.equal(reply.body.state, 'pause')

@@ -5,6 +5,7 @@ import {
   type ProviderUsageEntry,
   type ProviderUsageReport
 } from '../shared/agent'
+import { BURN_RATE_WINDOW_MS, type UsageSample } from '../shared/orchestration-pacing'
 
 /**
  * Reading Claude's usage boots a CLI process, so this sits between the renderer's polling and the
@@ -67,12 +68,26 @@ export interface ProviderUsage {
    * a spawn attempt, which must never make a CLI call or wait on one.
    */
   peekProvider(provider: AgentProvider): ProviderUsageReadResult
+  /**
+   * The fresh five-hour readings of the last hour, oldest first. Recorded from reads that happen
+   * anyway - the header's poll, spawns, `usage` - so the burn rate never costs a provider call.
+   */
+  samples(provider: AgentProvider): UsageSample[]
 }
 
 export function createProviderUsage(options: ProviderUsageOptions): ProviderUsage {
   const now = options.now ?? ((): number => Date.now())
   const cache = new Map<AgentProvider, { expiresAt: number; result: ProviderUsageReadResult }>()
   const inFlight = new Map<AgentProvider, Promise<ProviderUsageReadResult>>()
+  const history = new Map<AgentProvider, UsageSample[]>()
+
+  const recent = (provider: AgentProvider): UsageSample[] =>
+    (history.get(provider) ?? []).filter((sample) => now() - sample.at <= BURN_RATE_WINDOW_MS)
+
+  const remember = (provider: AgentProvider, status: AgentRateLimitStatus): void => {
+    if (!status.fiveHour) return
+    history.set(provider, [...recent(provider), { at: now(), usedPercent: status.fiveHour.usedPercent }])
+  }
 
   const readProvider = async (
     provider: AgentProvider,
@@ -103,6 +118,7 @@ export function createProviderUsage(options: ProviderUsageOptions): ProviderUsag
           ? { state: 'available', entry: { status, readAt: now(), stale: false } }
           : { state: failed ? 'failed' : 'missing', ...(kept ? { entry: kept } : {}) }
         cache.set(provider, { expiresAt: now() + options.ttlMs, result })
+        if (status) remember(provider, status)
         return result
       })
       .finally(() => inFlight.delete(provider))
@@ -112,6 +128,7 @@ export function createProviderUsage(options: ProviderUsageOptions): ProviderUsag
   }
 
   return {
+    samples: recent,
     peekProvider(provider) {
       const cached = cache.get(provider)
       if (!cached) return { state: 'missing' }

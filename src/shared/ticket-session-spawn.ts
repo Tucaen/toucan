@@ -76,7 +76,16 @@ export interface OrchestrationControlState {
     reason: OrchestrationPacingReason
     retryAt?: number
   }
+  /** Tickets the user may start now, skipping provider pacing; see `startableTickets`. */
+  startable?: Array<{ id: string; title: string }>
 }
+
+/** The orchestrator node's Start now: one forced spawn of one ticket, granted by the user. */
+export interface OrchestrationForceStartRequest extends OrchestrationControlRequest {
+  ticketId: string
+}
+
+export type OrchestrationForceStartResult = { ok: true } | { ok: false; message: string }
 
 /** The renderer's side of the request, exposed on `window.orchestratorApi`. */
 export interface OrchestratorApi {
@@ -93,5 +102,7 @@ export interface OrchestratorApi {
   orchestrationState(request: OrchestrationControlRequest): Promise<OrchestrationControlState | null>
   resumeOrchestration(request: OrchestrationControlRequest): Promise<OrchestrationControlState | null>
   stopOrchestration(request: OrchestrationControlRequest): Promise<OrchestrationControlState | null>
+  /** Grants one forced spawn and asks the orchestrator to run it. */
+  forceStartTicket(request: OrchestrationForceStartRequest): Promise<OrchestrationForceStartResult>
   onOrchestrationState(callback: (state: OrchestrationControlState) => void): () => void
 }

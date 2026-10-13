@@ -13,7 +13,7 @@ const USAGE = [
   '| ticket update <id> (--json <fields> | --file <fields.json>)',
   '| route [--ticket <id> --tier <tier>]',
   '| escalate --ticket <id>',
-  '| spawn --ticket <id> [--model <id> --effort <level> | --tier <tier> [--effort <level>]] [--provider <provider>] [--project <path>]',
+  '| spawn --ticket <id> [--model <id> --effort <level> | --tier <tier> [--effort <level>]] [--provider <provider>] [--project <path>] [--force --reason <why>]',
   '| status',
   '| usage',
   '| cleanup [--ticket <id>]',
@@ -43,8 +43,11 @@ for (const name of ['TOUCAN_ORCHESTRATOR_URL', 'TOUCAN_ORCHESTRATOR_TOKEN']) {
 const url = process.env.TOUCAN_ORCHESTRATOR_URL
 const token = process.env.TOUCAN_ORCHESTRATOR_TOKEN
 
-/** Splits `--name value` pairs from positionals; a flag without a value, or given twice, is a usage error. */
-function parseFlags(words, allowed) {
+/**
+ * Splits `--name value` pairs from positionals; a flag without a value, or given twice, is a usage
+ * error. A flag in `switches` takes no value and reads as `true`.
+ */
+function parseFlags(words, allowed, switches = []) {
   const flags = {}
   const positionals = []
   for (let index = 0; index < words.length; index += 1) {
@@ -54,8 +57,12 @@ function parseFlags(words, allowed) {
       continue
     }
     const name = word.slice(2)
-    if (!allowed.includes(name)) usage(`Unknown flag ${word}`)
+    if (!allowed.includes(name) && !switches.includes(name)) usage(`Unknown flag ${word}`)
     if (Object.hasOwn(flags, name)) usage(`${word} is given twice`)
+    if (switches.includes(name)) {
+      flags[name] = true
+      continue
+    }
     const value = words[index + 1]
     if (value === undefined || value.startsWith('--')) usage(`${word} needs a value`)
     flags[name] = value
@@ -100,14 +107,11 @@ async function message(words) {
     return { command: 'ticket update', args: { id: positionals[0], fields: await jsonInput(flags, 'The update') } }
   }
   if (first === 'spawn') {
-    const { flags, positionals } = parseFlags(words.slice(1), [
-      'ticket',
-      'model',
-      'tier',
-      'effort',
-      'provider',
-      'project'
-    ])
+    const { flags, positionals } = parseFlags(
+      words.slice(1),
+      ['ticket', 'model', 'tier', 'effort', 'provider', 'project', 'reason'],
+      ['force']
+    )
     if (positionals.length > 0) usage('spawn takes no positional arguments')
     return { command: 'spawn', args: flags }
   }

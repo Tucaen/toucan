@@ -104,3 +104,91 @@ export function decideOrchestrationPacing(
   }
   return recommendation(input, 'unrestricted', 'five_hour_below_drain_threshold', 'five_hour')
 }
+
+/** One fresh five-hour reading, kept by the usage cache for the burn rate. */
+export interface UsageSample {
+  at: number
+  usedPercent: number
+}
+
+/** Live sessions of one provider that are mid-turn right now, across every project. */
+export interface WorkingSessions {
+  tickets: number
+  orchestrators: number
+  chats: number
+}
+
+/**
+ * What an orchestrator weighs before starting a ticket past a pacing deferral: how much of the
+ * five-hour window is left, how fast it is being used, and what is using it. Projections are in
+ * percent and may exceed 100; null means Toucan cannot say yet.
+ */
+export interface OrchestrationUsageOutlook {
+  usedPercent: number | null
+  resetsAt: number | null
+  minutesToReset: number | null
+  /** Five-hour percent used per minute over the recent window, from Toucan's own readings. */
+  burnRatePerMinute: number | null
+  /** Usage at the reset if the current pace continues. */
+  projectedAtReset: number | null
+  /** The same with one more session working at the current per-session pace. */
+  projectedWithOneMore: number | null
+  working: WorkingSessions
+}
+
+/** @internal exported for tests */
+export const BURN_RATE_WINDOW_MS = 60 * 60_000
+/** @internal exported for tests */
+export const BURN_RATE_MIN_SPAN_MS = 5 * 60_000
+
+/**
+ * @internal exported for tests
+ * The recent pace of the five-hour window in percent per minute, or null without enough history:
+ * at least two readings five minutes apart within the last hour. Readings before the latest drop
+ * belong to the previous window, so a reset never shows as a negative pace.
+ */
+export function usageBurnRate(samples: readonly UsageSample[], now: number): number | null {
+  const recent = samples.filter((sample) => sample.at <= now && now - sample.at <= BURN_RATE_WINDOW_MS)
+  let start = 0
+  for (let index = 1; index < recent.length; index += 1) {
+    if (recent[index].usedPercent < recent[index - 1].usedPercent) start = index
+  }
+  const window = recent.slice(start)
+  if (window.length < 2) return null
+  const first = window[0]
+  const last = window[window.length - 1]
+  const span = last.at - first.at
+  if (span < BURN_RATE_MIN_SPAN_MS) return null
+  return Math.max(0, last.usedPercent - first.usedPercent) / (span / 60_000)
+}
+
+const round = (value: number): number => Math.round(value * 100) / 100
+
+export function usageOutlook(input: {
+  usage: ProviderUsageEntry | null
+  samples: readonly UsageSample[]
+  working: WorkingSessions
+  now: number
+}): OrchestrationUsageOutlook {
+  const fiveHour = input.usage?.status.fiveHour
+  const usedPercent = fiveHour?.usedPercent ?? null
+  const resetsAt = fiveHour?.resetsAt ?? null
+  const minutesToReset = resetsAt === null ? null : Math.max(0, (resetsAt - input.now) / 60_000)
+  const rate = usageBurnRate(input.samples, input.now)
+  const sessions = input.working.tickets + input.working.orchestrators + input.working.chats
+  const projected =
+    usedPercent === null || minutesToReset === null || rate === null ? null : usedPercent + rate * minutesToReset
+  const perSession = rate === null ? null : rate / Math.max(1, sessions)
+  return {
+    usedPercent,
+    resetsAt,
+    minutesToReset: minutesToReset === null ? null : Math.round(minutesToReset),
+    burnRatePerMinute: rate === null ? null : round(rate),
+    projectedAtReset: projected === null ? null : round(projected),
+    projectedWithOneMore:
+      projected === null || perSession === null || minutesToReset === null
+        ? null
+        : round(projected + perSession * minutesToReset),
+    working: input.working
+  }
+}

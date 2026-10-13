@@ -22,7 +22,9 @@ Read `error` and act on it; a refusal writes nothing to the record.
 
 ## usage
 
-`usage` prints `{ ok: true, provider, usage, state, pacing }` for the orchestrator's own provider only. `usage` is a normalized `ProviderUsageEntry` (`status`, `readAt`, `stale`) or `null`; `state` is `available`, `missing`, or `failed`, so an absent reading and a failed refresh are never conflated. A failed or missing refresh can retain a stale last-known `usage` entry. `pacing` carries the current `unrestricted`, `drain`, or `pause` recommendation with its stable `reason`, freshness and provider-wide active-ticket count.
+`usage` prints `{ ok: true, provider, usage, state, pacing, outlook }` for the orchestrator's own provider only. `usage` is a normalized `ProviderUsageEntry` (`status`, `readAt`, `stale`) or `null`; `state` is `available`, `missing`, or `failed`, so an absent reading and a failed refresh are never conflated. A failed or missing refresh can retain a stale last-known `usage` entry. `pacing` carries the current `unrestricted`, `drain`, or `pause` recommendation with its stable `reason`, freshness and provider-wide active-ticket count.
+
+`outlook` is what a decision to `spawn --force` weighs, measured from Toucan's own readings of the five-hour window: `{ usedPercent, resetsAt, minutesToReset, burnRatePerMinute, projectedAtReset, projectedWithOneMore, working }`. `burnRatePerMinute` is the recent pace in percent per minute, from readings in the last hour since the latest reset; it is `null` until Toucan holds two readings at least five minutes apart, and the projections are `null` with it. `projectedAtReset` continues that pace to the reset; `projectedWithOneMore` adds one more session at the average pace per working session. `working` counts the sessions mid-turn on this provider across every Toucan project: `{ tickets, orchestrators, chats }`, your own turn included. Sessions outside Toucan are not counted.
 
 Read it when deciding whether to dispatch, retry, or resume work after a usage-limit pause. Do not poll it: Toucan uses a shared cache and forced reads coalesce, but polling still asks a provider for account state without making progress. The command starts no model turn and never exposes credentials, raw provider payloads, or another provider's usage.
 
@@ -75,7 +77,7 @@ When Jev is unavailable (no `TYPESAFE_API_KEY`, a timeout, an error), `route` ex
 
 ## spawn
 
-`spawn --ticket <id> [--model <id> --effort <level> | --tier <tier> [--effort <level>]] [--provider claude|codex] [--project <path>]` starts one ticket session and prints:
+`spawn --ticket <id> [--model <id> --effort <level> | --tier <tier> [--effort <level>]] [--provider claude|codex] [--project <path>] [--force --reason <why>]` starts one ticket session and prints:
 
 ```json
 {
@@ -106,7 +108,8 @@ When Jev is unavailable (no `TYPESAFE_API_KEY`, a timeout, an error), `route` ex
 - Orchestrations are provider-homogeneous: the ticket session runs on your own provider, so a Claude orchestrator spawns Claude sessions and a Codex orchestrator Codex sessions, each routed through that provider's own tier mapping. `--provider` may only name your own provider, and `--project` only the orchestrator's own project.
 - Ticket sessions commit to their branch and cannot push: a hook refuses it. You merge each branch into `targetBranch` yourself, then record it with `ticket update <id> --json '{"mergeStatus":"merged"}'`.
 - An orchestration has 20 spawns in total. Each call counts before anything is created, so failed spawns, retries and escalations count too. Once they are used, spawn is refused; list what is left for human review.
-- Before that count or any Git, setup or canvas work, Toucan atomically checks fresh provider usage against provider-wide active ticket work. A pacing refusal is `{ ok: false, deferred: true, provider, state, reason, retryAt? }`; it consumes no spawn and leaves no artifact. End the turn with the deferral recorded. Repeating `spawn` while it remains deferred only returns the same refusal; it does not force a usage read or hasten the timer. Toucan owns reset rechecks and wakes you when the gate reopens; then reread `usage`, `status` and `plan show` before one retry. Waiting happens through that wake, never through a shell sleep or polling loop.
+- Before that count or any Git, setup or canvas work, Toucan atomically checks fresh provider usage against provider-wide active ticket work. A pacing refusal is `{ ok: false, deferred: true, provider, state, reason, retryAt?, outlook }`; it consumes no spawn and leaves no artifact. Weigh `outlook` (see `usage`): when the window will not run out before its reset with one more session working, spawn again with `--force --reason`. Otherwise end the turn with the deferral recorded. Repeating `spawn` while it remains deferred only returns the same refusal; it does not force a usage read or hasten the timer. Toucan owns reset rechecks and wakes you when the gate reopens; then reread `usage`, `status` and `plan show` before one retry. Waiting happens through that wake, never through a shell sleep or polling loop.
+- `--force --reason <why>` starts the ticket regardless of the usage limits: it skips pacing, reads no usage, and resumes an orchestration paused by a provider usage limit (its interrupted ticket sessions are told to continue, as with Resume now). Toucan always honours it; `--reason` is required and states why: the user asked (they pressed **Start now** on your node, and Toucan then tells you to run it), or the `outlook` numbers that show the remaining usage suffices. The 20-spawn budget, `blockedBy`, a stopped orchestration, Git and setup work still apply. A forced spawn clears this orchestration's pending pacing deferral, so no reopen wake follows for it, records `pacing.forced: { ticketId, by, at, reason }` (`by` is your node id) and returns it as `forced`. A provider that refuses the session's turns pauses the orchestration as usual.
 - A failure before the session opens removes the new worktree and branch again; after the session opens, they stay and `error` names the worktree.
 
 ## Being woken
@@ -126,7 +129,7 @@ Events that arrive close together come as one message. The message names the eve
 
 ## status
 
-`status` prints `{ ok: true, tickets, pacing, pendingPermissionPrompts }`. `pacing` is the durable proactive deferral or `null`. Each ticket has `id`, `title`, `blockedBy`, `attempts`, `mergeStatus`, `session` (or `null`), `route` (or `null`), and:
+`status` prints `{ ok: true, tickets, pacing, pendingPermissionPrompts }`. `pacing` is the durable proactive deferral or `null`; after a forced spawn it carries `forced: { ticketId, by, at, reason }`, alone when no deferral is pending. Each ticket has `id`, `title`, `blockedBy`, `attempts`, `mergeStatus`, `session` (or `null`), `route` (or `null`), and:
 
 - `state`: `not spawned`, `not running` (Toucan is not running its session, e.g. after a restart), or the live session's `starting`, `ready`, `working`, `auth_required`, `exited`.
 - `permissionPrompt`: `{ title, answeredBy: "human" }` while the session waits on a tool-permission prompt, else `null`.
@@ -201,6 +204,7 @@ It never answers a tool-permission prompt. While a ticket session waits on one, 
 - A row is one provider, tier and model. `provider` is the provider whose ticket sessions ran there, and `model` an id from that provider's picker: the same model name under two providers is two rows, never one. A run recorded before runs named their provider counts as Claude's, because ticket sessions were Claude-only then. Each ticket that ran there counts once: `mergedWithoutEscalation` when it merged there, routed there directly; `mergedAfterEscalation` when it merged there after an escalation from below; `escalated` when it was escalated away to a higher tier; `unmerged` when it stayed unmerged or moved to another model on the same tier; `inProgress` when it is still pending there. `medianTurns` is `null` when no outcome record gives turns.
 - `jev` holds tickets Jev routed. `orchestrator` holds tickets whose tier you judged or whose model you named. They are never mixed, and only `jev` rows produce proposals. `skippedRuns` counts runs with no known tier, model or `routedBy`.
 - `sample` is the settled tickets Jev routed straight to that tier. Each provider's proposals are judged only from its own rows against its own mapping, and `configEntry` names the entry in that provider's section of the `config` file a proposal would change. A proposal needs `sample` of at least `minimumSample`. It moves a tier down to a lower tier's model that merged at least 90% of its sample without escalation, or else up to the next tier's entry when the tier's own model merged fewer than 70%. It proposes at most one change per tier and nothing past `frontier`.
+- `forcedSpawns` lists each orchestration's latest forced spawn as `{ conversationId, ticketId, by, at, reason }`; mention them in the review list.
 - `mappings` and `config` hold your own provider and every provider whose ticket sessions ran in this project. `report` only reads. It never changes a mapping. A provider whose mapping cannot be used still gets its counts, with `mappings.<provider>: null`, no proposals of its own and the reason in `mappingErrors.<provider>`.
 
 ## cleanup

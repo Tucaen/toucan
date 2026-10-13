@@ -3,6 +3,7 @@ import type { AgentProvider } from '../shared/agent-provider'
 import {
   clearOrchestrationPacing,
   deferOrchestration,
+  pacingDeferral,
   type OrchestrationPacingDeferral,
   type OrchestrationRecord
 } from '../shared/orchestration'
@@ -44,6 +45,12 @@ export interface OrchestrationPacingCoordinatorOptions {
 
 export interface OrchestrationPacingCoordinator {
   admit(request: { key: OrchestrationKey; orchestratorNodeId: string }): Promise<OrchestrationPacingAdmission>
+  /**
+   * Admits a `spawn --force` without consulting the curve or any usage reading. It clears this
+   * orchestration's pending deferral first - so its reopen wake can no longer fire - and holds the
+   * same provisional slot as `admit`.
+   */
+  force(request: { key: OrchestrationKey }): Promise<{ admitted: true; release(): void }>
   recommend(provider: AgentProvider, usage: ProviderUsageReadResult): Promise<OrchestrationPacingRecommendation>
   /** Re-registers a record's durable deferral after a Toucan restart. */
   restore(key: OrchestrationKey, orchestratorNodeId: string): Promise<void>
@@ -205,7 +212,7 @@ export function createOrchestrationPacingCoordinator(
     }
     const record = await updateRecord(key, (current) => deferOrchestration(current, recommendation, nowIso(now())))
     if (record) options.changed?.(record)
-    if (!record?.pacing) return waiter
+    if (!pacingDeferral(record)) return waiter
     let providerWaiters = deferred.get(key.provider)
     if (!providerWaiters) {
       providerWaiters = new Map()
@@ -299,6 +306,32 @@ export function createOrchestrationPacingCoordinator(
     await Promise.all(reopening.map((waiter) => finishWake(waiter)))
   }
 
+  /**
+   * Admits a spawn inside the provider queue: drops this orchestration's waiter so no reopen wake
+   * follows, and holds a provisional active slot until the caller releases it.
+   */
+  const admitted = async (key: OrchestrationKey): Promise<{ admitted: true; release(): void }> => {
+    const waiter = deferred.get(key.provider)?.get(keyId(key))
+    if (waiter) {
+      forget(waiter)
+      await clearRecord(waiter)
+      arm(key.provider)
+    }
+    pendingAdmissions.set(key.provider, (pendingAdmissions.get(key.provider) ?? 0) + 1)
+    let released = false
+    return {
+      admitted: true,
+      release: () => {
+        if (released) return
+        released = true
+        const remaining = Math.max(0, (pendingAdmissions.get(key.provider) ?? 1) - 1)
+        if (remaining === 0) pendingAdmissions.delete(key.provider)
+        else pendingAdmissions.set(key.provider, remaining)
+        requestRecheck(key.provider)
+      }
+    }
+  }
+
   function requestRecheck(provider: AgentProvider): void {
     if (closed || deferred.get(provider)?.size === undefined || rechecks.has(provider)) return
     const request = track(
@@ -333,8 +366,9 @@ export function createOrchestrationPacingCoordinator(
       const rememberedAdmission = remembered ? admissionFrom(key.provider, remembered.recommendation) : undefined
       if (rememberedAdmission) return rememberedAdmission
       const persisted = await options.records.read(key)
-      const persistedAdmission = persisted?.pacing
-        ? admissionFrom(key.provider, recommendationFrom(persisted.pacing))
+      const persistedDeferral = pacingDeferral(persisted)
+      const persistedAdmission = persistedDeferral
+        ? admissionFrom(key.provider, recommendationFrom(persistedDeferral))
         : undefined
       if (persistedAdmission) return persistedAdmission
 
@@ -358,25 +392,23 @@ export function createOrchestrationPacingCoordinator(
           return admissionFrom(key.provider, recommendation)!
         }
 
-        const waiter = deferred.get(key.provider)?.get(keyId(key))
-        if (waiter) {
-          forget(waiter)
-          await clearRecord(waiter)
-          arm(key.provider)
-        }
-        pendingAdmissions.set(key.provider, (pendingAdmissions.get(key.provider) ?? 0) + 1)
-        let released = false
-        return {
-          admitted: true,
-          release: () => {
-            if (released) return
-            released = true
-            const remaining = Math.max(0, (pendingAdmissions.get(key.provider) ?? 1) - 1)
-            if (remaining === 0) pendingAdmissions.delete(key.provider)
-            else pendingAdmissions.set(key.provider, remaining)
-            requestRecheck(key.provider)
-          }
-        }
+        return admitted(key)
+      })
+    },
+
+    async force({ key }) {
+      return serial(key.provider, async () => {
+        // A deferral this process holds no waiter for (restored late, or enforcement off) is
+        // cleared here; `admitted` drops the in-memory waiter and its reopen wake.
+        let cleared = false
+        const record = await updateRecord(key, (current) => {
+          const next = clearOrchestrationPacing(current, nowIso(now()))
+          cleared = next !== current
+          return next
+        })
+        if (cleared && record) options.changed?.(record)
+        options.log?.(`forced pacing spawn provider=${key.provider}`)
+        return admitted(key)
       })
     },
 
@@ -386,7 +418,7 @@ export function createOrchestrationPacingCoordinator(
         await serial(key.provider, async () => {
           let cleared = false
           const record = await updateRecord(key, (current) => {
-            if (!current.pacing) return current
+            if (!pacingDeferral(current)) return current
             cleared = true
             return clearOrchestrationPacing(current, nowIso(now()))
           })
@@ -395,8 +427,8 @@ export function createOrchestrationPacingCoordinator(
         return
       }
       const record = await options.records.read(key)
-      const pacing = record?.pacing
-      if (!pacing || record.lifecycle !== undefined) return
+      const pacing = pacingDeferral(record)
+      if (!pacing || record?.lifecycle !== undefined) return
       await serial(key.provider, () => {
         let providerWaiters = deferred.get(key.provider)
         if (!providerWaiters) {

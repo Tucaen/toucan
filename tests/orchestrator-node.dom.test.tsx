@@ -206,3 +206,55 @@ test('an enforced provider pacing deferral shows its state and reason without a 
   expect(container.querySelector('.node-orchestration-resume')).toBeNull()
   expect(container.querySelector('.node-orchestration-stop')).toHaveTextContent('Stop orchestration')
 })
+
+test('Start now asks main for a one-shot force grant on the chosen pending ticket and shows a refusal', async () => {
+  const forceStartTicket = vi.fn(async (request: { ticketId: string }) =>
+    request.ticketId === '35'
+      ? { ok: false as const, message: 'Ticket 35 cannot be started now.' }
+      : { ok: true as const }
+  )
+  window.orchestratorApi = {
+    onStartTicketSession: () => () => undefined,
+    completeTicketSession: vi.fn(),
+    jevReachability: vi.fn(async () => ({ state: 'reachable' as const })),
+    orchestrationState: vi.fn(async () => ({
+      provider: 'claude' as const,
+      conversationId: 'conversation-1',
+      status: 'running' as const,
+      pacing: { state: 'pause' as const, reason: 'five_hour_pause_threshold' as const },
+      startable: [
+        { id: '34', title: 'Spawn' },
+        { id: '35', title: 'Wake' }
+      ]
+    })),
+    resumeOrchestration: vi.fn(async () => null),
+    stopOrchestration: vi.fn(async () => null),
+    forceStartTicket,
+    onOrchestrationState: () => () => undefined
+  }
+
+  const { container } = renderChat('orchestrator', 'conversation-1')
+  const start = await waitFor(() => {
+    const button = container.querySelector('.node-orchestration-start-now')
+    expect(button).toHaveTextContent('Start now')
+    return button as HTMLButtonElement
+  })
+  fireEvent.click(start)
+  await waitFor(() =>
+    expect(forceStartTicket).toHaveBeenCalledWith({
+      provider: 'claude',
+      conversationId: 'conversation-1',
+      nodeId: 'chat-1',
+      ticketId: '34'
+    })
+  )
+  fireEvent.change(container.querySelector('.node-orchestration-start select') as HTMLSelectElement, {
+    target: { value: '35' }
+  })
+  fireEvent.click(start)
+  await waitFor(() =>
+    expect(container.querySelector('.node-orchestration-start-problem')).toHaveTextContent(
+      'Ticket 35 cannot be started now.'
+    )
+  )
+})

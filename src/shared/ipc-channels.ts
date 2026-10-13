@@ -115,6 +115,8 @@ export const ORCHESTRATOR_CHANNELS = {
   state: 'orchestrator:state',
   resume: 'orchestrator:resume',
   stop: 'orchestrator:stop',
+  /** The orchestrator node's Start now: a one-shot force grant for one ticket. */
+  forceStart: 'orchestrator:force-start',
   changed: 'orchestrator:changed'
 } as const
 

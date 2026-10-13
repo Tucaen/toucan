@@ -1,6 +1,6 @@
 import type { ProviderUsageEntry } from './agent'
 import type { AgentProvider } from './agent-provider'
-import type { OrchestrationPacingRecommendation } from './orchestration-pacing'
+import type { OrchestrationPacingRecommendation, OrchestrationUsageOutlook } from './orchestration-pacing'
 
 /** The provider-neutral pacing answer attached to an orchestrator's usage response. */
 export type OrchestratorUsagePacing = OrchestrationPacingRecommendation
@@ -14,4 +14,6 @@ export interface OrchestratorUsageResponse {
   state: 'available' | 'missing' | 'failed'
   /** The current spawn recommendation; admission enforcement happens only on `spawn`. */
   pacing: OrchestratorUsagePacing
+  /** Burn rate and projection to the five-hour reset: what a decision to `spawn --force` weighs. */
+  outlook: OrchestrationUsageOutlook
 }

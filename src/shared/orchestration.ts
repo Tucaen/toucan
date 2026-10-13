@@ -165,6 +165,39 @@ export interface OrchestrationPacingDeferral {
   deferredAt: string
 }
 
+/**
+ * The latest spawn the orchestrator forced past the usage limits - on the user's request or its own
+ * judgement that the remaining usage suffices. An audit fact, never a gate.
+ */
+export interface OrchestrationPacingForced {
+  ticketId: string
+  /** The orchestrator node that forced it. */
+  by: string
+  at: string
+  reason: string
+}
+
+/**
+ * `record.pacing`: a pending deferral, the latest forced spawn, or both. Read the deferral through
+ * `pacingDeferral`; a record holding only `forced` may attempt a spawn.
+ */
+export type OrchestrationRecordPacing =
+  (OrchestrationPacingDeferral & { forced?: OrchestrationPacingForced }) | { forced: OrchestrationPacingForced }
+
+/** The proactive deferral a record holds, without the forced-spawn audit beside it. */
+export function pacingDeferral(
+  record: Pick<OrchestrationRecord, 'pacing'> | undefined
+): OrchestrationPacingDeferral | undefined {
+  const pacing = record?.pacing
+  if (!pacing || !('state' in pacing)) return undefined
+  const { forced: _forced, ...deferral } = pacing
+  return deferral
+}
+
+/** Keeps the forced-spawn audit when a write drops the deferral. */
+const forcedOnly = (record: OrchestrationRecord): { pacing?: OrchestrationRecordPacing } =>
+  record.pacing?.forced ? { pacing: { forced: record.pacing.forced } } : {}
+
 export interface OrchestrationRecord {
   version: 1
   provider: AgentProvider
@@ -182,8 +215,11 @@ export interface OrchestrationRecord {
   spawnCount?: number
   /** Absent is the normal running state, preserving records written before pause/stop existed. */
   lifecycle?: OrchestrationLifecycle
-  /** Durable proactive pacing state; absent when this orchestration may attempt a spawn. */
-  pacing?: OrchestrationPacingDeferral
+  /**
+   * Durable proactive pacing state. Without a deferral (`pacingDeferral`) this orchestration may
+   * attempt a spawn; `forced` records the latest spawn forced past the usage limits.
+   */
+  pacing?: OrchestrationRecordPacing
   createdAt: string
   updatedAt: string
 }
@@ -486,6 +522,23 @@ function isOrchestrationLifecycle(value: unknown): value is OrchestrationLifecyc
   )
 }
 
+function isOrchestrationPacingForced(value: unknown): value is OrchestrationPacingForced {
+  return (
+    isRecord(value) &&
+    nonEmptyString(value.ticketId) &&
+    nonEmptyString(value.by) &&
+    nonEmptyString(value.at) &&
+    nonEmptyString(value.reason)
+  )
+}
+
+function isOrchestrationRecordPacing(value: unknown): value is OrchestrationRecordPacing {
+  if (!isRecord(value)) return false
+  if (value.forced !== undefined && !isOrchestrationPacingForced(value.forced)) return false
+  if (value.state === undefined) return value.forced !== undefined && Object.keys(value).length === 1
+  return isOrchestrationPacingDeferral(value)
+}
+
 function isOrchestrationPacingDeferral(value: unknown): value is OrchestrationPacingDeferral {
   return (
     isRecord(value) &&
@@ -515,7 +568,7 @@ export function isOrchestrationRecord(value: unknown): value is OrchestrationRec
     value.tickets.every(isOrchestrationTicket) &&
     (value.spawnCount === undefined || isNonNegativeInteger(value.spawnCount)) &&
     (value.lifecycle === undefined || isOrchestrationLifecycle(value.lifecycle)) &&
-    (value.pacing === undefined || isOrchestrationPacingDeferral(value.pacing)) &&
+    (value.pacing === undefined || isOrchestrationRecordPacing(value.pacing)) &&
     typeof value.createdAt === 'string' &&
     typeof value.updatedAt === 'string'
   )
@@ -545,6 +598,12 @@ export interface SpawnInput {
   effort?: string
   /** The project the caller names, if it names one; refused unless it is the orchestrator's own. */
   projectPath?: string
+  /**
+   * Start regardless of the usage limits: skips proactive pacing and resumes a reactive pause.
+   * Always comes with `forceReason`, which the record keeps.
+   */
+  force?: true
+  forceReason?: string
 }
 
 const tierError = (flag: string): string => `${flag} must be one of ${DIFFICULTY_TIERS.join(', ')}`
@@ -567,6 +626,11 @@ export function parseSpawnInput(value: unknown): Outcome<'spawn', SpawnInput> {
     return refuse(`provider ${JSON.stringify(args.provider)} is not supported`)
   }
   if (!optionalString(args.project)) return refuse('--project must be a path')
+  if (args.force !== undefined && args.force !== true) return refuse('--force takes no value')
+  if (args.force === true && !nonEmptyString(args.reason)) {
+    return refuse('spawn --force needs --reason <why>: the user asked, or why the remaining usage suffices')
+  }
+  if (args.force !== true && args.reason !== undefined) return refuse('--reason goes with --force')
   return {
     spawn: {
       ticketId: args.ticket.trim(),
@@ -574,9 +638,25 @@ export function parseSpawnInput(value: unknown): Outcome<'spawn', SpawnInput> {
       ...(nonEmptyString(args.model) ? { model: args.model.trim() } : {}),
       ...(isDifficultyTier(args.tier) ? { tier: args.tier } : {}),
       ...(nonEmptyString(args.effort) ? { effort: args.effort.trim() } : {}),
-      ...(nonEmptyString(args.project) ? { projectPath: args.project.trim() } : {})
+      ...(nonEmptyString(args.project) ? { projectPath: args.project.trim() } : {}),
+      ...(args.force === true && nonEmptyString(args.reason)
+        ? { force: true as const, forceReason: args.reason.trim() }
+        : {})
     }
   }
+}
+
+/**
+ * Tickets the user may ask to start now: not merged, not yet spawned, and with every blocker
+ * merged. The endpoint re-checks all of this at spawn time; the list only decides what the UI offers.
+ */
+export function startableTickets(record: OrchestrationRecord): OrchestrationTicket[] {
+  if (record.lifecycle?.status === 'stopped') return []
+  const merged = new Set(record.tickets.filter((ticket) => ticket.mergeStatus === 'merged').map((ticket) => ticket.id))
+  return record.tickets.filter(
+    (ticket) =>
+      ticket.mergeStatus !== 'merged' && !ticket.session && ticket.blockedBy.every((blocker) => merged.has(blocker))
+  )
 }
 
 /**
@@ -659,16 +739,33 @@ export function deferOrchestration(
     freshness: recommendation.freshness,
     activeTicketSessions: recommendation.activeTicketSessions,
     ...(recommendation.resetsAt !== undefined ? { retryAt: recommendation.resetsAt } : {}),
-    deferredAt: record.pacing?.deferredAt ?? now
+    deferredAt: pacingDeferral(record)?.deferredAt ?? now
   }
-  return { ...record, pacing, updatedAt: now }
+  const forced = record.pacing?.forced
+  return { ...record, pacing: { ...pacing, ...(forced ? { forced } : {}) }, updatedAt: now }
 }
 
-/** Clears only proactive pacing; a provider-rejection pause and a stopped record remain intact. */
+/**
+ * Clears only proactive pacing; a provider-rejection pause, a stopped record and the forced-spawn
+ * audit remain intact.
+ */
 export function clearOrchestrationPacing(record: OrchestrationRecord, now: string): OrchestrationRecord {
-  if (!record.pacing) return record
+  if (!pacingDeferral(record)) return record
   const { pacing: _pacing, ...running } = record
-  return { ...running, updatedAt: now }
+  return { ...running, ...forcedOnly(record), updatedAt: now }
+}
+
+/**
+ * A spawn forced past the usage limits: any pending deferral is cleared and
+ * the override is recorded. Every other spawn gate stays with `reserveSpawn`.
+ */
+export function recordForcedSpawn(
+  record: OrchestrationRecord,
+  forced: OrchestrationPacingForced,
+  now: string
+): OrchestrationRecord {
+  const { pacing: _pacing, ...running } = record
+  return { ...running, pacing: { forced }, updatedAt: now }
 }
 
 /** Records a provider usage pause without turning it into a ticket attempt or escalation. */
@@ -684,6 +781,7 @@ export function pauseOrchestration(
   const knownResets = [previous?.resetsAt, resetsAt].filter((value): value is number => value !== undefined)
   return {
     ...withoutProactivePacing,
+    ...forcedOnly(record),
     lifecycle: {
       status: 'paused',
       ...(knownResets.length > 0 ? { resetsAt: Math.max(...knownResets) } : {}),
@@ -704,7 +802,7 @@ export function resumeOrchestration(record: OrchestrationRecord, now: string): O
 export function stopOrchestration(record: OrchestrationRecord, now: string): OrchestrationRecord {
   if (record.lifecycle?.status === 'stopped') return record
   const { pacing: _pacing, ...withoutProactivePacing } = record
-  return { ...withoutProactivePacing, lifecycle: { status: 'stopped' }, updatedAt: now }
+  return { ...withoutProactivePacing, ...forcedOnly(record), lifecycle: { status: 'stopped' }, updatedAt: now }
 }
 
 /**

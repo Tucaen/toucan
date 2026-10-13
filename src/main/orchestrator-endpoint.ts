@@ -19,11 +19,14 @@ import {
   parseRouteInput,
   parseSpawnInput,
   parseTicketUpdate,
+  recordForcedSpawn,
   recordTicketRoute,
   recordTicketSession,
   reserveSpawn,
+  resumeOrchestration,
   ticketRunProvider,
   type DifficultyTier,
+  type OrchestrationPacingForced,
   type OrchestrationRecord,
   type OrchestrationTicket,
   type OrchestratorCommand,
@@ -33,6 +36,9 @@ import {
 import type { OrchestratorUsageResponse } from '../shared/orchestrator-usage'
 import {
   decideOrchestrationPacing,
+  usageOutlook,
+  type OrchestrationUsageOutlook,
+  type WorkingSessions,
   type OrchestrationPacingPolicy,
   type OrchestrationPacingRecommendation,
   type OrchestrationUsageFreshness
@@ -150,6 +156,8 @@ export interface OrchestratorEndpointOptions {
    */
   pacing?: {
     activeTicketSessions(provider: AgentProvider): number | Promise<number>
+    /** Mid-turn sessions by kind, for the outlook `usage` and a deferral show the orchestrator. */
+    workingSessions?(provider: AgentProvider): WorkingSessions | Promise<WorkingSessions>
     policy?: OrchestrationPacingPolicy
     /** Shadow mode is the compatibility default; production opts into atomic enforcement. */
     enforce?: boolean
@@ -166,6 +174,13 @@ export interface OrchestratorEndpointOptions {
   ticketSessions?: TicketSessionControl
   /** A ticket session was spawned: the orchestrator wake starts reporting its events. */
   onTicketSpawned?(nodeId: string, binding: TicketBinding): void
+  /** A spawn wrote its session into the record; the orchestrator node's controls re-read it. */
+  spawned?(record: OrchestrationRecord): void
+  /**
+   * Lifts a reactive usage pause for `spawn --force`, as Resume now does but without waking the
+   * orchestrator that is making the call. Absent, the record's pause is simply cleared.
+   */
+  resumePaused?(key: OrchestrationKey, orchestratorNodeId: string): Promise<unknown>
   /**
    * How long `followup` waits for a working session to take the text before it answers "queued":
    * a session that cannot be steered only takes it when its turn ends, which can be an hour.
@@ -260,6 +275,23 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
       },
       options.pacing?.policy
     )
+  }
+
+  /** What the orchestrator weighs before forcing past a deferral; see `usageOutlook`. */
+  const outlook = async (
+    provider: AgentProvider,
+    result: ProviderUsageReadResult | undefined
+  ): Promise<OrchestrationUsageOutlook> => {
+    const working = await Promise.resolve(
+      options.pacing?.workingSessions?.(provider) ?? { tickets: 0, orchestrators: 0, chats: 0 }
+    ).catch(() => ({ tickets: 0, orchestrators: 0, chats: 0 }))
+    return usageOutlook({
+      // The latest reading even past its cache TTL: the deferral's own admission read just made it.
+      usage: result?.entry ?? null,
+      samples: options.providerUsage?.samples(provider) ?? [],
+      working,
+      now: nowMs()
+    })
   }
 
   /** Spawn pacing is observational: it reads no provider and never holds the spawn path open. */
@@ -401,26 +433,40 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
     if (!planned) return refused(400, `the plan has no ticket "${request.ticketId}"`)
     const preflightRoute = spawnRoute(request, planned, configured.config, grant.provider)
     if ('refusal' in preflightRoute) return preflightRoute.refusal
-    const preflightReservation = reserveSpawn(current, request.ticketId, now())
+    // A forced spawn starts regardless of the usage limits, so a reactive pause does not refuse it.
+    const gated = request.force ? resumeOrchestration(current, now()) : current
+    const preflightReservation = reserveSpawn(gated, request.ticketId, now())
     if (preflightReservation.error !== undefined) return refused(429, preflightReservation.error)
 
-    if (!pacingEnforced) logSpawnPacing(grant.provider)
-    const admission = pacingCoordinator
-      ? await pacingCoordinator.admit({ key, orchestratorNodeId: grant.nodeId })
+    const forced: OrchestrationPacingForced | undefined = request.force
+      ? { ticketId: request.ticketId, by: grant.nodeId, at: now(), reason: request.forceReason! }
       : undefined
+    if (forced && current.lifecycle?.status === 'paused') {
+      await options.resumePaused?.(key, grant.nodeId)
+    }
+
+    if (!pacingEnforced && !forced) logSpawnPacing(grant.provider)
+    const admission = forced
+      ? await pacingCoordinator?.force({ key })
+      : pacingCoordinator
+        ? await pacingCoordinator.admit({ key, orchestratorNodeId: grant.nodeId })
+        : undefined
     if (admission && !admission.admitted) {
       return {
         status: 429,
         body: {
           ok: false,
           error:
-            `spawn deferred by provider pacing (${admission.state}: ${admission.reason}); ` +
-            'Toucan will wake this orchestrator after a fresh recheck, so do not retry or sleep',
+            `spawn deferred by provider pacing (${admission.state}: ${admission.reason}). Weigh \`outlook\`: ` +
+            'if the window will not run out before its reset with one more session working, spawn again with ' +
+            '--force --reason <why>; otherwise end the turn and Toucan wakes you after a fresh recheck. ' +
+            'Do not sleep or poll',
           deferred: true,
           provider: admission.provider,
           state: admission.state,
           reason: admission.reason,
-          ...(admission.retryAt !== undefined ? { retryAt: admission.retryAt } : {})
+          ...(admission.retryAt !== undefined ? { retryAt: admission.retryAt } : {}),
+          outlook: await outlook(grant.provider, options.providerUsage?.peekProvider(grant.provider))
         }
       }
     }
@@ -440,9 +486,10 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
           const resolved = spawnRoute(request, planned, configured.config, grant.provider)
           if ('refusal' in resolved) return refuse(resolved.refusal)
           routed = resolved
-          const counted = reserveSpawn(current, request.ticketId, now())
+          const counted = reserveSpawn(forced ? resumeOrchestration(current, now()) : current, request.ticketId, now())
           if (counted.error !== undefined) return refuse(refused(429, counted.error))
-          const record = recordTicketRoute(counted.record, request.ticketId, resolved.route, now())
+          const routedRecord = recordTicketRoute(counted.record, request.ticketId, resolved.route, now())
+          const record = forced ? recordForcedSpawn(routedRecord, forced, now()) : routedRecord
           return { value: record, result: { record } }
         }
       )
@@ -461,10 +508,11 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
       })
       const spawnsLeft = MAX_SPAWNS_PER_ORCHESTRATION - (reserved.spawnCount ?? 0)
       if (!spawned.ok) return { status: 502, body: { ok: false, error: spawned.error } }
-      await options.records.update(key, (current) => ({
-        value: current && recordTicketSession(current, ticket.id, spawned.session, now(), spawnedRoute),
-        result: undefined
-      }))
+      const settled = await options.records.update(key, (current) => {
+        const value = current && recordTicketSession(current, ticket.id, spawned.session, now(), spawnedRoute)
+        return { value, result: value }
+      })
+      if (settled) options.spawned?.(settled)
       options.onTicketSpawned?.(spawned.session.nodeId, {
         orchestratorNodeId: grant.nodeId,
         ticketId: ticket.id,
@@ -481,7 +529,8 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
           effort: spawned.effort ?? null,
           warnings: [...routeWarnings, ...spawned.warnings],
           route: spawnedRoute,
-          spawnsLeft
+          spawnsLeft,
+          ...(forced ? { forced } : {})
         }
       }
     } finally {
@@ -667,6 +716,9 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
       body: {
         ok: true,
         ...routingReport(records, outcomes, usable),
+        forcedSpawns: records.flatMap((record) =>
+          record.pacing?.forced ? [{ conversationId: record.conversationId, ...record.pacing.forced }] : []
+        ),
         mappings,
         ...(Object.keys(mappingErrors).length > 0 ? { mappingErrors } : {}),
         ...(routing ? { config } : {})
@@ -794,7 +846,8 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
         provider: grant.provider,
         usage: result.entry ?? null,
         state: result.state,
-        pacing
+        pacing,
+        outlook: await outlook(grant.provider, result)
       }
       return { status: 200, body: { ok: true, ...body } }
     }
