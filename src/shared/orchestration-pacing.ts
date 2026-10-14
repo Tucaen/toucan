@@ -150,13 +150,14 @@ export const BURN_RATE_MIN_SPAN_MS = 5 * 60_000
 export function usageBurnRate(samples: readonly UsageSample[], now: number): number | null {
   const recent = samples.filter((sample) => sample.at <= now && now - sample.at <= BURN_RATE_WINDOW_MS)
   let start = 0
-  for (let index = 1; index < recent.length; index += 1) {
-    if (recent[index].usedPercent < recent[index - 1].usedPercent) start = index
-  }
+  recent.forEach((sample, index) => {
+    const previous = recent[index - 1]
+    if (previous && sample.usedPercent < previous.usedPercent) start = index
+  })
   const window = recent.slice(start)
-  if (window.length < 2) return null
   const first = window[0]
-  const last = window[window.length - 1]
+  const last = window.at(-1)
+  if (!first || !last || window.length < 2) return null
   const span = last.at - first.at
   if (span < BURN_RATE_MIN_SPAN_MS) return null
   return Math.max(0, last.usedPercent - first.usedPercent) / (span / 60_000)
