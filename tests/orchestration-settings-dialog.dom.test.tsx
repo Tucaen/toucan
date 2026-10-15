@@ -38,9 +38,10 @@ function mockApi(files: { user?: OrchestrationConfigFile | string; project?: Orc
       codex: {
         models: [
           { id: 'gpt-mini', name: 'GPT Mini' },
-          { id: 'gpt-frontier', name: 'GPT Frontier' }
+          { id: 'gpt-frontier', name: 'GPT Frontier' },
+          { id: 'gpt-6.1-sol', name: '6.1 Sol' }
         ],
-        efforts: { 'gpt-frontier': ['medium', 'high', 'xhigh'] }
+        efforts: { 'gpt-frontier': ['medium', 'high', 'xhigh'], 'gpt-6.1-sol': ['medium', 'high', 'xhigh'] }
       }
     }
   })
@@ -75,6 +76,38 @@ async function choose(scope: ReturnType<typeof tier>, trigger: RegExp, option: R
 afterEach(() => Reflect.deleteProperty(window, 'orchestrationSettingsApi'))
 
 describe('orchestration settings', () => {
+  it('keeps model and effort menus inside the modal so its overlay cannot cover them', async () => {
+    const { save } = mockApi({ user: { codex: { tiers: { high: { model: 'gpt-mini' } } } } })
+    const onClose = vi.fn()
+    render(<OrchestrationSettingsDialog onClose={onClose} />)
+    fireEvent.click(await screen.findByRole('tab', { name: 'Codex' }))
+    const dialog = screen.getByRole('dialog')
+
+    fireEvent.click(tier('high').getByRole('button', { name: 'GPT Mini' }))
+    const models = await screen.findByRole('listbox', { name: 'Model for the high tier' })
+    expect(dialog).toContainElement(models)
+    fireEvent.click(within(models).getByRole('option', { name: '6.1 Sol' }))
+
+    fireEvent.click(tier('high').getByRole('button', { name: 'Follows the ticket' }))
+    const efforts = screen.getByRole('listbox', { name: 'Effort for the high tier' })
+    expect(dialog).toContainElement(efforts)
+    fireEvent.keyDown(efforts, { key: 'Escape' })
+    expect(onClose).not.toHaveBeenCalled()
+    expect(tier('high').getByRole('button', { name: 'Follows the ticket' })).toHaveFocus()
+
+    fireEvent.click(tier('high').getByRole('button', { name: 'Follows the ticket' }))
+    const lastEffort = screen.getByRole('option', { name: 'xhigh' })
+    lastEffort.focus()
+    fireEvent.keyDown(lastEffort, { key: 'Tab' })
+    expect(screen.getByRole('tab', { name: 'Claude' })).toHaveFocus()
+    expect(screen.queryByRole('listbox')).toBeNull()
+
+    await choose(tier('high'), /Follows the ticket/, /^high$/)
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1))
+    expect(save.mock.calls[0]![0].file.codex?.tiers?.high).toEqual({ model: 'gpt-6.1-sol', effort: 'high' })
+  })
+
   it('edits the user file: a model and effort per tier from the chat node list', async () => {
     const { save } = mockApi({})
     render(<OrchestrationSettingsDialog project={project} onClose={() => {}} />)

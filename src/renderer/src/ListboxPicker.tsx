@@ -173,7 +173,8 @@ export function ListboxPicker(props: ListboxPickerProps): JSX.Element {
         {props.trigger.content}
       </button>
       {props.children}
-      {menu && createPortal(menu, document.body)}
+      {/* Stay in the modal's stacking context and focus scope while escaping its scrolling body. */}
+      {menu && createPortal(menu, containerRef.current?.closest('[aria-modal="true"]') ?? document.body)}
     </Container>
   )
 }
