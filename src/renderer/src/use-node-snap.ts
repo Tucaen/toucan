@@ -162,12 +162,12 @@ export function useNodeSnap<T extends Node>({
   const snap = useCallback(
     (ids: readonly string[], arrow: SnapArrow): void => {
       if (ids.length === 0) return
-      const { region, within } = scope(ids[0])
+      const { region } = scope(ids[0])
       if (!region) return
       apply(
         ids.length === 2
-          ? snapNodePair(getNodes(), snaps.current, [ids[0], ids[1]], arrow, region, NODE_FIT_INSET, within)
-          : snapNode(getNodes(), snaps.current, ids[0], arrow, region, NODE_FIT_INSET, within),
+          ? snapNodePair(getNodes(), snaps.current, [ids[0], ids[1]], arrow, region, NODE_FIT_INSET)
+          : snapNode(getNodes(), snaps.current, ids[0], arrow, region, NODE_FIT_INSET),
         true
       )
     },

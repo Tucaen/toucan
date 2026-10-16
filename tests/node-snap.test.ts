@@ -114,16 +114,26 @@ test('snapping records the pre-snap geometry once and restoring returns to it', 
   deepEqual(restored.nodes[0].style, { width: 300, height: 200 })
 })
 
-test('one node per slice: a second node taking a slice restores the first', () => {
+test('an arrow snap never touches another node, even one already in the same slice', () => {
   const first = snapNode(nodes(), {}, 'a', 'left', region, 16)
   const second = snapNode(first.nodes, first.snaps, 'b', 'left', region, 16)
-  deepEqual(Object.keys(second.snaps), ['b'])
-  deepEqual(second.nodes[0].position, { x: 10, y: 20 })
+  deepEqual(Object.keys(second.snaps).sort(), ['a', 'b'])
+  equal(second.nodes[0], first.nodes[0])
+  deepEqual(second.snaps.a, first.snaps.a)
   deepEqual(second.nodes[1].position, { x: 16, y: 16 })
 
-  // Different slices coexist.
-  const right = snapNode(first.nodes, first.snaps, 'b', 'right', region, 16)
-  deepEqual(Object.keys(right.snaps).sort(), ['a', 'b'])
+  // Maximising with Alt+Up leaves another maximised node maximised too.
+  const up = snapNode(nodes(), {}, 'a', 'up', region, 16)
+  const both = snapNode(up.nodes, up.snaps, 'b', 'up', region, 16)
+  equal(both.nodes[0], up.nodes[0])
+  equal(both.nodes[1].data.fittedToCanvas, true)
+
+  // Nor does a pair displace a node already in one of its halves.
+  const third = { id: 'c', position: { x: 50, y: 50 }, data: {}, style: { width: 100, height: 100 } }
+  const c = snapNode([...nodes(), third], {}, 'c', 'left', region, 16)
+  const pair = snapNodePair(c.nodes, c.snaps, ['a', 'b'], 'left', region, 16)
+  equal(pair.nodes[2], c.nodes[2])
+  deepEqual(pair.snaps.c, c.snaps.c)
 })
 
 test('the header toggle maximises and restores, and only the maximised node carries the flag', () => {

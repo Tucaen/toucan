@@ -2,7 +2,7 @@
 title: Snap, tile and remember node layouts on the canvas
 status: done
 created: 2026-09-08
-updated: 2026-09-08
+updated: 2026-10-16
 ---
 
 ## Problem
@@ -24,8 +24,10 @@ throwaway panel. Evaluated 2026-09-08:
 
 - Fit-to-canvas is unified with snap: the header button and Alt+Up both maximise (snap
   full/full), Alt+Down and the button restore. One state model, one reflow on canvas resize.
-- One node per slice: snapping a node into a slice another node already occupies restores that
-  node first (generalises the old "at most one fitted node" rule).
+- Alt+Arrow never affects any node but the one (or two) it is pressed on: a node already in the
+  target slice keeps its arrangement (changed 2026-10-16; previously the slice's occupant was
+  restored first). Only the header fit button keeps the old "at most one fitted node per canvas"
+  rule and restores another maximised node.
 - A maximised node is still never persisted filling the canvas; halves and quarters persist where
   they render, and snap state itself is session-local.
 - Layout slots persist with the workspace. Restoring a slot skips nodes that no longer exist and
@@ -57,3 +59,4 @@ Text fields keep Alt+Arrow (caret movement); the shortcut yields there.
 - [x] Alt+Shift+1..9 / Alt+1..9 save and restore layout slots, persisted with the workspace
 - [x] A maximised node is persisted at its pre-snap geometry; other nodes persist where they render
 - [x] Pure logic is unit tested; the prototype panel and prototype files do not exist on main
+- [x] Alt+Arrow on a node never changes another node's layout, even one snapped into the same slice

@@ -168,10 +168,31 @@ function sameSlice(a: SnapSlice, b: SnapSlice): boolean {
 }
 
 /**
- * Moves `nodeId` into `slice`. One node per slice: any other node already in that slice is
- * restored first, which is what keeps "at most one maximised node" true without the caller
- * tracking it, and stops two half-snapped nodes from hiding each other. A node without
- * measurable geometry has nothing to return to and is left alone.
+ * Moves `nodeId` into `slice` and touches no other node. A node without measurable geometry has
+ * nothing to return to and is left alone.
+ */
+function placeInSlice<T extends Node>(
+  nodes: T[],
+  snaps: SnapStates,
+  nodeId: string,
+  slice: SnapSlice,
+  region: NodeGeometry,
+  gap: number
+): SnapResult<T> {
+  const target = nodes.find((node) => node.id === nodeId)
+  const current = target ? renderedNodeGeometry(target) : null
+  if (!current) return { nodes, snaps }
+  const geometry = sliceGeometry(region, slice, gap)
+  return {
+    nodes: nodes.map((node) => (node.id === nodeId ? nodeSnapped(node, slice, geometry) : node)),
+    snaps: { ...snaps, [nodeId]: { ...slice, restoreGeometry: snaps[nodeId]?.restoreGeometry ?? current } }
+  }
+}
+
+/**
+ * Moves `nodeId` into `slice`, restoring any other node already in that slice first - the header
+ * fit action's "at most one maximised node". Alt+Arrow does not come through here: it uses
+ * `placeInSlice`, so arranging one node never undoes the arrangement of another.
  *
  * `within` says which other nodes share this node's canvas: a slice is a part of one canvas, so a
  * chat maximised inside a worktree and a worktree maximised on the main canvas never displace each
@@ -188,38 +209,36 @@ export function snapNodeToSlice<T extends Node>(
   within: (nodeId: string) => boolean = () => true
 ): SnapResult<T> {
   const target = nodes.find((node) => node.id === nodeId)
-  const current = target ? renderedNodeGeometry(target) : null
-  if (!current) return { nodes, snaps }
+  if (!target || !renderedNodeGeometry(target)) return { nodes, snaps }
   let result: SnapResult<T> = { nodes, snaps }
   for (const [otherId, other] of Object.entries(snaps)) {
     if (otherId !== nodeId && within(otherId) && sameSlice(other, slice))
       result = restoreNode(result.nodes, result.snaps, otherId)
   }
-  const geometry = sliceGeometry(region, slice, gap)
-  return {
-    nodes: result.nodes.map((node) => (node.id === nodeId ? nodeSnapped(node, slice, geometry) : node)),
-    snaps: { ...result.snaps, [nodeId]: { ...slice, restoreGeometry: snaps[nodeId]?.restoreGeometry ?? current } }
-  }
+  return placeInSlice(result.nodes, result.snaps, nodeId, slice, region, gap)
 }
 
-/** One arrow press on a single node: steps through `nextSnapSlice`, restoring when it says so. */
+/**
+ * One arrow press on a single node: steps through `nextSnapSlice`, restoring when it says so.
+ * Other nodes keep their arrangement, even one already in the same slice.
+ */
 export function snapNode<T extends Node>(
   nodes: T[],
   snaps: SnapStates,
   nodeId: string,
   arrow: SnapArrow,
   region: NodeGeometry,
-  gap: number,
-  within?: (nodeId: string) => boolean
+  gap: number
 ): SnapResult<T> {
   const slice = nextSnapSlice(snaps[nodeId] ?? null, arrow)
   if (slice === null) return restoreNode(nodes, snaps, nodeId)
-  return snapNodeToSlice(nodes, snaps, nodeId, slice, region, gap, within)
+  return placeInSlice(nodes, snaps, nodeId, slice, region, gap)
 }
 
 /**
  * Two nodes at once: Left/Right puts them side by side, Up/Down stacks them. Which one takes the
- * first slice follows their current order on the canvas, so the pair never swaps places.
+ * first slice follows their current order on the canvas, so the pair never swaps places. Nodes
+ * outside the pair keep their arrangement.
  */
 export function snapNodePair<T extends Node>(
   nodes: T[],
@@ -227,8 +246,7 @@ export function snapNodePair<T extends Node>(
   ids: readonly [string, string],
   arrow: SnapArrow,
   region: NodeGeometry,
-  gap: number,
-  within?: (nodeId: string) => boolean
+  gap: number
 ): SnapResult<T> {
   const pair = ids.map((id) => nodes.find((node) => node.id === id)).filter((node): node is T => !!node)
   if (pair.length !== 2) return { nodes, snaps }
@@ -245,8 +263,8 @@ export function snapNodePair<T extends Node>(
         { h: 'full', v: 'top' },
         { h: 'full', v: 'bottom' }
       ]
-  const one = snapNodeToSlice(nodes, snaps, first.id, slices[0], region, gap, within)
-  return snapNodeToSlice(one.nodes, one.snaps, second.id, slices[1], region, gap, within)
+  const one = placeInSlice(nodes, snaps, first.id, slices[0], region, gap)
+  return placeInSlice(one.nodes, one.snaps, second.id, slices[1], region, gap)
 }
 
 /** Maximises the node, or restores it when it is the maximised one - the header action. */
