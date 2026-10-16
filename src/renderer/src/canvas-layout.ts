@@ -161,6 +161,19 @@ export function matchNodeSizes<T extends Node>(nodes: T[], ids: readonly string[
   })
 }
 
+/**
+ * Stacks the nodes in `ids` above every other node, so a node shown from the sidebar is never
+ * hidden under another one snapped into the same slice. React Flow already lifts the selected
+ * node, but only while it stays selected; `zIndex` keeps it on top until another node is raised.
+ * It is never serialized, like snap state. Nodes already alone on top return the same array.
+ */
+export function bringNodesToFront<T extends Node>(nodes: T[], ids: readonly string[]): T[] {
+  const raising = new Set(ids)
+  const top = Math.max(0, ...nodes.filter((node) => !raising.has(node.id)).map((node) => node.zIndex ?? 0))
+  if (nodes.every((node) => !raising.has(node.id) || (node.zIndex ?? 0) > top)) return nodes
+  return nodes.map((node) => (raising.has(node.id) ? { ...node, zIndex: top + 1 } : node))
+}
+
 /** Where every node is right now, keyed by id; the shape the workspace snapshot stores. */
 export function captureLayoutSlot(nodes: readonly Node[]): WorkspaceLayoutSlot {
   const slot: WorkspaceLayoutSlot = {}

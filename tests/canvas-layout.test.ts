@@ -2,6 +2,7 @@ import { deepEqual, equal } from 'node:assert/strict'
 import { test } from 'vitest'
 import {
   applyLayoutSlot,
+  bringNodesToFront,
   canvasOverlayOpen,
   captureLayoutSlot,
   layoutKeyAction,
@@ -146,4 +147,28 @@ test('every surface that covers the canvas gates the shortcuts, one by one', () 
   for (const surface of Object.keys(closed) as (keyof CanvasOverlays)[]) {
     equal(canvasOverlayOpen({ ...closed, [surface]: true }), true, surface)
   }
+})
+
+test('bringing nodes to front stacks them above every other node and leaves the rest alone', () => {
+  const stack = [
+    { id: 'a', position: { x: 0, y: 0 }, data: {} },
+    { id: 'b', position: { x: 0, y: 0 }, data: {}, zIndex: 3 },
+    { id: 'c', position: { x: 0, y: 0 }, data: {} }
+  ]
+  const raised = bringNodesToFront(stack, ['a'])
+  equal(raised[0].zIndex, 4)
+  equal(raised[1], stack[1])
+  equal(raised[2], stack[2])
+
+  // A chat and its worktree are raised together, each on its own canvas.
+  const both = bringNodesToFront(raised, ['c', 'b'])
+  deepEqual(
+    both.map((node) => node.zIndex),
+    [4, 5, 5]
+  )
+
+  // Already alone on top: the same array comes back, so nothing re-renders.
+  equal(bringNodesToFront(both, ['b', 'c']), both)
+  // Sharing the top with another node is not on top.
+  equal(bringNodesToFront(both, ['b'])[1].zIndex, 6)
 })

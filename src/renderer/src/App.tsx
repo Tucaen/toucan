@@ -177,6 +177,7 @@ import { WorktreeCanvasContext, type WorktreeCanvasHandle, type WorktreeCanvasHo
 import {
   LAYOUT_SHORTCUT_LABELS,
   applyLayoutSlot,
+  bringNodesToFront,
   canvasOverlayOpen,
   captureLayoutSlot,
   layoutKeyAction,
@@ -2115,7 +2116,13 @@ function Canvas(): JSX.Element {
       // A chat in a collapsed worktree cannot be seen until the worktree is expanded.
       if (isCollapsedWorktree(target)) setNodes((current) => expandWorktree(current, target.data.worktreeId))
       // Selecting a node is enough: each node reports its own status once it sees the focus.
-      setNodes((current) => current.map((node) => ({ ...node, selected: node.id === nodeId })))
+      // Shown means on top: above any node sharing its slice, and a chat's worktree above the main canvas.
+      setNodes((current) =>
+        bringNodesToFront(
+          current.map((node) => ({ ...node, selected: node.id === nodeId })),
+          [nodeId, target.id]
+        )
+      )
       setMenu(null)
       // Pan only: the user's zoom is theirs, and a snapped node goes back to the side it was snapped to.
       const canvas = canvasRegionRef.current?.getBoundingClientRect()
