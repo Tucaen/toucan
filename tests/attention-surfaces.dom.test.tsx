@@ -410,7 +410,8 @@ describe('chat node attention wiring', () => {
     expect(onTurnOutcome).toHaveBeenCalledWith(NODE_ID, {
       id: 'failed-turn',
       status: 'failed',
-      message: 'The provider connection closed before the turn completed.'
+      message: 'The provider connection closed before the turn completed.',
+      turn: 0
     })
   })
 

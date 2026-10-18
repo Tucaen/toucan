@@ -6,6 +6,7 @@ import {
   applyAgentCreateResult,
   foldAgentEvent,
   initialAgentTranscriptState,
+  placeOutcomesByTurn,
   type AgentTranscriptState,
   type LocalAgentEvent
 } from '../src/shared/agent-transcript'
@@ -222,6 +223,52 @@ test('turn outcomes dedupe by turn id, stay bounded, and drive failure identity'
   assert.equal(state.failureKey, 'turn-24')
   // The duplicate turn_failed did not enter the order twice.
   assert.equal(state.transcript.filter((entry) => entry.type === 'outcome' && entry.id === 'turn-24').length, 1)
+})
+
+test('a turn outcome records how many delivered prompts preceded it', () => {
+  const state = fold([
+    message('user', 'u1', 'first'),
+    { type: 'turn_failed', turnId: 'turn-1', message: 'limit' },
+    { type: 'local_user_message', message: { id: 'u2', role: 'user', text: 'rejected' } },
+    { type: 'local_send_failed', messageId: 'u2' },
+    { type: 'local_user_message', message: { id: 'u3', role: 'user', text: 'queued', queued: true } },
+    { type: 'turn_failed', turnId: 'turn-2', message: 'limit' }
+  ])
+
+  assert.deepEqual(
+    state.outcomes.map((outcome) => outcome.turn),
+    [1, 1]
+  )
+})
+
+test('restored outcomes return to their own turn instead of stacking at the end', () => {
+  const entries = ['prompt-1', 'reply-1', 'prompt-2', 'reply-2', 'prompt-3']
+  const placed = placeOutcomesByTurn(
+    entries,
+    [
+      { turn: 1, entry: 'failed-1a' },
+      { turn: 2, entry: 'failed-2' },
+      { entry: 'legacy' },
+      { turn: 1, entry: 'failed-1b' },
+      { turn: 9, entry: 'beyond-replay' },
+      { turn: 0, entry: 'before-any-prompt' }
+    ],
+    (entry) => entry.startsWith('prompt-')
+  )
+
+  assert.deepEqual(placed, [
+    'before-any-prompt',
+    'prompt-1',
+    'reply-1',
+    'failed-1a',
+    'failed-1b',
+    'prompt-2',
+    'reply-2',
+    'failed-2',
+    'prompt-3',
+    'legacy',
+    'beyond-replay'
+  ])
 })
 
 test('decision requests update in place, resolve out, and keep FIFO order', () => {

@@ -108,6 +108,8 @@ import SessionKindIcon from './SessionKindIcon'
 import type { QueuedPrompt } from './prompt-outbox'
 import {
   agentTranscriptEntryKey,
+  isDeliveredPrompt,
+  placeOutcomesByTurn,
   useAgentConversation,
   type AgentApprovalState,
   type AgentChatMessage,
@@ -967,10 +969,16 @@ export function ChatView(groups: ChatViewProps): JSX.Element {
       byKey.delete(key)
       return [match]
     })
+    const unordered = [...byKey.values()]
+    const placed = placeOutcomesByTurn(
+      ordered,
+      unordered.flatMap((entry) => (entry.type === 'outcome' ? [{ turn: entry.outcome.turn, entry }] : [])),
+      (entry) => entry.type === 'message' && isDeliveredPrompt(entry.message)
+    )
     // Merging is a transcript-order concern, not a message-list one: what separates two
     // deliberations is the tool call or the prose that landed between them.
     return mergeReasoningEntries(
-      [...ordered, ...byKey.values()],
+      [...placed, ...unordered.filter((entry) => entry.type !== 'outcome')],
       (entry) =>
         entry.type === 'message' && entry.message.role === 'thought'
           ? { id: entry.message.id, text: entry.message.text }

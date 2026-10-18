@@ -41,7 +41,7 @@ import {
 import { readImageAsBase64, type AgentImageAttachment } from './image-attachment'
 
 export type { AgentImageAttachment } from './image-attachment'
-export { agentTranscriptEntryKey } from '../../shared/agent-transcript'
+export { agentTranscriptEntryKey, isDeliveredPrompt, placeOutcomesByTurn } from '../../shared/agent-transcript'
 export type {
   AgentApprovalState,
   AgentChatMessage,

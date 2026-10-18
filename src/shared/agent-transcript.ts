@@ -266,6 +266,44 @@ function foldMessage(
   }
 }
 
+/**
+ * A user message that reached the provider - the ones its replay will return, so counting them
+ * gives the same turn ordinal live and after a restore. A queued send belongs to a later turn and a
+ * rejected one never reached the provider at all.
+ */
+export function isDeliveredPrompt(message: AgentChatMessage): boolean {
+  return message.role === 'user' && !message.queued && !message.failed
+}
+
+/**
+ * Inserts outcomes that have no slot in the folded order - ones restored from the workspace, which
+ * provider replay cannot place - right after their own turn: ahead of the prompt that opened the
+ * next one. An outcome whose turn the replay never reached, or that predates the `turn` anchor,
+ * stays at the end where it always rendered.
+ */
+export function placeOutcomesByTurn<T>(
+  entries: readonly T[],
+  outcomes: readonly { turn?: number; entry: T }[],
+  isPrompt: (entry: T) => boolean
+): T[] {
+  let pending = [...outcomes]
+  const placed: T[] = []
+  const flush = (turn: number): void => {
+    const due = (candidate: { turn?: number }): boolean => candidate.turn !== undefined && candidate.turn <= turn
+    placed.push(...pending.filter(due).map((candidate) => candidate.entry))
+    pending = pending.filter((candidate) => !due(candidate))
+  }
+  let prompts = 0
+  for (const entry of entries) {
+    if (isPrompt(entry)) {
+      flush(prompts)
+      prompts += 1
+    }
+    placed.push(entry)
+  }
+  return [...placed, ...pending.map((candidate) => candidate.entry)]
+}
+
 function foldTurnOutcome(
   state: AgentTranscriptState,
   event: Extract<AgentEvent, { type: 'turn_failed' | 'turn_cancelled' }>
@@ -273,7 +311,8 @@ function foldTurnOutcome(
   const outcome: AgentTurnOutcome = {
     id: event.turnId,
     status: event.type === 'turn_failed' ? 'failed' : 'cancelled',
-    message: event.message
+    message: event.message,
+    turn: state.messages.filter(isDeliveredPrompt).length
   }
   const entry: AgentTranscriptEntry = { type: 'outcome', id: event.turnId }
   const next = hasTranscriptEntry(state, entry) ? state : withTranscriptEntry(state, entry)

@@ -137,11 +137,13 @@ function isProjectGroup(value: unknown): value is ProjectGroup {
 
 function isAgentTurnOutcome(value: unknown): boolean {
   if (!value || typeof value !== 'object') return false
-  const outcome = value as { id?: unknown; status?: unknown; message?: unknown }
+  const outcome = value as { id?: unknown; status?: unknown; message?: unknown; turn?: unknown }
   return (
     typeof outcome.id === 'string' &&
     (outcome.status === 'failed' || outcome.status === 'cancelled') &&
-    typeof outcome.message === 'string'
+    typeof outcome.message === 'string' &&
+    (outcome.turn === undefined ||
+      (typeof outcome.turn === 'number' && Number.isInteger(outcome.turn) && outcome.turn >= 0))
   )
 }
 

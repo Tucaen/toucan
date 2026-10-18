@@ -439,6 +439,12 @@ export interface AgentTurnOutcome {
   id: string
   status: 'failed' | 'cancelled'
   message: string
+  /**
+   * How many delivered user prompts the transcript held when this turn ended. Provider replay
+   * carries no turn boundaries, so a restored outcome has no slot in the replayed order; this
+   * ordinal is what puts it back after its own turn instead of below the whole conversation.
+   */
+  turn?: number
 }
 
 export const AGENT_TURN_OUTCOME_LIMIT = 20
