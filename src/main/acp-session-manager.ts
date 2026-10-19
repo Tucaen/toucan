@@ -375,12 +375,12 @@ export function withCommandGuard(
 }
 
 /**
- * Claude's file-editing tools, withheld from an orchestrator. It coordinates; every change to the
+ * Claude's file-editing tools and in-turn subagents, withheld from an orchestrator. It coordinates; every change to the
  * project is a ticket, so a long implementation turn never queues the wakes and messages behind it.
- * Its shell stays, because Git, tests and the CLI run there - so this stops the habit, not every
+ * Its shell stays, because Git, read-only inspection and the CLI run there - so this stops the habit, not every
  * write. Codex offers no launch setting that withholds `apply_patch`; there only the instruction holds.
  */
-const ORCHESTRATOR_DISALLOWED_TOOLS = ['Edit', 'MultiEdit', 'Write', 'NotebookEdit']
+const ORCHESTRATOR_DISALLOWED_TOOLS = ['Edit', 'MultiEdit', 'Write', 'NotebookEdit', 'Agent']
 
 function withOrchestratorToolLimits(configuration: SessionSkillsConfiguration): SessionSkillsConfiguration {
   return {
@@ -1386,8 +1386,11 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
           ...(sessionOutcomesDirectory ? [sessionOutcomesDirectory] : [])
         ]
       )
+      // Not an orchestrator's: it may not hold its turn with subagents (`ORCHESTRATOR_DISALLOWED_TOOLS`).
       const delegatingConfiguration =
-        running.request.provider === 'claude' && running.routineDelegation?.status === 'configured'
+        running.request.provider === 'claude' &&
+        running.routineDelegation?.status === 'configured' &&
+        !isOrchestrator(running.request)
           ? withClaudeDelegation(baseConfiguration, running.routineDelegation)
           : baseConfiguration
       // The Codex half of the same pointer rides on `CODEX_CONFIG` at launch instead, which is why

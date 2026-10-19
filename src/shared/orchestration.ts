@@ -925,7 +925,7 @@ export function orchestratorInstruction(paths: { cliPath: string; skillPath: str
     'Never implement, edit project files or run a test suite yourself: any change to the project, however small, becomes a ticket, and verification runs in its ticket session.',
     'Keep your turns short - read state, decide, dispatch - because wakes and the human queue behind a busy turn.',
     'Spawn ticket sessions through Toucan; end your turn when waiting for them. Toucan wakes you on their events.',
-    `Use \`${cli} followup --ticket <id> --text <text>\` for questions or conflict recovery; it never answers a tool-permission prompt.`,
+    `Use \`${cli} followup --ticket <id> --text <text>\` for questions, the pre-merge rebase and test run, and conflict recovery; it never answers a tool-permission prompt.`,
     'Those prompts wait for the human and belong on the review list.'
   ].join(' ')
 }

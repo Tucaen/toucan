@@ -113,7 +113,8 @@ test('a Claude orchestrator keeps its grant and instruction while ordinary chats
       'Edit',
       'MultiEdit',
       'Write',
-      'NotebookEdit'
+      'NotebookEdit',
+      'Agent'
     ])
 
     for (const other of [plainOpen, codexOpen]) {

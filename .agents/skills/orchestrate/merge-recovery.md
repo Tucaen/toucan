@@ -2,7 +2,7 @@
 
 ## Rebase conflict
 
-Keep the conflict in the ticket's worktree. Use `followup --ticket <id> --text <text>` to return it to that same session: name the target, conflicted files and intended behavior, and ask it to resolve, continue the rebase, run the full suite and report. The contract permits this requested rebase recovery; it still forbids a merge, push or PR.
+The ticket session meets a conflict itself while rebasing on your merge follow-up, and the conflict stays in its worktree. A report that the rebase is unresolved, or a worktree still mid-rebase, is a failed resolution attempt. Use `followup --ticket <id> --text <text>` to send it back to that same session: name the target, the conflicted files from its report and the intended behavior, and ask it to resolve, continue the rebase, run the full suite and report the commit tested. The contract permits this requested rebase recovery; it still forbids a merge, push or PR.
 
 Record the conflict attempt and follow-up delivery in the ticket's body before ending your turn. A queued follow-up is pending work, not a successful resolution. On its wake, inspect the outcome and Git's rebase state. After **two failed resolution attempts**, leave `mergeStatus: unmerged`, retain the worktree and conflict evidence, comment the reason on its tracker and report its blocked dependents. Do not escalate or restart to reset this counter. A pending human permission prompt does not consume an attempt.
 

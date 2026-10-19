@@ -7,11 +7,11 @@ user-invocable: false
 
 # Orchestrate
 
-You are the orchestrator; Toucan starts ticket sessions through its CLI. Read [commands.md](commands.md) before your first command for the CLI path, JSON shapes, refusals and delivery semantics. The environment supplies the endpoint and token. Use your session's own tools for Git, tests and tracker operations.
+You are the orchestrator; Toucan starts ticket sessions through its CLI. Read [commands.md](commands.md) before your first command for the CLI path, JSON shapes, refusals and delivery semantics. The environment supplies the endpoint and token. Use your session's own tools for Git and tracker operations.
 
 Pass CLI JSON inline with `--json`. When a `--file` is needed, write it from your shell outside the checkout, so a plan does not dirty the target you are about to merge into.
 
-**You coordinate; ticket sessions do the work.** Never implement, edit project files, resolve conflicts or run a test suite yourself, however small the change looks: make it a ticket, or a `followup` to the ticket session that owns it. Keep your turns short (read state, decide, dispatch, end the turn), because Toucan's wakes and the human's messages queue behind a busy turn. Your own commands are the CLI, read-only inspection, Git's fast-forward merge, push and branch bookkeeping, and tracker write-back.
+**You coordinate; ticket sessions do the work.** Never implement, edit project files, resolve conflicts or run a test suite yourself, however small the change looks: make it a ticket, or a `followup` to the ticket session that owns it. Keep your turns short (read state, decide, dispatch, end the turn), because Toucan's wakes and the human's messages queue behind a busy turn. Your own commands are the CLI, read-only inspection, Git's fast-forward merge, push and the target-side recovery in [merge-recovery.md](merge-recovery.md), and tracker write-back. Do not hand work to subagents of your own either: they keep your turn just as busy.
 
 Use `usage` only when a dispatch, retry or paused orchestration needs an account-usage decision; it is not a polling signal. It reads your own provider's normalized usage through Toucan without starting a model turn.
 
@@ -33,7 +33,7 @@ Use `usage` only when a dispatch, retry or paused orchestration needs an account
 
 Inspect its final report, diff and verification evidence first. Unresolved blocking findings, unexplained skipped/deleted tests or open product questions keep it unmerged. Record findings and follow up with its own session. Confirm the ticket session is settled, its worktree is clean and every blocker is merged.
 
-1. Unless the ticket branch already contains the `targetBranch` tip and its final report shows the full test suite passing at its current HEAD, send `followup --ticket <id>`: rebase onto `<targetBranch>`, resolve any conflicts, run the project's full test suite in the worktree and report the commit tested with its result. End your turn; act on its wake. Read [merge-recovery.md](merge-recovery.md) for conflicts or rejected pushes.
+1. Unless the ticket branch already contains the `targetBranch` tip and its final report names its current HEAD as the commit where the full test suite passed, send `followup --ticket <id>`: rebase onto `<targetBranch>`, resolve any conflicts, run the project's full test suite in the worktree and report the commit tested with its result. End your turn; act on its wake. Read [merge-recovery.md](merge-recovery.md) for conflicts or rejected pushes.
 2. On the wake, confirm the reported tested commit equals the ticket branch HEAD and contains the target tip (`git merge-base --is-ancestor <targetBranch> <ticketBranch>`). A failed, missing or partial suite run keeps the ticket unmerged; record the command and failure. Never accept a skipped or deleted failing test as qualifying the merge.
 3. Recheck the target checkout is clean and on `targetBranch`, then run `git merge --ff-only <ticketBranch>` there. If the target advanced, return to step 1. Do not force or create a merge commit.
 4. Push the target's configured upstream. Only after a successful push, record `mergeStatus: merged`, the resulting commit and commit link in the ticket's body. Close its tracker item with that link using your own tools. A failed tracker write-back leaves the Git merge valid; record the write-back failure separately.
