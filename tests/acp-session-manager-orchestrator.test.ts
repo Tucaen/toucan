@@ -17,7 +17,10 @@ import { installScriptedAdapter, type AdapterPackage } from './helpers/scripted-
 
 interface Recorded {
   method: string
-  params: { additionalDirectories?: string[]; _meta?: { systemPrompt?: { append: string } } }
+  params: {
+    additionalDirectories?: string[]
+    _meta?: { systemPrompt?: { append: string }; claudeCode?: { options?: { disallowedTools?: string[] } } }
+  }
   env: { url?: string; token?: string; nodeId?: string; config?: string }
 }
 
@@ -105,11 +108,19 @@ test('a Claude orchestrator keeps its grant and instruction while ordinary chats
       orchestratorOpen?.params._meta?.systemPrompt?.append ?? '',
       /orchestrate[\\/]scripts[\\/]orchestrate\.mjs" plan show/
     )
+    // It coordinates and delegates: Claude's file-editing tools are not there to start implementing with.
+    assert.deepEqual(orchestratorOpen?.params._meta?.claudeCode?.options?.disallowedTools, [
+      'Edit',
+      'MultiEdit',
+      'Write',
+      'NotebookEdit'
+    ])
 
     for (const other of [plainOpen, codexOpen]) {
       assert.deepEqual(other?.env, { nodeId: other?.env.nodeId })
       assert.doesNotMatch(other?.params._meta?.systemPrompt?.append ?? '', /orchestrator/)
       assert.ok(!other.params.additionalDirectories?.includes(join(appPath, '.agents', 'skills', 'orchestrate')))
+      assert.equal(other?.params._meta?.claudeCode?.options?.disallowedTools, undefined)
     }
 
     // The token works, scoped to the conversation its session opened.

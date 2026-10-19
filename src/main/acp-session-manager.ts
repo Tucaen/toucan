@@ -221,6 +221,7 @@ interface SessionSkillsConfiguration {
         plugins?: Array<{ type: 'local'; path: string }>
         agents?: ClaudeDelegationSessionMeta['claudeCode']['options']['agents']
         settings?: CommandGuardSettings
+        disallowedTools?: string[]
       }
       emitRawSDKMessages?: typeof FORWARDED_SDK_MESSAGES
     }
@@ -368,6 +369,27 @@ export function withCommandGuard(
       claudeCode: {
         ...configuration._meta?.claudeCode,
         options: { ...configuration._meta?.claudeCode?.options, settings }
+      }
+    }
+  }
+}
+
+/**
+ * Claude's file-editing tools, withheld from an orchestrator. It coordinates; every change to the
+ * project is a ticket, so a long implementation turn never queues the wakes and messages behind it.
+ * Its shell stays, because Git, tests and the CLI run there - so this stops the habit, not every
+ * write. Codex offers no launch setting that withholds `apply_patch`; there only the instruction holds.
+ */
+const ORCHESTRATOR_DISALLOWED_TOOLS = ['Edit', 'MultiEdit', 'Write', 'NotebookEdit']
+
+function withOrchestratorToolLimits(configuration: SessionSkillsConfiguration): SessionSkillsConfiguration {
+  return {
+    ...configuration,
+    _meta: {
+      ...configuration._meta,
+      claudeCode: {
+        ...configuration._meta?.claudeCode,
+        options: { ...configuration._meta?.claudeCode?.options, disallowedTools: [...ORCHESTRATOR_DISALLOWED_TOOLS] }
       }
     }
   }
@@ -1386,9 +1408,11 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       // Codex carries the same instruction in its launch-scoped CODEX_CONFIG instead.
       const orchestratingConfiguration =
         running.request.provider === 'claude' && isOrchestrator(running.request)
-          ? withSessionInstruction(
-              decidingConfiguration,
-              orchestratorInstructionFor(toucanSkillsRoot ?? options.appPath)
+          ? withOrchestratorToolLimits(
+              withSessionInstruction(
+                decidingConfiguration,
+                orchestratorInstructionFor(toucanSkillsRoot ?? options.appPath)
+              )
             )
           : decidingConfiguration
       // Every Claude session, not only ticket sessions: the outcome record and the renderer's final

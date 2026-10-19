@@ -231,6 +231,13 @@ test('the orchestrator instruction says to end the turn after spawning and wait 
   assert.match(instruction, /never answers a tool-permission prompt/i)
 })
 
+test('the orchestrator instruction keeps implementation and heavy work out of its own turns', () => {
+  const instruction = orchestratorInstruction({ cliPath: 'cli.mjs', skillPath: 'SKILL.md' })
+  assert.match(instruction, /never implement/i)
+  assert.match(instruction, /becomes a ticket/i)
+  assert.match(instruction, /test suite/i)
+})
+
 // Spawning a ticket session (#34): what `spawn` may ask for, the per-orchestration cap, and the
 // prompt and title a ticket session is started with.
 
