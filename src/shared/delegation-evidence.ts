@@ -84,10 +84,11 @@ export function delegationEvidenceRows(
   children: readonly AgentActivity[] = []
 ): DelegationEvidenceRow[] {
   const evidence = activity.delegationEvidence ?? delegationEvidenceFrom(activity)
-  const rows: DelegationEvidenceRow[] = [
-    { label: 'Model requested', value: evidence.requestedModel ?? 'Unknown (not reported for this call)' },
-    { label: 'Model confirmed', value: evidence.confirmedModels?.join(', ') ?? 'Unknown (not reported)' }
-  ]
+  // Unreported evidence is omitted rather than shown as "unknown" on every card.
+  const rows: DelegationEvidenceRow[] = []
+  if (evidence.requestedModel) rows.push({ label: 'Model requested', value: evidence.requestedModel })
+  if (evidence.confirmedModels?.length)
+    rows.push({ label: 'Model confirmed', value: evidence.confirmedModels.join(', ') })
   const calls = [...new Map([activity, ...children].map((call) => [call.id, call])).values()]
   for (const call of calls) {
     const usage = (call.delegationEvidence ?? delegationEvidenceFrom(call)).usage
@@ -107,12 +108,6 @@ export function delegationEvidenceRows(
         (usage.source === 'agent-result-trailer' ? ' (provider result trailer)' : ' (provider result)')
     })
   }
-  if (!evidence.usage) rows.push({ label: 'Worker invocation tokens', value: 'Unavailable' })
-  rows.push({
-    label: 'Accounting',
-    value:
-      'Invocation totals may overlap; not added. Parent totals and unattributed usage unavailable here. Orchestration overhead cannot be isolated.'
-  })
   const interrupted = calls.some((call) => record(call.rawInput).activityKind === 'interrupted')
   const failures = calls.filter((call) => call.status === 'failed')
   rows.push({
@@ -130,6 +125,5 @@ export function delegationEvidenceRows(
   if (evidence.observedStatuses?.includes('failed') && activity.status !== 'failed') {
     rows.push({ label: 'Earlier outcome', value: 'Failure reported before the current status; retry cost unavailable' })
   }
-  rows.push({ label: 'Handback / rework', value: 'See reported result and steps; attribution unavailable' })
   return rows
 }

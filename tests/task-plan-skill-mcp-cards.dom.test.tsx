@@ -64,7 +64,6 @@ describe('task, plan, skill and MCP tool cards', () => {
     expect(card).toHaveTextContent('Model confirmed:claude-sonnet-4')
     expect(card).toHaveTextContent('input: 123')
     expect(card).toHaveTextContent('output: unavailable')
-    expect(card).toHaveTextContent('Orchestration overhead cannot be isolated')
     expect(card).not.toHaveTextContent('$')
   })
 

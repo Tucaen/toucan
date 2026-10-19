@@ -134,7 +134,6 @@ test('overlapping outer and inner worker totals are displayed separately and nev
     rows.some((row) => row.value.includes('1600')),
     false
   )
-  assert.match(rows.find((row) => row.label === 'Accounting')!.value, /may overlap; not added/)
 })
 
 test('failed then retried calls retain the known failure without counting repeated patches as retries', () => {
@@ -163,5 +162,10 @@ test('Codex interrupted interactions and failed child steps remain visible with 
   ])
   assert.equal(rows.find((row) => row.label === 'Observed outcome')!.value, 'Interrupted interaction reported')
   assert.equal(rows.find((row) => row.label === 'Failed calls')!.value, 'Verification command')
-  assert.equal(rows.find((row) => row.label === 'Worker invocation tokens')!.value, 'Unavailable')
+  for (const label of ['Model requested', 'Model confirmed', 'Worker invocation tokens']) {
+    assert.equal(
+      rows.some((row) => row.label === label),
+      false
+    )
+  }
 })
