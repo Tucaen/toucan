@@ -876,7 +876,7 @@ export function ticketContract(worktree: { path: string; branch: string }): stri
     `- Stay in your worktree, ${worktree.path}, and work nowhere else.`,
     `- Commit your work to its branch, ${worktree.branch}.`,
     '- Never push, never merge, and never open a pull request: the orchestrator merges this branch. Pushing is refused by a hook anyway.',
-    '- Resolve and continue a rebase in this worktree when the orchestrator sends conflicts back to you.',
+    '- When the orchestrator asks, rebase this branch onto the target, resolve any conflicts, run the full test suite here and report the commit you tested with its result. The orchestrator only fast-forwards what you verified.',
     '- End with a final report: commit, verification commands and results, unresolved blocking review findings, skipped or deleted tests with reasons, and open questions.'
   ].join('\n')
 }
@@ -890,6 +890,7 @@ export function ticketContract(worktree: { path: string; branch: string }): stri
 export const TICKET_CONTRACT_SUMMARY: { must: readonly string[]; mustNot: readonly string[] } = {
   must: [
     'Implement, test, review and commit the ticket in the given worktree, on its branch.',
+    'On request, rebase onto the target and run the full test suite there before the merge.',
     'End with a final report: commit, verification commands and results, unresolved review findings and open questions.'
   ],
   mustNot: ['Push.', 'Merge.', 'Open a pull request.', 'Leave the worktree.']

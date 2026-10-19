@@ -479,6 +479,11 @@ test('a ticket session is titled by its ticket and prompted with the skill, the 
   assert.match(contract, /merge/i)
   assert.match(contract, /final report/i)
   assert.match(contract, /win over/i)
+  // Merge verification is the ticket session's work, not the orchestrator's: it rebases on request,
+  // runs the full suite there and names the commit that passed.
+  assert.match(contract, /rebase this branch onto the target/i)
+  assert.match(contract, /full test suite/i)
+  assert.match(contract, /commit you tested/i)
 
   // A tracker reference is handed on for the session to read with its own tools.
   assert.ok(ticketSessionPrompt(tracked, worktree).includes('https://github.com/Tucaen/toucan/issues/34'))

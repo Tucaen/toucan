@@ -291,8 +291,6 @@ try {
     route: /orchestrate\.mjs\W*route/u,
     spawn: /orchestrate\.mjs\W*spawn/u,
     outcome: /orchestrate\.mjs\W*outcome/u,
-    rebase: /git\b.*\brebase\b/u,
-    'full test suite': /npm(\.cmd)? (run )?test|node --test/u,
     'fast-forward merge': /merge --ff-only/u,
     push: /git\b.*\bpush\b/u,
     cleanup: /orchestrate\.mjs\W*cleanup/u,
@@ -303,6 +301,9 @@ try {
     if (!command) throw new Error(`The orchestrator never ran its ${step} step`)
     log(`Step ${step}: ${command.slice(0, 200)}`)
   }
+  // Verification is the ticket sessions' work; an orchestrator running a suite blocks its own wakes.
+  const suite = orchestratorCommands.find((title) => /npm(\.cmd)? (run )?test|node --test/u.test(title))
+  if (suite) throw new Error(`The orchestrator ran a test suite itself: ${suite.slice(0, 200)}`)
   const head = await git(['rev-parse', 'HEAD'])
   if (head !== (await git(['rev-parse', 'refs/heads/main'], remote)))
     throw new Error('Remote does not hold the merged target')
