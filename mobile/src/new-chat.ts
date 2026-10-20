@@ -1,5 +1,6 @@
 import type { AgentModel } from '../../src/shared/agent'
 import type { AgentModelCatalogue } from '../../src/shared/agent-model-catalogue'
+import { ORCHESTRATOR_ROLE } from '../../src/shared/orchestration'
 import type { RemoteChatKind, RemoteWorkspaceSnapshot } from '../../src/shared/remote-access'
 import { remoteChatSpawnProblem, type RemoteChatSpawnRequest } from '../../src/shared/remote-spawn'
 
@@ -13,9 +14,14 @@ import { remoteChatSpawnProblem, type RemoteChatSpawnRequest } from '../../src/s
  * refusal wording comes from the shared `remoteChatSpawnProblem`, so the greyed-out button and the
  * host's own answer never say two different things.
  */
+/** What the new node is: an ordinary chat, or an orchestrator like the canvas's New orchestrator. */
+export type NewChatRole = 'chat' | typeof ORCHESTRATOR_ROLE
+
 export interface NewChatForm {
   projectId: string
   kind: RemoteChatKind
+  /** Fixed at creation on the desktop too, so this form is the phone's only chance to choose it. */
+  role: NewChatRole
   /** As typed. Trimmed on the way into a request, and omitted entirely when it is empty. */
   input: string
   /**
@@ -32,7 +38,7 @@ export interface NewChatForm {
  * projects, which `newChatProblem` then explains rather than the form silently looking fillable.
  */
 export function initialNewChatForm(snapshot: RemoteWorkspaceSnapshot): NewChatForm {
-  return { projectId: snapshot.projects[0]?.id ?? '', kind: 'claude', input: '', modelId: '' }
+  return { projectId: snapshot.projects[0]?.id ?? '', kind: 'claude', role: 'chat', input: '', modelId: '' }
 }
 
 /**
@@ -66,7 +72,9 @@ export function newChatRequest(form: NewChatForm): RemoteChatSpawnRequest {
     ...(input.length > 0 ? { input } : {}),
     // Omitted rather than sent empty: absent is the contract's word for "the desktop decides", and
     // an empty string would be a model id the host has to refuse.
-    ...(form.modelId.length > 0 ? { modelId: form.modelId } : {})
+    ...(form.modelId.length > 0 ? { modelId: form.modelId } : {}),
+    // Omitted for an ordinary chat: absent is the contract's word for one.
+    ...(form.role === ORCHESTRATOR_ROLE ? { role: ORCHESTRATOR_ROLE } : {})
   }
 }
 
@@ -82,6 +90,12 @@ export function newChatProblem(form: NewChatForm, snapshot: RemoteWorkspaceSnaps
   }
   return remoteChatSpawnProblem(newChatRequest(form))
 }
+
+/** The roles a phone may spawn, in the order the picker offers them. */
+export const NEW_CHAT_ROLES: { role: NewChatRole; label: string }[] = [
+  { role: 'chat', label: 'Chat' },
+  { role: ORCHESTRATOR_ROLE, label: 'Orchestrator' }
+]
 
 /** The agent kinds a phone may spawn, in the order the picker offers them. */
 export const NEW_CHAT_KINDS: { kind: RemoteChatKind; label: string }[] = [

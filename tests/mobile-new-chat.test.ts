@@ -25,7 +25,7 @@ function snapshot(projectIds: string[]): RemoteWorkspaceSnapshot {
 }
 
 function form(overrides: Partial<NewChatForm> = {}): NewChatForm {
-  return { projectId: 'toucan', kind: 'claude', input: '', modelId: '', ...overrides }
+  return { projectId: 'toucan', kind: 'claude', role: 'chat', input: '', modelId: '', ...overrides }
 }
 
 describe('the form a phone starts a chat from', () => {
@@ -33,6 +33,7 @@ describe('the form a phone starts a chat from', () => {
     assert.deepEqual(initialNewChatForm(snapshot(['toucan'])), {
       projectId: 'toucan',
       kind: 'claude',
+      role: 'chat',
       input: '',
       modelId: ''
     })
@@ -53,6 +54,20 @@ describe('what the form would send', () => {
     // Omitted, not empty: an empty string is a prompt the host refuses, and "just open it" is a
     // request it accepts.
     assert.deepEqual(newChatRequest(form({ input: '   ' })), { projectId: 'toucan', kind: 'claude' })
+  })
+
+  test('an orchestrator carries its role, and an ordinary chat sends none', () => {
+    assert.deepEqual(newChatRequest(form({ kind: 'codex', role: 'orchestrator' })), {
+      projectId: 'toucan',
+      kind: 'codex',
+      role: 'orchestrator'
+    })
+    // Absent is the contract's word for an ordinary chat, so the default form sends no role at all.
+    assert.equal('role' in newChatRequest(form()), false)
+  })
+
+  test('switching agent keeps the role: either provider can orchestrate', () => {
+    assert.equal(withNewChatKind(form({ role: 'orchestrator' }), 'codex').role, 'orchestrator')
   })
 })
 

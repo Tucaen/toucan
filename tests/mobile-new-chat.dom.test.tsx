@@ -112,6 +112,16 @@ describe('starting a chat from the phone', () => {
     await waitFor(() => expect(post.body()).toEqual({ projectId: 'toucan', kind: 'claude' }))
   })
 
+  test('an orchestrator is asked for by role, and the button says what it starts', async () => {
+    const post = deferredPost()
+    renderScreen(post.fetch)
+    await screen.findByRole('radio', { name: /Toucan/ })
+
+    fireEvent.click(screen.getByRole('radio', { name: 'Orchestrator' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Start orchestrator' }))
+    await waitFor(() => expect(post.body()).toEqual({ projectId: 'toucan', kind: 'claude', role: 'orchestrator' }))
+  })
+
   test('a desktop that could not start it says why, and keeps what was typed', async () => {
     const post = deferredPost()
     renderScreen(post.fetch)

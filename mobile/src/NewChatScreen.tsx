@@ -10,6 +10,7 @@ import {
   newChatRequest,
   withNewChatKind,
   NEW_CHAT_KINDS,
+  NEW_CHAT_ROLES,
   type NewChatForm
 } from './new-chat'
 import { createChat, fetchModels, fetchWorkspace } from './remote-client'
@@ -169,6 +170,25 @@ export default function NewChatScreen({
           </div>
         </fieldset>
 
+        {/* An orchestrator is chosen here or never: the desktop fixes a node's role at creation. */}
+        <fieldset disabled={busy}>
+          <legend>Role</legend>
+          <div className="new-chat-kinds">
+            {NEW_CHAT_ROLES.map((option) => (
+              <label key={option.role} className="new-chat-kind" data-selected={form.role === option.role || undefined}>
+                <input
+                  type="radio"
+                  name="new-chat-role"
+                  value={option.role}
+                  checked={form.role === option.role}
+                  onChange={() => setForm((current) => ({ ...current, role: option.role }))}
+                />
+                {option.label}
+              </label>
+            ))}
+          </div>
+        </fieldset>
+
         <fieldset disabled={busy}>
           <legend>Model</legend>
           {/* A native select, like the chat screen's: the phone renders its own picker. The empty
@@ -215,7 +235,7 @@ export default function NewChatScreen({
         )}
 
         <button type="submit" disabled={busy || blocked !== null}>
-          {busy ? 'Starting…' : 'Start chat'}
+          {busy ? 'Starting…' : form.role === 'chat' ? 'Start chat' : 'Start orchestrator'}
         </button>
         {/* The wait is real and worth naming: an agent CLI is being launched on the desktop. */}
         {busy && <p className="hint">Waiting for the desktop to start the session…</p>}
