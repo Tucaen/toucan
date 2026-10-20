@@ -4,19 +4,19 @@ import { ORCHESTRATOR_ROLE } from '../../src/shared/orchestration'
 import type { RemoteChatKind, RemoteWorkspaceSnapshot } from '../../src/shared/remote-access'
 import { remoteChatSpawnProblem, type RemoteChatSpawnRequest } from '../../src/shared/remote-spawn'
 
+/** What the new node is: an ordinary chat, or an orchestrator like the canvas's New orchestrator. */
+export type NewChatRole = 'chat' | typeof ORCHESTRATOR_ROLE
+
 /**
  * Everything the "New chat" form decides, without a DOM.
  *
- * The form is three choices - which project, which agent, what to say first - and the interesting
+ * The form is a handful of choices - project, agent, role, model, what to say first - and the interesting
  * rules are all about *what a phone is allowed to assume*. The project list is the desktop's
  * published projection, so a project can disappear between opening the form and pressing Start;
  * the initial prompt is optional, so an empty box is not an error but also not a prompt; and the
  * refusal wording comes from the shared `remoteChatSpawnProblem`, so the greyed-out button and the
  * host's own answer never say two different things.
  */
-/** What the new node is: an ordinary chat, or an orchestrator like the canvas's New orchestrator. */
-export type NewChatRole = 'chat' | typeof ORCHESTRATOR_ROLE
-
 export interface NewChatForm {
   projectId: string
   kind: RemoteChatKind
@@ -92,9 +92,9 @@ export function newChatProblem(form: NewChatForm, snapshot: RemoteWorkspaceSnaps
 }
 
 /** The roles a phone may spawn, in the order the picker offers them. */
-export const NEW_CHAT_ROLES: { role: NewChatRole; label: string }[] = [
-  { role: 'chat', label: 'Chat' },
-  { role: ORCHESTRATOR_ROLE, label: 'Orchestrator' }
+export const NEW_CHAT_ROLES: { role: NewChatRole; label: string; startLabel: string }[] = [
+  { role: 'chat', label: 'Chat', startLabel: 'Start chat' },
+  { role: ORCHESTRATOR_ROLE, label: 'Orchestrator', startLabel: 'Start orchestrator' }
 ]
 
 /** The agent kinds a phone may spawn, in the order the picker offers them. */

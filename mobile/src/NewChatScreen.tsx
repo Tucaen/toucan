@@ -235,7 +235,7 @@ export default function NewChatScreen({
         )}
 
         <button type="submit" disabled={busy || blocked !== null}>
-          {busy ? 'Starting…' : form.role === 'chat' ? 'Start chat' : 'Start orchestrator'}
+          {busy ? 'Starting…' : NEW_CHAT_ROLES.find((option) => option.role === form.role)?.startLabel}
         </button>
         {/* The wait is real and worth naming: an agent CLI is being launched on the desktop. */}
         {busy && <p className="hint">Waiting for the desktop to start the session…</p>}
