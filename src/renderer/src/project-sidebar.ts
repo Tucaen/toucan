@@ -74,7 +74,7 @@ export function projectOfSelection(nodes: readonly CanvasNode[]): string | undef
 /**
  * Which orchestrator owns each worktree: the one named by `orchestratedBy` on a ticket session
  * that runs in it, which Toucan writes when it spawns the session and persists with the node. The
- * first such session in canvas order decides when sessions disagree. The link only counts when its
+ * first such session in canvas order whose link is accepted decides when sessions disagree. The link only counts when its
  * orchestrator is a live orchestrator node of the same project, and never when honoring it would
  * make a worktree a descendant of itself (an orchestrator inside its own ticket worktree, or two
  * orchestrators each living in the other's); a refused link leaves that worktree top-level, so
@@ -171,7 +171,8 @@ export function projectSidebarSummaries(
   const owners = ticketWorktreeOwners(nodes)
   const nested = new Set<SidebarWorktreeRow>()
   for (const [worktreeId, row] of worktreeRows) {
-    const orchestrator = sessionRows.get(owners.get(worktreeId) ?? '')
+    const ownerId = owners.get(worktreeId)
+    const orchestrator = ownerId === undefined ? undefined : sessionRows.get(ownerId)
     if (!orchestrator) continue
     orchestrator.ticketWorktrees.push(row)
     nested.add(row)
