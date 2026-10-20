@@ -11,7 +11,7 @@ import {
   Settings,
   X
 } from 'lucide-react'
-import { useCallback, useRef, useState, type ReactNode } from 'react'
+import { Fragment, useCallback, useRef, useState, type ReactNode } from 'react'
 import type { ProjectGroup, WorkspaceProject } from '../../shared/workspace'
 import type { TerminalNodeStatus } from './canvas-workspace'
 import ProjectBranchChip from './ProjectBranchChip'
@@ -22,7 +22,12 @@ import SessionKindIcon from './SessionKindIcon'
 import { SidebarTerminalLiveness } from './TerminalLivenessPresentation'
 import { terminalLivenessLabels } from './terminal-liveness'
 import { groupDropTarget, projectDropTarget, sidebarRegions, type MeasuredRow } from './project-order'
-import { sidebarSummaryFor, type SidebarProjectSummary, type SidebarSessionRow } from './project-sidebar'
+import {
+  sidebarSummaryFor,
+  type SidebarProjectSummary,
+  type SidebarSessionRow,
+  type SidebarWorktreeRow
+} from './project-sidebar'
 
 const statusLabels: Record<TerminalNodeStatus, string> = {
   dormant: 'Saved',
@@ -203,10 +208,13 @@ export function ProjectSidebar({
     })
   }, [])
 
-  /** One session row, the same under a worktree as directly under its project. */
+  /**
+   * One session row, the same under a worktree as directly under its project. An orchestrator
+   * carries the worktrees of its ticket sessions one step in beneath it.
+   */
   const renderSessionRow = (session: SidebarSessionRow): JSX.Element => {
     const nodeUnread = unreadByNode[session.id] ?? 0
-    return (
+    const button = (
       <button
         type="button"
         className={`project-node-row ${session.selected ? 'selected' : ''}`}
@@ -237,6 +245,52 @@ export function ProjectSidebar({
           {statusLabels[session.status]}
         </span>
       </button>
+    )
+    if (session.ticketWorktrees.length === 0) return button
+    return (
+      <Fragment key={session.id}>
+        {button}
+        <div className="project-node-list project-worktree-sessions project-ticket-worktrees">
+          {session.ticketWorktrees.map(renderWorktreeEntry)}
+        </div>
+      </Fragment>
+    )
+  }
+
+  /** One worktree row and its sessions, the same whether top-level or nested under an orchestrator. */
+  const renderWorktreeEntry = (worktree: SidebarWorktreeRow): JSX.Element => {
+    const worktreeUnread = countUnread(worktree.sessions.map((session) => session.id))
+    return (
+      <div className="project-worktree-entry" key={worktree.id}>
+        <button
+          type="button"
+          className={`project-node-row project-worktree-row ${worktree.selected ? 'selected' : ''}`}
+          data-collapsed={worktree.collapsed ? 'true' : undefined}
+          title={[
+            `Focus worktree ${worktree.branch}`,
+            worktree.path,
+            worktree.collapsed ? 'Collapsed; its chats keep running' : null
+          ]
+            .filter(Boolean)
+            .join('\n')}
+          onClick={(event) => {
+            event.stopPropagation()
+            intents.focusNode(worktree.id)
+          }}
+        >
+          <span className="project-node-kind">
+            <GitBranch aria-hidden="true" />
+          </span>
+          <span className="project-node-name">{worktree.branch}</span>
+          {worktreeUnread > 0 && <span className="unread-badge">{worktreeUnread}</span>}
+          <span className="project-node-state" data-status="worktree">
+            {worktree.attachedNodeCount}
+          </span>
+        </button>
+        {worktree.sessions.length > 0 && (
+          <div className="project-node-list project-worktree-sessions">{worktree.sessions.map(renderSessionRow)}</div>
+        )}
+      </div>
     )
   }
 
@@ -464,46 +518,7 @@ export function ProjectSidebar({
                             <span className="project-node-name">Worktrees</span>
                             <span className="project-group-count">{summary.worktrees.length}</span>
                           </button>
-                          {!foldedWorktreeLists.has(project.id) &&
-                            summary.worktrees.map((worktree) => {
-                              const worktreeUnread = countUnread(worktree.sessions.map((session) => session.id))
-                              return (
-                                <div className="project-worktree-entry" key={worktree.id}>
-                                  <button
-                                    type="button"
-                                    className={`project-node-row project-worktree-row ${
-                                      worktree.selected ? 'selected' : ''
-                                    }`}
-                                    data-collapsed={worktree.collapsed ? 'true' : undefined}
-                                    title={[
-                                      `Focus worktree ${worktree.branch}`,
-                                      worktree.path,
-                                      worktree.collapsed ? 'Collapsed; its chats keep running' : null
-                                    ]
-                                      .filter(Boolean)
-                                      .join('\n')}
-                                    onClick={(event) => {
-                                      event.stopPropagation()
-                                      intents.focusNode(worktree.id)
-                                    }}
-                                  >
-                                    <span className="project-node-kind">
-                                      <GitBranch aria-hidden="true" />
-                                    </span>
-                                    <span className="project-node-name">{worktree.branch}</span>
-                                    {worktreeUnread > 0 && <span className="unread-badge">{worktreeUnread}</span>}
-                                    <span className="project-node-state" data-status="worktree">
-                                      {worktree.attachedNodeCount}
-                                    </span>
-                                  </button>
-                                  {worktree.sessions.length > 0 && (
-                                    <div className="project-node-list project-worktree-sessions">
-                                      {worktree.sessions.map(renderSessionRow)}
-                                    </div>
-                                  )}
-                                </div>
-                              )
-                            })}
+                          {!foldedWorktreeLists.has(project.id) && summary.worktrees.map(renderWorktreeEntry)}
                         </div>
                       )}
 

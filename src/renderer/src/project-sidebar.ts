@@ -6,6 +6,7 @@
  */
 import type { TerminalKind, TerminalLiveness } from '../../shared/terminal'
 import {
+  isChatCanvasNode,
   isTerminalCanvasNode,
   isWorktreeCanvasNode,
   sessionNodeStatus,
@@ -20,6 +21,12 @@ export interface SidebarSessionRow {
   selected: boolean
   status: TerminalNodeStatus
   terminalLiveness: TerminalLiveness | undefined
+  /**
+   * The worktrees spawned for this orchestrator's ticket sessions, in canvas order; empty for
+   * every other session. They are listed under it, not under the project - see
+   * `projectSidebarSummaries` for what makes an orchestrator their owner.
+   */
+  ticketWorktrees: SidebarWorktreeRow[]
 }
 
 export interface SidebarWorktreeRow {
@@ -36,6 +43,7 @@ export interface SidebarWorktreeRow {
 export interface SidebarProjectSummary {
   /** Sessions not attached to any listed worktree. */
   sessions: SidebarSessionRow[]
+  /** The worktrees no orchestrator owns; an owned one is under its orchestrator's `ticketWorktrees`. */
   worktrees: SidebarWorktreeRow[]
   /** Sessions plus worktrees - what the locate button counts and the remove button guards on. */
   nodeCount: number
@@ -63,6 +71,53 @@ export function projectOfSelection(nodes: readonly CanvasNode[]): string | undef
   return projects.size === 1 ? [...projects][0] : undefined
 }
 
+/**
+ * Which orchestrator owns each worktree: the one named by `orchestratedBy` on a ticket session
+ * that runs in it, which Toucan writes when it spawns the session and persists with the node. The
+ * first such session in canvas order decides when sessions disagree. The link only counts when its
+ * orchestrator is a live orchestrator node of the same project, and never when honoring it would
+ * make a worktree a descendant of itself (an orchestrator inside its own ticket worktree, or two
+ * orchestrators each living in the other's); a refused link leaves that worktree top-level, so
+ * nothing is ever hidden. Returns worktree id -> owning orchestrator's node id.
+ */
+function ticketWorktreeOwners(nodes: readonly CanvasNode[]): Map<string, string> {
+  const orchestrators = new Map<string, { projectId: string; worktreeId: string | undefined }>()
+  for (const node of nodes) {
+    if (isChatCanvasNode(node) && node.data.role === 'orchestrator') {
+      orchestrators.set(node.id, { projectId: node.data.projectId, worktreeId: node.data.worktreeId })
+    }
+  }
+  const worktreeProjects = new Map<string, string>()
+  for (const node of nodes) {
+    if (isWorktreeCanvasNode(node)) worktreeProjects.set(node.data.worktreeId, node.data.projectId)
+  }
+  const owners = new Map<string, string>()
+  const hostOf = (worktreeId: string): string | undefined => {
+    const owner = owners.get(worktreeId)
+    return owner === undefined ? undefined : orchestrators.get(owner)?.worktreeId
+  }
+  for (const node of nodes) {
+    if (!isChatCanvasNode(node) || !node.data.worktreeId || !node.data.orchestratedBy) continue
+    const ticketWorktree = node.data.worktreeId
+    if (owners.has(ticketWorktree)) continue
+    const owner = orchestrators.get(node.data.orchestratedBy.nodeId)
+    if (!owner || owner.projectId !== worktreeProjects.get(ticketWorktree)) continue
+    // Walk up the worktrees the owner is nested in; meeting the ticket worktree is a loop.
+    let loops = false
+    for (let host = owner.worktreeId; host !== undefined && !loops; host = hostOf(host)) {
+      loops = host === ticketWorktree
+    }
+    if (!loops) owners.set(ticketWorktree, node.data.orchestratedBy.nodeId)
+  }
+  return owners
+}
+
+/**
+ * Per-project summaries. Worktrees spawned for an orchestrator's ticket sessions are nested under
+ * that orchestrator's session row (`ticketWorktrees`) instead of listed beside every other
+ * worktree; everything else is listed exactly as before. Counts do not change: a nested row is
+ * still a node of its project.
+ */
 export function projectSidebarSummaries(
   nodes: readonly CanvasNode[],
   statuses: Readonly<Record<string, TerminalNodeStatus>>
@@ -93,6 +148,7 @@ export function projectSidebarSummaries(
     worktreeRows.set(node.data.worktreeId, row)
     summary.nodeCount += 1
   }
+  const sessionRows = new Map<string, SidebarSessionRow>()
   for (const node of nodes) {
     if (!isTerminalCanvasNode(node)) continue
     const summary = summaryOf(node.data.projectId)
@@ -102,12 +158,24 @@ export function projectSidebarSummaries(
       kind: node.data.kind,
       selected: node.selected ?? false,
       status: sessionNodeStatus(node, statuses),
-      terminalLiveness: node.data.kind === 'terminal' ? node.data.terminalLiveness : undefined
+      terminalLiveness: node.data.kind === 'terminal' ? node.data.terminalLiveness : undefined,
+      ticketWorktrees: []
     }
+    sessionRows.set(node.id, row)
     const list = (node.data.worktreeId && worktreeRows.get(node.data.worktreeId)) || summary
     list.sessions.push(row)
     summary.sessionNodeIds.push(node.id)
     summary.nodeCount += 1
   }
+  // In canvas order, so an orchestrator lists its worktrees the way the top level would.
+  const owners = ticketWorktreeOwners(nodes)
+  const nested = new Set<SidebarWorktreeRow>()
+  for (const [worktreeId, row] of worktreeRows) {
+    const orchestrator = sessionRows.get(owners.get(worktreeId) ?? '')
+    if (!orchestrator) continue
+    orchestrator.ticketWorktrees.push(row)
+    nested.add(row)
+  }
+  for (const summary of summaries.values()) summary.worktrees = summary.worktrees.filter((row) => !nested.has(row))
   return summaries
 }

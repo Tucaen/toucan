@@ -202,7 +202,8 @@ describe('the unread pill', () => {
             kind: 'claude',
             selected: false,
             status: 'idle',
-            terminalLiveness: undefined
+            terminalLiveness: undefined,
+            ticketWorktrees: []
           },
           {
             id: 'node-2',
@@ -210,7 +211,8 @@ describe('the unread pill', () => {
             kind: 'codex',
             selected: false,
             status: 'idle',
-            terminalLiveness: undefined
+            terminalLiveness: undefined,
+            ticketWorktrees: []
           }
         ],
         worktrees: [],
@@ -252,5 +254,72 @@ describe('the unread pill', () => {
 
     fireEvent.click(screen.getByText('Fix the tests'))
     expect(intents.focusNode).toHaveBeenCalledWith('node-1')
+  })
+})
+
+describe('orchestrator-owned worktrees', () => {
+  const ticketWorktree = {
+    id: 'worktree:1',
+    branch: 'ticket/1',
+    path: 'D:/Worktrees/1',
+    selected: false,
+    collapsed: false,
+    attachedNodeCount: 1,
+    sessions: [
+      {
+        id: 'ticket-chat',
+        label: '#1 Ticket chat',
+        kind: 'claude' as const,
+        selected: false,
+        status: 'idle' as const,
+        terminalLiveness: undefined,
+        ticketWorktrees: []
+      }
+    ]
+  }
+  const orchestrator = {
+    id: 'orch',
+    label: 'Orchestrator',
+    kind: 'claude' as const,
+    selected: false,
+    status: 'idle' as const,
+    terminalLiveness: undefined,
+    ticketWorktrees: [ticketWorktree]
+  }
+  const summaries = new Map<string, SidebarProjectSummary>([
+    [alpha.id, { sessions: [orchestrator], worktrees: [], nodeCount: 3, sessionNodeIds: ['orch', 'ticket-chat'] }]
+  ])
+
+  test('a ticket worktree is listed as a child of its orchestrator, not under the project worktrees', () => {
+    const intents = renderSidebar({ summaries })
+
+    const orchestratorRow = screen.getByText('Orchestrator').closest('.project-node-row') as HTMLElement
+    const children = orchestratorRow.nextElementSibling as HTMLElement
+    expect(children).toHaveClass('project-ticket-worktrees')
+    expect(within(children).getByText('ticket/1')).toBeTruthy()
+    expect(within(children).getByText('#1 Ticket chat')).toBeTruthy()
+    // No top-level Worktrees section for a project whose only worktree is owned.
+    expect(screen.queryByText('Worktrees')).toBeNull()
+
+    fireEvent.click(within(children).getByText('ticket/1'))
+    expect(intents.focusNode).toHaveBeenCalledWith('worktree:1')
+  })
+
+  test('an orchestrator without ticket worktrees renders as a plain session row', () => {
+    renderSidebar({
+      summaries: new Map([
+        [
+          alpha.id,
+          {
+            sessions: [{ ...orchestrator, ticketWorktrees: [] }],
+            worktrees: [],
+            nodeCount: 1,
+            sessionNodeIds: ['orch']
+          }
+        ]
+      ])
+    })
+
+    expect(document.querySelector('.project-ticket-worktrees')).toBeNull()
   })
 })
