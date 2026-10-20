@@ -71,6 +71,33 @@ describe('reading a spawn body off the wire', () => {
   })
 })
 
+describe('spawning an orchestrator', () => {
+  test('a role travels as data and is checked like any other field', () => {
+    assert.equal(remoteChatSpawnProblem(request({ role: 'orchestrator' })), null)
+    assert.equal(
+      remoteChatSpawnProblem({ ...request(), role: 'manager' as unknown as 'orchestrator' }),
+      'Pick a chat or an orchestrator.'
+    )
+  })
+
+  test('the parser keeps an orchestrator role and refuses any other one', () => {
+    assert.deepEqual(parseRemoteChatSpawnRequest('{"projectId":"toucan","kind":"codex","role":"orchestrator"}'), {
+      projectId: 'toucan',
+      kind: 'codex',
+      role: 'orchestrator'
+    })
+    // An unknown role is refused rather than read as an ordinary chat: an orchestrator is minted
+    // a token and a skill an ordinary chat never sees, so neither direction may be guessed at.
+    for (const body of [
+      '{"projectId":"toucan","kind":"claude","role":"manager"}',
+      '{"projectId":"toucan","kind":"claude","role":null}',
+      '{"projectId":"toucan","kind":"claude","role":""}'
+    ]) {
+      assert.equal(parseRemoteChatSpawnRequest(body), null, body)
+    }
+  })
+})
+
 describe('when a spawn has settled', () => {
   test('only a starting session is still pending', () => {
     assert.equal(spawnSettlement('starting'), 'pending')

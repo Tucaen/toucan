@@ -1844,7 +1844,10 @@ function Canvas(): JSX.Element {
         initialInput: request.input,
         // A model the phone named travels as ordinary node data, so the session it opens is the
         // same shape as one opened from a right-click that had a model remembered on it.
-        modelId: request.modelId
+        modelId: request.modelId,
+        // The same role the New orchestrator action sets, so a phone-spawned orchestrator is minted
+        // its token and skill exactly as a right-clicked one is.
+        role: request.role
       })
       // A spawn names no worktree, so nothing should be able to refuse it - but the phone gets a
       // refusal rather than an id it would then wait on forever.

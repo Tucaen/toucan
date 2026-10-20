@@ -1,3 +1,4 @@
+import { isChatNodeRole, type ChatNodeRole } from './orchestration'
 import type { RemoteChatKind } from './remote-access'
 import { promptTextProblem, REMOTE_CHAT_MODEL_ID_LIMIT, REMOTE_CHAT_PROMPT_LIMIT } from './remote-chat'
 import type { TerminalNodeStatus } from './terminal'
@@ -36,6 +37,12 @@ export interface RemoteChatSpawnRequest {
    * the session manager has the final say when the session actually opens.
    */
   modelId?: string
+  /**
+   * The role the new node carries, exactly as the canvas's New orchestrator action would set it.
+   * Absent is an ordinary chat. Like on the desktop the role is fixed at creation, so this is the
+   * only moment a phone can ask for an orchestrator.
+   */
+  role?: ChatNodeRole
 }
 
 export type RemoteChatSpawnResult = { ok: true; chatId: string } | { ok: false; message: string }
@@ -60,6 +67,7 @@ export function remoteChatSpawnProblem(request: RemoteChatSpawnRequest): string 
   if (request.modelId !== undefined && request.modelId.length > REMOTE_CHAT_MODEL_ID_LIMIT) {
     return 'That model name is too long to send.'
   }
+  if (request.role !== undefined && !isChatNodeRole(request.role)) return 'Pick a chat or an orchestrator.'
   if (request.input !== undefined) return promptTextProblem(request.input)
   return null
 }
@@ -76,7 +84,7 @@ export function parseRemoteChatSpawnRequest(raw: string): RemoteChatSpawnRequest
     return null
   }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
-  const body = parsed as { projectId?: unknown; kind?: unknown; input?: unknown; modelId?: unknown }
+  const body = parsed as { projectId?: unknown; kind?: unknown; input?: unknown; modelId?: unknown; role?: unknown }
   if (typeof body.projectId !== 'string') return null
   if (body.kind !== 'claude' && body.kind !== 'codex') return null
   // A present-but-not-a-string input is a malformed body, not an absent prompt: reading it as one
@@ -85,11 +93,15 @@ export function parseRemoteChatSpawnRequest(raw: string): RemoteChatSpawnRequest
   // Same rule for the model: a malformed one is refused rather than read as "no preference", or a
   // version skew would quietly start the chat on something other than what was picked.
   if (body.modelId !== undefined && (typeof body.modelId !== 'string' || body.modelId.length === 0)) return null
+  // An orchestrator is minted a token an ordinary chat never sees, so an unknown role is refused
+  // in both directions rather than read as either.
+  if (body.role !== undefined && !isChatNodeRole(body.role)) return null
   return {
     projectId: body.projectId,
     kind: body.kind,
     ...(typeof body.input === 'string' ? { input: body.input } : {}),
-    ...(typeof body.modelId === 'string' ? { modelId: body.modelId } : {})
+    ...(typeof body.modelId === 'string' ? { modelId: body.modelId } : {}),
+    ...(isChatNodeRole(body.role) ? { role: body.role } : {})
   }
 }
 

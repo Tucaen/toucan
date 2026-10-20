@@ -1157,6 +1157,18 @@ describe('spawning a chat over HTTP', () => {
     assert.deepEqual(asked, [{ projectId: 'toucan', kind: 'codex', input: 'fix it' }])
   })
 
+  test('an orchestrator spawn reaches the desktop with its role', async () => {
+    const asked: RemoteChatSpawnRequest[] = []
+    const created = await spawnHarness(async (request) => {
+      asked.push(request)
+      return { ok: true, chatId: 'node-1' }
+    })
+
+    const response = await created.post('/api/chats', body({ role: 'orchestrator' }), created.store.read().token)
+    assert.equal(response.status, 201)
+    assert.deepEqual(asked, [{ projectId: 'toucan', kind: 'claude', role: 'orchestrator' }])
+  })
+
   test('a desktop that could not do it refuses in its own words', async () => {
     const created = await spawnHarness(async () => ({
       ok: false,
