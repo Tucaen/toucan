@@ -92,7 +92,7 @@ it('summarises the ticket contract for the implementation-skill field', () => {
 
 it('summarises nothing the binding ticket contract does not say', () => {
   const contract = ticketContract({ path: 'worktree', branch: 'ticket' }).toLowerCase()
-  for (const rule of ['push', 'merge', 'pull request', 'worktree', 'commit', 'final report']) {
+  for (const rule of ['push', 'merge', 'pull request', 'worktree', 'commit', 'final report', 'only asks a question']) {
     expect(contract).toContain(rule)
   }
 })

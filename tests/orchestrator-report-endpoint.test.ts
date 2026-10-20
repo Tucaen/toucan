@@ -108,6 +108,7 @@ test("report aggregates the project's orchestrations, with outcome-record turns,
         escalated: 0,
         unmerged: 0,
         inProgress: 0,
+        answered: 0,
         medianTurns: 3,
         sample: 2
       }

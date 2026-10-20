@@ -4,9 +4,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'vitest'
 import { createOrchestrationStore } from '../src/main/orchestration-store'
-import { createOrchestratorEndpoint, type OrchestratorGrant } from '../src/main/orchestrator-endpoint'
+import {
+  createOrchestratorEndpoint,
+  type OrchestratorGrant,
+  type TicketSessionControl,
+  type TicketSessionState
+} from '../src/main/orchestrator-endpoint'
 import { createProviderUsage } from '../src/main/provider-usage'
-import { ORCHESTRATOR_TOKEN_ENV, ORCHESTRATOR_URL_ENV } from '../src/shared/orchestration'
+import { ORCHESTRATOR_TOKEN_ENV, ORCHESTRATOR_URL_ENV, recordTicketSession } from '../src/shared/orchestration'
 
 // The orchestrator's local endpoint (#33): every call is authorized at call time against a live
 // token and scoped to that orchestrator's project. Driven over real HTTP, the way the CLI calls it.
@@ -40,6 +45,49 @@ const plan = {
     { id: '34', title: 'Spawn', blockedBy: ['33'] }
   ]
 }
+
+test('a ticket is recorded answered only once its session has settled and Git shows nothing to merge', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'toucan-orchestrator-endpoint-'))
+  const records = createOrchestrationStore({ directory })
+  let sessionStatus: TicketSessionState['status'] = 'working'
+  let gitRefusal: string | undefined = "ticket 33's branch has 1 commit(s) the target lacks; merge it instead"
+  const endpoint = createOrchestratorEndpoint({
+    records,
+    now: () => '2026-09-30T12:00:00.000Z',
+    cleanup: { run: async () => ({ removed: [], retained: [] }), answeredRefusal: async () => gitRefusal },
+    ticketSessions: { state: () => ({ status: sessionStatus, questions: [] }) } as unknown as TicketSessionControl
+  })
+  const grant = (await endpoint.grant('orchestrator-1', { provider: 'claude', projectPath: 'D:\\project' }))!
+  grant.setConversation('conversation-1')
+  try {
+    await call(grant, 'plan set', plan)
+    await records.update({ provider: 'claude', conversationId: 'conversation-1' }, (current) => ({
+      value: recordTicketSession(
+        current!,
+        '33',
+        { nodeId: 'node-33', conversationId: 'c-33', worktreePath: 'D:\\ticket-33', branch: 'ticket/33' },
+        'now'
+      ),
+      result: undefined
+    }))
+    const answer = () => call(grant, 'ticket update', { id: '33', fields: { mergeStatus: 'answered' } })
+
+    const working = await answer()
+    assert.equal(working.status, 409)
+    assert.match(working.body.error ?? '', /session is working/)
+    sessionStatus = 'ready'
+    const committed = await answer()
+    assert.equal(committed.status, 409)
+    assert.match(committed.body.error ?? '', /merge it instead/)
+    gitRefusal = undefined
+    const accepted = await answer()
+    assert.equal(accepted.status, 200)
+    assert.equal((accepted.body.ticket as { mergeStatus: string }).mergeStatus, 'answered')
+  } finally {
+    grant.revoke()
+    await endpoint.close()
+  }
+})
 
 test('the listener binds with the first grant and closes with the last revoke', async () => {
   const { endpoint } = harness()

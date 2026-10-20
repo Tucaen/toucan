@@ -67,8 +67,17 @@ export function isDifficultyTier(value: unknown): value is DifficultyTier {
   return DIFFICULTY_TIERS.includes(value as DifficultyTier)
 }
 
-export const TICKET_MERGE_STATUSES = ['pending', 'merged', 'unmerged'] as const
+/**
+ * `answered` is a question-only ticket: its session answered in its final report and committed
+ * nothing, so there is nothing to merge. The endpoint accepts it only on Git evidence.
+ */
+export const TICKET_MERGE_STATUSES = ['pending', 'merged', 'unmerged', 'answered'] as const
 export type TicketMergeStatus = (typeof TICKET_MERGE_STATUSES)[number]
+
+/** Done for good: nothing of the ticket is left to land, so it satisfies its dependents and is cleaned up. */
+export function isTicketSettled(status: TicketMergeStatus): boolean {
+  return status === 'merged' || status === 'answered'
+}
 
 /**
  * How a ticket was routed (#36): its difficulty tier, the model and effort the tier mapping gave it,
@@ -647,15 +656,19 @@ export function parseSpawnInput(value: unknown): Outcome<'spawn', SpawnInput> {
 }
 
 /**
- * Tickets the user may ask to start now: not merged, not yet spawned, and with every blocker
- * merged. The endpoint re-checks all of this at spawn time; the list only decides what the UI offers.
+ * Tickets the user may ask to start now: not settled, not yet spawned, and with every blocker
+ * settled. The endpoint re-checks all of this at spawn time; the list only decides what the UI offers.
  */
 export function startableTickets(record: OrchestrationRecord): OrchestrationTicket[] {
   if (record.lifecycle?.status === 'stopped') return []
-  const merged = new Set(record.tickets.filter((ticket) => ticket.mergeStatus === 'merged').map((ticket) => ticket.id))
+  const settled = new Set(
+    record.tickets.filter((ticket) => isTicketSettled(ticket.mergeStatus)).map((ticket) => ticket.id)
+  )
   return record.tickets.filter(
     (ticket) =>
-      ticket.mergeStatus !== 'merged' && !ticket.session && ticket.blockedBy.every((blocker) => merged.has(blocker))
+      !isTicketSettled(ticket.mergeStatus) &&
+      !ticket.session &&
+      ticket.blockedBy.every((blocker) => settled.has(blocker))
   )
 }
 
@@ -710,10 +723,11 @@ export function reserveSpawn(
     )
   }
   if (record.lifecycle?.status === 'stopped') return refuse('this orchestration has been stopped')
-  if (ticket.mergeStatus === 'merged') return refuse(`ticket ${ticketId} is already merged`)
-  const blockers = ticket.blockedBy.filter(
-    (id) => record.tickets.find((candidate) => candidate.id === id)?.mergeStatus !== 'merged'
-  )
+  if (isTicketSettled(ticket.mergeStatus)) return refuse(`ticket ${ticketId} is already ${ticket.mergeStatus}`)
+  const blockers = ticket.blockedBy.filter((id) => {
+    const blocker = record.tickets.find((candidate) => candidate.id === id)
+    return !blocker || !isTicketSettled(blocker.mergeStatus)
+  })
   if (blockers.length > 0) return refuse(`ticket ${ticketId} has unmerged blockers: ${blockers.join(', ')}`)
   const used = record.spawnCount ?? 0
   if (used >= MAX_SPAWNS_PER_ORCHESTRATION) {
@@ -875,6 +889,7 @@ export function ticketContract(worktree: { path: string; branch: string }): stri
     '',
     `- Stay in your worktree, ${worktree.path}, and work nowhere else.`,
     `- Commit your work to its branch, ${worktree.branch}.`,
+    "- When the ticket only asks a question, answer it from the code: change and commit nothing, skip the skill's implementation steps, and make the answer, with the files and lines it rests on, your final report.",
     '- Never push, never merge, and never open a pull request: the orchestrator merges this branch. Pushing is refused by a hook anyway.',
     '- When the orchestrator asks, rebase this branch onto the target, resolve any conflicts, run the full test suite here and report the commit you tested with its result. The orchestrator only fast-forwards what you verified.',
     '- End with a final report: commit, verification commands and results, unresolved blocking review findings, skipped or deleted tests with reasons, and open questions.'
@@ -890,6 +905,7 @@ export function ticketContract(worktree: { path: string; branch: string }): stri
 export const TICKET_CONTRACT_SUMMARY: { must: readonly string[]; mustNot: readonly string[] } = {
   must: [
     'Implement, test, review and commit the ticket in the given worktree, on its branch.',
+    'Answer a question-only ticket in the final report, without changing or committing anything.',
     'On request, rebase onto the target and run the full test suite there before the merge.',
     'End with a final report: commit, verification commands and results, unresolved review findings and open questions.'
   ],
@@ -919,6 +935,7 @@ export function orchestratorInstruction(paths: { cliPath: string; skillPath: str
   const cli = `node "${paths.cliPath}"`
   return [
     'You are a Toucan orchestrator. The first user message is your task.',
+    'Delegate immediately: never research or search the project code yourself, not even to answer a question; every piece of task work, a single question included, goes into a ticket session.',
     `Before acting, read and follow the orchestration workflow at "${paths.skillPath}" and its command reference.`,
     'It governs start checks, dependency-aware breakdown, routing, serial tested merges, escalation, tracker write-back, cleanup and the final review list.',
     `Use \`${cli} plan show\` to recover the durable record, and \`${cli} status\` for live ticket state.`,

@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import type { OrchestrationRecord } from '../shared/orchestration'
+import { isTicketSettled, type OrchestrationRecord, type OrchestrationTicket } from '../shared/orchestration'
 import type { TicketCleanupRequest, TicketCleanupResult } from '../shared/orchestration-cleanup'
 import { pathIdentity } from '../shared/paths'
 import { errorMessage } from '../shared/text'
@@ -21,31 +21,56 @@ export interface OrchestrationCleanupResult {
 }
 
 export interface OrchestrationCleanup {
-  /** A ticket id retires one freshly merged session; absent performs the final full sweep. */
+  /** A ticket id retires one freshly settled session; absent performs the final full sweep. */
   run(record: OrchestrationRecord, ticketId?: string): Promise<OrchestrationCleanupResult>
+  /**
+   * Why a ticket may not be recorded `answered`, or undefined when Git shows it is: its worktree is
+   * clean and its branch holds no commit the target lacks.
+   */
+  answeredRefusal(record: OrchestrationRecord, ticket: OrchestrationTicket): Promise<string | undefined>
 }
 
-/** Evidence-gated cleanup: a record's merged flag alone never authorizes deleting a branch. */
+/** Evidence-gated cleanup: a record's merged or answered flag alone never authorizes deleting a branch. */
 export function createOrchestrationCleanup(options: {
   runGit: GitRunner
   worktrees: Pick<WorktreeManager, 'remove'>
   containment: Pick<WorkspaceContainment, 'contains'>
   canvas(request: TicketCleanupRequest): Promise<TicketCleanupResult>
 }): OrchestrationCleanup {
+  const gitIn =
+    (record: OrchestrationRecord) =>
+    async (args: string[], cwd = record.projectPath): Promise<string> => {
+      const result = await options.runGit(args, cwd)
+      if (result.code !== 0) throw new Error(result.stderr.trim() || `git ${args[0]} failed (${result.code})`)
+      return result.stdout.trim()
+    }
   return {
+    async answeredRefusal(record, ticket) {
+      const git = gitIn(record)
+      const { worktreePath, branch } = ticket.session ?? {}
+      if (!worktreePath || !branch) return `ticket ${ticket.id} has no ticket session to have answered it`
+      try {
+        if (!(await options.containment.contains(worktreePath)))
+          return 'the ticket worktree is no longer inside the registered workspace'
+        if (await git(['status', '--porcelain', '--untracked-files=all'], worktreePath))
+          return `ticket ${ticket.id}'s worktree has uncommitted or untracked work; merge it or have the session discard it`
+        const ahead = await git(['rev-list', '--count', `refs/heads/${record.targetBranch}..refs/heads/${branch}`])
+        if (ahead !== '0')
+          return `ticket ${ticket.id}'s branch has ${ahead} commit(s) the target lacks; merge it instead`
+        return undefined
+      } catch (error) {
+        return `could not verify ticket ${ticket.id} as answered: ${errorMessage(error)}`
+      }
+    },
     async run(record, ticketId) {
       const removed: CleanupEntry[] = []
       const retained: CleanupEntry[] = []
-      const git = async (args: string[], cwd = record.projectPath): Promise<string> => {
-        const result = await options.runGit(args, cwd)
-        if (result.code !== 0) throw new Error(result.stderr.trim() || `git ${args[0]} failed (${result.code})`)
-        return result.stdout.trim()
-      }
+      const git = gitIn(record)
       const tickets =
         ticketId === undefined ? record.tickets : record.tickets.filter((ticket) => ticket.id === ticketId)
       for (const ticket of tickets) {
         const entry = { ticket: ticket.id, worktree: ticket.session?.worktreePath, branch: ticket.session?.branch }
-        if (ticket.mergeStatus !== 'merged') {
+        if (!isTicketSettled(ticket.mergeStatus)) {
           retained.push({ ...entry, reason: 'ticket is unmerged' })
           continue
         }

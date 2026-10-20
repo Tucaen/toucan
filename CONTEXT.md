@@ -32,7 +32,10 @@ A Toucan-launched chat an orchestrator spawned for one ticket, in its own worktr
 _Avoid_: subagent (that is the provider's in-turn worker, not a canvas session)
 
 **Ticket contract**:
-The rules appended to every ticket session's prompt after the implementation skill: stay in the given worktree, commit, never push, merge or open a PR, end with a final report. It wins over the skill.
+The rules appended to every ticket session's prompt after the implementation skill: stay in the given worktree, commit, never push, merge or open a PR, end with a final report. A ticket that only asks a question is answered in the final report with nothing committed. It wins over the skill.
+
+**Answer-only ticket**:
+A ticket that only asks a question. Its session answers in its final report and commits nothing; the orchestrator records it `answered`, which Toucan accepts only when Git shows nothing to merge, and cleans it up like a merged ticket. A follow-up question is a new ticket carrying the previous answer.
 
 **Orchestration record**:
 Toucan's tracker-independent state for one orchestration: the task, and per ticket its blockers, route, session, attempts and merge status.

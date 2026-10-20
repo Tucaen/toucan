@@ -30,7 +30,7 @@ Read it when deciding whether to dispatch, retry, or resume work after a usage-l
 
 ## plan show
 
-`plan show` prints `{ ok: true, record }`. `record` is `null` until the first `plan set`; otherwise it carries `task`, `targetBranch`, `tickets` and `spawnCount`. A proactively deferred record also carries `pacing` with its state, reason and `retryAt` when a provider reset or Toucan-owned bounded recheck is scheduled. Each ticket has `id`, `title`, `body` or `source`, `blockedBy`, `attempts`, `mergeStatus` (`pending`, `merged`, `unmerged`), and `route` and `session` once set.
+`plan show` prints `{ ok: true, record }`. `record` is `null` until the first `plan set`; otherwise it carries `task`, `targetBranch`, `tickets` and `spawnCount`. A proactively deferred record also carries `pacing` with its state, reason and `retryAt` when a provider reset or Toucan-owned bounded recheck is scheduled. Each ticket has `id`, `title`, `body` or `source`, `blockedBy`, `attempts`, `mergeStatus` (`pending`, `merged`, `unmerged`, `answered`), and `route` and `session` once set.
 
 ## plan set
 
@@ -55,7 +55,7 @@ Read it when deciding whether to dispatch, retry, or resume work after a usage-l
 
 `ticket update <id> --json '<fields>'` or `ticket update <id> --file <fields.json>` patches one ticket and prints `{ ok: true, ticket }`.
 
-Fields: `title`, `body`, `source`, `blockedBy`, `attempts` (non-negative integer), `mergeStatus`, and `route` (`tier` of `low`/`medium`/`high`/`frontier`, `model`, `effort`, `confidence` 0-1, `depth` 0-4, `routedBy` `jev`/`orchestrator`, `escalated`, `reviewRequired`). Toucan owns `id` and `session`; change ids with `plan set`. Prefer `route` and `escalate` over writing `route` by hand. An empty patch is refused.
+Fields: `title`, `body`, `source`, `blockedBy`, `attempts` (non-negative integer), `mergeStatus`, and `route` (`tier` of `low`/`medium`/`high`/`frontier`, `model`, `effort`, `confidence` 0-1, `depth` 0-4, `routedBy` `jev`/`orchestrator`, `escalated`, `reviewRequired`). `mergeStatus: answered` marks an answer-only ticket and is refused unless its session has settled with nothing pending, its worktree is clean and its branch holds no commit the target lacks. Toucan owns `id` and `session`; change ids with `plan set`. Prefer `route` and `escalate` over writing `route` by hand. An empty patch is refused.
 
 ## route
 
@@ -172,6 +172,7 @@ It never answers a tool-permission prompt. While a ticket session waits on one, 
       "escalated": 4,
       "unmerged": 1,
       "inProgress": 0,
+      "answered": 0,
       "medianTurns": 3,
       "sample": 12
     }
@@ -201,7 +202,7 @@ It never answers a tool-permission prompt. While a ticket session waits on one, 
 }
 ```
 
-- A row is one provider, tier and model. `provider` is the provider whose ticket sessions ran there, and `model` an id from that provider's picker: the same model name under two providers is two rows, never one. A run recorded before runs named their provider counts as Claude's, because ticket sessions were Claude-only then. Each ticket that ran there counts once: `mergedWithoutEscalation` when it merged there, routed there directly; `mergedAfterEscalation` when it merged there after an escalation from below; `escalated` when it was escalated away to a higher tier; `unmerged` when it stayed unmerged or moved to another model on the same tier; `inProgress` when it is still pending there. `medianTurns` is `null` when no outcome record gives turns.
+- A row is one provider, tier and model. `provider` is the provider whose ticket sessions ran there, and `model` an id from that provider's picker: the same model name under two providers is two rows, never one. A run recorded before runs named their provider counts as Claude's, because ticket sessions were Claude-only then. Each ticket that ran there counts once: `mergedWithoutEscalation` when it merged there, routed there directly; `mergedAfterEscalation` when it merged there after an escalation from below; `escalated` when it was escalated away to a higher tier; `unmerged` when it stayed unmerged or moved to another model on the same tier; `inProgress` when it is still pending there; `answered` when it was an answer-only ticket, which never counts toward `sample`. `medianTurns` is `null` when no outcome record gives turns.
 - `jev` holds tickets Jev routed. `orchestrator` holds tickets whose tier you judged or whose model you named. They are never mixed, and only `jev` rows produce proposals. `skippedRuns` counts runs with no known tier, model or `routedBy`.
 - `sample` is the settled tickets Jev routed straight to that tier. Each provider's proposals are judged only from its own rows against its own mapping, and `configEntry` names the entry in that provider's section of the `config` file a proposal would change. A proposal needs `sample` of at least `minimumSample`. It moves a tier down to a lower tier's model that merged at least 90% of its sample without escalation, or else up to the next tier's entry when the tier's own model merged fewer than 70%. It proposes at most one change per tier and nothing past `frontier`.
 - `forcedSpawns` lists each orchestration's latest forced spawn as `{ conversationId, ticketId, by, at, reason }`; mention them in the review list.
@@ -209,6 +210,6 @@ It never answers a tool-permission prompt. While a ticket session waits on one, 
 
 ## cleanup
 
-`cleanup [--ticket <id>]` prints `{ ok: true, removed, retained }`. With a ticket it handles that freshly merged ticket only; without one it performs the final sweep. Each entry names its `ticket`, `worktree`, and `branch`; retained entries include a `reason`. Inspect both lists: acceptance of the command does not mean every worktree was removed.
+`cleanup [--ticket <id>]` prints `{ ok: true, removed, retained }`. With a ticket it handles that freshly merged or answered ticket only; without one it performs the final sweep. Each entry names its `ticket`, `worktree`, and `branch`; retained entries include a `reason`. Inspect both lists: acceptance of the command does not mean every worktree was removed.
 
-Only tickets recorded as merged qualify. Toucan verifies their branch is contained in both the target and its upstream, retires the settled ticket chat, preflights and removes the clean worktree, deletes the local branch with Git's non-force deletion, and removes its canvas group. Transcripts stay in History. Other sessions, open file editors, dirty files, stashes, missing evidence, and Git failures retain the affected work, but after publication is proved they do not keep the merged ticket's agent process alive. A busy ticket or pending answer blocks retirement. Unmerged tickets and earlier failed attempts stay for review. A partial cleanup is safe to retry; report its retained entries.
+Only tickets recorded as merged or answered qualify. Toucan verifies their branch is contained in both the target and its upstream, retires the settled ticket chat, preflights and removes the clean worktree, deletes the local branch with Git's non-force deletion, and removes its canvas group. Transcripts stay in History. Other sessions, open file editors, dirty files, stashes, missing evidence, and Git failures retain the affected work, but after publication is proved they do not keep the merged ticket's agent process alive. A busy ticket or pending answer blocks retirement. Unmerged tickets and earlier failed attempts stay for review. A partial cleanup is safe to retry; report its retained entries.

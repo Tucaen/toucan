@@ -64,6 +64,8 @@ export interface RoutingReportRow {
   unmerged: number
   /** Still running on it: the ticket is pending and this was its latest run. */
   inProgress: number
+  /** Question-only tickets answered on it. Kept out of `sample`: they say nothing about merging. */
+  answered: number
   /** Median of each ticket's turns on this tier and model, over those whose outcome record says. */
   medianTurns: number | null
   /**
@@ -117,7 +119,8 @@ interface CountedRun {
   turns?: number
 }
 
-type StayResult = 'mergedWithoutEscalation' | 'mergedAfterEscalation' | 'escalated' | 'unmerged' | 'inProgress'
+type StayResult =
+  'mergedWithoutEscalation' | 'mergedAfterEscalation' | 'escalated' | 'unmerged' | 'inProgress' | 'answered'
 
 /** One ticket's stay on one tier and model: consecutive runs there, folded into one result. */
 interface Stay {
@@ -204,6 +207,7 @@ function ticketStays(ticket: OrchestrationTicket, runs: readonly CountedRun[]): 
     if (next) result = tierIndex(next.tier) > tierIndex(first.tier) ? 'escalated' : 'unmerged'
     else if (ticket.mergeStatus === 'merged')
       result = first.escalated ? 'mergedAfterEscalation' : 'mergedWithoutEscalation'
+    else if (ticket.mergeStatus === 'answered') result = 'answered'
     else result = ticket.mergeStatus === 'unmerged' ? 'unmerged' : 'inProgress'
     const known = group.flatMap((run) => (run.turns === undefined ? [] : [run.turns]))
     return {
@@ -238,7 +242,9 @@ function rowsFor(stays: readonly Stay[]): RoutingReportRow[] {
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
     .map(([, { provider, tier, model, stays: onPair }]) => {
       const count = (result: StayResult): number => onPair.filter((stay) => stay.result === result).length
-      const directSettled = onPair.filter((stay) => !stay.escalatedIn && stay.result !== 'inProgress').length
+      const directSettled = onPair.filter(
+        (stay) => !stay.escalatedIn && stay.result !== 'inProgress' && stay.result !== 'answered'
+      ).length
       return {
         provider,
         tier,
@@ -249,6 +255,7 @@ function rowsFor(stays: readonly Stay[]): RoutingReportRow[] {
         escalated: count('escalated'),
         unmerged: count('unmerged'),
         inProgress: count('inProgress'),
+        answered: count('answered'),
         medianTurns: median(onPair.flatMap((stay) => (stay.turns === undefined ? [] : [stay.turns]))),
         sample: directSettled
       }

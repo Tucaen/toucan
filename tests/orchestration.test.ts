@@ -19,6 +19,7 @@ import {
   pauseOrchestration,
   resumeOrchestration,
   reserveSpawn,
+  startableTickets,
   stopOrchestration,
   ticketBranchCandidates,
   ticketSessionPrompt,
@@ -65,6 +66,18 @@ test('only a ticket whose blockers have merged can reserve a spawn', () => {
   record.tickets[0].mergeStatus = 'merged'
   assert.equal(reserveSpawn(record, '34', NOW).record?.spawnCount, 1)
   assert.match(reserveSpawn(record, '33', NOW).error ?? '', /already merged/)
+})
+
+test('an answered blocker is settled: its dependents start and it is not spawned again', () => {
+  const record = recordFrom(twoTickets)
+  record.tickets[0].mergeStatus = 'answered'
+  assert.deepEqual(
+    startableTickets(record).map((ticket) => ticket.id),
+    ['34']
+  )
+  assert.equal(reserveSpawn(record, '34', NOW).record?.spawnCount, 1)
+  assert.match(reserveSpawn(record, '33', NOW).error ?? '', /already answered/)
+  assert.deepEqual(parseTicketUpdate({ mergeStatus: 'answered' }).patch, { mergeStatus: 'answered' })
 })
 
 test('a plan becomes a record whose tickets start pending with no attempts', () => {
@@ -236,6 +249,13 @@ test('the orchestrator instruction keeps implementation and heavy work out of it
   assert.match(instruction, /never implement/i)
   assert.match(instruction, /becomes a ticket/i)
   assert.match(instruction, /test suite/i)
+})
+
+test('the orchestrator instruction forbids researching the code itself and delegates even a question', () => {
+  const instruction = orchestratorInstruction({ cliPath: 'cli.mjs', skillPath: 'SKILL.md' })
+  assert.match(instruction, /delegate immediately/i)
+  assert.match(instruction, /never research or search the project code yourself/i)
+  assert.match(instruction, /a single question included, goes into a ticket session/i)
 })
 
 // Spawning a ticket session (#34): what `spawn` may ask for, the per-orchestration cap, and the

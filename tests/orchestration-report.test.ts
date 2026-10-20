@@ -70,24 +70,26 @@ test('each run counts against the tier and model it ran on; an escalation leaves
   const escalated = ticket('merged', jev('medium', 'sonnet'), jev('high', 'opus', true))
   const unmerged = ticket('unmerged', jev('medium', 'sonnet'))
   const running = ticket('pending', jev('medium', 'sonnet'))
+  const answered = ticket('answered', jev('medium', 'sonnet'))
   const turns = new Map([
     [`claude-${merged.conversations[0]!}`, { turns: 2 }],
     [`claude-${escalated.conversations[0]!}`, { turns: 6 }],
     [`claude-${escalated.conversations[1]!}`, { turns: 3 }],
     [`claude-${unmerged.conversations[0]!}`, { turns: 4 }]
   ])
-  const report = routingReport([record([merged, escalated, unmerged, running])], turns)
+  const report = routingReport([record([merged, escalated, unmerged, running, answered])], turns)
 
   assert.deepEqual(row(report.jev, 'medium', 'sonnet'), {
     provider: 'claude',
     tier: 'medium',
     model: 'sonnet',
-    tickets: 4,
+    tickets: 5,
     mergedWithoutEscalation: 1,
     mergedAfterEscalation: 0,
     escalated: 1,
     unmerged: 1,
     inProgress: 1,
+    answered: 1,
     medianTurns: 4,
     sample: 3
   })
@@ -103,6 +105,7 @@ test('each run counts against the tier and model it ran on; an escalation leaves
     escalated: 0,
     unmerged: 0,
     inProgress: 0,
+    answered: 0,
     medianTurns: 3,
     sample: 0
   })

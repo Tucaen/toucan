@@ -740,6 +740,29 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
   const ticketIn = (record: OrchestrationRecord, ticketId: string): OrchestrationTicket | Reply =>
     record.tickets.find((ticket) => ticket.id === ticketId) ?? refused(400, `the plan has no ticket "${ticketId}"`)
 
+  /**
+   * `answered` is evidence, not the orchestrator's say-so: the session has settled with nothing
+   * pending, and Git shows a clean worktree and no commit the target lacks. Undefined accepts it.
+   */
+  const answeredRefusal = async (
+    grant: LiveGrant,
+    key: OrchestrationKey,
+    ticketId: string
+  ): Promise<Reply | undefined> => {
+    const own = await ownRecord(grant, key)
+    if ('status' in own) return own
+    const ticket = ticketIn(own.record, ticketId)
+    if ('status' in ticket) return ticket
+    if (!options.cleanup) return refused(501, 'this Toucan cannot verify an answered ticket')
+    const live = ticket.session?.nodeId ? options.ticketSessions?.state(ticket.session.nodeId) : undefined
+    if (live && live.status !== 'ready' && live.status !== 'exited')
+      return refused(409, `ticket ${ticket.id}'s session is ${live.status}; record it answered once it has settled`)
+    if (live?.permission || (live && live.questions.length > 0))
+      return refused(409, `ticket ${ticket.id}'s session is still waiting on an answer`)
+    const evidence = await options.cleanup.answeredRefusal(own.record, ticket)
+    return evidence ? refused(409, evidence) : undefined
+  }
+
   const status = (record: OrchestrationRecord): Reply => {
     const tickets = record.tickets.map((ticket) => {
       const live = ticket.session?.nodeId ? options.ticketSessions?.state(ticket.session.nodeId) : undefined
@@ -899,6 +922,10 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
     const ticketId = update.id.trim()
     const parsed = parseTicketUpdate(update.fields)
     if (parsed.error !== undefined) return refused(400, parsed.error)
+    if (parsed.patch.mergeStatus === 'answered') {
+      const refusal = await answeredRefusal(grant, key, ticketId)
+      if (refusal) return refusal
+    }
     return options.records.update(key, (current) => {
       if (!current) return { value: current, result: refused(404, 'there is no plan yet; run plan set first') }
       const scope = outOfScope(grant, current)

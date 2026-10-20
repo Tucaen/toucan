@@ -111,6 +111,52 @@ test(
 )
 
 test(
+  'an answer-only ticket is verified by Git and then cleaned up like a merged one',
+  async () => {
+    const { root, git, cleanup, canvas, ...context } = await fixture()
+    const path = join(root, 'ticket-3')
+    await git(['worktree', 'add', '-b', 'ticket/3', path, 'main'])
+    let record = applyPlan(
+      context.record,
+      {
+        task: 'cleanup',
+        targetBranch: 'main',
+        tickets: [
+          ...context.record.tickets.map(({ id, title, blockedBy }) => ({ id, title, blockedBy })),
+          { id: '3', title: 'question', blockedBy: [] }
+        ]
+      },
+      { provider: 'claude', conversationId: 'orch', projectPath: context.project },
+      'now'
+    ).record!
+    record = recordTicketSession(
+      record,
+      '3',
+      { nodeId: 'node-3', conversationId: 'c-3', worktreePath: path, branch: 'ticket/3' },
+      'now'
+    )
+    const [, committed, answered] = record.tickets
+
+    assert.match((await cleanup.answeredRefusal(record, committed))!, /1 commit\(s\) the target lacks/)
+    writeFileSync(join(path, 'scratch.txt'), 'notes')
+    assert.match((await cleanup.answeredRefusal(record, answered))!, /uncommitted or untracked work/)
+    rmSync(join(path, 'scratch.txt'))
+    assert.equal(await cleanup.answeredRefusal(record, answered), undefined)
+
+    answered.mergeStatus = 'answered'
+    const result = await cleanup.run(record, '3')
+    assert.deepEqual(
+      result.removed.map((entry) => entry.ticket),
+      ['3']
+    )
+    assert.equal(existsSync(path), false)
+    assert.equal(await git(['branch', '--list', 'ticket/3']), '')
+    assert.deepEqual(canvas, ['retire:node-3', 'prepare:node-3', 'remove:node-3'])
+  },
+  GIT_FIXTURE_TIMEOUT
+)
+
+test(
   'ticket-scoped cleanup removes a published merge without reporting unrelated pending tickets',
   async () => {
     const { git, record, cleanup } = await fixture()

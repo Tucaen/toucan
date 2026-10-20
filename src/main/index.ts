@@ -611,7 +611,10 @@ void app.whenReady().then(async () => {
     },
     // Late-bound: the spawner needs the window requests and the model catalogue wired below.
     spawner: { spawn: (request) => ticketSpawner.spawn(request) },
-    cleanup: { run: (record, ticketId) => orchestrationCleanup.run(record, ticketId) },
+    cleanup: {
+      run: (record, ticketId) => orchestrationCleanup.run(record, ticketId),
+      answeredRefusal: (record, ticket) => orchestrationCleanup.answeredRefusal(record, ticket)
+    },
     ticketSessions: {
       state: (nodeId) => {
         const snapshot = agentEvents.snapshot(nodeId)

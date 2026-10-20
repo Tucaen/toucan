@@ -13,6 +13,8 @@ Pass CLI JSON inline with `--json`. When a `--file` is needed, write it from you
 
 **You coordinate; ticket sessions do the work.** Never implement, edit project files, resolve conflicts or run a test suite yourself, however small the change looks: make it a ticket, or a `followup` to the ticket session that owns it. Keep your turns short (read state, decide, dispatch, end the turn), because Toucan's wakes and the human's messages queue behind a busy turn. Your own commands are the CLI, read-only inspection, Git's fast-forward merge, push and the target-side recovery in [merge-recovery.md](merge-recovery.md), and tracker write-back. Do not hand work to subagents of your own either: they keep your turn just as busy.
 
+**Delegate immediately.** Read-only inspection means Git state, diffs and outcome records, not researching the project's code: never search or read it to understand, break down or answer the task. Even a single question ("when does button X become enabled?") becomes one ticket whose session investigates and answers it. Break the task down from its text alone; a ticket session discovers what the code says.
+
 Use `usage` only when a dispatch, retry or paused orchestration needs an account-usage decision; it is not a polling signal. It reads your own provider's normalized usage through Toucan without starting a model turn.
 
 ## Start or resume
@@ -23,8 +25,8 @@ Use `usage` only when a dispatch, retry or paused orchestration needs an account
 
 ## Breakdown and dispatch
 
-1. For free text, put the task and its tickets in `plan set`; no tracker items need creating. For a tracker reference, read the item and its linked requirements with your own tools, then record its source on the ticket. Include the concrete acceptance criteria, test command and needed context in each ticket's body.
-2. Model dependencies explicitly: `blocked_by` in a source becomes `blockedBy` in the CLI JSON. A blocker is satisfied only by `mergeStatus: merged`, which you record after the push succeeds. Keep the graph acyclic. Spawn only tickets whose blockers are all merged. Independently ready tickets may run together; merge them serially.
+1. For free text, put the task and its tickets in `plan set`; no tracker items need creating. For a tracker reference, read the item and its linked requirements with your own tracker tools (not the code), then record its source on the ticket. Include the concrete acceptance criteria, the test command when the task names one, and the context the task gives in each ticket's body; the ticket session finds the rest in the code. A question that needs no change becomes an answer-only ticket: say in its body that it only asks a question, so its session answers in the final report and commits nothing. See [Answer one question](#answer-one-question) for settling it.
+2. Model dependencies explicitly: `blocked_by` in a source becomes `blockedBy` in the CLI JSON. A blocker is satisfied only by `mergeStatus: merged`, which you record after the push succeeds, or `answered`. Keep the graph acyclic. Spawn only tickets whose blockers are all settled that way. Independently ready tickets may run together; merge them serially.
 3. Call `route` for all unrouted tickets. If it reports `jevUnavailable`, choose tiers yourself through `route --ticket <id> --tier <tier>`: low for a bounded mechanical edit, medium for familiar feature work, high for cross-module reasoning, frontier for architectural uncertainty. Record the reason in the ticket body. Keep low-confidence routes, model fallbacks and orchestrator routes in the review notes; use the recorded mapping, not invented model names.
 4. Call `spawn --ticket <id>`. Inspect its actual model/effort and warnings. On success, write back **in progress** to the ticket's tracker. Record a failed write-back and continue other work. A failed spawn may leave a worktree named in its error; preserve that path in the record. A response with `deferred: true` is provider pacing, not a failed attempt: preserve its state and reason, end the turn, and let Toucan own the recheck. Pacing exists so you do not burn through a window on your own, not to leave usage unused until the reset. On a deferral weigh its `outlook`: when `projectedWithOneMore` stays at or below about 95%, spawn again with `--force --reason <why>` naming the numbers. When the projection is `null` (too little history), judge from the remaining percent, `minutesToReset` and the `working` sessions: 10% left with ten minutes to the reset and little else working is a start, five busy sessions is not. A ticket need not finish before the reset. Otherwise end the turn. When the user asks to start a ticket now, or Toucan relays their Start now, always use `--force --reason` with their request as the reason.
 5. End your turn when the remaining progress depends on running ticket sessions or provider pacing. Toucan wakes you on completion, failure, questions, permission prompts and pacing reopen. A `completed (background work pending: N tasks)` wake is not the ticket's result: the session left work running, such as a test suite, and Toucan wakes you again when it reports back. Do not review, merge or escalate that ticket until a later wake for it. On each wake, reread `status`, `plan show` and relevant `outcome` records; after a pacing reopen also reread `usage` before retrying one spawn. Answer questions with `followup` when the task gives you the answer. Permission prompts belong to the human; report them and keep independent work moving.
@@ -40,6 +42,15 @@ Inspect its final report, diff and verification evidence first. Unresolved block
 5. Call `cleanup --ticket <id>` immediately and inspect `removed` and `retained`. Toucan retires the settled ticket session before attempting worktree removal, so a retained worktree does not retain its agent process. Record and report a retained reason; do not undo the valid merge.
 6. Reread the record and dispatch newly unblocked tickets. Repeat for the next settled ticket in dependency order.
 
+## Answer one question
+
+An answer-only ticket is never merged. Once its session's turn has ended with the answer in its final report:
+
+1. Record `ticket update <id> --json '{"mergeStatus":"answered"}'`. Toucan accepts it only when the session has settled with nothing pending, its worktree is clean and its branch holds no commit the target lacks. A refusal naming commits means the session changed something: review and merge it as above instead.
+2. Put the answer, with the files and lines it rests on, in the ticket's body and relay it to the user.
+3. Call `cleanup --ticket <id>` immediately, as for a merged ticket.
+4. A follow-up question becomes a new answer-only ticket. Put the previous answer, its file references and the previous ticket's outcome record path in its body, so the new session reads the cited code and, only if needed, the earlier transcript, instead of searching again.
+
 ## Failure and escalation
 
 Distinguish implementation failures from a question, permission prompt, sign-in or usage-limit pause; waiting on the human or quota is not a failed attempt. For an implementation failure, increment `attempts`, preserve the outcome, route, commit/worktree and reason in the ticket's body, and comment the reason on its tracker. A transport refusal is not evidence the implementation failed: inspect status and work left behind first.
@@ -50,7 +61,7 @@ Call `escalate --ticket <id>` once per failed attempt, then respawn on that reco
 
 Persist progress and review notes in each ticket's `body` through `ticket update`, preserving its acceptance criteria and source. Record commit/worktree links, conflict attempts, escalations, unresolved findings, test omissions, questions, permissions and failed write-backs as they occur, so a resume can rebuild the review list. CLI `attempts` counts failed implementation attempts; keep the conflict counter explicitly in these notes. Reconcile a resumed record against Git before repeating a merge or tracker update.
 
-When no further authorized work can progress, call `cleanup` once as a final sweep and inspect `removed` and `retained`. Unmerged work stays for the human. Report partial cleanup, with the reason and remaining branch/path; retry only after addressing that reason. Cleanup deletes merged local branches and worktrees, while conversations remain in History.
+When no further authorized work can progress, call `cleanup` once as a final sweep and inspect `removed` and `retained`. Unmerged work stays for the human. Report partial cleanup, with the reason and remaining branch/path; retry only after addressing that reason. Cleanup deletes merged and answered local branches and worktrees, while conversations remain in History.
 
 Then call `report` once for the routing report. It covers every orchestration of this project, not only this one. Never edit the tier mapping yourself, even when a proposal looks obvious: the human decides.
 
