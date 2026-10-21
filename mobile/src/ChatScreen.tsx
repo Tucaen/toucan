@@ -26,6 +26,7 @@ import {
   activitySummaryLine,
   chatStatusSummary,
   deriveChatViewItems,
+  focusChatViewItems,
   type ChatViewItem,
   type PendingRequest
 } from './chat-view'
@@ -48,7 +49,7 @@ import {
 import ChatKindBadge from './ChatKindBadge'
 import type { SavedHost } from './hosts'
 import MobileVoiceInput from './MobileVoiceInput'
-import { fetchWorkspace } from './remote-client'
+import { fetchWorkspace, rememberFocusMode, storedFocusMode } from './remote-client'
 import { appendDictation, voiceStatusLine, type MobileVoiceStatus } from './voice-input'
 import { useChatConnection, type ChatConnection } from './use-chat-connection'
 
@@ -108,10 +109,16 @@ export default function ChatScreen({
     }
   }, [summary, host, chatId, onUnauthorized])
 
-  const items = useMemo(
-    () => (connection.transcript ? deriveChatViewItems(connection.transcript) : []),
-    [connection.transcript]
-  )
+  const [focusMode, setFocusMode] = useState(storedFocusMode)
+  const toggleFocusMode = (): void => {
+    const next = !focusMode
+    setFocusMode(next)
+    rememberFocusMode(next)
+  }
+  const items = useMemo(() => {
+    const derived = connection.transcript ? deriveChatViewItems(connection.transcript) : []
+    return focusMode ? focusChatViewItems(derived) : derived
+  }, [connection.transcript, focusMode])
   const status = connection.transcript ? chatStatusSummary(connection.transcript) : null
   const pending = pendingRequest(connection)
 
@@ -162,6 +169,15 @@ export default function ChatScreen({
             </span>
           )}
         </div>
+        <button
+          type="button"
+          className="chat-focus-toggle"
+          aria-pressed={focusMode}
+          title="Hide reasoning, tool activity and progress notes"
+          onClick={toggleFocusMode}
+        >
+          Focus
+        </button>
         {summary && <ChatKindBadge kind={summary.kind} />}
       </header>
 

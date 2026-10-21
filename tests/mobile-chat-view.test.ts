@@ -1,6 +1,11 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'vitest'
-import { activitySummaryLine, chatStatusSummary, deriveChatViewItems } from '../mobile/src/chat-view'
+import {
+  activitySummaryLine,
+  chatStatusSummary,
+  deriveChatViewItems,
+  focusChatViewItems
+} from '../mobile/src/chat-view'
 import type { AgentEvent } from '../src/shared/agent'
 import {
   applyAgentCreateResult,
@@ -149,4 +154,30 @@ test('the status pill reads working, idle, sign-in and exited from the reducer s
 test('empty assistant chunks do not render as blank bubbles', () => {
   const state = foldAll([{ type: 'message', role: 'assistant', messageId: 'a1', text: '' }])
   assert.deepEqual(deriveChatViewItems(state), [])
+})
+
+test('focus keeps dialogue, final answers and failed turns, and drops reasoning, activity and progress', () => {
+  const state = foldAll([
+    { type: 'message', role: 'user', messageId: 'u1', text: 'fix the bug' },
+    { type: 'message', role: 'thought', messageId: 't1', text: 'hmm' },
+    { type: 'activity', activity: { id: 't1', title: 'Read `parser.ts`', status: 'completed', kind: 'read' } },
+    { type: 'message', role: 'assistant', messageId: 'a1', text: 'commentary', presentation: 'progress' },
+    { type: 'message', role: 'assistant', messageId: 'a2', text: 'the answer', presentation: 'final' },
+    { type: 'turn_complete', stopReason: 'end_turn' }
+  ])
+  const items = deriveChatViewItems(state)
+  assert.deepEqual(
+    items.map((item) => item.type),
+    ['bubble', 'reasoning', 'activity', 'bubble', 'bubble']
+  )
+
+  const focused = focusChatViewItems(items)
+  assert.deepEqual(
+    focused.map((item) => item.type === 'bubble' && item.text),
+    ['fix the bug', 'the answer']
+  )
+  assert.deepEqual(
+    focusChatViewItems([{ type: 'outcome', key: 'o', status: 'failed', message: 'boom' }]).map((i) => i.type),
+    ['outcome']
+  )
 })

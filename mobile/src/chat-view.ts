@@ -64,6 +64,19 @@ export function deriveChatViewItems(state: AgentTranscriptState): ChatViewItem[]
 }
 
 /**
+ * Focus mode, as the desktop's chat node applies it: reasoning, tool activity and provisional
+ * (progress) assistant prose are hidden; dialogue, final answers and failed/cancelled turn
+ * boundaries stay. A pure filter over the derived items, so the rule is testable without a DOM.
+ */
+export function focusChatViewItems(items: readonly ChatViewItem[]): ChatViewItem[] {
+  return items.filter((item) => {
+    if (item.type === 'reasoning' || item.type === 'activity') return false
+    if (item.type === 'bubble') return item.final
+    return true
+  })
+}
+
+/**
  * What the chat is blocked on, or null. One request at a time, and an approval outranks a question
  * set because it is what an in-flight turn is actually parked on - the same order the desktop
  * presents, so the two surfaces cannot be answering different things.

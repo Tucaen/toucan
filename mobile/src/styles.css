@@ -341,6 +341,22 @@ body {
   line-height: 1;
 }
 
+.chat-focus-toggle {
+  flex: 0 0 auto;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--raised);
+  color: var(--ink-faint);
+  font-size: 14px;
+}
+
+.chat-focus-toggle[aria-pressed='true'] {
+  border-color: var(--working);
+  color: var(--ink);
+}
+
 .chat-head-copy {
   display: grid;
   gap: 2px;

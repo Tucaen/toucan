@@ -102,6 +102,30 @@ export function rememberDraft(hostId: string, chatId: string, draft: string): vo
   }
 }
 
+/**
+ * Whether the phone shows a chat in Focus mode, retained on this device. Focus is the default here
+ * (a phone screen has no room for tool chatter), so only an explicit choice is stored and anything
+ * missing, unreadable or unrecognised reads as on. The desktop's own default is unaffected: this
+ * key is the phone's alone.
+ */
+const FOCUS_KEY = 'toucan.focus'
+
+export function storedFocusMode(): boolean {
+  try {
+    return window.localStorage.getItem(FOCUS_KEY) !== 'off'
+  } catch {
+    return true
+  }
+}
+
+export function rememberFocusMode(enabled: boolean): void {
+  try {
+    window.localStorage.setItem(FOCUS_KEY, enabled ? 'on' : 'off')
+  } catch {
+    /* Blocked site data costs retention, not the toggle. */
+  }
+}
+
 /** Why a request failed, in the two terms the UI actually reacts to. */
 export type RemoteFailure = { kind: 'unauthorized' } | { kind: 'unreachable'; message: string }
 
