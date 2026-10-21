@@ -244,6 +244,12 @@ test('the orchestrator instruction says to end the turn after spawning and wait 
   assert.match(instruction, /never answers a tool-permission prompt/i)
 })
 
+test('the orchestrator instruction merges only through Toucan, never its own Git push', () => {
+  const instruction = orchestratorInstruction({ cliPath: 'cli.mjs', skillPath: 'SKILL.md' })
+  assert.ok(instruction.includes('node "cli.mjs" merge --ticket <id> --tested <commit>'))
+  assert.match(instruction, /never merge into or push the target with your own Git/i)
+})
+
 test('the orchestrator instruction keeps implementation and heavy work out of its own turns', () => {
   const instruction = orchestratorInstruction({ cliPath: 'cli.mjs', skillPath: 'SKILL.md' })
   assert.match(instruction, /never implement/i)

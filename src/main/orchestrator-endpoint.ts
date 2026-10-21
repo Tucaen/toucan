@@ -11,9 +11,11 @@ import {
   ORCHESTRATOR_COMMANDS,
   ORCHESTRATOR_TOKEN_ENV,
   ORCHESTRATOR_URL_ENV,
+  isTicketSettled,
   parseCleanupInput,
   parseEscalateInput,
   parseFollowupInput,
+  parseMergeInput,
   parseOutcomeInput,
   parsePlanInput,
   parseRouteInput,
@@ -67,6 +69,7 @@ import type { TicketBinding } from './orchestration-wake'
 import { createPairingToken, pairingTokenMatches, presentedPairingToken } from './remote/pairing'
 import type { TicketSpawner } from './ticket-spawner'
 import type { OrchestrationCleanup } from './orchestration-cleanup'
+import type { OrchestrationMerge } from './orchestration-merge'
 import type { ProviderUsage, ProviderUsageReadResult } from './provider-usage'
 
 /**
@@ -170,6 +173,8 @@ export interface OrchestratorEndpointOptions {
   /** Starts ticket sessions for `spawn`; absent, `spawn` is refused as unavailable. */
   spawner?: TicketSpawner
   cleanup?: OrchestrationCleanup
+  /** Absent, `merge` is refused and the orchestrator merges with its own Git. */
+  merge?: OrchestrationMerge
   /** Absent, `status` reports no live state and `outcome` and `followup` are refused as unavailable. */
   ticketSessions?: TicketSessionControl
   /** A ticket session was spawned: the orchestrator wake starts reporting its events. */
@@ -740,6 +745,69 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
   const ticketIn = (record: OrchestrationRecord, ticketId: string): OrchestrationTicket | Reply =>
     record.tickets.find((ticket) => ticket.id === ticketId) ?? refused(400, `the plan has no ticket "${ticketId}"`)
 
+  /** Why a ticket's session has not settled with nothing pending, or undefined once it has. */
+  const sessionUnsettled = (ticket: OrchestrationTicket, then: string): Reply | undefined => {
+    const live = ticket.session?.nodeId ? options.ticketSessions?.state(ticket.session.nodeId) : undefined
+    if (live && live.status !== 'ready' && live.status !== 'exited')
+      return refused(409, `ticket ${ticket.id}'s session is ${live.status}; ${then} once it has settled`)
+    if (live?.permission || (live && live.questions.length > 0))
+      return refused(409, `ticket ${ticket.id}'s session is still waiting on an answer`)
+    return undefined
+  }
+
+  /**
+   * The tested fast-forward merge and push, run by Toucan so it never waits on the orchestrator's
+   * own permission check. Only a pushed merge is recorded `merged`; the ticket is then cleaned up
+   * at once, as `cleanup --ticket` would. A refusal names its `stage` so the orchestrator knows
+   * whether anything moved.
+   */
+  const mergeTicket = async (grant: LiveGrant, key: OrchestrationKey, args: unknown): Promise<Reply> => {
+    const parsed = parseMergeInput(args)
+    if (parsed.error !== undefined) return refused(400, parsed.error)
+    const { ticketId, tested } = parsed.merge
+    const own = await ownRecord(grant, key)
+    if ('status' in own) return own
+    const ticket = ticketIn(own.record, ticketId)
+    if ('status' in ticket) return ticket
+    if (!options.merge) return refused(501, 'this Toucan cannot merge ticket branches')
+    if (isTicketSettled(ticket.mergeStatus)) return refused(409, `ticket ${ticketId} is already ${ticket.mergeStatus}`)
+    const blockers = ticket.blockedBy.filter((id) => {
+      const blocker = own.record.tickets.find((candidate) => candidate.id === id)
+      return !blocker || !isTicketSettled(blocker.mergeStatus)
+    })
+    if (blockers.length > 0) return refused(409, `ticket ${ticketId} has unmerged blockers: ${blockers.join(', ')}`)
+    const unsettled = sessionUnsettled(ticket, 'merge it')
+    if (unsettled) return unsettled
+    const merged = await options.merge.run(own.record, ticket, tested)
+    if (!merged.ok) {
+      const { ok: _ok, ...refusal } = merged
+      return { status: 409, body: { ok: false, ticket: ticketId, ...refusal } }
+    }
+    const recorded = await options.records.update(key, (current) => {
+      if (!current) return { value: current, result: undefined }
+      const applied = applyTicketUpdate(current, ticketId, { mergeStatus: 'merged' }, now())
+      return applied.error !== undefined
+        ? { value: current, result: undefined }
+        : { value: applied.record, result: applied.record }
+    })
+    if (!recorded) {
+      return refused(
+        500,
+        `${merged.commit} is pushed to ${merged.upstream}, but Toucan could not record ticket ${ticketId} merged; ` +
+          'record it with ticket update and run cleanup --ticket'
+      )
+    }
+    const cleanup = options.cleanup
+      ? await options.cleanup
+          .run(recorded, ticketId)
+          .catch((error: unknown) => ({ removed: [], retained: [{ ticket: ticketId, reason: errorMessage(error) }] }))
+      : null
+    return {
+      status: 200,
+      body: { ok: true, ticket: ticketId, commit: merged.commit, upstream: merged.upstream, cleanup }
+    }
+  }
+
   /**
    * `answered` is evidence, not the orchestrator's say-so: the session has settled with nothing
    * pending, and Git shows a clean worktree and no commit the target lacks. Undefined accepts it.
@@ -754,11 +822,8 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
     const ticket = ticketIn(own.record, ticketId)
     if ('status' in ticket) return ticket
     if (!options.cleanup) return refused(501, 'this Toucan cannot verify an answered ticket')
-    const live = ticket.session?.nodeId ? options.ticketSessions?.state(ticket.session.nodeId) : undefined
-    if (live && live.status !== 'ready' && live.status !== 'exited')
-      return refused(409, `ticket ${ticket.id}'s session is ${live.status}; record it answered once it has settled`)
-    if (live?.permission || (live && live.questions.length > 0))
-      return refused(409, `ticket ${ticket.id}'s session is still waiting on an answer`)
+    const unsettled = sessionUnsettled(ticket, 'record it answered')
+    if (unsettled) return unsettled
     const evidence = await options.cleanup.answeredRefusal(own.record, ticket)
     return evidence ? refused(409, evidence) : undefined
   }
@@ -894,6 +959,7 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
     if (command === 'route') return route(grant, key, args)
     if (command === 'escalate') return escalate(grant, key, args)
     if (command === 'report') return report(grant, args)
+    if (command === 'merge') return mergeTicket(grant, key, args)
     if (command === 'cleanup') {
       const parsed = parseCleanupInput(args)
       if (parsed.error !== undefined) return refused(400, parsed.error)

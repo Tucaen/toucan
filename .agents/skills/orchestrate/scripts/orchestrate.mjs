@@ -16,6 +16,7 @@ const USAGE = [
   '| spawn --ticket <id> [--model <id> --effort <level> | --tier <tier> [--effort <level>]] [--provider <provider>] [--project <path>] [--force --reason <why>]',
   '| status',
   '| usage',
+  '| merge --ticket <id> --tested <commit>',
   '| cleanup [--ticket <id>]',
   '| report',
   '| outcome --ticket <id>',
@@ -124,6 +125,13 @@ async function message(words) {
     const { flags, positionals } = parseFlags(words.slice(1), ['ticket'])
     if (positionals.length > 0 || flags.ticket === undefined) usage('escalate needs --ticket <id> and nothing else')
     return { command: 'escalate', args: flags }
+  }
+  if (first === 'merge') {
+    const { flags, positionals } = parseFlags(words.slice(1), ['ticket', 'tested'])
+    if (positionals.length > 0 || flags.ticket === undefined || flags.tested === undefined) {
+      usage('merge needs --ticket <id> --tested <commit> and nothing else')
+    }
+    return { command: 'merge', args: flags }
   }
   if (first === 'cleanup') {
     const { flags, positionals } = parseFlags(words.slice(1), ['ticket'])

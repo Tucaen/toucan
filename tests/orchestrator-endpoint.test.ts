@@ -10,6 +10,7 @@ import {
   type TicketSessionControl,
   type TicketSessionState
 } from '../src/main/orchestrator-endpoint'
+import type { OrchestrationMergeResult } from '../src/main/orchestration-merge'
 import { createProviderUsage } from '../src/main/provider-usage'
 import { ORCHESTRATOR_TOKEN_ENV, ORCHESTRATOR_URL_ENV, recordTicketSession } from '../src/shared/orchestration'
 
@@ -83,6 +84,102 @@ test('a ticket is recorded answered only once its session has settled and Git sh
     const accepted = await answer()
     assert.equal(accepted.status, 200)
     assert.equal((accepted.body.ticket as { mergeStatus: string }).mergeStatus, 'answered')
+  } finally {
+    grant.revoke()
+    await endpoint.close()
+  }
+})
+
+test('merge runs only for a settled, unblocked ticket, then records it merged and cleans it up', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'toucan-orchestrator-endpoint-'))
+  const records = createOrchestrationStore({ directory })
+  let sessionStatus: TicketSessionState['status'] = 'working'
+  let mergeResult: OrchestrationMergeResult = {
+    ok: false,
+    stage: 'push',
+    error: 'origin/main refused it',
+    rejected: true
+  }
+  const merges: Array<{ ticket: string; tested: string }> = []
+  const cleanups: Array<{ ticket?: string; mergeStatus?: string }> = []
+  const endpoint = createOrchestratorEndpoint({
+    records,
+    now: () => '2026-09-30T12:00:00.000Z',
+    merge: {
+      run: async (_record, ticket, tested) => {
+        merges.push({ ticket: ticket.id, tested })
+        return mergeResult
+      }
+    },
+    cleanup: {
+      run: async (record, ticketId) => {
+        cleanups.push({ ticket: ticketId, mergeStatus: record.tickets.find((t) => t.id === ticketId)?.mergeStatus })
+        return { removed: [{ ticket: ticketId! }], retained: [] }
+      },
+      answeredRefusal: async () => undefined
+    },
+    ticketSessions: { state: () => ({ status: sessionStatus, questions: [] }) } as unknown as TicketSessionControl
+  })
+  const grant = (await endpoint.grant('orchestrator-1', { provider: 'claude', projectPath: 'D:\\project' }))!
+  grant.setConversation('conversation-1')
+  const key = { provider: 'claude' as const, conversationId: 'conversation-1' }
+  try {
+    await call(grant, 'plan set', plan)
+    for (const id of ['33', '34']) {
+      await records.update(key, (current) => ({
+        value: recordTicketSession(
+          current!,
+          id,
+          { nodeId: `node-${id}`, conversationId: `c-${id}`, worktreePath: `D:\\ticket-${id}`, branch: `ticket/${id}` },
+          'now'
+        ),
+        result: undefined
+      }))
+    }
+    const merge = (ticket: string) => call(grant, 'merge', { ticket, tested: 'abc1234' })
+
+    const blocked = await merge('34')
+    assert.equal(blocked.status, 409)
+    assert.match(blocked.body.error ?? '', /unmerged blockers: 33/)
+    const working = await merge('33')
+    assert.equal(working.status, 409)
+    assert.match(working.body.error ?? '', /session is working/)
+    assert.deepEqual(merges, [])
+
+    sessionStatus = 'ready'
+    const rejected = await merge('33')
+    assert.equal(rejected.status, 409)
+    assert.deepEqual(
+      {
+        stage: (rejected.body as { stage?: string }).stage,
+        rejected: (rejected.body as { rejected?: boolean }).rejected
+      },
+      { stage: 'push', rejected: true }
+    )
+    assert.equal((await records.read(key))!.tickets[0].mergeStatus, 'pending')
+    assert.deepEqual(cleanups, [])
+
+    mergeResult = { ok: true, commit: 'abc123def', upstream: 'origin/main' }
+    const merged = await merge('33')
+    assert.equal(merged.status, 200)
+    assert.deepEqual(merged.body, {
+      ok: true,
+      ticket: '33',
+      commit: 'abc123def',
+      upstream: 'origin/main',
+      cleanup: { removed: [{ ticket: '33' }], retained: [] }
+    })
+    assert.equal((await records.read(key))!.tickets[0].mergeStatus, 'merged')
+    assert.deepEqual(cleanups, [{ ticket: '33', mergeStatus: 'merged' }])
+    assert.deepEqual(merges, [
+      { ticket: '33', tested: 'abc1234' },
+      { ticket: '33', tested: 'abc1234' }
+    ])
+
+    const again = await merge('33')
+    assert.equal(again.status, 409)
+    assert.match(again.body.error ?? '', /already merged/)
+    assert.equal((await call(grant, 'merge', { ticket: '33' })).status, 400)
   } finally {
     grant.revoke()
     await endpoint.close()
@@ -209,7 +306,7 @@ test('invalid input and unknown commands are refused with a reason', async () =>
   const grant = (await endpoint.grant('orchestrator-1', { provider: 'claude', projectPath: 'D:\\project' }))!
   grant.setConversation('conversation-1')
   try {
-    const unknown = await call(grant, 'merge')
+    const unknown = await call(grant, 'rebase')
     assert.equal(unknown.status, 400)
     assert.match(unknown.body.error ?? '', /unknown command/)
     assert.equal((await call(grant, 'plan set', { task: 'no branch', tickets: [] })).status, 400)

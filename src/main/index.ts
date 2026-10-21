@@ -35,6 +35,7 @@ import { createOrchestrationController, type OrchestrationSession } from './orch
 import { createOrchestratorEndpoint } from './orchestrator-endpoint'
 import { createOrchestrationStartNow } from './orchestration-start-now'
 import { createOrchestrationCleanup } from './orchestration-cleanup'
+import { createOrchestrationMerge } from './orchestration-merge'
 import type { TicketCleanupRequest, TicketCleanupResult } from '../shared/orchestration-cleanup'
 import { createSetupCommandRunner } from './setup-command'
 import { installPushGuard } from './ticket-push-guard'
@@ -615,6 +616,7 @@ void app.whenReady().then(async () => {
       run: (record, ticketId) => orchestrationCleanup.run(record, ticketId),
       answeredRefusal: (record, ticket) => orchestrationCleanup.answeredRefusal(record, ticket)
     },
+    merge: createOrchestrationMerge({ runGit: runGitWithExecFile, containment }),
     ticketSessions: {
       state: (nodeId) => {
         const snapshot = agentEvents.snapshot(nodeId)

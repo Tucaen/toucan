@@ -40,9 +40,16 @@ function run(args: string[], environment: Record<string, string | undefined>): P
 async function harness() {
   const calls: TicketSpawnRequest[] = []
   const cleanupCalls: Array<string | undefined> = []
+  const mergeCalls: Array<{ ticket: string; tested: string }> = []
   const records = createOrchestrationStore({ directory: mkdtempSync(join(tmpdir(), 'toucan-orchestrate-cli-')) })
   const endpoint = createOrchestratorEndpoint({
     records,
+    merge: {
+      run: async (_record, ticket, tested) => {
+        mergeCalls.push({ ticket: ticket.id, tested })
+        return { ok: true, commit: tested, upstream: 'origin/main' }
+      }
+    },
     cleanup: {
       run: async (_record, ticketId) => {
         cleanupCalls.push(ticketId)
@@ -72,7 +79,7 @@ async function harness() {
     projectPath: 'D:\\project'
   })) as OrchestratorGrant
   grant.setConversation('conversation-1')
-  return { endpoint, grant, calls, cleanupCalls, environment: grant.environment }
+  return { endpoint, grant, calls, cleanupCalls, mergeCalls, environment: grant.environment }
 }
 
 test('without an orchestrator environment the CLI refuses clearly and calls nothing', async () => {
@@ -142,6 +149,32 @@ test('cleanup runs globally or for one ticket and rejects invalid selectors', as
     assert.match(unknown.output.error ?? '', /no ticket/)
     assert.equal((await run(['cleanup', '--force'], environment)).code, 2)
     assert.equal((await run(['cleanup', '--ticket'], environment)).code, 2)
+  } finally {
+    await endpoint.close()
+  }
+})
+
+test('merge sends --ticket and --tested and needs both', async () => {
+  const { endpoint, environment, mergeCalls, cleanupCalls } = await harness()
+  try {
+    await run(
+      [
+        'plan',
+        'set',
+        '--json',
+        JSON.stringify({ task: 'Merge', targetBranch: 'main', tickets: [{ id: '34', title: 'Merge' }] })
+      ],
+      environment
+    )
+    const merged = await run(['merge', '--ticket', '34', '--tested', 'abc1234'], environment)
+    assert.equal(merged.code, 0)
+    assert.equal(merged.output.commit, 'abc1234')
+    assert.deepEqual(merged.output.cleanup, { removed: [{ ticket: '34' }], retained: [] })
+    assert.deepEqual(mergeCalls, [{ ticket: '34', tested: 'abc1234' }])
+    assert.deepEqual(cleanupCalls, ['34'])
+    assert.equal((await run(['merge', '--ticket', '34'], environment)).code, 2)
+    assert.equal((await run(['merge', '--tested', 'abc1234'], environment)).code, 2)
+    assert.equal((await run(['merge', '--ticket', '34', '--tested', 'abc1234', 'extra'], environment)).code, 2)
   } finally {
     await endpoint.close()
   }

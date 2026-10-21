@@ -54,6 +54,7 @@ export const ORCHESTRATOR_COMMANDS = [
   'followup',
   'route',
   'escalate',
+  'merge',
   'cleanup',
   'report',
   'usage'
@@ -943,7 +944,9 @@ export function orchestratorInstruction(paths: { cliPath: string; skillPath: str
     'Keep your turns short - read state, decide, dispatch - because wakes and the human queue behind a busy turn.',
     'Spawn ticket sessions through Toucan; end your turn when waiting for them. Toucan wakes you on their events.',
     `Use \`${cli} followup --ticket <id> --text <text>\` for questions, the pre-merge rebase and test run, and conflict recovery; it never answers a tool-permission prompt.`,
-    'Those prompts wait for the human and belong on the review list.'
+    'Those prompts wait for the human and belong on the review list.',
+    `Merge a tested ticket with \`${cli} merge --ticket <id> --tested <commit>\`, which fast-forwards, pushes, records and cleans up;`,
+    'never merge into or push the target with your own Git.'
   ].join(' ')
 }
 
@@ -1045,6 +1048,17 @@ export function parseCleanupInput(value: unknown): Outcome<'cleanup', { ticketId
   }
   if (!nonEmptyString(value.ticket)) return refuse('cleanup --ticket needs a ticket id')
   return { cleanup: { ticketId: value.ticket.trim() } }
+}
+
+/** Validates `merge`'s `--ticket <id> --tested <commit>`: the commit the session's full suite passed on. */
+export function parseMergeInput(value: unknown): Outcome<'merge', { ticketId: string; tested: string }> {
+  const args = isRecord(value) ? value : {}
+  if (Object.keys(args).some((key) => key !== 'ticket' && key !== 'tested'))
+    return refuse('merge takes only --ticket <id> --tested <commit>')
+  if (!nonEmptyString(args.ticket)) return refuse('merge needs --ticket <id>')
+  if (!nonEmptyString(args.tested) || !/^[0-9a-f]{7,64}$/i.test(args.tested.trim()))
+    return refuse('merge needs --tested <commit>, the hash the full test suite passed on')
+  return { merge: { ticketId: args.ticket.trim(), tested: args.tested.trim() } }
 }
 
 /** Validates `followup`'s `--ticket <id> --text <text>`; the text is sent as given. */
