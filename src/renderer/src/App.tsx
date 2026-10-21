@@ -406,6 +406,7 @@ function Canvas(): JSX.Element {
 
   const {
     records: attention,
+    visibleRecords: visibleAttention,
     unreadByNode,
     unreadTotal,
     count: countUnread,
@@ -2823,8 +2824,8 @@ function Canvas(): JSX.Element {
    * Every worktree's agent state and attention, derived once and handed to each worktree header.
    */
   const worktreeSummaries = useMemo(
-    () => summarizeWorktrees(nodes, canvasPartition, nodeStatuses, attention),
-    [attention, canvasPartition, nodeStatuses, nodes]
+    () => summarizeWorktrees(nodes, canvasPartition, nodeStatuses, visibleAttention),
+    [visibleAttention, canvasPartition, nodeStatuses, nodes]
   )
 
   // The sidebar follows the canvas selection, so the new-node key opens in the project of the node

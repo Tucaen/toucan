@@ -39,7 +39,10 @@ export function userVisibleAttention(records: AttentionState, nodes: readonly Ca
 }
 
 interface WorkspaceAttention {
+  /** Every durable record, hidden kinds included: this is what the workspace persists. */
   records: AttentionState
+  /** What the user is asked to act on (`userVisibleAttention`): the source of every count and summary. */
+  visibleRecords: AttentionState
   unreadByNode: Record<string, number>
   unreadTotal: number
   count(nodeIds?: readonly string[]): number
@@ -54,9 +57,9 @@ export function useWorkspaceAttention(
   nodes: readonly CanvasNode[],
   setNodes: Dispatch<SetStateAction<CanvasNode[]>>
 ): WorkspaceAttention {
-  const [stored, setRecords] = useState<AttentionState>([])
-  // Every count and projection below reads the user-visible set, never the raw records.
-  const records = useMemo(() => userVisibleAttention(stored, nodes), [stored, nodes])
+  const [records, setRecords] = useState<AttentionState>([])
+  // Every count and projection below reads the user-visible set; only persistence reads `records`.
+  const visibleRecords = useMemo(() => userVisibleAttention(records, nodes), [records, nodes])
 
   const report = useCallback((action: NodeAttentionAction): void => {
     const at = Date.now()
@@ -71,12 +74,15 @@ export function useWorkspaceAttention(
     setRecords(pruneAttention(saved, liveNodeIds))
   }, [])
 
-  const unreadByNode = useMemo(() => unreadAttentionByNode(records), [records])
-  const unreadTotal = useMemo(() => countUnreadAttention(records), [records])
-  const count = useCallback((nodeIds?: readonly string[]): number => countUnreadAttention(records, nodeIds), [records])
+  const unreadByNode = useMemo(() => unreadAttentionByNode(visibleRecords), [visibleRecords])
+  const unreadTotal = useMemo(() => countUnreadAttention(visibleRecords), [visibleRecords])
+  const count = useCallback(
+    (nodeIds?: readonly string[]): number => countUnreadAttention(visibleRecords, nodeIds),
+    [visibleRecords]
+  )
   const describe = useCallback(
-    (nodeIds?: readonly string[]): string => describeUnreadAttention(records, nodeIds),
-    [records]
+    (nodeIds?: readonly string[]): string => describeUnreadAttention(visibleRecords, nodeIds),
+    [visibleRecords]
   )
 
   useEffect(() => {
@@ -85,14 +91,14 @@ export function useWorkspaceAttention(
       const next = current.map((node) => {
         if (!isTerminalCanvasNode(node)) return node
         const unread = unreadByNode[node.id] ?? 0
-        const unreadKind = dominantUnreadKind(records, node.id)
+        const unreadKind = dominantUnreadKind(visibleRecords, node.id)
         if ((node.data.unread ?? 0) === unread && node.data.unreadKind === unreadKind) return node
         changed = true
         return { ...node, data: { ...node.data, unread, unreadKind } }
       })
       return changed ? next : current
     })
-  }, [records, setNodes, unreadByNode])
+  }, [visibleRecords, setNodes, unreadByNode])
 
-  return { records, unreadByNode, unreadTotal, count, describe, report, forget, restore }
+  return { records, visibleRecords, unreadByNode, unreadTotal, count, describe, report, forget, restore }
 }

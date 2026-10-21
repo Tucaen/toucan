@@ -36,3 +36,46 @@ it('coordinates durable attention records, counts, and their projection onto can
 
   expect(result.current.attention.unreadTotal).toBe(0)
 })
+
+it('keeps hidden kinds in the persisted records while counting only what the user must act on', () => {
+  const orchestrator = {
+    id: 'orch',
+    type: 'terminalNode',
+    position: { x: 0, y: 0 },
+    data: { kind: 'claude', sessionId: 's-orch', label: 'Orch', projectId: 'project-1', role: 'orchestrator' }
+  } as CanvasNode
+  const ticketWorktree = {
+    id: 'wt-node',
+    type: 'worktreeNode',
+    position: { x: 0, y: 0 },
+    data: { worktreeId: 'wt-1', projectId: 'project-1', branch: 'ticket/1' }
+  } as unknown as CanvasNode
+  const ticketChat = {
+    id: 'ticket-chat',
+    type: 'terminalNode',
+    position: { x: 0, y: 0 },
+    data: {
+      kind: 'claude',
+      sessionId: 's-ticket',
+      label: 'Ticket',
+      projectId: 'project-1',
+      worktreeId: 'wt-1',
+      orchestratedBy: { nodeId: 'orch', conversationId: 'conv-orch', provider: 'claude' }
+    }
+  } as CanvasNode
+
+  const { result } = renderHook(() => {
+    const [nodes, setNodes] = useState<CanvasNode[]>([orchestrator, ticketWorktree, ticketChat])
+    return useWorkspaceAttention(nodes, setNodes)
+  })
+
+  act(() => {
+    for (const kind of ['approval', 'result', 'failure', 'output'] as const) {
+      result.current.report({ type: 'raise', signal: { nodeId: 'ticket-chat', kind } })
+    }
+  })
+
+  expect(result.current.records.map((item) => item.kind).sort()).toEqual(['approval', 'failure', 'output', 'result'])
+  expect(result.current.visibleRecords.map((item) => item.kind)).toEqual(['approval'])
+  expect(result.current.unreadTotal).toBe(1)
+})
