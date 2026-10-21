@@ -212,8 +212,6 @@ test('a failing setup command or guard removes the fresh worktree and its branch
   }
 })
 
-// #4: the toucan project had no setup command, so ticket worktrees opened without node_modules and
-// nothing told the orchestrator why; a skipped setup is reported, not silent.
 test('a project without a setup command starts the chat without running one and warns that setup was skipped', async () => {
   for (const setupCommand of [undefined, '  ']) {
     const { spawner, log } = harness({
