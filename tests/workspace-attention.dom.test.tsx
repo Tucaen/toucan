@@ -14,7 +14,7 @@ const terminalNode = {
 it('coordinates durable attention records, counts, and their projection onto canvas nodes', () => {
   const { result } = renderHook(() => {
     const [nodes, setNodes] = useState<CanvasNode[]>([terminalNode])
-    const attention = useWorkspaceAttention(setNodes)
+    const attention = useWorkspaceAttention(nodes, setNodes)
     return { nodes, attention }
   })
 

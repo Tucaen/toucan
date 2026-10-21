@@ -7,9 +7,36 @@ import {
   forgetAttention,
   pruneAttention,
   unreadAttentionByNode,
+  type AttentionKind,
   type AttentionState
 } from '../../shared/attention'
 import { isTerminalCanvasNode, type CanvasNode, type NodeAttentionAction } from './canvas-workspace'
+import { ticketWorktreeOwners } from './project-sidebar'
+
+/** What an orchestrator can resolve itself; only the kinds it cannot (approval, sign-in) stay with the user. */
+const ORCHESTRATOR_HANDLED_KINDS: readonly AttentionKind[] = ['result', 'failure', 'output']
+
+/**
+ * The records the user is asked to act on. Nodes in a worktree an orchestrator owns (see
+ * `ticketWorktreeOwners`) report finished turns, failures and output to that orchestrator, so those
+ * kinds are dropped here; approvals and sign-ins still need the user. This is a projection only:
+ * the durable records are untouched, so restored attention follows the same rule and ownership
+ * changes take effect immediately.
+ * @internal exported for tests
+ */
+export function userVisibleAttention(records: AttentionState, nodes: readonly CanvasNode[]): AttentionState {
+  if (records.length === 0) return records
+  const owners = ticketWorktreeOwners(nodes)
+  if (owners.size === 0) return records
+  const handled = new Set<string>()
+  for (const node of nodes) {
+    if (node.data.worktreeId && owners.has(node.data.worktreeId)) handled.add(node.id)
+  }
+  const visible = records.filter(
+    (item) => !(handled.has(item.nodeId) && ORCHESTRATOR_HANDLED_KINDS.includes(item.kind))
+  )
+  return visible.length === records.length ? records : visible
+}
 
 interface WorkspaceAttention {
   records: AttentionState
@@ -23,8 +50,13 @@ interface WorkspaceAttention {
 }
 
 /** Owns durable attention transitions and keeps their canvas-node projection consistent. */
-export function useWorkspaceAttention(setNodes: Dispatch<SetStateAction<CanvasNode[]>>): WorkspaceAttention {
-  const [records, setRecords] = useState<AttentionState>([])
+export function useWorkspaceAttention(
+  nodes: readonly CanvasNode[],
+  setNodes: Dispatch<SetStateAction<CanvasNode[]>>
+): WorkspaceAttention {
+  const [stored, setRecords] = useState<AttentionState>([])
+  // Every count and projection below reads the user-visible set, never the raw records.
+  const records = useMemo(() => userVisibleAttention(stored, nodes), [stored, nodes])
 
   const report = useCallback((action: NodeAttentionAction): void => {
     const at = Date.now()

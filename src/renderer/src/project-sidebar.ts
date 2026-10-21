@@ -80,7 +80,7 @@ export function projectOfSelection(nodes: readonly CanvasNode[]): string | undef
  * orchestrators each living in the other's); a refused link leaves that worktree top-level, so
  * nothing is ever hidden. Returns worktree id -> owning orchestrator's node id.
  */
-function ticketWorktreeOwners(nodes: readonly CanvasNode[]): Map<string, string> {
+export function ticketWorktreeOwners(nodes: readonly CanvasNode[]): Map<string, string> {
   const orchestrators = new Map<string, { projectId: string; worktreeId: string | undefined }>()
   for (const node of nodes) {
     if (isChatCanvasNode(node) && node.data.role === 'orchestrator') {

@@ -413,7 +413,7 @@ function Canvas(): JSX.Element {
     report: handleAttention,
     forget: forgetNodeAttention,
     restore: restoreAttention
-  } = useWorkspaceAttention(setNodes)
+  } = useWorkspaceAttention(nodes, setNodes)
 
   // A global, always-visible read on the whole workspace: no need to open a node to see
   // whether anything is still busy or looks stuck.
