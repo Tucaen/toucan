@@ -212,10 +212,20 @@ test('a failing setup command or guard removes the fresh worktree and its branch
   }
 })
 
-test('a project without a setup command starts the chat without running one', async () => {
-  const { spawner, log } = harness({ project: async () => ({ id: 'project-1' }) })
-  assert.equal((await spawner.spawn(request)).ok, true)
-  assert.ok(!log.some((entry) => entry.startsWith('setup')))
+// #4: the toucan project had no setup command, so ticket worktrees opened without node_modules and
+// nothing told the orchestrator why; a skipped setup is reported, not silent.
+test('a project without a setup command starts the chat without running one and warns that setup was skipped', async () => {
+  for (const setupCommand of [undefined, '  ']) {
+    const { spawner, log } = harness({
+      project: async () => ({ id: 'project-1', ...(setupCommand === undefined ? {} : { setupCommand }) })
+    })
+    const result = await spawner.spawn(request)
+    assert.ok(result.ok)
+    assert.ok(!log.some((entry) => entry.startsWith('setup')))
+    assert.equal(result.warnings.length, 1)
+    assert.match(result.warnings[0], /no setup command/)
+    assert.match(result.warnings[0], /D:\\project-ticket\/34/)
+  }
 })
 
 test('a model the picker does not offer is refused before anything is created', async () => {

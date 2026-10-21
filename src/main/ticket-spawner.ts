@@ -79,7 +79,8 @@ export interface TicketSpawnerOptions {
 /**
  * Creates the worktree, guards it, sets it up, and only then asks the canvas for the chat - so a
  * ticket session never starts in a checkout that can push or that is missing its dependencies. A
- * worktree that fails before the canvas has seen it is removed again with its branch: both are
+ * project without a setup command has nothing to install them with, so that spawn says so in its
+ * warnings instead of starting the chat as if the worktree were ready. A worktree that fails before the canvas has seen it is removed again with its branch: both are
  * seconds old and hold nothing but the target branch's commits. One the canvas has registered
  * stays, because from then on it is a canvas entity the human can see and remove.
  */
@@ -135,8 +136,15 @@ export function createTicketSpawner(options: TicketSpawnerOptions): TicketSpawne
       const left = await discard(request.projectPath, worktree.path, worktree.branch)
       return { ok: false, error: `${guarded.error}${left}` }
     }
+    const warnings: string[] = []
     const setupCommand = project.setupCommand?.trim()
-    if (setupCommand) {
+    if (!setupCommand) {
+      // #4: silently skipping setup opened ticket sessions in worktrees without their dependencies.
+      warnings.push(
+        `the project has no setup command, so nothing was installed in ${worktree.path}; ` +
+          "set one under the project's settings in Toucan, or install dependencies in the session"
+      )
+    } else {
       const setup = await options.runSetup(setupCommand, worktree.path)
       if (!setup.ok) {
         const left = await discard(request.projectPath, worktree.path, worktree.branch)
@@ -164,7 +172,6 @@ export function createTicketSpawner(options: TicketSpawnerOptions): TicketSpawne
 
     // Confirmed, not requested: what the session reports is what the caller is told.
     const running = options.session(started.nodeId)
-    const warnings: string[] = []
     if (running?.model && running.model !== request.model) {
       warnings.push(`the session runs on model "${running.model}", not "${request.model}"`)
     }
