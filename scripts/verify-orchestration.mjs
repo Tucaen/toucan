@@ -319,7 +319,7 @@ try {
       .snapshot('orchestrator')
       .messages.filter((message) => message.role === 'assistant')
       .at(-1)?.text ?? ''
-  if (!/needs you/iu.test(answer) || !/merged/iu.test(answer))
+  if (!/needs you/iu.test(answer) || !/\bmerged\b/iu.test(answer))
     throw new Error('The final answer has no ticket-state table')
   log(`PASS: two dependent ${provider} tickets fast-forwarded and published at ${head}, cleaned, review follows`)
   log(answer)
