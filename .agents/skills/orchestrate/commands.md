@@ -137,6 +137,8 @@ Events that arrive close together come as one message. The message names the eve
 
 `pendingPermissionPrompts` lists the ticket ids waiting on the human; name them in your final answer.
 
+`status` does not say whether a ticket has background work pending or a pre-merge `followup` running: that comes from the wakes and your own calls. The SKILL's ticket-state table says how to place each ticket from these fields.
+
 ## outcome
 
 `outcome --ticket <id>` prints `{ ok: true, ticket, path, fields }`: the path of the ticket session's session outcome record and its fields (`title`, `status`, `turns`, `commit`, `branch`, `filesTouched`, `failures`, `toolFailures`, `lastResult`, and the rest). Refused while the ticket has no session, or before the session's first turn end has written the record.

@@ -63,9 +63,29 @@ Persist progress and review notes in each ticket's `body` through `ticket update
 
 When no further authorized work can progress, call `cleanup` once as a final sweep and inspect `removed` and `retained`. Unmerged work stays for the human. Report partial cleanup, with the reason and remaining branch/path; retry only after addressing that reason. Cleanup deletes merged and answered local branches and worktrees, while conversations remain in History.
 
-Then call `report` once for the routing report. It covers every orchestration of this project, not only this one. Never edit the tier mapping yourself, even when a proposal looks obvious: the human decides.
+Then call `report` once. It covers every orchestration of this project, not only this one, and feeds the routing section of the final answer only under the conditions below. Never edit the tier mapping yourself, even when a proposal looks obvious: the human decides.
 
-Your final answer is the **review list**, with a commit or worktree for every ticket mentioned:
+## Ticket-state table
+
+Every status you report to the user, interim or final, includes this Markdown table, one row per ticket, with the ticket in the column of its current state and every other cell of its row empty. Show the ticket id and a short title (`#3 Add retry`); do not drop a ticket because it needs nothing.
+
+| Open | In Progress | Test / Background task | Finished | Needs you | Merged |
+| ---- | ----------- | ---------------------- | -------- | --------- | ------ |
+
+Place a ticket by the first rule that fits, from `status`, `plan show` and what you know of your own dispatches:
+
+- **Needs you**: a pending question or `permissionPrompt` (`pendingPermissionPrompts`), `auth_required`, `mergeStatus: unmerged` after exhausted escalation or the frontier or spawn allowance, failed rebase-conflict retries, and anything else waiting on the human. Add the reason in the cell.
+- **Merged**: `mergeStatus: merged`, linking the commit; an answer-only ticket with `mergeStatus: answered` is marked `answered`.
+- **Test / Background task**: the pre-merge `followup` (rebase and full suite) you sent is still running, or its last wake was `completed (background work pending: N tasks)`.
+- **In Progress**: the session's `state` is `starting` or `working`, and none of the above applies.
+- **Finished**: the session has settled (`ready`, or its turn ended with nothing pending) and awaits your review or merge.
+- **Open**: `not spawned`, including a ticket whose blockers are unmerged (mark it `blocked`) and one deferred by provider pacing (mark it `deferred`). A ticket whose session shows `not running` after a restart is not Open: reread its outcome and Git, then place it by what they show.
+
+`status` carries no flag for background work or a running followup; derive both from the wakes and your own `followup` calls, and note them in the ticket's `body` so a resume can rebuild the table.
+
+## Final answer
+
+Your final answer is the **review list**, with a commit or worktree for every ticket mentioned. Start it with the ticket-state table.
 
 - Low-confidence routes, escalations, orchestrator-routed tickets and model fallbacks.
 - Unresolved blocking review findings and any skipped or deleted tests, including the reason.
@@ -74,6 +94,10 @@ Your final answer is the **review list**, with a commit or worktree for every ti
 - Failed tracker write-backs and partial cleanup.
 - Forced spawns that bypassed the usage limits, with their reasons (`forcedSpawns` in `report`).
 
-End it with a **Routing report** section built from `report`: one table of Jev's routes and a separate one of orchestrator routes, each row a provider, tier and model with its tickets, merged without escalation, escalated and median turns. Never merge rows of different providers, even when the model names match. Then list each proposal's `summary` and its `configEntry` `from` → `to` for that provider's file in `config`. With no proposals, say none reached the minimum sample of `minimumSample` settled tickets. Name each entry of `mappingErrors` if there are any.
-
 For a category with no entries say none, concisely. Link merged commits even when there are no findings. If sessions are still working, this is an interim status and you end the turn for Toucan's wake; do not call the orchestration finished.
+
+**Routing is conditional.** There is no always-on routing section.
+
+- When at least one ticket was escalated in this orchestration, add a **Routing report** built from `report`: one table of Jev's routes and a separate one of orchestrator routes, each row a provider, tier and model with its tickets, merged without escalation, escalated and median turns. Never merge rows of different providers, even when the model names match. Then list each proposal's `summary` and its `configEntry` `from` → `to` for that provider's file in `config`. Name each entry of `mappingErrors` if there are any.
+- When nothing was escalated but `report` returns proposals, add a single line naming each proposal's `summary` and its `configEntry` `from` → `to`. No tables.
+- Otherwise leave routing out entirely, without saying that it was omitted.

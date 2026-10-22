@@ -319,7 +319,8 @@ try {
       .snapshot('orchestrator')
       .messages.filter((message) => message.role === 'assistant')
       .at(-1)?.text ?? ''
-  if (!/routing report/iu.test(answer)) throw new Error('The final answer has no routing report')
+  if (!/needs you/iu.test(answer) || !/merged/iu.test(answer))
+    throw new Error('The final answer has no ticket-state table')
   log(`PASS: two dependent ${provider} tickets fast-forwarded and published at ${head}, cleaned, review follows`)
   log(answer)
 } catch (error) {

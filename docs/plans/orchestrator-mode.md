@@ -212,7 +212,10 @@ likelihood of an unexpected billed fallback rather than guaranteeing that no pro
 The orchestrator's final answer, since it is not tied to a ticket system. It lists: low-confidence
 routes, escalations, orchestrator-routed tickets, unresolved blocking review findings, skipped or
 deleted tests, ticket sessions' open questions, pending permission prompts, unmerged tickets and
-failed tracker write-backs - each with its commit or worktree.
+failed tracker write-backs - each with its commit or worktree. It opens with a ticket-state table
+(Open | In Progress | Test / Background task | Finished | Needs you | Merged, one row per ticket),
+which every interim status carries too. The routing tables appear only when a ticket was escalated;
+when none was and `report` has proposals, one line names each; otherwise routing is left out.
 
 ### Configuration
 
