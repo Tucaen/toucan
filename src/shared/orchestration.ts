@@ -892,7 +892,8 @@ export function ticketContract(worktree: { path: string; branch: string }): stri
     `- Commit your work to its branch, ${worktree.branch}.`,
     "- When the ticket only asks a question, answer it from the code: change and commit nothing, skip the skill's implementation steps, and make the answer, with the files and lines it rests on, your final report.",
     '- Never push, never merge, and never open a pull request: the orchestrator merges this branch. Pushing is refused by a hook anyway.',
-    '- When the orchestrator asks, rebase this branch onto the target, resolve any conflicts, run the full test suite here and report the commit you tested with its result. The orchestrator only fast-forwards what you verified.',
+    "- Do not run the project's full test suite before your final report; run the tests that cover your change. The orchestrator rebases this branch onto the target right before the merge and then asks you for the full suite, so it runs once, on what is merged.",
+    '- When the orchestrator asks, run the full test suite here and report the commit you tested with its result. When it hands you a rebase conflict, rebase this branch onto the target, resolve it, then run the full suite and report the same way. The orchestrator only fast-forwards what you verified.',
     '- End with a final report: commit, verification commands and results, unresolved blocking review findings, skipped or deleted tests with reasons, and open questions.'
   ].join('\n')
 }
@@ -907,7 +908,8 @@ export const TICKET_CONTRACT_SUMMARY: { must: readonly string[]; mustNot: readon
   must: [
     'Implement, test, review and commit the ticket in the given worktree, on its branch.',
     'Answer a question-only ticket in the final report, without changing or committing anything.',
-    'On request, rebase onto the target and run the full test suite there before the merge.',
+    'Run only the tests covering the change before the final report; run the full test suite on request, right before the merge.',
+    'On request, resolve a rebase conflict with the target, then run the full test suite.',
     'End with a final report: commit, verification commands and results, unresolved review findings and open questions.'
   ],
   mustNot: ['Push.', 'Merge.', 'Open a pull request.', 'Leave the worktree.']
@@ -943,7 +945,7 @@ export function orchestratorInstruction(paths: { cliPath: string; skillPath: str
     'Never implement, edit project files or run a test suite yourself: any change to the project, however small, becomes a ticket, and verification runs in its ticket session.',
     'Keep your turns short - read state, decide, dispatch - because wakes and the human queue behind a busy turn.',
     'Spawn ticket sessions through Toucan; end your turn when waiting for them. Toucan wakes you on their events.',
-    `Use \`${cli} followup --ticket <id> --text <text>\` for questions, the pre-merge rebase and test run, and conflict recovery; it never answers a tool-permission prompt.`,
+    `Use \`${cli} followup --ticket <id> --text <text>\` for questions, the pre-merge test run, and conflict recovery; it never answers a tool-permission prompt.`,
     'Those prompts wait for the human and belong on the review list.',
     `Merge a tested ticket with \`${cli} merge --ticket <id> --tested <commit>\`, which fast-forwards, pushes, records and cleans up;`,
     'never merge into or push the target with your own Git.'

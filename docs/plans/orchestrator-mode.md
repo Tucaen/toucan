@@ -146,8 +146,9 @@ shows real working state, and this carries over to other providers unchanged.
 - The target is the branch the orchestrator was launched on. The orchestrator refuses to start
   on a dirty working tree, and creates the upstream (`git push -u origin <branch>`) at start
   when there is none.
-- Per ticket, one at a time, in dependency order: the ticket's own session rebases its branch
-  onto the target and runs the full test suite in its worktree, then the orchestrator runs
+- Per ticket, one at a time, in dependency order: the orchestrator rebases a settled ticket
+  branch onto the target when it lags (aborting on a conflict), the ticket's own session runs
+  the full test suite in its worktree - once, having deferred it from its final report - then the orchestrator runs
   `git merge --ff-only` in its checkout and pushes. A rejected push means fetch, then the ticket
   session rebases and re-tests, then retry. No PRs. The orchestrator never implements or runs a
   suite itself: its turns stay short so wakes and the human's messages do not queue behind them.

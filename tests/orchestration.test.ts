@@ -505,10 +505,11 @@ test('a ticket session is titled by its ticket and prompted with the skill, the 
   assert.match(contract, /merge/i)
   assert.match(contract, /final report/i)
   assert.match(contract, /win over/i)
-  // Merge verification is the ticket session's work, not the orchestrator's: it rebases on request,
-  // runs the full suite there and names the commit that passed.
+  // The full suite runs once, right before the merge: the session defers it from its final report,
+  // runs it on request and names the commit that passed; a rebase conflict comes back to it.
+  assert.match(contract, /do not run the project's full test suite before your final report/i)
+  assert.match(contract, /asks, run the full test suite/i)
   assert.match(contract, /rebase this branch onto the target/i)
-  assert.match(contract, /full test suite/i)
   assert.match(contract, /commit you tested/i)
 
   // A tracker reference is handed on for the session to read with its own tools.
