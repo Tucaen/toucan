@@ -812,19 +812,16 @@ button.global-status-chip:hover {
   font-weight: 800;
 }
 
-/* The orchestrator mark rides the kind slot's corner, so the provider icon keeps its place. */
+/* The orchestrator mark sits to the right of the provider icon as a smaller secondary glyph. */
 .project-node-orchestrator-badge {
-  position: absolute;
-  right: -3px;
-  bottom: -3px;
-  width: 9px;
-  height: 9px;
-  stroke-width: 2.5;
+  width: 11px;
+  height: 11px;
+  flex: 0 0 auto;
 }
 
 .project-node-kind {
-  position: relative;
-  width: 19px;
+  min-width: 19px;
+  gap: 3px;
   display: flex;
   flex: 0 0 auto;
   align-items: center;
