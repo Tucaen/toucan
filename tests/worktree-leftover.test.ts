@@ -1,4 +1,5 @@
 import { strict as assert } from 'node:assert'
+import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -44,3 +45,21 @@ test('removeTree deletes paths beyond MAX_PATH and refuses relative paths and ro
   await assert.rejects(removeTree('relative/path'), /relative/)
   await assert.rejects(removeTree(process.platform === 'win32' ? 'C:\\' : '/'), /root/)
 })
+
+// A folder another account wrote - a sandboxed agent's temp output - denies its contents to the
+// user. Node's own `maxRetries` loops on that EPERM forever, which froze the remove dialog.
+test.skipIf(process.platform !== 'win32')('removeTree fails promptly on a folder the user may not open', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'toucan-leftover-'))
+  const locked = join(root, 'pytest-of-someone')
+  mkdirSync(locked)
+  writeFileSync(join(locked, 'a.txt'), 'a')
+  execFileSync('icacls', [locked, '/inheritance:r', '/deny', `${process.env.USERNAME}:(OI)(CI)F`])
+  try {
+    const started = Date.now()
+    await assert.rejects(removeTree(root))
+    assert.ok(Date.now() - started < 8_000, `took ${Date.now() - started} ms`)
+  } finally {
+    execFileSync('icacls', [locked, '/reset'])
+    await removeTree(root)
+  }
+}, 15_000)

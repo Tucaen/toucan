@@ -45,18 +45,30 @@ function removeWithRd(absolute: string): Promise<void> {
   })
 }
 
+const RM_ATTEMPTS = 5
+const RM_RETRY_DELAY_MS = 200
+
 /**
  * Deletes `path` and everything below it, long paths included. Links inside are removed, never
  * followed. Node already lifts `MAX_PATH`; `rd /s /q` on the `\\?\` form is the fallback for the
- * Windows failures Node's retries do not outlast.
+ * Windows failures the retries do not outlast.
+ *
+ * The retries are counted here rather than through `rm`'s own `maxRetries`, which never gives up
+ * on an EPERM it cannot fix - a folder whose ACL denies the user, as a sandboxed agent's temp
+ * output does - and so left the remove dialog waiting forever.
  */
 export async function removeTree(path: string): Promise<void> {
   const absolute = assertDeletable(path)
   let failure: unknown
-  try {
-    await rm(extendedLengthPath(absolute), { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
-  } catch (error) {
-    failure = error
+  for (let attempt = 1; attempt <= RM_ATTEMPTS; attempt += 1) {
+    try {
+      await rm(extendedLengthPath(absolute), { recursive: true, force: true })
+      failure = undefined
+      break
+    } catch (error) {
+      failure = error
+      if (attempt < RM_ATTEMPTS) await new Promise((wait) => setTimeout(wait, RM_RETRY_DELAY_MS * attempt))
+    }
   }
   if (existsSync(absolute) && process.platform === 'win32') {
     try {
