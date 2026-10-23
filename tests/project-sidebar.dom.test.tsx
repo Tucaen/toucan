@@ -332,6 +332,31 @@ describe('orchestrator-owned worktrees', () => {
     expect(intents.focusNode).not.toHaveBeenCalled()
   })
 
+  test('an orchestrator row shows the orchestrator glyph, a plain chat keeps its kind icon', () => {
+    renderSidebar({
+      summaries: new Map([
+        [
+          alpha.id,
+          {
+            sessions: [
+              { ...orchestrator, ticketWorktrees: [], orchestrator: true },
+              { ...orchestrator, id: 'plain', label: 'Plain chat', orchestrator: false, ticketWorktrees: [] }
+            ],
+            worktrees: [],
+            nodeCount: 2,
+            sessionNodeIds: ['orch', 'plain']
+          }
+        ]
+      ])
+    })
+
+    const iconOf = (label: string): Element | null =>
+      screen.getByText(label).closest('.project-node-row')?.querySelector('.project-node-kind svg') ?? null
+    expect(iconOf('Orchestrator')).toHaveClass('lucide-network')
+    expect(iconOf('Plain chat')).not.toHaveClass('lucide-network')
+    expect(iconOf('Plain chat')).toBeTruthy()
+  })
+
   test('an orchestrator without ticket worktrees renders as a plain session row', () => {
     renderSidebar({
       summaries: new Map([

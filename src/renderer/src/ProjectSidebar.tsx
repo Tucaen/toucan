@@ -7,6 +7,7 @@ import {
   FolderPlus,
   GitBranch,
   GripVertical,
+  Network,
   Plus,
   Settings,
   X
@@ -241,7 +242,7 @@ export function ProjectSidebar({
         }}
       >
         <span className="project-node-kind">
-          <SessionKindIcon kind={session.kind} />
+          {session.orchestrator ? <Network aria-hidden="true" /> : <SessionKindIcon kind={session.kind} />}
         </span>
         <span className="project-node-name">{session.label}</span>
         {nodeUnread > 0 && <span className="unread-badge">{nodeUnread}</span>}
