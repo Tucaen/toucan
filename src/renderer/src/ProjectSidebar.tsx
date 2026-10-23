@@ -92,6 +92,19 @@ export interface ProjectSidebarProps {
   canvasControls: ReactNode
 }
 
+/** A session-local set of folded ids and the toggle that flips one of them. */
+function useFoldSet(): [ReadonlySet<string>, (id: string) => void] {
+  const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set())
+  const toggle = useCallback((id: string): void => {
+    setFolded((current) => {
+      const next = new Set(current)
+      if (!next.delete(id)) next.add(id)
+      return next
+    })
+  }, [])
+  return [folded, toggle]
+}
+
 /**
  * The project sidebar: grouped, draggable project rows with their per-project node lists, the
  * global panel entries and the footer chrome. It renders a projection of the workspace and raises
@@ -199,24 +212,9 @@ export function ProjectSidebar({
   )
 
   /** Which projects have their worktree list folded away; session-local, never saved. */
-  const [foldedWorktreeLists, setFoldedWorktreeLists] = useState<ReadonlySet<string>>(() => new Set())
-  const toggleWorktreeList = useCallback((projectId: string): void => {
-    setFoldedWorktreeLists((current) => {
-      const next = new Set(current)
-      if (!next.delete(projectId)) next.add(projectId)
-      return next
-    })
-  }, [])
-
+  const [foldedWorktreeLists, toggleWorktreeList] = useFoldSet()
   /** Which orchestrators have their ticket worktrees folded away; session-local, never saved. */
-  const [foldedOrchestrators, setFoldedOrchestrators] = useState<ReadonlySet<string>>(() => new Set())
-  const toggleOrchestrator = useCallback((sessionId: string): void => {
-    setFoldedOrchestrators((current) => {
-      const next = new Set(current)
-      if (!next.delete(sessionId)) next.add(sessionId)
-      return next
-    })
-  }, [])
+  const [foldedOrchestrators, toggleOrchestrator] = useFoldSet()
 
   /**
    * One session row, the same under a worktree as directly under its project. An orchestrator
