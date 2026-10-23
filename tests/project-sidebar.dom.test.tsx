@@ -354,7 +354,7 @@ describe('orchestrator-owned worktrees', () => {
       screen.getByText(label).closest('.project-node-row')?.querySelector('.project-node-kind svg') ?? null
     expect(iconOf('Orchestrator')).toHaveClass('lucide-network')
     expect(iconOf('Plain chat')).not.toHaveClass('lucide-network')
-    expect(iconOf('Plain chat')).toBeTruthy()
+    expect(iconOf('Plain chat')).toHaveClass('claude-glyph')
   })
 
   test('an orchestrator without ticket worktrees renders as a plain session row', () => {
