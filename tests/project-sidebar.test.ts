@@ -189,6 +189,17 @@ test('a cleaned-up ticket worktree leaves its orchestrator with no children', ()
   assert.deepEqual(after.worktrees, [])
 })
 
+test('only an orchestrator session row is flagged as one', () => {
+  const summary = summaryOf([chatIn('orch', TOUCAN, { role: 'orchestrator' }), chatIn('plain', TOUCAN)])
+  assert.deepEqual(
+    summary.sessions.map((session) => [session.id, session.orchestrator === true]),
+    [
+      ['orch', true],
+      ['plain', false]
+    ]
+  )
+})
+
 test('a link to a node that is not an orchestrator, or sits in another project, owns nothing', () => {
   const ticket = worktree('1', TOUCAN)
   const spawned = chatIn('t', TOUCAN, { in: ticket, orchestratedBy: 'orch' })

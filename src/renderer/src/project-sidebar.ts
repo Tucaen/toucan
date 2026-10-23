@@ -18,6 +18,8 @@ export interface SidebarSessionRow {
   id: string
   label: string
   kind: TerminalKind
+  /** An orchestrator's chat, flagged so its row carries the orchestrator glyph instead of the kind icon. */
+  orchestrator?: boolean
   selected: boolean
   status: TerminalNodeStatus
   terminalLiveness: TerminalLiveness | undefined
@@ -156,6 +158,7 @@ export function projectSidebarSummaries(
       id: node.id,
       label: node.data.label,
       kind: node.data.kind,
+      orchestrator: node.data.role === 'orchestrator',
       selected: node.selected ?? false,
       status: sessionNodeStatus(node, statuses),
       terminalLiveness: node.data.kind === 'terminal' ? node.data.terminalLiveness : undefined,
