@@ -4,6 +4,7 @@
  * it reads rows - which is what keeps `ProjectSidebar` mountable without React Flow. It also
  * derives which project the sidebar follows from the canvas selection (`projectOfSelection`).
  */
+import { ORCHESTRATOR_ROLE } from '../../shared/orchestration'
 import type { TerminalKind, TerminalLiveness } from '../../shared/terminal'
 import {
   isChatCanvasNode,
@@ -85,7 +86,7 @@ export function projectOfSelection(nodes: readonly CanvasNode[]): string | undef
 export function ticketWorktreeOwners(nodes: readonly CanvasNode[]): Map<string, string> {
   const orchestrators = new Map<string, { projectId: string; worktreeId: string | undefined }>()
   for (const node of nodes) {
-    if (isChatCanvasNode(node) && node.data.role === 'orchestrator') {
+    if (isChatCanvasNode(node) && node.data.role === ORCHESTRATOR_ROLE) {
       orchestrators.set(node.id, { projectId: node.data.projectId, worktreeId: node.data.worktreeId })
     }
   }
@@ -158,7 +159,7 @@ export function projectSidebarSummaries(
       id: node.id,
       label: node.data.label,
       kind: node.data.kind,
-      orchestrator: node.data.role === 'orchestrator',
+      orchestrator: node.data.role === ORCHESTRATOR_ROLE,
       selected: node.selected ?? false,
       status: sessionNodeStatus(node, statuses),
       terminalLiveness: node.data.kind === 'terminal' ? node.data.terminalLiveness : undefined,
