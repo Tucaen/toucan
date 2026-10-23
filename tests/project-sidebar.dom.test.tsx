@@ -293,7 +293,7 @@ describe('orchestrator-owned worktrees', () => {
   test('a ticket worktree is listed as a child of its orchestrator, not under the project worktrees', () => {
     const intents = renderSidebar({ summaries })
 
-    const orchestratorRow = screen.getByText('Orchestrator').closest('.project-node-row') as HTMLElement
+    const orchestratorRow = screen.getByText('Orchestrator').closest('.project-orchestrator-row') as HTMLElement
     const children = orchestratorRow.nextElementSibling as HTMLElement
     expect(children).toHaveClass('project-ticket-worktrees')
     expect(within(children).getByText('ticket/1')).toBeTruthy()
@@ -303,6 +303,33 @@ describe('orchestrator-owned worktrees', () => {
 
     fireEvent.click(within(children).getByText('ticket/1'))
     expect(intents.focusNode).toHaveBeenCalledWith('worktree:1')
+  })
+
+  test('the orchestrator chevron hides and shows its ticket worktrees', () => {
+    renderSidebar({ summaries })
+
+    const toggle = screen.getByRole('button', { name: /Hide Orchestrator worktrees/ })
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByText('ticket/1')).toBeTruthy()
+
+    fireEvent.click(toggle)
+    expect(screen.queryByText('ticket/1')).toBeNull()
+    expect(screen.queryByText('#1 Ticket chat')).toBeNull()
+    // The orchestrator itself stays.
+    expect(screen.getByText('Orchestrator')).toBeTruthy()
+    expect(screen.getByRole('button', { name: /Show Orchestrator worktrees/ })).toHaveAttribute(
+      'aria-expanded',
+      'false'
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /Show Orchestrator worktrees/ }))
+    expect(screen.getByText('ticket/1')).toBeTruthy()
+  })
+
+  test('the chevron does not focus the orchestrator', () => {
+    const intents = renderSidebar({ summaries })
+    fireEvent.click(screen.getByRole('button', { name: /Hide Orchestrator worktrees/ }))
+    expect(intents.focusNode).not.toHaveBeenCalled()
   })
 
   test('an orchestrator without ticket worktrees renders as a plain session row', () => {

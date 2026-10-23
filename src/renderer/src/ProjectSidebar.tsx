@@ -208,6 +208,16 @@ export function ProjectSidebar({
     })
   }, [])
 
+  /** Which orchestrators have their ticket worktrees folded away; session-local, never saved. */
+  const [foldedOrchestrators, setFoldedOrchestrators] = useState<ReadonlySet<string>>(() => new Set())
+  const toggleOrchestrator = useCallback((sessionId: string): void => {
+    setFoldedOrchestrators((current) => {
+      const next = new Set(current)
+      if (!next.delete(sessionId)) next.add(sessionId)
+      return next
+    })
+  }, [])
+
   /**
    * One session row, the same under a worktree as directly under its project. An orchestrator
    * carries the worktrees of its ticket sessions one step in beneath it.
@@ -247,12 +257,31 @@ export function ProjectSidebar({
       </button>
     )
     if (session.ticketWorktrees.length === 0) return button
+    const folded = foldedOrchestrators.has(session.id)
     return (
       <Fragment key={session.id}>
-        {button}
-        <div className="project-node-list project-worktree-sessions project-ticket-worktrees">
-          {session.ticketWorktrees.map(renderWorktreeEntry)}
+        <div className="project-orchestrator-row">
+          <button
+            type="button"
+            className="project-orchestrator-toggle"
+            aria-expanded={!folded}
+            title={folded ? `Show ${session.label} worktrees` : `Hide ${session.label} worktrees`}
+            onClick={(event) => {
+              event.stopPropagation()
+              toggleOrchestrator(session.id)
+            }}
+          >
+            <span className="project-group-chevron" aria-hidden="true">
+              <ChevronDown />
+            </span>
+          </button>
+          {button}
         </div>
+        {!folded && (
+          <div className="project-node-list project-worktree-sessions project-ticket-worktrees">
+            {session.ticketWorktrees.map(renderWorktreeEntry)}
+          </div>
+        )}
       </Fragment>
     )
   }

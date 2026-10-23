@@ -4853,6 +4853,45 @@ button.worktree-agent-unread:focus-visible {
   transform: rotate(0deg);
 }
 
+/* An orchestrator with ticket worktrees: its chevron beside the row, the row keeping the width. */
+.project-orchestrator-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.project-orchestrator-row > .project-node-row {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.project-orchestrator-toggle {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 25px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.project-orchestrator-toggle:hover {
+  background: #1a2028;
+}
+
+.project-orchestrator-toggle svg {
+  width: 13px;
+  height: 13px;
+}
+
+.project-orchestrator-toggle[aria-expanded='true'] .project-group-chevron {
+  transform: rotate(0deg);
+}
+
 .project-worktree-entry {
   display: grid;
   gap: 2px;
