@@ -242,7 +242,8 @@ export function ProjectSidebar({
         }}
       >
         <span className="project-node-kind">
-          {session.orchestrator ? <Network aria-hidden="true" /> : <SessionKindIcon kind={session.kind} />}
+          <SessionKindIcon kind={session.kind} />
+          {session.orchestrator && <Network aria-hidden="true" className="project-node-orchestrator-badge" />}
         </span>
         <span className="project-node-name">{session.label}</span>
         {nodeUnread > 0 && <span className="unread-badge">{nodeUnread}</span>}
