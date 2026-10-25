@@ -4,12 +4,15 @@ import {
   type AgentModel,
   type AgentModelState
 } from '../../src/shared/agent'
-import { foldAgentEvent, type AgentTranscriptState } from '../../src/shared/agent-transcript'
+import { agentTranscriptEntryKey, foldAgentEvent, type AgentTranscriptState } from '../../src/shared/agent-transcript'
 import {
   parseRemoteChatServerMessage,
   promptTextProblem,
-  REMOTE_CHAT_ACTIVITY_ID_LIMIT
+  REMOTE_CHAT_ACTIVITY_ID_LIMIT,
+  REMOTE_CHAT_HISTORY_KEY_LIMIT,
+  type RemoteChatServerMessage
 } from '../../src/shared/remote-chat'
+import type { RemoteTranscriptPage } from '../../src/shared/remote-transcript-page'
 import { pendingRequestFrom, type PendingRequest } from './chat-view'
 
 /**
@@ -92,8 +95,35 @@ export type ChatActivityBodyState =
   | { status: 'loaded'; activity: AgentActivity }
   | { status: 'failed'; message: string }
 
+/**
+ * The older part of a long chat the reader has scrolled back into (#54): pages the host sent on
+ * request, joined into one contiguous stretch that ends exactly where the window begins.
+ *
+ * Kept beside `transcript`, never folded into it, so the snapshot rule stays what it was: a snapshot
+ * replaces the window wholesale. Pages are only *kept* across one when they still provably end where
+ * the new window starts - same position, same entry - and dropped otherwise; nothing is ever merged
+ * into the window, and the tail never folds into a page.
+ */
+export interface ChatTranscriptHistory extends RemoteTranscriptPage {
+  /** The key of the entry right after the last one here: the window's first, when they joined. */
+  next: string
+}
+
+/** One page request at a time; the reader can only be at one top. */
+export type ChatHistoryRequestState =
+  | { status: 'idle' }
+  /** `before` is the entry the page must end right ahead of, so a late reply can be checked. */
+  | { status: 'loading'; requestId: string; before: string }
+  | { status: 'failed'; message: string }
+
 export interface ChatConnectionState {
+  /** The window: the most recent part of the transcript, which every snapshot replaces wholesale. */
   transcript: AgentTranscriptState | null
+  /** Where the window's first entry sits in the host's whole transcript; 0 is the beginning. */
+  windowStart: number
+  /** Older pages the reader loaded, or null; see `ChatTranscriptHistory`. */
+  history: ChatTranscriptHistory | null
+  historyRequest: ChatHistoryRequestState
   phase: ChatConnectionPhase
   draft: string
   send: ChatSendState
@@ -107,6 +137,9 @@ export interface ChatConnectionState {
 export function initialChatConnectionState(): ChatConnectionState {
   return {
     transcript: null,
+    windowStart: 0,
+    history: null,
+    historyRequest: { status: 'idle' },
     phase: 'connecting',
     draft: '',
     send: { status: 'idle' },
@@ -178,8 +211,18 @@ export function applyServerFrame(state: ChatConnectionState, raw: unknown, now: 
           : { status: 'failed', message: message.message ?? 'The host did not send that tool call.' }
       return { ...state, activityBodies: { ...state.activityBodies, [activityId]: body } }
     }
-    case 'snapshot':
-      return { ...state, transcript: message.state, phase: 'live' }
+    case 'history_result':
+      return applyHistoryResult(state, message)
+    case 'snapshot': {
+      const start = message.start ?? 0
+      return {
+        ...state,
+        transcript: message.state,
+        windowStart: start,
+        history: historyJoining(state.history, start, message.state),
+        phase: 'live'
+      }
+    }
     case 'event':
       if (!state.transcript) return state
       return { ...state, transcript: foldAgentEvent(state.transcript, message.event, now) }
@@ -211,7 +254,9 @@ export function readReportKey(state: ChatConnectionState): string | null {
   if (state.phase !== 'live' || !state.transcript) return null
   if (state.transcript.status === 'working' || state.transcript.status === 'starting') return 'busy'
   const failure = state.transcript.failureKey ?? state.transcript.failure ?? ''
-  return `settled:${state.transcript.transcript.length}:${failure}`
+  // Counted from the beginning of the chat, not the window: a rejoin after a whole turn can be sent
+  // a window of the same length starting further on, and that is still something that happened.
+  return `settled:${state.windowStart + state.transcript.transcript.length}:${failure}`
 }
 
 /** What this connection's transcript is blocked on; the rule itself is `pendingRequestFrom`. */
@@ -371,7 +416,7 @@ export function plannedActivityBody(
   activityId: string
 ): PendingActivityBody | null {
   if (state.phase !== 'live') return null
-  if (!state.transcript?.activities[activityId]) return null
+  if (!transcriptActivity(state, activityId)) return null
   // The host drops a frame whose id exceeds the bound without a verdict, which would leave the card
   // loading for good; an id it could never accept is not worth a frame.
   if (activityId.length > REMOTE_CHAT_ACTIVITY_ID_LIMIT) return null
@@ -389,7 +434,7 @@ export function plannedActivityBody(
 export function activityBodyStale(state: ChatConnectionState, activityId: string): boolean {
   const body = state.activityBodies[activityId]
   if (body?.status !== 'loaded') return false
-  return body.activity.status !== state.transcript?.activities[activityId]?.status
+  return body.activity.status !== transcriptActivity(state, activityId)?.status
 }
 
 export function withActivityBody(state: ChatConnectionState, planned: PendingActivityBody): ChatConnectionState {
@@ -461,10 +506,13 @@ export function connectionLost(state: ChatConnectionState): ChatConnectionState 
   // actually happened rather than what was asked for.
   // A card waiting on its body is the gentlest of all: nothing was changed, so the reply is simply
   // not coming and a retry on the rejoined socket asks again.
-  const dropped = Object.entries(state.activityBodies).reduce(
+  // A page in flight is asked for again by the loader once the rejoin lands; nothing to report.
+  const unpaged: ChatConnectionState =
+    state.historyRequest.status === 'loading' ? { ...state, historyRequest: { status: 'idle' } } : state
+  const dropped = Object.entries(unpaged.activityBodies).reduce(
     (current, [activityId, body]) =>
       body.status === 'loading' ? activityBodyFailed(current, activityId, DISCONNECTED_WHILE_FETCHING) : current,
-    modelChangeFailed(answerFailed(state, DISCONNECTED_WHILE_ANSWERING), DISCONNECTED_WHILE_SWITCHING)
+    modelChangeFailed(answerFailed(unpaged, DISCONNECTED_WHILE_ANSWERING), DISCONNECTED_WHILE_SWITCHING)
   )
   if (dropped.send.status !== 'sending') return { ...dropped, phase }
   return { ...recoverDraft(dropped, dropped.send.text, DISCONNECTED_WHILE_SENDING), phase }
@@ -485,6 +533,132 @@ export const DISCONNECTED_WHILE_ANSWERING =
 /** @internal exported for tests */
 export const DISCONNECTED_WHILE_SWITCHING =
   'Disconnected before the host confirmed the model. The model shown once reconnected is the real one.'
+
+/**
+ * The pages a reader loaded, if they still end exactly where a new window starts: the position
+ * matches and so does the entry, which is what proves this is the same transcript seen from a
+ * window that has not moved. Anything else drops them - they were older entries relative to a
+ * window that is gone, and the loader fetches whatever the reader scrolls back to again.
+ */
+function historyJoining(
+  history: ChatTranscriptHistory | null,
+  start: number,
+  recent: AgentTranscriptState
+): ChatTranscriptHistory | null {
+  if (!history || start === 0) return null
+  const first = recent.transcript[0]
+  if (!first || agentTranscriptEntryKey(first) !== history.next) return null
+  return history.start + history.entries.length === start ? history : null
+}
+
+/** Where the oldest entry this client holds sits, and its key; null when it holds nothing. */
+function oldestHeld(state: ChatConnectionState): { start: number; key: string } | null {
+  const history = state.history
+  const first = history?.entries[0] ?? state.transcript?.transcript[0]
+  if (!first) return null
+  return { start: history ? history.start : state.windowStart, key: agentTranscriptEntryKey(first) }
+}
+
+function applyHistoryResult(
+  state: ChatConnectionState,
+  message: Extract<RemoteChatServerMessage, { type: 'history_result' }>
+): ChatConnectionState {
+  const request = state.historyRequest
+  if (request.status !== 'loading' || request.requestId !== message.requestId) return state
+  if (!message.ok || !message.page) {
+    return {
+      ...state,
+      historyRequest: { status: 'failed', message: message.message ?? 'The host did not send the earlier messages.' }
+    }
+  }
+  // A resync can move the window while a page is on the wire. A page that no longer ends right where
+  // the oldest entry held begins is not joined at all - the loader simply asks again.
+  const oldest = oldestHeld(state)
+  const page = message.page
+  if (!oldest || oldest.key !== request.before || page.start + page.entries.length !== oldest.start) {
+    return { ...state, historyRequest: { status: 'idle' } }
+  }
+  const history = state.history
+  return {
+    ...state,
+    historyRequest: { status: 'idle' },
+    history: {
+      start: page.start,
+      entries: [...page.entries, ...(history?.entries ?? [])],
+      messages: [...page.messages, ...(history?.messages ?? [])],
+      activities: { ...page.activities, ...history?.activities },
+      outcomes: [...page.outcomes, ...(history?.outcomes ?? [])],
+      next: history?.next ?? request.before
+    }
+  }
+}
+
+/** Whether there is anything older than what this client holds to ask the host for. */
+export function historyAvailable(state: ChatConnectionState): boolean {
+  if (state.phase === 'gone' || !state.transcript) return false
+  return (oldestHeld(state)?.start ?? 0) > 0
+}
+
+export type PendingHistory = Extract<ChatHistoryRequestState, { status: 'loading' }>
+
+/**
+ * The page request reaching the top would send, or null when it must not reach the socket: not
+ * live, nothing older to ask for, or a page already on the wire. A failed request is not on the
+ * wire, which is how a retry gets past the last refusal.
+ */
+export function plannedHistory(state: ChatConnectionState, requestId: string): PendingHistory | null {
+  if (state.phase !== 'live' || state.historyRequest.status === 'loading') return null
+  const oldest = oldestHeld(state)
+  if (!oldest || oldest.start === 0) return null
+  // The host drops a frame whose anchor exceeds the bound without a verdict.
+  if (oldest.key.length > REMOTE_CHAT_HISTORY_KEY_LIMIT) return null
+  return { status: 'loading', requestId, before: oldest.key }
+}
+
+export function withHistoryRequest(state: ChatConnectionState, planned: PendingHistory): ChatConnectionState {
+  return { ...state, historyRequest: planned }
+}
+
+/** A page request that never reached the socket. */
+export function historyFailed(state: ChatConnectionState, message: string): ChatConnectionState {
+  if (state.historyRequest.status !== 'loading') return state
+  return { ...state, historyRequest: { status: 'failed', message } }
+}
+
+/**
+ * What the reader sees: the loaded pages followed by the window, as one transcript the shared view
+ * derivation reads like any other. Where both hold the same call or message, the window's copy wins,
+ * because the window is the one the tail keeps folding into - a call still running when its page was
+ * read finishes in the window's copy (`transcriptWindow` carries whatever is still open).
+ */
+export function visibleTranscript(
+  state: Pick<ChatConnectionState, 'transcript' | 'history'>
+): AgentTranscriptState | null {
+  const recent = state.transcript
+  const history = state.history
+  if (!recent || !history) return recent
+  const windowEntries = new Set(recent.transcript.map(agentTranscriptEntryKey))
+  const windowMessages = new Set(recent.messages.map((message) => `${message.role}:${message.id}`))
+  const windowOutcomes = new Set(recent.outcomes.map((outcome) => outcome.id))
+  return {
+    ...recent,
+    transcript: [
+      ...history.entries.filter((entry) => !windowEntries.has(agentTranscriptEntryKey(entry))),
+      ...recent.transcript
+    ],
+    messages: [
+      ...history.messages.filter((message) => !windowMessages.has(`${message.role}:${message.id}`)),
+      ...recent.messages
+    ],
+    activities: { ...history.activities, ...recent.activities },
+    outcomes: [...history.outcomes.filter((outcome) => !windowOutcomes.has(outcome.id)), ...recent.outcomes]
+  }
+}
+
+/** One call as the reader can see it, wherever it is held - the window's copy first. */
+function transcriptActivity(state: ChatConnectionState, activityId: string): AgentActivity | undefined {
+  return state.transcript?.activities[activityId] ?? state.history?.activities[activityId]
+}
 
 export function chatGone(state: ChatConnectionState): ChatConnectionState {
   return { ...state, phase: 'gone' }

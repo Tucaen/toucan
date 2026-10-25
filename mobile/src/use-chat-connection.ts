@@ -14,10 +14,12 @@ import {
   chatGone,
   connectionLost,
   draftChanged,
+  historyFailed,
   modelChangeFailed,
   pendingRequest,
   plannedActivityBody,
   plannedAnswer,
+  plannedHistory,
   plannedModelChange,
   plannedSend,
   readReportKey,
@@ -26,6 +28,7 @@ import {
   sendFailed,
   withActivityBody,
   withAnswer,
+  withHistoryRequest,
   withModelChange,
   withSend,
   type ChatConnectionState
@@ -74,6 +77,12 @@ export interface ChatConnection extends ChatConnectionState {
   onOpenActivity(activityId: string): void
   /** Closes a card and forgets its body, so the next open is a fresh read. */
   onCloseActivity(activityId: string): void
+  /**
+   * Asks the host for the page of transcript before the oldest entry held. Inert unless the state
+   * allows it - nothing older, not live, or a page already on the wire - so the loader at the top
+   * can call it whenever it comes into view.
+   */
+  onLoadHistory(): void
 }
 
 export function useChatConnection(host: SavedHost, chatId: string, onUnauthorized: () => void): ChatConnection {
@@ -276,6 +285,21 @@ export function useChatConnection(host: SavedHost, chatId: string, onUnauthorize
     setState((current) => activityBodyClosed(current, activityId))
   }, [])
 
+  const onLoadHistory = useCallback(() => {
+    // Same shape as opening a card: plan against the newest committed state, write once, apply.
+    const planned = plannedHistory(stateRef.current, newLocalId())
+    if (!planned) return
+    const delivered = writeToSocket(live.current, {
+      type: 'history',
+      requestId: planned.requestId,
+      before: planned.before
+    })
+    setState((current) => {
+      const applied = withHistoryRequest(current, planned)
+      return delivered ? applied : historyFailed(applied, 'Not connected — try again once reconnected.')
+    })
+  }, [])
+
   return {
     ...state,
     onDraftChange,
@@ -284,7 +308,8 @@ export function useChatConnection(host: SavedHost, chatId: string, onUnauthorize
     onAnswerDecision,
     onSelectModel,
     onOpenActivity,
-    onCloseActivity
+    onCloseActivity,
+    onLoadHistory
   }
 }
 

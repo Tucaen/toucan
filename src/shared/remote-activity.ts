@@ -1,5 +1,6 @@
 import type { AgentActivity, AgentEvent } from './agent'
 import type { AgentTranscriptState } from './agent-transcript'
+import type { RemoteTranscriptPage } from './remote-transcript-page'
 
 /**
  * What a phone is sent of a tool call, instead of the call.
@@ -126,4 +127,11 @@ export function slimTranscriptState(state: AgentTranscriptState): AgentTranscrip
       ? { ...state.approval, activity: slimActivity(state.approval.activity) }
       : state.approval
   }
+}
+
+/** An older page as the phone receives it (#54): the same cut, applied to the calls it carries. */
+export function slimTranscriptPage(page: RemoteTranscriptPage): RemoteTranscriptPage {
+  const activities: RemoteTranscriptPage['activities'] = {}
+  for (const [id, activity] of Object.entries(page.activities)) activities[id] = slimActivity(activity)
+  return { ...page, activities }
 }

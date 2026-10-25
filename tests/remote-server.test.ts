@@ -24,9 +24,11 @@ import {
 } from '../src/shared/remote-voice'
 import type { AgentEvent, ProviderUsageReport } from '../src/shared/agent'
 import type { AgentModelCatalogue } from '../src/shared/agent-model-catalogue'
-import { foldAgentEvent, type AgentTranscriptState } from '../src/shared/agent-transcript'
+import { agentTranscriptEntryKey, foldAgentEvent, type AgentTranscriptState } from '../src/shared/agent-transcript'
+import { REMOTE_CHAT_PAGE_ENTRIES } from '../src/shared/remote-transcript-page'
 import {
   REMOTE_CHAT_ACTIVITY_ID_LIMIT,
+  REMOTE_CHAT_HISTORY_KEY_LIMIT,
   REMOTE_CHAT_ANSWER_VALUE_LIMIT,
   REMOTE_CHAT_MODEL_ID_LIMIT,
   REMOTE_CHAT_PROMPT_LIMIT,
@@ -2050,6 +2052,114 @@ describe('slim tool activity on a chat socket', () => {
     assert.equal(verdict.type, 'activity_result')
     assert.equal(verdict.ok, true)
     assert.equal(verdict.activity?.diffs?.[0]?.newText.length, 4_000)
+    socket.close()
+  })
+})
+
+/**
+ * A long chat on a phone (#54): the join snapshot and every resync are the most recent window of the
+ * transcript, and older entries travel only as pages the phone asks for, each with its own verdict.
+ */
+
+function publishCalls(chats: AgentEventBroker, count: number): void {
+  for (let index = 0; index < count; index += 1) {
+    chats.publish('chat-1', { type: 'activity', activity: { ...EDIT_ACTIVITY, id: `call-${index}` } })
+  }
+}
+
+type Snapshot = Extract<RemoteChatServerMessage, { type: 'snapshot' }>
+type HistoryVerdict = Extract<RemoteChatServerMessage, { type: 'history_result' }>
+
+async function joinLongChat(
+  count: number
+): Promise<{ server: RemoteAccessServer; chats: AgentEventBroker; socket: ChatSocket; first: Snapshot }> {
+  const chats = createAgentEventBroker()
+  const { server, store } = harness({ chats })
+  await server.applySettings({ enabled: true, port: await freePort() })
+  server.publishWorkspace(CHAT_PROJECTION)
+  publishCalls(chats, count)
+  const socket = connectChat(server.state().boundPort!, 'chat-1', { header: store.read().token })
+  const first = await socket.next()
+  assert.equal(first.type, 'snapshot')
+  return { server, chats, socket, first: first as Snapshot }
+}
+
+async function historyVerdict(socket: ChatSocket): Promise<HistoryVerdict> {
+  const message = await socket.next()
+  assert.equal(message.type, 'history_result')
+  return message as HistoryVerdict
+}
+
+describe('paged transcripts on a chat socket', () => {
+  test('the join snapshot is the most recent window and says where it starts', async () => {
+    const { chats, socket, first } = await joinLongChat(REMOTE_CHAT_PAGE_ENTRIES * 3 + 5)
+    assert.equal(first.start, REMOTE_CHAT_PAGE_ENTRIES * 2)
+    assert.equal(first.state.transcript.length, REMOTE_CHAT_PAGE_ENTRIES + 5)
+    assert.equal(first.state.activities['call-0'], undefined)
+    assert.equal('diffs' in first.state.activities[`call-${REMOTE_CHAT_PAGE_ENTRIES * 3}`]!, false)
+    // The desktop's copy is whole.
+    assert.equal(chats.snapshot('chat-1')?.transcript.length, REMOTE_CHAT_PAGE_ENTRIES * 3 + 5)
+    socket.close()
+  })
+
+  test('a resync is the window too', async () => {
+    const { chats, socket } = await joinLongChat(REMOTE_CHAT_PAGE_ENTRIES * 2)
+    chats.applyCreateResult('chat-1', { ok: true, status: 'ready', sessionId: 's-1' })
+    const resynced = (await socket.next()) as Snapshot
+    assert.equal(resynced.type, 'snapshot')
+    assert.equal(resynced.start, REMOTE_CHAT_PAGE_ENTRIES)
+    assert.equal(resynced.state.transcript.length, REMOTE_CHAT_PAGE_ENTRIES)
+    socket.close()
+  })
+
+  test('a history request is answered with the slim page right before the entry it names', async () => {
+    const { socket, first } = await joinLongChat(REMOTE_CHAT_PAGE_ENTRIES * 3)
+    const before = agentTranscriptEntryKey(first.state.transcript[0]!)
+    await socket.send(JSON.stringify({ type: 'history', requestId: 'h1', before }))
+    const verdict = await historyVerdict(socket)
+    assert.equal(verdict.requestId, 'h1')
+    assert.equal(verdict.ok, true)
+    assert.equal(verdict.page?.start, REMOTE_CHAT_PAGE_ENTRIES)
+    assert.equal(verdict.page?.entries.length, REMOTE_CHAT_PAGE_ENTRIES)
+    assert.deepEqual(verdict.page?.entries.at(-1), { type: 'activity', id: `call-${REMOTE_CHAT_PAGE_ENTRIES * 2 - 1}` })
+    const activity = verdict.page?.activities[`call-${REMOTE_CHAT_PAGE_ENTRIES}`]
+    assert.equal(activity?.title, 'Edit src/app.ts')
+    assert.equal(activity && 'diffs' in activity, false)
+    socket.close()
+  })
+
+  test('an entry the transcript does not hold is refused in words', async () => {
+    const { socket } = await joinedChat({})
+    await socket.send(JSON.stringify({ type: 'history', requestId: 'h1', before: 'activity:never-ran' }))
+    const verdict = await historyVerdict(socket)
+    assert.equal(verdict.ok, false)
+    assert.match(verdict.message ?? '', /no longer/)
+    assert.equal('page' in verdict, false)
+    socket.close()
+  })
+
+  test('a chat the desktop has since unlisted gives no page either, and a read-only host still answers', async () => {
+    const { server, socket, first } = await joinLongChat(REMOTE_CHAT_PAGE_ENTRIES * 2)
+    const before = agentTranscriptEntryKey(first.state.transcript[0]!)
+    // No `sessions` seam: reading history drives nothing.
+    await socket.send(JSON.stringify({ type: 'history', requestId: 'h1', before }))
+    assert.equal((await historyVerdict(socket)).ok, true)
+
+    server.publishWorkspace({ projects: CHAT_PROJECTION.projects, chats: [] })
+    await socket.send(JSON.stringify({ type: 'history', requestId: 'h2', before }))
+    const verdict = await historyVerdict(socket)
+    assert.equal(verdict.ok, false)
+    assert.match(verdict.message ?? '', /no longer open/)
+    socket.close()
+  })
+
+  test('an anchor the frame contract refuses gets no page', async () => {
+    const { chats, socket } = await joinedChat({})
+    for (const before of [42, '', 'x'.repeat(REMOTE_CHAT_HISTORY_KEY_LIMIT + 1)]) {
+      await socket.send(JSON.stringify({ type: 'history', requestId: 'h1', before }))
+    }
+    chats.publish('chat-1', assistantChunk('a1', 'still here'))
+    assert.equal((await socket.next()).type, 'event')
     socket.close()
   })
 })

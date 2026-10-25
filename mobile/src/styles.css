@@ -313,6 +313,9 @@ body {
 
 .chat-screen {
   gap: 12px;
+  /* Older pages are prepended above the reader; ChatScreen keeps them still itself, so the
+     browser's own anchoring (where a phone has it) must not adjust a second time. */
+  overflow-anchor: none;
 }
 
 .chat-head {
@@ -626,6 +629,30 @@ body {
   font: inherit;
   text-decoration: underline;
   cursor: pointer;
+}
+
+/* The top of a long chat, where earlier pages are fetched (#54). */
+.history-loader {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.history-load {
+  padding: 6px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: none;
+  color: var(--ink-dim);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.history-load:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .activity-glyph {

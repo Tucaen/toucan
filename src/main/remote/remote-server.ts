@@ -44,7 +44,9 @@ import type {
   AgentPromptResult,
   ProviderUsageReport
 } from '../../shared/agent'
-import { slimAgentEvent, slimTranscriptState } from '../../shared/remote-activity'
+import type { AgentTranscriptState } from '../../shared/agent-transcript'
+import { slimAgentEvent, slimTranscriptPage, slimTranscriptState } from '../../shared/remote-activity'
+import { transcriptPage, transcriptWindow, type RemoteTranscriptPage } from '../../shared/remote-transcript-page'
 import { catalogueOffers, type AgentModelCatalogue } from '../../shared/agent-model-catalogue'
 import type { AgentEventBroker } from '../agent-event-broker'
 import { describeHostAddresses } from './host-addresses'
@@ -530,6 +532,25 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
       return
     }
 
+    // An older page of the transcript (#54): read-only like a body, so it never reaches `sessions`,
+    // and cut from the broker's whole copy - the one every window this socket sent was cut from.
+    if (message.type === 'history') {
+      const reply = (result: { ok: true; page: RemoteTranscriptPage } | { ok: false; message: string }): void =>
+        deliver({ type: 'history_result', requestId: message.requestId, ...result })
+      if (!listed()) {
+        reply({ ok: false, message: 'This chat is no longer open on the desktop.' })
+        return
+      }
+      const transcript = options.chats?.snapshot(chatId)
+      const page = transcript ? transcriptPage(transcript, message.before) : null
+      reply(
+        page
+          ? { ok: true, page: slimTranscriptPage(page) }
+          : { ok: false, message: 'That part of the conversation is no longer on the desktop.' }
+      )
+      return
+    }
+
     // Every driving frame is correlated the same way but reported on its own channel, so a client
     // cannot mistake a verdict on one for a verdict on another.
     const resultType =
@@ -591,15 +612,21 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
     // Every transcript frame is cut down on its way out, so no path can send a body by omission:
     // the snapshot, a resync and a tail event all go through the same slimming. What the broker
     // folds and what the desktop receives are untouched - this is the phone's copy only.
+    // A snapshot is also only the most recent window of the transcript (#54), and says where it
+    // starts; the phone asks for anything older as a `history` page.
+    const snapshotFrame = (state: AgentTranscriptState): RemoteChatServerMessage => {
+      const window = transcriptWindow(state)
+      return { type: 'snapshot', state: slimTranscriptState(window.state), start: window.start }
+    }
     const subscription = chats.subscribe(chatId, (event) => deliver({ type: 'event', event: slimAgentEvent(event) }), {
       // The session was retired (killed, or about to be recreated). A silently dead subscription
       // would present a stale transcript as live, so the socket closes and the phone rejoins.
       closed: () => connection.close(CLOSE_SESSION_RETIRED, 'session retired'),
       // A session/load replay folded into the snapshot without fanning out; resend it whole. The
       // client treats every snapshot as a full resync, which is what makes this gap-proof.
-      resync: (state) => deliver({ type: 'snapshot', state: slimTranscriptState(state) })
+      resync: (state) => deliver(snapshotFrame(state))
     })
-    deliver({ type: 'snapshot', state: slimTranscriptState(subscription.snapshot) })
+    deliver(snapshotFrame(subscription.snapshot))
     connection.on('message', (data) => {
       void handleChatFrame(chatId, frameText(data), deliver)
     })
@@ -809,7 +836,7 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
 function perform(
   sessions: RemoteChatSessionOperations,
   chatId: string,
-  message: Exclude<RemoteChatClientMessage, { type: 'read' | 'activity' }>
+  message: Exclude<RemoteChatClientMessage, { type: 'read' | 'activity' | 'history' }>
 ): AgentPromptResult | Promise<AgentPromptResult> {
   switch (message.type) {
     case 'prompt':

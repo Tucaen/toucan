@@ -1,5 +1,6 @@
 import type { AgentActivity, AgentDecisionResponseContent, AgentDecisionValue, AgentEvent } from './agent'
 import type { AgentTranscriptState } from './agent-transcript'
+import type { RemoteTranscriptPage } from './remote-transcript-page'
 
 /**
  * The wire contract for reading one chat live over the remote server's WebSocket route.
@@ -14,9 +15,14 @@ import type { AgentTranscriptState } from './agent-transcript'
  * `session/load`). A client therefore treats any snapshot as a full resync and replaces its state
  * wholesale, which is also what makes reconnect convergence trivial - rejoin, take the snapshot,
  * fold the tail; nothing is duplicated because nothing is ever merged.
+ *
+ * Since #54 a snapshot is the full resync of the *window* - the most recent part of the transcript
+ * (`remote-transcript-page.ts`) - and `start` says where its first entry sits in the host's whole
+ * transcript; absent (an older host, which sends everything) reads as 0. Older entries are pages
+ * the client asks for, never pushed.
  */
 export type RemoteChatServerMessage =
-  | { type: 'snapshot'; state: AgentTranscriptState }
+  | { type: 'snapshot'; state: AgentTranscriptState; start?: number }
   | { type: 'event'; event: AgentEvent }
   /**
    * The verdict on one `prompt` the client sent, correlated by its `requestId`. A send is never
@@ -55,6 +61,12 @@ export type RemoteChatServerMessage =
    * client only sees by asking again.
    */
   | { type: 'activity_result'; requestId: string; ok: boolean; message?: string; activity?: AgentActivity }
+  /**
+   * The reply to one `history` request, correlated by its `requestId`: the page of entries right
+   * before the one the request named, or a refusal with the reason. Read-only and its own channel,
+   * like an activity body; its activities are slim like every other frame's.
+   */
+  | { type: 'history_result'; requestId: string; ok: boolean; message?: string; page?: RemoteTranscriptPage }
 
 /**
  * What a paired client may ask the host to do on a chat socket. Answering a pending request is a
@@ -84,6 +96,13 @@ export type RemoteChatClientMessage =
    * with a verdict, because a card that opened and never got its body has no way to say so.
    */
   | { type: 'activity'; requestId: string; activityId: string }
+  /**
+   * "Send me the page before this entry." `before` is the `agentTranscriptEntryKey` of the oldest
+   * entry the client holds, so the answer can only be entries that really precede it - a position
+   * would silently mean something else to a host whose transcript was rebuilt. Read-only, and
+   * answered with a verdict for the same reason an `activity` is.
+   */
+  | { type: 'history'; requestId: string; before: string }
   /**
    * "I am looking at this chat." The one client frame with no `requestId` and no verdict, because
    * it is the one that asks for nothing back: the badge it retires is republished by the canvas in
@@ -144,6 +163,12 @@ export const REMOTE_CHAT_MODEL_ID_LIMIT = 200
  * @internal exported for tests
  */
 export const REMOTE_CHAT_ACTIVITY_ID_LIMIT = 200
+
+/**
+ * How long an entry key one `history` frame may carry: a kind, a role and a provider id.
+ * @internal exported for tests
+ */
+export const REMOTE_CHAT_HISTORY_KEY_LIMIT = 300
 
 /**
  * Whether this answer may be sent at all, and why not. Same discipline as `promptTextProblem`:
@@ -223,9 +248,11 @@ export function parseRemoteChatServerMessage(raw: unknown): RemoteChatServerMess
     ok?: unknown
     message?: unknown
     activity?: unknown
+    start?: unknown
+    page?: unknown
   }
   if (message.type === 'snapshot' && message.state && typeof message.state === 'object') {
-    return { type: 'snapshot', state: message.state as AgentTranscriptState }
+    return { type: 'snapshot', state: message.state as AgentTranscriptState, start: entryPosition(message.start) }
   }
   if (message.type === 'event' && message.event && typeof message.event === 'object') {
     return { type: 'event', event: message.event as AgentEvent }
@@ -253,7 +280,37 @@ export function parseRemoteChatServerMessage(raw: unknown): RemoteChatServerMess
         : {})
     }
   }
+  if (message.type === 'history_result' && typeof message.requestId === 'string' && typeof message.ok === 'boolean') {
+    const page = transcriptPageShape(message.page)
+    return {
+      type: 'history_result',
+      requestId: message.requestId,
+      ok: message.ok,
+      ...(typeof message.message === 'string' ? { message: message.message } : {}),
+      ...(page ? { page } : {})
+    }
+  }
   return null
+}
+
+/** A position in the host's transcript; anything that is not one reads as the beginning. */
+function entryPosition(raw: unknown): number {
+  return typeof raw === 'number' && Number.isSafeInteger(raw) && raw >= 0 ? raw : 0
+}
+
+/** Shape only, like the rest of this direction: the envelope is checked, its contents trusted. */
+function transcriptPageShape(raw: unknown): RemoteTranscriptPage | null {
+  if (!raw || typeof raw !== 'object') return null
+  const page = raw as Partial<Record<keyof RemoteTranscriptPage, unknown>>
+  if (
+    !Array.isArray(page.entries) ||
+    !Array.isArray(page.messages) ||
+    !Array.isArray(page.outcomes) ||
+    !page.activities ||
+    typeof page.activities !== 'object'
+  )
+    return null
+  return { ...(raw as RemoteTranscriptPage), start: entryPosition(page.start) }
 }
 
 /**
@@ -281,6 +338,7 @@ export function parseRemoteChatClientMessage(raw: unknown): RemoteChatClientMess
     content?: unknown
     modelId?: unknown
     activityId?: unknown
+    before?: unknown
   }
   // Ahead of the correlation guard: a read is answered by nothing, so demanding a `requestId` for
   // it would refuse the frame over the one field it has no use for.
@@ -318,6 +376,11 @@ export function parseRemoteChatClientMessage(raw: unknown): RemoteChatClientMess
     if (typeof message.activityId !== 'string') return null
     if (message.activityId.length === 0 || message.activityId.length > REMOTE_CHAT_ACTIVITY_ID_LIMIT) return null
     return { type: 'activity', requestId: message.requestId, activityId: message.activityId }
+  }
+  if (message.type === 'history') {
+    if (typeof message.before !== 'string') return null
+    if (message.before.length === 0 || message.before.length > REMOTE_CHAT_HISTORY_KEY_LIMIT) return null
+    return { type: 'history', requestId: message.requestId, before: message.before }
   }
   if (message.type === 'decision') {
     if (typeof message.decisionId !== 'string' || message.decisionId.length === 0) return null

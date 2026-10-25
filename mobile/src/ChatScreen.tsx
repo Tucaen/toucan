@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { remarkHardBreaks } from '../../src/shared/markdown-hard-breaks'
@@ -18,10 +18,12 @@ import {
   chatModels,
   composerHidden,
   currentModel,
+  historyAvailable,
   modelChangeFailure,
   modelPickerBlockedReason,
   pendingRequest,
-  sendBlockedReason
+  sendBlockedReason,
+  visibleTranscript
 } from './chat-connection'
 import {
   activityBodyText,
@@ -117,10 +119,14 @@ export default function ChatScreen({
     setFocusMode(next)
     rememberFocusMode(next)
   }
+  // The loaded pages and the window, read as one transcript (#54); everything else reads the window,
+  // which is where the session-level state lives.
+  const { transcript: recentWindow, history } = connection
   const items = useMemo(() => {
-    const derived = connection.transcript ? deriveChatViewItems(connection.transcript) : []
+    const visible = visibleTranscript({ transcript: recentWindow, history })
+    const derived = visible ? deriveChatViewItems(visible) : []
     return focusMode ? focusChatViewItems(derived) : derived
-  }, [connection.transcript, focusMode])
+  }, [recentWindow, history, focusMode])
   const status = connection.transcript ? chatStatusSummary(connection.transcript) : null
   const pending = pendingRequest(connection)
 
@@ -155,6 +161,33 @@ export default function ChatScreen({
   }, [])
   useEffect(() => {
     if (following.current) endRef.current?.scrollIntoView()
+  }, [items])
+
+  // Older entries land *above* what the reader is looking at, so keep that still: remember where the
+  // first item sits, and when a page has been put in front of it, scroll by however far it moved.
+  // Done by hand rather than left to the browser's scroll anchoring, which not every phone has.
+  const transcriptRef = useRef<HTMLDivElement | null>(null)
+  const firstItem = useRef<{ key: string; top: number } | null>(null)
+  useLayoutEffect(() => {
+    const root = transcriptRef.current
+    const previous = firstItem.current
+    const first = root?.querySelector<HTMLElement>('[data-item-key]') ?? null
+    if (root && previous && first && first.dataset.itemKey !== previous.key) {
+      const moved = Array.from(root.querySelectorAll<HTMLElement>('[data-item-key]')).find(
+        (element) => element.dataset.itemKey === previous.key
+      )
+      const shift = moved ? moved.getBoundingClientRect().top - previous.top : 0
+      if (shift !== 0) window.scrollBy(0, shift)
+    }
+    const remember = (): void => {
+      const element = transcriptRef.current?.querySelector<HTMLElement>('[data-item-key]')
+      firstItem.current = element?.dataset.itemKey
+        ? { key: element.dataset.itemKey, top: element.getBoundingClientRect().top }
+        : null
+    }
+    remember()
+    window.addEventListener('scroll', remember, { passive: true })
+    return () => window.removeEventListener('scroll', remember)
   }, [items])
 
   return (
@@ -204,7 +237,8 @@ export default function ChatScreen({
         </p>
       )}
 
-      <div className="transcript" data-stale={connection.phase === 'reconnecting' || undefined}>
+      <div ref={transcriptRef} className="transcript" data-stale={connection.phase === 'reconnecting' || undefined}>
+        <HistoryLoader connection={connection} />
         {items.map((item) => (
           <TranscriptItem key={item.key} item={item} connection={connection} />
         ))}
@@ -625,6 +659,54 @@ function Composer({ connection, host }: { connection: ChatConnection; host: Save
 }
 
 /**
+ * The top of a long chat (#54): the window a snapshot carries is only the most recent part, and
+ * this is where the rest is fetched, a page at a time. It loads by itself once it scrolls into view
+ * - the observer is rebuilt whenever another page becomes askable, and a new observer reports at
+ * once, so a reader parked at the top keeps loading until it leaves the screen - and is a button as
+ * well, for a browser without `IntersectionObserver` and for retrying a refusal.
+ */
+function HistoryLoader({ connection }: { connection: ChatConnection }): JSX.Element | null {
+  const sentinel = useRef<HTMLDivElement | null>(null)
+  const available = historyAvailable(connection)
+  const request = connection.historyRequest
+  const askable = available && connection.phase === 'live' && request.status === 'idle'
+  // What the reader holds, so the observer is rebuilt after each page lands, not only on a toggle.
+  const oldest = connection.history?.start ?? connection.windowStart
+  const { onLoadHistory } = connection
+  useEffect(() => {
+    const element = sentinel.current
+    if (!askable || !element || typeof IntersectionObserver === 'undefined') return
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) onLoadHistory()
+    })
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [askable, oldest, onLoadHistory])
+
+  if (!available) return null
+  return (
+    <div ref={sentinel} className="history-loader">
+      {request.status === 'loading' ? (
+        <p className="activity-note" role="status">
+          Loading earlier messages…
+        </p>
+      ) : (
+        <>
+          {request.status === 'failed' && (
+            <p className="activity-note send-error" role="alert">
+              {request.message}
+            </p>
+          )}
+          <button type="button" className="history-load" disabled={connection.phase !== 'live'} onClick={onLoadHistory}>
+            {request.status === 'failed' ? 'Try again' : 'Load earlier messages'}
+          </button>
+        </>
+      )}
+    </div>
+  )
+}
+
+/**
  * One tool call: its summary line and preview always, and its whole body once the reader opens it.
  * The transcript only carries a slim copy of the call, so opening is a request over the socket
  * (`onOpenActivity`) and closing forgets the answer - whether the card is open is the connection's
@@ -641,7 +723,7 @@ function ActivityCard({
   const open = body !== undefined && body.status !== 'failed'
   const text = body?.status === 'loaded' ? activityBodyText(body.activity) : null
   return (
-    <div className="activity-card" data-state={item.state} data-open={open || undefined}>
+    <div className="activity-card" data-item-key={item.key} data-state={item.state} data-open={open || undefined}>
       <button
         type="button"
         className="activity"
@@ -680,7 +762,7 @@ function ActivityCard({
 function TranscriptItem({ item, connection }: { item: ChatViewItem; connection: ChatConnection }): JSX.Element {
   if (item.type === 'reasoning') {
     return (
-      <p className="reasoning" data-streaming={item.streaming || undefined}>
+      <p className="reasoning" data-item-key={item.key} data-streaming={item.streaming || undefined}>
         {item.streaming ? 'Thinking…' : 'Thought for a while'}
       </p>
     )
@@ -688,14 +770,14 @@ function TranscriptItem({ item, connection }: { item: ChatViewItem; connection: 
   if (item.type === 'activity') return <ActivityCard item={item} connection={connection} />
   if (item.type === 'outcome') {
     return (
-      <p className="turn-outcome" data-status={item.status}>
+      <p className="turn-outcome" data-item-key={item.key} data-status={item.status}>
         {item.status === 'failed' ? 'Turn failed' : 'Turn cancelled'} — {item.message}
       </p>
     )
   }
   if (item.role === 'user') {
     return (
-      <div className="bubble user">
+      <div className="bubble user" data-item-key={item.key}>
         <Markdown remarkPlugins={[remarkGfm, remarkHardBreaks]}>{item.text}</Markdown>
       </div>
     )
@@ -703,6 +785,7 @@ function TranscriptItem({ item, connection }: { item: ChatViewItem; connection: 
   return (
     <div
       className="bubble assistant"
+      data-item-key={item.key}
       data-provisional={!item.final || undefined}
       data-streaming={item.streaming || undefined}
     >
