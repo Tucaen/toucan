@@ -246,7 +246,13 @@ async function main() {
       const needle = key === 'files' ? filters.file : key.endsWith('failures') ? filters.failure : undefined
       sections[key] = needle !== undefined && !include.includes(key) ? matchingLines(content, needle) : content
     }
-    return { file: name, ...record.fields, ...(Object.keys(sections).length > 0 ? { sections } : {}) }
+    const turns = Number(record.fields.turns)
+    return {
+      file: name,
+      ...record.fields,
+      ...(Number.isInteger(turns) ? { turns } : {}),
+      ...(Object.keys(sections).length > 0 ? { sections } : {})
+    }
   })
 
   finish(

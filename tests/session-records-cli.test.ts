@@ -190,6 +190,7 @@ test('a hit is the frontmatter plus the file name; --include adds whole sections
   assert.equal(hit.key, 'claude-cccccccc-3')
   assert.equal(hit.project, 'D:\\Dev\\alpha')
   assert.equal(hit.status, 'completed')
+  assert.equal(hit.turns, 2)
   assert.deepEqual(hit.sections, { task: 'Do the thing.', files: '- README.md' })
 })
 
