@@ -197,6 +197,8 @@ import {
   type NodeGeometry
 } from './node-snap'
 import { NodeFitContext } from './node-fit-context'
+import { SessionMessagingContext, useSessionMessaging } from './session-messaging-context'
+import { messagingEdges, messagingKey } from './session-messaging-view'
 import { nodeSearchKeyAction } from './node-search'
 import { NodeSearchContext, NO_NODE_SEARCH_REQUEST, type NodeSearchRequest } from './node-search-context'
 import { useNodeSnap, type NodeSnapCanvases } from './use-node-snap'
@@ -1006,13 +1008,21 @@ function Canvas(): JSX.Element {
    */
   const lineage = lineageKey(nodes)
   const orchestrated = orchestratedKey(nodes)
+  const sessionMessaging = useSessionMessaging(window.sessionMessagingApi)
+  const messaging = messagingKey(sessionMessaging.view)
   const canvasEdges = useMemo(
-    () => [...edges, ...lineageEdges(nodesRef.current), ...orchestratedEdges(nodesRef.current)],
+    () => [
+      ...edges,
+      ...lineageEdges(nodesRef.current),
+      ...orchestratedEdges(nodesRef.current),
+      // Temporary: an edge lives only while its ask is open (session-messaging-view.ts).
+      ...messagingEdges(sessionMessaging.view, new Set(nodesRef.current.map((node) => node.id)))
+    ],
     // `lineage` stands in for `nodes` deliberately: it changes only when a node or a `branchedFrom`
     // does, so dragging a node does not rebuild the projection on every pointer frame. The rule
     // cannot see that, because the memo reads `nodesRef.current` rather than `nodes`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [edges, lineage, orchestrated]
+    [edges, lineage, orchestrated, messaging]
   )
 
   const edgeSplitRef = useRef<WorktreeCanvasEdges | undefined>(undefined)
@@ -3030,34 +3040,35 @@ function Canvas(): JSX.Element {
                 />
 
                 <section ref={canvasRegionRef} className="canvas-region">
-                  <NodeFitContext.Provider value={nodeFit.toggle}>
-                    <NodeSearchContext.Provider value={nodeSearchRequest}>
-                      <OpenFileContext.Provider value={openFileFromCard}>
-                        <WorktreeCanvasContext.Provider value={worktreeCanvasHost}>
-                          <SessionConnectionsProvider
-                            nodes={nodes}
-                            edges={canvasEdges}
-                            onConnect={connectTerminalContext}
-                            onDisconnect={disconnectTerminalContext}
-                            onReveal={focusNode}
-                          >
-                            <ReactFlow
-                              nodes={canvasPartition.main}
-                              nodeTypes={nodeTypes}
-                              edges={canvasEdgeSplit.main}
-                              onEdgesChange={onEdgesChange}
+                  <SessionMessagingContext.Provider value={sessionMessaging}>
+                    <NodeFitContext.Provider value={nodeFit.toggle}>
+                      <NodeSearchContext.Provider value={nodeSearchRequest}>
+                        <OpenFileContext.Provider value={openFileFromCard}>
+                          <WorktreeCanvasContext.Provider value={worktreeCanvasHost}>
+                            <SessionConnectionsProvider
+                              nodes={nodes}
+                              edges={canvasEdges}
                               onConnect={connectTerminalContext}
-                              isValidConnection={isValidCanvasConnection}
-                              onNodesChange={handleNodesChange}
-                              onNodeClick={followClickedNodeProject}
-                              onPaneContextMenu={openContextMenu}
-                              onPaneClick={() => {
-                                setMenu(null)
-                                clearSelectionOutside(null)
-                              }}
-                              minZoom={0.25}
-                              maxZoom={2}
-                              /* Plain wheel is reserved for scrolling inside nodes; only a Ctrl-held
+                              onDisconnect={disconnectTerminalContext}
+                              onReveal={focusNode}
+                            >
+                              <ReactFlow
+                                nodes={canvasPartition.main}
+                                nodeTypes={nodeTypes}
+                                edges={canvasEdgeSplit.main}
+                                onEdgesChange={onEdgesChange}
+                                onConnect={connectTerminalContext}
+                                isValidConnection={isValidCanvasConnection}
+                                onNodesChange={handleNodesChange}
+                                onNodeClick={followClickedNodeProject}
+                                onPaneContextMenu={openContextMenu}
+                                onPaneClick={() => {
+                                  setMenu(null)
+                                  clearSelectionOutside(null)
+                                }}
+                                minZoom={0.25}
+                                maxZoom={2}
+                                /* Plain wheel is reserved for scrolling inside nodes; only a Ctrl-held
                            wheel moves the canvas, so a stray scroll over the pane never zooms.
                            Ctrl is the whole gate - a trackpad pinch arrives as one too, which is
                            what `zoomOnPinch` then lets through. `preventScrolling` has to go with
@@ -3066,21 +3077,22 @@ function Canvas(): JSX.Element {
                            gesture for. Nodes can then leave the wheel alone entirely - no
                            `nowheel`, no stopPropagation - so a Ctrl+wheel over a transcript or a
                            grown composer still zooms. */
-                              zoomOnScroll={false}
-                              zoomOnPinch
-                              panOnScroll={false}
-                              preventScrolling={false}
-                              defaultViewport={{ x: 0, y: 0, zoom: 1 }}
-                              colorMode="dark"
-                              deleteKeyCode={['Backspace', 'Delete']}
-                            >
-                              <Background variant={BackgroundVariant.Dots} gap={24} size={1.2} color="#303744" />
-                            </ReactFlow>
-                          </SessionConnectionsProvider>
-                        </WorktreeCanvasContext.Provider>
-                      </OpenFileContext.Provider>
-                    </NodeSearchContext.Provider>
-                  </NodeFitContext.Provider>
+                                zoomOnScroll={false}
+                                zoomOnPinch
+                                panOnScroll={false}
+                                preventScrolling={false}
+                                defaultViewport={{ x: 0, y: 0, zoom: 1 }}
+                                colorMode="dark"
+                                deleteKeyCode={['Backspace', 'Delete']}
+                              >
+                                <Background variant={BackgroundVariant.Dots} gap={24} size={1.2} color="#303744" />
+                              </ReactFlow>
+                            </SessionConnectionsProvider>
+                          </WorktreeCanvasContext.Provider>
+                        </OpenFileContext.Provider>
+                      </NodeSearchContext.Provider>
+                    </NodeFitContext.Provider>
+                  </SessionMessagingContext.Provider>
                 </section>
 
                 <WorkspacePanels

@@ -84,6 +84,9 @@ import CheckoutBranchChip from './CheckoutBranchChip'
 import { useCheckoutBranch } from './use-checkout-branch'
 import { describeGitBranch } from '../../shared/git-branch'
 import { ProviderRateLimitsContext } from './provider-rate-limits'
+import { SessionMessagingContext } from './session-messaging-context'
+import { SessionMessagingEntries, SessionMessagingNotices, type ChatMessagingProps } from './SessionMessagingEntries'
+import { messagingEntriesFor, messagingNoticesFor } from './session-messaging-view'
 import { describeSessionUsage } from '../../shared/session-usage'
 import VoiceInput from './VoiceInput'
 import { dictationContext } from './voice-transcript'
@@ -275,6 +278,8 @@ export interface ChatViewProps {
   pending: ChatPendingProps
   session: ChatSessionProps
   search?: ChatSearchProps
+  /** Sibling-session messages (#3): the labelled entries and refusal notices of this session. */
+  messaging?: ChatMessagingProps
 }
 
 const providerNames = { claude: 'Claude', codex: 'Codex' } as const
@@ -918,7 +923,7 @@ function useStickToBottom(followDeps: readonly unknown[]): {
 }
 
 export function ChatView(groups: ChatViewProps): JSX.Element {
-  const { transcript, composer, pending, session, search } = groups
+  const { transcript, composer, pending, session, search, messaging } = groups
   // A subagent's tool calls arrive in the same flat feed as the parent's own; these two say
   // which card each one belongs to. Both are keyed on the ids the adapter reported, never on
   // ordering, so an activity always renders somewhere (see `worklog-activities.ts`).
@@ -933,6 +938,8 @@ export function ChatView(groups: ChatViewProps): JSX.Element {
     transcript.activities,
     transcript.outcomes,
     transcript.plan,
+    messaging?.entries,
+    messaging?.notices,
     session.focusMode,
     pending.approval,
     session.status
@@ -1055,6 +1062,10 @@ export function ChatView(groups: ChatViewProps): JSX.Element {
                   ) : (
                     <ChatMessageCard key={item.entry.key} message={item.entry.message} />
                   )
+                )}
+                {messaging && <SessionMessagingEntries entries={messaging.entries} />}
+                {messaging && (
+                  <SessionMessagingNotices notices={messaging.notices} dismissNotice={messaging.dismissNotice} />
                 )}
                 {!session.focusMode && transcript.plan.length > 0 && <PlanCard plan={transcript.plan} />}
                 <ApprovalPanel approval={pending.approval} resolveApproval={pending.resolveApproval} />
@@ -1200,6 +1211,15 @@ export default function ChatNode({ id, data, selected, width }: NodeProps<Termin
   // Account usage belongs to the provider, so it arrives from App's single poll rather than from
   // this node asking for it (see provider-rate-limits.ts).
   const rateLimits = useContext(ProviderRateLimitsContext)[provider] ?? null
+  const sessionMessaging = useContext(SessionMessagingContext)
+  const messaging = useMemo(
+    () => ({
+      entries: messagingEntriesFor(sessionMessaging.view, id),
+      notices: messagingNoticesFor(sessionMessaging.view, id),
+      dismissNotice: sessionMessaging.dismissNotice
+    }),
+    [sessionMessaging, id]
+  )
   // Recomputed only when a turn reports new usage or the account poll returns, never per chunk.
   const usageReadout = useMemo(() => describeSessionUsage({ usage, rateLimits }), [usage, rateLimits])
   // The branch of the checkout this node actually runs in - the project's, or its worktree's if
@@ -1517,6 +1537,7 @@ export default function ChatNode({ id, data, selected, width }: NodeProps<Termin
       ) : (
         <>
           <ChatView
+            messaging={messaging}
             transcript={{
               provider,
               messages: conversation.messages,

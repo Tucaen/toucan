@@ -8504,3 +8504,59 @@ button.worktree-agent-unread:focus-visible {
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+
+/* Sibling-session messaging (#3): the temporary edge while an ask is open, and the labelled
+   entries and refusal notices in a chat. */
+.react-flow__edge.messaging-edge .react-flow__edge-path {
+  stroke: #6fb7c9;
+  stroke-width: 1.5;
+  stroke-dasharray: 6 4;
+}
+
+.session-message {
+  margin: 0 0 15px;
+  padding: 9px 11px;
+  border: 1px solid #3f6f7c;
+  border-radius: 8px;
+  background: color-mix(in srgb, #3f6f7c 12%, #1d222b);
+}
+
+.session-message[data-tone='reply'] {
+  border-color: #4f7c55;
+  background: color-mix(in srgb, #4f7c55 12%, #1d222b);
+}
+
+.session-message[data-tone='implicit'],
+.session-message[data-tone='closed'],
+.session-message[data-tone='dropped'] {
+  border-color: #8a7a46;
+  background: color-mix(in srgb, #8a7a46 12%, #1d222b);
+}
+
+.session-message > strong {
+  display: block;
+  margin-bottom: 5px;
+  color: #d8dee7;
+  font-size: 11px;
+}
+
+.session-message-status {
+  display: block;
+  margin-top: 5px;
+  color: #aeb7c3;
+  font-size: 11px;
+}
+
+.session-message-notice {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 0 15px;
+  padding: 9px 11px;
+  border: 1px solid #8c4f55;
+  border-radius: 8px;
+  background: color-mix(in srgb, #8c4f55 12%, #1d222b);
+  color: #efb0b3;
+  font-size: 12px;
+}

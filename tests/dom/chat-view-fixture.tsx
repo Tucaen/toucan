@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import type { ChatMessagingProps } from '../../src/renderer/src/SessionMessagingEntries'
 import {
   ChatView,
   type ChatComposerProps,
@@ -20,6 +21,7 @@ export type TestChatViewProps = ChatTranscriptProps &
     onDraftChange?(text: string): void
     sendMessage(text: string): void
     search?: ChatSearchProps
+    messaging?: ChatMessagingProps
   }
 
 /** Keeps behavior-oriented tests concise while production callers use the cohesive contracts. */
@@ -28,6 +30,7 @@ export function TestChatView(props: TestChatViewProps): JSX.Element {
   const [ownDraft, setOwnDraft] = useState('')
   return (
     <ChatView
+      messaging={props.messaging}
       transcript={{
         provider: props.provider,
         messages: props.messages,
