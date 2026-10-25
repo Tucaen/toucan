@@ -60,6 +60,13 @@ import {
 } from '../shared/orchestration'
 import { SESSION_RECORDS_CLI_PATH, sessionOutcomeIndexInstruction } from '../shared/session-outcome'
 import {
+  MESSAGING_TOKEN_ENV,
+  MESSAGING_URL_ENV,
+  SESSION_MESSAGING_CLI_PATH,
+  SESSION_MESSAGING_SKILL_DIRECTORY,
+  sessionMessagingInstruction
+} from '../shared/session-messaging'
+import {
   appliedClaudeDelegation,
   appliedCodexDelegation,
   claudeDelegationSessionMeta,
@@ -87,6 +94,7 @@ import {
 import { createPromptWakeGate, type PromptWakeGate } from './prompt-wake-gate'
 import type { TerminalContextMcp } from './terminal-context-mcp'
 import type { OrchestratorEndpoint, OrchestratorGrant } from './orchestrator-endpoint'
+import type { MessagingEndpoint, MessagingGrant } from './messaging-endpoint'
 import type { SessionOutcomeIndexer, SessionOutcomeWatch } from './session-outcome-indexer'
 import { AGENT_CHANNELS } from '../shared/ipc-channels'
 import { openWebUrl } from './open-web-url'
@@ -488,6 +496,11 @@ interface RunningAgent {
    * revokes this launch's token and never a relaunch's.
    */
   orchestratorGrant?: OrchestratorGrant
+  /**
+   * The session-messaging token this agent was launched with (#2), revoked through this handle like
+   * the orchestrator's: a late-exiting old child cannot revoke a relaunch's token.
+   */
+  messagingGrant?: MessagingGrant
   /**
    * The command guard files this agent was created with, or null when it runs unguarded: the node
    * opted out (`request.commandGuard === false`, ticket 04) or the user switched the guard off for
@@ -1023,6 +1036,12 @@ export interface AcpSessionManagerOptions {
    */
   orchestrator?: Pick<OrchestratorEndpoint, 'grant'>
   /**
+   * The session-messaging endpoint (`messaging-endpoint.ts`, #2), asked for a grant by every
+   * session's launch: its token names the node, so the endpoint knows which session calls. Absent,
+   * sessions carry neither the token nor the messaging instruction.
+   */
+  messaging?: Pick<MessagingEndpoint, 'grant'>
+  /**
    * The project checkout behind a session's cwd - the main checkout when it runs in a worktree.
    * An orchestrator's grant is scoped to it, so a relaunch in a worktree still reaches its record.
    */
@@ -1059,6 +1078,14 @@ export function sessionOutcomeInstructionFor(directory: string, skillsRoot: stri
 }
 
 /**
+ * The messaging pointer, naming the CLI by absolute path for the same reason the outcome pointer
+ * does: a session's cwd is the user's project, not Toucan's checkout.
+ */
+function sessionMessagingInstructionFor(skillsRoot: string): string {
+  return sessionMessagingInstruction(join(skillsRoot, PROJECT_SKILLS_DIRECTORY, ...SESSION_MESSAGING_CLI_PATH))
+}
+
+/**
  * The environment an agent runs in. The node's identity travels with it so work the agent
  * starts outside Toucan's sight - a worktree it creates for itself - can name the node that
  * asked for it. One function builds it, because a node id that reaches only the record kept
@@ -1068,12 +1095,20 @@ export function sessionOutcomeInstructionFor(directory: string, skillsRoot: stri
 export function agentProcessEnvironment(
   environment: NodeJS.ProcessEnv,
   nodeId: string,
-  orchestrator?: OrchestratorGrant['environment']
+  orchestrator?: OrchestratorGrant['environment'],
+  messaging?: MessagingGrant['environment']
 ): NodeJS.ProcessEnv {
   // Removed first, always: a Toucan started from an orchestrator's own shell (a dev build under
-  // test) inherits that orchestrator's token, and must never hand it to an ordinary session.
-  const { [ORCHESTRATOR_URL_ENV]: _inheritedUrl, [ORCHESTRATOR_TOKEN_ENV]: _inheritedToken, ...inherited } = environment
-  return { ...inherited, TOUCAN_NODE_ID: nodeId, ...orchestrator }
+  // test) inherits that orchestrator's token, and must never hand it to an ordinary session - nor
+  // the messaging token of whichever session started it, which would let it speak as that node.
+  const {
+    [ORCHESTRATOR_URL_ENV]: _inheritedUrl,
+    [ORCHESTRATOR_TOKEN_ENV]: _inheritedToken,
+    [MESSAGING_URL_ENV]: _inheritedMessagingUrl,
+    [MESSAGING_TOKEN_ENV]: _inheritedMessagingToken,
+    ...inherited
+  } = environment
+  return { ...inherited, TOUCAN_NODE_ID: nodeId, ...orchestrator, ...messaging }
 }
 
 export function promptFailure(
@@ -1400,6 +1435,15 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
                 sessionOutcomesDirectory,
                 join(toucanSkillsRoot ?? options.appPath, PROJECT_SKILLS_DIRECTORY, 'skills', 'session-records')
               ]
+            : []),
+          ...(options.messaging
+            ? [
+                join(
+                  toucanSkillsRoot ?? options.appPath,
+                  PROJECT_SKILLS_DIRECTORY,
+                  ...SESSION_MESSAGING_SKILL_DIRECTORY
+                )
+              ]
             : [])
         ]
       )
@@ -1425,6 +1469,15 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         running.decisionDelegation?.status === 'configured'
           ? withSessionInstruction(skillsConfiguration, decisionDelegationInstruction())
           : skillsConfiguration
+      // Every Claude session when messaging is wired, the orchestrator's included: it may ask, even
+      // though it is never asked. Codex carries the same pointer in its CODEX_CONFIG at launch.
+      const messagingConfiguration =
+        running.request.provider === 'claude' && options.messaging
+          ? withSessionInstruction(
+              decidingConfiguration,
+              sessionMessagingInstructionFor(toucanSkillsRoot ?? options.appPath)
+            )
+          : decidingConfiguration
       // An orchestrator's first prompt is its task; what to do with it rides the system prompt, so
       // no slash command is needed. Carried by role, even if the grant failed: the CLI then says
       // plainly that the token is missing rather than the session not knowing it orchestrates.
@@ -1433,11 +1486,11 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         running.request.provider === 'claude' && isOrchestrator(running.request)
           ? withOrchestratorToolLimits(
               withSessionInstruction(
-                decidingConfiguration,
+                messagingConfiguration,
                 orchestratorInstructionFor(toucanSkillsRoot ?? options.appPath)
               )
             )
-          : decidingConfiguration
+          : messagingConfiguration
       // Every Claude session, not only ticket sessions: the outcome record and the renderer's final
       // answer depend on the boundary of an autonomous cycle as much as the orchestrator's wake does.
       // The guard alone is optional (`RunningAgent.commandGuard`). The forwarded messages are not a
@@ -1613,6 +1666,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
     running.pendingElicitations.clear()
     running.authChild?.kill()
     running.orchestratorGrant?.revoke()
+    running.messagingGrant?.revoke()
     running.connection.close()
     running.process.kill()
     agents.delete(id)
@@ -1799,13 +1853,20 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
             projectPath: (await options.projectPathFor?.(request.cwd)) ?? request.cwd
           })
         : undefined
-      // The node was closed while its guard preferences or grant were pending: nothing holds the
-      // handle to revoke the grant.
+      const messagingGrant = options.messaging ? await options.messaging.grant(request.id) : undefined
+      // The node was closed while its guard preferences or grants were pending: nothing holds the
+      // handles to revoke the grants.
       if ((stopCounts.get(request.id) ?? 0) !== stopsBeforeGrant) {
         orchestratorGrant?.revoke()
+        messagingGrant?.revoke()
         return { ok: false, status: 'error', message: 'The session was stopped while it was starting.' }
       }
-      const baseEnvironment = agentProcessEnvironment(environment, request.id, orchestratorGrant?.environment)
+      const baseEnvironment = agentProcessEnvironment(
+        environment,
+        request.id,
+        orchestratorGrant?.environment,
+        messagingGrant?.environment
+      )
       const delegatingEnvironment =
         request.provider === 'codex' && delegation?.status === 'configured'
           ? withCodexDelegationEnvironment(baseEnvironment, delegation)
@@ -1821,12 +1882,18 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
               )
             })
           : delegatingEnvironment
-      const orchestratingEnvironment =
-        request.provider === 'codex' && isOrchestrator(request)
+      const messagingEnvironment =
+        request.provider === 'codex' && options.messaging
           ? withCodexSessionConfig(outcomeEnvironment, {
-              developer_instructions: orchestratorInstructionFor(toucanSkillsRoot ?? options.appPath)
+              developer_instructions: sessionMessagingInstructionFor(toucanSkillsRoot ?? options.appPath)
             })
           : outcomeEnvironment
+      const orchestratingEnvironment =
+        request.provider === 'codex' && isOrchestrator(request)
+          ? withCodexSessionConfig(messagingEnvironment, {
+              developer_instructions: orchestratorInstructionFor(toucanSkillsRoot ?? options.appPath)
+            })
+          : messagingEnvironment
       // Beside `CODEX_CONFIG`, not in it: Codex ignores hooks there (`command-guard.ts`). Without a
       // bundled binary the adapter's own `codex.js` cannot start Codex either, so the launch goes
       // ahead and fails the way it always has rather than for a new reason.
@@ -2021,6 +2088,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         ...(delegation ? { routineDelegation: delegation } : {}),
         ...(decisionDelegation ? { decisionDelegation } : {}),
         ...(orchestratorGrant ? { orchestratorGrant } : {}),
+        ...(messagingGrant ? { messagingGrant } : {}),
         commandGuard: guardFiles,
         cachedModels,
         pendingApprovals,
@@ -2066,8 +2134,9 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       })
       child.on('exit', (code, signal) => {
         if (agents.get(request.id) === running) agents.delete(request.id)
-        // A token outlives nothing: no process, no orchestrator to act for.
+        // A token outlives nothing: no process, no orchestrator to act for, no session to speak as.
         running.orchestratorGrant?.revoke()
+        running.messagingGrant?.revoke()
         // An adapter that fell over on its own retires no broker channel, so this is the only
         // place the index hears that the session is over. `stop` reaches the same call through
         // `broker.close`, and finalizing twice rewrites the same record.

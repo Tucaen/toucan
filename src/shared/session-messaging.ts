@@ -22,7 +22,7 @@ export const MESSAGING_COMMANDS = ['list', 'ask', 'reply'] as const
 export type MessagingCommand = (typeof MESSAGING_COMMANDS)[number]
 
 /** How many characters of a node id address a session: the length an outcome record's short id has. */
-export const SESSION_MESSAGING_SHORT_ID_LENGTH = 8
+const SESSION_MESSAGING_SHORT_ID_LENGTH = 8
 
 export function sessionMessagingShortId(nodeId: string): string {
   return nodeId.slice(0, SESSION_MESSAGING_SHORT_ID_LENGTH)
@@ -282,3 +282,10 @@ export function sessionMessagingInstruction(cliPath: string): string {
  */
 export type SessionMessagingEvent =
   { type: 'message'; message: SessionMessage } | { type: 'notice'; nodeId: string; text: string; at: string }
+
+/** The canvas's reach into messaging: read-only, since no message waits on a human's approval. */
+export interface SessionMessagingApi {
+  /** Every open message - queued ones and asks still waiting for an answer - for a canvas joining late. */
+  open(): Promise<SessionMessage[]>
+  onEvent(listener: (event: SessionMessagingEvent) => void): () => void
+}

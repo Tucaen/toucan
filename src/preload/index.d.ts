@@ -20,6 +20,7 @@ import type { DictationCleanupApi } from '../shared/dictation-cleanup'
 import type { OrchestratorApi } from '../shared/ticket-session-spawn'
 import type { CommandGuardSettingsApi } from '../shared/command-guard-settings'
 import type { OrchestrationSettingsApi } from '../shared/orchestration-settings'
+import type { SessionMessagingApi } from '../shared/session-messaging'
 
 /**
  * Only the `Window` augmentation lives here. Every `*Api` contract is a shared type that
@@ -47,6 +48,7 @@ declare global {
     ticketSkillApi: TicketSkillApi
     githubIssuesApi: TicketGithubApi
     decisionDelegationApi: DecisionDelegationApi
+    sessionMessagingApi: SessionMessagingApi
     fileViewApi: FileViewApi
     appUpdateApi: AppUpdateApi
     voiceModelApi: VoiceModelApi

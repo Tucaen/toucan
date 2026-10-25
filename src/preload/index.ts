@@ -23,11 +23,13 @@ import type { DictationCleanupApi } from '../shared/dictation-cleanup'
 import type { OrchestratorApi, TicketSessionCanvasRequest } from '../shared/ticket-session-spawn'
 import type { CommandGuardSettingsApi } from '../shared/command-guard-settings'
 import type { OrchestrationSettingsApi } from '../shared/orchestration-settings'
+import type { SessionMessagingApi, SessionMessagingEvent } from '../shared/session-messaging'
 import {
   DICTATION_CLEANUP_CHANNELS,
   COMMAND_GUARD_SETTINGS_CHANNELS,
   ORCHESTRATION_SETTINGS_CHANNELS,
-  ORCHESTRATOR_CHANNELS
+  ORCHESTRATOR_CHANNELS,
+  SESSION_MESSAGING_CHANNELS
 } from '../shared/ipc-channels'
 import {
   ADAPTER_CHANNELS,
@@ -278,6 +280,12 @@ const decisionDelegationApi: DecisionDelegationApi = {
 }
 
 contextBridge.exposeInMainWorld('decisionDelegationApi', decisionDelegationApi)
+
+const sessionMessagingApi: SessionMessagingApi = {
+  open: () => ipcRenderer.invoke(SESSION_MESSAGING_CHANNELS.open),
+  onEvent: (listener) => subscribe(SESSION_MESSAGING_CHANNELS.event, (event: SessionMessagingEvent) => listener(event))
+}
+contextBridge.exposeInMainWorld('sessionMessagingApi', sessionMessagingApi)
 
 const githubIssuesApi: TicketGithubApi = {
   availability: (projectPath) => ipcRenderer.invoke(GITHUB_ISSUES_CHANNELS.availability, projectPath),

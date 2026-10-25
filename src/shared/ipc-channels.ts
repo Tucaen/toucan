@@ -158,6 +158,12 @@ export const TICKET_CHANNELS = {
   revealSkill: 'tickets:reveal-skill'
 } as const
 
+/** Sibling-session messaging (#2): open messages on request, every change pushed as it happens. */
+export const SESSION_MESSAGING_CHANNELS = {
+  open: 'session-messaging:open',
+  event: 'session-messaging:event'
+} as const
+
 export const DECISION_DELEGATION_CHANNELS = {
   availability: 'decision-delegation:availability'
 } as const

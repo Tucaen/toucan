@@ -8,8 +8,10 @@ import {
   ADAPTER_CHANNELS,
   ORCHESTRATION_SETTINGS_CHANNELS,
   ORCHESTRATOR_CHANNELS,
+  SESSION_MESSAGING_CHANNELS,
   USAGE_CHANNELS
 } from '../shared/ipc-channels'
+import { latestTurnAnswer } from '../shared/session-messaging'
 import { pathIdentity } from '../shared/paths'
 import {
   isTicketSessionCanvasResult,
@@ -33,6 +35,10 @@ import { createOrchestrationWaker } from './orchestration-wake'
 import { ORCHESTRATOR_ROLE, pacingDeferral, startableTickets, type OrchestrationRecord } from '../shared/orchestration'
 import { createOrchestrationController, type OrchestrationSession } from './orchestration-control'
 import { createOrchestratorEndpoint } from './orchestrator-endpoint'
+import { createMessagingEndpoint } from './messaging-endpoint'
+import { chatNodeIds, createMessagingDirectory } from './session-messaging-directory'
+import { createSessionMessageStore, createSessionMessagingSettingsReader } from './session-messaging-store'
+import { createSessionMessenger } from './session-messenger'
 import { createOrchestrationStartNow } from './orchestration-start-now'
 import { createOrchestrationCleanup } from './orchestration-cleanup'
 import { createOrchestrationMerge } from './orchestration-merge'
@@ -638,6 +644,68 @@ void app.whenReady().then(async () => {
     resumePaused: (key, orchestratorNodeId) => orchestrationController.resumeForForce(key, orchestratorNodeId),
     log: mainLog('orchestrator endpoint')
   })
+  // Sibling-session messaging (#2): a session asks another chat of its project a question through
+  // its CLI, and the answer wakes it later. The messenger decides delivery from the broker's live
+  // state; the endpoint's per-node token tells it which session is calling.
+  const sessionMessenger = createSessionMessenger({
+    store: createSessionMessageStore({
+      path: join(app.getPath('userData'), 'session-messages.json'),
+      log: mainLog('session messaging')
+    }),
+    settings: createSessionMessagingSettingsReader({
+      path: join(app.getPath('userData'), 'session-messaging.json'),
+      log: mainLog('session messaging')
+    }),
+    sessions: {
+      state: (nodeId) => {
+        const snapshot = agentEvents.snapshot(nodeId)
+        return snapshot
+          ? {
+              status: snapshot.status,
+              waitingOnHuman: snapshot.approval !== null || snapshot.decisionRequests.length > 0
+            }
+          : undefined
+      },
+      startPrompt: (nodeId, text) => agentManager.startPrompt(nodeId, text),
+      finalText: (nodeId) => {
+        const snapshot = agentEvents.snapshot(nodeId)
+        return snapshot ? latestTurnAnswer(snapshot) : undefined
+      }
+    },
+    directory: createMessagingDirectory({
+      workspace: async () => (await workspace.load()).state,
+      ticketIdFor: async (node) => {
+        if (!node.orchestratedBy) return undefined
+        const record = await orchestrationRecords.read({
+          provider: orchestratorProvider(node.orchestratedBy),
+          conversationId: node.orchestratedBy.conversationId
+        })
+        return record?.tickets.find((ticket) => ticket.session?.nodeId === node.id)?.id
+      },
+      branchOf: async (path) => (await worktrees.currentBranch(path)).branch,
+      updatedAtFor: async (node) =>
+        node.conversationId && isAgentProvider(node.kind)
+          ? (await sessionOutcomeStore.find({ provider: node.kind, conversationId: node.conversationId }))?.record
+              .updatedAt
+          : undefined
+    }),
+    publish: (event) => {
+      for (const window of BrowserWindow.getAllWindows()) {
+        if (!window.webContents.isDestroyed()) window.webContents.send(SESSION_MESSAGING_CHANNELS.event, event)
+      }
+    },
+    log: mainLog('session messaging')
+  })
+  // Before any session runs: a question whose turn the last run cut short is answered now, and an
+  // ask whose target left the canvas meanwhile is closed.
+  await sessionMessenger.restore()
+  const restoredWorkspace = (await workspace.load().catch(() => undefined))?.state
+  if (restoredWorkspace) sessionMessenger.nodesChanged(chatNodeIds(restoredWorkspace))
+  const messagingEndpoint = createMessagingEndpoint({
+    messenger: sessionMessenger,
+    log: mainLog('session messaging')
+  })
+  ipcMain.handle(SESSION_MESSAGING_CHANNELS.open, () => sessionMessenger.open())
   // The user's command guard preferences (ticket 03), asked by every session as it opens.
   const commandGuardStore = createCommandGuardSettingsStore({
     userDataPath: app.getPath('userData'),
@@ -661,11 +729,13 @@ void app.whenReady().then(async () => {
     terminalContext: terminalContextMcp,
     decisionProviderInstalled,
     orchestrator: orchestratorEndpoint,
+    messaging: messagingEndpoint,
     projectPathFor: checkoutPathFor
   })
   agentEvents.observe((id, event) => {
     orchestrationController.observe(id, event)
     orchestrationWaker.observe(id, event)
+    sessionMessenger.observe(id, event)
     if (event.type === 'status' && event.status === 'ready') orchestratorEndpoint.pacingSessionReady(id)
     if (event.type === 'status' && event.status === 'exited') {
       void orchestrationSessionForNode(id)
@@ -996,7 +1066,16 @@ void app.whenReady().then(async () => {
   registerUsageIpc(providerUsage)
   registerProjectIpc(ipcMain, {
     containment,
-    workspace,
+    // A saved canvas is how main learns a chat node was closed: an ask still waiting on it is
+    // answered "target closed" (#2).
+    workspace: {
+      load: () => workspace.load(),
+      save: async (state) => {
+        const result = await workspace.save(state)
+        if (result.ok) sessionMessenger.nodesChanged(chatNodeIds(state))
+        return result
+      }
+    },
     pickProjectDirectory: async (sender) => {
       const owner = BrowserWindow.fromWebContents(sender as Electron.WebContents)
       const options: Electron.OpenDialogOptions = {
@@ -1096,6 +1175,7 @@ void app.whenReady().then(async () => {
     manager.killAll()
     agentManager.killAll()
     void orchestratorEndpoint.close()
+    void messagingEndpoint.close()
     brainDumpCapture.shutdown()
     brainDumpChanges.shutdown()
     ticketChanges.shutdown()
