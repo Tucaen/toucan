@@ -1058,7 +1058,7 @@ test('tool failures seen by an earlier process survive a restart that no longer 
 })
 
 test('the pointer tells a session the record may carry tool failures (Tucaen/toucan#22)', () => {
-  assert.ok(sessionOutcomeIndexInstruction('D:\\outcomes').includes('## Tool failures'))
+  assert.ok(sessionOutcomeIndexInstruction('D:\\outcomes', 'D:\\query.mjs').includes('## Tool failures'))
 })
 
 test('a ticket session record carries its route as one flat line that round-trips (#36)', () => {

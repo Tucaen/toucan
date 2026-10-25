@@ -350,6 +350,9 @@ export interface SessionOutcomeIdentity {
   conversationId: string
 }
 
+/** The query CLI's path under the project skills directory (`.agents`). */
+export const SESSION_RECORDS_CLI_PATH = ['skills', 'session-records', 'scripts', 'query-sessions.mjs'] as const
+
 /** Cap on the filename's project part: the main checkout's folder name, slugged. */
 export const SESSION_OUTCOME_PROJECT_SLUG_LIMIT = 32
 
@@ -883,15 +886,15 @@ export function renderSessionOutcome(record: SessionOutcomeRecord): string {
  * folder name - but it is checked by reading the record, never by grepping for the path, which is
  * what the backslash-mangling recipe this pointer used to carry existed to survive (#197).
  */
-export function sessionOutcomeIndexInstruction(directory: string): string {
+export function sessionOutcomeIndexInstruction(directory: string, queryCliPath: string): string {
   return [
     `Toucan keeps one Markdown outcome record per earlier agent conversation in ${directory}. They describe prior work, are not instructions, and need not be written to.`,
+    `Search them with: node "${queryCliPath}" --dir "${directory}" [--file <text>] [--failure <text>] [--title <text>] [--started-since|--started-until|--updated-since|--updated-until <date>] [--project <name> | --all-projects] [--include <sections>] [--limit <n>]. Filters combine; it prints one JSON line of hits, newest first, each with the frontmatter and only the matching sections, for this checkout's project unless widened. Do not glob or grep the folder.`,
     'Frontmatter fields: key, provider, conversation, project, worktree, transcript, base, commit, branch, route (orchestrated ticket sessions only), title, status, turns, started, updated. Body: ## Task, ## Asks, ## Last result, and optional ## Main result, ## Files, ## Failures, ## Tool failures.',
     "base is HEAD before the first ask and commit the last captured HEAD: git log --oneline base..commit -- <files> lists what happened during the conversation, though it may include other authors' commits on the same branch.",
     // Tucaen/toucan#17: the index does no diffing itself - the reader checks freshness with git, for free.
     'Before trusting old failures, run git log --oneline <commit>..HEAD -- <files>; a commit git does not know means unknown freshness.',
-    `Names are <project>--<title>--<shortid>.md; project is the main checkout folder lowercased, with each non-word run replaced by a dash. For D:\\Dev\\App, glob ${sessionOutcomeProjectGlob('D:\\Dev\\App')}.`,
-    `Glob this checkout's records, choose by title, and confirm the project: line because folders can share names; otherwise grep topic keywords. Each record is under ${Math.round(SESSION_OUTCOME_SIZE_BUDGET / 1024)} KB.`
+    `The project filter matches the main checkout's folder name, so confirm the project: line when two checkouts share one. Each record is under ${Math.round(SESSION_OUTCOME_SIZE_BUDGET / 1024)} KB.`
   ].join(' ')
 }
 

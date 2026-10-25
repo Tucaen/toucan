@@ -58,7 +58,7 @@ import {
   ORCHESTRATOR_URL_ENV,
   orchestratorInstruction
 } from '../shared/orchestration'
-import { sessionOutcomeIndexInstruction } from '../shared/session-outcome'
+import { SESSION_RECORDS_CLI_PATH, sessionOutcomeIndexInstruction } from '../shared/session-outcome'
 import {
   appliedClaudeDelegation,
   appliedCodexDelegation,
@@ -1047,6 +1047,18 @@ export function orchestratorInstructionFor(skillsRoot: string): string {
 }
 
 /**
+ * The outcome-record pointer, naming the query CLI by absolute path for the same reason the
+ * orchestrator's is: a session's cwd is the user's project, not Toucan's checkout.
+ * @internal exported for tests
+ */
+export function sessionOutcomeInstructionFor(directory: string, skillsRoot: string): string {
+  return sessionOutcomeIndexInstruction(
+    directory,
+    join(skillsRoot, PROJECT_SKILLS_DIRECTORY, ...SESSION_RECORDS_CLI_PATH)
+  )
+}
+
+/**
  * The environment an agent runs in. The node's identity travels with it so work the agent
  * starts outside Toucan's sight - a worktree it creates for itself - can name the node that
  * asked for it. One function builds it, because a node id that reaches only the record kept
@@ -1383,7 +1395,12 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
           ...(isOrchestrator(running.request)
             ? [join(toucanSkillsRoot ?? options.appPath, PROJECT_SKILLS_DIRECTORY, 'skills', 'orchestrate')]
             : []),
-          ...(sessionOutcomesDirectory ? [sessionOutcomesDirectory] : [])
+          ...(sessionOutcomesDirectory
+            ? [
+                sessionOutcomesDirectory,
+                join(toucanSkillsRoot ?? options.appPath, PROJECT_SKILLS_DIRECTORY, 'skills', 'session-records')
+              ]
+            : [])
         ]
       )
       // Not an orchestrator's: it may not hold its turn with subagents (`ORCHESTRATOR_DISALLOWED_TOOLS`).
@@ -1397,7 +1414,10 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       // this one is Claude-only rather than a provider-neutral step.
       const skillsConfiguration =
         running.request.provider === 'claude' && sessionOutcomesDirectory
-          ? withSessionInstruction(delegatingConfiguration, sessionOutcomeIndexInstruction(sessionOutcomesDirectory))
+          ? withSessionInstruction(
+              delegatingConfiguration,
+              sessionOutcomeInstructionFor(sessionOutcomesDirectory, toucanSkillsRoot ?? options.appPath)
+            )
           : delegatingConfiguration
       // The third and last instruction on the one `_meta.systemPrompt` a session gets. Order is
       // immaterial - `withSessionInstruction` appends - so this simply layers on top.
@@ -1795,7 +1815,10 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       const outcomeEnvironment =
         request.provider === 'codex' && sessionOutcomesDirectory
           ? withCodexSessionConfig(delegatingEnvironment, {
-              developer_instructions: sessionOutcomeIndexInstruction(sessionOutcomesDirectory)
+              developer_instructions: sessionOutcomeInstructionFor(
+                sessionOutcomesDirectory,
+                toucanSkillsRoot ?? options.appPath
+              )
             })
           : delegatingEnvironment
       const orchestratingEnvironment =
