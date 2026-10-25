@@ -1742,3 +1742,111 @@ describe('spawning a chat on a chosen model', () => {
     assert.equal(response.status, 400)
   })
 })
+
+describe('wire compression', () => {
+  const BIG_SHELL = `<!doctype html><title>t</title>${'<p>hello toucan</p>'.repeat(200)}`
+
+  function raw(port: number, path: string, headers: Record<string, string>, method = 'GET'): Promise<Response> {
+    return fetch(`http://127.0.0.1:${port}${path}`, { method, headers })
+  }
+
+  /** Asks for brotli or gzip, as a phone does; `fetch` inflates the reply, so `content-length` is the wire size. */
+  async function wire(port: number, path: string, headers: Record<string, string>): Promise<Response> {
+    return raw(port, path, { 'accept-encoding': 'br, gzip', ...headers })
+  }
+
+  test('a static file is brotli-encoded for a client that accepts it, with a true content-length', async () => {
+    const { server, port } = harness({ clientFiles: { 'index.html': BIG_SHELL } })
+    await server.applySettings({ enabled: true, port: await freePort() })
+
+    const response = await wire(port(), '/index.html', {})
+    assert.equal(response.headers.get('content-encoding'), 'br')
+    assert.equal(response.headers.get('vary'), 'accept-encoding')
+    assert.ok(Number(response.headers.get('content-length')) < Buffer.byteLength(BIG_SHELL) / 4)
+    assert.equal(await response.text(), BIG_SHELL, 'the client still receives the original bytes')
+    assert.ok(response.headers.get('content-security-policy'), 'security headers are untouched')
+  })
+
+  test('gzip is used when brotli is not offered, and identity when nothing is', async () => {
+    const { server, port } = harness({ clientFiles: { 'index.html': BIG_SHELL } })
+    await server.applySettings({ enabled: true, port: await freePort() })
+
+    const gzip = await raw(port(), '/index.html', { 'accept-encoding': 'gzip' })
+    assert.equal(gzip.headers.get('content-encoding'), 'gzip')
+    assert.equal(await gzip.text(), BIG_SHELL)
+
+    const refused = await raw(port(), '/index.html', { 'accept-encoding': 'br;q=0, gzip;q=0' })
+    assert.equal(refused.headers.get('content-encoding'), null)
+    assert.equal(refused.headers.get('vary'), 'accept-encoding')
+    assert.equal(Number(refused.headers.get('content-length')), Buffer.byteLength(BIG_SHELL))
+  })
+
+  test('a small file is sent as it is', async () => {
+    const { server, port } = harness({ clientFiles: { 'index.html': 'shell' } })
+    await server.applySettings({ enabled: true, port: await freePort() })
+
+    const response = await wire(port(), '/index.html', {})
+    assert.equal(response.headers.get('content-encoding'), null)
+    assert.equal(await response.text(), 'shell')
+  })
+
+  test('a HEAD reply is never encoded and keeps the identity length', async () => {
+    const { server, port } = harness({ clientFiles: { 'index.html': BIG_SHELL } })
+    await server.applySettings({ enabled: true, port: await freePort() })
+
+    const response = await raw(port(), '/index.html', { 'accept-encoding': 'br, gzip' }, 'HEAD')
+    assert.equal(response.headers.get('content-encoding'), null)
+    assert.equal(Number(response.headers.get('content-length')), Buffer.byteLength(BIG_SHELL))
+  })
+
+  test('a large API reply is compressed, keeps its CORS headers, and 204s are left alone', async () => {
+    const { server, store, port } = harness()
+    await server.applySettings({ enabled: true, port: await freePort() })
+    server.publishWorkspace({
+      ...CHAT_PROJECTION,
+      projects: Array.from({ length: 80 }, (_, index) => ({
+        ...CHAT_PROJECTION.projects[0]!,
+        id: `project-${index}`,
+        name: `Project number ${index}`
+      }))
+    })
+    const auth = { authorization: `Bearer ${store.read().token}` }
+
+    const plain = await raw(port(), '/api/workspace', auth)
+    const identity = await plain.text()
+    const compressed = await wire(port(), '/api/workspace', auth)
+    assert.equal(compressed.headers.get('content-encoding'), 'br')
+    assert.equal(compressed.headers.get('vary'), 'accept-encoding')
+    assert.ok(compressed.headers.get('access-control-allow-origin'), 'CORS is unchanged')
+    assert.equal(compressed.headers.get('cache-control'), 'no-store')
+    assert.ok(Number(compressed.headers.get('content-length')) < identity.length / 3)
+    assert.equal(await compressed.text(), identity)
+
+    const preflight = await raw(port(), '/api/workspace', { 'accept-encoding': 'br', origin: 'http://x' }, 'OPTIONS')
+    assert.equal(preflight.status, 204)
+    assert.equal(preflight.headers.get('content-encoding'), null)
+  })
+
+  test('the chat socket negotiates permessage-deflate and still enforces the inbound limit', async () => {
+    const chats = createAgentEventBroker()
+    const { server, store } = harness({ chats })
+    await server.applySettings({ enabled: true, port: await freePort() })
+    server.publishWorkspace(CHAT_PROJECTION)
+
+    const socket = new WebSocket(
+      `ws://127.0.0.1:${server.state().boundPort}/api/chats/chat-1`,
+      [REMOTE_CHAT_PROTOCOL, remoteChatBearerProtocol(store.read().token)],
+      { perMessageDeflate: true }
+    )
+    socket.on('error', () => {
+      /* the oversized frame below closes the socket */
+    })
+    await new Promise((resolve) => socket.on('open', resolve))
+    assert.ok(socket.extensions.includes('permessage-deflate'))
+
+    const closed = new Promise<number>((resolve) => socket.on('close', (code: number) => resolve(code)))
+    // Compresses to almost nothing, so only a limit applied to the inflated size can refuse it.
+    socket.send(JSON.stringify({ type: 'prompt', requestId: 'r', text: 'a'.repeat(5_000_000) }))
+    assert.equal(await closed, 1009)
+  })
+})

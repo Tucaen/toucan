@@ -44,6 +44,14 @@ import type { AgentEventBroker } from '../agent-event-broker'
 import { describeHostAddresses } from './host-addresses'
 import { pairingTokenMatches, presentedPairingToken } from './pairing'
 import {
+  compressBody,
+  compressStatic,
+  isCompressibleContentType,
+  REMOTE_COMPRESSION_MIN_BYTES,
+  REMOTE_SOCKET_COMPRESSION_THRESHOLD,
+  requestEncoding
+} from './remote-compression'
+import {
   clientContentType,
   REMOTE_CORS_HEADERS,
   REMOTE_SHELL_SECURITY_HEADERS,
@@ -448,7 +456,17 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
     // Inbound frames are prompts, and a prompt is bounded (see REMOTE_CHAT_PROMPT_LIMIT). The
     // headroom covers the JSON envelope and multi-byte characters; anything larger is dropped by
     // `ws` before it is buffered rather than after.
-    maxPayload: REMOTE_CHAT_PROMPT_LIMIT * 4 + 1024
+    maxPayload: REMOTE_CHAT_PROMPT_LIMIT * 4 + 1024,
+    // A snapshot is a whole chat and crosses a slow relay, so frames compress - but only frames over
+    // the threshold, so pings and verdicts are not delayed by a deflate that cannot shrink them.
+    // `ws` applies `maxPayload` to the *inflated* size, so a small compressed bomb still hits the
+    // inbound limit above. No context takeover: it keeps per-connection zlib memory bounded.
+    perMessageDeflate: {
+      threshold: REMOTE_SOCKET_COMPRESSION_THRESHOLD,
+      serverNoContextTakeover: true,
+      clientNoContextTakeover: true,
+      zlibDeflateOptions: { level: 6 }
+    }
   })
 
   /**
@@ -841,6 +859,11 @@ async function readBoundedBytes(request: IncomingMessage, limit: number): Promis
  * a cross-host client most needs to be able to *read* is the `401` - stripping the headers from
  * failures is exactly how a revoked token would present itself as an unreachable host. Only the
  * static bundle opts out, because a navigation has no use for them.
+ *
+ * Compressible text bodies over `REMOTE_COMPRESSION_MIN_BYTES` are brotli- or gzip-encoded when the
+ * request allows it. A HEAD or bodiless reply is never encoded - it keeps the identity
+ * `content-length` - and `vary: accept-encoding` marks every body whose encoding could differ.
+ * `staticKey` names a file's identity so its compressed copy is computed once.
  */
 function send(
   request: IncomingMessage,
@@ -848,16 +871,28 @@ function send(
   status: number,
   body: string | Buffer | null,
   headers: Record<string, string | number> = {},
-  crossOrigin = true
+  crossOrigin = true,
+  staticKey?: string
 ): void {
+  const compressible = body !== null && isCompressibleContentType(headers['content-type'])
+  const encoding =
+    compressible && request.method !== 'HEAD' && Buffer.byteLength(body) >= REMOTE_COMPRESSION_MIN_BYTES
+      ? requestEncoding(request)
+      : null
+  let payload = body
+  if (body !== null && encoding) {
+    payload = staticKey ? compressStatic(staticKey, Buffer.from(body), encoding) : compressBody(body, encoding)
+  }
   response.writeHead(status, {
     'cache-control': 'no-store',
     'x-content-type-options': 'nosniff',
     ...(crossOrigin ? REMOTE_CORS_HEADERS : {}),
-    ...(body === null ? {} : { 'content-length': Buffer.byteLength(body) }),
-    ...headers
+    ...(payload === null ? {} : { 'content-length': Buffer.byteLength(payload) }),
+    ...headers,
+    ...(encoding ? { 'content-encoding': encoding } : {}),
+    ...(compressible ? { vary: 'accept-encoding' } : {})
   })
-  response.end(body === null || request.method === 'HEAD' ? undefined : body)
+  response.end(payload === null || request.method === 'HEAD' ? undefined : payload)
 }
 
 /**
@@ -878,8 +913,9 @@ async function sendClientAsset(
   // one a future injection would want.
   const resolved = resolveClientAsset(root, pathname)
   if (resolved) {
-    const file = await readFileIfPresent(resolved)
-    if (file) {
+    const found = await readFileIfPresent(resolved)
+    if (found) {
+      const file = found.data
       send(
         request,
         response,
@@ -891,7 +927,8 @@ async function sendClientAsset(
           // Vite fingerprints everything under /assets, so only the shell must never be cached.
           ...(pathname.startsWith('/assets/') ? { 'cache-control': 'public, max-age=31536000, immutable' } : {})
         },
-        false
+        false,
+        found.key
       )
       return
     }
@@ -914,17 +951,19 @@ async function sendClientAsset(
     request,
     response,
     200,
-    shell,
+    shell.data,
     { ...REMOTE_SHELL_SECURITY_HEADERS, 'content-type': 'text/html; charset=utf-8' },
-    false
+    false,
+    shell.key
   )
 }
 
-async function readFileIfPresent(path: string): Promise<Buffer | null> {
+async function readFileIfPresent(path: string): Promise<{ data: Buffer; key: string } | null> {
   try {
     const info = await stat(path)
     if (!info.isFile()) return null
-    return await readFile(path)
+    const data = await readFile(path)
+    return { data, key: `${path}:${info.size}:${info.mtimeMs}` }
   } catch {
     return null
   }
