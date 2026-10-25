@@ -5,7 +5,6 @@ import { isRecord } from '../shared/record'
 import {
   askPrompt,
   deliveryVerdict,
-  interruptedText,
   listState,
   noAnswerText,
   notRunningRefusal,
@@ -51,8 +50,8 @@ import { createSerialQueue } from './serial-queue'
  * turn. A refusal over either is also a notice for the human.
  *
  * Open messages (queued ones, and asks still waiting for an answer) are persisted. Turns are not -
- * every session dies with Toucan - so after a restart a question whose turn was in flight is
- * answered "interrupted", and queued messages go out once their target runs again.
+ * every session dies with Toucan - so a question whose turn was cut short by a stop, a crash or a
+ * restart is queued again, and every queued message goes out once its target runs again.
  */
 
 export interface MessagingDirectoryEntry {
@@ -108,6 +107,8 @@ export interface SessionMessenger {
   execute(callerNodeId: string, command: MessagingCommand, args: unknown): Promise<MessagingReply>
   /** Every session event, from the broker's observer. */
   observe(nodeId: string, event: AgentEvent): void
+  /** A session was stopped - closed or relaunched - which publishes no event: the broker's `onClosed`. */
+  sessionClosed(nodeId: string): void
   /**
    * The canvas's chat nodes right now, from a workspace save: an open ask whose target is gone is
    * answered "target closed", and a queued reply whose asker is gone is dropped.
@@ -214,13 +215,17 @@ export function createSessionMessenger(options: SessionMessengerOptions): Sessio
     changed(message)
   }
 
-  /** Closes an ask with an answer of any kind and sends that answer to the asker. */
+  /**
+   * Closes an ask with an answer of any kind and sends that answer to the asker - unless the asker
+   * has left the canvas, which the directory is asked unless the caller already knows.
+   */
   const answer = async (
     ask: SessionMessage,
     replyKind: SessionReplyKind,
     text: string,
-    askerPresent: boolean
+    askerPresent?: boolean
   ): Promise<SessionMessage> => {
+    askerPresent ??= (await options.directory.entry(ask.from)) !== undefined
     ask.answered = true
     changed(ask)
     const reply: SessionMessage = {
@@ -246,13 +251,42 @@ export function createSessionMessenger(options: SessionMessengerOptions): Sessio
     return reply
   }
 
+  /**
+   * A delivered question whose turn died before reaching a boundary - its session stopped, crashed
+   * or went down with Toucan - goes back to the queue: it is still open, and the target is asked
+   * again once it runs again, exactly like a message that never got through.
+   */
+  const requeue = (ask: SessionMessage): void => {
+    ask.delivery = 'queued'
+    ask.queuedBecause = 'not_running'
+    delete ask.deliveredAt
+    changed(ask)
+  }
+
+  /**
+   * A session stopped without a turn boundary: whatever turn it was in will never end, so its
+   * per-turn state goes, and a question that turn was working on is queued again.
+   */
+  const sessionEnded = (nodeId: string): void => {
+    const turn = turns.get(nodeId)
+    turns.delete(nodeId)
+    if (!turn?.question) return
+    const question = turn.question
+    void track(async () => {
+      const ask = messages.find((message) => message.id === question && message.kind === 'ask' && !message.answered)
+      if (!ask || ask.delivery !== 'delivered') return
+      requeue(ask)
+      await persist()
+    })
+  }
+
   /** A session's turn ended: its question, if one started it and got no reply, is answered now. */
   const endTurn = async (nodeId: string, turn: TurnState | undefined, finalText: string): Promise<void> => {
     const ask = turn?.question
       ? messages.find((message) => message.id === turn.question && message.kind === 'ask' && !message.answered)
       : undefined
     if (!ask) return
-    await answer(ask, 'implicit', finalText, (await options.directory.entry(ask.from)) !== undefined)
+    await answer(ask, 'implicit', finalText)
   }
 
   const list = async (caller: MessagingDirectoryEntry): Promise<MessagingReply> => {
@@ -364,7 +398,7 @@ export function createSessionMessenger(options: SessionMessengerOptions): Sessio
     const open = messages.find((message) => message.kind === 'ask' && message.id === id && message.to === caller.nodeId)
     if (!open || open.delivery !== 'delivered') return refused(404, `no message ${id} was delivered to this session`)
     if (open.answered) return refused(409, `message ${id} is already answered`)
-    const sent = await answer(open, 'reply', text, (await options.directory.entry(open.from)) !== undefined)
+    const sent = await answer(open, 'reply', text)
     return { status: 200, body: { ok: true, id: sent.id, delivery: sent.delivery } }
   }
 
@@ -383,11 +417,18 @@ export function createSessionMessenger(options: SessionMessengerOptions): Sessio
 
     observe(nodeId, event) {
       lastSeen.set(nodeId, now())
+      if (event.type === 'status' && event.status === 'exited') {
+        sessionEnded(nodeId)
+        return
+      }
       if (BOUNDARIES.has(event.type)) {
+        const turn = turns.get(nodeId)
+        // Background work still running means the answer comes with a later cycle: the question
+        // stays open until the boundary that cycle reaches.
+        if (turn?.question && event.type === 'turn_complete' && (event.backgroundTasks ?? 0) > 0) return
+        turns.delete(nodeId)
         // Read now, at the boundary itself: by the time the queue gets to it the next turn may have
         // started over the transcript.
-        const turn = turns.get(nodeId)
-        turns.delete(nodeId)
         const finalText = turn?.question ? (options.sessions.finalText(nodeId) ?? noAnswerText(event)) : ''
         if (turn?.question) void track(() => endTurn(nodeId, turn, finalText))
         return
@@ -399,6 +440,10 @@ export function createSessionMessenger(options: SessionMessengerOptions): Sessio
           if (before?.delivery === 'delivered') await persist()
         })
       }
+    },
+
+    sessionClosed(nodeId) {
+      sessionEnded(nodeId)
     },
 
     nodesChanged(nodeIds) {
@@ -430,16 +475,8 @@ export function createSessionMessenger(options: SessionMessengerOptions): Sessio
         messages = file.messages.map((message) => ({ ...message }))
         // Every session died with the last run, so a question that had started a turn will not be
         // answered by that turn's end.
-        const interrupted = messages.filter(
-          (message) => message.kind === 'ask' && message.delivery === 'delivered' && !message.answered
-        )
-        for (const message of interrupted) {
-          await answer(
-            message,
-            'interrupted',
-            interruptedText(party(message.to, message.toTitle)),
-            (await options.directory.entry(message.from)) !== undefined
-          )
+        for (const message of messages) {
+          if (message.kind === 'ask' && message.delivery === 'delivered' && !message.answered) requeue(message)
         }
         await persist()
       })

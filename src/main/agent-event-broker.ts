@@ -54,6 +54,12 @@ export interface AgentEventBroker {
    * orchestrator wake, #35): a per-session subscription is retired with its channel, this is not.
    */
   observe(observer: (id: string, event: AgentEvent) => void): () => void
+  /**
+   * Hears every `close`. A stopped session - closed, or torn down to be relaunched - publishes
+   * nothing on its way out, so a main-side watcher that follows turns (session messaging, #2)
+   * learns here that the turn in flight will never reach a boundary.
+   */
+  onClosed(listener: (id: string) => void): () => void
   /** Retires a session: drops its snapshot and its subscribers. The id may be reused fresh later. */
   close(id: string): void
 }
@@ -72,6 +78,7 @@ export function createAgentEventBroker(options?: { now?: () => number }): AgentE
   const now = options?.now ?? Date.now
   const channels = new Map<string, SessionChannel>()
   const observers = new Set<(id: string, event: AgentEvent) => void>()
+  const closedListeners = new Set<(id: string) => void>()
 
   const channel = (id: string): SessionChannel => {
     const existing = channels.get(id)
@@ -142,9 +149,21 @@ export function createAgentEventBroker(options?: { now?: () => number }): AgentE
       return channels.get(id)?.snapshot ?? null
     },
 
+    onClosed(listener) {
+      closedListeners.add(listener)
+      return () => closedListeners.delete(listener)
+    },
+
     close(id): void {
       const session = channels.get(id)
       channels.delete(id)
+      for (const listener of [...closedListeners]) {
+        try {
+          listener(id)
+        } catch {
+          // Same rule as observers.
+        }
+      }
       if (!session) return
       for (const member of session.members) {
         try {

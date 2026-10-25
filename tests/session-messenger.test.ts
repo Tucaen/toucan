@@ -403,23 +403,81 @@ test('queued messages survive a restart and go out once the target runs again', 
   assert.match(second.prompts.at(-1)!.text, /after the restart$/)
 })
 
-test('a question whose turn a restart cut short is answered "interrupted"', async () => {
+test('a question whose turn a restart cut short stays open and is asked again once the target runs', async () => {
   const entries = [entry('a'), entry('b')]
   const first = harness(entries)
   await first.messenger.restore()
   running(first, 'a', 'b')
-  await first.ask('a', 'b')
+  const asked = await first.ask('a', 'b')
   assert.equal(first.prompts.length, 1)
 
   const second = harness(entries, { file: first.file })
   await second.messenger.restore()
+  // The asker running again hears nothing: no answer has come yet.
   second.states.set(id('a'), idle)
   await second.emit('a', { type: 'status', status: 'ready' })
+  assert.equal(second.prompts.length, 0)
+  second.states.set(id('b'), idle)
+  await second.emit('b', { type: 'status', status: 'ready' })
   assert.equal(second.prompts.length, 1)
-  assert.match(
-    second.prompts[0]!.text,
-    /^\[Toucan: no reply to your message m-1-\w+\]\nToucan restarted while session b0000000/
-  )
+  assert.match(second.prompts[0]!.text, new RegExp(`^\\[Toucan message ${String(asked.body.id)} `))
+  // And its turn's end answers it as usual.
+  await second.endTurn('b', 'answered after all')
+  assert.match(second.prompts.at(-1)!.text, /implicit reply[\s\S]*answered after all$/)
+})
+
+test('a target stopped mid-question is asked again when it relaunches, and its stale turn is forgotten', async () => {
+  const h = harness([entry('a'), entry('b'), entry('c')])
+  await h.messenger.restore()
+  running(h, 'b', 'c')
+  asking(h, 'a')
+  const asked = await h.ask('a', 'b')
+  // b's question turn asks c, then b is stopped (closed or relaunched): no boundary will come.
+  assert.equal((await h.ask('b', 'c')).status, 200)
+  h.states.delete(id('b'))
+  h.messenger.sessionClosed(id('b'))
+  await h.messenger.idle()
+  const reopened = await h.messenger.open()
+  assert.equal(reopened.find((message) => message.id === asked.body.id)?.delivery, 'queued')
+  // The relaunch is asked again; a human turn after it is not mistaken for the question's.
+  h.states.set(id('b'), idle)
+  await h.emit('b', { type: 'status', status: 'ready' })
+  assert.equal(h.prompts.filter((prompt) => prompt.to === id('b')).length, 2)
+  await h.reply('b', String(asked.body.id), 'the real answer')
+  await h.endTurn('b', 'unrelated final words')
+  await h.endTurn('a')
+  const toA = h.prompts.filter((prompt) => prompt.to === id('a'))
+  assert.equal(toA.length, 1)
+  assert.match(toA[0]!.text, /the real answer$/)
+})
+
+test('a crashed asker starts its next turn with a fresh ask count and depth', async () => {
+  const h = harness([entry('a'), entry('b')])
+  await h.messenger.restore()
+  h.settings.value = { hopLimit: 3, asksPerTurn: 1 }
+  running(h, 'b')
+  asking(h, 'a')
+  assert.equal((await h.ask('a', 'b')).status, 200)
+  await h.emit('a', { type: 'status', status: 'exited' })
+  asking(h, 'a')
+  running(h, 'b')
+  assert.notEqual((await h.ask('a', 'b')).status, 429)
+})
+
+test('a question turn that leaves background work running is answered by the cycle that finishes it', async () => {
+  const h = harness([entry('a'), entry('b')])
+  await h.messenger.restore()
+  running(h, 'a', 'b')
+  await h.ask('a', 'b')
+  await h.endTurn('b', 'started a build, will report', {
+    type: 'turn_complete',
+    stopReason: 'end_turn',
+    backgroundTasks: 1
+  })
+  assert.equal(h.prompts.length, 1)
+  await h.emit('b', { type: 'status', status: 'working' })
+  await h.endTurn('b', 'the build passed')
+  assert.match(h.prompts[1]!.text, /implicit reply[\s\S]*the build passed$/)
 })
 
 test('an asker whose target left the canvas is woken with "target closed; use session-records"', async () => {

@@ -180,3 +180,15 @@ test('an observer hears every session live event, and neither replay nor anythin
     ['b', 'status']
   ])
 })
+
+test('onClosed hears every close, even of a session with no channel left (#2)', () => {
+  const broker = createAgentEventBroker()
+  const closed: string[] = []
+  const stop = broker.onClosed((id) => closed.push(id))
+  broker.publish('a', { type: 'status', status: 'working' })
+  broker.close('a')
+  broker.close('never-opened')
+  stop()
+  broker.close('a')
+  assert.deepEqual(closed, ['a', 'never-opened'])
+})

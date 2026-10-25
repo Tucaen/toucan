@@ -64,9 +64,9 @@ export function parseSessionMessagingSettings(value: unknown): SessionMessagingS
 
 /**
  * What a reply is: the target's own `reply`, its final text when the question's turn ended without
- * one, or Toucan's word that no answer is coming - the target closed, or a restart cut the turn short.
+ * one, or Toucan's word that no answer is coming because the target left the canvas.
  */
-export type SessionReplyKind = 'reply' | 'implicit' | 'closed' | 'interrupted'
+export type SessionReplyKind = 'reply' | 'implicit' | 'closed'
 
 /** Why a message waits instead of starting a turn. */
 export type SessionMessageQueueReason = 'busy' | 'waiting_on_human' | 'starting' | 'not_running'
@@ -104,7 +104,7 @@ export interface SessionMessageFile {
   messages: SessionMessage[]
 }
 
-const REPLY_KINDS: readonly string[] = ['reply', 'implicit', 'closed', 'interrupted'] satisfies SessionReplyKind[]
+const REPLY_KINDS: readonly string[] = ['reply', 'implicit', 'closed'] satisfies SessionReplyKind[]
 const QUEUE_REASONS: readonly string[] = [
   'busy',
   'waiting_on_human',
@@ -235,7 +235,6 @@ export function replyPrompt(
     case 'implicit':
       return `[Toucan implicit reply to your message ${reply.askId} from ${from}: its turn ended without a reply, so this is its final message]\n${reply.text}`
     case 'closed':
-    case 'interrupted':
       return `[Toucan: no reply to your message ${reply.askId}]\n${reply.text}`
     default:
       return `[Toucan reply to your message ${reply.askId} from ${from}]\n${reply.text}`
@@ -253,10 +252,6 @@ export function noAnswerText(ending: { type: string; message?: string }): string
 /** The notice an asker gets when its target is gone; the settled wording leads. */
 export function targetClosedText(target: SessionMessageParty): string {
   return `target closed; use session-records. Session ${target.shortId} ${quoted(target.title)} left the canvas before answering; its outcome record says what it did.`
-}
-
-export function interruptedText(target: SessionMessageParty): string {
-  return `Toucan restarted while session ${target.shortId} ${quoted(target.title)} was on your question, so it never answered. Ask again if you still need it.`
 }
 
 /** The refusal for a target that is not running; it points at what can still answer. */

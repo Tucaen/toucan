@@ -745,6 +745,8 @@ void app.whenReady().then(async () => {
         .catch((error: unknown) => mainLog('orchestration pacing')(`could not resolve activity: ${String(error)}`))
     }
   })
+  // A stopped session publishes nothing on its way out; messaging must still drop its turn state.
+  agentEvents.onClosed((id) => sessionMessenger.sessionClosed(id))
   const captureStore = createBrainDumpCaptureStore(
     join(app.getPath('userData'), 'brain-dump-capture.json'),
     mainLog('brain dump capture')

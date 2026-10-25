@@ -10,7 +10,7 @@ v1 carries **asks only**: one session asks a sibling session of its project a qu
 - **The asker is never blocked**: `ask` returns at once and the answer wakes the asker as a new message.
 - **Reply**: the target calls `reply --id`. When the turn the question started ends without one, its final text goes back marked implicit.
 - **Safety**: hop depth limit 3 (a reply cannot start a deeper chain) and at most 5 asks per session per turn, both settings in `<userData>\session-messaging.json`. Turns that messages start are ordinary turns, so they count wherever provider pacing counts working sessions. An ask over a limit is refused by the CLI and published as a canvas notice for the human.
-- **Persistence**: queued messages and open asks persist in `<userData>\session-messages.json` and are delivered once the target runs again after a restart. A question whose turn a restart cut short is answered "interrupted"; an asker whose target left the canvas is woken with `target closed; use session-records`.
+- **Persistence**: queued messages and open asks persist in `<userData>\session-messages.json` and are delivered once the target runs again after a restart. A question whose turn was cut short - by a stop, a crash or a restart - goes back to the queue and is asked again once its target runs; an asker whose target left the canvas is woken with `target closed; use session-records`.
 - **Tool guidance**: the session instruction says to prefer session-records and git for past facts, and messaging for intent, plans and live state. No automatic routing.
 - **Human visibility**: every message and reply reaches the canvas (`sessionMessagingApi`, #3 renders inline entries and a temporary edge while an ask is open). There is no approval step.
 
