@@ -1,6 +1,5 @@
 import { strict as assert } from 'node:assert'
 import { execFile } from 'node:child_process'
-import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'vitest'
 import { createMessagingEndpoint } from '../src/main/messaging-endpoint'
@@ -16,9 +15,6 @@ import {
 // environment, sends one command, prints one JSON line, and refuses clearly without a token.
 
 const cli = join(process.cwd(), PROJECT_SKILLS_DIRECTORY, ...SESSION_MESSAGING_CLI_PATH)
-// The CLI is written by hand under `.agents/` (see `docs/plans/session-messaging.md`, "Pending");
-// until it exists there is nothing to run.
-const cliTest = test.skipIf(!existsSync(cli))
 
 interface Run {
   code: number
@@ -39,13 +35,13 @@ function run(args: string[], environment: Record<string, string | undefined>): P
   })
 }
 
-cliTest('without a token the CLI refuses before sending anything', async () => {
+test('without a token the CLI refuses before sending anything', async () => {
   const result = await run(['list'], {})
   assert.equal(result.code, 2)
   assert.match(result.output.error ?? '', /TOUCAN_MESSAGING_URL is not set/)
 })
 
-cliTest('list, ask and reply reach the messenger as the calling session', async () => {
+test('list, ask and reply reach the messenger as the calling session', async () => {
   const calls: Array<{ nodeId: string; command: MessagingCommand; args: unknown }> = []
   const endpoint = createMessagingEndpoint({
     messenger: {
