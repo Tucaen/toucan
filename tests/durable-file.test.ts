@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'vitest'
 import {
+  renameOverHeldDestination,
   writeFileDurably,
   writeNewFileDurably,
   writeSnapshotAtomically,
@@ -180,4 +181,38 @@ test('two writes in the same millisecond do not share a temp path', async () => 
   } finally {
     await rm(directory, { recursive: true, force: true })
   }
+})
+
+/** A rename that refuses with `code` for its first `refusals` calls, then succeeds. */
+function heldFor(refusals: number, code: string): { attempt: () => Promise<void>; calls: () => number } {
+  let calls = 0
+  return {
+    attempt: async () => {
+      calls += 1
+      if (calls <= refusals) throw Object.assign(new Error(code), { code })
+    },
+    calls: () => calls
+  }
+}
+
+test('on Windows a rename over a briefly held destination is retried until the hold ends', async () => {
+  // Windows refuses to replace a file any other handle has open; a scanner or a reader looking at
+  // a just-written file used to cost the store that write outright.
+  const held = heldFor(2, 'EPERM')
+  await renameOverHeldDestination('from', 'to', held.attempt, 'win32')
+  assert.equal(held.calls(), 3)
+})
+
+test('a hold that does not end is still reported, and elsewhere the same codes fail at once', async () => {
+  const forever = heldFor(Number.POSITIVE_INFINITY, 'EBUSY')
+  await assert.rejects(renameOverHeldDestination('from', 'to', forever.attempt, 'win32'), { code: 'EBUSY' })
+  assert.equal(forever.calls(), 7)
+
+  const posix = heldFor(1, 'EACCES')
+  await assert.rejects(renameOverHeldDestination('from', 'to', posix.attempt, 'linux'), { code: 'EACCES' })
+  assert.equal(posix.calls(), 1)
+
+  const other = heldFor(1, 'ENOENT')
+  await assert.rejects(renameOverHeldDestination('from', 'to', other.attempt, 'win32'), { code: 'ENOENT' })
+  assert.equal(other.calls(), 1)
 })

@@ -9,6 +9,7 @@ import { closeSync, constants, fsyncSync, openSync, renameSync, unlinkSync, writ
 import { access, mkdir, open, rename, rm } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
+import { setTimeout as delay } from 'node:timers/promises'
 
 export interface DurableWriteOptions {
   /** Mode for the file being created, for a promotion that has to preserve the target's permissions. */
@@ -88,6 +89,40 @@ export async function writeFileDurably(tempPath: string, contents: string | Uint
   }
 }
 
+/** What Windows answers a replacing rename with while another handle holds the destination open. */
+const HELD_DESTINATION_CODES = new Set(['EPERM', 'EACCES', 'EBUSY'])
+
+/** Backoff between attempts: about 0.6 s in all, longer than a reader or a scanner holds a file. */
+const HELD_DESTINATION_RETRY_MS = [10, 20, 40, 80, 160, 320]
+
+/**
+ * The default promotion: a replacing rename that outlasts a brief hold on the destination. Windows
+ * refuses to rename over a file any other handle has open - an antivirus or indexer looking at a
+ * file that was just written, or another reader of it - and reports that as `EPERM`/`EACCES`/
+ * `EBUSY`, so a store whose writes land in quick succession lost one outright. The hold is over in
+ * milliseconds, so the rename is retried briefly before the failure is the caller's to report.
+ * Elsewhere those codes mean a real permission problem and fail at once.
+ * @internal exported for tests
+ */
+export async function renameOverHeldDestination(
+  temporaryPath: string,
+  destinationPath: string,
+  attempt: (from: string, to: string) => Promise<void> = rename,
+  platform: NodeJS.Platform = process.platform
+): Promise<void> {
+  for (let retry = 0; ; retry += 1) {
+    try {
+      await attempt(temporaryPath, destinationPath)
+      return
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException | null)?.code
+      const wait = HELD_DESTINATION_RETRY_MS[retry]
+      if (platform !== 'win32' || !code || !HELD_DESTINATION_CODES.has(code) || wait === undefined) throw error
+      await delay(wait)
+    }
+  }
+}
+
 /**
  * The middle every promote-a-temp-file write shares: fill the temp file, hand it to `promote`, and
  * on a failure anywhere leave no temp file behind and the destination as it was found.
@@ -102,7 +137,7 @@ async function promoteTemporary(
   // `writeNewFileDurably` already cleans up after itself - only the promotion needs a guard here.
   await writeNewFileDurably(temporaryPath, contents, options.mode)
   try {
-    await (options.promote ?? rename)(temporaryPath, destinationPath)
+    await (options.promote ?? renameOverHeldDestination)(temporaryPath, destinationPath)
   } catch (error) {
     discardTempFileSync(temporaryPath)
     throw error
