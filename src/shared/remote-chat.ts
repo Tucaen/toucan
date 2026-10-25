@@ -164,10 +164,7 @@ export const REMOTE_CHAT_MODEL_ID_LIMIT = 200
  */
 export const REMOTE_CHAT_ACTIVITY_ID_LIMIT = 200
 
-/**
- * How long an entry key one `history` frame may carry: a kind, a role and a provider id.
- * @internal exported for tests
- */
+/** How long an entry key one `history` frame may carry: a kind, a role and a provider id. */
 export const REMOTE_CHAT_HISTORY_KEY_LIMIT = 300
 
 /**
@@ -281,7 +278,7 @@ export function parseRemoteChatServerMessage(raw: unknown): RemoteChatServerMess
     }
   }
   if (message.type === 'history_result' && typeof message.requestId === 'string' && typeof message.ok === 'boolean') {
-    const page = transcriptPageShape(message.page)
+    const page = parseTranscriptPage(message.page)
     return {
       type: 'history_result',
       requestId: message.requestId,
@@ -299,7 +296,7 @@ function entryPosition(raw: unknown): number {
 }
 
 /** Shape only, like the rest of this direction: the envelope is checked, its contents trusted. */
-function transcriptPageShape(raw: unknown): RemoteTranscriptPage | null {
+function parseTranscriptPage(raw: unknown): RemoteTranscriptPage | null {
   if (!raw || typeof raw !== 'object') return null
   const page = raw as Partial<Record<keyof RemoteTranscriptPage, unknown>>
   if (

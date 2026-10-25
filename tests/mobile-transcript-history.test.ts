@@ -6,6 +6,7 @@ import {
   connectionLost,
   historyAvailable,
   historyFailed,
+  HISTORY_MISALIGNED,
   initialChatConnectionState,
   plannedActivityBody,
   plannedHistory,
@@ -187,6 +188,47 @@ describe('pages and the full resync', () => {
     const loaded = loadPage(joined(host), host)
     const other = fold(conversation(PAGE * 3, 'other-'))
     assert.equal(applyServerFrame(loaded, snapshotFrame(other), NOW).history, null)
+  })
+
+  test('a call that finished during a drop takes its stale page with it', () => {
+    // The page was read while the call ran, and only the window kept it current. The rejoin's window
+    // no longer carries the finished call, so a kept page would show it running forever.
+    const opened: AgentEvent = { type: 'activity', activity: { id: 'task', title: 'Task', status: 'in_progress' } }
+    const host = fold([opened, ...conversation(PAGE * 3 - 1)])
+    const loaded = loadPage(loadPage(joined(host), host), host)
+    assert.equal(loaded.history?.activities.task?.status, 'in_progress')
+
+    const finished = fold([{ type: 'activity', activity: { id: 'task', status: 'completed' } }], host)
+    const rejoined = applyServerFrame(connectionLost(loaded), snapshotFrame(finished), NOW)
+    assert.equal(rejoined.windowStart, loaded.windowStart, 'the window did not move')
+    assert.equal(rejoined.history, null)
+
+    let state = rejoined
+    while (historyAvailable(state)) state = loadPage(state, finished)
+    assert.deepEqual(deriveChatViewItems(visibleTranscript(state)!), deriveChatViewItems(finished))
+  })
+
+  test('a call still running keeps its page across a rejoin, because the window still carries it', () => {
+    const opened: AgentEvent = { type: 'activity', activity: { id: 'task', title: 'Task', status: 'in_progress' } }
+    const host = fold([opened, ...conversation(PAGE * 3 - 1)])
+    const loaded = loadPage(loadPage(joined(host), host), host)
+    const rejoined = applyServerFrame(connectionLost(loaded), snapshotFrame(host), NOW)
+    assert.equal(rejoined.history, loaded.history)
+  })
+
+  test('a page that does not line up with an anchor that has not moved is a failure, not a silent retry', () => {
+    const host = fold(conversation(PAGE * 3))
+    const state = joined(host)
+    const planned = plannedHistory(state, 'h1')!
+    const page = transcriptPage(host, planned.before)!
+    const misfit = { ...page, start: page.start - 1 }
+    const refused = applyServerFrame(
+      withHistoryRequest(state, planned),
+      JSON.stringify({ type: 'history_result', requestId: 'h1', ok: true, page: misfit }),
+      NOW
+    )
+    assert.equal(refused.history, null)
+    assert.deepEqual(refused.historyRequest, { status: 'failed', message: HISTORY_MISALIGNED })
   })
 
   test('a page that arrives after the window moved is not joined, and the loader may ask again', () => {

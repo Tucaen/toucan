@@ -12,7 +12,7 @@ import {
   REMOTE_CHAT_HISTORY_KEY_LIMIT,
   type RemoteChatServerMessage
 } from '../../src/shared/remote-chat'
-import type { RemoteTranscriptPage } from '../../src/shared/remote-transcript-page'
+import { openActivity, openMessage, type RemoteTranscriptPage } from '../../src/shared/remote-transcript-page'
 import { pendingRequestFrom, type PendingRequest } from './chat-view'
 
 /**
@@ -519,6 +519,9 @@ export function connectionLost(state: ChatConnectionState): ChatConnectionState 
 }
 
 /** @internal exported for tests */
+export const HISTORY_MISALIGNED = 'The earlier messages the host sent do not line up with this chat. Try again.'
+
+/** @internal exported for tests */
 export const DISCONNECTED_WHILE_FETCHING =
   'Disconnected before the host sent the full output. Try again once reconnected.'
 
@@ -539,6 +542,11 @@ export const DISCONNECTED_WHILE_SWITCHING =
  * matches and so does the entry, which is what proves this is the same transcript seen from a
  * window that has not moved. Anything else drops them - they were older entries relative to a
  * window that is gone, and the loader fetches whatever the reader scrolls back to again.
+ *
+ * A page is a point-in-time read, and the only parts of it that can still change are the ones
+ * that were open when it was read. Those are kept current by the window, which carries everything
+ * open; once one has finished the new window stops carrying it, so a page still holding its open
+ * copy is stale and is dropped too rather than showing a call that runs forever.
  */
 function historyJoining(
   history: ChatTranscriptHistory | null,
@@ -548,7 +556,16 @@ function historyJoining(
   if (!history || start === 0) return null
   const first = recent.transcript[0]
   if (!first || agentTranscriptEntryKey(first) !== history.next) return null
-  return history.start + history.entries.length === start ? history : null
+  if (history.start + history.entries.length !== start) return null
+  const staleActivity = Object.values(history.activities).some(
+    (activity) => openActivity(activity) && !recent.activities[activity.id]
+  )
+  const staleMessage = history.messages.some(
+    (message) =>
+      openMessage(message) &&
+      !recent.messages.some((candidate) => candidate.id === message.id && candidate.role === message.role)
+  )
+  return staleActivity || staleMessage ? null : history
 }
 
 /** Where the oldest entry this client holds sits, and its key; null when it holds nothing. */
@@ -572,11 +589,13 @@ function applyHistoryResult(
     }
   }
   // A resync can move the window while a page is on the wire. A page that no longer ends right where
-  // the oldest entry held begins is not joined at all - the loader simply asks again.
+  // the oldest entry held begins is not joined at all: if the anchor moved, the loader simply asks
+  // again from the new one; if it did not, asking again would get the same misfit back, so say so.
   const oldest = oldestHeld(state)
   const page = message.page
-  if (!oldest || oldest.key !== request.before || page.start + page.entries.length !== oldest.start) {
-    return { ...state, historyRequest: { status: 'idle' } }
+  if (!oldest || oldest.key !== request.before) return { ...state, historyRequest: { status: 'idle' } }
+  if (page.start + page.entries.length !== oldest.start) {
+    return { ...state, historyRequest: { status: 'failed', message: HISTORY_MISALIGNED } }
   }
   const history = state.history
   return {

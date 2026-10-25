@@ -513,7 +513,7 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
       return
     }
 
-    // The one read-only request. It drives nothing, so it never reaches `sessions` and works on a
+    // A read-only request, like `history` below. It drives nothing, so it never reaches `sessions` and works on a
     // read-only host, but it is answered like everything else: a card waiting on its body has no
     // other way to learn there is none.
     if (message.type === 'activity') {

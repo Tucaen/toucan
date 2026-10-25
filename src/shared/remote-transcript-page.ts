@@ -55,12 +55,12 @@ export function transcriptWindowStart(total: number): number {
  * - a subagent's wrapping call outlives every call its subagent makes - and the phone must fold that
  * patch onto the call it holds, not read an unknown id as a new entry at the end.
  */
-function openActivity(activity: AgentActivity): boolean {
+export function openActivity(activity: AgentActivity): boolean {
   return activity.status !== 'completed' && activity.status !== 'failed'
 }
 
 /** The same for prose: an assistant message the turn end has not settled yet. */
-function openMessage(message: AgentChatMessage): boolean {
+export function openMessage(message: AgentChatMessage): boolean {
   return message.role === 'assistant' && message.complete === false
 }
 
