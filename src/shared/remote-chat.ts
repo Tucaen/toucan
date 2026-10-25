@@ -1,4 +1,4 @@
-import type { AgentDecisionResponseContent, AgentDecisionValue, AgentEvent } from './agent'
+import type { AgentActivity, AgentDecisionResponseContent, AgentDecisionValue, AgentEvent } from './agent'
 import type { AgentTranscriptState } from './agent-transcript'
 
 /**
@@ -46,6 +46,15 @@ export type RemoteChatServerMessage =
    * single selection observed from two places rather than two copies that can drift.
    */
   | { type: 'model_result'; requestId: string; ok: boolean; message?: string }
+  /**
+   * The reply to one `activity` request, correlated by its `requestId`: the whole tool call - its
+   * diffs, its output - as the host holds it right now, or a refusal with the reason. Its own channel
+   * because a client waiting on a card's body must not read a prompt verdict as one, and carrying
+   * the body only here is what lets every `activity` in a snapshot or the tail be slim
+   * (`remote-activity.ts`). A point-in-time read: a call still running keeps producing output the
+   * client only sees by asking again.
+   */
+  | { type: 'activity_result'; requestId: string; ok: boolean; message?: string; activity?: AgentActivity }
 
 /**
  * What a paired client may ask the host to do on a chat socket. Answering a pending request is a
@@ -69,6 +78,12 @@ export type RemoteChatClientMessage =
    * session manager owns it and refuses in its own words, exactly as it does for a prompt.
    */
   | { type: 'set_model'; requestId: string; modelId: string }
+  /**
+   * "Send me the whole of this tool call." The id is one the client's own slim transcript names, and
+   * the answer is read-only, so unlike the frames above it drives nothing - but it is still answered
+   * with a verdict, because a card that opened and never got its body has no way to say so.
+   */
+  | { type: 'activity'; requestId: string; activityId: string }
   /**
    * "I am looking at this chat." The one client frame with no `requestId` and no verdict, because
    * it is the one that asks for nothing back: the badge it retires is republished by the canvas in
@@ -123,6 +138,12 @@ export const REMOTE_CHAT_ANSWER_TOTAL_LIMIT = 32_000
  * actually advertised, and only the session manager can make that one.
  */
 export const REMOTE_CHAT_MODEL_ID_LIMIT = 200
+
+/**
+ * How long an activity id one `activity` frame may carry; tool call ids are short provider slugs.
+ * @internal exported for tests
+ */
+export const REMOTE_CHAT_ACTIVITY_ID_LIMIT = 200
 
 /**
  * Whether this answer may be sent at all, and why not. Same discipline as `promptTextProblem`:
@@ -201,6 +222,7 @@ export function parseRemoteChatServerMessage(raw: unknown): RemoteChatServerMess
     requestId?: unknown
     ok?: unknown
     message?: unknown
+    activity?: unknown
   }
   if (message.type === 'snapshot' && message.state && typeof message.state === 'object') {
     return { type: 'snapshot', state: message.state as AgentTranscriptState }
@@ -218,6 +240,17 @@ export function parseRemoteChatServerMessage(raw: unknown): RemoteChatServerMess
       requestId: message.requestId,
       ok: message.ok,
       ...(typeof message.message === 'string' ? { message: message.message } : {})
+    }
+  }
+  if (message.type === 'activity_result' && typeof message.requestId === 'string' && typeof message.ok === 'boolean') {
+    return {
+      type: 'activity_result',
+      requestId: message.requestId,
+      ok: message.ok,
+      ...(typeof message.message === 'string' ? { message: message.message } : {}),
+      ...(message.activity && typeof message.activity === 'object'
+        ? { activity: message.activity as AgentActivity }
+        : {})
     }
   }
   return null
@@ -247,6 +280,7 @@ export function parseRemoteChatClientMessage(raw: unknown): RemoteChatClientMess
     decisionId?: unknown
     content?: unknown
     modelId?: unknown
+    activityId?: unknown
   }
   // Ahead of the correlation guard: a read is answered by nothing, so demanding a `requestId` for
   // it would refuse the frame over the one field it has no use for.
@@ -279,6 +313,11 @@ export function parseRemoteChatClientMessage(raw: unknown): RemoteChatClientMess
     if (typeof message.modelId !== 'string') return null
     if (message.modelId.length === 0 || message.modelId.length > REMOTE_CHAT_MODEL_ID_LIMIT) return null
     return { type: 'set_model', requestId: message.requestId, modelId: message.modelId }
+  }
+  if (message.type === 'activity') {
+    if (typeof message.activityId !== 'string') return null
+    if (message.activityId.length === 0 || message.activityId.length > REMOTE_CHAT_ACTIVITY_ID_LIMIT) return null
+    return { type: 'activity', requestId: message.requestId, activityId: message.activityId }
   }
   if (message.type === 'decision') {
     if (typeof message.decisionId !== 'string' || message.decisionId.length === 0) return null

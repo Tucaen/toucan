@@ -1,6 +1,9 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'vitest'
 import {
+  activityBodyClosed,
+  activityBodyStale,
+  activityBodyFailed,
   answerBlockedReason,
   answerFailed,
   answerFailure,
@@ -14,6 +17,7 @@ import {
   connectionLost,
   currentModel,
   DISCONNECTED_WHILE_ANSWERING,
+  DISCONNECTED_WHILE_FETCHING,
   DISCONNECTED_WHILE_SENDING,
   DISCONNECTED_WHILE_SWITCHING,
   draftChanged,
@@ -24,6 +28,7 @@ import {
   modelChangeInFlight,
   modelPickerBlockedReason,
   pendingRequest,
+  plannedActivityBody,
   plannedAnswer,
   plannedModelChange,
   plannedSend,
@@ -32,6 +37,7 @@ import {
   restoredChatConnectionState,
   sendBlockedReason,
   sendFailed,
+  withActivityBody,
   withAnswer,
   withModelChange,
   withSend,
@@ -39,7 +45,7 @@ import {
 } from '../mobile/src/chat-connection'
 import { MODEL_CHANGE_WHILE_BUSY, type AgentDecisionRequest, type AgentEvent } from '../src/shared/agent'
 import { foldAgentEvent, initialAgentTranscriptState, type AgentTranscriptState } from '../src/shared/agent-transcript'
-import { promptTextProblem, REMOTE_CHAT_PROMPT_LIMIT } from '../src/shared/remote-chat'
+import { promptTextProblem, REMOTE_CHAT_ACTIVITY_ID_LIMIT, REMOTE_CHAT_PROMPT_LIMIT } from '../src/shared/remote-chat'
 
 /**
  * The mobile fold of snapshot + tail: the reducer-level reconnect correctness the ticket names as
@@ -692,4 +698,185 @@ test('a drop mid-change reports it as unconfirmed and points at the reconnected 
 
   // And a change that never reached the socket at all is reported the same way, not assumed sent.
   assert.equal(modelChangeFailed(selecting, 'Not connected.').model.status, 'failed')
+})
+
+/**
+ * The tool card's body. The transcript carries a slim copy of every call, so opening a card is a
+ * request and its answer lives beside the transcript - never in it, because a snapshot replaces
+ * the transcript wholesale and the tail folds through the shared reducer, and neither may add or
+ * remove what the reader has open.
+ */
+
+const BODY_CALL: AgentEvent = {
+  type: 'activity',
+  activity: { id: 'call-1', title: 'Run the tests', kind: 'execute', status: 'completed' }
+}
+
+function liveWithCall(): ChatConnectionState {
+  return applyFrames(initialChatConnectionState(), [frame({ type: 'snapshot', state: foldAll([BODY_CALL]) })])
+}
+
+function activityReply(requestId: string, extra: Record<string, unknown> = {}): string {
+  return frame({
+    type: 'activity_result',
+    requestId,
+    ok: true,
+    activity: { id: 'call-1', terminalOutput: 'PASS a\nPASS b\n' },
+    ...extra
+  })
+}
+
+test('opening a card plans one request for a call the transcript holds, and shows it loading', () => {
+  const live = liveWithCall()
+  const planned = plannedActivityBody(live, 'r1', 'call-1')
+  assert.deepEqual(planned, { activityId: 'call-1', requestId: 'r1' })
+
+  const opened = withActivityBody(live, planned!)
+  assert.deepEqual(opened.activityBodies['call-1'], { status: 'loading', requestId: 'r1' })
+  // Asking again while it is on the wire, or once it has landed, is inert rather than a second request.
+  assert.equal(plannedActivityBody(opened, 'r2', 'call-1'), null)
+})
+
+test('a card is never opened on a call the transcript does not hold, or while not connected', () => {
+  const live = liveWithCall()
+  assert.equal(plannedActivityBody(live, 'r1', 'never-ran'), null)
+  assert.equal(plannedActivityBody(connectionLost(live), 'r1', 'call-1'), null)
+  assert.equal(plannedActivityBody(initialChatConnectionState(), 'r1', 'call-1'), null)
+})
+
+test('the host’s body lands on the card that asked, matched by request id', () => {
+  const opened = withActivityBody(liveWithCall(), { activityId: 'call-1', requestId: 'r1' })
+  const loaded = applyServerFrame(opened, activityReply('r1'), NOW)
+  assert.deepEqual(loaded.activityBodies['call-1'], {
+    status: 'loaded',
+    activity: { id: 'call-1', terminalOutput: 'PASS a\nPASS b\n' }
+  })
+  assert.equal(plannedActivityBody(loaded, 'r2', 'call-1'), null, 'a loaded card is open')
+})
+
+test('a reply that matches no open request is ignored, so a closed card cannot be revived by a late body', () => {
+  const opened = withActivityBody(liveWithCall(), { activityId: 'call-1', requestId: 'r1' })
+  const closed = activityBodyClosed(opened, 'call-1')
+  assert.deepEqual(closed.activityBodies, {})
+  assert.deepEqual(applyServerFrame(closed, activityReply('r1'), NOW), closed)
+
+  // Closed and reopened: the first request's reply is the stale one.
+  const reopened = withActivityBody(closed, { activityId: 'call-1', requestId: 'r2' })
+  assert.deepEqual(applyServerFrame(reopened, activityReply('r1'), NOW), reopened)
+  assert.equal(applyServerFrame(reopened, activityReply('r2'), NOW).activityBodies['call-1']?.status, 'loaded')
+})
+
+test('a refusal is said in the host’s words and the card can ask again', () => {
+  const opened = withActivityBody(liveWithCall(), { activityId: 'call-1', requestId: 'r1' })
+  const refused = applyServerFrame(
+    opened,
+    frame({
+      type: 'activity_result',
+      requestId: 'r1',
+      ok: false,
+      message: 'That tool call is no longer in the transcript.'
+    }),
+    NOW
+  )
+  assert.deepEqual(refused.activityBodies['call-1'], {
+    status: 'failed',
+    message: 'That tool call is no longer in the transcript.'
+  })
+  assert.deepEqual(plannedActivityBody(refused, 'r2', 'call-1'), { activityId: 'call-1', requestId: 'r2' })
+})
+
+test('an accepted reply with no call in it is a failure the card reports, not a blank body', () => {
+  const opened = withActivityBody(liveWithCall(), { activityId: 'call-1', requestId: 'r1' })
+  const empty = applyServerFrame(opened, frame({ type: 'activity_result', requestId: 'r1', ok: true }), NOW)
+  assert.equal(empty.activityBodies['call-1']?.status, 'failed')
+})
+
+test('a request that never reached the socket fails its own card', () => {
+  const opened = withActivityBody(liveWithCall(), { activityId: 'call-1', requestId: 'r1' })
+  const failed = activityBodyFailed(opened, 'call-1', 'Not connected.')
+  assert.deepEqual(failed.activityBodies['call-1'], { status: 'failed', message: 'Not connected.' })
+  // Only a request in flight can fail: a loaded body is not taken back by a later socket error.
+  const loaded = applyServerFrame(opened, activityReply('r1'), NOW)
+  assert.equal(activityBodyFailed(loaded, 'call-1', 'Not connected.'), loaded)
+})
+
+test('a drop reports a body in flight as lost, and keeps a body that already arrived', () => {
+  const live = liveWithCall()
+  const two = withActivityBody(
+    withActivityBody(foldedWithCalls(live, ['call-1', 'call-2']), { activityId: 'call-1', requestId: 'r1' }),
+    { activityId: 'call-2', requestId: 'r2' }
+  )
+  const half = applyServerFrame(two, activityReply('r1'), NOW)
+
+  const dropped = connectionLost(half)
+  assert.equal(dropped.activityBodies['call-1']?.status, 'loaded')
+  assert.deepEqual(dropped.activityBodies['call-2'], { status: 'failed', message: DISCONNECTED_WHILE_FETCHING })
+})
+
+test('a resync leaves an open card exactly as it was: bodies are not part of the transcript', () => {
+  const loaded = applyServerFrame(
+    withActivityBody(liveWithCall(), { activityId: 'call-1', requestId: 'r1' }),
+    activityReply('r1'),
+    NOW
+  )
+  const resynced = applyServerFrame(loaded, frame({ type: 'snapshot', state: foldAll([BODY_CALL]) }), NOW)
+  assert.deepEqual(resynced.activityBodies, loaded.activityBodies)
+  // And a tail event for the same call patches the slim copy without touching what the card holds.
+  const patched = applyServerFrame(
+    loaded,
+    frame({ type: 'event', event: { type: 'activity', activity: { id: 'call-1', status: 'failed' } } }),
+    NOW
+  )
+  assert.deepEqual(patched.activityBodies, loaded.activityBodies)
+})
+
+/** The same live state, with more calls folded into its transcript. */
+function foldedWithCalls(state: ChatConnectionState, ids: readonly string[]): ChatConnectionState {
+  return applyFrames(state, [
+    frame({
+      type: 'snapshot',
+      state: foldAll(
+        ids.map((id): AgentEvent => ({ type: 'activity', activity: { id, title: id, status: 'completed' } }))
+      )
+    })
+  ])
+}
+
+test('an id the host would drop without a verdict never leaves the phone, so no card loads for good', () => {
+  const long = 'x'.repeat(REMOTE_CHAT_ACTIVITY_ID_LIMIT + 1)
+  const live = applyFrames(initialChatConnectionState(), [
+    frame({
+      type: 'snapshot',
+      state: foldAll([{ type: 'activity', activity: { id: long, title: 'Run', status: 'completed' } }])
+    })
+  ])
+  assert.equal(plannedActivityBody(live, 'r1', long), null)
+})
+
+test('a body read while the call was running is flagged once the call has moved on', () => {
+  const running = applyFrames(initialChatConnectionState(), [
+    frame({
+      type: 'snapshot',
+      state: foldAll([{ type: 'activity', activity: { id: 'c', title: 'Run', status: 'in_progress' } }])
+    })
+  ])
+  const loaded = applyServerFrame(
+    withActivityBody(running, { activityId: 'c', requestId: 'r1' }),
+    frame({
+      type: 'activity_result',
+      requestId: 'r1',
+      ok: true,
+      activity: { id: 'c', status: 'in_progress', terminalOutput: 'half' }
+    }),
+    NOW
+  )
+  assert.equal(activityBodyStale(loaded, 'c'), false, 'as fresh as the transcript it was read against')
+
+  const finished = applyServerFrame(
+    loaded,
+    frame({ type: 'event', event: { type: 'activity', activity: { id: 'c', status: 'completed' } } }),
+    NOW
+  )
+  assert.equal(activityBodyStale(finished, 'c'), true)
+  assert.equal(activityBodyStale(running, 'c'), false, 'a card that is not open is never stale')
 })

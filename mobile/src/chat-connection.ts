@@ -1,6 +1,15 @@
-import { MODEL_CHANGE_WHILE_BUSY, type AgentModel, type AgentModelState } from '../../src/shared/agent'
+import {
+  MODEL_CHANGE_WHILE_BUSY,
+  type AgentActivity,
+  type AgentModel,
+  type AgentModelState
+} from '../../src/shared/agent'
 import { foldAgentEvent, type AgentTranscriptState } from '../../src/shared/agent-transcript'
-import { parseRemoteChatServerMessage, promptTextProblem } from '../../src/shared/remote-chat'
+import {
+  parseRemoteChatServerMessage,
+  promptTextProblem,
+  REMOTE_CHAT_ACTIVITY_ID_LIMIT
+} from '../../src/shared/remote-chat'
 import { pendingRequestFrom, type PendingRequest } from './chat-view'
 
 /**
@@ -68,6 +77,21 @@ export type ChatModelState =
   | { status: 'selecting'; requestId: string; modelId: string }
   | { status: 'failed'; message: string }
 
+/**
+ * What a tool card knows beyond the slim copy the transcript carries. The *presence* of an entry is
+ * what "this card is open" means, so opening is asking and closing is forgetting: a body is a
+ * point-in-time read of a call that may still be running, and dropping it on close is what makes
+ * the next open a fresh one instead of a stale one shown as current.
+ *
+ * Deliberately outside `transcript`. A snapshot replaces the transcript wholesale and the tail
+ * folds through the shared reducer, and neither may be able to put a body back into - or take one
+ * out of - what a reader has open.
+ */
+export type ChatActivityBodyState =
+  | { status: 'loading'; requestId: string }
+  | { status: 'loaded'; activity: AgentActivity }
+  | { status: 'failed'; message: string }
+
 export interface ChatConnectionState {
   transcript: AgentTranscriptState | null
   phase: ChatConnectionPhase
@@ -75,6 +99,8 @@ export interface ChatConnectionState {
   send: ChatSendState
   answer: ChatAnswerState
   model: ChatModelState
+  /** Open tool cards by activity id; see `ChatActivityBodyState`. */
+  activityBodies: Record<string, ChatActivityBodyState>
 }
 
 /** @internal exported for tests */
@@ -85,7 +111,8 @@ export function initialChatConnectionState(): ChatConnectionState {
     draft: '',
     send: { status: 'idle' },
     answer: { status: 'idle' },
-    model: { status: 'idle' }
+    model: { status: 'idle' },
+    activityBodies: {}
   }
 }
 
@@ -136,6 +163,20 @@ export function applyServerFrame(state: ChatConnectionState, raw: unknown, now: 
       // so the phone and the desktop read one current model from one source.
       if (message.ok) return { ...state, model: { status: 'idle' } }
       return { ...state, model: { status: 'failed', message: message.message ?? 'The host refused the model.' } }
+    }
+    case 'activity_result': {
+      // Matched on the id of the request this state is still waiting on, so a late reply for a card
+      // the reader has since closed (or closed and reopened) cannot put a stale body on screen.
+      const waiting = Object.entries(state.activityBodies).find(
+        ([, body]) => body.status === 'loading' && body.requestId === message.requestId
+      )
+      if (!waiting) return state
+      const [activityId] = waiting
+      const body: ChatActivityBodyState =
+        message.ok && message.activity
+          ? { status: 'loaded', activity: message.activity }
+          : { status: 'failed', message: message.message ?? 'The host did not send that tool call.' }
+      return { ...state, activityBodies: { ...state.activityBodies, [activityId]: body } }
     }
     case 'snapshot':
       return { ...state, transcript: message.state, phase: 'live' }
@@ -313,6 +354,71 @@ export function modelChangeFailed(state: ChatConnectionState, message: string): 
   return { ...state, model: { status: 'failed', message } }
 }
 
+export interface PendingActivityBody {
+  activityId: string
+  requestId: string
+}
+
+/**
+ * The request opening this card would send, or null when it must not reach the socket: not
+ * connected, a call this transcript does not hold (the host would only refuse it), or a card that
+ * already is open. A failed card is not open - it is how a retry gets past the last refusal. Split
+ * from applying it for the same reason `plannedSend` is: the socket write sits between the two.
+ */
+export function plannedActivityBody(
+  state: ChatConnectionState,
+  requestId: string,
+  activityId: string
+): PendingActivityBody | null {
+  if (state.phase !== 'live') return null
+  if (!state.transcript?.activities[activityId]) return null
+  // The host drops a frame whose id exceeds the bound without a verdict, which would leave the card
+  // loading for good; an id it could never accept is not worth a frame.
+  if (activityId.length > REMOTE_CHAT_ACTIVITY_ID_LIMIT) return null
+  const open = state.activityBodies[activityId]
+  if (open && open.status !== 'failed') return null
+  return { activityId, requestId }
+}
+
+/**
+ * Whether an open card shows a call that has moved on since the body was read: the body is a
+ * point-in-time read and tail events are slim, so a call still running when it was fetched keeps
+ * producing output the card cannot see. Compared on status because that is the one change the slim
+ * transcript always carries; the card says so and a close-and-reopen is the refresh.
+ */
+export function activityBodyStale(state: ChatConnectionState, activityId: string): boolean {
+  const body = state.activityBodies[activityId]
+  if (body?.status !== 'loaded') return false
+  return body.activity.status !== state.transcript?.activities[activityId]?.status
+}
+
+export function withActivityBody(state: ChatConnectionState, planned: PendingActivityBody): ChatConnectionState {
+  return {
+    ...state,
+    activityBodies: {
+      ...state.activityBodies,
+      [planned.activityId]: { status: 'loading', requestId: planned.requestId }
+    }
+  }
+}
+
+/** A request that never reached the socket, or whose socket died before the host answered it. */
+export function activityBodyFailed(
+  state: ChatConnectionState,
+  activityId: string,
+  message: string
+): ChatConnectionState {
+  if (state.activityBodies[activityId]?.status !== 'loading') return state
+  return { ...state, activityBodies: { ...state.activityBodies, [activityId]: { status: 'failed', message } } }
+}
+
+/** Closes a card, whatever it held; a reply still in flight for it is then ignored. */
+export function activityBodyClosed(state: ChatConnectionState, activityId: string): ChatConnectionState {
+  if (!(activityId in state.activityBodies)) return state
+  const { [activityId]: _closed, ...rest } = state.activityBodies
+  return { ...state, activityBodies: rest }
+}
+
 export type PendingAnswer = Extract<ChatAnswerState, { status: 'answering' }>
 
 /**
@@ -353,10 +459,20 @@ export function connectionLost(state: ChatConnectionState): ChatConnectionState 
   // A model change in flight is the same unknowable outcome, with the gentlest recovery of the
   // three: the rejoin's snapshot carries the session's current model, so the control says what
   // actually happened rather than what was asked for.
-  const dropped = modelChangeFailed(answerFailed(state, DISCONNECTED_WHILE_ANSWERING), DISCONNECTED_WHILE_SWITCHING)
+  // A card waiting on its body is the gentlest of all: nothing was changed, so the reply is simply
+  // not coming and a retry on the rejoined socket asks again.
+  const dropped = Object.entries(state.activityBodies).reduce(
+    (current, [activityId, body]) =>
+      body.status === 'loading' ? activityBodyFailed(current, activityId, DISCONNECTED_WHILE_FETCHING) : current,
+    modelChangeFailed(answerFailed(state, DISCONNECTED_WHILE_ANSWERING), DISCONNECTED_WHILE_SWITCHING)
+  )
   if (dropped.send.status !== 'sending') return { ...dropped, phase }
   return { ...recoverDraft(dropped, dropped.send.text, DISCONNECTED_WHILE_SENDING), phase }
 }
+
+/** @internal exported for tests */
+export const DISCONNECTED_WHILE_FETCHING =
+  'Disconnected before the host sent the full output. Try again once reconnected.'
 
 /** @internal exported for tests */
 export const DISCONNECTED_WHILE_SENDING =

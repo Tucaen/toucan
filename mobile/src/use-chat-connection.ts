@@ -7,6 +7,8 @@ import {
   type RemoteChatClientMessage
 } from '../../src/shared/remote-chat'
 import {
+  activityBodyClosed,
+  activityBodyFailed,
   answerFailed,
   applyServerFrame,
   chatGone,
@@ -14,6 +16,7 @@ import {
   draftChanged,
   modelChangeFailed,
   pendingRequest,
+  plannedActivityBody,
   plannedAnswer,
   plannedModelChange,
   plannedSend,
@@ -21,6 +24,7 @@ import {
   reconnectDelayMs,
   restoredChatConnectionState,
   sendFailed,
+  withActivityBody,
   withAnswer,
   withModelChange,
   withSend,
@@ -63,6 +67,13 @@ export interface ChatConnection extends ChatConnectionState {
    * tap on a stale list cannot reach the socket; the host refuses independently anyway.
    */
   onSelectModel(modelId: string): void
+  /**
+   * Opens a tool card: asks the host for the call's whole body, since the transcript only carries a
+   * slim copy. Inert unless the state allows it, and a failed card is reopened the same way.
+   */
+  onOpenActivity(activityId: string): void
+  /** Closes a card and forgets its body, so the next open is a fresh read. */
+  onCloseActivity(activityId: string): void
 }
 
 export function useChatConnection(host: SavedHost, chatId: string, onUnauthorized: () => void): ChatConnection {
@@ -243,7 +254,38 @@ export function useChatConnection(host: SavedHost, chatId: string, onUnauthorize
     })
   }, [])
 
-  return { ...state, onDraftChange, onSend, onApprove, onAnswerDecision, onSelectModel }
+  const onOpenActivity = useCallback((activityId: string) => {
+    // Same shape as a model pick: plan against the newest committed state, write once, then apply
+    // the decision already made. A frame that never left is reported on the card that asked.
+    const planned = plannedActivityBody(stateRef.current, newLocalId(), activityId)
+    if (!planned) return
+    const delivered = writeToSocket(live.current, {
+      type: 'activity',
+      requestId: planned.requestId,
+      activityId: planned.activityId
+    })
+    setState((current) => {
+      const applied = withActivityBody(current, planned)
+      return delivered
+        ? applied
+        : activityBodyFailed(applied, activityId, 'Not connected — try again once reconnected.')
+    })
+  }, [])
+
+  const onCloseActivity = useCallback((activityId: string) => {
+    setState((current) => activityBodyClosed(current, activityId))
+  }, [])
+
+  return {
+    ...state,
+    onDraftChange,
+    onSend,
+    onApprove,
+    onAnswerDecision,
+    onSelectModel,
+    onOpenActivity,
+    onCloseActivity
+  }
 }
 
 /** True only if the frame actually went out; a closed or throwing socket is a failed send. */

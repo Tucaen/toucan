@@ -358,6 +358,11 @@ export interface AgentActivity {
   startedAt?: number
   /** Stamped when the call first reaches a terminal status, and cleared again if it resumes. */
   endedAt?: number
+  /**
+   * A few words of what the call produced, set only by `slimActivity` (`remote-activity.ts`) on the
+   * copy a phone receives in place of the body. The desktop never sees it: it holds the body itself.
+   */
+  preview?: string
 }
 
 /**

@@ -38,7 +38,13 @@ import {
   REMOTE_VOICE_TOO_LONG_MESSAGE,
   remoteVoiceBodyProblem
 } from '../../shared/remote-voice'
-import type { AgentDecisionResponseContent, AgentPromptResult, ProviderUsageReport } from '../../shared/agent'
+import type {
+  AgentActivity,
+  AgentDecisionResponseContent,
+  AgentPromptResult,
+  ProviderUsageReport
+} from '../../shared/agent'
+import { slimAgentEvent, slimTranscriptState } from '../../shared/remote-activity'
 import { catalogueOffers, type AgentModelCatalogue } from '../../shared/agent-model-catalogue'
 import type { AgentEventBroker } from '../agent-event-broker'
 import { describeHostAddresses } from './host-addresses'
@@ -105,7 +111,7 @@ export interface RemoteAccessServerOptions {
    * Where live chats are read from: the same broker every session publishes to, so a phone and the
    * desktop renderer observe one stream. Without it every chat socket is refused as not found.
    */
-  chats?: Pick<AgentEventBroker, 'subscribe'>
+  chats?: Pick<AgentEventBroker, 'subscribe' | 'snapshot'>
   /**
    * What a phone may *do* to a chat. Narrow on purpose: the remote surface reaches the session
    * manager through this one seam, so the set of operations a paired device can perform is
@@ -505,6 +511,25 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
       return
     }
 
+    // The one read-only request. It drives nothing, so it never reaches `sessions` and works on a
+    // read-only host, but it is answered like everything else: a card waiting on its body has no
+    // other way to learn there is none.
+    if (message.type === 'activity') {
+      const reply = (result: { ok: true; activity: AgentActivity } | { ok: false; message: string }): void =>
+        deliver({ type: 'activity_result', requestId: message.requestId, ...result })
+      if (!listed()) {
+        reply({ ok: false, message: 'This chat is no longer open on the desktop.' })
+        return
+      }
+      // The broker's copy, not the phone's: it is the one transcript every client's slim view was
+      // cut from, and it holds the merged body rather than the last patch.
+      const activity = options.chats?.snapshot(chatId)?.activities[message.activityId]
+      reply(
+        activity ? { ok: true, activity } : { ok: false, message: 'That tool call is no longer in the transcript.' }
+      )
+      return
+    }
+
     // Every driving frame is correlated the same way but reported on its own channel, so a client
     // cannot mistake a verdict on one for a verdict on another.
     const resultType =
@@ -548,7 +573,7 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
 
   const attachChatSocket = (
     connection: WebSocket,
-    chats: Pick<AgentEventBroker, 'subscribe'>,
+    chats: Pick<AgentEventBroker, 'subscribe' | 'snapshot'>,
     chatId: string
   ): void => {
     chatSockets.set(connection, { answeredLastPing: true })
@@ -563,15 +588,18 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
     }
     // Subscribe-then-send is atomic on this event loop, so the snapshot and the first tail event
     // cannot race: everything published after the subscription lands strictly after the snapshot.
-    const subscription = chats.subscribe(chatId, (event) => deliver({ type: 'event', event }), {
+    // Every transcript frame is cut down on its way out, so no path can send a body by omission:
+    // the snapshot, a resync and a tail event all go through the same slimming. What the broker
+    // folds and what the desktop receives are untouched - this is the phone's copy only.
+    const subscription = chats.subscribe(chatId, (event) => deliver({ type: 'event', event: slimAgentEvent(event) }), {
       // The session was retired (killed, or about to be recreated). A silently dead subscription
       // would present a stale transcript as live, so the socket closes and the phone rejoins.
       closed: () => connection.close(CLOSE_SESSION_RETIRED, 'session retired'),
       // A session/load replay folded into the snapshot without fanning out; resend it whole. The
       // client treats every snapshot as a full resync, which is what makes this gap-proof.
-      resync: (state) => deliver({ type: 'snapshot', state })
+      resync: (state) => deliver({ type: 'snapshot', state: slimTranscriptState(state) })
     })
-    deliver({ type: 'snapshot', state: subscription.snapshot })
+    deliver({ type: 'snapshot', state: slimTranscriptState(subscription.snapshot) })
     connection.on('message', (data) => {
       void handleChatFrame(chatId, frameText(data), deliver)
     })
@@ -781,7 +809,7 @@ export function createRemoteAccessServer(options: RemoteAccessServerOptions): Re
 function perform(
   sessions: RemoteChatSessionOperations,
   chatId: string,
-  message: Exclude<RemoteChatClientMessage, { type: 'read' }>
+  message: Exclude<RemoteChatClientMessage, { type: 'read' | 'activity' }>
 ): AgentPromptResult | Promise<AgentPromptResult> {
   switch (message.type) {
     case 'prompt':

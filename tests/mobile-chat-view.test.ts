@@ -1,12 +1,14 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'vitest'
 import {
+  activityBodyText,
   activitySummaryLine,
   chatStatusSummary,
   deriveChatViewItems,
   focusChatViewItems
 } from '../mobile/src/chat-view'
 import type { AgentEvent } from '../src/shared/agent'
+import { slimAgentEvent } from '../src/shared/remote-activity'
 import {
   applyAgentCreateResult,
   foldAgentEvent,
@@ -180,4 +182,68 @@ test('focus keeps dialogue, final answers and failed turns, and drops reasoning,
     focusChatViewItems([{ type: 'outcome', key: 'o', status: 'failed', message: 'boom' }]).map((i) => i.type),
     ['outcome']
   )
+})
+
+test('an activity item carries the id a card asks for its body by, and the host’s preview', () => {
+  const state = foldAll([
+    {
+      type: 'activity',
+      activity: { id: 'call-1', title: 'Run the tests', status: 'completed', preview: 'PASS a PASS b' }
+    },
+    { type: 'activity', activity: { id: 'call-2', title: 'Read x', status: 'completed' } }
+  ])
+  const [first, second] = deriveChatViewItems(state)
+  assert.equal(first?.type === 'activity' && first.id, 'call-1')
+  assert.equal(first?.type === 'activity' && first.preview, 'PASS a PASS b')
+  assert.equal(second?.type === 'activity' && second.preview, null)
+})
+
+test('what the host slimmed away changes no line the phone shows', () => {
+  // The same stream, once whole (how a host that predates slimming sends it) and once cut down the
+  // way this host sends it: the transcript the reader sees is identical apart from the preview.
+  const events: AgentEvent[] = [
+    { type: 'message', role: 'user', messageId: 'u1', text: 'run it' },
+    { type: 'activity', activity: { id: 'c', title: 'Run `npm test`', kind: 'execute', status: 'in_progress' } },
+    { type: 'activity', activity: { id: 'c', terminalChunk: 'PASS a\n' } },
+    { type: 'activity', activity: { id: 'c', status: 'completed', exitCode: 0 } }
+  ]
+  const whole = deriveChatViewItems(foldAll(events))
+  const slim = deriveChatViewItems(foldAll(events.map(slimAgentEvent)))
+  const stripPreview = (items: ReturnType<typeof deriveChatViewItems>): unknown[] =>
+    items.map((item) => (item.type === 'activity' ? { ...item, preview: null } : item))
+  assert.deepEqual(stripPreview(slim), stripPreview(whole))
+  const card = slim.find((item) => item.type === 'activity')
+  assert.equal(card?.type === 'activity' && card.preview, 'PASS a')
+  assert.equal(card?.type === 'activity' && card.state, 'done')
+})
+
+test('an opened card reads as the command, its output, and the lines a file change swapped', () => {
+  assert.equal(
+    activityBodyText({
+      id: 'a',
+      kind: 'execute',
+      rawInput: { command: 'npm test' },
+      terminalOutput: 'PASS a\nPASS b\n\n'
+    }),
+    '$ npm test\n\nPASS a\nPASS b'
+  )
+  assert.equal(activityBodyText({ id: 'b', kind: 'read', content: 'line one\nline two' }), 'line one\nline two')
+  assert.equal(
+    activityBodyText({
+      id: 'c',
+      kind: 'edit',
+      diffs: [{ path: 'src/a.ts', oldText: 'let a = 1', newText: 'let a = 2\nlet b = 3' }]
+    }),
+    'src/a.ts\n- let a = 1\n+ let a = 2\n+ let b = 3'
+  )
+  assert.equal(
+    activityBodyText({ id: 'd', diffs: [{ path: 'new.ts', newText: 'export {}' }] }),
+    'new.ts\n+ export {}',
+    'a new file has nothing removed'
+  )
+})
+
+test('a call that produced nothing has an empty body, which the card says rather than rendering blank', () => {
+  assert.equal(activityBodyText({ id: 'a', title: 'Think', status: 'completed' }), '')
+  assert.equal(activityBodyText({ id: 'b', kind: 'read', content: '   \n' }), '')
 })

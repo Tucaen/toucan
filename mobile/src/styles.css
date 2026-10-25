@@ -550,21 +550,87 @@ body {
   }
 }
 
+/*
+ * A tool call is a button: opening it asks the host for the body, which the transcript only carries
+ * a preview of. The reset below keeps it reading as the one-line aside it was.
+ */
+.activity-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  max-width: 100%;
+}
+
 .activity {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   margin: 0;
   align-self: flex-start;
   max-width: 100%;
   padding: 2px 4px;
+  border: 0;
+  background: none;
   color: var(--ink-faint);
+  font: inherit;
   font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
   overflow-wrap: anywhere;
+}
+
+.activity-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* One line, clipped: the preview is a hint at what is behind the tap, not the output itself. */
+.activity-preview {
+  overflow: hidden;
+  color: var(--ink-faint);
+  opacity: 0.75;
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activity-body {
+  box-sizing: border-box;
+  width: 100%;
+  max-height: 50vh;
+  margin: 4px 0 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--raised);
+  color: var(--ink-dim);
+  font-size: 11.5px;
+  line-height: 1.45;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.activity-note {
+  margin: 2px 4px 4px;
+  color: var(--ink-faint);
+  font-size: 12px;
+}
+
+.activity-retry {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
 }
 
 .activity-glyph {
   flex: 0 0 auto;
+  margin-top: 5px;
   width: 7px;
   height: 7px;
   border-radius: 50%;

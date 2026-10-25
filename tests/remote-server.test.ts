@@ -26,6 +26,7 @@ import type { AgentEvent, ProviderUsageReport } from '../src/shared/agent'
 import type { AgentModelCatalogue } from '../src/shared/agent-model-catalogue'
 import { foldAgentEvent, type AgentTranscriptState } from '../src/shared/agent-transcript'
 import {
+  REMOTE_CHAT_ACTIVITY_ID_LIMIT,
   REMOTE_CHAT_ANSWER_VALUE_LIMIT,
   REMOTE_CHAT_MODEL_ID_LIMIT,
   REMOTE_CHAT_PROMPT_LIMIT,
@@ -1848,5 +1849,207 @@ describe('wire compression', () => {
     // Compresses to almost nothing, so only a limit applied to the inflated size can refuse it.
     socket.send(JSON.stringify({ type: 'prompt', requestId: 'r', text: 'a'.repeat(5_000_000) }))
     assert.equal(await closed, 1009)
+  })
+})
+
+/**
+ * What the phone is sent of a tool call, and how it gets the rest. A transcript's weight is its tool
+ * bodies, so every frame that carries an activity - the snapshot, a resync, a tail event - is slim,
+ * and the body travels only in the verdict on an `activity` request. The broker, which the desktop
+ * reads, is never touched.
+ */
+
+const EDIT_ACTIVITY = {
+  id: 'call-1',
+  title: 'Edit src/app.ts',
+  kind: 'edit',
+  status: 'completed' as const,
+  diffs: [{ path: 'src/app.ts', oldText: 'a'.repeat(4_000), newText: 'b'.repeat(4_000) }],
+  rawInput: { new_string: 'b'.repeat(4_000) }
+}
+
+async function activityVerdict(
+  socket: ChatSocket
+): Promise<Extract<RemoteChatServerMessage, { type: 'activity_result' }>> {
+  const message = await socket.next()
+  assert.equal(message.type, 'activity_result')
+  return message as Extract<RemoteChatServerMessage, { type: 'activity_result' }>
+}
+
+describe('slim tool activity on a chat socket', () => {
+  test('the snapshot carries each call’s metadata and preview, not its body', async () => {
+    const chats = createAgentEventBroker()
+    const { server, store } = harness({ chats })
+    await server.applySettings({ enabled: true, port: await freePort() })
+    server.publishWorkspace(CHAT_PROJECTION)
+    chats.publish('chat-1', { type: 'activity', activity: EDIT_ACTIVITY })
+
+    const socket = connectChat(server.state().boundPort!, 'chat-1', { header: store.read().token })
+    const first = await socket.next()
+    assert.equal(first.type, 'snapshot')
+    const activity = (first as { state: AgentTranscriptState }).state.activities['call-1']!
+    assert.equal(activity.title, 'Edit src/app.ts')
+    assert.equal(activity.status, 'completed')
+    assert.equal(activity.preview, `${'b'.repeat(159)}…`)
+    assert.equal('diffs' in activity, false)
+    assert.equal('rawInput' in activity, false)
+    // What the desktop reads is the broker's own copy, still whole.
+    assert.equal(chats.snapshot('chat-1')?.activities['call-1']?.diffs?.[0]?.newText.length, 4_000)
+    socket.close()
+  })
+
+  test('tail events and a resync are slim too, so no path sends a body by omission', async () => {
+    const { chats, socket } = await joinedChat({})
+
+    chats.publish('chat-1', { type: 'activity', activity: EDIT_ACTIVITY })
+    const tail = await socket.next()
+    assert.equal(tail.type, 'event')
+    const event = (tail as { event: AgentEvent }).event
+    assert.equal(event.type === 'activity' && 'diffs' in event.activity, false)
+    assert.equal(event.type === 'activity' && event.activity.title, 'Edit src/app.ts')
+
+    chats.applyCreateResult('chat-1', { ok: true, status: 'ready', sessionId: 's-1' })
+    const resynced = await socket.next()
+    assert.equal(resynced.type, 'snapshot')
+    assert.equal('diffs' in (resynced as { state: AgentTranscriptState }).state.activities['call-1']!, false)
+    socket.close()
+  })
+
+  test('a pending approval reaches the phone without the body of the call it asks about', async () => {
+    const { chats, socket } = await joinedChat({})
+    chats.publish('chat-1', {
+      type: 'approval',
+      approvalId: 'ap-1',
+      title: 'Allow edit?',
+      options: [{ id: 'allow', label: 'Allow', kind: 'allow_once' }],
+      activity: EDIT_ACTIVITY
+    })
+    const message = await socket.next()
+    const event = (message as { event: AgentEvent }).event
+    assert.equal(event.type, 'approval')
+    if (event.type === 'approval') {
+      assert.equal(event.options[0]?.id, 'allow')
+      assert.equal(event.activity?.title, 'Edit src/app.ts')
+      assert.equal(event.activity && 'diffs' in event.activity, false)
+    }
+    socket.close()
+  })
+
+  test('an activity request is answered with the whole call as the host holds it', async () => {
+    const { chats, socket } = await joinedChat({})
+    chats.publish('chat-1', { type: 'activity', activity: { id: 'sh-1', kind: 'execute', terminalChunk: 'first\n' } })
+    chats.publish('chat-1', { type: 'activity', activity: { id: 'sh-1', terminalChunk: 'second\n' } })
+    await socket.next()
+    await socket.next()
+
+    await socket.send(JSON.stringify({ type: 'activity', requestId: 'r1', activityId: 'sh-1' }))
+    const verdict = await activityVerdict(socket)
+    assert.equal(verdict.requestId, 'r1')
+    assert.equal(verdict.ok, true)
+    // The merged output, not the last patch: the broker's copy is the one every client's slim view
+    // was cut from.
+    assert.equal(verdict.activity?.terminalOutput, 'first\nsecond\n')
+    socket.close()
+  })
+
+  test('a call the transcript does not hold is refused in words, not left unanswered', async () => {
+    const { socket } = await joinedChat({})
+    await socket.send(JSON.stringify({ type: 'activity', requestId: 'r1', activityId: 'never-ran' }))
+    const verdict = await activityVerdict(socket)
+    assert.equal(verdict.ok, false)
+    assert.equal(verdict.requestId, 'r1')
+    assert.match(verdict.message ?? '', /no longer in the transcript/)
+    assert.equal('activity' in verdict, false)
+    socket.close()
+  })
+
+  test('a chat the desktop has since unlisted gives no body either', async () => {
+    const chats = createAgentEventBroker()
+    const { server, store } = harness({ chats })
+    await server.applySettings({ enabled: true, port: await freePort() })
+    server.publishWorkspace(CHAT_PROJECTION)
+    chats.publish('chat-1', { type: 'activity', activity: EDIT_ACTIVITY })
+    const socket = connectChat(server.state().boundPort!, 'chat-1', { header: store.read().token })
+    assert.equal((await socket.next()).type, 'snapshot')
+
+    server.publishWorkspace({ projects: CHAT_PROJECTION.projects, chats: [] })
+    await socket.send(JSON.stringify({ type: 'activity', requestId: 'r1', activityId: 'call-1' }))
+    const verdict = await activityVerdict(socket)
+    assert.equal(verdict.ok, false)
+    assert.match(verdict.message ?? '', /no longer open/)
+    assert.equal('activity' in verdict, false)
+    socket.close()
+  })
+
+  test('reading a body drives nothing, so a read-only host still answers it', async () => {
+    // No `sessions` seam at all: every driving frame is refused here, and this one is not driving.
+    const { chats, socket } = await joinedChat({})
+    chats.publish('chat-1', { type: 'activity', activity: EDIT_ACTIVITY })
+    await socket.next()
+
+    await socket.send(JSON.stringify({ type: 'activity', requestId: 'r1', activityId: 'call-1' }))
+    assert.equal((await activityVerdict(socket)).ok, true)
+    socket.close()
+  })
+
+  test('an activity id the frame contract refuses never gets a body', async () => {
+    const { chats, socket } = await joinedChat({})
+    chats.publish('chat-1', { type: 'activity', activity: EDIT_ACTIVITY })
+    await socket.next()
+
+    for (const activityId of [42, '', 'x'.repeat(REMOTE_CHAT_ACTIVITY_ID_LIMIT + 1)]) {
+      await socket.send(JSON.stringify({ type: 'activity', requestId: 'r1', activityId }))
+    }
+    // Unparsable frames get no verdict, so the proof they were dropped is that the next frame the
+    // socket delivers is the event published after them rather than a body.
+    chats.publish('chat-1', assistantChunk('a1', 'still here'))
+    assert.equal((await socket.next()).type, 'event')
+    socket.close()
+  })
+
+  test('slimming and permessage-deflate compose: a compressed socket still gets the slim snapshot and a body on request', async () => {
+    const chats = createAgentEventBroker()
+    const { server, store } = harness({ chats })
+    await server.applySettings({ enabled: true, port: await freePort() })
+    server.publishWorkspace(CHAT_PROJECTION)
+    for (let index = 0; index < 20; index += 1) {
+      chats.publish('chat-1', { type: 'activity', activity: { ...EDIT_ACTIVITY, id: `call-${index}` } })
+    }
+
+    const socket = new WebSocket(
+      `ws://127.0.0.1:${server.state().boundPort}/api/chats/chat-1`,
+      [REMOTE_CHAT_PROTOCOL, remoteChatBearerProtocol(store.read().token)],
+      { perMessageDeflate: true }
+    )
+    const frames: RemoteChatServerMessage[] = []
+    const waiting: ((message: RemoteChatServerMessage) => void)[] = []
+    socket.on('message', (data: Buffer) => {
+      const message = parseRemoteChatServerMessage(data.toString('utf8'))
+      assert.ok(message)
+      const waiter = waiting.shift()
+      if (waiter) waiter(message)
+      else frames.push(message)
+    })
+    const next = (): Promise<RemoteChatServerMessage> =>
+      new Promise((resolve) => {
+        const queued = frames.shift()
+        if (queued) resolve(queued)
+        else waiting.push(resolve)
+      })
+    await new Promise((resolve) => socket.on('open', resolve))
+    assert.ok(socket.extensions.includes('permessage-deflate'))
+
+    const snapshot = await next()
+    assert.equal(snapshot.type, 'snapshot')
+    const activities = (snapshot as { state: AgentTranscriptState }).state.activities
+    assert.equal(Object.keys(activities).length, 20)
+    assert.equal('diffs' in activities['call-0']!, false)
+
+    socket.send(JSON.stringify({ type: 'activity', requestId: 'r1', activityId: 'call-7' }))
+    const verdict = (await next()) as Extract<RemoteChatServerMessage, { type: 'activity_result' }>
+    assert.equal(verdict.type, 'activity_result')
+    assert.equal(verdict.ok, true)
+    assert.equal(verdict.activity?.diffs?.[0]?.newText.length, 4_000)
+    socket.close()
   })
 })

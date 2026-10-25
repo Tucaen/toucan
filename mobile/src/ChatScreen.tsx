@@ -11,6 +11,7 @@ import type {
 import { describeSessionUsage, describeUsageFreshness, type SessionUsageReadout } from '../../src/shared/session-usage'
 import type { RemoteChatSummary } from '../../src/shared/remote-access'
 import {
+  activityBodyStale,
   answerFailure,
   answerInFlight,
   canSendDraft,
@@ -23,6 +24,7 @@ import {
   sendBlockedReason
 } from './chat-connection'
 import {
+  activityBodyText,
   activitySummaryLine,
   chatStatusSummary,
   deriveChatViewItems,
@@ -204,7 +206,7 @@ export default function ChatScreen({
 
       <div className="transcript" data-stale={connection.phase === 'reconnecting' || undefined}>
         {items.map((item) => (
-          <TranscriptItem key={item.key} item={item} />
+          <TranscriptItem key={item.key} item={item} connection={connection} />
         ))}
         {connection.phase === 'live' && items.length === 0 && (
           <p className="empty">Nothing in this conversation yet.</p>
@@ -622,7 +624,60 @@ function Composer({ connection, host }: { connection: ChatConnection; host: Save
   )
 }
 
-function TranscriptItem({ item }: { item: ChatViewItem }): JSX.Element {
+/**
+ * One tool call: its summary line and preview always, and its whole body once the reader opens it.
+ * The transcript only carries a slim copy of the call, so opening is a request over the socket
+ * (`onOpenActivity`) and closing forgets the answer - whether the card is open is the connection's
+ * to say, not this component's, which is why it holds no state of its own.
+ */
+function ActivityCard({
+  item,
+  connection
+}: {
+  item: Extract<ChatViewItem, { type: 'activity' }>
+  connection: ChatConnection
+}): JSX.Element {
+  const body = connection.activityBodies[item.id]
+  const open = body !== undefined && body.status !== 'failed'
+  const text = body?.status === 'loaded' ? activityBodyText(body.activity) : null
+  return (
+    <div className="activity-card" data-state={item.state} data-open={open || undefined}>
+      <button
+        type="button"
+        className="activity"
+        data-state={item.state}
+        aria-expanded={open}
+        onClick={() => (open ? connection.onCloseActivity(item.id) : connection.onOpenActivity(item.id))}
+      >
+        <span className="activity-glyph" aria-hidden />
+        <span className="activity-copy">
+          <span className="activity-label">{item.label}</span>
+          {!open && item.preview && <small className="activity-preview">{item.preview}</small>}
+        </span>
+      </button>
+      {body?.status === 'loading' && <p className="activity-note">Loading…</p>}
+      {body?.status === 'failed' && (
+        <p className="activity-note send-error" role="alert">
+          {body.message}{' '}
+          <button type="button" className="activity-retry" onClick={() => connection.onOpenActivity(item.id)}>
+            Try again
+          </button>
+        </p>
+      )}
+      {text !== null && activityBodyStale(connection, item.id) && (
+        <p className="activity-note">This call has changed since you opened it. Close and reopen it to refresh.</p>
+      )}
+      {text !== null &&
+        (text.length > 0 ? (
+          <pre className="activity-body">{text}</pre>
+        ) : (
+          <p className="activity-note">This tool call produced no output.</p>
+        ))}
+    </div>
+  )
+}
+
+function TranscriptItem({ item, connection }: { item: ChatViewItem; connection: ChatConnection }): JSX.Element {
   if (item.type === 'reasoning') {
     return (
       <p className="reasoning" data-streaming={item.streaming || undefined}>
@@ -630,14 +685,7 @@ function TranscriptItem({ item }: { item: ChatViewItem }): JSX.Element {
       </p>
     )
   }
-  if (item.type === 'activity') {
-    return (
-      <p className="activity" data-state={item.state}>
-        <span className="activity-glyph" aria-hidden />
-        {item.label}
-      </p>
-    )
-  }
+  if (item.type === 'activity') return <ActivityCard item={item} connection={connection} />
   if (item.type === 'outcome') {
     return (
       <p className="turn-outcome" data-status={item.status}>

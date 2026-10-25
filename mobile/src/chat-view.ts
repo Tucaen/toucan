@@ -15,7 +15,18 @@ export type ChatViewItem =
   | { type: 'bubble'; key: string; role: 'user' | 'assistant'; text: string; final: boolean; streaming: boolean }
   /** A run of adjacent thought messages, collapsed to one unobtrusive indicator. */
   | { type: 'reasoning'; key: string; streaming: boolean }
-  | { type: 'activity'; key: string; label: string; state: 'running' | 'done' | 'failed' }
+  /**
+   * One tool call. `id` is what a card asks the host for its body by; `preview` is the few words
+   * the host sent in the body's place (null when the call produced nothing to say).
+   */
+  | {
+      type: 'activity'
+      key: string
+      id: string
+      label: string
+      preview: string | null
+      state: 'running' | 'done' | 'failed'
+    }
   | { type: 'outcome'; key: string; status: 'failed' | 'cancelled'; message: string }
 
 export function deriveChatViewItems(state: AgentTranscriptState): ChatViewItem[] {
@@ -27,7 +38,14 @@ export function deriveChatViewItems(state: AgentTranscriptState): ChatViewItem[]
     if (entry.type === 'activity') {
       const activity = state.activities[entry.id]
       if (!activity) continue
-      items.push({ type: 'activity', key, label: activitySummaryLine(activity), state: activityState(activity) })
+      items.push({
+        type: 'activity',
+        key,
+        id: activity.id,
+        label: activitySummaryLine(activity),
+        preview: activity.preview ?? null,
+        state: activityState(activity)
+      })
       continue
     }
     if (entry.type === 'outcome') {
@@ -113,6 +131,35 @@ export function activitySummaryLine(activity: AgentActivity): string {
   const name = activity.toolName ?? activity.kind ?? 'Tool call'
   const subject = shortSubject(activity)
   return subject ? `${name} ${subject}` : name
+}
+
+/**
+ * What an opened card shows: the whole call as the host sent it on request, flattened to text. A
+ * command's output is `terminalOutput`, everything else's text is `content`, and a file change is
+ * its path and the lines it swapped. Empty means the call produced nothing a card could show, which
+ * the card says instead of rendering a blank box.
+ */
+export function activityBodyText(activity: AgentActivity): string {
+  const sections: string[] = []
+  const command = shellCommand(activity)
+  if (command) sections.push(`$ ${command}`)
+  const output = activity.terminalOutput ?? activity.content
+  if (output?.trim()) sections.push(output.trimEnd())
+  for (const diff of activity.diffs ?? []) {
+    const removed = diff.oldText ? diff.oldText.split('\n').map((line) => `- ${line}`) : []
+    const added = diff.newText.split('\n').map((line) => `+ ${line}`)
+    sections.push([diff.path, ...removed, ...added].join('\n'))
+  }
+  return sections.join('\n\n')
+}
+
+/** The command line of a shell call, when its arguments name one; every other tool has none. */
+function shellCommand(activity: AgentActivity): string | null {
+  if (activity.kind !== 'execute') return null
+  const input = activity.rawInput
+  if (!input || typeof input !== 'object') return null
+  const command = (input as { command?: unknown }).command
+  return typeof command === 'string' && command.trim() ? command.trim() : null
 }
 
 function shortSubject(activity: AgentActivity): string | null {
