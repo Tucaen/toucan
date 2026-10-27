@@ -65,7 +65,7 @@ export function collectQuitActivity(
   }
 }
 
-/** Total background tasks across sessions: the number the header hint and the dialog both quote. */
+/** Total background tasks across sessions, as the dialog's headline quotes it. */
 export function backgroundTaskTotal(background: readonly QuitSession[]): number {
   return background.reduce((sum, session) => sum + session.tasks, 0)
 }
@@ -103,43 +103,67 @@ export function describeQuitRisk(activity: QuitActivity, reason: QuitReason): Qu
 
 export interface QuitGuard {
   /**
-   * Resolves true when the exit may go ahead: nothing is at stake, or the user chose to proceed
-   * (remembered, so the rest of the same exit is not asked again). Concurrent callers share one
-   * prompt, because a window close and an app quit can arrive together.
+   * Resolves true when the exit may go ahead: nothing is at stake, or the user chose to proceed.
+   * A true answer clears the exit (see `cleared`), so the rest of the same exit - an update's
+   * restart quits the app, which closes the window, which quits the app - is not asked again.
+   * Concurrent callers share one prompt, because a window close and an app quit can arrive together.
    */
   confirm(reason: QuitReason): Promise<boolean>
-  /** Forgets an earlier "proceed" - a window reopened after a macOS close has fresh sessions. */
+  /**
+   * Whether an exit was cleared moments ago and is presumably still under way. It lapses after
+   * `clearedForMs`: a restart that was cleared but never happened (the installer refused, the
+   * status moved during the dialog) must not leave every later close unguarded.
+   */
+  cleared(): boolean
+  /** Clears the exit without asking, for a shutdown the OS has already decided on. */
+  allowExit(): void
+  /** Forgets a cleared exit. */
   reset(): void
 }
+
+/** Long enough for an installer to spawn and every window to close; short enough to be no loophole. */
+const CLEARED_FOR_MS = 15_000
 
 export function createQuitGuard(options: {
   activity: () => Promise<QuitActivity>
   /** Shows the warning; true means the user chose to proceed. */
   ask: (warning: QuitWarning) => Promise<boolean>
+  now?: () => number
+  clearedForMs?: number
 }): QuitGuard {
-  let approved = false
+  const now = options.now ?? Date.now
+  const clearedForMs = options.clearedForMs ?? CLEARED_FOR_MS
+  let clearedAt: number | null = null
   let pending: Promise<boolean> | null = null
+
+  const cleared = (): boolean => clearedAt !== null && now() - clearedAt < clearedForMs
+  const clear = (): void => {
+    clearedAt = now()
+  }
 
   return {
     confirm(reason) {
-      if (approved) return Promise.resolve(true)
+      if (cleared()) return Promise.resolve(true)
       if (pending) return pending
       const decision = (async () => {
         const warning = describeQuitRisk(await options.activity(), reason)
-        if (warning === null) return true
-        // Only an answer is remembered: "nothing at stake" is true of this moment, not the next.
-        const proceed = await options.ask(warning)
-        if (proceed) approved = true
+        const proceed = warning === null || (await options.ask(warning))
+        if (proceed) clear()
         return proceed
         // A failed lookup or dialog must never trap the user in a window they cannot close.
-      })().catch(() => true)
+      })().catch(() => {
+        clear()
+        return true
+      })
       pending = decision.finally(() => {
         pending = null
       })
       return pending
     },
+    cleared,
+    allowExit: clear,
     reset() {
-      approved = false
+      clearedAt = null
     }
   }
 }

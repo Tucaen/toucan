@@ -1,4 +1,16 @@
-import { app, BrowserWindow, dialog, ipcMain, nativeImage, net, protocol, safeStorage, session, shell } from 'electron'
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  nativeImage,
+  net,
+  powerMonitor,
+  protocol,
+  safeStorage,
+  session,
+  shell
+} from 'electron'
 import { existsSync, mkdirSync } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
 import { join, normalize, resolve } from 'node:path'
@@ -94,7 +106,7 @@ import { claudeConversationTranscriptPath, createConversationHistory } from './c
 import { createConversationTitleStore } from './conversation-title-store'
 import { createCodexRateLimitReader } from './codex-rate-limits'
 import { createProviderUsage, type ProviderUsage } from './provider-usage'
-import { collectQuitActivity, createQuitGuard, type QuitReason } from './quit-guard'
+import { collectQuitActivity, createQuitGuard } from './quit-guard'
 import { createProviderWideTicketSessionCounter, createWorkingSessionCounter } from './orchestrated-ticket-sessions'
 import { createRemoteAccessStore } from './remote/remote-access-store'
 import { createSafeStorageVault } from './remote/token-vault'
@@ -1186,24 +1198,19 @@ void app.whenReady().then(async () => {
       return result.response === 0
     }
   })
-  // Set once the user (or an empty activity list) has cleared this exit, so the window close and
-  // the app quit that follow each other are not both stopped by the guard.
-  let exitCleared = false
-  const clearExit = async (reason: QuitReason): Promise<boolean> => {
-    const proceed = await quitGuard.confirm(reason)
-    if (proceed) exitCleared = true
-    return proceed
-  }
-  registerAppUpdateIpc(ipcMain, appUpdater, () => clearExit('update'))
+  registerAppUpdateIpc(ipcMain, appUpdater, () => quitGuard.confirm('update'))
   const guardWindowClose = (window: BrowserWindow): void => {
     window.on('close', (event) => {
-      if (exitCleared) return
+      if (quitGuard.cleared()) return
       event.preventDefault()
-      void clearExit('quit').then((proceed) => {
+      void quitGuard.confirm('quit').then((proceed) => {
         if (proceed && !window.isDestroyed()) window.close()
       })
     })
+    // A logoff or restart is not the user's to veto from a dialog: holding it would only stall the OS.
+    window.on('session-end', () => quitGuard.allowExit())
   }
+  powerMonitor.on('shutdown', () => quitGuard.allowExit())
   createWindow(
     manager,
     agentManager,
@@ -1224,7 +1231,6 @@ void app.whenReady().then(async () => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       // A window closed on macOS took its sessions with it; the new one starts uncleared.
-      exitCleared = false
       quitGuard.reset()
       createWindow(
         manager,
@@ -1244,9 +1250,9 @@ void app.whenReady().then(async () => {
     }
   })
   app.on('before-quit', (event) => {
-    if (!exitCleared) {
+    if (!quitGuard.cleared()) {
       event.preventDefault()
-      void clearExit('quit').then((proceed) => {
+      void quitGuard.confirm('quit').then((proceed) => {
         if (proceed) app.quit()
       })
       return

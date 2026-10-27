@@ -179,6 +179,76 @@ describe('createQuitGuard', () => {
   })
 })
 
+describe('createQuitGuard clearance', () => {
+  const warningActivity: QuitActivity = { background: [{ name: 'A', tasks: 1 }], working: [] }
+
+  function guardAt(clock: { time: number }, answer = true) {
+    let asked = 0
+    const guard = createQuitGuard({
+      activity: async () => warningActivity,
+      ask: async () => {
+        asked += 1
+        return answer
+      },
+      now: () => clock.time,
+      clearedForMs: 1000
+    })
+    return { guard, asked: () => asked }
+  }
+
+  it('is not cleared until an exit was confirmed, and a cancel clears nothing', async () => {
+    const clock = { time: 0 }
+    const { guard } = guardAt(clock, false)
+    assert.equal(guard.cleared(), false)
+    assert.equal(await guard.confirm('quit'), false)
+    assert.equal(guard.cleared(), false)
+  })
+
+  it('clears the exit on a proceed, so before-quit and the window close pass without another dialog', async () => {
+    const clock = { time: 0 }
+    const { guard, asked } = guardAt(clock)
+    assert.equal(await guard.confirm('update'), true)
+    assert.equal(guard.cleared(), true)
+    assert.equal(await guard.confirm('quit'), true)
+    assert.equal(asked(), 1)
+  })
+
+  it('clears an exit with nothing at stake too, so the re-issued quit is not stopped forever', async () => {
+    const guard = createQuitGuard({ activity: async () => NOTHING, ask: async () => false })
+    assert.equal(await guard.confirm('quit'), true)
+    assert.equal(guard.cleared(), true)
+  })
+
+  it('lapses, so a restart that never happened leaves later closes guarded', async () => {
+    const clock = { time: 0 }
+    const { guard, asked } = guardAt(clock)
+    await guard.confirm('update')
+    clock.time = 999
+    assert.equal(guard.cleared(), true)
+    clock.time = 1000
+    assert.equal(guard.cleared(), false)
+    assert.equal(await guard.confirm('quit'), true)
+    assert.equal(asked(), 2, 'asked again once the clearance lapsed')
+  })
+
+  it('clears a failed lookup too, so the re-issued quit is not stopped forever', async () => {
+    const guard = createQuitGuard({ activity: async () => Promise.reject(new Error('boom')), ask: async () => false })
+    assert.equal(await guard.confirm('quit'), true)
+    assert.equal(guard.cleared(), true)
+  })
+
+  it('allowExit clears without asking and reset forgets it', async () => {
+    const clock = { time: 0 }
+    const { guard, asked } = guardAt(clock)
+    guard.allowExit()
+    assert.equal(guard.cleared(), true)
+    assert.equal(await guard.confirm('quit'), true)
+    assert.equal(asked(), 0)
+    guard.reset()
+    assert.equal(guard.cleared(), false)
+  })
+})
+
 describe('registerAppUpdateIpc restart', () => {
   function setup(phase: 'downloaded' | 'idle', confirm: () => Promise<boolean>) {
     const handlers = new Map<string, () => unknown>()
