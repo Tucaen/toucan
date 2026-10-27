@@ -51,6 +51,7 @@ export interface ConversationReportingOptions {
   conversation: Pick<
     AgentConversationController,
     | 'status'
+    | 'backgroundTasks'
     | 'approval'
     | 'decisionRequest'
     | 'detail'
@@ -211,7 +212,7 @@ export function useConversationReporting(options: ConversationReportingOptions):
   // reading it back out of the workspace would be this node's own report arriving a render late.
   const nodeStatus: TerminalNodeStatus = options.dormant
     ? 'dormant'
-    : sidebarStatus(status, waiting, options.unreadKind, stalled)
+    : sidebarStatus(status, waiting, options.unreadKind, stalled, options.conversation.backgroundTasks)
   useEffect(() => {
     if (options.dormant) return
     onStatusChange(id, nodeStatus)

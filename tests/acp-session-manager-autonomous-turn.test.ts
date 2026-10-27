@@ -7,6 +7,7 @@ import type { WebContents } from 'electron'
 import {
   autonomousTurnSignal,
   backgroundTaskCount,
+  backgroundTaskTypes,
   createAcpSessionManager,
   withForwardedSdkMessages
 } from '../src/main/acp-session-manager'
@@ -137,6 +138,9 @@ test('a turn the agent resumes on a task notification refreshes the record and w
     assert.equal(first.lastResult, 'The full suite is running in the background.')
     await until(() => delivered.length === 1 || undefined)
     assert.match(delivered[0], /#CIC-33 completed \(background work pending: 1 task\)/)
+    // The turn is over but its shell is not: the count is live state, not only a turn_complete field.
+    assert.deepEqual(manager.backgroundWork(), [{ id: 'node-1', tasks: 1, byType: { local_bash: 1 } }])
+    assert.equal(broker.snapshot('node-1')?.backgroundTasks, 1)
     head = 'ab543d1'
 
     // The notification-driven cycle has no prompt of its own; its end is a turn boundary all the same.
@@ -155,6 +159,8 @@ test('a turn the agent resumes on a task notification refreshes the record and w
 
     const snapshot = broker.snapshot('node-1')
     assert.equal(snapshot?.status, 'ready')
+    assert.equal(snapshot?.backgroundTasks, 0, 'the task that woke the cycle is gone, so the node is idle again')
+    assert.deepEqual(manager.backgroundWork(), [])
     const assistant = snapshot?.messages.filter((message) => message.role === 'assistant') ?? []
     assert.deepEqual(
       assistant.map((message) => [message.text, message.presentation]),
@@ -167,6 +173,116 @@ test('a turn the agent resumes on a task notification refreshes the record and w
   } finally {
     manager.killAll()
   }
+})
+
+/**
+ * A Claude adapter whose background-task level a test drives by prompt text: each line the prompt
+ * carries is one SDK message, sent after the turn's own response so it lands between turns.
+ */
+function levelAdapter(appPath: string, script: unknown[][]): void {
+  const directory = join(appPath, 'node_modules', '@agentclientprotocol', 'claude-agent-acp', 'dist')
+  mkdirSync(directory, { recursive: true })
+  writeFileSync(
+    join(directory, 'index.js'),
+    `
+const readline = require('node:readline')
+const lines = readline.createInterface({ input: process.stdin })
+const send = (message) => process.stdout.write(JSON.stringify(message) + '\\n')
+let raw = []
+const sdk = (message) => {
+  if (raw.some((f) => f.type === message.type && (f.subtype === undefined || f.subtype === message.subtype)))
+    send({ jsonrpc: '2.0', method: '_claude/sdkMessage', params: { sessionId: 'live-session', message } })
+}
+const script = ${JSON.stringify(script)}
+lines.on('line', (line) => {
+  const request = JSON.parse(line)
+  if (request.method === 'initialize') {
+    send({ jsonrpc: '2.0', id: request.id, result: { protocolVersion: 1, agentCapabilities: {}, authMethods: [] } })
+  } else if (request.method === 'session/new') {
+    raw = request.params._meta?.claudeCode?.emitRawSDKMessages || []
+    send({ jsonrpc: '2.0', id: request.id, result: { sessionId: 'live-session' } })
+  } else if (request.method === 'session/prompt') {
+    send({ jsonrpc: '2.0', id: request.id, result: { stopReason: 'end_turn' } })
+    let delay = 0
+    for (const [wait, message] of script) {
+      delay += wait
+      setTimeout(() => sdk(message), delay)
+    }
+  }
+})
+`,
+    'utf8'
+  )
+}
+
+const level = (...types: string[]) => ({
+  type: 'system',
+  subtype: 'background_tasks_changed',
+  tasks: types.map((task_type, index) => ({ task_id: `t${index}`, task_type }))
+})
+
+test('the live background count reaches every subscriber and the main-side query, only when it changes', async () => {
+  const appPath = mkdtempSync(join(tmpdir(), 'toucan-background-count-'))
+  levelAdapter(appPath, [
+    [0, level('local_bash', 'local_agent')],
+    // Same total, different tasks: nothing new for anyone to be told.
+    [40, level('local_bash', 'local_monitor')],
+    [40, level('local_bash', 'local_monitor')],
+    // The CLI restarted inside the adapter: its tasks died with it.
+    [40, { type: 'system', subtype: 'init' }],
+    [40, level('local_bash')],
+    // The cycle a finished task wakes opens on the CLI's `running`, before any output.
+    [40, { type: 'system', subtype: 'session_state_changed', state: 'running' }]
+  ])
+  const broker = createAgentEventBroker()
+  const counts: number[] = []
+  broker.observe((_id, event) => {
+    if (event.type === 'status' && event.backgroundTasks !== undefined) counts.push(event.backgroundTasks)
+  })
+  const owner = { isDestroyed: () => false, send: () => {} } as unknown as WebContents
+  const manager = createAcpSessionManager({ appPath, broker })
+
+  try {
+    await manager.create({ id: 'node-1', provider: 'claude', cwd: appPath }, owner)
+    assert.deepEqual(manager.backgroundWork(), [])
+    await manager.prompt('node-1', 'go')
+
+    await until(() => (manager.backgroundWork()[0]?.byType.local_monitor ? true : undefined))
+    assert.deepEqual(manager.backgroundWork(), [
+      { id: 'node-1', tasks: 2, byType: { local_bash: 1, local_monitor: 1 } }
+    ])
+    assert.equal(broker.snapshot('node-1')?.backgroundTasks, 2)
+
+    // The restart empties it, then the new CLI's own task is counted afresh.
+    await until(() => (broker.snapshot('node-1')?.backgroundTasks === 0 ? true : undefined))
+    assert.deepEqual(manager.backgroundWork(), [])
+    await until(() => (broker.snapshot('node-1')?.backgroundTasks === 1 ? true : undefined))
+
+    // `running` with no prompt in flight is a cycle of its own, so the node reads Working at once.
+    await until(() => (broker.snapshot('node-1')?.status === 'working' ? true : undefined))
+    assert.equal(broker.snapshot('node-1')?.backgroundTasks, 1)
+    assert.deepEqual(counts, [2, 0, 1])
+
+    // Stopping the session takes its tasks with it: nothing is left to warn about.
+    manager.kill('node-1')
+    assert.deepEqual(manager.backgroundWork(), [])
+  } finally {
+    manager.killAll()
+  }
+})
+
+test('background tasks are counted per type, unknown types included', () => {
+  assert.deepEqual(backgroundTaskTypes(level('local_bash', 'local_agent', 'local_monitor', 'local_agent')), {
+    local_bash: 1,
+    local_agent: 2,
+    local_monitor: 1
+  })
+  assert.deepEqual(backgroundTaskTypes({ type: 'system', subtype: 'background_tasks_changed', tasks: [{}] }), {
+    unknown: 1
+  })
+  assert.deepEqual(backgroundTaskTypes(level()), {})
+  assert.equal(backgroundTaskTypes({ type: 'system', subtype: 'init' }), null)
+  assert.equal(backgroundTaskTypes({ type: 'system', subtype: 'background_tasks_changed', tasks: 'garbled' }), null)
 })
 
 test('autonomous cycles are read off results and idle, never off a placeholder', () => {

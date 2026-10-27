@@ -30,11 +30,17 @@ import {
   type SidebarWorktreeRow
 } from './project-sidebar'
 
+/** Hover text for the states whose label alone does not say what they mean. */
+const statusTooltips: Partial<Record<TerminalNodeStatus, string>> = {
+  background: 'Has tasks running in the background'
+}
+
 const statusLabels: Record<TerminalNodeStatus, string> = {
   dormant: 'Saved',
   starting: 'Starting',
   idle: 'Idle',
   working: 'Working',
+  background: 'Background',
   result: 'Result',
   attention: 'Attention',
   stalled: 'Stalled',
@@ -232,6 +238,7 @@ export function ProjectSidebar({
         data-unread={nodeUnread > 0 ? 'true' : undefined}
         title={[
           `Focus ${session.label} · ${statusLabels[session.status]}`,
+          statusTooltips[session.status] ?? null,
           nodeUnread > 0 ? describeUnread([session.id]) : null
         ]
           .filter(Boolean)
@@ -250,7 +257,7 @@ export function ProjectSidebar({
         {session.kind === 'terminal' && session.terminalLiveness !== undefined && (
           <SidebarTerminalLiveness liveness={session.terminalLiveness} />
         )}
-        <span className="project-node-state" data-status={session.status}>
+        <span className="project-node-state" data-status={session.status} title={statusTooltips[session.status]}>
           <span className="node-status-indicator" />
           {statusLabels[session.status]}
         </span>

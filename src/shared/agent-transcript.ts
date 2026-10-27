@@ -147,6 +147,11 @@ export interface AgentTranscriptState {
    */
   statusOrigin: 'main' | 'local'
   usage: SessionUsageInput | null
+  /**
+   * Background tasks the session has running right now, live between turns too. Carried by
+   * snapshots, so a late joiner reads the same count. Runtime only: a restored session starts at 0.
+   */
+  backgroundTasks: number
   detail?: string
   /** The last reported failure, kept apart from `detail` (which any status message overwrites). */
   failure: string | null
@@ -175,6 +180,7 @@ export function initialAgentTranscriptState(): AgentTranscriptState {
     status: 'starting',
     statusOrigin: 'main',
     usage: null,
+    backgroundTasks: 0,
     detail: undefined,
     failure: null,
     failureKey: null
@@ -344,6 +350,8 @@ export function foldAgentEvent(
         status: event.status,
         statusOrigin: 'main',
         detail: event.message,
+        // Tasks only outlive a turn in a live session: any other status has none by definition.
+        backgroundTasks: event.backgroundTasks ?? (authOver ? state.backgroundTasks : 0),
         ...(authOver ? { authMethods: [], authLink: null } : {})
       }
     }
@@ -485,6 +493,10 @@ export function foldAgentEvent(
         ...state,
         efforts: state.efforts ? { ...state.efforts, currentEffortId: event.effortId } : state.efforts
       }
+    default:
+      // An event type this build does not know (a newer host's) changes nothing: ignoring it keeps an
+      // older client folding, where returning `undefined` would freeze it on the first one.
+      return state
   }
 }
 
@@ -510,8 +522,8 @@ export function applyAgentCreateResult(state: AgentTranscriptState, result: Agen
   if (result.status === 'ready') {
     return { ...next, messages: settleReplayedAssistantTurns(next.messages), status: 'ready' }
   }
-  if (result.status === 'auth_required') return { ...next, status: 'auth_required' }
-  return { ...next, status: 'exited', detail: result.message }
+  if (result.status === 'auth_required') return { ...next, status: 'auth_required', backgroundTasks: 0 }
+  return { ...next, status: 'exited', detail: result.message, backgroundTasks: 0 }
 }
 
 /**

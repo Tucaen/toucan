@@ -25,12 +25,20 @@ export function isStalled(now: number, lastProgressAt: number): boolean {
   return now - lastProgressAt > STALL_THRESHOLD_MS
 }
 
-/** The sidebar only cares whether the agent is busy, blocked, waiting on us, or stuck. */
+/**
+ * The sidebar only cares whether the agent is busy, blocked, waiting on us, or stuck - and whether
+ * it is idle in name only, its turn over but background tasks still running (`backgroundTasks`).
+ * An unread `result` outranks that: it is the one cue that asks something of the user right now and
+ * clears the moment they look, and a turn that ends with tasks still running is the usual way to
+ * get one, so ranking Background first would hide the "your answer is ready" signal exactly when
+ * it is most often raised. The state is still there once they have read it.
+ */
 export function sidebarStatus(
   status: AgentChatStatus,
   awaitingApproval: boolean,
   unreadKind: AttentionKind | undefined,
-  stalled: boolean
+  stalled: boolean,
+  backgroundTasks = 0
 ): TerminalNodeStatus {
   if (status === 'exited') return 'exited'
   if (status === 'auth_required' || awaitingApproval) return 'attention'
@@ -39,7 +47,8 @@ export function sidebarStatus(
   // A dormant node has no live approval or auth state left, so the record is the only thing that
   // still knows the session was blocked - reading it back as a mere 'result' would understate it.
   if (unreadKind === 'approval' || unreadKind === 'auth' || unreadKind === 'failure') return 'attention'
-  return unreadKind ? 'result' : 'idle'
+  if (unreadKind) return 'result'
+  return status === 'ready' && backgroundTasks > 0 ? 'background' : 'idle'
 }
 
 /** Who the reports name: the node they send the user to, and the session behind it. */

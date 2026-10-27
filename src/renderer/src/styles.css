@@ -906,6 +906,16 @@ button.global-status-chip:hover {
   animation: attention-pulse 1.4s ease-in-out infinite;
 }
 
+/* Teal: the turn is over (not Working's blue) but work is still running (not Idle's green). */
+.project-node-state[data-status='background'] {
+  color: #6fd3d0;
+}
+
+.project-node-state[data-status='background'] .node-status-indicator {
+  background: #4fc4c0;
+  box-shadow: 0 0 9px rgba(79, 196, 192, 0.6);
+}
+
 .project-node-state[data-status='result'] {
   color: #c4a6ff;
 }
@@ -2410,6 +2420,11 @@ button.global-status-chip:hover {
 .chat-node .status-dot[data-status='auth_required'],
 .chat-node .status-dot[data-status='exited'] {
   background: #f1c75b;
+}
+
+.chat-node .status-dot[data-background='true'] {
+  background: #4fc4c0;
+  box-shadow: 0 0 9px rgba(79, 196, 192, 0.6);
 }
 
 .chat-node .status-dot[data-stalled='true'] {

@@ -536,6 +536,53 @@ test('a main status reporting the session past auth clears stale methods and lin
   assert.equal(recovered.authLink, null)
 })
 
+test('the background-task count follows status events and starts at none', () => {
+  assert.equal(initialAgentTranscriptState().backgroundTasks, 0)
+  const running = fold([
+    { type: 'status', status: 'ready' },
+    { type: 'status', status: 'ready', backgroundTasks: 2 }
+  ])
+  assert.equal(running.backgroundTasks, 2)
+  // A status event that does not mention the count leaves it alone while the session is live...
+  assert.equal(fold([{ type: 'status', status: 'working' }], running).backgroundTasks, 2)
+  assert.equal(
+    fold(
+      [
+        { type: 'turn_complete', stopReason: 'end_turn' },
+        { type: 'status', status: 'ready' }
+      ],
+      running
+    ).backgroundTasks,
+    2
+  )
+  // ...and the level is replaced, not accumulated.
+  assert.equal(fold([{ type: 'status', status: 'ready', backgroundTasks: 1 }], running).backgroundTasks, 1)
+  assert.equal(fold([{ type: 'status', status: 'ready', backgroundTasks: 0 }], running).backgroundTasks, 0)
+})
+
+test('the background-task count resets on any status that is not a live session', () => {
+  const running = fold([{ type: 'status', status: 'ready', backgroundTasks: 2 }])
+  assert.equal(fold([{ type: 'status', status: 'exited' }], running).backgroundTasks, 0)
+  assert.equal(fold([{ type: 'status', status: 'starting' }], running).backgroundTasks, 0)
+  assert.equal(fold([{ type: 'status', status: 'auth_required' }], running).backgroundTasks, 0)
+  assert.equal(applyAgentCreateResult(running, { ok: false, status: 'error', message: 'boom' }).backgroundTasks, 0)
+  assert.equal(applyAgentCreateResult(running, { ok: true, status: 'ready' }).backgroundTasks, 2)
+})
+
+test('a turn boundary does not touch the live background-task count', () => {
+  const state = fold([
+    { type: 'status', status: 'ready', backgroundTasks: 1 },
+    { type: 'turn_complete', stopReason: 'end_turn', backgroundTasks: 1 }
+  ])
+  assert.equal(state.backgroundTasks, 1)
+})
+
+test('an event type the reducer does not know leaves the state untouched', () => {
+  const state = fold([{ type: 'status', status: 'ready', backgroundTasks: 1 }])
+  const future = { type: 'something_newer', payload: 1 } as unknown as AgentEvent
+  assert.equal(foldAgentEvent(state, future, NOW), state)
+})
+
 test('local delivery bookkeeping: an acknowledged send sheds its flags, a dropped one reads failed', () => {
   const sent = fold([
     {

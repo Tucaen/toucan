@@ -61,7 +61,8 @@ export function offersBranchAction(node: BranchCandidate): boolean {
  * turn boundary - so the same boundary a worktree move demands applies here, for its own reason.
  */
 export function branchBlockedReason(status: TerminalNodeStatus): string | undefined {
-  if (ADOPTION_BOUNDARY.includes(status)) return undefined
+  // A fork only reads the transcript, so tasks still running in the background do not block it.
+  if (status === 'background' || ADOPTION_BOUNDARY.includes(status)) return undefined
   return 'Branching waits for the current turn to finish.'
 }
 

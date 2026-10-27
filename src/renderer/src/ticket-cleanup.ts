@@ -35,7 +35,7 @@ export function ticketCleanupNodes(
     }
     if (request.phase === 'retire') {
       const status = ticket.data.dormant ? 'dormant' : statuses[ticket.id]
-      if (!status || !['idle', 'result', 'dormant', 'exited'].includes(status)) {
+      if (!status || !['idle', 'background', 'result', 'dormant', 'exited'].includes(status)) {
         return { ok: false, message: 'The ticket session is busy or waiting for an answer.' }
       }
     }

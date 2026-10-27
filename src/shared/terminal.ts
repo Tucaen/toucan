@@ -15,7 +15,16 @@ export type TerminalLiveness = 'live' | 'unverifiable' | 'exited'
  * host and the mobile client can name the same states.
  */
 export type TerminalNodeStatus =
-  'dormant' | 'starting' | 'idle' | 'working' | 'result' | 'attention' | 'stalled' | 'exited'
+  | 'dormant'
+  | 'starting'
+  | 'idle'
+  | 'working'
+  /** The turn is over but background tasks are still running: closing Toucan would kill them. */
+  | 'background'
+  | 'result'
+  | 'attention'
+  | 'stalled'
+  | 'exited'
 
 export interface TerminalCreateRequest {
   id: string

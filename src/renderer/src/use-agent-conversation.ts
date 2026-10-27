@@ -144,6 +144,8 @@ export interface AgentConversationController {
   /** Slash commands and skills this session advertises, for the composer's completion. */
   commands: AgentCommand[]
   status: AgentChatStatus
+  /** Background tasks still running, live between turns (see `AgentTranscriptState.backgroundTasks`). */
+  backgroundTasks: number
   usage: AgentUsage | null
   detail?: string
   /**
@@ -628,6 +630,7 @@ export function useAgentConversation(options: AgentConversationOptions): AgentCo
     decisionDelegation: chat.decisionDelegation,
     commands: chat.commands,
     status,
+    backgroundTasks: chat.backgroundTasks,
     usage: chat.usage,
     detail: chat.detail,
     failure: chat.failure,

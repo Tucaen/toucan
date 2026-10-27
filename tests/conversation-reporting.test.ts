@@ -53,6 +53,29 @@ describe('sidebarStatus', () => {
     assert.equal(sidebarStatus('ready', false, 'result', false), 'result')
     assert.equal(sidebarStatus('ready', false, 'output', false), 'result')
   })
+
+  it('reads a ready session with background tasks as background, never idle', () => {
+    assert.equal(sidebarStatus('ready', false, undefined, false, 0), 'idle')
+    assert.equal(sidebarStatus('ready', false, undefined, false, 1), 'background')
+    assert.equal(sidebarStatus('ready', false, undefined, false, 3), 'background')
+  })
+
+  it('lets working, stalled, starting, exited and attention win over background tasks', () => {
+    assert.equal(sidebarStatus('working', false, undefined, false, 2), 'working')
+    assert.equal(sidebarStatus('working', false, undefined, true, 2), 'stalled')
+    assert.equal(sidebarStatus('starting', false, undefined, false, 2), 'starting')
+    // A killed session shows Exited, never Background, even if a stale count lingers.
+    assert.equal(sidebarStatus('exited', false, undefined, false, 2), 'exited')
+    assert.equal(sidebarStatus('auth_required', false, undefined, false, 2), 'attention')
+    assert.equal(sidebarStatus('ready', true, undefined, false, 2), 'attention')
+    assert.equal(sidebarStatus('ready', false, 'approval', false, 2), 'attention')
+    assert.equal(sidebarStatus('ready', false, 'failure', false, 2), 'attention')
+  })
+
+  it('keeps an unread result visible over background tasks until it is read', () => {
+    assert.equal(sidebarStatus('ready', false, 'result', false, 1), 'result')
+    assert.equal(sidebarStatus('ready', false, undefined, false, 1), 'background')
+  })
 })
 
 describe('isStalled', () => {

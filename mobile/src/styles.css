@@ -228,6 +228,10 @@ body {
   border-left-color: var(--working);
 }
 
+.chat[data-status='background'] {
+  border-left-color: #4fc4c0;
+}
+
 .chat[data-status='attention'],
 .chat[data-status='stalled'] {
   border-left-color: var(--unread);

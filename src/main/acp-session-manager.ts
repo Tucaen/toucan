@@ -352,11 +352,16 @@ export function withSessionInstruction(
  * own `async_task_*` session updates would say it too, but it sends those only to a client that
  * declares itself JetBrains AIR, which also strips the `_meta.claudeCode` subagent attribution
  * Toucan reads off nested tool calls.
+ *
+ * `system/init` is how Toucan hears that the CLI behind the adapter started afresh (it restarts
+ * inside a live adapter): a new CLI has no background tasks, and the level is only re-sent on a
+ * change, so without it a task that died with the old CLI would be counted until the next one.
  */
 const FORWARDED_SDK_MESSAGES = [
   { type: 'result' },
   { type: 'system', subtype: 'session_state_changed' },
-  { type: 'system', subtype: 'background_tasks_changed' }
+  { type: 'system', subtype: 'background_tasks_changed' },
+  { type: 'system', subtype: 'init' }
 ] as const
 
 const CLAUDE_SDK_MESSAGE_NOTIFICATION = '_claude/sdkMessage'
@@ -457,10 +462,47 @@ export function autonomousTurnSignal(message: unknown): AutonomousTurnSignal | n
  * @internal exported for tests
  */
 export function backgroundTaskCount(message: unknown): number | null {
+  return backgroundTaskList(message)?.length ?? null
+}
+
+/** The live tasks of one `background_tasks_changed`, or null for any other message. */
+function backgroundTaskList(message: unknown): unknown[] | null {
   if (typeof message !== 'object' || message === null) return null
   const sdk = message as { type?: unknown; subtype?: unknown; tasks?: unknown }
   if (sdk.type !== 'system' || sdk.subtype !== 'background_tasks_changed' || !Array.isArray(sdk.tasks)) return null
-  return sdk.tasks.length
+  return sdk.tasks as unknown[]
+}
+
+/**
+ * The same level split by `task_type` (`local_bash`, `local_agent`, `local_monitor`, ...), or null
+ * for any other message. Every type counts toward the total - closing Toucan kills them all - and a
+ * task that names no type is tallied as `unknown` rather than dropped.
+ * @internal exported for tests
+ */
+export function backgroundTaskTypes(message: unknown): Record<string, number> | null {
+  const tasks = backgroundTaskList(message)
+  if (!tasks) return null
+  const types: Record<string, number> = {}
+  for (const task of tasks) {
+    const type = (task as { task_type?: unknown } | null)?.task_type
+    const key = typeof type === 'string' && type ? type : 'unknown'
+    types[key] = (types[key] ?? 0) + 1
+  }
+  return types
+}
+
+/** Whether a forwarded SDK message is the CLI announcing a fresh start (see `FORWARDED_SDK_MESSAGES`). */
+function isSdkInit(message: unknown): boolean {
+  if (typeof message !== 'object' || message === null) return false
+  const sdk = message as { type?: unknown; subtype?: unknown }
+  return sdk.type === 'system' && sdk.subtype === 'init'
+}
+
+/** Whether a forwarded SDK message says the session started running a cycle. */
+function isSdkRunning(message: unknown): boolean {
+  if (typeof message !== 'object' || message === null) return false
+  const sdk = message as { type?: unknown; subtype?: unknown; state?: unknown }
+  return sdk.type === 'system' && sdk.subtype === 'session_state_changed' && sdk.state === 'running'
 }
 
 interface RunningAgent {
@@ -566,6 +608,8 @@ interface RunningAgent {
   autonomousTurn?: { turnId: string; cancelRequested: boolean }
   /** The live background tasks the latest `background_tasks_changed` reported (see `backgroundTaskCount`). */
   backgroundTasks: number
+  /** The same level by `task_type`, kept for `AcpSessionManager.backgroundWork` (see `backgroundTaskTypes`). */
+  backgroundTaskTypes: Record<string, number>
   stopping: boolean
   /**
    * Set when `create` itself failed and stopped the session. The adapter dying mid-handshake
@@ -1164,6 +1208,15 @@ export async function settleAgentTurn(
   }
 }
 
+/** One live session with background tasks running (see `AcpSessionManager.backgroundWork`). */
+export interface BackgroundWork {
+  /** The canvas node the session belongs to. */
+  id: string
+  tasks: number
+  /** Tasks per SDK `task_type`: `local_bash`, `local_agent`, `local_monitor`, ... */
+  byType: Record<string, number>
+}
+
 /** The renderer (or in-process stand-in) a live session pushes its event stream to. */
 export type AgentEventOwner = WebContentsOwner<AgentEventEnvelope>
 
@@ -1200,6 +1253,13 @@ export interface AcpSessionManager {
    * reads this to decide whose ticket file the board could not parse.
    */
   recentWrites(): AgentFileWrite[]
+  /**
+   * The live sessions that have background tasks running right now - the ones closing Toucan or
+   * restarting for an update would silently kill. Sessions with none are omitted, so `.length` is
+   * "how many". Every task type counts (`byType` is keyed by the SDK's `task_type`); Codex reports
+   * none and never appears. Live state only: nothing here survives a restart of Toucan.
+   */
+  backgroundWork(): BackgroundWork[]
   cancel(id: string): void
   kill(id: string): void
   killOwned(owner: AgentEventOwner): void
@@ -1320,6 +1380,27 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       return
     }
     broker.publish(running.request.id, event)
+  }
+
+  /**
+   * Records the live background-task level and, when the count moved, tells every subscriber - this
+   * is what keeps the node reading Background after a turn ended, and Idle once the last task does.
+   * Only a change publishes (the SDK repeats the level for task detail changes), and only into a
+   * session that is open: while it opens or signs in, the status those phases publish wins and the
+   * next `ready` carries the count. The count rides a status event re-asserting the status the
+   * session is already in, so a client that predates the field folds it as the no-op it is.
+   */
+  const setBackgroundTasks = (running: RunningAgent, types: Record<string, number>): void => {
+    const total = Object.values(types).reduce((sum, count) => sum + count, 0)
+    const changed = total !== running.backgroundTasks
+    running.backgroundTasks = total
+    running.backgroundTaskTypes = types
+    if (!changed || running.stopping || running.opening || running.authRequired || !running.sessionId) return
+    send(running, {
+      type: 'status',
+      status: running.busy || running.autonomousTurn ? 'working' : 'ready',
+      backgroundTasks: total
+    })
   }
 
   /**
@@ -1605,7 +1686,13 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       if (efforts) send(running, { type: 'efforts', efforts })
       // Reopening an existing agent never replays the notification that first advertised these.
       if (running.cachedCommands?.length) send(running, { type: 'commands', commands: running.cachedCommands })
-      send(running, { type: 'status', status: 'ready' })
+      // Reopening an agent whose background tasks outlived the renderer that watched them: the
+      // `starting` above reset the count for every subscriber, so this is what restores it.
+      send(running, {
+        type: 'status',
+        status: 'ready',
+        ...(running.backgroundTasks > 0 ? { backgroundTasks: running.backgroundTasks } : {})
+      })
       return {
         ok: true,
         status: 'ready',
@@ -1658,6 +1745,8 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
     if (!running) return
     running.wakeGate?.dispose()
     running.stopping = true
+    running.backgroundTasks = 0
+    running.backgroundTaskTypes = {}
     for (const pending of running.pendingApprovals.values()) {
       pending.resolve({ outcome: { outcome: 'cancelled' } })
     }
@@ -2018,9 +2107,14 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
           CLAUDE_SDK_MESSAGE_NOTIFICATION,
           (params: unknown) => params as { message?: unknown },
           ({ params }) => {
-            const live = backgroundTaskCount(params?.message)
-            if (live !== null) running.backgroundTasks = live
-            const signal = autonomousTurnSignal(params?.message)
+            const message = params?.message
+            const types = isSdkInit(message) ? {} : backgroundTaskTypes(message)
+            if (types) setBackgroundTasks(running, types)
+            // The cycle a finished task wakes opens on the CLI's own `running`, not on the agent's
+            // first output: the count has just dropped, and the gap until that output would read
+            // Idle between Background and Working.
+            if (isSdkRunning(message)) openAutonomousTurn(running)
+            const signal = autonomousTurnSignal(message)
             if (signal) closeAutonomousTurn(running, signal)
           }
         )
@@ -2097,6 +2191,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         ...(outcomeWatch ? { sessionOutcomes: outcomeWatch } : {}),
         busy: false,
         backgroundTasks: 0,
+        backgroundTaskTypes: {},
         stopping: false,
         authRequired: false,
         opening: true,
@@ -2134,6 +2229,10 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       })
       child.on('exit', (code, signal) => {
         if (agents.get(request.id) === running) agents.delete(request.id)
+        // The adapter took its shells and subagents with it. The `exited` below resets every
+        // subscriber's count (the reducer zeroes it on any status past ready/working).
+        running.backgroundTasks = 0
+        running.backgroundTaskTypes = {}
         // A token outlives nothing: no process, no orchestrator to act for, no session to speak as.
         running.orchestratorGrant?.revoke()
         running.messagingGrant?.revoke()
@@ -2455,6 +2554,15 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
 
     recentWrites: () =>
       [...agents].flatMap(([agentId, running]) => running.recentWrites.map(({ path, at }) => ({ agentId, path, at }))),
+
+    backgroundWork: () =>
+      [...agents]
+        .filter(([, running]) => running.backgroundTasks > 0 && !running.stopping)
+        .map(([id, running]) => ({
+          id,
+          tasks: running.backgroundTasks,
+          byType: { ...running.backgroundTaskTypes }
+        })),
 
     cancel(id): void {
       const running = agents.get(id)

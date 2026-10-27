@@ -465,7 +465,19 @@ export function isFinalAssistantMessage<
 }
 
 export type AgentEvent =
-  | { type: 'status'; status: 'starting' | 'ready' | 'working' | 'auth_required' | 'exited'; message?: string }
+  /**
+   * `backgroundTasks`: the live count of background tasks (shells, subagents, monitors), the whole
+   * truth rather than a delta. Carried on a status event, which every client already folds, so a
+   * client that predates it ignores the field instead of choking on an unknown event type. Main
+   * re-asserts the status it is already in when only the count moved. Absent means "unchanged"
+   * for `ready`/`working`, and any other status resets it to none.
+   */
+  | {
+      type: 'status'
+      status: 'starting' | 'ready' | 'working' | 'auth_required' | 'exited'
+      message?: string
+      backgroundTasks?: number
+    }
   | { type: 'session'; sessionId: string }
   | {
       type: 'message'

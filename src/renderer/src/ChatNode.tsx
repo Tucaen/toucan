@@ -1431,7 +1431,14 @@ export default function ChatNode({ id, data, selected, width }: NodeProps<Termin
           className="status-dot"
           data-status={status}
           data-stalled={stalled}
-          title={stalled ? 'No progress for a while — this session may be stuck' : undefined}
+          data-background={reporting.nodeStatus === 'background'}
+          title={
+            stalled
+              ? 'No progress for a while — this session may be stuck'
+              : reporting.nodeStatus === 'background'
+                ? 'Has tasks running in the background'
+                : undefined
+          }
         />
         {renaming ? (
           <input

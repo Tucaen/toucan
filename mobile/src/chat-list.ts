@@ -65,6 +65,7 @@ const STATUS_LABELS: Record<TerminalNodeStatus, string> = {
   starting: 'Starting',
   idle: 'Idle',
   working: 'Working',
+  background: 'Background',
   result: 'Finished',
   attention: 'Needs you',
   stalled: 'May be stuck',
