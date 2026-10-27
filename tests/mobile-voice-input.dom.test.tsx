@@ -78,7 +78,10 @@ const SUMMARY: RemoteChatSummary = {
 }
 
 function snapshot(): RemoteChatServerMessage {
-  return { type: 'snapshot', state: foldAgentEvent(initialAgentTranscriptState(), { type: 'ready' }, 1) }
+  return {
+    type: 'snapshot',
+    state: foldAgentEvent(initialAgentTranscriptState(), { type: 'status', status: 'ready' }, 1)
+  }
 }
 
 function open(): void {
@@ -150,7 +153,8 @@ describe('mobile dictation with the phone recognizer', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Dictate' })).toBeInTheDocument())
     expect(screen.getByLabelText('Message')).toHaveValue('Bitte den Parser reparieren')
     // Nothing went on the wire: a transcript is a draft.
-    expect(StubSocket.instances[0].sent).toEqual([])
+    // (Having the chat on screen is reported as read; that is not a message.)
+    expect(StubSocket.instances[0].sent.filter((frame) => JSON.parse(frame).type !== 'read')).toEqual([])
   })
 
   test('a recognizer that ends on its own still delivers what it heard, after existing text', async () => {
