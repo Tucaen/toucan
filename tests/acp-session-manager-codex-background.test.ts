@@ -154,7 +154,7 @@ test('a terminal that exits stops counting even while its tool call still reads 
   }
 })
 
-test('a cancelled turn takes the counted shells with it; a failed one keeps what was counted but adds nothing', async () => {
+test('a cancelled or failed turn counts none of its own open shells and keeps what earlier turns counted', async () => {
   const { appPath, manager, counts, settled } = open()
   try {
     await manager.create({ id: 'node-1', provider: 'codex', cwd: appPath }, owner)
@@ -163,14 +163,15 @@ test('a cancelled turn takes the counted shells with it; a failed one keeps what
     assert.equal(failed.ok, false)
     assert.equal(manager.backgroundWork()[0]?.tasks, 1)
 
+    // Stop interrupts the turn, not the background terminal an earlier turn left running.
     await manager.prompt('node-1', 'cancel')
+    assert.deepEqual(manager.backgroundWork(), [{ id: 'node-1', tasks: 1, byType: { [CODEX_SHELL_TASK_TYPE]: 1 } }])
+
+    // The cancelled and failed turns' own shells ('x') were never counted: only 'dev' ends the count.
+    await manager.prompt('node-1', 'finish')
     await until(settled(0))
     assert.deepEqual(manager.backgroundWork(), [])
     assert.deepEqual(counts(), [1, 0])
-
-    // The cancelled turn's own shell was dropped with it, never counted.
-    await manager.prompt('node-1', 'nothing')
-    assert.deepEqual(manager.backgroundWork(), [])
   } finally {
     manager.killAll()
   }

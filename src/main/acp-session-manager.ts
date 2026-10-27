@@ -1489,16 +1489,17 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
 
   /**
    * A Codex turn's boundary decides what its open shells were: a completed turn left them running in
-   * the background, a cancelled one stopped them, and a failed one is unknowable - those are not
-   * counted, but whatever was already counted stays. Runs before the boundary is published, so a
-   * `turn_complete` names the work it left behind like Claude's does.
+   * the background, while a cancelled or failed one leaves them unknowable, so they are not counted.
+   * Whatever an earlier turn already counted stays either way - codex-acp's cancel is a
+   * `turn/interrupt` and ends no background terminal (that is a separate terminate request), and a
+   * count that hid a running shell would let a quit kill it unwarned. Runs before the boundary is
+   * published, so the count is on the status stream before the turn reads as over.
    */
   const settleCodexShells = (running: RunningAgent, event: AgentEvent): void => {
     if (running.request.provider !== 'codex') return
     if (event.type !== 'turn_complete' && event.type !== 'turn_failed' && event.type !== 'turn_cancelled') return
     if (event.type === 'turn_complete') for (const id of running.openShellCalls) running.backgroundShellCalls.add(id)
     running.openShellCalls.clear()
-    if (event.type === 'turn_cancelled') running.backgroundShellCalls.clear()
     publishShellCount(running)
   }
 
