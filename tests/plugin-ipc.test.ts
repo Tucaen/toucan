@@ -92,9 +92,10 @@ test('the folder picker answers with the chosen path, or null when none is wired
   const picks: unknown[] = []
   const { call } = boundary(undefined, (owner) => {
     picks.push(owner)
-    return Promise.resolve('D:\plugins\godot')
+    return Promise.resolve('D:\\plugins\\godot')
   })
-  assert.equal(await call(PLUGIN_CHANNELS.pick), 'D:\plugins\godot')
+  assert.equal(await call(PLUGIN_CHANNELS.pick), 'D:\\plugins\\godot')
   assert.equal(picks.length, 1)
+  assert.deepEqual(picks[0], {})
   assert.equal(await boundary().call(PLUGIN_CHANNELS.pick), null)
 })

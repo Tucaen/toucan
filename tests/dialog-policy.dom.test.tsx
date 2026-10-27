@@ -3,6 +3,7 @@ import { afterEach, describe, expect, test, vi } from 'vitest'
 import { CommandGuardSettingsDialog } from '../src/renderer/src/CommandGuardSettingsDialog'
 import ConversationHistoryDialog from '../src/renderer/src/ConversationHistoryDialog'
 import FilePickerDialog from '../src/renderer/src/FilePickerDialog'
+import { PluginsDialog } from '../src/renderer/src/PluginsDialog'
 import { OrchestrationSettingsDialog } from '../src/renderer/src/OrchestrationSettingsDialog'
 import { RemoteAccessDialog } from '../src/renderer/src/RemoteAccessDialog'
 import TicketDeleteDialog from '../src/renderer/src/TicketDeleteDialog'
@@ -24,6 +25,7 @@ afterEach(() => {
   Reflect.deleteProperty(window, 'workspaceFilesApi')
   Reflect.deleteProperty(window, 'orchestrationSettingsApi')
   Reflect.deleteProperty(window, 'commandGuardSettingsApi')
+  Reflect.deleteProperty(window, 'pluginsApi')
 })
 
 interface DialogCase {
@@ -128,6 +130,10 @@ const families: DialogCase[] = [
   {
     name: 'CommandGuardSettingsDialog',
     render: (onClose) => <CommandGuardSettingsDialog onClose={onClose} />
+  },
+  {
+    name: 'PluginsDialog',
+    render: (onClose) => <PluginsDialog project={{ name: project.name, path: project.path }} onClose={onClose} />
   }
 ]
 
@@ -154,6 +160,16 @@ describe.each(families)('$name', ({ role, render: renderDialog }) => {
       state: vi.fn(async () => ({ preferences: { enabled: true, patterns: null }, defaults: '# default' })),
       save: vi.fn()
     }
+
+    window.pluginsApi = {
+      list: vi.fn(async () => []),
+      pickFolder: vi.fn(async () => null),
+      add: vi.fn(),
+      remove: vi.fn(),
+      enable: vi.fn(),
+      disable: vi.fn(),
+      contributions: vi.fn()
+    } as never
 
     const onClose = vi.fn()
     render(renderDialog(onClose))

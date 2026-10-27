@@ -118,6 +118,9 @@ export function PluginsDialog({
 
   useEffect(() => {
     let active = true
+    // The active project can change under an open dialog; what was reviewed or announced was for the last one.
+    setReview(null)
+    setAdded(null)
     window.pluginsApi
       .list(projectPath)
       .then((next) => {

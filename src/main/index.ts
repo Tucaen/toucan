@@ -155,6 +155,13 @@ protocol.registerSchemesAsPrivileged([
  */
 const PROVIDER_USAGE_TTL_MS = 5 * 60_000
 
+/** Shows the OS open dialog owned by the window that asked; the first path chosen, or null on cancel. */
+async function pickPath(sender: unknown, options: Electron.OpenDialogOptions): Promise<string | null> {
+  const owner = BrowserWindow.fromWebContents(sender as Electron.WebContents)
+  const result = owner ? await dialog.showOpenDialog(owner, options) : await dialog.showOpenDialog(options)
+  return result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0]
+}
+
 function localCalendarDate(): string {
   const now = new Date()
   const year = now.getFullYear()
@@ -727,12 +734,9 @@ void app.whenReady().then(async () => {
   registerCommandGuardSettingsIpc(ipcMain, commandGuardStore)
   // Plugins (#55): which plugins each project enabled, asked by every session as it opens.
   const plugins = createPluginRegistry({ userDataPath: app.getPath('userData'), log: mainLog('plugins') })
-  registerPluginIpc(ipcMain, plugins, checkoutPathFor, async (sender) => {
-    const owner = BrowserWindow.fromWebContents(sender as Electron.WebContents)
-    const options: Electron.OpenDialogOptions = { title: 'Add plugin folder', properties: ['openDirectory'] }
-    const result = owner ? await dialog.showOpenDialog(owner, options) : await dialog.showOpenDialog(options)
-    return result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0]
-  })
+  registerPluginIpc(ipcMain, plugins, checkoutPathFor, (sender) =>
+    pickPath(sender, { title: 'Add plugin folder', properties: ['openDirectory'] })
+  )
   const agentManager = createAcpSessionManager({
     appPath: app.getAppPath(),
     commandGuard: commandGuardStore,
@@ -1078,15 +1082,7 @@ void app.whenReady().then(async () => {
         return result
       }
     },
-    pickProjectDirectory: async (sender) => {
-      const owner = BrowserWindow.fromWebContents(sender as Electron.WebContents)
-      const options: Electron.OpenDialogOptions = {
-        title: 'Add project folder',
-        properties: ['openDirectory']
-      }
-      const result = owner ? await dialog.showOpenDialog(owner, options) : await dialog.showOpenDialog(options)
-      return result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0]
-    },
+    pickProjectDirectory: (sender) => pickPath(sender, { title: 'Add project folder', properties: ['openDirectory'] }),
     openExternal: (url) => shell.openExternal(url),
     showItemInFolder: (path) => shell.showItemInFolder(path),
     openLocalFile,
@@ -1107,16 +1103,12 @@ void app.whenReady().then(async () => {
     // so the picker never advertises a format the decoder would refuse.
     avatars: createProjectAvatarStore({
       directory: join(app.getPath('userData'), 'project-avatars'),
-      pickImageFile: async (sender) => {
-        const owner = BrowserWindow.fromWebContents(sender as Electron.WebContents)
-        const options: Electron.OpenDialogOptions = {
+      pickImageFile: (sender) =>
+        pickPath(sender, {
           title: 'Choose avatar image',
           properties: ['openFile'],
           filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg'] }]
-        }
-        const result = owner ? await dialog.showOpenDialog(owner, options) : await dialog.showOpenDialog(options)
-        return result.canceled || result.filePaths.length === 0 ? null : result.filePaths[0]
-      },
+        }),
       decodeImage: (path) => {
         const image = nativeImage.createFromPath(path)
         if (image.isEmpty()) return Promise.resolve(null)
