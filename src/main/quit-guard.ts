@@ -65,12 +65,18 @@ export function collectQuitActivity(
   }
 }
 
-/** Total background tasks across sessions, as the dialog's headline quotes it. */
+/**
+ * @internal exported for tests
+ * Total background tasks across sessions, as the dialog's headline quotes it.
+ */
 export function backgroundTaskTotal(background: readonly QuitSession[]): number {
   return background.reduce((sum, session) => sum + session.tasks, 0)
 }
 
-/** Null when closing now costs nothing; otherwise what the user should be told first. */
+/**
+ * @internal exported for tests
+ * Null when closing now costs nothing; otherwise what the user should be told first.
+ */
 export function describeQuitRisk(activity: QuitActivity, reason: QuitReason): QuitWarning | null {
   const { background, working } = activity
   if (background.length === 0 && working.length === 0) return null
