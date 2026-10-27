@@ -454,7 +454,10 @@ export function autonomousTurnSignal(message: unknown): AutonomousTurnSignal | n
   }
 }
 
-/** The `byType` key of Codex's own background shells (Claude's are `task_type`s such as `local_bash`). */
+/**
+ * The `byType` key of Codex's own background shells (Claude's are `task_type`s such as `local_bash`).
+ * @internal exported for tests
+ */
 export const CODEX_SHELL_TASK_TYPE = 'shell'
 
 /**
