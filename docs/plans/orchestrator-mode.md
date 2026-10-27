@@ -51,8 +51,8 @@ outcome index, and the terminal-context server's lazy local listener with per-ag
 - Its model is the user's choice in the node's model picker, defaulting to the model the tier
   mapping gives `frontier`. Breaking a task down and resolving merge trouble is architecture
   work and is never routed.
-- The header carries **Stop orchestration** (stops every ticket session) and, while paused,
-  **Resume now**.
+- The header carries **Stop orchestration** (stops every ticket session), while paused
+  **Resume now**, and at the spawn checkpoint **Continue (+20)**.
 
 ### Authority of the spawn token
 
@@ -63,7 +63,11 @@ environment, like `TOUCAN_NODE_ID`. Every call is checked in main at call time:
   project, only into worktrees the orchestration created;
 - ticket sessions get no token, so orchestrators never nest;
 - ticket sessions inherit the orchestrator's permission mode;
-- at most 20 spawns per orchestration (retries and escalations count);
+- a spawn budget of 20 per checkpoint (retries and escalations count): at the budget `spawn` is
+  refused with `budgetReached` and the orchestration waits on the human, whose **Continue (+20)**
+  on the orchestrator node raises the budget for the same orchestration and wakes the
+  orchestrator to retry - a runaway-loop safeguard that never forces the user to abandon an
+  orchestration. `--force` does not bypass it, and the budget survives a re-plan;
 - closing the orchestrator node revokes the token.
 
 There is deliberately **no concurrency cap**: how many sessions run at once is the human's
