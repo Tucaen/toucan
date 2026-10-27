@@ -11,6 +11,12 @@
 import { isAbsolutePath } from './paths'
 import { isRecord } from './record'
 
+/**
+ * The project's main checkout, in every session's adapter environment beside `TOUCAN_NODE_ID`: a
+ * session's cwd is its worktree, and a plugin script may need the project it belongs to.
+ */
+export const PROJECT_DIRECTORY_ENV = 'TOUCAN_PROJECT_DIR'
+
 /** The manifest, relative to a plugin's root - Claude's plugin layout. */
 export const PLUGIN_MANIFEST_SEGMENTS = ['.claude-plugin', 'plugin.json'] as const
 

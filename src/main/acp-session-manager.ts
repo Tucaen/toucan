@@ -49,6 +49,8 @@ import { agentPermissionTitle } from '../shared/agent-permission'
 import { effortSelectorFromConfigOptions } from '../shared/agent-effort'
 import { modelSelectorFromConfigOptions } from '../shared/agent-models'
 import { withCodexSessionConfig } from '../shared/codex-config'
+import { pathIdentity } from '../shared/paths'
+import { PROJECT_DIRECTORY_ENV, pluginInstruction, type PluginMcpServer } from '../shared/plugins'
 import { PROJECT_SKILLS_DIRECTORY } from '../shared/project-skills'
 import {
   ORCHESTRATE_CLI_PATH,
@@ -96,6 +98,7 @@ import type { TerminalContextMcp } from './terminal-context-mcp'
 import type { OrchestratorEndpoint, OrchestratorGrant } from './orchestrator-endpoint'
 import type { MessagingEndpoint, MessagingGrant } from './messaging-endpoint'
 import type { SessionOutcomeIndexer, SessionOutcomeWatch } from './session-outcome-indexer'
+import type { PluginRegistry, SessionPlugin } from './plugin-registry'
 import { AGENT_CHANNELS } from '../shared/ipc-channels'
 import { openWebUrl } from './open-web-url'
 import type { WebContentsOwner } from './web-contents-owner'
@@ -305,6 +308,78 @@ export function withAdditionalDirectories(
 ): SessionSkillsConfiguration {
   const merged = [...new Set([...(configuration.additionalDirectories ?? []), ...(directories ?? [])])]
   return merged.length > 0 ? { ...configuration, additionalDirectories: merged } : configuration
+}
+
+/**
+ * Loads each enabled plugin (#55) into a Claude session as a local plugin, after the skills
+ * plugins, and tells the session every plugin's root. Claude reads a plugin's skills, MCP servers
+ * and hooks out of the folder itself; a folder already loaded as a skills plugin is not loaded twice.
+ * @internal exported for tests
+ */
+export function withClaudePlugins(
+  configuration: SessionSkillsConfiguration,
+  plugins: readonly SessionPlugin[]
+): SessionSkillsConfiguration {
+  const instruction = pluginInstruction(plugins)
+  if (!instruction) return configuration
+  const loaded = configuration._meta?.claudeCode?.options.plugins ?? []
+  const known = new Set(loaded.map((plugin) => pathIdentity(plugin.path)))
+  const added = plugins
+    .filter((plugin) => !known.has(pathIdentity(plugin.root)))
+    .map((plugin) => ({ type: 'local' as const, path: plugin.root }))
+  return withSessionInstruction(
+    {
+      ...configuration,
+      _meta: {
+        ...configuration._meta,
+        claudeCode: {
+          ...configuration._meta?.claudeCode,
+          options: { ...configuration._meta?.claudeCode?.options, plugins: [...loaded, ...added] }
+        }
+      }
+    },
+    instruction
+  )
+}
+
+/**
+ * The MCP servers a Codex session's plugins declare, as codex-acp takes them on `mcpServers` - which
+ * it turns into that session's `mcp_servers.<name>` config - after the ones Toucan itself serves. Not
+ * through `CODEX_CONFIG`: codex-acp replaces that table whenever a session also has `mcpServers` (the
+ * terminal-context server), and Codex applies a dotted `mcp_servers.<name>` override beside a whole
+ * table in no fixed order, dropping it in about half the runs (codex-acp 2.2.2, Codex 0.159.0). SSE is
+ * left out because codex-acp refuses the whole session for one; the registry already said so.
+ */
+function codexPluginMcpServers(
+  plugins: readonly SessionPlugin[],
+  reserved: readonly McpServer[]
+): { servers: McpServer[]; notices: string[] } {
+  const names = new Set(reserved.map((server) => server.name))
+  const servers: McpServer[] = []
+  const notices: string[] = []
+  for (const plugin of plugins) {
+    for (const server of plugin.codex?.mcpServers ?? []) {
+      const translated = codexMcpServer(server)
+      if (!translated) continue
+      if (names.has(server.name)) {
+        notices.push(`Plugin "${plugin.id}": MCP server "${server.name}" was skipped: Toucan serves one by that name.`)
+        continue
+      }
+      names.add(server.name)
+      servers.push(translated)
+    }
+  }
+  return { servers, notices }
+}
+
+function codexMcpServer(server: PluginMcpServer): McpServer | undefined {
+  const pairs = (map: Record<string, string>): Array<{ name: string; value: string }> =>
+    Object.entries(map).map(([name, value]) => ({ name, value }))
+  if (server.transport === 'stdio')
+    return { name: server.name, command: server.command, args: server.args, env: pairs(server.env) }
+  if (server.transport === 'http')
+    return { type: 'http', name: server.name, url: server.url, headers: pairs(server.headers) }
+  return undefined
 }
 
 /**
@@ -579,6 +654,13 @@ interface RunningAgent {
    * Claude session's rides the session settings.
    */
   commandGuard: CommandGuardFiles | null
+  /**
+   * The plugins this agent was created with (#55), resolved once before the spawn because a Codex
+   * session's instruction rides its launch. Fixed for the life of the agent like the guard.
+   */
+  plugins: SessionPlugin[]
+  /** Notices about plugins this launch skipped, published once when the session first opens. */
+  pluginNotices: string[]
   cachedModels?: AgentModelState
   /** Whether the agent's `initialize` handshake advertised `promptCapabilities.image`. */
   imageSupport: boolean
@@ -1128,9 +1210,16 @@ export interface AcpSessionManagerOptions {
   messaging?: Pick<MessagingEndpoint, 'grant'>
   /**
    * The project checkout behind a session's cwd - the main checkout when it runs in a worktree.
-   * An orchestrator's grant is scoped to it, so a relaunch in a worktree still reaches its record.
+   * An orchestrator's grant is scoped to it, so a relaunch in a worktree still reaches its record;
+   * every session gets it as `TOUCAN_PROJECT_DIR` and gets the plugins it enabled.
    */
   projectPathFor?: (cwd: string) => Promise<string | undefined>
+  /**
+   * The plugin registry (`plugin-registry.ts`, #55), asked once per creation which plugins the
+   * session's project enabled - a creation, like a resume, picks up a change made since. Absent,
+   * sessions carry no plugins.
+   */
+  plugins?: Pick<PluginRegistry, 'forSession'>
 }
 
 /** Authority follows the fixed node role, independently of its chat provider. */
@@ -1180,20 +1269,32 @@ function sessionMessagingInstructionFor(skillsRoot: string): string {
 export function agentProcessEnvironment(
   environment: NodeJS.ProcessEnv,
   nodeId: string,
-  orchestrator?: OrchestratorGrant['environment'],
-  messaging?: MessagingGrant['environment']
+  launch: {
+    orchestrator?: OrchestratorGrant['environment']
+    messaging?: MessagingGrant['environment']
+    /** The project's main checkout (`PROJECT_DIRECTORY_ENV`); the session's cwd may be a worktree. */
+    projectDirectory?: string
+  } = {}
 ): NodeJS.ProcessEnv {
   // Removed first, always: a Toucan started from an orchestrator's own shell (a dev build under
   // test) inherits that orchestrator's token, and must never hand it to an ordinary session - nor
-  // the messaging token of whichever session started it, which would let it speak as that node.
+  // the messaging token of whichever session started it, which would let it speak as that node,
+  // nor the project that session ran in.
   const {
     [ORCHESTRATOR_URL_ENV]: _inheritedUrl,
     [ORCHESTRATOR_TOKEN_ENV]: _inheritedToken,
     [MESSAGING_URL_ENV]: _inheritedMessagingUrl,
     [MESSAGING_TOKEN_ENV]: _inheritedMessagingToken,
+    [PROJECT_DIRECTORY_ENV]: _inheritedProjectDirectory,
     ...inherited
   } = environment
-  return { ...inherited, TOUCAN_NODE_ID: nodeId, ...orchestrator, ...messaging }
+  return {
+    ...inherited,
+    TOUCAN_NODE_ID: nodeId,
+    ...(launch.projectDirectory ? { [PROJECT_DIRECTORY_ENV]: launch.projectDirectory } : {}),
+    ...launch.orchestrator,
+    ...launch.messaging
+  }
 }
 
 export function promptFailure(
@@ -1632,16 +1733,24 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
                   ...SESSION_MESSAGING_SKILL_DIRECTORY
                 )
               ]
-            : [])
+            : []),
+          // A Codex session's plugin skills: codex-acp finds skills only under an additional
+          // directory's `.agents/skills`, which these Toucan-owned roots link to the plugin's own.
+          ...running.plugins.flatMap((plugin) => (plugin.codex?.skillsRoot ? [plugin.codex.skillsRoot] : []))
         ]
       )
+      // Codex carries the same instruction in its launch-scoped CODEX_CONFIG instead.
+      const pluginConfiguration =
+        running.request.provider === 'claude'
+          ? withClaudePlugins(baseConfiguration, running.plugins)
+          : baseConfiguration
       // Not an orchestrator's: it may not hold its turn with subagents (`ORCHESTRATOR_DISALLOWED_TOOLS`).
       const delegatingConfiguration =
         running.request.provider === 'claude' &&
         running.routineDelegation?.status === 'configured' &&
         !isOrchestrator(running.request)
-          ? withClaudeDelegation(baseConfiguration, running.routineDelegation)
-          : baseConfiguration
+          ? withClaudeDelegation(pluginConfiguration, running.routineDelegation)
+          : pluginConfiguration
       // The Codex half of the same pointer rides on `CODEX_CONFIG` at launch instead, which is why
       // this one is Claude-only rather than a provider-neutral step.
       const skillsConfiguration =
@@ -1698,7 +1807,10 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       // zero extra tokens. An edge drawn later is adopted by a canvas-driven restart at a safe
       // boundary, and removal forces nothing - the registry already refuses at call time.
       const terminalContextServer = await options.terminalContext?.serverFor(running.request.id)
-      const mcpServers: McpServer[] = terminalContextServer ? [terminalContextServer] : []
+      const toucanServers: McpServer[] = terminalContextServer ? [terminalContextServer] : []
+      // Empty for Claude, which starts a plugin's servers from its folder.
+      const pluginServers = codexPluginMcpServers(running.plugins, toucanServers)
+      const mcpServers: McpServer[] = [...toucanServers, ...pluginServers.servers]
       // Fork-then-load: `session/fork` copies the parent's transcript to a new session id and
       // returns only that id - it registers no live session - so the child is opened by falling
       // into the very load path a resume takes (same replay capture, same configure), and owns a
@@ -1800,6 +1912,12 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         status: 'ready',
         ...(running.backgroundTasks > 0 ? { backgroundTasks: running.backgroundTasks } : {})
       })
+      // After `ready`, so the status line keeps showing them: a plugin the user enabled and the
+      // session does without is theirs to hear about, but never a reason not to launch. What the
+      // launch resolved is told once; only this open's own server check can repeat on a reopen.
+      for (const notice of [...running.pluginNotices, ...pluginServers.notices])
+        send(running, { type: 'error', message: notice })
+      running.pluginNotices = []
       return {
         ok: true,
         status: 'ready',
@@ -2052,6 +2170,21 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       // The conditional awaits keep a launch with neither an orchestrator grant nor a guard-preferences
       // seam spawning synchronously within `create`, which the launch tests observe.
       const stopsBeforeGrant = stopCounts.get(request.id) ?? 0
+      // The main checkout when the session runs in a worktree. A canvas that cannot be read costs
+      // the distinction, not the launch.
+      const projectDirectory = options.projectPathFor
+        ? ((await options.projectPathFor(request.cwd).catch(() => undefined)) ?? request.cwd)
+        : request.cwd
+      // A worktree inherits its project's plugins. The registry already turns every plugin it
+      // cannot use into a notice; this catch is for the seam itself.
+      const sessionPlugins = options.plugins
+        ? await options.plugins
+            .forSession({ provider: request.provider, projectPath: projectDirectory })
+            .catch((error: unknown) => ({
+              plugins: [],
+              notices: [`Plugins were skipped for this session: ${errorMessage(error)}`]
+            }))
+        : { plugins: [], notices: [] }
       const guardFiles =
         request.commandGuard === false
           ? null
@@ -2059,10 +2192,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
             ? await options.commandGuard.launch()
             : commandGuardFiles(toucanSkillsRoot ?? options.appPath)
       const orchestratorGrant = isOrchestrator(request)
-        ? await options.orchestrator?.grant(request.id, {
-            provider: request.provider,
-            projectPath: (await options.projectPathFor?.(request.cwd)) ?? request.cwd
-          })
+        ? await options.orchestrator?.grant(request.id, { provider: request.provider, projectPath: projectDirectory })
         : undefined
       const messagingGrant = options.messaging ? await options.messaging.grant(request.id) : undefined
       // The node was closed while its guard preferences or grants were pending: nothing holds the
@@ -2072,12 +2202,11 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         messagingGrant?.revoke()
         return { ok: false, status: 'error', message: 'The session was stopped while it was starting.' }
       }
-      const baseEnvironment = agentProcessEnvironment(
-        environment,
-        request.id,
-        orchestratorGrant?.environment,
-        messagingGrant?.environment
-      )
+      const baseEnvironment = agentProcessEnvironment(environment, request.id, {
+        orchestrator: orchestratorGrant?.environment,
+        messaging: messagingGrant?.environment,
+        projectDirectory
+      })
       const delegatingEnvironment =
         request.provider === 'codex' && delegation?.status === 'configured'
           ? withCodexDelegationEnvironment(baseEnvironment, delegation)
@@ -2105,6 +2234,11 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
               developer_instructions: orchestratorInstructionFor(toucanSkillsRoot ?? options.appPath)
             })
           : messagingEnvironment
+      // Claude's half of the same lines rides `_meta.systemPrompt` with the plugin folders.
+      const pluginLines = request.provider === 'codex' ? pluginInstruction(sessionPlugins.plugins) : undefined
+      const pluginEnvironment = pluginLines
+        ? withCodexSessionConfig(orchestratingEnvironment, { developer_instructions: pluginLines })
+        : orchestratingEnvironment
       // Beside `CODEX_CONFIG`, not in it: Codex ignores hooks there (`command-guard.ts`). Without a
       // bundled binary the adapter's own `codex.js` cannot start Codex either, so the launch goes
       // ahead and fails the way it always has rather than for a new reason.
@@ -2112,10 +2246,10 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       const agentEnvironment =
         bundledCodex && guardFiles
           ? {
-              ...orchestratingEnvironment,
+              ...pluginEnvironment,
               ...codexCommandGuardEnvironment({ runtime: process.execPath, codex: bundledCodex, files: guardFiles })
             }
-          : orchestratingEnvironment
+          : pluginEnvironment
       const launch = buildAgentProcessLaunch(process.execPath, path, request.cwd, agentEnvironment)
       const child = (options.spawnAgent ?? spawnAgentProcess)(launch)
       const pendingApprovals = new Map<string, PendingApproval>()
@@ -2307,6 +2441,8 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         ...(orchestratorGrant ? { orchestratorGrant } : {}),
         ...(messagingGrant ? { messagingGrant } : {}),
         commandGuard: guardFiles,
+        plugins: sessionPlugins.plugins,
+        pluginNotices: sessionPlugins.notices,
         cachedModels,
         pendingApprovals,
         pendingElicitations,
