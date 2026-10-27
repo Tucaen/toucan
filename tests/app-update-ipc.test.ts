@@ -18,9 +18,11 @@ function stubUpdater(overrides: Partial<AppUpdater> = {}): AppUpdater {
 test('the renderer can read the snapshot, ask for a check and ask to restart', async () => {
   const handlers = new Map<string, (...args: unknown[]) => unknown>()
   let restarted = false
+  let status: AppUpdateSnapshot['status'] = { phase: 'idle' }
   registerAppUpdateIpc(
     { handle: (channel, listener) => void handlers.set(channel, listener as (...args: unknown[]) => unknown) },
     stubUpdater({
+      snapshot: () => ({ currentVersion: '0.2.0', status }),
       quitAndInstall: () => {
         restarted = true
         return true
@@ -37,6 +39,7 @@ test('the renderer can read the snapshot, ask for a check and ask to restart', a
     currentVersion: '0.2.0',
     status: { phase: 'checking' }
   })
+  status = { phase: 'downloaded', version: '0.3.0' }
   assert.equal(await handlers.get('app-update:restart')!(event), true)
   assert.equal(restarted, true)
 })

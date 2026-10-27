@@ -8,11 +8,23 @@ import { APP_UPDATE_CHANNELS } from '../shared/ipc-channels'
  * The update seam, seen from the renderer: ask for the snapshot, ask for a check, ask to restart.
  * The host stays the authority on all three - the renderer cannot make a package exist, and it
  * cannot restart into one that does not.
+ *
+ * `confirmRestart` is asked only once there is a package to restart into, and a "no" leaves the
+ * app exactly as it was: a restart kills every hosted session, which is the user's call to make
+ * knowingly (see `quit-guard.ts`).
  */
-export function registerAppUpdateIpc(ipc: IpcRegistrar, updater: AppUpdater): void {
+export function registerAppUpdateIpc(
+  ipc: IpcRegistrar,
+  updater: AppUpdater,
+  confirmRestart: () => Promise<boolean> = () => Promise.resolve(true)
+): void {
   ipc.handle(APP_UPDATE_CHANNELS.state, () => updater.snapshot())
   ipc.handle(APP_UPDATE_CHANNELS.check, () => updater.check())
-  ipc.handle(APP_UPDATE_CHANNELS.restart, () => updater.quitAndInstall())
+  ipc.handle(APP_UPDATE_CHANNELS.restart, async () => {
+    if (updater.snapshot().status.phase !== 'downloaded') return false
+    if (!(await confirmRestart())) return false
+    return updater.quitAndInstall()
+  })
 }
 
 /**

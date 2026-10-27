@@ -141,6 +141,7 @@ test('a turn the agent resumes on a task notification refreshes the record and w
     // The turn is over but its shell is not: the count is live state, not only a turn_complete field.
     assert.deepEqual(manager.backgroundWork(), [{ id: 'node-1', tasks: 1, byType: { local_bash: 1 } }])
     assert.equal(broker.snapshot('node-1')?.backgroundTasks, 1)
+    assert.deepEqual(manager.workingSessions(), [], 'background tasks are not a turn in flight')
     head = 'ab543d1'
 
     // The notification-driven cycle has no prompt of its own; its end is a turn boundary all the same.
@@ -161,6 +162,7 @@ test('a turn the agent resumes on a task notification refreshes the record and w
     assert.equal(snapshot?.status, 'ready')
     assert.equal(snapshot?.backgroundTasks, 0, 'the task that woke the cycle is gone, so the node is idle again')
     assert.deepEqual(manager.backgroundWork(), [])
+    assert.deepEqual(manager.workingSessions(), [])
     const assistant = snapshot?.messages.filter((message) => message.role === 'assistant') ?? []
     assert.deepEqual(
       assistant.map((message) => [message.text, message.presentation]),

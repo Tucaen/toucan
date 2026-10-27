@@ -1257,6 +1257,11 @@ export interface AcpSessionManager {
    * none and never appears. Live state only: nothing here survives a restart of Toucan.
    */
   backgroundWork(): BackgroundWork[]
+  /**
+   * The canvas nodes of live sessions that are mid-turn right now (a prompted turn or an
+   * autonomous cycle), for the same quit/update warning as `backgroundWork`.
+   */
+  workingSessions(): string[]
   cancel(id: string): void
   kill(id: string): void
   killOwned(owner: AgentEventOwner): void
@@ -2577,6 +2582,9 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
           tasks: running.backgroundTasks,
           byType: { ...running.backgroundTaskTypes }
         })),
+
+    workingSessions: () =>
+      [...agents].filter(([, running]) => running.busy || running.autonomousTurn).map(([id]) => id),
 
     cancel(id): void {
       const running = agents.get(id)

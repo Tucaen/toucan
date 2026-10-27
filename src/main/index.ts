@@ -94,6 +94,7 @@ import { claudeConversationTranscriptPath, createConversationHistory } from './c
 import { createConversationTitleStore } from './conversation-title-store'
 import { createCodexRateLimitReader } from './codex-rate-limits'
 import { createProviderUsage, type ProviderUsage } from './provider-usage'
+import { collectQuitActivity, createQuitGuard, type QuitReason } from './quit-guard'
 import { createProviderWideTicketSessionCounter, createWorkingSessionCounter } from './orchestrated-ticket-sessions'
 import { createRemoteAccessStore } from './remote/remote-access-store'
 import { createSafeStorageVault } from './remote/token-vault'
@@ -185,7 +186,8 @@ function createWindow(
   ticketSessions: Pick<WindowRequests<TicketSessionCanvasRequest, TicketSessionCanvasResult>, 'attach'>,
   ticketCleanup: Pick<WindowRequests<TicketCleanupRequest, TicketCleanupResult>, 'attach'>,
   appUpdater: AppUpdater,
-  voiceModel: VoiceModelStore
+  voiceModel: VoiceModelStore,
+  guardClose: (window: BrowserWindow) => void
 ): void {
   const window = new BrowserWindow({
     width: 1440,
@@ -211,6 +213,7 @@ function createWindow(
   })
 
   window.once('ready-to-show', () => window.show())
+  guardClose(window)
   const contents = window.webContents
   // The settings dialog has to see a listener that failed or died on its own, not only the state
   // it last asked for, so the window subscribes for as long as it exists.
@@ -1155,7 +1158,52 @@ void app.whenReady().then(async () => {
     environment: process.env,
     log: mainLog('update')
   })
-  registerAppUpdateIpc(ipcMain, appUpdater)
+  // Closing the window, quitting, and restarting into an update all end every hosted session, so
+  // all three ask the same guard whether that costs background tasks or a turn in flight first.
+  const quitGuard = createQuitGuard({
+    activity: async () => {
+      const labels = new Map<string, string>()
+      try {
+        for (const node of (await workspace.load()).state?.nodes ?? []) labels.set(node.id, node.label)
+      } catch {
+        // Names are a courtesy; the warning stands without them.
+      }
+      return collectQuitActivity(agentManager.backgroundWork(), agentManager.workingSessions(), (id) => labels.get(id))
+    },
+    ask: async (warning) => {
+      const owner = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+      const options: Electron.MessageBoxOptions = {
+        type: 'warning',
+        title: warning.title,
+        message: warning.message,
+        detail: warning.detail,
+        buttons: [warning.proceedLabel, 'Cancel'],
+        defaultId: 1,
+        cancelId: 1,
+        noLink: true
+      }
+      const result = owner ? await dialog.showMessageBox(owner, options) : await dialog.showMessageBox(options)
+      return result.response === 0
+    }
+  })
+  // Set once the user (or an empty activity list) has cleared this exit, so the window close and
+  // the app quit that follow each other are not both stopped by the guard.
+  let exitCleared = false
+  const clearExit = async (reason: QuitReason): Promise<boolean> => {
+    const proceed = await quitGuard.confirm(reason)
+    if (proceed) exitCleared = true
+    return proceed
+  }
+  registerAppUpdateIpc(ipcMain, appUpdater, () => clearExit('update'))
+  const guardWindowClose = (window: BrowserWindow): void => {
+    window.on('close', (event) => {
+      if (exitCleared) return
+      event.preventDefault()
+      void clearExit('quit').then((proceed) => {
+        if (proceed && !window.isDestroyed()) window.close()
+      })
+    })
+  }
   createWindow(
     manager,
     agentManager,
@@ -1168,12 +1216,16 @@ void app.whenReady().then(async () => {
     ticketSessions,
     ticketCleanup,
     appUpdater,
-    voiceModel
+    voiceModel,
+    guardWindowClose
   )
   void appUpdater.check()
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0)
+    if (BrowserWindow.getAllWindows().length === 0) {
+      // A window closed on macOS took its sessions with it; the new one starts uncleared.
+      exitCleared = false
+      quitGuard.reset()
       createWindow(
         manager,
         agentManager,
@@ -1186,10 +1238,19 @@ void app.whenReady().then(async () => {
         ticketSessions,
         ticketCleanup,
         appUpdater,
-        voiceModel
+        voiceModel,
+        guardWindowClose
       )
+    }
   })
-  app.on('before-quit', () => {
+  app.on('before-quit', (event) => {
+    if (!exitCleared) {
+      event.preventDefault()
+      void clearExit('quit').then((proceed) => {
+        if (proceed) app.quit()
+      })
+      return
+    }
     manager.killAll()
     agentManager.killAll()
     void orchestratorEndpoint.close()
