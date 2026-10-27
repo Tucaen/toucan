@@ -149,7 +149,7 @@ test('a retry past the old twenty-first name still finds a free branch', async (
       async create(worktree) {
         created.push(worktree)
         if (taken(worktree.branch)) return { ok: false, conflict: true, message: 'Branch exists' }
-        return { ok: true, worktree: { path: 'D:\project-31', branch: worktree.branch, baseRef: 'main' } }
+        return { ok: true, worktree: { path: 'D:\\project-31', branch: worktree.branch, baseRef: 'main' } }
       }
     }
   })
