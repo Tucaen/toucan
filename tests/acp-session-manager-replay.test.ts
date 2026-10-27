@@ -70,6 +70,66 @@ const update = (sessionId, sessionUpdate, text, phase) => send({
   })
 }
 
+/**
+ * One replayed turn per `_meta` shape codex-acp has used: `codex.phase` (before 2.0.0),
+ * `jetbrains.air.phase` (since 2.0.0, AIR clients only), and none at all - which is what the pinned
+ * 2.x adapter sends a non-AIR client like Toucan.
+ */
+function phaseShapesAdapter(appPath: string): void {
+  installScriptedAdapter(appPath, 'codex-acp', {
+    prelude: `
+const update = (sessionId, sessionUpdate, messageId, text, meta) => send({
+  jsonrpc: '2.0',
+  method: 'session/update',
+  params: { sessionId, update: { sessionUpdate, messageId, content: { type: 'text', text }, ...(meta ? { _meta: meta } : {}) } }
+})`,
+    handleRequest: `
+  if (request.method !== 'session/load') return
+  const sessionId = request.params.sessionId
+  update(sessionId, 'user_message_chunk', 'u1', 'Legacy shape')
+  update(sessionId, 'agent_message_chunk', 'legacy-progress', 'Looking.', { codex: { phase: 'commentary' } })
+  update(sessionId, 'agent_message_chunk', 'legacy-final', 'Done.', { codex: { phase: 'final_answer' } })
+  update(sessionId, 'user_message_chunk', 'u2', 'AIR shape')
+  update(sessionId, 'agent_message_chunk', 'air-progress', 'Looking.', { jetbrains: { air: { phase: 'commentary' } } })
+  update(sessionId, 'agent_message_chunk', 'air-final', 'Done.', { jetbrains: { air: { phase: 'final_answer' } } })
+  update(sessionId, 'user_message_chunk', 'u3', 'No phase')
+  update(sessionId, 'agent_message_chunk', 'bare-progress', 'Looking.', { codex: { threadId: 't' }, jetbrains: { other: {} } })
+  update(sessionId, 'agent_message_chunk', 'bare-final', 'Done.')
+  send({ jsonrpc: '2.0', id: request.id, result: {} })`
+  })
+}
+
+test('reads the message phase from either _meta shape and leaves a phaseless Codex turn unclassified', async () => {
+  const appPath = mkdtempSync(join(tmpdir(), 'toucan-phase-shapes-adapter-'))
+  phaseShapesAdapter(appPath)
+  const manager = createAcpSessionManager({ appPath })
+
+  try {
+    const result = await manager.create(
+      { id: 'phase-shapes-node', provider: 'codex', cwd: appPath, sessionId: 'phase-shapes' },
+      { isDestroyed: () => false, send: () => {} } as unknown as WebContents
+    )
+
+    assert.deepEqual(
+      result.replay
+        ?.filter((event) => event.type === 'message' && event.role === 'assistant')
+        .map((event) => event.type === 'message' && [event.messageId, event.presentation]),
+      [
+        ['legacy-progress', 'progress'],
+        ['legacy-final', 'final'],
+        ['air-progress', 'progress'],
+        ['air-final', 'final'],
+        // No phase: the adapter event carries none, the transcript reducer decides at the turn
+        // boundary (see `assistant-presentation.test.ts`).
+        ['bare-progress', undefined],
+        ['bare-final', undefined]
+      ]
+    )
+  } finally {
+    manager.killAll()
+  }
+})
+
 test('returns session/load transcript notifications atomically instead of streaming them separately', async () => {
   const appPath = mkdtempSync(join(tmpdir(), 'toucan-replay-adapter-'))
   replayingAdapter(appPath)

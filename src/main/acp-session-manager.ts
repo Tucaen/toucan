@@ -901,15 +901,16 @@ export function isInternalNotificationText(text: string): boolean {
 }
 
 /**
- * Codex keeps progress commentary and the final answer in the same ACP update type, but preserves
- * the distinction in replay-stable adapter metadata. Claude does not currently advertise an
- * equivalent phase, so untagged assistant messages are classified at their turn boundary.
+ * Codex keeps progress commentary and the final answer in the same ACP update type and can tag the
+ * distinction in replay-stable adapter metadata. Two shapes exist: `_meta.codex.phase` (codex-acp
+ * before 2.0.0) and `_meta.jetbrains.air.phase` (since 2.0.0, upstream PR #530, sent only to a
+ * client that declares JetBrains AIR). Toucan declares neither AIR nor an older adapter, so today
+ * codex-acp 2.x sends no phase at all and Codex text is classified at its turn boundary like
+ * Claude's, which never carries one. Both shapes are read so an upstream opt-in that does reach
+ * Toucan works without a code change.
  */
 function assistantPresentationFromMeta(meta: unknown): AgentMessagePresentation | undefined {
-  if (typeof meta !== 'object' || meta === null) return undefined
-  const codex = (meta as { codex?: unknown }).codex
-  if (typeof codex !== 'object' || codex === null) return undefined
-  const phase = (codex as { phase?: unknown }).phase
+  const phase = record(record(meta)?.codex)?.phase ?? record(record(record(meta)?.jetbrains)?.air)?.phase
   if (phase === 'commentary') return 'progress'
   if (phase === 'final_answer') return 'final'
   return undefined
