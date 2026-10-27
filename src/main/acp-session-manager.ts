@@ -353,15 +353,14 @@ export function withSessionInstruction(
  * declares itself JetBrains AIR, which also strips the `_meta.claudeCode` subagent attribution
  * Toucan reads off nested tool calls.
  *
- * `system/init` is how Toucan hears that the CLI behind the adapter started afresh (it restarts
- * inside a live adapter): a new CLI has no background tasks, and the level is only re-sent on a
- * change, so without it a task that died with the old CLI would be counted until the next one.
+ * `system/init` is deliberately not forwarded to reset the count: the adapter documents that the CLI
+ * re-emits it every turn, so it would zero live tasks whenever the user prompts again, and a CLI
+ * that dies takes the adapter's query stream with it (the session cannot be prompted again).
  */
 const FORWARDED_SDK_MESSAGES = [
   { type: 'result' },
   { type: 'system', subtype: 'session_state_changed' },
-  { type: 'system', subtype: 'background_tasks_changed' },
-  { type: 'system', subtype: 'init' }
+  { type: 'system', subtype: 'background_tasks_changed' }
 ] as const
 
 const CLAUDE_SDK_MESSAGE_NOTIFICATION = '_claude/sdkMessage'
@@ -491,13 +490,6 @@ export function backgroundTaskTypes(message: unknown): Record<string, number> | 
   return types
 }
 
-/** Whether a forwarded SDK message is the CLI announcing a fresh start (see `FORWARDED_SDK_MESSAGES`). */
-function isSdkInit(message: unknown): boolean {
-  if (typeof message !== 'object' || message === null) return false
-  const sdk = message as { type?: unknown; subtype?: unknown }
-  return sdk.type === 'system' && sdk.subtype === 'init'
-}
-
 /** Whether a forwarded SDK message says the session started running a cycle. */
 function isSdkRunning(message: unknown): boolean {
   if (typeof message !== 'object' || message === null) return false
@@ -605,7 +597,12 @@ interface RunningAgent {
    * during such a cycle, so refusing one would only cost the user their message. A prompt that is
    * accepted meanwhile takes the cycle over - its own boundary settles everything before it.
    */
-  autonomousTurn?: { turnId: string; cancelRequested: boolean }
+  autonomousTurn?: {
+    turnId: string
+    cancelRequested: boolean
+    /** Opened by the CLI's `running` and no agent output since: an `idle` ends it without a boundary. */
+    quiet: boolean
+  }
   /** The live background tasks the latest `background_tasks_changed` reported (see `backgroundTaskCount`). */
   backgroundTasks: number
   /** The same level by `task_type`, kept for `AcpSessionManager.backgroundWork` (see `backgroundTaskTypes`). */
@@ -1403,6 +1400,12 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
     })
   }
 
+  /** The session is gone (stopped or exited) and took its tasks with it. */
+  const clearBackgroundTasks = (running: RunningAgent): void => {
+    running.backgroundTasks = 0
+    running.backgroundTaskTypes = {}
+  }
+
   /**
    * Publishes a turn boundary, a completed one naming the background work still running past it:
    * that work's result comes with a later, notification-driven turn.
@@ -1745,8 +1748,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
     if (!running) return
     running.wakeGate?.dispose()
     running.stopping = true
-    running.backgroundTasks = 0
-    running.backgroundTaskTypes = {}
+    clearBackgroundTasks(running)
     for (const pending of running.pendingApprovals.values()) {
       pending.resolve({ outcome: { outcome: 'cancelled' } })
     }
@@ -1795,11 +1797,18 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
    * `FORWARDED_SDK_MESSAGES`): reported as working, like any turn, so `status` stops reading
    * ready while the agent is plainly at work. Opened only by output the agent authors - a message, a
    * thought, a new tool call - never by a late `tool_call_update` or usage report, which can trail a
-   * turn that already ended and would leave a cycle open that no result will ever close.
+   * turn that already ended and would leave a cycle open that no result will ever close. The CLI's
+   * own `running` (`quiet`) opens one too, so a finished task's wake never reads Idle in the gap
+   * before the agent's first output; that cycle only becomes a turn once the agent produces
+   * output or a result - a `running` that goes straight back to `idle` reports no boundary.
    */
-  const openAutonomousTurn = (running: RunningAgent): void => {
-    if (running.busy || running.autonomousTurn || running.replayEvents || !running.sessionId) return
-    running.autonomousTurn = { turnId: crypto.randomUUID(), cancelRequested: false }
+  const openAutonomousTurn = (running: RunningAgent, quiet = false): void => {
+    if (running.busy || running.replayEvents || !running.sessionId) return
+    if (running.autonomousTurn) {
+      if (!quiet) running.autonomousTurn.quiet = false
+      return
+    }
+    running.autonomousTurn = { turnId: crypto.randomUUID(), cancelRequested: false, quiet }
     send(running, { type: 'status', status: 'working' })
   }
 
@@ -1808,6 +1817,12 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
     const turn = running.autonomousTurn
     if (!turn || running.busy) return
     running.autonomousTurn = undefined
+    if (turn.quiet && signal.end === 'idle') {
+      // Nothing happened: no answer to record and nobody to wake, only the status to settle.
+      send(running, { type: 'status', status: 'ready' })
+      running.wakeGate?.flush()
+      return
+    }
     const boundary: AgentEvent = turn.cancelRequested
       ? { type: 'turn_cancelled', turnId: turn.turnId, message: 'Stopped by you.' }
       : signal.end === 'result' && signal.failed
@@ -2108,12 +2123,12 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
           (params: unknown) => params as { message?: unknown },
           ({ params }) => {
             const message = params?.message
-            const types = isSdkInit(message) ? {} : backgroundTaskTypes(message)
+            const types = backgroundTaskTypes(message)
             if (types) setBackgroundTasks(running, types)
             // The cycle a finished task wakes opens on the CLI's own `running`, not on the agent's
             // first output: the count has just dropped, and the gap until that output would read
             // Idle between Background and Working.
-            if (isSdkRunning(message)) openAutonomousTurn(running)
+            if (isSdkRunning(message)) openAutonomousTurn(running, true)
             const signal = autonomousTurnSignal(message)
             if (signal) closeAutonomousTurn(running, signal)
           }
@@ -2231,8 +2246,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         if (agents.get(request.id) === running) agents.delete(request.id)
         // The adapter took its shells and subagents with it. The `exited` below resets every
         // subscriber's count (the reducer zeroes it on any status past ready/working).
-        running.backgroundTasks = 0
-        running.backgroundTaskTypes = {}
+        clearBackgroundTasks(running)
         // A token outlives nothing: no process, no orchestrator to act for, no session to speak as.
         running.orchestratorGrant?.revoke()
         running.messagingGrant?.revoke()
@@ -2557,7 +2571,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
 
     backgroundWork: () =>
       [...agents]
-        .filter(([, running]) => running.backgroundTasks > 0 && !running.stopping)
+        .filter(([, running]) => running.backgroundTasks > 0)
         .map(([id, running]) => ({
           id,
           tasks: running.backgroundTasks,

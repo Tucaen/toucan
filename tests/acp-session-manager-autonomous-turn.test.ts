@@ -228,8 +228,7 @@ test('the live background count reaches every subscriber and the main-side query
     // Same total, different tasks: nothing new for anyone to be told.
     [40, level('local_bash', 'local_monitor')],
     [40, level('local_bash', 'local_monitor')],
-    // The CLI restarted inside the adapter: its tasks died with it.
-    [40, { type: 'system', subtype: 'init' }],
+    [40, level()],
     [40, level('local_bash')],
     // The cycle a finished task wakes opens on the CLI's `running`, before any output.
     [40, { type: 'system', subtype: 'session_state_changed', state: 'running' }]
@@ -253,7 +252,7 @@ test('the live background count reaches every subscriber and the main-side query
     ])
     assert.equal(broker.snapshot('node-1')?.backgroundTasks, 2)
 
-    // The restart empties it, then the new CLI's own task is counted afresh.
+    // The last tasks finish, then a new one starts.
     await until(() => (broker.snapshot('node-1')?.backgroundTasks === 0 ? true : undefined))
     assert.deepEqual(manager.backgroundWork(), [])
     await until(() => (broker.snapshot('node-1')?.backgroundTasks === 1 ? true : undefined))
@@ -266,6 +265,33 @@ test('the live background count reaches every subscriber and the main-side query
     // Stopping the session takes its tasks with it: nothing is left to warn about.
     manager.kill('node-1')
     assert.deepEqual(manager.backgroundWork(), [])
+  } finally {
+    manager.killAll()
+  }
+})
+
+test('a running with no output that goes straight back to idle opens no turn boundary', async () => {
+  const appPath = mkdtempSync(join(tmpdir(), 'toucan-quiet-cycle-'))
+  levelAdapter(appPath, [
+    [0, { type: 'system', subtype: 'session_state_changed', state: 'running' }],
+    [80, { type: 'system', subtype: 'session_state_changed', state: 'idle' }]
+  ])
+  const broker = createAgentEventBroker()
+  const seen: string[] = []
+  broker.observe((_id, event) => {
+    if (event.type === 'status') seen.push(event.status)
+    if (event.type === 'turn_complete' || event.type === 'turn_failed') seen.push(event.type)
+  })
+  const owner = { isDestroyed: () => false, send: () => {} } as unknown as WebContents
+  const manager = createAcpSessionManager({ appPath, broker })
+
+  try {
+    await manager.create({ id: 'node-1', provider: 'claude', cwd: appPath }, owner)
+    await manager.prompt('node-1', 'go')
+    // The prompt's own boundary is one turn_complete; the quiet cycle after it adds none.
+    await until(() => (seen.filter((entry) => entry === 'working').length === 2 ? true : undefined))
+    await until(() => (broker.snapshot('node-1')?.status === 'ready' ? true : undefined))
+    assert.equal(seen.filter((entry) => entry === 'turn_complete').length, 1)
   } finally {
     manager.killAll()
   }
