@@ -2,7 +2,7 @@
 title: Plugins plan
 created: 2026-10-27
 updated: 2026-10-27
-status: planned
+status: in progress - slice 1 (#55) landed
 ---
 
 # Plugins: optional agent capabilities, enabled per project
@@ -63,7 +63,17 @@ plugin rather than in Toucan.
   skills (`additionalDirectories`); the first slice must verify which folder layout Codex discovers
   there and adapt (copy or link into a Toucan-owned root if needed). MCP servers through config
   overrides (`mcp_servers.<name>.*`). Hooks are not delivered to Codex in the first version; the
-  contributions screen says so.
+  contributions screen says so. Verified in slice 1 (codex-acp 2.2.2, Codex 0.159.0), see below.
+- **Verified Codex shapes (slice 1)**: codex-acp turns every additional directory `D` into the
+  skill root `D/.agents/skills` and never reads a plugin's own `skills/`, so a plugin root passed
+  directly yields no skills. Each plugin therefore gets `<userData>/codex-plugin-skills/<id>`,
+  whose `.agents/skills` is a link (a junction on Windows) to the plugin's `skills/`; Codex follows
+  it, reports the real paths and namespaces the skills `<id>:<skill>` from the manifest, as Claude
+  does. MCP servers end up as `mcp_servers.<name>` on the Codex thread, but they get there on the
+  session's ACP `mcpServers`, beside the terminal-context server, rather than through
+  `CODEX_CONFIG`: codex-acp replaces a `CODEX_CONFIG` `mcp_servers` table whenever a session has
+  `mcpServers`, and a dotted `mcp_servers.<name>` override beside a whole table was dropped in
+  about half of repeated runs (Codex applies the two in no fixed order).
 - **Toucan context for scripts**: every session's adapter already carries `TOUCAN_NODE_ID`.
   Add `TOUCAN_PROJECT_DIR` (the main checkout; the session's cwd is the worktree). Each session
   that has plugins gets one appended instruction line per plugin naming its id and absolute root

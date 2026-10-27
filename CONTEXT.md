@@ -49,3 +49,9 @@ The user's configuration turning a difficulty tier into a model from the chat no
 **Requested, not confirmed**:
 The honesty stance for every session-launch policy: a session carries the configuration, but nothing verifies the agent honours it, so every surface words the policy as requested rather than enforced.
 _Avoid_: enabled (implies enforcement), active
+
+### Plugins
+
+**Plugin**:
+An optional agent-side capability - skills, the scripts they call, MCP servers and (Claude only) hooks - kept in a folder in Claude's plugin layout, identified by its manifest's `name` and `version`, and enabled per project; a worktree inherits its project's plugins. Toucan's own shipped skills are not plugins. Plan in `docs/plans/plugins.md`.
+_Avoid_: extension, add-on, UI plugin (plugins contribute nothing to the canvas)
