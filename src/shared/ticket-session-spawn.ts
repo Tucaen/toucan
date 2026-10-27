@@ -76,6 +76,11 @@ export interface OrchestrationControlState {
     reason: OrchestrationPacingReason
     retryAt?: number
   }
+  /**
+   * Present once the orchestration has used its spawn budget: it waits for the human's Continue
+   * (`continueSpawns`) and refuses every spawn until then.
+   */
+  spawnCheckpoint?: { used: number; budget: number }
   /** Tickets the user may start now, skipping provider pacing; see `startableTickets`. */
   startable?: Array<{ id: string; title: string }>
 }
@@ -102,6 +107,8 @@ export interface OrchestratorApi {
   orchestrationState(request: OrchestrationControlRequest): Promise<OrchestrationControlState | null>
   resumeOrchestration(request: OrchestrationControlRequest): Promise<OrchestrationControlState | null>
   stopOrchestration(request: OrchestrationControlRequest): Promise<OrchestrationControlState | null>
+  /** Continue (+20) at a spawn checkpoint: raises the budget and wakes the orchestrator. */
+  continueSpawns(request: OrchestrationControlRequest): Promise<OrchestrationControlState | null>
   /** Grants one forced spawn and asks the orchestrator to run it. */
   forceStartTicket(request: OrchestrationForceStartRequest): Promise<OrchestrationForceStartResult>
   onOrchestrationState(callback: (state: OrchestrationControlState) => void): () => void

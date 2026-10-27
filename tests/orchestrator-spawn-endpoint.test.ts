@@ -8,11 +8,13 @@ import { createOrchestratorEndpoint, type OrchestratorGrant } from '../src/main/
 import { createProviderUsage } from '../src/main/provider-usage'
 import type { TicketSpawner, TicketSpawnRequest } from '../src/main/ticket-spawner'
 import {
-  MAX_SPAWNS_PER_ORCHESTRATION,
+  SPAWNS_PER_CHECKPOINT,
   ORCHESTRATOR_TOKEN_ENV,
   ORCHESTRATOR_URL_ENV,
+  continueSpawnBudget,
   pauseOrchestration,
-  stopOrchestration
+  stopOrchestration,
+  type OrchestrationRecord
 } from '../src/shared/orchestration'
 
 // `spawn` on the orchestrator endpoint (#34): who may spawn, what is refused before anything is
@@ -54,8 +56,14 @@ function fakeSpawner(outcome: 'ok' | 'fail' = 'ok'): TicketSpawner & { calls: Ti
 function harness(spawner?: TicketSpawner) {
   const directory = mkdtempSync(join(tmpdir(), 'toucan-orchestrator-spawn-'))
   const records = createOrchestrationStore({ directory })
-  const endpoint = createOrchestratorEndpoint({ records, spawner, now: () => '2026-09-30T12:00:00.000Z' })
-  return { records, endpoint }
+  const published: OrchestrationRecord[] = []
+  const endpoint = createOrchestratorEndpoint({
+    records,
+    spawner,
+    spawned: (record) => published.push(record),
+    now: () => '2026-09-30T12:00:00.000Z'
+  })
+  return { records, endpoint, published }
 }
 
 async function call(
@@ -73,11 +81,11 @@ async function call(
 }
 
 async function planned(spawner?: TicketSpawner) {
-  const { records, endpoint } = harness(spawner)
+  const { records, endpoint, published } = harness(spawner)
   const grant = (await endpoint.grant('orchestrator-1', { provider: 'claude', projectPath: 'D:\\project' }))!
   grant.setConversation('conversation-1')
   assert.equal((await call(grant, 'plan set', plan)).status, 200)
-  return { records, endpoint, grant }
+  return { records, endpoint, grant, published }
 }
 
 const spawn34 = { ticket: '34', model: 'claude-opus-5-5', effort: 'high' }
@@ -117,7 +125,7 @@ test('a spawn hands the spawner the ticket, the target branch and the orchestrat
     assert.equal(request.ticket.id, '34')
     assert.equal(request.model, 'claude-opus-5-5')
     assert.equal(request.effort, 'high')
-    assert.equal(reply.body.spawnsLeft, MAX_SPAWNS_PER_ORCHESTRATION - 1)
+    assert.equal(reply.body.spawnsLeft, SPAWNS_PER_CHECKPOINT - 1)
 
     const record = await records.read({ provider: 'claude', conversationId: 'conversation-1' })
     assert.deepEqual(record?.tickets.find((ticket) => ticket.id === '34')?.session, {
@@ -240,7 +248,7 @@ test('a Codex orchestrator spawns its own provider with the same authorization a
     assert.equal((await records.read(key))?.tickets[1].session?.conversationId, 'ticket-conversation-1')
     assert.equal(await records.read({ ...key, provider: 'claude' }), undefined)
     await records.update(key, (current) => ({
-      value: { ...current!, spawnCount: MAX_SPAWNS_PER_ORCHESTRATION },
+      value: { ...current!, spawnCount: SPAWNS_PER_CHECKPOINT },
       result: undefined
     }))
     assert.equal((await call(grant, 'spawn', args)).status, 429)
@@ -250,21 +258,34 @@ test('a Codex orchestrator spawns its own provider with the same authorization a
   }
 })
 
-test('the twenty-first spawn of an orchestration is refused, failed spawns and retries included', async () => {
+test('the spawn after the budget is refused as budgetReached, failed spawns and retries included, and Continue lifts it', async () => {
   const failing = fakeSpawner('fail')
-  const { records, endpoint, grant } = await planned(failing)
+  const { records, endpoint, grant, published } = await planned(failing)
   try {
     const failed = await call(grant, 'spawn', spawn34)
     assert.equal(failed.status, 502)
     assert.match(failed.body.error ?? '', /git worktree add failed/)
     // A retry of the same ticket counts like any other spawn.
-    for (let index = 1; index < MAX_SPAWNS_PER_ORCHESTRATION; index += 1) {
+    for (let index = 1; index < SPAWNS_PER_CHECKPOINT; index += 1) {
       assert.equal((await call(grant, 'spawn', index % 2 ? spawn34 : { ...spawn34, ticket: '33' })).status, 502)
     }
     const refused = await call(grant, 'spawn', spawn34)
     assert.equal(refused.status, 429)
-    assert.match(refused.body.error ?? '', /20 spawns/)
-    assert.equal(failing.calls.length, MAX_SPAWNS_PER_ORCHESTRATION)
+    assert.match(refused.body.error ?? '', /spawn budget of 20.*Continue/)
+    assert.equal(refused.body.budgetReached, true)
+    assert.equal(refused.body.deferred, undefined)
+    assert.equal(failing.calls.length, SPAWNS_PER_CHECKPOINT)
+    // The canvas re-reads the checkpoint from the record when a refusal says it is there.
+    assert.ok(published.length > 0)
+    assert.equal(published.at(-1)?.spawnCount, SPAWNS_PER_CHECKPOINT)
+    // Continue raises the budget for this same record; the retry is counted and gets a fresh branch.
+    await records.update({ provider: 'claude', conversationId: 'conversation-1' }, (current) => ({
+      value: current && continueSpawnBudget(current, current.updatedAt),
+      result: undefined
+    }))
+    const retried = await call(grant, 'spawn', spawn34)
+    assert.equal(retried.status, 502)
+    assert.equal(failing.calls.length, SPAWNS_PER_CHECKPOINT + 1)
     // A failed spawn records no session.
     const record = await records.read({ provider: 'claude', conversationId: 'conversation-1' })
     assert.equal(record?.tickets.find((ticket) => ticket.id === '34')?.session, undefined)

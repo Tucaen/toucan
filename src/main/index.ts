@@ -32,7 +32,14 @@ import { registerCommandGuardSettingsIpc } from './command-guard-settings-ipc'
 import { registerOrchestrationSettingsIpc } from './orchestration-settings-ipc'
 import { createJevRouter } from './jev-router'
 import { createOrchestrationWaker } from './orchestration-wake'
-import { ORCHESTRATOR_ROLE, pacingDeferral, startableTickets, type OrchestrationRecord } from '../shared/orchestration'
+import {
+  ORCHESTRATOR_ROLE,
+  pacingDeferral,
+  spawnBudget,
+  spawnBudgetReached,
+  startableTickets,
+  type OrchestrationRecord
+} from '../shared/orchestration'
 import { createOrchestrationController, type OrchestrationSession } from './orchestration-control'
 import { createOrchestratorEndpoint } from './orchestrator-endpoint'
 import { createMessagingEndpoint } from './messaging-endpoint'
@@ -500,6 +507,9 @@ void app.whenReady().then(async () => {
           }
         }
       : {}),
+    ...(spawnBudgetReached(record)
+      ? { spawnCheckpoint: { used: record.spawnCount ?? 0, budget: spawnBudget(record) } }
+      : {}),
     startable: startableTickets(record).map((ticket) => ({ id: ticket.id, title: ticket.title }))
   })
   const publishOrchestrationState = (record: OrchestrationRecord): void => {
@@ -859,6 +869,12 @@ void app.whenReady().then(async () => {
     const request = controlRequest(value)
     if (!request) return null
     const record = await orchestrationController.resumeNow(request, request.nodeId)
+    return record ? orchestrationState(record) : null
+  })
+  ipcMain.handle(ORCHESTRATOR_CHANNELS.continueSpawns, async (_event, value: unknown) => {
+    const request = controlRequest(value)
+    if (!request) return null
+    const record = await orchestrationController.continueSpawns(request, request.nodeId)
     return record ? orchestrationState(record) : null
   })
   ipcMain.handle(ORCHESTRATOR_CHANNELS.stop, async (_event, value: unknown) => {

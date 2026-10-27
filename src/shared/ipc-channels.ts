@@ -115,6 +115,8 @@ export const ORCHESTRATOR_CHANNELS = {
   state: 'orchestrator:state',
   resume: 'orchestrator:resume',
   stop: 'orchestrator:stop',
+  /** The orchestrator node's Continue (+20) at a spawn checkpoint. */
+  continueSpawns: 'orchestrator:continue-spawns',
   /** The orchestrator node's Start now: a one-shot force grant for one ticket. */
   forceStart: 'orchestrator:force-start',
   changed: 'orchestrator:changed'

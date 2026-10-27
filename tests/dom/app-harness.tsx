@@ -135,6 +135,7 @@ export function installWindowApis(options: AppHarnessOptions = {}): AppHarness {
       orchestrationState: vi.fn(async () => null),
       resumeOrchestration: vi.fn(async () => null),
       stopOrchestration: vi.fn(async () => null),
+      continueSpawns: vi.fn(async () => null),
       onOrchestrationState: () => () => undefined
     },
     brainDumpApi: createMockBrainDumpApi() as unknown as Record<string, unknown>

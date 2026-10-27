@@ -5,7 +5,7 @@ import {
   applyTicketUpdate,
   clearOrchestrationPacing,
   deferOrchestration,
-  MAX_SPAWNS_PER_ORCHESTRATION,
+  SPAWNS_PER_CHECKPOINT,
   TICKET_CONTRACT_HEADING,
   isOrchestrationRecord,
   decisionAnswerFromText,
@@ -19,6 +19,9 @@ import {
   pauseOrchestration,
   resumeOrchestration,
   reserveSpawn,
+  continueSpawnBudget,
+  spawnBudget,
+  spawnBudgetReached,
   startableTickets,
   stopOrchestration,
   ticketBranchCandidates,
@@ -323,27 +326,63 @@ test('a ticket session prompt opens with the configured implementation skill', (
   assert.ok(prompt.startsWith('/tdd #1 T'))
 })
 
-test('a spawn is reserved against the record and refused past twenty per orchestration', () => {
+test('a spawn is reserved against the record and refused at the budget until the human continues', () => {
   let record = recordFrom(twoTickets)
   assert.match(reserveSpawn(record, '99', NOW).error ?? '', /no ticket "99"/)
-  for (let index = 0; index < MAX_SPAWNS_PER_ORCHESTRATION; index += 1) {
+  for (let index = 0; index < SPAWNS_PER_CHECKPOINT; index += 1) {
     const reserved = reserveSpawn(record, '33', LATER)
     if (!reserved.record) throw new Error(`spawn ${index + 1} refused: ${reserved.error}`)
     record = reserved.record
   }
-  assert.equal(record.spawnCount, MAX_SPAWNS_PER_ORCHESTRATION)
+  assert.equal(record.spawnCount, SPAWNS_PER_CHECKPOINT)
   assert.equal(record.updatedAt, LATER)
-  // Retries and escalations count: the twenty-first spawn is refused whichever ticket it is for.
-  assert.match(reserveSpawn(record, '33', LATER).error ?? '', /20 spawns/)
-  // Re-planning never resets the count.
+  // Retries and escalations count: the next spawn is refused whichever ticket it is for, and the
+  // refusal says it is the budget (machine-readable) rather than a failure.
+  const refused = reserveSpawn(record, '33', LATER)
+  assert.match(refused.error ?? '', /spawn budget of 20.*Continue/)
+  assert.equal(refused.budgetReached, true)
+  assert.equal(reserveSpawn(record, '99', LATER).budgetReached, undefined)
+  assert.equal(spawnBudgetReached(record), true)
+  // Re-planning never resets the count or a raised budget.
   const replanned = applyPlan(record, planned(twoTickets), identity, LATER)
-  assert.equal(replanned.record?.spawnCount, MAX_SPAWNS_PER_ORCHESTRATION)
+  assert.equal(replanned.record?.spawnCount, SPAWNS_PER_CHECKPOINT)
+  const continued = continueSpawnBudget(record, LATER)
+  assert.equal(spawnBudget(continued), 2 * SPAWNS_PER_CHECKPOINT)
+  const replannedAfterContinue = applyPlan(continued, planned(twoTickets), identity, LATER)
+  assert.equal(replannedAfterContinue.record?.spawnBudget, 2 * SPAWNS_PER_CHECKPOINT)
+  assert.equal(replannedAfterContinue.record?.spawnCount, SPAWNS_PER_CHECKPOINT)
+  assert.equal(reserveSpawn(replannedAfterContinue.record!, '33', LATER).record?.spawnCount, SPAWNS_PER_CHECKPOINT + 1)
   // A record written before spawning existed reads as none used.
   const legacy: Record<string, unknown> = { ...recordFrom(twoTickets) }
   delete legacy.spawnCount
   assert.ok(isOrchestrationRecord(legacy))
   assert.equal(reserveSpawn(legacy as unknown as OrchestrationRecord, '33', NOW).record?.spawnCount, 1)
   assert.equal(isOrchestrationRecord({ ...record, spawnCount: -1 }), false)
+  assert.equal(isOrchestrationRecord({ ...record, spawnBudget: 0 }), false)
+  assert.equal(isOrchestrationRecord({ ...record, spawnBudget: 40 }), true)
+})
+
+test('Continue raises the budget by a checkpoint once, only at the budget, and never revives a stopped record', () => {
+  const fresh = recordFrom(twoTickets)
+  assert.equal(spawnBudget(fresh), SPAWNS_PER_CHECKPOINT)
+  assert.equal(spawnBudgetReached(fresh), false)
+  // Below the budget there is nothing to continue: a stale second press cannot stack budgets.
+  assert.equal(continueSpawnBudget(fresh, LATER), fresh)
+
+  const atBudget = { ...fresh, spawnCount: SPAWNS_PER_CHECKPOINT }
+  const once = continueSpawnBudget(atBudget, LATER)
+  assert.equal(once.spawnBudget, 2 * SPAWNS_PER_CHECKPOINT)
+  assert.equal(once.spawnCount, SPAWNS_PER_CHECKPOINT)
+  assert.equal(once.updatedAt, LATER)
+  assert.equal(continueSpawnBudget(once, LATER), once)
+  assert.equal(reserveSpawn(once, '33', LATER).error, undefined)
+
+  // The budget is a checkpoint, not a cap: it can be reached and continued again and again.
+  const again = continueSpawnBudget({ ...once, spawnCount: 2 * SPAWNS_PER_CHECKPOINT }, LATER)
+  assert.equal(spawnBudget(again), 3 * SPAWNS_PER_CHECKPOINT)
+
+  const stopped = stopOrchestration(atBudget, LATER)
+  assert.equal(continueSpawnBudget(stopped, LATER), stopped)
 })
 
 test('pause, resume and stop are durable orchestration states that gate spawning without changing attempts', () => {
@@ -482,10 +521,20 @@ test("a run names its orchestrator's provider; one recorded before the field rea
 
 test('a ticket branch is a fresh name derived from the ticket id', () => {
   const candidates = ticketBranchCandidates('#34 Spawn!')
-  assert.equal(candidates[0], 'ticket/34-spawn')
-  assert.equal(candidates[1], 'ticket/34-spawn-2')
-  assert.equal(new Set(candidates).size, candidates.length)
-  assert.equal(ticketBranchCandidates('???')[0], 'ticket/ticket')
+  assert.equal(candidates.next().value, 'ticket/34-spawn')
+  assert.equal(candidates.next().value, 'ticket/34-spawn-2')
+  assert.equal(ticketBranchCandidates('???').next().value, 'ticket/ticket')
+})
+
+test('ticket branch names never run out, however many retries a continued budget allows', () => {
+  const names: string[] = []
+  const candidates = ticketBranchCandidates('34')
+  for (let index = 0; index < 3 * SPAWNS_PER_CHECKPOINT + 5; index += 1) names.push(candidates.next().value)
+  assert.equal(names.length, 65)
+  assert.equal(new Set(names).size, names.length)
+  assert.equal(names[0], 'ticket/34')
+  assert.equal(names[21], 'ticket/34-22')
+  assert.equal(names[64], 'ticket/34-65')
 })
 
 test('a ticket session is titled by its ticket and prompted with the skill, the ticket and the contract', () => {

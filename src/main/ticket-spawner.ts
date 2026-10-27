@@ -97,6 +97,7 @@ export function createTicketSpawner(options: TicketSpawnerOptions): TicketSpawne
   const createWorktree = async (
     request: TicketSpawnRequest
   ): Promise<{ path: string; branch: string; baseRef: string } | { error: string }> => {
+    // The names never run out, so this ends at the first free one or a failure that is no conflict.
     for (const branch of ticketBranchCandidates(request.ticket.id)) {
       const created = await options.worktrees.create({
         projectPath: request.projectPath,
@@ -106,7 +107,7 @@ export function createTicketSpawner(options: TicketSpawnerOptions): TicketSpawne
       if (created.ok && created.worktree) return created.worktree
       if (!created.conflict) return { error: `the worktree could not be created: ${created.message ?? 'git failed'}` }
     }
-    return { error: `every ticket branch name for "${request.ticket.id}" is already taken` }
+    throw new Error('unreachable: ticket branch names are endless')
   }
 
   const spawn = async (request: TicketSpawnRequest): Promise<TicketSpawnResult> => {

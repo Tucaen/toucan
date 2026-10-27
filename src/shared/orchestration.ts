@@ -223,6 +223,11 @@ export interface OrchestrationRecord {
    * which reads as none.
    */
   spawnCount?: number
+  /**
+   * The spawn count at which `spawn` stops and waits for the human's Continue (`spawnBudget`).
+   * Toucan-owned, never reset by a re-plan; absent is one checkpoint (`SPAWNS_PER_CHECKPOINT`).
+   */
+  spawnBudget?: number
   /** Absent is the normal running state, preserving records written before pause/stop existed. */
   lifecycle?: OrchestrationLifecycle
   /**
@@ -377,6 +382,7 @@ export function applyPlan(
         }
       }),
       ...(existing?.spawnCount ? { spawnCount: existing.spawnCount } : {}),
+      ...(existing?.spawnBudget ? { spawnBudget: existing.spawnBudget } : {}),
       ...(existing?.lifecycle ? { lifecycle: existing.lifecycle } : {}),
       ...(existing?.pacing ? { pacing: existing.pacing } : {}),
       createdAt: existing?.createdAt ?? now,
@@ -577,6 +583,7 @@ export function isOrchestrationRecord(value: unknown): value is OrchestrationRec
     Array.isArray(value.tickets) &&
     value.tickets.every(isOrchestrationTicket) &&
     (value.spawnCount === undefined || isNonNegativeInteger(value.spawnCount)) &&
+    (value.spawnBudget === undefined || (isNonNegativeInteger(value.spawnBudget) && value.spawnBudget > 0)) &&
     (value.lifecycle === undefined || isOrchestrationLifecycle(value.lifecycle)) &&
     (value.pacing === undefined || isOrchestrationRecordPacing(value.pacing)) &&
     typeof value.createdAt === 'string' &&
@@ -585,10 +592,32 @@ export function isOrchestrationRecord(value: unknown): value is OrchestrationRec
 }
 
 /**
- * At most this many ticket sessions per orchestration, retries and escalations included (#34). A
- * bound on a runaway loop, not a concurrency cap: how many run at once is the human's call.
+ * How many ticket sessions an orchestration may spawn before it waits for the human, retries and
+ * escalations included (#34). A checkpoint against a runaway loop, not a cap and not a concurrency
+ * limit: reaching it refuses `spawn` with `budgetReached` until the human presses Continue, which
+ * raises the budget by another checkpoint (`continueSpawnBudget`). How many run at once is the
+ * human's call.
  */
-export const MAX_SPAWNS_PER_ORCHESTRATION = 20
+export const SPAWNS_PER_CHECKPOINT = 20
+
+/** The spawn count at which this orchestration next waits for the human. */
+export function spawnBudget(record: Pick<OrchestrationRecord, 'spawnBudget'>): number {
+  return record.spawnBudget ?? SPAWNS_PER_CHECKPOINT
+}
+
+/** Whether the orchestration has used its spawn budget and now waits for the human's Continue. */
+export function spawnBudgetReached(record: Pick<OrchestrationRecord, 'spawnBudget' | 'spawnCount'>): boolean {
+  return (record.spawnCount ?? 0) >= spawnBudget(record)
+}
+
+/**
+ * The human's Continue: raises the budget by another checkpoint. It acts only on a record that has
+ * reached its budget, so a second press on a stale button cannot raise it twice.
+ */
+export function continueSpawnBudget(record: OrchestrationRecord, now: string): OrchestrationRecord {
+  if (record.lifecycle?.status === 'stopped' || !spawnBudgetReached(record)) return record
+  return { ...record, spawnBudget: spawnBudget(record) + SPAWNS_PER_CHECKPOINT, updatedAt: now }
+}
 
 /** The implementation skill a ticket session's prompt opens with, until #36 makes it configurable. */
 export const DEFAULT_IMPLEMENTATION_SKILL = '/implement'
@@ -704,16 +733,15 @@ export function recordTicketRoute(
   return { ...record, tickets, updatedAt: now }
 }
 
+/** A refusal at the spawn budget carries `budgetReached`, the machine-readable "wait for Continue". */
+export type SpawnReservation = Outcome<'record', OrchestrationRecord> & { budgetReached?: true }
+
 /**
  * Counts one spawn against the record before anything is created, so a spawn that fails later -
- * a worktree git refuses, a setup command that exits non-zero - still counts: the cap bounds
+ * a worktree git refuses, a setup command that exits non-zero - still counts: the budget bounds
  * attempts, and an attempt that failed is exactly what a runaway loop is made of.
  */
-export function reserveSpawn(
-  record: OrchestrationRecord,
-  ticketId: string,
-  now: string
-): Outcome<'record', OrchestrationRecord> {
+export function reserveSpawn(record: OrchestrationRecord, ticketId: string, now: string): SpawnReservation {
   const ticket = record.tickets.find((candidate) => candidate.id === ticketId)
   if (!ticket) return refuse(`the plan has no ticket "${ticketId}"`)
   if (record.lifecycle?.status === 'paused') {
@@ -730,14 +758,17 @@ export function reserveSpawn(
     return !blocker || !isTicketSettled(blocker.mergeStatus)
   })
   if (blockers.length > 0) return refuse(`ticket ${ticketId} has unmerged blockers: ${blockers.join(', ')}`)
-  const used = record.spawnCount ?? 0
-  if (used >= MAX_SPAWNS_PER_ORCHESTRATION) {
-    return refuse(
-      `this orchestration has used all ${MAX_SPAWNS_PER_ORCHESTRATION} spawns (retries and escalations count); ` +
-        'list what is left for human review instead'
-    )
+  if (spawnBudgetReached(record)) {
+    return {
+      ...refuse(
+        `this orchestration has used its spawn budget of ${spawnBudget(record)} (retries and escalations count) and ` +
+          'is waiting for the human to press Continue (+${SPAWNS_PER_CHECKPOINT}) on your node. End your turn now: Toucan wakes you when ' +
+          'they do, then retry the spawn. Do not poll, sleep or give up on the orchestration'
+      ),
+      budgetReached: true
+    }
   }
-  return { record: { ...record, spawnCount: used + 1, updatedAt: now } }
+  return { record: { ...record, spawnCount: (record.spawnCount ?? 0) + 1, updatedAt: now } }
 }
 
 /** Records a proactive provider-wide deferral without consuming a spawn or changing ticket work. */
@@ -848,10 +879,11 @@ export function recordTicketSession(
 
 /**
  * Local branch names for a ticket's worktree, in the order they are tried: a retry gets a fresh
- * branch rather than reusing the one a failed attempt left behind. One more than the spawn cap, so
- * every spawn an orchestration may make has a name.
+ * branch rather than reusing the one a failed attempt left behind. Endless, because the spawn
+ * budget is a checkpoint the human can continue past (and a failed attempt's branch can outlive
+ * any count); the caller stops at the first name git accepts or a failure that is not a conflict.
  */
-export function ticketBranchCandidates(ticketId: string): string[] {
+export function* ticketBranchCandidates(ticketId: string): Generator<string, never> {
   const slug =
     ticketId
       .toLowerCase()
@@ -859,9 +891,8 @@ export function ticketBranchCandidates(ticketId: string): string[] {
       .replace(/^-+|-+$/g, '')
       .slice(0, 48)
       .replace(/-+$/, '') || 'ticket'
-  return Array.from({ length: MAX_SPAWNS_PER_ORCHESTRATION + 1 }, (_, index) =>
-    index === 0 ? `ticket/${slug}` : `ticket/${slug}-${index + 1}`
-  )
+  yield `ticket/${slug}`
+  for (let attempt = 2; ; attempt += 1) yield `ticket/${slug}-${attempt}`
 }
 
 /** The canvas title of a ticket session: a manual title, so no generated one replaces it. */

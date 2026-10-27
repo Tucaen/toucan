@@ -7,7 +7,6 @@ import {
   applyPlan,
   applyTicketUpdate,
   decisionAnswerFromText,
-  MAX_SPAWNS_PER_ORCHESTRATION,
   ORCHESTRATOR_COMMANDS,
   ORCHESTRATOR_TOKEN_ENV,
   ORCHESTRATOR_URL_ENV,
@@ -26,6 +25,7 @@ import {
   recordTicketSession,
   reserveSpawn,
   resumeOrchestration,
+  spawnBudget,
   ticketRunProvider,
   type DifficultyTier,
   type OrchestrationPacingForced,
@@ -33,6 +33,7 @@ import {
   type OrchestrationTicket,
   type OrchestratorCommand,
   type SpawnInput,
+  type SpawnReservation,
   type TicketRoute
 } from '../shared/orchestration'
 import type { OrchestratorUsageResponse } from '../shared/orchestrator-usage'
@@ -179,7 +180,7 @@ export interface OrchestratorEndpointOptions {
   ticketSessions?: TicketSessionControl
   /** A ticket session was spawned: the orchestrator wake starts reporting its events. */
   onTicketSpawned?(nodeId: string, binding: TicketBinding): void
-  /** A spawn wrote its session into the record; the orchestrator node's controls re-read it. */
+  /** A spawn wrote its session into the record or hit its budget; the orchestrator node's controls re-read it. */
   spawned?(record: OrchestrationRecord): void
   /**
    * Lifts a reactive usage pause for `spawn --force`, as Resume now does but without waking the
@@ -208,6 +209,15 @@ interface Reply {
 }
 
 const refused = (status: number, error: string): Reply => ({ status, body: { ok: false, error } })
+
+/**
+ * A refused spawn reservation. Reaching the spawn budget is no failure of the call: `budgetReached`
+ * tells the orchestrator to end its turn and wait for the human's Continue.
+ */
+const reservationRefusal = (reservation: SpawnReservation & { error: string }): Reply =>
+  reservation.budgetReached
+    ? { status: 429, body: { ok: false, error: reservation.error, budgetReached: true } }
+    : refused(429, reservation.error)
 
 /** What a spawn runs on, and anything about its routing the caller should hear. */
 interface SpawnRoute {
@@ -441,7 +451,12 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
     // A forced spawn starts regardless of the usage limits, so a reactive pause does not refuse it.
     const gated = request.force ? resumeOrchestration(current, now()) : current
     const preflightReservation = reserveSpawn(gated, request.ticketId, now())
-    if (preflightReservation.error !== undefined) return refused(429, preflightReservation.error)
+    if (preflightReservation.error !== undefined) {
+      // The canvas shows the checkpoint from the record, so a restarted orchestrator's refusal
+      // re-publishes it rather than trusting that an earlier spawn's push is still on screen.
+      if (preflightReservation.budgetReached) options.spawned?.(current)
+      return reservationRefusal(preflightReservation)
+    }
 
     const forced: OrchestrationPacingForced | undefined = request.force
       ? { ticketId: request.ticketId, by: grant.nodeId, at: now(), reason: request.forceReason! }
@@ -492,7 +507,7 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
           if ('refusal' in resolved) return refuse(resolved.refusal)
           routed = resolved
           const counted = reserveSpawn(forced ? resumeOrchestration(current, now()) : current, request.ticketId, now())
-          if (counted.error !== undefined) return refuse(refused(429, counted.error))
+          if (counted.error !== undefined) return refuse(reservationRefusal(counted))
           const routedRecord = recordTicketRoute(counted.record, request.ticketId, resolved.route, now())
           const record = forced ? recordForcedSpawn(routedRecord, forced, now()) : routedRecord
           return { value: record, result: { record } }
@@ -511,7 +526,7 @@ export function createOrchestratorEndpoint(options: OrchestratorEndpointOptions)
         effort: spawnedRoute.effort,
         ...(configured.config ? { implementationSkill: configured.config.implementationSkill } : {})
       })
-      const spawnsLeft = MAX_SPAWNS_PER_ORCHESTRATION - (reserved.spawnCount ?? 0)
+      const spawnsLeft = spawnBudget(reserved) - (reserved.spawnCount ?? 0)
       if (!spawned.ok) return { status: 502, body: { ok: false, error: spawned.error } }
       const settled = await options.records.update(key, (current) => {
         const value = current && recordTicketSession(current, ticket.id, spawned.session, now(), spawnedRoute)

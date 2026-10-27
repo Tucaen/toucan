@@ -5,7 +5,13 @@ import { join } from 'node:path'
 import { test } from 'vitest'
 import { createOrchestrationController, orchestrationResetAt } from '../src/main/orchestration-control'
 import { createOrchestrationStore } from '../src/main/orchestration-store'
-import { applyPlan, deferOrchestration, parsePlanInput, type OrchestrationRecord } from '../src/shared/orchestration'
+import {
+  applyPlan,
+  deferOrchestration,
+  parsePlanInput,
+  SPAWNS_PER_CHECKPOINT,
+  type OrchestrationRecord
+} from '../src/shared/orchestration'
 
 const key = { provider: 'claude' as const, conversationId: 'conversation-1' }
 const RESET = Date.parse('2026-09-30T15:00:00.000Z')
@@ -305,4 +311,46 @@ test('reading a persisted pause after restart re-arms its reset timer', async ()
 
   // The first process's controller never needed to observe an event for the durable state to survive.
   await controller.idle()
+})
+
+test('Continue at the spawn checkpoint raises the budget once, wakes the orchestrator and keeps the record', async () => {
+  const { records, controller, prompts, changes } = harness()
+  await records.update(key, () => ({ value: { ...record(), spawnCount: SPAWNS_PER_CHECKPOINT }, result: undefined }))
+
+  // Only the orchestrator node may continue; a ticket session or a stranger is refused.
+  assert.equal(await controller.continueSpawns(key, 'ticket-1'), undefined)
+  assert.equal(await controller.continueSpawns(key, 'stranger'), undefined)
+  assert.equal(prompts.length, 0)
+
+  const continued = await controller.continueSpawns(key, 'orchestrator')
+  assert.equal(continued?.spawnBudget, 2 * SPAWNS_PER_CHECKPOINT)
+  assert.equal(continued?.spawnCount, SPAWNS_PER_CHECKPOINT)
+  assert.deepEqual(
+    continued?.tickets.map((ticket) => ticket.session?.conversationId),
+    ['ticket-conversation-1', 'ticket-conversation-2']
+  )
+  assert.equal(changes.at(-1)?.spawnBudget, 2 * SPAWNS_PER_CHECKPOINT)
+  await controller.idle()
+  assert.deepEqual(
+    prompts.map((prompt) => prompt.nodeId),
+    ['orchestrator']
+  )
+  assert.match(prompts[0].text, /Continue \(\+20\).*budget is now 40 \(20 used\).*retry the spawn/)
+  assert.equal((await records.read(key))?.spawnBudget, 2 * SPAWNS_PER_CHECKPOINT)
+
+  // A second press on a stale button finds nothing to continue: no extra budget, no extra wake.
+  const again = await controller.continueSpawns(key, 'orchestrator')
+  assert.equal(again?.spawnBudget, 2 * SPAWNS_PER_CHECKPOINT)
+  await controller.idle()
+  assert.equal(prompts.length, 1)
+})
+
+test('Continue below the budget changes nothing and wakes nobody', async () => {
+  const { records, controller, prompts, changes } = harness()
+  await records.update(key, () => ({ value: record(), result: undefined }))
+  const unchanged = await controller.continueSpawns(key, 'orchestrator')
+  assert.equal(unchanged?.spawnBudget, undefined)
+  await controller.idle()
+  assert.equal(prompts.length, 0)
+  assert.equal(changes.length, 0)
 })

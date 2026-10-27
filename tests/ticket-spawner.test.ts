@@ -139,6 +139,25 @@ test('a retry gets the next free branch name', async () => {
   )
 })
 
+test('a retry past the old twenty-first name still finds a free branch', async () => {
+  const taken = (branch: string): boolean => {
+    const attempt = branch === 'ticket/34' ? 1 : Number(branch.slice('ticket/34-'.length))
+    return attempt <= 30
+  }
+  const { spawner, created } = harness({
+    worktrees: {
+      async create(worktree) {
+        created.push(worktree)
+        if (taken(worktree.branch)) return { ok: false, conflict: true, message: 'Branch exists' }
+        return { ok: true, worktree: { path: 'D:\project-31', branch: worktree.branch, baseRef: 'main' } }
+      }
+    }
+  })
+  const result = await spawner.spawn(request)
+  assert.equal(result.ok && result.session.branch, 'ticket/34-31')
+  assert.equal(created.length, 31)
+})
+
 test('Codex spawning uses its catalogue and mode, and reports confirmed settings after guard and setup', async () => {
   const { spawner, canvas, log, created } = harness({
     offeredModels: (provider) => (provider === 'codex' ? ['gpt-6', 'gpt-5.6'] : ['claude-opus-5-5']),

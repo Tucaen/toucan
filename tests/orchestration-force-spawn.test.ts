@@ -10,7 +10,7 @@ import { createOrchestratorEndpoint, type OrchestratorGrant } from '../src/main/
 import { createProviderUsage } from '../src/main/provider-usage'
 import type { TicketSpawner, TicketSpawnRequest } from '../src/main/ticket-spawner'
 import {
-  MAX_SPAWNS_PER_ORCHESTRATION,
+  SPAWNS_PER_CHECKPOINT,
   ORCHESTRATOR_ROLE,
   ORCHESTRATOR_TOKEN_ENV,
   ORCHESTRATOR_URL_ENV,
@@ -266,12 +266,14 @@ test('a forced spawn still honours blockedBy, the spawn budget and a stopped orc
 
     await call(grant, 'ticket update', { id: '34', fields: { blockedBy: [] } })
     await records.update(key, (current) => ({
-      value: current && { ...current, spawnCount: MAX_SPAWNS_PER_ORCHESTRATION },
+      value: current && { ...current, spawnCount: SPAWNS_PER_CHECKPOINT },
       result: undefined
     }))
     const exhausted = await call(grant, 'spawn', force34)
     assert.equal(exhausted.status, 429)
-    assert.match(exhausted.body.error ?? '', /used all 20 spawns/)
+    assert.match(exhausted.body.error ?? '', /spawn budget of 20/)
+    // --force is a pacing override only: the checkpoint still answers budgetReached.
+    assert.equal(exhausted.body.budgetReached, true)
 
     await records.update(key, (current) => ({
       value: current && stopOrchestration({ ...current, spawnCount: 0 }, current.updatedAt),

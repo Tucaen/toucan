@@ -59,7 +59,10 @@ export default function OrchestrationControls({
 
   if (!state) return null
   const startable = state.startable ?? []
-  const startTicket = startable.find((ticket) => ticket.id === chosenTicket) ?? startable[0]
+  // At the spawn checkpoint a forced start would be refused too, so only Continue is offered.
+  const startTicket = state.spawnCheckpoint
+    ? undefined
+    : (startable.find((ticket) => ticket.id === chosenTicket) ?? startable[0])
   if (state.status === 'stopped') return <span className="node-orchestration-stopped">Stopped</span>
   return (
     <span className="node-orchestration-controls nodrag">
@@ -77,6 +80,26 @@ export default function OrchestrationControls({
             onClick={() => void apply(window.orchestratorApi.resumeOrchestration)}
           >
             Resume now
+          </button>
+        </>
+      )}
+      {state.status === 'running' && state.spawnCheckpoint && (
+        <>
+          <span
+            className="node-orchestration-checkpoint"
+            role="status"
+            title="The orchestration used its spawn budget and refuses further spawns until you continue"
+          >
+            Spawn budget reached ({state.spawnCheckpoint.used}/{state.spawnCheckpoint.budget}) — waiting for you
+          </span>
+          <button
+            type="button"
+            className="node-orchestration-continue"
+            disabled={pending}
+            title="Raise the spawn budget by 20 and wake the orchestrator to retry"
+            onClick={() => void apply(window.orchestratorApi.continueSpawns)}
+          >
+            Continue (+20)
           </button>
         </>
       )}

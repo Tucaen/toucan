@@ -258,3 +258,47 @@ test('Start now asks main for a one-shot force grant on the chosen pending ticke
     )
   )
 })
+
+test('a spawn checkpoint waits for the human, offers Continue (+20) instead of Start now, and shows the new state', async () => {
+  const continueSpawns = vi.fn(async (request: { provider: 'claude'; conversationId: string }) => ({
+    provider: request.provider,
+    conversationId: request.conversationId,
+    status: 'running' as const
+  }))
+  window.orchestratorApi = {
+    onStartTicketSession: () => () => undefined,
+    completeTicketSession: vi.fn(),
+    jevReachability: vi.fn(async () => ({ state: 'reachable' as const })),
+    orchestrationState: vi.fn(async () => ({
+      provider: 'claude' as const,
+      conversationId: 'conversation-1',
+      status: 'running' as const,
+      spawnCheckpoint: { used: 20, budget: 20 },
+      startable: [{ id: '34', title: 'Spawn' }]
+    })),
+    resumeOrchestration: vi.fn(async () => null),
+    stopOrchestration: vi.fn(async () => null),
+    continueSpawns,
+    onOrchestrationState: () => () => undefined
+  }
+
+  const { container } = renderChat('orchestrator', 'conversation-1')
+  const checkpoint = await waitFor(() => {
+    const note = container.querySelector('.node-orchestration-checkpoint')
+    expect(note).toHaveTextContent('Spawn budget reached (20/20)')
+    return note as HTMLElement
+  })
+  expect(checkpoint).toHaveTextContent('waiting for you')
+  expect(container.querySelector('.node-orchestration-start-now')).toBeNull()
+  const button = container.querySelector('.node-orchestration-continue') as HTMLButtonElement
+  expect(button).toHaveTextContent('Continue (+20)')
+  fireEvent.click(button)
+  await waitFor(() =>
+    expect(continueSpawns).toHaveBeenCalledWith({
+      provider: 'claude',
+      conversationId: 'conversation-1',
+      nodeId: 'chat-1'
+    })
+  )
+  await waitFor(() => expect(container.querySelector('.node-orchestration-checkpoint')).toBeNull())
+})

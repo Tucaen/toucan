@@ -1,8 +1,11 @@
 import type { AgentEvent, AgentPromptResult, AgentRateLimitStatus } from '../shared/agent'
 import type { AgentProvider } from '../shared/agent-provider'
 import {
+  continueSpawnBudget,
   pauseOrchestration,
   resumeOrchestration,
+  spawnBudget,
+  SPAWNS_PER_CHECKPOINT,
   stopOrchestration,
   type OrchestrationRecord
 } from '../shared/orchestration'
@@ -39,6 +42,12 @@ export interface OrchestrationController {
    * continue, but the orchestrator is not woken because it is the one making the call.
    */
   resumeForForce(key: OrchestrationKey, orchestratorNodeId: string): Promise<OrchestrationRecord | undefined>
+  /**
+   * The human's Continue at a spawn checkpoint: raises the budget by another checkpoint and wakes
+   * the orchestrator to retry. Idempotent - a record that is not at its budget is returned as is,
+   * and nobody is woken.
+   */
+  continueSpawns(key: OrchestrationKey, orchestratorNodeId: string): Promise<OrchestrationRecord | undefined>
   stop(key: OrchestrationKey, orchestratorNodeId: string): Promise<OrchestrationRecord | undefined>
   mayWake(orchestratorNodeId: string): Promise<boolean>
   idle(): Promise<void>
@@ -205,6 +214,32 @@ export function createOrchestrationController(options: OrchestrationControllerOp
       if (!(await authorizeControl(key, orchestratorNodeId))) return undefined
       knownOrchestrations.set(orchestratorNodeId, key)
       return track(resume(key, orchestratorNodeId, false))
+    },
+
+    async continueSpawns(key, orchestratorNodeId) {
+      if (!(await authorizeControl(key, orchestratorNodeId))) return undefined
+      knownOrchestrations.set(orchestratorNodeId, key)
+      return track(
+        (async () => {
+          const result = await options.records.update(key, (current) => {
+            const record = current && continueSpawnBudget(current, nowIso(now()))
+            return { value: record, result: { record, continued: record !== current } }
+          })
+          if (!result.record || !result.continued) return result.record
+          options.changed?.(result.record)
+          // Not awaited: a working orchestrator takes the wake only at its turn's end, and the
+          // button must not wait that long. `idle()` still covers it.
+          void track(
+            deliver(
+              orchestratorNodeId,
+              `The user pressed Continue (+${SPAWNS_PER_CHECKPOINT}): the spawn budget is now ` +
+                `${spawnBudget(result.record)} (${result.record.spawnCount ?? 0} used). Reread \`status\` and ` +
+                '`plan show`, then retry the spawn that was refused.'
+            )
+          )
+          return result.record
+        })()
+      )
     },
 
     async stop(key, orchestratorNodeId) {
