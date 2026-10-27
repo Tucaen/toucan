@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert'
-import { mkdirSync, mkdtempSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { test } from 'vitest'
 import type { WebContents } from 'electron'
 import type { AgentEvent, AgentEventEnvelope } from '../src/shared/agent'
@@ -163,9 +163,12 @@ test("a Codex session in a worktree gets its project's plugins: skills root, MCP
     const result = await manager.create({ id: 'codex-chat', provider: 'codex', cwd: worktree }, recordingOwner(events))
     assert.equal(result.status, 'ready')
     const [session] = recorded(recordPath)
-    assert.ok(
-      session?.params.additionalDirectories?.includes(join(userDataPath, 'codex-plugin-skills', 'godot-runtime'))
+    // The additional directory codex-acp reads `.agents/skills` from leads to the plugin's skills.
+    const skillsRoot = session?.params.additionalDirectories?.find(
+      (directory) => dirname(directory) === join(userDataPath, 'codex-plugin-skills')
     )
+    assert.ok(skillsRoot)
+    assert.equal(realpathSync(join(skillsRoot, '.agents', 'skills')), realpathSync(join(pluginRoot, 'skills')))
     assert.deepEqual(session?.params.mcpServers, [
       terminal,
       {
@@ -201,14 +204,16 @@ test("a Codex session in a worktree gets its project's plugins: skills root, MCP
 
 test('a plugin that cannot be used is a notice on the session, never a failed launch', async () => {
   const appPath = scratch('app')
-  const recordPath = recordingAdapter(appPath, 'claude-agent-acp')
+  const claudeRecord = recordingAdapter(appPath, 'claude-agent-acp')
+  const codexRecord = recordingAdapter(appPath, 'codex-acp')
   const project = scratch('project')
   const registry = createPluginRegistry({ userDataPath: scratch('user-data') })
-  const pluginRoot = pluginFolder('godot-runtime')
-  await registry.add(pluginRoot)
-  await registry.enable(project, 'godot-runtime')
-  renameSync(pluginRoot, `${pluginRoot}-moved`)
-  const events: AgentEvent[] = []
+  const moved = pluginFolder('godot-runtime')
+  const broken = pluginFolder('browser')
+  for (const folder of [moved, broken]) await registry.add(folder)
+  for (const id of ['godot-runtime', 'browser']) await registry.enable(project, id)
+  renameSync(moved, `${moved}-moved`)
+  writeFileSync(join(broken, '.claude-plugin', 'plugin.json'), JSON.stringify({ name: 'browser' }))
   const manager = createAcpSessionManager({ appPath, environment: { PATH: process.env.PATH }, plugins: registry })
   const failing = createAcpSessionManager({
     appPath,
@@ -216,15 +221,22 @@ test('a plugin that cannot be used is a notice on the session, never a failed la
     plugins: { forSession: () => Promise.reject(new Error('registry unreadable')) }
   })
   try {
-    const result = await manager.create({ id: 'chat', provider: 'claude', cwd: project }, recordingOwner(events))
-    assert.equal(result.ok, true)
-    assert.equal(result.status, 'ready')
-    const [session] = recorded(recordPath)
-    assert.equal(session?.params._meta?.claudeCode?.options?.plugins, undefined)
-    assert.ok(!session?.params._meta?.systemPrompt?.append.includes('Toucan plugin'))
-    const notices = events.flatMap((event) => (event.type === 'error' ? [event.message] : []))
-    assert.equal(notices.length, 1)
-    assert.ok(notices[0]?.includes('"godot-runtime" was skipped') && notices[0].includes('missing'))
+    for (const provider of ['claude', 'codex'] as const) {
+      const events: AgentEvent[] = []
+      const result = await manager.create({ id: provider, provider, cwd: project }, recordingOwner(events))
+      assert.equal(result.ok, true, provider)
+      assert.equal(result.status, 'ready', provider)
+      // One notice naming both: each `error` event replaces the last one on the node.
+      const notices = events.flatMap((event) => (event.type === 'error' ? [event.message] : []))
+      assert.equal(notices.length, 1, provider)
+      assert.ok(notices[0]?.includes('"godot-runtime" was skipped') && notices[0].includes('missing'), provider)
+      assert.ok(notices[0]?.includes('"browser" was skipped') && notices[0].includes('"version"'), provider)
+    }
+    const [claude] = recorded(claudeRecord)
+    assert.equal(claude?.params._meta?.claudeCode?.options?.plugins, undefined)
+    assert.ok(!claude?.params._meta?.systemPrompt?.append.includes('Toucan plugin'))
+    const [codex] = recorded(codexRecord)
+    assert.ok(!codex?.env.config?.includes('Toucan plugin'))
 
     const failingEvents: AgentEvent[] = []
     const unresolved = await failing.create(
@@ -236,5 +248,83 @@ test('a plugin that cannot be used is a notice on the session, never a failed la
   } finally {
     manager.killAll()
     failing.killAll()
+  }
+})
+
+test("Codex plugin servers claim each name once, after Toucan's own, with ${VAR} filled in from the launch", async () => {
+  const appPath = scratch('app')
+  const recordPath = recordingAdapter(appPath, 'codex-acp')
+  const project = scratch('project')
+  const terminal: AcpMcpHttpServer = {
+    name: 'toucan-terminal',
+    type: 'http',
+    url: 'http://127.0.0.1:65530/mcp',
+    headers: []
+  }
+  const events: AgentEvent[] = []
+  const manager = createAcpSessionManager({
+    appPath,
+    environment: { PATH: process.env.PATH, GODOT_TOKEN: 'token-1' },
+    terminalContext: { serverFor: () => Promise.resolve(terminal) },
+    plugins: {
+      forSession: () =>
+        Promise.resolve({
+          plugins: [
+            {
+              id: 'godot-runtime',
+              root: 'D:\\plugins\\godot-runtime',
+              codex: {
+                mcpServers: [
+                  {
+                    name: 'godot',
+                    transport: 'stdio',
+                    command: 'godot-mcp',
+                    args: ['--project', '${TOUCAN_PROJECT_DIR}', '--log', '${GODOT_LOG:-quiet}'],
+                    env: { TOKEN: '${GODOT_TOKEN}', CACHE: '${GODOT_CACHE}' }
+                  },
+                  { name: 'toucan-terminal', transport: 'http', url: 'http://127.0.0.1:1/mcp', headers: {} }
+                ]
+              }
+            },
+            {
+              id: 'browser',
+              root: 'D:\\plugins\\browser',
+              codex: { mcpServers: [{ name: 'godot', transport: 'stdio', command: 'browser-mcp', args: [], env: {} }] }
+            }
+          ],
+          notices: []
+        })
+    }
+  })
+  try {
+    assert.equal(
+      (await manager.create({ id: 'codex', provider: 'codex', cwd: project }, recordingOwner(events))).status,
+      'ready'
+    )
+    const [session] = recorded(recordPath)
+    // codex-acp keeps the last server of a name, so a plugin must never come after Toucan's own.
+    assert.deepEqual(session?.params.mcpServers, [
+      terminal,
+      {
+        name: 'godot',
+        command: 'godot-mcp',
+        args: ['--project', project, '--log', 'quiet'],
+        env: [
+          { name: 'TOKEN', value: 'token-1' },
+          { name: 'CACHE', value: '${GODOT_CACHE}' }
+        ]
+      }
+    ])
+    const notices = events.flatMap((event) => (event.type === 'error' ? [event.message] : []))
+    assert.equal(notices.length, 1)
+    assert.ok(notices[0]?.includes('MCP server "godot" uses ${GODOT_CACHE}, unset here'))
+    assert.ok(notices[0]?.includes('MCP server "toucan-terminal" was skipped for Codex: Toucan serves one'))
+    assert.ok(
+      notices[0]?.includes(
+        'Plugin "browser": MCP server "godot" was skipped for Codex: plugin "godot-runtime" declares one'
+      )
+    )
+  } finally {
+    manager.killAll()
   }
 })

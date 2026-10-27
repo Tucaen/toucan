@@ -727,7 +727,7 @@ void app.whenReady().then(async () => {
   registerCommandGuardSettingsIpc(ipcMain, commandGuardStore)
   // Plugins (#55): which plugins each project enabled, asked by every session as it opens.
   const plugins = createPluginRegistry({ userDataPath: app.getPath('userData'), log: mainLog('plugins') })
-  registerPluginIpc(ipcMain, plugins)
+  registerPluginIpc(ipcMain, plugins, checkoutPathFor)
   const agentManager = createAcpSessionManager({
     appPath: app.getAppPath(),
     commandGuard: commandGuardStore,

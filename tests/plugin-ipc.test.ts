@@ -7,7 +7,10 @@ import { PLUGIN_CHANNELS } from '../src/shared/ipc-channels'
 // #55: the plugins dialog's side of main. The registry decides; this narrows what crosses the
 // boundary and refuses a malformed call before it reaches the registry.
 
-function boundary(): { call: (channel: string, ...args: unknown[]) => Promise<unknown>; calls: unknown[][] } {
+function boundary(projectPathFor?: (path: string) => Promise<string | undefined>): {
+  call: (channel: string, ...args: unknown[]) => Promise<unknown>
+  calls: unknown[][]
+} {
   const handlers = new Map<string, (...args: unknown[]) => unknown>()
   const calls: unknown[][] = []
   const record =
@@ -26,10 +29,25 @@ function boundary(): { call: (channel: string, ...args: unknown[]) => Promise<un
   }
   registerPluginIpc(
     { handle: (channel, listener) => void handlers.set(channel, (...args) => listener({ sender: {} }, ...args)) },
-    registry
+    registry,
+    projectPathFor
   )
   return { call: async (channel, ...args) => handlers.get(channel)!(...args), calls }
 }
+
+test("a worktree's path enables, disables and lists for its project, which is what sessions look up", async () => {
+  const { call, calls } = boundary((path) => Promise.resolve(path === 'D:\\worktrees\\one' ? 'D:\\project' : undefined))
+  await call(PLUGIN_CHANNELS.enable, 'D:\\worktrees\\one', 'godot-runtime')
+  await call(PLUGIN_CHANNELS.disable, 'D:\\worktrees\\one', 'godot-runtime')
+  await call(PLUGIN_CHANNELS.list, 'D:\\worktrees\\one')
+  await call(PLUGIN_CHANNELS.enable, 'D:\\project', 'godot-runtime')
+  assert.deepEqual(calls, [
+    ['enable', 'D:\\project', 'godot-runtime'],
+    ['disable', 'D:\\project', 'godot-runtime'],
+    ['list', 'D:\\project'],
+    ['enable', 'D:\\project', 'godot-runtime']
+  ])
+})
 
 test('each channel reaches the registry with what the dialog sent', async () => {
   const { call, calls } = boundary()

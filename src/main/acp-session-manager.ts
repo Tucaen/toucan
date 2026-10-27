@@ -50,7 +50,12 @@ import { effortSelectorFromConfigOptions } from '../shared/agent-effort'
 import { modelSelectorFromConfigOptions } from '../shared/agent-models'
 import { withCodexSessionConfig } from '../shared/codex-config'
 import { pathIdentity } from '../shared/paths'
-import { PROJECT_DIRECTORY_ENV, pluginInstruction, type PluginMcpServer } from '../shared/plugins'
+import {
+  PROJECT_DIRECTORY_ENV,
+  expandEnvironmentReferences,
+  pluginInstruction,
+  type CodexMcpServer
+} from '../shared/plugins'
 import { PROJECT_SKILLS_DIRECTORY } from '../shared/project-skills'
 import {
   ORCHESTRATE_CLI_PATH,
@@ -283,19 +288,30 @@ export function withClaudeDelegation(
   worker: RoutineDelegationRequest
 ): SessionSkillsConfiguration {
   const meta = claudeDelegationSessionMeta(worker)
-  return withSessionInstruction(
-    {
-      ...configuration,
-      _meta: {
-        ...configuration._meta,
-        claudeCode: {
-          ...configuration._meta?.claudeCode,
-          options: { ...configuration._meta?.claudeCode?.options, ...meta.claudeCode.options }
-        }
+  return withSessionInstruction(withClaudeCodeOptions(configuration, meta.claudeCode.options), meta.systemPrompt.append)
+}
+
+type ClaudeCodeOptions = NonNullable<NonNullable<SessionSkillsConfiguration['_meta']>['claudeCode']>['options']
+
+/**
+ * Layers options into a Claude session's `_meta.claudeCode.options`, keeping every one already
+ * there: the SDK options are one bag the skills plugins, the routine worker, the command guard and
+ * the orchestrator's tool limits all write into.
+ */
+function withClaudeCodeOptions(
+  configuration: SessionSkillsConfiguration,
+  options: ClaudeCodeOptions
+): SessionSkillsConfiguration {
+  return {
+    ...configuration,
+    _meta: {
+      ...configuration._meta,
+      claudeCode: {
+        ...configuration._meta?.claudeCode,
+        options: { ...configuration._meta?.claudeCode?.options, ...options }
       }
-    },
-    meta.systemPrompt.append
-  )
+    }
+  }
 }
 
 /**
@@ -314,9 +330,8 @@ export function withAdditionalDirectories(
  * Loads each enabled plugin (#55) into a Claude session as a local plugin, after the skills
  * plugins, and tells the session every plugin's root. Claude reads a plugin's skills, MCP servers
  * and hooks out of the folder itself; a folder already loaded as a skills plugin is not loaded twice.
- * @internal exported for tests
  */
-export function withClaudePlugins(
+function withClaudePlugins(
   configuration: SessionSkillsConfiguration,
   plugins: readonly SessionPlugin[]
 ): SessionSkillsConfiguration {
@@ -327,19 +342,7 @@ export function withClaudePlugins(
   const added = plugins
     .filter((plugin) => !known.has(pathIdentity(plugin.root)))
     .map((plugin) => ({ type: 'local' as const, path: plugin.root }))
-  return withSessionInstruction(
-    {
-      ...configuration,
-      _meta: {
-        ...configuration._meta,
-        claudeCode: {
-          ...configuration._meta?.claudeCode,
-          options: { ...configuration._meta?.claudeCode?.options, plugins: [...loaded, ...added] }
-        }
-      }
-    },
-    instruction
-  )
+  return withSessionInstruction(withClaudeCodeOptions(configuration, { plugins: [...loaded, ...added] }), instruction)
 }
 
 /**
@@ -347,39 +350,64 @@ export function withClaudePlugins(
  * it turns into that session's `mcp_servers.<name>` config - after the ones Toucan itself serves. Not
  * through `CODEX_CONFIG`: codex-acp replaces that table whenever a session also has `mcpServers` (the
  * terminal-context server), and Codex applies a dotted `mcp_servers.<name>` override beside a whole
- * table in no fixed order, dropping it in about half the runs (codex-acp 2.2.2, Codex 0.159.0). SSE is
- * left out because codex-acp refuses the whole session for one; the registry already said so.
+ * table in no fixed order, dropping it in about half the runs (codex-acp 2.2.2, Codex 0.159.0).
+ *
+ * Every name is claimed once, Toucan's own servers first, because codex-acp keeps the last server of
+ * a name. The `${VAR}` references Claude would expand are filled in from the adapter's environment,
+ * the one Claude expands them in.
  */
 function codexPluginMcpServers(
   plugins: readonly SessionPlugin[],
-  reserved: readonly McpServer[]
+  toucanServers: readonly McpServer[],
+  environment: NodeJS.ProcessEnv
 ): { servers: McpServer[]; notices: string[] } {
-  const names = new Set(reserved.map((server) => server.name))
+  const claimedBy = new Map(toucanServers.map((server) => [server.name, 'Toucan serves one']))
+  const lookup = environmentLookup(environment)
   const servers: McpServer[] = []
   const notices: string[] = []
   for (const plugin of plugins) {
     for (const server of plugin.codex?.mcpServers ?? []) {
-      const translated = codexMcpServer(server)
-      if (!translated) continue
-      if (names.has(server.name)) {
-        notices.push(`Plugin "${plugin.id}": MCP server "${server.name}" was skipped: Toucan serves one by that name.`)
+      const notice = (text: string): void =>
+        void notices.push(`Plugin "${plugin.id}": MCP server "${server.name}" ${text}`)
+      const claimant = claimedBy.get(server.name)
+      if (claimant !== undefined) {
+        notice(`was skipped for Codex: ${claimant} by that name.`)
         continue
       }
-      names.add(server.name)
-      servers.push(translated)
+      claimedBy.set(server.name, `plugin "${plugin.id}" declares one`)
+      const translated = codexMcpServer(server, lookup)
+      const unset = [...new Set(translated.unset)].map((name) => `\${${name}}`)
+      if (unset.length > 0) notice(`uses ${unset.join(', ')}, unset here, so Codex gets it as written.`)
+      servers.push(translated.server)
     }
   }
   return { servers, notices }
 }
 
-function codexMcpServer(server: PluginMcpServer): McpServer | undefined {
+function codexMcpServer(
+  server: CodexMcpServer,
+  lookup: (name: string) => string | undefined
+): { server: McpServer; unset: string[] } {
+  const unset: string[] = []
+  const expand = (value: string): string => {
+    const expanded = expandEnvironmentReferences(value, lookup)
+    unset.push(...expanded.unset)
+    return expanded.value
+  }
   const pairs = (map: Record<string, string>): Array<{ name: string; value: string }> =>
-    Object.entries(map).map(([name, value]) => ({ name, value }))
-  if (server.transport === 'stdio')
-    return { name: server.name, command: server.command, args: server.args, env: pairs(server.env) }
-  if (server.transport === 'http')
-    return { type: 'http', name: server.name, url: server.url, headers: pairs(server.headers) }
-  return undefined
+    Object.entries(map).map(([name, value]) => ({ name, value: expand(value) }))
+  const translated: McpServer =
+    server.transport === 'stdio'
+      ? { name: server.name, command: expand(server.command), args: server.args.map(expand), env: pairs(server.env) }
+      : { type: 'http', name: server.name, url: expand(server.url), headers: pairs(server.headers) }
+  return { server: translated, unset }
+}
+
+/** Environment names are case-insensitive on Windows, where `${Path}` must still find `PATH`. */
+function environmentLookup(environment: NodeJS.ProcessEnv): (name: string) => string | undefined {
+  if (process.platform !== 'win32') return (name) => environment[name]
+  const folded = new Map(Object.entries(environment).map(([key, value]) => [key.toUpperCase(), value]))
+  return (name) => environment[name] ?? folded.get(name.toUpperCase())
 }
 
 /**
@@ -449,16 +477,7 @@ export function withCommandGuard(
   configuration: SessionSkillsConfiguration,
   settings: CommandGuardSettings
 ): SessionSkillsConfiguration {
-  return {
-    ...configuration,
-    _meta: {
-      ...configuration._meta,
-      claudeCode: {
-        ...configuration._meta?.claudeCode,
-        options: { ...configuration._meta?.claudeCode?.options, settings }
-      }
-    }
-  }
+  return withClaudeCodeOptions(configuration, { settings })
 }
 
 /**
@@ -470,16 +489,7 @@ export function withCommandGuard(
 const ORCHESTRATOR_DISALLOWED_TOOLS = ['Edit', 'MultiEdit', 'Write', 'NotebookEdit', 'Agent']
 
 function withOrchestratorToolLimits(configuration: SessionSkillsConfiguration): SessionSkillsConfiguration {
-  return {
-    ...configuration,
-    _meta: {
-      ...configuration._meta,
-      claudeCode: {
-        ...configuration._meta?.claudeCode,
-        options: { ...configuration._meta?.claudeCode?.options, disallowedTools: [...ORCHESTRATOR_DISALLOWED_TOOLS] }
-      }
-    }
-  }
+  return withClaudeCodeOptions(configuration, { disallowedTools: [...ORCHESTRATOR_DISALLOWED_TOOLS] })
 }
 
 /** Opts a Claude session into the raw messages `FORWARDED_SDK_MESSAGES` names. @internal exported for tests */
@@ -659,8 +669,11 @@ interface RunningAgent {
    * session's instruction rides its launch. Fixed for the life of the agent like the guard.
    */
   plugins: SessionPlugin[]
-  /** Notices about plugins this launch skipped, published once when the session first opens. */
-  pluginNotices: string[]
+  /**
+   * What this launch skipped of its plugins, told as one notice when the session first opens - one,
+   * because each `error` event replaces the last on the node - and null once told.
+   */
+  pluginNotices: string[] | null
   cachedModels?: AgentModelState
   /** Whether the agent's `initialize` handshake advertised `promptCapabilities.image`. */
   imageSupport: boolean
@@ -1809,7 +1822,7 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
       const terminalContextServer = await options.terminalContext?.serverFor(running.request.id)
       const toucanServers: McpServer[] = terminalContextServer ? [terminalContextServer] : []
       // Empty for Claude, which starts a plugin's servers from its folder.
-      const pluginServers = codexPluginMcpServers(running.plugins, toucanServers)
+      const pluginServers = codexPluginMcpServers(running.plugins, toucanServers, running.environment)
       const mcpServers: McpServer[] = [...toucanServers, ...pluginServers.servers]
       // Fork-then-load: `session/fork` copies the parent's transcript to a new session id and
       // returns only that id - it registers no live session - so the child is opened by falling
@@ -1912,12 +1925,14 @@ export function createAcpSessionManager(options: AcpSessionManagerOptions): AcpS
         status: 'ready',
         ...(running.backgroundTasks > 0 ? { backgroundTasks: running.backgroundTasks } : {})
       })
-      // After `ready`, so the status line keeps showing them: a plugin the user enabled and the
-      // session does without is theirs to hear about, but never a reason not to launch. What the
-      // launch resolved is told once; only this open's own server check can repeat on a reopen.
-      for (const notice of [...running.pluginNotices, ...pluginServers.notices])
-        send(running, { type: 'error', message: notice })
-      running.pluginNotices = []
+      // After `ready`, so the status line keeps showing it: a plugin the user enabled and the session
+      // does without is theirs to hear about, but never a reason not to launch. Told once per launch;
+      // a reopen of the same agent has nothing new to say.
+      if (running.pluginNotices) {
+        const notices = [...running.pluginNotices, ...pluginServers.notices]
+        if (notices.length > 0) send(running, { type: 'error', message: notices.join(' ') })
+        running.pluginNotices = null
+      }
       return {
         ok: true,
         status: 'ready',

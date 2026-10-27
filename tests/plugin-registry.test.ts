@@ -1,7 +1,16 @@
 import { strict as assert } from 'node:assert'
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs'
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync
+} from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { test } from 'vitest'
 import { createPluginRegistry } from '../src/main/plugin-registry'
 
@@ -33,7 +42,7 @@ test('adding a folder registers the id its manifest names; the same id from anot
   const added = await registry.add(first)
   assert.deepEqual(added, {
     ok: true,
-    plugin: { id: 'godot-runtime', path: first, manifest: { name: 'godot-runtime', version: '1.0.0' } }
+    plugin: { id: 'godot-runtime', root: first, manifest: { name: 'godot-runtime', version: '1.0.0' } }
   })
   // Adding the very folder again is not a conflict: it is already what the registry says.
   assert.equal((await registry.add(first)).ok, true)
@@ -157,23 +166,15 @@ test('a Codex session gets plugin skills through a Toucan-owned root and the MCP
   const session = await registry.forSession({ provider: 'codex', projectPath: project })
   assert.deepEqual(session.notices, [])
   const [withSkills, withoutSkills] = session.plugins
-  const skillsRoot = join(userDataPath, 'codex-plugin-skills', 'godot-runtime')
-  assert.deepEqual(withSkills?.codex, {
-    skillsRoot,
-    mcpServers: [{ name: 'godot', transport: 'stdio', command: `${godot}/bin/server`, args: [], env: {} }]
-  })
+  assert.deepEqual(withSkills?.codex?.mcpServers, [
+    { name: 'godot', transport: 'stdio', command: `${godot}/bin/server`, args: [], env: {} }
+  ])
   // codex-acp looks for skills in `<additional directory>/.agents/skills`, never in a plugin's own
   // `skills/`, so the Toucan-owned root must lead there.
+  const skillsRoot = withSkills?.codex?.skillsRoot ?? ''
+  assert.equal(dirname(skillsRoot), join(userDataPath, 'codex-plugin-skills'))
   assert.equal(realpathSync(join(skillsRoot, '.agents', 'skills')), realpathSync(join(godot, 'skills')))
   assert.deepEqual(withoutSkills?.codex, { mcpServers: [] })
-
-  // The same id from another folder later re-points the link instead of keeping the old one.
-  const moved = pluginFolder({ name: 'godot-runtime', version: '1.1.0' }, { 'skills/run-scene/SKILL.md': SKILL })
-  await registry.remove('godot-runtime')
-  await registry.add(moved)
-  await registry.enable(project, 'godot-runtime')
-  await registry.forSession({ provider: 'codex', projectPath: project })
-  assert.equal(realpathSync(join(skillsRoot, '.agents', 'skills')), realpathSync(join(moved, 'skills')))
 
   // Claude reads the folder itself, so a Claude session needs no translation and no link.
   const claude = await registry.forSession({ provider: 'claude', projectPath: project })
@@ -181,49 +182,48 @@ test('a Codex session gets plugin skills through a Toucan-owned root and the MCP
 })
 
 test('a Codex translation problem costs that part of the plugin, never the plugin or the session', async () => {
-  const userDataPath = scratch('user-data')
-  const registry = createPluginRegistry({ userDataPath })
   const project = scratch('project')
   const godot = pluginFolder(
     { name: 'godot-runtime', version: '1.0.0' },
     {
       'skills/run-scene/SKILL.md': SKILL,
       '.mcp.json': JSON.stringify({
-        mcpServers: { shared: { command: 'godot-mcp' }, events: { type: 'sse', url: 'http://127.0.0.1:1/sse' } }
+        mcpServers: { runtime: { command: 'godot-mcp' }, events: { type: 'sse', url: 'http://127.0.0.1:1/sse' } }
       })
     }
   )
-  const other = pluginFolder(
+  const browser = pluginFolder(
     { name: 'browser', version: '1.0.0' },
     { '.mcp.json': '{ broken', 'skills/browse/SKILL.md': SKILL }
   )
-  const third = pluginFolder(
-    { name: 'third', version: '1.0.0' },
-    { '.mcp.json': JSON.stringify({ mcpServers: { shared: { command: 'third-mcp' } } }) }
-  )
-  for (const folder of [godot, other, third]) await registry.add(folder)
-  for (const id of ['godot-runtime', 'browser', 'third']) await registry.enable(project, id)
-  // Something that is not Toucan's link stands where the browser link would go: it is never replaced.
-  mkdirSync(join(userDataPath, 'codex-plugin-skills', 'browser', '.agents', 'skills'), { recursive: true })
+  const registry = createPluginRegistry({
+    userDataPath: scratch('user-data'),
+    codexSkills: {
+      rootFor: (id) =>
+        id === 'browser' ? Promise.reject(new Error('the disk is full')) : Promise.resolve(`D:\\links\\${id}`)
+    }
+  })
+  for (const folder of [godot, browser]) await registry.add(folder)
+  for (const id of ['godot-runtime', 'browser']) await registry.enable(project, id)
 
   const session = await registry.forSession({ provider: 'codex', projectPath: project })
   assert.deepEqual(
-    session.plugins.map((plugin) => [
-      plugin.id,
-      plugin.codex?.mcpServers.map((server) => server.name),
-      Boolean(plugin.codex?.skillsRoot)
-    ]),
+    session.plugins.map((plugin) => [plugin.id, plugin.codex]),
     [
-      ['godot-runtime', ['shared'], true],
-      ['browser', [], false],
-      ['third', [], false]
+      [
+        'godot-runtime',
+        {
+          skillsRoot: 'D:\\links\\godot-runtime',
+          mcpServers: [{ name: 'runtime', transport: 'stdio', command: 'godot-mcp', args: [], env: {} }]
+        }
+      ],
+      ['browser', { mcpServers: [] }]
     ]
   )
-  assert.equal(session.notices.length, 4)
+  assert.equal(session.notices.length, 3)
   assert.ok(session.notices[0]?.includes('"godot-runtime"') && session.notices[0].includes('"events"'))
   assert.ok(session.notices[1]?.includes('"browser"') && session.notices[1].includes('.mcp.json'))
-  assert.ok(session.notices[2]?.includes('"browser"') && session.notices[2].includes('skills'))
-  assert.ok(session.notices[3]?.includes('"third"') && session.notices[3].includes('"shared"'))
+  assert.ok(session.notices[2]?.includes('"browser"') && session.notices[2].includes('the disk is full'))
 })
 
 test("a plugin's contributions show what it would run, and mark what reaches Claude only", async () => {
@@ -311,4 +311,31 @@ test('contributions of a plugin with unreadable parts name the problem instead o
   assert.deepEqual(result.contributions.mcpServers, [])
   assert.equal(result.contributions.problems.length, 1)
   assert.ok(result.contributions.problems[0]?.includes('.mcp.json'))
+})
+
+test('linked skills and scripts are followed into the contributions, and a link to nothing is a problem', async () => {
+  const registry = createPluginRegistry({ userDataPath: scratch('user-data') })
+  const shared = scratch('shared')
+  mkdirSync(join(shared, 'tools'))
+  writeFileSync(join(shared, 'tools', 'capture.mjs'), '')
+  mkdirSync(join(shared, 'inspect'))
+  writeFileSync(join(shared, 'inspect', 'SKILL.md'), '---\nname: inspect\n---\n')
+  const gone = scratch('gone')
+  const root = pluginFolder({ name: 'godot-runtime', version: '1.0.0' }, { 'scripts/run.mjs': '' })
+  mkdirSync(join(root, 'skills'))
+  // Junctions, because they need no privilege on Windows, where a skill can run what they reach.
+  symlinkSync(join(shared, 'tools'), join(root, 'scripts', 'tools'), 'junction')
+  symlinkSync(join(shared, 'inspect'), join(root, 'skills', 'inspect'), 'junction')
+  symlinkSync(gone, join(root, 'scripts', 'stale'), 'junction')
+  rmSync(gone, { recursive: true })
+  await registry.add(root)
+
+  const result = await registry.contributions('godot-runtime')
+  assert.ok(result.ok)
+  assert.deepEqual(
+    result.contributions.skills.map((skill) => skill.name),
+    ['inspect']
+  )
+  assert.deepEqual(result.contributions.scripts, ['scripts/run.mjs', 'scripts/tools/capture.mjs'])
+  assert.deepEqual(result.contributions.problems, ['scripts/stale is a link to something that is gone.'])
 })

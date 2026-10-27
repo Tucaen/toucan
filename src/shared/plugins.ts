@@ -18,7 +18,7 @@ import { isRecord } from './record'
  */
 export const PROJECT_DIRECTORY_ENV = 'TOUCAN_PROJECT_DIR'
 
-/** The manifest, relative to a plugin's root - Claude's plugin layout. */
+/** The manifest, relative to a plugin's root - Claude's plugin layout, which `.agents` uses too. */
 export const PLUGIN_MANIFEST_SEGMENTS = ['.claude-plugin', 'plugin.json'] as const
 
 export interface PluginManifest {
@@ -100,8 +100,8 @@ export function parsePluginRegistry(value: unknown): PluginRegistryState | null 
 /** A registered plugin as its folder reads right now. */
 export interface PluginSummary {
   id: string
-  /** The folder the registry points at. */
-  path: string
+  /** The plugin's folder, as the registry records it. */
+  root: string
   /** The manifest, while the folder holds one that validates and still names this id. */
   manifest?: PluginManifest
   /** Why the plugin cannot be used right now: its folder is gone or its manifest no longer validates. */
@@ -116,14 +116,26 @@ export type PluginChangeResult = { ok: true } | { ok: false; error: string }
 
 /**
  * The variable Claude expands to a plugin's root in its MCP and hook configuration. Codex knows
- * nothing of it, so every config Toucan translates for Codex has it expanded already.
+ * nothing of it, so every config Toucan reads has it expanded already.
  */
 const PLUGIN_ROOT_VARIABLE = '${CLAUDE_PLUGIN_ROOT}'
 
 /** One MCP server a plugin declares, with the plugin root filled in. */
 export type PluginMcpServer =
   | { name: string; transport: 'stdio'; command: string; args: string[]; env: Record<string, string> }
-  | { name: string; transport: 'http' | 'sse'; url: string; headers: Record<string, string> }
+  | { name: string; transport: 'http'; url: string; headers: Record<string, string> }
+  | { name: string; transport: 'sse'; url: string; headers: Record<string, string> }
+
+/** A server Codex can connect to. */
+export type CodexMcpServer = Exclude<PluginMcpServer, { transport: 'sse' }>
+
+/**
+ * The one rule for which plugin servers reach Codex: codex-acp refuses a whole session over a single
+ * SSE server, so those stay Claude's.
+ */
+export function reachesCodex(server: PluginMcpServer): server is CodexMcpServer {
+  return server.transport !== 'sse'
+}
 
 function withRoot(value: string, root: string): string {
   return value.replaceAll(PLUGIN_ROOT_VARIABLE, root)
@@ -162,12 +174,11 @@ export function pluginMcpServers(config: unknown, root: string): { servers: Plug
         env: stringMap(server.env, root)
       })
     } else if ((type === undefined || type === 'http' || type === 'sse') && typeof server.url === 'string') {
-      servers.push({
-        name,
-        transport: type === 'sse' ? 'sse' : 'http',
-        url: withRoot(server.url, root),
-        headers: stringMap(server.headers, root)
-      })
+      const url = withRoot(server.url, root)
+      const headers = stringMap(server.headers, root)
+      servers.push(
+        type === 'sse' ? { name, transport: 'sse', url, headers } : { name, transport: 'http', url, headers }
+      )
     } else if (type !== undefined && type !== 'stdio' && type !== 'http' && type !== 'sse') {
       problems.push(`MCP server "${name}" uses the "${type}" transport, which Toucan cannot read.`)
     } else {
@@ -175,6 +186,30 @@ export function pluginMcpServers(config: unknown, root: string): { servers: Plug
     }
   }
   return { servers, problems }
+}
+
+const ENVIRONMENT_REFERENCE = /\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}/g
+
+/**
+ * `${VAR}` and `${VAR:-default}` filled in from `lookup`, as Claude expands them in an MCP
+ * configuration. Codex expands nothing, so a plugin server translated for it is filled in here,
+ * from the environment Claude would have expanded it in. A variable that is unset and has no
+ * default stays as written and is named in `unset`.
+ */
+export function expandEnvironmentReferences(
+  value: string,
+  lookup: (name: string) => string | undefined
+): { value: string; unset: string[] } {
+  const unset: string[] = []
+  const expanded = value.replace(ENVIRONMENT_REFERENCE, (reference, name: string, fallback: string | undefined) => {
+    const found = lookup(name)
+    if (found) return found
+    if (fallback !== undefined) return fallback
+    if (found !== undefined) return found
+    unset.push(name)
+    return reference
+  })
+  return { value: expanded, unset }
 }
 
 /** One hook a plugin registers with Claude, its plugin root filled in. Codex is never given hooks. */
@@ -233,7 +268,7 @@ export interface PluginSkill {
 /**
  * What a plugin contributes, for the trust step before it is enabled: a plugin runs code with the
  * user's rights, so this lists every part that runs or steers an agent. `providers` says who gets a
- * part where the two differ: hooks reach Claude only, and Codex cannot connect to an SSE server.
+ * part where the two differ: hooks reach Claude only, and so do servers `reachesCodex` refuses.
  */
 export interface PluginContributions {
   id: string
@@ -260,7 +295,7 @@ export interface PluginsApi {
   /** Registers a plugin folder by its absolute path. */
   add(path: string): Promise<PluginAddResult>
   remove(id: string): Promise<PluginChangeResult>
-  /** Enables a plugin for a project's main checkout; its worktrees inherit it. */
+  /** Enables a plugin for a project; a worktree's path counts as its project's, which it inherits from. */
   enable(projectPath: string, id: string): Promise<PluginChangeResult>
   disable(projectPath: string, id: string): Promise<PluginChangeResult>
   contributions(id: string): Promise<PluginContributionsResult>

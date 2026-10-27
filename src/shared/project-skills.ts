@@ -8,6 +8,8 @@
  * renderer only ever shows the location to a reader.
  */
 
+import { PLUGIN_MANIFEST_SEGMENTS } from './plugins'
+
 /** The folder a project's agent configuration lives in, at the root of the checkout. */
 export const PROJECT_SKILLS_DIRECTORY = '.agents'
 
@@ -28,7 +30,7 @@ export function projectSkillFileSegments(name: string): string[] {
  * to prevent: `sessionSkillsConfiguration` passes `.agents` as a local plugin the moment a
  * `skills/` folder is there, and a plugin with no manifest loads nothing.
  */
-export const PROJECT_SKILLS_MANIFEST_SEGMENTS = [PROJECT_SKILLS_DIRECTORY, '.claude-plugin', 'plugin.json']
+export const PROJECT_SKILLS_MANIFEST_SEGMENTS = [PROJECT_SKILLS_DIRECTORY, ...PLUGIN_MANIFEST_SEGMENTS]
 
 /** Written for a scaffolded checkout; the project renames it like anything else it now owns. */
 export function projectSkillsManifest(): string {

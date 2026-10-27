@@ -59,21 +59,19 @@ plugin rather than in Toucan.
   `_meta.claudeCode.options.plugins` as `{ type: 'local', path }`, beside the existing skills
   plugins (`sessionSkillsConfiguration` in `acp-session-manager.ts`). Claude then loads its skills,
   MCP servers and hooks itself.
-- **Delivery to a Codex session**: skills through the same root mechanism Toucan uses for its own
-  skills (`additionalDirectories`); the first slice must verify which folder layout Codex discovers
-  there and adapt (copy or link into a Toucan-owned root if needed). MCP servers through config
-  overrides (`mcp_servers.<name>.*`). Hooks are not delivered to Codex in the first version; the
-  contributions screen says so. Verified in slice 1 (codex-acp 2.2.2, Codex 0.159.0), see below.
-- **Verified Codex shapes (slice 1)**: codex-acp turns every additional directory `D` into the
-  skill root `D/.agents/skills` and never reads a plugin's own `skills/`, so a plugin root passed
-  directly yields no skills. Each plugin therefore gets `<userData>/codex-plugin-skills/<id>`,
-  whose `.agents/skills` is a link (a junction on Windows) to the plugin's `skills/`; Codex follows
-  it, reports the real paths and namespaces the skills `<id>:<skill>` from the manifest, as Claude
-  does. MCP servers end up as `mcp_servers.<name>` on the Codex thread, but they get there on the
-  session's ACP `mcpServers`, beside the terminal-context server, rather than through
-  `CODEX_CONFIG`: codex-acp replaces a `CODEX_CONFIG` `mcp_servers` table whenever a session has
-  `mcpServers`, and a dotted `mcp_servers.<name>` override beside a whole table was dropped in
-  about half of repeated runs (Codex applies the two in no fixed order).
+- **Delivery to a Codex session** (verified in slice 1 on codex-acp 2.2.2 / Codex 0.159.0): skills
+  through the same `additionalDirectories` root mechanism Toucan uses for its own. codex-acp turns
+  every additional directory `D` into the skill root `D/.agents/skills` and never reads a plugin's
+  own `skills/`, so each plugin folder gets a Toucan-owned directory under
+  `<userData>/codex-plugin-skills/` whose `.agents/skills` links (a junction on Windows) to it;
+  Codex follows the link and namespaces the skills `<id>:<skill>` from the manifest, as Claude
+  does. MCP servers become the thread's `mcp_servers.<name>` config, carried on the session's ACP
+  `mcpServers` after the terminal-context server rather than in `CODEX_CONFIG`: codex-acp replaces
+  a `CODEX_CONFIG` `mcp_servers` table whenever a session has `mcpServers`, and a dotted
+  `mcp_servers.<name>` override beside a whole table was dropped in about half of repeated runs.
+  `${CLAUDE_PLUGIN_ROOT}` and the `${VAR}` references Claude would expand are filled in; SSE
+  servers stay Claude's, because codex-acp refuses a session over one. Hooks are not delivered to
+  Codex in the first version; the contributions data marks them Claude-only.
 - **Toucan context for scripts**: every session's adapter already carries `TOUCAN_NODE_ID`.
   Add `TOUCAN_PROJECT_DIR` (the main checkout; the session's cwd is the worktree). Each session
   that has plugins gets one appended instruction line per plugin naming its id and absolute root
