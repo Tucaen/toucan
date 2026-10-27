@@ -1,4 +1,5 @@
 import { deepEqual, equal } from 'node:assert/strict'
+import type { NodeChange } from '@xyflow/react'
 import { test } from 'vitest'
 import {
   MAXIMISED,
@@ -16,6 +17,7 @@ import {
   snapsReleasedByChanges,
   toggleNodeFit,
   viewportShowingNode,
+  type DragOrigins,
   type SnapSlice,
   type SnapStates
 } from '../src/renderer/src/node-snap'
@@ -218,6 +220,46 @@ test('only the user dragging, resizing or removing a snapped node releases it', 
   deepEqual(snapsReleasedByChanges([{ id: 'a', type: 'position', dragging: false }], snaps), [])
   deepEqual(snapsReleasedByChanges([{ id: 'a', type: 'select', selected: true }], snaps), [])
   deepEqual(snapsReleasedByChanges([{ id: 'b', type: 'position', dragging: true }], snaps), [])
+})
+
+test('a click with an unsteady hand is not a drag: the snap survives a nudge but not a move', () => {
+  const snaps: SnapStates = {
+    a: { h: 'left', v: 'full', restoreGeometry: { position: { x: 0, y: 0 }, width: 1, height: 1 } }
+  }
+  const at = (x: number, y: number, dragging = true): NodeChange[] => [
+    { id: 'a', type: 'position', dragging, position: { x, y } }
+  ]
+  const placed = [{ id: 'a', position: { x: 16, y: 16 }, data: {} }]
+
+  // React Flow starts a drag after one pixel of pointer travel, so a nudge arrives as a drag.
+  deepEqual(snapsReleasedByChanges(at(17, 16), snaps, placed), [])
+  deepEqual(snapsReleasedByChanges(at(16, 21), snaps, placed), ['a'])
+
+  // Distance is from where the drag began, so many small frames still add up to a move.
+  const origins: DragOrigins = new Map()
+  deepEqual(snapsReleasedByChanges(at(18, 16), snaps, placed, origins), [])
+  deepEqual(snapsReleasedByChanges(at(20, 16), snaps, [{ ...placed[0], position: { x: 18, y: 16 } }], origins), [])
+  deepEqual(snapsReleasedByChanges(at(21, 16), snaps, [{ ...placed[0], position: { x: 20, y: 16 } }], origins), ['a'])
+
+  // The drop ends the drag, so the next one is measured afresh.
+  snapsReleasedByChanges(at(18, 16, false), snaps, placed, origins)
+  equal(origins.size, 0)
+})
+
+test('a sidebar jump still puts an Alt+Arrow placed node in its slice after a nudging click', () => {
+  const [a, b] = nodes()
+  const left = snapNode([a, b], {}, 'a', 'left', region, 16)
+  const placed = left.nodes.find((node) => node.id === 'a')!
+  const nudge: NodeChange[] = [
+    { id: 'a', type: 'position', dragging: true, position: { x: placed.position.x + 1, y: placed.position.y + 1 } }
+  ]
+  const released = snapsReleasedByChanges(nudge, left.snaps, left.nodes)
+  deepEqual(released, [])
+
+  const shown = viewportShowingNode(placed, left.snaps.a, canvas, { x: 600, y: 300, zoom: 1 }, 16)!
+  // On the left inset, not centred: the node's screen rectangle is its slice again.
+  equal(placed.position.x * shown.zoom + shown.x, 16)
+  equal(placed.position.y * shown.zoom + shown.y, 16)
 })
 
 test('releasing forgets the snap and the flag but leaves the geometry where it is', () => {

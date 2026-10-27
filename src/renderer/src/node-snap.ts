@@ -323,22 +323,56 @@ export function reflowSnappedNodesWithin<T extends Node>(
 }
 
 /**
- * Which snapped nodes one batch of React Flow changes takes back: a node the user dragged or
- * resized is theirs again, and a removed node needs no restore waiting for it. Only a drag or an
- * active resize counts as the user changing geometry: React Flow also reports measurement as a
- * dimension change, and snapping the node is what produced that measurement.
+ * How far, in flow units, a node may be dragged from where its snap put it before it is the
+ * user's again. React Flow starts a drag after a single pixel of pointer travel, so a click on a
+ * node header with a slightly unsteady hand is reported as a drag; letting that forget the slice
+ * made the next sidebar jump centre a node that was still sitting in its half.
  */
-export function snapsReleasedByChanges(changes: NodeChange[], snaps: SnapStates): string[] {
+export const SNAP_DRAG_RELEASE_DISTANCE = 4
+
+/** Where each node being dragged was when its drag began, for `snapsReleasedByChanges`. */
+export type DragOrigins = Map<string, { x: number; y: number }>
+
+/**
+ * Which snapped nodes one batch of React Flow changes takes back: a node the user dragged or
+ * resized is theirs again, and a removed node needs no restore waiting for it. Only a drag that
+ * carries the node further than `SNAP_DRAG_RELEASE_DISTANCE` from its origin or an active resize
+ * counts as the user changing geometry: React Flow also reports measurement as a dimension
+ * change, and snapping the node is what produced that measurement. A drag change that names no
+ * position cannot be measured and releases.
+ *
+ * `origins` is the caller's memory of drags in progress; it is written here so the distance is
+ * measured from the node's place when the drag began rather than from the last frame, which a slow
+ * drag would otherwise never leave. `nodes` are the nodes before these changes are applied.
+ */
+export function snapsReleasedByChanges(
+  changes: NodeChange[],
+  snaps: SnapStates,
+  nodes: readonly Node[] = [],
+  origins: DragOrigins = new Map()
+): string[] {
   const released = new Set<string>()
   for (const change of changes) {
     if (change.type === 'add' || !snaps[change.id]) continue
-    if (
-      change.type === 'remove' ||
-      (change.type === 'position' && change.dragging === true) ||
-      (change.type === 'dimensions' && change.resizing === true)
-    )
+    if (change.type === 'remove' || (change.type === 'dimensions' && change.resizing === true)) {
+      origins.delete(change.id)
       released.add(change.id)
+    } else if (change.type === 'position') {
+      if (change.dragging !== true) {
+        origins.delete(change.id)
+        continue
+      }
+      const origin = origins.get(change.id) ?? nodes.find((node) => node.id === change.id)?.position
+      if (!origin || !change.position) {
+        released.add(change.id)
+        continue
+      }
+      origins.set(change.id, origin)
+      if (Math.hypot(change.position.x - origin.x, change.position.y - origin.y) > SNAP_DRAG_RELEASE_DISTANCE)
+        released.add(change.id)
+    }
   }
+  for (const id of released) origins.delete(id)
   return [...released]
 }
 

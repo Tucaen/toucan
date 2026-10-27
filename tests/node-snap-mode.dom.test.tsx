@@ -135,6 +135,28 @@ describe('canvas snap mode', () => {
     expect(nodes[0].style).toEqual({ width: 968, height: 668 })
   })
 
+  test('a click that wobbles by a pixel keeps the snap, a real drag across several frames releases it', () => {
+    act(() => controller.snap(['a'], 'left'))
+    const placed = nodes[0].position
+    const drag = (dx: number, dragging = true): void =>
+      act(() =>
+        controller.observeChanges([
+          { id: 'a', type: 'position', dragging, position: { x: placed.x + dx, y: placed.y } }
+        ])
+      )
+
+    drag(1)
+    expect(controller.state().a).toMatchObject({ h: 'left', v: 'full' })
+    drag(1, false)
+
+    // Each frame is small, but the node ends up well away from where it was snapped.
+    drag(2)
+    drag(3)
+    expect(controller.state().a).toBeDefined()
+    drag(9)
+    expect(controller.state()).toEqual({})
+  })
+
   test('manually resizing the fitted node exits fit mode and keeps the new size', () => {
     fit('a')
     act(() => controller.observeChanges([{ id: 'a', type: 'dimensions', resizing: true }]))

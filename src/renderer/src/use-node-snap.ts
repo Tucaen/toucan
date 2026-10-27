@@ -11,6 +11,7 @@ import {
   snapNodePair,
   snapsReleasedByChanges,
   toggleNodeFit,
+  type DragOrigins,
   type NodeGeometry,
   type SnapArrow,
   type SnapStates
@@ -101,6 +102,7 @@ export function useNodeSnap<T extends Node>({
   onMaximisedChange?(nodeId: string, maximised: boolean): void
 }): NodeSnapController<T> {
   const snaps = useRef<SnapStates>({})
+  const dragOrigins = useRef<DragOrigins>(new Map())
   const notify = useRef(onMaximisedChange)
   notify.current = onMaximisedChange
 
@@ -206,7 +208,7 @@ export function useNodeSnap<T extends Node>({
 
   const observeChanges = useCallback(
     (changes: NodeChange<T>[]): void => {
-      const released = snapsReleasedByChanges(changes, snaps.current)
+      const released = snapsReleasedByChanges(changes, snaps.current, getNodes(), dragOrigins.current)
       // The geometry the user just produced is theirs to keep; only the pending restore is dropped.
       // A removed node needs no flag cleared, and React Flow is about to drop it anyway.
       if (released.length > 0) apply(releaseSnaps(getNodes(), snaps.current, released))
