@@ -9,7 +9,6 @@ import type { WorkspaceFilesApi } from '../shared/workspace-files'
 import type { RemoteAccessState } from '../shared/remote-access'
 import type { RemoteApi } from '../shared/remote-api'
 import type { RemoteChatSpawnRequest } from '../shared/remote-spawn'
-import type { BrainDumpApi, BrainDumpCaptureState, BrainDumpCollection } from '../shared/brain-dump'
 import type { TicketFilesApi, TicketGithubApi } from '../shared/ticket-source'
 import type { TicketSkillApi } from '../shared/ticket-skill'
 import type { FileViewApi } from '../shared/file-view'
@@ -35,7 +34,6 @@ import {
   ADAPTER_CHANNELS,
   AGENT_CHANNELS,
   APP_UPDATE_CHANNELS,
-  BRAIN_DUMP_CHANNELS,
   CONVERSATION_CHANNELS,
   FILE_VIEW_CHANNELS,
   DECISION_DELEGATION_CHANNELS,
@@ -236,24 +234,6 @@ const commandGuardSettingsApi: CommandGuardSettingsApi = {
   save: (request) => ipcRenderer.invoke(COMMAND_GUARD_SETTINGS_CHANNELS.save, request)
 }
 contextBridge.exposeInMainWorld('commandGuardSettingsApi', commandGuardSettingsApi)
-
-const brainDumpApi: BrainDumpApi = {
-  list: (collection) => ipcRenderer.invoke(BRAIN_DUMP_CHANNELS.list, collection),
-  resolve: (slug) => ipcRenderer.invoke(BRAIN_DUMP_CHANNELS.resolve, slug),
-  archive: (slug, outcome) => ipcRenderer.invoke(BRAIN_DUMP_CHANNELS.archive, slug, outcome),
-  assignProject: (slug, projectPath) => ipcRenderer.invoke(BRAIN_DUMP_CHANNELS.assignProject, slug, projectPath),
-  startCapture: (request) => ipcRenderer.invoke(BRAIN_DUMP_CHANNELS.captureStart, request),
-  currentCapture: () => ipcRenderer.invoke(BRAIN_DUMP_CHANNELS.captureCurrent),
-  resolveCaptureApproval: (jobId, approvalId, optionId) =>
-    ipcRenderer.invoke(BRAIN_DUMP_CHANNELS.captureApproval, jobId, approvalId, optionId),
-  cancelCapture: (jobId) => ipcRenderer.invoke(BRAIN_DUMP_CHANNELS.captureCancel, jobId),
-  onCapture: (callback) =>
-    subscribe(BRAIN_DUMP_CHANNELS.captureEvent, (state: BrainDumpCaptureState) => callback(state)),
-  onLibraryChange: (callback) =>
-    subscribe(BRAIN_DUMP_CHANNELS.libraryChange, (collection: BrainDumpCollection) => callback(collection))
-}
-
-contextBridge.exposeInMainWorld('brainDumpApi', brainDumpApi)
 
 /** The files ticket source, seen from the renderer. Other sources reach the board differently. */
 const ticketsApi: TicketFilesApi = {

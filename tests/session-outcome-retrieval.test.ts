@@ -33,8 +33,8 @@ import {
 import { installScriptedAdapter } from './helpers/scripted-adapter'
 
 // Issue #190: agent retrieval. A later session reads the index with the tools it already has - the
-// outcomes directory is granted through the same `additionalDirectories` sandbox mechanism a
-// brain-dump capture uses, and a short pointer on the session's own context says it exists. No new
+// outcomes directory is granted through the same `additionalDirectories` sandbox mechanism
+// a session already has, and a short pointer on the session's own context says it exists. No new
 // IPC, no new tool, and the read has to stay cheap enough to always be worth making.
 
 const OWNER = { isDestroyed: () => false, send: () => {} } as unknown as WebContents

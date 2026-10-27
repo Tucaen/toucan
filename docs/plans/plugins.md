@@ -47,7 +47,7 @@ plugin rather than in Toucan.
 7. **Built-ins stay as they are.** The shipped skills (`orchestrate`, `session-records`,
    `session-messaging`, `route-claude-ticket`, `implement-in-worktree`), the command guard, the
    terminal-context MCP server and the session instructions are not moved onto the plugin
-   mechanism. `brain-dump` is removed instead (separate issue): the orchestrator node made it
+   mechanism. `brain-dump` was removed instead (#57): the orchestrator node made it
    superfluous.
 
 ## Design

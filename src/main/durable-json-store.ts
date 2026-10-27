@@ -1,6 +1,6 @@
 /**
  * The one durable JSON store behind main's simple single-file stores (conversation titles,
- * brain-dump capture, terminal liveness, remote-access settings, adapter selection). The protocol
+ * terminal liveness, remote-access settings, adapter selection). The protocol
  * is identical for all of them - read the file, validate through a parse predicate, fall back to a
  * default on a missing or damaged one, and replace the file atomically on every write - so a store
  * is a parse predicate and a fallback, nothing more. Stores with a richer protocol

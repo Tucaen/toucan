@@ -14,7 +14,7 @@ import { createSerialQueue } from './serial-queue'
 
 /**
  * Where session outcome records live: one Markdown file per conversation under `<userData>`,
- * brain-dump-library shape. Deliberately not SQLite - the reader is an agent running grep over a
+ * in a folder an agent can list and read. Deliberately not SQLite - the reader is an agent running grep over a
  * sandboxed folder, and at this scale a native module plus a query round-trip would buy nothing
  * (see `docs/plans/session-outcome-index.md`).
  *

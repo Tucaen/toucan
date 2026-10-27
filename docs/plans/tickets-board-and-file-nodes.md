@@ -27,7 +27,7 @@ branching and worktree groups (no felt need yet).
   convention is documented once, in a skill agents can read, and the board is only a projection.
 - **Convention before UI.** The file shape and the skill land first so agents can start writing
   conforming tickets before the board exists.
-- **The board is a docked panel, not a canvas node.** Same shell as the brain-dump library
+- **The board is a docked panel, not a canvas node.** Same shell the since-removed brain-dump library had (#57)
   (sibling of `.canvas-region` in `.workspace-shell`, lazily mounted, then `hidden`); it shows the
   active project's tickets. A board has no geometry worth persisting on the canvas.
 - **Files and diffs are canvas nodes.** A file you are reading sits next to the chat that produced
@@ -40,7 +40,7 @@ branching and worktree groups (no felt need yet).
   worktree's recorded `baseRef` (or `HEAD` for the primary checkout) so it shows what is actually
   on disk, including edits from several sessions. The per-hunk rendering reuses the transcript's
   file-operation blocks.
-- **Status closes a ticket; deleting removes it.** Unlike brain dumps, a ticket is never
+- **Status closes a ticket; deleting removes it.** Unlike the brain-dump topics that existed when this was written, a ticket is never
   rewritten as a summary and needs no immutable snapshot, so `status: done` is the only closure
   signal and the Done column is collapsed by default. When a project accumulates hundreds of
   closed tickets, the user deletes them from the board (#149) so list and agent read cost stay
@@ -75,15 +75,14 @@ Body: context, acceptance criteria, notes. Ordinary Markdown.
 - `status` values beyond the four defaults are tolerated and render as extra columns, so a
   project may add `review` without a Toucan change.
 - A file that fails to parse is listed on the board as a diagnostic row, never dropped silently
-  (same posture as `BrainDumpDiagnostic`).
+  (the posture the brain-dump library's diagnostics had).
 
 ## Architectural notes (from code survey, 2026-09-04)
 
 - Frontmatter parsing, atomic rewrite through a temporary file, and the debounced per-folder
-  watcher all exist for brain dumps (`src/main/brain-dump-library.ts`,
-  `src/main/brain-dump-watcher.ts`). The ticket library must not import them (they are
-  collection-specific) but should extract the shared frontmatter parse/mutate into a pure
-  `src/shared/` module both can use.
+  watcher all existed for brain dumps (since removed, #57). The ticket library did not import them
+  (they were collection-specific); the shared frontmatter parse/mutate lives in a pure
+  `src/shared/` module.
 - The canvas knows two node types (`nodeTypes` in `src/renderer/src/App.tsx`, `CanvasNode` union
   in `canvas-workspace.ts`). Adding a third and fourth follows the worktree precedent:
   serialize/restore functions in `canvas-workspace.ts`, an optional array on `WorkspaceState`,
@@ -91,7 +90,7 @@ Body: context, acceptance criteria, notes. Ordinary Markdown.
 - Reading a file for the renderer needs a new main-side IPC (`file:read`) with a size cap and a
   change subscription. The renderer has no filesystem access (enforced by dependency-cruiser).
 - Markdown rendering is shared: `MarkdownMessage.tsx` exports `markdownBlockComponents` and
-  `remarkPlugins`; `BrainDumpReader.tsx` shows how a non-transcript surface reuses them. Code
+  `remarkPlugins`; a non-transcript surface can reuse them. Code
   highlighting is `syntax-highlight.tsx` over lowlight.
 - Diff rendering exists in `file-operation.ts` (`diffLines` from the `diff` package, the only
   allowed npm import for that module) and `FileOperationCard.tsx`. A diff node should feed git

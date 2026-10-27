@@ -104,7 +104,7 @@ describe('canvas snap mode', () => {
     })
   })
 
-  test('it follows a sidebar collapse and the docked brain-dump panel, at the current pan and zoom', () => {
+  test('it follows a sidebar collapse and a docked panel, at the current pan and zoom', () => {
     viewport = { x: -240, y: 120, zoom: 2 }
     fit('a')
 

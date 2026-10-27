@@ -4,8 +4,8 @@
  * `formatRelativeTime` reads an *instant* - a transcript's `updatedAt` - and answers in the
  * coarsest unit that still means something, falling back to a locale date once a count of days
  * stops being easier to read than the date itself. `describeCalendarDate` reads a *calendar day*
- * (`YYYY-MM-DD`), which is what the brain-dump library and the ticket board record: those surfaces
- * store days, not instants, so "today" there means the same calendar day rather than 24 hours.
+ * (`YYYY-MM-DD`), which is what the ticket board records: that surface
+ * stores days, not instants, so "today" there means the same calendar day rather than 24 hours.
  *
  * Both live here because three copies of these rules had already drifted apart in wording while
  * agreeing on the arithmetic (#230). A surface that wants a different vocabulary should say so out

@@ -7,7 +7,7 @@ why, and how to measure it.
 
 | Surface                              | Engine                                                                  | Languages            |
 | ------------------------------------ | ----------------------------------------------------------------------- | -------------------- |
-| Desktop composer, brain-dump capture | whisper.cpp `large-v3-turbo`, a `whisper-server` child of main, offline | Auto-detected (99)   |
+| Desktop composer                     | whisper.cpp `large-v3-turbo`, a `whisper-server` child of main, offline | Auto-detected (99)   |
 | Phone with a browser recognizer      | The browser's own `SpeechRecognition` (Android Chrome, iOS Safari)      | The phone's language |
 | Phone without one                    | Records 16 kHz PCM, `POST /api/transcribe`, the desktop's engine        | Auto-detected (99)   |
 
@@ -41,8 +41,7 @@ towards.
 The desktop composer's **Dictation cleanup** picker is off by default. Choose **Cleanup: Haiku**
 for fast polishing or **Cleanup: Sonnet** for difficult dictation. Both use your **Claude
 subscription**, regardless of which provider the conversation uses, and send the raw transcript
-plus the draft/newest-exchange context to Claude. The workspace remembers the choice; it also
-applies to desktop brain-dump dictation. Phone dictation is unchanged.
+plus the draft/newest-exchange context to Claude. The workspace remembers the choice. Phone dictation is unchanged.
 
 After transcription, **Polishing…** has a **Use original dictation** button that immediately
 inserts the raw text. A response that opens with a preamble ("Here's the corrected transcript:")
@@ -146,5 +145,5 @@ Tests: `tests/voice-transcript.test.ts`, `tests/voice-model-store.test.ts`,
 `tests/voice-transcription.test.ts`, `tests/whisper-engine.test.ts`, `tests/whisper-assets.test.ts`,
 `tests/zip-extract.test.ts`,
 `tests/remote-voice.test.ts`, the transcribe cases in `tests/remote-server.test.ts`,
-`tests/mobile-voice-input.test.ts`, `tests/mobile-voice-input.dom.test.tsx`, and the microphone
-capture path in `tests/brain-dump-capture.dom.test.tsx`.
+`tests/mobile-voice-input.test.ts`, `tests/mobile-voice-input.dom.test.tsx`, and the composer's
+microphone path in `tests/voice-cleanup.dom.test.tsx`.

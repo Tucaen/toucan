@@ -1,5 +1,4 @@
 import {
-  BookOpen,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -73,7 +72,6 @@ export interface ProjectSidebarIntents {
   moveGroup: (groupId: string, drop: GroupDrop) => void
   /** A drag is starting: anything floating (the row menu) should close. */
   dragStarted: () => void
-  toggleBrainDump: () => void
   toggleTicketBoard: () => void
 }
 
@@ -92,7 +90,6 @@ export interface ProjectSidebarProps {
   unreadByNode: Readonly<Record<string, number>>
   countUnread: (nodeIds?: readonly string[]) => number
   describeUnread: (nodeIds?: readonly string[]) => string
-  brainDumpOpen: boolean
   ticketBoardOpen: boolean
   intents: ProjectSidebarIntents
   /** The canvas zoom/tile controls: they steer React Flow, so the canvas supplies them. */
@@ -129,7 +126,6 @@ export function ProjectSidebar({
   unreadByNode,
   countUnread,
   describeUnread,
-  brainDumpOpen,
   ticketBoardOpen,
   intents,
   canvasControls
@@ -589,23 +585,6 @@ export function ProjectSidebar({
       floating group overlaps auto-laid-out nodes. */}
       <div className="sidebar-footer">
         <div className="sidebar-footer-group">
-          <button
-            type="button"
-            className="sidebar-global-entry"
-            aria-pressed={brainDumpOpen}
-            title={collapsed ? 'Open brain-dump library' : 'Brain dumps (Ctrl+Shift+B)'}
-            onClick={(event) => {
-              event.stopPropagation()
-              intents.toggleBrainDump()
-            }}
-          >
-            <span className="sidebar-global-icon" aria-hidden="true">
-              <BookOpen />
-            </span>
-            {!collapsed && <span>Brain dumps</span>}
-            {collapsed && <span className="visually-hidden">Open brain-dump library</span>}
-          </button>
-
           <button
             type="button"
             className="sidebar-global-entry"

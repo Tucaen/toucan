@@ -135,19 +135,6 @@ export const COMMAND_GUARD_SETTINGS_CHANNELS = {
   save: 'command-guard-settings:save'
 } as const
 
-export const BRAIN_DUMP_CHANNELS = {
-  list: 'brain-dump:list',
-  resolve: 'brain-dump:resolve',
-  archive: 'brain-dump:archive',
-  assignProject: 'brain-dump:assign-project',
-  captureStart: 'brain-dump:capture-start',
-  captureCurrent: 'brain-dump:capture-current',
-  captureApproval: 'brain-dump:capture-approval',
-  captureCancel: 'brain-dump:capture-cancel',
-  captureEvent: 'brain-dump:capture-event',
-  libraryChange: 'brain-dump:library-change'
-} as const
-
 export const TICKET_CHANNELS = {
   list: 'tickets:list',
   setStatus: 'tickets:set-status',

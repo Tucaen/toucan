@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react'
-import type { BrainDumpPanelState, TicketBoardPanelState, WorkspaceState } from '../../shared/workspace'
-import { BRAIN_DUMP_PANEL_DEFAULT_WIDTH, clampBrainDumpPanelWidth } from './brain-dump-panel-layout'
+import type { TicketBoardPanelState, WorkspaceState } from '../../shared/workspace'
 import { TICKET_BOARD_DEFAULT_WIDTH, clampTicketBoardWidth, pruneEnabledSources } from './ticket-board-layout'
 
 /** One docked panel's workspace-owned state and the two gestures every panel shares. */
@@ -23,7 +22,7 @@ interface DockedPanel<State extends { open: boolean; width: number }> extends Do
 }
 
 /**
- * The shape both docked panels share: persisted open/width state, lazy mounting, and the clamp
+ * The shape a docked panel has: persisted open/width state, lazy mounting, and the clamp
  * applied everywhere a width can reach the DOM - toggle, window resize, and restore. Each panel
  * is a sibling of `.canvas-region`, so an unclamped width (a snapshot saved on a bigger monitor)
  * could squeeze the canvas out.
@@ -75,7 +74,6 @@ function useDockedPanel<State extends { open: boolean; width: number }>(
 }
 
 export interface WorkspacePanelsController {
-  brainDump: DockedPanelController<BrainDumpPanelState>
   ticketBoard: DockedPanelController<TicketBoardPanelState>
   /** `window.innerWidth`, observed so the panels' widths re-clamp with it. */
   workspaceWidth: number
@@ -84,17 +82,11 @@ export interface WorkspacePanelsController {
 }
 
 /**
- * The docked-panel wiring: the brain-dump library and the ticket board as two `useDockedPanel`s
- * plus what only the pair needs - the observed workspace width and the snapshot restore. What the
- * panels *show* stays their own business; this hook owns only where they sit.
+ * The docked-panel wiring: the ticket board as a `useDockedPanel` plus what only docked panels
+ * need - the observed workspace width and the snapshot restore. What the panel *shows* stays its
+ * own business; this hook owns only where it sits.
  */
 export function useWorkspacePanels(): WorkspacePanelsController {
-  // The brain-dump library is global rather than per-project, so the workspace owns its persisted
-  // panel state and the panel itself only renders it.
-  const brainDump = useDockedPanel<BrainDumpPanelState>(
-    { open: false, width: BRAIN_DUMP_PANEL_DEFAULT_WIDTH },
-    clampBrainDumpPanelWidth
-  )
   // The board is a projection of the active project's files, so the workspace persists only where
   // the panel sits; everything it shows is re-read from disk.
   const ticketBoard = useDockedPanel<TicketBoardPanelState>(
@@ -109,11 +101,9 @@ export function useWorkspacePanels(): WorkspacePanelsController {
     return () => window.removeEventListener('resize', onResize)
   }, [])
 
-  const { adopt: adoptBrainDump } = brainDump
   const { adopt: adoptTicketBoard } = ticketBoard
   const restore = useCallback(
     (saved: WorkspaceState): void => {
-      if (saved.brainDumpPanel) adoptBrainDump(saved.brainDumpPanel)
       if (saved.ticketBoardPanel)
         adoptTicketBoard({
           ...saved.ticketBoardPanel,
@@ -125,8 +115,8 @@ export function useWorkspacePanels(): WorkspacePanelsController {
           )
         })
     },
-    [adoptBrainDump, adoptTicketBoard]
+    [adoptTicketBoard]
   )
 
-  return { brainDump, ticketBoard, workspaceWidth, restore }
+  return { ticketBoard, workspaceWidth, restore }
 }

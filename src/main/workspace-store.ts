@@ -192,19 +192,6 @@ function isWorkspaceTerminalNode(value: unknown): boolean {
   )
 }
 
-function isBrainDumpPanelState(value: unknown): boolean {
-  if (!value || typeof value !== 'object') return false
-  const panel = value as Partial<NonNullable<WorkspaceState['brainDumpPanel']>>
-  return (
-    typeof panel.open === 'boolean' &&
-    typeof panel.width === 'number' &&
-    Number.isFinite(panel.width) &&
-    (panel.draft === undefined || typeof panel.draft === 'string') &&
-    (panel.draftProjectPath === undefined || typeof panel.draftProjectPath === 'string') &&
-    (panel.provider === undefined || isAgentProvider(panel.provider))
-  )
-}
-
 function isTicketBoardPanelState(value: unknown): boolean {
   if (!value || typeof value !== 'object') return false
   const panel = value as Partial<NonNullable<WorkspaceState['ticketBoardPanel']>>
@@ -288,7 +275,6 @@ export function isWorkspaceState(value: unknown): value is WorkspaceState {
   if (state.routineDelegation !== undefined && !isRoutineDelegationPreference(state.routineDelegation)) return false
   if (state.dictationCleanup !== undefined && !isDictationCleanupPreference(state.dictationCleanup)) return false
   if (state.decisionDelegation !== undefined && !isDecisionDelegationPreference(state.decisionDelegation)) return false
-  if (state.brainDumpPanel !== undefined && !isBrainDumpPanelState(state.brainDumpPanel)) return false
   if (state.ticketBoardPanel !== undefined && !isTicketBoardPanelState(state.ticketBoardPanel)) return false
   if (state.layoutSlots !== undefined && !isLayoutSlots(state.layoutSlots)) return false
   if (state.attention !== undefined && (!Array.isArray(state.attention) || !state.attention.every(isAttentionItem)))
@@ -356,7 +342,12 @@ export function parseWorkspaceState(candidate: unknown): WorkspaceState | null {
 
   if (version === 3) {
     if (!isWorkspaceState(value)) return null
-    const state = normalizeWorkspaceWorktrees(value)
+    // The brain-dump panel was removed (#57); a snapshot written before that still opens, and the
+    // field is dropped here so it is never written back.
+    const { brainDumpPanel: _brainDumpPanel, ...withoutBrainDump } = value as WorkspaceState & {
+      brainDumpPanel?: unknown
+    }
+    const state = normalizeWorkspaceWorktrees(withoutBrainDump)
     // Attention records name canvas nodes, so a record whose node is gone can never be reached
     // or cleared; dropping it here keeps every count derived from records that still exist.
     const liveNodeIds = new Set(state.nodes.map((node) => node.id))

@@ -8,8 +8,8 @@ import {
   upsertFrontmatter
 } from '../src/shared/frontmatter'
 
-// The one frontmatter reader and writer behind every one-file-per-record collection: brain-dump
-// topics and tickets. Fields are flat `key: value` lines; the body is whatever follows and is
+// The one frontmatter reader and writer behind every one-file-per-record collection: tickets
+// and session outcomes. Fields are flat `key: value` lines; the body is whatever follows and is
 // never reinterpreted.
 
 function fields(markdown: string): Record<string, string> {

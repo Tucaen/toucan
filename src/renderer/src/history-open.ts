@@ -18,7 +18,7 @@ export type HistoryOpenPlan =
    */
   | { action: 'open'; branchedFrom?: ConversationLineage }
 
-/** The little of an entry this decision reads; a brain-dump capture reopens through it too. */
+/** The little of an entry this decision reads. */
 export interface HistoryOpenEntry {
   provider: AgentProvider
   id: string

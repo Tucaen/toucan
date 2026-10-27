@@ -25,11 +25,11 @@ test('agent adapters force their nested Windows processes to stay hidden', () =>
   })
 })
 
-test('agent adapters preserve their environment including the brain-dump library root', () => {
-  const environment = { PATH: 'C:\\Windows', TOUCAN_BRAIN_DUMPS_DIR: 'C:\\Users\\Ada\\Toucan\\brain-dumps' }
+test('agent adapters preserve their environment including custom variables', () => {
+  const environment = { PATH: 'C:\\Windows', TOUCAN_EXAMPLE: 'value' }
   const launch = buildAgentProcessLaunch('electron.exe', 'adapter.js', 'D:\\Toucan', environment)
   assert.equal(launch.options.env?.PATH, environment.PATH)
-  assert.equal(launch.options.env?.TOUCAN_BRAIN_DUMPS_DIR, environment.TOUCAN_BRAIN_DUMPS_DIR)
+  assert.equal(launch.options.env?.TOUCAN_EXAMPLE, environment.TOUCAN_EXAMPLE)
 })
 
 test('the hidden-window preload still imports and runs the ACP adapter entrypoint', () => {

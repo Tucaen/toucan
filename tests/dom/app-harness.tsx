@@ -3,7 +3,6 @@ import { vi } from 'vitest'
 import App from '../../src/renderer/src/App'
 import type { WorkspaceState } from '../../src/shared/workspace'
 import { createMockAppUpdateApi } from './app-update-api-mock'
-import { createMockBrainDumpApi } from './brain-dump-api-mock'
 import { createMockRemoteApi } from './remote-api-mock'
 
 /**
@@ -137,8 +136,7 @@ export function installWindowApis(options: AppHarnessOptions = {}): AppHarness {
       stopOrchestration: vi.fn(async () => null),
       continueSpawns: vi.fn(async () => null),
       onOrchestrationState: () => () => undefined
-    },
-    brainDumpApi: createMockBrainDumpApi() as unknown as Record<string, unknown>
+    }
   }
 
   const names = new Set([...Object.keys(defaults), ...Object.keys(options.apis ?? {})])

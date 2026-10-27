@@ -5,7 +5,6 @@ import type { DictationCleanupPreference } from '../../shared/dictation-cleanup'
 import type { RoutineDelegationPreference } from '../../shared/routine-delegation'
 import type {
   AgentPermissionModes,
-  BrainDumpPanelState,
   ComposerSendKey,
   ProjectGroup,
   TicketBoardPanelState,
@@ -42,7 +41,6 @@ export interface WorkspaceSnapshotInput {
   recentlyClosedNodes: WorkspaceTerminalNode[]
   attention: readonly AttentionItem[]
   layoutSlots: Record<string, WorkspaceLayoutSlot>
-  brainDumpPanel: BrainDumpPanelState
   ticketBoardPanel: TicketBoardPanelState
 }
 
@@ -82,7 +80,6 @@ function buildWorkspaceSnapshot(input: WorkspaceSnapshotInput): WorkspaceState {
     // Absent rather than empty, like `projectGroups`, so a workspace that never saved a slot keeps
     // its snapshot shape.
     ...(Object.keys(layoutSlots).length > 0 ? { layoutSlots } : {}),
-    brainDumpPanel: input.brainDumpPanel,
     ticketBoardPanel: input.ticketBoardPanel
   }
 }

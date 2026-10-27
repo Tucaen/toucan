@@ -25,13 +25,13 @@ So the first stage is better signal, not distillation, and distillation waits un
 
 1. **Signal capture (zero tokens, indexer).** Records gain a capped `## Tool failures` section, built from failed tool activity in the snapshot. Corrections are _not_ captured separately, because `## Asks` already holds the text and a second copy would spend the record budget twice. Stage 2 reads them from there. Revert detection stays out of scope: it needs git correlation, the same reason the outcome index deferred it.
 2. **Recurrence (zero tokens, pure rule in `src/shared`).** Across one project's records, cluster tool failures by normalized command or title and by file area, and asks by correction phrasing. A cluster becomes a candidate at **2 or more distinct conversations** (LifeOS's `HEALING_RECURRENCE_THRESHOLD`). A one-off never becomes a lesson.
-3. **Distillation (tokens, gated).** A background agent turn in the brain-dump-capture pattern (`brain-dump-capture.ts`) runs a `distill-learnings` skill over a candidate's records, and transcript excerpts where needed. It emits **proposals**, never lessons: `lesson` (one imperative line), `evidence` (record keys plus `commit`), `scope` (project | global) and `target` (lessons file | `AGENTS.md`).
+3. **Distillation (tokens, gated).** A background agent turn (the pattern the since-removed brain-dump capture used, #57) runs a `distill-learnings` skill over a candidate's records, and transcript excerpts where needed. It emits **proposals**, never lessons: `lesson` (one imperative line), `evidence` (record keys plus `commit`), `scope` (project | global) and `target` (lessons file | `AGENTS.md`).
 4. **Review and injection.** No proposal applies itself. Accepted lessons go to `<userData>\session-learnings\<project-slug>.md` under a hard cap (≈1.5 KB, ≈10 lessons) and are **inlined** into the session instruction beside the outcome-index pointer. Every session pays for that file, so the cap is the design constraint, the same way the pointer's cost was (#190). A lesson not re-observed for 60 days is re-checked against `git log <commit>..HEAD`, the same freshness rule old failures follow. A lesson that belongs with the code can be promoted into an `AGENTS.md` edit as an explicit step.
 
 ## Open decisions (before stage 3)
 
-- **Model spend.** Stage 3 is the first part of session memory that is not free. Leaning: user-triggered only, like brain-dump capture, not autonomous.
-- **Review surface.** The outcome index is "no UI, ever" (owner decision 2026-09-13), but approving proposals needs a place to happen. Options: a list in the brain-dump panel, or a chat ("review pending lessons") that keeps the no-UI rule.
+- **Model spend.** Stage 3 is the first part of session memory that is not free. Leaning: user-triggered only, not autonomous.
+- **Review surface.** The outcome index is "no UI, ever" (owner decision 2026-09-13), but approving proposals needs a place to happen. Options: a list in the ticket board panel, or a chat ("review pending lessons") that keeps the no-UI rule.
 - **Where lessons live.** Leaning: userData, matching "nothing lands in checkouts", with promotion to `AGENTS.md` as an explicit step.
 
 ## Stage 1: `## Tool failures` in outcome records

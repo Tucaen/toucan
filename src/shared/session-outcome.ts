@@ -781,8 +781,7 @@ export function extractSessionOutcome(
 
 /**
  * Frontmatter is a flat `key: value` block (see `frontmatter.ts`), so a Windows path - which
- * carries backslashes and may carry spaces - is written JSON-quoted, exactly as brain-dump topics
- * write theirs.
+ * carries backslashes and may carry spaces - is written JSON-quoted.
  */
 function decodePath(value: string): string {
   if (!value.startsWith('"')) return value

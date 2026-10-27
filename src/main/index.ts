@@ -81,11 +81,6 @@ import { createDictationCleaner } from './dictation-cleanup'
 import { registerDictationCleanupIpc } from './dictation-cleanup-ipc'
 import { APP_INDEX_URL, APP_ISOLATION_HEADERS, APP_SCHEME, appContentType, appRequestTarget } from './app-protocol'
 import { createAgentEventBroker } from './agent-event-broker'
-import { createBrainDumpLibrary } from './brain-dump-library'
-import { createBrainDumpCaptureManager, type BrainDumpCaptureManager } from './brain-dump-capture'
-import { createBrainDumpCaptureStore } from './brain-dump-capture-store'
-import { registerBrainDumpIpc } from './brain-dump-ipc'
-import { createBrainDumpChangeWatcher, type BrainDumpChangeWatcher } from './brain-dump-watcher'
 import { createFileView, type FileView } from './file-view'
 import { createImageArtifactSaver } from './image-save'
 import { createLocalFileOpener } from './local-file-open'
@@ -189,8 +184,6 @@ function developmentWindowIcon(): string | undefined {
 function createWindow(
   terminalManager: TerminalManager,
   agentManager: AcpSessionManager,
-  brainDumpCapture: BrainDumpCaptureManager,
-  brainDumpChanges: BrainDumpChangeWatcher,
   ticketChanges: TicketChangeWatcher,
   fileView: FileView,
   remote: RemoteAccessServer,
@@ -252,18 +245,12 @@ function createWindow(
     detachTicketCleanupWindow()
     terminalManager.disconnectOwner(contents)
     agentManager.killOwned(contents)
-    brainDumpCapture.disconnectOwner(contents)
-    brainDumpChanges.disconnectOwner(contents)
     ticketChanges.disconnectOwner(contents)
     fileView.disconnectOwner(contents)
   })
 
   if (process.env.ELECTRON_RENDERER_URL) {
     const rendererUrl = new URL(process.env.ELECTRON_RENDERER_URL)
-    if (process.env.TOUCAN_BRAIN_DUMP_PROTOTYPE === '1') {
-      rendererUrl.searchParams.set('prototype', 'brain-dump-library')
-      rendererUrl.searchParams.set('variant', 'A')
-    }
     void window.loadURL(rendererUrl.toString())
   } else {
     void window.loadURL(APP_INDEX_URL)
@@ -316,8 +303,6 @@ void app.whenReady().then(async () => {
   const mainLog = createMainLog({ file: join(app.getPath('logs'), 'main.log') })
   registerVoicePermissions()
   const codexHome = process.env.CODEX_HOME ?? join(app.getPath('home'), '.codex')
-  const brainDumpDirectory = join(app.getPath('userData'), 'brain-dumps')
-  const agentEnvironment = { ...process.env, TOUCAN_BRAIN_DUMPS_DIR: brainDumpDirectory }
   const commands = createCommandLookup({
     fallbackDirectories: [join(process.env.APPDATA ?? '', 'npm'), join(app.getPath('home'), '.local', 'bin')]
   })
@@ -378,7 +363,7 @@ void app.whenReady().then(async () => {
   const workspace = createWorkspaceStore(join(app.getPath('userData'), 'prototype-workspace.json'))
   // A file node may read anywhere inside a registered project or one of its worktrees and nowhere
   // else. The roots come from the snapshot per call, so a project added a moment ago is readable
-  // and one removed a moment ago is not - fail closed, like brain-dump project assignment.
+  // and one removed a moment ago is not - fail closed.
   // Worktrees main created itself count too: the snapshot naming them is saved on a debounce, and
   // a worktree's first chat launches before that save lands (see `registerWorktreeIpc`).
   const createdWorktreeRoots = new Set<string>()
@@ -744,7 +729,7 @@ void app.whenReady().then(async () => {
     appVersion: app.getVersion(),
     resolveAdapter: adapters.resolve,
     codexHome,
-    environment: agentEnvironment,
+    environment: process.env,
     log: mainLog('agent sessions'),
     broker: agentEvents,
     onModelsAdvertised: (provider, models) => modelCatalogue.record(provider, models),
@@ -772,27 +757,6 @@ void app.whenReady().then(async () => {
   })
   // A stopped session publishes nothing on its way out; messaging must still drop its turn state.
   agentEvents.onClosed((id) => sessionMessenger.sessionClosed(id))
-  const captureStore = createBrainDumpCaptureStore(
-    join(app.getPath('userData'), 'brain-dump-capture.json'),
-    mainLog('brain dump capture')
-  )
-  const brainDumpCapture = createBrainDumpCaptureManager({
-    agent: {
-      create: (request, owner) => agentManager.create(request, owner),
-      prompt: (id, content) => agentManager.prompt(id, content),
-      resolveApproval: (id, approvalId, optionId) => agentManager.resolveApproval(id, approvalId, optionId),
-      cancel: (id) => agentManager.cancel(id),
-      kill: (id) => agentManager.kill(id)
-    },
-    homeDirectory: app.getPath('home'),
-    libraryDirectory: brainDumpDirectory,
-    registeredProjectPaths: async () => (await workspace.load()).state?.projects.map(({ path }) => path) ?? [],
-    // A capture file that cannot be read must not hold up startup; the store logged why, stays
-    // read-only until it can read it, and the manager simply starts with no capture in flight.
-    initialState: await captureStore.load().catch(() => null),
-    publish: (state) => void captureStore.save(state).catch(() => {})
-  })
-  const brainDumpChanges = await createBrainDumpChangeWatcher({ rootDirectory: brainDumpDirectory })
   // The snapshot is the only place a project's `ticketsDirectory` is recorded, so it is read per
   // call rather than cached: a project whose folder setting changed is read from the new folder on
   // the very next listing. Which folder that is, is decided in `ticket-directory.ts`.
@@ -1061,12 +1025,6 @@ void app.whenReady().then(async () => {
   registerTerminalIpc(ipcMain, manager, scrollback, liveness, containment)
   registerAgentIpc(ipcMain, agentManager, containment)
   registerTerminalContextIpc(ipcMain, terminalContextEdges)
-  registerBrainDumpIpc(
-    ipcMain,
-    createBrainDumpLibrary({ rootDirectory: brainDumpDirectory, today: localCalendarDate }),
-    brainDumpCapture,
-    brainDumpChanges
-  )
   registerConversationIpc(
     ipcMain,
     createConversationHistory({
@@ -1214,8 +1172,6 @@ void app.whenReady().then(async () => {
   createWindow(
     manager,
     agentManager,
-    brainDumpCapture,
-    brainDumpChanges,
     ticketChanges,
     fileView,
     remote,
@@ -1235,8 +1191,6 @@ void app.whenReady().then(async () => {
       createWindow(
         manager,
         agentManager,
-        brainDumpCapture,
-        brainDumpChanges,
         ticketChanges,
         fileView,
         remote,
@@ -1261,8 +1215,6 @@ void app.whenReady().then(async () => {
     agentManager.killAll()
     void orchestratorEndpoint.close()
     void messagingEndpoint.close()
-    brainDumpCapture.shutdown()
-    brainDumpChanges.shutdown()
     ticketChanges.shutdown()
     fileView.shutdown()
     void remote.shutdown()

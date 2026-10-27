@@ -1,12 +1,10 @@
 /**
  * The docked ticket board's width, shortcut and persisted-choice decisions, kept out of `App.tsx`
  * and the panel view so they can be reasoned about (and tested) without a DOM. The board *consumes* workspace width
- * rather than overlaying the canvas, exactly as the brain-dump panel does, so these bounds are the
+ * rather than overlaying the canvas, so these bounds are the
  * only thing standing between a restored width and a canvas squeezed out of existence.
  *
- * Deliberately not shared with `brain-dump-panel-layout.ts`: the two panels agree on the docking
- * mechanics and on nothing else, and folding both into one module would make every future change
- * to either a negotiation. Where the board's own panes sit *inside* this width is
+ * Where the board's own panes sit *inside* this width is
  * `ticket-board-panes.ts`; this module only answers how much of the workspace the board may take.
  */
 
@@ -97,8 +95,7 @@ export interface TicketBoardShortcutKey {
 export type TicketBoardKeyAction = 'toggle-panel' | 'none'
 
 /**
- * Ctrl+Shift+K toggles the board from anywhere, including from inside a text field: unlike the
- * brain-dump panel's Ctrl+K, it moves no caret and steals no typing, so there is nothing for an
+ * Ctrl+Shift+K toggles the board from anywhere, including from inside a text field: it moves no caret and steals no typing, so there is nothing for an
  * editing context to protect.
  */
 export function ticketBoardKeyAction(event: TicketBoardShortcutKey): TicketBoardKeyAction {

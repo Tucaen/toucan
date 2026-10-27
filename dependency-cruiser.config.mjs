@@ -11,9 +11,6 @@ const mobile = '(^|/)mobile/'
 // other renderer .ts files intentionally own React contexts, browser APIs, or orchestration.
 const pureRendererFeatureNames = [
   'agent-prompt-delivery',
-  'brain-dump-links',
-  'brain-dump-panel-layout',
-  'brain-dump-topics',
   'chat-scroll-follow',
   'completion-token',
   'composer-autosize',

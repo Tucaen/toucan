@@ -9,9 +9,8 @@ import { useMenuNavigation, useOutsidePointerClose } from './menu-keyboard'
  * `role="listbox"` menu, positioned in viewport coordinates so it can escape overflow-clipping
  * ancestors, with the shared keyboard contract - focus moves to the selected option on open,
  * arrows and Home/End rove, Escape closes and returns focus to the trigger, and focus leaving
- * both trigger and menu closes it. `SelectorPicker` (the composer pickers) and
- * `BrainDumpProjectPicker` (the topic chip) are thin skins over this; a third popup listbox
- * should be too.
+ * both trigger and menu closes it. `SelectorPicker` (the composer pickers) is a thin
+ * skin over this; a second popup listbox should be too.
  */
 
 export interface ListboxPickerOption {

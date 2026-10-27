@@ -41,8 +41,8 @@ import { useTicketSkill } from './use-ticket-skill'
  * the middle, and the selected ticket's body on the right. It renders what `use-ticket-board.ts`,
  * `ticket-board.ts` and `ticket-board-panes.ts` already decided; what it genuinely owns is the
  * board's interaction surface - which card's menu is open, which state row a pointer is currently
- * over, where a drag ends, and where focus goes. Like the brain-dump panel it stays mounted once
- * opened and merely hides, so reopening is the same board - re-listed on reopen, because the files
+ * over, where a drag ends, and where focus goes. Once opened it stays mounted
+ * and merely hides, so reopening is the same board - re-listed on reopen, because the files
  * may have moved on while it was hidden.
  *
  * A card never moves because the user dragged it. It moves because the source wrote the change and

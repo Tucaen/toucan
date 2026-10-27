@@ -154,7 +154,7 @@ export async function writeSnapshotAtomically(
 }
 
 /**
- * `writeSnapshotAtomically` for the file *collections* - tickets, brain-dump topics - whose temp
+ * `writeSnapshotAtomically` for the file *collections* - tickets, an edited file in the file view - whose temp
  * file has to stay hidden from the folder listing and the watcher that reads it, whose folder may
  * not exist yet, and whose durability has to cover the directory entry as well as the bytes.
  */

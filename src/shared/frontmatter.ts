@@ -1,13 +1,13 @@
 /**
  * The one frontmatter reader and writer for Toucan's one-file-per-record Markdown collections
- * (brain-dump topics, tickets), and the reader behind showing any document's frontmatter to a
+ * (tickets, session outcomes), and the reader behind showing any document's frontmatter to a
  * human. Deliberately not YAML: a flat `key: value` block, one field per
  * line, no nesting, no quoting rules of its own. Callers that need a richer value (a quoted
  * Windows path, a comma separated list) decode the raw string themselves, so this module stays
  * pure and dependency-free.
  *
- * It offers each operation in two strengths, because its two collections disagree about what a
- * file is. A brain-dump topic is a record Toucan wrote, so `parseFrontmatter` and
+ * It offers each operation in two strengths, because its collections disagree about what a
+ * file is. A session outcome is a record Toucan wrote, so `parseFrontmatter` and
  * `rewriteFrontmatter` reject a block they cannot account for rather than guess at it. A ticket
  * file is a notepad anyone may have typed, so `lenientFrontmatter` and `upsertFrontmatter` take
  * what they can read, copy through what they cannot, and write a block where there is none. The

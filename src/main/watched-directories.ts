@@ -73,8 +73,8 @@ interface WatchEntry {
 }
 
 /**
- * The one debounced directory-watcher mechanism behind the brain-dump, ticket and file-view
- * watchers (issue #164). It owns what those three had triplicated - the per-key debounce with
+ * The one debounced directory-watcher mechanism behind the ticket and file-view watchers
+ * (issue #164). It owns what they had triplicated - the per-key debounce with
  * unref'd timers, the owner bookkeeping with destroyed-owner pruning, the null-filename rule,
  * and error swallowing on the OS watcher - while each caller keeps only its policy: key and
  * payload, filename filter, and when a watcher is released.
@@ -82,8 +82,8 @@ interface WatchEntry {
  * Raw `fs.watch` events are deliberately coalesced per key before anything is published: one
  * durable save is a rename/write burst, and an editor several more.
  *
- * Two membership shapes cover the three policies. `subscribe` is a window that hears every key
- * (brain-dump collections, ticket projects); `hold` is counted per owner and key (two file nodes
+ * Two membership shapes cover the two policies. `subscribe` is a window that hears every key
+ * (ticket projects); `hold` is counted per owner and key (two file nodes
  * on one file must not blind each other), and losing a key's last holder reports through
  * `onUnheld` so the release decision stays with the caller. `shutdown` releases everything
  * without those callbacks - there is no policy left to consult.

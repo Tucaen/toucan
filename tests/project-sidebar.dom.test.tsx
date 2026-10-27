@@ -35,7 +35,6 @@ function intentsSpy(): ProjectSidebarIntents {
     moveProject: vi.fn(),
     moveGroup: vi.fn(),
     dragStarted: vi.fn(),
-    toggleBrainDump: vi.fn(),
     toggleTicketBoard: vi.fn()
   }
 }
@@ -55,7 +54,6 @@ function renderSidebar(overrides: Partial<ProjectSidebarProps> = {}): ProjectSid
       unreadByNode={{}}
       countUnread={() => 0}
       describeUnread={() => ''}
-      brainDumpOpen={false}
       ticketBoardOpen={false}
       canvasControls={<div data-testid="canvas-controls" />}
       {...overrides}

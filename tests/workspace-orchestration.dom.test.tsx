@@ -30,7 +30,6 @@ const stableSnapshotInput = {
   snaps: () => ({}),
   recentlyClosedNodes: [],
   attention: [],
-  brainDumpPanel: { open: false, width: 360 },
   ticketBoardPanel: { open: false, width: 360 }
 } satisfies Omit<WorkspaceSnapshotInput, 'layoutSlots'>
 

@@ -27,8 +27,8 @@ export interface TicketChangeWatcherOptions {
 
 /**
  * Watches each open project's tickets folder and publishes one coalesced event per project; the
- * debounce and owner bookkeeping live in the shared `watched-directories` mechanism. Unlike the
- * brain-dump watcher there is no fixed set of folders: a project is watched the first time its
+ * debounce and owner bookkeeping live in the shared `watched-directories` mechanism. There is no
+ * fixed set of folders: a project is watched the first time its
  * board is listed and stays watched while a window is listening, because a board the user switched
  * away from is the one most likely to have been edited behind their back.
  *

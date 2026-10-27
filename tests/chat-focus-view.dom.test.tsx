@@ -90,7 +90,7 @@ describe('chat focus view', () => {
         id: 'progress-1',
         role: 'assistant' as const,
         presentation: 'progress' as const,
-        text: 'Reading the brain-dump archive.',
+        text: 'Reading the notes archive.',
         complete: true
       },
       {
@@ -112,7 +112,7 @@ describe('chat focus view', () => {
       />
     )
 
-    const progress = screen.getByText('Reading the brain-dump archive.').closest('article')
+    const progress = screen.getByText('Reading the notes archive.').closest('article')
     expect(progress).toHaveAttribute('data-presentation', 'progress')
     expect(screen.getByText('Progress')).toBeTruthy()
     expect(screen.getByText('Created 4 topics.')).toBeTruthy()
@@ -120,7 +120,7 @@ describe('chat focus view', () => {
     rerender(
       <ChatView {...baseChatViewProps} messages={messages} activities={[]} plan={[]} focusMode setFocusMode={vi.fn()} />
     )
-    expect(screen.queryByText('Reading the brain-dump archive.')).toBeNull()
+    expect(screen.queryByText('Reading the notes archive.')).toBeNull()
     expect(screen.getByText('Created 4 topics.')).toBeTruthy()
   })
 

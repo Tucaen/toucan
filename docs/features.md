@@ -57,12 +57,6 @@ The full tour of what Toucan does today. The [README](../README.md) has the shor
   sessions. `Ctrl+Shift+T` reopens the most recently closed session node.
 - Shows retained display-only output for dormant plain terminals and provider account or
   session usage when the provider exposes it.
-- Browses the personal brain-dump library in a resizable panel docked beside the canvas:
-  search active or archived topics, follow `[[slug]]` links, and archive completed topics.
-  Archived topics remain immutable snapshots; later work is captured as a linked active
-  follow-up. Capture a new dump by typing or dictating it for the brain-dump skill to organize
-  in the background. `Ctrl+Shift+B` toggles the panel; `Ctrl+K` focuses its search while it is open.
-
 - Serves a mobile companion to your phone over your own tailnet. The remote server is off
   until you turn it on, pairing is one long token, and the phone shows the workspace's active
   agent chats with status, unread badges and a distinct "needs approval" state. Open one to

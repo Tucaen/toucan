@@ -1,7 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, test, vi } from 'vitest'
-import BrainDumpLifecycleDialog from '../src/renderer/src/BrainDumpLifecycleDialog'
-import BrainDumpPermissionDialog from '../src/renderer/src/BrainDumpPermissionDialog'
 import { CommandGuardSettingsDialog } from '../src/renderer/src/CommandGuardSettingsDialog'
 import ConversationHistoryDialog from '../src/renderer/src/ConversationHistoryDialog'
 import FilePickerDialog from '../src/renderer/src/FilePickerDialog'
@@ -124,27 +122,12 @@ const families: DialogCase[] = [
     )
   },
   {
-    name: 'BrainDumpLifecycleDialog',
-    render: (onClose) => (
-      <BrainDumpLifecycleDialog title="Voice input" pending={false} onArchive={vi.fn()} onCancel={onClose} />
-    )
-  },
-  {
     name: 'OrchestrationSettingsDialog',
     render: (onClose) => <OrchestrationSettingsDialog project={project} onClose={onClose} />
   },
   {
     name: 'CommandGuardSettingsDialog',
     render: (onClose) => <CommandGuardSettingsDialog onClose={onClose} />
-  },
-  {
-    name: 'BrainDumpPermissionDialog',
-    render: (onClose) => (
-      <BrainDumpPermissionDialog
-        approval={{ id: 'a1', title: 'Write topic.md', options: [{ id: 'allow', kind: 'allow_once', label: 'Allow' }] }}
-        onResolve={onClose}
-      />
-    )
   }
 ]
 

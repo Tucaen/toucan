@@ -62,8 +62,8 @@ test('the bundled skills ship with the manifest that makes Claude load them at a
   // this uses - over the include patterns only, since minimatch reports a miss against a `!`
   // exclude as a hit. It is stricter in one way: a magic-free pattern, which electron-builder
   // expands to `<pattern>/**/*` itself, would have to be written out here as the glob it becomes.
-  const required = [PROJECT_SKILLS_MANIFEST_SEGMENTS, projectSkillFileSegments('brain-dump')].map((segments) =>
-    segments.join('/')
+  const required = [PROJECT_SKILLS_MANIFEST_SEGMENTS, projectSkillFileSegments('implement-in-worktree')].map(
+    (segments) => segments.join('/')
   )
   for (const [option, patterns] of [
     ['files', manifest.build?.files ?? []],

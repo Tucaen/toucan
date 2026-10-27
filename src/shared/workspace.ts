@@ -177,23 +177,6 @@ export function nodeFocusMode(node: Pick<WorkspaceTerminalNode, 'focusMode' | 'w
 }
 
 /**
- * The docked brain-dump library's persisted shape. Everything here outlives a restart for the same
- * reason a node's composer draft does: the user typed it, or sized it, and losing it would be a
- * silent discard. Width is stored raw and clamped against the current window on load, so shrinking
- * the application never permanently narrows the panel.
- */
-export interface BrainDumpPanelState {
-  open: boolean
-  width: number
-  /** An unsent capture draft, cleared only by a confirmed capture or an explicit Discard. */
-  draft?: string
-  /** The project the draft is filed under; absent means the user chose Unassigned. */
-  draftProjectPath?: string
-  /** The last provider a capture succeeded with; absent falls back to Codex. */
-  provider?: AgentProvider
-}
-
-/**
  * The board is a projection of files on disk, so there is nothing about a ticket worth persisting
  * here - only where the panel sits and whether it is open.
  */
@@ -258,8 +241,6 @@ export interface WorkspaceState {
   files?: WorkspaceFileNode[]
   /** Diff nodes on the canvas, optional and written only when present for the same reason as `files`. */
   diffs?: WorkspaceDiffNode[]
-  /** Absent in every snapshot written before the library existed; the panel starts closed there. */
-  brainDumpPanel?: BrainDumpPanelState
   /** Absent in every snapshot written before the board existed; the panel starts closed there. */
   ticketBoardPanel?: TicketBoardPanelState
   /**

@@ -40,7 +40,6 @@ import type { FileViewMode } from '../../shared/file-view'
 import { pathIdentity, pathWithinRoot } from '../../shared/paths'
 import { placeholderBranchName, type WorktreeHandoffPlan } from '../../shared/worktree-handoff'
 import { AppHeader, type CanvasNotice } from './AppHeader'
-import { brainDumpPanelKeyAction } from './brain-dump-panel-layout'
 import { ticketBoardKeyAction } from './ticket-board-layout'
 import { ticketSessionsFromNodes, type TicketActivityReport } from './ticket-activity'
 import { createTicketFileSource } from './ticket-file-source'
@@ -368,11 +367,10 @@ function Canvas(): JSX.Element {
   /** Whether the picker will create a node or return a new path to an existing file node. */
   const [filePickerRequest, setFilePickerRequest] = useState<FilePickerRequest | null>(null)
   const filePickerResolver = useRef<((path: string | null) => void) | null>(null)
-  // Where the two docked panels sit and whether they are mounted; what they show is their own.
+  // Where the docked ticket board sits and whether it is mounted; what it shows is its own.
   const panels = useWorkspacePanels()
   const { restore: restorePanels } = panels
   // Stable pieces the window key handler binds on, so it never re-binds on a panel resize.
-  const { toggle: toggleBrainDumpPanel, openRef: brainDumpOpenRef } = panels.brainDump
   const { toggle: toggleTicketBoardPanel } = panels.ticketBoard
   // Built once, in board order: the files in the checkout are always on, GitHub is offered per
   // project. A further tracker is another entry here and nothing else above the seam.
@@ -1794,7 +1792,6 @@ function Canvas(): JSX.Element {
     recentlyClosedNodes,
     attention,
     layoutSlots,
-    brainDumpPanel: panels.brainDump.state,
     ticketBoardPanel: panels.ticketBoard.state
   })
 
@@ -2284,11 +2281,6 @@ function Canvas(): JSX.Element {
       const editingTextarea = target instanceof HTMLTextAreaElement
       const editingText =
         target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || !!target?.isContentEditable
-      if (brainDumpPanelKeyAction(event, { panelOpen: brainDumpOpenRef.current, editingText }) === 'toggle-panel') {
-        event.preventDefault()
-        toggleBrainDumpPanel()
-        return
-      }
       if (ticketBoardKeyAction(event) === 'toggle-panel') {
         event.preventDefault()
         toggleTicketBoardPanel()
@@ -2323,10 +2315,8 @@ function Canvas(): JSX.Element {
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [
-    brainDumpOpenRef,
     overlayOpen,
     reopenLastClosedSession,
-    toggleBrainDumpPanel,
     toggleTicketBoardPanel,
     runCreateAction,
     runLayoutAction,
@@ -2456,37 +2446,6 @@ function Canvas(): JSX.Element {
       setHistoryDrop(null)
     },
     [addSessionNode, focusNode, historyDrop]
-  )
-
-  /**
-   * A failed capture is still a real provider conversation, so it reopens as an ordinary resumable
-   * node rather than growing a second transcript UI inside the panel. The node is owned by whichever
-   * registered project the job ran in; an unassigned capture ran in the home directory, so it falls
-   * back to the active project.
-   */
-  const openBrainDumpSession = useCallback(
-    (conversation: { provider: TerminalKind; conversationId: string; cwd: string }): void => {
-      const project =
-        projectsRef.current.find((candidate) => pathWithinRoot(candidate.path, conversation.cwd) === '') ??
-        projectsRef.current.find((candidate) => candidate.id === activeProjectId) ??
-        projectsRef.current[0]
-      if (!project) return
-      const plan = isAgentProvider(conversation.provider)
-        ? planHistoryOpen(nodesRef.current, { provider: conversation.provider, id: conversation.conversationId })
-        : undefined
-      if (plan?.action === 'focus') {
-        focusNode(plan.nodeId)
-        return
-      }
-      addSessionNode({
-        kind: conversation.provider,
-        project,
-        position: centredDropPosition(NEW_SESSION_NODE_SIZE),
-        label: 'Brain dump capture',
-        resumeConversationId: conversation.conversationId
-      })
-    },
-    [activeProjectId, addSessionNode, centredDropPosition, focusNode]
   )
 
   /**
@@ -2795,7 +2754,6 @@ function Canvas(): JSX.Element {
       moveProject: handleMoveProject,
       moveGroup: handleMoveGroup,
       dragStarted: closeProjectMenuForDrag,
-      toggleBrainDump: toggleBrainDumpPanel,
       toggleTicketBoard: toggleTicketBoardPanel
     }),
     [
@@ -2812,7 +2770,6 @@ function Canvas(): JSX.Element {
       removeProject,
       renameProjectGroup,
       selectProject,
-      toggleBrainDumpPanel,
       toggleProjectGroup,
       toggleSidebarCollapsed,
       toggleTicketBoardPanel
@@ -2982,7 +2939,6 @@ function Canvas(): JSX.Element {
                   unreadByNode={unreadByNode}
                   countUnread={countUnread}
                   describeUnread={describeUnread}
-                  brainDumpOpen={panels.brainDump.state.open}
                   ticketBoardOpen={panels.ticketBoard.state.open}
                   intents={sidebarIntents}
                   canvasControls={
@@ -3099,13 +3055,11 @@ function Canvas(): JSX.Element {
 
                 <WorkspacePanels
                   panels={panels}
-                  projects={projects}
                   activeProject={activeProject}
                   ticketsFolderRevision={ticketsFolderRevision}
                   ticketSources={ticketSources}
                   ticketSessions={ticketSessions}
                   onFocusSession={focusNode}
-                  onOpenBrainDumpSession={openBrainDumpSession}
                 />
               </div>
 

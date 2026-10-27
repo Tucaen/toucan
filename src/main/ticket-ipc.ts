@@ -11,7 +11,7 @@ import type { WorkspaceContainment } from './workspace-containment'
 
 /**
  * Everything the ticket channels are wired to. `reveal` and `isGitRepository` are injected rather
- * than imported so this module stays free of Electron and of git, exactly as `brain-dump-ipc.ts` is.
+ * than imported so this module stays free of Electron and of git, so it is testable without either.
  */
 export interface TicketIpcDependencies {
   containment: Pick<WorkspaceContainment, 'contains'>

@@ -14,11 +14,9 @@ import { writeThroughTemporary } from './durable-file'
  * caches a ticket between calls - every listing is a fresh read of the folder, which is what lets
  * an agent, an editor and the board all write the same folder without a reconciliation step.
  *
- * Deliberately not built on `brain-dump-library.ts`: that module knows about two collections, an
- * immutable archive and capture jobs, none of which a ticket has. What the two do share is spelled
- * as code rather than copied - `writeThroughTemporary` in `durable-file.ts` for the write, and
- * `shared/frontmatter.ts` through `readTicket` when listing and `upsertFrontmatter` when writing a
- * status back.
+ * What it builds on is shared code rather than copies - `writeThroughTemporary` in
+ * `durable-file.ts` for the write, and `shared/frontmatter.ts` through `readTicket` when listing and
+ * `upsertFrontmatter` when writing a status back.
  *
  * Reading a file here cannot fail (see `shared/tickets.ts`), so the only diagnostics this source
  * ever produces are about the file rather than its contents: a name that is not an id, or bytes it

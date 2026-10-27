@@ -830,6 +830,26 @@ test("a project's tickets folder override round-trips, and a non-string one is r
   rmSync(directory, { recursive: true, force: true })
 })
 
+test('a workspace saved with the removed brain-dump panel still opens, and the field is dropped (#57)', async () => {
+  const base = makeState('Toucan')
+  const legacy = { ...base, brainDumpPanel: { open: true, width: 360, draft: 'half a thought', provider: 'codex' } }
+
+  const parsed = parseWorkspaceState(legacy)
+  assert.ok(parsed)
+  assert.equal('brainDumpPanel' in parsed, false)
+  // Even a malformed one is ignored: nothing reads it, so it is no reason to refuse a canvas.
+  assert.equal('brainDumpPanel' in (parseWorkspaceState({ ...base, brainDumpPanel: 'open' }) ?? {}), false)
+
+  const directory = mkdtempSync(join(tmpdir(), 'toucan-workspace-test-'))
+  const path = join(directory, 'workspace.json')
+  writeFileSync(path, JSON.stringify(legacy), 'utf8')
+  const loaded = await createWorkspaceStore(path).load()
+  assert.equal(loaded.unrecoverable, false)
+  assert.equal(loaded.state?.projects[0].name, 'Toucan')
+  assert.equal('brainDumpPanel' in (loaded.state ?? {}), false)
+  rmSync(directory, { recursive: true, force: true })
+})
+
 test('the ticket board panel round-trips, and a malformed one is refused rather than repaired', () => {
   const base = makeState('Toucan')
 

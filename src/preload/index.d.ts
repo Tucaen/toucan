@@ -6,7 +6,6 @@ import type { WorktreeApi } from '../shared/worktree'
 import type { ConversationApi } from '../shared/conversation'
 import type { WorkspaceFilesApi } from '../shared/workspace-files'
 import type { RemoteApi } from '../shared/remote-api'
-import type { BrainDumpApi } from '../shared/brain-dump'
 import type { TicketFilesApi, TicketGithubApi } from '../shared/ticket-source'
 import type { TicketSkillApi } from '../shared/ticket-skill'
 import type { AppUpdateApi } from '../shared/app-update'
@@ -43,7 +42,6 @@ declare global {
     orchestratorApi: OrchestratorApi
     orchestrationSettingsApi: OrchestrationSettingsApi
     commandGuardSettingsApi: CommandGuardSettingsApi
-    brainDumpApi: BrainDumpApi
     ticketsApi: TicketFilesApi
     ticketSkillApi: TicketSkillApi
     githubIssuesApi: TicketGithubApi

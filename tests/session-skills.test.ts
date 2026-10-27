@@ -17,7 +17,7 @@ test('Toucan ships no tickets skill, so a project only ever sees the one it wrot
   // commit. The skills named are what Toucan does ship; a new one is a decision, this is a guard.
   const shipped = readdirSync(join(process.cwd(), PROJECT_SKILLS_DIRECTORY, 'skills'))
   assert.ok(!shipped.includes(TICKET_SKILL_NAME), 'Toucan must ship no tickets skill of its own')
-  assert.ok(shipped.includes('brain-dump') && shipped.includes('implement-in-worktree'))
+  assert.ok(shipped.includes('implement-in-worktree'))
 })
 
 test('Toucan skills remain available when a Codex node works in another project', () => {
@@ -50,7 +50,7 @@ test('Claude loads both project-local and Toucan-owned skills for another projec
 
 test("a request's own directories join the skills root without duplicates", () => {
   const toucanRoot = 'D:\\Development\\ADE'
-  const library = 'C:\\Users\\Ada\\AppData\\Roaming\\toucan\\brain-dumps'
+  const library = 'C:\\Users\\Ada\\AppData\\Roaming\\toucan\\notes'
   assert.deepEqual(withAdditionalDirectories({ additionalDirectories: [toucanRoot] }, [library, toucanRoot]), {
     additionalDirectories: [toucanRoot, library]
   })

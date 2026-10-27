@@ -4,7 +4,7 @@ import { isAbsolutePath, pathIdentity, pathWithinRoot } from '../src/shared/path
 
 /**
  * "Are these two strings the same file?" is asked by the ticket board's attribution, the file
- * node's watcher and the brain-dump library's project association, and it has one answer. These
+ * node's watcher, and it has one answer. These
  * are the spellings one checkout genuinely reaches Toucan under, and the ones that only look alike.
  */
 
@@ -58,7 +58,7 @@ test('the locale is pinned, so a Turkish host still matches a drive letter', () 
 })
 
 test('it compares, and does not resolve: `..` is left exactly where it was written', () => {
-  // Callers that need `..` resolved layer `node:path` over this (see `brain-dump-capture.ts`), and
+  // Callers that need `..` resolved layer `node:path` over this, and
   // callers deciding whether a path is *inside* a root use `createWorkspaceContainment` instead -
   // this function must never be mistaken for that check.
   notEqual(pathIdentity('D:/Development/Toucan/../Toucan'), pathIdentity('D:/Development/Toucan'))
