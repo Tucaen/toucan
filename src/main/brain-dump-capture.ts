@@ -148,6 +148,12 @@ export function createBrainDumpCaptureManager(options: BrainDumpCaptureManagerOp
         const text = `${assistantMessages.get(event.messageId) ?? ''}${event.text}`
         assistantMessages.set(event.messageId, text)
         summary = text.trim()
+        // Only a provider-tagged final answer may end the capture early. codex-acp 2.x sends no phase
+        // to a client that does not declare JetBrains AIR, so Codex text arrives untagged, exactly as
+        // Claude's always does, and an untagged message may be commentary with a tool call still to
+        // come: completing here would cancel the skill mid-filing. Untagged turns end where the
+        // provider ends them - the prompt settling below, which codex-acp does right after
+        // `turn/completed` (it holds it back only for outstanding native subagents).
         if (event.presentation === 'final') completeAfterFinalAnswer(envelope.id)
       }
     }

@@ -242,6 +242,33 @@ test('a streamed final answer completes capture when the ACP prompt never settle
   assert.deepEqual(agent.cancellations, ['job-1'])
 })
 
+test('a Codex turn without a message phase completes when the prompt settles, with its last message as the summary', async () => {
+  const agent = new FakeAgent()
+  const turn = deferred<AgentPromptResult>()
+  agent.promptResult = turn.promise
+  const states: BrainDumpCaptureState[] = []
+  const capture = manager(agent, states, { finalAnswerGraceMs: 0 })
+  await capture.start({ content: 'Idea', provider: 'codex' })
+  // codex-acp 2.x sends no phase to a non-AIR client: neither message carries a presentation.
+  agent.event({ type: 'message', role: 'assistant', messageId: 'item-1', text: 'Reading the library.' })
+  agent.event({ type: 'message', role: 'assistant', messageId: 'item-2', text: 'Created 1 topic ' })
+  agent.event({ type: 'message', role: 'assistant', messageId: 'item-2', text: '(Idea).' })
+  await new Promise((resolve) => setTimeout(resolve, 10))
+  assert.deepEqual(capture.current(), { status: 'working', jobId: 'job-1' }, 'untagged text may be commentary')
+  assert.deepEqual(agent.cancellations, [])
+
+  turn.resolve({ ok: true })
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.deepEqual(capture.current(), {
+    status: 'completed',
+    jobId: 'job-1',
+    summary: 'Created 1 topic (Idea).',
+    conversation: { provider: 'codex', conversationId: 'conversation-1', cwd: 'C:\\Users\\Ada' }
+  })
+  assert.equal(states.at(-1)?.status, 'completed')
+  assert.deepEqual(agent.cancellations, [])
+})
+
 describe('startup, authentication, prompt, timeout, and cancellation become structured resumable failures', () => {
   test('startup', async () => {
     const agent = new FakeAgent()
