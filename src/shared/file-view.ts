@@ -5,6 +5,7 @@
  */
 
 import type { LineEnding } from './line-endings'
+import type { WorkspaceSnapSlice } from './workspace'
 
 export type FileViewMode = 'rendered' | 'raw'
 
@@ -24,6 +25,8 @@ export interface WorkspaceFileNode {
   position: { x: number; y: number }
   width: number
   height: number
+  /** Where an Alt+Arrow snap put the node, so a restart still knows its slice. Absent when not snapped. */
+  snapSlice?: WorkspaceSnapSlice
 }
 
 /**

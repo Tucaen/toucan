@@ -1106,3 +1106,58 @@ test('a persisted command guard choice is only ever false, and only on a chat', 
   assert.equal(isWorkspaceState(withNode({ commandGuard: 'off' })), false)
   assert.equal(isWorkspaceState(withNode({ commandGuard: false }, 'terminal')), false)
 })
+
+test('a saved snap slice is accepted on every node kind, a malformed one is refused, absence still loads', () => {
+  const base = makeState('Toucan')
+  const slice = { h: 'right', v: 'top' }
+  const file = {
+    id: 'file-1',
+    projectId: 'project-1',
+    path: 'D:/x.md',
+    view: 'raw' as const,
+    position: { x: 0, y: 0 },
+    width: 400,
+    height: 300
+  }
+  const diff = { id: 'diff-1', projectId: 'project-1', position: { x: 0, y: 0 }, width: 400, height: 300 }
+  assert.deepEqual(
+    parseWorkspaceState({ ...base, files: [{ ...file, snapSlice: slice }] })?.files?.[0].snapSlice,
+    slice
+  )
+  assert.deepEqual(
+    parseWorkspaceState({ ...base, diffs: [{ ...diff, snapSlice: slice }] })?.diffs?.[0].snapSlice,
+    slice
+  )
+  assert.equal(parseWorkspaceState({ ...base, files: [{ ...file, snapSlice: { h: 'middle', v: 'top' } }] }), null)
+  assert.equal(parseWorkspaceState({ ...base, diffs: [{ ...diff, snapSlice: 'left' }] }), null)
+  assert.ok(parseWorkspaceState({ ...base, files: [file], diffs: [diff] }))
+  const node = {
+    id: 'n1',
+    kind: 'terminal' as const,
+    label: 'T',
+    projectId: 'project-1',
+    position: { x: 0, y: 0 },
+    width: 5,
+    height: 5
+  }
+  const worktree = {
+    id: 'w1',
+    projectId: 'project-1',
+    branch: 'b',
+    path: 'p',
+    baseRef: 'main',
+    createdAt: 'x',
+    position: { x: 0, y: 0 },
+    width: 5,
+    height: 5
+  }
+  const saved = parseWorkspaceState({
+    ...base,
+    nodes: [{ ...node, snapSlice: slice }],
+    worktrees: [{ ...worktree, snapSlice: slice }]
+  })
+  assert.deepEqual(saved?.nodes[0].snapSlice, slice)
+  assert.deepEqual(saved?.worktrees[0].snapSlice, slice)
+  assert.equal(parseWorkspaceState({ ...base, nodes: [{ ...node, snapSlice: { h: 'left' } }] }), null)
+  assert.equal(parseWorkspaceState({ ...base, worktrees: [{ ...worktree, snapSlice: 5 }] }), null)
+})

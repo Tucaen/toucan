@@ -8,6 +8,7 @@
 import type { GitBranchListResult, GitBranchState, GitCheckoutRequest, GitCheckoutResult } from './git-branch'
 import type { GitDiffRequest, GitDiffSummary, GitFileDiff, GitFileDiffRequest } from './git-diff'
 import { pathIdentity } from './paths'
+import type { WorkspaceSnapSlice } from './workspace'
 
 export interface WorkspaceWorktree {
   id: string
@@ -24,6 +25,8 @@ export interface WorkspaceWorktree {
   position: { x: number; y: number }
   width: number
   height: number
+  /** Where an Alt+Arrow snap put the node, so a restart still knows its slice. Absent when not snapped. */
+  snapSlice?: WorkspaceSnapSlice
   /**
    * Where the worktree's own canvas of chats was panned and zoomed to. Absent until the user or a
    * Fit chats first moves it, and in every snapshot written before worktrees hosted chats; the

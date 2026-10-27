@@ -1368,3 +1368,43 @@ test('a node whose command guard is off keeps that choice through save and resto
   const reenabled = { ...open, data: { ...open.data, commandGuard: undefined } }
   assert.equal('commandGuard' in serializeCanvasNode(reenabled), false)
 })
+
+test('an Alt+Arrow slice is saved on every node kind and comes back on restore', () => {
+  const state: WorkspaceState = {
+    ...worktreeState(),
+    files: [
+      {
+        id: 'file-1',
+        projectId: 'project-1',
+        path: 'D:/Development/Toucan/README.md',
+        view: 'rendered',
+        position: { x: 0, y: 0 },
+        width: 400,
+        height: 300
+      }
+    ],
+    diffs: [{ id: 'diff-1', projectId: 'project-1', position: { x: 0, y: 0 }, width: 400, height: 300 }]
+  }
+  const restored = restoreCanvasWorkspace(state, callbacks)
+  assert.deepEqual(restored.snapSlices, {})
+
+  const slices: Record<string, { h: 'left' | 'right'; v: 'full' | 'top' }> = {}
+  restored.nodes.forEach((node, index) => {
+    slices[node.id] = { h: index % 2 ? 'left' : 'right', v: index % 3 ? 'full' : 'top' }
+  })
+  const saved = serializeCanvasNodes(restored.nodes, undefined, undefined, (id) => slices[id])
+  const records = [...saved.nodes, ...saved.worktrees, ...(saved.files ?? []), ...(saved.diffs ?? [])]
+  assert.equal(records.length, restored.nodes.length)
+  assert.ok(records.every((record) => record.snapSlice !== undefined))
+
+  const again = restoreCanvasWorkspace({ ...state, ...saved }, callbacks)
+  assert.deepEqual(again.snapSlices, slices)
+
+  // Nothing snapped: no field, so old workspaces keep their shape.
+  const plain = serializeCanvasNodes(restored.nodes)
+  assert.ok(
+    [...plain.nodes, ...plain.worktrees, ...(plain.files ?? []), ...(plain.diffs ?? [])].every(
+      (r) => !('snapSlice' in r)
+    )
+  )
+})

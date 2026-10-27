@@ -6,6 +6,8 @@
  * and hands the output here, so what a shape means is decided exactly once.
  */
 
+import type { WorkspaceSnapSlice } from './workspace'
+
 /** How a diff node persists: which checkout it reviews and where it sits, never any git output. */
 export interface WorkspaceDiffNode {
   id: string
@@ -23,6 +25,8 @@ export interface WorkspaceDiffNode {
   position: { x: number; y: number }
   width: number
   height: number
+  /** Where an Alt+Arrow snap put the node, so a restart still knows its slice. Absent when not snapped. */
+  snapSlice?: WorkspaceSnapSlice
   /** The file whose hunks were open, relative to the checkout, so a restart reopens the same review. */
   selectedPath?: string
 }

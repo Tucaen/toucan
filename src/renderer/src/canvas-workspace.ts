@@ -7,6 +7,7 @@ import type {
   AgentPermissionModes,
   CanvasNodeStateField,
   ConversationLineage,
+  WorkspaceSnapSlice,
   WorkspaceState,
   WorkspaceTerminalNode
 } from '../../shared/workspace'
@@ -584,6 +585,8 @@ export interface RestoredCanvasWorkspace {
   statuses: Record<string, TerminalNodeStatus>
   nextSessionNumber: number
   activeProjectId: string
+  /** The Alt+Arrow slice each restored node was saved in, by node id; absent for a node that was not snapped. */
+  snapSlices: Record<string, WorkspaceSnapSlice>
 }
 
 /** How far each retry of `cascadedNodePosition` steps, and how many times it may step. */
@@ -1328,12 +1331,15 @@ export const CANVAS_NODE_KINDS: readonly CanvasNodeKindEntry[] = [
  * The persisted half of every canvas node, one array per kind, in one pass over the canvas.
  *
  * `beforeSave` runs first on each node, which is how a node maximised into fit mode is persisted
- * at the geometry it will return to rather than filling the canvas.
+ * at the geometry it will return to rather than filling the canvas. `snapSliceOf` names the
+ * Alt+Arrow slice a node is arranged in, written onto its record for every kind alike so a restart
+ * can bring the arrangement back; a node it names nothing for gets no field.
  */
 export function serializeCanvasNodes(
   nodes: readonly CanvasNode[],
   beforeSave: (node: CanvasNode) => CanvasNode = (node) => node,
-  kinds: readonly CanvasNodeKindEntry[] = CANVAS_NODE_KINDS
+  kinds: readonly CanvasNodeKindEntry[] = CANVAS_NODE_KINDS,
+  snapSliceOf: (nodeId: string) => WorkspaceSnapSlice | undefined = () => undefined
 ): Pick<WorkspaceState, 'nodes' | 'worktrees' | 'files' | 'diffs'> {
   // Seeded from the standard table's `alwaysPersisted` entries, so the two fields version 3 has
   // always had are written even when the canvas has none of them - and so the return type stays
@@ -1342,7 +1348,12 @@ export function serializeCanvasNodes(
     CANVAS_NODE_KINDS.filter((kind) => kind.alwaysPersisted).map((kind) => [kind.field, []])
   )
   for (const kind of kinds) {
-    const records = nodes.filter((node) => kind.is(node)).map((node) => kind.serialize(beforeSave(node)))
+    const records = nodes
+      .filter((node) => kind.is(node))
+      .map((node) => {
+        const slice = snapSliceOf(node.id)
+        return { ...(kind.serialize(beforeSave(node)) as object), ...(slice ? { snapSlice: slice } : {}) }
+      })
     if (records.length > 0 || kind.alwaysPersisted) snapshot[kind.field] = records
   }
   // Sound by the seeding above; the erasure is what costs the cast, not the shape.
@@ -1454,12 +1465,16 @@ export function restoreCanvasWorkspace(
     state.agentPermissionModes
   )
 
+  const snapSlices: Record<string, WorkspaceSnapSlice> = {}
   const nodes = kinds.flatMap((kind) =>
     savedRecords(state, kind.field).flatMap((record) => {
       const project = projectsById.get(record.projectId)
       if (!project) return []
       const node = kind.restore(record, project, context, callbacks)
-      return node ? [node] : []
+      if (!node) return []
+      const { snapSlice } = record as { snapSlice?: WorkspaceSnapSlice }
+      if (snapSlice) snapSlices[node.id] = snapSlice
+      return [node]
     })
   )
 
@@ -1473,6 +1488,7 @@ export function restoreCanvasWorkspace(
     nodes,
     statuses: Object.fromEntries(sessionNodes.map((node) => [node.id, sessionNodeStatus(node)])),
     nextSessionNumber: highestSessionNumber + 1,
+    snapSlices,
     activeProjectId: state.projects.some((project) => project.id === state.activeProjectId)
       ? state.activeProjectId!
       : state.projects[0].id

@@ -3,7 +3,7 @@ import type { Node, Viewport } from '@xyflow/react'
 import { useRef, useState } from 'react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { tileNodes } from '../src/renderer/src/canvas-layout'
-import { NODE_FIT_INSET } from '../src/renderer/src/node-snap'
+import { NODE_FIT_INSET, persistedSnapSlice, viewportShowingNode } from '../src/renderer/src/node-snap'
 import { useNodeSnap, type NodeSnapController } from '../src/renderer/src/use-node-snap'
 
 type TestNode = Node<{ fittedToCanvas?: boolean; canvas?: string }>
@@ -276,6 +276,32 @@ describe('canvas snap mode', () => {
     for (const node of nodes) expect(node.data.fittedToCanvas).toBe(false)
     // Tiled, not left where the maximise put it.
     expect(nodes[0].position).toEqual({ x: NODE_FIT_INSET, y: NODE_FIT_INSET })
+  })
+
+  test('a slice saved before a restart is adopted: the jump keeps the node in its half and a real drag releases it', () => {
+    act(() => controller.snap(['a'], 'right'))
+    const saved = persistedSnapSlice(controller.state(), 'a')
+    expect(saved).toEqual({ h: 'right', v: 'full' })
+    const slicedNode = nodes[0]
+
+    // A restart: the controller forgets everything, then the saved slice is hydrated with the nodes.
+    act(() => controller.release())
+    expect(controller.state()).toEqual({})
+    act(() => {
+      controller.hydrate([slicedNode, nodes[1]], { a: saved! })
+      writeNodes([slicedNode, nodes[1]])
+    })
+    expect(controller.state().a).toMatchObject({ h: 'right', v: 'full' })
+
+    const shown = viewportShowingNode(slicedNode, controller.state().a, rect.current, viewport, NODE_FIT_INSET)!
+    expect(shown.x + slicedNode.position.x + 968 / 2 - 8).toBeCloseTo(rect.current.width - NODE_FIT_INSET)
+
+    act(() =>
+      controller.observeChanges([
+        { id: 'a', type: 'position', dragging: true, position: { x: slicedNode.position.x - 200, y: 60 } }
+      ])
+    )
+    expect(persistedSnapSlice(controller.state(), 'a')).toBeUndefined()
   })
 })
 

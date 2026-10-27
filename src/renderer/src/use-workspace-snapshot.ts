@@ -15,7 +15,7 @@ import type {
   WorkspaceTerminalNode
 } from '../../shared/workspace'
 import { serializeCanvasNodes, type CanvasNode } from './canvas-workspace'
-import { nodeBeforeTemporaryFit, type SnapStates } from './node-snap'
+import { nodeBeforeTemporaryFit, persistedSnapSlice, type SnapStates } from './node-snap'
 
 /**
  * Everything the persisted snapshot is built from, in one object. Every field is read by
@@ -71,7 +71,12 @@ function buildWorkspaceSnapshot(input: WorkspaceSnapshotInput): WorkspaceState {
     ...(dictationCleanup.enabled || dictationCleanup.claudeModelId ? { dictationCleanup } : {}),
     // One array per node kind, from the one table that knows how each is persisted - including
     // which of them stay absent from the snapshot rather than being written empty.
-    ...serializeCanvasNodes(input.nodes, (node) => nodeBeforeTemporaryFit(node, input.snaps())),
+    ...serializeCanvasNodes(
+      input.nodes,
+      (node) => nodeBeforeTemporaryFit(node, input.snaps()),
+      undefined,
+      (nodeId) => persistedSnapSlice(input.snaps(), nodeId)
+    ),
     recentlyClosedNodes: input.recentlyClosedNodes,
     attention: [...input.attention],
     // Absent rather than empty, like `projectGroups`, so a workspace that never saved a slot keeps

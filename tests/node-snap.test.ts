@@ -4,8 +4,10 @@ import { test } from 'vitest'
 import {
   MAXIMISED,
   canvasRegion,
+  hydrateSnaps,
   nextSnapSlice,
   nodeBeforeTemporaryFit,
+  persistedSnapSlice,
   reflowSnappedNodes,
   reflowSnappedNodesWithin,
   releaseSnaps,
@@ -351,4 +353,43 @@ test('reflow within one canvas moves only the nodes snapped on it', () => {
     reflowSnappedNodesWithin(both.nodes, both.snaps, grown, 16, () => false),
     both.nodes
   )
+})
+
+test('a restored slice survives a restart: the sidebar jump keeps the node in its slice', () => {
+  const [a, b] = nodes()
+  const right = snapNode([a, b], {}, 'a', 'right', region, 16)
+  const persisted = persistedSnapSlice(right.snaps, 'a')
+  deepEqual(persisted, { h: 'right', v: 'full' })
+
+  // A restart: the node comes back at its slice geometry, and only the saved slice is known.
+  const restored = hydrateSnaps(right.nodes, { a: persisted! })
+  deepEqual(restored.a.h, 'right')
+  const placed = right.nodes.find((node) => node.id === 'a')!
+  const shown = viewportShowingNode(placed, restored.a, canvas, { x: 0, y: 0, zoom: 1 }, 16)!
+  // Against the right inset, not centred.
+  equal(placed.position.x * shown.zoom + shown.x + placed.style.width, canvas.width - 16)
+  const centred = viewportShowingNode(placed, undefined, canvas, { x: 0, y: 0, zoom: 1 }, 16)!
+  equal(centred.x === shown.x, false)
+})
+
+test('a maximised node has no persisted slice and a hydrated one is never maximised', () => {
+  const [a, b] = nodes()
+  const full = snapNode([a, b], {}, 'a', 'up', region, 16)
+  equal(persistedSnapSlice(full.snaps, 'a'), undefined)
+  deepEqual(hydrateSnaps(full.nodes, { a: MAXIMISED }), {})
+  deepEqual(hydrateSnaps(full.nodes, { missing: { h: 'left', v: 'full' } }), {})
+})
+
+test('releasing a hydrated snap clears what would be persisted', () => {
+  const [a, b] = nodes()
+  const left = snapNode([a, b], {}, 'a', 'left', region, 16)
+  const hydrated = hydrateSnaps(left.nodes, { a: { h: 'left', v: 'full' } })
+  const placed = left.nodes.find((node) => node.id === 'a')!
+  const drag: NodeChange[] = [
+    { id: 'a', type: 'position', dragging: true, position: { x: placed.position.x + 50, y: placed.position.y } }
+  ]
+  const released = snapsReleasedByChanges(drag, hydrated, left.nodes)
+  deepEqual(released, ['a'])
+  equal(persistedSnapSlice(releaseSnaps(left.nodes, hydrated, released).snaps, 'a'), undefined)
+  equal(persistedSnapSlice(restoreSnappedNode(left.nodes, hydrated, 'a').snaps, 'a'), undefined)
 })

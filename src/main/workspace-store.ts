@@ -13,6 +13,7 @@ import { isRoutineDelegationPreference } from '../shared/routine-delegation'
 import { isDictationCleanupPreference } from '../shared/dictation-cleanup'
 import {
   isComposerSendKey,
+  isWorkspaceSnapSlice,
   nodeFocusMode,
   RECENTLY_CLOSED_SESSION_LIMIT,
   type CanvasNodeStateField,
@@ -60,6 +61,7 @@ function isWorkspaceWorktree(value: unknown): boolean {
     typeof worktree.position?.y === 'number' &&
     typeof worktree.width === 'number' &&
     typeof worktree.height === 'number' &&
+    (worktree.snapSlice === undefined || isWorkspaceSnapSlice(worktree.snapSlice)) &&
     (worktree.collapsed === undefined || typeof worktree.collapsed === 'boolean') &&
     (worktree.viewport === undefined ||
       (!!worktree.viewport &&
@@ -83,7 +85,8 @@ function isWorkspaceFileNode(value: unknown): boolean {
     typeof file.position?.x === 'number' &&
     typeof file.position?.y === 'number' &&
     typeof file.width === 'number' &&
-    typeof file.height === 'number'
+    typeof file.height === 'number' &&
+    (file.snapSlice === undefined || isWorkspaceSnapSlice(file.snapSlice))
   )
 }
 
@@ -99,7 +102,8 @@ function isWorkspaceDiffNode(value: unknown): boolean {
     typeof diff.position?.x === 'number' &&
     typeof diff.position?.y === 'number' &&
     typeof diff.width === 'number' &&
-    typeof diff.height === 'number'
+    typeof diff.height === 'number' &&
+    (diff.snapSlice === undefined || isWorkspaceSnapSlice(diff.snapSlice))
   )
 }
 
@@ -164,6 +168,7 @@ function isWorkspaceTerminalNode(value: unknown): boolean {
     typeof node.position?.y === 'number' &&
     typeof node.width === 'number' &&
     typeof node.height === 'number' &&
+    (node.snapSlice === undefined || isWorkspaceSnapSlice(node.snapSlice)) &&
     (node.conversationId === undefined || typeof node.conversationId === 'string') &&
     (node.focusMode === undefined || typeof node.focusMode === 'boolean') &&
     (node.worklogCollapsed === undefined || typeof node.worklogCollapsed === 'boolean') &&

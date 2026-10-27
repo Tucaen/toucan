@@ -97,6 +97,18 @@ export interface ConversationLineage {
   conversationId: string
 }
 
+/** Which part of its canvas an Alt+Arrow snap put a node in; the same shape as the renderer's `SnapSlice`. */
+export interface WorkspaceSnapSlice {
+  h: 'full' | 'left' | 'right'
+  v: 'full' | 'top' | 'bottom'
+}
+
+export function isWorkspaceSnapSlice(value: unknown): value is WorkspaceSnapSlice {
+  if (!value || typeof value !== 'object') return false
+  const { h, v } = value as Partial<WorkspaceSnapSlice>
+  return (h === 'full' || h === 'left' || h === 'right') && (v === 'full' || v === 'top' || v === 'bottom')
+}
+
 export interface WorkspaceTerminalNode {
   id: string
   sessionId?: string
@@ -126,6 +138,8 @@ export interface WorkspaceTerminalNode {
   position: { x: number; y: number }
   width: number
   height: number
+  /** Where an Alt+Arrow snap put the node, so a restart still knows its slice. Absent when not snapped. */
+  snapSlice?: WorkspaceSnapSlice
   conversationId?: string
   /** Whether this node hides inline activity and reasoning, leaving only the dialogue. */
   focusMode?: boolean

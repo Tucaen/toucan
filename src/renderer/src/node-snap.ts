@@ -22,7 +22,7 @@ export interface SnapSlice {
 }
 
 export interface SnapState extends SnapSlice {
-  /** Session-local, never persisted: where the node was before it was first snapped. */
+  /** Session-local, never persisted: where the node was before it was first snapped (after a restart, where it was restored). */
   restoreGeometry: NodeGeometry
 }
 
@@ -120,6 +120,31 @@ export function nodeAtGeometry<T extends Node>(node: T, geometry: NodeGeometry):
     style: { ...node.style, width: geometry.width, height: geometry.height },
     measured: { ...node.measured, width: geometry.width, height: geometry.height }
   }
+}
+
+/**
+ * The slice a node is arranged in, for persistence: a half or a quarter, which is an arrangement
+ * and is saved exactly as it renders. A maximised node is saved at its restore geometry (see
+ * `nodeBeforeTemporaryFit`), so it has no slice to come back to and yields undefined.
+ */
+export function persistedSnapSlice(snaps: SnapStates, nodeId: string): SnapSlice | undefined {
+  const snap = snaps[nodeId]
+  return snap && !isMaximised(snap) ? { h: snap.h, v: snap.v } : undefined
+}
+
+/**
+ * Snap state for nodes restored from a saved workspace. Nothing remembers what geometry they had
+ * before they were snapped, so a later restore returns each to where it sits now. Maximised slices
+ * and nodes without geometry are ignored: neither can be shown as an arranged node.
+ */
+export function hydrateSnaps(nodes: readonly Node[], slices: Readonly<Record<string, SnapSlice>>): SnapStates {
+  const snaps: Record<string, SnapState> = {}
+  for (const node of nodes) {
+    const slice = slices[node.id]
+    const geometry = slice && !isMaximised(slice) ? renderedNodeGeometry(node) : null
+    if (slice && geometry) snaps[node.id] = { h: slice.h, v: slice.v, restoreGeometry: geometry }
+  }
+  return snaps
 }
 
 /**

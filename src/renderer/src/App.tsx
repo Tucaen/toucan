@@ -1725,6 +1725,7 @@ function Canvas(): JSX.Element {
 
       setProjects(saved.projects)
       setProjectGroups(saved.projectGroups ?? [])
+      nodeFit.hydrate(restored.nodes, restored.snapSlices)
       setNodes(restored.nodes)
       setNodeStatuses(restored.statuses)
       nextSessionNumber.current = restored.nextSessionNumber
@@ -1745,6 +1746,7 @@ function Canvas(): JSX.Element {
       )
     },
     [
+      nodeFit,
       dispatchBranch,
       dispatchWorktreeHandoff,
       handleAttention,

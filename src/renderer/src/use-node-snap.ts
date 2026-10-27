@@ -4,6 +4,7 @@ import {
   NODE_FIT_INSET,
   canvasRegion,
   isMaximised,
+  hydrateSnaps,
   releaseSnaps,
   reflowSnappedNodesWithin,
   restoreSnappedNode,
@@ -14,6 +15,7 @@ import {
   type DragOrigins,
   type NodeGeometry,
   type SnapArrow,
+  type SnapSlice,
   type SnapStates
 } from './node-snap'
 
@@ -62,6 +64,12 @@ export interface NodeSnapController<T extends Node> {
    * maximised node at its restore geometry instead of filling the canvas.
    */
   state(): SnapStates
+  /**
+   * Adopts the slices a saved workspace recorded for the nodes it restored, replacing whatever was
+   * snapped before; the caller sets `nodes` itself. Without it a restart forgets every arrangement
+   * and a sidebar jump centres a node that is sitting in its half.
+   */
+  hydrate(nodes: readonly T[], slices: Readonly<Record<string, SnapSlice>>): void
 }
 
 /**
@@ -218,6 +226,11 @@ export function useNodeSnap<T extends Node>({
 
   const state = useCallback((): SnapStates => snaps.current, [])
 
+  const hydrate = useCallback((nodes: readonly T[], slices: Readonly<Record<string, SnapSlice>>): void => {
+    snaps.current = hydrateSnaps(nodes, slices)
+    dragOrigins.current.clear()
+  }, [])
+
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas || typeof ResizeObserver !== 'function') return
@@ -232,7 +245,7 @@ export function useNodeSnap<T extends Node>({
   }, [canvasRef, reflow])
 
   return useMemo(
-    () => ({ toggle, snap, release, restore, reflow, observeChanges, state }),
-    [observeChanges, reflow, release, restore, snap, state, toggle]
+    () => ({ toggle, snap, release, restore, reflow, observeChanges, state, hydrate }),
+    [hydrate, observeChanges, reflow, release, restore, snap, state, toggle]
   )
 }
